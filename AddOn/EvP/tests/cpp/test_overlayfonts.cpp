@@ -94,7 +94,7 @@ TEST (OverlayFonts, ATextInItsOwnFontUsesThatFontsPages)
     own.font = arialPath;
     layer.texts = { plain, own };
     const scene::Scene drawn =
-        scene::PrepareScene ({ std::make_shared<const layers::Layer> (layer) }, &bundled, nullptr, 1.0f, resolver);
+        scene::PrepareScene ({ std::make_shared<const layers::Layer> (layer) }, &bundled, resolver);
     EXPECT_EQ (drawn.problems.textsNotLaidOut, 0u) << drawn.problems.lastError;
     std::set<uint64_t> ids;
     for (const auto& page : drawn.pages)
@@ -112,7 +112,7 @@ TEST (OverlayFonts, ATextInItsOwnFontUsesThatFontsPages)
     // A font the resolver cannot give is drawn in the bundled font, and says why.
     layer.texts[1].font = "C:/no/such.ttf";
     const scene::Scene fallback =
-        scene::PrepareScene ({ std::make_shared<const layers::Layer> (layer) }, &bundled, nullptr, 1.0f, resolver);
+        scene::PrepareScene ({ std::make_shared<const layers::Layer> (layer) }, &bundled, resolver);
     EXPECT_EQ (fallback.problems.textsNotLaidOut, 0u);
     EXPECT_NE (fallback.problems.lastError.find ("bundled font"), std::string::npos);
     EXPECT_FALSE (fallback.glyphs.empty ());

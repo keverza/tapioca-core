@@ -167,6 +167,9 @@ GS::ObjectState GuestRecord (const archviz::overlaycontrol::GuestCounts& counts)
     os.Add ("pageBytes", Text (counts.pageBytes));
     os.Add ("lastDrawMicroseconds", (GS::Int32) counts.lastDrawMicroseconds);
     os.Add ("drawMicroseconds", (GS::Int32) counts.drawMicroseconds);
+    os.Add ("hudUploads", Text (counts.hudUploads));
+    os.Add ("hudGlyphVertices", (GS::Int32) counts.hudGlyphVertices);
+    os.Add ("hudPrepareMicroseconds", (GS::Int32) counts.hudPrepareMicroseconds);
     return os;
 }
 
@@ -427,12 +430,15 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
             "failure":{"type":"string"},
             "prepareMicroseconds":{"type":"integer","minimum":0},"layersBuilt":{"type":"integer","minimum":0},
             "layersReused":{"type":"integer","minimum":0},"vertexBytes":{"type":"string"},"pageBytes":{"type":"string"},
-            "lastDrawMicroseconds":{"type":"integer","minimum":0},"drawMicroseconds":{"type":"integer","minimum":0}},
+            "lastDrawMicroseconds":{"type":"integer","minimum":0},"drawMicroseconds":{"type":"integer","minimum":0},
+            "hudUploads":{"type":"string"},"hudGlyphVertices":{"type":"integer","minimum":0},
+            "hudPrepareMicroseconds":{"type":"integer","minimum":0}},
           "additionalProperties":false,
           "required":["attached","attachMilliseconds","buildMilliseconds","uploads","draws","drawCalls",
                       "declinedNoCamera","declinedNoViewport","declinedNoTransform","declinedFailed","fills","lines",
                       "glyphVertices","pages","failure","prepareMicroseconds","layersBuilt","layersReused",
-                      "vertexBytes","pageBytes","lastDrawMicroseconds","drawMicroseconds"]},)json"
+                      "vertexBytes","pageBytes","lastDrawMicroseconds","drawMicroseconds","hudUploads",
+                      "hudGlyphVertices","hudPrepareMicroseconds"]},)json"
     R"json("scene":{"type":"object","properties":{
             "attached":{"type":"boolean"},"attachMilliseconds":{"type":"integer","minimum":0},
             "buildMilliseconds":{"type":"integer","minimum":0},"uploads":{"type":"string"},"draws":{"type":"string"},
@@ -443,12 +449,15 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
             "failure":{"type":"string"},
             "prepareMicroseconds":{"type":"integer","minimum":0},"layersBuilt":{"type":"integer","minimum":0},
             "layersReused":{"type":"integer","minimum":0},"vertexBytes":{"type":"string"},"pageBytes":{"type":"string"},
-            "lastDrawMicroseconds":{"type":"integer","minimum":0},"drawMicroseconds":{"type":"integer","minimum":0}},
+            "lastDrawMicroseconds":{"type":"integer","minimum":0},"drawMicroseconds":{"type":"integer","minimum":0},
+            "hudUploads":{"type":"string"},"hudGlyphVertices":{"type":"integer","minimum":0},
+            "hudPrepareMicroseconds":{"type":"integer","minimum":0}},
           "additionalProperties":false,
           "required":["attached","attachMilliseconds","buildMilliseconds","uploads","draws","drawCalls",
                       "declinedNoCamera","declinedNoViewport","declinedNoTransform","declinedFailed","fills","lines",
                       "glyphVertices","pages","failure","prepareMicroseconds","layersBuilt","layersReused",
-                      "vertexBytes","pageBytes","lastDrawMicroseconds","drawMicroseconds"]}},
+                      "vertexBytes","pageBytes","lastDrawMicroseconds","drawMicroseconds","hudUploads",
+                      "hudGlyphVertices","hudPrepareMicroseconds"]}},
       "additionalProperties":false,"required":["plan","scene"]}},
   "additionalProperties":false,"required":["layers","generation","guest"]})json";
 

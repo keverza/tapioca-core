@@ -177,6 +177,10 @@ struct GuestCounts {
     uint64_t pageBytes = 0;
     uint32_t lastDrawMicroseconds = 0;
     uint32_t drawMicroseconds = 0;
+    // The HUD panels' own stream (OverlayScene.hpp PrepareSceneHud).
+    uint64_t hudUploads = 0;
+    uint32_t hudGlyphVertices = 0;
+    uint32_t hudPrepareMicroseconds = 0;
 };
 struct GuestReport {
     GuestCounts plan;

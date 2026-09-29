@@ -230,20 +230,30 @@ using FontResolver = std::function<overlaytext::Engine*(const std::string& font)
 // so the same layer object is the same content: what it was turned into -- normals
 // welded, feature edges found, text shaped -- is kept per view and reused while it
 // stands. A Watch trace ticking, or slices following an edit, rebuild their own layer,
-// not a 200k-triangle heatmap beside it. The HUD panels are laid out together every
-// time (OverlayHud.hpp says why). MAIN THREAD, as the text engine is; the cache holds
-// only the layers of the last call, and `ForgetDrafts` empties it.
+// not a 200k-triangle heatmap beside it. The HUD panels are not part of it: they are a
+// stream of their own (PrepareSceneHud). MAIN THREAD, as the text engine is; the cache
+// holds only the layers of the last call, and `ForgetDrafts` empties it.
 void ForgetDrafts ();
 
-// What the guest draws of these layers in each view. `text` may be null or not
-// ready: labels are then counted in `problems` and skipped, everything else drawn.
-// `hud` lays out the HUD panels at `scale`, the view's DPI scale; null skips them,
-// counted with the labels. The panels are drawn last, over everything. `fonts` finds
-// the engine for a text in a font of its own; without it every text is in `text`'s.
+// What the guest draws of these layers in each view, the HUD panels apart. `text` may
+// be null or not ready: labels are then counted in `problems` and skipped, everything
+// else drawn. `fonts` finds the engine for a text in a font of its own; without it
+// every text is in `text`'s.
 Plan PreparePlan (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text,
-                  overlayhud::Engine* hud = nullptr, float scale = 1.0f, const FontResolver& fonts = FontResolver ());
+                  const FontResolver& fonts = FontResolver ());
 Scene PrepareScene (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text,
-                    overlayhud::Engine* hud = nullptr, float scale = 1.0f, const FontResolver& fonts = FontResolver ());
+                    const FontResolver& fonts = FontResolver ());
+
+// ⚠️ THE HUD IS A STREAM OF ITS OWN. The panels of the layers drawn in each view, laid
+// out by `hud` at `scale` (the view's DPI scale) into glyphs only, which the guests
+// upload and draw apart from the scene and after it, over everything. A panel that
+// changes -- a hover, a collapse -- lays out and sends a few thousand vertices again,
+// never the heatmap beside it. Null or not ready: the panels are counted in
+// `problems` and not drawn.
+Plan PreparePlanHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlayhud::Engine* hud,
+                     float scale);
+Scene PrepareSceneHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlayhud::Engine* hud,
+                       float scale);
 
 // ---- pure helpers, exposed for their tests -----------------------------------
 

@@ -34,10 +34,17 @@ struct Published {
     float dpiScale = 1.0f;
 };
 std::atomic<Published*> g_published { nullptr };
+std::atomic<Published*> g_publishedHud { nullptr };
 
 // ---- RENDER THREAD ----------------------------------------------------------------
 std::unique_ptr<Published> g_current;
 bool g_dirty = false;
+// The HUD's stream: its own content and its own page cache, so neither upload drops the
+// other's pages (GuestGpu's cache keeps only what the content it uploads samples).
+std::unique_ptr<Published> g_currentHud;
+bool g_hudDirty = false;
+std::vector<gpu::Page> g_hudPages;
+gpu::Content g_hudContent;
 DiligentGuest g_guest;
 gpu::Pipelines g_pipelines;
 uint32_t g_slot = UINT32_MAX;
@@ -61,6 +68,8 @@ std::atomic<uint32_t> s_fills { 0 }, s_lines { 0 }, s_glyphs { 0 }, s_pages { 0 
 std::atomic<const char*> s_failure { "" };
 std::atomic<uint32_t> s_prepareUs { 0 }, s_built { 0 }, s_reused { 0 }, s_lastDrawUs { 0 }, s_drawUs { 0 };
 std::atomic<uint64_t> s_vertexBytes { 0 }, s_pageBytes { 0 };
+std::atomic<uint64_t> s_hudUploads { 0 };
+std::atomic<uint32_t> s_hudGlyphs { 0 }, s_hudPrepareUs { 0 };
 
 uint32_t Since (std::chrono::steady_clock::time_point started)
 {
@@ -77,6 +86,8 @@ void ReleaseRenderObjects ()
 {
     g_content = gpu::Content {};
     g_pages.clear ();
+    g_hudContent = gpu::Content {};
+    g_hudPages.clear ();
     g_pipelines = gpu::Pipelines {};
     g_slot = UINT32_MAX;
     g_view.Release ();
@@ -84,6 +95,7 @@ void ReleaseRenderObjects ()
     g_viewNative = nullptr;
     g_projectionNative = nullptr;
     g_dirty = g_current != nullptr;
+    g_hudDirty = g_currentHud != nullptr;
 }
 
 bool EnsureAttached (ID3D11DeviceContext* context)
@@ -143,9 +155,8 @@ bool EnsurePipelines (uint32_t slot)
     return true;
 }
 
-bool UploadCurrent ()
+bool UploadScene (const overlayscene::Scene& scene, std::vector<gpu::Page>& pages, gpu::Content& out)
 {
-    const overlayscene::Scene& scene = g_current->scene;
     gpu::Arrays arrays;
     arrays.fills = scene.fills.data ();
     arrays.fillCount = scene.fills.size ();
@@ -159,15 +170,23 @@ bool UploadCurrent ()
     arrays.dashes = &scene.dashes;
     std::string error;
     gpu::Content content;
-    if (!gpu::Upload (g_guest.Device (), g_pipelines, g_pages, arrays, scene.fillDraws, scene.glyphDraws, scene.pages,
+    if (!gpu::Upload (g_guest.Device (), g_pipelines, pages, arrays, scene.fillDraws, scene.glyphDraws, scene.pages,
                       content, error)) {
         s_failure.store ("the overlay guest's 3D buffers could not be created", std::memory_order_relaxed);
         return false;
     }
-    g_content = std::move (content);
+    out = std::move (content);
     // New bindings read no camera yet.
     g_viewNative = nullptr;
     g_projectionNative = nullptr;
+    return true;
+}
+
+bool UploadCurrent ()
+{
+    const overlayscene::Scene& scene = g_current->scene;
+    if (!UploadScene (scene, g_pages, g_content))
+        return false;
     s_fills.store (uint32_t (scene.fills.size ()), std::memory_order_relaxed);
     s_lines.store (uint32_t (scene.lines.size ()), std::memory_order_relaxed);
     s_glyphs.store (uint32_t (scene.glyphs.size ()), std::memory_order_relaxed);
@@ -181,6 +200,15 @@ bool UploadCurrent ()
         pageBytes += page != nullptr ? uint64_t (page->width) * uint64_t (page->height) * 4u : 0u;
     s_pageBytes.store (pageBytes, std::memory_order_relaxed);
     Bump (s_uploads);
+    return true;
+}
+
+bool UploadHud ()
+{
+    if (!UploadScene (g_currentHud->scene, g_hudPages, g_hudContent))
+        return false;
+    s_hudGlyphs.store (uint32_t (g_currentHud->scene.glyphs.size ()), std::memory_order_relaxed);
+    Bump (s_hudUploads);
     return true;
 }
 
@@ -200,6 +228,7 @@ bool BindCamera (ID3D11Buffer* view, ID3D11Buffer* projection)
     if (g_view == nullptr || g_projection == nullptr)
         return false;
     gpu::BindCamera (g_pipelines, g_pages, g_view, g_projection);
+    gpu::BindCamera (g_pipelines, g_hudPages, g_view, g_projection);
     g_viewNative = view;
     g_projectionNative = projection;
     return true;
@@ -217,6 +246,13 @@ void Publish (overlayscene::Scene scene, float dpiScale)
     delete g_published.exchange (fresh, std::memory_order_acq_rel);
 }
 
+void PublishHud (overlayscene::Scene hud, float dpiScale)
+{
+    s_hudPrepareUs.store (hud.cost.microseconds, std::memory_order_relaxed);
+    Published* const fresh = new Published { std::move (hud), dpiScale };
+    delete g_publishedHud.exchange (fresh, std::memory_order_acq_rel);
+}
+
 void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTargetView* target,
            ID3D11DepthStencilView* depth)
 {
@@ -224,13 +260,22 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
         g_current.reset (fresh);
         g_dirty = true;
     }
-    if (g_current == nullptr || g_current->scene.Empty ()) {
-        if (g_dirty) {
-            g_content = gpu::Content {};
-            g_dirty = false;
-        }
-        return;
+    if (Published* const fresh = g_publishedHud.exchange (nullptr, std::memory_order_acq_rel)) {
+        g_currentHud.reset (fresh);
+        g_hudDirty = true;
     }
+    const bool scene = g_current != nullptr && !g_current->scene.Empty ();
+    const bool hud = g_currentHud != nullptr && !g_currentHud->scene.Empty ();
+    if (!scene && g_dirty) {
+        g_content = gpu::Content {};
+        g_dirty = false;
+    }
+    if (!hud && g_hudDirty) {
+        g_hudContent = gpu::Content {};
+        g_hudDirty = false;
+    }
+    if (!scene && !hud)
+        return;
     if (context == nullptr || target == nullptr)
         return;
     ID3D11Buffer* const view = injection::ViewSnapshotBuffer ();
@@ -251,6 +296,13 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
         }
         g_dirty = false;
     }
+    if (g_hudDirty) {
+        if (!UploadHud ()) {
+            Bump (s_failed);
+            return;
+        }
+        g_hudDirty = false;
+    }
     if (!BindCamera (view, projection)) {
         Bump (s_noCamera);
         return;
@@ -262,14 +314,16 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
         Bump (s_noViewport);
         return;
     }
-    const float frame[4] = { viewport.Width, viewport.Height, g_current->dpiScale, overlay::kGuestDepthPullFraction };
+    const float dpiScale = scene ? g_current->dpiScale : g_currentHud->dpiScale;
+    const float frame[4] = { viewport.Width, viewport.Height, dpiScale, overlay::kGuestDepthPullFraction };
     // InvalidateState inside the injection's guard, then Archicad's target and the
     // composer's depth view, bound natively; the scene viewport stays as bound.
     const auto started = std::chrono::steady_clock::now ();
     g_guest.BeginDraw (context, target, depth);
     gpu::DrawStats drawn;
-    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, g_current->dpiScale,
-               drawn);
+    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn);
+    // The HUD last, over everything.
+    gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, frame, depth != nullptr, dpiScale, drawn);
     // The render thread's own time for it -- lock-free, no allocation (§11).
     const uint32_t took = Since (started);
     s_lastDrawUs.store (took, std::memory_order_relaxed);
@@ -289,12 +343,14 @@ void ReleaseDeviceObjects ()
     // Every Start resets what every Stop leaves behind (§8): the next session reports
     // its own numbers and its own failure, not these.
     s_attached.store (false, std::memory_order_relaxed);
-    for (std::atomic<uint32_t>* value : { &s_attachMs, &s_buildMs, &s_slot, &s_fills, &s_lines, &s_glyphs, &s_pages,
-                                          &s_prepareUs, &s_built, &s_reused, &s_lastDrawUs, &s_drawUs })
+    for (std::atomic<uint32_t>* value :
+         { &s_attachMs, &s_buildMs, &s_slot, &s_fills, &s_lines, &s_glyphs, &s_pages, &s_prepareUs, &s_built, &s_reused,
+           &s_lastDrawUs, &s_drawUs, &s_hudGlyphs, &s_hudPrepareUs })
         value->store (0, std::memory_order_relaxed);
     s_vertexBytes.store (0, std::memory_order_relaxed);
     s_pageBytes.store (0, std::memory_order_relaxed);
-    for (std::atomic<uint64_t>* counter : { &s_draws, &s_drawCalls, &s_uploads, &s_noCamera, &s_noViewport, &s_failed })
+    for (std::atomic<uint64_t>* counter :
+         { &s_draws, &s_drawCalls, &s_uploads, &s_noCamera, &s_noViewport, &s_failed, &s_hudUploads })
         counter->store (0, std::memory_order_relaxed);
     s_failure.store ("", std::memory_order_relaxed);
 }
@@ -324,6 +380,9 @@ Stats GetStats ()
     stats.pageBytes = s_pageBytes.load (std::memory_order_relaxed);
     stats.lastDrawMicroseconds = s_lastDrawUs.load (std::memory_order_relaxed);
     stats.drawMicroseconds = s_drawUs.load (std::memory_order_relaxed);
+    stats.hudUploads = s_hudUploads.load (std::memory_order_relaxed);
+    stats.hudGlyphVertices = s_hudGlyphs.load (std::memory_order_relaxed);
+    stats.hudPrepareMicroseconds = s_hudPrepareUs.load (std::memory_order_relaxed);
     return stats;
 }
 

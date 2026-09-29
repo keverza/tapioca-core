@@ -559,6 +559,9 @@ GuestReport Guest ()
     out.plan.pageBytes = plan.pageBytes;
     out.plan.lastDrawMicroseconds = plan.lastDrawMicroseconds;
     out.plan.drawMicroseconds = plan.drawMicroseconds;
+    out.plan.hudUploads = plan.hudUploads;
+    out.plan.hudGlyphVertices = plan.hudGlyphVertices;
+    out.plan.hudPrepareMicroseconds = plan.hudPrepareMicroseconds;
     out.plan.failure = plan.lastError;
     const dxgi::sceneguest::Stats scene = dxgi::sceneguest::GetStats ();
     out.scene.attached = scene.attached;
@@ -581,6 +584,9 @@ GuestReport Guest ()
     out.scene.pageBytes = scene.pageBytes;
     out.scene.lastDrawMicroseconds = scene.lastDrawMicroseconds;
     out.scene.drawMicroseconds = scene.drawMicroseconds;
+    out.scene.hudUploads = scene.hudUploads;
+    out.scene.hudGlyphVertices = scene.hudGlyphVertices;
+    out.scene.hudPrepareMicroseconds = scene.hudPrepareMicroseconds;
     out.scene.failure = scene.failure != nullptr ? scene.failure : "";
     return out;
 }
@@ -614,15 +620,21 @@ void PublishLayers ()
     const UINT dpi = ::GetDpiForSystem ();
     const float scale = dpi != 0 ? float (dpi) / 96.0f : 1.0f;
     overlayscene::Scene scene =
-        overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr, panels ? guesttext::Hud () : nullptr,
-                                    scale, &guesttext::EngineFor);
+        overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr, &guesttext::EngineFor);
     scene.generation = overlaylayers::Generation ();
+    // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud).
+    overlayscene::Scene hud = overlayscene::PrepareSceneHud (layers, panels ? guesttext::Hud () : nullptr, scale);
+    hud.generation = scene.generation;
     const overlayscene::Problems& problems = scene.problems;
-    if (problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated > 0)
+    const uint32_t panelsNotDrawn = hud.problems.textsNotLaidOut;
+    if (problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated + panelsNotDrawn > 0)
         Narrate ("OVERLAY", "3D guest NOT DRAWING " + std::to_string (problems.textsNotLaidOut) + " texts, " +
                                 std::to_string (problems.dimensionsNotResolved) + " dimensions, " +
-                                std::to_string (problems.truncated) + " past the budget: " + problems.lastError);
+                                std::to_string (panelsNotDrawn) + " panels, " + std::to_string (problems.truncated) +
+                                " past the budget: " +
+                                (hud.problems.lastError.empty () ? problems.lastError : hud.problems.lastError));
     dxgi::sceneguest::Publish (std::move (scene), scale);
+    dxgi::sceneguest::PublishHud (std::move (hud), scale);
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
         ACAPI_View_Redraw ();
 }

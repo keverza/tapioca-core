@@ -173,8 +173,9 @@ TEST (OverlayHud, APanelSitsAtItsAnchorOffsetInwards)
     EXPECT_FLOAT_EQ (offset[1], -100.0f - 20.0f);
 }
 
-// The panels reach the overlays as glyph quads: fixed to the view, sampling the HUD's
-// pages after the text pages, drawn last.
+// The panels reach the overlays as glyph quads in a stream of their own: fixed to the
+// view, sampling the HUD's pages -- and never in the scene, so a panel that changes
+// never sends the scene again.
 TEST (OverlayHud, APanelLayerBecomesPlainTextureQuadsFixedToTheView)
 {
     layers::Layer layer;
@@ -182,7 +183,7 @@ TEST (OverlayHud, APanelLayerBecomesPlainTextureQuadsFixedToTheView)
     layer.panels = { Everything () };
     layer.panels[0].anchor = layers::PanelAnchor::BottomRight;
     const scene::Scene out =
-        scene::PrepareScene ({ std::make_shared<const layers::Layer> (layer) }, nullptr, &Engine (), 1.25f);
+        scene::PrepareSceneHud ({ std::make_shared<const layers::Layer> (layer) }, &Engine (), 1.25f);
     ASSERT_FALSE (out.glyphs.empty ());
     EXPECT_EQ (out.problems.textsNotLaidOut, 0u) << out.problems.lastError;
     for (const scene::SceneGlyph& glyph : out.glyphs) {
@@ -196,10 +197,18 @@ TEST (OverlayHud, APanelLayerBecomesPlainTextureQuadsFixedToTheView)
         ASSERT_LT (draw.page, out.pages.size ());
         EXPECT_NE (out.pages[draw.page], nullptr);
     }
+    // The plan's stream is the same panels.
+    const scene::Plan plan =
+        scene::PreparePlanHud ({ std::make_shared<const layers::Layer> (layer) }, &Engine (), 1.25f);
+    EXPECT_EQ (plan.glyphs.size (), out.glyphs.size ());
     // Without the engine the panel is counted, not drawn.
-    const scene::Scene none = scene::PrepareScene ({ std::make_shared<const layers::Layer> (layer) }, nullptr);
+    const scene::Scene none = scene::PrepareSceneHud ({ std::make_shared<const layers::Layer> (layer) }, nullptr, 1.0f);
     EXPECT_TRUE (none.glyphs.empty ());
     EXPECT_EQ (none.problems.textsNotLaidOut, 1u);
+    // And the scene never holds a panel.
+    const scene::Scene scene = scene::PrepareScene ({ std::make_shared<const layers::Layer> (layer) }, nullptr);
+    EXPECT_TRUE (scene.glyphs.empty ());
+    EXPECT_EQ (scene.problems.textsNotLaidOut, 0u);
 }
 
 TEST (OverlayHud, ValidationNamesWhatAPanelGotWrong)

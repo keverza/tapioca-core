@@ -42,6 +42,10 @@ namespace sceneguest {
 // MAIN THREAD. What to draw next; an empty scene clears it. `dpiScale` is the view's.
 void Publish (overlayscene::Scene scene, float dpiScale);
 
+// MAIN THREAD. The HUD's stream (overlayscene::PrepareSceneHud): uploaded apart from the
+// scene and drawn after it, so a panel that changes never sends the scene again.
+void PublishHud (overlayscene::Scene hud, float dpiScale);
+
 // RENDER THREAD, from the composer, inside the injection's ScopedPipelineState, with
 // the scene viewport bound and the composer's target and depth view.
 void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTargetView* target,
@@ -76,6 +80,10 @@ struct Stats {
     uint64_t pageBytes = 0;
     uint32_t lastDrawMicroseconds = 0;
     uint32_t drawMicroseconds = 0;
+    // The HUD's stream: its uploads, what it holds now and what laying it out cost.
+    uint64_t hudUploads = 0;
+    uint32_t hudGlyphVertices = 0;
+    uint32_t hudPrepareMicroseconds = 0;
 };
 Stats GetStats ();
 

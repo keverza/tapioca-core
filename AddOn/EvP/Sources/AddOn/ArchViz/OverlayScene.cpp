@@ -616,18 +616,14 @@ bool Append (Draft& into, const Draft& from)
 }
 
 Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
-                  overlaytext::Engine* text, overlayhud::Engine* hud, float scale, const FontResolver& fonts,
-                  Cost& cost)
+                  overlaytext::Engine* text, const FontResolver& fonts, Cost& cost)
 {
     std::vector<CachedDraft>& cache = g_drafts[view == layers::Views::TwoD ? 0 : 1];
     std::vector<CachedDraft> kept;
     Draft out;
-    std::vector<const layers::Panel*> panels;
     for (const std::shared_ptr<const layers::Layer>& layer : all) {
         if (!layers::DrawnIn (layer->views, view))
             continue;
-        for (const layers::Panel& panel : layer->panels)
-            panels.push_back (&panel);
         std::shared_ptr<const Draft> draft;
         for (const CachedDraft& cached : cache)
             if (cached.layer == layer && cached.text == text)
@@ -636,7 +632,7 @@ Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
             ++cost.layersReused;
         }
         else {
-            Builder builder (view, text, nullptr, scale, fonts);
+            Builder builder (view, text, nullptr, 1.0f, fonts);
             builder.AddLayer (*layer);
             draft = std::make_shared<const Draft> (builder.Take ());
             ++cost.layersBuilt;
@@ -648,11 +644,28 @@ Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
         }
     }
     cache = std::move (kept);
-    Builder panelBuilder (view, text, hud, scale, fonts);
-    panelBuilder.AddPanels (panels);
-    if (!Append (out, panelBuilder.Take ()))
-        ++out.problems.truncated;
     return out;
+}
+
+// The panels of the layers drawn in `view`, laid out as one set (OverlayHud.hpp).
+Draft HudDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
+                overlayhud::Engine* hud, float scale)
+{
+    std::vector<const layers::Panel*> panels;
+    for (const std::shared_ptr<const layers::Layer>& layer : all)
+        if (layers::DrawnIn (layer->views, view))
+            for (const layers::Panel& panel : layer->panels)
+                panels.push_back (&panel);
+    const FontResolver none;
+    Builder builder (view, nullptr, hud, scale, none);
+    builder.AddPanels (panels);
+    return builder.Take ();
+}
+
+uint32_t MicrosecondsSince (std::chrono::steady_clock::time_point started)
+{
+    return uint32_t (
+        std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
 }
 
 // The pages the glyphs sample: the text pages they use, from every font's engine
@@ -722,12 +735,11 @@ uint32_t BehindCode (layers::Behind resolved)
     return kBehindShow;
 }
 
-Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
-                  overlayhud::Engine* hud, float scale, const FontResolver& fonts)
+namespace {
+
+// A draft made into the plan's arrays; `hud` supplies the pages of its panels' glyphs.
+void FinishPlan (Draft& draft, overlayhud::Engine* hud, Plan& out)
 {
-    const auto started = std::chrono::steady_clock::now ();
-    Plan out;
-    Draft draft = BuildDraft (all, layers::Views::TwoD, text, hud, scale, fonts, out.cost);
     out.problems = draft.problems;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
@@ -830,17 +842,36 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
         draw.count = uint32_t (out.glyphs.size ()) - draw.first;
         out.glyphDraws.push_back (draw);
     }
-    out.cost.microseconds = uint32_t (
-        std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
+}
+
+} // namespace
+
+Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
+                  const FontResolver& fonts)
+{
+    const auto started = std::chrono::steady_clock::now ();
+    Plan out;
+    Draft draft = BuildDraft (all, layers::Views::TwoD, text, fonts, out.cost);
+    FinishPlan (draft, nullptr, out);
+    out.cost.microseconds = MicrosecondsSince (started);
     return out;
 }
 
-Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
-                    overlayhud::Engine* hud, float scale, const FontResolver& fonts)
+Plan PreparePlanHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlayhud::Engine* hud, float scale)
 {
     const auto started = std::chrono::steady_clock::now ();
-    Scene out;
-    Draft draft = BuildDraft (all, layers::Views::ThreeD, text, hud, scale, fonts, out.cost);
+    Plan out;
+    Draft draft = HudDraft (all, layers::Views::TwoD, hud, scale);
+    FinishPlan (draft, hud, out);
+    out.cost.microseconds = MicrosecondsSince (started);
+    return out;
+}
+
+namespace {
+
+// A draft made into the 3D window's arrays; `hud` supplies the pages of its panels' glyphs.
+void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
+{
     out.problems = draft.problems;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
@@ -913,8 +944,29 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all
         draw.count = uint32_t (out.glyphs.size ()) - draw.first;
         out.glyphDraws.push_back (draw);
     }
-    out.cost.microseconds = uint32_t (
-        std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
+}
+
+} // namespace
+
+Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
+                    const FontResolver& fonts)
+{
+    const auto started = std::chrono::steady_clock::now ();
+    Scene out;
+    Draft draft = BuildDraft (all, layers::Views::ThreeD, text, fonts, out.cost);
+    FinishScene (draft, nullptr, out);
+    out.cost.microseconds = MicrosecondsSince (started);
+    return out;
+}
+
+Scene PrepareSceneHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlayhud::Engine* hud,
+                       float scale)
+{
+    const auto started = std::chrono::steady_clock::now ();
+    Scene out;
+    Draft draft = HudDraft (all, layers::Views::ThreeD, hud, scale);
+    FinishScene (draft, hud, out);
+    out.cost.microseconds = MicrosecondsSince (started);
     return out;
 }
 

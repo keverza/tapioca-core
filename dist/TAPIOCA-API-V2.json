@@ -19058,6 +19058,17 @@
                   "drawMicroseconds": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "hudUploads": {
+                    "type": "string"
+                  },
+                  "hudGlyphVertices": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "hudPrepareMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "additionalProperties": false,
@@ -19083,7 +19094,10 @@
                   "vertexBytes",
                   "pageBytes",
                   "lastDrawMicroseconds",
-                  "drawMicroseconds"
+                  "drawMicroseconds",
+                  "hudUploads",
+                  "hudGlyphVertices",
+                  "hudPrepareMicroseconds"
                 ]
               },
               "scene": {
@@ -19165,6 +19179,17 @@
                   "drawMicroseconds": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "hudUploads": {
+                    "type": "string"
+                  },
+                  "hudGlyphVertices": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "hudPrepareMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "additionalProperties": false,
@@ -19190,7 +19215,10 @@
                   "vertexBytes",
                   "pageBytes",
                   "lastDrawMicroseconds",
-                  "drawMicroseconds"
+                  "drawMicroseconds",
+                  "hudUploads",
+                  "hudGlyphVertices",
+                  "hudPrepareMicroseconds"
                 ]
               }
             },

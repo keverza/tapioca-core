@@ -36,6 +36,10 @@ DiligentGuest g_guest;
 gpu::Pipelines g_pipelines;
 std::vector<gpu::Page> g_pages;
 gpu::Content g_content;
+// The HUD's stream: its own content and page cache (GuestGpu keeps only the pages the
+// content it uploads samples, so one cache would drop the other's).
+std::vector<gpu::Page> g_hudPages;
+gpu::Content g_hudContent;
 double g_originX = 0.0;
 double g_originY = 0.0;
 float g_dpiScale = 1.0f;
@@ -57,6 +61,8 @@ void ReleaseDeviceObjects ()
 {
     g_content = gpu::Content {};
     g_pages.clear ();
+    g_hudContent = gpu::Content {};
+    g_hudPages.clear ();
     g_pipelines = gpu::Pipelines {};
     g_buildFailed = false;
 }
@@ -76,6 +82,30 @@ bool NeedsHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& l
         if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD) && !layer->panels.empty ())
             return true;
     return false;
+}
+
+// The HUD panels' stream, laid out and uploaded apart from the scene.
+overlayscene::Problems g_hudProblems;
+bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, std::string& error)
+{
+    overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud () : nullptr;
+    const overlayscene::Plan panels = overlayscene::PreparePlanHud (layers, hud, g_dpiScale);
+    g_hudProblems = panels.problems;
+    gpu::Arrays arrays;
+    arrays.glyphs = panels.glyphs.data ();
+    arrays.glyphCount = panels.glyphs.size ();
+    arrays.glyphStride = sizeof (overlayscene::PlanGlyph);
+    gpu::Content content;
+    if (!gpu::Upload (g_guest.Device (), g_pipelines, g_hudPages, arrays, panels.fillDraws, panels.glyphDraws,
+                      panels.pages, content, error)) {
+        g_stats.lastError = error;
+        return false;
+    }
+    g_hudContent = std::move (content);
+    ++g_stats.hudUploads;
+    g_stats.hudGlyphVertices = uint32_t (panels.glyphs.size ());
+    g_stats.hudPrepareMicroseconds = panels.cost.microseconds;
+    return true;
 }
 
 bool NeedsGuest2D (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
@@ -98,8 +128,9 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
 
     // Nothing for the guest: whatever it held goes, and it stays detached.
     if (!NeedsGuest2D (layers)) {
-        changed = !g_content.Empty ();
+        changed = !g_content.Empty () || !g_hudContent.Empty ();
         g_content = gpu::Content {};
+        g_hudContent = gpu::Content {};
         overlayscene::ForgetDrafts ();
         g_generation = generation;
         g_haveGeneration = true;
@@ -148,9 +179,8 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     }
 
     overlaytext::Engine* text = NeedsText (layers) ? guesttext::Engine () : nullptr;
-    overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud () : nullptr;
     // A text in a font of its own is shaped by that font's engine (guesttext::EngineFor).
-    const overlayscene::Plan plan = overlayscene::PreparePlan (layers, text, hud, g_dpiScale, &guesttext::EngineFor);
+    const overlayscene::Plan plan = overlayscene::PreparePlan (layers, text, &guesttext::EngineFor);
     gpu::Arrays arrays;
     arrays.fills = plan.fills.data ();
     arrays.fillCount = plan.fills.size ();
@@ -170,6 +200,8 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     }
     content.generation = generation;
     g_content = std::move (content);
+    if (!PrepareHud (layers, error))
+        return false;
     g_originX = plan.originX;
     g_originY = plan.originY;
     g_generation = generation;
@@ -180,7 +212,7 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     g_stats.lines = uint32_t (plan.lines.size ());
     g_stats.glyphVertices = uint32_t (plan.glyphs.size ());
     g_stats.pages = uint32_t (g_pages.size ());
-    g_stats.textsNotLaidOut = plan.problems.textsNotLaidOut;
+    g_stats.textsNotLaidOut = plan.problems.textsNotLaidOut + g_hudProblems.textsNotLaidOut;
     g_stats.dimensionsNotResolved = plan.problems.dimensionsNotResolved;
     g_stats.truncated = plan.problems.truncated;
     g_stats.prepareMicroseconds = plan.cost.microseconds;
@@ -194,12 +226,14 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
         g_stats.pageBytes += page != nullptr ? uint64_t (page->width) * uint64_t (page->height) * 4u : 0u;
     if (!plan.problems.lastError.empty ())
         g_stats.lastError = plan.problems.lastError;
+    if (!g_hudProblems.lastError.empty ())
+        g_stats.lastError = g_hudProblems.lastError;
     return true;
 }
 
 bool HasContent ()
 {
-    return g_pipelines.ready && !g_content.Empty ();
+    return g_pipelines.ready && (!g_content.Empty () || !g_hudContent.Empty ());
 }
 
 void Draw (ID3D11DeviceContext* native, ID3D11RenderTargetView* target, const plancontent::PixelTransform& transform,
@@ -224,6 +258,8 @@ void Draw (ID3D11DeviceContext* native, ID3D11RenderTargetView* target, const pl
     g_guest.BeginDraw (native, target, nullptr);
     gpu::DrawStats drawn;
     gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, &frame, false, g_dpiScale, drawn);
+    // The HUD last, over everything.
+    gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, &frame, false, g_dpiScale, drawn);
     const uint32_t took = uint32_t (
         std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
     g_stats.lastDrawMicroseconds = took;

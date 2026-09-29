@@ -42,8 +42,9 @@ namespace archviz {
 namespace dxgi {
 namespace planguest {
 
-// Outside any Present: attach, build and upload when `generation` moved. `changed`
-// says the picture changed and the plan wants a redraw. False with `error` when
+// Outside any Present: attach, build and upload when `generation` moved -- the scene,
+// and the HUD panels as a stream of their own with their own page cache, drawn after
+// it. `changed` says the picture changed and the plan wants a redraw. False with `error` when
 // something could not be made; the next call tries again.
 bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers,
               uint64_t generation, float dpiScale, bool& changed, std::string& error);
@@ -85,6 +86,11 @@ struct Stats {
     uint64_t pageBytes = 0;
     uint32_t lastDrawMicroseconds = 0;
     uint32_t drawMicroseconds = 0;
+    // The HUD's stream (overlayscene::PreparePlanHud): its uploads, what it holds now and
+    // what laying it out cost.
+    uint64_t hudUploads = 0;
+    uint32_t hudGlyphVertices = 0;
+    uint32_t hudPrepareMicroseconds = 0;
 };
 Stats GetStats ();
 
