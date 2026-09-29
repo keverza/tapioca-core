@@ -20,6 +20,7 @@
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayScene.hpp"
+#include "ArchViz/StorySliceOverlay.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ArchVizPanel.hpp"
@@ -468,6 +469,8 @@ void OnProjectClosed ()
     SyncMenuChecks ();
     // ⚠️ THE CALLER'S LAYERS WERE THAT PROJECT'S COORDINATES (§8): drawn over the next
     // project they would be geometry from somewhere else, in the right place for nothing.
+    // The slices were that project's too.
+    storysliceoverlay::OnProjectClosed ();
     if (!overlaylayers::Layers ().empty ()) {
         overlaylayers::ClearEverything ();
         PublishLayers ();

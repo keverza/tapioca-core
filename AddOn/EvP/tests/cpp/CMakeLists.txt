@@ -462,6 +462,11 @@ set (EVP_ARCHVIZ_SOURCES
     # against the real font and the real dimension geometry.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayText.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayScene.cpp"
+    # The slices as an overlay layer -- which ones, the label's corner -- and the
+    # massing slabs' floors: the floor rules and each slice's outline and area.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceOverlayContent.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceSnapshot.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SlabSlices.cpp"
     # ArchViz/PlanAnchorRibbon.cpp turns a wall's 2D plan outline into the
     # triangles that draw it over the floor plan (PLAT-RE65). Same reason again
     # -- a wrong ribbon is a picture, not an error -- plus the arc half, which
@@ -606,6 +611,8 @@ set (EVP_TEST_SOURCES
     test_overlaylayers.cpp
     test_overlaytext.cpp
     test_overlayscene.cpp
+    test_storysliceoverlay.cpp
+    test_slabslices.cpp
     test_overlayshaders.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.

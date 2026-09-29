@@ -3,8 +3,8 @@
 //
 //   Tapioca.Overlay3D {action}   the 3D overlay: composed at the 3D window's Present
 //   Tapioca.Overlay2D {action}   the 2D overlay: the floor plan, composed at its Present
-//
-// The caller's own geometry on both is NativeCommands/OverlayLayerCommands.
+//   Tapioca.OverlayStorySlices {action, ...}  slices on them: the massing slabs' floors,
+//                                             or the whole model per storey (below)
 //
 //   action  "on"      want it; it starts at once if its view is in front, otherwise
 //                     when that view comes forward
@@ -26,7 +26,9 @@
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/PlanOverlayRuntime.hpp"
+#include "ArchViz/StorySliceOverlay.hpp"
 
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -143,6 +145,229 @@ class Overlay2DCommand : public MainThreadCommand {
     }
 };
 
+// ---- the slices ----------------------------------------------------------------------
+
+namespace slices = archviz::storysliceoverlay;
+using Cut = archviz::slabslices::Cut;
+namespace overlays = archviz::overlaylayers;
+
+std::string StringOf (const GS::ObjectState& item, const char* key)
+{
+    GS::UniString text;
+    item.Get (key, text);
+    return text.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+}
+
+// "RRGGBBAA"; the schema has checked the length, this checks the digits.
+bool ReadColour (const GS::ObjectState& item, const char* key, uint32_t& rgba, std::string& error)
+{
+    if (!item.Contains (key))
+        return true;
+    const std::string hex = StringOf (item, key);
+    unsigned int parsed = 0;
+    char trailing = 0;
+    if (hex.size () != 8 || std::sscanf (hex.c_str (), "%8x%c", &parsed, &trailing) != 1) {
+        error = std::string (key) + " must be 8 hex digits RRGGBBAA, got \"" + hex + "\"";
+        return false;
+    }
+    rgba = parsed;
+    return true;
+}
+
+overlays::Behind BehindOf (const GS::ObjectState& item, overlays::Behind fallback)
+{
+    if (!item.Contains ("behind"))
+        return fallback;
+    const std::string which = StringOf (item, "behind");
+    return which == "hide"   ? overlays::Behind::Hide
+           : which == "fade" ? overlays::Behind::Fade
+           : which == "dash" ? overlays::Behind::Dash
+                             : overlays::Behind::Show;
+}
+
+float FloatOf (const GS::ObjectState& item, const char* key, float fallback)
+{
+    if (!item.Contains (key))
+        return fallback;
+    double value = 0.0;
+    item.Get (key, value);
+    return float (value);
+}
+
+bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& controls, std::string& error)
+{
+    GS::Array<GS::Int32> storeys;
+    if (params.Get ("storeys", storeys))
+        for (const GS::Int32 storey : storeys)
+            controls.storeys.push_back (int (storey));
+    if (params.Contains ("views")) {
+        const std::string which = StringOf (params, "views");
+        controls.views = which == "2d"     ? overlays::Views::TwoD
+                         : which == "both" ? overlays::Views::Both
+                                           : overlays::Views::ThreeD;
+    }
+    GS::ObjectState outline;
+    if (params.Get ("outline", outline)) {
+        if (!ReadColour (outline, "color", controls.outlineRgba, error))
+            return false;
+        controls.outlineWidthPixels = FloatOf (outline, "widthPixels", controls.outlineWidthPixels);
+        controls.outlineBehind = BehindOf (outline, controls.outlineBehind);
+    }
+    GS::ObjectState fill;
+    if (params.Get ("fill", fill)) {
+        if (!ReadColour (fill, "color", controls.fillRgba, error))
+            return false;
+        controls.fillBehind = BehindOf (fill, controls.fillBehind);
+    }
+    GS::ObjectState label;
+    if (params.Get ("label", label)) {
+        if (label.Contains ("show"))
+            label.Get ("show", controls.label);
+        controls.labelSizePixels = FloatOf (label, "sizePixels", controls.labelSizePixels);
+        if (!ReadColour (label, "color", controls.labelRgba, error) ||
+            !ReadColour (label, "halo", controls.labelHaloRgba, error))
+            return false;
+        if (label.Contains ("decimals")) {
+            GS::Int32 decimals = 1;
+            label.Get ("decimals", decimals);
+            controls.decimals = uint32_t (decimals < 0 ? 0 : decimals);
+        }
+        if (label.Contains ("name"))
+            label.Get ("name", controls.labelName);
+    }
+    if (params.Contains ("liftMetres"))
+        params.Get ("liftMetres", controls.liftMetres);
+    return true;
+}
+
+// Where the slices come from and where the slabs are cut; the schema has checked the
+// enums and the ranges.
+void ReadSliceRequest (const GS::ObjectState& params, slices::Request& request)
+{
+    const std::string source = params.Contains ("source") ? StringOf (params, "source") : std::string ("selection");
+    request.source = source == "model"      ? slices::Source::Model
+                     : source == "elements" ? slices::Source::Elements
+                                            : slices::Source::Selection;
+    GS::Array<GS::ObjectState> elements;
+    if (params.Get ("elements", elements)) {
+        for (const GS::ObjectState& element : elements) {
+            GS::ObjectState id;
+            if (element.Get ("elementId", id))
+                request.elements.push_back (StringOf (id, "guid"));
+        }
+    }
+    const std::string cut = params.Contains ("cut") ? StringOf (params, "cut") : std::string ("storeys");
+    request.rule.cut = cut == "storeyLevels" ? Cut::StoreyLevels
+                       : cut == "step"       ? Cut::Step
+                       : cut == "levels"     ? Cut::Levels
+                                             : Cut::Storeys;
+    if (params.Contains ("stepMetres"))
+        params.Get ("stepMetres", request.rule.stepMetres);
+    GS::Array<double> levels;
+    if (params.Get ("levels", levels))
+        for (const double level : levels)
+            request.rule.levels.push_back (level);
+    if (params.Contains ("offsetMetres"))
+        params.Get ("offsetMetres", request.rule.offsetMetres);
+    if (params.Contains ("minTopMetres"))
+        params.Get ("minTopMetres", request.rule.minTopMetres);
+}
+
+GS::ObjectState ElementIdOf (const std::string& guid)
+{
+    GS::ObjectState id;
+    id.Add ("guid", Utf8 (guid));
+    return id;
+}
+
+GS::ObjectState SlabRecord (const archviz::slabslices::Summary& slab)
+{
+    GS::ObjectState os;
+    os.Add ("elementId", ElementIdOf (slab.guid));
+    os.Add ("id", Utf8 (slab.id));
+    os.Add ("bottom", slab.bottom);
+    os.Add ("top", slab.top);
+    os.Add ("footprintM2", slab.footprintM2);
+    os.Add ("sliceAreaM2", slab.sliceAreaM2);
+    os.Add ("areaM2", slab.areaM2);
+    GS::Array<GS::ObjectState> floors;
+    for (const archviz::slabslices::Floor& floor : slab.floors) {
+        GS::ObjectState record;
+        record.Add ("base", floor.base);
+        record.Add ("height", floor.height);
+        floors.Push (record);
+    }
+    os.Add ("floors", floors);
+    os.Add ("slopedEdges", (GS::Int32) slab.slopedEdges);
+    os.Add ("problem", Utf8 (slab.problem));
+    return os;
+}
+
+class OverlayStorySlicesCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "OverlayStorySlices";
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        const std::string action = params.Contains ("action") ? StringOf (params, "action") : std::string ("state");
+        slices::State state;
+        if (action == "state") {
+            state = slices::Describe ();
+        }
+        else if (action == "off") {
+            state = slices::Apply (false, slices::Request {}, slices::Controls {}, false);
+        }
+        else if (action == "on" || action == "refresh") {
+            slices::Controls controls;
+            slices::Request request;
+            std::string error;
+            if (!ReadSliceControls (params, controls, error))
+                return NativeCommandResult::Failure (EVP_FAIL (Utf8 (error), "showing the storey slices"));
+            ReadSliceRequest (params, request);
+            if (request.source == slices::Source::Elements && request.elements.empty ())
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("source 'elements' needs the slabs in `elements`", "showing the storey slices"));
+            if (request.rule.cut == Cut::Levels && request.rule.levels.empty ())
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("cut 'levels' needs the heights in `levels`", "showing the storey slices"));
+            state = slices::Apply (true, request, controls, action == "refresh");
+        }
+        else {
+            return NativeCommandResult::Failure (
+                EVP_FAIL (GS::UniString ("unknown action '") + Utf8 (action) + "'; expected on, off, refresh or state",
+                          "showing the storey slices"));
+        }
+        GS::ObjectState os;
+        os.Add ("action", Utf8 (action));
+        os.Add ("enabled", state.enabled);
+        os.Add ("source", Utf8 (slices::SourceName (state.source)));
+        os.Add ("cut", Utf8 (archviz::slabslices::CutName (state.cut)));
+        os.Add ("waiting", state.waiting);
+        os.Add ("slices", (GS::Int32) state.slices);
+        os.Add ("areaM2", state.areaM2);
+        os.Add ("storeys", (GS::Int32) state.storeys);
+        os.Add ("snapshot", Text (state.snapshot));
+        os.Add ("cuts", (GS::Int32) state.cuts);
+        GS::Array<GS::ObjectState> slabs;
+        for (const archviz::slabslices::Summary& slab : state.slabs)
+            slabs.Push (SlabRecord (slab));
+        os.Add ("slabs", slabs);
+        GS::Array<GS::ObjectState> skipped;
+        for (const archviz::slabsource::Skip& skip : state.skipped) {
+            GS::ObjectState record;
+            record.Add ("elementId", ElementIdOf (skip.guid));
+            record.Add ("reason", Utf8 (skip.reason));
+            skipped.Push (record);
+        }
+        os.Add ("skipped", skipped);
+        os.Add ("message", Utf8 (state.message));
+        return os;
+    }
+};
+
 // clang-format off
 constexpr const char kOverlayActionInput[] = R"json({"type":"object","properties":{
     "action":{"type":"string","enum":["on","off","toggle","state"]}},
@@ -166,9 +391,66 @@ constexpr const char kOverlay2DOutput[] = R"json({"type":"object","properties":{
   "required":["action","wanted","running","refused","code","message","retryable","view","storey","rings","segments",
               "canvasPresents","drawn","readsFresh","drawnWithLastRead","lastError"]})json";
 
+constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","properties":{
+    "action":{"type":"string","enum":["on","off","refresh","state"]},
+    "source":{"type":"string","enum":["selection","elements","model"]},
+    "elements":{"$ref":"#Elements"},
+    "cut":{"type":"string","enum":["storeys","storeyLevels","step","levels"]},
+    "stepMetres":{"type":"number","minimum":0.1,"maximum":1000},
+    "levels":{"type":"array","minItems":1,"maxItems":1000,"items":{"type":"number"}},
+    "offsetMetres":{"type":"number","minimum":-1000,"maximum":1000},
+    "minTopMetres":{"type":"number","minimum":0,"maximum":1000},
+    "storeys":{"type":"array","maxItems":1000,"items":{"type":"integer"}},
+    "views":{"type":"string","enum":["2d","3d","both"]},)json"
+    R"json("outline":{"type":"object","properties":{
+        "color":{"type":"string","minLength":8,"maxLength":8},
+        "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":16},
+        "behind":{"type":"string","enum":["hide","fade","dash","show"]}},
+      "additionalProperties":false},
+    "fill":{"type":"object","properties":{
+        "color":{"type":"string","minLength":8,"maxLength":8},
+        "behind":{"type":"string","enum":["hide","fade","show"]}},
+      "additionalProperties":false},
+    "label":{"type":"object","properties":{
+        "show":{"type":"boolean"},
+        "sizePixels":{"type":"number","minimum":4,"maximum":64},
+        "color":{"type":"string","minLength":8,"maxLength":8},
+        "halo":{"type":"string","minLength":8,"maxLength":8},
+        "decimals":{"type":"integer","minimum":0,"maximum":6},
+        "name":{"type":"boolean"}},
+      "additionalProperties":false},
+    "liftMetres":{"type":"number","minimum":-100,"maximum":100}},
+  "additionalProperties":false})json";
+
+constexpr const char kOverlayStorySlicesOutput[] = R"json({"type":"object","properties":{
+    "action":{"type":"string"},"enabled":{"type":"boolean"},
+    "source":{"type":"string","enum":["selection","elements","model"]},
+    "cut":{"type":"string","enum":["storeys","storeyLevels","step","levels"]},
+    "waiting":{"type":"boolean"},"slices":{"type":"integer","minimum":0},"areaM2":{"type":"number"},
+    "storeys":{"type":"integer","minimum":0},"snapshot":{"type":"string"},"cuts":{"type":"integer","minimum":0},)json"
+    R"json("slabs":{"type":"array","items":{"type":"object","properties":{
+        "elementId":{"$ref":"#ElementId"},"id":{"type":"string"},"bottom":{"type":"number"},"top":{"type":"number"},
+        "footprintM2":{"type":"number"},"sliceAreaM2":{"type":"number"},"areaM2":{"type":"number"},
+        "floors":{"type":"array","items":{"type":"object","properties":{
+            "base":{"type":"number"},"height":{"type":"number"}},
+          "additionalProperties":false,"required":["base","height"]}},
+        "slopedEdges":{"type":"integer","minimum":0},"problem":{"type":"string"}},
+      "additionalProperties":false,
+      "required":["elementId","id","bottom","top","footprintM2","sliceAreaM2","areaM2","floors","slopedEdges",
+                  "problem"]}},
+    "skipped":{"type":"array","items":{"type":"object","properties":{
+        "elementId":{"$ref":"#ElementId"},"reason":{"type":"string"}},
+      "additionalProperties":false,"required":["elementId","reason"]}},
+    "message":{"type":"string"}},
+  "additionalProperties":false,
+  "required":["action","enabled","source","cut","waiting","slices","areaM2","storeys","snapshot","cuts","slabs",
+              "skipped","message"]})json";
+
 const NativeCommandRegistration kOverlayCommandRegistrations[] = {
     { "Overlay3D", &MakeRegisteredNativeCommand<Overlay3DCommand>, false, kOverlayActionInput, kOverlay3DOutput },
     { "Overlay2D", &MakeRegisteredNativeCommand<Overlay2DCommand>, false, kOverlayActionInput, kOverlay2DOutput },
+    { "OverlayStorySlices", &MakeRegisteredNativeCommand<OverlayStorySlicesCommand>, false, kOverlayStorySlicesInput,
+      kOverlayStorySlicesOutput },
 };
 // clang-format on
 

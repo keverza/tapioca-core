@@ -53,6 +53,9 @@
 #include "ArchViz/PlanOverlayRuntime.hpp"
 #include "NativeCommands/PlanGeometryCommands.hpp"
 
+// The slices on the overlays: their timer goes at unload.
+#include "ArchViz/StorySliceOverlay.hpp"
+
 #include <memory>
 #include <string>
 
@@ -647,6 +650,8 @@ GSErrCode FreeData (void)
     // The plan overlay's timer is in this module too, and its layer holds Archicad's
     // device; both go before the hook does. No ACAPI: this is the unload.
     geomsrv::archviz::planruntime::Shutdown ();
+    // The slices' timer calls into this module too.
+    geomsrv::archviz::storysliceoverlay::Shutdown ();
     // Same reasoning, one step worse: a DXGI vtable entry still pointing into
     // this module after it unloads is a crash on Archicad's NEXT frame, not on
     // ours, and it would look like a graphics driver fault. RemovePresentHook

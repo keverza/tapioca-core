@@ -362,12 +362,22 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/OverlayController.hpp"),
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/InjectedOverlayRuntime.hpp"),
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/PlanOverlayRuntime.hpp"),
+    # Tapioca.OverlayStorySlices switches the add-on's own slice layer; the module
+    # owns its layer and its timer, and the verb is only the switch.
+    ("NativeCommands/OverlayCommands.cpp", "ArchViz/StorySliceOverlay.hpp"),
     # Tapioca.SetOverlayLayer and its two siblings: the caller's own content on both
     # overlays. The verbs fill the one store both overlays read -- a second store on
     # this side would be a second answer to "what is on the overlay" -- and hand the
     # 3D overlay its prepared copy through the controller.
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayLayers.hpp"),
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayController.hpp"),
+    # The massing slabs' floor slices read each slab's polygon through the one walk of
+    # a polygon memo. Its indexing -- 1-based coords, the closing repeat, the arc
+    # lookup by begIndex -- must not exist twice, and it lives with the element reads.
+    ("ArchViz/SlabSliceSource.cpp", "NativeCommands/CommandUtils.hpp"),
+    # Its three ACAPI reads fail in the add-on's one vocabulary for a failed call;
+    # CLAUDE.md forbids reporting a bare GSErrCode.
+    ("ArchViz/SlabSliceSource.cpp", "Diagnostics/ApiError.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the

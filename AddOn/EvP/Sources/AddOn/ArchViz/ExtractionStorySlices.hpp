@@ -37,6 +37,7 @@ namespace archviz {
 struct ProjectStoreys {
     std::vector<double> levels;
     std::vector<std::string> names;
+    std::vector<int> indices; // Archicad's storey numbers, firstStory upwards
 
     bool Empty () const
     {
@@ -98,6 +99,9 @@ class StorySliceAccumulator final {
   private:
     std::vector<std::vector<Polyline>> loops_; // one bucket per storey
     std::vector<double> planes_;
+    // Carried for the overlays' per-storey snapshot (StorySliceSnapshot.hpp).
+    std::vector<std::string> names_;
+    std::vector<int> indices_;
 };
 
 } // namespace archviz

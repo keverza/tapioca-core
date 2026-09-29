@@ -6,6 +6,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/StorySliceGeometry.hpp" // ChainUnionSegments, BuildSliceRibbon/Fill
+#include "ArchViz/StorySliceSnapshot.hpp" // the same cuts, per storey, for the overlays
 #include "ArchViz/StorySliceUnion.hpp"    // UnionLoops
 #include "Diagnostics/ApiError.hpp"       // DescribeErr - never print a bare GSErrCode
 #include "Geometry/SliceEngine.hpp"       // SliceMesh, IsTangentToPlane
@@ -35,6 +36,7 @@ ProjectStoreys ReadStoreys ()
             const API_StoryType& story = (*info.data)[i];
             out.levels.push_back (story.level);
             out.names.push_back (std::string (GS::UniString (story.uName).ToCStr (0, GS::MaxUSize, CC_UTF8).Get ()));
+            out.indices.push_back (int (info.firstStory) + int (i));
         }
         // The handle is ours to free -- the SDK allocated it for this call.
         BMKillHandle (reinterpret_cast<GSHandle*> (&info.data));
@@ -46,9 +48,13 @@ void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted)
 {
     loops_.clear ();
     planes_.clear ();
+    names_.clear ();
+    indices_.clear ();
     if (!wanted || storeys.Empty ())
         return;
     planes_ = storeys.levels;
+    names_ = storeys.names;
+    indices_ = storeys.indices;
     loops_.resize (planes_.size ());
 }
 
@@ -103,6 +109,7 @@ void StorySliceAccumulator::FinishAndPush ()
         return;
 
     auto upload = std::make_unique<StorySliceUpload> ();
+    std::vector<storeyslices::Storey> perStorey;
     size_t segments = 0;
     for (size_t si = 0; si < loops_.size (); ++si) {
         if (loops_[si].empty ())
@@ -125,8 +132,16 @@ void StorySliceAccumulator::FinishAndPush ()
         // trapezoid sweep TWICE per storey to learn something the triangles already
         // on hand say exactly. It stays the tested definition of the area; this is
         // the same sum over the same triangles.
-        upload->areaM2 += TriangleFanArea (upload->fill, fillBegin);
+        const double area = TriangleFanArea (upload->fill, fillBegin);
+        upload->areaM2 += area;
         ++upload->storeys;
+        storeyslices::Storey storey;
+        storey.index = si < indices_.size () ? indices_[si] : int (si);
+        storey.level = planes_[si];
+        storey.name = si < names_.size () ? names_[si] : std::string ();
+        storey.chains = chains;
+        storey.areaM2 = area;
+        perStorey.push_back (std::move (storey));
     }
 
     ArchVizLog ("extraction: story slices - " + std::to_string (upload->storeys) + "/" +
@@ -135,6 +150,7 @@ void StorySliceAccumulator::FinishAndPush ()
                 std::to_string (upload->fill.size ()) + " fill vertices, " +
                 std::to_string (static_cast<int64_t> (upload->areaM2)) + " m2");
     SceneCmdQueue::Get ().PushStorySlices (std::move (upload));
+    storeyslices::Publish (std::move (perStorey));
 
     // The buckets are the whole model's cross-sections; a pass that has pushed
     // them has no further use for them and the next pass refills from empty.
