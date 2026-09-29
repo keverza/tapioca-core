@@ -136,6 +136,12 @@ def _coloured(fields, keys=("color", "halo", "textColor")):
     for key, value in out.items():
         if key in keys and value is not None:
             out[key] = colour(value)
+        elif key == "colors" and isinstance(value, dict):
+            out[key] = {name: colour(c) for name, c in value.items()}
+        elif key == "colors" and value is not None:
+            out[key] = [colour(c) for c in value]
+        elif key == "colormap" and value is not None:
+            out[key] = _colormap(value)
         elif isinstance(value, dict):
             out[key] = _coloured(value, keys)
     return out
@@ -676,7 +682,8 @@ def story_slices(
 
     `outline`, `fill` and `label` are style dicts in the wire's names -- outline
     {"color", "widthPixels", "dashMetres", "occlusion", "hidden": {"color", "widthPixels",
-    "dashMetres"}}, fill {"color", "occlusion"},
+    "dashMetres"}}, fill {"color", "colors" (one per floor level from the lowest),
+    "colormap" (a preset, stops, or a dict with min and max in metres), "opacity", "occlusion"},
     label {"show", "sizePixels", "color", "halo", "haloPixels", "decimals", "name",
     "onSlice", "sizeMetres"} -- with colours in any form `colour` reads.
     """

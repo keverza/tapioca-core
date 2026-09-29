@@ -199,6 +199,10 @@ def test_the_add_ons_own_layers_take_their_style(monkeypatch):
         "hidden": {"color": "C02020FF", "widthPixels": 2.0},
     }
     assert params["label"]["halo"] == "FFFFFFCC"
+    overlay.story_slices(fill={"colors": ["#FF0000", (0, 1, 0)], "opacity": 0.4, "colormap": "viridis"})
+    fill = seen[-1][1]["fill"]
+    assert fill["colors"] == ["FF0000FF", "00FF00FF"] and fill["opacity"] == 0.4
+    assert fill["colormap"] == {"preset": "viridis"}
     command, params = seen[1]
     assert command == "Tapioca.OverlayAnnotations" and params["action"] == "on"
     assert params["style"] == {"lineWidthPixels": 3.0, "halo": "000000FF", "colors": {"add": "00C000FF"}}

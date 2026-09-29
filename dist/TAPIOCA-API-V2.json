@@ -19679,6 +19679,70 @@
               "color": {
                 "$ref": "#Color"
               },
+              "colors": {
+                "type": "array",
+                "maxItems": 64,
+                "description": "One per floor level in turn, from the lowest.",
+                "items": {
+                  "$ref": "#Color"
+                }
+              },
+              "colormap": {
+                "type": "object",
+                "description": "Over the slices' heights; min and max in metres.",
+                "properties": {
+                  "preset": {
+                    "type": "string",
+                    "enum": [
+                      "viridis",
+                      "inferno",
+                      "magma",
+                      "plasma",
+                      "turbo",
+                      "coolwarm",
+                      "greys",
+                      "sunhours",
+                      "slope",
+                      "clearance"
+                    ]
+                  },
+                  "stops": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 16,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "at": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "color": {
+                          "$ref": "#Color"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "at",
+                        "color"
+                      ]
+                    }
+                  },
+                  "min": {
+                    "type": "number"
+                  },
+                  "max": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
               "occlusion": {
                 "type": "string",
                 "enum": [

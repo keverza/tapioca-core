@@ -167,19 +167,65 @@ std::vector<Slice> FromStoreys (const storeyslices::Snapshot& snapshot)
     return slices;
 }
 
+uint32_t FillColour (const Controls& controls, size_t level, double z, double low, double high)
+{
+    if (!controls.fillColors.empty ())
+        return controls.fillColors[level % controls.fillColors.size ()];
+    const layers::Colormap& ramp = controls.fillColormap;
+    if (ramp.stops.empty ())
+        return controls.fillRgba;
+    const double min = ramp.autoRange ? low : ramp.min, max = ramp.autoRange ? high : ramp.max;
+    const float t = max > min ? float ((z - min) / (max - min)) : 0.0f;
+    // The ramp's stops, piecewise linear, clamped at its ends -- as the heatmaps read it.
+    const float at = (std::min) ((std::max) (t, 0.0f), 1.0f);
+    const std::vector<layers::ColourStop>& stops = ramp.stops;
+    if (at <= stops.front ().at)
+        return stops.front ().rgba;
+    for (size_t k = 1; k < stops.size (); ++k) {
+        if (at > stops[k].at)
+            continue;
+        const float span = stops[k].at - stops[k - 1].at;
+        const float f = span > 1e-9f ? (at - stops[k - 1].at) / span : 1.0f;
+        uint32_t rgba = 0;
+        for (int shift = 24; shift >= 0; shift -= 8) {
+            const float a = float ((stops[k - 1].rgba >> shift) & 0xFFu), b = float ((stops[k].rgba >> shift) & 0xFFu);
+            rgba |= uint32_t (std::lround (a + (b - a) * f)) << shift;
+        }
+        return rgba;
+    }
+    return stops.back ().rgba;
+}
+
 Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
 {
     Built out;
     out.layer.name = kLayerName;
     out.layer.views = controls.views;
     out.layer.occlusion = layers::Behind::Hide;
+    // The heights drawn, lowest first: what a floor's colour is counted by.
+    auto shown = [&controls] (const Slice& slice) {
+        return controls.storeys.empty () ||
+               std::find (controls.storeys.begin (), controls.storeys.end (), slice.storey) != controls.storeys.end ();
+    };
+    std::vector<double> heights;
+    for (const Slice& slice : slices)
+        if (shown (slice))
+            heights.push_back (slice.z);
+    std::sort (heights.begin (), heights.end ());
+    heights.erase (
+        std::unique (heights.begin (), heights.end (), [] (double a, double b) { return std::fabs (a - b) < 1e-6; }),
+        heights.end ());
     for (const Slice& slice : slices) {
-        if (!controls.storeys.empty () &&
-            std::find (controls.storeys.begin (), controls.storeys.end (), slice.storey) == controls.storeys.end ())
+        if (!shown (slice))
             continue;
         const double z = slice.z + controls.liftMetres;
+        size_t level = 0;
+        while (level + 1 < heights.size () && heights[level] < slice.z - 1e-6)
+            ++level;
+        const uint32_t fill = FillColour (controls, level, slice.z, heights.empty () ? slice.z : heights.front (),
+                                          heights.empty () ? slice.z : heights.back ());
 
-        if ((controls.fillRgba & 0xFFu) != 0) {
+        if ((fill & 0xFFu) != 0 && controls.fillOpacity > 0.0f) {
             std::vector<StorySliceFillVertex> triangles;
             BuildSliceFill (slice.chains, float (z), triangles);
             if (triangles.size () >= 3) {
@@ -188,8 +234,9 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
                     mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
                     mesh.points.insert (mesh.points.end (), { double (v.x), double (v.y), z });
                 }
-                mesh.rgba = controls.fillRgba;
+                mesh.rgba = fill;
                 mesh.styled = true;
+                mesh.style.opacity = controls.fillOpacity;
                 mesh.style.behind = controls.fillBehind;
                 out.layer.meshes.push_back (std::move (mesh));
             }

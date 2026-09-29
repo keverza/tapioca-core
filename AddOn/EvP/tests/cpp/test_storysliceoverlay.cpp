@@ -182,3 +182,45 @@ TEST (StorySliceOverlay, AreasReadWithTheirDecimals)
     EXPECT_EQ (so::AreaText (245.66, 1, "", false), "245.7 m\xC2\xB2");
     EXPECT_EQ (so::AreaText (245.66, 0, "L2", true), "L2  246 m\xC2\xB2");
 }
+
+// Slices coloured: a colour per floor level in turn (slices at one height share it), or a
+// ramp over their heights; the opacity multiplies whichever it is.
+TEST (StorySliceOverlay, EachFloorTakesItsColourAndTheOpacity)
+{
+    std::vector<so::Slice> slices;
+    for (const double z : { 6.0, 0.0, 3.0, 0.0 }) {
+        so::Slice slice;
+        slice.chains = { Square (0, 0, 10, 10) };
+        slice.z = z;
+        slice.areaM2 = 100.0;
+        slices.push_back (slice);
+    }
+    so::Controls controls;
+    controls.label = false;
+    controls.fillColors = { 0xFF0000FFu, 0x00FF00FFu };
+    controls.fillOpacity = 0.5f;
+    so::Built built = so::BuildLayer (slices, controls);
+    ASSERT_EQ (built.layer.meshes.size (), 4u);
+    // Levels 0, 3, 6 from the lowest: red, green, red; the two at 0 m share red.
+    EXPECT_EQ (built.layer.meshes[0].rgba, 0xFF0000FFu); // 6 m, the third level
+    EXPECT_EQ (built.layer.meshes[1].rgba, 0xFF0000FFu); // 0 m
+    EXPECT_EQ (built.layer.meshes[2].rgba, 0x00FF00FFu); // 3 m
+    EXPECT_EQ (built.layer.meshes[3].rgba, 0xFF0000FFu); // 0 m, another slab
+    EXPECT_FLOAT_EQ (built.layer.meshes[0].style.opacity, 0.5f);
+    EXPECT_EQ (layers::Validate (built.layer), "");
+
+    controls.fillColors.clear ();
+    controls.fillColormap.stops = { { 0.0f, 0x000000FFu }, { 1.0f, 0xFFFFFFFFu } };
+    built = so::BuildLayer (slices, controls);
+    EXPECT_EQ (built.layer.meshes[1].rgba, 0x000000FFu); // the lowest: the ramp's start
+    EXPECT_EQ (built.layer.meshes[2].rgba, 0x808080FFu); // half way up
+    EXPECT_EQ (built.layer.meshes[0].rgba, 0xFFFFFFFFu); // the highest: its end
+    controls.fillColormap.autoRange = false;             // a range of the caller's, metres
+    controls.fillColormap.min = 0.0;
+    controls.fillColormap.max = 12.0;
+    EXPECT_EQ (so::FillColour (controls, 2, 6.0, 0.0, 6.0), 0x808080FFu);
+
+    controls.fillColormap.stops.clear ();
+    controls.fillOpacity = 0.0f; // nothing to fill
+    EXPECT_TRUE (so::BuildLayer (slices, controls).layer.meshes.empty ());
+}

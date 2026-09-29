@@ -193,6 +193,23 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
     if (params.Get ("fill", fill)) {
         if (!ReadColour (fill, "color", controls.fillRgba, error))
             return false;
+        GS::Array<GS::UniString> colors;
+        if (fill.Get ("colors", colors)) {
+            for (const GS::UniString& text : colors) {
+                GS::ObjectState one;
+                one.Add ("c", text);
+                uint32_t rgba = 0;
+                if (!ReadColour (one, "c", rgba, error)) {
+                    error = "fill colors: " + error;
+                    return false;
+                }
+                controls.fillColors.push_back (rgba);
+            }
+        }
+        GS::ObjectState colormap;
+        if (fill.Get ("colormap", colormap) && !overlayreading::ReadRamp (colormap, controls.fillColormap, error))
+            return false;
+        controls.fillOpacity = FloatOf (fill, "opacity", controls.fillOpacity);
         controls.fillBehind = OcclusionOf (fill, controls.fillBehind);
     }
     GS::ObjectState label;
@@ -449,6 +466,16 @@ constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","prope
       "additionalProperties":false},
     "fill":{"type":"object","properties":{
         "color":{"$ref":"#Color"},
+        "colors":{"type":"array","maxItems":64,"description":"One per floor level in turn, from the lowest.",
+          "items":{"$ref":"#Color"}},
+        "colormap":{"type":"object","description":"Over the slices' heights; min and max in metres.","properties":{
+            "preset":{"type":"string","enum":["viridis","inferno","magma","plasma","turbo","coolwarm","greys","sunhours","slope","clearance"]},
+            "stops":{"type":"array","minItems":2,"maxItems":16,"items":{"type":"object","properties":{
+                "at":{"type":"number","minimum":0,"maximum":1},"color":{"$ref":"#Color"}},
+              "additionalProperties":false,"required":["at","color"]}},
+            "min":{"type":"number"},"max":{"type":"number"}},
+          "additionalProperties":false},
+        "opacity":{"type":"number","minimum":0,"maximum":1},
         "occlusion":{"type":"string","enum":["hide","fade","always"]}},
       "additionalProperties":false},
     "label":{"type":"object","properties":{

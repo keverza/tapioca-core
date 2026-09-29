@@ -23,6 +23,7 @@ namespace archviz {
 namespace overlaylayers {
 struct Layer;
 struct HiddenLine;
+struct Colormap;
 enum class Behind : uint8_t;
 } // namespace overlaylayers
 } // namespace archviz
@@ -46,6 +47,9 @@ bool ReadFont (const GS::ObjectState& item, const char* key, std::string& path, 
 
 // A dash pattern in metres at `key` -- on, off, on, off... -- untouched when absent.
 void ReadDash (const GS::ObjectState& item, const char* key, std::vector<float>& lengths);
+
+// A colour ramp: a `preset` or `stops`, with an optional `min` and `max`.
+bool ReadRamp (const GS::ObjectState& item, archviz::overlaylayers::Colormap& colormap, std::string& error);
 
 // A line's `hidden` style: its colour, width and pattern behind the building.
 bool ReadHiddenLine (const GS::ObjectState& item, archviz::overlaylayers::HiddenLine& hidden, std::string& error);

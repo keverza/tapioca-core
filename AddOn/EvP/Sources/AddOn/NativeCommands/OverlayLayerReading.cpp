@@ -525,6 +525,11 @@ std::string StringOf (const GS::ObjectState& item, const char* key)
     return StringValue (item, key);
 }
 
+bool ReadRamp (const GS::ObjectState& item, layers::Colormap& colormap, std::string& error)
+{
+    return ReadColormap (item, colormap, error);
+}
+
 void ReadDash (const GS::ObjectState& item, const char* key, std::vector<float>& lengths)
 {
     std::vector<double> values;

@@ -37,6 +37,13 @@ struct Controls {
     // Where the building is in front: dashed, the drafting convention for hidden edges.
     overlaylayers::Behind outlineBehind = overlaylayers::Behind::Dash;
     uint32_t fillRgba = 0xC8C8C84Du; // light, translucent grey; alpha 0 is no fill
+    // Slices coloured: `fillColors` one per floor level in turn, from the lowest -- slices
+    // at one height share theirs, across slabs -- or else `fillColormap` over the slices'
+    // heights (its own min and max, in metres, when it has them); `fillRgba` when neither.
+    // `fillOpacity` multiplies whichever it is.
+    std::vector<uint32_t> fillColors;
+    overlaylayers::Colormap fillColormap; // no stops: none
+    float fillOpacity = 1.0f;
     overlaylayers::Behind fillBehind = overlaylayers::Behind::Fade;
     bool label = true;
     float labelSizePixels = 11.0f;
@@ -64,6 +71,10 @@ struct Slice {
     std::string name; // "Ground", "A-01 F3"
     int storey = 0;   // the Archicad storey the cut lies in: what the filter keys on
 };
+
+// The fill colour of the slice at `z`, the `level`th of `levels` distinct heights from the
+// lowest, the lowest `low` and the highest `high` (Controls says which rule applies).
+uint32_t FillColour (const Controls& controls, size_t level, double z, double low, double high);
 
 // The model's storey cuts as slices, each at its storey's level.
 std::vector<Slice> FromStoreys (const storeyslices::Snapshot& snapshot);
