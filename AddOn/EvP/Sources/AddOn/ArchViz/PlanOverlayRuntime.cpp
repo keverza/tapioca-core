@@ -10,6 +10,7 @@
 #include "ArchViz/PlanOverlayRuntime.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/Dxgi/PlanGuest.hpp"
 #include "ArchViz/Dxgi/PlanOverlayLayer.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/ExperimentGuard.hpp"
@@ -67,6 +68,9 @@ uint64_t g_generation = 0; // never reset: a new session's content is always new
 bool g_readyLogged = false;
 bool g_redrawPending = false;
 std::string g_lastError;
+std::string g_lastGuestError;
+uint64_t g_reportedGuestDraws = 0;
+uint64_t g_reportedGuestCalls = 0;
 ULONGLONG g_startedMs = 0;
 ULONGLONG g_lastReportMs = 0;
 ULONGLONG g_lastDeviceRedrawMs = 0;
@@ -222,11 +226,19 @@ void Report (bool final)
         g_reported = stats;
         return;
     }
+    // The Diligent guest's share of those frames, when it has anything to draw.
+    const dxgi::planguest::Stats guest = dxgi::planguest::GetStats ();
+    std::string guestPart;
+    if (dxgi::planguest::HasContent () || guest.draws != g_reportedGuestDraws)
+        guestPart = "; guest drew " + std::to_string (guest.draws - g_reportedGuestDraws) + " (" +
+                    std::to_string (guest.drawCalls - g_reportedGuestCalls) + " calls)";
+    g_reportedGuestDraws = guest.draws;
+    g_reportedGuestCalls = guest.drawCalls;
     char line[512] = {};
     std::snprintf (line, sizeof (line),
                    "PLAN OVERLAY  %s%.1f s: %llu canvas Presents, %llu drawn (%llu with the last read); reads "
                    "fresh %llu refused %llu invalid %llu (last error %d); read %u us (worst %u), draw %u us "
-                   "(worst %u); declined %llu%s",
+                   "(worst %u); declined %llu%s%s",
                    final ? "final " : "", seconds, (unsigned long long) presents,
                    (unsigned long long) (stats.drawn - g_reported.drawn),
                    (unsigned long long) (stats.drawnWithLastRead - g_reported.drawnWithLastRead),
@@ -234,7 +246,7 @@ void Report (bool final)
                    (unsigned long long) (stats.readsRefused - g_reported.readsRefused),
                    (unsigned long long) (stats.readsInvalid - g_reported.readsInvalid), stats.lastReadError,
                    stats.readUsLast, stats.readUsMax, stats.drawUsLast, stats.drawUsMax, (unsigned long long) declined,
-                   declines.c_str ());
+                   declines.c_str (), guestPart.c_str ());
     ArchVizLog (line);
     g_reported = stats;
     layer::TakeMaxima ();
@@ -260,6 +272,10 @@ void Teardown (const std::string& reason, bool acapi)
         g_presentHookOurs = false;
     }
     layer::Release ();
+    dxgi::planguest::Release ();
+    g_reportedGuestDraws = 0;
+    g_reportedGuestCalls = 0;
+    g_lastGuestError.clear ();
     if (g_breadcrumb) {
         experimentguard::Disarm ();
         g_breadcrumb = false;
@@ -368,6 +384,35 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
                 ArchVizLog ("PLAN OVERLAY  layers NOT DRAWN: " + error);
                 g_lastError = error;
             }
+        }
+        // ⚠️ WHAT THE DILIGENT GUEST DRAWS -- texts, dimensions, legends, styled and
+        // heatmap meshes, dashed polylines -- made here, outside any Present, and only
+        // when the store moved (§11). With none of those, nothing attaches.
+        bool guestChanged = false;
+        error.clear ();
+        if (dxgi::planguest::Prepare (layer::Device (), overlaylayers::Layers (), layersGeneration, float (g_dpi),
+                                      guestChanged, error)) {
+            if (guestChanged) {
+                const dxgi::planguest::Stats guest = dxgi::planguest::GetStats ();
+                ArchVizLog ("PLAN OVERLAY  guest: " + std::to_string (guest.fills / 3) + " filled triangles, " +
+                            std::to_string (guest.lines) + " lines, " + std::to_string (guest.glyphVertices / 6) +
+                            " glyph quads, " + std::to_string (guest.pages) + " atlas pages" +
+                            (guest.attached
+                                 ? "; attached to Archicad's device in " + std::to_string (guest.attachMilliseconds) +
+                                       " ms, built in " + std::to_string (guest.buildMilliseconds) + " ms"
+                                 : std::string ()) +
+                            (guest.textsNotLaidOut + guest.dimensionsNotResolved + guest.truncated > 0
+                                 ? "; NOT DRAWN: " + std::to_string (guest.textsNotLaidOut) + " texts, " +
+                                       std::to_string (guest.dimensionsNotResolved) + " dimensions, " +
+                                       std::to_string (guest.truncated) + " past the budget (" + guest.lastError + ")"
+                                 : std::string ()));
+                g_redrawPending = true;
+                g_lastGuestError.clear ();
+            }
+        }
+        else if (error != g_lastGuestError) {
+            ArchVizLog ("PLAN OVERLAY  guest NOT DRAWING: " + error);
+            g_lastGuestError = error;
         }
     }
     if (g_redrawPending && inFront) {

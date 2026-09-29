@@ -14,8 +14,12 @@
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/LayerOverlay3D.hpp"
+#include "ArchViz/Dxgi/PlanGuest.hpp"
+#include "ArchViz/Dxgi/SceneGuest.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
+#include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayScene.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ArchVizPanel.hpp"
@@ -465,7 +469,7 @@ void OnProjectClosed ()
     // ⚠️ THE CALLER'S LAYERS WERE THAT PROJECT'S COORDINATES (§8): drawn over the next
     // project they would be geometry from somewhere else, in the right place for nothing.
     if (!overlaylayers::Layers ().empty ()) {
-        overlaylayers::ClearAll ();
+        overlaylayers::ClearEverything ();
         PublishLayers ();
     }
     if (active)
@@ -526,6 +530,40 @@ LadderCounts MarkerLadderCounts ()
     return out;
 }
 
+GuestReport Guest ()
+{
+    GuestReport out;
+    const dxgi::planguest::Stats plan = dxgi::planguest::GetStats ();
+    out.plan.attached = plan.attached;
+    out.plan.attachMilliseconds = plan.attachMilliseconds;
+    out.plan.buildMilliseconds = plan.buildMilliseconds;
+    out.plan.uploads = plan.uploads;
+    out.plan.draws = plan.draws;
+    out.plan.drawCalls = plan.drawCalls;
+    out.plan.declinedNoTransform = plan.declinedNoTransform;
+    out.plan.fills = plan.fills;
+    out.plan.lines = plan.lines;
+    out.plan.glyphVertices = plan.glyphVertices;
+    out.plan.pages = plan.pages;
+    out.plan.failure = plan.lastError;
+    const dxgi::sceneguest::Stats scene = dxgi::sceneguest::GetStats ();
+    out.scene.attached = scene.attached;
+    out.scene.attachMilliseconds = scene.attachMilliseconds;
+    out.scene.buildMilliseconds = scene.buildMilliseconds;
+    out.scene.uploads = scene.uploads;
+    out.scene.draws = scene.draws;
+    out.scene.drawCalls = scene.drawCalls;
+    out.scene.declinedNoCamera = scene.declinedNoCamera;
+    out.scene.declinedNoViewport = scene.declinedNoViewport;
+    out.scene.declinedFailed = scene.declinedFailed;
+    out.scene.fills = scene.fills;
+    out.scene.lines = scene.lines;
+    out.scene.glyphVertices = scene.glyphVertices;
+    out.scene.pages = scene.pages;
+    out.scene.failure = scene.failure != nullptr ? scene.failure : "";
+    return out;
+}
+
 void StopAll ()
 {
     // Intent as well as renderers: this is the teardown entry point, and a timer
@@ -539,9 +577,26 @@ void StopAll ()
 
 void PublishLayers ()
 {
-    overlaylayers::Prepared3D prepared = overlaylayers::Prepare3D (overlaylayers::Layers ());
+    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
+    overlaylayers::Prepared3D prepared = overlaylayers::Prepare3D (layers);
     prepared.generation = overlaylayers::Generation ();
     dxgi::layers3d::Publish (std::move (prepared));
+
+    // ⚠️ THE GUEST'S SHARE IS LAID OUT HERE, ON THE MAIN THREAD, BECAUSE THE TEXT
+    // ENGINE IS: the render thread receives finished arrays and never shapes a glyph.
+    bool text = false;
+    for (const auto& layer : layers)
+        text = text || (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD) &&
+                        (!layer->texts.empty () || !layer->dimensions.empty () || !layer->legends.empty ()));
+    overlayscene::Scene scene = overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr);
+    scene.generation = overlaylayers::Generation ();
+    const overlayscene::Problems& problems = scene.problems;
+    if (problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated > 0)
+        Narrate ("OVERLAY", "3D guest NOT DRAWING " + std::to_string (problems.textsNotLaidOut) + " texts, " +
+                                std::to_string (problems.dimensionsNotResolved) + " dimensions, " +
+                                std::to_string (problems.truncated) + " past the budget: " + problems.lastError);
+    const UINT dpi = ::GetDpiForSystem ();
+    dxgi::sceneguest::Publish (std::move (scene), dpi != 0 ? float (dpi) / 96.0f : 1.0f);
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
         ACAPI_View_Redraw ();
 }

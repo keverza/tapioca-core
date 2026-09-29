@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/SceneGuest.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchVizLog.hpp"
 
@@ -201,6 +202,36 @@ void Say (const char* channel, const std::string& detail)
     ArchVizLog (line);
 }
 
+// The Diligent guest's line (Dxgi/SceneGuest.hpp): what it drew and what it declined
+// since the last one, and what it holds -- only while it holds something or moved.
+static void Guest ()
+{
+    static dxgi::sceneguest::Stats mark;
+    static unsigned ticks = 0;
+    const dxgi::sceneguest::Stats now = dxgi::sceneguest::GetStats ();
+    const bool holds = now.fills + now.lines + now.glyphVertices > 0;
+    const bool declinedMore = now.declinedNoCamera != mark.declinedNoCamera ||
+                              now.declinedNoViewport != mark.declinedNoViewport ||
+                              now.declinedFailed != mark.declinedFailed;
+    ++ticks;
+    if (!(holds || declinedMore || now.uploads != mark.uploads) ||
+        (!declinedMore && now.uploads == mark.uploads && ticks < 20))
+        return;
+    ticks = 0;
+    char line[400] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "drew +%llu (%llu calls) | declined noCamera+%llu noViewport+%llu failed+%llu | holds %u filled "
+                 "triangles, %u lines, %u glyph quads, %u pages | %s in %u ms, camera slot %u built in %u ms%s%s",
+                 (unsigned long long) (now.draws - mark.draws), (unsigned long long) (now.drawCalls - mark.drawCalls),
+                 (unsigned long long) (now.declinedNoCamera - mark.declinedNoCamera),
+                 (unsigned long long) (now.declinedNoViewport - mark.declinedNoViewport),
+                 (unsigned long long) (now.declinedFailed - mark.declinedFailed), now.fills / 3, now.lines,
+                 now.glyphVertices / 6, now.pages, now.attached ? "attached" : "not attached", now.attachMilliseconds,
+                 now.slot, now.buildMilliseconds, now.failure[0] != 0 ? " -- " : "", now.failure);
+    mark = now;
+    Say ("GUEST", line);
+}
+
 void Gate ()
 {
     const cen::EligibilityDiagnosis gate = cen::GetEligibilityDiagnosis ();
@@ -313,6 +344,7 @@ void Live (const Health& health)
         g_lastLive = current;
         Say ("LIVE", current);
     }
+    Guest ();
 }
 
 void Chain (const Health& health)

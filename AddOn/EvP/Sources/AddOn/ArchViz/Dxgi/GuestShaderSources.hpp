@@ -1,0 +1,449 @@
+#ifndef EVP_ARCHVIZ_DXGI_GUESTSHADERSOURCES_HPP
+#define EVP_ARCHVIZ_DXGI_GUESTSHADERSOURCES_HPP
+
+// ArchViz/Dxgi/GuestShaderSources -- the HLSL the Diligent guest draws the overlays'
+// rich content with: fills (styled meshes, heatmaps, legend bars), pixel-wide lines
+// (dashed, depth-styled) and MTSDF glyph quads (text, dimension furniture). One
+// header so tests/cpp/test_overlayshaders.cpp compiles every entry point and reads
+// each vertex shader's inputs back against ArchViz/OverlayScene.hpp's layouts.
+//
+// ⚠️ THE PIXEL SHADERS ARE SHARED; THE PROJECTIONS ARE NOT (§12). `kCommon` is what
+// both overlays paint with. `kPlanBody` projects with the walls' own arithmetic --
+// the transform ACAPI read at the plan's Present, hi/lo halves under `precise`
+// (PlanOverlayContent.hpp) -- and has no camera. `kSceneBody` projects with
+// `ArchicadClip`, which `camerashader::Compose` writes per camera slot, and reads no
+// plan transform. Neither body knows the other exists.
+//
+// ⚠️ DILIGENT'S VERTEX SEMANTICS ARE `ATTRIBn`, n BEING THE LAYOUT ELEMENT'S INDEX.
+// The guest's input layouts (Dxgi/GuestGpu.cpp) number the fields of the
+// OverlayScene structs in order; a shader reading ATTRIB5 as something else draws
+// confidently wrong, which is why the test reflects on them.
+//
+// ⚠️ ARCHICAD'S BACK BUFFER IS UNORM, NOT sRGB. Colours arrive as the bytes a caller
+// wrote and leave as those bytes: nothing here linearises, unlike the viewer's text
+// layer, whose target is an sRGB view. The atlas is linear DATA, sampled as such.
+//
+// ⚠️ THE PASS DECIDES DEPTH, THE ITEM DECIDES WHETHER IT IS IN THE PASS. 3D draws
+// in up to three passes: 0 "near", tested LESS_EQUAL, the part in front of the
+// building; 1 "behind", tested GREATER, the hidden part, faint or dashed; 2 "over",
+// untested. `InPass` is the table. The plan has one pass, 2, and no depth
+// (finding 13).
+
+#include <string>
+
+namespace geomsrv {
+namespace archviz {
+namespace dxgi {
+namespace guestshaders {
+
+inline constexpr const char* kCommon = R"hlsl(
+cbuffer GuestDraw
+{
+    float4 Mode;          // x shading (0 flat, 1 lit, 2 ghost, 3 x-ray), y opacity,
+                          // z pass (0 near, 1 behind, 2 over, 3 all), w 1 for a fill fixed to the view
+    float4 Ramp;          // x min, y 1 / (max - min), z bands (0 smooth), w stops (0: no ramp)
+    float4 Iso;           // x step (0: none), y half width in physical pixels
+    float4 IsoColour;
+    float4 StopAt[4];     // 16 positions, 0..1
+    float4 StopColour[16];
+    float4 Atlas;         // x 1 / page width, y 1 / page height, z distance range in atlas pixels
+};
+
+struct FillOut
+{
+    float4 position : SV_POSITION;
+    float4 colour : COLOR0;
+    float value : TEXCOORD0;
+    float3 normalView : TEXCOORD1;
+};
+
+struct LineOut
+{
+    float4 position : SV_POSITION;
+    float4 colour : COLOR0;
+    float across : TEXCOORD0;  // signed physical pixels from the centre line
+    float along : TEXCOORD1;   // physical pixels along the polyline: the dash's phase
+    float3 style : TEXCOORD2;  // half width, dash period (0 solid), duty
+};
+
+struct GlyphOut
+{
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+    float4 colour : COLOR0;
+    float4 halo : COLOR1;
+    float haloPixels : TEXCOORD1;
+    float solid : TEXCOORD2;
+};
+
+static const float4 kCulled = float4 (2.0, 2.0, 2.0, 1.0); // outside every clip plane
+
+float StopPosition (int k)
+{
+    return StopAt[k >> 2][k & 3];
+}
+
+// The same piecewise-linear ramp as overlayscene::RampAt.
+float4 RampColour (float t)
+{
+    int count = (int) Ramp.w;
+    float4 c = StopColour[0];
+    [loop] for (int k = 1; k < count; ++k)
+    {
+        float a0 = StopPosition (k - 1);
+        float a1 = StopPosition (k);
+        if (t >= a0)
+            c = lerp (StopColour[k - 1], StopColour[k], a1 > a0 ? saturate ((t - a0) / (a1 - a0)) : 1.0);
+    }
+    return c;
+}
+
+bool InPass (uint behind)
+{
+    if (Mode.z > 2.5)
+        return true; // 3, "all": no depth to split by, so everything is drawn whole
+    if (Mode.z < 0.5)
+        return behind != 3u;
+    if (Mode.z < 1.5)
+        return behind == 1u || behind == 2u;
+    return behind == 3u;
+}
+
+float4 PSFill (FillOut i) : SV_TARGET
+{
+    float4 c = i.colour;
+    if (Ramp.w > 0.5)
+    {
+        float t = saturate ((i.value - Ramp.x) * Ramp.y);
+        if (Ramp.z > 0.5)
+        {
+            float k = min (floor (t * Ramp.z), Ramp.z - 1.0);
+            t = Ramp.z > 1.5 ? k / (Ramp.z - 1.0) : 0.5;
+        }
+        c = RampColour (t);
+        // A contour every `step` value units, a fixed number of pixels wide: the
+        // value's own screen derivative turns the distance to it into pixels.
+        float f = i.value / max (Iso.x, 1e-9);
+        float d = abs (frac (f + 0.5) - 0.5) / max (fwidth (f), 1e-6);
+        float contour = Iso.x > 0.0 ? saturate (Iso.y - d + 0.5) : 0.0;
+        c.rgb = lerp (c.rgb, IsoColour.rgb, contour * IsoColour.a);
+        c.a = max (c.a, contour * IsoColour.a);
+    }
+    float3 n = i.normalView;
+    float facing = dot (n, n) > 1e-12 ? saturate (abs (normalize (n).z)) : 1.0;
+    if (Mode.x > 0.5 && Mode.x < 1.5)
+        c.rgb *= 0.45 + 0.55 * facing;
+    else if (Mode.x > 1.5 && Mode.x < 2.5)
+    {
+        c.rgb *= 0.75 + 0.25 * facing;
+        c.a *= 0.25 + 0.75 * pow (1.0 - facing, 2.5);
+    }
+    else if (Mode.x > 2.5)
+        c.a *= 0.3 + 0.5 * pow (1.0 - facing, 2.0);
+    c.a *= Mode.y;
+    if (Mode.z > 0.5 && Mode.z < 1.5)
+        c.a *= 0.3;
+    return c;
+}
+
+// Coverage across the width and at the dash ends -- the antialiasing StorySliceLayer
+// established: the ribbon is a pixel wider than the line, and its last pixel fades.
+float4 PSLine (LineOut i) : SV_TARGET
+{
+    float coverage = saturate (i.style.x - abs (i.across) + 0.5);
+    if (i.style.y > 0.5)
+    {
+        float phase = frac (i.along / i.style.y);
+        float into = phase * i.style.y;
+        float until = (i.style.z - phase) * i.style.y;
+        coverage *= saturate (min (into, until) + 0.5);
+    }
+    if (coverage <= 0.001)
+        discard;
+    return float4 (i.colour.rgb, i.colour.a * coverage * Mode.y);
+}
+
+Texture2D g_atlas;
+SamplerState g_atlas_sampler;
+
+float Median (float3 v)
+{
+    return max (min (v.r, v.g), min (max (v.r, v.g), v.b));
+}
+
+// SceneTextLayer's MTSDF resolve: the median of RGB is the edge, alpha the true
+// distance for the halo, the uv derivatives turn the atlas range into pixels.
+// Premultiplied out. The sample comes before the branch: derivatives stay uniform.
+float4 PSGlyph (GlyphOut i) : SV_TARGET
+{
+    float4 d = g_atlas.Sample (g_atlas_sampler, i.uv);
+    float2 unitRange = Atlas.z * Atlas.xy;
+    float2 screenTexelRange = 1.0 / max (fwidth (i.uv), float2 (1e-6, 1e-6));
+    float screenRange = max (0.5 * dot (unitRange, screenTexelRange), 1.0);
+    float fade = Mode.y * ((Mode.z > 0.5 && Mode.z < 1.5) ? 0.3 : 1.0);
+    if (i.solid > 0.5)
+    {
+        float a = i.colour.a * fade;
+        return float4 (i.colour.rgb * a, a);
+    }
+    float fill = saturate (screenRange * (Median (d.rgb) - 0.5) + 0.5);
+    float halo = saturate (screenRange * (d.a - 0.5) + 0.5 + max (i.haloPixels, 0.0));
+    float fillAlpha = fill * i.colour.a;
+    float haloAlpha = halo * i.halo.a * (1.0 - fillAlpha);
+    return float4 (i.colour.rgb * fillAlpha + i.halo.rgb * haloAlpha, fillAlpha + haloAlpha) * fade;
+}
+)hlsl";
+
+// The floor plan: the walls' projection, pixels from model metres, no depth.
+inline constexpr const char* kPlanBody = R"hlsl(
+cbuffer GuestPlanFrame
+{
+    float4 Linear;   // physical pixels per metre: xx, xy, yx, yy
+    float4 View;     // the anchor relative to the content origin: hi x, hi y, lo x, lo y
+    float4 Screen;   // the anchor's physical pixel, then 2 / width, 2 / height
+    float4 Surface;  // width, height in physical pixels, the view's DPI scale
+};
+
+float2 Pixel (float2 hi, float2 lo)
+{
+    precise float2 d = (hi - View.xy) + (lo - View.zw);
+    return float2 (Linear.x * d.x + Linear.y * d.y, Linear.z * d.x + Linear.w * d.y) + Screen.xy;
+}
+
+float2 Turned (float2 dir)
+{
+    return float2 (Linear.x * dir.x + Linear.y * dir.y, Linear.z * dir.x + Linear.w * dir.y);
+}
+
+float4 ClipOf (float2 p)
+{
+    return float4 (p.x * Screen.z - 1.0, 1.0 - p.y * Screen.w, 0.0, 1.0);
+}
+
+FillOut VSFill (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTRIB2, float4 colour : ATTRIB3,
+                float value : ATTRIB4)
+{
+    FillOut o;
+    float2 p = (Mode.w > 0.5 ? hi * Surface.xy : Pixel (hi, lo)) + offset * Surface.z;
+    o.position = ClipOf (p);
+    o.colour = colour;
+    o.value = value;
+    o.normalView = float3 (0.0, 0.0, 1.0);
+    return o;
+}
+
+LineOut VSLine (float2 hiA : ATTRIB0, float2 loA : ATTRIB1, float2 hiB : ATTRIB2, float2 loB : ATTRIB3,
+                float4 colour : ATTRIB4, float4 style : ATTRIB5, uint corner : SV_VertexID)
+{
+    LineOut o;
+    float2 a = Pixel (hiA, loA);
+    float2 b = Pixel (hiB, loB);
+    float halfWidth = style.x * 0.5 * Surface.z;
+    float pushed = halfWidth + 1.0;
+    float2 d = b - a;
+    float len = length (d);
+    float2 along = len > 1e-3 ? d / len : float2 (1.0, 0.0);
+    float2 across = float2 (-along.y, along.x);
+    // corners 0..5: (a,-) (b,-) (b,+) | (a,-) (b,+) (a,+), square caps
+    bool atB = corner == 1 || corner == 2 || corner == 4;
+    float side = (corner == 2 || corner == 4 || corner == 5) ? 1.0 : -1.0;
+    o.position = ClipOf ((atB ? b + along * pushed : a - along * pushed) + across * (side * pushed));
+    o.colour = colour;
+    o.across = side * pushed;
+    precise float2 m = (hiB - hiA) + (loB - loA);
+    float metres = length (m);
+    float perMetre = metres > 1e-9 ? len / metres : 0.0;
+    o.along = style.w * perMetre + (atB ? len + pushed : -pushed);
+    o.style = float3 (halfWidth, style.y * Surface.z, style.z);
+    return o;
+}
+
+GlyphOut VSGlyph (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTRIB2, float2 uv : ATTRIB3,
+                  float2 dir : ATTRIB4, float4 colour : ATTRIB5, float4 halo : ATTRIB6, float haloPixels : ATTRIB7,
+                  uint flags : ATTRIB8, float minSpan : ATTRIB9)
+{
+    GlyphOut o;
+    float2 anchor = (flags & 1u) != 0u ? hi * Surface.xy : Pixel (hi, lo);
+    float2 local = offset * Surface.z;
+    bool visible = true;
+    if ((flags & 2u) != 0u)
+    {
+        float2 d = Turned (dir);
+        float span = length (d);
+        if ((flags & 16u) != 0u && span < minSpan * Surface.z)
+            visible = false;
+        float2 u = span > 1e-6 ? d / span : float2 (1.0, 0.0);
+        if ((flags & 4u) != 0u && (u.x < -1e-4 || (abs (u.x) <= 1e-4 && u.y > 0.0)))
+            u = -u;
+        local = float2 (local.x * u.x - local.y * u.y, local.x * u.y + local.y * u.x);
+    }
+    o.position = visible ? ClipOf (anchor + local) : kCulled;
+    o.uv = uv;
+    o.colour = colour;
+    o.halo = halo;
+    o.haloPixels = haloPixels * Surface.z;
+    o.solid = (flags & 8u) != 0u ? 1.0 : 0.0;
+    return o;
+}
+)hlsl";
+
+// The 3D window: Archicad's camera through `ArchicadClip`, composed per camera slot by
+// `camerashader::Compose`, which also declares `View`. Pixels are the viewport's.
+inline constexpr const char* kSceneBody = R"hlsl(
+cbuffer GuestSceneFrame
+{
+    float4 Surface;  // the viewport's width and height in pixels, the DPI scale, the depth bias
+};
+
+static const float kNearW = 1e-5;
+
+float2 ToPixels (float4 c)
+{
+    float2 n = c.xy / c.w;
+    return float2 ((n.x * 0.5 + 0.5) * Surface.x, (0.5 - n.y * 0.5) * Surface.y);
+}
+
+float4 FromPixels (float2 p, float depth)
+{
+    return float4 (p.x / Surface.x * 2.0 - 1.0, 1.0 - p.y / Surface.y * 2.0, depth, 1.0);
+}
+
+FillOut VSFill (float3 position : ATTRIB0, float3 normal : ATTRIB1, float2 offset : ATTRIB2, float4 colour : ATTRIB3,
+                float value : ATTRIB4)
+{
+    FillOut o;
+    if (Mode.w > 0.5)
+        o.position = FromPixels (position.xy * Surface.xy + offset * Surface.z, 0.0);
+    else
+    {
+        float4 c = ArchicadClip (float4 (position, 1.0));
+        c.z -= Surface.w * c.w;
+        c.xy += offset * Surface.z * float2 (2.0 / Surface.x, -2.0 / Surface.y) * c.w;
+        o.position = c;
+    }
+    o.colour = colour;
+    o.value = value;
+    o.normalView = mul (float4 (normal, 0.0), View).xyz;
+    return o;
+}
+
+LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2, float4 style : ATTRIB3,
+                uint behind : ATTRIB4, uint corner : SV_VertexID)
+{
+    LineOut o;
+    float4 ca = ArchicadClip (float4 (a, 1.0));
+    float4 cb = ArchicadClip (float4 (b, 1.0));
+    bool draw = InPass (behind) && (ca.w > kNearW || cb.w > kNearW);
+    // The part behind the eye is cut away in clip space, where it is still a line.
+    float ta = 0.0, tb = 1.0;
+    float span = cb.w - ca.w;
+    if (ca.w < kNearW && abs (span) > 1e-12)
+    {
+        ta = (kNearW - ca.w) / span;
+        ca = lerp (ca, cb, ta);
+    }
+    else if (cb.w < kNearW && abs (span) > 1e-12)
+    {
+        tb = (kNearW - ca.w) / span;
+        cb = lerp (ca, cb, tb);
+    }
+    float2 pa = ToPixels (ca);
+    float2 pb = ToPixels (cb);
+    float za = saturate (ca.z / ca.w - Surface.w);
+    float zb = saturate (cb.z / cb.w - Surface.w);
+    float halfWidth = style.x * 0.5 * Surface.z;
+    float pushed = halfWidth + 1.0;
+    float2 d = pb - pa;
+    float len = length (d);
+    float2 along = len > 1e-3 ? d / len : float2 (1.0, 0.0);
+    float2 across = float2 (-along.y, along.x);
+    bool atB = corner == 1 || corner == 2 || corner == 4;
+    float side = (corner == 2 || corner == 4 || corner == 5) ? 1.0 : -1.0;
+    float2 p = (atB ? pb + along * pushed : pa - along * pushed) + across * (side * pushed);
+    o.position = draw ? FromPixels (p, atB ? zb : za) : kCulled;
+    float metres = length (b - a);
+    float perMetre = metres * (tb - ta) > 1e-9 ? len / (metres * (tb - ta)) : 0.0;
+    o.along = (style.w + ta * metres) * perMetre + (atB ? len + pushed : -pushed);
+    bool behindPass = Mode.z > 0.5 && Mode.z < 1.5;
+    float period = style.y * Surface.z;
+    float duty = style.z;
+    if (behindPass && behind == 2u && period < 0.5)
+    {
+        period = 8.0 * Surface.z;
+        duty = 0.55;
+    }
+    o.style = float3 (halfWidth, period, duty);
+    o.colour = colour;
+    if (behindPass && behind == 1u)
+        o.colour.a *= 0.3;
+    o.across = side * pushed;
+    return o;
+}
+
+GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset : ATTRIB2, float2 uv : ATTRIB3,
+                  float4 colour : ATTRIB4, float4 halo : ATTRIB5, float haloPixels : ATTRIB6, uint flags : ATTRIB7,
+                  float minSpan : ATTRIB8)
+{
+    GlyphOut o;
+    bool visible = true;
+    float2 anchor;
+    float depth = 0.0;
+    if ((flags & 1u) != 0u)
+        anchor = position.xy * Surface.xy;
+    else
+    {
+        float4 c = ArchicadClip (float4 (position, 1.0));
+        visible = c.w > kNearW;
+        anchor = ToPixels (c);
+        depth = saturate (c.z / c.w - Surface.w);
+    }
+    float2 local = offset * Surface.z;
+    if ((flags & 2u) != 0u)
+    {
+        // A span's anchor is its middle and `dir` the whole span; otherwise `dir`
+        // points from the anchor.
+        bool whole = (flags & 16u) != 0u;
+        float4 cf = ArchicadClip (float4 (whole ? position - dir * 0.5 : position, 1.0));
+        float4 ct = ArchicadClip (float4 (whole ? position + dir * 0.5 : position + dir, 1.0));
+        float2 u = float2 (1.0, 0.0);
+        if (cf.w > kNearW && ct.w > kNearW)
+        {
+            float2 d = ToPixels (ct) - ToPixels (cf);
+            float span = length (d);
+            if (whole && span < minSpan * Surface.z)
+                visible = false;
+            if (span > 1e-4)
+                u = d / span;
+        }
+        if ((flags & 4u) != 0u && (u.x < -1e-4 || (abs (u.x) <= 1e-4 && u.y > 0.0)))
+            u = -u;
+        local = float2 (local.x * u.x - local.y * u.y, local.x * u.y + local.y * u.x);
+    }
+    o.position = visible ? FromPixels (anchor + local, depth) : kCulled;
+    o.uv = uv;
+    o.colour = colour;
+    o.halo = halo;
+    o.haloPixels = haloPixels * Surface.z;
+    o.solid = (flags & 8u) != 0u ? 1.0 : 0.0;
+    return o;
+}
+)hlsl";
+
+// The plan's whole source.
+inline std::string PlanSource ()
+{
+    return std::string (kCommon) + kPlanBody;
+}
+
+// The 3D body, to be composed with `camerashader::Compose` for a camera slot.
+inline std::string SceneBody ()
+{
+    return std::string (kCommon) + kSceneBody;
+}
+
+} // namespace guestshaders
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
+
+#endif

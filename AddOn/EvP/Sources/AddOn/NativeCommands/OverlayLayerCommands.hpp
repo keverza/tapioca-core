@@ -5,9 +5,10 @@
 
 namespace geomsrv {
 
-// The caller's own geometry on the overlays in Archicad's views (ArchViz/OverlayLayers.hpp):
-// named layers of polylines, points and meshes. One store, drawn by each overlay through
-// its own transform.
+// The caller's own content on the overlays in Archicad's views (ArchViz/OverlayLayers.hpp):
+// named layers of polylines, points, meshes -- styled, or heatmaps with a ramp --
+// texts fixed to the model or to the view, dimensions and legends. One store, drawn
+// by each overlay through its own transform.
 //
 //   Tapioca.SetOverlayLayer, Tapioca.ClearOverlayLayer, Tapioca.OverlayLayers
 //

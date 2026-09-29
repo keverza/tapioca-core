@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 220,
+      "nativeRegistry": 226,
       "dispatcherLocal": 19,
-      "total": 239
+      "total": 245
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -870,6 +870,46 @@
         "type": "object",
         "properties": {},
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.ClearOverlayLayer",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "layer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "all": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "layers": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "generation": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cleared",
+          "layers",
+          "generation"
+        ]
       }
     },
     {
@@ -7104,6 +7144,12 @@
                 "type": {
                   "type": "string"
                 },
+                "typeId": {
+                  "type": "integer"
+                },
+                "variationId": {
+                  "type": "integer"
+                },
                 "elementId": {
                   "type": "string"
                 },
@@ -7119,6 +7165,8 @@
                 "guid",
                 "found",
                 "type",
+                "typeId",
+                "variationId",
                 "elementId",
                 "story",
                 "layer"
@@ -17913,6 +17961,170 @@
       }
     },
     {
+      "name": "Tapioca.Overlay2D",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off",
+              "toggle",
+              "state"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "wanted": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "refused": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "view": {
+            "type": "string"
+          },
+          "storey": {
+            "type": "integer"
+          },
+          "rings": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "segments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "canvasPresents": {
+            "type": "string"
+          },
+          "drawn": {
+            "type": "string"
+          },
+          "readsFresh": {
+            "type": "string"
+          },
+          "drawnWithLastRead": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "wanted",
+          "running",
+          "refused",
+          "code",
+          "message",
+          "retryable",
+          "view",
+          "storey",
+          "rings",
+          "segments",
+          "canvasPresents",
+          "drawn",
+          "readsFresh",
+          "drawnWithLastRead",
+          "lastError"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.Overlay3D",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off",
+              "toggle",
+              "state"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "wanted": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "refused": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "view": {
+            "type": "string"
+          },
+          "camera": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "presentInjections": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "wanted",
+          "running",
+          "refused",
+          "code",
+          "message",
+          "retryable",
+          "view",
+          "camera",
+          "host",
+          "presentInjections"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.OverlayCalibrate",
       "implementation": "native-registry",
       "inputScheme": {
@@ -17970,6 +18182,255 @@
         "additionalProperties": false,
         "required": [
           "rows"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.OverlayLayers",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "layer": {
+                  "type": "string"
+                },
+                "views": {
+                  "type": "string",
+                  "enum": [
+                    "2d",
+                    "3d",
+                    "both"
+                  ]
+                },
+                "occluded": {
+                  "type": "boolean"
+                },
+                "polylines": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "lineVertices": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "points": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "meshes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "triangles": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "texts": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "dimensions": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "legends": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "layer",
+                "views",
+                "occluded",
+                "polylines",
+                "lineVertices",
+                "points",
+                "meshes",
+                "triangles",
+                "texts",
+                "dimensions",
+                "legends"
+              ]
+            }
+          },
+          "generation": {
+            "type": "string"
+          },
+          "guest": {
+            "type": "object",
+            "properties": {
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "attached": {
+                    "type": "boolean"
+                  },
+                  "attachMilliseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "buildMilliseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "uploads": {
+                    "type": "string"
+                  },
+                  "draws": {
+                    "type": "string"
+                  },
+                  "drawCalls": {
+                    "type": "string"
+                  },
+                  "declinedNoCamera": {
+                    "type": "string"
+                  },
+                  "declinedNoViewport": {
+                    "type": "string"
+                  },
+                  "declinedNoTransform": {
+                    "type": "string"
+                  },
+                  "declinedFailed": {
+                    "type": "string"
+                  },
+                  "fills": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "lines": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "glyphVertices": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "pages": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "failure": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "attached",
+                  "attachMilliseconds",
+                  "buildMilliseconds",
+                  "uploads",
+                  "draws",
+                  "drawCalls",
+                  "declinedNoCamera",
+                  "declinedNoViewport",
+                  "declinedNoTransform",
+                  "declinedFailed",
+                  "fills",
+                  "lines",
+                  "glyphVertices",
+                  "pages",
+                  "failure"
+                ]
+              },
+              "scene": {
+                "type": "object",
+                "properties": {
+                  "attached": {
+                    "type": "boolean"
+                  },
+                  "attachMilliseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "buildMilliseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "uploads": {
+                    "type": "string"
+                  },
+                  "draws": {
+                    "type": "string"
+                  },
+                  "drawCalls": {
+                    "type": "string"
+                  },
+                  "declinedNoCamera": {
+                    "type": "string"
+                  },
+                  "declinedNoViewport": {
+                    "type": "string"
+                  },
+                  "declinedNoTransform": {
+                    "type": "string"
+                  },
+                  "declinedFailed": {
+                    "type": "string"
+                  },
+                  "fills": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "lines": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "glyphVertices": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "pages": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "failure": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "attached",
+                  "attachMilliseconds",
+                  "buildMilliseconds",
+                  "uploads",
+                  "draws",
+                  "drawCalls",
+                  "declinedNoCamera",
+                  "declinedNoViewport",
+                  "declinedNoTransform",
+                  "declinedFailed",
+                  "fills",
+                  "lines",
+                  "glyphVertices",
+                  "pages",
+                  "failure"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "plan",
+              "scene"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "layers",
+          "generation",
+          "guest"
         ]
       }
     },
@@ -19069,6 +19530,199 @@
           "databaseId",
           "layer",
           "verified"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.PlanFrameRecord",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "boolean"
+          },
+          "seconds": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 30
+          },
+          "stop": {
+            "type": "boolean"
+          },
+          "reset": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "recording",
+              "closing",
+              "analysing",
+              "done",
+              "failed",
+              "?"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "integer"
+          },
+          "elapsedMs": {
+            "type": "string"
+          },
+          "presents": {
+            "type": "string"
+          },
+          "presentsDropped": {
+            "type": "string"
+          },
+          "targetPresents": {
+            "type": "string"
+          },
+          "framesSubmitted": {
+            "type": "string"
+          },
+          "framesReady": {
+            "type": "string"
+          },
+          "slotsBusy": {
+            "type": "string"
+          },
+          "readbackFailures": {
+            "type": "string"
+          },
+          "createFailures": {
+            "type": "string"
+          },
+          "unsupportedFormat": {
+            "type": "string"
+          },
+          "targetChanges": {
+            "type": "string"
+          },
+          "format": {
+            "type": "integer"
+          },
+          "samplesEntry": {
+            "type": "string"
+          },
+          "samplesExit": {
+            "type": "string"
+          },
+          "samplesTimer": {
+            "type": "string"
+          },
+          "samplesInvalid": {
+            "type": "string"
+          },
+          "samplesTorn": {
+            "type": "string"
+          },
+          "samplesDropped": {
+            "type": "string"
+          },
+          "canvasMessages": {
+            "type": "string"
+          },
+          "retrievedMessages": {
+            "type": "string"
+          },
+          "idleRedraws": {
+            "type": "integer"
+          },
+          "mainThread": {
+            "type": "string"
+          },
+          "dpi": {
+            "type": "number"
+          },
+          "canvasClass": {
+            "type": "string"
+          },
+          "canvasWidth": {
+            "type": "integer"
+          },
+          "canvasHeight": {
+            "type": "integer"
+          },
+          "target": {
+            "type": "string"
+          },
+          "targetClass": {
+            "type": "string"
+          },
+          "targetRelation": {
+            "type": "string"
+          },
+          "pairs": {
+            "type": "integer"
+          },
+          "pairsValid": {
+            "type": "integer"
+          },
+          "analysisMs": {
+            "type": "string"
+          },
+          "jsonPath": {
+            "type": "string"
+          },
+          "framesPath": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "error",
+          "reason",
+          "seconds",
+          "elapsedMs",
+          "presents",
+          "presentsDropped",
+          "targetPresents",
+          "framesSubmitted",
+          "framesReady",
+          "slotsBusy",
+          "readbackFailures",
+          "createFailures",
+          "unsupportedFormat",
+          "targetChanges",
+          "format",
+          "samplesEntry",
+          "samplesExit",
+          "samplesTimer",
+          "samplesInvalid",
+          "samplesTorn",
+          "samplesDropped",
+          "canvasMessages",
+          "retrievedMessages",
+          "idleRedraws",
+          "mainThread",
+          "dpi",
+          "canvasClass",
+          "canvasWidth",
+          "canvasHeight",
+          "target",
+          "targetClass",
+          "targetRelation",
+          "pairs",
+          "pairsValid",
+          "analysisMs",
+          "jsonPath",
+          "framesPath"
         ]
       }
     },
@@ -22549,6 +23203,744 @@
         "additionalProperties": false,
         "required": [
           "shown"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SetOverlayLayer",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "layer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "views": {
+            "type": "string",
+            "enum": [
+              "2d",
+              "3d",
+              "both"
+            ]
+          },
+          "occluded": {
+            "type": "boolean"
+          },
+          "polylines": {
+            "type": "array",
+            "maxItems": 20000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 6,
+                  "maxItems": 300000,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "closed": {
+                  "type": "boolean"
+                },
+                "color": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "widthPixels": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 64
+                },
+                "dashPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 512
+                },
+                "dashDuty": {
+                  "type": "number",
+                  "minimum": 0.05,
+                  "maximum": 0.95
+                },
+                "behind": {
+                  "type": "string",
+                  "enum": [
+                    "hide",
+                    "fade",
+                    "dash",
+                    "show"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "points"
+              ]
+            }
+          },
+          "points": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 300000,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "color": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "sizePixels": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 256
+                },
+                "sizeMetres": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1000
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "points"
+              ]
+            }
+          },
+          "meshes": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 9,
+                  "maxItems": 300000,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "indices": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 600000,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "color": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "vertexColors": {
+                  "type": "array",
+                  "maxItems": 100000,
+                  "items": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 8
+                  }
+                },
+                "normals": {
+                  "type": "array",
+                  "minItems": 9,
+                  "maxItems": 300000,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "values": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 100000,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "colormap": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "type": "string",
+                      "enum": [
+                        "viridis",
+                        "inferno",
+                        "magma",
+                        "plasma",
+                        "turbo",
+                        "coolwarm",
+                        "greys",
+                        "sunhours",
+                        "slope",
+                        "clearance"
+                      ]
+                    },
+                    "stops": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 16,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "at": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 8,
+                            "maxLength": 8
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "at",
+                          "color"
+                        ]
+                      }
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "bands": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 64
+                    },
+                    "isolines": {
+                      "type": "object",
+                      "properties": {
+                        "step": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        "color": {
+                          "type": "string",
+                          "minLength": 8,
+                          "maxLength": 8
+                        },
+                        "widthPixels": {
+                          "type": "number",
+                          "minimum": 0.25,
+                          "maximum": 16
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "step"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "style": {
+                  "type": "object",
+                  "properties": {
+                    "shading": {
+                      "type": "string",
+                      "enum": [
+                        "flat",
+                        "lit",
+                        "ghost",
+                        "xray"
+                      ]
+                    },
+                    "opacity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "behind": {
+                      "type": "string",
+                      "enum": [
+                        "hide",
+                        "fade",
+                        "show"
+                      ]
+                    },
+                    "cull": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "back"
+                      ]
+                    },
+                    "edges": {
+                      "type": "object",
+                      "properties": {
+                        "color": {
+                          "type": "string",
+                          "minLength": 8,
+                          "maxLength": 8
+                        },
+                        "widthPixels": {
+                          "type": "number",
+                          "minimum": 0.25,
+                          "maximum": 16
+                        },
+                        "angleDegrees": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 180
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "points",
+                "indices"
+              ]
+            }
+          },
+          "texts": {
+            "type": "array",
+            "maxItems": 5000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "at": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "screen": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "offsetPixels": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "sizePixels": {
+                  "type": "number",
+                  "minimum": 4,
+                  "maximum": 256
+                },
+                "color": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "halo": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "haloPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "background": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "align": {
+                  "type": "string",
+                  "enum": [
+                    "left",
+                    "center",
+                    "right"
+                  ]
+                },
+                "baseline": {
+                  "type": "string",
+                  "enum": [
+                    "top",
+                    "middle",
+                    "bottom",
+                    "alphabetic"
+                  ]
+                },
+                "rotationDegrees": {
+                  "type": "number",
+                  "minimum": -360,
+                  "maximum": 360
+                },
+                "behind": {
+                  "type": "string",
+                  "enum": [
+                    "hide",
+                    "fade",
+                    "show"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "dimensions": {
+            "type": "array",
+            "maxItems": 5000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "to": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "offsetMetres": {
+                  "type": "number",
+                  "minimum": -10000,
+                  "maximum": 10000
+                },
+                "direction": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "normal": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "decimals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "m",
+                    "cm",
+                    "mm"
+                  ]
+                },
+                "showUnit": {
+                  "type": "boolean"
+                },
+                "color": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "widthPixels": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 16
+                },
+                "textSizePixels": {
+                  "type": "number",
+                  "minimum": 4,
+                  "maximum": 128
+                },
+                "terminator": {
+                  "type": "string",
+                  "enum": [
+                    "tick",
+                    "arrow",
+                    "dot"
+                  ]
+                },
+                "behind": {
+                  "type": "string",
+                  "enum": [
+                    "hide",
+                    "fade",
+                    "dash",
+                    "show"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "from",
+                "to"
+              ]
+            }
+          },
+          "legends": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "mesh": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "colormap": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "type": "string",
+                      "enum": [
+                        "viridis",
+                        "inferno",
+                        "magma",
+                        "plasma",
+                        "turbo",
+                        "coolwarm",
+                        "greys",
+                        "sunhours",
+                        "slope",
+                        "clearance"
+                      ]
+                    },
+                    "stops": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 16,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "at": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "color": {
+                            "type": "string",
+                            "minLength": 8,
+                            "maxLength": 8
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "at",
+                          "color"
+                        ]
+                      }
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "bands": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 64
+                    },
+                    "isolines": {
+                      "type": "object",
+                      "properties": {
+                        "step": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        "color": {
+                          "type": "string",
+                          "minLength": 8,
+                          "maxLength": 8
+                        },
+                        "widthPixels": {
+                          "type": "number",
+                          "minimum": 0.25,
+                          "maximum": 16
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "step"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "corner": {
+                  "type": "string",
+                  "enum": [
+                    "top-left",
+                    "top-right",
+                    "bottom-left",
+                    "bottom-right"
+                  ]
+                },
+                "offsetPixels": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "lengthPixels": {
+                  "type": "number",
+                  "minimum": 20,
+                  "maximum": 4000
+                },
+                "widthPixels": {
+                  "type": "number",
+                  "minimum": 2,
+                  "maximum": 200
+                },
+                "ticks": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 32
+                },
+                "decimals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "sizePixels": {
+                  "type": "number",
+                  "minimum": 4,
+                  "maximum": 128
+                },
+                "color": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                },
+                "halo": {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 8
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "layer"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "layer": {
+            "type": "string"
+          },
+          "views": {
+            "type": "string",
+            "enum": [
+              "2d",
+              "3d",
+              "both"
+            ]
+          },
+          "occluded": {
+            "type": "boolean"
+          },
+          "polylines": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lineVertices": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "points": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "meshes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "triangles": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "texts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "legends": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "generation": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "layer",
+          "views",
+          "occluded",
+          "polylines",
+          "lineVertices",
+          "points",
+          "meshes",
+          "triangles",
+          "texts",
+          "dimensions",
+          "legends",
+          "generation"
         ]
       }
     },

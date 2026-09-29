@@ -17,6 +17,15 @@
 // preparation hands world floats to the same camera the building's own geometry
 // is drawn with, because that camera expects nothing else (HostOccluders.hpp).
 //
+// ⚠️ TWO RENDERERS DRAW A LAYER, AND EACH PRIMITIVE HAS EXACTLY ONE (§12b). Plain
+// polylines, point markers and single-colour meshes are drawn by the raw D3D11
+// layer pipelines (`Prepare2D`, `Prepare3D`) -- the path that needs nothing
+// attached to Archicad's device. Everything that needs a glyph atlas, a colour ramp,
+// a style or a depth policy -- texts, dimensions, legends, dashed or `behind`-styled
+// polylines, styled or heatmap meshes -- is drawn by the Diligent guest
+// (ArchViz/OverlayScene.hpp). `DrawnByGuest` decides, and both preparations ask it,
+// so nothing is drawn twice and nothing is dropped between them.
+//
 // THREADS. `Set`/`Clear` and the preparations are MAIN THREAD; the 3D overlay
 // receives what it draws through its own lock-free hand-over, never this store.
 
@@ -39,11 +48,26 @@ enum class Views : uint32_t {
 
 bool DrawnIn (Views views, Views view);
 
+// What a 3D item does where the building is in front of it. The 2D overlay has no
+// depth (finding 13) and draws every item whole.
+enum class Behind : uint8_t {
+    Layer = 0, // the layer's `occluded`: true is Hide, false is Show
+    Hide = 1,  // not drawn there -- the reference wireframe's rule
+    Fade = 2,  // drawn faint
+    Dash = 3,  // lines dashed there; other items faint
+    Show = 4,  // drawn as if nothing were in front
+};
+
 struct Polyline {
     std::vector<double> points; // x, y, z model metres; at least two points
     bool closed = false;
     uint32_t rgba = 0xFF3B30FFu; // 0xRRGGBBAA
     float widthPixels = 2.0f;
+    // Guest only: a dash period in logical pixels (0 is solid) and the fraction of
+    // it drawn, measured along the whole polyline so a corner does not restart it.
+    float dashPixels = 0.0f;
+    float dashDuty = 0.5f;
+    Behind behind = Behind::Layer;
 };
 
 // A marker at each point: a square `sizePixels` wide in 2D, an axis cross with arms
@@ -56,11 +80,121 @@ struct PointSet {
     float sizeMetres = 0.1f;
 };
 
+// A value -> colour ramp: sun hours, shadow, clearance, slope, visibility. Stops are
+// positions 0..1 along [min, max], ascending, at most `kMaxStops`.
+struct ColourStop {
+    float at = 0.0f;
+    uint32_t rgba = 0xFFFFFFFFu;
+};
+constexpr size_t kMaxStops = 16;
+
+struct Colormap {
+    std::vector<ColourStop> stops;
+    double min = 0.0;
+    double max = 1.0;
+    bool autoRange = true;  // min and max from the values; false when the caller set them
+    uint32_t bands = 0;     // 0 is smooth; N is N flat steps
+    double isolineStep = 0; // 0 is none; otherwise a contour every `step` value units
+    uint32_t isolineRgba = 0x000000A0u;
+    float isolineWidthPixels = 1.0f;
+};
+
+// The named ramps a caller can ask for instead of writing stops. False for a name
+// this does not know; `stops` is untouched then.
+bool PresetStops (const std::string& name, std::vector<ColourStop>& stops);
+
+enum class Shading : uint8_t {
+    Flat = 0,  // the mesh's colour as given
+    Lit = 1,   // darkened away from the eye: reads as a solid
+    Ghost = 2, // translucent, opaque only at its silhouette: reads as a volume
+    Xray = 3,  // faint and over everything, silhouette kept
+};
+
+struct MeshStyle {
+    Shading shading = Shading::Flat;
+    float opacity = 1.0f;         // multiplies every alpha
+    uint32_t edgeRgba = 0;        // alpha 0: no edges
+    float edgeWidthPixels = 1.0f; // feature edges: boundaries and creases
+    float edgeAngleDegrees = 30.0f;
+    bool cullBack = false;
+    Behind behind = Behind::Layer;
+};
+
 struct Mesh {
     std::vector<double> points;       // x, y, z
     std::vector<uint32_t> indices;    // three per triangle
     uint32_t rgba = 0xFF3B3080u;      // one colour for the mesh
     std::vector<uint32_t> vertexRgba; // optional, one per vertex; overrides `rgba`
+    // Guest only. Per-vertex normals (computed from the triangles when absent),
+    // per-vertex values for a heatmap, and how the whole mesh is drawn.
+    std::vector<double> normals;
+    std::vector<double> values;
+    Colormap colormap;
+    MeshStyle style;
+    bool styled = false; // the caller gave a style: the guest draws it
+};
+
+enum class Align : uint8_t { Left = 0, Center = 1, Right = 2 };
+enum class Baseline : uint8_t { Top = 0, Middle = 1, Bottom = 2, Alphabetic = 3 };
+
+// A label: HarfBuzz-shaped, MTSDF-rendered, a fixed size in LOGICAL pixels at any zoom.
+// Anchored to a model point, or -- `screen` -- to the viewport, where `at` x and y are
+// fractions of its width and height from the top left: a text layer fixed to the view.
+struct Text {
+    std::string text; // UTF-8, one line
+    bool screen = false;
+    double at[3] = {};
+    float offsetPixels[2] = {}; // logical pixels, x right, y down, after the anchor
+    float sizePixels = 13.0f;
+    uint32_t rgba = 0xFFFFFFFFu;
+    uint32_t haloRgba = 0x000000C0u;
+    float haloPixels = 1.5f;
+    uint32_t backgroundRgba = 0; // alpha 0: no panel
+    Align align = Align::Center;
+    Baseline baseline = Baseline::Middle;
+    float rotationDegrees = 0.0f; // on screen, counter-clockwise
+    Behind behind = Behind::Layer;
+};
+
+enum class Terminator : uint8_t { Tick = 0, Arrow = 1, Dot = 2 };
+enum class LengthUnit : uint8_t { Metres = 0, Centimetres = 1, Millimetres = 2 };
+
+// An aligned dimension, resolved by the annotation layer's own geometry
+// (Annotation/DimensionGeometry.hpp): the line is `offsetMetres` from the measured
+// points, towards `direction` when given, in the plane `normal` names when given.
+struct Dimension {
+    double from[3] = {};
+    double to[3] = {};
+    double offsetMetres = 0.5;
+    double direction[3] = {}; // zero: automatic
+    double normal[3] = {};    // zero: horizontal dimensions measure in plan, others upright
+    std::string text;         // empty: the measured length
+    uint32_t decimals = 2;
+    LengthUnit unit = LengthUnit::Metres;
+    bool showUnit = false;
+    uint32_t rgba = 0xFFFFFFFFu;
+    float widthPixels = 1.25f;
+    float textSizePixels = 12.0f;
+    Terminator terminator = Terminator::Tick;
+    Behind behind = Behind::Layer;
+};
+
+enum class Corner : uint8_t { TopLeft = 0, TopRight = 1, BottomLeft = 2, BottomRight = 3 };
+
+// A colour bar fixed to the view, with its range written at `ticks` places.
+struct Legend {
+    std::string title;
+    std::string unit;
+    Colormap colormap;
+    Corner corner = Corner::BottomRight;
+    float offsetPixels[2] = { 16.0f, 16.0f }; // inwards from the corner
+    float lengthPixels = 160.0f;
+    float widthPixels = 12.0f;
+    uint32_t ticks = 5;
+    uint32_t decimals = 1;
+    float sizePixels = 11.0f;
+    uint32_t rgba = 0xFFFFFFFFu;
+    uint32_t haloRgba = 0x000000C0u;
 };
 
 struct Layer {
@@ -72,7 +206,19 @@ struct Layer {
     std::vector<Polyline> polylines;
     std::vector<PointSet> points;
     std::vector<Mesh> meshes;
+    std::vector<Text> texts;
+    std::vector<Dimension> dimensions;
+    std::vector<Legend> legends;
 };
+
+// Which renderer draws a primitive -- see the header's second note.
+bool DrawnByGuest (const Polyline& polyline);
+bool DrawnByGuest (const Mesh& mesh);
+// True when anything in the layer needs the guest.
+bool NeedsGuest (const Layer& layer);
+
+// `Behind::Layer` resolved against the layer.
+Behind Resolve (Behind behind, const Layer& layer);
 
 // What `Validate` refused, in a sentence a caller can act on. Empty when valid.
 std::string Validate (const Layer& layer);
@@ -86,16 +232,28 @@ struct Summary {
     uint32_t points = 0;
     uint32_t meshes = 0;
     uint32_t triangles = 0;
+    uint32_t texts = 0;
+    uint32_t dimensions = 0;
+    uint32_t legends = 0;
 };
 Summary Summarise (const Layer& layer);
 
 // ---- the store, MAIN THREAD --------------------------------------------------
 
+// ⚠️ NAMES STARTING `tapioca.` ARE THE ADD-ON'S OWN LAYERS -- the storey slices and
+// the Watch annotations -- which their own verbs switch. A caller cannot set one
+// (the verb refuses the prefix), and `ClearAll` leaves them to those verbs.
+constexpr const char* kReservedPrefix = "tapioca.";
+bool Reserved (const std::string& name);
+
 // Replace (or add) the layer of this name. Returns the store's new generation.
 uint64_t Set (Layer layer);
 // Remove one layer; false when there was none of that name.
 bool Clear (const std::string& name);
+// Every caller layer; the reserved ones stay.
 void ClearAll ();
+// Every layer, reserved ones too: a project close (§8).
+void ClearEverything ();
 // Every layer, in the order they were first set -- the draw order.
 std::vector<std::shared_ptr<const Layer>> Layers ();
 // Moves on every change; a renderer rebuilds when it differs from what it holds.

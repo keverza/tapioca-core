@@ -147,6 +147,33 @@ struct LadderCounts {
 };
 LadderCounts MarkerLadderCounts ();
 
+// What the Diligent guest has done on one overlay (Dxgi/PlanGuest.hpp,
+// Dxgi/SceneGuest.hpp), carried across the NativeCommands boundary like the ladder's
+// counts. ⚠️ TOTALS SINCE THE GUEST ATTACHED: a question about NOW is two readings
+// and their difference (section 7). A decline the overlay cannot have is 0.
+struct GuestCounts {
+    bool attached = false;
+    uint32_t attachMilliseconds = 0;
+    uint32_t buildMilliseconds = 0;
+    uint64_t uploads = 0;
+    uint64_t draws = 0; // Presents the guest drew in
+    uint64_t drawCalls = 0;
+    uint64_t declinedNoCamera = 0;    // 3D: no camera for the frame
+    uint64_t declinedNoViewport = 0;  // 3D: no viewport bound
+    uint64_t declinedNoTransform = 0; // plan: no transform read at the Present
+    uint64_t declinedFailed = 0;      // 3D: the attach or a pipeline failed this session
+    uint32_t fills = 0;               // what is uploaded now
+    uint32_t lines = 0;
+    uint32_t glyphVertices = 0;
+    uint32_t pages = 0;
+    std::string failure;
+};
+struct GuestReport {
+    GuestCounts plan;
+    GuestCounts scene;
+};
+GuestReport Guest ();
+
 // MAIN THREAD, periodic. While an overlay is wanted, keep it on the window the
 // user is looking at: tear down the session for the view being left and start
 // the one the new view needs. Intent and renderer are tracked apart -- see the

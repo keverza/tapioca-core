@@ -42,6 +42,7 @@
 #include <cstdint>
 #include <string>
 
+struct ID3D11Device;
 struct IDXGISwapChain;
 
 namespace geomsrv {
@@ -99,6 +100,10 @@ Prepared Prepare (const plancontent::Content& content, uint64_t generation, bool
 // MAIN THREAD, outside any Present, once `Prepare` is Ready. The caller's layers
 // (ArchViz/OverlayLayers.hpp), drawn over the walls with the same transform. Uploads
 // only when `generation` is not the one held; `changed` says a redraw is due.
+// MAIN THREAD. The device the canvas's chain presents with, once a Present named it;
+// null before. Held until `Release` (§12b); never a buffer or a view.
+ID3D11Device* Device ();
+
 bool HoldsLayers (uint64_t generation);
 bool PrepareLayers (const overlaylayers::Prepared2D& layers, uint64_t generation, bool& changed, std::string& error);
 

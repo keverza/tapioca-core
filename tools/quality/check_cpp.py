@@ -362,10 +362,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/OverlayController.hpp"),
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/InjectedOverlayRuntime.hpp"),
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/PlanOverlayRuntime.hpp"),
-    # Tapioca.SetOverlayLayer and its two siblings: the caller's arbitrary geometry
-    # on both overlays. The verbs fill the one store both overlays read -- a second
-    # store on this side would be a second answer to "what is on the overlay" -- and
-    # hand the 3D overlay its prepared copy through the controller.
+    # Tapioca.SetOverlayLayer and its two siblings: the caller's own content on both
+    # overlays. The verbs fill the one store both overlays read -- a second store on
+    # this side would be a second answer to "what is on the overlay" -- and hand the
+    # 3D overlay its prepared copy through the controller.
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayLayers.hpp"),
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayController.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
@@ -1165,16 +1165,20 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/InjectionCamera.cpp",
     "ArchViz/Dxgi/InjectionDepth.cpp",
     "ArchViz/Dxgi/CameraFreshness.cpp",
+    "ArchViz/Dxgi/DiligentGuest.cpp",
+    "ArchViz/Dxgi/GuestGpu.cpp",
     "ArchViz/Dxgi/InjectedDiligentContext.cpp",
     "ArchViz/Dxgi/InjectionRenderer.cpp",
     "ArchViz/Dxgi/LayerOverlay3D.cpp",
     "ArchViz/Dxgi/MarkerLadder.cpp",
     "ArchViz/Dxgi/OverlayComposer.cpp",
     "ArchViz/Dxgi/PassProvenance.cpp",
+    "ArchViz/Dxgi/PlanGuest.cpp",
     "ArchViz/Dxgi/PassProvenanceFirstTransition.cpp",
     "ArchViz/Dxgi/PlanFrameRecord.cpp",
     "ArchViz/Dxgi/PlanOverlayLayer.cpp",
     "ArchViz/Dxgi/PresentProfile.cpp",
+    "ArchViz/Dxgi/SceneGuest.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",

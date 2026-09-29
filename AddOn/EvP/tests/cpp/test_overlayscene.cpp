@@ -1,0 +1,417 @@
+// ArchViz/OverlayScene: what the Diligent guest draws, prepared from the layers.
+// Every way of getting this wrong is a picture over Archicad's view -- a dimension on
+// the wrong side, a label on the wrong anchor, a crease where a seam is -- so each
+// rule is pinned here, offline, against the real source.
+
+#include "ArchViz/OverlayScene.hpp"
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cmath>
+#include <fstream>
+#include <iterator>
+#include <set>
+
+namespace scene = geomsrv::archviz::overlayscene;
+namespace layers = geomsrv::archviz::overlaylayers;
+namespace text = geomsrv::archviz::overlaytext;
+
+namespace {
+
+text::Engine& Engine ()
+{
+    static text::Engine engine;
+    if (!engine.Ready ()) {
+        std::ifstream stream (EVP_SCENE_TEXT_FONT, std::ios::binary);
+        std::vector<uint8_t> font { std::istreambuf_iterator<char> (stream), std::istreambuf_iterator<char> () };
+        std::string error;
+        EXPECT_TRUE (engine.Init (std::move (font), error)) << error;
+    }
+    return engine;
+}
+
+std::vector<std::shared_ptr<const layers::Layer>> One (layers::Layer layer)
+{
+    return { std::make_shared<const layers::Layer> (std::move (layer)) };
+}
+
+double Rejoin (float hi, float lo, double origin)
+{
+    return double (hi) + double (lo) + origin;
+}
+
+layers::Mesh Cube (bool splitFaces)
+{
+    // Eight corners of the unit cube, and its twelve triangles wound outwards.
+    const double corners[8][3] = { { 0, 0, 0 }, { 1, 0, 0 }, { 1, 1, 0 }, { 0, 1, 0 },
+                                   { 0, 0, 1 }, { 1, 0, 1 }, { 1, 1, 1 }, { 0, 1, 1 } };
+    const uint32_t faces[6][4] = { { 0, 3, 2, 1 }, { 4, 5, 6, 7 }, { 0, 1, 5, 4 },
+                                   { 1, 2, 6, 5 }, { 2, 3, 7, 6 }, { 3, 0, 4, 7 } };
+    layers::Mesh mesh;
+    for (const auto& corner : corners)
+        if (!splitFaces)
+            mesh.points.insert (mesh.points.end (), { corner[0], corner[1], corner[2] });
+    for (const auto& face : faces) {
+        uint32_t index[4];
+        for (int k = 0; k < 4; ++k) {
+            if (splitFaces) {
+                index[k] = uint32_t (mesh.points.size () / 3);
+                const auto& corner = corners[face[k]];
+                mesh.points.insert (mesh.points.end (), { corner[0], corner[1], corner[2] });
+            }
+            else {
+                index[k] = face[k];
+            }
+        }
+        mesh.indices.insert (mesh.indices.end (), { index[0], index[1], index[2], index[0], index[2], index[3] });
+    }
+    return mesh;
+}
+
+} // namespace
+
+TEST (OverlayScene, APlainPolylineStaysRawAndADashedOneGoesToTheGuest)
+{
+    layers::Layer layer;
+    layer.name = "lines";
+    layers::Polyline plain;
+    plain.points = { 0, 0, 0, 10, 0, 0 };
+    layers::Polyline dashed = plain;
+    dashed.dashPixels = 8.0f;
+    layer.polylines = { plain, dashed };
+    const auto all = One (layer);
+
+    EXPECT_EQ (layers::Prepare2D (all).strokes.size (), 1u);
+    EXPECT_EQ (layers::Prepare3D (all).occludedLines.size (), 2u); // one segment, two vertices
+    const scene::Plan plan = scene::PreparePlan (all, nullptr);
+    ASSERT_EQ (plan.lines.size (), 1u);
+    EXPECT_FLOAT_EQ (plan.lines[0].dashPixels, 8.0f);
+    EXPECT_EQ (scene::PrepareScene (all, nullptr).lines.size (), 1u);
+    EXPECT_TRUE (layers::NeedsGuest (layer));
+}
+
+// ⚠️ THE PLAN'S HALVES REJOIN TO THE MODEL COORDINATE -- the walls' precision, which
+// is what keeps a georeferenced project's millimetres.
+TEST (OverlayScene, PlanLinesRejoinToTheirModelCoordinatesFarFromTheOrigin)
+{
+    layers::Layer layer;
+    layer.name = "far";
+    layers::Polyline line;
+    line.points = { 581234.5678, 6061234.4321, 0, 581244.5679, 6061234.4322, 0 };
+    line.dashPixels = 6.0f;
+    layer.polylines = { line };
+    const scene::Plan plan = scene::PreparePlan (One (layer), nullptr);
+    ASSERT_EQ (plan.lines.size (), 1u);
+    const scene::PlanLine& l = plan.lines[0];
+    EXPECT_NEAR (Rejoin (l.hiA[0], l.loA[0], plan.originX), 581234.5678, 1e-6);
+    EXPECT_NEAR (Rejoin (l.hiA[1], l.loA[1], plan.originY), 6061234.4321, 1e-6);
+    EXPECT_NEAR (Rejoin (l.hiB[0], l.loB[0], plan.originX), 581244.5679, 1e-6);
+    EXPECT_NEAR (Rejoin (l.hiB[1], l.loB[1], plan.originY), 6061234.4322, 1e-6);
+}
+
+TEST (OverlayScene, ADashCarriesItsDistanceAlongThePolyline)
+{
+    layers::Layer layer;
+    layer.name = "dash";
+    layers::Polyline line;
+    line.points = { 0, 0, 0, 3, 0, 0, 3, 4, 0 };
+    line.dashPixels = 8.0f;
+    layer.polylines = { line };
+    const scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
+    ASSERT_EQ (scene.lines.size (), 2u);
+    EXPECT_FLOAT_EQ (scene.lines[0].arcStart, 0.0f);
+    EXPECT_FLOAT_EQ (scene.lines[1].arcStart, 3.0f);
+}
+
+TEST (OverlayScene, BehindFollowsTheLayerUnlessTheItemSaysOtherwise)
+{
+    layers::Layer layer;
+    layer.name = "behind";
+    layers::Polyline line;
+    line.points = { 0, 0, 0, 1, 0, 0 };
+    line.behind = layers::Behind::Layer;
+    line.dashPixels = 4.0f;
+    layers::Polyline faded = line;
+    faded.behind = layers::Behind::Fade;
+    layer.polylines = { line, faded };
+    layer.occluded = true;
+    scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
+    ASSERT_EQ (scene.lines.size (), 2u);
+    EXPECT_EQ (scene.lines[0].behind, scene::kBehindHide);
+    EXPECT_EQ (scene.lines[1].behind, scene::kBehindFade);
+    layer.occluded = false;
+    scene = scene::PrepareScene (One (layer), nullptr);
+    EXPECT_EQ (scene.lines[0].behind, scene::kBehindShow);
+}
+
+TEST (OverlayScene, ADimensionIsItsLineTwoWitnessesTwoTicksAndItsLength)
+{
+    layers::Layer layer;
+    layer.name = "dimension";
+    layers::Dimension dimension;
+    const double from[3] = { 0, 0, 0 }, to[3] = { 4, 0, 0 };
+    std::copy (from, from + 3, dimension.from);
+    std::copy (to, to + 3, dimension.to);
+    dimension.offsetMetres = 0.5;
+    dimension.direction[1] = 1.0; // offset towards +y
+    layer.dimensions = { dimension };
+    const scene::Plan plan = scene::PreparePlan (One (layer), &Engine ());
+    ASSERT_EQ (plan.lines.size (), 3u);
+    // The dimension line, half a metre towards +y.
+    EXPECT_NEAR (Rejoin (plan.lines[0].hiA[1], plan.lines[0].loA[1], plan.originY), 0.5, 1e-9);
+    EXPECT_NEAR (Rejoin (plan.lines[0].hiB[0], plan.lines[0].loB[0], plan.originX), 4.0, 1e-9);
+    // Ticks: two solid quads that turn with the line; the text keeps upright and
+    // gives way when the dimension is too short on screen.
+    size_t ticks = 0, text = 0;
+    for (const scene::PlanGlyph& glyph : plan.glyphs) {
+        EXPECT_NE (glyph.flags & scene::kAlongDirection, 0u);
+        if ((glyph.flags & scene::kSolid) != 0)
+            ++ticks;
+        else {
+            ++text;
+            EXPECT_NE (glyph.flags & scene::kKeepUpright, 0u);
+            EXPECT_NE (glyph.flags & scene::kHideShortSpan, 0u);
+            EXPECT_GT (glyph.minSpan, 20.0f);
+            EXPECT_FLOAT_EQ (glyph.dir[0], 4.0f);
+        }
+    }
+    EXPECT_EQ (ticks, 12u);
+    EXPECT_EQ (text, 4u * 6u); // "4.00" -- four glyphs, the point included
+    EXPECT_EQ (plan.problems.textsNotLaidOut, 0u);
+}
+
+TEST (OverlayScene, AVerticalDimensionIsNothingInPlanAndADimensionIn3D)
+{
+    layers::Layer layer;
+    layer.name = "height";
+    layers::Dimension dimension;
+    dimension.to[2] = 3.0;
+    layer.dimensions = { dimension };
+    EXPECT_TRUE (scene::PreparePlan (One (layer), &Engine ()).Empty ());
+    const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
+    EXPECT_EQ (scene.lines.size (), 3u);
+    EXPECT_EQ (scene.problems.dimensionsNotResolved, 0u);
+}
+
+TEST (OverlayScene, WithoutTextTheLabelsAreCountedAndTheRestIsDrawn)
+{
+    layers::Layer layer;
+    layer.name = "no text";
+    layers::Dimension dimension;
+    dimension.to[0] = 2.0;
+    layer.dimensions = { dimension };
+    layers::Text label;
+    label.text = "A";
+    layer.texts = { label };
+    const scene::Plan plan = scene::PreparePlan (One (layer), nullptr);
+    EXPECT_EQ (plan.lines.size (), 3u);
+    EXPECT_EQ (plan.problems.textsNotLaidOut, 2u);
+    EXPECT_EQ (plan.glyphs.size (), 12u); // the two ticks still
+}
+
+TEST (OverlayScene, ScreenTextIsAnchoredToTheViewAndShownIn3D)
+{
+    layers::Layer layer;
+    layer.name = "hud";
+    layers::Text label;
+    label.text = "Sun hours";
+    label.screen = true;
+    label.at[0] = 1.0;
+    label.at[1] = 0.0;
+    label.offsetPixels[0] = -12.0f;
+    label.offsetPixels[1] = 12.0f;
+    label.align = layers::Align::Right;
+    label.baseline = layers::Baseline::Top;
+    layer.texts = { label };
+    layer.occluded = true;
+    const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
+    ASSERT_FALSE (scene.glyphs.empty ());
+    for (const scene::SceneGlyph& glyph : scene.glyphs) {
+        EXPECT_NE (glyph.flags & scene::kScreenAnchored, 0u);
+        EXPECT_FLOAT_EQ (glyph.position[0], 1.0f);
+        EXPECT_FLOAT_EQ (glyph.position[1], 0.0f);
+        // Right-aligned on the advance: the last glyph's ink may overhang by its bearing.
+        EXPECT_LE (glyph.offset[0], -12.0f + 1.0f);
+        EXPECT_GE (glyph.offset[1], 12.0f - 1e-3f);
+    }
+    for (const scene::GlyphDraw& draw : scene.glyphDraws)
+        EXPECT_EQ (draw.behind, scene::kBehindShow);
+}
+
+TEST (OverlayScene, ABackgroundPanelComesBeforeItsGlyphs)
+{
+    layers::Layer layer;
+    layer.name = "panel";
+    layers::Text label;
+    label.text = "WC";
+    label.backgroundRgba = 0xFFFFFFC0u;
+    layer.texts = { label };
+    const scene::Plan plan = scene::PreparePlan (One (layer), &Engine ());
+    ASSERT_GE (plan.glyphs.size (), 18u);
+    for (size_t i = 0; i < 6; ++i)
+        EXPECT_NE (plan.glyphs[i].flags & scene::kSolid, 0u);
+    EXPECT_EQ (plan.glyphs[6].flags & scene::kSolid, 0u);
+}
+
+TEST (OverlayScene, AHeatmapTakesItsRangeFromItsValues)
+{
+    layers::Layer layer;
+    layer.name = "sun";
+    layers::Mesh mesh;
+    mesh.points = { 0, 0, 0, 1, 0, 0, 1, 1, 0 };
+    mesh.indices = { 0, 1, 2 };
+    mesh.values = { 2.0, 8.0, 5.0 };
+    ASSERT_TRUE (layers::PresetStops ("sunhours", mesh.colormap.stops));
+    mesh.colormap.bands = 6;
+    layer.meshes = { mesh };
+    EXPECT_EQ (layers::Validate (layer), "");
+    const scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
+    ASSERT_EQ (scene.fillDraws.size (), 1u);
+    const scene::FillDraw& draw = scene.fillDraws[0];
+    EXPECT_TRUE (draw.heatmap);
+    EXPECT_FLOAT_EQ (draw.min, 2.0f);
+    EXPECT_FLOAT_EQ (draw.max, 8.0f);
+    EXPECT_EQ (draw.stopCount, 9u);
+    EXPECT_EQ (draw.bands, 6u);
+    EXPECT_FLOAT_EQ (scene.fills[1].value, 8.0f);
+    EXPECT_TRUE (layers::Prepare3D (One (layer)).occludedFills.empty ());
+}
+
+TEST (OverlayScene, TheRampInterpolatesBetweenItsStops)
+{
+    const std::vector<layers::ColourStop> stops = { { 0.0f, 0x000000FFu }, { 1.0f, 0xFF8000FFu } };
+    EXPECT_EQ (scene::RampAt (stops, -1.0f), 0x000000FFu);
+    EXPECT_EQ (scene::RampAt (stops, 2.0f), 0xFF8000FFu);
+    EXPECT_EQ (scene::RampAt (stops, 0.5f), 0x804000FFu);
+    std::vector<layers::ColourStop> viridis;
+    ASSERT_TRUE (layers::PresetStops ("viridis", viridis));
+    EXPECT_EQ (viridis.front ().rgba, 0x440154FFu);
+    EXPECT_EQ (viridis.back ().rgba, 0xFDE725FFu);
+    EXPECT_FALSE (layers::PresetStops ("rainbow", viridis));
+}
+
+// ⚠️ A SEAM IS NOT AN EDGE. A mesh that repeats its vertices per face -- how a brep's
+// faces arrive -- has boundaries everywhere by index; welding by position is what
+// keeps the edges to the cube's twelve.
+TEST (OverlayScene, ACubeHasTwelveFeatureEdgesSharedOrSplit)
+{
+    const layers::Mesh shared = Cube (false);
+    const layers::Mesh split = Cube (true);
+    EXPECT_EQ (scene::FeatureEdges (shared.points, shared.indices, 30.0f).size (), 12u);
+    EXPECT_EQ (scene::FeatureEdges (split.points, split.indices, 30.0f).size (), 12u);
+    // Past 90 degrees nothing on a cube is a crease.
+    EXPECT_EQ (scene::FeatureEdges (shared.points, shared.indices, 100.0f).size (), 0u);
+}
+
+TEST (OverlayScene, AFlatQuadHasItsFourBoundariesAndNotItsDiagonal)
+{
+    const std::vector<double> points = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
+    const std::vector<uint32_t> indices = { 0, 1, 2, 0, 2, 3 };
+    const auto edges = scene::FeatureEdges (points, indices, 30.0f);
+    EXPECT_EQ (edges.size (), 4u);
+    for (const auto& edge : edges)
+        EXPECT_FALSE ((edge.first == 0 && edge.second == 2) || (edge.first == 2 && edge.second == 0));
+    const std::vector<double> normals = scene::VertexNormals (points, indices);
+    ASSERT_EQ (normals.size (), 12u);
+    for (size_t v = 0; v < 4; ++v)
+        EXPECT_NEAR (normals[v * 3 + 2], 1.0, 1e-12);
+}
+
+TEST (OverlayScene, AStyledMeshDrawsItsEdgesWithItsDepthPolicy)
+{
+    layers::Layer layer;
+    layer.name = "ghost";
+    layers::Mesh mesh = Cube (true);
+    mesh.styled = true;
+    mesh.style.shading = layers::Shading::Ghost;
+    mesh.style.edgeRgba = 0x202020FFu;
+    mesh.style.behind = layers::Behind::Fade;
+    layer.meshes = { mesh };
+    const scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
+    ASSERT_EQ (scene.fillDraws.size (), 1u);
+    EXPECT_EQ (scene.fillDraws[0].shading, uint32_t (layers::Shading::Ghost));
+    EXPECT_EQ (scene.fillDraws[0].behind, scene::kBehindFade);
+    EXPECT_EQ (scene.fills.size (), 36u);
+    EXPECT_EQ (scene.lines.size (), 12u);
+    for (const scene::SceneLine& line : scene.lines)
+        EXPECT_EQ (line.behind, scene::kBehindFade);
+}
+
+TEST (OverlayScene, LengthsReadInTheUnitAsked)
+{
+    EXPECT_EQ (scene::FormatLength (5.0, 2, layers::LengthUnit::Metres, false), "5.00");
+    EXPECT_EQ (scene::FormatLength (5.0, 2, layers::LengthUnit::Metres, true), "5.00 m");
+    EXPECT_EQ (scene::FormatLength (1.2346, 1, layers::LengthUnit::Centimetres, true), "123.5 cm");
+    EXPECT_EQ (scene::FormatLength (0.9, 0, layers::LengthUnit::Millimetres, false), "900");
+}
+
+TEST (OverlayScene, ALegendIsARampBarFixedToTheViewWithItsValues)
+{
+    layers::Layer layer;
+    layer.name = "legend";
+    layers::Legend legend;
+    legend.title = "Sun hours";
+    legend.unit = "h";
+    ASSERT_TRUE (layers::PresetStops ("sunhours", legend.colormap.stops));
+    legend.colormap.autoRange = false;
+    legend.colormap.min = 0.0;
+    legend.colormap.max = 8.0;
+    legend.ticks = 5;
+    layer.legends = { legend };
+    EXPECT_EQ (layers::Validate (layer), "");
+    const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
+    ASSERT_EQ (scene.fillDraws.size (), 1u);
+    EXPECT_TRUE (scene.fillDraws[0].screen);
+    EXPECT_TRUE (scene.fillDraws[0].heatmap);
+    EXPECT_FLOAT_EQ (scene.fillDraws[0].max, 8.0f);
+    // The bar's value runs up it: the top corners hold the maximum.
+    float topValue = 0.0f, bottomValue = 0.0f, top = 1e9f, bottom = -1e9f;
+    for (const scene::SceneFillVertex& v : scene.fills) {
+        if (v.offset[1] < top) {
+            top = v.offset[1];
+            topValue = v.value;
+        }
+        if (v.offset[1] > bottom) {
+            bottom = v.offset[1];
+            bottomValue = v.value;
+        }
+    }
+    EXPECT_FLOAT_EQ (topValue, 8.0f);
+    EXPECT_FLOAT_EQ (bottomValue, 0.0f);
+    EXPECT_NEAR (bottom - top, legend.lengthPixels, 1e-3f);
+    // Five values and a title, all fixed to the view.
+    std::set<uint32_t> anchored;
+    for (const scene::SceneGlyph& glyph : scene.glyphs)
+        anchored.insert (glyph.flags & scene::kScreenAnchored);
+    EXPECT_EQ (anchored, std::set<uint32_t> { scene::kScreenAnchored });
+    EXPECT_GT (scene.glyphs.size (), 5u * 6u);
+
+    // A legend has no values of its own to take a range from.
+    layers::Layer unranged;
+    unranged.name = "unranged";
+    layers::Legend bare;
+    ASSERT_TRUE (layers::PresetStops ("greys", bare.colormap.stops));
+    unranged.legends = { bare };
+    EXPECT_NE (layers::Validate (unranged).find ("needs min and max"), std::string::npos);
+}
+
+TEST (OverlayScene, ValidationNamesWhatIsWrong)
+{
+    layers::Layer layer;
+    layer.name = "bad";
+    layers::Mesh mesh;
+    mesh.points = { 0, 0, 0, 1, 0, 0, 1, 1, 0 };
+    mesh.indices = { 0, 1, 2 };
+    mesh.values = { 1.0, 2.0 };
+    layer.meshes = { mesh };
+    EXPECT_NE (layers::Validate (layer).find ("one number per vertex"), std::string::npos);
+    layer.meshes.clear ();
+    layers::Dimension dimension;
+    layer.dimensions = { dimension };
+    EXPECT_NE (layers::Validate (layer).find ("two different points"), std::string::npos);
+    layer.dimensions.clear ();
+    layers::Text label;
+    layer.texts = { label };
+    EXPECT_NE (layers::Validate (layer).find ("1 to 512 bytes"), std::string::npos);
+}

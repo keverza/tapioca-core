@@ -7,6 +7,7 @@
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/OverlayShaderSources.hpp"
+#include "ArchViz/Dxgi/PlanGuest.hpp"
 #include "ArchViz/Dxgi/PipelineStateGuard.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -416,7 +417,8 @@ void Draw (IDXGISwapChain* swapChain)
     }
     const bool walls = g_segments != nullptr && g_segmentCount > 0;
     const bool layers = g_layerStrokeCount > 0 || g_layerFillCount > 0;
-    if (!walls && !layers) {
+    const bool guest = planguest::HasContent ();
+    if (!walls && !layers && !guest) {
         Declined (Decline::NoContent);
         return;
     }
@@ -537,6 +539,10 @@ void Draw (IDXGISwapChain* swapChain)
                 context.p->DrawInstanced (6, g_layerStrokeCount, 0, 0);
             }
         }
+        // ⚠️ THE DILIGENT GUEST LAST, INSIDE THIS GUARD, WITH THIS PRESENT'S TRANSFORM:
+        // labels and dimensions over everything, exactly where the walls are (§12b).
+        if (guest)
+            planguest::Draw (context.p, view.p, transform, desc.Width, desc.Height);
     }
     Bump (g_drawn);
     if (reused)
@@ -651,6 +657,11 @@ Prepared Prepare (const plancontent::Content& content, uint64_t generation, bool
         changed = true;
     }
     return Prepared::Ready;
+}
+
+ID3D11Device* Device ()
+{
+    return g_device;
 }
 
 bool HoldsLayers (uint64_t generation)

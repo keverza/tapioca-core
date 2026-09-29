@@ -456,6 +456,12 @@ set (EVP_ARCHVIZ_SOURCES
     # ArchViz/OverlayLayers.cpp is the arbitrary geometry callers put on both overlays,
     # prepared for each; a wrong vertex is a picture in someone else's view.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
+    # ArchViz/OverlayText.cpp and OverlayScene.cpp are what the Diligent guest draws on
+    # the overlays -- labels laid out around their anchors, dimensions, styled meshes,
+    # heatmaps and legends -- prepared without a device, so the placement is tested
+    # against the real font and the real dimension geometry.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayText.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayScene.cpp"
     # ArchViz/PlanAnchorRibbon.cpp turns a wall's 2D plan outline into the
     # triangles that draw it over the floor plan (PLAT-RE65). Same reason again
     # -- a wrong ribbon is a picture, not an error -- plus the arc half, which
@@ -598,6 +604,8 @@ set (EVP_TEST_SOURCES
     test_planframeregistration.cpp
     test_planoverlaycontent.cpp
     test_overlaylayers.cpp
+    test_overlaytext.cpp
+    test_overlayscene.cpp
     test_overlayshaders.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.

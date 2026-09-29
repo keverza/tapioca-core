@@ -12,6 +12,7 @@
 #include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
 #include "ArchViz/Dxgi/LayerOverlay3D.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
+#include "ArchViz/Dxgi/SceneGuest.hpp"
 
 #include <d3d11_1.h>
 
@@ -172,6 +173,11 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // moves with the model in the frame the model is drawn in.
     layers3d::Draw (context, context1, wanted, overlayView);
 
+    // ⚠️ AND WHAT THE DILIGENT GUEST DRAWS LAST (§12b): texts, dimensions, legends,
+    // styled and heatmap meshes, depth-styled lines -- the same camera, the same
+    // target and the same occluder depth, inside this Present's guard.
+    sceneguest::Draw (context, wanted, targetView, overlayView);
+
     // Collect any checkpoint occlusion results that became ready. The
     // diagnostic is disarmed by default and this costs one branch; see
     // DepthCheckpoints.hpp for what it answered and why it is off.
@@ -182,6 +188,7 @@ void Shutdown ()
 {
     hostoverlay::Shutdown ();
     layers3d::ReleaseDeviceObjects ();
+    sceneguest::ReleaseDeviceObjects ();
 }
 
 } // namespace overlaycompose
