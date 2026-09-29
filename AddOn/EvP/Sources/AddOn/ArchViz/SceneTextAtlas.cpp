@@ -112,7 +112,7 @@ std::string SceneTextSeedText ()
 
 std::shared_ptr<const SceneTextAtlasPage> GenerateSceneTextAtlasPage (const uint8_t* fontBytes, size_t fontByteCount,
                                                                       const std::vector<uint32_t>& glyphIds,
-                                                                      std::string& error)
+                                                                      std::string& error, float distanceRangePixels)
 {
     std::vector<uint32_t> normalized = glyphIds;
     std::sort (normalized.begin (), normalized.end ());
@@ -155,7 +155,7 @@ std::shared_ptr<const SceneTextAtlasPage> GenerateSceneTextAtlasPage (const uint
     msdf_atlas::TightAtlasPacker packer;
     packer.setDimensionsConstraint (msdf_atlas::DimensionsConstraint::POWER_OF_TWO_SQUARE);
     packer.setScale (SceneTextAtlas::kEmPixels);
-    packer.setPixelRange (SceneTextAtlas::kDistanceRangePixels);
+    packer.setPixelRange (distanceRangePixels);
     packer.setSpacing (2);
     packer.setOuterPixelPadding (msdf_atlas::Padding (1.0));
     if (packer.pack (sourceGlyphs.data (), static_cast<int> (sourceGlyphs.size ())) != 0) {
@@ -217,7 +217,7 @@ const SceneTextGlyph* SceneTextAtlasPage::FindGlyphExact (uint32_t glyphIndex) c
 }
 
 bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun,
-                            std::string& error)
+                            std::string& error, float distanceRangePixels)
 {
     width_ = height_ = 0;
     pixels_.clear ();
@@ -268,7 +268,7 @@ bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, cons
     msdf_atlas::TightAtlasPacker packer;
     packer.setDimensionsConstraint (msdf_atlas::DimensionsConstraint::POWER_OF_TWO_SQUARE);
     packer.setScale (kEmPixels);
-    packer.setPixelRange (kDistanceRangePixels);
+    packer.setPixelRange (distanceRangePixels);
     packer.setSpacing (2);
     packer.setOuterPixelPadding (msdf_atlas::Padding (1.0));
     if (packer.pack (sourceGlyphs.data (), static_cast<int> (sourceGlyphs.size ())) != 0) {

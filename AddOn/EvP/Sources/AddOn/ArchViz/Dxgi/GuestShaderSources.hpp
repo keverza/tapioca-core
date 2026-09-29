@@ -174,6 +174,11 @@ float Median (float3 v)
 // SceneTextLayer's MTSDF resolve: the median of RGB is the edge, alpha the true
 // distance for the halo, the uv derivatives turn the atlas range into pixels.
 // Premultiplied out. The sample comes before the branch: derivatives stay uniform.
+//
+// ⚠️ THE HALO STOPS WHERE THE ATLAS STOPS KNOWING. The atlas records distance only
+// half its range beyond an edge -- `0.5 * screenRange` screen pixels -- and past that
+// every texel of the quad reads as inside a halo that reaches further: a box per
+// glyph (the first live run). So the halo is clamped to what the atlas can say.
 float4 PSGlyph (GlyphOut i) : SV_TARGET
 {
     float4 d = g_atlas.Sample (g_atlas_sampler, i.uv);
@@ -187,7 +192,8 @@ float4 PSGlyph (GlyphOut i) : SV_TARGET
         return float4 (i.colour.rgb * a, a);
     }
     float fill = saturate (screenRange * (Median (d.rgb) - 0.5) + 0.5);
-    float halo = saturate (screenRange * (d.a - 0.5) + 0.5 + max (i.haloPixels, 0.0));
+    float reach = min (max (i.haloPixels, 0.0), max (0.5 * screenRange - 0.75, 0.0));
+    float halo = saturate (screenRange * (d.a - 0.5) + 0.5 + reach);
     float fillAlpha = fill * i.colour.a;
     float haloAlpha = halo * i.halo.a * (1.0 - fillAlpha);
     return float4 (i.colour.rgb * fillAlpha + i.halo.rgb * haloAlpha, fillAlpha + haloAlpha) * fade;

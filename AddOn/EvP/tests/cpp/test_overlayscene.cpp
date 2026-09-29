@@ -231,8 +231,10 @@ TEST (OverlayScene, ScreenTextIsAnchoredToTheViewAndShownIn3D)
         EXPECT_NE (glyph.flags & scene::kScreenAnchored, 0u);
         EXPECT_FLOAT_EQ (glyph.position[0], 1.0f);
         EXPECT_FLOAT_EQ (glyph.position[1], 0.0f);
-        // Right-aligned on the advance: the last glyph's ink may overhang by its bearing.
-        EXPECT_LE (glyph.offset[0], -12.0f + 1.0f);
+        // Right-aligned on the advance: the last glyph's quad overhangs by its bearing and
+        // by the distance field's padding -- half the atlas range, 12 atlas px at 40 px to
+        // the em, about 2 px at this size (OverlayText.cpp says why the range is wide).
+        EXPECT_LE (glyph.offset[0], -12.0f + 3.0f);
         EXPECT_GE (glyph.offset[1], 12.0f - 1e-3f);
     }
     for (const scene::GlyphDraw& draw : scene.glyphDraws)

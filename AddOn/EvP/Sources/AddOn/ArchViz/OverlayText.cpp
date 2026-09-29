@@ -77,7 +77,7 @@ struct Engine::Impl {
             }
             std::string error;
             std::shared_ptr<const SceneTextAtlasPage> page =
-                GenerateSceneTextAtlasPage (font.data (), font.size (), batch, error);
+                GenerateSceneTextAtlasPage (font.data (), font.size (), batch, error, DistanceRangePixels ());
             if (page == nullptr || page->Width () <= 0 || page->Height () <= 0) {
                 unavailable.insert (batch.begin (), batch.end ());
                 continue;
@@ -92,9 +92,13 @@ struct Engine::Impl {
     }
 };
 
+// ⚠️ THREE TIMES THE VIEWER'S RANGE, FOR THE HALO. At 40 px to the em, the viewer's 4
+// px record distance about 0.55 screen px beyond an 11 px label's edge; the legend's
+// 1.25 px halo ran off the end of that and filled every glyph's whole quad -- a box
+// per character, the first live run (2026-09-29). 12 reaches about 1.6 px there.
 float Engine::DistanceRangePixels ()
 {
-    return SceneTextAtlas::kDistanceRangePixels;
+    return 12.0f;
 }
 
 Engine::Engine () : impl_ (new Impl ())
@@ -117,7 +121,7 @@ bool Engine::Init (std::vector<uint8_t> fontBytes, std::string& error)
         return false;
     SceneTextGlyphRun seedRun;
     if (!impl_->shaper.Shape (SceneTextSeedText (), SceneTextDirection::Auto, seedRun, error) ||
-        !impl_->seed.Build (impl_->font.data (), impl_->font.size (), seedRun, error))
+        !impl_->seed.Build (impl_->font.data (), impl_->font.size (), seedRun, error, DistanceRangePixels ()))
         return false;
     impl_->pages.push_back (MakePage (impl_->seed.Width (), impl_->seed.Height (), impl_->seed.Pixels ()));
     impl_->ready = true;

@@ -51,7 +51,7 @@ class SceneTextAtlasPage final {
 
   private:
     friend std::shared_ptr<const SceneTextAtlasPage>
-    GenerateSceneTextAtlasPage (const uint8_t*, size_t, const std::vector<uint32_t>&, std::string&);
+    GenerateSceneTextAtlasPage (const uint8_t*, size_t, const std::vector<uint32_t>&, std::string&, float);
 
     int width_ = 0;
     int height_ = 0;
@@ -66,7 +66,12 @@ class SceneTextAtlas final {
     static constexpr float kEmPixels = 40.0f;
     static constexpr float kDistanceRangePixels = 4.0f;
 
-    bool Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun, std::string& error);
+    // `distanceRangePixels` is how far from an edge the atlas records distance, in atlas
+    // pixels. A halo can reach only that far (half of it, beyond the edge), so the
+    // overlays' labels, which wear one at small sizes, build theirs wider than the
+    // viewer's; the default is the viewer's.
+    bool Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun, std::string& error,
+                float distanceRangePixels = kDistanceRangePixels);
     const SceneTextGlyph* Find (uint32_t codepoint) const;
     const SceneTextGlyph* FindGlyph (uint32_t glyphIndex) const;
     const SceneTextGlyph* FindGlyphExact (uint32_t glyphIndex) const;
@@ -102,9 +107,9 @@ class SceneTextAtlas final {
 // make the renderer loop forever or index outside the atlas.
 std::vector<uint32_t> DecodeSceneTextUtf8 (const std::string& text);
 std::string SceneTextSeedText ();
-std::shared_ptr<const SceneTextAtlasPage> GenerateSceneTextAtlasPage (const uint8_t* fontBytes, size_t fontByteCount,
-                                                                      const std::vector<uint32_t>& glyphIds,
-                                                                      std::string& error);
+std::shared_ptr<const SceneTextAtlasPage>
+GenerateSceneTextAtlasPage (const uint8_t* fontBytes, size_t fontByteCount, const std::vector<uint32_t>& glyphIds,
+                            std::string& error, float distanceRangePixels = SceneTextAtlas::kDistanceRangePixels);
 
 } // namespace geomsrv::archviz
 
