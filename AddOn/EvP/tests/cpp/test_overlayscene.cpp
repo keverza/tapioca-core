@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iterator>
 #include <set>
+#include <utility>
 
 namespace scene = geomsrv::archviz::overlayscene;
 namespace layers = geomsrv::archviz::overlaylayers;
@@ -557,4 +558,36 @@ TEST (OverlayScene, AHorizontalLegendPlacedAnywhereSaysItsOwnTicks)
     for (const scene::SceneGlyph& glyph : scene.glyphs)
         text += (glyph.flags & scene::kSolid) == 0 ? 1 : 0;
     EXPECT_EQ (text, (3u + 3u + 4u) * 6u);
+}
+
+// A text's halo grows with it as drawn unless the caller fixes it: the vertex carries
+// the fixed pixels, or -- negative -- the automatic halo's scale (HaloReach sizes it).
+TEST (OverlayScene, AHaloIsAutomaticUnlessFixed)
+{
+    layers::Layer layer;
+    layer.name = "halo";
+    layers::Text automatic;
+    automatic.text = "auto";
+    layers::Text scaled = automatic;
+    scaled.haloScale = 0.5f;
+    layers::Text fixed = automatic;
+    fixed.haloPixels = 2.0f;
+    for (layers::Text* text : { &automatic, &scaled, &fixed }) {
+        text->screen = true;
+        text->at[0] = 0.5;
+        text->at[1] = 0.5;
+    }
+    EXPECT_EQ (automatic.haloPixels, layers::kAutoHalo);
+    for (const auto& [text, expected] :
+         { std::make_pair (automatic, -1.0f), std::make_pair (scaled, -0.5f), std::make_pair (fixed, 2.0f) }) {
+        layer.texts = { text };
+        EXPECT_EQ (layers::Validate (layer), "");
+        const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
+        ASSERT_FALSE (scene.glyphs.empty ());
+        for (const scene::SceneGlyph& glyph : scene.glyphs)
+            EXPECT_FLOAT_EQ (glyph.haloPixels, expected);
+    }
+    fixed.haloPixels = 9.0f;
+    layer.texts = { fixed };
+    EXPECT_NE (layers::Validate (layer), "");
 }

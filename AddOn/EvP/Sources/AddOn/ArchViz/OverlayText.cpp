@@ -106,6 +106,11 @@ float Engine::DistanceRangePixels ()
     return 12.0f;
 }
 
+float Engine::EmPixels ()
+{
+    return SceneTextAtlas::kEmPixels;
+}
+
 Engine::Engine () : impl_ (new Impl ())
 {
 }

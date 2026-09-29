@@ -290,9 +290,10 @@ std::string Validate (const Layer& layer)
             return Numbered ("text", i, "its position and offset are finite");
         if (text.screen && !(InRange (float (text.at[0]), -1.0f, 2.0f) && InRange (float (text.at[1]), -1.0f, 2.0f)))
             return Numbered ("text", i, "a screen position is a fraction of the view, about 0 to 1");
-        if (!InRange (text.sizePixels, 4.0f, 256.0f) || !InRange (text.haloPixels, 0.0f, 8.0f) ||
-            !std::isfinite (text.rotationDegrees))
-            return Numbered ("text", i, "sizePixels is 4 to 256 and haloPixels 0 to 8");
+        if (!InRange (text.sizePixels, 4.0f, 256.0f) ||
+            (text.haloPixels != kAutoHalo && !InRange (text.haloPixels, 0.0f, 8.0f)) ||
+            !InRange (text.haloScale, 0.0f, 8.0f) || !std::isfinite (text.rotationDegrees))
+            return Numbered ("text", i, "sizePixels is 4 to 256, haloPixels 0 to 8 and haloScale 0 to 8");
         if (text.planar) {
             if (text.screen)
                 return Numbered ("text", i, "lies on a plane in the model or on the screen, not both");

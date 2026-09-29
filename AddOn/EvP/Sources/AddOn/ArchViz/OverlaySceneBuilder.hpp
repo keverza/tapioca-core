@@ -31,6 +31,13 @@ inline constexpr size_t kMaxLines = 2000000;
 inline constexpr size_t kMaxGlyphVertices = 1200000;
 
 inline constexpr double kPi = 3.14159265358979323846;
+
+// A glyph vertex's halo: fixed logical pixels, or -- negative -- an automatic halo's
+// scale, which the pixel shader sizes by the text as drawn (HaloReach).
+inline float HaloOf (float pixels, float scale)
+{
+    return pixels >= 0.0f ? pixels : -scale;
+}
 // A HUD panel's glyphs name their atlas page from here up until the pages are composed:
 // the text pages first, the HUD's after them.
 inline constexpr uint32_t kHudPageBase = 1u << 24;

@@ -103,6 +103,12 @@ def test_occlusion_speaks_the_text_labels_vocabulary(monkeypatch):
         overlay.text("x", at=(0, 0, 0), occlusion="show")
 
 
+def test_a_halo_grows_with_its_text_unless_fixed():
+    assert "haloPixels" not in overlay.text("auto", at=(0, 0, 0))
+    assert overlay.text("smaller", at=(0, 0, 0), halo_scale=0.5)["haloScale"] == 0.5
+    assert overlay.text("fixed", at=(0, 0, 0), halo_size=2)["haloPixels"] == 2.0
+
+
 def test_clear_and_hud(monkeypatch):
     seen = _capture(monkeypatch)
     assert overlay.clear("sun") == 1

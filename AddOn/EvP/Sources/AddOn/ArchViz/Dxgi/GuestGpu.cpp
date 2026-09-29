@@ -510,6 +510,7 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
                 values.atlas[0] = page.invWidth;
                 values.atlas[1] = page.invHeight;
                 values.atlas[2] = overlaytext::Engine::DistanceRangePixels ();
+                values.atlas[3] = overlaytext::Engine::EmPixels ();
                 if (!constants (values))
                     return;
                 context->SetPipelineState (pipelines.glyph[DepthState (passes[p])]);

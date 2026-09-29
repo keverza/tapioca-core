@@ -201,12 +201,15 @@ class Panel:
 
 
 def text(text, at=None, screen=None, plane=None, size=None, color=None, halo=None, halo_size=None,
-         background=None, align=None, baseline=None, offset=None, rotation=None, occlusion=None):
+         halo_scale=None, background=None, align=None, baseline=None, offset=None, rotation=None, occlusion=None):
     """A label: at a model point (`at`), fixed to the view (`screen`, fractions from its
     top left), or lying on a plane in the model (`at` and `plane`).
 
     `plane` is (direction, normal, height_metres) or a dict with those keys: the baseline
     runs along `direction`, the text rises towards normal x direction.
+
+    The halo grows with the text as drawn -- 0.5 px round a 24 px em, 2 px round a 72 px
+    one, none under 8 px -- times `halo_scale`; `halo_size` fixes it in pixels instead.
     """
     if (at is None) == (screen is None):
         raise ValueError("a text is anchored at a model point or on the screen, one of the two")
@@ -221,7 +224,8 @@ def text(text, at=None, screen=None, plane=None, size=None, color=None, halo=Non
         else:
             direction, normal, height = plane
         out["plane"] = {"direction": point3(direction), "normal": point3(normal), "sizeMetres": float(height)}
-    for key, value in (("sizePixels", size), ("haloPixels", halo_size), ("rotationDegrees", rotation)):
+    for key, value in (("sizePixels", size), ("haloPixels", halo_size), ("haloScale", halo_scale),
+                       ("rotationDegrees", rotation)):
         if value is not None:
             out[key] = float(value)
     for key, value in (("color", color), ("halo", halo), ("background", background)):

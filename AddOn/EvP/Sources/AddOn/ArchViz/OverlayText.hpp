@@ -79,6 +79,9 @@ class Engine final {
     // The distance range the atlas was generated with, in atlas pixels. The pixel
     // shader turns it into screen pixels with the uv derivatives.
     static float DistanceRangePixels ();
+    // The em the atlas's glyphs were generated at, in atlas pixels: with the range, what
+    // the pixel shader measures a text's size on screen by.
+    static float EmPixels ();
 
     Engine ();
     ~Engine ();

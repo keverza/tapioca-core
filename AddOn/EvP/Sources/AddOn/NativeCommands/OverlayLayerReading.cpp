@@ -217,6 +217,7 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
         !ReadColour (item, "background", text.backgroundRgba, error))
         return false;
     ReadFloat (item, "haloPixels", text.haloPixels);
+    ReadFloat (item, "haloScale", text.haloScale);
     if (item.Contains ("align")) {
         const std::string align = StringValue (item, "align");
         text.align = align == "left"    ? layers::Align::Left

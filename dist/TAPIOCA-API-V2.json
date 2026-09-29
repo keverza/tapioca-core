@@ -23929,6 +23929,12 @@
                 "haloPixels": {
                   "type": "number",
                   "minimum": 0,
+                  "maximum": 8,
+                  "description": "Fixed; absent grows with the text."
+                },
+                "haloScale": {
+                  "type": "number",
+                  "minimum": 0,
                   "maximum": 8
                 },
                 "background": {

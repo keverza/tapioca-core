@@ -625,6 +625,7 @@ set (EVP_TEST_SOURCES
     test_overlayannotations.cpp
     test_overlayshaders.cpp
     test_guestdepthpull.cpp
+    test_guesthalo.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
     test_cameralayout.cpp

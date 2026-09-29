@@ -135,6 +135,9 @@ struct Mesh {
     bool styled = false; // the caller gave a style: the guest draws it
 };
 
+// A text's halo width that grows with the text as it is drawn -- see `Text::haloPixels`.
+constexpr float kAutoHalo = -1.0f;
+
 enum class Align : uint8_t { Left = 0, Center = 1, Right = 2 };
 enum class Baseline : uint8_t { Top = 0, Middle = 1, Bottom = 2, Alphabetic = 3 };
 
@@ -150,7 +153,11 @@ struct Text {
     float sizePixels = 13.0f;
     uint32_t rgba = 0xFFFFFFFFu;
     uint32_t haloRgba = 0x000000C0u;
-    float haloPixels = 1.5f;
+    // Logical pixels, fixed; or `kAutoHalo`, which grows with the text as it is drawn --
+    // 0.5 px round a 24 px em, 2 px round a 72 px one, none under 8 px -- times
+    // `haloScale` (the guest's HaloReach, GuestShaderSources.hpp).
+    float haloPixels = kAutoHalo;
+    float haloScale = 1.0f;
     uint32_t backgroundRgba = 0; // alpha 0: no panel
     Align align = Align::Center;
     Baseline baseline = Baseline::Middle;

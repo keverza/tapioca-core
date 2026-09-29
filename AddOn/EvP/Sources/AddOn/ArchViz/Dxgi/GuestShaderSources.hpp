@@ -46,7 +46,7 @@ cbuffer GuestDraw
     float4 IsoColour;
     float4 StopAt[4];     // 16 positions, 0..1
     float4 StopColour[16];
-    float4 Atlas;         // x 1 / page width, y 1 / page height, z distance range in atlas pixels
+    float4 Atlas;         // x 1 / page width, y 1 / page height, z distance range and w the em in atlas pixels
 };
 
 struct FillOut
@@ -182,6 +182,21 @@ float Median (float3 v)
 //
 // `solid` 0 is an MTSDF glyph, 1 a flat panel or tick, 2 a plain texture times the
 // vertex colour: an ImGui panel's triangles over its own font atlas (OverlayHud.hpp).
+//
+// ⚠️ AN AUTOMATIC HALO FOLLOWS THE TEXT AS IT IS DRAWN, NOT AS IT WAS ASKED FOR. A fixed
+// 1.5 px halo is a dark blot round a label seen far off in the model or set small on
+// the view (the live run of 2026-09-29, 10:39). A negative `haloPixels` asks for
+// (em - 8) / 32 screen pixels -- 0.5 round a 24 px em, 2 round a 72 px one, none under
+// 8 -- times its magnitude; the em on screen is the atlas em times the same screen
+// pixels per atlas pixel `screenRange` is made of, so a text on a plane shrinks its
+// halo as it recedes. A positive one is fixed. Either way it stops where the atlas does.
+float HaloReach (float haloPixels, float screenRange)
+{
+    float emPixels = screenRange * Atlas.w / Atlas.z;
+    float wanted = haloPixels >= 0.0 ? haloPixels : -haloPixels * max ((emPixels - 8.0) / 32.0, 0.0);
+    return min (wanted, max (0.5 * screenRange - 0.75, 0.0));
+}
+
 float4 PSGlyph (GlyphOut i) : SV_TARGET
 {
     float4 d = g_atlas.Sample (g_atlas_sampler, i.uv);
@@ -201,7 +216,7 @@ float4 PSGlyph (GlyphOut i) : SV_TARGET
         return float4 (i.colour.rgb * a, a);
     }
     float fill = saturate (screenRange * (Median (d.rgb) - 0.5) + 0.5);
-    float reach = min (max (i.haloPixels, 0.0), max (0.5 * screenRange - 0.75, 0.0));
+    float reach = HaloReach (i.haloPixels, screenRange);
     float halo = saturate (screenRange * (d.a - 0.5) + 0.5 + reach);
     float fillAlpha = fill * i.colour.a;
     float haloAlpha = halo * i.halo.a * (1.0 - fillAlpha);
@@ -297,7 +312,8 @@ GlyphOut VSGlyph (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTR
     o.uv = uv;
     o.colour = colour;
     o.halo = halo;
-    o.haloPixels = haloPixels * Surface.z;
+    // Negative: an automatic halo's scale, which the pixel shader sizes (HaloReach).
+    o.haloPixels = haloPixels >= 0.0 ? haloPixels * Surface.z : haloPixels;
     o.solid = (flags & 64u) != 0u ? 2.0 : ((flags & 8u) != 0u ? 1.0 : 0.0);
     return o;
 }
@@ -436,7 +452,8 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
     o.uv = uv;
     o.colour = colour;
     o.halo = halo;
-    o.haloPixels = haloPixels * Surface.z;
+    // Negative: an automatic halo's scale, which the pixel shader sizes (HaloReach).
+    o.haloPixels = haloPixels >= 0.0 ? haloPixels * Surface.z : haloPixels;
     o.solid = (flags & 64u) != 0u ? 2.0 : ((flags & 8u) != 0u ? 1.0 : 0.0);
     // 32: every corner is its own model point -- text lying on a plane in the model.
     // Projected whole, so the glyph is perspective-correct and occluded by depth.

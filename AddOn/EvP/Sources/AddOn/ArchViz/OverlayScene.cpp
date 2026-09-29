@@ -233,7 +233,7 @@ void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension&
         Assign (glyph.dir, span);
         glyph.rgba = dimension.rgba;
         glyph.halo = 0x000000A0u;
-        glyph.haloPixels = 1.25f;
+        glyph.haloPixels = HaloOf (layers::kAutoHalo, 1.0f);
         glyph.flags = kAlongDirection | kKeepUpright | kHideShortSpan;
         glyph.minSpan = minSpan;
         glyph.behind = behind;
@@ -312,7 +312,7 @@ void Builder::AddText (const layers::Layer& layer, const layers::Text& text)
         glyph.behind = BehindOf (text.behind, layer);
     }
     glyph.halo = text.haloRgba;
-    glyph.haloPixels = text.haloPixels;
+    glyph.haloPixels = HaloOf (text.haloPixels, text.haloScale);
     const double radians = double (text.rotationDegrees) * kPi / 180.0;
     const float c = float (std::cos (radians)), s = float (std::sin (radians));
     auto place = [&] (float x, float y, float& ox, float& oy) {
@@ -372,7 +372,7 @@ void Builder::AddPlanarText (const layers::Layer& layer, const layers::Text& tex
     glyph.flags = kModelQuad;
     glyph.behind = BehindOf (text.behind, layer);
     glyph.halo = text.haloRgba;
-    glyph.haloPixels = text.haloPixels;
+    glyph.haloPixels = HaloOf (text.haloPixels, text.haloScale);
     const int order[6] = { 0, 1, 2, 0, 2, 3 };
     if ((text.backgroundRgba & 0xFFu) != 0 && !label.quads.empty ()) {
         const float pad = text.sizePixels * 0.2f;

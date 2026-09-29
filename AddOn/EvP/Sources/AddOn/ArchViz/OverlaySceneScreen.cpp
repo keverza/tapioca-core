@@ -215,7 +215,7 @@ void Builder::ScreenText (const std::string& text, double fx, double fy, float x
     glyph.flags = kScreenAnchored;
     glyph.rgba = rgba;
     glyph.halo = halo;
-    glyph.haloPixels = 1.25f;
+    glyph.haloPixels = HaloOf (layers::kAutoHalo, 1.0f);
     for (const overlaytext::Quad& quad : label.quads)
         PushQuad (glyph, quad, x, y);
 }

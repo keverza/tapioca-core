@@ -244,7 +244,6 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
                     label.sizePixels = 32.0f; // the layout's resolution only
                     label.align = layers::Align::Left;
                     label.baseline = layers::Baseline::Bottom;
-                    label.haloPixels = 1.0f;
                     out.layer.texts.push_back (std::move (label));
                 }
             }
@@ -255,7 +254,6 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
                     label.at[0] = x;
                     label.at[1] = y;
                     label.sizePixels = controls.labelSizePixels;
-                    label.haloPixels = 1.5f;
                     out.layer.texts.push_back (std::move (label));
                 }
             }
