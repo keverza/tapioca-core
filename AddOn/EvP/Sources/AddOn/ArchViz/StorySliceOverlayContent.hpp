@@ -32,7 +32,8 @@ struct Controls {
     overlaylayers::Views views = overlaylayers::Views::ThreeD;
     uint32_t outlineRgba = 0x3C3C3CFFu;
     float outlineWidthPixels = 2.0f;
-    float outlineDashPixels = 0.0f; // a dash period where the outline is visible too; 0 is solid
+    std::vector<float> outlineDashMetres;    // its pattern where it is visible, in metres; empty is solid
+    overlaylayers::HiddenLine outlineHidden; // its colour, width and pattern where the building hides it
     // Where the building is in front: dashed, the drafting convention for hidden edges.
     overlaylayers::Behind outlineBehind = overlaylayers::Behind::Dash;
     uint32_t fillRgba = 0xC8C8C84Du; // light, translucent grey; alpha 0 is no fill

@@ -16,11 +16,13 @@
 #include <cstdint>
 
 #include <string>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
 namespace overlaylayers {
 struct Layer;
+struct HiddenLine;
 enum class Behind : uint8_t;
 } // namespace overlaylayers
 } // namespace archviz
@@ -41,6 +43,12 @@ bool ReadColour (const GS::ObjectState& item, const char* key, uint32_t& rgba, s
 // The font named at `key` -- an installed family or a font file -- as the file's path,
 // untouched when absent; false with `error` when no such font is installed.
 bool ReadFont (const GS::ObjectState& item, const char* key, std::string& path, std::string& error);
+
+// A dash pattern in metres at `key` -- on, off, on, off... -- untouched when absent.
+void ReadDash (const GS::ObjectState& item, const char* key, std::vector<float>& lengths);
+
+// A line's `hidden` style: its colour, width and pattern behind the building.
+bool ReadHiddenLine (const GS::ObjectState& item, archviz::overlaylayers::HiddenLine& hidden, std::string& error);
 
 // `occlusion` ("always", "hide", "fade", "dash"); `fallback` when absent.
 archviz::overlaylayers::Behind OcclusionOf (const GS::ObjectState& item, archviz::overlaylayers::Behind fallback);

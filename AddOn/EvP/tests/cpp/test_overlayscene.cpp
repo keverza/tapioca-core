@@ -80,7 +80,7 @@ TEST (OverlayScene, APlainPolylineStaysRawAndADashedOneGoesToTheGuest)
     layers::Polyline plain;
     plain.points = { 0, 0, 0, 10, 0, 0 };
     layers::Polyline dashed = plain;
-    dashed.dashPixels = 8.0f;
+    dashed.dashMetres = { 1.0f, 0.5f };
     layer.polylines = { plain, dashed };
     const auto all = One (layer);
 
@@ -88,7 +88,11 @@ TEST (OverlayScene, APlainPolylineStaysRawAndADashedOneGoesToTheGuest)
     EXPECT_EQ (layers::Prepare3D (all).occludedLines.size (), 2u); // one segment, two vertices
     const scene::Plan plan = scene::PreparePlan (all, nullptr);
     ASSERT_EQ (plan.lines.size (), 1u);
-    EXPECT_FLOAT_EQ (plan.lines[0].dashPixels, 8.0f);
+    EXPECT_EQ (plan.lines[0].dashes & 0xFFu, 0u); // the first pattern in the table
+    ASSERT_EQ (plan.dashes.size (), 8u);
+    EXPECT_FLOAT_EQ (plan.dashes[0], 1.0f);
+    EXPECT_FLOAT_EQ (plan.dashes[1], 0.5f);
+    EXPECT_FLOAT_EQ (plan.dashes[2], 0.0f);
     EXPECT_EQ (scene::PrepareScene (all, nullptr).lines.size (), 1u);
     EXPECT_TRUE (layers::NeedsGuest (layer));
 }
@@ -101,7 +105,7 @@ TEST (OverlayScene, PlanLinesRejoinToTheirModelCoordinatesFarFromTheOrigin)
     layer.name = "far";
     layers::Polyline line;
     line.points = { 581234.5678, 6061234.4321, 0, 581244.5679, 6061234.4322, 0 };
-    line.dashPixels = 6.0f;
+    line.dashMetres = { 0.5f, 0.5f };
     layer.polylines = { line };
     const scene::Plan plan = scene::PreparePlan (One (layer), nullptr);
     ASSERT_EQ (plan.lines.size (), 1u);
@@ -118,7 +122,7 @@ TEST (OverlayScene, ADashCarriesItsDistanceAlongThePolyline)
     layer.name = "dash";
     layers::Polyline line;
     line.points = { 0, 0, 0, 3, 0, 0, 3, 4, 0 };
-    line.dashPixels = 8.0f;
+    line.dashMetres = { 0.5f, 0.5f };
     layer.polylines = { line };
     const scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
     ASSERT_EQ (scene.lines.size (), 2u);
@@ -133,7 +137,7 @@ TEST (OverlayScene, BehindFollowsTheLayerUnlessTheItemSaysOtherwise)
     layers::Polyline line;
     line.points = { 0, 0, 0, 1, 0, 0 };
     line.behind = layers::Behind::Layer;
-    line.dashPixels = 4.0f;
+    line.dashMetres = { 0.25f, 0.25f };
     layers::Polyline faded = line;
     faded.behind = layers::Behind::Fade;
     layer.polylines = { line, faded };
@@ -723,4 +727,80 @@ TEST (OverlayScene, LayersSharingAnAtlasPageShareOneSlot)
     const scene::Scene drawn = scene::PrepareScene (all, &Engine ());
     EXPECT_EQ (drawn.pages.size (), 1u);
     EXPECT_EQ (drawn.glyphDraws.size (), 1u);
+}
+
+// The part behind the building: a "dash" line takes the default pattern in metres, a line
+// with a hidden style takes its own colour, width and pattern; equal patterns are one entry.
+TEST (OverlayScene, AHiddenLineHasItsOwnColourWidthAndPatternInMetres)
+{
+    layers::Layer layer;
+    layer.name = "hidden";
+    layers::Polyline dashed;
+    dashed.points = { 0, 0, 0, 4, 0, 0 };
+    dashed.behind = layers::Behind::Dash;
+    layers::Polyline styled = dashed;
+    styled.hidden.rgba = 0xD03030FFu;
+    styled.hidden.widthPixels = 3.0f;
+    styled.hidden.dashMetres = { 0.2f, 0.1f };
+    layers::Polyline again = styled;
+    layer.polylines = { dashed, styled, again };
+    EXPECT_EQ (layers::Validate (layer), "");
+    const scene::Scene drawn = scene::PrepareScene (One (layer), nullptr);
+    ASSERT_EQ (drawn.lines.size (), 3u);
+    ASSERT_EQ (drawn.dashes.size (), 16u); // two patterns: the default and the styled one
+    const uint32_t byDefault = (drawn.lines[0].dashes >> 8) & 0xFFu;
+    const uint32_t byStyle = (drawn.lines[1].dashes >> 8) & 0xFFu;
+    EXPECT_EQ (drawn.lines[0].dashes & 0xFFu, 255u); // solid where it is visible
+    EXPECT_FLOAT_EQ (drawn.dashes[byDefault * 8], layers::kDefaultHiddenDash[0]);
+    EXPECT_FLOAT_EQ (drawn.dashes[byDefault * 8 + 1], layers::kDefaultHiddenDash[1]);
+    EXPECT_FLOAT_EQ (drawn.dashes[byStyle * 8], 0.2f);
+    EXPECT_EQ (drawn.lines[2].dashes, drawn.lines[1].dashes);
+    EXPECT_EQ (drawn.lines[1].hiddenRgba, layers::ToUnorm (0xD03030FFu));
+    EXPECT_FLOAT_EQ (drawn.lines[1].hiddenWidthPixels, 3.0f);
+    EXPECT_EQ (drawn.lines[0].hiddenRgba & 0xFF000000u, 0u); // none: the line's own, faint
+
+    layer.polylines[1].hidden.dashMetres = { 0.2f, -0.1f };
+    EXPECT_NE (layers::Validate (layer), "");
+}
+
+// The table has room for sixteen patterns; past them a line is solid, and the draft says so.
+TEST (OverlayScene, PastSixteenDashPatternsALineIsSolid)
+{
+    scene::ForgetDrafts ();
+    layers::Layer layer;
+    layer.name = "patterns";
+    for (int i = 0; i < 18; ++i) {
+        layers::Polyline line;
+        line.points = { 0, double (i), 0, 1, double (i), 0 };
+        line.dashMetres = { 0.1f * float (i + 1), 0.1f };
+        layer.polylines.push_back (line);
+    }
+    const scene::Scene drawn = scene::PrepareScene (One (layer), nullptr);
+    EXPECT_EQ (drawn.dashes.size (), 16u * 8u);
+    EXPECT_EQ (drawn.lines[15].dashes & 0xFFu, 15u);
+    EXPECT_EQ (drawn.lines[16].dashes & 0xFFu, 255u);
+    EXPECT_NE (drawn.problems.lastError.find ("dash patterns"), std::string::npos);
+}
+
+// Two layers with patterns of their own, one of them reused from the cache: the merged
+// table holds both and each line names its own.
+TEST (OverlayScene, MergedLayersKeepTheirOwnDashPatterns)
+{
+    scene::ForgetDrafts ();
+    auto make = [] (const char* name, float on) {
+        layers::Layer layer;
+        layer.name = name;
+        layers::Polyline line;
+        line.points = { 0, 0, 0, 1, 0, 0 };
+        line.dashMetres = { on, 0.1f };
+        layer.polylines = { line };
+        return std::make_shared<const layers::Layer> (layer);
+    };
+    const auto first = make ("first", 0.3f), second = make ("second", 0.7f);
+    scene::PrepareScene ({ second }, nullptr);
+    const scene::Scene drawn = scene::PrepareScene ({ first, second }, nullptr);
+    EXPECT_EQ (drawn.cost.layersReused, 1u);
+    ASSERT_EQ (drawn.lines.size (), 2u);
+    EXPECT_FLOAT_EQ (drawn.dashes[(drawn.lines[0].dashes & 0xFFu) * 8], 0.3f);
+    EXPECT_FLOAT_EQ (drawn.dashes[(drawn.lines[1].dashes & 0xFFu) * 8], 0.7f);
 }

@@ -76,10 +76,9 @@ struct PlanLine {
     float hiA[2], loA[2], hiB[2], loB[2];
     uint32_t rgba;
     float widthPixels; // logical
-    float dashPixels;  // logical; 0 is solid
-    float dashDuty;
-    float arcStart; // model metres along the polyline to A: the dash's phase
-    float unused;
+    float arcStart;    // model metres along the polyline to A: where its dash pattern stands
+    uint32_t dashes;   // the pattern in `dashes`, 255 solid (the plan draws every line whole)
+    uint32_t unused[2];
 };
 static_assert (sizeof (PlanLine) == 56, "the guest's plan line instance is 56 bytes");
 
@@ -111,13 +110,15 @@ static_assert (sizeof (SceneFillVertex) == 40, "the guest's 3D fill vertex is 40
 struct SceneLine {
     float a[3], b[3];
     uint32_t rgba;
+    uint32_t hiddenRgba; // behind the building; alpha 0 is `rgba`, faint where it fades
     float widthPixels;
-    float dashPixels;
-    float dashDuty;
-    float arcStart;
+    float hiddenWidthPixels; // 0 is `widthPixels`
+    float arcStart;          // model metres along the polyline to `a`
+    uint32_t dashes;         // visible pattern | hidden pattern << 8; 255 solid
     uint32_t behind;
+    uint32_t unused;
 };
-static_assert (sizeof (SceneLine) == 48, "the guest's 3D line instance is 48 bytes");
+static_assert (sizeof (SceneLine) == 56, "the guest's 3D line instance is 56 bytes");
 
 struct SceneGlyph {
     float position[3];
@@ -188,6 +189,9 @@ struct Plan {
     std::vector<PlanGlyph> glyphs;
     std::vector<GlyphDraw> glyphDraws;
     std::vector<std::shared_ptr<const overlaytext::Page>> pages;
+    // The lines' dash patterns: kMaxDashEntries lengths in metres each, a line's `dashes`
+    // indexing them (the guest's GuestDraw.Dashes).
+    std::vector<float> dashes;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;
@@ -205,6 +209,9 @@ struct Scene {
     std::vector<SceneGlyph> glyphs;
     std::vector<GlyphDraw> glyphDraws;
     std::vector<std::shared_ptr<const overlaytext::Page>> pages;
+    // The lines' dash patterns: kMaxDashEntries lengths in metres each, a line's `dashes`
+    // indexing them (the guest's GuestDraw.Dashes).
+    std::vector<float> dashes;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;

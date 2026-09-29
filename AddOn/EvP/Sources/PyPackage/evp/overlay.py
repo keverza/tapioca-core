@@ -131,11 +131,13 @@ def _put(out, pairs, convert=None):
 
 
 def _coloured(fields, keys=("color", "halo", "textColor")):
-    """A copy of a style dict with its colours as the wire's."""
+    """A copy of a style dict with its colours as the wire's, nested dicts included."""
     out = dict(fields or {})
-    for key in keys:
-        if out.get(key) is not None:
-            out[key] = colour(out[key])
+    for key, value in out.items():
+        if key in keys and value is not None:
+            out[key] = colour(value)
+        elif isinstance(value, dict):
+            out[key] = _coloured(value, keys)
     return out
 
 
@@ -306,25 +308,39 @@ def polyline(
     width=None,
     closed=None,
     dash=None,
-    dash_duty=None,
     occlusion=None,
     start_arrow=None,
     end_arrow=None,
     arrow_size=None,
+    hidden_color=None,
+    hidden_width=None,
+    hidden_dash=None,
 ):
     """A line through `points` (flat x, y, z or a list of points), `width` pixels wide.
 
-    `dash` is a dash period in pixels and `dash_duty` the part of it drawn; `start_arrow`
-    and `end_arrow` end an open one in "arrow", "tick" or "dot", `arrow_size` pixels long.
+    `dash` is a pattern in model METRES along the line -- on, off, on, off... ([0.5, 0.3],
+    or [1.0, 0.25, 0.1, 0.25] for a dash-dot) -- anchored at its start, so it stays on the
+    model as the camera moves. `hidden_color`, `hidden_width` and `hidden_dash` draw the
+    part behind the building, where `occlusion` is "dash" (default pattern 0.5 m on,
+    0.3 m off) or "fade". `start_arrow` and `end_arrow` end an open one in "arrow", "tick"
+    or "dot", `arrow_size` pixels long.
     """
     out = {"points": _flat(points)}
     _put(out, (("closed", closed),))
     _put(out, (("color", color),), colour)
     _put(
         out,
-        (("widthPixels", width), ("dashPixels", dash), ("dashDuty", dash_duty), ("arrowSizePixels", arrow_size)),
+        (("widthPixels", width), ("arrowSizePixels", arrow_size)),
         float,
     )
+    if dash is not None:
+        out["dashMetres"] = [float(v) for v in dash]
+    hidden = _put({}, (("color", hidden_color),), colour)
+    _put(hidden, (("widthPixels", hidden_width),), float)
+    if hidden_dash is not None:
+        hidden["dashMetres"] = [float(v) for v in hidden_dash]
+    if hidden:
+        out["hidden"] = hidden
     _put(
         out,
         (
@@ -659,7 +675,8 @@ def story_slices(
     model per storey (Tapioca.OverlayStorySlices).
 
     `outline`, `fill` and `label` are style dicts in the wire's names -- outline
-    {"color", "widthPixels", "dashPixels", "occlusion"}, fill {"color", "occlusion"},
+    {"color", "widthPixels", "dashMetres", "occlusion", "hidden": {"color", "widthPixels",
+    "dashMetres"}}, fill {"color", "occlusion"},
     label {"show", "sizePixels", "color", "halo", "haloPixels", "decimals", "name",
     "onSlice", "sizeMetres"} -- with colours in any form `colour` reads.
     """

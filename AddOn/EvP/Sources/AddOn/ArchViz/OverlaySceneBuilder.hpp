@@ -10,6 +10,7 @@
 
 #include "ArchViz/OverlayScene.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -32,6 +33,13 @@ namespace layers = overlaylayers;
 inline constexpr size_t kMaxFillVertices = 6000000;
 inline constexpr size_t kMaxLines = 2000000;
 inline constexpr size_t kMaxGlyphVertices = 1200000;
+
+// Dash patterns one set of layers may hold (the guest's constant buffer has room for these);
+// a line's two patterns -- where it is visible, where it is hidden -- are packed into one
+// word, 255 in either byte meaning solid.
+inline constexpr size_t kMaxDashPatterns = 16;
+inline constexpr uint32_t kSolidPattern = 255u;
+inline constexpr uint32_t kSolidDashes = kSolidPattern | (kSolidPattern << 8);
 
 inline constexpr double kPi = 3.14159265358979323846;
 
@@ -104,7 +112,9 @@ struct DraftFill {
 struct DraftLine {
     double a[3] = {}, b[3] = {};
     uint32_t rgba = 0;
-    float width = 1.0f, dash = 0.0f, duty = 0.5f, arc = 0.0f;
+    uint32_t hiddenRgba = 0; // alpha 0: `rgba`, faint where it fades
+    float width = 1.0f, hiddenWidth = 0.0f, arc = 0.0f;
+    uint32_t dashes = kSolidDashes;
     uint32_t behind = kBehindShow;
 };
 
@@ -130,6 +140,8 @@ struct Draft {
     // The text pages the glyphs sample, from every font's engine: a glyph's `page`
     // indexes this, below kHudPageBase.
     std::vector<std::shared_ptr<const overlaytext::Page>> textPages;
+    // The dash patterns the lines name, kMaxDashEntries lengths each, zero-padded.
+    std::vector<std::array<float, layers::kMaxDashEntries>> dashes;
 };
 
 class Builder {
@@ -177,6 +189,11 @@ class Builder {
                  overlaytext::Label& label, const std::string& font);
     // The engine for a font file; the bundled font's for none, or for one that failed.
     overlaytext::Engine* EngineFor (const std::string& font);
+    // A pattern's index in the draft's table, kSolidPattern for none.
+    uint32_t DashOf (const float* lengths, size_t count);
+    // A line's two patterns packed: where it is visible, and -- for "dash" and "fade" --
+    // behind the building, a "dash" line defaulting to kDefaultHiddenDash.
+    uint32_t DashesOf (const std::vector<float>& visible, const layers::HiddenLine* hidden, uint32_t behind);
     // One glyph's two triangles, moved by (dx, dy) in the label's frame.
     void PushQuad (DraftGlyph glyph, const overlaytext::Quad& quad, float dx, float dy);
     bool PushGlyphVertex (const DraftGlyph& glyph, float x, float y, float u, float v);

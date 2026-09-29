@@ -204,7 +204,8 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
             outline.closed = chain.closed;
             outline.rgba = controls.outlineRgba;
             outline.widthPixels = controls.outlineWidthPixels;
-            outline.dashPixels = controls.outlineDashPixels;
+            outline.dashMetres = controls.outlineDashMetres;
+            outline.hidden = controls.outlineHidden;
             // Never Layer: the guest draws it, visible part solid, hidden part per `behind`.
             outline.behind =
                 controls.outlineBehind == layers::Behind::Layer ? layers::Behind::Dash : controls.outlineBehind;

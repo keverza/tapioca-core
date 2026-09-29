@@ -136,7 +136,10 @@ def test_every_item_kind_carries_its_style():
         [(0, 0, 0), (1, 0, 0), (1, 1, 0)],
         color="#FF0000",
         width=3,
-        dash=8,
+        dash=[1.0, 0.25, 0.1, 0.25],
+        hidden_color="#D03030",
+        hidden_width=1.5,
+        hidden_dash=[0.6, 0.3],
         start_arrow="dot",
         end_arrow="arrow",
         arrow_size=12,
@@ -144,6 +147,9 @@ def test_every_item_kind_carries_its_style():
     )
     assert line["points"] == [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0]
     assert line["color"] == "FF0000FF" and line["startArrow"] == "dot" and line["arrowSizePixels"] == 12.0
+    # Dashes are model metres: on, off, on, off...; the hidden part has its own style.
+    assert line["dashMetres"] == [1.0, 0.25, 0.1, 0.25]
+    assert line["hidden"] == {"color": "D03030FF", "widthPixels": 1.5, "dashMetres": [0.6, 0.3]}
     ghost = overlay.mesh(
         [0, 0, 0, 1, 0, 0, 0, 1, 0],
         [0, 1, 2],
@@ -179,7 +185,7 @@ def test_the_add_ons_own_layers_take_their_style(monkeypatch):
         elements=["{ABC}"],
         cut="storeys",
         storeys=[1, 2],
-        outline={"color": "#303030", "dashPixels": 6},
+        outline={"color": "#303030", "dashMetres": [0.5, 0.3], "hidden": {"color": "#C02020", "widthPixels": 2}},
         label={"halo": (1, 1, 1, 0.8)},
     )
     overlay.annotations(style={"lineWidthPixels": 3, "halo": "#000000", "colors": {"add": "#00C000"}})
@@ -187,7 +193,11 @@ def test_the_add_ons_own_layers_take_their_style(monkeypatch):
     assert command == "Tapioca.OverlayStorySlices"
     assert params["elements"] == [{"elementId": {"guid": "{ABC}"}}]
     assert params["storeys"] == [1, 2] and all(isinstance(s, int) for s in params["storeys"])
-    assert params["outline"] == {"color": "303030FF", "dashPixels": 6.0}
+    assert params["outline"] == {
+        "color": "303030FF",
+        "dashMetres": [0.5, 0.3],
+        "hidden": {"color": "C02020FF", "widthPixels": 2.0},
+    }
     assert params["label"]["halo"] == "FFFFFFCC"
     command, params = seen[1]
     assert command == "Tapioca.OverlayAnnotations" and params["action"] == "on"

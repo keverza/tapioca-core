@@ -19061,10 +19061,40 @@
                 "exclusiveMinimum": 0,
                 "maximum": 16
               },
-              "dashPixels": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 512
+              "dashMetres": {
+                "type": "array",
+                "maxItems": 8,
+                "description": "On, off, on, off... in model metres along the line, anchored at its start; empty is solid.",
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000
+                }
+              },
+              "hidden": {
+                "type": "object",
+                "description": "The part behind the building, where occlusion is dash or fade.",
+                "properties": {
+                  "color": {
+                    "$ref": "#Color"
+                  },
+                  "widthPixels": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 64
+                  },
+                  "dashMetres": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "description": "On, off, on, off... in model metres along the line, anchored at its start; empty is solid.",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1000
+                    }
+                  }
+                },
+                "additionalProperties": false
               },
               "occlusion": {
                 "type": "string",
@@ -23806,15 +23836,40 @@
                   "exclusiveMinimum": 0,
                   "maximum": 64
                 },
-                "dashPixels": {
-                  "type": "number",
-                  "minimum": 0,
-                  "maximum": 512
+                "dashMetres": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "description": "On, off, on, off... in model metres along the line, anchored at its start; empty is solid.",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000
+                  }
                 },
-                "dashDuty": {
-                  "type": "number",
-                  "minimum": 0.05,
-                  "maximum": 0.95
+                "hidden": {
+                  "type": "object",
+                  "description": "The part behind the building, where occlusion is dash or fade.",
+                  "properties": {
+                    "color": {
+                      "$ref": "#Color"
+                    },
+                    "widthPixels": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 64
+                    },
+                    "dashMetres": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "description": "On, off, on, off... in model metres along the line, anchored at its start; empty is solid.",
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      }
+                    }
+                  },
+                  "additionalProperties": false
                 },
                 "occlusion": {
                   "type": "string",

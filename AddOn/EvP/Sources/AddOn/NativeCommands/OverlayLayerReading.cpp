@@ -525,6 +525,25 @@ std::string StringOf (const GS::ObjectState& item, const char* key)
     return StringValue (item, key);
 }
 
+void ReadDash (const GS::ObjectState& item, const char* key, std::vector<float>& lengths)
+{
+    std::vector<double> values;
+    if (!ReadReals (item, key, values))
+        return;
+    lengths.clear ();
+    for (const double value : values)
+        lengths.push_back (float (value));
+}
+
+bool ReadHiddenLine (const GS::ObjectState& item, layers::HiddenLine& hidden, std::string& error)
+{
+    if (!ReadColour (item, "color", hidden.rgba, error))
+        return false;
+    ReadFloat (item, "widthPixels", hidden.widthPixels);
+    ReadDash (item, "dashMetres", hidden.dashMetres);
+    return true;
+}
+
 bool ReadFont (const GS::ObjectState& item, const char* key, std::string& path, std::string& error)
 {
     if (!item.Contains (key))
@@ -565,8 +584,10 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
             if (!ReadColour (item, "color", polyline.rgba, error))
                 return false;
             ReadFloat (item, "widthPixels", polyline.widthPixels);
-            ReadFloat (item, "dashPixels", polyline.dashPixels);
-            ReadFloat (item, "dashDuty", polyline.dashDuty);
+            ReadDash (item, "dashMetres", polyline.dashMetres);
+            GS::ObjectState hidden;
+            if (item.Get ("hidden", hidden) && !ReadHiddenLine (hidden, polyline.hidden, error))
+                return false;
             polyline.startArrow = TerminatorOf (item, "startArrow", polyline.startArrow);
             polyline.endArrow = TerminatorOf (item, "endArrow", polyline.endArrow);
             ReadFloat (item, "arrowSizePixels", polyline.arrowSizePixels);

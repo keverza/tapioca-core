@@ -59,6 +59,24 @@ enum class Behind : uint8_t {
     Show = 4,  // drawn as if nothing were in front: "always"
 };
 
+// ⚠️ A DASH BELONGS TO THE MODEL. A pattern is lengths in MODEL METRES along the line --
+// on, off, on, off... -- anchored at the line's start in the model, so a dash stays where
+// it is on the building as the camera moves. A period in screen pixels, measured from
+// wherever the line's start happened to project, slid along the line with every orbit and
+// read as an animation (the user, 2026-09-29). Empty is solid.
+constexpr size_t kMaxDashEntries = 8;
+
+// A "dash" line's pattern behind the building when it names none: 0.5 m on, 0.3 m off.
+constexpr float kDefaultHiddenDash[2] = { 0.5f, 0.3f };
+
+// How the part of a line behind the building is drawn, where its occlusion is "dash" or
+// "fade": a colour, a width and a pattern of its own.
+struct HiddenLine {
+    uint32_t rgba = 0;             // alpha 0: the line's own -- faint where it fades
+    float widthPixels = 0.0f;      // 0: the line's own
+    std::vector<float> dashMetres; // empty: kDefaultHiddenDash for "dash", solid for "fade"
+};
+
 // What ends a dimension line, or either end of an open polyline.
 enum class Terminator : uint8_t { Tick = 0, Arrow = 1, Dot = 2, None = 3 };
 
@@ -67,10 +85,10 @@ struct Polyline {
     bool closed = false;
     uint32_t rgba = 0xFF3B30FFu; // 0xRRGGBBAA
     float widthPixels = 2.0f;
-    // Guest only: a dash period in logical pixels (0 is solid) and the fraction of
-    // it drawn, measured along the whole polyline so a corner does not restart it.
-    float dashPixels = 0.0f;
-    float dashDuty = 0.5f;
+    // Guest only: a dash pattern in model metres, measured along the whole polyline so a
+    // corner does not restart it; and how its part behind the building is drawn.
+    std::vector<float> dashMetres;
+    HiddenLine hidden;
     Behind behind = Behind::Layer;
     // Guest only: what ends an open polyline, turned with its end segment on screen and
     // `arrowSizePixels` long. A closed one has no ends.

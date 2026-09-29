@@ -156,6 +156,7 @@ bool UploadCurrent ()
     arrays.glyphs = scene.glyphs.data ();
     arrays.glyphCount = scene.glyphs.size ();
     arrays.glyphStride = sizeof (overlayscene::SceneGlyph);
+    arrays.dashes = &scene.dashes;
     std::string error;
     gpu::Content content;
     if (!gpu::Upload (g_guest.Device (), g_pipelines, g_pages, arrays, scene.fillDraws, scene.glyphDraws, scene.pages,

@@ -64,8 +64,9 @@ struct DrawConstants {
     float stopAt[16];
     float stopColour[16][4];
     float atlas[4];
+    float dashes[32][4]; // 16 patterns of 8 lengths in metres (overlayscene's `dashes`)
 };
-static_assert (sizeof (DrawConstants) == 400, "GuestDraw is 25 float4s");
+static_assert (sizeof (DrawConstants) == 912, "GuestDraw is 57 float4s");
 
 struct Pipelines {
     Kind kind = Kind::Plan;
@@ -104,6 +105,7 @@ struct Content {
     std::vector<overlayscene::FillDraw> fillDraws;
     std::vector<overlayscene::GlyphDraw> glyphDraws;
     std::vector<uint32_t> pageSlot; // GlyphDraw::page -> index into the page cache
+    std::vector<float> dashes;      // the lines' patterns, for the line draws' constants
     uint64_t generation = 0;
 
     bool Empty () const
@@ -122,6 +124,7 @@ struct Arrays {
     const void* glyphs = nullptr;
     size_t glyphCount = 0;
     size_t glyphStride = 0;
+    const std::vector<float>* dashes = nullptr; // 8 lengths per pattern
 };
 
 // Replaces `out` with the new content's buffers; new atlas pages join `pages`.
