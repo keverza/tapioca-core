@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 227,
+      "nativeRegistry": 228,
       "dispatcherLocal": 19,
-      "total": 246
+      "total": 247
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -18121,6 +18121,58 @@
           "camera",
           "host",
           "presentInjections"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.OverlayAnnotations",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off",
+              "state"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "haveFrame": {
+            "type": "boolean"
+          },
+          "primitives": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "drawn": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frame": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "enabled",
+          "haveFrame",
+          "primitives",
+          "drawn",
+          "frame"
         ]
       }
     },

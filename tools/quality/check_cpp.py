@@ -362,9 +362,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/OverlayController.hpp"),
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/InjectedOverlayRuntime.hpp"),
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/PlanOverlayRuntime.hpp"),
-    # Tapioca.OverlayStorySlices switches the add-on's own slice layer; the module
-    # owns its layer and its timer, and the verb is only the switch.
+    # Tapioca.OverlayStorySlices and Tapioca.OverlayAnnotations switch the add-on's
+    # own overlay layers; each module owns its layer and its timer, and the verb is
+    # only the switch.
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/StorySliceOverlay.hpp"),
+    ("NativeCommands/OverlayCommands.cpp", "ArchViz/OverlayAnnotations.hpp"),
     # Tapioca.SetOverlayLayer and its two siblings: the caller's own content on both
     # overlays. The verbs fill the one store both overlays read -- a second store on
     # this side would be a second answer to "what is on the overlay" -- and hand the

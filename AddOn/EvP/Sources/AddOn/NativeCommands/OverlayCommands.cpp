@@ -5,6 +5,7 @@
 //   Tapioca.Overlay2D {action}   the 2D overlay: the floor plan, composed at its Present
 //   Tapioca.OverlayStorySlices {action, ...}  slices on them: the massing slabs' floors,
 //                                             or the whole model per storey (below)
+//   Tapioca.OverlayAnnotations {action}       the Watch trace's annotations on them
 //
 //   action  "on"      want it; it starts at once if its view is in front, otherwise
 //                     when that view comes forward
@@ -24,6 +25,7 @@
 #include "NativeCommands/CommandRegistration.hpp"
 
 #include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/OverlayAnnotations.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/StorySliceOverlay.hpp"
@@ -145,7 +147,7 @@ class Overlay2DCommand : public MainThreadCommand {
     }
 };
 
-// ---- the slices ----------------------------------------------------------------------
+// ---- the storey slices and the Watch annotations -----------------------------------
 
 namespace slices = archviz::storysliceoverlay;
 using Cut = archviz::slabslices::Cut;
@@ -368,6 +370,38 @@ class OverlayStorySlicesCommand : public MainThreadCommand {
     }
 };
 
+class OverlayAnnotationsCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "OverlayAnnotations";
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        const std::string action = params.Contains ("action") ? StringOf (params, "action") : std::string ("state");
+        archviz::overlayannotations::State state;
+        if (action == "on")
+            state = archviz::overlayannotations::Apply (true);
+        else if (action == "off")
+            state = archviz::overlayannotations::Apply (false);
+        else if (action == "state")
+            state = archviz::overlayannotations::Describe ();
+        else
+            return NativeCommandResult::Failure (
+                EVP_FAIL (GS::UniString ("unknown action '") + Utf8 (action) + "'; expected on, off or state",
+                          "showing the Watch annotations"));
+        GS::ObjectState os;
+        os.Add ("action", Utf8 (action));
+        os.Add ("enabled", state.enabled);
+        os.Add ("haveFrame", state.haveFrame);
+        os.Add ("primitives", (GS::Int32) state.primitives);
+        os.Add ("drawn", (GS::Int32) state.drawn);
+        os.Add ("frame", Utf8 (state.frame));
+        return os;
+    }
+};
+
 // clang-format off
 constexpr const char kOverlayActionInput[] = R"json({"type":"object","properties":{
     "action":{"type":"string","enum":["on","off","toggle","state"]}},
@@ -446,11 +480,22 @@ constexpr const char kOverlayStorySlicesOutput[] = R"json({"type":"object","prop
   "required":["action","enabled","source","cut","waiting","slices","areaM2","storeys","snapshot","cuts","slabs",
               "skipped","message"]})json";
 
+constexpr const char kOverlayAnnotationsInput[] = R"json({"type":"object","properties":{
+    "action":{"type":"string","enum":["on","off","state"]}},
+  "additionalProperties":false})json";
+
+constexpr const char kOverlayAnnotationsOutput[] = R"json({"type":"object","properties":{
+    "action":{"type":"string"},"enabled":{"type":"boolean"},"haveFrame":{"type":"boolean"},
+    "primitives":{"type":"integer","minimum":0},"drawn":{"type":"integer","minimum":0},"frame":{"type":"string"}},
+  "additionalProperties":false,"required":["action","enabled","haveFrame","primitives","drawn","frame"]})json";
+
 const NativeCommandRegistration kOverlayCommandRegistrations[] = {
     { "Overlay3D", &MakeRegisteredNativeCommand<Overlay3DCommand>, false, kOverlayActionInput, kOverlay3DOutput },
     { "Overlay2D", &MakeRegisteredNativeCommand<Overlay2DCommand>, false, kOverlayActionInput, kOverlay2DOutput },
     { "OverlayStorySlices", &MakeRegisteredNativeCommand<OverlayStorySlicesCommand>, false, kOverlayStorySlicesInput,
       kOverlayStorySlicesOutput },
+    { "OverlayAnnotations", &MakeRegisteredNativeCommand<OverlayAnnotationsCommand>, false, kOverlayAnnotationsInput,
+      kOverlayAnnotationsOutput },
 };
 // clang-format on
 

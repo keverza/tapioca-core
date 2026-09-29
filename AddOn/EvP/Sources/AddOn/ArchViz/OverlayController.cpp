@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/PlanGuest.hpp"
 #include "ArchViz/Dxgi/SceneGuest.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
+#include "ArchViz/OverlayAnnotations.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayScene.hpp"
@@ -409,6 +410,8 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
     }
     else {
         intent.wanted = true;
+        // The Watch trace's annotations follow wherever an overlay is (OverlayAnnotations.hpp).
+        overlayannotations::EnsureStarted ();
         g_servingView = front;
         if (front == ViewOf (which)) {
             StartRenderer (which);
@@ -469,8 +472,9 @@ void OnProjectClosed ()
     SyncMenuChecks ();
     // ⚠️ THE CALLER'S LAYERS WERE THAT PROJECT'S COORDINATES (§8): drawn over the next
     // project they would be geometry from somewhere else, in the right place for nothing.
-    // The slices were that project's too.
+    // The storey slices and the Watch annotations were that project's too.
     storysliceoverlay::OnProjectClosed ();
+    overlayannotations::OnProjectClosed ();
     if (!overlaylayers::Layers ().empty ()) {
         overlaylayers::ClearEverything ();
         PublishLayers ();

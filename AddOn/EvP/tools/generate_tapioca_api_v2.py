@@ -245,8 +245,9 @@ from typing import Any
 # SetOverlayLayer, ClearOverlayLayer and OverlayLayers, the caller's arbitrary
 # geometry on both overlays, now in OverlayLayerCommands.cpp; 226 -> 227 with
 # OverlayStorySlices, the massing slabs' floors (or the model per storey) on the
-# overlays, in OverlayCommands.cpp.
-EXPECTED_REGISTRY_COMMANDS = 227
+# overlays, in OverlayCommands.cpp; 227 -> 228 with OverlayAnnotations, the Watch
+# trace's annotations on the overlays, in the same file.
+EXPECTED_REGISTRY_COMMANDS = 228
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -255,8 +256,9 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 235 -> 236 with the same verb.
 # 236 -> 238 with the element queries, 238 -> 239 with the draw record,
 # 239 -> 240 with the plan frame record, 240 -> 242 with the two overlay intents,
-# 242 -> 245 with the three overlay layer verbs, 245 -> 246 with the slices.
-EXPECTED_TOTAL_COMMANDS = 246
+# 242 -> 245 with the three overlay layer verbs, 245 -> 246 with the slices,
+# 246 -> 247 with the Watch annotations on the overlays.
+EXPECTED_TOTAL_COMMANDS = 247
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'
