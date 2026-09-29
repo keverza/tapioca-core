@@ -3,7 +3,7 @@
 #include "ArchViz/OverlayHud.hpp"
 
 #include "ArchViz/ImGuiContextLock.hpp"
-#include "ArchViz/OverlayScene.hpp" // RampAt: the ramp the guest's pixel shader draws
+#include "ArchViz/OverlayHudItems.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: which draw list is whose
@@ -21,6 +21,10 @@ namespace overlayhud {
 
 namespace layers = overlaylayers;
 
+using items::Colour;
+using items::Unpacked;
+using items::WithAlpha;
+
 namespace {
 
 // A set is laid out in this many frames: an auto-sized window measures itself in its
@@ -34,37 +38,6 @@ constexpr float kTitleScale = 1.2f;
 // The frames after the first advance ImGui's clock by almost nothing: the first carries
 // the time since the last layout, so a double click is timed as the user made it.
 constexpr float kSettleSeconds = 1.0e-4f;
-
-ImVec4 Colour (uint32_t rgba)
-{
-    return ImVec4 (float ((rgba >> 24) & 0xFFu) / 255.0f, float ((rgba >> 16) & 0xFFu) / 255.0f,
-                   float ((rgba >> 8) & 0xFFu) / 255.0f, float (rgba & 0xFFu) / 255.0f);
-}
-
-ImU32 Packed (uint32_t rgba)
-{
-    return IM_COL32 ((rgba >> 24) & 0xFFu, (rgba >> 16) & 0xFFu, (rgba >> 8) & 0xFFu, rgba & 0xFFu);
-}
-
-// ImGui's packed colour (R in the low byte) back to the caller's 0xRRGGBBAA.
-uint32_t Unpacked (ImU32 col)
-{
-    const uint32_t r = col & 0xFFu, g = (col >> 8) & 0xFFu, b = (col >> 16) & 0xFFu, a = (col >> 24) & 0xFFu;
-    return (r << 24) | (g << 16) | (b << 8) | a;
-}
-
-uint32_t WithAlpha (uint32_t rgba, float factor)
-{
-    const uint32_t a = uint32_t (std::lround (float (rgba & 0xFFu) * factor));
-    return (rgba & 0xFFFFFF00u) | (std::min) (a, 255u);
-}
-
-std::string Number (double value, uint32_t decimals)
-{
-    char buffer[64] = {};
-    std::snprintf (buffer, sizeof (buffer), "%.*f", int ((std::min) (decimals, 6u)), value);
-    return buffer;
-}
 
 // The style every panel starts from; each pushes its own colours and spacing over it.
 void BaseStyle (float scale)
@@ -116,46 +89,6 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
     for (const auto& colour : colours)
         ImGui::PushStyleColor (colour.first, Colour (colour.second));
     return int (sizeof (colours) / sizeof (colours[0]));
-}
-
-// The share of a smooth ramp's range either side of the value that a highlight shows.
-constexpr double kHighlightHalfShare = 0.05;
-
-// What a ramp says at `t` along it: the value, or the band it falls in, and its colour.
-// `band` is what its heatmap shows while it is pointed at.
-void ValueTip (const layers::Colormap& colormap, float t, double low, double high, uint32_t decimals,
-               const std::string& unit, ImVec2 at, ImVec2 pivot, float scale, double band[2])
-{
-    t = (std::min) ((std::max) (t, 0.0f), 1.0f);
-    std::string text;
-    float colourAt = t;
-    if (colormap.bands > 0) {
-        const uint32_t bands = colormap.bands;
-        const uint32_t k = (std::min) (uint32_t (t * float (bands)), bands - 1);
-        band[0] = low + (high - low) * double (k) / double (bands);
-        band[1] = low + (high - low) * double (k + 1) / double (bands);
-        text = Number (band[0], decimals) + " \xE2\x80\x93 " + Number (band[1], decimals);
-        colourAt = bands > 1 ? float (k) / float (bands - 1) : 0.5f;
-    }
-    else {
-        const double value = low + (high - low) * double (t), half = (high - low) * kHighlightHalfShare;
-        band[0] = (std::max) (value - half, (std::min) (low, high));
-        band[1] = (std::min) (value + half, (std::max) (low, high));
-        text = Number (value, decimals);
-    }
-    if (!unit.empty ())
-        text += " " + unit;
-    ImGui::SetNextWindowPos (at, ImGuiCond_Always, pivot);
-    if (!ImGui::BeginTooltip ())
-        return;
-    const float s = ImGui::GetFontSize ();
-    const ImVec2 p = ImGui::GetCursorScreenPos ();
-    ImGui::GetWindowDrawList ()->AddRectFilled (p, ImVec2 (p.x + s, p.y + s),
-                                                Packed (overlayscene::RampAt (colormap.stops, colourAt)), 2.0f * scale);
-    ImGui::Dummy (ImVec2 (s, s));
-    ImGui::SameLine ();
-    ImGui::TextUnformatted (text.c_str ());
-    ImGui::EndTooltip ();
 }
 
 } // namespace
@@ -287,122 +220,6 @@ struct Engine::Impl {
         }
     }
 
-    void Rows (const layers::Panel& panel, size_t begin, size_t end, float scale)
-    {
-        if (!ImGui::BeginTable ("##rows", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings))
-            return;
-        for (size_t i = begin; i < end; ++i) {
-            const layers::PanelItem& item = panel.items[i];
-            const bool sized = item.sizePixels > 0.0f;
-            if (sized)
-                ImGui::PushFont (nullptr, item.sizePixels * scale);
-            ImGui::TableNextRow ();
-            ImGui::TableSetColumnIndex (0);
-            ImGui::PushStyleColor (ImGuiCol_Text, Colour (WithAlpha (panel.textRgba, 0.72f)));
-            ImGui::TextUnformatted (item.text.c_str ());
-            ImGui::PopStyleColor ();
-            ImGui::TableSetColumnIndex (1);
-            ImGui::PushStyleColor (ImGuiCol_Text, Colour ((item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba));
-            ImGui::TextUnformatted (item.value.c_str ());
-            ImGui::PopStyleColor ();
-            if (sized)
-                ImGui::PopFont ();
-        }
-        ImGui::EndTable ();
-    }
-
-    void Ramp (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale)
-    {
-        if (!item.text.empty ())
-            ImGui::TextUnformatted (item.text.c_str ());
-        const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
-        const float h = (item.heightPixels > 0.0f ? item.heightPixels : 12.0f) * scale;
-        const ImVec2 p = ImGui::GetCursorScreenPos ();
-        ImDrawList* draw = ImGui::GetWindowDrawList ();
-        const std::vector<layers::ColourStop>& stops = item.colormap.stops;
-        if (item.colormap.bands > 0) {
-            const uint32_t bands = item.colormap.bands;
-            for (uint32_t k = 0; k < bands; ++k) {
-                const float t = bands > 1 ? float (k) / float (bands - 1) : 0.5f;
-                const ImU32 c = Packed (overlayscene::RampAt (stops, t));
-                draw->AddRectFilled (ImVec2 (p.x + w * float (k) / float (bands), p.y),
-                                     ImVec2 (p.x + w * float (k + 1) / float (bands), p.y + h), c);
-            }
-        }
-        else if (!stops.empty ()) {
-            draw->AddRectFilled (p, ImVec2 (p.x + w * stops.front ().at, p.y + h), Packed (stops.front ().rgba));
-            for (size_t s = 1; s < stops.size (); ++s) {
-                const ImU32 a = Packed (stops[s - 1].rgba), b = Packed (stops[s].rgba);
-                draw->AddRectFilledMultiColor (ImVec2 (p.x + w * stops[s - 1].at, p.y),
-                                               ImVec2 (p.x + w * stops[s].at, p.y + h), a, b, b, a);
-            }
-            draw->AddRectFilled (ImVec2 (p.x + w * stops.back ().at, p.y), ImVec2 (p.x + w, p.y + h),
-                                 Packed (stops.back ().rgba));
-        }
-        draw->AddRect (p, ImVec2 (p.x + w, p.y + h), Packed (WithAlpha (panel.textRgba, 0.45f)));
-
-        // The ticks under the bar, each label centred on its tick and kept inside the bar.
-        const double low = item.colormap.min, high = item.colormap.max;
-        std::vector<double> values = item.tickValues;
-        if (values.empty ()) {
-            const uint32_t ticks = (std::max) (item.ticks, 2u);
-            for (uint32_t k = 0; k < ticks; ++k)
-                values.push_back (low + (high - low) * double (k) / double (ticks - 1));
-        }
-        const float font = ImGui::GetFontSize ();
-        const ImU32 textColour = Packed ((item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba);
-        for (size_t k = 0; k < values.size (); ++k) {
-            const double t = high > low ? (values[k] - low) / (high - low) : 0.0;
-            if (t < -1e-9 || t > 1.0 + 1e-9)
-                continue;
-            const float x = p.x + w * float (t);
-            draw->AddLine (ImVec2 (x, p.y + h), ImVec2 (x, p.y + h + 3.0f * scale), textColour,
-                           (std::max) (1.0f, scale));
-            std::string label = k < item.tickLabels.size () ? item.tickLabels[k] : Number (values[k], item.decimals);
-            if (!item.unit.empty () && k + 1 == values.size () && item.tickLabels.empty ())
-                label += " " + item.unit;
-            const ImVec2 size = ImGui::CalcTextSize (label.c_str ());
-            const float left = (std::min) ((std::max) (x - size.x * 0.5f, p.x), p.x + w - size.x);
-            draw->AddText (ImVec2 (left, p.y + h + 4.0f * scale), textColour, label.c_str ());
-        }
-        ImGui::Dummy (ImVec2 (w, h + 4.0f * scale + font));
-
-        // Pointed at: the value there, over the bar at the pointer.
-        const ImVec2 mouse = ImGui::GetIO ().MousePos;
-        if (w > 0.0f && ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (p, ImVec2 (p.x + w, p.y + h))) {
-            double band[2] = {};
-            ValueTip (item.colormap, (mouse.x - p.x) / w, low, high, item.decimals, item.unit,
-                      ImVec2 (mouse.x, p.y - 2.0f * scale), ImVec2 (0.5f, 1.0f), scale, band);
-            // A ramp in a panel describes its own layer's heatmaps.
-            highlight = { true, layer, band[0], band[1] };
-        }
-    }
-
-    // A section's header: its chevron and title, its figure at the right; open or not as
-    // the user left it. True when what follows it is shown.
-    bool Section (const layers::Panel& panel, const layers::PanelItem& item, uint32_t index, PanelState& state,
-                  float scale)
-    {
-        bool& open = state.sections.try_emplace (index, item.open).first->second;
-        const bool sized = item.sizePixels > 0.0f;
-        if (sized)
-            ImGui::PushFont (nullptr, item.sizePixels * scale);
-        ImGui::SetNextItemOpen (open, ImGuiCond_Always);
-        open = ImGui::TreeNodeEx ("##section", ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
-                                  "%s", item.text.c_str ());
-        if (!item.value.empty ()) {
-            ImGui::SameLine ();
-            const float w = ImGui::CalcTextSize (item.value.c_str ()).x;
-            ImGui::SetCursorPosX (ImGui::GetCursorPosX () + (std::max) (ImGui::GetContentRegionAvail ().x - w, 0.0f));
-            ImGui::PushStyleColor (ImGuiCol_Text, Colour ((item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba));
-            ImGui::TextUnformatted (item.value.c_str ());
-            ImGui::PopStyleColor ();
-        }
-        if (sized)
-            ImGui::PopFont ();
-        return open;
-    }
-
     void Items (const layers::Panel& panel, PanelState& state, float scale)
     {
         // What an item without its own width spans: the panel's width when it has one,
@@ -420,104 +237,50 @@ struct Engine::Impl {
                 continue;
             }
             ImGui::PushID (int (i));
-            const uint32_t colour = (item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba;
             switch (item.kind) {
                 case layers::ItemKind::Row: {
                     size_t end = i;
                     while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Row)
                         ++end;
-                    Rows (panel, i, end, scale);
+                    items::Rows (panel, i, end, scale);
                     ImGui::PopID ();
                     i = end;
                     continue;
                 }
-                case layers::ItemKind::Text: {
-                    const bool sized = item.sizePixels > 0.0f;
-                    if (sized)
-                        ImGui::PushFont (nullptr, item.sizePixels * scale);
-                    ImGui::PushStyleColor (ImGuiCol_Text, Colour (colour));
-                    if (item.wrap)
-                        ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + width);
-                    ImGui::TextUnformatted (item.text.c_str ());
-                    if (item.wrap)
-                        ImGui::PopTextWrapPos ();
-                    ImGui::PopStyleColor ();
-                    if (sized)
-                        ImGui::PopFont ();
+                case layers::ItemKind::Text:
+                    items::Text (panel, item, width, scale);
                     break;
-                }
                 case layers::ItemKind::Separator:
                     ImGui::Separator ();
                     break;
                 case layers::ItemKind::Spacing:
                     ImGui::Dummy (ImVec2 (1.0f, (item.heightPixels > 0.0f ? item.heightPixels : 6.0f) * scale));
                     break;
-                case layers::ItemKind::Progress: {
-                    const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
-                    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 14.0f) * scale;
-                    ImGui::PushStyleColor (ImGuiCol_PlotHistogram,
-                                           Colour ((item.rgba & 0xFFu) != 0 ? item.rgba : 0x3D8BFDFFu));
-                    const float fraction = float ((std::min) ((std::max) (item.fraction, 0.0), 1.0));
-                    ImGui::ProgressBar (fraction, ImVec2 (w, h), item.text.empty () ? nullptr : item.text.c_str ());
-                    ImGui::PopStyleColor ();
+                case layers::ItemKind::Progress:
+                    items::Progress (item, width, scale);
+                    break;
+                case layers::ItemKind::Swatch:
+                    items::Swatch (panel, item, scale);
+                    break;
+                case layers::ItemKind::Ramp: {
+                    double band[2] = {};
+                    // A ramp in a panel describes its own layer's heatmaps.
+                    if (items::Ramp (panel, item, width, scale, band))
+                        highlight = { true, layer, band[0], band[1] };
                     break;
                 }
-                case layers::ItemKind::Swatch: {
-                    const float s = ImGui::GetFontSize ();
-                    const ImVec2 p = ImGui::GetCursorScreenPos ();
-                    ImGui::GetWindowDrawList ()->AddRectFilled (p, ImVec2 (p.x + s, p.y + s), Packed (colour),
-                                                                2.0f * scale);
-                    ImGui::Dummy (ImVec2 (s, s));
-                    ImGui::SameLine ();
-                    ImGui::TextUnformatted (item.text.c_str ());
+                case layers::ItemKind::Plot:
+                    items::Plot (item, width, scale);
+                    break;
+                case layers::ItemKind::Table:
+                    items::Table (item);
+                    break;
+                case layers::ItemKind::Section: {
+                    bool& open = state.sections.try_emplace (uint32_t (i), item.open).first->second;
+                    items::Section (panel, item, open, scale);
+                    shown = open;
                     break;
                 }
-                case layers::ItemKind::Ramp:
-                    Ramp (panel, item, width, scale);
-                    break;
-                case layers::ItemKind::Plot: {
-                    std::vector<float> values;
-                    values.reserve (item.values.size ());
-                    for (const double value : item.values)
-                        values.push_back (float (value));
-                    const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
-                    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 48.0f) * scale;
-                    ImGui::PushStyleColor (ImGuiCol_PlotLines,
-                                           Colour ((item.rgba & 0xFFu) != 0 ? item.rgba : 0x3D8BFDFFu));
-                    ImGui::PlotLines ("##plot", values.data (), int (values.size ()), 0,
-                                      item.text.empty () ? nullptr : item.text.c_str (),
-                                      item.autoRange ? FLT_MAX : float (item.min),
-                                      item.autoRange ? FLT_MAX : float (item.max), ImVec2 (w, h));
-                    ImGui::PopStyleColor ();
-                    break;
-                }
-                case layers::ItemKind::Table: {
-                    size_t columns = item.columns.size ();
-                    for (const std::vector<std::string>& row : item.rows)
-                        columns = (std::max) (columns, row.size ());
-                    if (columns == 0 ||
-                        !ImGui::BeginTable ("##table", int (columns),
-                                            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings |
-                                                ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH))
-                        break;
-                    if (!item.columns.empty ()) {
-                        for (size_t c = 0; c < columns; ++c)
-                            ImGui::TableSetupColumn (c < item.columns.size () ? item.columns[c].c_str () : "");
-                        ImGui::TableHeadersRow ();
-                    }
-                    for (const std::vector<std::string>& row : item.rows) {
-                        ImGui::TableNextRow ();
-                        for (size_t c = 0; c < row.size (); ++c) {
-                            ImGui::TableSetColumnIndex (int (c));
-                            ImGui::TextUnformatted (row[c].c_str ());
-                        }
-                    }
-                    ImGui::EndTable ();
-                    break;
-                }
-                case layers::ItemKind::Section:
-                    shown = Section (panel, item, uint32_t (i), state, scale);
-                    break;
             }
             ImGui::PopID ();
             ++i;
@@ -588,17 +351,17 @@ struct Engine::Impl {
             const layers::Legend& legend = *bar.legend;
             double band[2] = {};
             if (legend.horizontal) {
-                ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min, legend.colormap.max,
-                          legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f),
-                          scale, band);
+                items::ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min,
+                                 legend.colormap.max, legend.decimals, legend.unit,
+                                 ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f), scale, band);
             }
             else {
                 // Towards the middle of the view, away from the edge the legend sits at.
                 const bool left = a.x > view.x * 0.5f;
-                ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min, legend.colormap.max,
-                          legend.decimals, legend.unit,
-                          ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
-                          ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale, band);
+                items::ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min,
+                                 legend.colormap.max, legend.decimals, legend.unit,
+                                 ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
+                                 ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale, band);
             }
             highlight = { true, bar.layer, band[0], band[1] };
             return;
