@@ -25495,6 +25495,14 @@
                   "type": "boolean",
                   "description": "How a titled panel starts; the arrow on its title bar folds it, and what the user does outlives the layer being set again."
                 },
+                "theme": {
+                  "type": "string",
+                  "enum": [
+                    "dark",
+                    "light"
+                  ],
+                  "description": "The colours, rounding and padding the panel does not give: dark glass, or the light card."
+                },
                 "items": {
                   "type": "array",
                   "maxItems": 200,
@@ -25513,7 +25521,10 @@
                           "ramp",
                           "plot",
                           "table",
-                          "section"
+                          "section",
+                          "metrics",
+                          "stack",
+                          "bars"
                         ]
                       },
                       "text": {
@@ -25538,6 +25549,33 @@
                       "open": {
                         "type": "boolean",
                         "description": "A section: how it starts; the items after it, up to the next section, fold under it."
+                      },
+                      "info": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "description": "A section's help, said when its (i) is pointed at."
+                      },
+                      "perRow": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4,
+                        "description": "A grid's or a key's cells to a row."
+                      },
+                      "colors": {
+                        "type": "array",
+                        "maxItems": 256,
+                        "description": "A stack's segments or a histogram's bars, in order.",
+                        "items": {
+                          "$ref": "#Color"
+                        }
+                      },
+                      "labels": {
+                        "type": "array",
+                        "maxItems": 256,
+                        "items": {
+                          "type": "string",
+                          "maxLength": 512
+                        }
                       },
                       "fraction": {
                         "type": "number"

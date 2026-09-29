@@ -76,6 +76,31 @@ def test_a_panel_folds_and_its_sections_fold_what_follows():
     assert "collapsed" not in overlay.Panel(title="Plain").to_dict()
 
 
+def test_the_design_card_is_the_wire_names():
+    panel = (
+        overlay.Panel(title="AREA METRICS", theme="light")
+        .metrics([("Site area", "11 214 m2"), ("FAR", 1.77)])
+        .stack([("Built", 20, "#8FD3F7"), ("Open", 80, "#19D9A0")], decimals=0)
+        .section("Spacing", info="Shares by use.")
+        .swatch("#2A7F86", "Healthcare", "18.3%", per_row=2)
+        .bars([12, 4, 2.5], labels=[1, 2, 3], colormap="sunhours", caption="hours", unit="%")
+    )
+    out = panel.to_dict()
+    assert out["theme"] == "light"
+    metrics, stack, section, swatch, bars = out["items"]
+    assert metrics == {"kind": "metrics", "rows": [["Site area", "11 214 m2"], ["FAR", "1.77"]]}
+    assert stack["values"] == [20.0, 80.0] and stack["labels"] == ["Built", "Open"]
+    assert stack["colors"] == ["8FD3F7FF", "19D9A0FF"] and stack["decimals"] == 0
+    assert section["info"] == "Shares by use."
+    assert swatch == {"kind": "swatch", "color": "2A7F86FF", "text": "Healthcare", "value": "18.3%", "perRow": 2}
+    assert bars["colormap"] == {"preset": "sunhours"} and bars["labels"] == ["1", "2", "3"]
+    assert bars["text"] == "hours" and bars["unit"] == "%"
+    with pytest.raises(ValueError):
+        overlay.Panel(theme="blue")
+    with pytest.raises(ValueError):
+        overlay.Panel().stack([("a", 1, "#FF0000"), ("b", 2)])
+
+
 def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch):
     seen = _capture(monkeypatch)
     overlay.set_layer(

@@ -137,6 +137,27 @@ std::string ValidatePanel (const Panel& panel)
             return at + "fraction is finite";
         if (item.kind == ItemKind::Section && item.text.empty ())
             return at + "a section needs its title: it is what the user clicks";
+        if (item.info.size () > kMaxTextBytes || item.perRow > 4)
+            return at + "info is at most 512 bytes and perRow at most 4";
+        if (item.colors.size () > 256 || item.labels.size () > 256)
+            return at + "at most 256 colors and labels";
+        for (const std::string& label : item.labels)
+            if (label.size () > kMaxTextBytes)
+                return at + "a label is at most 512 bytes";
+        if (item.kind == ItemKind::Stack) {
+            if (item.values.size () > 64)
+                return at + "a stack has at most 64 segments";
+            double total = 0.0;
+            for (const double value : item.values) {
+                if (!std::isfinite (value) || value < 0.0)
+                    return at + "a stack's values are finite and not negative";
+                total += value;
+            }
+            if (!(total > 0.0))
+                return at + "a stack needs a value above zero";
+        }
+        if (item.kind == ItemKind::Bars && (item.values.empty () || item.values.size () > 256))
+            return at + "a histogram has 1 to 256 values";
         if (item.kind == ItemKind::Ramp) {
             const std::string ramp = ValidateColormap (item.colormap);
             if (!ramp.empty ())
@@ -170,6 +191,19 @@ std::string ValidatePanel (const Panel& panel)
 }
 
 } // namespace
+
+void ApplyTheme (Panel& panel, PanelTheme theme)
+{
+    panel.theme = theme;
+    if (theme != PanelTheme::Light)
+        return;
+    // The design's card: near-white, dark text, a hairline border, rounded well.
+    panel.textRgba = 0x1F2328FFu;
+    panel.backgroundRgba = 0xFFFFFFF2u;
+    panel.borderRgba = 0xD0D7DEFFu;
+    panel.roundingPixels = 16.0f;
+    panel.paddingPixels = 12.0f;
+}
 
 bool DrawnIn (Views views, Views view)
 {

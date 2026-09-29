@@ -85,6 +85,8 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
         { ImGuiCol_Button, 0x00000000u },
         { ImGuiCol_ButtonHovered, WithAlpha (text, 0.14f) },
         { ImGuiCol_ButtonActive, WithAlpha (text, 0.22f) },
+        // Its tooltips in its own colours, nearly opaque over the model.
+        { ImGuiCol_PopupBg, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u },
     };
     for (const auto& colour : colours)
         ImGui::PushStyleColor (colour.first, Colour (colour.second));
@@ -259,8 +261,24 @@ struct Engine::Impl {
                 case layers::ItemKind::Progress:
                     items::Progress (item, width, scale);
                     break;
-                case layers::ItemKind::Swatch:
-                    items::Swatch (panel, item, scale);
+                case layers::ItemKind::Swatch: {
+                    // A run of swatches is one key: a grid when it has values or columns.
+                    size_t end = i;
+                    while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Swatch)
+                        ++end;
+                    items::Keys (panel, i, end, width, scale);
+                    ImGui::PopID ();
+                    i = end;
+                    continue;
+                }
+                case layers::ItemKind::Metrics:
+                    items::Metrics (panel, item, width, scale);
+                    break;
+                case layers::ItemKind::Stack:
+                    items::Stack (panel, item, width, scale);
+                    break;
+                case layers::ItemKind::Bars:
+                    items::Bars (panel, item, width, scale);
                     break;
                 case layers::ItemKind::Ramp: {
                     double band[2] = {};
@@ -328,6 +346,13 @@ struct Engine::Impl {
         windows[index] = ImGui::GetCurrentWindow ();
         if (titled)
             state.collapsed = ImGui::IsWindowCollapsed ();
+        if (open && titled) {
+            // A hairline under the title bar: the design's header, above the first item.
+            ImGuiWindow* const window = ImGui::GetCurrentWindow ();
+            const ImRect bar = window->TitleBarRect ();
+            window->DrawList->AddLine (ImVec2 (bar.Min.x, bar.Max.y), bar.Max, ImGui::GetColorU32 (ImGuiCol_Separator),
+                                       (std::max) (1.0f, scale));
+        }
         if (open) {
             ImGui::PushFont (face, panel.sizePixels * scale);
             Items (panel, state, scale);

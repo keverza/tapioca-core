@@ -291,7 +291,10 @@ enum class ItemKind : uint8_t {
     Plot = 7,      // `values` as a line
     Table = 8,     // `columns` over `rows`
     Section = 9,   // a heading with a chevron, `value` at its right: the items after it, up to
-                   // the next section, fold under it; `open` is how it starts
+                   // the next section, fold under it; `open` is how it starts; `info` behind (i)
+    Metrics = 10,  // figures in a grid, `perRow` to a row: `rows` are [label, value] cells
+    Stack = 11,    // `values` as shares of one bar, `colors` and `labels` each
+    Bars = 12,     // `values` as a histogram, `colors` and `labels` each, `text` its caption
 };
 
 struct PanelItem {
@@ -315,9 +318,17 @@ struct PanelItem {
     double max = 0.0;
     bool autoRange = true;                      // ...or its values' own
     std::vector<std::string> columns;           // a table's header; empty: none
-    std::vector<std::vector<std::string>> rows; // a table's cells
+    std::vector<std::vector<std::string>> rows; // a table's cells, a grid's [label, value]
     bool open = true;                           // a section, until the user folds it
+    std::string info;                           // a section's help, behind its (i)
+    uint32_t perRow = 0;                        // a grid's and a key's cells to a row; 0: 2, 1
+    std::vector<uint32_t> colors;               // a stack's segments, a histogram's bars
+    std::vector<std::string> labels;            // ...and what each is
 };
+
+// A panel's look: the dark glass the HUD began with, or the light card of the design.
+// It sets the colours, rounding and padding a panel does not give (the reader applies it).
+enum class PanelTheme : uint8_t { Dark = 0, Light = 1 };
 
 // A panel, anchored to the view: its own `anchor` point put at the same point of the
 // view, `offsetPixels` inwards. Laid out by Dear ImGui (auto-sized unless
@@ -337,8 +348,12 @@ struct Panel {
     float paddingPixels = 10.0f;
     std::string font; // as a text's; ImGui rasterises it (OverlayHud.hpp)
     bool collapsed = false;
+    PanelTheme theme = PanelTheme::Dark;
     std::vector<PanelItem> items;
 };
+
+// A theme's colours, rounding and padding, over `panel`'s own defaults.
+void ApplyTheme (Panel& panel, PanelTheme theme);
 
 struct Layer {
     std::string name;

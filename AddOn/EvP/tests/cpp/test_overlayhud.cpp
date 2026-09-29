@@ -545,3 +545,141 @@ TEST (OverlayHud, TheHudStreamNamesTheHeatmapItHighlights)
     EXPECT_EQ (away.highlight.layer, 0u);
     EXPECT_NE (scene::Fingerprint (stream), scene::Fingerprint (away));
 }
+
+// ---- the design's card (the user's AREA METRICS and SUN HOURS images) ---------------------
+
+namespace {
+
+// Where a colour is drawn in a panel: the box of its vertices, from the panel's top-left.
+bool Box (const hud::Built& built, uint32_t rgba, float box[4])
+{
+    box[0] = box[1] = FLT_MAX;
+    box[2] = box[3] = -FLT_MAX;
+    for (const hud::Vertex& v : built.vertices)
+        if (v.rgba == rgba) {
+            box[0] = (std::min) (box[0], v.x);
+            box[1] = (std::min) (box[1], v.y);
+            box[2] = (std::max) (box[2], v.x);
+            box[3] = (std::max) (box[3], v.y);
+        }
+    return box[0] <= box[2];
+}
+
+uint32_t RampStart (const char* preset)
+{
+    layers::Colormap colormap;
+    EXPECT_TRUE (layers::PresetStops (preset, colormap.stops));
+    return scene::RampAt (colormap.stops, 0.0f);
+}
+
+layers::Panel Card ()
+{
+    layers::Panel panel;
+    layers::ApplyTheme (panel, layers::PanelTheme::Light);
+    panel.title = "AREA METRICS";
+    panel.widthPixels = 420.0f;
+    layers::PanelItem metrics = Item (layers::ItemKind::Metrics);
+    metrics.rows = { { "Site area", "11 214 m\xC2\xB2" },
+                     { "Building coverage", "2 244 m\xC2\xB2" },
+                     { "BCR", "20.0%" },
+                     { "FAR", "1.77" } };
+    panel.items.push_back (metrics);
+    layers::PanelItem stack = Item (layers::ItemKind::Stack);
+    stack.values = { 20.0, 80.0 };
+    stack.labels = { "Built", "Open" };
+    stack.colors = { 0x8FD3F7FFu, 0x19D9A0FFu };
+    stack.decimals = 0;
+    panel.items.push_back (stack);
+    layers::PanelItem spacing = Item (layers::ItemKind::Section, "Spacing Metrics");
+    spacing.info = "Shares of the gross floor area by use.";
+    panel.items.push_back (spacing);
+    const char* uses[] = { "Healthcare", "Hospitality", "Mixeduse", "Residential" };
+    const uint32_t colours[] = { 0x2A7F86FFu, 0x3C3FC4FFu, 0xC85A0AFFu, 0x8A3FF2FFu };
+    for (int k = 0; k < 4; ++k) {
+        layers::PanelItem key = Item (layers::ItemKind::Swatch, uses[k], "18.3%");
+        key.rgba = colours[k];
+        key.perRow = 2;
+        panel.items.push_back (key);
+    }
+    layers::PanelItem bars = Item (layers::ItemKind::Bars, "Shadow coverage in hours");
+    bars.values = { 12.0, 4.0, 2.5, 1.5, 1.0, 1.0, 1.1, 0.6, 0.2, 0.2, 1.3 };
+    bars.labels = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" };
+    EXPECT_TRUE (layers::PresetStops ("sunhours", bars.colormap.stops));
+    bars.unit = "%";
+    bars.decimals = 0;
+    panel.items.push_back (bars);
+    return panel;
+}
+
+} // namespace
+
+// The light card, its grid of figures, its stacked bar, its two-column key with values and
+// its histogram coloured along a ramp, all in the colours given.
+TEST (OverlayHud, TheDesignsCardLaysOutInItsColours)
+{
+    const layers::Panel panel = Card ();
+    layers::Layer layer;
+    layer.name = "metrics";
+    layer.panels = { panel };
+    EXPECT_EQ (layers::Validate (layer), "");
+    Fresh hud;
+    const hud::Layout out = hud.Lay ({ &panel }, At (10.0f, 790.0f));
+    ASSERT_EQ (out.panels.size (), 1u);
+    const hud::Built& card = out.panels[0];
+    EXPECT_NEAR (card.width, 420.0f, 0.5f);
+    EXPECT_GT (card.height, 300.0f);
+    float box[4] = {};
+    EXPECT_TRUE (Box (card, 0xFFFFFFF2u, box)) << "the light card";
+    EXPECT_TRUE (Box (card, 0x3C3FC4FFu, box)) << "a key's swatch";
+    // Two keys to a row: Hospitality sits beside Healthcare, not under it.
+    float first[4] = {};
+    ASSERT_TRUE (Box (card, 0x2A7F86FFu, first));
+    EXPECT_NEAR (first[1], box[1], 1.0f);
+    EXPECT_GT (box[0], first[2] + 50.0f);
+    EXPECT_TRUE (Box (card, RampStart ("sunhours"), box)) << "the first bar, at the ramp's start";
+    EXPECT_TRUE (out.overlay.vertices.empty ()) << "nothing pointed at";
+}
+
+// Pointed at, a stack's segment and a histogram's bar say what they are.
+TEST (OverlayHud, APointedSegmentOrBarSaysWhatItIs)
+{
+    const layers::Panel panel = Card ();
+    Fresh hud;
+    const hud::Layout out = hud.Lay ({ &panel }, At (10.0f, 790.0f));
+    float segment[4] = {}, bar[4] = {};
+    ASSERT_TRUE (Box (out.panels[0], 0x19D9A0FFu, segment));
+    ASSERT_TRUE (Box (out.panels[0], RampStart ("sunhours"), bar));
+    // The panel's top-left is at (16, 16) on the view.
+    const hud::Layout onSegment =
+        hud.Lay ({ &panel }, At (16.0f + (segment[0] + segment[2]) * 0.5f, 16.0f + (segment[1] + segment[3]) * 0.5f));
+    EXPECT_FALSE (onSegment.overlay.vertices.empty ());
+    const hud::Layout onBar =
+        hud.Lay ({ &panel }, At (16.0f + (bar[0] + bar[2]) * 0.5f, 16.0f + (bar[1] + bar[3]) * 0.5f));
+    EXPECT_FALSE (onBar.overlay.vertices.empty ());
+    EXPECT_NE (onBar.overlay.vertices.size (), 0u);
+}
+
+TEST (OverlayHud, TheCardsKindsSayWhatTheyGotWrong)
+{
+    layers::Layer layer;
+    layer.name = "card";
+    layers::Panel panel;
+    layers::PanelItem stack = Item (layers::ItemKind::Stack);
+    stack.values = { 1.0, -2.0 };
+    panel.items = { stack };
+    layer.panels = { panel };
+    EXPECT_NE (layers::Validate (layer).find ("not negative"), std::string::npos);
+    layer.panels[0].items[0].values = { 0.0, 0.0 };
+    EXPECT_NE (layers::Validate (layer).find ("a value above zero"), std::string::npos);
+    layer.panels[0].items[0] = Item (layers::ItemKind::Bars);
+    EXPECT_NE (layers::Validate (layer).find ("1 to 256 values"), std::string::npos);
+    layer.panels[0].items[0] = Item (layers::ItemKind::Metrics);
+    layer.panels[0].items[0].perRow = 5;
+    EXPECT_NE (layers::Validate (layer).find ("perRow at most 4"), std::string::npos);
+    // The light theme is a starting point: colours, rounding and padding.
+    layers::Panel light;
+    layers::ApplyTheme (light, layers::PanelTheme::Light);
+    EXPECT_EQ (light.theme, layers::PanelTheme::Light);
+    EXPECT_EQ (light.textRgba, 0x1F2328FFu);
+    EXPECT_FLOAT_EQ (light.roundingPixels, 16.0f);
+}

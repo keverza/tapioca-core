@@ -389,6 +389,9 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
                : kind == "plot"      ? layers::ItemKind::Plot
                : kind == "table"     ? layers::ItemKind::Table
                : kind == "section"   ? layers::ItemKind::Section
+               : kind == "metrics"   ? layers::ItemKind::Metrics
+               : kind == "stack"     ? layers::ItemKind::Stack
+               : kind == "bars"      ? layers::ItemKind::Bars
                                      : layers::ItemKind::Text;
     if (item.Contains ("text"))
         out.text = StringValue (item, "text");
@@ -403,6 +406,23 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
         item.Get ("wrap", out.wrap);
     if (item.Contains ("open"))
         item.Get ("open", out.open);
+    if (item.Contains ("info"))
+        out.info = StringValue (item, "info");
+    ReadCount (item, "perRow", out.perRow);
+    ReadStrings (item, "labels", out.labels);
+    GS::Array<GS::UniString> colors;
+    if (item.Get ("colors", colors)) {
+        for (const GS::UniString& text : colors) {
+            GS::ObjectState one;
+            one.Add ("c", text);
+            uint32_t rgba = 0;
+            if (!ReadColour (one, "c", rgba, error)) {
+                error = "colors: " + error;
+                return false;
+            }
+            out.colors.push_back (rgba);
+        }
+    }
     ReadDouble (item, "fraction", out.fraction);
     GS::ObjectState colormap;
     if (item.Get ("colormap", colormap) && !ReadColormap (colormap, out.colormap, error))
@@ -445,6 +465,9 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
 
 bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& error)
 {
+    // The theme first: what it sets is the default the fields below override.
+    if (StringValue (item, "theme") == "light")
+        layers::ApplyTheme (panel, layers::PanelTheme::Light);
     if (item.Contains ("title"))
         panel.title = StringValue (item, "title");
     if (item.Contains ("anchor")) {

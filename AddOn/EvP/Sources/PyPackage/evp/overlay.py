@@ -187,7 +187,8 @@ class Panel:
 
     A panel with a `title` has a title bar whose arrow folds it to that bar;
     `collapsed` is how it starts. A click on a panel never reaches Archicad, and what
-    the user folds stays folded when the layer is set again."""
+    the user folds stays folded when the layer is set again. `theme` "light" is the
+    design's card -- near-white, dark text, rounded -- under any colour given here."""
 
     def __init__(
         self,
@@ -203,6 +204,7 @@ class Panel:
         padding=None,
         font=None,
         collapsed=None,
+        theme=None,
     ):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
@@ -213,6 +215,10 @@ class Panel:
             self._panel["font"] = str(font)
         if collapsed is not None:
             self._panel["collapsed"] = bool(collapsed)
+        if theme is not None:
+            if theme not in ("dark", "light"):
+                raise ValueError("theme is dark or light")
+            self._panel["theme"] = theme
         for key, value in (
             ("widthPixels", width),
             ("sizePixels", size),
@@ -245,9 +251,10 @@ class Panel:
     def separator(self):
         return self._add("separator")
 
-    def section(self, title, value=None, open=True, color=None, size=None):
+    def section(self, title, value=None, open=True, color=None, size=None, info=None):
         """A heading with a chevron and `value` at its right; the items after it, up to
-        the next section, fold under it. `open` is how it starts."""
+        the next section, fold under it. `open` is how it starts; `info` is said when
+        the small (i) beside the title is pointed at."""
         return self._add(
             "section",
             text=str(title),
@@ -255,6 +262,76 @@ class Panel:
             open=bool(open),
             color=color,
             sizePixels=size,
+            info=None if info is None else str(info),
+        )
+
+    def metrics(self, cells, per_row=None, size=None, color=None, width=None):
+        """Figures in a grid, `per_row` to a row (2 unless said): each cell a
+        (label, value) pair, the label small over the value."""
+        return self._add(
+            "metrics",
+            rows=[[str(label), str(value)] for label, value in cells],
+            perRow=None if per_row is None else int(per_row),
+            sizePixels=size,
+            color=color,
+            widthPixels=width,
+        )
+
+    def stack(self, segments, unit=None, decimals=None, colormap=None, width=None, height=None):
+        """Shares of a whole in one bar: `segments` are (label, value) or
+        (label, value, colour); each shows its percentage where it fits, and says its
+        label, value and share when pointed at."""
+        labels, values, colors = [], [], []
+        for segment in segments:
+            labels.append(str(segment[0]))
+            values.append(float(segment[1]))
+            colors.append(colour(segment[2]) if len(segment) > 2 else None)
+        if any(c is None for c in colors) and not all(c is None for c in colors):
+            raise ValueError("every segment has a colour, or none has")
+        return self._add(
+            "stack",
+            labels=labels,
+            values=values,
+            colors=colors if colors and colors[0] is not None else None,
+            colormap=None if colormap is None else _colormap(colormap),
+            unit=unit,
+            decimals=decimals,
+            widthPixels=width,
+            heightPixels=height,
+        )
+
+    def bars(
+        self,
+        values,
+        labels=None,
+        colors=None,
+        colormap=None,
+        caption=None,
+        unit=None,
+        decimals=None,
+        minimum=None,
+        maximum=None,
+        width=None,
+        height=None,
+    ):
+        """A histogram: a bar per value, each its colour (`colors`, or `colormap` along
+        them), `labels` under them, the value axis at the left and `caption` below.
+        Pointed at, a bar says its label and value."""
+        if (minimum is None) != (maximum is None):
+            raise ValueError("a histogram's range is minimum and maximum together")
+        return self._add(
+            "bars",
+            values=[float(v) for v in values],
+            labels=None if labels is None else [str(v) for v in labels],
+            colors=None if colors is None else [colour(c) for c in colors],
+            colormap=None if colormap is None else _colormap(colormap),
+            text=caption,
+            unit=unit,
+            decimals=decimals,
+            min=minimum,
+            max=maximum,
+            widthPixels=width,
+            heightPixels=height,
         )
 
     def spacing(self, height=6):
@@ -265,9 +342,17 @@ class Panel:
             "progress", fraction=float(fraction), text=text, color=color, widthPixels=width, heightPixels=height
         )
 
-    def swatch(self, color, text):
-        """A key entry: a square of `color` and what it means."""
-        return self._add("swatch", color=color, text=str(text))
+    def swatch(self, color, text, value=None, per_row=None):
+        """A key entry: a square of `color`, what it means and -- given -- its `value` at
+        the right. A run of swatches is one key, `per_row` of them to a row (the first
+        says)."""
+        return self._add(
+            "swatch",
+            color=color,
+            text=str(text),
+            value=None if value is None else str(value),
+            perRow=None if per_row is None else int(per_row),
+        )
 
     def ramp(
         self,

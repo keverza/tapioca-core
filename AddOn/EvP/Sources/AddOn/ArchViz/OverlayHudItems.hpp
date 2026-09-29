@@ -46,8 +46,29 @@ void Table (const overlaylayers::PanelItem& item);
 // True, with the band under the pointer, when the pointer is on the bar.
 bool Ramp (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, float width, float scale,
            double band[2]);
-// A section's header, `open` as the user left it and as they leave it now.
+// A section's header, `open` as the user left it and as they leave it now; its `info`
+// behind a small (i) that says it when pointed at.
 void Section (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, bool& open, float scale);
+
+// ---- the design's kinds: a card of figures ------------------------------------------------
+
+// Figures in a grid, `perRow` to a row (2 unless said), rules between: each cell a muted
+// label over its value, larger.
+void Metrics (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, float width, float scale);
+// `panel.items[begin, end)`, swatches, as a key: `perRow` to a row, each its colour, its
+// name and -- when it has one -- its value at the right.
+void Keys (const overlaylayers::Panel& panel, size_t begin, size_t end, float width, float scale);
+// Shares of a whole in one rounded bar, each its colour and its percentage inside it
+// where it fits; pointed at, a segment says its label, value and share.
+void Stack (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, float width, float scale);
+// A histogram: a bar per value in its colour, the value axis at the left with the grid
+// behind, the labels under the bars and the caption under them; pointed at, a bar says
+// its label and value.
+void Bars (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, float width, float scale);
+
+// The colour of an item's `index`th segment or bar of `count`: its own `colors`, else
+// its colormap's at its place, else a palette of ten.
+uint32_t SegmentColour (const overlaylayers::PanelItem& item, size_t index, size_t count);
 
 } // namespace items
 } // namespace overlayhud

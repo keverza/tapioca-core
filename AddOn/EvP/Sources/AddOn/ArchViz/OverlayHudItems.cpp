@@ -263,6 +263,34 @@ void Section (const layers::Panel& panel, const layers::PanelItem& item, bool& o
     ImGui::SetNextItemOpen (open, ImGuiCond_Always);
     open = ImGui::TreeNodeEx ("##section", ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
                               "%s", item.text.c_str ());
+    if (!item.info.empty ()) {
+        // The help marker: a small circled i beside the title, its text when pointed at.
+        // Tested by its rectangle: the section's row spans it and holds ImGui's hover.
+        ImGui::SameLine ();
+        const float line = ImGui::GetTextLineHeight ();
+        const float d = line * 0.8f;
+        const ImVec2 q = ImGui::GetCursorScreenPos ();
+        const ImVec2 centre (q.x + d * 0.5f, q.y + line * 0.5f);
+        const ImU32 muted = Packed (WithAlpha (panel.textRgba, 0.6f));
+        ImDrawList* draw = ImGui::GetWindowDrawList ();
+        draw->AddCircle (centre, d * 0.5f, muted, 0, (std::max) (1.0f, scale));
+        const float small = ImGui::GetFontSize () * 0.7f;
+        const ImVec2 glyph = ImGui::GetFont ()->CalcTextSizeA (small, FLT_MAX, 0.0f, "i");
+        draw->AddText (ImGui::GetFont (), small, ImVec2 (centre.x - glyph.x * 0.5f, centre.y - glyph.y * 0.5f), muted,
+                       "i");
+        ImGui::Dummy (ImVec2 (d, line));
+        const ImVec2 low = ImGui::GetItemRectMin (), high = ImGui::GetItemRectMax ();
+        if (ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (low, high)) {
+            // At the marker, not the pointer: moving over it draws nothing new.
+            ImGui::SetNextWindowPos (ImVec2 (low.x, high.y + 4.0f * scale), ImGuiCond_Always);
+            if (ImGui::BeginTooltip ()) {
+                ImGui::PushTextWrapPos (ImGui::GetFontSize () * 22.0f);
+                ImGui::TextUnformatted (item.info.c_str ());
+                ImGui::PopTextWrapPos ();
+                ImGui::EndTooltip ();
+            }
+        }
+    }
     if (!item.value.empty ()) {
         ImGui::SameLine ();
         const float w = ImGui::CalcTextSize (item.value.c_str ()).x;
@@ -273,6 +301,264 @@ void Section (const layers::Panel& panel, const layers::PanelItem& item, bool& o
     }
     if (sized)
         ImGui::PopFont ();
+}
+
+uint32_t SegmentColour (const layers::PanelItem& item, size_t index, size_t count)
+{
+    // Tableau's ten: distinct on a light card and on a dark one.
+    static const uint32_t kPalette[] = { 0x4E79A7FFu, 0xF28E2BFFu, 0xE15759FFu, 0x76B7B2FFu, 0x59A14FFFu,
+                                         0xEDC948FFu, 0xB07AA1FFu, 0xFF9DA7FFu, 0x9C755FFFu, 0xBAB0ACFFu };
+    if (index < item.colors.size ())
+        return item.colors[index];
+    if (item.colormap.stops.size () >= 2)
+        return overlayscene::RampAt (item.colormap.stops, count > 1 ? float (index) / float (count - 1) : 0.5f);
+    return kPalette[index % (sizeof (kPalette) / sizeof (kPalette[0]))];
+}
+
+namespace {
+
+// Text that reads on `rgba`: dark on a light colour, white on a dark one.
+uint32_t Contrast (uint32_t rgba)
+{
+    const float r = float ((rgba >> 24) & 0xFFu), g = float ((rgba >> 16) & 0xFFu), b = float ((rgba >> 8) & 0xFFu);
+    return (0.299f * r + 0.587f * g + 0.114f * b) / 255.0f > 0.62f ? 0x1F2328FFu : 0xFFFFFFFFu;
+}
+
+// A small tooltip at `at` (its `pivot` there): a swatch of `rgba`, then `text`.
+void KeyTip (uint32_t rgba, const std::string& text, ImVec2 at, ImVec2 pivot, float scale)
+{
+    ImGui::SetNextWindowPos (at, ImGuiCond_Always, pivot);
+    if (!ImGui::BeginTooltip ())
+        return;
+    const float s = ImGui::GetFontSize ();
+    const ImVec2 p = ImGui::GetCursorScreenPos ();
+    ImGui::GetWindowDrawList ()->AddRectFilled (p, ImVec2 (p.x + s, p.y + s), Packed (rgba), 3.0f * scale);
+    ImGui::Dummy (ImVec2 (s, s));
+    ImGui::SameLine ();
+    ImGui::TextUnformatted (text.c_str ());
+    ImGui::EndTooltip ();
+}
+
+uint32_t PerRow (uint32_t perRow, uint32_t fallback)
+{
+    return (std::min) ((std::max) (perRow == 0 ? fallback : perRow, 1u), 4u);
+}
+
+} // namespace
+
+void Metrics (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale)
+{
+    const int per = int (PerRow (item.perRow, 2u));
+    const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
+    const float size = item.sizePixels > 0.0f ? item.sizePixels * scale : ImGui::GetFontSize ();
+    const uint32_t valueColour = (item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba;
+    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (8.0f * scale, 5.0f * scale));
+    if (ImGui::BeginTable ("##metrics", per,
+                           ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV |
+                               ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_NoSavedSettings,
+                           ImVec2 (w, 0.0f))) {
+        for (const std::vector<std::string>& cell : item.rows) {
+            ImGui::TableNextColumn ();
+            ImGui::PushFont (nullptr, size * 0.95f);
+            ImGui::PushStyleColor (ImGuiCol_Text, Colour (WithAlpha (panel.textRgba, 0.72f)));
+            ImGui::TextUnformatted (cell.empty () ? "" : cell[0].c_str ());
+            ImGui::PopStyleColor ();
+            ImGui::PopFont ();
+            ImGui::PushFont (nullptr, size * 1.4f);
+            ImGui::PushStyleColor (ImGuiCol_Text, Colour (valueColour));
+            ImGui::TextUnformatted (cell.size () < 2 ? "" : cell[1].c_str ());
+            ImGui::PopStyleColor ();
+            ImGui::PopFont ();
+        }
+        ImGui::EndTable ();
+    }
+    ImGui::PopStyleVar ();
+}
+
+void Keys (const layers::Panel& panel, size_t begin, size_t end, float width, float scale)
+{
+    const layers::PanelItem& first = panel.items[begin];
+    bool valued = false;
+    for (size_t i = begin; i < end; ++i)
+        valued = valued || !panel.items[i].value.empty ();
+    // A plain key -- names only, one to a row -- is drawn as it always was.
+    if (!valued && PerRow (first.perRow, 1u) == 1u) {
+        for (size_t i = begin; i < end; ++i) {
+            ImGui::PushID (int (i));
+            Swatch (panel, panel.items[i], scale);
+            ImGui::PopID ();
+        }
+        return;
+    }
+    const int per = int (PerRow (first.perRow, 1u));
+    const float w = first.widthPixels > 0.0f ? first.widthPixels * scale : width;
+    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (6.0f * scale, 3.0f * scale));
+    if (ImGui::BeginTable ("##keys", per, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings,
+                           ImVec2 (w, 0.0f))) {
+        for (size_t i = begin; i < end; ++i) {
+            const layers::PanelItem& item = panel.items[i];
+            ImGui::TableNextColumn ();
+            const float s = ImGui::GetFontSize ();
+            const ImVec2 p = ImGui::GetCursorScreenPos ();
+            const uint32_t colour = (item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba;
+            ImGui::GetWindowDrawList ()->AddRectFilled (p, ImVec2 (p.x + s, p.y + s), Packed (colour), 3.0f * scale);
+            ImGui::Dummy (ImVec2 (s, s));
+            ImGui::SameLine ();
+            ImGui::TextUnformatted (item.text.c_str ());
+            if (!item.value.empty ()) {
+                ImGui::SameLine ();
+                const float v = ImGui::CalcTextSize (item.value.c_str ()).x;
+                ImGui::SetCursorPosX (ImGui::GetCursorPosX () +
+                                      (std::max) (ImGui::GetContentRegionAvail ().x - v, 0.0f));
+                ImGui::TextUnformatted (item.value.c_str ());
+            }
+        }
+        ImGui::EndTable ();
+    }
+    ImGui::PopStyleVar ();
+}
+
+void Stack (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale)
+{
+    const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
+    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 24.0f) * scale;
+    const ImVec2 p = ImGui::GetCursorScreenPos ();
+    ImGui::Dummy (ImVec2 (w, h));
+    double total = 0.0;
+    size_t first = item.values.size (), last = 0;
+    for (size_t i = 0; i < item.values.size (); ++i)
+        if (item.values[i] > 0.0) {
+            total += item.values[i];
+            first = (std::min) (first, i);
+            last = i;
+        }
+    if (!(total > 0.0) || w <= 0.0f)
+        return;
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    const float rounding = (std::min) (6.0f * scale, h * 0.5f);
+    const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    const bool pointed = ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (p, ImVec2 (p.x + w, p.y + h));
+    float x = p.x;
+    for (size_t i = 0; i < item.values.size (); ++i) {
+        const double value = item.values[i];
+        if (!(value > 0.0))
+            continue;
+        const float x1 = i == last ? p.x + w : x + w * float (value / total);
+        const uint32_t colour = SegmentColour (item, i, item.values.size ());
+        ImDrawFlags corners = 0;
+        if (i == first)
+            corners |= ImDrawFlags_RoundCornersLeft;
+        if (i == last)
+            corners |= ImDrawFlags_RoundCornersRight;
+        if (corners == 0)
+            corners = ImDrawFlags_RoundCornersNone;
+        draw->AddRectFilled (ImVec2 (x, p.y), ImVec2 (x1, p.y + h), Packed (colour), rounding, corners);
+        // Its share inside it, where it fits.
+        const std::string share = Number (100.0 * value / total, item.decimals) + "%";
+        const ImVec2 size = ImGui::CalcTextSize (share.c_str ());
+        if (x1 - x > size.x + 10.0f * scale)
+            draw->AddText (ImVec2 (x + 6.0f * scale, p.y + (h - size.y) * 0.5f), Packed (Contrast (colour)),
+                           share.c_str ());
+        if (pointed && mouse.x >= x && mouse.x < x1) {
+            std::string text = i < item.labels.size () ? item.labels[i] + "  " : std::string ();
+            text += Number (value, item.decimals);
+            if (!item.unit.empty ())
+                text += " " + item.unit;
+            text += "  (" + share + ")";
+            KeyTip (colour, text, ImVec2 ((x + x1) * 0.5f, p.y - 2.0f * scale), ImVec2 (0.5f, 1.0f), scale);
+        }
+        x = x1;
+    }
+}
+
+void Bars (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale)
+{
+    const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
+    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 120.0f) * scale;
+    const size_t n = item.values.size ();
+    const ImVec2 p = ImGui::GetCursorScreenPos ();
+    const float font = ImGui::GetFontSize ();
+    const float small = font * 0.85f;
+    const bool labelled = !item.labels.empty ();
+    const float below = (labelled ? small + 4.0f * scale : 0.0f) + (item.text.empty () ? 0.0f : font + 4.0f * scale);
+    ImGui::Dummy (ImVec2 (w, h + below));
+    if (n == 0 || w <= 0.0f)
+        return;
+
+    // The value axis: from the lowest of zero and the values to the highest, or as given.
+    double bottom = 0.0, top = 0.0;
+    for (const double value : item.values) {
+        bottom = (std::min) (bottom, value);
+        top = (std::max) (top, value);
+    }
+    if (!item.autoRange) {
+        bottom = item.min;
+        top = item.max;
+    }
+    if (!(top > bottom))
+        top = bottom + 1.0;
+    ImFont* const face = ImGui::GetFont ();
+    const double ticks[3] = { bottom, (bottom + top) * 0.5, top };
+    std::string tickText[3];
+    float axis = 0.0f;
+    for (int k = 0; k < 3; ++k) {
+        tickText[k] = Number (ticks[k], item.decimals) + item.unit;
+        axis = (std::max) (axis, face->CalcTextSizeA (small, FLT_MAX, 0.0f, tickText[k].c_str ()).x);
+    }
+    axis += 6.0f * scale;
+    const ImVec2 low (p.x + axis, p.y + small * 0.5f), high (p.x + w, p.y + h);
+    const float plotW = high.x - low.x, plotH = high.y - low.y;
+    if (plotW <= 1.0f || plotH <= 1.0f)
+        return;
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    const ImU32 grid = Packed (WithAlpha (panel.textRgba, 0.14f));
+    const ImU32 muted = Packed (WithAlpha (panel.textRgba, 0.72f));
+    auto yOf = [&] (double value) { return high.y - float ((value - bottom) / (top - bottom)) * plotH; };
+    for (int k = 0; k < 3; ++k) {
+        const float y = yOf (ticks[k]);
+        draw->AddLine (ImVec2 (low.x, y), ImVec2 (high.x, y), grid, (std::max) (1.0f, scale));
+        const ImVec2 size = face->CalcTextSizeA (small, FLT_MAX, 0.0f, tickText[k].c_str ());
+        draw->AddText (face, small, ImVec2 (low.x - 6.0f * scale - size.x, y - size.y * 0.5f), muted,
+                       tickText[k].c_str ());
+    }
+    draw->AddLine (ImVec2 (low.x, low.y), ImVec2 (low.x, high.y), grid, (std::max) (1.0f, scale));
+
+    // The bars, their tops rounded, and the labels under every one that fits.
+    const float slot = plotW / float (n);
+    const float bar = (std::max) (slot * 0.72f, 1.0f);
+    const float zero = yOf ((std::max) (bottom, (std::min) (0.0, top)));
+    const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    const bool pointed = ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (low, ImVec2 (high.x, high.y));
+    float widest = 0.0f;
+    for (const std::string& label : item.labels)
+        widest = (std::max) (widest, face->CalcTextSizeA (small, FLT_MAX, 0.0f, label.c_str ()).x);
+    const size_t stride = (std::max) (size_t (1), size_t (std::ceil ((widest + 4.0f * scale) / slot)));
+    for (size_t i = 0; i < n; ++i) {
+        const float x0 = low.x + slot * float (i) + (slot - bar) * 0.5f;
+        const float y = yOf (item.values[i]);
+        const uint32_t colour = SegmentColour (item, i, n);
+        const float r = (std::min) (3.0f * scale, bar * 0.5f);
+        draw->AddRectFilled (ImVec2 (x0, (std::min) (y, zero)), ImVec2 (x0 + bar, (std::max) (y, zero)),
+                             Packed (colour), r,
+                             y <= zero ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersBottom);
+        if (labelled && i < item.labels.size () && i % stride == 0) {
+            const ImVec2 size = face->CalcTextSizeA (small, FLT_MAX, 0.0f, item.labels[i].c_str ());
+            draw->AddText (face, small, ImVec2 (x0 + bar * 0.5f - size.x * 0.5f, high.y + 3.0f * scale), muted,
+                           item.labels[i].c_str ());
+        }
+        if (pointed && mouse.x >= low.x + slot * float (i) && mouse.x < low.x + slot * float (i + 1)) {
+            std::string text = i < item.labels.size () ? item.labels[i] + "  " : std::string ();
+            text += Number (item.values[i], item.decimals) + item.unit;
+            KeyTip (colour, text, ImVec2 (x0 + bar * 0.5f, (std::min) (y, zero) - 2.0f * scale), ImVec2 (0.5f, 1.0f),
+                    scale);
+        }
+    }
+    if (!item.text.empty ()) {
+        const ImVec2 size = ImGui::CalcTextSize (item.text.c_str ());
+        draw->AddText (
+            ImVec2 (low.x + (plotW - size.x) * 0.5f, high.y + (labelled ? small + 4.0f * scale : 0.0f) + 2.0f * scale),
+            muted, item.text.c_str ());
+    }
 }
 
 } // namespace items
