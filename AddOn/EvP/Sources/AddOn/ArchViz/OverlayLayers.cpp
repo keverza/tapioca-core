@@ -113,6 +113,60 @@ constexpr Preset kPresets[] = {
     { "clearance", { 0xD73027, 0xF46D43, 0xFDAE61, 0xFEE08B, 0xFFFFBF, 0xD9EF8B, 0xA6D96A, 0x66BD63, 0x1A9850 } },
 };
 
+// What a HUD panel may hold. Its budgets keep one panel to a size ImGui lays out in
+// well under a frame, on the main thread, whenever the layers change.
+std::string ValidatePanel (const Panel& panel)
+{
+    if (panel.title.size () > kMaxTextBytes)
+        return "title is at most 512 bytes";
+    if (!std::isfinite (panel.offsetPixels[0]) || !std::isfinite (panel.offsetPixels[1]) ||
+        !InRange (panel.widthPixels, 0.0f, 4000.0f) || !InRange (panel.sizePixels, 6.0f, 96.0f) ||
+        !InRange (panel.roundingPixels, 0.0f, 64.0f) || !InRange (panel.paddingPixels, 0.0f, 64.0f))
+        return "offsetPixels finite, widthPixels 0 to 4000, sizePixels 6 to 96, rounding and padding 0 to 64";
+    if (panel.items.size () > 200)
+        return "at most 200 items";
+    for (size_t k = 0; k < panel.items.size (); ++k) {
+        const PanelItem& item = panel.items[k];
+        const std::string at = "item " + std::to_string (k) + ": ";
+        if (item.text.size () > 4096 || item.value.size () > kMaxTextBytes || item.unit.size () > 64)
+            return at + "text is at most 4096 bytes, value 512 and unit 64";
+        if (!InRange (item.sizePixels, 0.0f, 96.0f) || !InRange (item.widthPixels, 0.0f, 4000.0f) ||
+            !InRange (item.heightPixels, 0.0f, 2000.0f))
+            return at + "sizePixels 0 to 96, widthPixels 0 to 4000, heightPixels 0 to 2000";
+        if (!std::isfinite (item.fraction))
+            return at + "fraction is finite";
+        if (item.kind == ItemKind::Ramp) {
+            const std::string ramp = ValidateColormap (item.colormap);
+            if (!ramp.empty ())
+                return at + ramp;
+            if (item.colormap.autoRange)
+                return at + "a ramp needs its min and max";
+            if (item.ticks > 32 || item.decimals > 6 || item.tickValues.size () > 32 || item.tickLabels.size () > 32)
+                return at + "a ramp has at most 32 ticks and 6 decimals";
+            for (const double value : item.tickValues)
+                if (!std::isfinite (value))
+                    return at + "tickValues are finite";
+        }
+        if (item.values.size () > 4096)
+            return at + "a plot has at most 4096 values";
+        for (const double value : item.values)
+            if (!std::isfinite (value))
+                return at + "a plot's values are finite";
+        if (!item.autoRange && !(std::isfinite (item.min) && std::isfinite (item.max) && item.max > item.min))
+            return at + "a plot's max is above its min";
+        if (item.columns.size () > 16 || item.rows.size () > 200)
+            return at + "a table has at most 16 columns and 200 rows";
+        for (const std::vector<std::string>& row : item.rows) {
+            if (row.size () > 16)
+                return at + "a table row has at most 16 cells";
+            for (const std::string& cell : row)
+                if (cell.size () > kMaxTextBytes)
+                    return at + "a table cell is at most 512 bytes";
+        }
+    }
+    return std::string ();
+}
+
 } // namespace
 
 bool DrawnIn (Views views, Views view)
@@ -145,7 +199,7 @@ bool DrawnByGuest (const Mesh& mesh)
 
 bool NeedsGuest (const Layer& layer)
 {
-    if (!layer.texts.empty () || !layer.dimensions.empty () || !layer.legends.empty ())
+    if (!layer.texts.empty () || !layer.dimensions.empty () || !layer.legends.empty () || !layer.panels.empty ())
         return true;
     for (const Polyline& polyline : layer.polylines)
         if (DrawnByGuest (polyline))
@@ -229,6 +283,20 @@ std::string Validate (const Layer& layer)
         if (!InRange (text.sizePixels, 4.0f, 256.0f) || !InRange (text.haloPixels, 0.0f, 8.0f) ||
             !std::isfinite (text.rotationDegrees))
             return Numbered ("text", i, "sizePixels is 4 to 256 and haloPixels 0 to 8");
+        if (text.planar) {
+            if (text.screen)
+                return Numbered ("text", i, "lies on a plane in the model or on the screen, not both");
+            if (!Finite3 (text.direction) || !Finite3 (text.normal) || !std::isfinite (text.sizeMetres) ||
+                text.sizeMetres < 0.001 || text.sizeMetres > 1000.0)
+                return Numbered ("text", i, "a plane's direction and normal are finite, sizeMetres 0.001 to 1000");
+            const double* d = text.direction;
+            const double* n = text.normal;
+            const double cx = n[1] * d[2] - n[2] * d[1], cy = n[2] * d[0] - n[0] * d[2], cz = n[0] * d[1] - n[1] * d[0];
+            const double lengths =
+                std::sqrt ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]));
+            if (!(lengths > 1e-12) || std::sqrt (cx * cx + cy * cy + cz * cz) < 1e-6 * lengths)
+                return Numbered ("text", i, "a plane's direction lies across its normal, neither of them zero");
+        }
     }
     for (size_t i = 0; i < layer.dimensions.size (); ++i) {
         const Dimension& dimension = layer.dimensions[i];
@@ -258,6 +326,23 @@ std::string Validate (const Layer& layer)
             return Numbered ("legend", i, "lengthPixels 20 to 4000, widthPixels 2 to 200, ticks at most 32");
         if (legend.title.size () > kMaxTextBytes || legend.unit.size () > 64)
             return Numbered ("legend", i, "title is at most 512 bytes and unit 64");
+        if (legend.placed && !(InRange (legend.screen[0], -1.0f, 2.0f) && InRange (legend.screen[1], -1.0f, 2.0f)))
+            return Numbered ("legend", i, "a screen position is a fraction of the view, about 0 to 1");
+        if (legend.tickValues.size () > 32 || legend.tickLabels.size () > 32)
+            return Numbered ("legend", i, "at most 32 tickValues and tickLabels");
+        for (const double value : legend.tickValues)
+            if (!std::isfinite (value))
+                return Numbered ("legend", i, "tickValues are finite");
+        for (const std::string& label : legend.tickLabels)
+            if (label.size () > 128)
+                return Numbered ("legend", i, "a tick label is at most 128 bytes");
+        if (!InRange (legend.titleSizePixels, 0.0f, 128.0f) || !InRange (legend.paddingPixels, 0.0f, 64.0f))
+            return Numbered ("legend", i, "titleSizePixels is 0 to 128 and paddingPixels 0 to 64");
+    }
+    for (size_t i = 0; i < layer.panels.size (); ++i) {
+        const std::string refused = ValidatePanel (layer.panels[i]);
+        if (!refused.empty ())
+            return Numbered ("panel", i, refused);
     }
     return std::string ();
 }
@@ -279,6 +364,7 @@ Summary Summarise (const Layer& layer)
     summary.texts = uint32_t (layer.texts.size ());
     summary.dimensions = uint32_t (layer.dimensions.size ());
     summary.legends = uint32_t (layer.legends.size ());
+    summary.panels = uint32_t (layer.panels.size ());
     return summary;
 }
 

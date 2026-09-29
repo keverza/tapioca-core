@@ -4,6 +4,7 @@
 #include "ArchViz/OverlaySceneBuilder.hpp"
 
 #include "Annotation/DimensionGeometry.hpp"
+#include "ArchViz/OverlayHud.hpp" // ComposePages: the HUD's atlas pages
 
 #include <algorithm>
 #include <cmath>
@@ -293,6 +294,10 @@ void Builder::AddText (const layers::Layer& layer, const layers::Text& text)
     overlaytext::Label label;
     if (!LayOut (text.text, text.sizePixels, text.align, text.baseline, label))
         return;
+    if (text.planar) {
+        AddPlanarText (layer, text, label);
+        return;
+    }
     DraftGlyph glyph;
     if (text.screen) {
         glyph.anchor[0] = text.at[0];
@@ -342,6 +347,57 @@ void Builder::AddText (const layers::Layer& layer, const layers::Text& text)
             float ox = 0.0f, oy = 0.0f;
             place (corners[order[i]][0], corners[order[i]][1], ox, oy);
             if (!PushGlyphVertex (glyph, ox, oy, corners[order[i]][2], corners[order[i]][3]))
+                return;
+        }
+    }
+}
+
+// The label's layout mapped onto its plane: x along `direction`, the layout's y (down)
+// against the glyphs' up, `normal` x `direction`. Every corner is its own model point
+// (`kModelQuad`), so the text is foreshortened and hidden like the model.
+void Builder::AddPlanarText (const layers::Layer& layer, const layers::Text& text, const overlaytext::Label& label)
+{
+    const Vec3 normal = Unit ({ text.normal[0], text.normal[1], text.normal[2] });
+    Vec3 along = { text.direction[0], text.direction[1], text.direction[2] };
+    along = Unit (Sub (along, Scaled (normal, Dot (along, normal))));
+    const Vec3 up = Cross (normal, along);
+    const Vec3 at = { text.at[0], text.at[1], text.at[2] };
+    const double metresPerPixel = text.sizeMetres / double (text.sizePixels);
+    auto model = [&] (float x, float y) {
+        const double a = (double (x) + text.offsetPixels[0]) * metresPerPixel;
+        const double b = -(double (y) + text.offsetPixels[1]) * metresPerPixel;
+        return Plus (at, Plus (Scaled (along, a), Scaled (up, b)));
+    };
+    DraftGlyph glyph;
+    glyph.flags = kModelQuad;
+    glyph.behind = BehindOf (text.behind, layer);
+    glyph.halo = text.haloRgba;
+    glyph.haloPixels = text.haloPixels;
+    const int order[6] = { 0, 1, 2, 0, 2, 3 };
+    if ((text.backgroundRgba & 0xFFu) != 0 && !label.quads.empty ()) {
+        const float pad = text.sizePixels * 0.2f;
+        const float quad[4][2] = { { label.left - pad, label.top - pad },
+                                   { label.right + pad, label.top - pad },
+                                   { label.right + pad, label.bottom + pad },
+                                   { label.left - pad, label.bottom + pad } };
+        DraftGlyph panel = glyph;
+        panel.rgba = text.backgroundRgba;
+        panel.flags |= kSolid;
+        for (int i = 0; i < 6; ++i) {
+            Assign (panel.anchor, model (quad[order[i]][0], quad[order[i]][1]));
+            PushGlyphVertex (panel, 0.0f, 0.0f, -1.0f, -1.0f);
+        }
+    }
+    glyph.rgba = text.rgba;
+    for (const overlaytext::Quad& quad : label.quads) {
+        const float corners[4][4] = { { quad.left, quad.top, quad.u0, quad.v0 },
+                                      { quad.right, quad.top, quad.u1, quad.v0 },
+                                      { quad.right, quad.bottom, quad.u1, quad.v1 },
+                                      { quad.left, quad.bottom, quad.u0, quad.v1 } };
+        glyph.page = quad.page;
+        for (int i = 0; i < 6; ++i) {
+            Assign (glyph.anchor, model (corners[order[i]][0], corners[order[i]][1]));
+            if (!PushGlyphVertex (glyph, 0.0f, 0.0f, corners[order[i]][2], corners[order[i]][3]))
                 return;
         }
     }
@@ -413,18 +469,46 @@ void Builder::Assign (double (&out)[3], const Vec3& value)
 
 } // namespace build
 
-namespace {
-
 using namespace build;
 
+namespace {
+
 Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
-                  overlaytext::Engine* text)
+                  overlaytext::Engine* text, overlayhud::Engine* hud, float scale)
 {
-    Builder builder (view, text);
+    Builder builder (view, text, hud, scale);
+    std::vector<const layers::Panel*> panels;
     for (const std::shared_ptr<const layers::Layer>& layer : all)
-        if (layers::DrawnIn (layer->views, view))
+        if (layers::DrawnIn (layer->views, view)) {
             builder.AddLayer (*layer);
+            for (const layers::Panel& panel : layer->panels)
+                panels.push_back (&panel);
+        }
+    builder.AddPanels (panels);
     return builder.Take ();
+}
+
+// The pages the glyphs sample: the text engine's, then the HUD's, every glyph's page
+// renumbered into that one list.
+std::vector<std::shared_ptr<const overlaytext::Page>> ComposePages (Draft& draft, overlaytext::Engine* text,
+                                                                    overlayhud::Engine* hud)
+{
+    std::vector<std::shared_ptr<const overlaytext::Page>> pages;
+    if (draft.glyphs.empty ())
+        return pages;
+    if (text != nullptr && text->Ready ())
+        pages = text->Pages ();
+    const uint32_t base = uint32_t (pages.size ());
+    bool panels = false;
+    for (DraftGlyph& glyph : draft.glyphs)
+        if (glyph.page >= kHudPageBase) {
+            glyph.page = base + (glyph.page - kHudPageBase);
+            panels = true;
+        }
+    if (panels && hud != nullptr)
+        for (const auto& page : hud->Pages ())
+            pages.push_back (page);
+    return pages;
 }
 
 void SplitAt (double value, double origin, float& hi, float& lo)
@@ -467,11 +551,13 @@ uint32_t BehindCode (layers::Behind resolved)
     return kBehindShow;
 }
 
-Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text)
+Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
+                  overlayhud::Engine* hud, float scale)
 {
-    Draft draft = BuildDraft (all, layers::Views::TwoD, text);
+    Draft draft = BuildDraft (all, layers::Views::TwoD, text, hud, scale);
     Plan out;
     out.problems = draft.problems;
+    out.pages = ComposePages (draft, text, hud);
 
     // The centre every half is relative to: the model anchors' mean.
     double sumX = 0.0, sumY = 0.0;
@@ -571,16 +657,16 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
         draw.count = uint32_t (out.glyphs.size ()) - draw.first;
         out.glyphDraws.push_back (draw);
     }
-    if (text != nullptr && text->Ready () && !out.glyphs.empty ())
-        out.pages = text->Pages ();
     return out;
 }
 
-Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text)
+Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
+                    overlayhud::Engine* hud, float scale)
 {
-    Draft draft = BuildDraft (all, layers::Views::ThreeD, text);
+    Draft draft = BuildDraft (all, layers::Views::ThreeD, text, hud, scale);
     Scene out;
     out.problems = draft.problems;
+    out.pages = ComposePages (draft, text, hud);
 
     for (const DraftFill& fill : draft.fills) {
         FillDraw draw = fill.draw;
@@ -648,8 +734,6 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all
         draw.count = uint32_t (out.glyphs.size ()) - draw.first;
         out.glyphDraws.push_back (draw);
     }
-    if (text != nullptr && text->Ready () && !out.glyphs.empty ())
-        out.pages = text->Pages ();
     return out;
 }
 

@@ -46,6 +46,10 @@ struct Page {
     std::vector<uint8_t> pixels;
 };
 
+// A page id no other page has had in this process: the text pages' and the HUD
+// panels' (OverlayHud.hpp) share one texture cache, keyed on it.
+uint64_t NewPageId ();
+
 // One glyph's quad in LOGICAL pixels from the label's anchor, x right, y down, and
 // the atlas rectangle it samples: (u0, v0) at its top-left corner, (u1, v1) at its
 // bottom-right.

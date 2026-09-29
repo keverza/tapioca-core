@@ -363,13 +363,18 @@ TEST (OverlayScene, ALegendIsARampBarFixedToTheViewWithItsValues)
     layer.legends = { legend };
     EXPECT_EQ (layers::Validate (layer), "");
     const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
-    ASSERT_EQ (scene.fillDraws.size (), 1u);
+    // Its panel first, then the bar: fills are drawn in order, so the bar is over it.
+    ASSERT_EQ (scene.fillDraws.size (), 2u);
     EXPECT_TRUE (scene.fillDraws[0].screen);
-    EXPECT_TRUE (scene.fillDraws[0].heatmap);
-    EXPECT_FLOAT_EQ (scene.fillDraws[0].max, 8.0f);
+    EXPECT_FALSE (scene.fillDraws[0].heatmap);
+    const scene::FillDraw& bar = scene.fillDraws[1];
+    EXPECT_TRUE (bar.screen);
+    EXPECT_TRUE (bar.heatmap);
+    EXPECT_FLOAT_EQ (bar.max, 8.0f);
     // The bar's value runs up it: the top corners hold the maximum.
     float topValue = 0.0f, bottomValue = 0.0f, top = 1e9f, bottom = -1e9f;
-    for (const scene::SceneFillVertex& v : scene.fills) {
+    for (uint32_t i = bar.first; i < bar.first + bar.count; ++i) {
+        const scene::SceneFillVertex& v = scene.fills[i];
         if (v.offset[1] < top) {
             top = v.offset[1];
             topValue = v.value;
@@ -461,4 +466,95 @@ TEST (OverlayScene, AShadedMeshWithoutNormalsIsShadedFlatPerFace)
             EXPECT_FLOAT_EQ (scene.fills[t].normal[c], scene.fills[t + 1].normal[c]);
             EXPECT_FLOAT_EQ (scene.fills[t].normal[c], scene.fills[t + 2].normal[c]);
         }
+}
+
+// A text on a plane: every corner its own model point on that plane, the text as high
+// as it was asked, running along its direction.
+TEST (OverlayScene, APlanarTextLiesOnItsPlaneAtItsSize)
+{
+    layers::Layer layer;
+    layer.name = "floor";
+    layers::Text label;
+    label.text = "Hall";
+    label.planar = true;
+    label.at[0] = 10.0;
+    label.at[1] = 20.0;
+    label.at[2] = 3.0;
+    label.direction[0] = 0.0;
+    label.direction[1] = 1.0; // along +y
+    label.sizeMetres = 0.5;
+    label.sizePixels = 32.0f;
+    label.align = layers::Align::Left;
+    label.baseline = layers::Baseline::Bottom;
+    layer.texts = { label };
+    EXPECT_EQ (layers::Validate (layer), "");
+    const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
+    ASSERT_FALSE (scene.glyphs.empty ());
+    float lowX = 1e9f, highX = -1e9f, lowY = 1e9f, highY = -1e9f;
+    for (const scene::SceneGlyph& glyph : scene.glyphs) {
+        EXPECT_NE (glyph.flags & scene::kModelQuad, 0u);
+        EXPECT_EQ (glyph.flags & scene::kScreenAnchored, 0u);
+        EXPECT_FLOAT_EQ (glyph.position[2], 3.0f);
+        EXPECT_FLOAT_EQ (glyph.offset[0], 0.0f);
+        lowX = (std::min) (lowX, glyph.position[0]);
+        highX = (std::max) (highX, glyph.position[0]);
+        lowY = (std::min) (lowY, glyph.position[1]);
+        highY = (std::max) (highY, glyph.position[1]);
+    }
+    // Along +y it runs from the anchor; it rises towards normal x direction, -x.
+    EXPECT_GT (highY - lowY, 0.8f);  // four letters at half a metre
+    EXPECT_LT (highX - lowX, 0.8f);  // one line high
+    EXPECT_LE (highX, 10.0f + 0.1f); // the baseline on the anchor, the glyphs rising to -x
+    EXPECT_GE (lowY, 20.0f - 0.1f);  // left aligned: from the anchor onwards
+    // A plane needs a direction across its normal.
+    layer.texts[0].direction[0] = 0.0;
+    layer.texts[0].direction[1] = 0.0;
+    layer.texts[0].direction[2] = 2.0;
+    EXPECT_NE (layers::Validate (layer).find ("across its normal"), std::string::npos);
+}
+
+TEST (OverlayScene, AHorizontalLegendPlacedAnywhereSaysItsOwnTicks)
+{
+    layers::Layer layer;
+    layer.name = "legend";
+    layers::Legend legend;
+    ASSERT_TRUE (layers::PresetStops ("slope", legend.colormap.stops));
+    legend.colormap.autoRange = false;
+    legend.colormap.min = 0.0;
+    legend.colormap.max = 30.0;
+    legend.horizontal = true;
+    legend.placed = true;
+    legend.screen[0] = 0.5f;
+    legend.screen[1] = 1.0f;
+    legend.corner = layers::Corner::BottomLeft;
+    legend.tickValues = { 0.0, 10.0, 30.0 };
+    legend.tickLabels = { "low", "mid", "high" }; // no fl, ff ligatures to count around
+    legend.backgroundRgba = 0;
+    layer.legends = { legend };
+    EXPECT_EQ (layers::Validate (layer), "");
+    const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
+    ASSERT_EQ (scene.fillDraws.size (), 1u); // no panel asked for
+    const scene::FillDraw& bar = scene.fillDraws[0];
+    float leftValue = 0.0f, rightValue = 0.0f, left = 1e9f, right = -1e9f;
+    for (uint32_t i = bar.first; i < bar.first + bar.count; ++i) {
+        const scene::SceneFillVertex& v = scene.fills[i];
+        EXPECT_FLOAT_EQ (v.position[0], 0.5f);
+        EXPECT_FLOAT_EQ (v.position[1], 1.0f);
+        if (v.offset[0] < left) {
+            left = v.offset[0];
+            leftValue = v.value;
+        }
+        if (v.offset[0] > right) {
+            right = v.offset[0];
+            rightValue = v.value;
+        }
+    }
+    EXPECT_FLOAT_EQ (leftValue, 0.0f);
+    EXPECT_FLOAT_EQ (rightValue, 30.0f);
+    EXPECT_NEAR (right - left, legend.lengthPixels, 1e-3f);
+    // Three ticks and "low" "mid" "high": 3 + 3 + 4 glyphs.
+    size_t text = 0;
+    for (const scene::SceneGlyph& glyph : scene.glyphs)
+        text += (glyph.flags & scene::kSolid) == 0 ? 1 : 0;
+    EXPECT_EQ (text, (3u + 3u + 4u) * 6u);
 }

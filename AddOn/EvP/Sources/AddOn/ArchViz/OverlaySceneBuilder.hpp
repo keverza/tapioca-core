@@ -5,8 +5,8 @@
 // turned into before each overlay writes it in its own coordinates, and the builder
 // that turns it. Shared by the three files that build it -- OverlayScene.cpp (the
 // model's content and the two writers), OverlaySceneScreen.cpp (what is fixed to the
-// view) and OverlaySceneMath.cpp (the pure geometry) -- and by nothing else:
-// OverlayScene.hpp is the interface.
+// view: legends, HUD panels) and OverlaySceneMath.cpp (the pure geometry) -- and by
+// nothing else: OverlayScene.hpp is the interface.
 
 #include "ArchViz/OverlayScene.hpp"
 
@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace geomsrv {
@@ -30,6 +31,9 @@ inline constexpr size_t kMaxLines = 2000000;
 inline constexpr size_t kMaxGlyphVertices = 1200000;
 
 inline constexpr double kPi = 3.14159265358979323846;
+// A HUD panel's glyphs name their atlas page from here up until the pages are composed:
+// the text pages first, the HUD's after them.
+inline constexpr uint32_t kHudPageBase = 1u << 24;
 // Faces meeting at more than this are shaded apart when a mesh brings no normals.
 inline constexpr float kSmoothingCreaseDegrees = 45.0f;
 
@@ -71,8 +75,6 @@ inline Vec3 Unit (const Vec3& a)
     const double length = Length (a);
     return length > 1e-30 ? Scaled (a, 1.0 / length) : Vec3 {};
 }
-
-// ---- the draft: one builder, two writers -------------------------------------
 
 // ---- the draft: one builder, two writers -------------------------------------
 
@@ -119,7 +121,8 @@ struct Draft {
 
 class Builder {
   public:
-    Builder (layers::Views view, overlaytext::Engine* text) : view_ (view), text_ (text)
+    Builder (layers::Views view, overlaytext::Engine* text, overlayhud::Engine* hud, float scale)
+        : view_ (view), text_ (text), hud_ (hud), scale_ (scale > 0.0f ? scale : 1.0f)
     {
     }
 
@@ -129,6 +132,9 @@ class Builder {
     }
 
     void AddLayer (const layers::Layer& layer);
+    // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
+    // after everything else, over it.
+    void AddPanels (const std::vector<const layers::Panel*>& panels);
 
   private:
     bool Plan () const;
@@ -144,6 +150,10 @@ class Builder {
     void AddTerminator (const Vec3& at, const Vec3& span, layers::Terminator terminator, bool first, float width,
                         uint32_t rgba, uint32_t behind);
     void AddText (const layers::Layer& layer, const layers::Text& text);
+    // The label's layout mapped onto its plane: x along `direction`, the layout's y (down)
+    // against the glyphs' up, `normal` x `direction`. Every corner is its own model point
+    // (`kModelQuad`), so the text is foreshortened and hidden like the model.
+    void AddPlanarText (const layers::Layer& layer, const layers::Text& text, const overlaytext::Label& label);
     void AddLegend (const layers::Legend& legend);
     void ScreenText (const std::string& text, double fx, double fy, float x, float y, float size, layers::Align align,
                      layers::Baseline baseline, uint32_t rgba, uint32_t halo);
@@ -156,6 +166,8 @@ class Builder {
     static void Assign (double (&out)[3], const Vec3& value);
     layers::Views view_;
     overlaytext::Engine* text_;
+    overlayhud::Engine* hud_;
+    float scale_;
     Draft draft_;
 };
 

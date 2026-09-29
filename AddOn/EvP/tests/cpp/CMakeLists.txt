@@ -464,6 +464,10 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayScene.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneScreen.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneMath.cpp"
+    # The HUD panels: laid out by the vendored Dear ImGui into triangles over its own
+    # font atlas, the same library the add-on links (TapiocaImGui below).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ImGuiContextLock.cpp"
     # The storey slices and the Watch annotations as overlay layers: which storeys, the
     # label's corner, each annotation primitive's drawn form.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceOverlayContent.cpp"
@@ -615,6 +619,7 @@ set (EVP_TEST_SOURCES
     test_overlaylayers.cpp
     test_overlaytext.cpp
     test_overlayscene.cpp
+    test_overlayhud.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp
     test_overlayannotations.cpp
@@ -758,6 +763,19 @@ target_compile_features (TapiocaClipper2 PUBLIC cxx_std_20)
 target_compile_definitions (TapiocaClipper2 PUBLIC CLIPPER2_MAX_DECIMAL_PRECISION=8)
 target_include_directories (TapiocaClipper2 SYSTEM PUBLIC "${CLIPPER2_DIR}/Clipper2Lib/include")
 
+# The Dear ImGui the add-on links through Diligent-Imgui (DiligentTools' vendored
+# 1.92.1), compiled plain: the HUD panels' layout is tested against the real library.
+set (IMGUI_DIR "${REF_DIR}/DiligentEngine-master/DiligentTools/ThirdParty/imgui")
+add_library (TapiocaImGui STATIC
+    "${IMGUI_DIR}/imgui.cpp"
+    "${IMGUI_DIR}/imgui_draw.cpp"
+    "${IMGUI_DIR}/imgui_tables.cpp"
+    "${IMGUI_DIR}/imgui_widgets.cpp")
+target_include_directories (TapiocaImGui SYSTEM PUBLIC "${IMGUI_DIR}")
+if (MSVC)
+    target_compile_options (TapiocaImGui PRIVATE /W0)
+endif ()
+
 # ---- the test binary -------------------------------------------------------
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_SCENE_TEXT_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
@@ -773,7 +791,8 @@ target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn/Python"
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_INC}")
-target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs ${TAPIOCA_TEXT_LIBS})
+target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs TapiocaImGui
+                                           ${TAPIOCA_TEXT_LIBS})
 # The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):
 # the compiler and its reflection, no GPU.
 if (WIN32)

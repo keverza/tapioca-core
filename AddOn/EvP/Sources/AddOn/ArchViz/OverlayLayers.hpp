@@ -21,8 +21,8 @@
 // polylines, point markers and single-colour meshes are drawn by the raw D3D11
 // layer pipelines (`Prepare2D`, `Prepare3D`) -- the path that needs nothing
 // attached to Archicad's device. Everything that needs a glyph atlas, a colour ramp,
-// a style or a depth policy -- texts, dimensions, legends, dashed or `behind`-styled
-// polylines, styled or heatmap meshes -- is drawn by the Diligent guest
+// a style or a depth policy -- texts, dimensions, legends, HUD panels, dashed or
+// `behind`-styled polylines, styled or heatmap meshes -- is drawn by the Diligent guest
 // (ArchViz/OverlayScene.hpp). `DrawnByGuest` decides, and both preparations ask it,
 // so nothing is drawn twice and nothing is dropped between them.
 //
@@ -140,6 +140,7 @@ enum class Baseline : uint8_t { Top = 0, Middle = 1, Bottom = 2, Alphabetic = 3 
 // A label: HarfBuzz-shaped, MTSDF-rendered, a fixed size in LOGICAL pixels at any zoom.
 // Anchored to a model point, or -- `screen` -- to the viewport, where `at` x and y are
 // fractions of its width and height from the top left: a text layer fixed to the view.
+// Or -- `planar` -- lying on a plane in the model, scaling with it.
 struct Text {
     std::string text; // UTF-8, one line
     bool screen = false;
@@ -154,6 +155,15 @@ struct Text {
     Baseline baseline = Baseline::Middle;
     float rotationDegrees = 0.0f; // on screen, counter-clockwise
     Behind behind = Behind::Layer;
+    // Lying on a plane in the model instead of facing the view, as a room name painted
+    // on a floor: the baseline runs along `direction`, the glyphs rise towards
+    // `normal` x `direction`, and the text is `sizeMetres` high. `sizePixels` then sets
+    // only the layout's resolution, `offsetPixels` moves the text in that layout, and
+    // `rotationDegrees` is unused.
+    bool planar = false;
+    double direction[3] = { 1.0, 0.0, 0.0 };
+    double normal[3] = { 0.0, 0.0, 1.0 };
+    double sizeMetres = 0.5;
 };
 
 enum class Terminator : uint8_t { Tick = 0, Arrow = 1, Dot = 2 };
@@ -181,20 +191,102 @@ struct Dimension {
 
 enum class Corner : uint8_t { TopLeft = 0, TopRight = 1, BottomLeft = 2, BottomRight = 3 };
 
-// A colour bar fixed to the view, with its range written at `ticks` places.
+// A colour bar fixed to the view, with its range written at `ticks` places -- or at
+// `tickValues`, saying `tickLabels`. For a layout of one's own (several ramps, swatches,
+// rows of figures), a HUD panel's `ramp` item is the same bar inside a panel.
 struct Legend {
     std::string title;
     std::string unit;
     Colormap colormap;
     Corner corner = Corner::BottomRight;
     float offsetPixels[2] = { 16.0f, 16.0f }; // inwards from the corner
+    // Anywhere instead: the legend's `corner` put at this fraction of the view.
+    bool placed = false;
+    float screen[2] = { 0.0f, 0.0f };
+    bool horizontal = false; // the bar runs across, low values on the left
     float lengthPixels = 160.0f;
     float widthPixels = 12.0f;
     uint32_t ticks = 5;
     uint32_t decimals = 1;
+    std::vector<double> tickValues;      // empty: `ticks` evenly over the range
+    std::vector<std::string> tickLabels; // empty: each tick's value
     float sizePixels = 11.0f;
+    float titleSizePixels = 0.0f; // 0: a little larger than the ticks
     uint32_t rgba = 0xFFFFFFFFu;
-    uint32_t haloRgba = 0x000000C0u;
+    // ⚠️ A PANEL, NOT A HALO, BY DEFAULT. Small labels over a busy model read on a
+    // panel; a halo that small has almost no distance to work with (OverlayText.cpp).
+    uint32_t haloRgba = 0x00000000u;
+    uint32_t backgroundRgba = 0x1E2228C8u; // alpha 0: no panel
+    float paddingPixels = 8.0f;
+    uint32_t barBorderRgba = 0; // a frame round the bar; alpha 0: none
+};
+
+// ---- HUD panels: Dear ImGui over the view, never clickable (OverlayHud.hpp) ----------
+
+enum class PanelAnchor : uint8_t {
+    TopLeft = 0,
+    Top = 1,
+    TopRight = 2,
+    Left = 3,
+    Center = 4,
+    Right = 5,
+    BottomLeft = 6,
+    Bottom = 7,
+    BottomRight = 8,
+};
+
+enum class ItemKind : uint8_t {
+    Text = 0,      // a line; wrapped at the panel's width when `wrap`
+    Row = 1,       // `text` and `value` in two aligned columns with the rows beside it
+    Separator = 2, // a rule
+    Spacing = 3,   // `heightPixels` of nothing
+    Progress = 4,  // a bar filled to `fraction`, `text` over it
+    Swatch = 5,    // a square of `rgba` and its `text`: a key entry
+    Ramp = 6,      // a colour bar over `colormap`'s range with its ticks: a legend
+    Plot = 7,      // `values` as a line
+    Table = 8,     // `columns` over `rows`
+};
+
+struct PanelItem {
+    ItemKind kind = ItemKind::Text;
+    std::string text;        // the line, a row's label, a bar's caption, a swatch's name, a ramp's title
+    std::string value;       // a row's value
+    uint32_t rgba = 0;       // alpha 0: the panel's text colour; a swatch's, a bar's, a line's colour
+    float sizePixels = 0.0f; // a text's or a row's font; 0: the panel's
+    bool wrap = false;       // a text
+    double fraction = 0.0;   // a progress bar, 0 to 1
+    Colormap colormap;       // a ramp, its min and max given
+    uint32_t ticks = 5;      // a ramp
+    uint32_t decimals = 1;   // a ramp's tick values
+    std::string unit;        // after a ramp's last tick
+    std::vector<double> tickValues;
+    std::vector<std::string> tickLabels;
+    float widthPixels = 0.0f;   // a ramp, a bar, a plot; 0: the panel's width
+    float heightPixels = 0.0f;  // a ramp's bar, a bar, a plot, a spacing; 0: its own default
+    std::vector<double> values; // a plot
+    double min = 0.0;           // a plot's range...
+    double max = 0.0;
+    bool autoRange = true;                      // ...or its values' own
+    std::vector<std::string> columns;           // a table's header; empty: none
+    std::vector<std::vector<std::string>> rows; // a table's cells
+};
+
+// A panel, anchored to the view: its own `anchor` point put at the same point of the
+// view, `offsetPixels` inwards. Laid out by Dear ImGui (auto-sized unless
+// `widthPixels`), drawn by the guest, and never takes a click (§12b: ImGui through
+// Diligent).
+struct Panel {
+    std::string title;
+    PanelAnchor anchor = PanelAnchor::TopLeft;
+    float offsetPixels[2] = { 16.0f, 16.0f };
+    float widthPixels = 0.0f; // 0: as wide as its content
+    float sizePixels = 14.0f; // the font
+    uint32_t textRgba = 0xF0F0F0FFu;
+    uint32_t backgroundRgba = 0x1E2228D8u;
+    uint32_t borderRgba = 0; // alpha 0: none
+    float roundingPixels = 6.0f;
+    float paddingPixels = 10.0f;
+    std::vector<PanelItem> items;
 };
 
 struct Layer {
@@ -209,6 +301,7 @@ struct Layer {
     std::vector<Text> texts;
     std::vector<Dimension> dimensions;
     std::vector<Legend> legends;
+    std::vector<Panel> panels;
 };
 
 // Which renderer draws a primitive -- see the header's second note.
@@ -235,6 +328,7 @@ struct Summary {
     uint32_t texts = 0;
     uint32_t dimensions = 0;
     uint32_t legends = 0;
+    uint32_t panels = 0;
 };
 Summary Summarise (const Layer& layer);
 

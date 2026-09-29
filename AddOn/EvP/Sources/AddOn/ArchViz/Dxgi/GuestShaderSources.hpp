@@ -179,6 +179,9 @@ float Median (float3 v)
 // half its range beyond an edge -- `0.5 * screenRange` screen pixels -- and past that
 // every texel of the quad reads as inside a halo that reaches further: a box per
 // glyph (the first live run). So the halo is clamped to what the atlas can say.
+//
+// `solid` 0 is an MTSDF glyph, 1 a flat panel or tick, 2 a plain texture times the
+// vertex colour: an ImGui panel's triangles over its own font atlas (OverlayHud.hpp).
 float4 PSGlyph (GlyphOut i) : SV_TARGET
 {
     float4 d = g_atlas.Sample (g_atlas_sampler, i.uv);
@@ -186,6 +189,12 @@ float4 PSGlyph (GlyphOut i) : SV_TARGET
     float2 screenTexelRange = 1.0 / max (fwidth (i.uv), float2 (1e-6, 1e-6));
     float screenRange = max (0.5 * dot (unitRange, screenTexelRange), 1.0);
     float fade = Mode.y * ((Mode.z > 0.5 && Mode.z < 1.5) ? 0.3 : 1.0);
+    if (i.solid > 1.5)
+    {
+        float4 t = i.colour * d;
+        float a = t.a * fade;
+        return float4 (t.rgb * a, a);
+    }
     if (i.solid > 0.5)
     {
         float a = i.colour.a * fade;
@@ -270,7 +279,8 @@ GlyphOut VSGlyph (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTR
 {
     GlyphOut o;
     float2 anchor = (flags & 1u) != 0u ? hi * Surface.xy : Pixel (hi, lo);
-    float2 local = offset * Surface.z;
+    // 128: laid out at the view's DPI already (a HUD panel); otherwise logical pixels.
+    float2 local = offset * ((flags & 128u) != 0u ? 1.0 : Surface.z);
     bool visible = true;
     if ((flags & 2u) != 0u)
     {
@@ -288,7 +298,7 @@ GlyphOut VSGlyph (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTR
     o.colour = colour;
     o.halo = halo;
     o.haloPixels = haloPixels * Surface.z;
-    o.solid = (flags & 8u) != 0u ? 1.0 : 0.0;
+    o.solid = (flags & 64u) != 0u ? 2.0 : ((flags & 8u) != 0u ? 1.0 : 0.0);
     return o;
 }
 )hlsl";
@@ -391,6 +401,20 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
                   float minSpan : ATTRIB8)
 {
     GlyphOut o;
+    o.uv = uv;
+    o.colour = colour;
+    o.halo = halo;
+    o.haloPixels = haloPixels * Surface.z;
+    o.solid = (flags & 64u) != 0u ? 2.0 : ((flags & 8u) != 0u ? 1.0 : 0.0);
+    // 32: every corner is its own model point -- text lying on a plane in the model.
+    // Projected whole, so the glyph is perspective-correct and occluded by depth.
+    if ((flags & 32u) != 0u)
+    {
+        float4 m = ArchicadClip (float4 (position, 1.0));
+        m.z -= Surface.w * m.w;
+        o.position = m.w > kNearW ? m : kCulled;
+        return o;
+    }
     bool visible = true;
     float2 anchor;
     float depth = 0.0;
@@ -403,7 +427,7 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
         anchor = ToPixels (c);
         depth = saturate (c.z / c.w - Surface.w);
     }
-    float2 local = offset * Surface.z;
+    float2 local = offset * ((flags & 128u) != 0u ? 1.0 : Surface.z);
     if ((flags & 2u) != 0u)
     {
         // A span's anchor is its middle and `dir` the whole span; otherwise `dir`
@@ -426,11 +450,6 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
         local = float2 (local.x * u.x - local.y * u.y, local.x * u.y + local.y * u.x);
     }
     o.position = visible ? FromPixels (anchor + local, depth) : kCulled;
-    o.uv = uv;
-    o.colour = colour;
-    o.halo = halo;
-    o.haloPixels = haloPixels * Surface.z;
-    o.solid = (flags & 8u) != 0u ? 1.0 : 0.0;
     return o;
 }
 )hlsl";

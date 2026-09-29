@@ -234,6 +234,9 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
         }
         if (label.Contains ("name"))
             label.Get ("name", controls.labelName);
+        if (label.Contains ("onSlice"))
+            label.Get ("onSlice", controls.labelOnSlice);
+        ReadReal (label, "sizeMetres", controls.labelSizeMetres);
     }
     ReadReal (params, "liftMetres", controls.liftMetres);
     return true;
@@ -442,7 +445,9 @@ constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","prope
         "color":{"type":"string","minLength":8,"maxLength":8},
         "halo":{"type":"string","minLength":8,"maxLength":8},
         "decimals":{"type":"integer","minimum":0,"maximum":6},
-        "name":{"type":"boolean"}},
+        "name":{"type":"boolean"},
+        "onSlice":{"type":"boolean"},
+        "sizeMetres":{"type":"number","minimum":0,"maximum":100}},
       "additionalProperties":false},
     "liftMetres":{"type":"number","minimum":-100,"maximum":100}},
   "additionalProperties":false})json";

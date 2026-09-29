@@ -112,7 +112,48 @@ TEST (StorySliceOverlay, EachStoreyIsItsFillOutlineAndAreaAtItsLevel)
     EXPECT_EQ (layer.texts[1].text, "50.0 m\xC2\xB2");
     EXPECT_DOUBLE_EQ (layer.texts[1].at[2], 3.0);
     EXPECT_EQ (layer.texts[1].behind, layers::Behind::Show);
-    EXPECT_FLOAT_EQ (layer.texts[1].sizePixels, 11.0f);
+    // Lying on the slice, inside it, sized to it.
+    EXPECT_TRUE (layer.texts[1].planar);
+    EXPECT_DOUBLE_EQ (layer.texts[1].normal[2], 1.0);
+    EXPECT_GT (layer.texts[1].sizeMetres, 0.1);
+    EXPECT_LT (layer.texts[1].sizeMetres, 1.0);
+    EXPECT_GT (layer.texts[1].at[0], 0.0);
+    EXPECT_GT (layer.texts[1].at[1], 0.0);
+    EXPECT_LT (layer.texts[1].at[1], 5.0);
+
+    // Or facing the view, as before.
+    so::Controls screen;
+    screen.labelOnSlice = false;
+    const so::Built facing = so::BuildLayer (so::FromStoreys (TwoStoreys ()), screen);
+    ASSERT_EQ (facing.layer.texts.size (), 2u);
+    EXPECT_FALSE (facing.layer.texts[1].planar);
+    EXPECT_FLOAT_EQ (facing.layer.texts[1].sizePixels, 11.0f);
+}
+
+// ⚠️ THE TEXT RISES INTO THE SLICE, whichever way its contour winds: along the edge
+// whose left side is the slice, from just inside the lowest-left corner.
+TEST (StorySliceOverlay, ALabelOnASliceRunsAlongAnEdgeIntoIt)
+{
+    for (const bool clockwise : { false, true }) {
+        const SliceChain square = Square (0, 0, 10, 10, clockwise);
+        so::SlicePlacement place;
+        ASSERT_TRUE (so::PlaceOnSlice ({ square }, square, 0.5, place)) << clockwise;
+        EXPECT_NEAR (place.x, 0.5, 1e-9);
+        EXPECT_NEAR (place.y, 0.5, 1e-9);
+        EXPECT_NEAR (place.dx, 1.0, 1e-9); // along +x, rising to +y: read from above
+        EXPECT_NEAR (place.dy, 0.0, 1e-9);
+        EXPECT_NEAR (place.room, 9.0, 1e-9);
+    }
+}
+
+TEST (StorySliceOverlay, ALabelIsSizedToItsSliceAndItsEdge)
+{
+    EXPECT_DOUBLE_EQ (so::LabelSizeMetres (0.8, 400.0, 1.0, "anything at all"), 0.8); // asked for
+    EXPECT_NEAR (so::LabelSizeMetres (0.0, 400.0, 100.0, "412.5 m\xC2\xB2"), 0.7, 1e-9);
+    // Too long for its edge: smaller, until it fits.
+    const double fitted = so::LabelSizeMetres (0.0, 400.0, 2.0, "A-01 F3  412.5 m\xC2\xB2");
+    EXPECT_LT (fitted, 0.7);
+    EXPECT_LE (16.0 * 0.55 * fitted, 0.9 * 2.0 + 1e-9);
 }
 
 TEST (StorySliceOverlay, TheControlsFilterLiftAndSilence)

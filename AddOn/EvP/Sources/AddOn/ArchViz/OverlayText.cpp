@@ -29,7 +29,7 @@ std::atomic<uint64_t> g_nextPageId { 1 };
 std::shared_ptr<const Page> MakePage (int width, int height, const std::vector<uint8_t>& pixels)
 {
     auto page = std::make_shared<Page> ();
-    page->id = g_nextPageId.fetch_add (1, std::memory_order_relaxed);
+    page->id = NewPageId ();
     page->width = width;
     page->height = height;
     page->pixels = pixels;
@@ -96,6 +96,11 @@ struct Engine::Impl {
 // px record distance about 0.55 screen px beyond an 11 px label's edge; the legend's
 // 1.25 px halo ran off the end of that and filled every glyph's whole quad -- a box
 // per character, the first live run (2026-09-29). 12 reaches about 1.6 px there.
+uint64_t NewPageId ()
+{
+    return g_nextPageId.fetch_add (1, std::memory_order_relaxed);
+}
+
 float Engine::DistanceRangePixels ()
 {
     return 12.0f;

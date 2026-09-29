@@ -85,6 +85,14 @@ void ReadCount (const GS::ObjectState& item, const char* key, uint32_t& out)
     }
 }
 
+void ReadStrings (const GS::ObjectState& item, const char* key, std::vector<std::string>& out)
+{
+    GS::Array<GS::UniString> values;
+    if (item.Get (key, values))
+        for (const GS::UniString& value : values)
+            out.push_back (Utf8Of (value));
+}
+
 template <size_t N> bool ReadFixed (const GS::ObjectState& item, const char* key, double (&out)[N])
 {
     std::vector<double> values;
@@ -255,6 +263,20 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
     }
     ReadFloat (item, "rotationDegrees", text.rotationDegrees);
     text.behind = BehindOf (item);
+    GS::ObjectState plane;
+    if (item.Get ("plane", plane)) {
+        if (screen) {
+            error = "a text lies on a plane in the model (at, plane) or on the view (screen), not both";
+            return false;
+        }
+        text.planar = true;
+        if ((plane.Contains ("direction") && !ReadFixed (plane, "direction", text.direction)) ||
+            (plane.Contains ("normal") && !ReadFixed (plane, "normal", text.normal))) {
+            error = "a plane's direction and normal are x, y, z";
+            return false;
+        }
+        ReadDouble (plane, "sizeMetres", text.sizeMetres);
+    }
     return true;
 }
 
@@ -348,12 +370,134 @@ bool ReadLegend (const GS::ObjectState& item, const std::vector<layers::Mesh>& m
         legend.offsetPixels[0] = float (offset[0]);
         legend.offsetPixels[1] = float (offset[1]);
     }
+    double screen[2] = {};
+    if (item.Contains ("screen")) {
+        if (!ReadFixed (item, "screen", screen)) {
+            error = "screen is x, y: fractions of the view from its top left";
+            return false;
+        }
+        legend.placed = true;
+        legend.screen[0] = float (screen[0]);
+        legend.screen[1] = float (screen[1]);
+    }
+    if (item.Contains ("horizontal"))
+        item.Get ("horizontal", legend.horizontal);
     ReadFloat (item, "lengthPixels", legend.lengthPixels);
     ReadFloat (item, "widthPixels", legend.widthPixels);
     ReadCount (item, "ticks", legend.ticks);
     ReadCount (item, "decimals", legend.decimals);
+    ReadNumbers (item, "tickValues", legend.tickValues);
+    ReadStrings (item, "tickLabels", legend.tickLabels);
     ReadFloat (item, "sizePixels", legend.sizePixels);
-    return ReadColour (item, "color", legend.rgba, error) && ReadColour (item, "halo", legend.haloRgba, error);
+    ReadFloat (item, "titleSizePixels", legend.titleSizePixels);
+    ReadFloat (item, "paddingPixels", legend.paddingPixels);
+    return ReadColour (item, "color", legend.rgba, error) && ReadColour (item, "halo", legend.haloRgba, error) &&
+           ReadColour (item, "background", legend.backgroundRgba, error) &&
+           ReadColour (item, "barBorder", legend.barBorderRgba, error);
+}
+
+// ---- HUD panels -------------------------------------------------------------------------
+
+bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::string& error)
+{
+    const std::string kind = StringValue (item, "kind");
+    out.kind = kind == "row"         ? layers::ItemKind::Row
+               : kind == "separator" ? layers::ItemKind::Separator
+               : kind == "spacing"   ? layers::ItemKind::Spacing
+               : kind == "progress"  ? layers::ItemKind::Progress
+               : kind == "swatch"    ? layers::ItemKind::Swatch
+               : kind == "ramp"      ? layers::ItemKind::Ramp
+               : kind == "plot"      ? layers::ItemKind::Plot
+               : kind == "table"     ? layers::ItemKind::Table
+                                     : layers::ItemKind::Text;
+    if (item.Contains ("text"))
+        out.text = StringValue (item, "text");
+    if (item.Contains ("value"))
+        out.value = StringValue (item, "value");
+    if (item.Contains ("unit"))
+        out.unit = StringValue (item, "unit");
+    if (!ReadColour (item, "color", out.rgba, error))
+        return false;
+    ReadFloat (item, "sizePixels", out.sizePixels);
+    if (item.Contains ("wrap"))
+        item.Get ("wrap", out.wrap);
+    ReadDouble (item, "fraction", out.fraction);
+    GS::ObjectState colormap;
+    if (item.Get ("colormap", colormap) && !ReadColormap (colormap, out.colormap, error))
+        return false;
+    if (out.kind == layers::ItemKind::Ramp && out.colormap.stops.empty () &&
+        !layers::PresetStops ("viridis", out.colormap.stops)) {
+        error = "the default ramp is missing";
+        return false;
+    }
+    ReadCount (item, "ticks", out.ticks);
+    ReadCount (item, "decimals", out.decimals);
+    ReadNumbers (item, "tickValues", out.tickValues);
+    ReadStrings (item, "tickLabels", out.tickLabels);
+    ReadFloat (item, "widthPixels", out.widthPixels);
+    ReadFloat (item, "heightPixels", out.heightPixels);
+    ReadNumbers (item, "values", out.values);
+    if (item.Contains ("min") != item.Contains ("max")) {
+        error = "a plot's range is min and max together, or neither";
+        return false;
+    }
+    if (item.Contains ("min")) {
+        ReadDouble (item, "min", out.min);
+        ReadDouble (item, "max", out.max);
+        out.autoRange = false;
+    }
+    ReadStrings (item, "columns", out.columns);
+    if (item.Contains ("rows")) {
+        // A list of lists: each row read through its own one-field object.
+        GS::Array<GS::Array<GS::UniString>> rows;
+        item.Get ("rows", rows);
+        for (const GS::Array<GS::UniString>& row : rows) {
+            std::vector<std::string> cells;
+            for (const GS::UniString& cell : row)
+                cells.push_back (Utf8Of (cell));
+            out.rows.push_back (std::move (cells));
+        }
+    }
+    return true;
+}
+
+bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& error)
+{
+    if (item.Contains ("title"))
+        panel.title = StringValue (item, "title");
+    if (item.Contains ("anchor")) {
+        const std::string anchor = StringValue (item, "anchor");
+        const char* const names[] = { "top-left", "top",         "top-right", "left",        "center",
+                                      "right",    "bottom-left", "bottom",    "bottom-right" };
+        for (size_t i = 0; i < 9; ++i)
+            if (anchor == names[i])
+                panel.anchor = layers::PanelAnchor (i);
+    }
+    double offset[2] = {};
+    if (item.Contains ("offsetPixels") && ReadFixed (item, "offsetPixels", offset)) {
+        panel.offsetPixels[0] = float (offset[0]);
+        panel.offsetPixels[1] = float (offset[1]);
+    }
+    ReadFloat (item, "widthPixels", panel.widthPixels);
+    ReadFloat (item, "sizePixels", panel.sizePixels);
+    ReadFloat (item, "roundingPixels", panel.roundingPixels);
+    ReadFloat (item, "paddingPixels", panel.paddingPixels);
+    if (!ReadColour (item, "color", panel.textRgba, error) ||
+        !ReadColour (item, "background", panel.backgroundRgba, error) ||
+        !ReadColour (item, "border", panel.borderRgba, error))
+        return false;
+    GS::Array<GS::ObjectState> items;
+    if (item.Get ("items", items)) {
+        for (const GS::ObjectState& entry : items) {
+            layers::PanelItem value;
+            if (!ReadPanelItem (entry, value, error)) {
+                error = "item " + std::to_string (panel.items.size ()) + ": " + error;
+                return false;
+            }
+            panel.items.push_back (std::move (value));
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -446,6 +590,17 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
                 return false;
             }
             layer.legends.push_back (std::move (legend));
+        }
+    }
+    items.Clear ();
+    if (params.Get ("panels", items)) {
+        for (const GS::ObjectState& item : items) {
+            layers::Panel panel;
+            if (!ReadPanel (item, panel, error)) {
+                error = "panel " + std::to_string (layer.panels.size ()) + ": " + error;
+                return false;
+            }
+            layer.panels.push_back (std::move (panel));
         }
     }
     error = layers::Validate (layer);

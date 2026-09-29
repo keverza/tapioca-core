@@ -9,6 +9,7 @@
 #include <InputLayout.h>
 #include <Shader.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace geomsrv {
@@ -359,10 +360,24 @@ bool Upload (Diligent::IRenderDevice* device, const Pipelines& pipelines, std::v
     out.fillDraws = fillDraws;
     out.glyphDraws = glyphDraws;
 
+    // ⚠️ THE CACHE KEEPS ONLY WHAT THIS CONTENT SAMPLES. A HUD panel's font atlas is a
+    // new page every time ImGui grows it (OverlayHud.hpp), and a cache that only ever
+    // added would hold every version for the session. A text page dropped here is
+    // uploaded again the day a label needs it.
+    pages.erase (std::remove_if (pages.begin (), pages.end (),
+                                 [&atlas] (const Page& cached) {
+                                     return std::none_of (atlas.begin (), atlas.end (), [&cached] (const auto& wanted) {
+                                         return wanted != nullptr && wanted->id == cached.id;
+                                     });
+                                 }),
+                 pages.end ());
+
     // The pages this content samples, uploaded once each; a page that fails is left
     // out, and so are the draws that need it -- counted by the caller as missing text.
     out.pageSlot.assign (atlas.size (), UINT32_MAX);
     for (size_t index = 0; index < atlas.size (); ++index) {
+        if (atlas[index] == nullptr)
+            continue;
         const overlaytext::Page& page = *atlas[index];
         size_t slot = 0;
         while (slot < pages.size () && pages[slot].id != page.id)
@@ -371,7 +386,7 @@ bool Upload (Diligent::IRenderDevice* device, const Pipelines& pipelines, std::v
             Page uploaded;
             uploaded.id = page.id;
             Diligent::TextureDesc desc;
-            desc.Name = "Tapioca overlay MTSDF atlas page";
+            desc.Name = "Tapioca overlay atlas page";
             desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
             desc.Width = uint32_t (page.width);
             desc.Height = uint32_t (page.height);

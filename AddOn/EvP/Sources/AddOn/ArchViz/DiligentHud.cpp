@@ -2,6 +2,7 @@
 #include "ArchViz/AnnotationHudControls.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/ImGuiContextLock.hpp" // ImGui's one global context: every use under its lock
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/ImGuiGraphInteractionLab.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
@@ -154,6 +155,7 @@ bool DiligentHud::Init (Diligent::IRenderDevice* device, uint32_t colorBufferFor
     }
     if (impl_->ready)
         return true;
+    std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
 
     // ⚠️ AN EXPLICIT CONTEXT, NOT THE IMPLICIT GLOBAL. ImGui's default context is
     // a process-wide singleton, and the bgfx viewer creates one of its own. Two
@@ -200,6 +202,7 @@ void DiligentHud::Shutdown ()
 {
     if (impl_ == nullptr)
         return;
+    std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
     impl_->renderer.reset ();
     if (impl_->context != nullptr) {
         ImGui::SetCurrentContext (impl_->context);
@@ -215,6 +218,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
 {
     if (context == nullptr || !impl_->ready || width == 0 || height == 0)
         return;
+    std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
 
     ImGui::SetCurrentContext (impl_->context);
     ImGuiIO& io = ImGui::GetIO ();

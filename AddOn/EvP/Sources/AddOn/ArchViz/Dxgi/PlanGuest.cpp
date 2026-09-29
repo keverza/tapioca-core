@@ -70,6 +70,14 @@ bool NeedsText (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& 
     return false;
 }
 
+bool NeedsHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
+{
+    for (const auto& layer : layers)
+        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD) && !layer->panels.empty ())
+            return true;
+    return false;
+}
+
 bool NeedsGuest2D (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
 {
     for (const auto& layer : layers)
@@ -139,7 +147,8 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     }
 
     overlaytext::Engine* text = NeedsText (layers) ? guesttext::Engine () : nullptr;
-    const overlayscene::Plan plan = overlayscene::PreparePlan (layers, text);
+    overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud () : nullptr;
+    const overlayscene::Plan plan = overlayscene::PreparePlan (layers, text, hud, g_dpiScale);
     gpu::Arrays arrays;
     arrays.fills = plan.fills.data ();
     arrays.fillCount = plan.fills.size ();

@@ -38,14 +38,20 @@
 
 namespace geomsrv {
 namespace archviz {
+namespace overlayhud {
+class Engine;
+} // namespace overlayhud
 namespace overlayscene {
 
 // A glyph quad's flags, as the vertex shader tests them.
-constexpr uint32_t kScreenAnchored = 1u; // the anchor is a fraction of the view, not a model point
-constexpr uint32_t kAlongDirection = 2u; // the quad turns with its direction's projection
-constexpr uint32_t kKeepUpright = 4u;    // ...and never reads upside down
-constexpr uint32_t kSolid = 8u;          // a panel, a tick or an arrowhead: no atlas sample
-constexpr uint32_t kHideShortSpan = 16u; // hidden while the direction projects shorter than minSpan
+constexpr uint32_t kScreenAnchored = 1u;   // the anchor is a fraction of the view, not a model point
+constexpr uint32_t kAlongDirection = 2u;   // the quad turns with its direction's projection
+constexpr uint32_t kKeepUpright = 4u;      // ...and never reads upside down
+constexpr uint32_t kSolid = 8u;            // a panel, a tick or an arrowhead: no atlas sample
+constexpr uint32_t kHideShortSpan = 16u;   // hidden while the direction projects shorter than minSpan
+constexpr uint32_t kModelQuad = 32u;       // each corner is its own model point: text lying on a plane
+constexpr uint32_t kPlainTexture = 64u;    // the texture times the colour: an ImGui panel (OverlayHud.hpp)
+constexpr uint32_t kPhysicalPixels = 128u; // the offset is in the view's pixels already, not logical ones
 
 // `Behind`, resolved, as the 3D shaders read it.
 constexpr uint32_t kBehindHide = 0u;
@@ -200,8 +206,12 @@ struct Scene {
 
 // What the guest draws of these layers in each view. `text` may be null or not
 // ready: labels are then counted in `problems` and skipped, everything else drawn.
-Plan PreparePlan (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text);
-Scene PrepareScene (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text);
+// `hud` lays out the HUD panels at `scale`, the view's DPI scale; null skips them,
+// counted with the labels. The panels are drawn last, over everything.
+Plan PreparePlan (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text,
+                  overlayhud::Engine* hud = nullptr, float scale = 1.0f);
+Scene PrepareScene (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text,
+                    overlayhud::Engine* hud = nullptr, float scale = 1.0f);
 
 // ---- pure helpers, exposed for their tests -----------------------------------
 

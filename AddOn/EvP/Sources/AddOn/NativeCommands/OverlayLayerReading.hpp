@@ -2,9 +2,9 @@
 #define EVP_NATIVECOMMANDS_OVERLAYLAYERREADING_HPP
 
 // NativeCommands/OverlayLayerReading -- Tapioca.SetOverlayLayer's parameters read into a
-// layer: polylines, points, meshes (styles, heatmaps), texts (at a point or on the
-// view), dimensions and legends. Apart from the verbs (OverlayLayerCommands.cpp), so the
-// vocabulary can grow without the verbs' file growing with it.
+// layer: polylines, points, meshes (styles, heatmaps), texts (at a point, on the view,
+// on a plane), dimensions, legends and HUD panels. Apart from the verbs
+// (OverlayLayerCommands.cpp) because the vocabulary outgrew one file with them.
 //
 // ⚠️ WHAT THE SCHEMA CANNOT SAY, THIS CHECKS: colours are 8 hex digits (the validator
 // has no `pattern`), a text is anchored `at` a model point or on the `screen`, never

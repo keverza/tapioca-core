@@ -41,8 +41,14 @@ struct Controls {
     uint32_t labelRgba = 0x202020FFu;
     uint32_t labelHaloRgba = 0xFFFFFFD0u;
     uint32_t decimals = 1;
-    bool labelName = false;  // the slice's name before the area
-    double liftMetres = 0.0; // each slice drawn this far above its cut
+    bool labelName = false; // the slice's name before the area
+    // ⚠️ ON THE SLICE BY DEFAULT: the label lies on the cut plane at its height, along
+    // an edge of the contour, sized to the slice -- what a slice looks like is a plate,
+    // and a label facing the camera floats in front of it (the user, 2026-09-29).
+    // False puts it back on the screen, `labelSizePixels` high.
+    bool labelOnSlice = true;
+    double labelSizeMetres = 0.0; // 0: fitted to the slice
+    double liftMetres = 0.0;      // each slice drawn this far above its cut
 };
 
 // One slice to draw: a cut's contours at its height, its area and the name its label
@@ -63,6 +69,20 @@ std::vector<Slice> FromStoreys (const storeyslices::Snapshot& snapshot);
 // metres along it. False when no corner qualifies; x and y are untouched then.
 bool CornerAnchor (const std::vector<SliceChain>& contours, const SliceChain& chain, double inset, double& x,
                    double& y);
+
+// Where a label lying on a slice starts: just inside the lowest-left convex corner of
+// `chain`, `inset` from both its edges, its baseline along the edge that keeps the slice
+// on the text's upper side (seen from above), with `room` metres along that edge.
+struct SlicePlacement {
+    double x = 0.0, y = 0.0;
+    double dx = 1.0, dy = 0.0;
+    double room = 0.0;
+};
+bool PlaceOnSlice (const std::vector<SliceChain>& contours, const SliceChain& chain, double inset, SlicePlacement& out);
+
+// The label's height in metres: `wanted` when given, otherwise from the slice's area;
+// then no longer than `room` holds `text`.
+double LabelSizeMetres (double wanted, double areaM2, double room, const std::string& text);
 
 // "245.7 m²", or "Level 2  245.7 m²".
 std::string AreaText (double areaM2, uint32_t decimals, const std::string& name, bool withName);

@@ -37,6 +37,14 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
+    "ArchViz/DiligentHud.cpp": (
+        1004,
+        "the viewer's Dear ImGui HUD, at 1000 when the overlays' HUD panels arrived: those "
+        "lay out on the main thread and ImGui's current context is one process-wide global, "
+        "so this file's Init, Draw and Shutdown now take ImGuiContextLock -- four lines that "
+        "cannot live anywhere else. Not split in that commit because the HUD's own tabs "
+        "rework is in progress in this file; the split belongs to that work",
+    ),
     "ArchViz/Dxgi/InjectionRenderer.cpp": (
         1030,
         "THE SEAM IS NAMED AND THIS IS A DEBT, NOT A LICENCE. The ~22 session counters, "

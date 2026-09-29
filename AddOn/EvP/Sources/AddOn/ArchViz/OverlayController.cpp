@@ -591,19 +591,23 @@ void PublishLayers ()
 
     // ⚠️ THE GUEST'S SHARE IS LAID OUT HERE, ON THE MAIN THREAD, BECAUSE THE TEXT
     // ENGINE IS: the render thread receives finished arrays and never shapes a glyph.
-    bool text = false;
-    for (const auto& layer : layers)
-        text = text || (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD) &&
-                        (!layer->texts.empty () || !layer->dimensions.empty () || !layer->legends.empty ()));
-    overlayscene::Scene scene = overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr);
+    bool text = false, panels = false;
+    for (const auto& layer : layers) {
+        const bool drawn = overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD);
+        text = text || (drawn && (!layer->texts.empty () || !layer->dimensions.empty () || !layer->legends.empty ()));
+        panels = panels || (drawn && !layer->panels.empty ());
+    }
+    const UINT dpi = ::GetDpiForSystem ();
+    const float scale = dpi != 0 ? float (dpi) / 96.0f : 1.0f;
+    overlayscene::Scene scene = overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr,
+                                                            panels ? guesttext::Hud () : nullptr, scale);
     scene.generation = overlaylayers::Generation ();
     const overlayscene::Problems& problems = scene.problems;
     if (problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated > 0)
         Narrate ("OVERLAY", "3D guest NOT DRAWING " + std::to_string (problems.textsNotLaidOut) + " texts, " +
                                 std::to_string (problems.dimensionsNotResolved) + " dimensions, " +
                                 std::to_string (problems.truncated) + " past the budget: " + problems.lastError);
-    const UINT dpi = ::GetDpiForSystem ();
-    dxgi::sceneguest::Publish (std::move (scene), dpi != 0 ? float (dpi) / 96.0f : 1.0f);
+    dxgi::sceneguest::Publish (std::move (scene), scale);
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
         ACAPI_View_Redraw ();
 }
