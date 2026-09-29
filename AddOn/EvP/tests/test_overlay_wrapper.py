@@ -1,0 +1,94 @@
+from types import SimpleNamespace
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Sources", "PyPackage"))
+from evp import overlay
+
+
+def _capture(monkeypatch):
+    seen = []
+
+    def fake_call(command, params):
+        seen.append((command, params))
+        return SimpleNamespace(data={"layer": params.get("layer", ""), "cleared": 1})
+
+    monkeypatch.setattr(overlay, "call", fake_call)
+    return seen
+
+
+def test_colours_read_every_way_a_script_writes_them():
+    assert overlay.colour("#fec44f") == "FEC44FFF"
+    assert overlay.colour("FEC44F80") == "FEC44F80"
+    assert overlay.colour((1, 0, 0)) == "FF0000FF"
+    assert overlay.colour((1.0, 0.5, 0.0, 0.5)) == "FF8000" + "80"
+    assert overlay.colour((255, 128, 0)) == "FF8000FF"
+    with pytest.raises(ValueError):
+        overlay.colour("#12345")
+
+
+def test_a_panel_is_its_items_in_order():
+    panel = (overlay.Panel(title="Sun study", anchor="top-right", width=260)
+             .row("Date", "21 June")
+             .separator()
+             .ramp("sunhours", 0, 8, unit="h", title="Sun hours", ticks=5)
+             .swatch("#FEC44F", "over 6 h")
+             .progress(0.42, "42 %")
+             .plot([1, 3, 2], caption="hours")
+             .table(["Block", "Area"], [["A", 812]]))
+    out = panel.to_dict()
+    assert out["anchor"] == "top-right"
+    assert out["widthPixels"] == 260.0
+    assert [item["kind"] for item in out["items"]] == [
+        "row", "separator", "ramp", "swatch", "progress", "plot", "table"]
+    ramp = out["items"][2]
+    assert ramp["colormap"] == {"preset": "sunhours", "min": 0.0, "max": 8.0}
+    assert ramp["unit"] == "h" and ramp["ticks"] == 5 and ramp["text"] == "Sun hours"
+    assert out["items"][3]["color"] == "FEC44FFF"
+    assert out["items"][6]["rows"] == [["A", "812"]]
+    with pytest.raises(ValueError):
+        overlay.Panel(anchor="middle")
+
+
+def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch):
+    seen = _capture(monkeypatch)
+    overlay.set_layer(
+        "sun",
+        texts=[overlay.text("Origin", at=(0, 0, 0), offset=(6, -6))],
+        meshes=[overlay.heatmap([0, 0, 0, 1, 0, 0, 1, 1, 0], [0, 1, 2], [2, 8, 5], "sunhours", bands=8)],
+        legends=[overlay.legend(None, mesh=0, title="Sun hours", decimals=1, horizontal=True, screen=(0.5, 1))],
+        panels=[overlay.Panel(title="HUD").row("GFA", "2633 m2")])
+    command, params = seen[0]
+    assert command == "Tapioca.SetOverlayLayer"
+    assert params["layer"] == "sun" and params["views"] == "both"
+    assert "occluded" not in params  # None is left out, not sent
+    label = params["texts"][0]
+    assert label["at"] == [0.0, 0.0, 0.0] and all(isinstance(v, float) for v in label["at"])
+    assert label["offsetPixels"] == [6.0, -6.0]
+    mesh = params["meshes"][0]
+    assert mesh["indices"] == [0, 1, 2] and all(isinstance(i, int) for i in mesh["indices"])
+    assert all(isinstance(v, float) for v in mesh["values"])
+    assert mesh["colormap"]["bands"] == 8 and isinstance(mesh["colormap"]["bands"], int)
+    legend = params["legends"][0]
+    assert legend["mesh"] == 0 and isinstance(legend["mesh"], int)
+    assert legend["screen"] == [0.5, 1.0] and legend["horizontal"] is True
+    assert legend["decimals"] == 1 and isinstance(legend["decimals"], int)
+    assert params["panels"][0]["items"][0] == {"kind": "row", "text": "GFA", "value": "2633 m2"}
+
+
+def test_a_text_on_a_plane_carries_its_plane():
+    label = overlay.text("Hall", at=(10, 20, 3), plane=((0, 1, 0), (0, 0, 1), 0.5), align="left")
+    assert label["plane"] == {"direction": [0.0, 1.0, 0.0], "normal": [0.0, 0.0, 1.0], "sizeMetres": 0.5}
+    with pytest.raises(ValueError):
+        overlay.text("both", at=(0, 0, 0), screen=(0, 0))
+
+
+def test_clear_and_hud(monkeypatch):
+    seen = _capture(monkeypatch)
+    assert overlay.clear("sun") == 1
+    overlay.hud("status", overlay.Panel().text("ready"), views="3d")
+    assert seen[0] == ("Tapioca.ClearOverlayLayer", {"layer": "sun"})
+    assert seen[1][1]["views"] == "3d"
+    assert seen[1][1]["panels"][0]["items"] == [{"kind": "text", "text": "ready"}]

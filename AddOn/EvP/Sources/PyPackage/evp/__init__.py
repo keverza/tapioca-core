@@ -24,6 +24,7 @@ from . import issues
 from . import layouts
 from . import model
 from . import outputs
+from . import overlay
 from . import paths
 from . import plan
 from . import preview
@@ -58,7 +59,7 @@ __all__ = [
     "PreviewScene", "PreviewBudgetError", "WatchBudgetError", "watch",
     "cameras", "changes", "context", "drafting", "diligent", "drawings", "elements", "errors", "geometry",
     "issues",
-    "layouts", "outputs", "paths", "plan", "preview", "properties", "runtime", "selection",
+    "layouts", "outputs", "overlay", "paths", "plan", "preview", "properties", "runtime", "selection",
     "model", "topology", "ui", "webui",
     "command", "action", "menu", "Float", "Int", "Enum", "Bool", "Text", "Action",
     "Layer", "Pen", "Fill", "LineType", "Surface", "Story", "FilePath", "ProjectField", "View", "Database",
