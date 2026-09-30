@@ -500,9 +500,16 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
     if (!wanted) {
         intent.wanted = false;
         if (which == Overlay::ThreeD) {
-            if (runtime::Running ())
+            const bool was = runtime::Running ();
+            if (was)
                 runtime::Stop ();
             overlayinput::Detach (overlayinput::View::ThreeD);
+            // ⚠️ THE LAST FRAME STILL CARRIES THE OVERLAY, ITS HUD INCLUDED. A still 3D view
+            // presents nothing by itself: without a redraw the panels stayed on screen,
+            // unpressable, until the user navigated (the user, 2026-09-30: no way to get rid
+            // of them). The plan's Stop redraws for the same reason. The hooks are out by now.
+            if (was && front == ViewKind::ThreeD)
+                ACAPI_View_Redraw ();
         }
         else if (planruntime::Running ()) {
             planruntime::Stop ("turned off");
