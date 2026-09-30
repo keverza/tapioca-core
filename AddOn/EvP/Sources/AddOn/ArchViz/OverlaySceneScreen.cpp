@@ -87,9 +87,9 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     if (layout.highlight.active)
         draft_.highlight = { LayerKey (layout.highlight.layer), float (layout.highlight.low),
                              float (layout.highlight.high) };
-    // A panel, or the dock: its rectangle is the HUD's -- a click there is never Archicad's
-    // (OverlayHitMap.hpp) -- and its triangles anchored where it is. A panel in the dock
-    // has neither.
+    // A panel, the host or the dock: its rectangle is the HUD's -- a click there is never
+    // Archicad's (OverlayHitMap.hpp) -- and its triangles anchored where it is. A titled
+    // panel (a tab of the host), a hidden layer's, or a closed host has neither.
     auto emit = [&] (const overlayhud::Built& built, overlayinput::RegionKind kind, const std::string& layer,
                      uint32_t item) {
         if (!(built.width > 0.0f && built.height > 0.0f))

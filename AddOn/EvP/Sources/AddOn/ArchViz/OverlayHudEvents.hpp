@@ -1,8 +1,9 @@
 #ifndef EVP_ARCHVIZ_OVERLAYHUDEVENTS_HPP
 #define EVP_ARCHVIZ_OVERLAYHUDEVENTS_HPP
 
-// ArchViz/OverlayHudEvents -- what the user changed on the overlays' HUD, for Python: a
-// panel docked or opened, a section folded, the text size, a control's new value. The HUD
+// ArchViz/OverlayHudEvents -- what the user changed on the overlays' HUD, for Python: the
+// panel opened or closed, a section folded, the text size, the overlay or a layer shown
+// or hidden, a control's new value (OverlayHud.hpp `Change`). The HUD
 // engines (OverlayHud.hpp) report each change as they lay out; a caller asks for those
 // after the last it saw (`Tapioca.OverlayHudEvents`).
 //

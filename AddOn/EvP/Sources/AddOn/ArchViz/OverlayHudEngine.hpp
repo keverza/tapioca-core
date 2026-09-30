@@ -37,9 +37,8 @@ constexpr float kDockFontPixels = 12.0f;
 constexpr float kDockPadding[2] = { 5.0f, 12.0f };
 constexpr float kDockGap = 6.0f;
 // ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
-// HUD's font size). The panel's smaller and larger buttons walk them; every size of the
-// HUD -- text, padding, widths, the dock itself -- follows, the distances from the view's
-// edges do not.
+// HUD's font size). Settings and the HUD's menu choose one; every size of the HUD -- text,
+// padding, widths, the dock itself -- follows, the distances from the view's edges do not.
 constexpr float kFontSteps[] = { 0.8f, 0.9f, 1.0f, 1.1f, 1.25f, 1.4f, 1.6f, 1.8f, 2.0f };
 constexpr uint32_t kFontStepCount = uint32_t (sizeof (kFontSteps) / sizeof (kFontSteps[0]));
 constexpr uint32_t kFontStepDefault = 2;
@@ -65,8 +64,8 @@ struct State {
     bool shown = true;
     std::set<std::string> hidden; // layer names
     uint64_t revision = 0;
-    // The floating panel the titled panels are tabs of: open or in the dock, the tab shown
-    // (a panel key), and -- once the user has dragged it -- where: `offset` logical pixels
+    // The floating panel the titled panels are tabs of: open or closed to the dock, the tab
+    // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where: `offset` logical pixels
     // in from the edges of the view's `corner` nearest it (1 right, 2 bottom), so a view
     // resized keeps it that far from them.
     struct Host {
@@ -150,9 +149,8 @@ struct Engine::Impl {
 
     void Items (const layers::Panel& panel, PanelState& state, float scale);
 
-    // One panel's window, at its anchor on the view: its title bar -- whose close button
-    // sends it to the dock -- when it has a title, then its items. Nothing while it is in
-    // the dock.
+    // A panel without a title, at its anchor on the view: its items. A titled one is a tab
+    // of the host; a hidden layer's is not drawn.
     // `scale` is the view's DPI scale, what the distances from its edges take; `ui` that
     // times the text size, what everything else takes.
     void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui, ImVec2 view);
@@ -164,12 +162,12 @@ struct Engine::Impl {
     // shows held to one of them (OverlayHudHost.cpp).
     void Gather (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys);
 
-    // The dock: one tab at the view's right edge, its title turned a quarter; it opens and
-    // closes the host.
+    // The dock: one tab at the view's right edge, its title turned a quarter, that opens and
+    // closes the host, and a circle on it that shows and hides the whole overlay.
     void Dock (const std::vector<const layers::Panel*>& panels, float scale, ImVec2 view);
 
-    // The host: one floating panel, a tab per titled panel, the text size and the close
-    // button at the end of its tab row; where the user dragged it, kept.
+    // The host: one floating panel, a tab per titled panel, then Settings, the close button
+    // at the end of its tab row; where the user dragged it, kept.
     void Host (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
                float ui, ImVec2 view);
 
@@ -209,8 +207,8 @@ struct Engine::Impl {
     void Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
                 const Input& input, const std::vector<LegendBar>& legends, float delta);
 
-    // Which of the set's windows a draw list belongs to -- the dock's is the last -- and
-    // -1 for what floats over them.
+    // Which of the set's windows a draw list belongs to -- the panels', then the dock's and
+    // the host's -- and -1 for what floats over them.
     int PanelOf (const ImDrawList* list) const;
 
     // The last frame's triangles, each panel's from its top-left, against the pages as

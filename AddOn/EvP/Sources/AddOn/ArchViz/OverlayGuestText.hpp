@@ -9,7 +9,7 @@
 // ⚠️ ONE HUD ENGINE PER VIEW, NOT ONE FOR BOTH. An ImGui context holds what the pointer
 // hovers and presses. The 3D HUD is laid out on every layer change even while the plan
 // is in front; in one context that layout would take the plan's hover and a press in
-// progress away from it. What the user DID -- a panel docked, a section folded -- is one
+// progress away from it. What the user DID -- the panel closed, a section folded -- is one
 // state both engines keep.
 //
 // MAIN THREAD ONLY -- the engine is.
@@ -44,7 +44,7 @@ constexpr size_t kMaxFonts = 8;
 overlaytext::Engine* EngineFor (const std::string& path);
 
 // The view's HUD engine, or null when it could not start -- said once. The two keep
-// what the user does to the panels in one state: a panel docked in 3D is docked in plan.
+// what the user does to the panels in one state: the panel closed in 3D is closed in plan.
 overlayhud::Engine* Hud (overlayinput::View view);
 
 // What the user did to the panels, both views' (OverlayHud.hpp `State`); made on first use.

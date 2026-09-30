@@ -48,9 +48,6 @@ void BaseStyle (float scale)
     style.ScaleAllSizes (scale);
     style.WindowMinSize = ImVec2 (1.0f, 1.0f);
     style.FrameRounding = 2.0f * scale;
-    // The title centred, the collapse arrow before it.
-    style.WindowTitleAlign = ImVec2 (0.5f, 0.5f);
-    style.WindowMenuButtonPosition = ImGuiDir_Left;
 }
 
 } // namespace
@@ -74,13 +71,9 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
         { ImGuiCol_TableBorderLight, WithAlpha (text, 0.2f) },
         { ImGuiCol_TableBorderStrong, WithAlpha (text, 0.3f) },
         { ImGuiCol_TableRowBgAlt, WithAlpha (text, 0.05f) },
-        // The title bar is the panel: a header, not a coloured strip.
-        { ImGuiCol_TitleBg, panel.backgroundRgba },
-        { ImGuiCol_TitleBgActive, panel.backgroundRgba },
-        { ImGuiCol_TitleBgCollapsed, panel.backgroundRgba },
         // ⚠️ WHAT THE POINTER CAN PRESS IS TINTED WITH THE ACCENT (the user, 2026-09-29): a
         // button reads as one at rest -- a faint fill -- and plainly when pointed at and
-        // pressed, as a section's row and the title bar's arrow do.
+        // pressed, as a section's row does.
         { ImGuiCol_Header, WithAlpha (accent, 0.14f) }, // a dropdown's chosen option
         { ImGuiCol_HeaderHovered, WithAlpha (accent, 0.16f) },
         { ImGuiCol_HeaderActive, WithAlpha (accent, 0.28f) },
@@ -441,9 +434,8 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
     }
 }
 
-// One panel's window, at its anchor on the view: its title bar -- whose close button
-// sends it to the dock -- when it has a title, then its items. Nothing while it is in
-// the dock.
+// A panel without a title, at its anchor on the view: its items. A titled one is a tab
+// of the host (OverlayHudHost.cpp); a hidden layer's is not drawn.
 // `scale` is the view's DPI scale, what the distances from its edges take; `ui` that
 // times the text size, what everything else takes.
 void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui,

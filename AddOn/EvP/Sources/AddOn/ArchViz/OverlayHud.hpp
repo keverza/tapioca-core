@@ -2,11 +2,11 @@
 #define EVP_ARCHVIZ_OVERLAYHUD_HPP
 
 // ArchViz/OverlayHud -- the overlays' HUD panels (OverlayLayers.hpp `Panel`), laid out by
-// Dear ImGui: a title bar whose close button sends the panel to the dock, text, rows of
-// figures, collapsible sections, rules, progress bars, colour keys, colour ramps, plots
-// and tables, in a panel fixed to a point of the view -- the tooltips over them and over
-// the legends -- and the dock: a tab per titled panel down the view's right edge. Never
-// drawn by ImGui's own renderer.
+// Dear ImGui: text, rows of figures, collapsible sections, rules, progress bars, colour
+// keys, colour ramps, plots, tables and controls; the titled panels as the tabs of one
+// floating host with the HUD's Settings, the untitled ones fixed to a point of the view;
+// the tooltips over them and over the legends; the dock's one tab at the view's right
+// edge; and the HUD's menu on a right click. Never drawn by ImGui's own renderer.
 //
 // ⚠️ IMGUI LAYS OUT ON THE MAIN THREAD; THE OVERLAYS DRAW TRIANGLES. The 3D overlay draws
 // on Archicad's render thread inside a Present hook, where §11 allows no locks and no
@@ -23,24 +23,26 @@
 // out relative to each panel's anchor, so a view resized before the next layout places
 // them right.
 //
-// ⚠️ THE ADD-ON HOLDS THE STATE, NOT ONLY IMGUI. Whether a panel is in the dock and which
-// of its sections are open are kept here by the panel's key (its layer and its place
-// there), set into ImGui every frame and read back after it: a layer set again keeps what
-// the user did to it. And the two views' engines share it (`State`): a panel docked in
-// the 3D window is docked in the plan.
+// ⚠️ THE ADD-ON HOLDS THE STATE, NOT ONLY IMGUI. Which of a panel's sections are open and
+// its controls' values are kept here by the panel's key (its layer and its place there),
+// with the host's -- open, its tab, where it was dragged -- the text size and what is
+// shown; set into ImGui every frame and read back after it, so a layer set again keeps
+// what the user did to it. And the two views' engines share it (`State`): the host closed
+// in the 3D window is closed in the plan.
 //
 // ⚠️ ONE FLOATING PANEL, THE TITLED PANELS ITS TABS (the user, 2026-09-30). Every panel with
 // a title, of every layer, is a tab of the host: one small panel with no title bar, its tab
-// row its head, the text size (A- A+) and a close button at the row's end. The user drags
+// row its head, the HUD's Settings its last tab and a close button at the row's end. The user drags
 // it by anything that is not a control; where they leave it is kept from the view's
 // nearest corner, in logical pixels, so a resized view keeps it there and inside. The dock
 // is ONE tab at the view's right edge, its title turned a quarter, that opens and closes
-// the host. A panel without a title stands alone at its anchor, as before; one on the
-// view's right column moves in beside the dock.
+// the host; a circle on it shows and hides the whole overlay (`ContentShown`). A panel
+// without a title stands alone at its anchor, as before; one on the view's right column
+// moves in beside the dock.
 //
-// ⚠️ THE TEXT SIZE IS THE USER'S: the host's smaller and larger buttons scale the whole HUD
-// -- text, padding, widths and the dock -- by a few steps, in both views; the distances
-// from the view's edges stay.
+// ⚠️ THE TEXT SIZE IS THE USER'S: chosen in Settings or the HUD's menu, it scales the whole
+// HUD -- text, padding, widths and the dock -- by a few steps, in both views; the
+// distances from the view's edges stay.
 //
 // ⚠️ THIS ENGINE IS IMGUI'S BACKEND FOR TEXTURES. ImGui 1.92 grows its font atlas as it
 // meets new glyphs and sizes (`ImGuiBackendFlags_RendererHasTextures`); each version of
@@ -114,14 +116,17 @@ struct LegendBar {
     float rect[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // view pixels: left, top, right, bottom
 };
 
-// What the user changed on the HUD in a layout: a panel docked or opened, a section
-// folded, the text size, a control's value. For Python (OverlayHudEvents.hpp); `key`
-// splits into the panel's layer and place.
+// What the user changed on the HUD in a layout: the host opened or closed, its tab, a
+// section folded, the text size, its position reset, the overlay or a layer shown or
+// hidden, a control's value. For Python (OverlayHudEvents.hpp); `key` splits into the
+// panel's layer and place.
 struct Change {
-    std::string kind;  // "hud", "panel", "section", "fontScale", "checkbox", "slider", "combo", "tab", "button"
-    std::string key;   // the panel's; empty for the HUD's own (the text size)
+    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer"; or a control's:
+    // "checkbox", "slider", "combo", "tab", "button"
+    std::string kind;
+    std::string key;   // the panel's; empty for the HUD's own (the text size, Settings)
     std::string title; // the panel's
-    std::string id;    // the control's id, the tab bar's; a section's title; "textSize"
+    std::string id;    // the control's id, the tab bar's; a section's title; "textSize"; a layer"
     int32_t item = -1; // its place among the panel's items
     double value = 0.0;
     std::string text; // what the value says
@@ -131,11 +136,11 @@ struct Change {
 // A set laid out: one per panel, and what floats over them -- the tooltips -- in view
 // pixels from its top-left (`overlay.fraction` 0, 0).
 struct Layout {
-    std::vector<Built> panels; // a panel in the dock is empty: no size, no triangles
+    std::vector<Built> panels; // a titled panel's (a tab of the host) or a hidden layer's is empty
     Built overlay;
     // The dock's one tab, at the view's right edge half-way down, and the host -- the
     // floating panel the titled panels are tabs of, and the key of the one it shows. Both
-    // empty without a titled panel; the host empty while it is closed. A titled panel's
+    // empty without a layer in the view; the host empty while it is closed or hidden. A titled panel's
     // own `panels` entry is always empty: it is drawn as the host's tab.
     Built dock;
     Built host;
@@ -156,8 +161,8 @@ struct Layout {
     bool hand = false;
     // What the user changed in this layout, in the order they did it.
     std::vector<Change> changes;
-    // A dropdown's list is open: the whole view is the HUD's until it closes, so the
-    // click that closes it never reaches Archicad.
+    // A dropdown's list or the HUD's menu is open: the whole view is the HUD's until it
+    // closes, so the click that closes it never reaches Archicad.
     bool popup = false;
 };
 
@@ -223,8 +228,8 @@ class Engine final {
     void SetLayers (std::vector<std::string> names);
 
     // The HUD's text size, a factor on every size but the distances from the view's edges:
-    // one of a few steps (0.8 to 2), walked by the dock's smaller and larger buttons. Set,
-    // the step nearest.
+    // one of a few steps (0.8 to 2), chosen in Settings or the HUD's menu. Set, the step
+    // nearest.
     float FontScale () const;
     void SetFontScale (float scale);
 

@@ -201,7 +201,7 @@ constexpr const char kEventsOutput[] = R"json({"type":"object","properties":{
         "seq":{"type":"integer","minimum":1},
         "timeMs":{"type":"integer","minimum":0,"description":"Wall clock, milliseconds since 1970 UTC."},
         "view":{"type":"string","enum":["3d","plan"]},
-        "kind":{"type":"string","description":"dock, section, fontScale, or a control's kind."},
+        "kind":{"type":"string","description":"hud, panel, section, fontScale, position, overlay, layer, or a control's kind."},
         "layer":{"type":"string"},"panel":{"type":"integer"},"title":{"type":"string"},
         "id":{"type":"string"},"item":{"type":"integer"},
         "value":{"type":"number"},"text":{"type":"string"},

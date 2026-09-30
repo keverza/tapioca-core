@@ -133,7 +133,6 @@ void SetMarkerLadder (bool enabled);
 // camera and the presented image came from different scene passes. Off by
 // default and at every arm (section 10).
 void SetEpochGate (bool enabled);
-bool EpochGateEnabled ();
 struct EpochGateCounts {
     uint64_t matched = 0;
     uint64_t mismatched = 0;
@@ -143,7 +142,6 @@ struct EpochGateCounts {
     bool enabled = false;
 };
 EpochGateCounts EpochGate ();
-bool MarkerLadderEnabled ();
 
 // What the ladder painted, per rung, carried across the NativeCommands boundary
 // so the command never has to reach into ArchViz/Dxgi itself.

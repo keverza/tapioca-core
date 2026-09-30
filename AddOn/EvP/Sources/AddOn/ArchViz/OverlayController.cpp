@@ -632,11 +632,6 @@ void SetEpochGate (bool enabled)
     dxgi::injection::freshness::SetEpochGate (enabled);
 }
 
-bool EpochGateEnabled ()
-{
-    return dxgi::injection::freshness::EpochGate ();
-}
-
 EpochGateCounts EpochGate ()
 {
     const dxgi::injection::freshness::EpochGateReport report = dxgi::injection::freshness::GetEpochGate ();
@@ -656,11 +651,6 @@ void SetMarkerLadder (bool enabled)
     Narrate ("LADDER", enabled ? std::string ("armed -- A red, B yellow, C green, E magenta, "
                                               "top to bottom down the left edge")
                                : std::string ("off"));
-}
-
-bool MarkerLadderEnabled ()
-{
-    return dxgi::markerladder::Enabled ();
 }
 
 LadderCounts MarkerLadderCounts ()

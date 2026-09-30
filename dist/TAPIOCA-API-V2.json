@@ -19180,7 +19180,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "description": "dock, section, fontScale, or a control's kind."
+                  "description": "hud, panel, section, fontScale, position, overlay, layer, or a control's kind."
                 },
                 "layer": {
                   "type": "string"
