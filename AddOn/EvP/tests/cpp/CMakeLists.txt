@@ -471,6 +471,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudEvents.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayClickTiming.cpp"
     # Where the HUD is on the view and whose a mouse gesture is (OverlayInput.cpp takes the messages).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHitMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayFonts.cpp"
@@ -630,6 +631,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudcontrols.cpp
     test_overlayhudevents.cpp
     test_overlayhudwidgets.cpp
+    test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp

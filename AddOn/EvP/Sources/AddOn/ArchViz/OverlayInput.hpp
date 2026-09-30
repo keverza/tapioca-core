@@ -38,6 +38,12 @@
 // layout found the pointer could press. Everything else goes on to Archicad. A canvas of
 // another thread is neither subclassed nor seen by the hook; `Stats` says which.
 //
+// ⚠️ HOW LONG A CLICK KEEPS THE THREAD BUSY, ON DEMAND (OverlayClickTiming.hpp). Armed,
+// a second thread-local hook, WH_FOREGROUNDIDLE, says when the main thread goes idle, and
+// the message hook says when it wakes and what was pressed -- the HUD, the view, or any
+// other window of the thread, a DG palette's among them. It measures only while the
+// message hook is installed: while a view's HUD is attached.
+//
 // ⚠️ INSTALLED WITH THE FIRST CANVAS, REMOVED WITH THE LAST, AND AT UNLOAD. A hook or a
 // window that outlives this DLL is Windows calling into freed code; a latch that
 // outlives its session would take the next session's first moves (§8). Every `Detach`
@@ -45,11 +51,13 @@
 //
 // MAIN THREAD, every entry point.
 
+#include "ArchViz/OverlayClickTiming.hpp"
 #include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHud.hpp"
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -95,6 +103,13 @@ void RequestLayout (View view);
 // the presses and releases the HUD took since the last call; `CurrentInput` leaves them.
 overlayhud::Input TakeInput (View view);
 overlayhud::Input CurrentInput (View view);
+
+// The click meter armed (and its samples forgotten) or disarmed; whether it is; what it
+// holds, oldest first, and how often the thread went idle while it was armed.
+void TimeClicks (bool on);
+bool TimingClicks ();
+std::vector<overlayclicks::Sample> ClickSamples ();
+uint64_t ClickIdles ();
 
 // ⚠️ TOTALS SINCE THE PROCESS STARTED: a question about now is two readings and their
 // difference (§7). `declinedHidden` counts messages over a region while its HUD was not

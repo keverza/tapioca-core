@@ -747,6 +747,38 @@ HudReport Hud ()
     return out;
 }
 
+void TimeHudClicks (bool on)
+{
+    overlayinput::TimeClicks (on);
+}
+
+ClickReport HudClicks ()
+{
+    ClickReport out;
+    out.armed = overlayinput::TimingClicks ();
+    out.idles = overlayinput::ClickIdles ();
+    const std::vector<overlayclicks::Sample> samples = overlayinput::ClickSamples ();
+    uint64_t newest = 0;
+    for (const overlayclicks::Sample& sample : samples)
+        newest = (std::max) (newest, sample.at);
+    for (const overlayclicks::Sample& sample : samples) {
+        ClickRecord record;
+        record.target = overlayclicks::TargetName (sample.target);
+        record.windowClass = sample.windowClass;
+        record.complete = sample.complete;
+        record.ageMilliseconds = uint32_t ((newest - sample.at) / 1000u);
+        record.busyMicroseconds = sample.busyMicroseconds;
+        record.firstIdleMicroseconds = sample.firstIdleMicroseconds;
+        record.bursts = sample.bursts;
+        record.layoutMicroseconds = sample.layoutMicroseconds;
+        record.layouts = sample.layouts;
+        record.redrawMicroseconds = sample.redrawMicroseconds;
+        record.redraws = sample.redraws;
+        out.clicks.push_back (std::move (record));
+    }
+    return out;
+}
+
 void SetHudFontScale (float scale)
 {
     overlayhud::SetFontScale (*guesttext::HudState (), scale);

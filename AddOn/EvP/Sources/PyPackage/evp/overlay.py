@@ -62,6 +62,7 @@ __all__ = [
     "wait_events",
     "hud_state",
     "set_text_size",
+    "time_clicks",
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
@@ -946,6 +947,17 @@ def hud_state():
     {layer, panel, title, docked, values} -- `values` its controls' as [{id, value}], the
     tab bar's too. Read events from `lastSeq` on to follow it."""
     return call("Tapioca.OverlayHud", {}).data or {}
+
+
+def time_clicks(on=True):
+    """Arm (and clear) or disarm the click meter: for every left press -- on the HUD, on
+    the view, or on any other window of Archicad's main thread, a DG palette's among them
+    -- how long the thread stays busy in the half second after it. Returns
+    :func:`hud_state`'s record; its "clickTiming" holds {armed, idles, clicks}, each click
+    {target ("hud", "view", "other"), windowClass, ageMs, complete, busyMicroseconds,
+    firstIdleMicroseconds, bursts, layoutMicroseconds, layouts, redrawMicroseconds,
+    redraws}. `idles` 0 means the thread was never seen going idle: nothing was timed."""
+    return call("Tapioca.OverlayHud", {"timeClicks": bool(on)}).data or {}
 
 
 def set_text_size(scale):

@@ -47,6 +47,10 @@ struct Target {
 
 HHOOK g_hook = nullptr;
 HWND g_window = nullptr;
+// The click meter: armed on demand, its idle hook installed with the message hook.
+bool g_timing = false;
+HHOOK g_idleHook = nullptr;
+overlayclicks::Meter g_meter;
 ATOM g_windowClass = 0;
 Target g_targets[2];
 // One latch: the views never run together, and a gesture is one pointer's.
@@ -66,6 +70,20 @@ View ViewOf (const Target& target)
 bool AnyAttached ()
 {
     return g_targets[0].canvas != nullptr || g_targets[1].canvas != nullptr;
+}
+
+// The performance counter in microseconds: the click meter's clock.
+uint64_t Micros ()
+{
+    static const int64_t frequency = [] () {
+        LARGE_INTEGER f = {};
+        ::QueryPerformanceFrequency (&f);
+        return f.QuadPart > 0 ? f.QuadPart : 1;
+    }();
+    LARGE_INTEGER now = {};
+    ::QueryPerformanceCounter (&now);
+    return uint64_t (now.QuadPart / frequency) * 1000000u +
+           uint64_t (now.QuadPart % frequency) * 1000000u / uint64_t (frequency);
 }
 
 uint32_t Since (std::chrono::steady_clock::time_point started)
@@ -362,12 +380,52 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
     // thread, Archicad's own included.
     if (code == HC_ACTION && lParam != 0) {
         MSG* const message = reinterpret_cast<MSG*> (lParam);
-        if (message->message >= WM_MOUSEFIRST && message->message <= WM_MOUSELAST)
-            Consider (*message, (wParam & PM_REMOVE) != 0);
-        else if (message->message == WM_MOUSELEAVE && (wParam & PM_REMOVE) != 0)
+        const bool removing = (wParam & PM_REMOVE) != 0;
+        const UINT original = message->message;
+        const HWND window = message->hwnd;
+        if (g_timing && removing)
+            g_meter.Wake (Micros ());
+        if (original >= WM_MOUSEFIRST && original <= WM_MOUSELAST)
+            Consider (*message, removing);
+        else if (original == WM_MOUSELEAVE && removing)
             Left (*message);
+        // The click meter's press: on the HUD when the HUD took it, the view when it
+        // passed it, any other window of the thread otherwise.
+        if (g_timing && removing && (original == WM_LBUTTONDOWN || original == WM_LBUTTONDBLCLK)) {
+            const overlayclicks::Target target = TargetFor (window) == nullptr ? overlayclicks::Target::Other
+                                                 : message->message == WM_NULL ? overlayclicks::Target::Hud
+                                                                               : overlayclicks::Target::View;
+            char name[32] = {};
+            if (window == nullptr || ::GetClassNameA (window, name, int (sizeof (name))) == 0)
+                name[0] = '\0';
+            g_meter.Press (target, name, Micros ());
+        }
     }
     return ::CallNextHookEx (g_hook, code, wParam, lParam);
+}
+
+// The thread is about to go idle: the busy stretch the meter is timing ends.
+LRESULT CALLBACK IdleProc (int code, WPARAM wParam, LPARAM lParam)
+{
+    if (code == HC_ACTION && g_timing)
+        g_meter.Idle (Micros ());
+    return ::CallNextHookEx (g_idleHook, code, wParam, lParam);
+}
+
+// With the message hook, while the meter is armed.
+void FollowIdleHook ()
+{
+    const bool wanted = g_timing && g_hook != nullptr;
+    if (wanted && g_idleHook == nullptr) {
+        g_idleHook = ::SetWindowsHookExW (WH_FOREGROUNDIDLE, &IdleProc, nullptr, ::GetCurrentThreadId ());
+        if (g_idleHook == nullptr)
+            ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_FOREGROUNDIDLE) failed with GetLastError " +
+                        std::to_string (::GetLastError ()) + ": clicks are not timed");
+    }
+    else if (!wanted && g_idleHook != nullptr) {
+        ::UnhookWindowsHookEx (g_idleHook);
+        g_idleHook = nullptr;
+    }
 }
 
 void Redraw (Target& target)
@@ -378,6 +436,8 @@ void Redraw (Target& target)
     target.lastRedrawMs = ::GetTickCount64 ();
     target.owner.redraw ();
     const uint32_t took = Since (started);
+    if (g_timing)
+        g_meter.Redraw (took, Micros ());
     ++g_stats.redraws;
     g_stats.lastRedrawMicroseconds = took;
     g_stats.maxRedrawMicroseconds = (std::max) (g_stats.maxRedrawMicroseconds, took);
@@ -412,6 +472,8 @@ LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
         const auto started = std::chrono::steady_clock::now ();
         const bool changed = target.owner.refresh ();
         const uint32_t took = Since (started);
+        if (g_timing)
+            g_meter.Layout (took, Micros ());
         ++g_stats.refreshes;
         g_stats.lastRefreshMicroseconds = took;
         g_stats.maxRefreshMicroseconds = (std::max) (g_stats.maxRefreshMicroseconds, took);
@@ -483,6 +545,7 @@ void Uninstall ()
         g_hook = nullptr;
         ArchVizLog ("OVERLAY INPUT  the HUD's message hook removed");
     }
+    FollowIdleHook ();
     // ⚠️ NOT GUARDED ON THE HOOK: the window can exist without it, and a window whose
     // procedure lives in a DLL about to unload is Windows calling into freed code.
     if (g_window != nullptr) {
@@ -546,6 +609,7 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
             return false;
         }
         ArchVizLog ("OVERLAY INPUT  the HUD's message hook installed on this thread");
+        FollowIdleHook ();
     }
     if (moved) {
         g_router.Reset ();
@@ -573,6 +637,7 @@ void Detach (View view)
 
 void Shutdown ()
 {
+    g_timing = false;
     for (Target& target : g_targets)
         Clear (target);
     g_router.Reset ();
@@ -589,6 +654,30 @@ void RequestLayout (View view)
     Target& target = TargetOf (view);
     if (target.canvas != nullptr)
         RequestRefresh (target);
+}
+
+void TimeClicks (bool on)
+{
+    g_timing = on;
+    g_meter.Reset ();
+    FollowIdleHook ();
+    ArchVizLog (on ? "OVERLAY INPUT  clicks timed: the main thread's busy stretches for half a second after each press"
+                   : "OVERLAY INPUT  clicks no longer timed");
+}
+
+bool TimingClicks ()
+{
+    return g_timing && g_idleHook != nullptr;
+}
+
+std::vector<overlayclicks::Sample> ClickSamples ()
+{
+    return g_meter.Samples (Micros ());
+}
+
+uint64_t ClickIdles ()
+{
+    return g_meter.Idles ();
 }
 
 overlayhud::Input TakeInput (View view)

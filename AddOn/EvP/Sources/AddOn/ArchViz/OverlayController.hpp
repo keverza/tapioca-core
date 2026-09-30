@@ -240,6 +240,30 @@ HudReport Hud ();
 // THREAD.
 void SetHudFontScale (float scale);
 
+// How long each click keeps the main thread busy, the HUD's and any other window's alike
+// (ArchViz/OverlayClickTiming.hpp): armed afresh or disarmed, and what it holds. MAIN
+// THREAD.
+struct ClickRecord {
+    std::string target;      // "hud", "view", "other"
+    std::string windowClass; // the window pressed
+    uint32_t ageMilliseconds = 0;
+    bool complete = false; // its half second is over
+    uint32_t busyMicroseconds = 0;
+    uint32_t firstIdleMicroseconds = 0;
+    uint32_t bursts = 0;
+    uint32_t layoutMicroseconds = 0;
+    uint32_t layouts = 0;
+    uint32_t redrawMicroseconds = 0;
+    uint32_t redraws = 0;
+};
+struct ClickReport {
+    bool armed = false; // and measuring: the idle hook is in
+    uint64_t idles = 0; // the thread went idle, while armed: 0 means nothing could be timed
+    std::vector<ClickRecord> clicks;
+};
+void TimeHudClicks (bool on);
+ClickReport HudClicks ();
+
 // MAIN THREAD, periodic. While an overlay is wanted, keep it on the window the
 // user is looking at: tear down the session for the view being left and start
 // the one the new view needs. Intent and renderer are tracked apart -- see the

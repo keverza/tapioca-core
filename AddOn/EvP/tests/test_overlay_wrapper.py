@@ -348,3 +348,13 @@ def test_a_grids_cells_to_a_row_are_an_integer_on_the_wire():
     items = overlay._reals({"panels": [panel.to_dict()]})["panels"][0]["items"]
     assert items[0]["perRow"] == 2 and isinstance(items[0]["perRow"], int)
     assert isinstance(items[1]["perRow"], int)
+
+
+def test_the_click_meter_is_armed_through_the_hud_verb(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        overlay, "call", lambda command, params: seen.append((command, params)) or SimpleNamespace(data={})
+    )
+    overlay.time_clicks()
+    overlay.time_clicks(False)
+    assert seen == [("Tapioca.OverlayHud", {"timeClicks": True}), ("Tapioca.OverlayHud", {"timeClicks": False})]
