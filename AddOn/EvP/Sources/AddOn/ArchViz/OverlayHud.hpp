@@ -113,6 +113,9 @@ struct Layout {
         double high = 0.0;
     };
     Highlight highlight;
+    // The pointer is on something it can press, or pressing one: the input shows a hand
+    // over it (OverlayInput.hpp), an arrow over the rest of the HUD.
+    bool hand = false;
 };
 
 struct Stats {

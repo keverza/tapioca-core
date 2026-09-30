@@ -188,7 +188,8 @@ class Panel:
     A panel with a `title` has a title bar whose arrow folds it to that bar;
     `collapsed` is how it starts. A click on a panel never reaches Archicad, and what
     the user folds stays folded when the layer is set again. `theme` "light" is the
-    design's card -- near-white, dark text, rounded -- under any colour given here."""
+    design's card -- near-white, dark text, rounded -- under any colour given here.
+    `accent` tints what the pointer can press, when pointed at and pressed."""
 
     def __init__(
         self,
@@ -205,6 +206,7 @@ class Panel:
         font=None,
         collapsed=None,
         theme=None,
+        accent=None,
     ):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
@@ -227,7 +229,7 @@ class Panel:
         ):
             if value is not None:
                 self._panel[key] = float(value)
-        for key, value in (("color", color), ("background", background), ("border", border)):
+        for key, value in (("color", color), ("background", background), ("border", border), ("accent", accent)):
             if value is not None:
                 self._panel[key] = colour(value)
         self._items = []

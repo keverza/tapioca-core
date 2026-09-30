@@ -346,6 +346,9 @@ struct Panel {
     uint32_t borderRgba = 0; // alpha 0: none
     float roundingPixels = 6.0f;
     float paddingPixels = 10.0f;
+    // What the pointer can press is tinted with it when pointed at and pressed: a
+    // button, a section's row, the title bar's arrow.
+    uint32_t accentRgba = 0x3D8BFDFFu;
     std::string font; // as a text's; ImGui rasterises it (OverlayHud.hpp)
     bool collapsed = false;
     PanelTheme theme = PanelTheme::Dark;

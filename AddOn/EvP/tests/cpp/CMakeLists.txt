@@ -624,6 +624,7 @@ set (EVP_TEST_SOURCES
     test_overlaytext.cpp
     test_overlayscene.cpp
     test_overlayhud.cpp
+    test_overlayhudcontrols.cpp
     test_overlayhitmap.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp

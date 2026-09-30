@@ -489,7 +489,7 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
         return false;
     if (!ReadColour (item, "color", panel.textRgba, error) ||
         !ReadColour (item, "background", panel.backgroundRgba, error) ||
-        !ReadColour (item, "border", panel.borderRgba, error))
+        !ReadColour (item, "border", panel.borderRgba, error) || !ReadColour (item, "accent", panel.accentRgba, error))
         return false;
     GS::Array<GS::ObjectState> items;
     if (item.Get ("items", items)) {

@@ -31,10 +31,17 @@
 // the ones between may not be. A layout that changed nothing asks for nothing, and
 // nothing is laid out while Archicad owns the gesture (a wall drawn across a panel).
 //
+// ⚠️ THE HUD'S OWN CURSOR, FROM A SUBCLASS OF THE CANVAS. Windows asks the window under
+// the pointer for its cursor with a SENT `WM_SETCURSOR`, which no message hook sees. So
+// the canvas is subclassed (comctl32's `SetWindowSubclass`, chainable and removable) and
+// answers it while the pointer is the HUD's: an arrow, or a hand over what the last
+// layout found the pointer could press. Everything else goes on to Archicad. A canvas of
+// another thread is neither subclassed nor seen by the hook; `Stats` says which.
+//
 // ⚠️ INSTALLED WITH THE FIRST CANVAS, REMOVED WITH THE LAST, AND AT UNLOAD. A hook or a
 // window that outlives this DLL is Windows calling into freed code; a latch that
 // outlives its session would take the next session's first moves (§8). Every `Detach`
-// resets it.
+// resets it, and takes the subclass off its canvas.
 //
 // MAIN THREAD, every entry point.
 
@@ -104,6 +111,13 @@ struct Stats {
     uint32_t maxRedrawMicroseconds = 0;
     uint32_t lastRefreshMicroseconds = 0;
     uint32_t maxRefreshMicroseconds = 0;
+    // Whether each view's canvas is this thread's -- the hook sees nothing of one that is
+    // not -- and whether its WM_SETCURSOR is answered; the cursors the HUD set, and how
+    // many of them were the hand.
+    bool canvasOnThread[2] = { false, false };
+    bool subclassed[2] = { false, false };
+    uint64_t cursorsSet = 0;
+    uint64_t handsShown = 0;
 };
 Stats GetStats ();
 

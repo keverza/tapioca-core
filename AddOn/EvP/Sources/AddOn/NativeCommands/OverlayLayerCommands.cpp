@@ -216,6 +216,12 @@ class OverlayLayersCommand : public MainThreadCommand {
         inputRecord.Add ("maxRedrawMicroseconds", (GS::Int32) input.maxRedrawMicroseconds);
         inputRecord.Add ("lastRefreshMicroseconds", (GS::Int32) input.lastRefreshMicroseconds);
         inputRecord.Add ("maxRefreshMicroseconds", (GS::Int32) input.maxRefreshMicroseconds);
+        inputRecord.Add ("canvasOnThread3D", input.canvasOnThread3D);
+        inputRecord.Add ("canvasOnThreadPlan", input.canvasOnThreadPlan);
+        inputRecord.Add ("cursor3D", input.cursor3D);
+        inputRecord.Add ("cursorPlan", input.cursorPlan);
+        inputRecord.Add ("cursorsSet", Text (input.cursorsSet));
+        inputRecord.Add ("handsShown", Text (input.handsShown));
         os.Add ("input", inputRecord);
         return os;
     }
@@ -370,6 +376,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "color":{"$ref":"#Color"},
         "background":{"$ref":"#Color"},
         "border":{"$ref":"#Color"},
+        "accent":{"$ref":"#Color"},
         "roundingPixels":{"type":"number","minimum":0,"maximum":64},
         "paddingPixels":{"type":"number","minimum":0,"maximum":64},
         "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
@@ -495,12 +502,16 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
         "takenMoves":{"type":"string"},"passedOverHud":{"type":"string"},"declinedHidden":{"type":"string"},
         "refreshes":{"type":"string"},"changes":{"type":"string"},"redraws":{"type":"string"},
         "lastRedrawMicroseconds":{"type":"integer","minimum":0},"maxRedrawMicroseconds":{"type":"integer","minimum":0},
-        "lastRefreshMicroseconds":{"type":"integer","minimum":0},"maxRefreshMicroseconds":{"type":"integer","minimum":0}},
+        "lastRefreshMicroseconds":{"type":"integer","minimum":0},"maxRefreshMicroseconds":{"type":"integer","minimum":0},
+        "canvasOnThread3D":{"type":"boolean"},"canvasOnThreadPlan":{"type":"boolean"},
+        "cursor3D":{"type":"boolean"},"cursorPlan":{"type":"boolean"},
+        "cursorsSet":{"type":"string"},"handsShown":{"type":"string"}},
       "additionalProperties":false,
       "required":["installed","attached3D","attachedPlan","regions3D","regionsPlan","seen","taken","takenPresses",
                   "takenMoves","passedOverHud","declinedHidden","refreshes","changes","redraws",
                   "lastRedrawMicroseconds","maxRedrawMicroseconds","lastRefreshMicroseconds",
-                  "maxRefreshMicroseconds"]}},
+                  "maxRefreshMicroseconds","canvasOnThread3D","canvasOnThreadPlan","cursor3D","cursorPlan",
+                  "cursorsSet","handsShown"]}},
   "additionalProperties":false,"required":["layers","generation","guest","input"]})json";
 
 const NativeCommandRegistration kOverlayLayerCommandRegistrations[] = {

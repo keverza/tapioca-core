@@ -210,6 +210,12 @@ struct InputCounts {
     uint32_t maxRedrawMicroseconds = 0;
     uint32_t lastRefreshMicroseconds = 0;
     uint32_t maxRefreshMicroseconds = 0;
+    bool canvasOnThread3D = false; // the hook sees a canvas's messages only when it is this thread's
+    bool canvasOnThreadPlan = false;
+    bool cursor3D = false; // the canvas answers WM_SETCURSOR with the HUD's cursor
+    bool cursorPlan = false;
+    uint64_t cursorsSet = 0; // the HUD's arrow or hand shown
+    uint64_t handsShown = 0;
 };
 InputCounts Input ();
 

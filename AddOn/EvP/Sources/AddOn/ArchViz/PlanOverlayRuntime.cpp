@@ -313,8 +313,8 @@ bool RefreshHud ()
         g_lastHudError = error;
         return false;
     }
-    if (changed)
-        overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
+    // Every time, not only when the pixels changed: the hand can change without them.
+    overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
     return changed;
 }
 

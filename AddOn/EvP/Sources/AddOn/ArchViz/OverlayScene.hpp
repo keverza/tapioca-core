@@ -209,8 +209,10 @@ struct Plan {
     // Where its legends and panels are on the view, in draw order: what the HUD's input
     // tests a pointer against (OverlayHitMap.hpp).
     std::vector<overlayinput::Region> regions;
-    // The HUD stream's: the band of a layer's heatmaps the pointer shows.
+    // The HUD stream's: the band of a layer's heatmaps the pointer shows, and whether the
+    // pointer is on something it can press (overlayhud::Layout `hand`).
     Highlight highlight;
+    bool hand = false;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;
@@ -234,8 +236,10 @@ struct Scene {
     // Where its legends and panels are on the view, in draw order: what the HUD's input
     // tests a pointer against (OverlayHitMap.hpp).
     std::vector<overlayinput::Region> regions;
-    // The HUD stream's: the band of a layer's heatmaps the pointer shows.
+    // The HUD stream's: the band of a layer's heatmaps the pointer shows, and whether the
+    // pointer is on something it can press (overlayhud::Layout `hand`).
     Highlight highlight;
+    bool hand = false;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;

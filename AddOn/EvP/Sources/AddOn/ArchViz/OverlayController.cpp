@@ -132,6 +132,7 @@ bool PublishHud3D (overlayscene::Scene hud)
 {
     overlayinput::HitMap map;
     map.dpiScale = g_scale3D;
+    map.hand = hud.hand;
     map.regions = g_legends3D; // legends first: the panels are drawn over them
     map.regions.insert (map.regions.end (), hud.regions.begin (), hud.regions.end ());
     overlayinput::SetHitMap (overlayinput::View::ThreeD, std::move (map));
@@ -714,6 +715,12 @@ InputCounts Input ()
     out.maxRedrawMicroseconds = stats.maxRedrawMicroseconds;
     out.lastRefreshMicroseconds = stats.lastRefreshMicroseconds;
     out.maxRefreshMicroseconds = stats.maxRefreshMicroseconds;
+    out.canvasOnThread3D = stats.canvasOnThread[0];
+    out.canvasOnThreadPlan = stats.canvasOnThread[1];
+    out.cursor3D = stats.subclassed[0];
+    out.cursorPlan = stats.subclassed[1];
+    out.cursorsSet = stats.cursorsSet;
+    out.handsShown = stats.handsShown;
     return out;
 }
 

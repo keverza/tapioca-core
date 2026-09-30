@@ -75,6 +75,7 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
         if (layout.panels.size () != panels.size ())
             return;
     }
+    draft_.hand = layout.hand;
     if (layout.highlight.active)
         draft_.highlight = { LayerKey (layout.highlight.layer), float (layout.highlight.low),
                              float (layout.highlight.high) };

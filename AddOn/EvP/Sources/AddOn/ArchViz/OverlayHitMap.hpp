@@ -51,6 +51,9 @@ struct Region {
 struct HitMap {
     std::vector<Region> regions; // a later one is drawn over an earlier one
     float dpiScale = 1.0f;
+    // At the last layout the pointer was on something it can press: a hand over the HUD,
+    // not an arrow.
+    bool hand = false;
 
     // The index of the topmost region holding the view point (x, y) of a view `width`
     // by `height` pixels; -1 for none.

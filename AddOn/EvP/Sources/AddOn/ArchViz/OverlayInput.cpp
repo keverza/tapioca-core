@@ -7,6 +7,8 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 
+#include <commctrl.h>
+
 #include <chrono>
 #include <cstdio>
 
@@ -37,6 +39,10 @@ struct Target {
     bool refreshPending = false;
     bool timerArmed = false;
     uint64_t lastRedrawMs = 0;
+    // The canvas belongs to this thread (the hook sees its messages only then), and its
+    // WM_SETCURSOR is answered by the subclass below.
+    bool ownThread = false;
+    bool subclassed = false;
 };
 
 HHOOK g_hook = nullptr;
@@ -146,6 +152,124 @@ bool EventOf (const MSG& message, Event& event)
         default:
             return false;
     }
+}
+
+// ---- the cursor over the HUD ------------------------------------------------------------
+// Resolved from the comctl32 Archicad has already loaded, as PlanFrameSession's: the add-on
+// gains no import for it.
+using SetSubclassFn = BOOL (WINAPI*) (HWND, SUBCLASSPROC, UINT_PTR, DWORD_PTR);
+using RemoveSubclassFn = BOOL (WINAPI*) (HWND, SUBCLASSPROC, UINT_PTR);
+using DefSubclassFn = LRESULT (WINAPI*) (HWND, UINT, WPARAM, LPARAM);
+SetSubclassFn g_setSubclass = nullptr;
+RemoveSubclassFn g_removeSubclass = nullptr;
+DefSubclassFn g_defSubclass = nullptr;
+// One id per view: removing one view's never removes the other's.
+constexpr UINT_PTR kSubclassId = 0x54485544; // 'THUD'
+HCURSOR g_arrowCursor = nullptr;
+HCURSOR g_handCursor = nullptr;
+
+bool ResolveSubclassing ()
+{
+    if (g_setSubclass != nullptr && g_removeSubclass != nullptr && g_defSubclass != nullptr)
+        return true;
+    const HMODULE comctl = ::GetModuleHandleW (L"comctl32.dll");
+    if (comctl == nullptr)
+        return false;
+    g_setSubclass = reinterpret_cast<SetSubclassFn> (::GetProcAddress (comctl, "SetWindowSubclass"));
+    g_removeSubclass = reinterpret_cast<RemoveSubclassFn> (::GetProcAddress (comctl, "RemoveWindowSubclass"));
+    g_defSubclass = reinterpret_cast<DefSubclassFn> (::GetProcAddress (comctl, "DefSubclassProc"));
+    if (g_setSubclass != nullptr && g_removeSubclass != nullptr && g_defSubclass != nullptr)
+        return true;
+    g_setSubclass = nullptr;
+    g_removeSubclass = nullptr;
+    g_defSubclass = nullptr;
+    return false;
+}
+
+// The HUD owns what is under the pointer now: the canvas itself is there -- not a palette
+// floating over it -- and a region of the last layout, or a gesture the HUD holds.
+bool OwnsPointer (const Target& target)
+{
+    if (target.owner.shown == nullptr || !target.owner.shown ())
+        return false;
+    if (g_router.GetOwner () != Owner::None)
+        return g_router.GetOwner () == Owner::Hud;
+    POINT screen = {};
+    if (!::GetCursorPos (&screen))
+        return false;
+    const HWND under = ::WindowFromPoint (screen);
+    if (under != target.canvas && !::IsChild (target.canvas, under))
+        return false;
+    POINT point = screen;
+    RECT client = {};
+    if (!::ScreenToClient (target.canvas, &point) || !::GetClientRect (target.canvas, &client))
+        return false;
+    return target.map.Hit (float (point.x), float (point.y), float (client.right - client.left),
+                           float (client.bottom - client.top)) >= 0;
+}
+
+// ⚠️ AN ARROW OVER THE HUD, A HAND OVER WHAT IT CAN PRESS (the user, 2026-09-29) -- never
+// the tool's cursor Archicad would show over the model there. False when the pointer is
+// not the HUD's: Archicad's cursor stands.
+bool ShowCursor (const Target& target)
+{
+    if (!OwnsPointer (target))
+        return false;
+    ::SetCursor (target.map.hand ? g_handCursor : g_arrowCursor);
+    ++g_stats.cursorsSet;
+    if (target.map.hand)
+        ++g_stats.handsShown;
+    return true;
+}
+
+LRESULT CALLBACK CanvasProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR)
+{
+    if (message == WM_NCDESTROY) {
+        // The canvas is going: the subclass goes with it.
+        g_removeSubclass (window, &CanvasProc, id);
+        for (Target& target : g_targets)
+            if (target.canvas == window)
+                target.subclassed = false;
+        return g_defSubclass (window, message, wParam, lParam);
+    }
+    if (message == WM_SETCURSOR && LOWORD (lParam) == HTCLIENT) {
+        const Target* const target = TargetFor (window);
+        if (target != nullptr && ShowCursor (*target))
+            return TRUE;
+    }
+    return g_defSubclass (window, message, wParam, lParam);
+}
+
+// ⚠️ ONLY A CANVAS OF THIS THREAD. A window is subclassed from its own thread or not at
+// all -- and one of another thread posts its mouse messages to that thread's queue,
+// where the hook never sees them: said once, and counted.
+void Subclass (Target& target, View view)
+{
+    DWORD process = 0;
+    target.ownThread = ::GetWindowThreadProcessId (target.canvas, &process) == ::GetCurrentThreadId ();
+    if (!target.ownThread) {
+        ArchVizLog (std::string ("OVERLAY INPUT  the ") + ViewName (view) +
+                    " canvas belongs to another thread: the HUD sees none of its mouse messages");
+        return;
+    }
+    if (!ResolveSubclassing ()) {
+        ArchVizLog ("OVERLAY INPUT  comctl32 has no SetWindowSubclass here: Archicad's cursor stays over the HUD");
+        return;
+    }
+    if (g_arrowCursor == nullptr)
+        g_arrowCursor = ::LoadCursorW (nullptr, IDC_ARROW);
+    if (g_handCursor == nullptr)
+        g_handCursor = ::LoadCursorW (nullptr, IDC_HAND);
+    target.subclassed = g_setSubclass (target.canvas, &CanvasProc, kSubclassId + UINT_PTR (view), 0) != FALSE;
+    if (!target.subclassed)
+        ArchVizLog ("OVERLAY INPUT  SetWindowSubclass refused the canvas: Archicad's cursor stays over the HUD");
+}
+
+void Unsubclass (Target& target)
+{
+    if (target.subclassed && target.canvas != nullptr && ::IsWindow (target.canvas) && g_removeSubclass != nullptr)
+        g_removeSubclass (target.canvas, &CanvasProc, kSubclassId + UINT_PTR (ViewOf (target)));
+    target.subclassed = false;
 }
 
 // Ask for the view's HUD to be laid out again, unless that is already asked. From the
@@ -295,6 +419,9 @@ LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
             ++g_stats.changes;
             Pace (target);
         }
+        // The hand the layout found, now: not at the pointer's next move.
+        if (target.inside && target.subclassed)
+            ShowCursor (target);
         return 0;
     }
     if (message == WM_TIMER && wParam >= kRedrawTimer && wParam <= kRedrawTimer + 1) {
@@ -343,6 +470,7 @@ bool CreateInputWindow (std::string& error)
 // The view's session is over: its timer, its pointer, its callbacks.
 void Clear (Target& target)
 {
+    Unsubclass (target);
     if (target.timerArmed && g_window != nullptr)
         ::KillTimer (g_window, kRedrawTimer + UINT_PTR (ViewOf (target)));
     target = Target {};
@@ -421,9 +549,11 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
     }
     if (moved) {
         g_router.Reset ();
-        char line[160] = {};
-        _snprintf_s (line, sizeof (line), _TRUNCATE, "OVERLAY INPUT  the %s HUD takes its input from canvas 0x%llx",
-                     ViewName (view), (unsigned long long) (uintptr_t) canvas);
+        Subclass (target, view);
+        char line[200] = {};
+        _snprintf_s (line, sizeof (line), _TRUNCATE, "OVERLAY INPUT  the %s HUD takes its input from canvas 0x%llx%s",
+                     ViewName (view), (unsigned long long) (uintptr_t) canvas,
+                     target.subclassed ? ", and shows its own cursor over itself" : "");
         ArchVizLog (line);
     }
     return true;
@@ -471,6 +601,8 @@ Stats GetStats ()
     for (int i = 0; i < 2; ++i) {
         stats.attached[i] = g_targets[i].canvas != nullptr;
         stats.regions[i] = uint32_t (g_targets[i].map.regions.size ());
+        stats.canvasOnThread[i] = g_targets[i].ownThread;
+        stats.subclassed[i] = g_targets[i].subclassed;
     }
     return stats;
 }

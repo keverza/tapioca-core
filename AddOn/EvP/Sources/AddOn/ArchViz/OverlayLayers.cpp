@@ -201,6 +201,7 @@ void ApplyTheme (Panel& panel, PanelTheme theme)
     panel.textRgba = 0x1F2328FFu;
     panel.backgroundRgba = 0xFFFFFFF2u;
     panel.borderRgba = 0xD0D7DEFFu;
+    panel.accentRgba = 0x2F6FEBFFu;
     panel.roundingPixels = 16.0f;
     panel.paddingPixels = 12.0f;
 }

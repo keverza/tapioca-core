@@ -64,6 +64,7 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
     ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize,
                          (panel.borderRgba & 0xFFu) != 0 ? (std::max) (1.0f, scale) : 0.0f);
     const uint32_t text = panel.textRgba;
+    const uint32_t accent = panel.accentRgba;
     const std::pair<ImGuiCol, uint32_t> colours[] = {
         { ImGuiCol_WindowBg, panel.backgroundRgba },
         { ImGuiCol_Border, panel.borderRgba },
@@ -78,13 +79,20 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
         { ImGuiCol_TitleBg, panel.backgroundRgba },
         { ImGuiCol_TitleBgActive, panel.backgroundRgba },
         { ImGuiCol_TitleBgCollapsed, panel.backgroundRgba },
-        // What the pointer is over: a section's row, the collapse arrow.
+        // ⚠️ WHAT THE POINTER CAN PRESS IS TINTED WITH THE ACCENT (the user, 2026-09-29): a
+        // button reads as one at rest -- a faint fill -- and plainly when pointed at and
+        // pressed, as a section's row and the title bar's arrow do.
         { ImGuiCol_Header, 0x00000000u },
-        { ImGuiCol_HeaderHovered, WithAlpha (text, 0.10f) },
-        { ImGuiCol_HeaderActive, WithAlpha (text, 0.16f) },
-        { ImGuiCol_Button, 0x00000000u },
-        { ImGuiCol_ButtonHovered, WithAlpha (text, 0.14f) },
-        { ImGuiCol_ButtonActive, WithAlpha (text, 0.22f) },
+        { ImGuiCol_HeaderHovered, WithAlpha (accent, 0.16f) },
+        { ImGuiCol_HeaderActive, WithAlpha (accent, 0.28f) },
+        { ImGuiCol_Button, WithAlpha (text, 0.07f) },
+        { ImGuiCol_ButtonHovered, WithAlpha (accent, 0.30f) },
+        { ImGuiCol_ButtonActive, WithAlpha (accent, 0.48f) },
+        { ImGuiCol_FrameBgHovered, WithAlpha (accent, 0.20f) },
+        { ImGuiCol_FrameBgActive, WithAlpha (accent, 0.32f) },
+        { ImGuiCol_CheckMark, accent },
+        { ImGuiCol_SliderGrab, accent },
+        { ImGuiCol_SliderGrabActive, accent },
         // Its tooltips in its own colours, nearly opaque over the model.
         { ImGuiCol_PopupBg, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u },
     };
@@ -131,6 +139,7 @@ struct Engine::Impl {
     // The layer of the panel being laid out, and what the pointer is on this frame.
     std::string layer;
     Layout::Highlight highlight;
+    bool hand = false;
     // The panels' windows in the frame being laid out, by the panel's place in the set.
     std::vector<ImGuiWindow*> windows;
     std::chrono::steady_clock::time_point lastBuild {};
@@ -410,6 +419,12 @@ struct Engine::Impl {
             Window (*panels[i], keys[i], i, scale, view);
         if (known)
             LegendTips (legends, scale, view);
+        // A hand over what ImGui calls an item -- a button, a section's row, the title
+        // bar's arrow -- and while one is held. Not while the background is held: ImGui
+        // makes a window's move id active there even when the window cannot move.
+        const ImGuiContext& g = *ImGui::GetCurrentContext ();
+        const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
+        hand = g.HoveredId != 0 || held;
         ImGui::Render ();
         Sync (ImGui::GetDrawData ());
         ++stats.frames;
@@ -571,6 +586,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         unsampled = 0;
         impl_->Collect (out, unsampled);
         out.highlight = impl_->highlight;
+        out.hand = impl_->hand;
         for (size_t i = 0; i < panels.size (); ++i) {
             Built& built = out.panels[i];
             if (impl_->windows[i] != nullptr) {

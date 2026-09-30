@@ -19291,6 +19291,24 @@
               "maxRefreshMicroseconds": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "canvasOnThread3D": {
+                "type": "boolean"
+              },
+              "canvasOnThreadPlan": {
+                "type": "boolean"
+              },
+              "cursor3D": {
+                "type": "boolean"
+              },
+              "cursorPlan": {
+                "type": "boolean"
+              },
+              "cursorsSet": {
+                "type": "string"
+              },
+              "handsShown": {
+                "type": "string"
               }
             },
             "additionalProperties": false,
@@ -19312,7 +19330,13 @@
               "lastRedrawMicroseconds",
               "maxRedrawMicroseconds",
               "lastRefreshMicroseconds",
-              "maxRefreshMicroseconds"
+              "maxRefreshMicroseconds",
+              "canvasOnThread3D",
+              "canvasOnThreadPlan",
+              "cursor3D",
+              "cursorPlan",
+              "cursorsSet",
+              "handsShown"
             ]
           }
         },
@@ -25473,6 +25497,9 @@
                   "$ref": "#Color"
                 },
                 "border": {
+                  "$ref": "#Color"
+                },
+                "accent": {
                   "$ref": "#Color"
                 },
                 "roundingPixels": {
