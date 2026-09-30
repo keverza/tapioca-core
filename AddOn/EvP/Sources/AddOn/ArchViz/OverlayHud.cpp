@@ -106,6 +106,29 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
     return int (sizeof (colours) / sizeof (colours[0]));
 }
 
+// ⚠️ PIXEL-SNAPPED, NOT OVERSAMPLED (the user, 2026-09-30: the light panel's text slightly
+// blurry). ImGui's default rasterises glyphs twice as wide for sub-pixel placement and lets
+// their advances fall between pixels; the HUD's text never slides, so whole-pixel glyphs
+// rasterised at their size are the crisp ones.
+ImFontConfig CrispFont ()
+{
+    ImFontConfig config;
+    config.FontDataOwnedByAtlas = false;
+    config.PixelSnapH = true;
+    config.OversampleH = 1;
+    config.OversampleV = 1;
+    return config;
+}
+
+// ⚠️ WHERE IMGUI PUT A WINDOW, NOT WHERE IT WOULD BE RECOMPUTED: a size of half a pixel, or the
+// middle of an odd view, put the text between pixels. Measured from the anchor rounded as the
+// shader rounds it (GuestShaderSources.hpp), so the triangles land where ImGui laid them.
+void Settle (Built& built, ImVec2 pos, const Input& input)
+{
+    built.offset[0] = pos.x - std::floor (built.fraction[0] * input.width + 0.5f);
+    built.offset[1] = pos.y - std::floor (built.fraction[1] * input.height + 0.5f);
+}
+
 } // namespace
 
 void Place (const layers::Panel& panel, float width, float height, float scale, float fraction[2], float offset[2],
@@ -185,8 +208,7 @@ ImFont* Engine::Impl::FontFor (const std::string& path)
     std::string error;
     ImFont* added = nullptr;
     if (loader (path, *bytes, error)) {
-        ImFontConfig config;
-        config.FontDataOwnedByAtlas = false;
+        ImFontConfig config = CrispFont ();
         added = ImGui::GetIO ().Fonts->AddFontFromMemoryTTF (bytes->data (), int (bytes->size ()), 16.0f, &config);
         if (added == nullptr)
             error = "ImGui could not load \"" + path + "\"";
@@ -589,8 +611,7 @@ bool Engine::Init (std::vector<uint8_t> fontBytes, std::string& error)
     io.AddMousePosEvent (-FLT_MAX, -FLT_MAX);
     io.Fonts->TexDesiredFormat = ImTextureFormat_RGBA32;
     impl_->fontBytes = std::move (fontBytes);
-    ImFontConfig config;
-    config.FontDataOwnedByAtlas = false;
+    ImFontConfig config = CrispFont ();
     impl_->font =
         io.Fonts->AddFontFromMemoryTTF (impl_->fontBytes.data (), int (impl_->fontBytes.size ()), 16.0f, &config);
     ImGui::SetCurrentContext (previous);
@@ -652,6 +673,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     for (const Input::Button& button : input.buttons)
         io.AddMouseButtonEvent (button.button, button.down);
     int frames = kFrames + int (input.buttons.size ()) + (input.buttons.empty () ? 0 : 1);
+    const bool known = input.width >= 1.0f && input.height >= 1.0f;
     for (int attempt = 0; attempt < kAttempts; ++attempt) {
         const uint64_t before = impl_->atlasVersion;
         for (int frame = 0; frame < frames; ++frame)
@@ -670,14 +692,15 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
                 built.height = impl_->windows[i]->Size.y;
             }
             Place (*panels[i], built.width, built.height, at, built.fraction, built.offset, impl_->inset);
+            if (known && impl_->windows[i] != nullptr)
+                Settle (built, impl_->windows[i]->Pos, input);
         }
         if (const ImGuiWindow* const dock = impl_->windows.back (); dock != nullptr) {
             out.dock.width = dock->Size.x;
             out.dock.height = dock->Size.y;
             out.dock.fraction[0] = 1.0f;
             out.dock.fraction[1] = 0.5f;
-            out.dock.offset[0] = -dock->Size.x;
-            out.dock.offset[1] = -dock->Size.y * 0.5f;
+            Settle (out.dock, dock->Pos, input);
         }
         if (impl_->atlasVersion == before)
             break;

@@ -272,8 +272,11 @@ TEST (OverlayHudControls, TheTextSizeButtonsScaleTheWholeHudInBothViews)
     threeD.Click ({ &panel }, x, y);
     EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.1f);
     const hud::Layout larger = plan.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_NEAR (larger.panels[0].width, before.panels[0].width * 1.1f, 3.0f);
-    EXPECT_NEAR (larger.panels[0].height, before.panels[0].height * 1.1f, 3.0f);
+    // By about the step: glyphs advance by whole pixels, so text does not scale exactly.
+    const float grew = larger.panels[0].width / before.panels[0].width;
+    EXPECT_GT (grew, 1.02f);
+    EXPECT_LT (grew, 1.2f);
+    EXPECT_NEAR (larger.panels[0].height / before.panels[0].height, 1.1f, 0.06f);
     EXPECT_GT (larger.dock.width, before.dock.width);
     EXPECT_FLOAT_EQ (larger.panels[0].offset[0], 16.0f) << "the distance from the view's edge stays";
     // Four smaller: 1.0, 0.9, 0.8, and 0.8 again.
@@ -349,4 +352,39 @@ TEST (OverlayHudControls, EveryChangeTheUserMakesIsSaidOnce)
     hud.Lay ({ &panel }, At (x, y));
     hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_EQ (heard.size (), 4u);
+}
+
+// ---- crisp text ------------------------------------------------------------------------------
+
+// ⚠️ THE USER, 2026-09-30: the light panel's text slightly blurry. Glyphs are rasterised at
+// their size and advanced by whole pixels, and a panel is placed where ImGui put it, against
+// the anchor rounded as the shader rounds it: on an odd view, a panel in the middle of an
+// edge lands on whole pixels, and so does every corner of its text.
+TEST (OverlayHudControls, TheTextLandsOnWholePixels)
+{
+    Fresh hud;
+    layers::Panel panel;
+    layers::ApplyTheme (panel, layers::PanelTheme::Light);
+    panel.anchor = layers::PanelAnchor::Right;
+    panel.items.push_back (Item (layers::ItemKind::Text, "Healthcare 18.3 % \xE2\x80\x94 Residential 34.4 %"));
+    panel.items.push_back (Item (layers::ItemKind::Text, "Illuminated 7.25 h, shaded 4.75 h"));
+    hud::Input input = At (600.0f, 600.0f);
+    input.width = 1201.0f;
+    input.height = 801.0f;
+    const hud::Layout out = hud.Lay ({ &panel }, input);
+    const hud::Built& built = out.panels[0];
+    ASSERT_FLOAT_EQ (built.fraction[1], 0.5f);
+    const float top = std::floor (0.5f * 801.0f + 0.5f) + built.offset[1];
+    const float left = std::floor (1.0f * 1201.0f + 0.5f) + built.offset[0];
+    EXPECT_FLOAT_EQ (top, std::round (top)) << "the panel's top on a whole pixel";
+    EXPECT_FLOAT_EQ (left, std::round (left));
+    size_t glyphs = 0;
+    for (const hud::Vertex& v : built.vertices) {
+        if (v.rgba != panel.textRgba)
+            continue;
+        ++glyphs;
+        EXPECT_NEAR (v.x, std::round (v.x), 1e-3) << "a glyph's corner between pixels";
+        EXPECT_NEAR (v.y, std::round (v.y), 1e-3);
+    }
+    EXPECT_GT (glyphs, 60u);
 }

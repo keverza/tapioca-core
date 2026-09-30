@@ -346,6 +346,10 @@ GlyphOut VSGlyph (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTR
 {
     GlyphOut o;
     float2 anchor = (flags & 1u) != 0u ? hi * Surface.xy : Pixel (hi, lo);
+    // 1 and 128: a HUD panel's, fixed to the view -- on a whole pixel, as the layout put it.
+    // Half a pixel off (the middle of an odd view), its text is sampled between texels.
+    if ((flags & 129u) == 129u)
+        anchor = floor (anchor + 0.5);
     // 128: laid out at the view's DPI already (a HUD panel); otherwise logical pixels.
     float2 local = offset * ((flags & 128u) != 0u ? 1.0 : Surface.z);
     bool visible = true;
@@ -526,7 +530,12 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
     float2 anchor;
     float depth = 0.0;
     if ((flags & 1u) != 0u)
+    {
         anchor = position.xy * Surface.xy;
+        // 128 too: a HUD panel's -- on a whole pixel, as the layout put it (the plan's note).
+        if ((flags & 128u) != 0u)
+            anchor = floor (anchor + 0.5);
+    }
     else
     {
         float4 c = TowardEye (ArchicadClip (float4 (position, 1.0)), position);
