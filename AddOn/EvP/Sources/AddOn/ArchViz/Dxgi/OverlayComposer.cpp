@@ -131,6 +131,7 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // rendered for what is not drawn. Nothing is released: shown again, the next Present
     // draws what was there.
     if (!overlayvisibility::ContentShown ()) {
+        ++g_stats.hidden;
         if (targetView != nullptr)
             context->OMSetRenderTargets (1, &targetView, nullptr);
         sceneguest::Draw (context, wanted, targetView, nullptr);

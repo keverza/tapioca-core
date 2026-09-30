@@ -52,6 +52,7 @@ std::atomic<uint64_t> g_readsFresh { 0 };
 std::atomic<uint64_t> g_readsRefused { 0 };
 std::atomic<uint64_t> g_readsInvalid { 0 };
 std::atomic<uint64_t> g_drawnWithLastRead { 0 };
+std::atomic<uint64_t> g_hidden { 0 };
 std::atomic<int32_t> g_lastReadError { 0 };
 std::atomic<uint64_t> g_declines[size_t (Decline::Count)];
 std::atomic<uint32_t> g_bufferWidth { 0 };
@@ -422,8 +423,10 @@ void Draw (IDXGISwapChain* swapChain)
     const bool walls = shown && g_segments != nullptr && g_segmentCount > 0;
     const bool layers = shown && (g_layerStrokeCount > 0 || g_layerFillCount > 0);
     const bool guest = planguest::HasContent ();
+    if (!shown)
+        Bump (g_hidden);
     if (!walls && !layers && !guest) {
-        Declined (Decline::NoContent);
+        Declined (shown ? Decline::NoContent : Decline::Hidden);
         return;
     }
     if (!g_haveLast) {
@@ -583,6 +586,8 @@ const char* DeclineName (Decline decline)
             return "createView";
         case Decline::MapConstants:
             return "mapConstants";
+        case Decline::Hidden:
+            return "hidden";
         case Decline::Count:
             break;
     }
@@ -594,7 +599,7 @@ void Arm (uint64_t canvasWindow, uint32_t presentThread, TransformReader reader,
     // Every Start resets what every Stop leaves behind (§8).
     g_armed.store (false, std::memory_order_release);
     for (std::atomic<uint64_t>* counter : { &g_chain, &g_canvasPresents, &g_drawn, &g_readsFresh, &g_readsRefused,
-                                            &g_readsInvalid, &g_drawnWithLastRead })
+                                            &g_readsInvalid, &g_drawnWithLastRead, &g_hidden })
         counter->store (0, std::memory_order_relaxed);
     for (std::atomic<uint64_t>& counter : g_declines)
         counter.store (0, std::memory_order_relaxed);
@@ -739,6 +744,7 @@ Stats GetStats ()
     stats.readsRefused = g_readsRefused.load (std::memory_order_relaxed);
     stats.readsInvalid = g_readsInvalid.load (std::memory_order_relaxed);
     stats.drawnWithLastRead = g_drawnWithLastRead.load (std::memory_order_relaxed);
+    stats.hidden = g_hidden.load (std::memory_order_relaxed);
     stats.lastReadError = g_lastReadError.load (std::memory_order_relaxed);
     for (size_t i = 0; i < size_t (Decline::Count); ++i)
         stats.declines[i] = g_declines[i].load (std::memory_order_relaxed);

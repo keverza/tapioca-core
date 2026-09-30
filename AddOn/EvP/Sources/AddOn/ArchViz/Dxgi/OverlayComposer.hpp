@@ -50,6 +50,9 @@ struct Stats {
     // window -- which is why the overlay was reported visible in full screen and
     // invisible in a window, with the log truthfully saying it had drawn.
     uint64_t sizeMismatches = 0;
+    // Passes at which the user had hidden the overlay (OverlayVisibility.hpp): the HUD
+    // alone drawn, no occluder rendered -- counted, not a silent return (§7).
+    uint64_t hidden = 0;
     uint32_t targetWidth = 0, targetHeight = 0;
     uint32_t depthWidth = 0, depthHeight = 0;
 };

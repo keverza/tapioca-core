@@ -128,6 +128,7 @@ enum class Decline : uint32_t {
     NoContext1,    // no D3D11.1 context: the constant buffers could not be put back
     CreateView,    // CreateRenderTargetView refused the back buffer
     MapConstants,  // the constant buffer would not map
+    Hidden,        // the user hid the overlay and there is no HUD to draw (OverlayVisibility.hpp)
     Count
 };
 const char* DeclineName (Decline decline);
@@ -148,6 +149,7 @@ struct Stats {
     uint64_t readsRefused = 0;
     uint64_t readsInvalid = 0;
     uint64_t drawnWithLastRead = 0;
+    uint64_t hidden = 0; // Presents the user's hide held the content back at, the HUD drawn or not
     int32_t lastReadError = 0;
     uint64_t declines[size_t (Decline::Count)] = {};
     uint32_t readUsLast = 0;

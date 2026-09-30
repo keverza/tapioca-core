@@ -238,12 +238,13 @@ void Report (bool final)
     g_reportedGuestCalls = guest.drawCalls;
     char line[512] = {};
     std::snprintf (line, sizeof (line),
-                   "PLAN OVERLAY  %s%.1f s: %llu canvas Presents, %llu drawn (%llu with the last read); reads "
-                   "fresh %llu refused %llu invalid %llu (last error %d); read %u us (worst %u), draw %u us "
-                   "(worst %u); declined %llu%s%s",
+                   "PLAN OVERLAY  %s%.1f s: %llu canvas Presents, %llu drawn (%llu with the last read, %llu "
+                   "hidden by the user); reads fresh %llu refused %llu invalid %llu (last error %d); read %u us "
+                   "(worst %u), draw %u us (worst %u); declined %llu%s%s",
                    final ? "final " : "", seconds, (unsigned long long) presents,
                    (unsigned long long) (stats.drawn - g_reported.drawn),
                    (unsigned long long) (stats.drawnWithLastRead - g_reported.drawnWithLastRead),
+                   (unsigned long long) (stats.hidden - g_reported.hidden),
                    (unsigned long long) (stats.readsFresh - g_reported.readsFresh),
                    (unsigned long long) (stats.readsRefused - g_reported.readsRefused),
                    (unsigned long long) (stats.readsInvalid - g_reported.readsInvalid), stats.lastReadError,
