@@ -234,8 +234,8 @@ void ApplyTheme (Panel& panel, PanelTheme theme)
     panel.backgroundRgba = 0xFFFFFFF2u;
     panel.borderRgba = 0xD0D7DEFFu;
     panel.accentRgba = 0x2F6FEBFFu;
-    panel.roundingPixels = 16.0f;
-    panel.paddingPixels = 12.0f;
+    panel.roundingPixels = 10.0f;
+    panel.paddingPixels = 8.0f;
 }
 
 bool DrawnIn (Views views, Views view)

@@ -580,7 +580,7 @@ TEST (OverlayHud, TheDesignsCardLaysOutInItsColours)
     ASSERT_EQ (out.panels.size (), 1u);
     const hud::Built& card = out.host; // a titled panel: the host's tab
     EXPECT_NEAR (card.width, 420.0f, 0.5f);
-    EXPECT_GT (card.height, 300.0f);
+    EXPECT_GT (card.height, 200.0f); // dense: every figure of the design, in about 300 pixels
     float box[4] = {};
     EXPECT_TRUE (Box (card, 0xFFFFFFF2u, box)) << "the light card";
     EXPECT_TRUE (Box (card, 0x3C3FC4FFu, box)) << "a key's swatch";
@@ -634,5 +634,5 @@ TEST (OverlayHud, TheCardsKindsSayWhatTheyGotWrong)
     layers::ApplyTheme (light, layers::PanelTheme::Light);
     EXPECT_EQ (light.theme, layers::PanelTheme::Light);
     EXPECT_EQ (light.textRgba, 0x1F2328FFu);
-    EXPECT_FLOAT_EQ (light.roundingPixels, 16.0f);
+    EXPECT_FLOAT_EQ (light.roundingPixels, 10.0f);
 }

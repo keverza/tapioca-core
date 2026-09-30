@@ -134,7 +134,7 @@ void Text (const layers::Panel& panel, const layers::PanelItem& item, float widt
 void Progress (const layers::PanelItem& item, float width, float scale)
 {
     const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
-    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 14.0f) * scale;
+    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 12.0f) * scale;
     ImGui::PushStyleColor (ImGuiCol_PlotHistogram, Colour ((item.rgba & 0xFFu) != 0 ? item.rgba : 0x3D8BFDFFu));
     const float fraction = float ((std::min) ((std::max) (item.fraction, 0.0), 1.0));
     ImGui::ProgressBar (fraction, ImVec2 (w, h), item.text.empty () ? nullptr : item.text.c_str ());
@@ -159,7 +159,7 @@ void Plot (const layers::PanelItem& item, float width, float scale)
     for (const double value : item.values)
         values.push_back (float (value));
     const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
-    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 48.0f) * scale;
+    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 40.0f) * scale;
     ImGui::PushStyleColor (ImGuiCol_PlotLines, Colour ((item.rgba & 0xFFu) != 0 ? item.rgba : 0x3D8BFDFFu));
     ImGui::PlotLines ("##plot", values.data (), int (values.size ()), 0,
                       item.text.empty () ? nullptr : item.text.c_str (), item.autoRange ? FLT_MAX : float (item.min),
@@ -351,19 +351,19 @@ void Metrics (const layers::Panel& panel, const layers::PanelItem& item, float w
     const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
     const float size = item.sizePixels > 0.0f ? item.sizePixels * scale : ImGui::GetFontSize ();
     const uint32_t valueColour = (item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba;
-    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (8.0f * scale, 5.0f * scale));
+    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (6.0f * scale, 2.0f * scale));
     if (ImGui::BeginTable ("##metrics", per,
                            ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV |
                                ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_NoSavedSettings,
                            ImVec2 (w, 0.0f))) {
         for (const std::vector<std::string>& cell : item.rows) {
             ImGui::TableNextColumn ();
-            ImGui::PushFont (nullptr, size * 0.95f);
+            ImGui::PushFont (nullptr, size * 0.9f);
             ImGui::PushStyleColor (ImGuiCol_Text, Colour (WithAlpha (panel.textRgba, 0.72f)));
             ImGui::TextUnformatted (cell.empty () ? "" : cell[0].c_str ());
             ImGui::PopStyleColor ();
             ImGui::PopFont ();
-            ImGui::PushFont (nullptr, size * 1.4f);
+            ImGui::PushFont (nullptr, size * 1.2f);
             ImGui::PushStyleColor (ImGuiCol_Text, Colour (valueColour));
             ImGui::TextUnformatted (cell.size () < 2 ? "" : cell[1].c_str ());
             ImGui::PopStyleColor ();
@@ -391,7 +391,7 @@ void Keys (const layers::Panel& panel, size_t begin, size_t end, float width, fl
     }
     const int per = int (PerRow (first.perRow, 1u));
     const float w = first.widthPixels > 0.0f ? first.widthPixels * scale : width;
-    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (6.0f * scale, 3.0f * scale));
+    ImGui::PushStyleVar (ImGuiStyleVar_CellPadding, ImVec2 (4.0f * scale, 1.0f * scale));
     if (ImGui::BeginTable ("##keys", per, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings,
                            ImVec2 (w, 0.0f))) {
         for (size_t i = begin; i < end; ++i) {
@@ -420,7 +420,7 @@ void Keys (const layers::Panel& panel, size_t begin, size_t end, float width, fl
 void Stack (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale)
 {
     const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
-    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 24.0f) * scale;
+    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 18.0f) * scale;
     const ImVec2 p = ImGui::GetCursorScreenPos ();
     ImGui::Dummy (ImVec2 (w, h));
     double total = 0.0;
@@ -473,7 +473,7 @@ void Stack (const layers::Panel& panel, const layers::PanelItem& item, float wid
 void Bars (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale)
 {
     const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
-    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 120.0f) * scale;
+    const float h = (item.heightPixels > 0.0f ? item.heightPixels : 80.0f) * scale;
     const size_t n = item.values.size ();
     const ImVec2 p = ImGui::GetCursorScreenPos ();
     const float font = ImGui::GetFontSize ();

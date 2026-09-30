@@ -39,6 +39,12 @@ void BaseStyle (float scale)
     ImGuiStyle& style = ImGui::GetStyle ();
     style = ImGuiStyle ();
     ImGui::StyleColorsDark (&style);
+    // ⚠️ DENSE (the user, 2026-09-30: a small, content-dense inspection panel, not unused
+    // space): a pixel less round every frame and between items than ImGui's own.
+    style.FramePadding = ImVec2 (4.0f, 2.0f);
+    style.ItemSpacing = ImVec2 (6.0f, 3.0f);
+    style.ItemInnerSpacing = ImVec2 (4.0f, 3.0f);
+    style.CellPadding = ImVec2 (4.0f, 1.0f);
     style.ScaleAllSizes (scale);
     style.WindowMinSize = ImVec2 (1.0f, 1.0f);
     style.FrameRounding = 2.0f * scale;
