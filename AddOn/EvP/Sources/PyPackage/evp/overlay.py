@@ -65,7 +65,7 @@ __all__ = [
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
-_INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh", "storeys", "selected"}
+_INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh", "storeys", "selected", "perRow"}
 
 _ANCHORS = ("top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right")
 

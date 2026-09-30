@@ -337,3 +337,14 @@ def test_the_controls_are_the_wire_names():
         overlay.Panel().slider("x", "X", 1, 5, 5)
     with pytest.raises(ValueError):
         overlay.Panel().combo("x", "X", [])
+
+
+def test_a_grids_cells_to_a_row_are_an_integer_on_the_wire():
+    # The schema says integer and the validator refuses a real: sent as 2.0, a panel with a
+    # grid or a key of two to a row failed its whole layer.
+    panel = overlay.Panel().metrics([("Site area", "11 214 m2"), ("BCR", "20 %")], per_row=2).swatch(
+        "#2A7F86", "Healthcare", value="18.3 %", per_row=2
+    )
+    items = overlay._reals({"panels": [panel.to_dict()]})["panels"][0]["items"]
+    assert items[0]["perRow"] == 2 and isinstance(items[0]["perRow"], int)
+    assert isinstance(items[1]["perRow"], int)
