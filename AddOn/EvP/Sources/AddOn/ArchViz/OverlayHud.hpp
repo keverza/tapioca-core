@@ -2,9 +2,10 @@
 #define EVP_ARCHVIZ_OVERLAYHUD_HPP
 
 // ArchViz/OverlayHud -- the overlays' HUD panels (OverlayLayers.hpp `Panel`), laid out by
-// Dear ImGui: a title bar that collapses the panel, text, rows of figures, collapsible
-// sections, rules, progress bars, colour keys, colour ramps, plots and tables, in a panel
-// fixed to a point of the view -- and the tooltips over them and over the legends. Never
+// Dear ImGui: a title bar whose close button sends the panel to the dock, text, rows of
+// figures, collapsible sections, rules, progress bars, colour keys, colour ramps, plots
+// and tables, in a panel fixed to a point of the view -- the tooltips over them and over
+// the legends -- and the dock: a tab per titled panel down the view's right edge. Never
 // drawn by ImGui's own renderer.
 //
 // ⚠️ IMGUI LAYS OUT ON THE MAIN THREAD; THE OVERLAYS DRAW TRIANGLES. The 3D overlay draws
@@ -22,10 +23,16 @@
 // out relative to each panel's anchor, so a view resized before the next layout places
 // them right.
 //
-// ⚠️ THE ADD-ON HOLDS THE STATE, NOT ONLY IMGUI. Whether a panel is collapsed and which of
-// its sections are open are kept here by the panel's key (its layer and its place there),
-// set into ImGui every frame and read back after it: a layer set again keeps what the
-// user did to it.
+// ⚠️ THE ADD-ON HOLDS THE STATE, NOT ONLY IMGUI. Whether a panel is in the dock and which
+// of its sections are open are kept here by the panel's key (its layer and its place
+// there), set into ImGui every frame and read back after it: a layer set again keeps what
+// the user did to it. And the two views' engines share it (`State`): a panel docked in
+// the 3D window is docked in the plan.
+//
+// ⚠️ A PANEL CLOSES TO THE DOCK, NOT IN PLACE (the user, 2026-09-29: the collapsed panel
+// is a tab in a list down the view's right edge). A titled panel's close button puts it
+// there; its tab -- filled while the panel is open -- opens and closes it. A panel on the
+// view's right column moves in beside the dock.
 //
 // ⚠️ THIS ENGINE IS IMGUI'S BACKEND FOR TEXTURES. ImGui 1.92 grows its font atlas as it
 // meets new glyphs and sizes (`ImGuiBackendFlags_RendererHasTextures`); each version of
@@ -71,8 +78,9 @@ struct Built {
 
 // Where a panel's top-left goes: a fraction of the view, and view pixels from it -- the
 // panel's own anchor point on the view's, `offsetPixels` inwards.
+// `inset` is how far the view's right column moves in: the dock's width and a gap.
 void Place (const overlaylayers::Panel& panel, float width, float height, float scale, float fraction[2],
-            float offset[2]);
+            float offset[2], float inset = 0.0f);
 
 // The view a set is laid out for and the pointer over it (OverlayInput.hpp feeds it).
 // ImGui numbers the buttons: 0 left, 1 right, 2 middle, 3 and 4 the side ones.
@@ -100,8 +108,10 @@ struct LegendBar {
 // A set laid out: one per panel, and what floats over them -- the tooltips -- in view
 // pixels from its top-left (`overlay.fraction` 0, 0).
 struct Layout {
-    std::vector<Built> panels;
+    std::vector<Built> panels; // a panel in the dock is empty: no size, no triangles
     Built overlay;
+    // The dock, at the view's right edge half-way down; empty without a titled panel.
+    Built dock;
     // The ramp or legend the pointer is on: its layer, and the band of values under the
     // pointer -- that band of the layer's heatmaps is shown, the rest dimmed
     // (OverlayScene.hpp `Highlight`). A band is a colormap's band where it has them,
@@ -126,6 +136,12 @@ struct Stats {
     uint32_t fonts = 0; // in the atlas, the bundled one included
 };
 
+// What the user did to the panels, by key: shared by the views' engines (`UseState`).
+struct State;
+std::shared_ptr<State> NewState ();
+// Forgets it all: the project whose layers it named closed (§8).
+void ClearState (State& state);
+
 // Reads the font file at a path a panel names (overlayfonts::Read).
 using FontLoader = std::function<bool (const std::string& path, std::vector<uint8_t>& bytes, std::string& error)>;
 
@@ -142,6 +158,8 @@ class Engine final {
 
     // How a panel's `font` is read; without one every panel is in the bundled font.
     void SetFontLoader (FontLoader loader);
+    // The state to keep what the user does in, instead of the engine's own.
+    void UseState (std::shared_ptr<State> state);
 
     // Every panel of a set, laid out at `scale` (the view's DPI scale) for `input`'s view
     // and pointer: `out.panels[i]` is `panels[i]`, whose state is kept under `keys[i]`.
@@ -158,7 +176,7 @@ class Engine final {
     // The atlas as pages, current after the last `Build`: `Vertex::page` indexes it.
     const std::vector<std::shared_ptr<const overlaytext::Page>>& Pages () const;
 
-    // What the user did to a panel, by its key: collapsed, and each section's open state
+    // What the user did to a panel, by its key: in the dock, and each section's open state
     // by its item's index. False for a key never laid out.
     bool Collapsed (const std::string& key) const;
     bool SectionOpen (const std::string& key, uint32_t item, bool& open) const;

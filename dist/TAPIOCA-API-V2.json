@@ -25520,7 +25520,7 @@
                 },
                 "collapsed": {
                   "type": "boolean",
-                  "description": "How a titled panel starts; the arrow on its title bar folds it, and what the user does outlives the layer being set again."
+                  "description": "A titled panel starts in the dock at the view's right edge; its close button sends it there and its tab opens it, and what the user does outlives the layer being set again."
                 },
                 "theme": {
                   "type": "string",

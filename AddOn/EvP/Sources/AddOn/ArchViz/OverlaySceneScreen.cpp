@@ -79,34 +79,42 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     if (layout.highlight.active)
         draft_.highlight = { LayerKey (layout.highlight.layer), float (layout.highlight.low),
                              float (layout.highlight.high) };
-    const std::vector<overlayhud::Built>& built = layout.panels;
-    for (size_t i = 0; i < panels.size (); ++i) {
-        const float* const fraction = built[i].fraction;
-        const float* const offset = built[i].offset;
-        // Its rectangle is the HUD's: a click there is never Archicad's (OverlayHitMap.hpp).
+    // A panel, or the dock: its rectangle is the HUD's -- a click there is never Archicad's
+    // (OverlayHitMap.hpp) -- and its triangles anchored where it is. A panel in the dock
+    // has neither.
+    auto emit = [&] (const overlayhud::Built& built, overlayinput::RegionKind kind, const std::string& layer,
+                     uint32_t item) {
+        if (!(built.width > 0.0f && built.height > 0.0f))
+            return true;
         overlayinput::Region region;
-        region.kind = overlayinput::RegionKind::Panel;
-        region.layer = refs[i].layer;
-        region.item = refs[i].index;
-        region.fraction[0] = fraction[0];
-        region.fraction[1] = fraction[1];
-        region.rect[0] = offset[0];
-        region.rect[1] = offset[1];
-        region.rect[2] = offset[0] + built[i].width;
-        region.rect[3] = offset[1] + built[i].height;
+        region.kind = kind;
+        region.layer = layer;
+        region.item = item;
+        region.fraction[0] = built.fraction[0];
+        region.fraction[1] = built.fraction[1];
+        region.rect[0] = built.offset[0];
+        region.rect[1] = built.offset[1];
+        region.rect[2] = built.offset[0] + built.width;
+        region.rect[3] = built.offset[1] + built.height;
         draft_.regions.push_back (std::move (region));
         DraftGlyph glyph;
-        glyph.anchor[0] = fraction[0];
-        glyph.anchor[1] = fraction[1];
+        glyph.anchor[0] = built.fraction[0];
+        glyph.anchor[1] = built.fraction[1];
         glyph.flags = kScreenAnchored | kPlainTexture | kPhysicalPixels;
         glyph.behind = kBehindShow;
-        for (const overlayhud::Vertex& v : built[i].vertices) {
+        for (const overlayhud::Vertex& v : built.vertices) {
             glyph.rgba = v.rgba;
             glyph.page = kHudPageBase + v.page;
-            if (!PushGlyphVertex (glyph, offset[0] + v.x, offset[1] + v.y, v.u, v.v))
-                return;
+            if (!PushGlyphVertex (glyph, built.offset[0] + v.x, built.offset[1] + v.y, v.u, v.v))
+                return false;
         }
-    }
+        return true;
+    };
+    for (size_t i = 0; i < panels.size (); ++i)
+        if (!emit (layout.panels[i], overlayinput::RegionKind::Panel, refs[i].layer, refs[i].index))
+            return;
+    if (!emit (layout.dock, overlayinput::RegionKind::Dock, std::string (), 0))
+        return;
     // The tooltips, over the panels, in view pixels from its top-left. No region: they
     // take nothing, and a pointer over one is over what it describes.
     DraftGlyph tip;

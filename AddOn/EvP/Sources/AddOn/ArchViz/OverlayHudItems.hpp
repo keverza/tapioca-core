@@ -27,6 +27,8 @@ ImU32 Packed (uint32_t rgba);
 uint32_t Unpacked (ImU32 col);
 // `rgba` with its alpha multiplied by `factor`.
 uint32_t WithAlpha (uint32_t rgba, float factor);
+// Text that reads on `rgba`: dark on a light colour, white on a dark one.
+uint32_t Contrast (uint32_t rgba);
 std::string Number (double value, uint32_t decimals);
 
 // What a ramp says at `t` along it -- the value, or the band it falls in, and its colour
@@ -65,6 +67,12 @@ void Stack (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& i
 // behind, the labels under the bars and the caption under them; pointed at, a bar says
 // its label and value.
 void Bars (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, float width, float scale);
+
+// ---- the dock ------------------------------------------------------------------------------
+
+// A panel's tab in the dock, `size` big: filled with its accent while `open`, in its card's
+// colours while it is in the dock, tinted when pointed at and pressed. True when pressed.
+bool DockTab (const overlaylayers::Panel& panel, bool open, ImVec2 size, float scale);
 
 // The colour of an item's `index`th segment or bar of `count`: its own `colors`, else
 // its colormap's at its place, else a palette of ten.

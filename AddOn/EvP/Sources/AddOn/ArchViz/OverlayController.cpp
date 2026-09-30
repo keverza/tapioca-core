@@ -577,6 +577,8 @@ void OnProjectClosed ()
     // The storey slices and the Watch annotations were that project's too.
     storysliceoverlay::OnProjectClosed ();
     overlayannotations::OnProjectClosed ();
+    // What the user did to that project's panels, by their layers' names (§8).
+    guesttext::ForgetHudState ();
     if (!overlaylayers::Layers ().empty ()) {
         overlaylayers::ClearEverything ();
         PublishLayers ();

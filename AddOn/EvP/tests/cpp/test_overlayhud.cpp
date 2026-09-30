@@ -273,15 +273,6 @@ void Click (Fresh& hud, const std::vector<const layers::Panel*>& panels, float x
     hud.Lay (panels, At (x, y, { { 0, false } }));
 }
 
-layers::Panel Titled ()
-{
-    layers::Panel panel;
-    panel.title = "Area metrics";
-    panel.items.push_back (Item (layers::ItemKind::Row, "Site area", "11 214 m\xC2\xB2"));
-    panel.items.push_back (Item (layers::ItemKind::Row, "BCR", "20.0 %"));
-    return panel;
-}
-
 } // namespace
 
 // The pointer on a ramp shows its value there; off it, nothing floats over the panel.
@@ -306,46 +297,6 @@ TEST (OverlayHud, APointedRampSaysItsValue)
     // Laid out again with the pointer where it was, the same pixels.
     const hud::Layout again = hud.Lay ({ &panel }, At (left + 150.0f, top + 5.0f));
     EXPECT_EQ (again.overlay.vertices.size (), over.overlay.vertices.size ());
-}
-
-// ⚠️ THE HUD IS COLLAPSIBLE (the user, 2026-09-29): the arrow on a titled panel's title
-// bar folds it to that bar, and it stays folded when the layer is set again.
-TEST (OverlayHud, TheTitleBarsArrowFoldsThePanelAndItStaysFolded)
-{
-    Fresh hud;
-    const layers::Panel panel = Titled ();
-    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    ASSERT_EQ (open.panels.size (), 1u);
-    EXPECT_FALSE (hud.engine.Collapsed ("hud#0"));
-    // The arrow sits at the title bar's start, a frame's padding in: at (16, 16) the
-    // panel, 4 and 3 pixels the padding, the title's font 14 x 1.2.
-    const float arrowX = 16.0f + 4.0f + 8.0f, arrowY = 16.0f + 3.0f + 8.0f;
-    Click (hud, { &panel }, arrowX, arrowY);
-    const hud::Layout folded = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_TRUE (hud.engine.Collapsed ("hud#0"));
-    EXPECT_LT (folded.panels[0].height, open.panels[0].height * 0.7f);
-    // Set again -- a new panel object under the same key -- it is still folded.
-    const layers::Panel republished = Titled ();
-    const hud::Layout still = hud.Lay ({ &republished }, At (600.0f, 600.0f));
-    EXPECT_NEAR (still.panels[0].height, folded.panels[0].height, 0.5f);
-    // And the arrow opens it again.
-    Click (hud, { &republished }, arrowX, arrowY);
-    const hud::Layout reopened = hud.Lay ({ &republished }, At (600.0f, 600.0f));
-    EXPECT_FALSE (hud.engine.Collapsed ("hud#0"));
-    EXPECT_NEAR (reopened.panels[0].height, open.panels[0].height, 0.5f);
-}
-
-// A panel that starts folded, as its caller asked.
-TEST (OverlayHud, APanelStartsFoldedWhenAskedTo)
-{
-    Fresh hud;
-    layers::Panel panel = Titled ();
-    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    Fresh other;
-    panel.collapsed = true;
-    const hud::Layout folded = other.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_TRUE (other.engine.Collapsed ("hud#0"));
-    EXPECT_LT (folded.panels[0].height, open.panels[0].height * 0.7f);
 }
 
 // A section's chevron folds the items after it, up to the next section.

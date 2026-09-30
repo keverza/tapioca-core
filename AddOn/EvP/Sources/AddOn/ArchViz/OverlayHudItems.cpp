@@ -315,14 +315,13 @@ uint32_t SegmentColour (const layers::PanelItem& item, size_t index, size_t coun
     return kPalette[index % (sizeof (kPalette) / sizeof (kPalette[0]))];
 }
 
-namespace {
-
-// Text that reads on `rgba`: dark on a light colour, white on a dark one.
 uint32_t Contrast (uint32_t rgba)
 {
     const float r = float ((rgba >> 24) & 0xFFu), g = float ((rgba >> 16) & 0xFFu), b = float ((rgba >> 8) & 0xFFu);
     return (0.299f * r + 0.587f * g + 0.114f * b) / 255.0f > 0.62f ? 0x1F2328FFu : 0xFFFFFFFFu;
 }
+
+namespace {
 
 // A small tooltip at `at` (its `pivot` there): a swatch of `rgba`, then `text`.
 void KeyTip (uint32_t rgba, const std::string& text, ImVec2 at, ImVec2 pivot, float scale)
@@ -559,6 +558,32 @@ void Bars (const layers::Panel& panel, const layers::PanelItem& item, float widt
             ImVec2 (low.x + (plotW - size.x) * 0.5f, high.y + (labelled ? small + 4.0f * scale : 0.0f) + 2.0f * scale),
             muted, item.text.c_str ());
     }
+}
+
+bool DockTab (const layers::Panel& panel, bool open, ImVec2 size, float scale)
+{
+    const bool pressed = ImGui::InvisibleButton ("##tab", size);
+    const bool hovered = ImGui::IsItemHovered (), held = ImGui::IsItemActive ();
+    const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    // Rounded on the left only: the tab comes out of the view's edge.
+    const float r = (std::min) (8.0f * scale, size.y * 0.5f);
+    const ImDrawFlags corners = ImDrawFlags_RoundCornersLeft;
+    draw->AddRectFilled (a, b, Packed (open ? panel.accentRgba : panel.backgroundRgba), r, corners);
+    if (hovered || held) {
+        // The tint: white over an open panel's filled tab, the accent over a closed one's.
+        const uint32_t tint =
+            open ? WithAlpha (0xFFFFFFFFu, held ? 0.30f : 0.18f) : WithAlpha (panel.accentRgba, held ? 0.48f : 0.30f);
+        draw->AddRectFilled (a, b, Packed (tint), r, corners);
+    }
+    if (!open) {
+        const uint32_t edge = (panel.borderRgba & 0xFFu) != 0 ? panel.borderRgba : WithAlpha (panel.textRgba, 0.25f);
+        draw->AddRect (a, b, Packed (edge), r, corners, (std::max) (1.0f, scale));
+    }
+    const ImVec2 text = ImGui::CalcTextSize (panel.title.c_str ());
+    draw->AddText (ImVec2 (a.x + (size.x - text.x) * 0.5f, a.y + (size.y - text.y) * 0.5f),
+                   Packed (open ? Contrast (panel.accentRgba) : panel.textRgba), panel.title.c_str ());
+    return pressed;
 }
 
 } // namespace items

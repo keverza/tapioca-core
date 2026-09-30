@@ -25,6 +25,8 @@ std::unique_ptr<overlaytext::Engine> g_engine; // MAIN THREAD
 bool g_failed = false;
 std::unique_ptr<overlayhud::Engine> g_hud[2]; // by view
 bool g_hudFailed[2] = { false, false };
+// What the user did to the panels, the views' engines' both (OverlayHud.hpp `State`).
+std::shared_ptr<overlayhud::State> g_hudState;
 // A caller's fonts by path; null for one that failed, so it is said once.
 std::map<std::string, std::unique_ptr<overlaytext::Engine>> g_fonts;
 
@@ -98,8 +100,17 @@ overlayhud::Engine* Hud (overlayinput::View view)
     ArchVizLog (std::string ("OVERLAY HUD  the ") + overlayinput::ViewName (view) +
                 " HUD ready: Dear ImGui over the bundled font, laid out on the main thread");
     hud->SetFontLoader (&overlayfonts::Read);
+    if (g_hudState == nullptr)
+        g_hudState = overlayhud::NewState ();
+    hud->UseState (g_hudState);
     g_hud[at] = std::move (hud);
     return g_hud[at].get ();
+}
+
+void ForgetHudState ()
+{
+    if (g_hudState != nullptr)
+        overlayhud::ClearState (*g_hudState);
 }
 
 } // namespace guesttext

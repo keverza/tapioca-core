@@ -185,9 +185,10 @@ class Panel:
     """A HUD panel: its items in order, laid out by Dear ImGui in a corner (or any of
     nine anchor points) of the view. Every method returns the panel, so they chain.
 
-    A panel with a `title` has a title bar whose arrow folds it to that bar;
-    `collapsed` is how it starts. A click on a panel never reaches Archicad, and what
-    the user folds stays folded when the layer is set again. `theme` "light" is the
+    A panel with a `title` has a tab in the dock down the view's right edge, and a
+    close button on its title bar that sends it there; the tab opens it again.
+    `collapsed` starts it in the dock. A click on a panel never reaches Archicad, and
+    what the user does stays done when the layer is set again. `theme` "light" is the
     design's card -- near-white, dark text, rounded -- under any colour given here.
     `accent` tints what the pointer can press, when pointed at and pressed."""
 

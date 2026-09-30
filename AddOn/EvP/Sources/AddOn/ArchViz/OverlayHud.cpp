@@ -38,6 +38,12 @@ constexpr float kTitleScale = 1.2f;
 // The frames after the first advance ImGui's clock by almost nothing: the first carries
 // the time since the last layout, so a double click is timed as the user made it.
 constexpr float kSettleSeconds = 1.0e-4f;
+// The dock's tabs: their font, their padding round the title, the gap between them, and
+// the gap between the dock and a panel on the view's right column.
+constexpr float kDockFontPixels = 13.0f;
+constexpr float kDockPadding[2] = { 12.0f, 7.0f };
+constexpr float kDockSpacing = 4.0f;
+constexpr float kDockGap = 8.0f;
 
 // The style every panel starts from; each pushes its own colours and spacing over it.
 void BaseStyle (float scale)
@@ -103,14 +109,34 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
 
 } // namespace
 
-void Place (const layers::Panel& panel, float width, float height, float scale, float fraction[2], float offset[2])
+void Place (const layers::Panel& panel, float width, float height, float scale, float fraction[2], float offset[2],
+            float inset)
 {
     const int column = int (panel.anchor) % 3, row = int (panel.anchor) / 3; // 0 near, 1 middle, 2 far
     fraction[0] = float (column) * 0.5f;
     fraction[1] = float (row) * 0.5f;
     const float inwardX = column == 2 ? -1.0f : 1.0f, inwardY = row == 2 ? -1.0f : 1.0f;
-    offset[0] = -width * float (column) * 0.5f + inwardX * panel.offsetPixels[0] * scale;
+    offset[0] = -width * float (column) * 0.5f + inwardX * panel.offsetPixels[0] * scale - (column == 2 ? inset : 0.0f);
     offset[1] = -height * float (row) * 0.5f + inwardY * panel.offsetPixels[1] * scale;
+}
+
+// What the user did to each panel, by its key (the header's third note).
+struct State {
+    struct Panel {
+        bool collapsed = false;            // in the dock
+        std::map<uint32_t, bool> sections; // by item index
+    };
+    std::map<std::string, Panel> panels;
+};
+
+std::shared_ptr<State> NewState ()
+{
+    return std::make_shared<State> ();
+}
+
+void ClearState (State& state)
+{
+    state = State {};
 }
 
 struct Engine::Impl {
@@ -130,25 +156,25 @@ struct Engine::Impl {
     Stats stats;
     bool ready = false;
 
-    // What the user did to each panel, by its key (the header's third note).
-    struct PanelState {
-        bool collapsed = false;
-        std::map<uint32_t, bool> sections; // by item index
-    };
-    std::map<std::string, PanelState> states;
+    // What the user did to each panel: this engine's own, or the views' shared one.
+    using PanelState = State::Panel;
+    std::shared_ptr<State> store = NewState ();
     // The layer of the panel being laid out, and what the pointer is on this frame.
     std::string layer;
     Layout::Highlight highlight;
     bool hand = false;
-    // The panels' windows in the frame being laid out, by the panel's place in the set.
+    // The panels' windows in the frame being laid out, by the panel's place in the set,
+    // and the dock's after them.
     std::vector<ImGuiWindow*> windows;
+    // The dock's width this frame: how far the view's right column moves in.
+    float inset = 0.0f;
     std::chrono::steady_clock::time_point lastBuild {};
 
     PanelState& StateOf (const std::string& key, const layers::Panel& panel)
     {
-        const auto made = states.try_emplace (key);
+        const auto made = store->panels.try_emplace (key);
         if (made.second)
-            made.first->second.collapsed = panel.collapsed;
+            made.first->second.collapsed = panel.collapsed && !panel.title.empty ();
         return made.first->second;
     }
 
@@ -314,47 +340,49 @@ struct Engine::Impl {
         }
     }
 
-    // One panel's window, at its anchor on the view: its title bar (which collapses it)
-    // when it has a title, then its items unless it is collapsed.
+    // One panel's window, at its anchor on the view: its title bar -- whose close button
+    // sends it to the dock -- when it has a title, then its items. Nothing while it is in
+    // the dock.
     void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, ImVec2 view)
     {
         PanelState& state = StateOf (key, panel);
         layer = key.substr (0, key.rfind ('#'));
         const bool titled = !panel.title.empty ();
+        if (titled && state.collapsed)
+            return;
         const int column = int (panel.anchor) % 3, row = int (panel.anchor) / 3;
         const ImVec2 pivot (float (column) * 0.5f, float (row) * 0.5f);
         const float inwardX = column == 2 ? -1.0f : 1.0f, inwardY = row == 2 ? -1.0f : 1.0f;
-        // The panel's own anchor point on the view's, `offsetPixels` inwards (Place).
-        ImGui::SetNextWindowPos (ImVec2 (pivot.x * view.x + inwardX * panel.offsetPixels[0] * scale,
-                                         pivot.y * view.y + inwardY * panel.offsetPixels[1] * scale),
-                                 ImGuiCond_Always, pivot);
+        // The panel's own anchor point on the view's, `offsetPixels` inwards (Place), the
+        // right column beside the dock.
+        ImGui::SetNextWindowPos (
+            ImVec2 (pivot.x * view.x + inwardX * panel.offsetPixels[0] * scale - (column == 2 ? inset : 0.0f),
+                    pivot.y * view.y + inwardY * panel.offsetPixels[1] * scale),
+            ImGuiCond_Always, pivot);
         if (panel.widthPixels > 0.0f) {
             const float w = panel.widthPixels * scale;
             ImGui::SetNextWindowSizeConstraints (ImVec2 (w, 0.0f), ImVec2 (w, FLT_MAX));
         }
         // ### keeps the window's identity -- and so its state -- whatever its title says.
         const std::string name = (titled ? panel.title : std::string ()) + "###tapioca.panel." + key;
-        // ⚠️ THE ADD-ON'S STATE IS SET ONLY WHERE IMGUI'S DIFFERS AND NO CLICK IS PENDING.
-        // The arrow's click is applied in the NEXT frame's Begin, and a state forced every
-        // frame is applied over it (SetWindowCollapsed): the arrow would never fold.
-        const ImGuiWindow* const existing = ImGui::FindWindowByName (name.c_str ());
-        if (titled &&
-            (existing == nullptr || (!existing->WantCollapseToggle && existing->Collapsed != state.collapsed)))
-            ImGui::SetNextWindowCollapsed (state.collapsed, ImGuiCond_Always);
         const int colours = PushPanelStyle (panel, scale);
         ImFont* const face = FontFor (panel.font);
         ImGui::PushFont (face, panel.sizePixels * scale * (titled ? kTitleScale : 1.0f));
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
                                  ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav;
+                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav |
+                                 ImGuiWindowFlags_NoCollapse;
         if (!titled)
-            flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse;
-        const bool open = ImGui::Begin (name.c_str (), nullptr, flags);
+            flags |= ImGuiWindowFlags_NoTitleBar;
+        // The close button: pressed, the panel goes to the dock -- drawn this frame still,
+        // not from the next.
+        bool kept = true;
+        const bool open = ImGui::Begin (name.c_str (), titled ? &kept : nullptr, flags);
         ImGui::PopFont (); // the title bar is drawn
         windows[index] = ImGui::GetCurrentWindow ();
-        if (titled)
-            state.collapsed = ImGui::IsWindowCollapsed ();
+        if (!kept)
+            state.collapsed = true;
         if (open && titled) {
             // A hairline under the title bar: the design's header, above the first item.
             ImGuiWindow* const window = ImGui::GetCurrentWindow ();
@@ -402,6 +430,54 @@ struct Engine::Impl {
         }
     }
 
+    // ⚠️ THE DOCK: a tab per titled panel down the view's right edge, half-way down, all
+    // as wide as the widest title (the user, 2026-09-29). Filled with the panel's accent
+    // while the panel is open; its card's own colours while the panel is in the dock. A
+    // press on it opens or closes the panel -- in this frame, as the dock is laid out
+    // before the panels.
+    void Dock (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
+               ImVec2 view)
+    {
+        inset = 0.0f;
+        std::vector<size_t> titled;
+        for (size_t i = 0; i < panels.size (); ++i)
+            if (!panels[i]->title.empty ())
+                titled.push_back (i);
+        if (titled.empty ())
+            return;
+        ImGui::SetNextWindowPos (ImVec2 (view.x, view.y * 0.5f), ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0.0f, 0.0f));
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0.0f, kDockSpacing * scale));
+        ImGui::PushFont (font, kDockFontPixels * scale);
+        const ImGuiWindowFlags flags =
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground;
+        const bool shown = ImGui::Begin ("###tapioca.dock", nullptr, flags);
+        windows.back () = ImGui::GetCurrentWindow ();
+        if (shown) {
+            float widest = 0.0f;
+            for (const size_t i : titled)
+                widest = (std::max) (widest, ImGui::CalcTextSize (panels[i]->title.c_str ()).x);
+            const ImVec2 size (widest + 2.0f * kDockPadding[0] * scale,
+                               ImGui::GetFontSize () + 2.0f * kDockPadding[1] * scale);
+            for (const size_t i : titled) {
+                PanelState& state = StateOf (keys[i], *panels[i]);
+                ImGui::PushID (keys[i].c_str ());
+                if (items::DockTab (*panels[i], !state.collapsed, size, scale))
+                    state.collapsed = !state.collapsed;
+                ImGui::PopID ();
+            }
+        }
+        ImGui::End ();
+        ImGui::PopFont ();
+        ImGui::PopStyleVar (3);
+        if (windows.back () != nullptr)
+            inset = windows.back ()->Size.x + kDockGap * scale;
+    }
+
     // One frame of the whole set.
     void Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
                 const Input& input, const std::vector<LegendBar>& legends, float delta)
@@ -413,14 +489,17 @@ struct Engine::Impl {
         io.DeltaTime = delta;
         BaseStyle (scale);
         ImGui::NewFrame ();
-        windows.assign (panels.size (), nullptr);
+        windows.assign (panels.size () + 1, nullptr);
         highlight = Layout::Highlight {};
+        inset = 0.0f;
+        if (known)
+            Dock (panels, keys, scale, view);
         for (size_t i = 0; i < panels.size (); ++i)
             Window (*panels[i], keys[i], i, scale, view);
         if (known)
             LegendTips (legends, scale, view);
-        // A hand over what ImGui calls an item -- a button, a section's row, the title
-        // bar's arrow -- and while one is held. Not while the background is held: ImGui
+        // A hand over what ImGui calls an item -- a button, a section's row, a dock's tab,
+        // the title bar's close button -- and while one is held. Not while the background is held: ImGui
         // makes a window's move id active there even when the window cannot move.
         const ImGuiContext& g = *ImGui::GetCurrentContext ();
         const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
@@ -430,7 +509,8 @@ struct Engine::Impl {
         ++stats.frames;
     }
 
-    // Which of the set's windows a draw list belongs to; -1 for what floats over them.
+    // Which of the set's windows a draw list belongs to -- the dock's is the last -- and
+    // -1 for what floats over them.
     int PanelOf (const ImDrawList* list) const
     {
         for (ImGuiWindow* window : ImGui::GetCurrentContext ()->Windows) {
@@ -453,7 +533,9 @@ struct Engine::Impl {
             return;
         for (const ImDrawList* list : data->CmdLists) {
             const int panel = PanelOf (list);
-            Built& into = panel >= 0 ? out.panels[size_t (panel)] : out.overlay;
+            Built& into = panel < 0                             ? out.overlay
+                          : size_t (panel) < out.panels.size () ? out.panels[size_t (panel)]
+                                                                : out.dock;
             const ImVec2 origin = panel >= 0 ? windows[size_t (panel)]->Pos : ImVec2 (0.0f, 0.0f);
             for (const ImDrawCmd& command : list->CmdBuffer) {
                 if (command.UserCallback != nullptr || command.ElemCount == 0)
@@ -593,7 +675,15 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
                 built.width = impl_->windows[i]->Size.x;
                 built.height = impl_->windows[i]->Size.y;
             }
-            Place (*panels[i], built.width, built.height, at, built.fraction, built.offset);
+            Place (*panels[i], built.width, built.height, at, built.fraction, built.offset, impl_->inset);
+        }
+        if (const ImGuiWindow* const dock = impl_->windows.back (); dock != nullptr) {
+            out.dock.width = dock->Size.x;
+            out.dock.height = dock->Size.y;
+            out.dock.fraction[0] = 1.0f;
+            out.dock.fraction[1] = 0.5f;
+            out.dock.offset[0] = -dock->Size.x;
+            out.dock.offset[1] = -dock->Size.y * 0.5f;
         }
         if (impl_->atlasVersion == before)
             break;
@@ -632,16 +722,22 @@ const std::vector<std::shared_ptr<const overlaytext::Page>>& Engine::Pages () co
     return impl_->pages;
 }
 
+void Engine::UseState (std::shared_ptr<State> state)
+{
+    if (state != nullptr)
+        impl_->store = std::move (state);
+}
+
 bool Engine::Collapsed (const std::string& key) const
 {
-    const auto found = impl_->states.find (key);
-    return found != impl_->states.end () && found->second.collapsed;
+    const auto found = impl_->store->panels.find (key);
+    return found != impl_->store->panels.end () && found->second.collapsed;
 }
 
 bool Engine::SectionOpen (const std::string& key, uint32_t item, bool& open) const
 {
-    const auto found = impl_->states.find (key);
-    if (found == impl_->states.end ())
+    const auto found = impl_->store->panels.find (key);
+    if (found == impl_->store->panels.end ())
         return false;
     const auto section = found->second.sections.find (item);
     if (section == found->second.sections.end ())
