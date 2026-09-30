@@ -3,10 +3,8 @@
 #include "ArchViz/OverlayHud.hpp"
 
 #include "ArchViz/ImGuiContextLock.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
-
-#include <imgui.h>
-#include <imgui_internal.h> // ImGuiWindow: which draw list is whose
 
 #include <algorithm>
 #include <cfloat>
@@ -18,8 +16,6 @@
 namespace geomsrv {
 namespace archviz {
 namespace overlayhud {
-
-namespace layers = overlaylayers;
 
 using items::Colour;
 using items::Unpacked;
@@ -38,19 +34,6 @@ constexpr float kTitleScale = 1.2f;
 // The frames after the first advance ImGui's clock by almost nothing: the first carries
 // the time since the last layout, so a double click is timed as the user made it.
 constexpr float kSettleSeconds = 1.0e-4f;
-// The dock's tabs: their font, their padding round the title, the gap between them, and
-// the gap between the dock and a panel on the view's right column.
-constexpr float kDockFontPixels = 13.0f;
-constexpr float kDockPadding[2] = { 12.0f, 7.0f };
-constexpr float kDockSpacing = 4.0f;
-constexpr float kDockGap = 8.0f;
-// ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
-// HUD's font size). The dock's smaller and larger buttons walk them; every size of the
-// HUD -- text, padding, widths, the dock itself -- follows, the distances from the view's
-// edges do not.
-constexpr float kFontSteps[] = { 0.8f, 0.9f, 1.0f, 1.1f, 1.25f, 1.4f, 1.6f, 1.8f, 2.0f };
-constexpr uint32_t kFontStepCount = uint32_t (sizeof (kFontSteps) / sizeof (kFontSteps[0]));
-constexpr uint32_t kFontStepDefault = 2;
 
 // The style every panel starts from; each pushes its own colours and spacing over it.
 void BaseStyle (float scale)
@@ -127,16 +110,6 @@ void Place (const layers::Panel& panel, float width, float height, float scale, 
     offset[1] = -height * float (row) * 0.5f + inwardY * panel.offsetPixels[1] * scale;
 }
 
-// What the user did to each panel, by its key (the header's third note).
-struct State {
-    struct Panel {
-        bool collapsed = false;            // in the dock
-        std::map<uint32_t, bool> sections; // by item index
-    };
-    std::map<std::string, Panel> panels;
-    uint32_t fontStep = kFontStepDefault; // kFontSteps
-};
-
 std::shared_ptr<State> NewState ()
 {
     return std::make_shared<State> ();
@@ -172,492 +145,354 @@ bool Known (const State& state, const std::string& key)
     return state.panels.find (key) != state.panels.end ();
 }
 
-namespace {
-
-std::string Percent (float scale)
+Engine::Impl::PanelState& Engine::Impl::StateOf (const std::string& key, const layers::Panel& panel)
 {
-    return std::to_string (int (std::lround (scale * 100.0f))) + " %";
+    const auto made = store->panels.try_emplace (key);
+    if (made.second)
+        made.first->second.collapsed = panel.collapsed && !panel.title.empty ();
+    return made.first->second;
 }
 
-} // namespace
-
-struct Engine::Impl {
-    ImGuiContext* context = nullptr;
-    ImFont* font = nullptr;
-    std::vector<uint8_t> fontBytes; // ImGui reads it for as long as the atlas lives
-    // A panel's own fonts, by path, their bytes kept as long; a path that failed maps
-    // to the bundled font, tried once.
-    FontLoader loader;
-    std::map<std::string, ImFont*> fonts;
-    std::vector<std::unique_ptr<std::vector<uint8_t>>> fontData;
-    std::string fontError;
-    // One slot per ImGui texture, its TexID the slot's index plus one.
-    std::vector<ImTextureData*> textures;
-    std::vector<std::shared_ptr<const overlaytext::Page>> pages;
-    uint64_t atlasVersion = 0;
-    Stats stats;
-    bool ready = false;
-
-    // What the user did to each panel: this engine's own, or the views' shared one.
-    using PanelState = State::Panel;
-    std::shared_ptr<State> store = NewState ();
-    // The panel being laid out -- its key, its layer -- and what the pointer is on this
-    // frame; what the user changed in this build, and where that goes after it.
-    std::string key;
-    std::string layer;
-    std::vector<Change> changes;
-    ChangeSink sink;
-    Layout::Highlight highlight;
-    bool hand = false;
-    // The panels' windows in the frame being laid out, by the panel's place in the set,
-    // and the dock's after them.
-    std::vector<ImGuiWindow*> windows;
-    // The dock's width this frame: how far the view's right column moves in.
-    float inset = 0.0f;
-    std::chrono::steady_clock::time_point lastBuild {};
-
-    PanelState& StateOf (const std::string& key, const layers::Panel& panel)
-    {
-        const auto made = store->panels.try_emplace (key);
-        if (made.second)
-            made.first->second.collapsed = panel.collapsed && !panel.title.empty ();
-        return made.first->second;
+// Between frames, the context current and locked: ImGui adds a font to the atlas
+// only then.
+ImFont* Engine::Impl::FontFor (const std::string& path)
+{
+    if (path.empty () || !loader)
+        return font;
+    const auto found = fonts.find (path);
+    if (found != fonts.end ())
+        return found->second != nullptr ? found->second : font;
+    auto bytes = std::make_unique<std::vector<uint8_t>> ();
+    std::string error;
+    ImFont* added = nullptr;
+    if (loader (path, *bytes, error)) {
+        ImFontConfig config;
+        config.FontDataOwnedByAtlas = false;
+        added = ImGui::GetIO ().Fonts->AddFontFromMemoryTTF (bytes->data (), int (bytes->size ()), 16.0f, &config);
+        if (added == nullptr)
+            error = "ImGui could not load \"" + path + "\"";
     }
-
-    // Between frames, the context current and locked: ImGui adds a font to the atlas
-    // only then.
-    ImFont* FontFor (const std::string& path)
-    {
-        if (path.empty () || !loader)
-            return font;
-        const auto found = fonts.find (path);
-        if (found != fonts.end ())
-            return found->second != nullptr ? found->second : font;
-        auto bytes = std::make_unique<std::vector<uint8_t>> ();
-        std::string error;
-        ImFont* added = nullptr;
-        if (loader (path, *bytes, error)) {
-            ImFontConfig config;
-            config.FontDataOwnedByAtlas = false;
-            added = ImGui::GetIO ().Fonts->AddFontFromMemoryTTF (bytes->data (), int (bytes->size ()), 16.0f, &config);
-            if (added == nullptr)
-                error = "ImGui could not load \"" + path + "\"";
-        }
-        if (added != nullptr) {
-            fontData.push_back (std::move (bytes));
-            ++stats.fonts;
-        }
-        else
-            fontError = error;
-        fonts[path] = added;
-        return added != nullptr ? added : font;
+    if (added != nullptr) {
+        fontData.push_back (std::move (bytes));
+        ++stats.fonts;
     }
+    else
+        fontError = error;
+    fonts[path] = added;
+    return added != nullptr ? added : font;
+}
 
-    // ImGui's texture requests, honoured: every created or updated texture becomes a
-    // page with a new id, whole.
-    void Sync (ImDrawData* data)
-    {
-        if (data == nullptr || data->Textures == nullptr)
-            return;
-        for (ImTextureData* texture : *data->Textures) {
-            if (texture->Status == ImTextureStatus_WantCreate || texture->Status == ImTextureStatus_WantUpdates) {
-                size_t slot = 0;
-                while (slot < textures.size () && textures[slot] != texture)
-                    ++slot;
-                if (slot == textures.size ()) {
-                    textures.push_back (texture);
-                    pages.push_back (nullptr);
-                }
-                auto page = std::make_shared<overlaytext::Page> ();
-                page->id = overlaytext::NewPageId ();
-                page->width = texture->Width;
-                page->height = texture->Height;
-                const size_t count = size_t (texture->Width) * size_t (texture->Height);
-                const unsigned char* source = static_cast<const unsigned char*> (texture->GetPixels ());
-                if (texture->BytesPerPixel == 4) {
-                    page->pixels.assign (source, source + count * 4);
-                }
-                else {
-                    // Alpha8: white, with ImGui's coverage as alpha.
-                    page->pixels.resize (count * 4);
-                    for (size_t i = 0; i < count; ++i) {
-                        page->pixels[i * 4] = page->pixels[i * 4 + 1] = page->pixels[i * 4 + 2] = 255;
-                        page->pixels[i * 4 + 3] = source[i];
-                    }
-                }
-                pages[slot] = std::move (page);
-                texture->SetTexID (ImTextureID (slot + 1));
-                texture->SetStatus (ImTextureStatus_OK);
-                ++atlasVersion;
-                ++stats.atlasVersions;
+// ImGui's texture requests, honoured: every created or updated texture becomes a
+// page with a new id, whole.
+void Engine::Impl::Sync (ImDrawData* data)
+{
+    if (data == nullptr || data->Textures == nullptr)
+        return;
+    for (ImTextureData* texture : *data->Textures) {
+        if (texture->Status == ImTextureStatus_WantCreate || texture->Status == ImTextureStatus_WantUpdates) {
+            size_t slot = 0;
+            while (slot < textures.size () && textures[slot] != texture)
+                ++slot;
+            if (slot == textures.size ()) {
+                textures.push_back (texture);
+                pages.push_back (nullptr);
             }
-            else if (texture->Status == ImTextureStatus_WantDestroy && texture->UnusedFrames > 0) {
-                for (size_t slot = 0; slot < textures.size (); ++slot)
-                    if (textures[slot] == texture) {
-                        textures[slot] = nullptr;
-                        pages[slot] = nullptr;
-                    }
-                texture->SetTexID (ImTextureID_Invalid);
-                texture->SetStatus (ImTextureStatus_Destroyed);
-            }
-        }
-    }
-
-    void Items (const layers::Panel& panel, PanelState& state, float scale)
-    {
-        // What an item without its own width spans: the panel's width when it has one,
-        // otherwise a width that does not depend on the layout it is part of.
-        const float font = ImGui::GetFontSize ();
-        const float width =
-            panel.widthPixels > 0.0f ? (std::max) (ImGui::GetContentRegionAvail ().x, 1.0f) : 14.0f * font;
-        // Inside a closed section its items are not laid out at all.
-        bool shown = true;
-        size_t i = 0;
-        while (i < panel.items.size ()) {
-            const layers::PanelItem& item = panel.items[i];
-            if (!shown && item.kind != layers::ItemKind::Section) {
-                ++i;
-                continue;
-            }
-            ImGui::PushID (int (i));
-            switch (item.kind) {
-                case layers::ItemKind::Row: {
-                    size_t end = i;
-                    while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Row)
-                        ++end;
-                    items::Rows (panel, i, end, scale);
-                    ImGui::PopID ();
-                    i = end;
-                    continue;
-                }
-                case layers::ItemKind::Text:
-                    items::Text (panel, item, width, scale);
-                    break;
-                case layers::ItemKind::Separator:
-                    ImGui::Separator ();
-                    break;
-                case layers::ItemKind::Spacing:
-                    ImGui::Dummy (ImVec2 (1.0f, (item.heightPixels > 0.0f ? item.heightPixels : 6.0f) * scale));
-                    break;
-                case layers::ItemKind::Progress:
-                    items::Progress (item, width, scale);
-                    break;
-                case layers::ItemKind::Swatch: {
-                    // A run of swatches is one key: a grid when it has values or columns.
-                    size_t end = i;
-                    while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Swatch)
-                        ++end;
-                    items::Keys (panel, i, end, width, scale);
-                    ImGui::PopID ();
-                    i = end;
-                    continue;
-                }
-                case layers::ItemKind::Metrics:
-                    items::Metrics (panel, item, width, scale);
-                    break;
-                case layers::ItemKind::Stack:
-                    items::Stack (panel, item, width, scale);
-                    break;
-                case layers::ItemKind::Bars:
-                    items::Bars (panel, item, width, scale);
-                    break;
-                case layers::ItemKind::Ramp: {
-                    double band[2] = {};
-                    // A ramp in a panel describes its own layer's heatmaps.
-                    if (items::Ramp (panel, item, width, scale, band))
-                        highlight = { true, layer, band[0], band[1] };
-                    break;
-                }
-                case layers::ItemKind::Plot:
-                    items::Plot (item, width, scale);
-                    break;
-                case layers::ItemKind::Table:
-                    items::Table (item);
-                    break;
-                case layers::ItemKind::Section: {
-                    bool& open = state.sections.try_emplace (uint32_t (i), item.open).first->second;
-                    const bool was = open;
-                    items::Section (panel, item, open, scale);
-                    if (open != was)
-                        changes.push_back ({ "section", key, panel.title, item.text, int32_t (i), open ? 1.0 : 0.0,
-                                             open ? "open" : "folded", true });
-                    shown = open;
-                    break;
-                }
-            }
-            ImGui::PopID ();
-            ++i;
-        }
-    }
-
-    // One panel's window, at its anchor on the view: its title bar -- whose close button
-    // sends it to the dock -- when it has a title, then its items. Nothing while it is in
-    // the dock.
-    // `scale` is the view's DPI scale, what the distances from its edges take; `ui` that
-    // times the text size, what everything else takes.
-    void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui, ImVec2 view)
-    {
-        PanelState& state = StateOf (key, panel);
-        this->key = key;
-        layer = key.substr (0, key.rfind ('#'));
-        const bool titled = !panel.title.empty ();
-        if (titled && state.collapsed)
-            return;
-        const int column = int (panel.anchor) % 3, row = int (panel.anchor) / 3;
-        const ImVec2 pivot (float (column) * 0.5f, float (row) * 0.5f);
-        const float inwardX = column == 2 ? -1.0f : 1.0f, inwardY = row == 2 ? -1.0f : 1.0f;
-        // The panel's own anchor point on the view's, `offsetPixels` inwards (Place), the
-        // right column beside the dock.
-        ImGui::SetNextWindowPos (
-            ImVec2 (pivot.x * view.x + inwardX * panel.offsetPixels[0] * scale - (column == 2 ? inset : 0.0f),
-                    pivot.y * view.y + inwardY * panel.offsetPixels[1] * scale),
-            ImGuiCond_Always, pivot);
-        if (panel.widthPixels > 0.0f) {
-            const float w = panel.widthPixels * ui;
-            ImGui::SetNextWindowSizeConstraints (ImVec2 (w, 0.0f), ImVec2 (w, FLT_MAX));
-        }
-        // ### keeps the window's identity -- and so its state -- whatever its title says.
-        const std::string name = (titled ? panel.title : std::string ()) + "###tapioca.panel." + key;
-        const int colours = PushPanelStyle (panel, ui);
-        ImFont* const face = FontFor (panel.font);
-        ImGui::PushFont (face, panel.sizePixels * ui * (titled ? kTitleScale : 1.0f));
-        ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-                                 ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
-                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav |
-                                 ImGuiWindowFlags_NoCollapse;
-        if (!titled)
-            flags |= ImGuiWindowFlags_NoTitleBar;
-        // The close button: pressed, the panel goes to the dock -- drawn this frame still,
-        // not from the next.
-        bool kept = true;
-        const bool open = ImGui::Begin (name.c_str (), titled ? &kept : nullptr, flags);
-        ImGui::PopFont (); // the title bar is drawn
-        windows[index] = ImGui::GetCurrentWindow ();
-        if (!kept) {
-            state.collapsed = true;
-            Docking (panel, key, true);
-        }
-        if (open && titled) {
-            // A hairline under the title bar: the design's header, above the first item.
-            ImGuiWindow* const window = ImGui::GetCurrentWindow ();
-            const ImRect bar = window->TitleBarRect ();
-            window->DrawList->AddLine (ImVec2 (bar.Min.x, bar.Max.y), bar.Max, ImGui::GetColorU32 (ImGuiCol_Separator),
-                                       (std::max) (1.0f, ui));
-        }
-        if (open) {
-            ImGui::PushFont (face, panel.sizePixels * ui);
-            Items (panel, state, ui);
-            ImGui::PopFont ();
-        }
-        ImGui::End ();
-        ImGui::PopStyleColor (colours);
-        ImGui::PopStyleVar (kStyleVars);
-    }
-
-    // A legend's bar pointed at: the value there, beside the bar at the pointer.
-    void LegendTips (const std::vector<LegendBar>& legends, float scale, ImVec2 view)
-    {
-        const ImVec2 mouse = ImGui::GetIO ().MousePos;
-        for (const LegendBar& bar : legends) {
-            if (bar.legend == nullptr)
-                continue;
-            const ImVec2 a (bar.rect[0], bar.rect[1]), b (bar.rect[2], bar.rect[3]);
-            if (b.x <= a.x || b.y <= a.y || !ImGui::IsMouseHoveringRect (a, b, false))
-                continue;
-            const layers::Legend& legend = *bar.legend;
-            double band[2] = {};
-            if (legend.horizontal) {
-                items::ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min,
-                                 legend.colormap.max, legend.decimals, legend.unit,
-                                 ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f), scale, band);
+            auto page = std::make_shared<overlaytext::Page> ();
+            page->id = overlaytext::NewPageId ();
+            page->width = texture->Width;
+            page->height = texture->Height;
+            const size_t count = size_t (texture->Width) * size_t (texture->Height);
+            const unsigned char* source = static_cast<const unsigned char*> (texture->GetPixels ());
+            if (texture->BytesPerPixel == 4) {
+                page->pixels.assign (source, source + count * 4);
             }
             else {
-                // Towards the middle of the view, away from the edge the legend sits at.
-                const bool left = a.x > view.x * 0.5f;
-                items::ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min,
-                                 legend.colormap.max, legend.decimals, legend.unit,
-                                 ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
-                                 ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale, band);
-            }
-            highlight = { true, bar.layer, band[0], band[1] };
-            return;
-        }
-    }
-
-    // ⚠️ THE DOCK: a tab per titled panel down the view's right edge, half-way down, all
-    // as wide as the widest title (the user, 2026-09-29). Filled with the panel's accent
-    // while the panel is open; its card's own colours while the panel is in the dock. A
-    // press on it opens or closes the panel -- in this frame, as the dock is laid out
-    // before the panels.
-    void Dock (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
-               ImVec2 view)
-    {
-        inset = 0.0f;
-        std::vector<size_t> titled;
-        for (size_t i = 0; i < panels.size (); ++i)
-            if (!panels[i]->title.empty ())
-                titled.push_back (i);
-        if (titled.empty ())
-            return;
-        ImGui::SetNextWindowPos (ImVec2 (view.x, view.y * 0.5f), ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
-        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0.0f, 0.0f));
-        ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
-        ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0.0f, kDockSpacing * scale));
-        ImGui::PushFont (font, kDockFontPixels * scale);
-        const ImGuiWindowFlags flags =
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
-            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground;
-        const bool shown = ImGui::Begin ("###tapioca.dock", nullptr, flags);
-        windows.back () = ImGui::GetCurrentWindow ();
-        if (shown) {
-            float widest = 0.0f;
-            for (const size_t i : titled)
-                widest = (std::max) (widest, ImGui::CalcTextSize (panels[i]->title.c_str ()).x);
-            const ImVec2 size (widest + 2.0f * kDockPadding[0] * scale,
-                               ImGui::GetFontSize () + 2.0f * kDockPadding[1] * scale);
-            for (const size_t i : titled) {
-                PanelState& state = StateOf (keys[i], *panels[i]);
-                ImGui::PushID (keys[i].c_str ());
-                if (items::DockButton ("##tab", panels[i]->title, *panels[i], !state.collapsed, size,
-                                       ImDrawFlags_RoundCornersLeft, scale)) {
-                    state.collapsed = !state.collapsed;
-                    Docking (*panels[i], keys[i], state.collapsed);
+                // Alpha8: white, with ImGui's coverage as alpha.
+                page->pixels.resize (count * 4);
+                for (size_t i = 0; i < count; ++i) {
+                    page->pixels[i * 4] = page->pixels[i * 4 + 1] = page->pixels[i * 4 + 2] = 255;
+                    page->pixels[i * 4 + 3] = source[i];
                 }
+            }
+            pages[slot] = std::move (page);
+            texture->SetTexID (ImTextureID (slot + 1));
+            texture->SetStatus (ImTextureStatus_OK);
+            ++atlasVersion;
+            ++stats.atlasVersions;
+        }
+        else if (texture->Status == ImTextureStatus_WantDestroy && texture->UnusedFrames > 0) {
+            for (size_t slot = 0; slot < textures.size (); ++slot)
+                if (textures[slot] == texture) {
+                    textures[slot] = nullptr;
+                    pages[slot] = nullptr;
+                }
+            texture->SetTexID (ImTextureID_Invalid);
+            texture->SetStatus (ImTextureStatus_Destroyed);
+        }
+    }
+}
+
+void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float scale)
+{
+    // What an item without its own width spans: the panel's width when it has one,
+    // otherwise a width that does not depend on the layout it is part of.
+    const float font = ImGui::GetFontSize ();
+    const float width = panel.widthPixels > 0.0f ? (std::max) (ImGui::GetContentRegionAvail ().x, 1.0f) : 14.0f * font;
+    // Inside a closed section its items are not laid out at all.
+    bool shown = true;
+    size_t i = 0;
+    while (i < panel.items.size ()) {
+        const layers::PanelItem& item = panel.items[i];
+        if (!shown && item.kind != layers::ItemKind::Section) {
+            ++i;
+            continue;
+        }
+        ImGui::PushID (int (i));
+        switch (item.kind) {
+            case layers::ItemKind::Row: {
+                size_t end = i;
+                while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Row)
+                    ++end;
+                items::Rows (panel, i, end, scale);
                 ImGui::PopID ();
-            }
-            FontButtons (*panels[titled.front ()], size, scale);
-        }
-        ImGui::End ();
-        ImGui::PopFont ();
-        ImGui::PopStyleVar (3);
-        if (windows.back () != nullptr)
-            inset = windows.back ()->Size.x + kDockGap * scale;
-    }
-
-    // A panel sent to the dock or opened from it: said.
-    void Docking (const layers::Panel& panel, const std::string& panelKey, bool docked)
-    {
-        changes.push_back ({ "dock", panelKey, panel.title, std::string (), -1, docked ? 1.0 : 0.0,
-                             docked ? "docked" : "open", true });
-    }
-
-    // The text size under the tabs: smaller and larger, side by side, in the first titled
-    // panel's colours; pointed at, the size they give, beside the dock.
-    void FontButtons (const layers::Panel& colours, ImVec2 tab, float scale)
-    {
-        uint32_t& step = store->fontStep;
-        const uint32_t was = step;
-        const float gap = kDockSpacing * scale;
-        const ImVec2 half ((tab.x - gap) * 0.5f, tab.y);
-        ImGui::PushID ("tapioca.font");
-        const float top = ImGui::GetCursorScreenPos ().y;
-        if (items::DockButton ("##smaller", "A\xE2\x88\x92", colours, false, half, ImDrawFlags_RoundCornersLeft,
-                               scale) &&
-            step > 0)
-            --step;
-        const bool pointed = ImGui::IsItemHovered ();
-        ImGui::SameLine (0.0f, gap);
-        if (items::DockButton ("##larger", "A+", colours, false, half, ImDrawFlags_RoundCornersNone, scale) &&
-            step + 1 < kFontStepCount)
-            ++step;
-        if (pointed || ImGui::IsItemHovered ()) {
-            const std::string text = "Text size " + Percent (kFontSteps[step]);
-            ImGui::SetNextWindowPos (ImVec2 (ImGui::GetWindowPos ().x - 6.0f * scale, top + tab.y * 0.5f),
-                                     ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
-            if (ImGui::BeginTooltip ()) {
-                ImGui::TextUnformatted (text.c_str ());
-                ImGui::EndTooltip ();
-            }
-        }
-        if (step != was)
-            changes.push_back ({ "fontScale", std::string (), std::string (), "textSize", -1, double (kFontSteps[step]),
-                                 Percent (kFontSteps[step]), true });
-        ImGui::PopID ();
-    }
-
-    // One frame of the whole set.
-    void Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
-                const Input& input, const std::vector<LegendBar>& legends, float delta)
-    {
-        ImGuiIO& io = ImGui::GetIO ();
-        const bool known = input.width >= 1.0f && input.height >= 1.0f;
-        const ImVec2 view = known ? ImVec2 (input.width, input.height) : ImVec2 (16384.0f, 16384.0f);
-        io.DisplaySize = view;
-        io.DeltaTime = delta;
-        const float ui = scale * kFontSteps[(std::min) (store->fontStep, kFontStepCount - 1)];
-        BaseStyle (ui);
-        ImGui::NewFrame ();
-        windows.assign (panels.size () + 1, nullptr);
-        highlight = Layout::Highlight {};
-        inset = 0.0f;
-        if (known)
-            Dock (panels, keys, ui, view);
-        for (size_t i = 0; i < panels.size (); ++i)
-            Window (*panels[i], keys[i], i, scale, ui, view);
-        if (known)
-            LegendTips (legends, ui, view);
-        // A hand over what ImGui calls an item -- a button, a section's row, a dock's tab,
-        // the title bar's close button -- and while one is held. Not while the background
-        // is held: ImGui makes a window's move id active there even when the window cannot
-        // move.
-        const ImGuiContext& g = *ImGui::GetCurrentContext ();
-        const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
-        hand = g.HoveredId != 0 || held;
-        ImGui::Render ();
-        Sync (ImGui::GetDrawData ());
-        ++stats.frames;
-    }
-
-    // Which of the set's windows a draw list belongs to -- the dock's is the last -- and
-    // -1 for what floats over them.
-    int PanelOf (const ImDrawList* list) const
-    {
-        for (ImGuiWindow* window : ImGui::GetCurrentContext ()->Windows) {
-            if (window->DrawList != list)
+                i = end;
                 continue;
-            for (size_t i = 0; i < windows.size (); ++i)
-                if (windows[i] != nullptr && window->RootWindow == windows[i])
-                    return int (i);
-            return -1;
+            }
+            case layers::ItemKind::Text:
+                items::Text (panel, item, width, scale);
+                break;
+            case layers::ItemKind::Separator:
+                ImGui::Separator ();
+                break;
+            case layers::ItemKind::Spacing:
+                ImGui::Dummy (ImVec2 (1.0f, (item.heightPixels > 0.0f ? item.heightPixels : 6.0f) * scale));
+                break;
+            case layers::ItemKind::Progress:
+                items::Progress (item, width, scale);
+                break;
+            case layers::ItemKind::Swatch: {
+                // A run of swatches is one key: a grid when it has values or columns.
+                size_t end = i;
+                while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Swatch)
+                    ++end;
+                items::Keys (panel, i, end, width, scale);
+                ImGui::PopID ();
+                i = end;
+                continue;
+            }
+            case layers::ItemKind::Metrics:
+                items::Metrics (panel, item, width, scale);
+                break;
+            case layers::ItemKind::Stack:
+                items::Stack (panel, item, width, scale);
+                break;
+            case layers::ItemKind::Bars:
+                items::Bars (panel, item, width, scale);
+                break;
+            case layers::ItemKind::Ramp: {
+                double band[2] = {};
+                // A ramp in a panel describes its own layer's heatmaps.
+                if (items::Ramp (panel, item, width, scale, band))
+                    highlight = { true, layer, band[0], band[1] };
+                break;
+            }
+            case layers::ItemKind::Plot:
+                items::Plot (item, width, scale);
+                break;
+            case layers::ItemKind::Table:
+                items::Table (item);
+                break;
+            case layers::ItemKind::Section: {
+                bool& open = state.sections.try_emplace (uint32_t (i), item.open).first->second;
+                const bool was = open;
+                items::Section (panel, item, open, scale);
+                if (open != was)
+                    changes.push_back ({ "section", key, panel.title, item.text, int32_t (i), open ? 1.0 : 0.0,
+                                         open ? "open" : "folded", true });
+                shown = open;
+                break;
+            }
         }
+        ImGui::PopID ();
+        ++i;
+    }
+}
+
+// One panel's window, at its anchor on the view: its title bar -- whose close button
+// sends it to the dock -- when it has a title, then its items. Nothing while it is in
+// the dock.
+// `scale` is the view's DPI scale, what the distances from its edges take; `ui` that
+// times the text size, what everything else takes.
+void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui,
+                           ImVec2 view)
+{
+    PanelState& state = StateOf (key, panel);
+    this->key = key;
+    layer = key.substr (0, key.rfind ('#'));
+    const bool titled = !panel.title.empty ();
+    if (titled && state.collapsed)
+        return;
+    const int column = int (panel.anchor) % 3, row = int (panel.anchor) / 3;
+    const ImVec2 pivot (float (column) * 0.5f, float (row) * 0.5f);
+    const float inwardX = column == 2 ? -1.0f : 1.0f, inwardY = row == 2 ? -1.0f : 1.0f;
+    // The panel's own anchor point on the view's, `offsetPixels` inwards (Place), the
+    // right column beside the dock.
+    ImGui::SetNextWindowPos (
+        ImVec2 (pivot.x * view.x + inwardX * panel.offsetPixels[0] * scale - (column == 2 ? inset : 0.0f),
+                pivot.y * view.y + inwardY * panel.offsetPixels[1] * scale),
+        ImGuiCond_Always, pivot);
+    if (panel.widthPixels > 0.0f) {
+        const float w = panel.widthPixels * ui;
+        ImGui::SetNextWindowSizeConstraints (ImVec2 (w, 0.0f), ImVec2 (w, FLT_MAX));
+    }
+    // ### keeps the window's identity -- and so its state -- whatever its title says.
+    const std::string name = (titled ? panel.title : std::string ()) + "###tapioca.panel." + key;
+    const int colours = PushPanelStyle (panel, ui);
+    ImFont* const face = FontFor (panel.font);
+    ImGui::PushFont (face, panel.sizePixels * ui * (titled ? kTitleScale : 1.0f));
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+                             ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
+                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav |
+                             ImGuiWindowFlags_NoCollapse;
+    if (!titled)
+        flags |= ImGuiWindowFlags_NoTitleBar;
+    // The close button: pressed, the panel goes to the dock -- drawn this frame still,
+    // not from the next.
+    bool kept = true;
+    const bool open = ImGui::Begin (name.c_str (), titled ? &kept : nullptr, flags);
+    ImGui::PopFont (); // the title bar is drawn
+    windows[index] = ImGui::GetCurrentWindow ();
+    if (!kept) {
+        state.collapsed = true;
+        Docking (panel, key, true);
+    }
+    if (open && titled) {
+        // A hairline under the title bar: the design's header, above the first item.
+        ImGuiWindow* const window = ImGui::GetCurrentWindow ();
+        const ImRect bar = window->TitleBarRect ();
+        window->DrawList->AddLine (ImVec2 (bar.Min.x, bar.Max.y), bar.Max, ImGui::GetColorU32 (ImGuiCol_Separator),
+                                   (std::max) (1.0f, ui));
+    }
+    if (open) {
+        ImGui::PushFont (face, panel.sizePixels * ui);
+        Items (panel, state, ui);
+        ImGui::PopFont ();
+    }
+    ImGui::End ();
+    ImGui::PopStyleColor (colours);
+    ImGui::PopStyleVar (kStyleVars);
+}
+
+// A legend's bar pointed at: the value there, beside the bar at the pointer.
+void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scale, ImVec2 view)
+{
+    const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    for (const LegendBar& bar : legends) {
+        if (bar.legend == nullptr)
+            continue;
+        const ImVec2 a (bar.rect[0], bar.rect[1]), b (bar.rect[2], bar.rect[3]);
+        if (b.x <= a.x || b.y <= a.y || !ImGui::IsMouseHoveringRect (a, b, false))
+            continue;
+        const layers::Legend& legend = *bar.legend;
+        double band[2] = {};
+        if (legend.horizontal) {
+            items::ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min, legend.colormap.max,
+                             legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f),
+                             scale, band);
+        }
+        else {
+            // Towards the middle of the view, away from the edge the legend sits at.
+            const bool left = a.x > view.x * 0.5f;
+            items::ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min, legend.colormap.max,
+                             legend.decimals, legend.unit,
+                             ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
+                             ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale, band);
+        }
+        highlight = { true, bar.layer, band[0], band[1] };
+        return;
+    }
+}
+
+// One frame of the whole set.
+void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys,
+                          float scale, const Input& input, const std::vector<LegendBar>& legends, float delta)
+{
+    ImGuiIO& io = ImGui::GetIO ();
+    const bool known = input.width >= 1.0f && input.height >= 1.0f;
+    const ImVec2 view = known ? ImVec2 (input.width, input.height) : ImVec2 (16384.0f, 16384.0f);
+    io.DisplaySize = view;
+    io.DeltaTime = delta;
+    const float ui = scale * kFontSteps[(std::min) (store->fontStep, kFontStepCount - 1)];
+    BaseStyle (ui);
+    ImGui::NewFrame ();
+    windows.assign (panels.size () + 1, nullptr);
+    highlight = Layout::Highlight {};
+    inset = 0.0f;
+    if (known)
+        Dock (panels, keys, ui, view);
+    for (size_t i = 0; i < panels.size (); ++i)
+        Window (*panels[i], keys[i], i, scale, ui, view);
+    if (known)
+        LegendTips (legends, ui, view);
+    // A hand over what ImGui calls an item -- a button, a section's row, a dock's tab,
+    // the title bar's close button -- and while one is held. Not while the background
+    // is held: ImGui makes a window's move id active there even when the window cannot
+    // move.
+    const ImGuiContext& g = *ImGui::GetCurrentContext ();
+    const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
+    hand = g.HoveredId != 0 || held;
+    ImGui::Render ();
+    Sync (ImGui::GetDrawData ());
+    ++stats.frames;
+}
+
+// Which of the set's windows a draw list belongs to -- the dock's is the last -- and
+// -1 for what floats over them.
+int Engine::Impl::PanelOf (const ImDrawList* list) const
+{
+    for (ImGuiWindow* window : ImGui::GetCurrentContext ()->Windows) {
+        if (window->DrawList != list)
+            continue;
+        for (size_t i = 0; i < windows.size (); ++i)
+            if (windows[i] != nullptr && window->RootWindow == windows[i])
+                return int (i);
         return -1;
     }
+    return -1;
+}
 
-    // The last frame's triangles, each panel's from its top-left, against the pages as
-    // they stand.
-    void Collect (Layout& out, uint32_t& unsampled)
-    {
-        const ImDrawData* data = ImGui::GetDrawData ();
-        if (data == nullptr)
-            return;
-        for (const ImDrawList* list : data->CmdLists) {
-            const int panel = PanelOf (list);
-            Built& into = panel < 0                             ? out.overlay
-                          : size_t (panel) < out.panels.size () ? out.panels[size_t (panel)]
-                                                                : out.dock;
-            const ImVec2 origin = panel >= 0 ? windows[size_t (panel)]->Pos : ImVec2 (0.0f, 0.0f);
-            for (const ImDrawCmd& command : list->CmdBuffer) {
-                if (command.UserCallback != nullptr || command.ElemCount == 0)
-                    continue;
-                const ImTextureID id = command.GetTexID ();
-                const size_t slot = id == ImTextureID_Invalid ? pages.size () : size_t (id - 1);
-                if (slot >= pages.size () || pages[slot] == nullptr) {
-                    ++unsampled;
-                    continue;
-                }
-                for (unsigned int e = 0; e < command.ElemCount; ++e) {
-                    const ImDrawVert& v =
-                        list->VtxBuffer[int (command.VtxOffset + list->IdxBuffer[int (command.IdxOffset + e)])];
-                    into.vertices.push_back (
-                        { v.pos.x - origin.x, v.pos.y - origin.y, v.uv.x, v.uv.y, Unpacked (v.col), uint32_t (slot) });
-                }
+// The last frame's triangles, each panel's from its top-left, against the pages as
+// they stand.
+void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
+{
+    const ImDrawData* data = ImGui::GetDrawData ();
+    if (data == nullptr)
+        return;
+    for (const ImDrawList* list : data->CmdLists) {
+        const int panel = PanelOf (list);
+        Built& into = panel < 0                             ? out.overlay
+                      : size_t (panel) < out.panels.size () ? out.panels[size_t (panel)]
+                                                            : out.dock;
+        const ImVec2 origin = panel >= 0 ? windows[size_t (panel)]->Pos : ImVec2 (0.0f, 0.0f);
+        for (const ImDrawCmd& command : list->CmdBuffer) {
+            if (command.UserCallback != nullptr || command.ElemCount == 0)
+                continue;
+            const ImTextureID id = command.GetTexID ();
+            const size_t slot = id == ImTextureID_Invalid ? pages.size () : size_t (id - 1);
+            if (slot >= pages.size () || pages[slot] == nullptr) {
+                ++unsampled;
+                continue;
+            }
+            for (unsigned int e = 0; e < command.ElemCount; ++e) {
+                const ImDrawVert& v =
+                    list->VtxBuffer[int (command.VtxOffset + list->IdxBuffer[int (command.IdxOffset + e)])];
+                into.vertices.push_back (
+                    { v.pos.x - origin.x, v.pos.y - origin.y, v.uv.x, v.uv.y, Unpacked (v.col), uint32_t (slot) });
             }
         }
     }
-};
+}
 
 Engine::Engine () : impl_ (new Impl ())
 {

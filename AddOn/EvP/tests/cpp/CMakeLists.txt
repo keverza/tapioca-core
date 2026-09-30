@@ -467,6 +467,7 @@ set (EVP_ARCHVIZ_SOURCES
     # The HUD panels: laid out by the vendored Dear ImGui into triangles over its own
     # font atlas, the same library the add-on links (TapiocaImGui below).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudDock.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudEvents.cpp"
     # Where the HUD is on the view and whose a mouse gesture is (OverlayInput.cpp takes the messages).
