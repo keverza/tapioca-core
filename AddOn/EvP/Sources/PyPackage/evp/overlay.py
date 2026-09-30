@@ -19,13 +19,23 @@ one's own transform (`views` picks). Coordinates are MODEL METRES: a single poin
 {x, y, z} record on the wire (a tuple here), bulk geometry flat x, y, z. `occlusion` says
 what an item does behind the building in 3D: "hide", "fade", "dash" (lines) or
 "always"; the layer's own is the default for its items. A HUD panel is laid
-out by Dear ImGui and never takes a click; a legend is a colour bar with its values, and
+out by Dear ImGui; a click on it is the HUD's and never Archicad's, and what the user
+changes there reaches a script as `events`. A legend is a colour bar with its values, and
 a panel's `ramp` is the same bar inside a panel, for a layout of one's own.
+
+    seen = overlay.hud_state()["lastSeq"]
+    while True:
+        got = overlay.wait_events(seen, timeout=1.0)
+        for event in got["events"]:
+            print(event["kind"], event["title"], event["value"])
+        seen = got["lastSeq"]
 
 Colours are "RRGGBB[AA]" hex, "#" optional, or an (r, g, b[, a]) tuple in 0..1. Numbers
 are sent as REALS: a JSON whole number reaches the add-on as an integer, which the
 overlay reads either way but most verbs do not (see NativeCommands/CommandUtils.hpp).
 """
+
+import time as _time
 
 from .api import call
 
@@ -48,6 +58,10 @@ __all__ = [
     "hud",
     "story_slices",
     "annotations",
+    "events",
+    "wait_events",
+    "hud_state",
+    "set_text_size",
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
@@ -843,3 +857,48 @@ def clear_all():
 def layers():
     """What is set, in draw order, and what the overlays' renderers have drawn of it."""
     return call("Tapioca.OverlayLayers", {}).data or {}
+
+
+# ---- what the user does on the HUD ----------------------------------------------------------
+
+
+def events(since=0, max_events=256):
+    """What the user changed on the HUD after event number `since`: a panel docked or
+    opened, a section folded, the text size -- and each control's new value.
+
+    Returns {"lastSeq", "gap", "events"}; each event is {seq, timeMs, view ("3d" or
+    "plan"), kind, layer, panel, title, id, item, value, text, final}. Keep `lastSeq` and
+    pass it back as `since` to read only what is new.
+
+    Gate-free: it never waits for Archicad's main thread, so poll it as often as a loop
+    likes. ⚠️ BRANCH ON `gap` FIRST: True means events after `since` were dropped from
+    the add-on's ring before this read; read :func:`hud_state` again rather than acting on
+    a tail that looks complete.
+    """
+    params = {"sinceSeq": max(0, int(since)), "maxEvents": max(1, min(512, int(max_events)))}
+    return call("Tapioca.OverlayHudEvents", params).data or {}
+
+
+def wait_events(since=0, timeout=None, interval=0.05, max_events=256):
+    """:func:`events`, once there is at least one after `since` -- or when `timeout`
+    seconds pass, with none. `interval` is how often it asks."""
+    deadline = None if timeout is None else _time.monotonic() + float(timeout)
+    while True:
+        got = events(since, max_events)
+        if got.get("events") or got.get("gap"):
+            return got
+        if deadline is not None and _time.monotonic() >= deadline:
+            return got
+        _time.sleep(float(interval))
+
+
+def hud_state():
+    """What the user left the HUD as: {"fontScale", "panels", "lastSeq"}, each panel
+    {layer, panel, title, docked}. Read events from `lastSeq` on to follow it."""
+    return call("Tapioca.OverlayHud", {}).data or {}
+
+
+def set_text_size(scale):
+    """The HUD's text size in both views, the nearest of its steps (0.8 to 2): what the
+    dock's A- and A+ buttons walk. Returns :func:`hud_state`'s record."""
+    return call("Tapioca.OverlayHud", {"fontScale": float(scale)}).data or {}

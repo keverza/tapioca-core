@@ -109,6 +109,20 @@ struct LegendBar {
     float rect[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // view pixels: left, top, right, bottom
 };
 
+// What the user changed on the HUD in a layout: a panel docked or opened, a section
+// folded, the text size -- and, from stage 2's controls, a value. For Python
+// (OverlayHudEvents.hpp); `key` splits into the panel's layer and place.
+struct Change {
+    std::string kind;  // "dock", "section", "fontScale"
+    std::string key;   // the panel's; empty for the HUD's own (the text size)
+    std::string title; // the panel's
+    std::string id;    // the control: a section's title; "textSize"
+    int32_t item = -1; // its place among the panel's items
+    double value = 0.0;
+    std::string text; // what the value says
+    bool final = true;
+};
+
 // A set laid out: one per panel, and what floats over them -- the tooltips -- in view
 // pixels from its top-left (`overlay.fraction` 0, 0).
 struct Layout {
@@ -130,7 +144,12 @@ struct Layout {
     // The pointer is on something it can press, or pressing one: the input shows a hand
     // over it (OverlayInput.hpp), an arrow over the rest of the HUD.
     bool hand = false;
+    // What the user changed in this layout, in the order they did it.
+    std::vector<Change> changes;
 };
+
+// Where each change goes: the views' engines hand them to the event ring with their view.
+using ChangeSink = std::function<void (const Change&)>;
 
 struct Stats {
     uint32_t builds = 0;        // sets of panels laid out
@@ -145,6 +164,13 @@ struct State;
 std::shared_ptr<State> NewState ();
 // Forgets it all: the project whose layers it named closed (§8).
 void ClearState (State& state);
+// Its text size (Engine::FontScale), set to the nearest step; and whether a panel is in
+// the dock -- false for a key never laid out.
+float FontScaleOf (const State& state);
+void SetFontScale (State& state, float scale);
+bool Docked (const State& state, const std::string& key);
+// Whether a panel of that key was ever laid out: before, it is as its caller set it.
+bool Known (const State& state, const std::string& key);
 
 // Reads the font file at a path a panel names (overlayfonts::Read).
 using FontLoader = std::function<bool (const std::string& path, std::vector<uint8_t>& bytes, std::string& error)>;
@@ -164,6 +190,8 @@ class Engine final {
     void SetFontLoader (FontLoader loader);
     // The state to keep what the user does in, instead of the engine's own.
     void UseState (std::shared_ptr<State> state);
+    // Where the changes go, after each `Build`, outside ImGui's lock.
+    void SetChangeSink (ChangeSink sink);
 
     // The HUD's text size, a factor on every size but the distances from the view's edges:
     // one of a few steps (0.8 to 2), walked by the dock's smaller and larger buttons. Set,

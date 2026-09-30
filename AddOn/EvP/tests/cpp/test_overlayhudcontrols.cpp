@@ -287,3 +287,66 @@ TEST (OverlayHudControls, TheTextSizeButtonsScaleTheWholeHudInBothViews)
     threeD.engine.SetFontScale (1.3f);
     EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.25f);
 }
+
+// ---- what the user changed, for Python -------------------------------------------------------
+
+// ⚠️ THE USER, 2026-09-29: the add-on sends change events to Python. Every change a layout
+// makes is said once -- in the layout and to the engine's sink, after ImGui's lock -- with
+// the panel's key and title: the close button and a tab dock and open, a section folds, the
+// size buttons change the text size. Pointing at things says nothing.
+TEST (OverlayHudControls, EveryChangeTheUserMakesIsSaidOnce)
+{
+    Fresh hud;
+    std::vector<hud::Change> heard;
+    hud.engine.SetChangeSink ([&heard] (const hud::Change& change) { heard.push_back (change); });
+    layers::Panel panel = Titled ();
+    panel.items.push_back (Item (layers::ItemKind::Section, "Spacing metrics"));
+    panel.items.push_back (Item (layers::ItemKind::Row, "Healthcare", "18.3 %"));
+    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_TRUE (open.changes.empty ());
+
+    const hud::Layout closed = hud.Click ({ &panel }, CloseX (open.panels[0]), kCloseY);
+    ASSERT_EQ (heard.size (), 1u);
+    EXPECT_EQ (heard[0].kind, "dock");
+    EXPECT_EQ (heard[0].key, "hud#0");
+    EXPECT_EQ (heard[0].title, "Area metrics");
+    EXPECT_DOUBLE_EQ (heard[0].value, 1.0);
+    EXPECT_EQ (heard[0].text, "docked");
+    EXPECT_EQ (closed.changes.size (), 1u) << "the layout that made it says it too";
+
+    float x = 0.0f, y = 0.0f;
+    TabAt (closed.dock, 0, 1, x, y);
+    hud.Click ({ &panel }, x, y);
+    ASSERT_EQ (heard.size (), 2u);
+    EXPECT_EQ (heard[1].text, "open");
+    EXPECT_DOUBLE_EQ (heard[1].value, 0.0);
+
+    // The section's row: under the title bar and the two rows. Found by pointing down the
+    // panel until the hand shows past the rows.
+    const hud::Layout reopened = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    float row = 0.0f;
+    for (float probeY = 40.0f; probeY < 16.0f + reopened.panels[0].height && row == 0.0f; probeY += 2.0f)
+        if (hud.Lay ({ &panel }, At (16.0f + 40.0f, probeY)).hand)
+            row = probeY;
+    ASSERT_GT (row, 0.0f) << "the section's row";
+    hud.Click ({ &panel }, 16.0f + 40.0f, row + 2.0f);
+    ASSERT_EQ (heard.size (), 3u);
+    EXPECT_EQ (heard[2].kind, "section");
+    EXPECT_EQ (heard[2].id, "Spacing metrics");
+    EXPECT_EQ (heard[2].item, 2);
+    EXPECT_EQ (heard[2].text, "folded");
+
+    const hud::Layout now = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    SizeAt (now.dock, 1, true, x, y);
+    hud.Click ({ &panel }, x, y);
+    ASSERT_EQ (heard.size (), 4u);
+    EXPECT_EQ (heard[3].kind, "fontScale");
+    EXPECT_TRUE (heard[3].key.empty ()) << "the HUD's own, no panel's";
+    EXPECT_NEAR (heard[3].value, 1.1, 1e-6);
+    EXPECT_EQ (heard[3].text, "110 %");
+
+    // Pointing and laying out again say nothing.
+    hud.Lay ({ &panel }, At (x, y));
+    hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_EQ (heard.size (), 4u);
+}

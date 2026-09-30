@@ -387,6 +387,12 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # A font a verb names is resolved as the verb reads it, so a caller hears at once
     # that a family is not installed; the layers carry the file (OverlayFonts.hpp).
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayFonts.hpp"),
+    # Tapioca.OverlayHudEvents and Tapioca.OverlayHud (2026-09-30): what the user does on
+    # the HUD, for Python. The events verb reads the one ring the HUD engines push to -- a
+    # second queue here would be a second answer to "what did the user press" -- and the
+    # state verb asks the controller, which owns both views' HUDs.
+    ("NativeCommands/OverlayHudCommands.cpp", "ArchViz/OverlayHudEvents.hpp"),
+    ("NativeCommands/OverlayHudCommands.cpp", "ArchViz/OverlayController.hpp"),
     # The massing slabs' floor slices read each slab's polygon through the one walk of
     # a polygon memo. Its indexing -- 1-based coords, the closing repeat, the arc
     # lookup by begIndex -- must not exist twice, and it lives with the element reads.

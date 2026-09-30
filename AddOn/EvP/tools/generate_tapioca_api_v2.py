@@ -250,7 +250,9 @@ from typing import Any
 # 228 -> 229 with CreateDraftingPrimitives (line/arc/circle/hotspot CRUD slice).
 # 229 -> 230 with CreateFills (API_HatchID element, not fill attribute).
 # 230 -> 233 with static dimension create, typed read and sparse style edits.
-EXPECTED_REGISTRY_COMMANDS = 233
+# 233 -> 235 with OverlayHudEvents and OverlayHud, what the user does on the overlays'
+# HUD for Python (2026-09-30), in OverlayHudCommands.cpp.
+EXPECTED_REGISTRY_COMMANDS = 235
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -264,7 +266,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 247 -> 248 with CreateDraftingPrimitives.
 # 248 -> 249 with CreateFills.
 # 249 -> 252 with static dimension create, read and style edit.
-EXPECTED_TOTAL_COMMANDS = 252
+# 252 -> 254 with the HUD's events and state.
+EXPECTED_TOTAL_COMMANDS = 254
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

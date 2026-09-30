@@ -86,6 +86,11 @@ void Shutdown ();
 // Where the HUD is on that view, from its last layout.
 void SetHitMap (View view, HitMap map);
 
+// Lay that view's HUD out again soon, as a pointer change would: something other than the
+// pointer changed what it shows (the text size set from Python). Nothing for a view not
+// attached.
+void RequestLayout (View view);
+
 // The view's size and the pointer over it, for the HUD's layout. `TakeInput` hands over
 // the presses and releases the HUD took since the last call; `CurrentInput` leaves them.
 overlayhud::Input TakeInput (View view);

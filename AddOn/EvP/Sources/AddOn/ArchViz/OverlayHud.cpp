@@ -147,6 +147,40 @@ void ClearState (State& state)
     state = State {};
 }
 
+float FontScaleOf (const State& state)
+{
+    return kFontSteps[(std::min) (state.fontStep, kFontStepCount - 1)];
+}
+
+void SetFontScale (State& state, float scale)
+{
+    uint32_t nearest = 0;
+    for (uint32_t k = 1; k < kFontStepCount; ++k)
+        if (std::fabs (kFontSteps[k] - scale) < std::fabs (kFontSteps[nearest] - scale))
+            nearest = k;
+    state.fontStep = nearest;
+}
+
+bool Docked (const State& state, const std::string& key)
+{
+    const auto found = state.panels.find (key);
+    return found != state.panels.end () && found->second.collapsed;
+}
+
+bool Known (const State& state, const std::string& key)
+{
+    return state.panels.find (key) != state.panels.end ();
+}
+
+namespace {
+
+std::string Percent (float scale)
+{
+    return std::to_string (int (std::lround (scale * 100.0f))) + " %";
+}
+
+} // namespace
+
 struct Engine::Impl {
     ImGuiContext* context = nullptr;
     ImFont* font = nullptr;
@@ -167,8 +201,12 @@ struct Engine::Impl {
     // What the user did to each panel: this engine's own, or the views' shared one.
     using PanelState = State::Panel;
     std::shared_ptr<State> store = NewState ();
-    // The layer of the panel being laid out, and what the pointer is on this frame.
+    // The panel being laid out -- its key, its layer -- and what the pointer is on this
+    // frame; what the user changed in this build, and where that goes after it.
+    std::string key;
     std::string layer;
+    std::vector<Change> changes;
+    ChangeSink sink;
     Layout::Highlight highlight;
     bool hand = false;
     // The panels' windows in the frame being laid out, by the panel's place in the set,
@@ -338,7 +376,11 @@ struct Engine::Impl {
                     break;
                 case layers::ItemKind::Section: {
                     bool& open = state.sections.try_emplace (uint32_t (i), item.open).first->second;
+                    const bool was = open;
                     items::Section (panel, item, open, scale);
+                    if (open != was)
+                        changes.push_back ({ "section", key, panel.title, item.text, int32_t (i), open ? 1.0 : 0.0,
+                                             open ? "open" : "folded", true });
                     shown = open;
                     break;
                 }
@@ -356,6 +398,7 @@ struct Engine::Impl {
     void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui, ImVec2 view)
     {
         PanelState& state = StateOf (key, panel);
+        this->key = key;
         layer = key.substr (0, key.rfind ('#'));
         const bool titled = !panel.title.empty ();
         if (titled && state.collapsed)
@@ -391,8 +434,10 @@ struct Engine::Impl {
         const bool open = ImGui::Begin (name.c_str (), titled ? &kept : nullptr, flags);
         ImGui::PopFont (); // the title bar is drawn
         windows[index] = ImGui::GetCurrentWindow ();
-        if (!kept)
+        if (!kept) {
             state.collapsed = true;
+            Docking (panel, key, true);
+        }
         if (open && titled) {
             // A hairline under the title bar: the design's header, above the first item.
             ImGuiWindow* const window = ImGui::GetCurrentWindow ();
@@ -477,8 +522,10 @@ struct Engine::Impl {
                 PanelState& state = StateOf (keys[i], *panels[i]);
                 ImGui::PushID (keys[i].c_str ());
                 if (items::DockButton ("##tab", panels[i]->title, *panels[i], !state.collapsed, size,
-                                       ImDrawFlags_RoundCornersLeft, scale))
+                                       ImDrawFlags_RoundCornersLeft, scale)) {
                     state.collapsed = !state.collapsed;
+                    Docking (*panels[i], keys[i], state.collapsed);
+                }
                 ImGui::PopID ();
             }
             FontButtons (*panels[titled.front ()], size, scale);
@@ -490,11 +537,19 @@ struct Engine::Impl {
             inset = windows.back ()->Size.x + kDockGap * scale;
     }
 
+    // A panel sent to the dock or opened from it: said.
+    void Docking (const layers::Panel& panel, const std::string& panelKey, bool docked)
+    {
+        changes.push_back ({ "dock", panelKey, panel.title, std::string (), -1, docked ? 1.0 : 0.0,
+                             docked ? "docked" : "open", true });
+    }
+
     // The text size under the tabs: smaller and larger, side by side, in the first titled
     // panel's colours; pointed at, the size they give, beside the dock.
     void FontButtons (const layers::Panel& colours, ImVec2 tab, float scale)
     {
         uint32_t& step = store->fontStep;
+        const uint32_t was = step;
         const float gap = kDockSpacing * scale;
         const ImVec2 half ((tab.x - gap) * 0.5f, tab.y);
         ImGui::PushID ("tapioca.font");
@@ -509,8 +564,7 @@ struct Engine::Impl {
             step + 1 < kFontStepCount)
             ++step;
         if (pointed || ImGui::IsItemHovered ()) {
-            const std::string text =
-                "Text size " + std::to_string (int (std::lround (kFontSteps[step] * 100.0f))) + " %";
+            const std::string text = "Text size " + Percent (kFontSteps[step]);
             ImGui::SetNextWindowPos (ImVec2 (ImGui::GetWindowPos ().x - 6.0f * scale, top + tab.y * 0.5f),
                                      ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
             if (ImGui::BeginTooltip ()) {
@@ -518,6 +572,9 @@ struct Engine::Impl {
                 ImGui::EndTooltip ();
             }
         }
+        if (step != was)
+            changes.push_back ({ "fontScale", std::string (), std::string (), "textSize", -1, double (kFontSteps[step]),
+                                 Percent (kFontSteps[step]), true });
         ImGui::PopID ();
     }
 
@@ -689,7 +746,8 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
             (std::min) ((std::max) (std::chrono::duration<float> (started - impl_->lastBuild).count (), kSettleSeconds),
                         1.0f);
     impl_->lastBuild = started;
-    std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
+    impl_->changes.clear ();
+    std::unique_lock<std::mutex> lock (ImGuiContextMutex ());
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
     uint32_t unsampled = 0;
@@ -736,6 +794,12 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     }
     impl_->windows.clear ();
     ImGui::SetCurrentContext (previous);
+    lock.unlock ();
+    // ⚠️ SAID OUTSIDE IMGUI'S LOCK: the sink takes the event ring's.
+    out.changes = impl_->changes;
+    if (impl_->sink)
+        for (const Change& change : out.changes)
+            impl_->sink (change);
     ++impl_->stats.builds;
     impl_->stats.lastMilliseconds = uint32_t (
         std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now () - started).count ());
@@ -769,16 +833,17 @@ const std::vector<std::shared_ptr<const overlaytext::Page>>& Engine::Pages () co
 
 float Engine::FontScale () const
 {
-    return kFontSteps[(std::min) (impl_->store->fontStep, kFontStepCount - 1)];
+    return FontScaleOf (*impl_->store);
 }
 
 void Engine::SetFontScale (float scale)
 {
-    uint32_t nearest = 0;
-    for (uint32_t k = 1; k < kFontStepCount; ++k)
-        if (std::fabs (kFontSteps[k] - scale) < std::fabs (kFontSteps[nearest] - scale))
-            nearest = k;
-    impl_->store->fontStep = nearest;
+    overlayhud::SetFontScale (*impl_->store, scale);
+}
+
+void Engine::SetChangeSink (ChangeSink sink)
+{
+    impl_->sink = std::move (sink);
 }
 
 void Engine::UseState (std::shared_ptr<State> state)
@@ -789,8 +854,7 @@ void Engine::UseState (std::shared_ptr<State> state)
 
 bool Engine::Collapsed (const std::string& key) const
 {
-    const auto found = impl_->store->panels.find (key);
-    return found != impl_->store->panels.end () && found->second.collapsed;
+    return Docked (*impl_->store, key);
 }
 
 bool Engine::SectionOpen (const std::string& key, uint32_t item, bool& open) const

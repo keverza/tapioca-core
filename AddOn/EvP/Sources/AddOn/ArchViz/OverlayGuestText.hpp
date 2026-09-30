@@ -17,6 +17,7 @@
 #include "ArchViz/OverlayHitMap.hpp" // overlayinput::View
 
 #include <cstddef>
+#include <memory>
 #include <string>
 
 namespace geomsrv {
@@ -27,7 +28,8 @@ class Engine;
 }
 namespace overlayhud {
 class Engine;
-}
+struct State;
+} // namespace overlayhud
 
 namespace guesttext {
 
@@ -45,7 +47,11 @@ overlaytext::Engine* EngineFor (const std::string& path);
 // what the user does to the panels in one state: a panel docked in 3D is docked in plan.
 overlayhud::Engine* Hud (overlayinput::View view);
 
-// What the user did to the panels forgotten: the project whose layers they were closed.
+// What the user did to the panels, both views' (OverlayHud.hpp `State`); made on first use.
+std::shared_ptr<overlayhud::State> HudState ();
+
+// What the user did to the panels forgotten, and the events that said so: the project
+// whose layers they were closed (§8).
 void ForgetHudState ();
 
 } // namespace guesttext

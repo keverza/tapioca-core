@@ -468,6 +468,7 @@ set (EVP_ARCHVIZ_SOURCES
     # font atlas, the same library the add-on links (TapiocaImGui below).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudEvents.cpp"
     # Where the HUD is on the view and whose a mouse gesture is (OverlayInput.cpp takes the messages).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHitMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayFonts.cpp"
@@ -625,6 +626,7 @@ set (EVP_TEST_SOURCES
     test_overlayscene.cpp
     test_overlayhud.cpp
     test_overlayhudcontrols.cpp
+    test_overlayhudevents.cpp
     test_overlayhitmap.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp

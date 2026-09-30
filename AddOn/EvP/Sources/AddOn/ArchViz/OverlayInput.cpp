@@ -584,6 +584,13 @@ void SetHitMap (View view, HitMap map)
     TargetOf (view).map = std::move (map);
 }
 
+void RequestLayout (View view)
+{
+    Target& target = TargetOf (view);
+    if (target.canvas != nullptr)
+        RequestRefresh (target);
+}
+
 overlayhud::Input TakeInput (View view)
 {
     return InputOf (TargetOf (view), true);

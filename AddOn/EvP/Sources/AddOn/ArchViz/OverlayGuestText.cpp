@@ -7,10 +7,12 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/OverlayFonts.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudEvents.hpp"
 #include "ArchViz/OverlayText.hpp"
 #include "ArchViz/SceneTextFont.hpp"
 
 #include <map>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -100,17 +102,42 @@ overlayhud::Engine* Hud (overlayinput::View view)
     ArchVizLog (std::string ("OVERLAY HUD  the ") + overlayinput::ViewName (view) +
                 " HUD ready: Dear ImGui over the bundled font, laid out on the main thread");
     hud->SetFontLoader (&overlayfonts::Read);
-    if (g_hudState == nullptr)
-        g_hudState = overlayhud::NewState ();
-    hud->UseState (g_hudState);
+    hud->UseState (HudState ());
+    // What the user changes, into the ring Python reads, said where it was done.
+    const std::string where = view == overlayinput::View::ThreeD ? "3d" : "plan";
+    hud->SetChangeSink ([where] (const overlayhud::Change& change) {
+        overlayhudevents::Event event;
+        event.view = where;
+        event.kind = change.kind;
+        const size_t hash = change.key.rfind ('#');
+        if (hash != std::string::npos) {
+            event.layer = change.key.substr (0, hash);
+            event.panel = int32_t (std::strtol (change.key.c_str () + hash + 1, nullptr, 10));
+        }
+        event.title = change.title;
+        event.id = change.id;
+        event.item = change.item;
+        event.value = change.value;
+        event.text = change.text;
+        event.final = change.final;
+        overlayhudevents::Push (std::move (event));
+    });
     g_hud[at] = std::move (hud);
     return g_hud[at].get ();
+}
+
+std::shared_ptr<overlayhud::State> HudState ()
+{
+    if (g_hudState == nullptr)
+        g_hudState = overlayhud::NewState ();
+    return g_hudState;
 }
 
 void ForgetHudState ()
 {
     if (g_hudState != nullptr)
         overlayhud::ClearState (*g_hudState);
+    overlayhudevents::Clear ();
 }
 
 } // namespace guesttext

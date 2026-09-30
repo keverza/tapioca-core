@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 233,
+      "nativeRegistry": 235,
       "dispatcherLocal": 19,
-      "total": 252
+      "total": 254
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -18880,6 +18880,175 @@
         "additionalProperties": false,
         "required": [
           "rows"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.OverlayHud",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "fontScale": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 3,
+            "description": "The HUD's text size; the nearest of its steps, 0.8 to 2."
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "fontScale": {
+            "type": "number"
+          },
+          "panels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "layer": {
+                  "type": "string"
+                },
+                "panel": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "title": {
+                  "type": "string"
+                },
+                "docked": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "layer",
+                "panel",
+                "title",
+                "docked"
+              ]
+            }
+          },
+          "lastSeq": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fontScale",
+          "panels",
+          "lastSeq"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.OverlayHudEvents",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "sinceSeq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The last event already seen; 0 for every event held."
+          },
+          "maxEvents": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 512
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "lastSeq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gap": {
+            "type": "boolean",
+            "description": "Events after sinceSeq were dropped: read Tapioca.OverlayHud again."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "timeMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Wall clock, milliseconds since 1970 UTC."
+                },
+                "view": {
+                  "type": "string",
+                  "enum": [
+                    "3d",
+                    "plan"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "dock, section, fontScale, or a control's kind."
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "panel": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "item": {
+                  "type": "integer"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "final": {
+                  "type": "boolean",
+                  "description": "False while a slider is still being dragged."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "seq",
+                "timeMs",
+                "view",
+                "kind",
+                "layer",
+                "panel",
+                "title",
+                "id",
+                "item",
+                "value",
+                "text",
+                "final"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "lastSeq",
+          "gap",
+          "events"
         ]
       }
     },

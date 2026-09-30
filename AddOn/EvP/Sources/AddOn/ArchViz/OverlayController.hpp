@@ -40,6 +40,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
@@ -218,6 +219,23 @@ struct InputCounts {
     uint64_t handsShown = 0;
 };
 InputCounts Input ();
+
+// What the user did to the HUD, both views': its text size, and every titled panel of the
+// layers set now -- its layer, its place, its title, whether it is in the dock. MAIN THREAD.
+struct HudPanel {
+    std::string layer;
+    uint32_t panel = 0;
+    std::string title;
+    bool docked = false;
+};
+struct HudReport {
+    float fontScale = 1.0f;
+    std::vector<HudPanel> panels;
+};
+HudReport Hud ();
+// The HUD's text size, the nearest step (0.8 to 2), laid out again in both views. MAIN
+// THREAD.
+void SetHudFontScale (float scale);
 
 // MAIN THREAD, periodic. While an overlay is wanted, keep it on the window the
 // user is looking at: tear down the session for the view being left and start

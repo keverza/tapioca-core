@@ -22,6 +22,7 @@
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/OverlayAnnotations.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
+#include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayScene.hpp"
@@ -724,6 +725,32 @@ InputCounts Input ()
     out.cursorsSet = stats.cursorsSet;
     out.handsShown = stats.handsShown;
     return out;
+}
+
+HudReport Hud ()
+{
+    HudReport out;
+    const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
+    out.fontScale = overlayhud::FontScaleOf (*state);
+    for (const auto& layer : overlaylayers::Layers ())
+        for (size_t i = 0; i < layer->panels.size (); ++i) {
+            const overlaylayers::Panel& panel = layer->panels[i];
+            if (panel.title.empty ())
+                continue;
+            const std::string key = layer->name + "#" + std::to_string (i);
+            // A panel never laid out yet stands as its caller set it.
+            const bool known = overlayhud::Known (*state, key);
+            out.panels.push_back (
+                { layer->name, uint32_t (i), panel.title, known ? overlayhud::Docked (*state, key) : panel.collapsed });
+        }
+    return out;
+}
+
+void SetHudFontScale (float scale)
+{
+    overlayhud::SetFontScale (*guesttext::HudState (), scale);
+    overlayinput::RequestLayout (overlayinput::View::ThreeD);
+    overlayinput::RequestLayout (overlayinput::View::Plan);
 }
 
 void StopAll ()

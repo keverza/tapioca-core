@@ -263,3 +263,40 @@ def test_a_font_is_named_on_the_layer_or_on_an_item(monkeypatch):
     assert params["texts"][0]["font"] == "Consolas"
     assert params["dimensions"][0]["font"] == "Arial" and params["legends"][0]["font"] == "Arial"
     assert params["panels"][0]["font"] == "C:/Fonts/own.ttf"
+
+
+def test_the_hud_events_are_asked_for_after_the_last_seen(monkeypatch):
+    seen = []
+
+    def fake_call(command, params):
+        seen.append((command, params))
+        return SimpleNamespace(data={"lastSeq": 7, "gap": False, "events": [{"seq": 7, "kind": "dock"}]})
+
+    monkeypatch.setattr(overlay, "call", fake_call)
+    got = overlay.events(since=5)
+    assert seen[-1] == ("Tapioca.OverlayHudEvents", {"sinceSeq": 5, "maxEvents": 256})
+    assert got["lastSeq"] == 7 and got["events"][0]["kind"] == "dock"
+    # Never a negative number, never more than the ring holds.
+    overlay.events(since=-3, max_events=10000)
+    assert seen[-1][1] == {"sinceSeq": 0, "maxEvents": 512}
+    # Waiting returns at the first event.
+    assert overlay.wait_events(5, timeout=0.5)["events"]
+
+
+def test_waiting_for_hud_events_gives_up_at_its_timeout(monkeypatch):
+    monkeypatch.setattr(
+        overlay, "call", lambda command, params: SimpleNamespace(data={"lastSeq": 3, "gap": False, "events": []})
+    )
+    got = overlay.wait_events(3, timeout=0.05, interval=0.01)
+    assert got["events"] == [] and got["lastSeq"] == 3
+
+
+def test_the_text_size_is_a_real_on_the_wire(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        overlay, "call", lambda command, params: seen.append((command, params)) or SimpleNamespace(data={})
+    )
+    overlay.set_text_size(1)
+    overlay.hud_state()
+    assert seen == [("Tapioca.OverlayHud", {"fontScale": 1.0}), ("Tapioca.OverlayHud", {})]
+    assert isinstance(seen[0][1]["fontScale"], float)
