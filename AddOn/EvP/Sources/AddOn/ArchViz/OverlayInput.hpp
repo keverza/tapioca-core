@@ -88,7 +88,8 @@ struct HudOwner {
 };
 
 // The canvas `view`'s overlay composes into, and its owner. Again with a different
-// canvas: that one instead. The hook is installed with the first.
+// canvas: that one instead. The hook is installed with the first. A canvas newly taken
+// asks the owner for a layout (`refresh`): where the HUD is on it is known only then.
 bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error);
 // That view's overlay stopped: its canvas, its regions, its pointer and the latch go;
 // the hook and the window with the last view.

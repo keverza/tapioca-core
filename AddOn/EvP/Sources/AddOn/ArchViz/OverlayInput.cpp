@@ -745,6 +745,13 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
                      ViewName (view), (unsigned long long) (uintptr_t) canvas,
                      target.subclassed ? ", and shows its own cursor over itself" : "");
         ArchVizLog (line);
+        // ⚠️ LAID OUT AGAIN FOR THE CANVAS IT NOW TAKES (the user, 2026-09-30: after 3D ->
+        // plan -> 3D, and after the 3D window closed and reopened, the HUD was drawn but
+        // static, and took nothing). Detach forgets where the HUD is; until a layout says
+        // it again every message passes to Archicad -- and only a message the HUD took
+        // asked for a layout. The first session worked only because a layer set before it
+        // attached had published the regions.
+        RequestRefresh (target);
     }
     return true;
 }

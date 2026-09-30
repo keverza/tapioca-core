@@ -474,6 +474,10 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayClickTiming.cpp"
     # Where the HUD is on the view and whose a mouse gesture is (OverlayInput.cpp takes the messages).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHitMap.cpp"
+    # The hooks and the canvas themselves: plain Win32, a window of the test's own thread for the
+    # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ArchVizLogStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayFonts.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ImGuiContextLock.cpp"
     # The storey slices and the Watch annotations as overlay layers: which storeys, the
@@ -633,6 +637,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudwidgets.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
+    test_overlayinput.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp
     test_overlayannotations.cpp
@@ -795,6 +800,10 @@ if (MSVC)
 endif ()
 
 # ---- the test binary -------------------------------------------------------
+# The HUD's input layer calls the wide Win32 API through its macros (IDC_ARROW), as the add-on
+# builds it: with UNICODE.
+set_source_files_properties ("${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+                             PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_SCENE_TEXT_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
                                 ${EVP_ANNOTATION_SOURCES} ${EVP_PREVIEW_SOURCES} ${EVP_COMMAND_SOURCES}
