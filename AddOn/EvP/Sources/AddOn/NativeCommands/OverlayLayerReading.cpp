@@ -392,6 +392,11 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
                : kind == "metrics"   ? layers::ItemKind::Metrics
                : kind == "stack"     ? layers::ItemKind::Stack
                : kind == "bars"      ? layers::ItemKind::Bars
+               : kind == "checkbox"  ? layers::ItemKind::Checkbox
+               : kind == "slider"    ? layers::ItemKind::Slider
+               : kind == "combo"     ? layers::ItemKind::Combo
+               : kind == "tab"       ? layers::ItemKind::Tab
+               : kind == "button"    ? layers::ItemKind::Button
                                      : layers::ItemKind::Text;
     if (item.Contains ("text"))
         out.text = StringValue (item, "text");
@@ -410,6 +415,13 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
         out.info = StringValue (item, "info");
     ReadCount (item, "perRow", out.perRow);
     ReadStrings (item, "labels", out.labels);
+    if (item.Contains ("id"))
+        out.id = StringValue (item, "id");
+    if (item.Contains ("checked"))
+        item.Get ("checked", out.checked);
+    ReadDouble (item, "number", out.number);
+    ReadDouble (item, "step", out.step);
+    ReadCount (item, "selected", out.selected);
     GS::Array<GS::UniString> colors;
     if (item.Get ("colors", colors)) {
         for (const GS::UniString& text : colors) {

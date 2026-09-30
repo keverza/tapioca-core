@@ -106,6 +106,14 @@ class OverlayHudCommand : public MainThreadCommand {
             record.Add ("panel", GS::Int32 (panel.panel));
             record.Add ("title", Utf8 (panel.title));
             record.Add ("docked", panel.docked);
+            GS::Array<GS::ObjectState> values;
+            for (const auto& held : panel.values) {
+                GS::ObjectState value;
+                value.Add ("id", Utf8 (held.first));
+                value.Add ("value", held.second);
+                values.Push (value);
+            }
+            record.Add ("values", values);
             panels.Push (record);
         }
         GS::ObjectState os;
@@ -147,8 +155,11 @@ constexpr const char kHudOutput[] = R"json({"type":"object","properties":{
     "fontScale":{"type":"number"},
     "panels":{"type":"array","items":{"type":"object","properties":{
         "layer":{"type":"string"},"panel":{"type":"integer","minimum":0},"title":{"type":"string"},
-        "docked":{"type":"boolean"}},
-      "additionalProperties":false,"required":["layer","panel","title","docked"]}},
+        "docked":{"type":"boolean"},
+        "values":{"type":"array","description":"Its controls' values as the user left them, the tab bar's too.","items":{"type":"object","properties":{
+            "id":{"type":"string"},"value":{"type":"number"}},
+          "additionalProperties":false,"required":["id","value"]}}},
+      "additionalProperties":false,"required":["layer","panel","title","docked","values"]}},
     "lastSeq":{"type":"integer","minimum":0}},
   "additionalProperties":false,"required":["fontScale","panels","lastSeq"]})json";
 

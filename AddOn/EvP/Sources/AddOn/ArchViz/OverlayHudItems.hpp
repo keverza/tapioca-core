@@ -68,6 +68,22 @@ void Stack (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& i
 // its label and value.
 void Bars (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, float width, float scale);
 
+// ---- the controls: their value is the caller's, held by the engine ------------------------------
+
+// A box and `item.text` beside it; true when pressed, `on` flipped.
+bool Checkbox (const overlaylayers::PanelItem& item, bool& on);
+// `item.text` over a bar `width` wide from `item.min` to `item.max`, on `item.step`s from
+// the min (0: any), its value inside it with `item.decimals` and `item.unit`. True while
+// dragged to a new `value`; `released` when a drag that changed it ends.
+bool Slider (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, double& value, float width,
+             bool& released);
+// What a slider's value says: `item.decimals` of it and its unit.
+std::string SliderText (const overlaylayers::PanelItem& item, double value);
+// `item.text` over a dropdown `width` wide of `item.labels`; true when another is chosen.
+bool Combo (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, uint32_t& chosen, float width);
+// A button saying `item.text`, `width` wide when the item gives one; true when pressed.
+bool Button (const overlaylayers::PanelItem& item, float width);
+
 // ---- the dock ------------------------------------------------------------------------------
 
 // A button of the dock, `size` big, saying `label` in the middle: filled with `colours`'

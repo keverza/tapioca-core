@@ -56,6 +56,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace geomsrv {
@@ -110,13 +111,13 @@ struct LegendBar {
 };
 
 // What the user changed on the HUD in a layout: a panel docked or opened, a section
-// folded, the text size -- and, from stage 2's controls, a value. For Python
-// (OverlayHudEvents.hpp); `key` splits into the panel's layer and place.
+// folded, the text size, a control's value. For Python (OverlayHudEvents.hpp); `key`
+// splits into the panel's layer and place.
 struct Change {
-    std::string kind;  // "dock", "section", "fontScale"
+    std::string kind;  // "dock", "section", "fontScale", "checkbox", "slider", "combo", "tab", "button"
     std::string key;   // the panel's; empty for the HUD's own (the text size)
     std::string title; // the panel's
-    std::string id;    // the control: a section's title; "textSize"
+    std::string id;    // the control's id, the tab bar's; a section's title; "textSize"
     int32_t item = -1; // its place among the panel's items
     double value = 0.0;
     std::string text; // what the value says
@@ -146,6 +147,9 @@ struct Layout {
     bool hand = false;
     // What the user changed in this layout, in the order they did it.
     std::vector<Change> changes;
+    // A dropdown's list is open: the whole view is the HUD's until it closes, so the
+    // click that closes it never reaches Archicad.
+    bool popup = false;
 };
 
 // Where each change goes: the views' engines hand them to the event ring with their view.
@@ -171,6 +175,8 @@ void SetFontScale (State& state, float scale);
 bool Docked (const State& state, const std::string& key);
 // Whether a panel of that key was ever laid out: before, it is as its caller set it.
 bool Known (const State& state, const std::string& key);
+// The values a panel's controls hold, by id -- the tab bar's too -- in id order.
+std::vector<std::pair<std::string, double>> Values (const State& state, const std::string& key);
 
 // Reads the font file at a path a panel names (overlayfonts::Read).
 using FontLoader = std::function<bool (const std::string& path, std::vector<uint8_t>& bytes, std::string& error)>;

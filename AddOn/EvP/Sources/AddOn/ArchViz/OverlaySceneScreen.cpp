@@ -115,6 +115,14 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
             return;
     if (!emit (layout.dock, overlayinput::RegionKind::Dock, std::string (), 0))
         return;
+    // A dropdown's list open: the whole view, over everything else (OverlayHitMap.hpp).
+    if (layout.popup) {
+        overlayinput::Region all;
+        all.kind = overlayinput::RegionKind::Popup;
+        all.rect[0] = all.rect[1] = -1.0e6f;
+        all.rect[2] = all.rect[3] = 1.0e6f;
+        draft_.regions.push_back (std::move (all));
+    }
     // The tooltips, over the panels, in view pixels from its top-left. No region: they
     // take nothing, and a pointer over one is over what it describes.
     DraftGlyph tip;

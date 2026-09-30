@@ -31,7 +31,9 @@ namespace overlayinput {
 // The two overlays' views; each has its own HUD, its own layout state and its own input.
 enum class View : uint8_t { ThreeD = 0, Plan = 1 };
 
-enum class RegionKind : uint8_t { Panel = 0, Legend = 1, Dock = 2 };
+// A popup is the whole view while a dropdown's list is open: the click that closes it is
+// the HUD's too, as a list closing on a click outside it eats that click.
+enum class RegionKind : uint8_t { Panel = 0, Legend = 1, Dock = 2, Popup = 3 };
 
 // A rectangle of the view that is the HUD's, anchored as its drawing is: `fraction` of
 // the view, then `rect` (left, top, right, bottom) in pixels from there -- physical

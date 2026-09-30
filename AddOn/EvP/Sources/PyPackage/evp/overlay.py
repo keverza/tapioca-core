@@ -65,7 +65,7 @@ __all__ = [
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
-_INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh", "storeys"}
+_INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh", "storeys", "selected"}
 
 _ANCHORS = ("top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right")
 
@@ -422,6 +422,55 @@ class Panel:
             columns=[str(c) for c in columns] if columns else None,
             rows=[[str(cell) for cell in row] for row in rows],
         )
+
+    # ---- controls: the add-on holds their values; each change is an event (`events`) ----
+
+    def checkbox(self, id, label, checked=False):
+        """A box and `label` beside it. `id` names its value and its events; `checked` is
+        how it starts. Set again with the same `checked`, it keeps what the user set; with
+        another, it takes it."""
+        return self._add("checkbox", id=str(id), text=str(label), checked=bool(checked))
+
+    def slider(self, id, label, value, minimum, maximum, step=None, decimals=None, unit=None, width=None):
+        """`label` over a bar from `minimum` to `maximum`, starting at `value`, on `step`s
+        from the minimum (any value without one). A drag reports every value on the way
+        with `final` False and the last with `final` True."""
+        if not float(minimum) < float(maximum):
+            raise ValueError("a slider's minimum is below its maximum")
+        return self._add(
+            "slider",
+            id=str(id),
+            text=str(label),
+            number=float(value),
+            min=float(minimum),
+            max=float(maximum),
+            step=None if step is None else float(step),
+            decimals=None if decimals is None else int(decimals),
+            unit=unit,
+            widthPixels=width,
+        )
+
+    def combo(self, id, label, options, selected=0, width=None):
+        """A dropdown: `label` over it, `options` its entries, `selected` the one it starts
+        on. A choice reports its index as the value and its option as the text."""
+        options = [str(o) for o in options]
+        if not options:
+            raise ValueError("a dropdown has at least one option")
+        return self._add(
+            "combo", id=str(id), text=str(label), labels=options, selected=int(selected), widthPixels=width
+        )
+
+    def tab(self, title, id=None, selected=None):
+        """A tab of the panel's one tab bar, which stands where the first tab is: the items
+        after it, up to the next tab, are its page. The first tab's `id` (default "tabs")
+        names the bar's value and events, its `selected` the tab it starts on."""
+        return self._add(
+            "tab", text=str(title), id=None if id is None else str(id), selected=None if selected is None else int(selected)
+        )
+
+    def button(self, id, label, width=None):
+        """A button; each press is an event with the value 1."""
+        return self._add("button", id=str(id), text=str(label), widthPixels=width)
 
     def to_dict(self):
         out = dict(self._panel)
@@ -894,7 +943,8 @@ def wait_events(since=0, timeout=None, interval=0.05, max_events=256):
 
 def hud_state():
     """What the user left the HUD as: {"fontScale", "panels", "lastSeq"}, each panel
-    {layer, panel, title, docked}. Read events from `lastSeq` on to follow it."""
+    {layer, panel, title, docked, values} -- `values` its controls' as [{id, value}], the
+    tab bar's too. Read events from `lastSeq` on to follow it."""
     return call("Tapioca.OverlayHud", {}).data or {}
 
 

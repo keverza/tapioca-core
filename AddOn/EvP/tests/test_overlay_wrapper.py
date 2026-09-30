@@ -300,3 +300,40 @@ def test_the_text_size_is_a_real_on_the_wire(monkeypatch):
     overlay.hud_state()
     assert seen == [("Tapioca.OverlayHud", {"fontScale": 1.0}), ("Tapioca.OverlayHud", {})]
     assert isinstance(seen[0][1]["fontScale"], float)
+
+
+def test_the_controls_are_the_wire_names():
+    panel = (
+        overlay.Panel(title="Study")
+        .tab("Area", id="view", selected=1)
+        .checkbox("grid", "Show grid", checked=True)
+        .tab("Sun")
+        .slider("hour", "Hour", 12, 6, 20, step=0.5, decimals=1, unit="h")
+        .combo("date", "Date", ["21 March", "21 June", "21 December"], selected=1)
+        .button("export", "Export")
+    )
+    items = panel.to_dict()["items"]
+    assert items[0] == {"kind": "tab", "text": "Area", "id": "view", "selected": 1}
+    assert items[1] == {"kind": "checkbox", "id": "grid", "text": "Show grid", "checked": True}
+    assert items[2] == {"kind": "tab", "text": "Sun"}
+    assert items[3] == {
+        "kind": "slider",
+        "id": "hour",
+        "text": "Hour",
+        "number": 12.0,
+        "min": 6.0,
+        "max": 20.0,
+        "step": 0.5,
+        "decimals": 1,
+        "unit": "h",
+    }
+    assert items[4]["labels"] == ["21 March", "21 June", "21 December"] and items[4]["selected"] == 1
+    assert items[5] == {"kind": "button", "id": "export", "text": "Export"}
+    # On the wire the selection is an integer, the slider's numbers reals.
+    wire = overlay._reals({"panels": [panel.to_dict()]})
+    assert isinstance(wire["panels"][0]["items"][4]["selected"], int)
+    assert isinstance(wire["panels"][0]["items"][3]["number"], float)
+    with pytest.raises(ValueError):
+        overlay.Panel().slider("x", "X", 1, 5, 5)
+    with pytest.raises(ValueError):
+        overlay.Panel().combo("x", "X", [])

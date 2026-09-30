@@ -295,7 +295,20 @@ enum class ItemKind : uint8_t {
     Metrics = 10,  // figures in a grid, `perRow` to a row: `rows` are [label, value] cells
     Stack = 11,    // `values` as shares of one bar, `colors` and `labels` each
     Bars = 12,     // `values` as a histogram, `colors` and `labels` each, `text` its caption
+    // ---- controls: the add-on holds their values and reports each change (OverlayHudEvents)
+    Checkbox = 13, // `text` beside a box, `checked` how it starts
+    Slider = 14,   // `text` over a bar from `min` to `max`, `number` where it starts, `step` 0: any
+    Combo = 15,    // a dropdown: `text` over it, `labels` its options, `selected` the one it starts on
+    Tab = 16,      // a tab of the panel's one tab bar, `text` its title: the items after it, up to
+                   // the next tab, are its page; the first tab's `id` and `selected` are the bar's
+    Button = 17,   // `text` on it; each press is reported
 };
+
+// A control's `id` names its value and its events: at most this long, one per panel.
+constexpr size_t kMaxControlId = 64;
+// A dropdown's options, a panel's tabs.
+constexpr size_t kMaxOptions = 64;
+constexpr size_t kMaxTabs = 16;
 
 struct PanelItem {
     ItemKind kind = ItemKind::Text;
@@ -323,7 +336,16 @@ struct PanelItem {
     std::string info;                           // a section's help, behind its (i)
     uint32_t perRow = 0;                        // a grid's and a key's cells to a row; 0: 2, 1
     std::vector<uint32_t> colors;               // a stack's segments, a histogram's bars
-    std::vector<std::string> labels;            // ...and what each is
+    std::vector<std::string> labels;            // ...and what each is; a dropdown's options
+    // A control's: its name in its value and its events, and where it starts -- a
+    // checkbox's `checked`, a slider's `number` (on `step`s from `min`, 0 any), a
+    // dropdown's or a tab bar's `selected`. The add-on keeps what the user sets; a value
+    // set again only wins when it differs from the one set before (OverlayHud.hpp).
+    std::string id;
+    bool checked = false;
+    double number = 0.0;
+    double step = 0.0;
+    uint32_t selected = 0;
 };
 
 // A panel's look: the dark glass the HUD began with, or the light card of the design.

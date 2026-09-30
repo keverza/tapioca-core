@@ -18921,6 +18921,26 @@
                 },
                 "docked": {
                   "type": "boolean"
+                },
+                "values": {
+                  "type": "array",
+                  "description": "Its controls' values as the user left them, the tab bar's too.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "value"
+                    ]
+                  }
                 }
               },
               "additionalProperties": false,
@@ -18928,7 +18948,8 @@
                 "layer",
                 "panel",
                 "title",
-                "docked"
+                "docked",
+                "values"
               ]
             }
           },
@@ -25720,8 +25741,37 @@
                           "section",
                           "metrics",
                           "stack",
-                          "bars"
+                          "bars",
+                          "checkbox",
+                          "slider",
+                          "combo",
+                          "tab",
+                          "button"
                         ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "description": "A control's name in its value and its events (Tapioca.OverlayHudEvents); the first tab's names the tab bar."
+                      },
+                      "checked": {
+                        "type": "boolean",
+                        "description": "A checkbox: how it starts."
+                      },
+                      "number": {
+                        "type": "number",
+                        "description": "A slider: where it starts, between min and max."
+                      },
+                      "step": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "A slider: its steps from min; 0 any value."
+                      },
+                      "selected": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "A dropdown's option, or the tab bar's tab (on its first tab), it starts on."
                       },
                       "text": {
                         "type": "string",

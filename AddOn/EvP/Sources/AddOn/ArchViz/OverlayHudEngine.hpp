@@ -3,8 +3,9 @@
 
 // ArchViz/OverlayHudEngine -- the HUD engine's insides (OverlayHud.hpp `Engine`), shared by
 // the translation units that lay it out: OverlayHud.cpp (the frame, the panels, the font
-// atlas) and OverlayHudDock.cpp (the dock and the text size). Not an interface: nothing
-// outside the engine includes it.
+// atlas), OverlayHudDock.cpp (the dock and the text size) and OverlayHudControls.cpp (the
+// controls and the values held for them). Not an interface: nothing outside the engine
+// includes it.
 //
 // MAIN THREAD, inside ImGui's lock (ImGuiContextLock.hpp) wherever a frame is laid out.
 
@@ -42,9 +43,16 @@ constexpr uint32_t kFontStepDefault = 2;
 
 // What the user did to each panel, by its key (OverlayHud.hpp's third note).
 struct State {
+    // A control's value: what its layer last said (`sent`) and what it is now (`current`)
+    // -- the user's, until the layer says something new.
+    struct Held {
+        double sent = 0.0;
+        double current = 0.0;
+    };
     struct Panel {
-        bool collapsed = false;            // in the dock
-        std::map<uint32_t, bool> sections; // by item index
+        bool collapsed = false;             // in the dock
+        std::map<uint32_t, bool> sections;  // by item index
+        std::map<std::string, Held> values; // by control id; the tab bar's by its id
     };
     std::map<std::string, Panel> panels;
     uint32_t fontStep = kFontStepDefault; // kFontSteps
@@ -83,6 +91,11 @@ struct Engine::Impl {
     std::vector<ImGuiWindow*> windows;
     // The dock's width this frame: how far the view's right column moves in.
     float inset = 0.0f;
+    // Which tab each tab bar showed in this context's last frame, by panel key and bar id,
+    // and the one it shows in this one; whether a dropdown is open.
+    std::map<std::string, int> shownTabs;
+    int tabNow = -1;
+    bool popup = false;
     std::chrono::steady_clock::time_point lastBuild {};
 
     PanelState& StateOf (const std::string& key, const layers::Panel& panel);
@@ -122,6 +135,19 @@ struct Engine::Impl {
     // panel's colours; pointed at, the size they give, beside the dock.
     void FontButtons (const layers::Panel& colours, ImVec2 tab, float scale);
 
+    // Each control's value as its layer says it now, held (OverlayHudControls.cpp).
+    void Reconcile (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys);
+
+    // A checkbox, a slider, a dropdown or a button, its value the held one; what the user
+    // changes, said.
+    void Control (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
+                  float width, float scale);
+
+    // The tab bar's `number`th tab; true when its page is shown. `TabsDone` after the bar
+    // takes the user's press on another.
+    bool TabItem (const layers::PanelItem& tab, uint32_t number, const std::string& bar, PanelState& state);
+    void TabsDone (const layers::Panel& panel, size_t first, const std::string& bar, PanelState& state);
+
     // One frame of the whole set.
     void Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
                 const Input& input, const std::vector<LegendBar>& legends, float delta);
@@ -134,6 +160,10 @@ struct Engine::Impl {
     // they stand.
     void Collect (Layout& out, uint32_t& unsampled);
 };
+
+// The panel's tab bar's id -- its first tab's, or "tabs" -- with that tab's place in
+// `first`; empty for a panel without tabs.
+std::string TabBarId (const layers::Panel& panel, size_t* first = nullptr);
 
 } // namespace overlayhud
 } // namespace archviz

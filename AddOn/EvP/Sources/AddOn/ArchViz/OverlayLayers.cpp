@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <set>
 
 namespace geomsrv {
 namespace archviz {
@@ -125,9 +126,31 @@ std::string ValidatePanel (const Panel& panel)
         return "offsetPixels finite, widthPixels 0 to 4000, sizePixels 6 to 96, rounding and padding 0 to 64";
     if (panel.items.size () > 200)
         return "at most 200 items";
+    std::set<std::string> ids;
+    size_t tabs = 0;
     for (size_t k = 0; k < panel.items.size (); ++k) {
         const PanelItem& item = panel.items[k];
         const std::string at = "item " + std::to_string (k) + ": ";
+        const bool control = item.kind == ItemKind::Checkbox || item.kind == ItemKind::Slider ||
+                             item.kind == ItemKind::Combo || item.kind == ItemKind::Button;
+        if (control && (item.id.empty () || item.id.size () > kMaxControlId))
+            return at + "a checkbox, slider, dropdown or button needs its id, at most 64 bytes: its value and "
+                        "its events are named by it";
+        if (item.kind == ItemKind::Tab && tabs == 0 && item.id.size () > kMaxControlId)
+            return at + "the tab bar's id is at most 64 bytes";
+        if (control && !ids.insert (item.id).second)
+            return at + "two controls of one panel share the id \"" + item.id + "\"";
+        if (item.kind == ItemKind::Slider &&
+            (item.autoRange || !std::isfinite (item.number) || !std::isfinite (item.step) || item.step < 0.0))
+            return at + "a slider needs its min and max, min below max, a finite number and a step of 0 or more";
+        if (item.kind == ItemKind::Combo &&
+            (item.labels.empty () || item.labels.size () > kMaxOptions || item.selected >= item.labels.size ()))
+            return at + "a dropdown has 1 to 64 options, and starts on one of them";
+        if ((item.kind == ItemKind::Tab || item.kind == ItemKind::Button || item.kind == ItemKind::Checkbox) &&
+            item.text.empty ())
+            return at + "a tab, a button and a checkbox need their text: it is what the user presses";
+        if (item.kind == ItemKind::Tab && ++tabs > kMaxTabs)
+            return at + "a panel has at most 16 tabs";
         if (item.text.size () > 4096 || item.value.size () > kMaxTextBytes || item.unit.size () > 64)
             return at + "text is at most 4096 bytes, value 512 and unit 64";
         if (!InRange (item.sizePixels, 0.0f, 96.0f) || !InRange (item.widthPixels, 0.0f, 4000.0f) ||
@@ -187,6 +210,15 @@ std::string ValidatePanel (const Panel& panel)
                     return at + "a table cell is at most 512 bytes";
         }
     }
+    // The tab bar starts on one of its tabs.
+    for (const PanelItem& item : panel.items)
+        if (item.kind == ItemKind::Tab) {
+            if (item.selected >= tabs)
+                return "the tab bar starts on one of its " + std::to_string (tabs) + " tabs";
+            if (!item.id.empty () && ids.count (item.id) != 0)
+                return "the tab bar's id \"" + item.id + "\" is a control's too";
+            break;
+        }
     return std::string ();
 }
 

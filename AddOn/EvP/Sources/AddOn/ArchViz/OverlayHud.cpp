@@ -78,7 +78,7 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
         // ⚠️ WHAT THE POINTER CAN PRESS IS TINTED WITH THE ACCENT (the user, 2026-09-29): a
         // button reads as one at rest -- a faint fill -- and plainly when pointed at and
         // pressed, as a section's row and the title bar's arrow do.
-        { ImGuiCol_Header, 0x00000000u },
+        { ImGuiCol_Header, WithAlpha (accent, 0.14f) }, // a dropdown's chosen option
         { ImGuiCol_HeaderHovered, WithAlpha (accent, 0.16f) },
         { ImGuiCol_HeaderActive, WithAlpha (accent, 0.28f) },
         { ImGuiCol_Button, WithAlpha (text, 0.07f) },
@@ -89,6 +89,15 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
         { ImGuiCol_CheckMark, accent },
         { ImGuiCol_SliderGrab, accent },
         { ImGuiCol_SliderGrabActive, accent },
+        // A tab bar: the tab shown tinted, a line of the accent over it. The same whether
+        // ImGui thinks the panel focused or not -- the HUD takes no focus the user sees.
+        { ImGuiCol_Tab, WithAlpha (text, 0.06f) },
+        { ImGuiCol_TabHovered, WithAlpha (accent, 0.30f) },
+        { ImGuiCol_TabSelected, WithAlpha (accent, 0.20f) },
+        { ImGuiCol_TabSelectedOverline, accent },
+        { ImGuiCol_TabDimmed, WithAlpha (text, 0.06f) },
+        { ImGuiCol_TabDimmedSelected, WithAlpha (accent, 0.20f) },
+        { ImGuiCol_TabDimmedSelectedOverline, accent },
         // Its tooltips in its own colours, nearly opaque over the model.
         { ImGuiCol_PopupBg, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u },
     };
@@ -143,6 +152,16 @@ bool Docked (const State& state, const std::string& key)
 bool Known (const State& state, const std::string& key)
 {
     return state.panels.find (key) != state.panels.end ();
+}
+
+std::vector<std::pair<std::string, double>> Values (const State& state, const std::string& key)
+{
+    std::vector<std::pair<std::string, double>> out;
+    const auto found = state.panels.find (key);
+    if (found != state.panels.end ())
+        for (const auto& held : found->second.values)
+            out.emplace_back (held.first, held.second.current);
+    return out;
 }
 
 Engine::Impl::PanelState& Engine::Impl::StateOf (const std::string& key, const layers::Panel& panel)
@@ -238,12 +257,30 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
     // otherwise a width that does not depend on the layout it is part of.
     const float font = ImGui::GetFontSize ();
     const float width = panel.widthPixels > 0.0f ? (std::max) (ImGui::GetContentRegionAvail ().x, 1.0f) : 14.0f * font;
-    // Inside a closed section its items are not laid out at all.
+    // Inside a closed section its items are not laid out at all, nor on a tab not shown.
     bool shown = true;
+    // ⚠️ ONE TAB BAR PER PANEL, WHERE ITS FIRST TAB IS: every tab item is a tab of it, and
+    // the items after a tab, up to the next, are its page.
+    size_t firstTab = panel.items.size ();
+    const std::string bar = TabBarId (panel, &firstTab);
+    bool inBar = false, page = true, pageOpen = false;
+    uint32_t tabNumber = 0;
+    tabNow = -1;
     size_t i = 0;
     while (i < panel.items.size ()) {
         const layers::PanelItem& item = panel.items[i];
-        if (!shown && item.kind != layers::ItemKind::Section) {
+        if (item.kind == layers::ItemKind::Tab) {
+            if (i == firstTab)
+                inBar = ImGui::BeginTabBar ("##tabs");
+            if (pageOpen)
+                ImGui::EndTabItem ();
+            pageOpen = inBar && TabItem (item, tabNumber++, bar, state);
+            page = pageOpen;
+            shown = true;
+            ++i;
+            continue;
+        }
+        if (!page || (!shown && item.kind != layers::ItemKind::Section)) {
             ++i;
             continue;
         }
@@ -312,9 +349,23 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
                 shown = open;
                 break;
             }
+            case layers::ItemKind::Checkbox:
+            case layers::ItemKind::Slider:
+            case layers::ItemKind::Combo:
+            case layers::ItemKind::Button:
+                Control (panel, item, i, state, width, scale);
+                break;
+            case layers::ItemKind::Tab:
+                break; // above
         }
         ImGui::PopID ();
         ++i;
+    }
+    if (pageOpen)
+        ImGui::EndTabItem ();
+    if (inBar) {
+        ImGui::EndTabBar ();
+        TabsDone (panel, firstTab, bar, state);
     }
 }
 
@@ -439,6 +490,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     // the title bar's close button -- and while one is held. Not while the background
     // is held: ImGui makes a window's move id active there even when the window cannot
     // move.
+    // A dropdown's list is a popup: while one is open, the whole view is the HUD's.
+    popup = ImGui::IsPopupOpen ("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
     const ImGuiContext& g = *ImGui::GetCurrentContext ();
     const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
     hand = g.HoveredId != 0 || held;
@@ -586,6 +639,8 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
     uint32_t unsampled = 0;
+    // Each control's value as its layer says it now.
+    impl_->Reconcile (panels, keys);
     // Every panel's font in the atlas before the first frame, not in the middle of one.
     impl_->fontError.clear ();
     for (const layers::Panel* panel : panels)
@@ -607,6 +662,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         impl_->Collect (out, unsampled);
         out.highlight = impl_->highlight;
         out.hand = impl_->hand;
+        out.popup = impl_->popup;
         for (size_t i = 0; i < panels.size (); ++i) {
             Built& built = out.panels[i];
             if (impl_->windows[i] != nullptr) {

@@ -40,6 +40,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace geomsrv {
@@ -220,13 +221,15 @@ struct InputCounts {
 };
 InputCounts Input ();
 
-// What the user did to the HUD, both views': its text size, and every titled panel of the
-// layers set now -- its layer, its place, its title, whether it is in the dock. MAIN THREAD.
+// What the user did to the HUD, both views': its text size, and every panel of the layers
+// set now with a title or a control -- its layer, its place, its title, whether it is in
+// the dock, its controls' values. MAIN THREAD.
 struct HudPanel {
     std::string layer;
     uint32_t panel = 0;
     std::string title;
     bool docked = false;
+    std::vector<std::pair<std::string, double>> values; // its controls', by id; the tab bar's
 };
 struct HudReport {
     float fontScale = 1.0f;

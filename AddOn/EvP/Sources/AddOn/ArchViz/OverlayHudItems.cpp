@@ -560,6 +560,91 @@ void Bars (const layers::Panel& panel, const layers::PanelItem& item, float widt
     }
 }
 
+namespace {
+
+// A control's label over it, muted as a row's label is.
+void LabelOver (const layers::Panel& panel, const layers::PanelItem& item)
+{
+    if (item.text.empty ())
+        return;
+    ImGui::PushStyleColor (ImGuiCol_Text, Colour (WithAlpha (panel.textRgba, 0.72f)));
+    ImGui::TextUnformatted (item.text.c_str ());
+    ImGui::PopStyleColor ();
+}
+
+// `text` where ImGui reads a printf format: its '%' doubled.
+std::string Literal (const std::string& text)
+{
+    std::string out;
+    for (const char c : text) {
+        out += c;
+        if (c == '%')
+            out += '%';
+    }
+    return out;
+}
+
+} // namespace
+
+bool Checkbox (const layers::PanelItem& item, bool& on)
+{
+    return ImGui::Checkbox ((item.text + "##" + item.id).c_str (), &on);
+}
+
+std::string SliderText (const layers::PanelItem& item, double value)
+{
+    return Number (value, item.decimals) + (item.unit.empty () ? std::string () : " " + item.unit);
+}
+
+bool Slider (const layers::Panel& panel, const layers::PanelItem& item, double& value, float width, bool& released)
+{
+    LabelOver (panel, item);
+    const std::string format = "%." + std::to_string ((std::min) (item.decimals, 6u)) + "f" +
+                               (item.unit.empty () ? std::string () : " " + Literal (item.unit));
+    ImGui::SetNextItemWidth (width);
+    double v = value;
+    // ⚠️ NO TEXT ENTRY: Ctrl+click would turn the bar into a text field the HUD takes no
+    // keys for.
+    const bool moved = ImGui::SliderScalar (("##" + item.id).c_str (), ImGuiDataType_Double, &v, &item.min, &item.max,
+                                            format.c_str (), ImGuiSliderFlags_NoInput);
+    released = ImGui::IsItemDeactivatedAfterEdit ();
+    if (!moved)
+        return false;
+    if (item.step > 0.0)
+        v = item.min + std::round ((v - item.min) / item.step) * item.step;
+    v = (std::min) ((std::max) (v, item.min), item.max);
+    if (v == value)
+        return false;
+    value = v;
+    return true;
+}
+
+bool Combo (const layers::Panel& panel, const layers::PanelItem& item, uint32_t& chosen, float width)
+{
+    LabelOver (panel, item);
+    ImGui::SetNextItemWidth (width);
+    const char* preview = chosen < item.labels.size () ? item.labels[chosen].c_str () : "";
+    // Every option shown, none scrolled to: the wheel is Archicad's zoom, even over the HUD.
+    if (!ImGui::BeginCombo (("##" + item.id).c_str (), preview, ImGuiComboFlags_HeightLargest))
+        return false;
+    bool changed = false;
+    for (uint32_t k = 0; k < uint32_t (item.labels.size ()); ++k) {
+        ImGui::PushID (int (k));
+        if (ImGui::Selectable (item.labels[k].c_str (), k == chosen) && k != chosen) {
+            chosen = k;
+            changed = true;
+        }
+        ImGui::PopID ();
+    }
+    ImGui::EndCombo ();
+    return changed;
+}
+
+bool Button (const layers::PanelItem& item, float width)
+{
+    return ImGui::Button ((item.text + "##" + item.id).c_str (), ImVec2 (item.widthPixels > 0.0f ? width : 0.0f, 0.0f));
+}
+
 bool DockButton (const char* id, const std::string& label, const layers::Panel& panel, bool open, ImVec2 size,
                  ImDrawFlags corners, float scale)
 {

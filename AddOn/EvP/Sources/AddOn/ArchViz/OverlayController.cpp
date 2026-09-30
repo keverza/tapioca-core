@@ -735,13 +735,14 @@ HudReport Hud ()
     for (const auto& layer : overlaylayers::Layers ())
         for (size_t i = 0; i < layer->panels.size (); ++i) {
             const overlaylayers::Panel& panel = layer->panels[i];
-            if (panel.title.empty ())
-                continue;
             const std::string key = layer->name + "#" + std::to_string (i);
             // A panel never laid out yet stands as its caller set it.
             const bool known = overlayhud::Known (*state, key);
-            out.panels.push_back (
-                { layer->name, uint32_t (i), panel.title, known ? overlayhud::Docked (*state, key) : panel.collapsed });
+            HudPanel record { layer->name, uint32_t (i), panel.title,
+                              known ? overlayhud::Docked (*state, key) : panel.collapsed && !panel.title.empty (),
+                              overlayhud::Values (*state, key) };
+            if (!panel.title.empty () || !record.values.empty ())
+                out.panels.push_back (std::move (record));
         }
     return out;
 }
