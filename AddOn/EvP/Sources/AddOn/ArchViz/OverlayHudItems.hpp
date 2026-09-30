@@ -86,12 +86,14 @@ bool Button (const overlaylayers::PanelItem& item, float width);
 
 // ---- the dock ------------------------------------------------------------------------------
 
-// The dock's tab: `label` turned a quarter clockwise -- it reads top to bottom, as a tab on
-// the right edge does -- `padding` round it across and along, rounded on the left where it
-// comes out of the view's edge. Filled with `colours`' accent while `open`, in its card's
-// colours otherwise; tinted when pointed at and pressed. True when pressed.
-bool VerticalTab (const char* id, const std::string& label, const overlaylayers::Panel& colours, bool open,
-                  ImVec2 padding, float scale);
+// The dock's tab: a circle at its top -- filled while `shown` -- then `label` turned a
+// quarter clockwise -- it reads top to bottom, as a tab on the right edge does -- `padding`
+// round it across and along, rounded on the left where it comes out of the view's edge.
+// Filled with `colours`' accent while `open`, in its card's colours otherwise; each part
+// tinted when pointed at and pressed. True when the label is pressed; `toggled` when the
+// circle is.
+bool VerticalTab (const char* id, const std::string& label, const overlaylayers::Panel& colours, bool open, bool shown,
+                  ImVec2 padding, float scale, bool& toggled);
 
 // The colour of an item's `index`th segment or bar of `count`: its own `colors`, else
 // its colormap's at its place, else a palette of ten.

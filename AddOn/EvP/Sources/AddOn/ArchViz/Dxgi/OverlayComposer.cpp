@@ -4,6 +4,7 @@
 // See OverlayComposer.hpp.
 
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
@@ -123,6 +124,17 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
         // The wrapper is the measurement: how often Archicad's back-buffer
         // texture actually moves decides whether caching it is worth anything.
         injecteddiligent::WrapRenderTarget (targetView);
+    }
+
+    // ⚠️ HIDDEN BY THE USER (the dock's circle, OverlayVisibility.hpp): nothing of the
+    // overlay but its HUD -- then only the dock's tab, the way back -- and no occluder
+    // rendered for what is not drawn. Nothing is released: shown again, the next Present
+    // draws what was there.
+    if (!overlayvisibility::ContentShown ()) {
+        if (targetView != nullptr)
+            context->OMSetRenderTargets (1, &targetView, nullptr);
+        sceneguest::Draw (context, wanted, targetView, nullptr);
+        return;
     }
 
     ID3D11DepthStencilView* const hostView =

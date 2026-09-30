@@ -64,6 +64,8 @@ __all__ = [
     "set_text_size",
     "time_clicks",
     "show_hud",
+    "show_overlay",
+    "show_layer",
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
@@ -947,9 +949,10 @@ def wait_events(since=0, timeout=None, interval=0.05, max_events=256):
 
 
 def hud_state():
-    """What the user left the HUD as: {"open", "fontScale", "panels", "lastSeq",
-    "clickTiming"} -- `open` whether the floating panel is (closed, only the dock's tab
-    shows), each panel {layer, panel, title, selected, values}: `selected` the tab shown,
+    """What the user left the HUD as: {"open", "visible", "hiddenLayers", "fontScale",
+    "panels", "lastSeq", "clickTiming"} -- `open` whether the floating panel is (closed,
+    only the dock's tab shows), `visible` whether the overlay is drawn at all (the dock's
+    circle), `hiddenLayers` the ones the user hid in Settings, each panel {layer, panel, title, selected, values}: `selected` the tab shown,
     `values` its controls' as [{id, value}], the tab bar's too. Read events from `lastSeq`
     on to follow it."""
     return call("Tapioca.OverlayHud", {}).data or {}
@@ -974,6 +977,19 @@ def show_hud(open=True, layer=None, panel=0):
     if layer is not None:
         params["select"] = {"layer": str(layer), "panel": int(panel)}
     return call("Tapioca.OverlayHud", params).data or {}
+
+
+def show_overlay(visible=True):
+    """Show or hide the whole overlay and its HUD -- as the dock's circle does. Hidden,
+    nothing of it is drawn but the dock's tab; nothing is destroyed, and showing it again
+    draws what was there. Returns :func:`hud_state`'s record."""
+    return call("Tapioca.OverlayHud", {"visible": bool(visible)}).data or {}
+
+
+def show_layer(name, visible=True):
+    """Show or hide one layer -- as the HUD's Settings does: hidden, its content and its
+    panels are not drawn; nothing is destroyed. Returns :func:`hud_state`'s record."""
+    return call("Tapioca.OverlayHud", {"layerVisible": {"layer": str(name), "visible": bool(visible)}}).data or {}
 
 
 def set_text_size(scale):

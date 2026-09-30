@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,6 +27,9 @@ namespace archviz {
 namespace overlayhud {
 
 namespace layers = overlaylayers;
+
+// The host's own tab, after the panels': the HUD's settings.
+constexpr char kSettingsKey[] = "tapioca.settings";
 
 // The dock's one tab: its font, its padding across and along its turned title, and the gap
 // between it and a panel on the view's right column.
@@ -54,6 +58,13 @@ struct State {
     };
     std::map<std::string, Panel> panels;
     uint32_t fontStep = kFontStepDefault; // kFontSteps
+    // ⚠️ SHOWN OR HIDDEN, NEVER DESTROYED (the user, 2026-09-30: the dock's circle toggles
+    // the whole overlay and its HUD; Settings, each layer). Hidden, nothing of the overlay
+    // is drawn but the dock's tab; a hidden layer's content and panels are not drawn. The
+    // controller follows `revision` (overlaycontrol::FollowHudState).
+    bool shown = true;
+    std::set<std::string> hidden; // layer names
+    uint64_t revision = 0;
     // The floating panel the titled panels are tabs of: open or in the dock, the tab shown
     // (a panel key), and -- once the user has dragged it -- where: `offset` logical pixels
     // in from the edges of the view's `corner` nearest it (1 right, 2 bottom), so a view
@@ -104,9 +115,15 @@ struct Engine::Impl {
     // The windows in the frame being laid out: an untitled panel's by its place in the set
     // (a titled one's is none: it is a tab of the host), then the dock's, then the host's.
     std::vector<ImGuiWindow*> windows;
-    // The titled panels by their place in the set, and which of them the host shows.
+    // The layers drawn in this view, for Settings; the titled panels of the shown ones by
+    // their place in the set; which the host shows (none: Settings, or no titled panel);
+    // the look it takes; whether there is any HUD here at all -- a layer to show or hide.
+    std::vector<std::string> layerNames;
     std::vector<size_t> titled;
     size_t shown = 0;
+    bool showsPanel = false;
+    const layers::Panel* look = nullptr;
+    bool present = false;
     // The tab the host's tab bar showed in this context's last frame: a panel key.
     std::string shownHost;
     // The dock's width this frame: how far the view's right column moves in.
@@ -155,6 +172,13 @@ struct Engine::Impl {
 
     // The host opened or closed: said, with the tab it shows.
     void Opening (bool open, const std::string& title);
+
+    // The Settings page: the HUD's style, the overlay's display (OverlayHudHost.cpp).
+    void Settings ();
+
+    // The whole overlay shown or hidden, a layer shown or hidden: held and said.
+    void ShowOverlay (bool shown);
+    void ShowLayer (const std::string& name, bool shown);
 
     // Each control's value as its layer says it now, held (OverlayHudControls.cpp).
     void Reconcile (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys);

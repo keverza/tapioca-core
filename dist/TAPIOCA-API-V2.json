@@ -18899,6 +18899,29 @@
             "type": "boolean",
             "description": "Open or close the HUD's floating panel, as the dock's tab does."
           },
+          "visible": {
+            "type": "boolean",
+            "description": "Show or hide the whole overlay and its HUD, as the dock's circle does; nothing is destroyed."
+          },
+          "layerVisible": {
+            "type": "object",
+            "description": "Show or hide one layer, as the HUD's Settings does; nothing is destroyed.",
+            "properties": {
+              "layer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "visible": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "layer",
+              "visible"
+            ]
+          },
           "select": {
             "type": "object",
             "description": "The tab the floating panel shows: a titled panel, by its layer and its place there.",
@@ -18932,6 +18955,16 @@
           "open": {
             "type": "boolean",
             "description": "The floating panel is open; closed, only the dock's tab shows."
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "The overlay is shown; hidden, only the dock's tab is drawn."
+          },
+          "hiddenLayers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "fontScale": {
             "type": "number"
@@ -19085,6 +19118,8 @@
         "additionalProperties": false,
         "required": [
           "open",
+          "visible",
+          "hiddenLayers",
           "fontScale",
           "panels",
           "lastSeq",

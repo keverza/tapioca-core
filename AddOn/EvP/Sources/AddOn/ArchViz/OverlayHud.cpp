@@ -154,7 +154,10 @@ std::shared_ptr<State> NewState ()
 
 void ClearState (State& state)
 {
+    // The revision goes on: a renderer following it sees the reset as a change.
+    const uint64_t revision = state.revision + 1;
     state = State {};
+    state.revision = revision;
 }
 
 float FontScaleOf (const State& state)
@@ -173,7 +176,7 @@ void SetFontScale (State& state, float scale)
 
 bool HudOpen (const State& state)
 {
-    return !state.host.known || state.host.open;
+    return state.host.known && state.host.open;
 }
 
 std::string SelectedKey (const State& state)
@@ -190,6 +193,41 @@ void SetHudOpen (State& state, bool open)
 void SelectKey (State& state, const std::string& key)
 {
     state.host.selected = key;
+}
+
+bool ContentShown (const State& state)
+{
+    return state.shown;
+}
+
+bool LayerShown (const State& state, const std::string& layer)
+{
+    return state.hidden.count (layer) == 0;
+}
+
+std::vector<std::string> HiddenLayers (const State& state)
+{
+    return std::vector<std::string> (state.hidden.begin (), state.hidden.end ());
+}
+
+void SetContentShown (State& state, bool shown)
+{
+    if (state.shown != shown) {
+        state.shown = shown;
+        ++state.revision;
+    }
+}
+
+void SetLayerShown (State& state, const std::string& layer, bool shown)
+{
+    const bool changed = shown ? state.hidden.erase (layer) > 0 : state.hidden.insert (layer).second;
+    if (changed)
+        ++state.revision;
+}
+
+uint64_t Revision (const State& state)
+{
+    return state.revision;
 }
 
 std::vector<std::pair<std::string, double>> Values (const State& state, const std::string& key)
@@ -411,8 +449,9 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
 void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui,
                            ImVec2 view)
 {
-    // A titled panel is a tab of the host (OverlayHudHost.cpp), not a window of its own.
-    if (!panel.title.empty ())
+    // A titled panel is a tab of the host (OverlayHudHost.cpp), not a window of its own; a
+    // hidden layer's panel is not drawn.
+    if (!panel.title.empty () || !LayerShown (*store, key.substr (0, key.rfind ('#'))))
         return;
     PanelState& state = StateOf (key, panel);
     this->key = key;
@@ -495,13 +534,16 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     inset = 0.0f;
     Gather (panels, keys);
     Dock (panels, ui, view);
-    Host (panels, keys, scale, ui, view);
-    for (size_t i = 0; i < panels.size (); ++i)
-        Window (*panels[i], keys[i], i, scale, ui, view);
+    // Hidden by the dock's circle: the dock alone.
+    if (store->shown) {
+        Host (panels, keys, scale, ui, view);
+        for (size_t i = 0; i < panels.size (); ++i)
+            Window (*panels[i], keys[i], i, scale, ui, view);
+    }
     // The dock over everything: a panel dragged onto it never hides it.
     if (ImGuiWindow* const dock = windows[panels.size ()]; dock != nullptr)
         ImGui::BringWindowToDisplayFront (dock);
-    if (known)
+    if (known && store->shown)
         LegendTips (legends, ui, view);
     // A dropdown's list is a popup: while one is open, the whole view is the HUD's.
     popup = ImGui::IsPopupOpen ("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
@@ -702,7 +744,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         }
         // The host, anchored at the corner it was dragged nearest -- or where the tab it
         // shows asks to be -- so a view resized before the next layout keeps it there.
-        if (const ImGuiWindow* const host = impl_->windows.back (); host != nullptr && !impl_->titled.empty ()) {
+        if (const ImGuiWindow* const host = impl_->windows.back (); host != nullptr && impl_->present) {
             Built& built = out.host;
             built.width = host->Size.x;
             built.height = host->Size.y;
@@ -712,8 +754,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
                 built.fraction[1] = (state.corner & 2u) != 0 ? 1.0f : 0.0f;
             }
             else {
-                Place (*panels[impl_->shown], built.width, built.height, at, built.fraction, built.offset,
-                       impl_->inset);
+                Place (*impl_->look, built.width, built.height, at, built.fraction, built.offset, impl_->inset);
             }
             if (known)
                 Settle (built, host->Pos, input);
@@ -780,6 +821,11 @@ void Engine::SetFontScale (float scale)
 void Engine::SetChangeSink (ChangeSink sink)
 {
     impl_->sink = std::move (sink);
+}
+
+void Engine::SetLayers (std::vector<std::string> names)
+{
+    impl_->layerNames = std::move (names);
 }
 
 void Engine::UseState (std::shared_ptr<State> state)

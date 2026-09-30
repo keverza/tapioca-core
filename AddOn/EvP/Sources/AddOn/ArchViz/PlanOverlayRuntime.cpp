@@ -14,6 +14,7 @@
 #include "ArchViz/Dxgi/PlanOverlayLayer.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/ExperimentGuard.hpp"
+#include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/PlanFrameSession.hpp"
@@ -315,6 +316,8 @@ bool RefreshHud ()
     }
     // Every time, not only when the pixels changed: the hand can change without them.
     overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
+    // What the user did there may be the dock's circle or a layer hidden.
+    overlaycontrol::FollowHudState ();
     return changed;
 }
 
@@ -421,7 +424,8 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
     if (prepared == layer::Prepared::Ready) {
         const uint64_t layersGeneration = overlaylayers::Generation ();
         if (!layer::HoldsLayers (layersGeneration)) {
-            const overlaylayers::Prepared2D layers = overlaylayers::Prepare2D (overlaylayers::Layers ());
+            // The layers the user shows (the HUD's Settings hides the others).
+            const overlaylayers::Prepared2D layers = overlaylayers::Prepare2D (overlaycontrol::ShownLayers ());
             bool layersChanged = false;
             error.clear ();
             if (layer::PrepareLayers (layers, layersGeneration, layersChanged, error)) {
@@ -441,7 +445,8 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         // when the store moved (§11). With none of those, nothing attaches.
         bool guestChanged = false;
         error.clear ();
-        if (dxgi::planguest::Prepare (layer::Device (), overlaylayers::Layers (), layersGeneration, float (g_dpi),
+        if (dxgi::planguest::Prepare (layer::Device (), overlaycontrol::ShownLayers (), overlaylayers::Layers (),
+                                      layersGeneration, float (g_dpi),
                                       overlayinput::CurrentInput (overlayinput::View::Plan), guestChanged, error)) {
             if (guestChanged) {
                 overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());

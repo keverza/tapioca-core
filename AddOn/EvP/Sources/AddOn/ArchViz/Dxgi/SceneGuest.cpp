@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/GuestShaderSources.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 
 #include <RenderDeviceD3D11.h>
 
@@ -274,7 +275,9 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
         g_hudContent = gpu::Content {};
         g_hudDirty = false;
     }
-    if (!scene && !hud)
+    // Hidden by the user: the scene is kept, and waits; the HUD is drawn.
+    const bool drawScene = scene && overlayvisibility::ContentShown ();
+    if (!drawScene && !hud)
         return;
     if (context == nullptr || target == nullptr)
         return;
@@ -289,7 +292,7 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
         Bump (s_failed);
         return;
     }
-    if (g_dirty) {
+    if (drawScene && g_dirty) {
         if (!UploadCurrent ()) {
             Bump (s_failed);
             return;
@@ -314,7 +317,7 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
         Bump (s_noViewport);
         return;
     }
-    const float dpiScale = scene ? g_current->dpiScale : g_currentHud->dpiScale;
+    const float dpiScale = drawScene ? g_current->dpiScale : g_currentHud->dpiScale;
     const float frame[4] = { viewport.Width, viewport.Height, dpiScale, overlay::kGuestDepthPullFraction };
     // InvalidateState inside the injection's guard, then Archicad's target and the
     // composer's depth view, bound natively; the scene viewport stays as bound.
@@ -323,8 +326,9 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
     gpu::DrawStats drawn;
     // The band of a heatmap the HUD's pointer is on travels with the HUD.
     const overlayscene::Highlight highlight = hud ? g_currentHud->scene.highlight : overlayscene::Highlight ();
-    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn,
-               highlight);
+    if (drawScene)
+        gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn,
+                   highlight);
     // The HUD last, over everything.
     gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, frame, depth != nullptr, dpiScale, drawn);
     // The render thread's own time for it -- lock-free, no allocation (§11).

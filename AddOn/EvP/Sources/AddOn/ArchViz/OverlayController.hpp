@@ -39,12 +39,17 @@
 // THREAD. Every entry point is MAIN THREAD.
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace geomsrv {
 namespace archviz {
+
+namespace overlaylayers {
+struct Layer;
+}
 namespace overlaycontrol {
 
 enum class ViewKind : uint32_t {
@@ -237,6 +242,8 @@ struct HudPanel {
 };
 struct HudReport {
     bool open = true;
+    bool visible = true;                   // the whole overlay shown (the dock's circle)
+    std::vector<std::string> hiddenLayers; // the layers the user hid
     float fontScale = 1.0f;
     std::vector<HudPanel> panels;
 };
@@ -246,6 +253,19 @@ HudReport Hud ();
 // THREAD.
 void SetHudOpen (bool open);
 bool SelectHudPanel (const std::string& layer, uint32_t panel);
+
+// ⚠️ SHOWN OR HIDDEN, NEVER DESTROYED (the user, 2026-09-30). The whole overlay -- the dock's
+// circle -- and each layer -- the HUD's Settings -- are the HUD's state, both views'. The
+// renderers follow it: hidden as a whole, the composers draw nothing but the HUD at Present
+// (OverlayVisibility.hpp); a layer hidden, its content is rebuilt without it. Nothing is
+// released. MAIN THREAD, every one.
+// The layers whose content is drawn: every one but those the user hid.
+std::vector<std::shared_ptr<const overlaylayers::Layer>> ShownLayers ();
+// After anything that may have changed the HUD's state -- a HUD laid out for the pointer,
+// a verb, a project closing: the renderers brought into line, both views' HUDs laid out.
+void FollowHudState ();
+void SetOverlayVisible (bool visible);
+void SetLayerVisible (const std::string& layer, bool visible);
 // The HUD's text size, the nearest step (0.8 to 2), laid out again in both views. MAIN
 // THREAD.
 void SetHudFontScale (float scale);

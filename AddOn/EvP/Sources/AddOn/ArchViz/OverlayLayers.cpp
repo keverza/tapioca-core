@@ -534,6 +534,11 @@ std::vector<std::shared_ptr<const Layer>> Layers ()
     return g_layers;
 }
 
+uint64_t Touch ()
+{
+    return ++g_generation;
+}
+
 uint64_t Generation ()
 {
     return g_generation;

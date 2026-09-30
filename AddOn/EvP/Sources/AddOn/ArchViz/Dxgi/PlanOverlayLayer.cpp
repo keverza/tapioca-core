@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/PipelineStateGuard.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -415,8 +416,11 @@ void Draw (IDXGISwapChain* swapChain)
         Declined (Decline::NotPrepared);
         return;
     }
-    const bool walls = g_segments != nullptr && g_segmentCount > 0;
-    const bool layers = g_layerStrokeCount > 0 || g_layerFillCount > 0;
+    // ⚠️ HIDDEN BY THE USER (the dock's circle, OverlayVisibility.hpp): the guest draws its
+    // HUD alone -- the dock's tab, the way back -- and nothing else is drawn.
+    const bool shown = overlayvisibility::ContentShown ();
+    const bool walls = shown && g_segments != nullptr && g_segmentCount > 0;
+    const bool layers = shown && (g_layerStrokeCount > 0 || g_layerFillCount > 0);
     const bool guest = planguest::HasContent ();
     if (!walls && !layers && !guest) {
         Declined (Decline::NoContent);

@@ -49,8 +49,11 @@ namespace planguest {
 // it. `changed` says the picture changed and the plan wants a redraw. False with `error` when
 // something could not be made; the next call tries again.
 // `input` is the plan canvas and the pointer over it, for the HUD (OverlayInput.hpp).
+// `layers` are the ones whose content is drawn -- the user's hidden ones left out --
+// `hudLayers` every one, for the HUD: their panels, and its Settings.
 bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers,
-              uint64_t generation, float dpiScale, const overlayhud::Input& input, bool& changed, std::string& error);
+              const std::vector<std::shared_ptr<const overlaylayers::Layer>>& hudLayers, uint64_t generation,
+              float dpiScale, const overlayhud::Input& input, bool& changed, std::string& error);
 
 // The HUD alone, laid out again for `input` -- the pointer did something to it. Outside
 // any Present, like `Prepare`; `changed` when what it draws changed and the plan wants a

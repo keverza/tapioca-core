@@ -447,6 +447,9 @@ void ClearEverything ();
 std::vector<std::shared_ptr<const Layer>> Layers ();
 // Moves on every change; a renderer rebuilds when it differs from what it holds.
 uint64_t Generation ();
+// Moves it with nothing set: what the renderers draw OF the layers changed (the user hid
+// one, OverlayHud.hpp), and they rebuild.
+uint64_t Touch ();
 
 // ---- preparation for the 2D overlay (pure) ------------------------------------
 

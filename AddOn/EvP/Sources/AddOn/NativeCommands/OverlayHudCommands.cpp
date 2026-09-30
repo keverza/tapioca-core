@@ -120,6 +120,19 @@ class OverlayHudCommand : public MainThreadCommand {
             params.Get ("open", open);
             control::SetHudOpen (open);
         }
+        if (params.Contains ("visible")) {
+            bool visible = true;
+            params.Get ("visible", visible);
+            control::SetOverlayVisible (visible);
+        }
+        GS::ObjectState layerVisible;
+        if (params.Get ("layerVisible", layerVisible)) {
+            GS::UniString layer;
+            bool visible = true;
+            layerVisible.Get ("layer", layer);
+            layerVisible.Get ("visible", visible);
+            control::SetLayerVisible (std::string (layer.ToCStr (0, MaxUSize, CC_UTF8).Get ()), visible);
+        }
         const control::HudReport report = control::Hud ();
         GS::Array<GS::ObjectState> panels;
         for (const control::HudPanel& panel : report.panels) {
@@ -140,6 +153,11 @@ class OverlayHudCommand : public MainThreadCommand {
         }
         GS::ObjectState os;
         os.Add ("open", report.open);
+        os.Add ("visible", report.visible);
+        GS::Array<GS::UniString> hidden;
+        for (const std::string& layer : report.hiddenLayers)
+            hidden.Push (Utf8 (layer));
+        os.Add ("hiddenLayers", hidden);
         os.Add ("fontScale", double (report.fontScale));
         os.Add ("panels", panels);
         // Where a caller that reads the state starts reading the events from.
@@ -195,6 +213,10 @@ constexpr const char kEventsOutput[] = R"json({"type":"object","properties":{
 constexpr const char kHudInput[] = R"json({"type":"object","properties":{
     "fontScale":{"type":"number","minimum":0.5,"maximum":3,"description":"The HUD's text size; the nearest of its steps, 0.8 to 2."},
     "open":{"type":"boolean","description":"Open or close the HUD's floating panel, as the dock's tab does."},
+    "visible":{"type":"boolean","description":"Show or hide the whole overlay and its HUD, as the dock's circle does; nothing is destroyed."},
+    "layerVisible":{"type":"object","description":"Show or hide one layer, as the HUD's Settings does; nothing is destroyed.","properties":{
+        "layer":{"type":"string","minLength":1,"maxLength":64},"visible":{"type":"boolean"}},
+      "additionalProperties":false,"required":["layer","visible"]},
     "select":{"type":"object","description":"The tab the floating panel shows: a titled panel, by its layer and its place there.","properties":{
         "layer":{"type":"string","minLength":1,"maxLength":64},"panel":{"type":"integer","minimum":0}},
       "additionalProperties":false,"required":["layer","panel"]},
@@ -203,6 +225,8 @@ constexpr const char kHudInput[] = R"json({"type":"object","properties":{
 
 constexpr const char kHudOutput[] = R"json({"type":"object","properties":{
     "open":{"type":"boolean","description":"The floating panel is open; closed, only the dock's tab shows."},
+    "visible":{"type":"boolean","description":"The overlay is shown; hidden, only the dock's tab is drawn."},
+    "hiddenLayers":{"type":"array","items":{"type":"string"}},
     "fontScale":{"type":"number"},
     "panels":{"type":"array","items":{"type":"object","properties":{
         "layer":{"type":"string"},"panel":{"type":"integer","minimum":0},"title":{"type":"string"},
@@ -228,7 +252,7 @@ constexpr const char kHudOutput[] = R"json({"type":"object","properties":{
           "required":["target","windowClass","ageMs","complete","busyMicroseconds","firstIdleMicroseconds","bursts",
                       "layoutMicroseconds","layouts","redrawMicroseconds","redraws"]}}},
       "additionalProperties":false,"required":["armed","idles","clicks"]}},
-  "additionalProperties":false,"required":["open","fontScale","panels","lastSeq","clickTiming"]})json";
+  "additionalProperties":false,"required":["open","visible","hiddenLayers","fontScale","panels","lastSeq","clickTiming"]})json";
 
 const NativeCommandRegistration kOverlayHudCommandRegistrations[] = {
     { "OverlayHudEvents", &MakeRegisteredNativeCommand<OverlayHudEventsCommand>, false, kEventsInput, kEventsOutput },

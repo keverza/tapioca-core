@@ -177,14 +177,24 @@ struct State;
 std::shared_ptr<State> NewState ();
 // Forgets it all: the project whose layers it named closed (§8).
 void ClearState (State& state);
-// Its text size (Engine::FontScale), set to the nearest step; whether the host is open,
-// and the key of the panel it shows (empty before one was laid out).
+// Its text size (Engine::FontScale), set to the nearest step; whether the host is open --
+// closed until a titled panel says how it starts, or the user or Python opens it -- and the
+// key of the panel it shows (empty before one was laid out).
 float FontScaleOf (const State& state);
 void SetFontScale (State& state, float scale);
 bool HudOpen (const State& state);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);
 void SelectKey (State& state, const std::string& key);
+// The whole overlay shown (the dock's circle) and each layer (Settings): hidden, nothing of
+// it is drawn -- but nothing is destroyed. `Revision` moves on every change, for the
+// renderers to follow.
+bool ContentShown (const State& state);
+bool LayerShown (const State& state, const std::string& layer);
+std::vector<std::string> HiddenLayers (const State& state);
+void SetContentShown (State& state, bool shown);
+void SetLayerShown (State& state, const std::string& layer, bool shown);
+uint64_t Revision (const State& state);
 // The values a panel's controls hold, by id -- the tab bar's too -- in id order.
 std::vector<std::pair<std::string, double>> Values (const State& state, const std::string& key);
 
@@ -208,6 +218,9 @@ class Engine final {
     void UseState (std::shared_ptr<State> state);
     // Where the changes go, after each `Build`, outside ImGui's lock.
     void SetChangeSink (ChangeSink sink);
+    // The layers drawn in the view the next `Build` is for, shown or hidden: what Settings
+    // lists for the user to show and hide.
+    void SetLayers (std::vector<std::string> names);
 
     // The HUD's text size, a factor on every size but the distances from the view's edges:
     // one of a few steps (0.8 to 2), walked by the dock's smaller and larger buttons. Set,

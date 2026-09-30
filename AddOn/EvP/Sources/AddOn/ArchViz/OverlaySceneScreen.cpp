@@ -42,10 +42,19 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
         }
     }
     std::vector<PanelRef> panels;
+    std::vector<std::string> names;
     for (const std::shared_ptr<const layers::Layer>& layer : all)
-        if (layers::DrawnIn (layer->views, view_))
+        if (layers::DrawnIn (layer->views, view_)) {
+            names.push_back (layer->name);
             for (size_t i = 0; i < layer->panels.size (); ++i)
                 panels.push_back ({ &layer->panels[i], layer->name, uint32_t (i) });
+        }
+    // Nothing drawn here, nothing of the HUD.
+    if (names.empty () && bars.empty ())
+        return;
+    // Every layer drawn here, for the HUD's Settings -- and a reason for its dock.
+    if (hud_ != nullptr)
+        hud_->SetLayers (std::move (names));
     AddPanels (panels, input, bars);
 }
 
@@ -54,8 +63,6 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
 void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::Input& input,
                          const std::vector<overlayhud::LegendBar>& legends)
 {
-    if (refs.empty () && legends.empty ())
-        return;
     std::vector<const layers::Panel*> panels;
     std::vector<std::string> keys;
     panels.reserve (refs.size ());

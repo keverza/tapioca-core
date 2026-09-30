@@ -10,6 +10,7 @@
 #include "ArchViz/Dxgi/GuestShaderSources.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayScene.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 
 #include <chrono>
 #include <cstring>
@@ -81,11 +82,11 @@ bool NeedsText (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& 
     return false;
 }
 
+// Any layer drawn in the plan: its dock shows and hides the overlay, its Settings the layers.
 bool NeedsHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
 {
     for (const auto& layer : layers)
-        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD) &&
-            (!layer->panels.empty () || !layer->legends.empty ()))
+        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD))
             return true;
     return false;
 }
@@ -139,15 +140,17 @@ bool NeedsGuest2D (const std::vector<std::shared_ptr<const overlaylayers::Layer>
 } // namespace
 
 bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers,
-              uint64_t generation, float dpiScale, const overlayhud::Input& input, bool& changed, std::string& error)
+              const std::vector<std::shared_ptr<const overlaylayers::Layer>>& hudLayers, uint64_t generation,
+              float dpiScale, const overlayhud::Input& input, bool& changed, std::string& error)
 {
     changed = false;
     g_dpiScale = dpiScale > 0.0f ? dpiScale : 1.0f;
     if (g_haveGeneration && generation == g_generation && !g_guest.DeviceChanged (device))
         return true;
 
-    // Nothing for the guest: whatever it held goes, and it stays detached.
-    if (!NeedsGuest2D (layers)) {
+    // Nothing for the guest -- no content of its kind, no layer to show a HUD for: whatever
+    // it held goes, and it stays detached.
+    if (!NeedsGuest2D (layers) && !NeedsHud (hudLayers)) {
         changed = !g_content.Empty () || !g_hudContent.Empty ();
         g_content = gpu::Content {};
         g_hudContent = gpu::Content {};
@@ -225,7 +228,7 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     g_content = std::move (content);
     g_sceneRegions = plan.regions;
     bool hudChanged = false;
-    if (!PrepareHud (layers, input, hudChanged, error))
+    if (!PrepareHud (hudLayers, input, hudChanged, error))
         return false;
     g_originX = plan.originX;
     g_originY = plan.originY;
@@ -301,7 +304,9 @@ void Draw (ID3D11DeviceContext* native, ID3D11RenderTargetView* target, const pl
     const auto started = std::chrono::steady_clock::now ();
     g_guest.BeginDraw (native, target, nullptr);
     gpu::DrawStats drawn;
-    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, &frame, false, g_dpiScale, drawn, g_highlight);
+    // Hidden by the user: the content is kept, and waits; the HUD is drawn.
+    if (overlayvisibility::ContentShown ())
+        gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, &frame, false, g_dpiScale, drawn, g_highlight);
     // The HUD last, over everything.
     gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, &frame, false, g_dpiScale, drawn);
     const uint32_t took = uint32_t (

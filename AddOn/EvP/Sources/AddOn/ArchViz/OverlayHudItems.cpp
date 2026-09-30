@@ -645,35 +645,53 @@ bool Button (const layers::PanelItem& item, float width)
     return ImGui::Button ((item.text + "##" + item.id).c_str (), ImVec2 (item.widthPixels > 0.0f ? width : 0.0f, 0.0f));
 }
 
-bool VerticalTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, ImVec2 padding,
-                  float scale)
+bool VerticalTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, bool shown,
+                  ImVec2 padding, float scale, bool& toggled)
 {
     const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
-    const ImVec2 size (std::ceil (text.y + 2.0f * padding.x), std::ceil (text.x + 2.0f * padding.y));
-    const bool pressed = ImGui::InvisibleButton (id, size);
-    const bool hovered = ImGui::IsItemHovered (), held = ImGui::IsItemActive ();
-    const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
+    const float across = std::ceil (text.y + 2.0f * padding.x);
+    const float r = (std::min) (6.0f * scale, across * 0.5f);
+    const uint32_t fill = open ? panel.accentRgba : panel.backgroundRgba;
+    const uint32_t ink = open ? Contrast (panel.accentRgba) : panel.textRgba;
     ImDrawList* draw = ImGui::GetWindowDrawList ();
-    const float r = (std::min) (6.0f * scale, size.x * 0.5f);
-    const ImDrawFlags corners = ImDrawFlags_RoundCornersLeft;
-    draw->AddRectFilled (a, b, Packed (open ? panel.accentRgba : panel.backgroundRgba), r, corners);
-    if (hovered || held) {
-        // The tint: white over the open tab, the accent over the closed one.
-        const uint32_t tint =
-            open ? WithAlpha (0xFFFFFFFFu, held ? 0.30f : 0.18f) : WithAlpha (panel.accentRgba, held ? 0.48f : 0.30f);
-        draw->AddRectFilled (a, b, Packed (tint), r, corners);
-    }
+    // One part: its ground, its tint when pointed at and pressed, its edge while closed.
+    const auto part = [&] (ImVec2 a, ImVec2 b, ImDrawFlags corners) {
+        const bool hovered = ImGui::IsItemHovered (), held = ImGui::IsItemActive ();
+        draw->AddRectFilled (a, b, Packed (fill), r, corners);
+        if (hovered || held) {
+            // White over the open tab, the accent over the closed one.
+            const uint32_t tint = open ? WithAlpha (0xFFFFFFFFu, held ? 0.30f : 0.18f)
+                                       : WithAlpha (panel.accentRgba, held ? 0.48f : 0.30f);
+            draw->AddRectFilled (a, b, Packed (tint), r, corners);
+        }
+    };
+    // The circle: the whole overlay shown (filled) or hidden (a ring).
+    ImGui::PushID (id);
+    toggled = ImGui::InvisibleButton ("##shown", ImVec2 (across, across));
+    const ImVec2 ca = ImGui::GetItemRectMin (), cb = ImGui::GetItemRectMax ();
+    part (ca, cb, ImDrawFlags_RoundCornersTopLeft);
+    const ImVec2 centre (std::floor ((ca.x + cb.x) * 0.5f), std::floor ((ca.y + cb.y) * 0.5f));
+    const float radius = std::floor (across * 0.22f) + 0.5f;
+    if (shown)
+        draw->AddCircleFilled (centre, radius, Packed (ink));
+    else
+        draw->AddCircle (centre, radius, Packed (ink), 0, (std::max) (1.0f, 1.5f * scale));
+    // The title, under it.
+    const bool pressed = ImGui::InvisibleButton ("##title", ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
+    const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
+    part (a, b, ImDrawFlags_RoundCornersBottomLeft);
+    ImGui::PopID ();
     if (!open) {
         const uint32_t edge = (panel.borderRgba & 0xFFu) != 0 ? panel.borderRgba : WithAlpha (panel.textRgba, 0.25f);
-        draw->AddRect (a, b, Packed (edge), r, corners, (std::max) (1.0f, scale));
+        draw->AddRect (ca, b, Packed (edge), r, ImDrawFlags_RoundCornersLeft, (std::max) (1.0f, scale));
     }
-    // Laid out across, round the tab's middle, then turned: every corner stays on a whole
-    // pixel. Unclipped while across -- the window is as narrow as the text is tall.
+    // Laid out across, round the title's middle, then turned: every corner stays on a
+    // whole pixel. Unclipped while across -- the window is as narrow as the text is tall.
     const ImVec2 middle (std::floor ((a.x + b.x) * 0.5f), std::floor ((a.y + b.y) * 0.5f));
     const int first = draw->VtxBuffer.Size;
     draw->PushClipRect (ImVec2 (-32768.0f, -32768.0f), ImVec2 (32768.0f, 32768.0f), false);
-    draw->AddText (ImVec2 (middle.x - std::floor (text.x * 0.5f), middle.y - std::floor (text.y * 0.5f)),
-                   Packed (open ? Contrast (panel.accentRgba) : panel.textRgba), label.c_str ());
+    draw->AddText (ImVec2 (middle.x - std::floor (text.x * 0.5f), middle.y - std::floor (text.y * 0.5f)), Packed (ink),
+                   label.c_str ());
     draw->PopClipRect ();
     for (int k = first; k < draw->VtxBuffer.Size; ++k) {
         ImDrawVert& v = draw->VtxBuffer[k];

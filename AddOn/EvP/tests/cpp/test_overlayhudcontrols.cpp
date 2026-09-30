@@ -1,5 +1,5 @@
 // ArchViz/OverlayHud, stage 2: what the user presses on the HUD -- the tint and the hand
-// over it, the dock the panels close to, the font size, and the controls whose values the
+// over it, the floating host and its dock, its Settings, and the controls whose values the
 // add-on holds and reports to Python. Laid out by the vendored Dear ImGui, as the add-on
 // does, and pressed as the input layer hands the presses over.
 
@@ -78,8 +78,8 @@ layers::Panel Titled (const char* title = "Area metrics", uint32_t colour = 0x2A
 // frame (the font's 14 and 3 above and below).
 constexpr float kRowY = 16.0f + 10.0f + 10.0f;
 
-// Where the pointer shows the hand along the host's tab row, left to right: its tabs, then
-// the smaller, larger and close buttons at its end.
+// Where the pointer shows the hand along the host's tab row, left to right: its tabs,
+// Settings, then the close button at its end.
 std::vector<std::pair<float, float>> Presses (Fresh& hud, const std::vector<const layers::Panel*>& panels,
                                               const hud::Built& host)
 {
@@ -102,6 +102,57 @@ float Middle (const std::pair<float, float>& run)
     return (run.first + run.second) * 0.5f;
 }
 
+// Where the pointer shows the hand down the host's page at `x`, top to bottom, under the tab
+// row: its controls.
+std::vector<std::pair<float, float>> Controls (Fresh& hud, const std::vector<const layers::Panel*>& panels,
+                                               const hud::Built& host, float x)
+{
+    std::vector<std::pair<float, float>> runs;
+    bool in = false;
+    for (float y = kRowY + 12.0f; y < 16.0f + host.height; y += 2.0f) {
+        const bool hand = hud.Lay (panels, At (x, y)).hand;
+        if (hand && !in)
+            runs.push_back ({ y, y });
+        if (hand)
+            runs.back ().second = y;
+        in = hand;
+    }
+    return runs;
+}
+
+// The rows of one colour's triangles, top to bottom: a list's lines of text.
+std::vector<std::pair<float, float>> Rows (const hud::Built& built, uint32_t rgba)
+{
+    std::vector<std::pair<float, float>> spans;
+    for (size_t t = 0; t + 2 < built.vertices.size (); t += 3) {
+        if (built.vertices[t].rgba != rgba)
+            continue;
+        float lo = FLT_MAX, hi = -FLT_MAX;
+        for (size_t k = t; k < t + 3; ++k) {
+            lo = (std::min) (lo, built.vertices[k].y);
+            hi = (std::max) (hi, built.vertices[k].y);
+        }
+        spans.push_back ({ lo, hi });
+    }
+    std::sort (spans.begin (), spans.end ());
+    std::vector<std::pair<float, float>> rows;
+    for (const auto& span : spans)
+        if (!rows.empty () && span.first <= rows.back ().second)
+            rows.back ().second = (std::max) (rows.back ().second, span.second);
+        else
+            rows.push_back (span);
+    return rows;
+}
+
+// The host on its Settings tab: the press before the close button along the tab row.
+void OpenSettings (Fresh& hud, const std::vector<const layers::Panel*>& panels)
+{
+    const hud::Layout open = hud.Lay (panels, At (600.0f, 600.0f));
+    const std::vector<std::pair<float, float>> runs = Presses (hud, panels, open.host);
+    ASSERT_GE (runs.size (), 2u);
+    hud.Click (panels, Middle (runs[runs.size () - 2]), kRowY);
+}
+
 } // namespace
 
 // ⚠️ THE USER, 2026-09-30: the STUDY panel's design as the main one, its tabs switching
@@ -122,7 +173,7 @@ TEST (OverlayHudControls, TitledPanelsAreTabsOfOneHost)
     EXPECT_FALSE (Box (first.host, 0x3355CCFFu, box));
     EXPECT_EQ (first.hostKey, "hud#0");
     const std::vector<std::pair<float, float>> runs = Presses (hud, { &sun, &area }, first.host);
-    ASSERT_EQ (runs.size (), 5u) << "two tabs, then A-, A+ and the close button";
+    ASSERT_EQ (runs.size (), 4u) << "two tabs, Settings and the close button";
     hud.Click ({ &sun, &area }, Middle (runs[1]), kRowY);
     const hud::Layout second = hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
     EXPECT_TRUE (Box (second.host, 0x3355CCFFu, box));
@@ -138,7 +189,7 @@ TEST (OverlayHudControls, TitledPanelsAreTabsOfOneHost)
 
 // ⚠️ THE USER, 2026-09-30: one tab at the side, its text turned 90 degrees, that opens and
 // closes the panel. It stands at the view's right edge, taller than wide, its title running
-// down it; filled with the accent while the host is open. The close button at the end of the
+// down it under the overlay's circle; filled with the accent while the host is open. The close button at the end of the
 // host's tab row closes it too, and every open and close is said.
 TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
 {
@@ -170,7 +221,7 @@ TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
     // The close button, last along the tab row.
     const hud::Layout again = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     const std::vector<std::pair<float, float>> runs = Presses (hud, { &panel }, again.host);
-    ASSERT_EQ (runs.size (), 4u);
+    ASSERT_EQ (runs.size (), 3u);
     hud.Click ({ &panel }, Middle (runs.back ()), kRowY);
     EXPECT_FALSE (hud.engine.Open ());
     ASSERT_EQ (hud.heard.size (), 3u);
@@ -271,8 +322,8 @@ TEST (OverlayHudControls, TheViewsShareWhatTheUserDid)
     EXPECT_FALSE (plan.engine.Open ());
     EXPECT_TRUE (plan.Lay ({ &panel }, At (600.0f, 600.0f)).host.vertices.empty ());
     hud::ClearState (*state);
-    EXPECT_TRUE (plan.engine.Open ());
     EXPECT_FALSE (plan.Lay ({ &panel }, At (600.0f, 600.0f)).host.vertices.empty ());
+    EXPECT_TRUE (plan.engine.Open ());
 }
 
 // Through the HUD stream: the host's and the dock's rectangles are the HUD's, the dock's
@@ -306,13 +357,13 @@ TEST (OverlayHudControls, TheHostAndTheDockAreRegions)
     EXPECT_EQ (closed.regions[0].kind, input::RegionKind::Dock);
 }
 
-// ---- the text size -------------------------------------------------------------------------
+// ---- the Settings tab and what it shows and hides ------------------------------------------
 
-// ⚠️ THE USER, 2026-09-29: a control for the HUD's font size -- now at the end of the host's
-// tab row. The larger button grows every size of the HUD by a step, in both views, and
-// leaves the distances from the view's edges; the smaller one walks back and stops at the
-// smallest step. Pointed at, they say the size they give, and each change is said.
-TEST (OverlayHudControls, TheTextSizeButtonsScaleTheWholeHudInBothViews)
+// ⚠️ THE USER, 2026-09-30: a Settings tab instead of A- A+, for the HUD's style and the
+// overlay's display. It is the host's last tab. Its text size is a dropdown of the steps:
+// chosen, every size of the HUD grows, in both views, the distances from the view's edges
+// kept, and the change is said.
+TEST (OverlayHudControls, SettingsSetsTheTextSizeInBothViews)
 {
     const std::shared_ptr<hud::State> state = hud::NewState ();
     Watched threeD;
@@ -320,34 +371,131 @@ TEST (OverlayHudControls, TheTextSizeButtonsScaleTheWholeHudInBothViews)
     threeD.engine.UseState (state);
     plan.engine.UseState (state);
     const layers::Panel panel = Titled ();
-    const hud::Layout before = threeD.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 1.0f);
-    std::vector<std::pair<float, float>> runs = Presses (threeD, { &panel }, before.host);
-    ASSERT_EQ (runs.size (), 4u);
-    EXPECT_FALSE (threeD.Lay ({ &panel }, At (Middle (runs[2]), kRowY)).overlay.vertices.empty ())
-        << "the size it gives, said";
-    threeD.Click ({ &panel }, Middle (runs[2]), kRowY);
-    EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.1f);
+    OpenSettings (threeD, { &panel });
+    EXPECT_EQ (threeD.engine.Selected (), "tapioca.settings");
     ASSERT_EQ (threeD.heard.size (), 1u);
-    EXPECT_EQ (threeD.heard[0].kind, "fontScale");
-    EXPECT_EQ (threeD.heard[0].text, "110 %");
+    EXPECT_EQ (threeD.heard[0].kind, "panel");
+    EXPECT_EQ (threeD.heard[0].text, "Settings");
+    const hud::Layout before = plan.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 1.0f);
+    // The dropdown: the first control down the page's right half.
+    const hud::Layout settings = threeD.Lay ({ &panel }, At (600.0f, 600.0f));
+    const float x = 16.0f + settings.host.width * 0.75f;
+    const std::vector<std::pair<float, float>> controls = Controls (threeD, { &panel }, settings.host, x);
+    ASSERT_GE (controls.size (), 1u) << "the text size";
+    threeD.Click ({ &panel }, x, Middle (controls[0]));
+    const hud::Layout list = threeD.Lay ({ &panel }, At (x, Middle (controls[0])));
+    ASSERT_TRUE (list.popup);
+    // Its options down the list, 80 % to 200 %: the fourth is 110 %.
+    const std::vector<std::pair<float, float>> options = Rows (list.overlay, panel.textRgba);
+    ASSERT_EQ (options.size (), 9u);
+    float box[4] = {};
+    ASSERT_TRUE (Box (list.overlay, panel.textRgba, box));
+    threeD.Click ({ &panel }, box[0] + 4.0f, Middle (options[3]));
+    EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.1f);
+    ASSERT_EQ (threeD.heard.back ().kind, "fontScale");
+    EXPECT_EQ (threeD.heard.back ().text, "110 %");
     const hud::Layout larger = plan.Lay ({ &panel }, At (600.0f, 600.0f));
     // By about the step: glyphs advance by whole pixels, so text does not scale exactly.
     const float grew = larger.host.height / before.host.height;
     EXPECT_GT (grew, 1.04f);
     EXPECT_LT (grew, 1.2f);
     EXPECT_NEAR (larger.host.offset[0], 16.0f, 0.5f) << "the distance from the view's edge stays";
-    // Four smaller: 1.0, 0.9, 0.8, and 0.8 again. The row's buttons move as the size
-    // changes; the row still crosses kRowY at every size.
-    for (int k = 0; k < 4; ++k) {
-        const hud::Layout now = plan.Lay ({ &panel }, At (600.0f, 600.0f));
-        runs = Presses (plan, { &panel }, now.host);
-        ASSERT_EQ (runs.size (), 4u);
-        plan.Click ({ &panel }, Middle (runs[1]), kRowY);
-    }
-    EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 0.8f);
+    // Set from Python: the nearest step, and never past the ends.
     threeD.engine.SetFontScale (1.3f);
     EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.25f);
+    threeD.engine.SetFontScale (0.2f);
+    EXPECT_FLOAT_EQ (plan.engine.FontScale (), 0.8f);
+}
+
+// ⚠️ THE USER, 2026-09-30: on the side tab, a filled or empty circle that shows and hides the
+// whole overlay and its HUD without destroying them. Pressed, nothing is laid out but the
+// dock, and the change is said; the dock's title brings everything back, the panel open.
+TEST (OverlayHudControls, TheDocksCircleHidesTheOverlayAndItsTitleBringsItBack)
+{
+    Watched hud;
+    const layers::Panel panel = Titled ();
+    layers::Panel plain;
+    plain.anchor = layers::PanelAnchor::BottomLeft;
+    plain.items.push_back (Item (layers::ItemKind::Text, "Always here"));
+    const hud::Layout open = hud.Lay ({ &panel, &plain }, At (600.0f, 600.0f));
+    ASSERT_GT (open.host.height, 0.0f);
+    // The circle: the dock's top square, as wide as the tab.
+    const float x = 1200.0f + open.dock.offset[0] + open.dock.width * 0.5f;
+    const float circle = 400.0f + open.dock.offset[1] + open.dock.width * 0.5f;
+    EXPECT_TRUE (hud.Lay ({ &panel, &plain }, At (x, circle)).hand);
+    hud.Click ({ &panel, &plain }, x, circle);
+    const hud::Layout hidden = hud.Lay ({ &panel, &plain }, At (600.0f, 600.0f));
+    EXPECT_FALSE (hud::ContentShown (*hud.state));
+    EXPECT_TRUE (hidden.host.vertices.empty ());
+    EXPECT_TRUE (hidden.panels[1].vertices.empty ()) << "an untitled panel is the overlay's too";
+    EXPECT_GT (hidden.dock.height, 0.0f) << "the way back";
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].kind, "overlay");
+    EXPECT_EQ (hud.heard[0].text, "hidden");
+    // Its title: everything back, the panel open.
+    hud.Click ({ &panel, &plain }, x, 400.0f + hidden.dock.offset[1] + hidden.dock.height * 0.6f);
+    const hud::Layout back = hud.Lay ({ &panel, &plain }, At (600.0f, 600.0f));
+    EXPECT_TRUE (hud::ContentShown (*hud.state));
+    EXPECT_TRUE (hud.engine.Open ());
+    EXPECT_GT (back.host.height, 0.0f);
+    EXPECT_GT (back.panels[1].height, 0.0f);
+    ASSERT_EQ (hud.heard.size (), 2u);
+    EXPECT_EQ (hud.heard[1].text, "shown");
+}
+
+// Settings lists every layer drawn in the view, shown or hidden. Unchecked, a layer is hidden:
+// its panels are no tab and no window, and the change is said; checked again, they are back.
+// The state's revision moves every time, for the renderers to follow.
+TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
+{
+    Watched hud;
+    hud.engine.SetLayers ({ "hud", "tapioca.storeySlices" });
+    const layers::Panel panel = Titled ("Sun study", 0x11AA22FFu);
+    OpenSettings (hud, { &panel });
+    const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    // The check boxes, at the page's left: Show overlay, then one per layer.
+    const float x = 16.0f + 24.0f;
+    std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
+    ASSERT_EQ (boxes.size (), 3u);
+    const uint64_t revision = hud::Revision (*hud.state);
+    hud.Click ({ &panel }, x, Middle (boxes[1]));
+    EXPECT_FALSE (hud::LayerShown (*hud.state, "hud"));
+    EXPECT_TRUE (hud::LayerShown (*hud.state, "tapioca.storeySlices"));
+    EXPECT_GT (hud::Revision (*hud.state), revision);
+    ASSERT_EQ (hud.heard.back ().kind, "layer");
+    EXPECT_EQ (hud.heard.back ().id, "hud");
+    EXPECT_EQ (hud.heard.back ().text, "hidden");
+    // Its panel is no tab now: Settings alone, in the plain card.
+    const hud::Layout without = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_EQ (Presses (hud, { &panel }, without.host).size (), 2u) << "Settings and the close button";
+    boxes = Controls (hud, { &panel }, without.host, x);
+    ASSERT_EQ (boxes.size (), 3u);
+    hud.Click ({ &panel }, x, Middle (boxes[1]));
+    EXPECT_TRUE (hud::LayerShown (*hud.state, "hud"));
+    EXPECT_EQ (Presses (hud, { &panel }, hud.Lay ({ &panel }, At (600.0f, 600.0f)).host).size (), 3u);
+}
+
+// A layer with no titled panel -- slices, lines -- still has the dock: its circle and its
+// Settings are the way to hide it. The host starts closed then; opened, it shows Settings.
+TEST (OverlayHudControls, ALayerWithoutAPanelHasTheDockAndSettings)
+{
+    Watched hud;
+    hud.engine.SetLayers ({ "tapioca.storeySlices" });
+    const hud::Layout first = hud.Lay ({}, At (600.0f, 600.0f));
+    ASSERT_GT (first.dock.height, 0.0f);
+    EXPECT_FALSE (hud.engine.Open ());
+    EXPECT_TRUE (first.host.vertices.empty ());
+    const float x = 1200.0f + first.dock.offset[0] + first.dock.width * 0.5f;
+    hud.Click ({}, x, 400.0f + first.dock.offset[1] + first.dock.height * 0.6f);
+    const hud::Layout open = hud.Lay ({}, At (600.0f, 600.0f));
+    EXPECT_TRUE (hud.engine.Open ());
+    EXPECT_GT (open.host.height, 0.0f);
+    EXPECT_EQ (hud.engine.Selected (), "tapioca.settings");
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].title, "Overlay");
+    Fresh none;
+    EXPECT_FLOAT_EQ (none.Lay ({}, At (600.0f, 600.0f)).dock.width, 0.0f) << "no layer, no dock";
 }
 
 // ---- what the user changed, for Python -------------------------------------------------------

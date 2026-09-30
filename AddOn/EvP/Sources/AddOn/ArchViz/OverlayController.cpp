@@ -26,6 +26,7 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayScene.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 #include "ArchViz/StorySliceOverlay.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
@@ -37,6 +38,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdio>
 
 namespace geomsrv {
@@ -118,11 +120,11 @@ float g_scale3D = 1.0f;
 uint64_t g_hudPrint3D = 0;
 
 // Whether the view's HUD has anything to lay out: panels, or legends to hover.
+// Any layer drawn in 3D: its dock shows and hides the overlay, its Settings the layers.
 bool HudIn3D (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
 {
     for (const auto& layer : layers)
-        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD) &&
-            (!layer->panels.empty () || !layer->legends.empty ()))
+        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD))
             return true;
     return false;
 }
@@ -154,7 +156,10 @@ bool RefreshHud3D ()
     overlayscene::Scene hud =
         overlayscene::PrepareSceneHud (layers, HudIn3D (layers) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
                                        g_scale3D, overlayinput::TakeInput (overlayinput::View::ThreeD), &g_legends3D);
-    return PublishHud3D (std::move (hud));
+    const bool changed = PublishHud3D (std::move (hud));
+    // What the user did there may be the dock's circle or a layer hidden.
+    FollowHudState ();
+    return changed;
 }
 
 // The input layer's paced redraw: a still 3D view presents nothing by itself.
@@ -585,8 +590,10 @@ void OnProjectClosed ()
     // The storey slices and the Watch annotations were that project's too.
     storysliceoverlay::OnProjectClosed ();
     overlayannotations::OnProjectClosed ();
-    // What the user did to that project's panels, by their layers' names (§8).
+    // What the user did to that project's panels, by their layers' names (§8) -- a hidden
+    // overlay shown again with it.
     guesttext::ForgetHudState ();
+    FollowHudState ();
     if (!overlaylayers::Layers ().empty ()) {
         overlaylayers::ClearEverything ();
         PublishLayers ();
@@ -744,6 +751,8 @@ HudReport Hud ()
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
     out.fontScale = overlayhud::FontScaleOf (*state);
     out.open = overlayhud::HudOpen (*state);
+    out.visible = overlayhud::ContentShown (*state);
+    out.hiddenLayers = overlayhud::HiddenLayers (*state);
     const std::string selected = overlayhud::SelectedKey (*state);
     for (const auto& layer : overlaylayers::Layers ())
         for (size_t i = 0; i < layer->panels.size (); ++i) {
@@ -755,6 +764,60 @@ HudReport Hud ()
                 out.panels.push_back (std::move (record));
         }
     return out;
+}
+
+std::vector<std::shared_ptr<const overlaylayers::Layer>> ShownLayers ()
+{
+    std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
+    const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
+    layers.erase (std::remove_if (layers.begin (), layers.end (),
+                                  [&] (const std::shared_ptr<const overlaylayers::Layer>& layer) {
+                                      return !overlayhud::LayerShown (*state, layer->name);
+                                  }),
+                  layers.end ());
+    return layers;
+}
+
+namespace {
+
+// What the renderers last followed of the HUD's state.
+uint64_t g_followedRevision = 0;
+std::vector<std::string> g_followedHidden;
+
+} // namespace
+
+void FollowHudState ()
+{
+    const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
+    const uint64_t revision = overlayhud::Revision (*state);
+    if (revision == g_followedRevision)
+        return;
+    g_followedRevision = revision;
+    // Shown or hidden as a whole: read at Present, nothing rebuilt.
+    overlayvisibility::SetContentShown (overlayhud::ContentShown (*state));
+    // A layer hidden or shown again: the content is rebuilt without it -- the 3D view's now,
+    // the plan's at its next tick, as the store moved.
+    std::vector<std::string> hidden = overlayhud::HiddenLayers (*state);
+    if (hidden != g_followedHidden) {
+        g_followedHidden = std::move (hidden);
+        overlaylayers::Touch ();
+        PublishLayers ();
+    }
+    // Both views' HUDs follow -- the dock's circle, the tabs of a hidden layer -- and draw.
+    overlayinput::RequestLayout (overlayinput::View::ThreeD);
+    overlayinput::RequestLayout (overlayinput::View::Plan);
+}
+
+void SetOverlayVisible (bool visible)
+{
+    overlayhud::SetContentShown (*guesttext::HudState (), visible);
+    FollowHudState ();
+}
+
+void SetLayerVisible (const std::string& layer, bool visible)
+{
+    overlayhud::SetLayerShown (*guesttext::HudState (), layer, visible);
+    FollowHudState ();
 }
 
 void SetHudOpen (bool open)
@@ -825,11 +888,15 @@ void StopAll ()
     StopHeartbeat ();
     StopRenderers (true);
     overlayinput::Shutdown ();
+    overlayvisibility::SetContentShown (true);
 }
 
 void PublishLayers ()
 {
-    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
+    // The content of the layers the user shows; the HUD of every one -- its Settings lists
+    // the hidden ones too.
+    const std::vector<std::shared_ptr<const overlaylayers::Layer>> all = overlaylayers::Layers ();
+    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = ShownLayers ();
     overlaylayers::Prepared3D prepared = overlaylayers::Prepare3D (layers);
     prepared.generation = overlaylayers::Generation ();
     dxgi::layers3d::Publish (std::move (prepared));
@@ -851,7 +918,7 @@ void PublishLayers ()
     // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud), laid
     // out for where the pointer is now.
     overlayscene::Scene hud =
-        overlayscene::PrepareSceneHud (layers, HudIn3D (layers) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
+        overlayscene::PrepareSceneHud (all, HudIn3D (all) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
                                        scale, overlayinput::CurrentInput (overlayinput::View::ThreeD), &g_legends3D);
     hud.generation = scene.generation;
     const overlayscene::Problems& problems = scene.problems;

@@ -373,3 +373,16 @@ def test_the_floating_panel_opens_on_a_tab_through_the_hud_verb(monkeypatch):
         ("Tapioca.OverlayHud", {"open": True, "select": {"layer": "sun", "panel": 1}}),
         ("Tapioca.OverlayHud", {"open": False}),
     ]
+
+
+def test_the_overlay_and_a_layer_are_shown_and_hidden_through_the_hud_verb(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        overlay, "call", lambda command, params: seen.append((command, params)) or SimpleNamespace(data={})
+    )
+    overlay.show_overlay(False)
+    overlay.show_layer("sun", False)
+    assert seen == [
+        ("Tapioca.OverlayHud", {"visible": False}),
+        ("Tapioca.OverlayHud", {"layerVisible": {"layer": "sun", "visible": False}}),
+    ]
