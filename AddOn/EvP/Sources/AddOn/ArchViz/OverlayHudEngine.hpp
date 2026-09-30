@@ -3,8 +3,8 @@
 
 // ArchViz/OverlayHudEngine -- the HUD engine's insides (OverlayHud.hpp `Engine`), shared by
 // the translation units that lay it out: OverlayHud.cpp (the frame, the panels, the font
-// atlas), OverlayHudDock.cpp (the dock and the text size) and OverlayHudControls.cpp (the
-// controls and the values held for them). Not an interface: nothing outside the engine
+// atlas), OverlayHudHost.cpp (the floating panel, its tabs, the dock and the text size) and
+// OverlayHudControls.cpp (the controls and the values held for them). Not an interface: nothing outside the engine
 // includes it.
 //
 // MAIN THREAD, inside ImGui's lock (ImGuiContextLock.hpp) wherever a frame is laid out.
@@ -27,14 +27,13 @@ namespace overlayhud {
 
 namespace layers = overlaylayers;
 
-// The dock's tabs: their font, their padding round the title, the gap between them, and
-// the gap between the dock and a panel on the view's right column.
-constexpr float kDockFontPixels = 13.0f;
-constexpr float kDockPadding[2] = { 12.0f, 7.0f };
-constexpr float kDockSpacing = 4.0f;
-constexpr float kDockGap = 8.0f;
+// The dock's one tab: its font, its padding across and along its turned title, and the gap
+// between it and a panel on the view's right column.
+constexpr float kDockFontPixels = 12.0f;
+constexpr float kDockPadding[2] = { 5.0f, 12.0f };
+constexpr float kDockGap = 6.0f;
 // ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
-// HUD's font size). The dock's smaller and larger buttons walk them; every size of the
+// HUD's font size). The panel's smaller and larger buttons walk them; every size of the
 // HUD -- text, padding, widths, the dock itself -- follows, the distances from the view's
 // edges do not.
 constexpr float kFontSteps[] = { 0.8f, 0.9f, 1.0f, 1.1f, 1.25f, 1.4f, 1.6f, 1.8f, 2.0f };
@@ -50,13 +49,29 @@ struct State {
         double current = 0.0;
     };
     struct Panel {
-        bool collapsed = false;             // in the dock
         std::map<uint32_t, bool> sections;  // by item index
         std::map<std::string, Held> values; // by control id; the tab bar's by its id
     };
     std::map<std::string, Panel> panels;
     uint32_t fontStep = kFontStepDefault; // kFontSteps
+    // The floating panel the titled panels are tabs of: open or in the dock, the tab shown
+    // (a panel key), and -- once the user has dragged it -- where: `offset` logical pixels
+    // in from the edges of the view's `corner` nearest it (1 right, 2 bottom), so a view
+    // resized keeps it that far from them.
+    struct Host {
+        bool known = false; // set from the panels the first time there were any
+        bool open = true;
+        std::string selected;
+        bool placed = false;
+        uint8_t corner = 0;
+        float offset[2] = { 0.0f, 0.0f };
+    };
+    Host host;
 };
+
+// A panel's own look over the base; the number of colours pushed, and of style vars.
+int PushPanelStyle (const layers::Panel& panel, float scale);
+constexpr int kStyleVars = 3;
 
 struct Engine::Impl {
     ImGuiContext* context = nullptr;
@@ -86,9 +101,14 @@ struct Engine::Impl {
     ChangeSink sink;
     Layout::Highlight highlight;
     bool hand = false;
-    // The panels' windows in the frame being laid out, by the panel's place in the set,
-    // and the dock's after them.
+    // The windows in the frame being laid out: an untitled panel's by its place in the set
+    // (a titled one's is none: it is a tab of the host), then the dock's, then the host's.
     std::vector<ImGuiWindow*> windows;
+    // The titled panels by their place in the set, and which of them the host shows.
+    std::vector<size_t> titled;
+    size_t shown = 0;
+    // The tab the host's tab bar showed in this context's last frame: a panel key.
+    std::string shownHost;
     // The dock's width this frame: how far the view's right column moves in.
     float inset = 0.0f;
     // Which tab each tab bar showed in this context's last frame, by panel key and bar id,
@@ -120,20 +140,21 @@ struct Engine::Impl {
     // A legend's bar pointed at: the value there, beside the bar at the pointer.
     void LegendTips (const std::vector<LegendBar>& legends, float scale, ImVec2 view);
 
-    // ⚠️ THE DOCK: a tab per titled panel down the view's right edge, half-way down, all
-    // as wide as the widest title (the user, 2026-09-29). Filled with the panel's accent
-    // while the panel is open; its card's own colours while the panel is in the dock. A
-    // press on it opens or closes the panel -- in this frame, as the dock is laid out
-    // before the panels.
-    void Dock (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
-               ImVec2 view);
+    // The titled panels found, the host's state made from them the first time, the tab it
+    // shows held to one of them (OverlayHudHost.cpp).
+    void Gather (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys);
 
-    // A panel sent to the dock or opened from it: said.
-    void Docking (const layers::Panel& panel, const std::string& panelKey, bool docked);
+    // The dock: one tab at the view's right edge, its title turned a quarter; it opens and
+    // closes the host.
+    void Dock (const std::vector<const layers::Panel*>& panels, float scale, ImVec2 view);
 
-    // The text size under the tabs: smaller and larger, side by side, in the first titled
-    // panel's colours; pointed at, the size they give, beside the dock.
-    void FontButtons (const layers::Panel& colours, ImVec2 tab, float scale);
+    // The host: one floating panel, a tab per titled panel, the text size and the close
+    // button at the end of its tab row; where the user dragged it, kept.
+    void Host (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
+               float ui, ImVec2 view);
+
+    // The host opened or closed: said, with the tab it shows.
+    void Opening (bool open, const std::string& title);
 
     // Each control's value as its layer says it now, held (OverlayHudControls.cpp).
     void Reconcile (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys);

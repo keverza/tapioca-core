@@ -645,18 +645,20 @@ bool Button (const layers::PanelItem& item, float width)
     return ImGui::Button ((item.text + "##" + item.id).c_str (), ImVec2 (item.widthPixels > 0.0f ? width : 0.0f, 0.0f));
 }
 
-bool DockButton (const char* id, const std::string& label, const layers::Panel& panel, bool open, ImVec2 size,
-                 ImDrawFlags corners, float scale)
+bool VerticalTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, ImVec2 padding,
+                  float scale)
 {
+    const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
+    const ImVec2 size (std::ceil (text.y + 2.0f * padding.x), std::ceil (text.x + 2.0f * padding.y));
     const bool pressed = ImGui::InvisibleButton (id, size);
     const bool hovered = ImGui::IsItemHovered (), held = ImGui::IsItemActive ();
     const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
-    // A tab is rounded on the left only: it comes out of the view's edge.
-    const float r = corners == ImDrawFlags_RoundCornersNone ? 0.0f : (std::min) (8.0f * scale, size.y * 0.5f);
+    const float r = (std::min) (6.0f * scale, size.x * 0.5f);
+    const ImDrawFlags corners = ImDrawFlags_RoundCornersLeft;
     draw->AddRectFilled (a, b, Packed (open ? panel.accentRgba : panel.backgroundRgba), r, corners);
     if (hovered || held) {
-        // The tint: white over an open panel's filled tab, the accent over a closed one's.
+        // The tint: white over the open tab, the accent over the closed one.
         const uint32_t tint =
             open ? WithAlpha (0xFFFFFFFFu, held ? 0.30f : 0.18f) : WithAlpha (panel.accentRgba, held ? 0.48f : 0.30f);
         draw->AddRectFilled (a, b, Packed (tint), r, corners);
@@ -665,9 +667,19 @@ bool DockButton (const char* id, const std::string& label, const layers::Panel& 
         const uint32_t edge = (panel.borderRgba & 0xFFu) != 0 ? panel.borderRgba : WithAlpha (panel.textRgba, 0.25f);
         draw->AddRect (a, b, Packed (edge), r, corners, (std::max) (1.0f, scale));
     }
-    const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
-    draw->AddText (ImVec2 (a.x + (size.x - text.x) * 0.5f, a.y + (size.y - text.y) * 0.5f),
+    // Laid out across, round the tab's middle, then turned: every corner stays on a whole
+    // pixel. Unclipped while across -- the window is as narrow as the text is tall.
+    const ImVec2 middle (std::floor ((a.x + b.x) * 0.5f), std::floor ((a.y + b.y) * 0.5f));
+    const int first = draw->VtxBuffer.Size;
+    draw->PushClipRect (ImVec2 (-32768.0f, -32768.0f), ImVec2 (32768.0f, 32768.0f), false);
+    draw->AddText (ImVec2 (middle.x - std::floor (text.x * 0.5f), middle.y - std::floor (text.y * 0.5f)),
                    Packed (open ? Contrast (panel.accentRgba) : panel.textRgba), label.c_str ());
+    draw->PopClipRect ();
+    for (int k = first; k < draw->VtxBuffer.Size; ++k) {
+        ImDrawVert& v = draw->VtxBuffer[k];
+        const float dx = v.pos.x - middle.x, dy = v.pos.y - middle.y;
+        v.pos = ImVec2 (middle.x - dy, middle.y + dx);
+    }
     return pressed;
 }
 

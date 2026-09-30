@@ -221,21 +221,27 @@ struct InputCounts {
 };
 InputCounts Input ();
 
-// What the user did to the HUD, both views': its text size, and every panel of the layers
-// set now with a title or a control -- its layer, its place, its title, whether it is in
-// the dock, its controls' values. MAIN THREAD.
+// What the user did to the HUD, both views': whether its floating panel is open, its text
+// size, and every panel of the layers set now with a title or a control -- its layer, its
+// place, its title, whether it is the tab shown, its controls' values. MAIN THREAD.
 struct HudPanel {
     std::string layer;
     uint32_t panel = 0;
     std::string title;
-    bool docked = false;
+    bool selected = false;
     std::vector<std::pair<std::string, double>> values; // its controls', by id; the tab bar's
 };
 struct HudReport {
+    bool open = true;
     float fontScale = 1.0f;
     std::vector<HudPanel> panels;
 };
 HudReport Hud ();
+// The floating panel opened or closed, and the tab it shows: a titled panel of a layer set
+// now, by the layer and its place there -- false for none. Both views laid out again. MAIN
+// THREAD.
+void SetHudOpen (bool open);
+bool SelectHudPanel (const std::string& layer, uint32_t panel);
 // The HUD's text size, the nearest step (0.8 to 2), laid out again in both views. MAIN
 // THREAD.
 void SetHudFontScale (float scale);

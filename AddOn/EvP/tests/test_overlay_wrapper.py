@@ -358,3 +358,18 @@ def test_the_click_meter_is_armed_through_the_hud_verb(monkeypatch):
     overlay.time_clicks()
     overlay.time_clicks(False)
     assert seen == [("Tapioca.OverlayHud", {"timeClicks": True}), ("Tapioca.OverlayHud", {"timeClicks": False})]
+
+
+def test_the_floating_panel_opens_on_a_tab_through_the_hud_verb(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        overlay, "call", lambda command, params: seen.append((command, params)) or SimpleNamespace(data={})
+    )
+    overlay.show_hud()
+    overlay.show_hud(layer="sun", panel=1)
+    overlay.show_hud(False)
+    assert seen == [
+        ("Tapioca.OverlayHud", {"open": True}),
+        ("Tapioca.OverlayHud", {"open": True, "select": {"layer": "sun", "panel": 1}}),
+        ("Tapioca.OverlayHud", {"open": False}),
+    ]

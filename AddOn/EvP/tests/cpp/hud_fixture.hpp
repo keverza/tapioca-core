@@ -13,6 +13,7 @@
 #include <cfloat>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -77,6 +78,25 @@ struct Fresh {
         Lay (panels, At (x, y));
         Lay (panels, At (x, y, { { 0, true } }));
         return Lay (panels, At (x, y, { { 0, false } }));
+    }
+};
+
+// An engine that keeps what the user did in a state the test can read, and hears every
+// change.
+struct Watched : Fresh {
+    std::shared_ptr<hud::State> state = hud::NewState ();
+    std::vector<hud::Change> heard;
+    Watched ()
+    {
+        engine.UseState (state);
+        engine.SetChangeSink ([this] (const hud::Change& change) { heard.push_back (change); });
+    }
+    double Value (const std::string& id) const
+    {
+        for (const auto& held : hud::Values (*state, "hud#0"))
+            if (held.first == id)
+                return held.second;
+        return -1.0;
     }
 };
 

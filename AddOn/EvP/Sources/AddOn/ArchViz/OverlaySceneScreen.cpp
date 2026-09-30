@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 namespace geomsrv {
 namespace archviz {
@@ -113,6 +114,13 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     for (size_t i = 0; i < panels.size (); ++i)
         if (!emit (layout.panels[i], overlayinput::RegionKind::Panel, refs[i].layer, refs[i].index))
             return;
+    // The host, then the dock over it: the dock is drawn over a host dragged onto it.
+    const size_t hash = layout.hostKey.rfind ('#');
+    if (!emit (layout.host, overlayinput::RegionKind::Panel,
+               hash == std::string::npos ? std::string () : layout.hostKey.substr (0, hash),
+               hash == std::string::npos ? 0u
+                                         : uint32_t (std::strtoul (layout.hostKey.c_str () + hash + 1, nullptr, 10))))
+        return;
     if (!emit (layout.dock, overlayinput::RegionKind::Dock, std::string (), 0))
         return;
     // A dropdown's list open: the whole view, over everything else (OverlayHitMap.hpp).

@@ -242,8 +242,11 @@ TEST (OverlayHitMap, APanelsRegionHoldsItsTriangles)
     layer.panels = { layers::Panel (), panel };
     const scene::Scene drawn =
         scene::PrepareSceneHud ({ std::make_shared<const layers::Layer> (layer) }, &HudEngine (), 1.5f);
-    ASSERT_EQ (drawn.regions.size (), 2u);
+    // The untitled panel, the host showing the titled one, and the dock.
+    ASSERT_EQ (drawn.regions.size (), 3u);
     const input::Region& region = drawn.regions[1];
+    const input::Region& dock = drawn.regions[2];
+    EXPECT_EQ (dock.kind, input::RegionKind::Dock);
     EXPECT_EQ (region.kind, input::RegionKind::Panel);
     EXPECT_EQ (region.layer, "metrics");
     EXPECT_EQ (region.item, 1u);
@@ -257,6 +260,8 @@ TEST (OverlayHitMap, APanelsRegionHoldsItsTriangles)
     for (const scene::SceneGlyph& glyph : drawn.glyphs) {
         if (glyph.position[0] != 1.0f)
             continue; // the other panel's, at the top-left
+        if (glyph.offset[0] >= dock.rect[0] - fringe)
+            continue; // the dock's, at the right edge beside it
         EXPECT_GE (glyph.offset[0], region.rect[0] - fringe);
         EXPECT_LE (glyph.offset[0], region.rect[2] + fringe);
         EXPECT_GE (glyph.offset[1], region.rect[1] - fringe);

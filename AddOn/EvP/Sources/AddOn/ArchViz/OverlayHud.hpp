@@ -29,14 +29,18 @@
 // the user did to it. And the two views' engines share it (`State`): a panel docked in
 // the 3D window is docked in the plan.
 //
-// ⚠️ THE TEXT SIZE IS THE USER'S. Under the dock's tabs, a smaller and a larger button
-// scale the whole HUD -- text, padding, widths and the dock -- by a few steps, in both
-// views; the distances from the view's edges stay.
-//
-// ⚠️ A PANEL CLOSES TO THE DOCK, NOT IN PLACE (the user, 2026-09-29: the collapsed panel
-// is a tab in a list down the view's right edge). A titled panel's close button puts it
-// there; its tab -- filled while the panel is open -- opens and closes it. A panel on the
+// ⚠️ ONE FLOATING PANEL, THE TITLED PANELS ITS TABS (the user, 2026-09-30). Every panel with
+// a title, of every layer, is a tab of the host: one small panel with no title bar, its tab
+// row its head, the text size (A- A+) and a close button at the row's end. The user drags
+// it by anything that is not a control; where they leave it is kept from the view's
+// nearest corner, in logical pixels, so a resized view keeps it there and inside. The dock
+// is ONE tab at the view's right edge, its title turned a quarter, that opens and closes
+// the host. A panel without a title stands alone at its anchor, as before; one on the
 // view's right column moves in beside the dock.
+//
+// ⚠️ THE TEXT SIZE IS THE USER'S: the host's smaller and larger buttons scale the whole HUD
+// -- text, padding, widths and the dock -- by a few steps, in both views; the distances
+// from the view's edges stay.
 //
 // ⚠️ THIS ENGINE IS IMGUI'S BACKEND FOR TEXTURES. ImGui 1.92 grows its font atlas as it
 // meets new glyphs and sizes (`ImGuiBackendFlags_RendererHasTextures`); each version of
@@ -114,7 +118,7 @@ struct LegendBar {
 // folded, the text size, a control's value. For Python (OverlayHudEvents.hpp); `key`
 // splits into the panel's layer and place.
 struct Change {
-    std::string kind;  // "dock", "section", "fontScale", "checkbox", "slider", "combo", "tab", "button"
+    std::string kind;  // "hud", "panel", "section", "fontScale", "checkbox", "slider", "combo", "tab", "button"
     std::string key;   // the panel's; empty for the HUD's own (the text size)
     std::string title; // the panel's
     std::string id;    // the control's id, the tab bar's; a section's title; "textSize"
@@ -129,8 +133,13 @@ struct Change {
 struct Layout {
     std::vector<Built> panels; // a panel in the dock is empty: no size, no triangles
     Built overlay;
-    // The dock, at the view's right edge half-way down; empty without a titled panel.
+    // The dock's one tab, at the view's right edge half-way down, and the host -- the
+    // floating panel the titled panels are tabs of, and the key of the one it shows. Both
+    // empty without a titled panel; the host empty while it is closed. A titled panel's
+    // own `panels` entry is always empty: it is drawn as the host's tab.
     Built dock;
+    Built host;
+    std::string hostKey;
     // The ramp or legend the pointer is on: its layer, and the band of values under the
     // pointer -- that band of the layer's heatmaps is shown, the rest dimmed
     // (OverlayScene.hpp `Highlight`). A band is a colormap's band where it has them,
@@ -168,13 +177,14 @@ struct State;
 std::shared_ptr<State> NewState ();
 // Forgets it all: the project whose layers it named closed (§8).
 void ClearState (State& state);
-// Its text size (Engine::FontScale), set to the nearest step; and whether a panel is in
-// the dock -- false for a key never laid out.
+// Its text size (Engine::FontScale), set to the nearest step; whether the host is open,
+// and the key of the panel it shows (empty before one was laid out).
 float FontScaleOf (const State& state);
 void SetFontScale (State& state, float scale);
-bool Docked (const State& state, const std::string& key);
-// Whether a panel of that key was ever laid out: before, it is as its caller set it.
-bool Known (const State& state, const std::string& key);
+bool HudOpen (const State& state);
+std::string SelectedKey (const State& state);
+void SetHudOpen (State& state, bool open);
+void SelectKey (State& state, const std::string& key);
 // The values a panel's controls hold, by id -- the tab bar's too -- in id order.
 std::vector<std::pair<std::string, double>> Values (const State& state, const std::string& key);
 
@@ -220,9 +230,11 @@ class Engine final {
     // The atlas as pages, current after the last `Build`: `Vertex::page` indexes it.
     const std::vector<std::shared_ptr<const overlaytext::Page>>& Pages () const;
 
-    // What the user did to a panel, by its key: in the dock, and each section's open state
-    // by its item's index. False for a key never laid out.
-    bool Collapsed (const std::string& key) const;
+    // Whether the host is open, and the key of the panel it shows.
+    bool Open () const;
+    std::string Selected () const;
+    // Each section's open state, by its panel's key and its item's index. False for a key
+    // never laid out.
     bool SectionOpen (const std::string& key, uint32_t item, bool& open) const;
 
     Stats GetStats () const;

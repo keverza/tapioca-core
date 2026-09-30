@@ -355,9 +355,10 @@ enum class PanelTheme : uint8_t { Dark = 0, Light = 1 };
 // A panel, anchored to the view: its own `anchor` point put at the same point of the
 // view, `offsetPixels` inwards. Laid out by Dear ImGui (auto-sized unless
 // `widthPixels`), drawn by the guest (§12b: ImGui through Diligent). A panel with a
-// title has a tab in the dock down the view's right edge, and a close button on its title
-// bar that sends it there; the tab opens it again. `collapsed` is how it starts -- in the
-// dock -- and what the user does to it outlives the layer being set again.
+// title is a tab of the HUD's one floating panel (OverlayHud.hpp), which starts where the
+// tab it shows asks and in its look; `collapsed` on the first titled panel starts that
+// floating panel closed, to the dock's tab. What the user does outlives the layer being
+// set again.
 struct Panel {
     std::string title;
     PanelAnchor anchor = PanelAnchor::TopLeft;

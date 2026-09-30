@@ -36,14 +36,14 @@ struct Event {
     uint64_t seq = 0;    // one above the event before it
     uint64_t timeMs = 0; // wall clock, milliseconds since 1970 UTC: what time.time() says x 1000
     std::string view;    // "3d" or "plan": where the user did it
-    std::string kind;    // "dock", "section", "fontScale", and each control's kind
+    std::string kind;    // "hud" (opened, closed), "panel" (its tab), "section", "fontScale", a control's
     std::string layer;   // the panel's layer; empty for the HUD's own (the text size)
     int32_t panel = -1;  // its place among that layer's panels
     std::string title;   // the panel's title
     std::string id;      // the control: a section's title, a control's id
     int32_t item = -1;   // its place among the panel's items
-    double value = 0.0;  // what it is now: 1 docked or open, the scale, the value
-    std::string text;    // what that says: "docked", "open", "110 %", an option's label
+    double value = 0.0;  // what it is now: 1 open, 0 closed; the scale; the value
+    std::string text;    // what that says: "open", "closed", "110 %", a tab's title, an option
     bool final = true;   // false while a slider is still being dragged
 };
 

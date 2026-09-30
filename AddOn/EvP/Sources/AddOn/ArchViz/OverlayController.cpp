@@ -739,19 +739,37 @@ HudReport Hud ()
     HudReport out;
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
     out.fontScale = overlayhud::FontScaleOf (*state);
+    out.open = overlayhud::HudOpen (*state);
+    const std::string selected = overlayhud::SelectedKey (*state);
     for (const auto& layer : overlaylayers::Layers ())
         for (size_t i = 0; i < layer->panels.size (); ++i) {
             const overlaylayers::Panel& panel = layer->panels[i];
             const std::string key = layer->name + "#" + std::to_string (i);
-            // A panel never laid out yet stands as its caller set it.
-            const bool known = overlayhud::Known (*state, key);
-            HudPanel record { layer->name, uint32_t (i), panel.title,
-                              known ? overlayhud::Docked (*state, key) : panel.collapsed && !panel.title.empty (),
+            HudPanel record { layer->name, uint32_t (i), panel.title, !panel.title.empty () && key == selected,
                               overlayhud::Values (*state, key) };
             if (!panel.title.empty () || !record.values.empty ())
                 out.panels.push_back (std::move (record));
         }
     return out;
+}
+
+void SetHudOpen (bool open)
+{
+    overlayhud::SetHudOpen (*guesttext::HudState (), open);
+    overlayinput::RequestLayout (overlayinput::View::ThreeD);
+    overlayinput::RequestLayout (overlayinput::View::Plan);
+}
+
+bool SelectHudPanel (const std::string& layer, uint32_t panel)
+{
+    for (const auto& set : overlaylayers::Layers ())
+        if (set->name == layer && panel < set->panels.size () && !set->panels[panel].title.empty ()) {
+            overlayhud::SelectKey (*guesttext::HudState (), layer + "#" + std::to_string (panel));
+            overlayinput::RequestLayout (overlayinput::View::ThreeD);
+            overlayinput::RequestLayout (overlayinput::View::Plan);
+            return true;
+        }
+    return false;
 }
 
 void TimeHudClicks (bool on)

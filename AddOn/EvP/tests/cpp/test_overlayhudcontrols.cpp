@@ -57,101 +57,133 @@ TEST (OverlayHudControls, APressableRowIsTintedAndShowsTheHand)
     EXPECT_EQ (light.accentRgba, 0x2F6FEBFFu);
 }
 
-// ---- the dock ------------------------------------------------------------------------------
+// ---- the floating panel and its dock ---------------------------------------------------------
 
 namespace {
 
-layers::Panel Titled (const char* title = "Area metrics")
+// A titled panel -- a tab of the host -- whose page is a key of one colour, so which page
+// the host shows can be read from its triangles.
+layers::Panel Titled (const char* title = "Area metrics", uint32_t colour = 0x2A7F86FFu)
 {
     layers::Panel panel;
     panel.title = title;
-    panel.items.push_back (Item (layers::ItemKind::Row, "Site area", "11 214 m\xC2\xB2"));
+    layers::PanelItem swatch = Item (layers::ItemKind::Swatch, title);
+    swatch.rgba = colour;
+    panel.items.push_back (swatch);
     panel.items.push_back (Item (layers::ItemKind::Row, "BCR", "20.0 %"));
     return panel;
 }
 
-// The close button's middle on a panel at the view's top-left (16, 16): at the title bar's
-// end, a frame's padding in (4, 3), as big as the title's font (14 x 1.2).
-float CloseX (const hud::Built& panel)
-{
-    return 16.0f + panel.width - 4.0f - 8.4f;
-}
-constexpr float kCloseY = 16.0f + 3.0f + 8.4f;
+// The host's tab row, on a panel at the view's top-left (16, 16): a padding in, as tall as a
+// frame (the font's 14 and 3 above and below).
+constexpr float kRowY = 16.0f + 10.0f + 10.0f;
 
-// The middle of the dock's `k`th tab of `count`, on the 1200 x 800 view: the tabs one
-// under another, 4 pixels apart, the text size's row under them as tall as a tab.
-void TabAt (const hud::Built& dock, size_t k, size_t count, float& x, float& y)
+// Where the pointer shows the hand along the host's tab row, left to right: its tabs, then
+// the smaller, larger and close buttons at its end.
+std::vector<std::pair<float, float>> Presses (Fresh& hud, const std::vector<const layers::Panel*>& panels,
+                                              const hud::Built& host)
 {
-    const float tab = (dock.height - 4.0f * float (count)) / float (count + 1);
-    x = 1200.0f + dock.offset[0] + dock.width * 0.5f;
-    y = 400.0f + dock.offset[1] + tab * 0.5f + (tab + 4.0f) * float (k);
+    std::vector<std::pair<float, float>> runs;
+    const float x0 = 16.0f, x1 = 16.0f + host.width;
+    bool in = false;
+    for (float x = x0; x < x1; x += 2.0f) {
+        const bool hand = hud.Lay (panels, At (x, kRowY)).hand;
+        if (hand && !in)
+            runs.push_back ({ x, x });
+        if (hand)
+            runs.back ().second = x;
+        in = hand;
+    }
+    return runs;
 }
 
-// The middle of the text size's smaller (`larger` false) or larger button, under `count`
-// tabs.
-void SizeAt (const hud::Built& dock, size_t count, bool larger, float& x, float& y)
+float Middle (const std::pair<float, float>& run)
 {
-    const float tab = (dock.height - 4.0f * float (count)) / float (count + 1);
-    const float half = (dock.width - 4.0f) * 0.5f;
-    x = 1200.0f + dock.offset[0] + (larger ? half + 4.0f + half * 0.5f : half * 0.5f);
-    y = 400.0f + dock.offset[1] + (tab + 4.0f) * float (count) + tab * 0.5f;
+    return (run.first + run.second) * 0.5f;
 }
 
 } // namespace
 
-// The close button is pressable: the hand over it, an arrow over the title beside it.
-TEST (OverlayHudControls, TheCloseButtonShowsTheHand)
+// ⚠️ THE USER, 2026-09-30: the STUDY panel's design as the main one, its tabs switching
+// between the studies. Every titled panel is a tab of one host, drawn as the host's; its
+// own entry holds nothing. The host shows the first; a press on another tab shows that
+// one's page instead and says so. Set again, it stays on the user's tab.
+TEST (OverlayHudControls, TitledPanelsAreTabsOfOneHost)
 {
-    Fresh hud;
-    const layers::Panel panel = Titled ();
-    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_TRUE (hud.Lay ({ &panel }, At (CloseX (open.panels[0]), kCloseY)).hand);
-    EXPECT_FALSE (hud.Lay ({ &panel }, At (16.0f + 30.0f, kCloseY)).hand) << "the title itself presses nothing";
-}
-
-// ⚠️ THE USER, 2026-09-29: the collapsed panel is a tab in a list down the view's right
-// edge. The close button sends the panel there -- nothing of it left where it was -- its
-// tab loses the accent, and a press on the tab brings the panel back as it was. What the
-// user did outlives the layer being set again.
-TEST (OverlayHudControls, TheCloseButtonDocksThePanelAndItsTabOpensIt)
-{
-    Fresh hud;
-    const layers::Panel panel = Titled ();
-    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    ASSERT_GT (open.panels[0].height, 30.0f);
-    ASSERT_GT (open.dock.width, 0.0f) << "a titled panel has a tab";
+    Watched hud;
+    const layers::Panel sun = Titled ("Sun study", 0x11AA22FFu);
+    const layers::Panel area = Titled ("Area metrics", 0x3355CCFFu);
+    const hud::Layout first = hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
+    EXPECT_TRUE (first.panels[0].vertices.empty ());
+    EXPECT_TRUE (first.panels[1].vertices.empty ());
+    ASSERT_GT (first.host.height, 0.0f);
     float box[4] = {};
-    EXPECT_TRUE (Box (open.dock, panel.accentRgba, box)) << "an open panel's tab is filled with its accent";
-    EXPECT_FLOAT_EQ (open.dock.fraction[0], 1.0f);
-    EXPECT_FLOAT_EQ (open.dock.fraction[1], 0.5f);
-    EXPECT_FLOAT_EQ (open.dock.offset[0], -open.dock.width) << "flush with the view's right edge";
-
-    hud.Click ({ &panel }, CloseX (open.panels[0]), kCloseY);
-    const hud::Layout docked = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_TRUE (hud.engine.Collapsed ("hud#0"));
-    EXPECT_TRUE (docked.panels[0].vertices.empty ());
-    EXPECT_FLOAT_EQ (docked.panels[0].height, 0.0f);
-    EXPECT_FALSE (Box (docked.dock, panel.accentRgba, box)) << "a closed panel's tab is in its card's colours";
-    EXPECT_TRUE (Box (docked.dock, panel.backgroundRgba, box));
-
-    // Set again -- a new panel object under the same key -- it is still in the dock.
-    const layers::Panel republished = Titled ();
-    EXPECT_TRUE (hud.Lay ({ &republished }, At (600.0f, 600.0f)).panels[0].vertices.empty ());
-
-    float x = 0.0f, y = 0.0f;
-    TabAt (docked.dock, 0, 1, x, y);
-    hud.Click ({ &republished }, x, y);
-    const hud::Layout reopened = hud.Lay ({ &republished }, At (600.0f, 600.0f));
-    EXPECT_FALSE (hud.engine.Collapsed ("hud#0"));
-    EXPECT_NEAR (reopened.panels[0].height, open.panels[0].height, 0.5f);
-    EXPECT_NEAR (reopened.panels[0].width, open.panels[0].width, 0.5f);
-    // And its tab closes it again.
-    hud.Click ({ &republished }, x, y);
-    EXPECT_TRUE (hud.engine.Collapsed ("hud#0"));
+    EXPECT_TRUE (Box (first.host, 0x11AA22FFu, box)) << "the first tab's page";
+    EXPECT_FALSE (Box (first.host, 0x3355CCFFu, box));
+    EXPECT_EQ (first.hostKey, "hud#0");
+    const std::vector<std::pair<float, float>> runs = Presses (hud, { &sun, &area }, first.host);
+    ASSERT_EQ (runs.size (), 5u) << "two tabs, then A-, A+ and the close button";
+    hud.Click ({ &sun, &area }, Middle (runs[1]), kRowY);
+    const hud::Layout second = hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
+    EXPECT_TRUE (Box (second.host, 0x3355CCFFu, box));
+    EXPECT_FALSE (Box (second.host, 0x11AA22FFu, box));
+    EXPECT_EQ (hud.engine.Selected (), "hud#1");
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].kind, "panel");
+    EXPECT_EQ (hud.heard[0].key, "hud#1");
+    EXPECT_EQ (hud.heard[0].text, "Area metrics");
+    const layers::Panel sunAgain = Titled ("Sun study", 0x11AA22FFu), areaAgain = Titled ("Area metrics", 0x3355CCFFu);
+    EXPECT_TRUE (Box (hud.Lay ({ &sunAgain, &areaAgain }, At (600.0f, 600.0f)).host, 0x3355CCFFu, box));
 }
 
-// A panel asked to start collapsed starts in the dock; one without a title has no tab.
-TEST (OverlayHudControls, APanelStartsInTheDockWhenAskedToAndAnUntitledOneHasNoTab)
+// ⚠️ THE USER, 2026-09-30: one tab at the side, its text turned 90 degrees, that opens and
+// closes the panel. It stands at the view's right edge, taller than wide, its title running
+// down it; filled with the accent while the host is open. The close button at the end of the
+// host's tab row closes it too, and every open and close is said.
+TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
+{
+    Watched hud;
+    const layers::Panel panel = Titled ();
+    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    ASSERT_GT (open.dock.height, 0.0f);
+    EXPECT_GT (open.dock.height, 2.0f * open.dock.width) << "one slim tab, its title along it";
+    EXPECT_FLOAT_EQ (open.dock.fraction[0], 1.0f);
+    EXPECT_FLOAT_EQ (open.dock.offset[0], -open.dock.width) << "flush with the view's right edge";
+    float box[4] = {};
+    EXPECT_TRUE (Box (open.dock, panel.accentRgba, box)) << "filled while the host is open";
+    // Its title turned: the white letters run down, not across.
+    float letters[4] = {};
+    ASSERT_TRUE (Box (open.dock, 0xFFFFFFFFu, letters));
+    EXPECT_GT (letters[3] - letters[1], 3.0f * (letters[2] - letters[0]));
+    const float x = 1200.0f + open.dock.offset[0] + open.dock.width * 0.5f;
+    const float y = 400.0f + open.dock.offset[1] + open.dock.height * 0.5f;
+    EXPECT_TRUE (hud.Lay ({ &panel }, At (x, y)).hand);
+
+    hud.Click ({ &panel }, x, y);
+    const hud::Layout closed = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_FALSE (hud.engine.Open ());
+    EXPECT_TRUE (closed.host.vertices.empty ());
+    EXPECT_FALSE (Box (closed.dock, panel.accentRgba, box)) << "in the card's colours while closed";
+    hud.Click ({ &panel }, x, y);
+    EXPECT_TRUE (hud.engine.Open ());
+
+    // The close button, last along the tab row.
+    const hud::Layout again = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    const std::vector<std::pair<float, float>> runs = Presses (hud, { &panel }, again.host);
+    ASSERT_EQ (runs.size (), 4u);
+    hud.Click ({ &panel }, Middle (runs.back ()), kRowY);
+    EXPECT_FALSE (hud.engine.Open ());
+    ASSERT_EQ (hud.heard.size (), 3u);
+    EXPECT_EQ (hud.heard[0].kind, "hud");
+    EXPECT_EQ (hud.heard[0].text, "closed");
+    EXPECT_EQ (hud.heard[1].text, "open");
+    EXPECT_EQ (hud.heard[2].text, "closed");
+    EXPECT_EQ (hud.heard[2].title, "Area metrics");
+}
+
+// A layer's first titled panel asked to start collapsed starts the host closed; a panel
+// without a title is no tab and stands alone at its anchor.
+TEST (OverlayHudControls, TheHostStartsClosedWhenAskedAndAnUntitledPanelStandsAlone)
 {
     Fresh hud;
     layers::Panel panel = Titled ();
@@ -160,44 +192,71 @@ TEST (OverlayHudControls, APanelStartsInTheDockWhenAskedToAndAnUntitledOneHasNoT
     plain.anchor = layers::PanelAnchor::BottomLeft;
     plain.items.push_back (Item (layers::ItemKind::Text, "Always here"));
     const hud::Layout out = hud.Lay ({ &panel, &plain }, At (600.0f, 600.0f));
-    EXPECT_TRUE (out.panels[0].vertices.empty ());
-    EXPECT_GT (out.panels[1].height, 0.0f);
+    EXPECT_FALSE (hud.engine.Open ());
+    EXPECT_TRUE (out.host.vertices.empty ());
     EXPECT_GT (out.dock.height, 0.0f);
+    EXPECT_GT (out.panels[1].height, 0.0f);
     Fresh other;
-    plain.collapsed = true; // nothing to press to open it: an untitled panel never docks
     const hud::Layout alone = other.Lay ({ &plain }, At (600.0f, 600.0f));
     EXPECT_GT (alone.panels[0].height, 0.0f);
-    EXPECT_FLOAT_EQ (alone.dock.width, 0.0f);
-    EXPECT_TRUE (alone.dock.vertices.empty ());
+    EXPECT_FLOAT_EQ (alone.dock.width, 0.0f) << "no titled panel, no dock";
+    EXPECT_FLOAT_EQ (alone.host.width, 0.0f);
 }
 
-// Two panels, two tabs down the edge; a panel on the view's right column moves in beside
-// the dock rather than under it.
+// ⚠️ THE USER, 2026-09-30: floating, for the user to place wherever they want in the view.
+// Dragged by its background, the host goes with the pointer; left nearer the view's
+// bottom-right corner, it keeps its distance from that corner's edges when the view grows.
+TEST (OverlayHudControls, TheHostStaysWhereItIsDragged)
+{
+    Watched hud;
+    const layers::Panel panel = Titled ();
+    const hud::Layout before = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    // Its background: in the padding under its last item.
+    const float x = 16.0f + before.host.width * 0.5f, y = 16.0f + before.host.height - 4.0f;
+    EXPECT_FALSE (hud.Lay ({ &panel }, At (x, y)).hand) << "the background: nothing to press";
+    hud.Lay ({ &panel }, At (x, y, { { 0, true } }));
+    hud.Lay ({ &panel }, At (x + 400.0f, y + 250.0f));
+    hud.Lay ({ &panel }, At (x + 800.0f, y + 500.0f));
+    const hud::Layout dropped = hud.Lay ({ &panel }, At (x + 800.0f, y + 500.0f, { { 0, false } }));
+    // Anchored at the bottom-right now, where it was left.
+    EXPECT_FLOAT_EQ (dropped.host.fraction[0], 1.0f);
+    EXPECT_FLOAT_EQ (dropped.host.fraction[1], 1.0f);
+    EXPECT_NEAR (1200.0f + dropped.host.offset[0], 16.0f + 800.0f, 1.0f);
+    EXPECT_NEAR (800.0f + dropped.host.offset[1], 16.0f + 500.0f, 1.0f);
+    // A bigger view: as far from its right and bottom edges.
+    hud::Input bigger = At (100.0f, 100.0f);
+    bigger.width = 1600.0f;
+    bigger.height = 1000.0f;
+    const hud::Layout grown = hud.Lay ({ &panel }, bigger);
+    EXPECT_FLOAT_EQ (grown.host.offset[0], dropped.host.offset[0]);
+    EXPECT_FLOAT_EQ (grown.host.offset[1], dropped.host.offset[1]);
+    // A smaller one than it was left in: still wholly inside.
+    hud::Input smaller = At (10.0f, 10.0f);
+    smaller.width = 500.0f;
+    smaller.height = 400.0f;
+    const hud::Layout shrunk = hud.Lay ({ &panel }, smaller);
+    EXPECT_GE (500.0f + shrunk.host.offset[0], 0.0f);
+    EXPECT_GE (400.0f + shrunk.host.offset[1], 0.0f);
+    EXPECT_TRUE (hud.heard.empty ()) << "a move is not a change to report";
+}
+
+// A panel without a title on the view's right column moves in beside the dock.
 TEST (OverlayHudControls, TheRightColumnMovesInBesideTheDock)
 {
     Fresh hud;
-    layers::Panel left = Titled ("Area metrics");
-    layers::Panel right = Titled ("Sun hours");
+    const layers::Panel titled = Titled ();
+    layers::Panel right;
     right.anchor = layers::PanelAnchor::TopRight;
-    const hud::Layout out = hud.Lay ({ &left, &right }, At (600.0f, 600.0f));
+    right.items.push_back (Item (layers::ItemKind::Text, "Sun hours"));
+    const hud::Layout out = hud.Lay ({ &titled, &right }, At (600.0f, 600.0f));
     ASSERT_GT (out.dock.width, 0.0f);
     const hud::Built& panel = out.panels[1];
     EXPECT_FLOAT_EQ (panel.fraction[0], 1.0f);
-    EXPECT_NEAR (panel.offset[0], -panel.width - 16.0f - (out.dock.width + 8.0f), 0.5f);
-    // Its triangles are where it says it is: its right edge clear of the dock.
-    float box[4] = {};
-    ASSERT_TRUE (Box (panel, right.backgroundRgba, box));
-    EXPECT_LE (1200.0f + panel.offset[0] + box[2], 1200.0f - out.dock.width - 7.5f);
-    // The second tab opens and closes the second panel.
-    float x = 0.0f, y = 0.0f;
-    TabAt (out.dock, 1, 2, x, y);
-    hud.Click ({ &left, &right }, x, y);
-    EXPECT_TRUE (hud.engine.Collapsed ("hud#1"));
-    EXPECT_FALSE (hud.engine.Collapsed ("hud#0"));
+    EXPECT_NEAR (panel.offset[0], -panel.width - 16.0f - (out.dock.width + 6.0f), 1.0f);
 }
 
-// ⚠️ ONE STATE FOR BOTH VIEWS: a panel docked in the 3D window is docked in the plan. And
-// a project closing forgets it all (§8).
+// ⚠️ ONE STATE FOR BOTH VIEWS: the host closed in the 3D window is closed in the plan, on the
+// tab it was on. And a project closing forgets it all (§8).
 TEST (OverlayHudControls, TheViewsShareWhatTheUserDid)
 {
     const std::shared_ptr<hud::State> state = hud::NewState ();
@@ -206,18 +265,20 @@ TEST (OverlayHudControls, TheViewsShareWhatTheUserDid)
     plan.engine.UseState (state);
     const layers::Panel panel = Titled ();
     const hud::Layout open = threeD.Lay ({ &panel }, At (600.0f, 600.0f));
-    threeD.Click ({ &panel }, CloseX (open.panels[0]), kCloseY);
-    EXPECT_TRUE (plan.engine.Collapsed ("hud#0"));
-    EXPECT_TRUE (plan.Lay ({ &panel }, At (600.0f, 600.0f)).panels[0].vertices.empty ());
+    const float x = 1200.0f + open.dock.offset[0] + open.dock.width * 0.5f;
+    const float y = 400.0f + open.dock.offset[1] + open.dock.height * 0.5f;
+    threeD.Click ({ &panel }, x, y);
+    EXPECT_FALSE (plan.engine.Open ());
+    EXPECT_TRUE (plan.Lay ({ &panel }, At (600.0f, 600.0f)).host.vertices.empty ());
     hud::ClearState (*state);
-    EXPECT_FALSE (plan.engine.Collapsed ("hud#0"));
-    EXPECT_FALSE (plan.Lay ({ &panel }, At (600.0f, 600.0f)).panels[0].vertices.empty ());
+    EXPECT_TRUE (plan.engine.Open ());
+    EXPECT_FALSE (plan.Lay ({ &panel }, At (600.0f, 600.0f)).host.vertices.empty ());
 }
 
-// Through the HUD stream: the dock's rectangle is the HUD's, its triangles anchored at the
-// view's right edge half-way down; a panel in the dock has no rectangle at all, so the
-// model under where it was is Archicad's again.
-TEST (OverlayHudControls, TheDockIsARegionAndADockedPanelIsNone)
+// Through the HUD stream: the host's and the dock's rectangles are the HUD's, the dock's
+// over the host's; closed, only the dock's is left, so the model under the host is
+// Archicad's again.
+TEST (OverlayHudControls, TheHostAndTheDockAreRegions)
 {
     layers::Layer layer;
     layer.name = "metrics";
@@ -227,18 +288,12 @@ TEST (OverlayHudControls, TheDockIsARegionAndADockedPanelIsNone)
     };
     Fresh hud;
     const scene::Scene open = scene::PrepareSceneHud (all (), &hud.engine, 1.0f, At (600.0f, 600.0f));
-    size_t panels = 0, docks = 0;
-    for (const input::Region& region : open.regions) {
-        panels += region.kind == input::RegionKind::Panel ? 1 : 0;
-        docks += region.kind == input::RegionKind::Dock ? 1 : 0;
-        if (region.kind == input::RegionKind::Dock) {
-            EXPECT_FLOAT_EQ (region.fraction[0], 1.0f);
-            EXPECT_FLOAT_EQ (region.fraction[1], 0.5f);
-            EXPECT_FLOAT_EQ (region.rect[2], 0.0f) << "flush with the right edge";
-        }
-    }
-    EXPECT_EQ (panels, 1u);
-    EXPECT_EQ (docks, 1u);
+    ASSERT_EQ (open.regions.size (), 2u);
+    EXPECT_EQ (open.regions[0].kind, input::RegionKind::Panel);
+    EXPECT_EQ (open.regions[0].layer, "metrics");
+    EXPECT_EQ (open.regions[1].kind, input::RegionKind::Dock);
+    EXPECT_FLOAT_EQ (open.regions[1].fraction[0], 1.0f);
+    EXPECT_FLOAT_EQ (open.regions[1].rect[2], 0.0f) << "flush with the right edge";
     bool edge = false;
     for (const scene::SceneGlyph& glyph : open.glyphs)
         edge = edge || (glyph.position[0] == 1.0f && glyph.position[1] == 0.5f);
@@ -246,112 +301,83 @@ TEST (OverlayHudControls, TheDockIsARegionAndADockedPanelIsNone)
 
     layer.panels[0].collapsed = true;
     Fresh other;
-    const scene::Scene docked = scene::PrepareSceneHud (all (), &other.engine, 1.0f, At (600.0f, 600.0f));
-    ASSERT_EQ (docked.regions.size (), 1u);
-    EXPECT_EQ (docked.regions[0].kind, input::RegionKind::Dock);
+    const scene::Scene closed = scene::PrepareSceneHud (all (), &other.engine, 1.0f, At (600.0f, 600.0f));
+    ASSERT_EQ (closed.regions.size (), 1u);
+    EXPECT_EQ (closed.regions[0].kind, input::RegionKind::Dock);
 }
 
 // ---- the text size -------------------------------------------------------------------------
 
-// ⚠️ THE USER, 2026-09-29: a control for the HUD's font size. The dock's larger button
-// grows every size of the HUD by a step -- in both views -- and leaves the distances from
-// the view's edges; the smaller one walks back and stops at the smallest step. Pointed at,
-// they say the size they give.
+// ⚠️ THE USER, 2026-09-29: a control for the HUD's font size -- now at the end of the host's
+// tab row. The larger button grows every size of the HUD by a step, in both views, and
+// leaves the distances from the view's edges; the smaller one walks back and stops at the
+// smallest step. Pointed at, they say the size they give, and each change is said.
 TEST (OverlayHudControls, TheTextSizeButtonsScaleTheWholeHudInBothViews)
 {
     const std::shared_ptr<hud::State> state = hud::NewState ();
-    Fresh threeD, plan;
+    Watched threeD;
+    Fresh plan;
     threeD.engine.UseState (state);
     plan.engine.UseState (state);
     const layers::Panel panel = Titled ();
     const hud::Layout before = threeD.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 1.0f);
-    float x = 0.0f, y = 0.0f;
-    SizeAt (before.dock, 1, true, x, y);
-    EXPECT_FALSE (threeD.Lay ({ &panel }, At (x, y)).overlay.vertices.empty ()) << "the size it gives, said";
-    threeD.Click ({ &panel }, x, y);
+    std::vector<std::pair<float, float>> runs = Presses (threeD, { &panel }, before.host);
+    ASSERT_EQ (runs.size (), 4u);
+    EXPECT_FALSE (threeD.Lay ({ &panel }, At (Middle (runs[2]), kRowY)).overlay.vertices.empty ())
+        << "the size it gives, said";
+    threeD.Click ({ &panel }, Middle (runs[2]), kRowY);
     EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.1f);
+    ASSERT_EQ (threeD.heard.size (), 1u);
+    EXPECT_EQ (threeD.heard[0].kind, "fontScale");
+    EXPECT_EQ (threeD.heard[0].text, "110 %");
     const hud::Layout larger = plan.Lay ({ &panel }, At (600.0f, 600.0f));
     // By about the step: glyphs advance by whole pixels, so text does not scale exactly.
-    const float grew = larger.panels[0].width / before.panels[0].width;
-    EXPECT_GT (grew, 1.02f);
+    const float grew = larger.host.height / before.host.height;
+    EXPECT_GT (grew, 1.04f);
     EXPECT_LT (grew, 1.2f);
-    EXPECT_NEAR (larger.panels[0].height / before.panels[0].height, 1.1f, 0.06f);
-    EXPECT_GT (larger.dock.width, before.dock.width);
-    EXPECT_FLOAT_EQ (larger.panels[0].offset[0], 16.0f) << "the distance from the view's edge stays";
-    // Four smaller: 1.0, 0.9, 0.8, and 0.8 again.
+    EXPECT_NEAR (larger.host.offset[0], 16.0f, 0.5f) << "the distance from the view's edge stays";
+    // Four smaller: 1.0, 0.9, 0.8, and 0.8 again. The row's buttons move as the size
+    // changes; the row still crosses kRowY at every size.
     for (int k = 0; k < 4; ++k) {
         const hud::Layout now = plan.Lay ({ &panel }, At (600.0f, 600.0f));
-        SizeAt (now.dock, 1, false, x, y);
-        plan.Click ({ &panel }, x, y);
+        runs = Presses (plan, { &panel }, now.host);
+        ASSERT_EQ (runs.size (), 4u);
+        plan.Click ({ &panel }, Middle (runs[1]), kRowY);
     }
     EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 0.8f);
-    // Set from outside, the nearest step.
     threeD.engine.SetFontScale (1.3f);
     EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.25f);
 }
 
 // ---- what the user changed, for Python -------------------------------------------------------
 
-// ⚠️ THE USER, 2026-09-29: the add-on sends change events to Python. Every change a layout
-// makes is said once -- in the layout and to the engine's sink, after ImGui's lock -- with
-// the panel's key and title: the close button and a tab dock and open, a section folds, the
-// size buttons change the text size. Pointing at things says nothing.
-TEST (OverlayHudControls, EveryChangeTheUserMakesIsSaidOnce)
+// A section folded in the host's page is said with its panel's key and title; pointing and
+// laying out again say nothing.
+TEST (OverlayHudControls, ASectionFoldedInTheHostIsSaidOnce)
 {
-    Fresh hud;
-    std::vector<hud::Change> heard;
-    hud.engine.SetChangeSink ([&heard] (const hud::Change& change) { heard.push_back (change); });
+    Watched hud;
     layers::Panel panel = Titled ();
     panel.items.push_back (Item (layers::ItemKind::Section, "Spacing metrics"));
     panel.items.push_back (Item (layers::ItemKind::Row, "Healthcare", "18.3 %"));
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_TRUE (open.changes.empty ());
-
-    const hud::Layout closed = hud.Click ({ &panel }, CloseX (open.panels[0]), kCloseY);
-    ASSERT_EQ (heard.size (), 1u);
-    EXPECT_EQ (heard[0].kind, "dock");
-    EXPECT_EQ (heard[0].key, "hud#0");
-    EXPECT_EQ (heard[0].title, "Area metrics");
-    EXPECT_DOUBLE_EQ (heard[0].value, 1.0);
-    EXPECT_EQ (heard[0].text, "docked");
-    EXPECT_EQ (closed.changes.size (), 1u) << "the layout that made it says it too";
-
-    float x = 0.0f, y = 0.0f;
-    TabAt (closed.dock, 0, 1, x, y);
-    hud.Click ({ &panel }, x, y);
-    ASSERT_EQ (heard.size (), 2u);
-    EXPECT_EQ (heard[1].text, "open");
-    EXPECT_DOUBLE_EQ (heard[1].value, 0.0);
-
-    // The section's row: under the title bar and the two rows. Found by pointing down the
-    // panel until the hand shows past the rows.
-    const hud::Layout reopened = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    // The section's row: under the tab row, the swatch and the row. Found by pointing down
+    // the page until the hand shows below the tab row.
     float row = 0.0f;
-    for (float probeY = 40.0f; probeY < 16.0f + reopened.panels[0].height && row == 0.0f; probeY += 2.0f)
-        if (hud.Lay ({ &panel }, At (16.0f + 40.0f, probeY)).hand)
+    for (float probeY = kRowY + 14.0f; probeY < 16.0f + open.host.height && row == 0.0f; probeY += 2.0f)
+        if (hud.Lay ({ &panel }, At (16.0f + 60.0f, probeY)).hand)
             row = probeY;
     ASSERT_GT (row, 0.0f) << "the section's row";
-    hud.Click ({ &panel }, 16.0f + 40.0f, row + 2.0f);
-    ASSERT_EQ (heard.size (), 3u);
-    EXPECT_EQ (heard[2].kind, "section");
-    EXPECT_EQ (heard[2].id, "Spacing metrics");
-    EXPECT_EQ (heard[2].item, 2);
-    EXPECT_EQ (heard[2].text, "folded");
-
-    const hud::Layout now = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    SizeAt (now.dock, 1, true, x, y);
-    hud.Click ({ &panel }, x, y);
-    ASSERT_EQ (heard.size (), 4u);
-    EXPECT_EQ (heard[3].kind, "fontScale");
-    EXPECT_TRUE (heard[3].key.empty ()) << "the HUD's own, no panel's";
-    EXPECT_NEAR (heard[3].value, 1.1, 1e-6);
-    EXPECT_EQ (heard[3].text, "110 %");
-
-    // Pointing and laying out again say nothing.
-    hud.Lay ({ &panel }, At (x, y));
+    hud.Click ({ &panel }, 16.0f + 60.0f, row + 2.0f);
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].kind, "section");
+    EXPECT_EQ (hud.heard[0].key, "hud#0");
+    EXPECT_EQ (hud.heard[0].title, "Area metrics");
+    EXPECT_EQ (hud.heard[0].id, "Spacing metrics");
+    EXPECT_EQ (hud.heard[0].text, "folded");
+    hud.Lay ({ &panel }, At (16.0f + 60.0f, row + 2.0f));
     hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_EQ (heard.size (), 4u);
+    EXPECT_EQ (hud.heard.size (), 1u);
 }
 
 // ---- crisp text ------------------------------------------------------------------------------

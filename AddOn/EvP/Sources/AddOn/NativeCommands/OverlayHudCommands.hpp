@@ -9,8 +9,10 @@ namespace geomsrv {
 // changes they made, as a sequence to poll, and the state they left.
 //
 //   Tapioca.OverlayHudEvents {sinceSeq?, maxEvents?}   the changes after `sinceSeq`
-//   Tapioca.OverlayHud {fontScale?}                     the text size and the panels'
-//                                                       state; sets the text size
+//   Tapioca.OverlayHud {fontScale?, open?, select?, timeClicks?}
+//                                   the floating panel's state: open, its tab, the text
+//                                   size, the controls' values; opens, closes, chooses the
+//                                   tab, sets the size, times clicks
 //
 // Returns this domain's commands in registry order.
 NativeCommandRegistrations GetOverlayHudCommandRegistrations ();

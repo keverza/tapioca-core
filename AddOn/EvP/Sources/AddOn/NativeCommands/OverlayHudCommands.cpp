@@ -103,6 +103,23 @@ class OverlayHudCommand : public MainThreadCommand {
             params.Get ("timeClicks", on);
             control::TimeHudClicks (on);
         }
+        GS::ObjectState select;
+        if (params.Get ("select", select)) {
+            GS::UniString layer;
+            GS::Int32 panel = 0;
+            select.Get ("layer", layer);
+            select.Get ("panel", panel);
+            const std::string name (layer.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+            if (panel < 0 || !control::SelectHudPanel (name, uint32_t (panel)))
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (Utf8 ("no titled panel " + std::to_string (panel) + " in the layer \"" + name + "\""),
+                              "choosing the HUD's tab"));
+        }
+        if (params.Contains ("open")) {
+            bool open = true;
+            params.Get ("open", open);
+            control::SetHudOpen (open);
+        }
         const control::HudReport report = control::Hud ();
         GS::Array<GS::ObjectState> panels;
         for (const control::HudPanel& panel : report.panels) {
@@ -110,7 +127,7 @@ class OverlayHudCommand : public MainThreadCommand {
             record.Add ("layer", Utf8 (panel.layer));
             record.Add ("panel", GS::Int32 (panel.panel));
             record.Add ("title", Utf8 (panel.title));
-            record.Add ("docked", panel.docked);
+            record.Add ("selected", panel.selected);
             GS::Array<GS::ObjectState> values;
             for (const auto& held : panel.values) {
                 GS::ObjectState value;
@@ -122,6 +139,7 @@ class OverlayHudCommand : public MainThreadCommand {
             panels.Push (record);
         }
         GS::ObjectState os;
+        os.Add ("open", report.open);
         os.Add ("fontScale", double (report.fontScale));
         os.Add ("panels", panels);
         // Where a caller that reads the state starts reading the events from.
@@ -176,18 +194,23 @@ constexpr const char kEventsOutput[] = R"json({"type":"object","properties":{
 
 constexpr const char kHudInput[] = R"json({"type":"object","properties":{
     "fontScale":{"type":"number","minimum":0.5,"maximum":3,"description":"The HUD's text size; the nearest of its steps, 0.8 to 2."},
+    "open":{"type":"boolean","description":"Open or close the HUD's floating panel, as the dock's tab does."},
+    "select":{"type":"object","description":"The tab the floating panel shows: a titled panel, by its layer and its place there.","properties":{
+        "layer":{"type":"string","minLength":1,"maxLength":64},"panel":{"type":"integer","minimum":0}},
+      "additionalProperties":false,"required":["layer","panel"]},
     "timeClicks":{"type":"boolean","description":"Arm (and clear) or disarm the click meter: how long each left press keeps the main thread busy, on the HUD or on any other window, a DG palette's among them."}},
   "additionalProperties":false})json";
 
 constexpr const char kHudOutput[] = R"json({"type":"object","properties":{
+    "open":{"type":"boolean","description":"The floating panel is open; closed, only the dock's tab shows."},
     "fontScale":{"type":"number"},
     "panels":{"type":"array","items":{"type":"object","properties":{
         "layer":{"type":"string"},"panel":{"type":"integer","minimum":0},"title":{"type":"string"},
-        "docked":{"type":"boolean"},
+        "selected":{"type":"boolean","description":"The tab the floating panel shows."},
         "values":{"type":"array","description":"Its controls' values as the user left them, the tab bar's too.","items":{"type":"object","properties":{
             "id":{"type":"string"},"value":{"type":"number"}},
           "additionalProperties":false,"required":["id","value"]}}},
-      "additionalProperties":false,"required":["layer","panel","title","docked","values"]}},
+      "additionalProperties":false,"required":["layer","panel","title","selected","values"]}},
     "lastSeq":{"type":"integer","minimum":0},
     "clickTiming":{"type":"object","properties":{
         "armed":{"type":"boolean"},
@@ -205,7 +228,7 @@ constexpr const char kHudOutput[] = R"json({"type":"object","properties":{
           "required":["target","windowClass","ageMs","complete","busyMicroseconds","firstIdleMicroseconds","bursts",
                       "layoutMicroseconds","layouts","redrawMicroseconds","redraws"]}}},
       "additionalProperties":false,"required":["armed","idles","clicks"]}},
-  "additionalProperties":false,"required":["fontScale","panels","lastSeq","clickTiming"]})json";
+  "additionalProperties":false,"required":["open","fontScale","panels","lastSeq","clickTiming"]})json";
 
 const NativeCommandRegistration kOverlayHudCommandRegistrations[] = {
     { "OverlayHudEvents", &MakeRegisteredNativeCommand<OverlayHudEventsCommand>, false, kEventsInput, kEventsOutput },

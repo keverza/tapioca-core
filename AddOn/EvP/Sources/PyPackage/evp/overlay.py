@@ -63,6 +63,7 @@ __all__ = [
     "hud_state",
     "set_text_size",
     "time_clicks",
+    "show_hud",
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
@@ -200,10 +201,13 @@ class Panel:
     """A HUD panel: its items in order, laid out by Dear ImGui in a corner (or any of
     nine anchor points) of the view. Every method returns the panel, so they chain.
 
-    A panel with a `title` has a tab in the dock down the view's right edge, and a
-    close button on its title bar that sends it there; the tab opens it again.
-    `collapsed` starts it in the dock. A click on a panel never reaches Archicad, and
-    what the user does stays done when the layer is set again. `theme` "light" is the
+    Every panel with a `title` -- of every layer -- is a tab of ONE floating panel the
+    user drags where they like; the dock's one tab at the view's right edge opens and
+    closes it, as its close button does. The panel starts where the tab it shows asks
+    (`anchor`, `offset`), in that tab's look (`theme`, colours, `width`); `collapsed` on
+    the first titled panel starts it closed. A panel without a title stands alone at its
+    anchor. A click on a panel never reaches Archicad, and what the user does stays done
+    when the layer is set again. `theme` "light" is the
     design's card -- near-white, dark text, rounded -- under any colour given here.
     `accent` tints what the pointer can press, when pointed at and pressed."""
 
@@ -943,9 +947,11 @@ def wait_events(since=0, timeout=None, interval=0.05, max_events=256):
 
 
 def hud_state():
-    """What the user left the HUD as: {"fontScale", "panels", "lastSeq"}, each panel
-    {layer, panel, title, docked, values} -- `values` its controls' as [{id, value}], the
-    tab bar's too. Read events from `lastSeq` on to follow it."""
+    """What the user left the HUD as: {"open", "fontScale", "panels", "lastSeq",
+    "clickTiming"} -- `open` whether the floating panel is (closed, only the dock's tab
+    shows), each panel {layer, panel, title, selected, values}: `selected` the tab shown,
+    `values` its controls' as [{id, value}], the tab bar's too. Read events from `lastSeq`
+    on to follow it."""
     return call("Tapioca.OverlayHud", {}).data or {}
 
 
@@ -958,6 +964,16 @@ def time_clicks(on=True):
     firstIdleMicroseconds, bursts, layoutMicroseconds, layouts, redrawMicroseconds,
     redraws}. `idles` 0 means the thread was never seen going idle: nothing was timed."""
     return call("Tapioca.OverlayHud", {"timeClicks": bool(on)}).data or {}
+
+
+def show_hud(open=True, layer=None, panel=0):
+    """Open (or close) the floating panel -- as the dock's tab does -- and, given `layer`,
+    show that layer's titled panel number `panel` as its tab. Returns :func:`hud_state`'s
+    record."""
+    params = {"open": bool(open)}
+    if layer is not None:
+        params["select"] = {"layer": str(layer), "panel": int(panel)}
+    return call("Tapioca.OverlayHud", params).data or {}
 
 
 def set_text_size(scale):

@@ -18895,6 +18895,30 @@
             "maximum": 3,
             "description": "The HUD's text size; the nearest of its steps, 0.8 to 2."
           },
+          "open": {
+            "type": "boolean",
+            "description": "Open or close the HUD's floating panel, as the dock's tab does."
+          },
+          "select": {
+            "type": "object",
+            "description": "The tab the floating panel shows: a titled panel, by its layer and its place there.",
+            "properties": {
+              "layer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "panel": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "layer",
+              "panel"
+            ]
+          },
           "timeClicks": {
             "type": "boolean",
             "description": "Arm (and clear) or disarm the click meter: how long each left press keeps the main thread busy, on the HUD or on any other window, a DG palette's among them."
@@ -18905,6 +18929,10 @@
       "outputScheme": {
         "type": "object",
         "properties": {
+          "open": {
+            "type": "boolean",
+            "description": "The floating panel is open; closed, only the dock's tab shows."
+          },
           "fontScale": {
             "type": "number"
           },
@@ -18923,8 +18951,9 @@
                 "title": {
                   "type": "string"
                 },
-                "docked": {
-                  "type": "boolean"
+                "selected": {
+                  "type": "boolean",
+                  "description": "The tab the floating panel shows."
                 },
                 "values": {
                   "type": "array",
@@ -18952,7 +18981,7 @@
                 "layer",
                 "panel",
                 "title",
-                "docked",
+                "selected",
                 "values"
               ]
             }
@@ -19055,6 +19084,7 @@
         },
         "additionalProperties": false,
         "required": [
+          "open",
           "fontScale",
           "panels",
           "lastSeq",
@@ -25806,7 +25836,7 @@
                 },
                 "collapsed": {
                   "type": "boolean",
-                  "description": "A titled panel starts in the dock at the view's right edge; its close button sends it there and its tab opens it, and what the user does outlives the layer being set again."
+                  "description": "A titled panel is a tab of the HUD's one floating panel; on the first titled panel, it starts that panel closed to the dock's tab at the view's right edge."
                 },
                 "theme": {
                   "type": "string",

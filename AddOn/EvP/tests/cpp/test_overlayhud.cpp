@@ -192,6 +192,8 @@ TEST (OverlayHud, APanelLayerBecomesPlainTextureQuadsFixedToTheView)
     for (const scene::SceneGlyph& glyph : out.glyphs) {
         EXPECT_EQ (glyph.flags, scene::kScreenAnchored | scene::kPlainTexture | scene::kPhysicalPixels);
         EXPECT_FLOAT_EQ (glyph.position[0], 1.0f);
+        if (glyph.position[1] == 0.5f)
+            continue; // the dock's tab, at the right edge half-way down
         EXPECT_FLOAT_EQ (glyph.position[1], 1.0f);
         EXPECT_LE (glyph.offset[0], 0.0f); // from the bottom-right corner, inwards
         EXPECT_LE (glyph.offset[1], 0.0f);
@@ -576,7 +578,7 @@ TEST (OverlayHud, TheDesignsCardLaysOutInItsColours)
     Fresh hud;
     const hud::Layout out = hud.Lay ({ &panel }, At (10.0f, 790.0f));
     ASSERT_EQ (out.panels.size (), 1u);
-    const hud::Built& card = out.panels[0];
+    const hud::Built& card = out.host; // a titled panel: the host's tab
     EXPECT_NEAR (card.width, 420.0f, 0.5f);
     EXPECT_GT (card.height, 300.0f);
     float box[4] = {};
@@ -598,8 +600,8 @@ TEST (OverlayHud, APointedSegmentOrBarSaysWhatItIs)
     Fresh hud;
     const hud::Layout out = hud.Lay ({ &panel }, At (10.0f, 790.0f));
     float segment[4] = {}, bar[4] = {};
-    ASSERT_TRUE (Box (out.panels[0], 0x19D9A0FFu, segment));
-    ASSERT_TRUE (Box (out.panels[0], RampStart ("sunhours"), bar));
+    ASSERT_TRUE (Box (out.host, 0x19D9A0FFu, segment));
+    ASSERT_TRUE (Box (out.host, RampStart ("sunhours"), bar));
     // The panel's top-left is at (16, 16) on the view.
     const hud::Layout onSegment =
         hud.Lay ({ &panel }, At (16.0f + (segment[0] + segment[2]) * 0.5f, 16.0f + (segment[1] + segment[3]) * 0.5f));

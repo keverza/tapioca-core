@@ -22,25 +22,6 @@ namespace scene = geomsrv::archviz::overlayscene;
 
 namespace {
 
-// An engine that keeps what the user did in a state the test can read, and hears every
-// change.
-struct Watched : Fresh {
-    std::shared_ptr<hud::State> state = hud::NewState ();
-    std::vector<hud::Change> heard;
-    Watched ()
-    {
-        engine.UseState (state);
-        engine.SetChangeSink ([this] (const hud::Change& change) { heard.push_back (change); });
-    }
-    double Value (const std::string& id) const
-    {
-        for (const auto& held : hud::Values (*state, "hud#0"))
-            if (held.first == id)
-                return held.second;
-        return -1.0;
-    }
-};
-
 layers::PanelItem Control (layers::ItemKind kind, const std::string& id, const std::string& text)
 {
     layers::PanelItem item = Item (kind, text);
