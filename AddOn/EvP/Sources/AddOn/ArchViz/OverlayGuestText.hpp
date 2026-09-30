@@ -54,6 +54,13 @@ std::shared_ptr<overlayhud::State> HudState ();
 // whose layers they were closed (§8).
 void ForgetHudState ();
 
+// ⚠️ LET GO WHEN THE OVERLAY IS TURNED OFF (OverlayRelease.hpp), each made again on its
+// next use. The view's HUD engine -- its ImGui context and its atlas: that view's overlay
+// is off. The text engines -- the bundled font's and the callers' fonts: both are off,
+// and nothing laid out with them is kept (overlayscene::ForgetDrafts first).
+void ReleaseHud (overlayinput::View view);
+void ReleaseText ();
+
 } // namespace guesttext
 } // namespace archviz
 } // namespace geomsrv

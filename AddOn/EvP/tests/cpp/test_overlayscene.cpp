@@ -710,6 +710,27 @@ TEST (OverlayScene, ALayerThatStandsIsReusedAndOnlyTheChangedOneIsBuilt)
     EXPECT_EQ (second.pages.size (), fresh.pages.size ());
 }
 
+// ⚠️ THE USER, 2026-09-30: an overlay turned off holds nothing. The 3D overlay's off forgets
+// what was laid out for 3D, and only that: the plan, still on, reuses its own.
+TEST (OverlayScene, ForgettingOneViewsDraftsKeepsTheOthers)
+{
+    scene::ForgetDrafts ();
+    layers::Layer labels;
+    labels.name = "labels";
+    layers::Text label;
+    label.text = "A";
+    labels.texts = { label };
+    const auto standing = std::make_shared<const layers::Layer> (labels);
+    scene::PrepareScene ({ standing }, &Engine ());
+    scene::PreparePlan ({ standing }, &Engine ());
+
+    scene::ForgetDrafts (layers::Views::ThreeD);
+    EXPECT_EQ (scene::PrepareScene ({ standing }, &Engine ()).cost.layersBuilt, 1u) << "3D's laid out again";
+    const scene::Plan plan = scene::PreparePlan ({ standing }, &Engine ());
+    EXPECT_EQ (plan.cost.layersBuilt, 0u);
+    EXPECT_EQ (plan.cost.layersReused, 1u) << "the plan's kept";
+}
+
 // Two layers whose text sits on the same atlas page share it: one page, one draw.
 TEST (OverlayScene, LayersSharingAnAtlasPageShareOneSlot)
 {

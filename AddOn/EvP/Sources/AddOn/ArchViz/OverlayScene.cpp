@@ -718,6 +718,11 @@ void ForgetDrafts ()
         cache.clear ();
 }
 
+void ForgetDrafts (layers::Views view)
+{
+    g_drafts[view == layers::Views::TwoD ? 0 : 1].clear ();
+}
+
 uint32_t BehindCode (layers::Behind resolved)
 {
     switch (resolved) {

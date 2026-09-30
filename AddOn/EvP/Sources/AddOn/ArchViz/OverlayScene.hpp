@@ -260,8 +260,10 @@ using FontResolver = std::function<overlaytext::Engine*(const std::string& font)
 // stands. A Watch trace ticking, or slices following an edit, rebuild their own layer,
 // not a 200k-triangle heatmap beside it. The HUD panels are not part of it: they are a
 // stream of their own (PrepareSceneHud). MAIN THREAD, as the text engine is; the cache
-// holds only the layers of the last call, and `ForgetDrafts` empties it.
+// holds only the layers of the last call, and `ForgetDrafts` empties it -- one view's, or
+// both.
 void ForgetDrafts ();
+void ForgetDrafts (overlaylayers::Views view);
 
 // What the guest draws of these layers in each view, the HUD panels apart. `text` may
 // be null or not ready: labels are then counted in `problems` and skipped, everything

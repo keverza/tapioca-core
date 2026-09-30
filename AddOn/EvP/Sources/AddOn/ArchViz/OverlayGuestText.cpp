@@ -140,6 +140,22 @@ void ForgetHudState ()
     overlayhudevents::Clear ();
 }
 
+void ReleaseHud (overlayinput::View view)
+{
+    const size_t at = view == overlayinput::View::ThreeD ? 0 : 1;
+    g_hud[at].reset ();
+    // Every start resets what every stop leaves behind (§8): a font that could not be
+    // read is tried again, and said again.
+    g_hudFailed[at] = false;
+}
+
+void ReleaseText ()
+{
+    g_engine.reset ();
+    g_failed = false;
+    g_fonts.clear ();
+}
+
 } // namespace guesttext
 } // namespace archviz
 } // namespace geomsrv

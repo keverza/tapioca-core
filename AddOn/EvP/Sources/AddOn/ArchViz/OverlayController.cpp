@@ -25,9 +25,9 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayRelease.hpp"
 #include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
-#include "ArchViz/StorySliceOverlay.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ArchVizPanel.hpp"
@@ -145,6 +145,15 @@ bool PublishHud3D (overlayscene::Scene hud)
     g_hudPrint3D = print;
     dxgi::sceneguest::PublishHud (std::move (hud), g_scale3D);
     return true;
+}
+
+// The 3D overlay's publications given back: what it drew, its HUD's engine, and where
+// both were (OverlayRelease.hpp).
+void Forget3D ()
+{
+    overlayrelease::ThreeD ();
+    g_legends3D.clear ();
+    g_hudPrint3D = 0;
 }
 
 // The input layer's refresh: the HUD laid out again for the pointer.
@@ -515,9 +524,20 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
             // of them). The plan's Stop redraws for the same reason. The hooks are out by now.
             if (was && front == ViewKind::ThreeD)
                 ACAPI_View_Redraw ();
+            // ⚠️ OFF IS OFF (the user, 2026-09-30: cleared completely, no resources held):
+            // the model it occluded against and what it published go too (OverlayRelease.hpp).
+            overlayrelease::Model ();
+            Forget3D ();
         }
-        else if (planruntime::Running ()) {
-            planruntime::Stop ("turned off");
+        else {
+            if (planruntime::Running ())
+                planruntime::Stop ("turned off");
+            overlayrelease::Plan ();
+        }
+        // Both off: the layers and everything made for them.
+        if (!AnyWanted ()) {
+            overlayrelease::Shared ();
+            FollowHudState ();
         }
         intent.code = "None";
         intent.message = "off";
@@ -527,6 +547,9 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
         intent.wanted = true;
         // The Watch trace's annotations follow wherever an overlay is (OverlayAnnotations.hpp).
         overlayannotations::EnsureStarted ();
+        // Laid out for 3D only while it is wanted (PublishLayers): now, before it draws.
+        if (which == Overlay::ThreeD)
+            PublishLayers ();
         g_servingView = front;
         if (front == ViewOf (which)) {
             StartRenderer (which);
@@ -587,17 +610,14 @@ void OnProjectClosed ()
     SyncMenuChecks ();
     // ⚠️ THE CALLER'S LAYERS WERE THAT PROJECT'S COORDINATES (§8): drawn over the next
     // project they would be geometry from somewhere else, in the right place for nothing.
-    // The storey slices and the Watch annotations were that project's too.
-    storysliceoverlay::OnProjectClosed ();
-    overlayannotations::OnProjectClosed ();
-    // What the user did to that project's panels, by their layers' names (§8) -- a hidden
-    // overlay shown again with it.
-    guesttext::ForgetHudState ();
+    // The storey slices, the Watch annotations and what the user did to that project's
+    // panels -- a hidden overlay shown again with it -- were that project's too; and both
+    // overlays are off, so they hold nothing (OverlayRelease.hpp). Not the model: the
+    // extraction is asked to stop after this, and a project event must not wait on it.
+    Forget3D ();
+    overlayrelease::Plan ();
+    overlayrelease::Shared ();
     FollowHudState ();
-    if (!overlaylayers::Layers ().empty ()) {
-        overlaylayers::ClearEverything ();
-        PublishLayers ();
-    }
     if (active)
         Narrate ("OVERLAY", "the project closed; both overlays are off -- start them again from the menu");
 }
@@ -893,6 +913,13 @@ void StopAll ()
 
 void PublishLayers ()
 {
+    // ⚠️ NOTHING LAID OUT FOR A 3D OVERLAY NOBODY WANTS (the user, 2026-09-30: off holds no
+    // resources): no scene, no HUD engine. Turned on, it is laid out then (SetWanted); a
+    // diagnostic that starts the renderer itself gets it while it runs.
+    if (!IntentOf (Overlay::ThreeD).wanted && !runtime::Running ()) {
+        Forget3D ();
+        return;
+    }
     // The content of the layers the user shows; the HUD of every one -- its Settings lists
     // the hidden ones too.
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> all = overlaylayers::Layers ();

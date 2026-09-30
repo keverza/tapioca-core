@@ -1215,6 +1215,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayInput.cpp",
+    "ArchViz/OverlayRelease.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",
     "ArchViz/PlanFrameSession.cpp",
     "ArchViz/PlanOverlayRuntime.cpp",
