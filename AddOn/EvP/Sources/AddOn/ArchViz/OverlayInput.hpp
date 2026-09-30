@@ -10,6 +10,11 @@
 // ⚠️ A THREAD-LOCAL `WH_GETMESSAGE` HOOK, AS CameraWake's. It sees every posted message
 // of the main thread before its window procedure does, and discards one by making it
 // `WM_NULL`. Never global and never low-level: those reach every process on the desktop.
+// ⚠️ AND A THREAD-LOCAL `WH_MOUSE` HOOK FOR THE BUTTONS. Before GetMessage returns a button
+// message Windows SENDS the canvas's parent WM_PARENTNOTIFY (and the canvas WM_MOUSEACTIVATE
+// and WM_SETCURSOR): a rewrite at GetMessage is too late for those, and a right click on the
+// HUD still reached Archicad (the user, 2026-09-30). The mouse hook runs before all of them
+// and eats the HUD's presses and releases outright.
 //
 // ⚠️ ONLY THE CANVAS THE RUNNING OVERLAY COMPOSES INTO, AND ONLY WHILE ITS HUD IS ON
 // SCREEN. A message to any other window -- a palette floating over the HUD, a dialog --
@@ -138,6 +143,13 @@ struct Stats {
     bool subclassed[2] = { false, false };
     uint64_t cursorsSet = 0;
     uint64_t handsShown = 0;
+    // The buttons: whether the mouse hook is in, the presses and releases it ate -- nothing
+    // of Archicad's heard those -- and the ones only the message hook saw (posted, not from
+    // the mouse; or no mouse hook). And the context menus asked for over the HUD, swallowed.
+    bool mouseHook = false;
+    uint64_t buttonsEaten = 0;
+    uint64_t buttonsLate = 0;
+    uint64_t contextMenusSwallowed = 0;
 };
 Stats GetStats ();
 

@@ -218,6 +218,10 @@ struct InputCounts {
     bool cursorPlan = false;
     uint64_t cursorsSet = 0; // the HUD's arrow or hand shown
     uint64_t handsShown = 0;
+    bool mouseHook = false;    // the buttons decided before Windows tells the canvas's parent
+    uint64_t buttonsEaten = 0; // presses and releases on the HUD nothing of Archicad's heard
+    uint64_t buttonsLate = 0;  // button messages only the message hook saw
+    uint64_t contextMenusSwallowed = 0;
 };
 InputCounts Input ();
 

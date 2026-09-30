@@ -731,6 +731,10 @@ InputCounts Input ()
     out.cursorPlan = stats.subclassed[1];
     out.cursorsSet = stats.cursorsSet;
     out.handsShown = stats.handsShown;
+    out.mouseHook = stats.mouseHook;
+    out.buttonsEaten = stats.buttonsEaten;
+    out.buttonsLate = stats.buttonsLate;
+    out.contextMenusSwallowed = stats.contextMenusSwallowed;
     return out;
 }
 

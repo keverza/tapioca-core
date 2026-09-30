@@ -46,6 +46,22 @@ struct Target {
 };
 
 HHOOK g_hook = nullptr;
+// ⚠️ THE BUTTONS ARE DECIDED A STEP EARLIER, BY A THREAD-LOCAL WH_MOUSE HOOK (the user,
+// 2026-09-30: a right click on the HUD still reached Archicad). Windows takes a button
+// message off the queue in stages: the mouse hook first, then it SENDS the canvas's parent
+// WM_PARENTNOTIFY and the canvas WM_MOUSEACTIVATE and WM_SETCURSOR, and only then hands the
+// message to GetMessage -- where the message hook rewrites it, too late for what was sent.
+// A message the mouse hook eats is none of those: nothing of Archicad's hears the click.
+HHOOK g_mouseHook = nullptr;
+// The last button message the mouse hook passed on: the message hook, seeing it next, does
+// not decide it a second time.
+struct Passed {
+    bool valid = false;
+    UINT message = 0;
+    POINT pt = {};
+} g_passed;
+// The buttons down, as the button messages said: the mouse hook's are given no key state.
+uint32_t g_down = 0;
 HWND g_window = nullptr;
 // The click meter: armed on demand, its idle hook installed with the message hook.
 bool g_timing = false;
@@ -255,6 +271,15 @@ LRESULT CALLBACK CanvasProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
         if (target != nullptr && ShowCursor (*target))
             return TRUE;
     }
+    // ⚠️ AND NO CONTEXT MENU OF ARCHICAD'S OVER THE HUD, however it was asked for: a right
+    // click there is the HUD's (its own menu). The keyboard's (lParam -1) is Archicad's.
+    if (message == WM_CONTEXTMENU && lParam != LPARAM (-1)) {
+        const Target* const target = TargetFor (window);
+        if (target != nullptr && OwnsPointer (*target)) {
+            ++g_stats.contextMenusSwallowed;
+            return 0;
+        }
+    }
     return g_defSubclass (window, message, wParam, lParam);
 }
 
@@ -300,23 +325,19 @@ void RequestRefresh (Target& target)
         target.refreshPending = true;
 }
 
-void Consider (MSG& message, bool removing)
+// A mouse event on an attached canvas, at `screen`: its route, and -- removed from the
+// queue, not only peeked at -- the latch moved, the pointer and the buttons the HUD took
+// recorded for its next layout.
+Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
 {
-    Target* const target = TargetFor (message.hwnd);
-    if (target == nullptr)
-        return;
-    Event event;
-    if (!EventOf (message, event))
-        return;
-    // MSG::pt is where the pointer was when the message was posted, in screen pixels;
-    // the wheel's lParam is in screen pixels too, so every message is read from it.
-    POINT point = message.pt;
+    POINT point = screen;
     RECT client = {};
-    if (!::ScreenToClient (target->canvas, &point) || !::GetClientRect (target->canvas, &client))
-        return;
-    const bool over = target->map.Hit (float (point.x), float (point.y), float (client.right - client.left),
-                                       float (client.bottom - client.top)) >= 0;
-    const bool shown = target->owner.shown != nullptr && target->owner.shown ();
+    if (!::ScreenToClient (target.canvas, &point) || !::GetClientRect (target.canvas, &client))
+        return Route::Pass;
+    Target* const self = &target;
+    const bool over = self->map.Hit (float (point.x), float (point.y), float (client.right - client.left),
+                                     float (client.bottom - client.top)) >= 0;
+    const bool shown = self->owner.shown != nullptr && self->owner.shown ();
     if (removing)
         ++g_stats.seen;
     if (!shown) {
@@ -324,16 +345,15 @@ void Consider (MSG& message, bool removing)
         // lets go of a gesture the HUD can no longer finish.
         if (removing) {
             g_router.Reset ();
-            target->buttons.clear ();
-            target->wasOver = false;
+            self->buttons.clear ();
+            self->wasOver = false;
             if (over)
                 ++g_stats.declinedHidden;
         }
-        return;
+        return Route::Pass;
     }
     const Route route = removing ? g_router.Decide (event, over) : g_router.Preview (event, over);
     if (route == Route::Take) {
-        message.message = WM_NULL;
         if (removing) {
             ++g_stats.taken;
             if (event.kind == EventKind::Press)
@@ -346,20 +366,119 @@ void Consider (MSG& message, bool removing)
         ++g_stats.passedOverHud;
     }
     if (!removing)
-        return;
+        return route;
     // The pointer, for the HUD's next layout, and the buttons the HUD took.
-    target->inside = PtInRect (&client, point) != FALSE;
-    target->x = float (point.x);
-    target->y = float (point.y);
+    self->inside = PtInRect (&client, point) != FALSE;
+    self->x = float (point.x);
+    self->y = float (point.y);
     const bool button = route == Route::Take && (event.kind == EventKind::Press || event.kind == EventKind::Release);
-    if (button && target->buttons.size () < 32)
-        target->buttons.push_back ({ int (event.button), event.kind == EventKind::Press });
+    if (button && self->buttons.size () < 32)
+        self->buttons.push_back ({ int (event.button), event.kind == EventKind::Press });
     // ⚠️ NOTHING WHILE ARCHICAD OWNS THE GESTURE: a wall drawn across a panel is not the
     // HUD's to redraw under.
     const bool hudsTurn = g_router.GetOwner () != Owner::Host;
-    if (hudsTurn && (over || target->wasOver || button || g_router.GetOwner () == Owner::Hud))
-        RequestRefresh (*target);
-    target->wasOver = over;
+    if (hudsTurn && (over || self->wasOver || button || g_router.GetOwner () == Owner::Hud))
+        RequestRefresh (*self);
+    self->wasOver = over;
+    return route;
+}
+
+bool IsButton (UINT message)
+{
+    switch (message) {
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONUP:
+        case WM_XBUTTONDBLCLK:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// A message the message hook sees: moves and the wheel are decided here; a button message
+// only when the mouse hook did not decide it first (posted by a program, not the mouse; or
+// no mouse hook), counted.
+void Consider (MSG& message, bool removing)
+{
+    Target* const target = TargetFor (message.hwnd);
+    if (target == nullptr)
+        return;
+    Event event;
+    if (!EventOf (message, event))
+        return;
+    if (event.kind == EventKind::Move && removing)
+        g_down = event.held;
+    if (IsButton (message.message)) {
+        const bool decided = g_passed.valid && g_passed.message == message.message && g_passed.pt.x == message.pt.x &&
+                             g_passed.pt.y == message.pt.y;
+        if (decided) {
+            if (removing)
+                g_passed.valid = false;
+            return;
+        }
+        if (removing)
+            ++g_stats.buttonsLate;
+    }
+    // MSG::pt is where the pointer was when the message was posted, in screen pixels;
+    // the wheel's lParam is in screen pixels too, so every message is read from it.
+    if (Weigh (*target, event, message.pt, removing) == Route::Take)
+        message.message = WM_NULL;
+}
+
+// The click meter's press: on the HUD when the HUD took it, on the view when it passed it,
+// on any other window of the thread otherwise.
+void TimePress (HWND window, bool taken)
+{
+    const overlayclicks::Target target = TargetFor (window) == nullptr ? overlayclicks::Target::Other
+                                         : taken                       ? overlayclicks::Target::Hud
+                                                                       : overlayclicks::Target::View;
+    char name[32] = {};
+    if (window == nullptr || ::GetClassNameA (window, name, int (sizeof (name))) == 0)
+        name[0] = '\0';
+    g_meter.Press (target, name, Micros ());
+}
+
+// ⚠️ THE CHAIN IS CALLED ON EVERY PATH BUT ONE: a button message the HUD takes is eaten --
+// the hook returns nonzero and Windows discards it, as the WH_MOUSE contract allows.
+LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
+{
+    if (code == HC_ACTION && lParam != 0 && IsButton (UINT (wParam))) {
+        const MOUSEHOOKSTRUCTEX* const info = reinterpret_cast<const MOUSEHOOKSTRUCTEX*> (lParam);
+        MSG message = {};
+        message.hwnd = info->hwnd;
+        message.message = UINT (wParam);
+        message.pt = info->pt;
+        // No key state comes with it: the buttons down as the messages said, this one
+        // pressed or let go; the X button from the hook's own mouse data.
+        message.wParam = MAKEWPARAM (0, HIWORD (info->mouseData));
+        Event event;
+        EventOf (message, event);
+        const uint32_t bit = Bit (event.button);
+        g_down = event.kind == EventKind::Press ? (g_down | bit) : (g_down & ~bit);
+        event.held = g_down;
+        Target* const target = TargetFor (info->hwnd);
+        const bool taken = target != nullptr && Weigh (*target, event, info->pt, true) == Route::Take;
+        if (g_timing && (message.message == WM_LBUTTONDOWN || message.message == WM_LBUTTONDBLCLK))
+            TimePress (info->hwnd, taken);
+        if (taken) {
+            ++g_stats.buttonsEaten;
+            g_passed.valid = false;
+            return 1;
+        }
+        g_passed.valid = true;
+        g_passed.message = message.message;
+        g_passed.pt = info->pt;
+    }
+    return ::CallNextHookEx (g_mouseHook, code, wParam, lParam);
 }
 
 // The pointer left the canvas: whatever it hovered is not hovered any more.
@@ -389,17 +508,10 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
             Consider (*message, removing);
         else if (original == WM_MOUSELEAVE && removing)
             Left (*message);
-        // The click meter's press: on the HUD when the HUD took it, the view when it
-        // passed it, any other window of the thread otherwise.
-        if (g_timing && removing && (original == WM_LBUTTONDOWN || original == WM_LBUTTONDBLCLK)) {
-            const overlayclicks::Target target = TargetFor (window) == nullptr ? overlayclicks::Target::Other
-                                                 : message->message == WM_NULL ? overlayclicks::Target::Hud
-                                                                               : overlayclicks::Target::View;
-            char name[32] = {};
-            if (window == nullptr || ::GetClassNameA (window, name, int (sizeof (name))) == 0)
-                name[0] = '\0';
-            g_meter.Press (target, name, Micros ());
-        }
+        // The click meter's press, when no mouse hook timed it first.
+        if (g_timing && removing && g_mouseHook == nullptr &&
+            (original == WM_LBUTTONDOWN || original == WM_LBUTTONDBLCLK))
+            TimePress (window, message->message == WM_NULL);
     }
     return ::CallNextHookEx (g_hook, code, wParam, lParam);
 }
@@ -540,6 +652,12 @@ void Clear (Target& target)
 
 void Uninstall ()
 {
+    if (g_mouseHook != nullptr) {
+        ::UnhookWindowsHookEx (g_mouseHook);
+        g_mouseHook = nullptr;
+    }
+    g_passed = Passed ();
+    g_down = 0;
     if (g_hook != nullptr) {
         ::UnhookWindowsHookEx (g_hook);
         g_hook = nullptr;
@@ -610,6 +728,14 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
         }
         ArchVizLog ("OVERLAY INPUT  the HUD's message hook installed on this thread");
         FollowIdleHook ();
+    }
+    if (g_mouseHook == nullptr) {
+        g_mouseHook = ::SetWindowsHookExW (WH_MOUSE, &MouseProc, nullptr, ::GetCurrentThreadId ());
+        g_passed = Passed ();
+        if (g_mouseHook == nullptr)
+            ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_MOUSE) failed with GetLastError " +
+                        std::to_string (::GetLastError ()) +
+                        ": the message hook decides the buttons, after Windows has told the canvas's parent");
     }
     if (moved) {
         g_router.Reset ();
@@ -694,6 +820,7 @@ Stats GetStats ()
 {
     Stats stats = g_stats;
     stats.installed = g_hook != nullptr;
+    stats.mouseHook = g_mouseHook != nullptr;
     for (int i = 0; i < 2; ++i) {
         stats.attached[i] = g_targets[i].canvas != nullptr;
         stats.regions[i] = uint32_t (g_targets[i].map.regions.size ());

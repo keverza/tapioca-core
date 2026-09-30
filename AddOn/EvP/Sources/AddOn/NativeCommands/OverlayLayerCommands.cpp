@@ -222,6 +222,10 @@ class OverlayLayersCommand : public MainThreadCommand {
         inputRecord.Add ("cursorPlan", input.cursorPlan);
         inputRecord.Add ("cursorsSet", Text (input.cursorsSet));
         inputRecord.Add ("handsShown", Text (input.handsShown));
+        inputRecord.Add ("mouseHook", input.mouseHook);
+        inputRecord.Add ("buttonsEaten", Text (input.buttonsEaten));
+        inputRecord.Add ("buttonsLate", Text (input.buttonsLate));
+        inputRecord.Add ("contextMenusSwallowed", Text (input.contextMenusSwallowed));
         os.Add ("input", inputRecord);
         return os;
     }
@@ -511,13 +515,16 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
         "lastRefreshMicroseconds":{"type":"integer","minimum":0},"maxRefreshMicroseconds":{"type":"integer","minimum":0},
         "canvasOnThread3D":{"type":"boolean"},"canvasOnThreadPlan":{"type":"boolean"},
         "cursor3D":{"type":"boolean"},"cursorPlan":{"type":"boolean"},
-        "cursorsSet":{"type":"string"},"handsShown":{"type":"string"}},
+        "cursorsSet":{"type":"string"},"handsShown":{"type":"string"},
+        "mouseHook":{"type":"boolean"},"buttonsEaten":{"type":"string"},"buttonsLate":{"type":"string"},
+        "contextMenusSwallowed":{"type":"string"}},
       "additionalProperties":false,
       "required":["installed","attached3D","attachedPlan","regions3D","regionsPlan","seen","taken","takenPresses",
                   "takenMoves","passedOverHud","declinedHidden","refreshes","changes","redraws",
                   "lastRedrawMicroseconds","maxRedrawMicroseconds","lastRefreshMicroseconds",
                   "maxRefreshMicroseconds","canvasOnThread3D","canvasOnThreadPlan","cursor3D","cursorPlan",
-                  "cursorsSet","handsShown"]}},
+                  "cursorsSet","handsShown","mouseHook","buttonsEaten","buttonsLate",
+                  "contextMenusSwallowed"]}},
   "additionalProperties":false,"required":["layers","generation","guest","input"]})json";
 
 const NativeCommandRegistration kOverlayLayerCommandRegistrations[] = {

@@ -19625,6 +19625,18 @@
               },
               "handsShown": {
                 "type": "string"
+              },
+              "mouseHook": {
+                "type": "boolean"
+              },
+              "buttonsEaten": {
+                "type": "string"
+              },
+              "buttonsLate": {
+                "type": "string"
+              },
+              "contextMenusSwallowed": {
+                "type": "string"
               }
             },
             "additionalProperties": false,
@@ -19652,7 +19664,11 @@
               "cursor3D",
               "cursorPlan",
               "cursorsSet",
-              "handsShown"
+              "handsShown",
+              "mouseHook",
+              "buttonsEaten",
+              "buttonsLate",
+              "contextMenusSwallowed"
             ]
           }
         },
