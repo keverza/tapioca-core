@@ -44,6 +44,13 @@ constexpr float kDockFontPixels = 13.0f;
 constexpr float kDockPadding[2] = { 12.0f, 7.0f };
 constexpr float kDockSpacing = 4.0f;
 constexpr float kDockGap = 8.0f;
+// ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
+// HUD's font size). The dock's smaller and larger buttons walk them; every size of the
+// HUD -- text, padding, widths, the dock itself -- follows, the distances from the view's
+// edges do not.
+constexpr float kFontSteps[] = { 0.8f, 0.9f, 1.0f, 1.1f, 1.25f, 1.4f, 1.6f, 1.8f, 2.0f };
+constexpr uint32_t kFontStepCount = uint32_t (sizeof (kFontSteps) / sizeof (kFontSteps[0]));
+constexpr uint32_t kFontStepDefault = 2;
 
 // The style every panel starts from; each pushes its own colours and spacing over it.
 void BaseStyle (float scale)
@@ -127,6 +134,7 @@ struct State {
         std::map<uint32_t, bool> sections; // by item index
     };
     std::map<std::string, Panel> panels;
+    uint32_t fontStep = kFontStepDefault; // kFontSteps
 };
 
 std::shared_ptr<State> NewState ()
@@ -343,7 +351,9 @@ struct Engine::Impl {
     // One panel's window, at its anchor on the view: its title bar -- whose close button
     // sends it to the dock -- when it has a title, then its items. Nothing while it is in
     // the dock.
-    void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, ImVec2 view)
+    // `scale` is the view's DPI scale, what the distances from its edges take; `ui` that
+    // times the text size, what everything else takes.
+    void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui, ImVec2 view)
     {
         PanelState& state = StateOf (key, panel);
         layer = key.substr (0, key.rfind ('#'));
@@ -360,14 +370,14 @@ struct Engine::Impl {
                     pivot.y * view.y + inwardY * panel.offsetPixels[1] * scale),
             ImGuiCond_Always, pivot);
         if (panel.widthPixels > 0.0f) {
-            const float w = panel.widthPixels * scale;
+            const float w = panel.widthPixels * ui;
             ImGui::SetNextWindowSizeConstraints (ImVec2 (w, 0.0f), ImVec2 (w, FLT_MAX));
         }
         // ### keeps the window's identity -- and so its state -- whatever its title says.
         const std::string name = (titled ? panel.title : std::string ()) + "###tapioca.panel." + key;
-        const int colours = PushPanelStyle (panel, scale);
+        const int colours = PushPanelStyle (panel, ui);
         ImFont* const face = FontFor (panel.font);
-        ImGui::PushFont (face, panel.sizePixels * scale * (titled ? kTitleScale : 1.0f));
+        ImGui::PushFont (face, panel.sizePixels * ui * (titled ? kTitleScale : 1.0f));
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
                                  ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
                                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
@@ -388,11 +398,11 @@ struct Engine::Impl {
             ImGuiWindow* const window = ImGui::GetCurrentWindow ();
             const ImRect bar = window->TitleBarRect ();
             window->DrawList->AddLine (ImVec2 (bar.Min.x, bar.Max.y), bar.Max, ImGui::GetColorU32 (ImGuiCol_Separator),
-                                       (std::max) (1.0f, scale));
+                                       (std::max) (1.0f, ui));
         }
         if (open) {
-            ImGui::PushFont (face, panel.sizePixels * scale);
-            Items (panel, state, scale);
+            ImGui::PushFont (face, panel.sizePixels * ui);
+            Items (panel, state, ui);
             ImGui::PopFont ();
         }
         ImGui::End ();
@@ -466,16 +476,49 @@ struct Engine::Impl {
             for (const size_t i : titled) {
                 PanelState& state = StateOf (keys[i], *panels[i]);
                 ImGui::PushID (keys[i].c_str ());
-                if (items::DockTab (*panels[i], !state.collapsed, size, scale))
+                if (items::DockButton ("##tab", panels[i]->title, *panels[i], !state.collapsed, size,
+                                       ImDrawFlags_RoundCornersLeft, scale))
                     state.collapsed = !state.collapsed;
                 ImGui::PopID ();
             }
+            FontButtons (*panels[titled.front ()], size, scale);
         }
         ImGui::End ();
         ImGui::PopFont ();
         ImGui::PopStyleVar (3);
         if (windows.back () != nullptr)
             inset = windows.back ()->Size.x + kDockGap * scale;
+    }
+
+    // The text size under the tabs: smaller and larger, side by side, in the first titled
+    // panel's colours; pointed at, the size they give, beside the dock.
+    void FontButtons (const layers::Panel& colours, ImVec2 tab, float scale)
+    {
+        uint32_t& step = store->fontStep;
+        const float gap = kDockSpacing * scale;
+        const ImVec2 half ((tab.x - gap) * 0.5f, tab.y);
+        ImGui::PushID ("tapioca.font");
+        const float top = ImGui::GetCursorScreenPos ().y;
+        if (items::DockButton ("##smaller", "A\xE2\x88\x92", colours, false, half, ImDrawFlags_RoundCornersLeft,
+                               scale) &&
+            step > 0)
+            --step;
+        const bool pointed = ImGui::IsItemHovered ();
+        ImGui::SameLine (0.0f, gap);
+        if (items::DockButton ("##larger", "A+", colours, false, half, ImDrawFlags_RoundCornersNone, scale) &&
+            step + 1 < kFontStepCount)
+            ++step;
+        if (pointed || ImGui::IsItemHovered ()) {
+            const std::string text =
+                "Text size " + std::to_string (int (std::lround (kFontSteps[step] * 100.0f))) + " %";
+            ImGui::SetNextWindowPos (ImVec2 (ImGui::GetWindowPos ().x - 6.0f * scale, top + tab.y * 0.5f),
+                                     ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
+            if (ImGui::BeginTooltip ()) {
+                ImGui::TextUnformatted (text.c_str ());
+                ImGui::EndTooltip ();
+            }
+        }
+        ImGui::PopID ();
     }
 
     // One frame of the whole set.
@@ -487,20 +530,22 @@ struct Engine::Impl {
         const ImVec2 view = known ? ImVec2 (input.width, input.height) : ImVec2 (16384.0f, 16384.0f);
         io.DisplaySize = view;
         io.DeltaTime = delta;
-        BaseStyle (scale);
+        const float ui = scale * kFontSteps[(std::min) (store->fontStep, kFontStepCount - 1)];
+        BaseStyle (ui);
         ImGui::NewFrame ();
         windows.assign (panels.size () + 1, nullptr);
         highlight = Layout::Highlight {};
         inset = 0.0f;
         if (known)
-            Dock (panels, keys, scale, view);
+            Dock (panels, keys, ui, view);
         for (size_t i = 0; i < panels.size (); ++i)
-            Window (*panels[i], keys[i], i, scale, view);
+            Window (*panels[i], keys[i], i, scale, ui, view);
         if (known)
-            LegendTips (legends, scale, view);
+            LegendTips (legends, ui, view);
         // A hand over what ImGui calls an item -- a button, a section's row, a dock's tab,
-        // the title bar's close button -- and while one is held. Not while the background is held: ImGui
-        // makes a window's move id active there even when the window cannot move.
+        // the title bar's close button -- and while one is held. Not while the background
+        // is held: ImGui makes a window's move id active there even when the window cannot
+        // move.
         const ImGuiContext& g = *ImGui::GetCurrentContext ();
         const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
         hand = g.HoveredId != 0 || held;
@@ -720,6 +765,20 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale
 const std::vector<std::shared_ptr<const overlaytext::Page>>& Engine::Pages () const
 {
     return impl_->pages;
+}
+
+float Engine::FontScale () const
+{
+    return kFontSteps[(std::min) (impl_->store->fontStep, kFontStepCount - 1)];
+}
+
+void Engine::SetFontScale (float scale)
+{
+    uint32_t nearest = 0;
+    for (uint32_t k = 1; k < kFontStepCount; ++k)
+        if (std::fabs (kFontSteps[k] - scale) < std::fabs (kFontSteps[nearest] - scale))
+            nearest = k;
+    impl_->store->fontStep = nearest;
 }
 
 void Engine::UseState (std::shared_ptr<State> state)

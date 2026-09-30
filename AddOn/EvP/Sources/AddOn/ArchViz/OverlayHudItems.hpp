@@ -70,9 +70,12 @@ void Bars (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& it
 
 // ---- the dock ------------------------------------------------------------------------------
 
-// A panel's tab in the dock, `size` big: filled with its accent while `open`, in its card's
-// colours while it is in the dock, tinted when pointed at and pressed. True when pressed.
-bool DockTab (const overlaylayers::Panel& panel, bool open, ImVec2 size, float scale);
+// A button of the dock, `size` big, saying `label` in the middle: filled with `colours`'
+// accent when `filled`, in its card's colours otherwise, tinted when pointed at and pressed,
+// its `corners` rounded. A panel's tab is one, filled while the panel is open. True when
+// pressed.
+bool DockButton (const char* id, const std::string& label, const overlaylayers::Panel& colours, bool filled,
+                 ImVec2 size, ImDrawFlags corners, float scale);
 
 // The colour of an item's `index`th segment or bar of `count`: its own `colors`, else
 // its colormap's at its place, else a palette of ten.

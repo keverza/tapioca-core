@@ -560,15 +560,15 @@ void Bars (const layers::Panel& panel, const layers::PanelItem& item, float widt
     }
 }
 
-bool DockTab (const layers::Panel& panel, bool open, ImVec2 size, float scale)
+bool DockButton (const char* id, const std::string& label, const layers::Panel& panel, bool open, ImVec2 size,
+                 ImDrawFlags corners, float scale)
 {
-    const bool pressed = ImGui::InvisibleButton ("##tab", size);
+    const bool pressed = ImGui::InvisibleButton (id, size);
     const bool hovered = ImGui::IsItemHovered (), held = ImGui::IsItemActive ();
     const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
-    // Rounded on the left only: the tab comes out of the view's edge.
-    const float r = (std::min) (8.0f * scale, size.y * 0.5f);
-    const ImDrawFlags corners = ImDrawFlags_RoundCornersLeft;
+    // A tab is rounded on the left only: it comes out of the view's edge.
+    const float r = corners == ImDrawFlags_RoundCornersNone ? 0.0f : (std::min) (8.0f * scale, size.y * 0.5f);
     draw->AddRectFilled (a, b, Packed (open ? panel.accentRgba : panel.backgroundRgba), r, corners);
     if (hovered || held) {
         // The tint: white over an open panel's filled tab, the accent over a closed one's.
@@ -580,9 +580,9 @@ bool DockTab (const layers::Panel& panel, bool open, ImVec2 size, float scale)
         const uint32_t edge = (panel.borderRgba & 0xFFu) != 0 ? panel.borderRgba : WithAlpha (panel.textRgba, 0.25f);
         draw->AddRect (a, b, Packed (edge), r, corners, (std::max) (1.0f, scale));
     }
-    const ImVec2 text = ImGui::CalcTextSize (panel.title.c_str ());
+    const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
     draw->AddText (ImVec2 (a.x + (size.x - text.x) * 0.5f, a.y + (size.y - text.y) * 0.5f),
-                   Packed (open ? Contrast (panel.accentRgba) : panel.textRgba), panel.title.c_str ());
+                   Packed (open ? Contrast (panel.accentRgba) : panel.textRgba), label.c_str ());
     return pressed;
 }
 

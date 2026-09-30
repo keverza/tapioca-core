@@ -78,12 +78,23 @@ float CloseX (const hud::Built& panel)
 }
 constexpr float kCloseY = 16.0f + 3.0f + 8.4f;
 
-// The middle of the dock's `k`th tab of `count`, on the 1200 x 800 view.
+// The middle of the dock's `k`th tab of `count`, on the 1200 x 800 view: the tabs one
+// under another, 4 pixels apart, the text size's row under them as tall as a tab.
 void TabAt (const hud::Built& dock, size_t k, size_t count, float& x, float& y)
 {
-    const float tab = (dock.height - 4.0f * float (count - 1)) / float (count);
+    const float tab = (dock.height - 4.0f * float (count)) / float (count + 1);
     x = 1200.0f + dock.offset[0] + dock.width * 0.5f;
     y = 400.0f + dock.offset[1] + tab * 0.5f + (tab + 4.0f) * float (k);
+}
+
+// The middle of the text size's smaller (`larger` false) or larger button, under `count`
+// tabs.
+void SizeAt (const hud::Built& dock, size_t count, bool larger, float& x, float& y)
+{
+    const float tab = (dock.height - 4.0f * float (count)) / float (count + 1);
+    const float half = (dock.width - 4.0f) * 0.5f;
+    x = 1200.0f + dock.offset[0] + (larger ? half + 4.0f + half * 0.5f : half * 0.5f);
+    y = 400.0f + dock.offset[1] + (tab + 4.0f) * float (count) + tab * 0.5f;
 }
 
 } // namespace
@@ -238,4 +249,41 @@ TEST (OverlayHudControls, TheDockIsARegionAndADockedPanelIsNone)
     const scene::Scene docked = scene::PrepareSceneHud (all (), &other.engine, 1.0f, At (600.0f, 600.0f));
     ASSERT_EQ (docked.regions.size (), 1u);
     EXPECT_EQ (docked.regions[0].kind, input::RegionKind::Dock);
+}
+
+// ---- the text size -------------------------------------------------------------------------
+
+// ⚠️ THE USER, 2026-09-29: a control for the HUD's font size. The dock's larger button
+// grows every size of the HUD by a step -- in both views -- and leaves the distances from
+// the view's edges; the smaller one walks back and stops at the smallest step. Pointed at,
+// they say the size they give.
+TEST (OverlayHudControls, TheTextSizeButtonsScaleTheWholeHudInBothViews)
+{
+    const std::shared_ptr<hud::State> state = hud::NewState ();
+    Fresh threeD, plan;
+    threeD.engine.UseState (state);
+    plan.engine.UseState (state);
+    const layers::Panel panel = Titled ();
+    const hud::Layout before = threeD.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 1.0f);
+    float x = 0.0f, y = 0.0f;
+    SizeAt (before.dock, 1, true, x, y);
+    EXPECT_FALSE (threeD.Lay ({ &panel }, At (x, y)).overlay.vertices.empty ()) << "the size it gives, said";
+    threeD.Click ({ &panel }, x, y);
+    EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.1f);
+    const hud::Layout larger = plan.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_NEAR (larger.panels[0].width, before.panels[0].width * 1.1f, 3.0f);
+    EXPECT_NEAR (larger.panels[0].height, before.panels[0].height * 1.1f, 3.0f);
+    EXPECT_GT (larger.dock.width, before.dock.width);
+    EXPECT_FLOAT_EQ (larger.panels[0].offset[0], 16.0f) << "the distance from the view's edge stays";
+    // Four smaller: 1.0, 0.9, 0.8, and 0.8 again.
+    for (int k = 0; k < 4; ++k) {
+        const hud::Layout now = plan.Lay ({ &panel }, At (600.0f, 600.0f));
+        SizeAt (now.dock, 1, false, x, y);
+        plan.Click ({ &panel }, x, y);
+    }
+    EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 0.8f);
+    // Set from outside, the nearest step.
+    threeD.engine.SetFontScale (1.3f);
+    EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.25f);
 }

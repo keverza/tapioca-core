@@ -29,6 +29,10 @@
 // the user did to it. And the two views' engines share it (`State`): a panel docked in
 // the 3D window is docked in the plan.
 //
+// ⚠️ THE TEXT SIZE IS THE USER'S. Under the dock's tabs, a smaller and a larger button
+// scale the whole HUD -- text, padding, widths and the dock -- by a few steps, in both
+// views; the distances from the view's edges stay.
+//
 // ⚠️ A PANEL CLOSES TO THE DOCK, NOT IN PLACE (the user, 2026-09-29: the collapsed panel
 // is a tab in a list down the view's right edge). A titled panel's close button puts it
 // there; its tab -- filled while the panel is open -- opens and closes it. A panel on the
@@ -160,6 +164,12 @@ class Engine final {
     void SetFontLoader (FontLoader loader);
     // The state to keep what the user does in, instead of the engine's own.
     void UseState (std::shared_ptr<State> state);
+
+    // The HUD's text size, a factor on every size but the distances from the view's edges:
+    // one of a few steps (0.8 to 2), walked by the dock's smaller and larger buttons. Set,
+    // the step nearest.
+    float FontScale () const;
+    void SetFontScale (float scale);
 
     // Every panel of a set, laid out at `scale` (the view's DPI scale) for `input`'s view
     // and pointer: `out.panels[i]` is `panels[i]`, whose state is kept under `keys[i]`.
