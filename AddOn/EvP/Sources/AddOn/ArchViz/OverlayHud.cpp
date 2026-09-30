@@ -545,6 +545,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
         ImGui::BringWindowToDisplayFront (dock);
     if (known && store->shown)
         LegendTips (legends, ui, view);
+    Menu (ui);
     // A dropdown's list is a popup: while one is open, the whole view is the HUD's.
     popup = ImGui::IsPopupOpen ("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
     // A hand over what ImGui calls an item -- a button, a section's row, a tab, the dock's

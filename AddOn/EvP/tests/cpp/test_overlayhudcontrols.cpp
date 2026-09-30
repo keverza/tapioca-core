@@ -120,19 +120,22 @@ std::vector<std::pair<float, float>> Controls (Fresh& hud, const std::vector<con
     return runs;
 }
 
-// The rows of one colour's triangles, top to bottom: a list's lines of text.
-std::vector<std::pair<float, float>> Rows (const hud::Built& built, uint32_t rgba)
+// The rows of one colour's triangles, top to bottom: a list's lines of text -- those right
+// of `left` alone, when a menu's submenu stands beside it.
+std::vector<std::pair<float, float>> Rows (const hud::Built& built, uint32_t rgba, float left = -FLT_MAX)
 {
     std::vector<std::pair<float, float>> spans;
     for (size_t t = 0; t + 2 < built.vertices.size (); t += 3) {
         if (built.vertices[t].rgba != rgba)
             continue;
-        float lo = FLT_MAX, hi = -FLT_MAX;
+        float lo = FLT_MAX, hi = -FLT_MAX, x = FLT_MAX;
         for (size_t k = t; k < t + 3; ++k) {
             lo = (std::min) (lo, built.vertices[k].y);
             hi = (std::max) (hi, built.vertices[k].y);
+            x = (std::min) (x, built.vertices[k].x);
         }
-        spans.push_back ({ lo, hi });
+        if (x >= left)
+            spans.push_back ({ lo, hi });
     }
     std::sort (spans.begin (), spans.end ());
     std::vector<std::pair<float, float>> rows;
@@ -496,6 +499,101 @@ TEST (OverlayHudControls, ALayerWithoutAPanelHasTheDockAndSettings)
     EXPECT_EQ (hud.heard[0].title, "Overlay");
     Fresh none;
     EXPECT_FLOAT_EQ (none.Lay ({}, At (600.0f, 600.0f)).dock.width, 0.0f) << "no layer, no dock";
+}
+
+// ---- the right-click menu -------------------------------------------------------------------
+
+namespace {
+
+// A right click where the pointer is, as the input layer hands it over, and a frame more for
+// what it opened to be drawn.
+hud::Layout RightClick (Fresh& hud, const std::vector<const layers::Panel*>& panels, float x, float y)
+{
+    hud.Lay (panels, At (x, y));
+    hud.Lay (panels, At (x, y, { { 1, true } }));
+    hud.Lay (panels, At (x, y, { { 1, false } }));
+    return hud.Lay (panels, At (x, y));
+}
+
+} // namespace
+
+// ⚠️ THE USER, 2026-09-30: right click on the HUD to offer HUD specific options. Released over
+// the host, the HUD's menu opens at the pointer and takes the whole view; its first item hides
+// the overlay and the menu closes. From the dock, the second shows everything again, the
+// panel open. Off the HUD, a right release opens nothing.
+TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
+{
+    Watched hud;
+    const layers::Panel panel = Titled ();
+    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_FALSE (RightClick (hud, { &panel }, 600.0f, 600.0f).popup) << "off the HUD";
+    // The host's background.
+    const float x = 16.0f + open.host.width * 0.5f, y = 16.0f + open.host.height - 4.0f;
+    const hud::Layout menu = RightClick (hud, { &panel }, x, y);
+    ASSERT_TRUE (menu.popup);
+    std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 4u) << "show overlay, show panel, Settings, text size -- reset position disabled";
+    float box[4] = {};
+    ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
+    EXPECT_NEAR (box[0], x, 32.0f) << "at the pointer";
+    EXPECT_NEAR (items[0].first, y, 32.0f);
+    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[0]));
+    EXPECT_FALSE (hud::ContentShown (*hud.state));
+    const hud::Layout hidden = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_FALSE (hidden.popup) << "chosen, the menu closes";
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].kind, "overlay");
+    // The dock's title, the only thing left.
+    const float dx = 1200.0f + hidden.dock.offset[0] + hidden.dock.width * 0.5f;
+    const float dy = 400.0f + hidden.dock.offset[1] + hidden.dock.height * 0.6f;
+    const hud::Layout again = RightClick (hud, { &panel }, dx, dy);
+    ASSERT_TRUE (again.popup);
+    EXPECT_FALSE (hud::ContentShown (*hud.state)) << "a right click is not the title's press";
+    items = Rows (again.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 4u);
+    ASSERT_TRUE (Box (again.overlay, panel.textRgba, box));
+    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
+    EXPECT_TRUE (hud::ContentShown (*hud.state));
+    EXPECT_TRUE (hud.engine.Open ());
+    EXPECT_GT (hud.Lay ({ &panel }, At (600.0f, 600.0f)).host.height, 0.0f);
+}
+
+// The menu's Settings shows the host on its Settings tab; its text size is a submenu of the
+// steps, beside it; its layers another, when there are layers.
+TEST (OverlayHudControls, TheMenuOpensSettingsAndSetsTheTextSize)
+{
+    Watched hud;
+    hud.engine.SetLayers ({ "hud" });
+    const layers::Panel panel = Titled ();
+    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    const float x = 16.0f + open.host.width * 0.5f, y = 16.0f + open.host.height - 4.0f;
+    hud::Layout menu = RightClick (hud, { &panel }, x, y);
+    std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 5u) << "the four, then the layers";
+    float box[4] = {};
+    ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
+    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[2]));
+    EXPECT_EQ (hud.engine.Selected (), "tapioca.settings");
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].kind, "panel");
+    EXPECT_EQ (hud.heard[0].text, "Settings");
+
+    // The text size: pointed at, its submenu opens beside the menu.
+    const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    menu = RightClick (hud, { &panel }, 16.0f + settings.host.width * 0.5f, 16.0f + settings.host.height - 4.0f);
+    items = Rows (menu.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 5u);
+    ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
+    float frame[4] = {};
+    ASSERT_TRUE (Box (menu.overlay, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u, frame));
+    hud.Lay ({ &panel }, At (box[0] + 4.0f, Middle (items[3])));
+    const hud::Layout sub = hud.Lay ({ &panel }, At (box[0] + 4.0f, Middle (items[3])));
+    const std::vector<std::pair<float, float>> steps = Rows (sub.overlay, panel.textRgba, frame[2]);
+    ASSERT_EQ (steps.size (), 9u) << "80 % to 200 %";
+    hud.Click ({ &panel }, frame[2] + 24.0f, Middle (steps[3]));
+    EXPECT_FLOAT_EQ (hud.engine.FontScale (), 1.1f);
+    EXPECT_EQ (hud.heard.back ().kind, "fontScale");
+    EXPECT_EQ (hud.heard.back ().text, "110 %");
 }
 
 // ---- what the user changed, for Python -------------------------------------------------------

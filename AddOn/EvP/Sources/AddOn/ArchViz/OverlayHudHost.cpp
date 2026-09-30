@@ -108,6 +108,7 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
         }
     // Settings takes the look of the first panel, when there is one.
     look = showsPanel ? panels[shown] : !titled.empty () ? panels[titled.front ()] : &PlainPanel ();
+    showing = showsPanel ? panels[shown]->title : titled.empty () ? look->title : "Settings";
 }
 
 void Engine::Impl::ShowOverlay (bool shownNow)
@@ -129,6 +130,43 @@ void Engine::Impl::ShowLayer (const std::string& name, bool shownNow)
                          shownNow ? "shown" : "hidden", true });
 }
 
+void Engine::Impl::SetOpen (bool open)
+{
+    const bool was = HudOpen (*store);
+    store->host.known = true;
+    store->host.open = open;
+    if (was != open)
+        Opening (open, showing);
+}
+
+void Engine::Impl::ShowSettings ()
+{
+    State::Host& host = store->host;
+    if (host.selected != kSettingsKey) {
+        host.selected = kSettingsKey;
+        changes.push_back ({ "panel", std::string (), "Settings", std::string (), -1, 1.0, "Settings", true });
+    }
+    ShowOverlay (true);
+    SetOpen (true);
+}
+
+void Engine::Impl::SetFontStep (uint32_t step)
+{
+    if (step >= kFontStepCount || step == store->fontStep)
+        return;
+    store->fontStep = step;
+    changes.push_back ({ "fontScale", std::string (), std::string (), "textSize", -1, double (kFontSteps[step]),
+                         Percent (kFontSteps[step]), true });
+}
+
+void Engine::Impl::ResetPosition ()
+{
+    if (!store->host.placed)
+        return;
+    store->host.placed = false;
+    changes.push_back ({ "position", std::string (), std::string (), std::string (), -1, 0.0, "reset", true });
+}
+
 // ⚠️ ONE TAB, ITS TITLE TURNED, AND A CIRCLE (the user, 2026-09-30: one tab, its text rotated
 // 90 degrees, that opens and closes the panel; on it, a filled or empty circle that shows
 // and hides the whole overlay and its HUD without destroying them). At the view's right
@@ -141,8 +179,6 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
     if (!present)
         return;
     const layers::Panel& colours = *look;
-    // The tab the host shows; "Overlay" while there is no study to show.
-    const std::string label = showsPanel ? panels[shown]->title : titled.empty () ? colours.title : "Settings";
     ImGui::SetNextWindowPos (ImVec2 (view.x, std::floor (view.y * 0.5f)), ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
     ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0.0f, 0.0f));
     ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -157,24 +193,18 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
     ImGuiWindow* const window = ImGui::GetCurrentWindow ();
     windows[windows.size () - 2] = window;
     if (drawn) {
-        State::Host& host = store->host;
-        const bool wasOpen = HudOpen (*store);
-        const bool open = wasOpen && store->shown;
+        const bool open = HudOpen (*store) && store->shown;
         bool toggled = false;
         const bool pressed =
-            items::VerticalTab ("##hud", label, colours, open, store->shown,
+            items::VerticalTab ("##hud", showing, colours, open, store->shown,
                                 ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale, toggled);
         if (toggled) {
             ShowOverlay (!store->shown);
         }
         else if (pressed) {
             // Hidden, the title brings everything back, the panel open.
-            const bool opening = !store->shown || !wasOpen;
             ShowOverlay (true);
-            host.known = true;
-            host.open = opening;
-            if (wasOpen != opening)
-                Opening (opening, label);
+            SetOpen (!open);
         }
     }
     ImGui::End ();
@@ -202,29 +232,22 @@ void Engine::Impl::Settings ()
         ImGui::AlignTextToFramePadding ();
         ImGui::TextUnformatted ("Text size");
         ImGui::TableSetColumnIndex (1);
-        uint32_t& step = store->fontStep;
-        const uint32_t was = step;
+        const uint32_t step = store->fontStep;
         ImGui::SetNextItemWidth (-FLT_MIN);
         if (ImGui::BeginCombo ("##textsize", Percent (kFontSteps[step]).c_str (), ImGuiComboFlags_HeightLargest)) {
             for (uint32_t k = 0; k < kFontStepCount; ++k)
                 if (ImGui::Selectable (Percent (kFontSteps[k]).c_str (), k == step))
-                    step = k;
+                    SetFontStep (k);
             ImGui::EndCombo ();
         }
-        if (step != was)
-            changes.push_back ({ "fontScale", std::string (), std::string (), "textSize", -1, double (kFontSteps[step]),
-                                 Percent (kFontSteps[step]), true });
         ImGui::TableNextRow ();
         ImGui::TableSetColumnIndex (0);
         ImGui::AlignTextToFramePadding ();
         ImGui::TextUnformatted ("Position");
         ImGui::TableSetColumnIndex (1);
-        State::Host& host = store->host;
-        ImGui::BeginDisabled (!host.placed);
-        if (ImGui::Button ("Reset##position", ImVec2 (-FLT_MIN, 0.0f))) {
-            host.placed = false;
-            changes.push_back ({ "position", std::string (), std::string (), std::string (), -1, 0.0, "reset", true });
-        }
+        ImGui::BeginDisabled (!store->host.placed);
+        if (ImGui::Button ("Reset##position", ImVec2 (-FLT_MIN, 0.0f)))
+            ResetPosition ();
         ImGui::EndDisabled ();
         ImGui::EndTable ();
     }
@@ -357,10 +380,64 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
         host.offset[0] = (std::max) (right ? view.x - pos.x - size.x : pos.x, 0.0f) / scale;
         host.offset[1] = (std::max) (bottom ? view.y - pos.y - size.y : pos.y, 0.0f) / scale;
     }
-    if (close) {
-        host.open = false;
-        Opening (false, showsPanel ? panels[shown]->title : std::string ("Settings"));
+    if (close)
+        SetOpen (false);
+}
+
+// ⚠️ THE HUD'S OWN MENU ON A RIGHT CLICK (the user, 2026-09-30: right click on the HUD to
+// offer HUD specific options). One menu for the whole HUD -- the host, the dock, a panel --
+// at the pointer, in the host's look; while it is open the whole view is the HUD's, as while
+// a dropdown's list is (OverlaySceneScreen.cpp). Archicad's own menu never shows over the
+// HUD: the input layer eats the button there, and the canvas's WM_CONTEXTMENU with it
+// (OverlayInput.cpp).
+void Engine::Impl::Menu (float ui)
+{
+    constexpr char kMenu[] = "##tapioca.menu";
+    // ⚠️ NOTHING LEFT TO ACT ON, THE MENU GOES: left open, the view would stay the HUD's.
+    if (!present) {
+        if (ImGui::IsPopupOpen (kMenu))
+            ImGui::ClosePopupsExceptModals ();
+        return;
     }
+    // Released over any of the HUD's windows -- the menu's own included: it opens again there.
+    if (ImGui::IsMouseReleased (ImGuiMouseButton_Right) && ImGui::GetCurrentContext ()->HoveredWindow != nullptr)
+        ImGui::OpenPopup (kMenu);
+    const layers::Panel& panel = *look;
+    const int colours = PushPanelStyle (panel, ui);
+    ImGui::PushFont (FontFor (panel.font), panel.sizePixels * ui);
+    if (ImGui::BeginPopup (kMenu, ImGuiWindowFlags_NoMove)) {
+        const bool all = store->shown;
+        const bool open = HudOpen (*store) && all;
+        if (ImGui::MenuItem ("Show overlay", nullptr, all))
+            ShowOverlay (!all);
+        if (ImGui::MenuItem ("Show panel", nullptr, open)) {
+            ShowOverlay (true);
+            SetOpen (!open);
+        }
+        if (ImGui::MenuItem ("Settings"))
+            ShowSettings ();
+        ImGui::Separator ();
+        if (ImGui::BeginMenu ("Text size")) {
+            for (uint32_t k = 0; k < kFontStepCount; ++k)
+                if (ImGui::MenuItem (Percent (kFontSteps[k]).c_str (), nullptr, k == store->fontStep))
+                    SetFontStep (k);
+            ImGui::EndMenu ();
+        }
+        if (!layerNames.empty () && ImGui::BeginMenu ("Layers")) {
+            for (const std::string& name : layerNames) {
+                const bool on = LayerShown (*store, name);
+                if (ImGui::MenuItem ((Readable (name) + "##layer." + name).c_str (), nullptr, on))
+                    ShowLayer (name, !on);
+            }
+            ImGui::EndMenu ();
+        }
+        if (ImGui::MenuItem ("Reset position", nullptr, false, store->host.placed))
+            ResetPosition ();
+        ImGui::EndPopup ();
+    }
+    ImGui::PopFont ();
+    ImGui::PopStyleColor (colours);
+    ImGui::PopStyleVar (kStyleVars);
 }
 
 } // namespace overlayhud

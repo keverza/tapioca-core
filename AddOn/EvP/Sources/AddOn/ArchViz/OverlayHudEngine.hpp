@@ -124,6 +124,9 @@ struct Engine::Impl {
     bool showsPanel = false;
     const layers::Panel* look = nullptr;
     bool present = false;
+    // The title of what the host shows -- a panel's, "Settings", or "Overlay" while there is
+    // no titled panel: the dock's label, and what an open or a close is said with.
+    std::string showing;
     // The tab the host's tab bar showed in this context's last frame: a panel key.
     std::string shownHost;
     // The dock's width this frame: how far the view's right column moves in.
@@ -176,9 +179,18 @@ struct Engine::Impl {
     // The Settings page: the HUD's style, the overlay's display (OverlayHudHost.cpp).
     void Settings ();
 
-    // The whole overlay shown or hidden, a layer shown or hidden: held and said.
+    // The HUD's menu at the pointer, on a right click anywhere on it (OverlayHudHost.cpp).
+    void Menu (float ui);
+
+    // What Settings, the dock and the menu do, each held and said once: the whole overlay
+    // shown or hidden, a layer shown or hidden, the host opened or closed, the host on its
+    // Settings tab, the text size's step, the host back where its tab asks to be.
     void ShowOverlay (bool shown);
     void ShowLayer (const std::string& name, bool shown);
+    void SetOpen (bool open);
+    void ShowSettings ();
+    void SetFontStep (uint32_t step);
+    void ResetPosition ();
 
     // Each control's value as its layer says it now, held (OverlayHudControls.cpp).
     void Reconcile (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys);
