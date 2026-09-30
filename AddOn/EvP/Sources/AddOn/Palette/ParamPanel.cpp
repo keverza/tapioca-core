@@ -5,10 +5,12 @@
 #include "ResourceIds.hpp"
 #include "Palette/ParamLayout.hpp"
 #include "Palette/PaletteMetrics.hpp"
-#include "Palette/PaletteScroll.hpp"        // F4 — every row reaches the panel through it
-#include "Palette/ParamVisibility.hpp"      // F3 show_when — DevKit-free, tested offline
-#include "Palette/ParamValues.hpp"          // a control's value <-> its text, both ways
-#include "Palette/ParamDateTimeProbe.hpp" // diagnostic logging only
+#include "Palette/PaletteScroll.hpp"   // F4 — every row reaches the panel through it
+#include "Palette/ParamVisibility.hpp" // F3 show_when — DevKit-free, tested offline
+#include "Palette/ParamValues.hpp"     // a control's value <-> its text, both ways
+#include "Palette/ParamColorControls.hpp"
+#include "Palette/ParamNumericControls.hpp"
+#include "Palette/ParamDateTimeProbe.hpp"   // diagnostic logging only
 #include "Palette/NavItemChoices.hpp"       // evp.View / evp.Database — the rows and their guids
 #include "Palette/NavigatorBrowser.hpp"     // evp.View — the modal Navigator tree
 #include "Palette/CatalogPicker.hpp"        // evp.LibraryPart / evp.Favourite — catalogue + modal
@@ -51,7 +53,6 @@ std::string NormalizedFileExtension (const GS::UniString& rawExtension)
         extension.erase (0, 1);
     return extension;
 }
-
 
 // UserControlTypeFor — which Archicad picker an evp.<Attribute> type maps to —
 // lives in Palette/AttributePickerTypes.hpp. It is a table of claims about the
@@ -179,22 +180,8 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             box->Attach (observer);
             pc.control = std::move (box);
         }
-        else if (pc.type == "Int" || pc.type == "int") {
-            pc.kind = ParamControl::Kind::Int;
-            auto edit = std::make_unique<DG::IntEdit> (panel, seed);
-            GS::Int32 minimum = 0, maximum = 0, value = 0;
-            const bool haveMin = os.Get ("minimum", minimum);
-            const bool haveMax = os.Get ("maximum", maximum);
-            if (haveMin)
-                edit->SetMin (minimum);
-            if (haveMax)
-                edit->SetMax (maximum);
-            os.Get ("default", value);
-            edit->SetValue (value);
-            pc.control = std::move (edit);
-
-            domainText = FormatDomain (haveMin, haveMax, GS::UniString::Printf ("%d", (int) minimum),
-                                       GS::UniString::Printf ("%d", (int) maximum));
+        else if (pc.type == "Int" || pc.type == "int" || pc.type == "Hour") {
+            domainText = BuildIntegerControl (pc, os, panel, seed);
         }
         else if (pc.type == "Float" || pc.type == "float") {
             double value = 0.0;
@@ -247,25 +234,19 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             domainText = FormatNumericDomain (pc.unit, haveMin, haveMax, minimum, maximum);
         }
         else if (pc.type == "Color") {
-            pc.kind = ParamControl::Kind::Color;
-            GS::UniString value;
-            os.Get ("default", value);
-            Gfx::Color parsed;
-            if (HexToColor (value, parsed))
-                pc.colorHex = ColorToHex (parsed);
-            auto button = std::make_unique<DG::Button> (panel, seed);
-            button->SetText (pc.colorHex.IsEmpty () ? GS::UniString ("Choose colour...") : pc.colorHex);
-            button->Attach (observer);
-            pc.control = std::move (button);
+            BuildColorControl (pc, os, panel, seed, observer, observer);
         }
         else if (pc.type == "DateProbe" || pc.type == "TimeProbe" || pc.type == "CalendarProbe") {
             // Diagnostic only. Do not infer a public Date/Time wire format from
             // these Int32 values until the three UI readings have been compared.
             pc.kind = ParamControl::Kind::DateTimeProbe;
             std::unique_ptr<DG::DateTime> control;
-            if (pc.type == "DateProbe") control = std::make_unique<DG::DateControl> (panel, seed);
-            else if (pc.type == "TimeProbe") control = std::make_unique<DG::TimeControl> (panel, seed);
-            else control = std::make_unique<DG::CalendarControl> (panel, seed);
+            if (pc.type == "DateProbe")
+                control = std::make_unique<DG::DateControl> (panel, seed);
+            else if (pc.type == "TimeProbe")
+                control = std::make_unique<DG::TimeControl> (panel, seed);
+            else
+                control = std::make_unique<DG::CalendarControl> (panel, seed);
             GSTimeRecord known (2026, 9, 2, 29, 9, 30, 0, 0);
             GSTime sample = 0;
             if (TIGetGSTime (&known, &sample) == NoError)
@@ -657,6 +638,8 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             pc.Widget ()->Disable ();
             if (pc.browseButton)
                 pc.browseButton->Disable ();
+            if (pc.hourSpin)
+                pc.hourSpin->Disable ();
             if (!defaultFromResolved)
                 pc.required = false;
         }
@@ -725,6 +708,8 @@ void ParamPanel::ShowControls ()
         if (on) {
             pc.label->Show ();
             pc.Widget ()->Show ();
+            if (pc.kind == ParamControl::Kind::DateTimeProbe)
+                pc.Widget ()->Redraw ();
         }
         else {
             pc.label->Hide ();
@@ -741,6 +726,20 @@ void ParamPanel::ShowControls ()
                 pc.browseButton->Show ();
             else
                 pc.browseButton->Hide ();
+        }
+        if (pc.colorSwatch) {
+            if (on)
+                pc.colorSwatch->Show ();
+            else
+                pc.colorSwatch->Hide ();
+        }
+        if (pc.hourSpin) {
+            if (on) {
+                pc.hourSpin->Show ();
+                pc.hourSpin->Redraw ();
+            }
+            else
+                pc.hourSpin->Hide ();
         }
     }
 }
@@ -762,6 +761,10 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
                                 ? (short) (assemblyLeft + BrowseButtonWidth + BrowseButtonGap)
                                 : assemblyLeft;
         short controlRight = right;
+        if (pc.colorSwatch)
+            controlLeft = (short) (assemblyLeft + 28);
+        if (pc.hourSpin)
+            controlRight = (short) (right - 18);
 
         // A pen swatch is a fixed-size colour chip in Archicad's own dialogs,
         // not a field: stretching it would look nothing like the native UI.
@@ -782,6 +785,14 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
         clip.Place (pc.label.get (), DG::Rect (left, y + 3, labelRight, y + RowHeight));
         clip.Place (pc.domainHint.get (), DG::Rect (hintLeft, y + 3, hintRight, y + RowHeight));
         clip.Place (pc.Widget (), DG::Rect (controlLeft, y, controlRight, y + RowHeight));
+        clip.Place (pc.colorSwatch.get (), DG::Rect (assemblyLeft, y, (short) (assemblyLeft + 24), y + RowHeight));
+        clip.Place (pc.hourSpin.get (), DG::Rect ((short) (right - 18), y, right, y + RowHeight));
+        // DG's nested arrow glyphs may not paint until hover after initial Show.
+        // Repaint only visible steppers, after their final geometry is assigned.
+        if (pc.hourSpin && pc.hourSpin->IsVisible ())
+            pc.hourSpin->Invalidate ();
+        if (pc.kind == ParamControl::Kind::DateTimeProbe && pc.Widget ()->IsVisible ())
+            pc.Widget ()->Invalidate ();
         clip.Place (pc.browseButton.get (),
                     DG::Rect (assemblyLeft, y, (short) (assemblyLeft + BrowseButtonWidth), y + RowHeight));
         y += RowHeight + RowGap;
@@ -873,18 +884,12 @@ bool ParamPanel::HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflo
 // MODAL dialog directly on the main thread from a button handler — NEVER through
 // MainThreadGate, which must not hold for human time (it would report a false
 // timeout; see the gate's contract).
-bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath,
-                                      bool* reflow)
+bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath, bool* reflow)
 {
     for (ParamControl& pc : paramControls) {
         if (pc.kind != ParamControl::Kind::Color || ev.GetSource () != pc.control.get ())
             continue;
-        Gfx::Color color;
-        if (!pc.colorHex.IsEmpty ())
-            HexToColor (pc.colorHex, color);
-        if (DG::GetColor ("Choose colour", &color)) {
-            pc.colorHex = ColorToHex (color);
-            static_cast<DG::Button*> (pc.control.get ())->SetText (pc.colorHex);
+        if (OpenColorChooser (*static_cast<DG::Button*> (pc.control.get ()), pc.colorSwatch.get (), pc.colorHex)) {
             const bool changedVisibility = ApplyVisibility ();
             if (reflow != nullptr)
                 *reflow = changedVisibility;

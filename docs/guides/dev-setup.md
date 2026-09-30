@@ -71,7 +71,7 @@ Then perform the host actions manually:
 .\AddOn\EvP\Sync-Commands.ps1
 ```
 
-Add `AddOn\EvP\build_29\EvP.apx` through Archicad 29's Add-On Manager, restart
+Add `AddOn\EvP\build_29\Tapioca.apx` through Archicad 29's Add-On Manager, restart
 Archicad after native changes, and press **Rescan** in the Tapioca palette after
 Python command changes. The build must run while Archicad is closed because a loaded
 add-on can lock the output files.

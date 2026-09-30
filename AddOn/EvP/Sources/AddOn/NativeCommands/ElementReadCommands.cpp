@@ -2,8 +2,9 @@
 #include "ACAPinc.h"
 
 #include "NativeCommands/ElementReadCommands.hpp"
+#include "NativeCommands/DraftingCurveKinds.hpp"
 #include "NativeCommands/CommandBase.hpp"
-#include "NativeCommands/CommandUtils.hpp"   // WalkPolygonRings -- the one polygon walk
+#include "NativeCommands/CommandUtils.hpp" // WalkPolygonRings -- the one polygon walk
 
 #include <algorithm>
 
@@ -26,8 +27,11 @@ namespace {
 // there is no type-specific `details` sub-object here (unlike GetElementDetails).
 // ---------------------------------------------------------------------------
 class GetElementInfoCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetElementInfo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetElementInfo";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -59,19 +63,18 @@ public:
                 // A miss still emits a full RECORD — a short list would silently
                 // shift every later element's data onto the wrong guid, exactly as
                 // a short parallel array used to.
-                rec.Add ("type",     GS::UniString ());
+                rec.Add ("type", GS::UniString ());
                 rec.Add ("floorInd", (GS::Int32) 0);
-                rec.Add ("angle",    0.0);
+                rec.Add ("angle", 0.0);
                 records.Push (rec);
                 continue;
             }
 
             const API_ElemTypeID typeId = element.header.type.typeID;
-            rec.Add ("type",     GS::UniString::Printf ("%d", (int) typeId));
+            rec.Add ("type", GS::UniString::Printf ("%d", (int) typeId));
             rec.Add ("floorInd", (GS::Int32) element.header.floorInd);
             // Only objects/lamps carry an angle; anything else reports 0.
-            rec.Add ("angle",    (typeId == API_ObjectID || typeId == API_LampID)
-                                 ? element.object.angle : 0.0);
+            rec.Add ("angle", (typeId == API_ObjectID || typeId == API_LampID) ? element.object.angle : 0.0);
             records.Push (rec);
         }
 
@@ -107,25 +110,23 @@ public:
 // SAME layout as memo.coords — so it is read by pointing the walk at the other handle
 // set, not by writing a second walk. (memo.coords is the roof's own contour for BOTH
 // roof classes; only the pivot lives in the additional handles.)
-static bool AppendRings (const API_Guid& guid,
-                         GS::Array<double>& outerCoords, GS::Array<double>& outerArcs, GS::Int32& outerCount,
-                         GS::Array<double>& holeCoords, GS::Array<double>& holeArcs, GS::Array<GS::Int32>& holeCounts,
-                         GS::Int32& nHoles,
-                         bool polylineMode = false, bool* outerClosed = nullptr,
-                         GS::Array<double>* outerZ = nullptr, GS::Array<double>* holeZ = nullptr,
-                         bool additionalPolygon = false)
+static bool AppendRings (const API_Guid& guid, GS::Array<double>& outerCoords, GS::Array<double>& outerArcs,
+                         GS::Int32& outerCount, GS::Array<double>& holeCoords, GS::Array<double>& holeArcs,
+                         GS::Array<GS::Int32>& holeCounts, GS::Int32& nHoles, bool polylineMode = false,
+                         bool* outerClosed = nullptr, GS::Array<double>* outerZ = nullptr,
+                         GS::Array<double>* holeZ = nullptr, bool additionalPolygon = false)
 {
     // Set here as well as in the walk, because a memo that fails to load never
     // reaches the walk and must still leave the caller's counters at zero.
     outerCount = 0;
-    nHoles     = 0;
+    nHoles = 0;
     if (outerClosed != nullptr)
         *outerClosed = false;
 
-    const bool   wantZ = (outerZ != nullptr || holeZ != nullptr);
-    const UInt64 mask  = additionalPolygon ? APIMemoMask_AdditionalPolygon
-                       : wantZ             ? (APIMemoMask_Polygon | APIMemoMask_MeshPolyZ)
-                                           : APIMemoMask_Polygon;
+    const bool wantZ = (outerZ != nullptr || holeZ != nullptr);
+    const UInt64 mask = additionalPolygon ? APIMemoMask_AdditionalPolygon
+                        : wantZ           ? (APIMemoMask_Polygon | APIMemoMask_MeshPolyZ)
+                                          : APIMemoMask_Polygon;
 
     API_ElementMemo memo = {};
     const GSErrCode memoErr = ACAPI_Element_GetMemo (guid, &memo, mask);
@@ -135,17 +136,15 @@ static bool AppendRings (const API_Guid& guid,
         // The one thing that differs between the two polygons is WHICH handles hold it.
         PolygonHandles polygon;
         polygon.coords = additionalPolygon ? memo.additionalPolyCoords : memo.coords;
-        polygon.pends  = additionalPolygon ? memo.additionalPolyPends  : memo.pends;
-        polygon.parcs  = additionalPolygon ? memo.additionalPolyParcs  : memo.parcs;
+        polygon.pends = additionalPolygon ? memo.additionalPolyPends : memo.pends;
+        polygon.parcs = additionalPolygon ? memo.additionalPolyParcs : memo.parcs;
 
         // Only a mesh carries this; null for every other polygon element, which is why
         // the Z arrays stay empty rather than filling with zeros.
         const double* polyZ = (wantZ && memo.meshPolyZ != nullptr) ? *memo.meshPolyZ : nullptr;
 
-        ok = WalkPolygonRings (polygon, polyZ,
-                               outerCoords, outerArcs, outerCount,
-                               holeCoords, holeArcs, holeCounts, nHoles,
-                               polylineMode, outerClosed, outerZ, holeZ);
+        ok = WalkPolygonRings (polygon, polyZ, outerCoords, outerArcs, outerCount, holeCoords, holeArcs, holeCounts,
+                               nHoles, polylineMode, outerClosed, outerZ, holeZ);
     }
     ACAPI_DisposeElemMemoHdls (&memo);
     return ok;
@@ -187,24 +186,18 @@ static GS::ObjectState Coord3D (double x, double y, double z)
 // arcs — outer contour into `outlineZ`, and each hole gains its own `polygonZ` so a hole ring
 // stays self-similar with the contour. Leave it null and the 2D kinds read exactly as before.
 // `additionalPolygon` (a poly roof's pivot polygon) forwards to AppendRings unchanged.
-static bool ReadRingsNested (const API_Guid& guid,
-                             GS::Array<GS::ObjectState>& outline, GS::Array<double>& outlineArcs,
-                             GS::Array<GS::ObjectState>& holes,
-                             bool polylineMode = false, bool* outerClosed = nullptr,
-                             GS::Array<double>* outlineZ = nullptr,
-                             bool additionalPolygon = false)
+static bool ReadRingsNested (const API_Guid& guid, GS::Array<GS::ObjectState>& outline, GS::Array<double>& outlineArcs,
+                             GS::Array<GS::ObjectState>& holes, bool polylineMode = false, bool* outerClosed = nullptr,
+                             GS::Array<double>* outlineZ = nullptr, bool additionalPolygon = false)
 {
-    GS::Array<double>    flatOuter, flatOuterArcs, flatHole, flatHoleArcs;
-    GS::Array<double>    flatOuterZ, flatHoleZ;
+    GS::Array<double> flatOuter, flatOuterArcs, flatHole, flatHoleArcs;
+    GS::Array<double> flatOuterZ, flatHoleZ;
     GS::Array<GS::Int32> holeCounts;
-    GS::Int32            outerCount = 0, nHoles = 0;
+    GS::Int32 outerCount = 0, nHoles = 0;
 
     const bool wantZ = (outlineZ != nullptr);
-    const bool ok = AppendRings (guid, flatOuter, flatOuterArcs, outerCount,
-                                 flatHole, flatHoleArcs, holeCounts, nHoles,
-                                 polylineMode, outerClosed,
-                                 wantZ ? &flatOuterZ : nullptr,
-                                 wantZ ? &flatHoleZ  : nullptr,
+    const bool ok = AppendRings (guid, flatOuter, flatOuterArcs, outerCount, flatHole, flatHoleArcs, holeCounts, nHoles,
+                                 polylineMode, outerClosed, wantZ ? &flatOuterZ : nullptr, wantZ ? &flatHoleZ : nullptr,
                                  additionalPolygon);
 
     for (GS::Int32 i = 0; i < outerCount; ++i) {
@@ -216,12 +209,12 @@ static bool ReadRingsNested (const API_Guid& guid,
     if (outlineZ != nullptr)
         *outlineZ = flatOuterZ;
 
-    GS::Int32 cursor = 0;   // running vertex index into the flat hole buffers
+    GS::Int32 cursor = 0; // running vertex index into the flat hole buffers
     for (GS::Int32 h = 0; h < nHoles; ++h) {
         const GS::Int32 c = holeCounts[h];
 
         GS::Array<GS::ObjectState> ring;
-        GS::Array<double>          ringArcs, ringZ;
+        GS::Array<double> ringArcs, ringZ;
         for (GS::Int32 i = 0; i < c; ++i) {
             const GS::Int32 v = cursor + i;
             ring.Push (Coord2D (flatHole[v * 2], flatHole[v * 2 + 1]));
@@ -232,9 +225,9 @@ static bool ReadRingsNested (const API_Guid& guid,
 
         GS::ObjectState hole;
         hole.Add ("polygonOutline", ring);
-        hole.Add ("polygonArcs",    ringArcs);
+        hole.Add ("polygonArcs", ringArcs);
         if (wantZ)
-            hole.Add ("polygonZ",   ringZ);
+            hole.Add ("polygonZ", ringZ);
         holes.Push (hole);
 
         cursor += c;
@@ -246,8 +239,7 @@ static bool ReadRingsNested (const API_Guid& guid,
 // w, nominalHeight -> h. Tapered/multi-segment members report segment 0 as
 // representative; the caller carries nSegments so "there is more" stays visible.
 // `beamNotColumn` picks the memo mask + array. Zeros on any read failure.
-static void ReadFirstSegmentSection (const API_Guid& guid, bool beamNotColumn,
-                                     double& w, double& h)
+static void ReadFirstSegmentSection (const API_Guid& guid, bool beamNotColumn, double& w, double& h)
 {
     w = 0.0;
     h = 0.0;
@@ -257,7 +249,8 @@ static void ReadFirstSegmentSection (const API_Guid& guid, bool beamNotColumn,
         if (beamNotColumn && memo.beamSegments != nullptr) {
             w = memo.beamSegments[0].assemblySegmentData.nominalWidth;
             h = memo.beamSegments[0].assemblySegmentData.nominalHeight;
-        } else if (!beamNotColumn && memo.columnSegments != nullptr) {
+        }
+        else if (!beamNotColumn && memo.columnSegments != nullptr) {
             w = memo.columnSegments[0].assemblySegmentData.nominalWidth;
             h = memo.columnSegments[0].assemblySegmentData.nominalHeight;
         }
@@ -285,27 +278,26 @@ static void ReadFirstSegmentSection (const API_Guid& guid, bool beamNotColumn,
 // not match what the user counts on screen, levelEnds says why.
 static void AddMeshSublines (const API_Element& element, GS::ObjectState& d)
 {
-    d.Add ("nSubLines",    (GS::Int32) element.mesh.levelLines.nSubLines);
+    d.Add ("nSubLines", (GS::Int32) element.mesh.levelLines.nSubLines);
     d.Add ("nLevelCoords", (GS::Int32) element.mesh.levelLines.nCoords);
 
-    GS::Array<GS::Int32>       levelEnds;
+    GS::Array<GS::Int32> levelEnds;
     GS::Array<GS::ObjectState> sublines;
 
     if (element.mesh.levelLines.nSubLines > 0) {
         API_ElementMemo memo = {};
-        if (ACAPI_Element_GetMemo (element.header.guid, &memo, APIMemoMask_MeshLevel) == NoError
-            && memo.meshLevelCoords != nullptr && memo.meshLevelEnds != nullptr) {
-            const Int32 nEnds   = (Int32) (BMGetHandleSize ((GSHandle) memo.meshLevelEnds)
-                                           / sizeof (Int32));
-            const Int32 nCoords = (Int32) (BMGetHandleSize ((GSHandle) memo.meshLevelCoords)
-                                           / sizeof (API_MeshLevelCoord));
+        if (ACAPI_Element_GetMemo (element.header.guid, &memo, APIMemoMask_MeshLevel) == NoError &&
+            memo.meshLevelCoords != nullptr && memo.meshLevelEnds != nullptr) {
+            const Int32 nEnds = (Int32) (BMGetHandleSize ((GSHandle) memo.meshLevelEnds) / sizeof (Int32));
+            const Int32 nCoords =
+                (Int32) (BMGetHandleSize ((GSHandle) memo.meshLevelCoords) / sizeof (API_MeshLevelCoord));
             Int32 cursor = 0;
             for (Int32 i = 0; i < nEnds; ++i) {
                 const Int32 end = (*memo.meshLevelEnds)[i];
                 levelEnds.Push ((GS::Int32) end);
 
                 GS::Array<GS::ObjectState> coordinates;
-                GS::Array<GS::Int32>       vertexIds;
+                GS::Array<GS::Int32> vertexIds;
                 // Clamped to the real handle size as well as to `end` — a mis-read
                 // convention must produce a short line, never an out-of-bounds read.
                 for (; cursor < end && cursor < nCoords; ++cursor) {
@@ -316,15 +308,15 @@ static void AddMeshSublines (const API_Element& element, GS::ObjectState& d)
 
                 GS::ObjectState line;
                 line.Add ("coordinates", coordinates);
-                line.Add ("vertexIds",   vertexIds);
+                line.Add ("vertexIds", vertexIds);
                 sublines.Push (line);
             }
         }
         ACAPI_DisposeElemMemoHdls (&memo);
     }
 
-    d.Add ("levelEnds", levelEnds);      // raw meshLevelEnds — the diagnostic
-    d.Add ("sublines",  sublines);
+    d.Add ("levelEnds", levelEnds); // raw meshLevelEnds — the diagnostic
+    d.Add ("sublines", sublines);
 }
 
 // A roof's PIVOT — the hinge its pitch is measured from, and the missing half of the
@@ -351,10 +343,10 @@ static void AddRoofClassData (const API_Element& element, GS::ObjectState& d)
     const bool poly = (element.roof.roofClass == API_PolyRoofID);
     d.Add ("roofClass", GS::UniString (poly ? "poly" : "plane"));
 
-    GS::ObjectState            baseLine;
+    GS::ObjectState baseLine;
     GS::Array<GS::ObjectState> pivotOutline, levels;
-    GS::Array<double>          pivotArcs;
-    bool   posSign       = false;
+    GS::Array<double> pivotArcs;
+    bool posSign = false;
     double eavesOverHang = 0.0;
     GS::Int32 overHangType = 0, levelNum = 0;
 
@@ -363,21 +355,22 @@ static void AddRoofClassData (const API_Element& element, GS::ObjectState& d)
         posSign = pl.posSign;
         baseLine.Add ("begCoordinate", Coord2D (pl.baseLine.c1.x, pl.baseLine.c1.y));
         baseLine.Add ("endCoordinate", Coord2D (pl.baseLine.c2.x, pl.baseLine.c2.y));
-    } else {
+    }
+    else {
         const API_PolyRoofData& pr = element.roof.u.polyRoof;
         eavesOverHang = pr.eavesOverHang;
-        overHangType  = (GS::Int32) pr.overHangType;
+        overHangType = (GS::Int32) pr.overHangType;
         // levelData is a FIXED 16-slot array; levelNum says how many are real. Reading
         // past it would report uninitialised angles as roof pitches.
         levelNum = (GS::Int32) pr.levelNum;
         const GS::Int32 nLevels = std::min (levelNum, (GS::Int32) 16);
         for (GS::Int32 i = 0; i < nLevels; ++i) {
             GS::ObjectState level;
-            level.Add ("levelAngle",  pr.levelData[i].levelAngle);    // radians
-            level.Add ("levelHeight", pr.levelData[i].levelHeight);   // meters
+            level.Add ("levelAngle", pr.levelData[i].levelAngle);   // radians
+            level.Add ("levelHeight", pr.levelData[i].levelHeight); // meters
             levels.Push (level);
         }
-        GS::Array<GS::ObjectState> holes;    // the pivot polygon's holes are not surfaced
+        GS::Array<GS::ObjectState> holes; // the pivot polygon's holes are not surfaced
         ReadRingsNested (element.header.guid, pivotOutline, pivotArcs, holes,
                          /*polylineMode*/ false, /*outerClosed*/ nullptr,
                          /*outlineZ*/ nullptr, /*additionalPolygon*/ true);
@@ -386,14 +379,14 @@ static void AddRoofClassData (const API_Element& element, GS::ObjectState& d)
         baseLine.Add ("endCoordinate", Coord2D (0.0, 0.0));
     }
 
-    d.Add ("baseLine",      baseLine);        // plane only; zeros for a poly roof
-    d.Add ("posSign",       posSign);         // plane only: which side slopes up
-    d.Add ("pivotOutline",  pivotOutline);    // poly only; empty for a plane roof
-    d.Add ("pivotArcs",     pivotArcs);
-    d.Add ("levels",        levels);          // poly only: per-level angle + height
-    d.Add ("levelNum",      levelNum);
+    d.Add ("baseLine", baseLine);         // plane only; zeros for a poly roof
+    d.Add ("posSign", posSign);           // plane only: which side slopes up
+    d.Add ("pivotOutline", pivotOutline); // poly only; empty for a plane roof
+    d.Add ("pivotArcs", pivotArcs);
+    d.Add ("levels", levels); // poly only: per-level angle + height
+    d.Add ("levelNum", levelNum);
     d.Add ("eavesOverHang", eavesOverHang);
-    d.Add ("overHangType",  overHangType);
+    d.Add ("overHangType", overHangType);
 }
 
 // ---------------------------------------------------------------------------
@@ -531,8 +524,11 @@ static GS::UniString LibraryPartNameOf (Int32 libInd)
 }
 
 class GetElementDetailsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetElementDetails"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetElementDetails";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -573,8 +569,7 @@ public:
             return infoString;
         };
 
-        auto missRecord = [&elementIdOf] (const GS::UniString& guid, const char* reason,
-                                          const API_ElemType* type) {
+        auto missRecord = [&elementIdOf] (const GS::UniString& guid, const char* reason, const API_ElemType* type) {
             GS::UniString typeName;
             if (type != nullptr)
                 ACAPI_Element_GetElemTypeName (*type, typeName);
@@ -583,14 +578,14 @@ public:
             GS::ObjectState elementId;
             elementId.Add ("guid", guid);
             rec.Add ("elementId", elementId);
-            rec.Add ("found",     false);
-            rec.Add ("kind",      GS::UniString ());
-            rec.Add ("floorInd",  (GS::Int32) 0);
-            rec.Add ("reason",    GS::UniString (reason));
-            rec.Add ("typeName",  typeName);
-            rec.Add ("typeId",    (GS::Int32) (type != nullptr ? (int) type->typeID : 0));
-            rec.Add ("value",     elementIdOf (APIGuidFromString (guid.ToCStr ().Get ())));
-            rec.Add ("details",   GS::ObjectState ());
+            rec.Add ("found", false);
+            rec.Add ("kind", GS::UniString ());
+            rec.Add ("floorInd", (GS::Int32) 0);
+            rec.Add ("reason", GS::UniString (reason));
+            rec.Add ("typeName", typeName);
+            rec.Add ("typeId", (GS::Int32) (type != nullptr ? (int) type->typeID : 0));
+            rec.Add ("value", elementIdOf (APIGuidFromString (guid.ToCStr ().Get ())));
+            rec.Add ("details", GS::ObjectState ());
             return rec;
         };
 
@@ -599,16 +594,15 @@ public:
         // every hole, and is left off for slab/roof so their records stay byte-identical.
         auto addPolygon = [] (const API_Guid& guid, GS::ObjectState& d, bool wantZ = false) {
             GS::Array<GS::ObjectState> outline, holes;
-            GS::Array<double>          outlineArcs, outlineZ;
+            GS::Array<double> outlineArcs, outlineZ;
             ReadRingsNested (guid, outline, outlineArcs, holes,
-                             /*polylineMode*/ false, /*outerClosed*/ nullptr,
-                             wantZ ? &outlineZ : nullptr);
+                             /*polylineMode*/ false, /*outerClosed*/ nullptr, wantZ ? &outlineZ : nullptr);
             d.Add ("polygonOutline", outline);
-            d.Add ("polygonArcs",    outlineArcs);
+            d.Add ("polygonArcs", outlineArcs);
             if (wantZ)
-                d.Add ("polygonZ",   outlineZ);
-            d.Add ("holes",          holes);
-            d.Add ("hasHoles",       !holes.IsEmpty ());
+                d.Add ("polygonZ", outlineZ);
+            d.Add ("holes", holes);
+            d.Add ("hasHoles", !holes.IsEmpty ());
         };
 
         for (const GS::ObjectState& item : elements) {
@@ -629,25 +623,54 @@ public:
 
             const char* kind = nullptr;
             switch (typeId) {
-                case API_SlabID:   kind = "slab";   break;
-                case API_RoofID:   kind = "roof";   break;
-                case API_MeshID:   kind = "mesh";   break;
-                case API_WallID:   kind = "wall";   break;
-                case API_BeamID:   kind = "beam";   break;
-                case API_ColumnID: kind = "column"; break;
-                case API_PolyLineID: kind = "polyline"; break;
-                case API_LineID: kind = "line"; break;
-                case API_ArcID: kind = "arc"; break;
-                case API_CircleID: kind = "circle"; break;
-                case API_HotspotID: kind = "hotspot"; break;
-                case API_ObjectID: kind = "object"; break;
-                case API_LampID:   kind = "lamp";   break;
+                case API_SlabID:
+                    kind = "slab";
+                    break;
+                case API_RoofID:
+                    kind = "roof";
+                    break;
+                case API_MeshID:
+                    kind = "mesh";
+                    break;
+                case API_WallID:
+                    kind = "wall";
+                    break;
+                case API_BeamID:
+                    kind = "beam";
+                    break;
+                case API_ColumnID:
+                    kind = "column";
+                    break;
+                case API_PolyLineID:
+                    kind = "polyline";
+                    break;
+                case API_LineID:
+                    kind = "line";
+                    break;
+                case API_ArcID:
+                    kind = IsWholeDraftingCurve (element) ? "circle" : "arc";
+                    break;
+                case API_CircleID:
+                    kind = "circle";
+                    break;
+                case API_HotspotID:
+                    kind = "hotspot";
+                    break;
+                case API_ObjectID:
+                    kind = "object";
+                    break;
+                case API_LampID:
+                    kind = "lamp";
+                    break;
                 // The Fill TOOL's element. ⚠️ Its type is API_HatchID — there is no
                 // API_FillID in the AC29 headers at all (grep APIdefs_Elements.h:129).
                 // The kind is spelled "fill" because that is what the tool is called
                 // in the UI and what a command author will look for.
-                case API_HatchID:  kind = "fill";   break;
-                default: break;
+                case API_HatchID:
+                    kind = "fill";
+                    break;
+                default:
+                    break;
             }
             if (kind == nullptr) {
                 records.Push (missRecord (guidString, "unsupportedType", &element.header.type));
@@ -658,40 +681,39 @@ public:
 
             if (typeId == API_SlabID) {
                 d.Add ("thickness", element.slab.thickness);
-                d.Add ("level",     element.slab.level);
+                d.Add ("level", element.slab.level);
                 addPolygon (element.header.guid, d);
-
-            } else if (typeId == API_RoofID) {
+            }
+            else if (typeId == API_RoofID) {
                 d.Add ("thickness", element.roof.shellBase.thickness);
-                d.Add ("level",     element.roof.shellBase.level);
+                d.Add ("level", element.roof.shellBase.level);
                 // Slope = the plane's pitch. Only a single-plane roof has ONE angle;
                 // reading u.planeRoof on a multi-plane roof would read the wrong union
                 // member, so poly-roofs report 0 (pitch is per-plane there).
-                d.Add ("slantAngle", element.roof.roofClass == API_PlaneRoofID
-                                     ? element.roof.u.planeRoof.angle : 0.0);
+                d.Add ("slantAngle", element.roof.roofClass == API_PlaneRoofID ? element.roof.u.planeRoof.angle : 0.0);
                 addPolygon (element.header.guid, d);
-                AddRoofClassData (element, d);   // E15 — pivot line / pivot polygon
-
-            } else if (typeId == API_MeshID) {
+                AddRoofClassData (element, d); // E15 — pivot line / pivot polygon
+            }
+            else if (typeId == API_MeshID) {
                 // A mesh is a polygon whose vertices each carry an elevation, plus interior
                 // level lines. `level` is the base plane (from the story level, same frame
                 // as slab/roof `level`); `skirtLevel` is how far the solid drops below it,
                 // which is the nearest thing a mesh has to a thickness.
-                d.Add ("level",      element.mesh.level);
+                d.Add ("level", element.mesh.level);
                 d.Add ("skirtLevel", element.mesh.skirtLevel);
                 // Tapir's MeshDetails spelling, so the enum reads the same through either
                 // add-on. The numbers are the header's ("Skirt: 1 = yes; 2 = no bottom;
                 // 3 = no"); anything unexpected falls to the solid case, as Tapir does.
-                d.Add ("skirtType",  GS::UniString (element.mesh.skirt == 3 ? "SurfaceOnlyWithoutSkirt"
-                                                  : element.mesh.skirt == 2 ? "WithSkirt"
-                                                  : "SolidBodyWithSkirt"));
-                d.Add ("ridges",     GS::UniString (element.mesh.smoothRidges == APIRidge_AllSharp  ? "AllSharp"
-                                                  : element.mesh.smoothRidges == APIRidge_AllSmooth ? "AllSmooth"
-                                                  : "UserDefined"));
+                d.Add ("skirtType", GS::UniString (element.mesh.skirt == 3   ? "SurfaceOnlyWithoutSkirt"
+                                                   : element.mesh.skirt == 2 ? "WithSkirt"
+                                                                             : "SolidBodyWithSkirt"));
+                d.Add ("ridges", GS::UniString (element.mesh.smoothRidges == APIRidge_AllSharp    ? "AllSharp"
+                                                : element.mesh.smoothRidges == APIRidge_AllSmooth ? "AllSmooth"
+                                                                                                  : "UserDefined"));
                 addPolygon (element.header.guid, d, /*wantZ*/ true);
                 AddMeshSublines (element, d);
-
-            } else if (typeId == API_HatchID) {
+            }
+            else if (typeId == API_HatchID) {
                 // A Fill is a 2D polygon and nothing else — no thickness, no level,
                 // no elevation. It reads through `addPolygon` exactly as a slab does
                 // (API_HatchType carries an API_Polygon `poly`), so one piece of
@@ -704,107 +726,99 @@ public:
                 // The pens come along because they are what a drawing uses to say
                 // what a fill MEANS — the same join-key role `pen` plays on the
                 // polyline below.
-                d.Add ("pen",       (GS::Int32) element.hatch.contPen.penIndex);
-                d.Add ("fillPen",   (GS::Int32) element.hatch.fillPen.penIndex);
+                d.Add ("pen", (GS::Int32) element.hatch.contPen.penIndex);
+                d.Add ("fillPen", (GS::Int32) element.hatch.fillPen.penIndex);
                 // fillBGPen is a bare `short`, not an API_ExtendedPenType like the
                 // other two — the struct is not uniform here.
                 d.Add ("fillBGPen", (GS::Int32) element.hatch.fillBGPen);
                 // The Fill tool may also be backed by a Building Material; only
                 // API_FillHatch has a fill attribute to resolve by name.
                 d.Add ("fill", element.hatch.hatchType == API_FillHatch
-                    ? AttributeIndexToName (API_FilltypeID, element.hatch.fillInd) : GS::UniString ());
+                                   ? AttributeIndexToName (API_FilltypeID, element.hatch.fillInd)
+                                   : GS::UniString ());
                 addPolygon (element.header.guid, d);
-
-            } else if (typeId == API_PolyLineID) {
+            }
+            else if (typeId == API_PolyLineID) {
                 // Same spelling as the polygon kinds (`polygonOutline`/`polygonArcs`), so
                 // one piece of caller code reads a slab contour and a polyline chain. But
                 // it is a CHAIN, not a footprint: `closed` says whether the last vertex
                 // joins back to the first, and only then is an area meaningful. No
                 // `holes` — a polyline has exactly one contour.
                 GS::Array<GS::ObjectState> outline, holes;
-                GS::Array<double>          outlineArcs;
-                bool                       closed = false;
+                GS::Array<double> outlineArcs;
+                bool closed = false;
                 ReadRingsNested (element.header.guid, outline, outlineArcs, holes,
                                  /*polylineMode*/ true, &closed);
                 d.Add ("polygonOutline", outline);
-                d.Add ("polygonArcs",    outlineArcs);
-                d.Add ("closed",         closed);
+                d.Add ("polygonArcs", outlineArcs);
+                d.Add ("closed", closed);
                 // The pen is the JOIN KEY for a survey drawing: a breakline and
                 // the spot-height label that gives it its elevation are drawn in
                 // the same colour, and that is the only thing relating them.
-                d.Add ("pen",            (GS::Int32) element.polyLine.linePen.penIndex);
-
-            } else if (typeId == API_LineID) {
+                d.Add ("pen", (GS::Int32) element.polyLine.linePen.penIndex);
+            }
+            else if (typeId == API_LineID) {
                 d.Add ("begCoordinate", Coord3D (element.line.begC.x, element.line.begC.y, 0.0));
                 d.Add ("endCoordinate", Coord3D (element.line.endC.x, element.line.endC.y, 0.0));
                 d.Add ("pen", (GS::Int32) element.line.linePen.penIndex);
-
-            } else if (typeId == API_ArcID || typeId == API_CircleID) {
-                // The same API_ArcType backs both IDs; the type, not equal angles,
-                // distinguishes a whole circle from a partial arc.
-                d.Add ("x", element.arc.origC.x);
-                d.Add ("y", element.arc.origC.y);
-                d.Add ("radius", element.arc.r);
-                d.Add ("begAngle", element.arc.begAng);
-                d.Add ("endAngle", element.arc.endAng);
-                d.Add ("ratio", element.arc.ratio);
-                d.Add ("angle", element.arc.angle);
-                d.Add ("pen", (GS::Int32) element.arc.linePen.penIndex);
-
-            } else if (typeId == API_HotspotID) {
+            }
+            else if (typeId == API_ArcID || typeId == API_CircleID) {
+                AddDraftingCurveDetails (element, d);
+            }
+            else if (typeId == API_HotspotID) {
                 d.Add ("x", element.hotspot.pos.x);
                 d.Add ("y", element.hotspot.pos.y);
                 d.Add ("height", element.hotspot.height);
                 d.Add ("pen", (GS::Int32) element.hotspot.pen);
-
-            } else if (typeId == API_ObjectID || typeId == API_LampID) {
+            }
+            else if (typeId == API_ObjectID || typeId == API_LampID) {
                 // API_LampType IS API_ObjectType (APIdefs_Elements.h:5713), so one branch
                 // serves both and only `kind` distinguishes them.
                 const double z = element.object.level;
-                d.Add ("level",           z);
-                d.Add ("planAngle",       element.object.angle);
-                d.Add ("xRatio",          element.object.xRatio);
-                d.Add ("yRatio",          element.object.yRatio);
-                d.Add ("reflected",       element.object.reflected);
+                d.Add ("level", z);
+                d.Add ("planAngle", element.object.angle);
+                d.Add ("xRatio", element.object.xRatio);
+                d.Add ("yRatio", element.object.yRatio);
+                d.Add ("reflected", element.object.reflected);
                 d.Add ("libraryPartName", LibraryPartNameOf (element.object.libInd));
                 // An object is a POINT, so begin == end == origin — exactly as a column.
                 d.Add ("begCoordinate", Coord3D (element.object.pos.x, element.object.pos.y, z));
                 d.Add ("endCoordinate", Coord3D (element.object.pos.x, element.object.pos.y, z));
-
-            } else if (typeId == API_WallID) {
+            }
+            else if (typeId == API_WallID) {
                 const double z = element.wall.bottomOffset;
-                d.Add ("thickness",  element.wall.thickness);
-                d.Add ("height",     element.wall.height);
-                d.Add ("level",      z);
-                d.Add ("slantAngle", element.wall.slantAlpha);   // pi/2 for a plumb wall
+                d.Add ("thickness", element.wall.thickness);
+                d.Add ("height", element.wall.height);
+                d.Add ("level", z);
+                d.Add ("slantAngle", element.wall.slantAlpha); // pi/2 for a plumb wall
                 d.Add ("begCoordinate", Coord3D (element.wall.begC.x, element.wall.begC.y, z));
                 d.Add ("endCoordinate", Coord3D (element.wall.endC.x, element.wall.endC.y, z));
-
-            } else if (typeId == API_BeamID) {
+            }
+            else if (typeId == API_BeamID) {
                 const double z = element.beam.level;
                 double w = 0.0, h = 0.0;
                 ReadFirstSegmentSection (element.header.guid, /*beam*/ true, w, h);
-                d.Add ("level",         z);
-                d.Add ("planAngle",     element.beam.curveAngle);
-                d.Add ("slantAngle",    element.beam.slantAngle);   // from horizontal; 0 = level
-                d.Add ("isSlanted",     element.beam.isSlanted);
-                d.Add ("nSegments",     (GS::Int32) element.beam.nSegments);
-                d.Add ("sectionWidth",  w);
+                d.Add ("level", z);
+                d.Add ("planAngle", element.beam.curveAngle);
+                d.Add ("slantAngle", element.beam.slantAngle); // from horizontal; 0 = level
+                d.Add ("isSlanted", element.beam.isSlanted);
+                d.Add ("nSegments", (GS::Int32) element.beam.nSegments);
+                d.Add ("sectionWidth", w);
                 d.Add ("sectionHeight", h);
                 d.Add ("begCoordinate", Coord3D (element.beam.begC.x, element.beam.begC.y, z));
                 d.Add ("endCoordinate", Coord3D (element.beam.endC.x, element.beam.endC.y, z));
-
-            } else {   // API_ColumnID
+            }
+            else { // API_ColumnID
                 const double z = element.column.bottomOffset;
                 double w = 0.0, h = 0.0;
                 ReadFirstSegmentSection (element.header.guid, /*beam*/ false, w, h);
-                d.Add ("height",        element.column.height);
-                d.Add ("level",         z);
-                d.Add ("planAngle",     element.column.axisRotationAngle);
-                d.Add ("slantAngle",    element.column.slantAngle);  // pi/2 = plumb
-                d.Add ("isSlanted",     element.column.isSlanted);
-                d.Add ("nSegments",     (GS::Int32) element.column.nSegments);
-                d.Add ("sectionWidth",  w);
+                d.Add ("height", element.column.height);
+                d.Add ("level", z);
+                d.Add ("planAngle", element.column.axisRotationAngle);
+                d.Add ("slantAngle", element.column.slantAngle); // pi/2 = plumb
+                d.Add ("isSlanted", element.column.isSlanted);
+                d.Add ("nSegments", (GS::Int32) element.column.nSegments);
+                d.Add ("sectionWidth", w);
                 d.Add ("sectionHeight", h);
                 // A column is a point: begin == end == origin.
                 d.Add ("begCoordinate", Coord3D (element.column.origoPos.x, element.column.origoPos.y, z));
@@ -813,11 +827,11 @@ public:
 
             GS::ObjectState rec;
             rec.Add ("elementId", elementId);
-            rec.Add ("found",     true);
-            rec.Add ("kind",      GS::UniString (kind));
-            rec.Add ("floorInd",  (GS::Int32) element.header.floorInd);
-            rec.Add ("value",     elementIdOf (element.header.guid));
-            rec.Add ("details",   d);
+            rec.Add ("found", true);
+            rec.Add ("kind", GS::UniString (kind));
+            rec.Add ("floorInd", (GS::Int32) element.header.floorInd);
+            rec.Add ("value", elementIdOf (element.header.guid));
+            rec.Add ("details", d);
             records.Push (rec);
         }
 
@@ -836,8 +850,11 @@ public:
 // the library or the object's default size changes.
 // ---------------------------------------------------------------------------
 class GetLibraryPartInfoCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetLibraryPartInfo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetLibraryPartInfo";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::ObjectState os;
@@ -857,23 +874,23 @@ public:
             if (searchErr != NoError)
                 continue;
             double a = 0.0, b = 0.0;
-            Int32  addParNum = 0;
+            Int32 addParNum = 0;
             API_AddParType** libParams = nullptr;
-            const GSErrCode paramErr =
-                ACAPI_LibraryPart_GetParams (candidate.index, &a, &b, &addParNum, &libParams);
+            const GSErrCode paramErr = ACAPI_LibraryPart_GetParams (candidate.index, &a, &b, &addParNum, &libParams);
             if (paramErr == NoError)
-                ACAPI_DisposeAddParHdl (&libParams);   // only the sizes were wanted
+                ACAPI_DisposeAddParHdl (&libParams); // only the sizes were wanted
 
             os.Add ("libraryPartName", name);
             os.Add ("libInd", (GS::Int32) candidate.index);
-            os.Add ("sizeA", a);      // the part's own default X size ("length")
-            os.Add ("sizeB", b);      // ... and Y size
+            os.Add ("sizeA", a); // the part's own default X size ("length")
+            os.Add ("sizeB", b); // ... and Y size
             os.Add ("paramCount", (GS::Int32) addParNum);
             return os;
         }
 
-        return NativeCommandResult::Failure (GS::UniString ("No library part found. Tried: " + triedList +
-                                             ". Use the name shown in the Object tool's settings dialog."));
+        return NativeCommandResult::Failure (
+            GS::UniString ("No library part found. Tried: " + triedList +
+                           ". Use the name shown in the Object tool's settings dialog."));
     }
 };
 
@@ -884,8 +901,11 @@ public:
 // Finds existing Objects or Lamps so new placements can inherit their style.
 // ---------------------------------------------------------------------------
 class FindPlacedObjectsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "FindPlacedObjects"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "FindPlacedObjects";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::ObjectState os;
@@ -896,7 +916,7 @@ public:
         }
 
         GS::Array<GS::Int32> wanted;
-        GS::UniString        resolvedName;
+        GS::UniString resolvedName;
         for (const GS::UniString& name : candidates) {
             API_LibPart candidate = {};
             GS::ucscpy (candidate.docu_UName, name.ToUStr ());
@@ -917,12 +937,15 @@ public:
         GS::Array<GS::ObjectState> found;
         GS::Array<API_Guid> objects, lamps;
         if (const GSErrCode listErr = ACAPI_Element_GetElemList (API_ObjectID, &objects); listErr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listErr, "API_ObjectID (listing placed library objects)"));
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listErr, "API_ObjectID (listing placed library objects)"));
         }
         if (const GSErrCode listErr = ACAPI_Element_GetElemList (API_LampID, &lamps); listErr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listErr, "API_LampID (listing placed lamps)"));
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listErr, "API_LampID (listing placed lamps)"));
         }
-        for (const API_Guid& guid : lamps) objects.Push (guid);
+        for (const API_Guid& guid : lamps)
+            objects.Push (guid);
 
         for (const API_Guid& guid : objects) {
             API_Element element = {};
@@ -947,23 +970,27 @@ public:
     }
 };
 
-const NativeCommandRegistration kElementReadCommandRegistrations[] = {
-    { "GetElementInfo", &MakeRegisteredNativeCommand<GetElementInfoCommand>, false,
-      R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["elements"]})json",
-      R"json({"type":"object","properties":{"infoOfElements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"found":{"type":"boolean"},"type":{"type":"string"},"floorInd":{"type":"integer"},"angle":{"type":"number"}},"additionalProperties":false,"required":["elementId","found","type","floorInd","angle"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["infoOfElements","count"]})json" },
-    { "GetElementDetails",  &MakeRegisteredNativeCommand<GetElementDetailsCommand>, false,
-      R"json({"type":"object","properties":{"elements":{"$ref":"#Elements"}},"additionalProperties":false,"required":["elements"]})json",
-      R"json({"oneOf":[{"type":"object","properties":{"detailsOfElements":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"found":{"type":"boolean"},"kind":{"type":"string","enum":["","slab","roof","mesh","wall","beam","column","polyline","object","lamp","fill","line","arc","circle","hotspot"]},"floorInd":{"type":"integer"},"reason":{"type":"string","enum":["notFound","unsupportedType"]},"typeName":{"type":"string"},"typeId":{"type":"integer"},"value":{"type":"string"},"details":{"type":"object","properties":{"thickness":{"type":"number"},"height":{"type":"number"},"level":{"type":"number"},"slantAngle":{"type":"number"},"planAngle":{"type":"number"},"isSlanted":{"type":"boolean"},"nSegments":{"type":"integer"},"sectionWidth":{"type":"number"},"sectionHeight":{"type":"number"},"begCoordinate":{"$ref":"#Point3D"},"endCoordinate":{"$ref":"#Point3D"},"polygonOutline":{"type":"array","items":{"$ref":"#Point2D"}},"polygonArcs":{"type":"array","items":{"type":"number"}},"polygonZ":{"type":"array","items":{"type":"number"}},"holes":{"type":"array","items":{"type":"object","properties":{"polygonOutline":{"type":"array","items":{"$ref":"#Point2D"}},"polygonArcs":{"type":"array","items":{"type":"number"}},"polygonZ":{"type":"array","items":{"type":"number"}}},"additionalProperties":false,"required":["polygonOutline","polygonArcs"]}},"hasHoles":{"type":"boolean"},"closed":{"type":"boolean"},"pen":{"type":"integer"},"fillPen":{"type":"integer"},"fillBGPen":{"type":"integer"},"xRatio":{"type":"number"},"yRatio":{"type":"number"},"reflected":{"type":"boolean"},"libraryPartName":{"type":"string"},"skirtLevel":{"type":"number"},"skirtType":{"type":"string","enum":["SurfaceOnlyWithoutSkirt","WithSkirt","SolidBodyWithSkirt"]},"ridges":{"type":"string","enum":["AllSharp","AllSmooth","UserDefined"]},"nSubLines":{"type":"integer"},"nLevelCoords":{"type":"integer"},"levelEnds":{"type":"array","items":{"type":"integer"}},"sublines":{"type":"array","items":{"type":"object","properties":{"coordinates":{"type":"array","items":{"$ref":"#Point3D"}},"vertexIds":{"type":"array","items":{"type":"integer"}}},"additionalProperties":false,"required":["coordinates","vertexIds"]}},"roofClass":{"type":"string","enum":["plane","poly"]},"baseLine":{"type":"object","properties":{"begCoordinate":{"$ref":"#Point2D"},"endCoordinate":{"$ref":"#Point2D"}},"additionalProperties":false,"required":["begCoordinate","endCoordinate"]},"posSign":{"type":"boolean"},"pivotOutline":{"type":"array","items":{"$ref":"#Point2D"}},"pivotArcs":{"type":"array","items":{"type":"number"}},"levels":{"type":"array","items":{"type":"object","properties":{"levelAngle":{"type":"number"},"levelHeight":{"type":"number"}},"additionalProperties":false,"required":["levelAngle","levelHeight"]}},"levelNum":{"type":"integer"},"eavesOverHang":{"type":"number"},"overHangType":{"type":"integer"},"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"},"begAngle":{"type":"number"},"endAngle":{"type":"number"},"ratio":{"type":"number"},"angle":{"type":"number"},"fill":{"type":"string"}},"additionalProperties":false}},"additionalProperties":false,"required":["elementId","found","kind","floorInd","value","details"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["detailsOfElements","count"]},{"type":"object","properties":{"ok":{"const":false},"error":{"type":"string"}},"additionalProperties":false,"required":["ok","error"]}]})json" },
-    { "GetLibraryPartInfo", &MakeRegisteredNativeCommand<GetLibraryPartInfoCommand>, false,
-      R"json({"type":"object","properties":{"libraryPartNames":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}}},"additionalProperties":false,"required":["libraryPartNames"]})json",
-      R"json({"type":"object","properties":{"libraryPartName":{"type":"string"},"libInd":{"type":"integer"},"sizeA":{"type":"number"},"sizeB":{"type":"number"},"paramCount":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["libraryPartName","libInd","sizeA","sizeB","paramCount"]})json" },
-    { "FindPlacedObjects", &MakeRegisteredNativeCommand<FindPlacedObjectsCommand>, false,
-      R"json({"type":"object","properties":{"libraryPartNames":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}}},"additionalProperties":false,"required":["libraryPartNames"]})json",
-      R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"count":{"type":"integer","minimum":0},"libraryPartName":{"type":"string"},"note":{"type":"string"}},"additionalProperties":false,"required":["elements","count"]})json" }
-};
+const NativeCommandRegistration
+    kElementReadCommandRegistrations[] = { { "GetElementInfo", &MakeRegisteredNativeCommand<GetElementInfoCommand>,
+                                             false,
+                                             R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["elements"]})json",
+                                             R"json({"type":"object","properties":{"infoOfElements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"found":{"type":"boolean"},"type":{"type":"string"},"floorInd":{"type":"integer"},"angle":{"type":"number"}},"additionalProperties":false,"required":["elementId","found","type","floorInd","angle"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["infoOfElements","count"]})json" },
+                                           { "GetElementDetails",
+                                             &MakeRegisteredNativeCommand<GetElementDetailsCommand>, false, R"json({"type":"object","properties":{"elements":{"$ref":"#Elements"}},"additionalProperties":false,"required":["elements"]})json", R"json({"oneOf":[{"type":"object","properties":{"detailsOfElements":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"found":{"type":"boolean"},"kind":{"type":"string","enum":["","slab","roof","mesh","wall","beam","column","polyline","object","lamp","fill","line","arc","circle","hotspot"]},"floorInd":{"type":"integer"},"reason":{"type":"string","enum":["notFound","unsupportedType"]},"typeName":{"type":"string"},"typeId":{"type":"integer"},"value":{"type":"string"},"details":{"type":"object","properties":{"thickness":{"type":"number"},"height":{"type":"number"},"level":{"type":"number"},"slantAngle":{"type":"number"},"planAngle":{"type":"number"},"isSlanted":{"type":"boolean"},"nSegments":{"type":"integer"},"sectionWidth":{"type":"number"},"sectionHeight":{"type":"number"},"begCoordinate":{"$ref":"#Point3D"},"endCoordinate":{"$ref":"#Point3D"},"polygonOutline":{"type":"array","items":{"$ref":"#Point2D"}},"polygonArcs":{"type":"array","items":{"type":"number"}},"polygonZ":{"type":"array","items":{"type":"number"}},"holes":{"type":"array","items":{"type":"object","properties":{"polygonOutline":{"type":"array","items":{"$ref":"#Point2D"}},"polygonArcs":{"type":"array","items":{"type":"number"}},"polygonZ":{"type":"array","items":{"type":"number"}}},"additionalProperties":false,"required":["polygonOutline","polygonArcs"]}},"hasHoles":{"type":"boolean"},"closed":{"type":"boolean"},"pen":{"type":"integer"},"fillPen":{"type":"integer"},"fillBGPen":{"type":"integer"},"xRatio":{"type":"number"},"yRatio":{"type":"number"},"reflected":{"type":"boolean"},"libraryPartName":{"type":"string"},"skirtLevel":{"type":"number"},"skirtType":{"type":"string","enum":["SurfaceOnlyWithoutSkirt","WithSkirt","SolidBodyWithSkirt"]},"ridges":{"type":"string","enum":["AllSharp","AllSmooth","UserDefined"]},"nSubLines":{"type":"integer"},"nLevelCoords":{"type":"integer"},"levelEnds":{"type":"array","items":{"type":"integer"}},"sublines":{"type":"array","items":{"type":"object","properties":{"coordinates":{"type":"array","items":{"$ref":"#Point3D"}},"vertexIds":{"type":"array","items":{"type":"integer"}}},"additionalProperties":false,"required":["coordinates","vertexIds"]}},"roofClass":{"type":"string","enum":["plane","poly"]},"baseLine":{"type":"object","properties":{"begCoordinate":{"$ref":"#Point2D"},"endCoordinate":{"$ref":"#Point2D"}},"additionalProperties":false,"required":["begCoordinate","endCoordinate"]},"posSign":{"type":"boolean"},"pivotOutline":{"type":"array","items":{"$ref":"#Point2D"}},"pivotArcs":{"type":"array","items":{"type":"number"}},"levels":{"type":"array","items":{"type":"object","properties":{"levelAngle":{"type":"number"},"levelHeight":{"type":"number"}},"additionalProperties":false,"required":["levelAngle","levelHeight"]}},"levelNum":{"type":"integer"},"eavesOverHang":{"type":"number"},"overHangType":{"type":"integer"},"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"},"begAngle":{"type":"number"},"endAngle":{"type":"number"},"ratio":{"type":"number"},"angle":{"type":"number"},"fill":{"type":"string"}},"additionalProperties":false}},"additionalProperties":false,"required":["elementId","found","kind","floorInd","value","details"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["detailsOfElements","count"]},{"type":"object","properties":{"ok":{"const":false},"error":{"type":"string"}},"additionalProperties":false,"required":["ok","error"]}]})json" },
+                                           { "GetLibraryPartInfo",
+                                             &MakeRegisteredNativeCommand<GetLibraryPartInfoCommand>, false,
+                                             R"json({"type":"object","properties":{"libraryPartNames":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}}},"additionalProperties":false,"required":["libraryPartNames"]})json",
+                                             R"json({"type":"object","properties":{"libraryPartName":{"type":"string"},"libInd":{"type":"integer"},"sizeA":{"type":"number"},"sizeB":{"type":"number"},"paramCount":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["libraryPartName","libInd","sizeA","sizeB","paramCount"]})json" },
+                                           { "FindPlacedObjects",
+                                             &MakeRegisteredNativeCommand<FindPlacedObjectsCommand>, false,
+                                             R"json({"type":"object","properties":{"libraryPartNames":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}}},"additionalProperties":false,"required":["libraryPartNames"]})json",
+                                             R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"count":{"type":"integer","minimum":0},"libraryPartName":{"type":"string"},"note":{"type":"string"}},"additionalProperties":false,"required":["elements","count"]})json" } };
 
-}   // namespace
+} // namespace
 
-NativeCommandRegistrations GetElementReadCommandRegistrations () { return MakeRegistrationView (kElementReadCommandRegistrations); }
+NativeCommandRegistrations GetElementReadCommandRegistrations ()
+{
+    return MakeRegistrationView (kElementReadCommandRegistrations);
+}
 
 } // namespace geomsrv

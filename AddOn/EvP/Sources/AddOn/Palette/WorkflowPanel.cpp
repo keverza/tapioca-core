@@ -5,6 +5,7 @@
 #include "PaletteScroll.hpp"
 #include "ParamLayout.hpp"
 #include "ParamValues.hpp"
+#include "ParamColorControls.hpp"
 
 #include "NativeCommands/SelectionSetStore.hpp" // a selection row's value lives here
 #include "AddOnCommands.hpp"                    // ExecuteNativeCommand, for the selection verbs
@@ -208,14 +209,17 @@ bool WorkflowPanel::HandleColorButton (const DG::Item* source)
     for (WorkflowControl& control : controls) {
         if (control.colorButton == nullptr || control.colorButton.get () != source)
             continue;
-        Gfx::Color color;
-        if (!control.colorHex.IsEmpty ())
-            HexToColor (control.colorHex, color);
-        if (DG::GetColor ("Choose colour", &color)) {
-            control.colorHex = ColorToHex (color);
-            control.colorButton->SetText (control.colorHex);
-        }
+        OpenColorChooser (*control.colorButton, control.colorSwatch.get (), control.colorHex);
         return true;
+    }
+    return false;
+}
+
+bool WorkflowPanel::HandleColorSwatchUpdate (const DG::UserItemUpdateEvent& ev) const
+{
+    for (const WorkflowControl& control : controls) {
+        if (DrawColorSwatch (ev, control.colorSwatch.get (), control.colorHex))
+            return true;
     }
     return false;
 }
@@ -333,6 +337,14 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                 if (parsed.ok)
                     value = (Int32) std::atol (parsed.value.c_str ());
                 edit->SetValue (value);
+                if (row.declaredType == "hour") {
+                    edit->SetMin (0);
+                    edit->SetMax (23);
+                    control.hourSpin = std::make_unique<DG::EditSpin> (panel, seed, *edit);
+                    control.hourSpin->SetMin (0);
+                    control.hourSpin->SetMax (23);
+                    control.hourSpin->SetValue (value);
+                }
                 // NOT attached, like ParamPanel's own numeric edits: DG's
                 // IntEdit/RealEdit observers are their own types and the shell is
                 // not one of them. The shell reads this band back on its idle
@@ -503,10 +515,12 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                 if (HexToColor (ToUniString (row.initialValue), parsed))
                     control.colorHex = ColorToHex (parsed);
                 auto button = std::make_unique<DG::Button> (panel, seed);
-                button->SetText (control.colorHex.IsEmpty () ? GS::UniString ("Choose colour...")
-                                                         : control.colorHex);
+                button->SetText (control.colorHex.IsEmpty () ? GS::UniString ("Choose colour...") : control.colorHex);
                 button->Attach (observer);
                 control.colorButton = std::move (button);
+                control.colorSwatch =
+                    std::make_unique<DG::UserItem> (panel, seed, DG::UserItem::Normal, DG::UserItem::ClientFrame);
+                control.colorSwatch->Attach (observer);
                 break;
             }
 
@@ -555,8 +569,11 @@ void WorkflowPanel::ShowControls ()
     // ⚠️ A DYNAMICALLY CREATED DG ITEM STARTS HIDDEN. Each one must be Show()n
     // or it exists and holds its value while being invisible -- the same trap
     // ParamPanel documents, and the reason Rebuild only BUILDS.
-    for (WorkflowControl& control : controls)
+    for (WorkflowControl& control : controls) {
         control.ForEachItem ([] (DG::Item* item) { item->Show (); });
+        if (control.hourSpin)
+            control.hourSpin->Redraw ();
+    }
 }
 
 void WorkflowPanel::HideControls ()
@@ -649,7 +666,13 @@ short WorkflowPanel::PlaceAt (short top, short left, short right, const PaletteS
         }
 
         if (DG::Item* widget = control.Widget ())
-            clip.Place (widget, DG::Rect (inputLeft, y, right, (short) (y + RowHeight)));
+            clip.Place (widget, DG::Rect (control.colorSwatch ? (short) (inputLeft + 28) : inputLeft, y,
+                                          control.hourSpin ? (short) (right - 18) : right, (short) (y + RowHeight)));
+        clip.Place (control.colorSwatch.get (),
+                    DG::Rect (inputLeft, y, (short) (inputLeft + 24), (short) (y + RowHeight)));
+        clip.Place (control.hourSpin.get (), DG::Rect ((short) (right - 18), y, right, (short) (y + RowHeight)));
+        if (control.hourSpin && control.hourSpin->IsVisible ())
+            control.hourSpin->Invalidate ();
 
         y = (short) (y + RowHeight + RowGap);
     }

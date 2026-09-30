@@ -41,7 +41,7 @@ from . import webui
 from .api import Result, EvpError, Cancelled, call, debug, API_VERSION
 from .command import (
     command, action, menu, Float, Int, Enum, Bool, Text, Action,
-    Layer, Pen, Fill, LineType, Surface, Story, Color, FilePath, ProjectField, View, Database,
+    Layer, Pen, Fill, LineType, Surface, Story, Color, Hour, FilePath, ProjectField, View, Database,
     LibraryPart, Favourite,
     BuildingMaterial, WallComposite, SlabComposite, RoofComposite, ShellComposite,
     WallProfile, BeamProfile, ColumnProfile, HandrailProfile, AllProfile,
@@ -62,7 +62,7 @@ __all__ = [
     "layouts", "outputs", "overlay", "paths", "plan", "preview", "properties", "runtime", "selection",
     "model", "topology", "ui", "webui",
     "command", "action", "menu", "Float", "Int", "Enum", "Bool", "Text", "Action",
-    "Layer", "Pen", "Fill", "LineType", "Surface", "Story", "Color", "FilePath", "ProjectField", "View", "Database",
+    "Layer", "Pen", "Fill", "LineType", "Surface", "Story", "Color", "Hour", "FilePath", "ProjectField", "View", "Database",
     "LibraryPart", "Favourite",
     "BuildingMaterial", "WallComposite", "SlabComposite", "RoofComposite", "ShellComposite",
     "WallProfile", "BeamProfile", "ColumnProfile", "HandrailProfile", "AllProfile",

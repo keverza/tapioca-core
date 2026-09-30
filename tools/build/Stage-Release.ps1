@@ -11,7 +11,7 @@ $dist = Join-Path $repo "dist"
 $stage = Join-Path $dist "Tapioca"
 $archive = Join-Path $dist "Tapioca-AC29.zip"
 
-foreach ($required in @("Tapioca.apx", "EvPPy.dll")) {
+foreach ($required in @("Tapioca.apx", "EvPPy.dll", "PyPackage\tapioca\__init__.py", "PyPackage\evp\_env.py")) {
     $path = Join-Path $build $required
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Required release artifact was not found: $path"
@@ -19,6 +19,12 @@ foreach ($required in @("Tapioca.apx", "EvPPy.dll")) {
 }
 if (-not (Test-Path -LiteralPath (Join-Path $build "PyPackage") -PathType Container)) {
     throw "Required release directory was not found: $(Join-Path $build 'PyPackage')"
+}
+foreach ($relative in @('dist\README.md', 'dist\Install-Runtime.ps1', 'dist\Install-Tapioca.ps1',
+        'Examples\HelloCommand\command.py')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $repo $relative) -PathType Leaf)) {
+        throw "Required release source was not found: $relative"
+    }
 }
 
 $gh2Source = Join-Path $build "Gh2Worker"
@@ -39,11 +45,17 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 foreach ($name in @("Tapioca.apx", "EvPPy.dll")) {
     Copy-Item -LiteralPath (Join-Path $build $name) -Destination $stage -Force
 }
-foreach ($name in @("LICENSE", "NOTICE", "README.md")) {
+foreach ($name in @("LICENSE", "NOTICE")) {
     Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $stage -Force
 }
-Copy-Item -LiteralPath (Join-Path $dist "Install-Runtime.ps1") -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $dist "README.md") -Destination $stage -Force
+foreach ($name in @('Install-Runtime.ps1', 'Install-Tapioca.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $dist $name) -Destination $stage -Force
+}
 Copy-Item -LiteralPath (Join-Path $build "PyPackage") -Destination $stage -Recurse -Force
+
+# Ship only public starter commands; never use the developer's local sync overlay.
+Copy-Item -LiteralPath (Join-Path $repo 'Examples') -Destination (Join-Path $stage 'Commands') -Recurse -Force
 
 $optionalDirectories = @("GhWorker", "Gh2Worker", "DynamoRunner", "DynamoPackage")
 foreach ($name in $optionalDirectories) {
@@ -68,6 +80,10 @@ Get-ChildItem -LiteralPath $stage -Recurse -File -Filter "*.pdb" |
     Remove-Item -Force
 Get-ChildItem -LiteralPath $stage -Recurse -Directory -Filter "__pycache__" |
     Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath $stage -Recurse -Directory -Filter '.pytest_cache' |
+    Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath (Join-Path $stage 'PyPackage') -Recurse -File -Filter 'test_*.py' |
+    Remove-Item -Force
 
 if (Test-Path -LiteralPath $archive) {
     Remove-Item -LiteralPath $archive -Force

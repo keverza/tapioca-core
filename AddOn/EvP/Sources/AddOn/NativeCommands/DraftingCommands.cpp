@@ -5,6 +5,7 @@
 #include "NativeCommands/CommandRegistration.hpp"
 #include "NativeCommands/CommandUtils.hpp" // ResolveLayerParam, ParseAnchor
 #include "NativeCommands/DraftingDatabaseTarget.hpp"
+#include "NativeCommands/DraftingCurveKinds.hpp"
 
 #include "File.hpp"      // IO::File / IO::Location — the picture bytes
 #include "GXImageBase.h" // GX::ImageBase::GetFileInfo — pixel dimensions
@@ -440,10 +441,10 @@ class GetArcElementsCommand : public MainThreadCommand {
                 continue;
             }
 
-            // API_CircleType IS API_ArcType (APIdefs_Elements.h), so one read
-            // serves both and only the type tells them apart.
+            // Whole circles can be stored with Arc ID; use the completeness flag
+            // so wholeOnly does not discard them after a successful create.
             const API_ArcType& arc = element.arc;
-            const bool isCircle = (typeId == API_CircleID);
+            const bool isCircle = IsWholeDraftingCurve (element);
             if (wholeOnly && !isCircle) {
                 ++skipped;
                 continue;

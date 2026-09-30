@@ -1,5 +1,6 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
+#include "NativeCommands/DraftingCurveKinds.hpp"
 
 #include "NativeCommands/ElementModifyCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
@@ -71,32 +72,34 @@ namespace {
 // name as a LITERAL relative to the type struct, so the union member path
 // (`element.slab.level`) and the mask path (`API_SlabType, level`) are spelled
 // separately — that is why this is a macro and not a function.
-#define EVP_WRITE_REAL(jsonName, unionMember, TypeName, member)                       \
-    do {                                                                              \
-        if (details.Contains (jsonName)) {                                            \
-            double value = 0.0;                                                       \
-            if (!ReadFiniteNumber (details, jsonName, value)) {                              \
-                badValue.Push (GS::UniString (jsonName));                              \
-            } else {                                                                  \
-                element.unionMember.member = value;                                    \
-                ACAPI_ELEMENT_MASK_SET (mask, TypeName, member);                       \
-                applied.Push (GS::UniString (jsonName));                               \
-            }                                                                         \
-        }                                                                             \
+#define EVP_WRITE_REAL(jsonName, unionMember, TypeName, member)                                                        \
+    do {                                                                                                               \
+        if (details.Contains (jsonName)) {                                                                             \
+            double value = 0.0;                                                                                        \
+            if (!ReadFiniteNumber (details, jsonName, value)) {                                                        \
+                badValue.Push (GS::UniString (jsonName));                                                              \
+            }                                                                                                          \
+            else {                                                                                                     \
+                element.unionMember.member = value;                                                                    \
+                ACAPI_ELEMENT_MASK_SET (mask, TypeName, member);                                                       \
+                applied.Push (GS::UniString (jsonName));                                                               \
+            }                                                                                                          \
+        }                                                                                                              \
     } while (0)
 
-#define EVP_WRITE_BOOL(jsonName, unionMember, TypeName, member)                       \
-    do {                                                                              \
-        if (details.Contains (jsonName)) {                                            \
-            bool value = false;                                                       \
-            if (!details.Get (jsonName, value)) {                                      \
-                badValue.Push (GS::UniString (jsonName));                              \
-            } else {                                                                  \
-                element.unionMember.member = value;                                    \
-                ACAPI_ELEMENT_MASK_SET (mask, TypeName, member);                       \
-                applied.Push (GS::UniString (jsonName));                               \
-            }                                                                         \
-        }                                                                             \
+#define EVP_WRITE_BOOL(jsonName, unionMember, TypeName, member)                                                        \
+    do {                                                                                                               \
+        if (details.Contains (jsonName)) {                                                                             \
+            bool value = false;                                                                                        \
+            if (!details.Get (jsonName, value)) {                                                                      \
+                badValue.Push (GS::UniString (jsonName));                                                              \
+            }                                                                                                          \
+            else {                                                                                                     \
+                element.unionMember.member = value;                                                                    \
+                ACAPI_ELEMENT_MASK_SET (mask, TypeName, member);                                                       \
+                applied.Push (GS::UniString (jsonName));                                                               \
+            }                                                                                                          \
+        }                                                                                                              \
     } while (0)
 
 // The writable set, per kind. This IS the command's contract — a field absent
@@ -108,11 +111,11 @@ namespace {
 // silently stops working — that is the one invariant worth checking by hand.
 static const char* const* WritableFields (const GS::UniString& kind, USize& count)
 {
-    static const char* const slabFields[]   = { "level", "thickness" };
-    static const char* const roofFields[]   = { "level", "thickness", "slantAngle" };
-    static const char* const meshFields[]   = { "level", "skirtLevel" };
-    static const char* const wallFields[]   = { "level", "thickness", "height" };
-    static const char* const beamFields[]   = { "level" };
+    static const char* const slabFields[] = { "level", "thickness" };
+    static const char* const roofFields[] = { "level", "thickness", "slantAngle" };
+    static const char* const meshFields[] = { "level", "skirtLevel" };
+    static const char* const wallFields[] = { "level", "thickness", "height" };
+    static const char* const beamFields[] = { "level" };
     static const char* const columnFields[] = { "level", "height", "planAngle" };
     static const char* const objectFields[] = { "level", "planAngle", "xRatio", "yRatio", "reflected" };
     static const char* const lineFields[] = { "begCoordinate", "endCoordinate", "pen" };
@@ -120,31 +123,68 @@ static const char* const* WritableFields (const GS::UniString& kind, USize& coun
     static const char* const hotspotFields[] = { "x", "y", "height", "pen" };
     static const char* const fillFields[] = { "fill", "pen", "fillPen", "fillBGPen" };
 
-    if (kind == "slab")   { count = 2; return slabFields;   }
-    if (kind == "roof")   { count = 3; return roofFields;   }
-    if (kind == "mesh")   { count = 2; return meshFields;   }
-    if (kind == "wall")   { count = 3; return wallFields;   }
-    if (kind == "beam")   { count = 1; return beamFields;   }
-    if (kind == "column") { count = 3; return columnFields; }
-    if (kind == "object" || kind == "lamp") { count = 5; return objectFields; }
-    if (kind == "line") { count = 3; return lineFields; }
-    if (kind == "arc" || kind == "circle") { count = 8; return arcFields; }
-    if (kind == "hotspot") { count = 4; return hotspotFields; }
-    if (kind == "fill") { count = 4; return fillFields; }
+    if (kind == "slab") {
+        count = 2;
+        return slabFields;
+    }
+    if (kind == "roof") {
+        count = 3;
+        return roofFields;
+    }
+    if (kind == "mesh") {
+        count = 2;
+        return meshFields;
+    }
+    if (kind == "wall") {
+        count = 3;
+        return wallFields;
+    }
+    if (kind == "beam") {
+        count = 1;
+        return beamFields;
+    }
+    if (kind == "column") {
+        count = 3;
+        return columnFields;
+    }
+    if (kind == "object" || kind == "lamp") {
+        count = 5;
+        return objectFields;
+    }
+    if (kind == "line") {
+        count = 3;
+        return lineFields;
+    }
+    if (kind == "arc" || kind == "circle") {
+        count = 8;
+        return arcFields;
+    }
+    if (kind == "hotspot") {
+        count = 4;
+        return hotspotFields;
+    }
+    if (kind == "fill") {
+        count = 4;
+        return fillFields;
+    }
 
-    count = 0;              // polyline — read-only here; polygon geometry needs a memo rewrite
+    count = 0; // polyline — read-only here; polygon geometry needs a memo rewrite
     return nullptr;
 }
 
 class SetElementDetailsCommand : public WriteCommand {
-public:
-    GS::String GetName () const override { return "SetElementDetails"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SetElementDetails";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Array<GS::ObjectState> edits;
         if (!params.Get ("edits", edits))
-            return NativeCommandResult::Failure (EVP_FAIL ("need edits=[{elementId:{guid},details:{...}}]", "Tapioca.SetElementDetails"));
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("need edits=[{elementId:{guid},details:{...}}]", "Tapioca.SetElementDetails"));
 
         GS::ObjectState os;
 
@@ -161,7 +201,7 @@ public:
                 emptyElementId.Add ("guid", GS::UniString ());
                 rec.Add ("elementId", emptyElementId);
                 rec.Add ("succeeded", false);
-                rec.Add ("kind",  GS::UniString ());
+                rec.Add ("kind", GS::UniString ());
                 rec.Add ("error", EVP_FAIL ("edit has no elementId.guid", "Tapioca.SetElementDetails"));
                 results.Push (rec);
                 continue;
@@ -171,10 +211,11 @@ public:
             GS::ObjectState details;
             if (!edit.Get ("details", details) || details.GetFieldCount () == 0) {
                 rec.Add ("succeeded", false);
-                rec.Add ("kind",  GS::UniString ());
+                rec.Add ("kind", GS::UniString ());
                 rec.Add ("error", EVP_FAIL ("edit has no non-empty details={…}. Send ONLY the "
                                             "fields you changed — this command is sparse, not a "
-                                            "whole-record echo.", "EvP.SetElementDetails"));
+                                            "whole-record echo.",
+                                            "EvP.SetElementDetails"));
                 results.Push (rec);
                 continue;
             }
@@ -184,10 +225,10 @@ public:
             const GSErrCode getErr = ACAPI_Element_Get (&element);
             if (getErr != NoError) {
                 rec.Add ("succeeded", false);
-                rec.Add ("kind",  GS::UniString ());
-                rec.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Get", getErr,
-                                                  GS::UniString ("reading " + guidString +
-                                                                 " before writing its details")));
+                rec.Add ("kind", GS::UniString ());
+                rec.Add ("error",
+                         EVP_ACAPI_FAIL ("ACAPI_Element_Get", getErr,
+                                         GS::UniString ("reading " + guidString + " before writing its details")));
                 results.Push (rec);
                 continue;
             }
@@ -197,21 +238,50 @@ public:
             const API_ElemTypeID typeId = element.header.type.typeID;
             GS::UniString kind;
             switch (typeId) {
-                case API_SlabID:   kind = "slab";   break;
-                case API_RoofID:   kind = "roof";   break;
-                case API_MeshID:   kind = "mesh";   break;
-                case API_WallID:   kind = "wall";   break;
-                case API_BeamID:   kind = "beam";   break;
-                case API_ColumnID: kind = "column"; break;
-                case API_ObjectID: kind = "object"; break;
-                case API_LampID:   kind = "lamp";   break;
-                case API_PolyLineID: kind = "polyline"; break;
-                case API_HatchID:  kind = "fill";   break;
-                case API_LineID: kind = "line"; break;
-                case API_ArcID: kind = "arc"; break;
-                case API_CircleID: kind = "circle"; break;
-                case API_HotspotID: kind = "hotspot"; break;
-                default: break;
+                case API_SlabID:
+                    kind = "slab";
+                    break;
+                case API_RoofID:
+                    kind = "roof";
+                    break;
+                case API_MeshID:
+                    kind = "mesh";
+                    break;
+                case API_WallID:
+                    kind = "wall";
+                    break;
+                case API_BeamID:
+                    kind = "beam";
+                    break;
+                case API_ColumnID:
+                    kind = "column";
+                    break;
+                case API_ObjectID:
+                    kind = "object";
+                    break;
+                case API_LampID:
+                    kind = "lamp";
+                    break;
+                case API_PolyLineID:
+                    kind = "polyline";
+                    break;
+                case API_HatchID:
+                    kind = "fill";
+                    break;
+                case API_LineID:
+                    kind = "line";
+                    break;
+                case API_ArcID:
+                    kind = IsWholeDraftingCurve (element) ? "circle" : "arc";
+                    break;
+                case API_CircleID:
+                    kind = "circle";
+                    break;
+                case API_HotspotID:
+                    kind = "hotspot";
+                    break;
+                default:
+                    break;
             }
             rec.Add ("kind", kind);
 
@@ -219,9 +289,9 @@ public:
                 GS::UniString typeName;
                 ACAPI_Element_GetElemTypeName (element.header.type, typeName);
                 rec.Add ("succeeded", false);
-                rec.Add ("error", EVP_FAIL (GS::UniString ("EvP.SetElementDetails does not speak \"" +
-                                            typeName + "\" — GetElementDetails cannot read it either, "
-                                            "so there is no record to send back."),
+                rec.Add ("error", EVP_FAIL (GS::UniString ("EvP.SetElementDetails does not speak \"" + typeName +
+                                                           "\" — GetElementDetails cannot read it either, "
+                                                           "so there is no record to send back."),
                                             "EvP.SetElementDetails"));
                 results.Push (rec);
                 continue;
@@ -245,12 +315,14 @@ public:
             if (!unwritable.IsEmpty ()) {
                 GS::UniString names;
                 for (UIndex n = 0; n < unwritable.GetSize (); ++n) {
-                    if (n > 0) names += ", ";
+                    if (n > 0)
+                        names += ", ";
                     names += unwritable[n];
                 }
                 GS::UniString allowed;
                 for (USize w = 0; w < writableCount; ++w) {
-                    if (w > 0) allowed += ", ";
+                    if (w > 0)
+                        allowed += ", ";
                     allowed += writable[w];
                 }
                 if (allowed.IsEmpty ())
@@ -274,15 +346,15 @@ public:
             API_Element mask;
             ACAPI_ELEMENT_MASK_CLEAR (mask);
 
-            GS::Array<GS::UniString> applied;    // fields actually staged for the write
-            GS::Array<GS::UniString> badValue;   // present, but not a number/bool
+            GS::Array<GS::UniString> applied;  // fields actually staged for the write
+            GS::Array<GS::UniString> badValue; // present, but not a number/bool
 
             if (typeId == API_SlabID) {
-                EVP_WRITE_REAL ("level",     slab, API_SlabType, level);
+                EVP_WRITE_REAL ("level", slab, API_SlabType, level);
                 EVP_WRITE_REAL ("thickness", slab, API_SlabType, thickness);
-
-            } else if (typeId == API_RoofID) {
-                EVP_WRITE_REAL ("level",     roof, API_RoofType, shellBase.level);
+            }
+            else if (typeId == API_RoofID) {
+                EVP_WRITE_REAL ("level", roof, API_RoofType, shellBase.level);
                 EVP_WRITE_REAL ("thickness", roof, API_RoofType, shellBase.thickness);
                 // §7.9. A PLANE roof's pitch is one number (u.planeRoof.angle). A
                 // POLY roof's is per level (u.polyRoof.levelData), which is a
@@ -300,32 +372,32 @@ public:
                     continue;
                 }
                 EVP_WRITE_REAL ("slantAngle", roof, API_RoofType, u.planeRoof.angle);
-
-            } else if (typeId == API_MeshID) {
-                EVP_WRITE_REAL ("level",      mesh, API_MeshType, level);
+            }
+            else if (typeId == API_MeshID) {
+                EVP_WRITE_REAL ("level", mesh, API_MeshType, level);
                 EVP_WRITE_REAL ("skirtLevel", mesh, API_MeshType, skirtLevel);
-
-            } else if (typeId == API_WallID) {
+            }
+            else if (typeId == API_WallID) {
                 // `level` is the wall's bottomOffset — the same semantic the other
                 // kinds spell `level`, which is the point of the shared spelling.
-                EVP_WRITE_REAL ("level",     wall, API_WallType, bottomOffset);
+                EVP_WRITE_REAL ("level", wall, API_WallType, bottomOffset);
                 EVP_WRITE_REAL ("thickness", wall, API_WallType, thickness);
-                EVP_WRITE_REAL ("height",    wall, API_WallType, height);
-
-            } else if (typeId == API_BeamID) {
+                EVP_WRITE_REAL ("height", wall, API_WallType, height);
+            }
+            else if (typeId == API_BeamID) {
                 // ⚠️ beam.level is the beam's TOP relative to the story level
                 // (APIdefs_Elements.h, API_BeamType::level), not its underside. The
                 // read reports the same field, so a round trip is consistent — but a
                 // caller computing "rest this beam ON a surface" must subtract the
                 // section height itself.
                 EVP_WRITE_REAL ("level", beam, API_BeamType, level);
-
-            } else if (typeId == API_ColumnID) {
-                EVP_WRITE_REAL ("level",     column, API_ColumnType, bottomOffset);
-                EVP_WRITE_REAL ("height",    column, API_ColumnType, height);
+            }
+            else if (typeId == API_ColumnID) {
+                EVP_WRITE_REAL ("level", column, API_ColumnType, bottomOffset);
+                EVP_WRITE_REAL ("height", column, API_ColumnType, height);
                 EVP_WRITE_REAL ("planAngle", column, API_ColumnType, axisRotationAngle);
-
-            } else if (typeId == API_HatchID) {
+            }
+            else if (typeId == API_HatchID) {
                 bool flagsChanged = false;
                 if (element.hatch.hatchType != API_FillHatch && !details.Contains ("fill") &&
                     (details.Contains ("fillPen") || details.Contains ("fillBGPen"))) {
@@ -336,10 +408,11 @@ public:
                     if (!details.Get ("fill", fillName) || fillName.IsEmpty () ||
                         !AttributeNameToIndex (API_FilltypeID, fillName, element.hatch.fillInd)) {
                         badValue.Push ("fill (unknown fill attribute name)");
-                    } else {
+                    }
+                    else {
                         element.hatch.hatchType = API_FillHatch;
-                        element.hatch.hatchFlags &= ~(APIHatch_OverrideFgPen | APIHatch_OverrideBkgPen |
-                                                      APIHatch_OverrideFillInd);
+                        element.hatch.hatchFlags &=
+                            ~(APIHatch_OverrideFgPen | APIHatch_OverrideBkgPen | APIHatch_OverrideFillInd);
                         flagsChanged = true;
                         ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, hatchType);
                         ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, fillInd);
@@ -347,7 +420,8 @@ public:
                     }
                 }
                 for (const char* field : { "pen", "fillPen", "fillBGPen" }) {
-                    if (!details.Contains (field)) continue;
+                    if (!details.Contains (field))
+                        continue;
                     GS::Int32 pen = 0;
                     const bool isFillPen = GS::String (field) == "fillPen";
                     if (!details.Get (field, pen) || pen < (isFillPen ? 1 : 0) || pen > 255) {
@@ -358,13 +432,15 @@ public:
                         element.hatch.contPen.penIndex = (short) pen;
                         element.hatch.contPen.colorOverridePenIndex = 0;
                         ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, contPen);
-                    } else if (isFillPen) {
+                    }
+                    else if (isFillPen) {
                         element.hatch.fillPen.penIndex = (short) pen;
                         element.hatch.fillPen.colorOverridePenIndex = 0;
                         element.hatch.hatchFlags &= ~APIHatch_HasFgRGBColor;
                         flagsChanged = true;
                         ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, fillPen);
-                    } else {
+                    }
+                    else {
                         element.hatch.fillBGPen = (short) pen;
                         element.hatch.hatchFlags &= ~APIHatch_HasBkgRGBColor;
                         flagsChanged = true;
@@ -374,15 +450,15 @@ public:
                 }
                 if (flagsChanged)
                     ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, hatchFlags);
-
-            } else if (typeId == API_LineID || typeId == API_ArcID ||
-                       typeId == API_CircleID || typeId == API_HotspotID) {
+            }
+            else if (typeId == API_LineID || typeId == API_ArcID || typeId == API_CircleID || typeId == API_HotspotID) {
                 // Geometry edits are supported for these types by ACAPinc.h:3476-3480.
                 // Keep each coordinate pair atomic in the mask, and preserve the
                 // omitted half for sparse edits to a point.
                 if (typeId == API_LineID) {
                     for (const char* name : { "begCoordinate", "endCoordinate" }) {
-                        if (!details.Contains (name)) continue;
+                        if (!details.Contains (name))
+                            continue;
                         GS::ObjectState point;
                         double x = 0.0, y = 0.0, z = 0.0;
                         if (!details.Get (name, point) || !ReadFiniteNumber (point, "x", x) ||
@@ -394,36 +470,46 @@ public:
                         if (GS::String (name) == "begCoordinate") {
                             element.line.begC = { x, y };
                             ACAPI_ELEMENT_MASK_SET (mask, API_LineType, begC);
-                        } else {
+                        }
+                        else {
                             element.line.endC = { x, y };
                             ACAPI_ELEMENT_MASK_SET (mask, API_LineType, endC);
                         }
                         applied.Push (GS::UniString (name));
                     }
-                    if (element.line.begC.x == element.line.endC.x &&
-                        element.line.begC.y == element.line.endC.y)
+                    if (element.line.begC.x == element.line.endC.x && element.line.begC.y == element.line.endC.y)
                         badValue.Push ("line endpoints must differ");
-                } else {
+                }
+                else {
                     if (typeId == API_HotspotID) {
                         double x = element.hotspot.pos.x, y = element.hotspot.pos.y;
-                        if (details.Contains ("x") && !ReadFiniteNumber (details, "x", x)) badValue.Push ("x");
-                        if (details.Contains ("y") && !ReadFiniteNumber (details, "y", y)) badValue.Push ("y");
+                        if (details.Contains ("x") && !ReadFiniteNumber (details, "x", x))
+                            badValue.Push ("x");
+                        if (details.Contains ("y") && !ReadFiniteNumber (details, "y", y))
+                            badValue.Push ("y");
                         if (details.Contains ("x") || details.Contains ("y")) {
                             element.hotspot.pos = { x, y };
                             ACAPI_ELEMENT_MASK_SET (mask, API_HotspotType, pos);
-                            if (details.Contains ("x")) applied.Push ("x");
-                            if (details.Contains ("y")) applied.Push ("y");
+                            if (details.Contains ("x"))
+                                applied.Push ("x");
+                            if (details.Contains ("y"))
+                                applied.Push ("y");
                         }
                         EVP_WRITE_REAL ("height", hotspot, API_HotspotType, height);
-                    } else {
+                    }
+                    else {
                         double x = element.arc.origC.x, y = element.arc.origC.y;
-                        if (details.Contains ("x") && !ReadFiniteNumber (details, "x", x)) badValue.Push ("x");
-                        if (details.Contains ("y") && !ReadFiniteNumber (details, "y", y)) badValue.Push ("y");
+                        if (details.Contains ("x") && !ReadFiniteNumber (details, "x", x))
+                            badValue.Push ("x");
+                        if (details.Contains ("y") && !ReadFiniteNumber (details, "y", y))
+                            badValue.Push ("y");
                         if (details.Contains ("x") || details.Contains ("y")) {
                             element.arc.origC = { x, y };
                             ACAPI_ELEMENT_MASK_SET (mask, API_ArcType, origC);
-                            if (details.Contains ("x")) applied.Push ("x");
-                            if (details.Contains ("y")) applied.Push ("y");
+                            if (details.Contains ("x"))
+                                applied.Push ("x");
+                            if (details.Contains ("y"))
+                                applied.Push ("y");
                         }
                         EVP_WRITE_REAL ("radius", arc, API_ArcType, r);
                         EVP_WRITE_REAL ("ratio", arc, API_ArcType, ratio);
@@ -431,7 +517,8 @@ public:
                         if (typeId == API_ArcID) {
                             EVP_WRITE_REAL ("begAngle", arc, API_ArcType, begAng);
                             EVP_WRITE_REAL ("endAngle", arc, API_ArcType, endAng);
-                        } else if (details.Contains ("begAngle") || details.Contains ("endAngle")) {
+                        }
+                        else if (details.Contains ("begAngle") || details.Contains ("endAngle")) {
                             badValue.Push ("circle angles (use an arc element)");
                         }
                         if ((details.Contains ("radius") && element.arc.r <= 0.0) ||
@@ -443,36 +530,40 @@ public:
                     GS::Int32 pen = 0;
                     if (!details.Get ("pen", pen) || pen < 1 || pen > 255) {
                         badValue.Push ("pen");
-                    } else {
+                    }
+                    else {
                         if (typeId == API_HotspotID) {
                             element.hotspot.pen = (short) pen;
                             ACAPI_ELEMENT_MASK_SET (mask, API_HotspotType, pen);
-                        } else if (typeId == API_LineID) {
+                        }
+                        else if (typeId == API_LineID) {
                             element.line.linePen.penIndex = (short) pen;
                             ACAPI_ELEMENT_MASK_SET (mask, API_LineType, linePen.penIndex);
-                        } else {
+                        }
+                        else {
                             element.arc.linePen.penIndex = (short) pen;
                             ACAPI_ELEMENT_MASK_SET (mask, API_ArcType, linePen.penIndex);
                         }
                         applied.Push ("pen");
                     }
                 }
-
-            } else {   // API_ObjectID / API_LampID — API_LampType IS API_ObjectType
-                EVP_WRITE_REAL ("level",     object, API_ObjectType, level);
+            }
+            else { // API_ObjectID / API_LampID — API_LampType IS API_ObjectType
+                EVP_WRITE_REAL ("level", object, API_ObjectType, level);
                 EVP_WRITE_REAL ("planAngle", object, API_ObjectType, angle);
                 // A/B size. Only takes effect for a library part that honours the
                 // fixed sizes (object.useXYFixSize); for one that does not, Archicad
                 // reports no error and the part keeps its own size.
-                EVP_WRITE_REAL ("xRatio",    object, API_ObjectType, xRatio);
-                EVP_WRITE_REAL ("yRatio",    object, API_ObjectType, yRatio);
+                EVP_WRITE_REAL ("xRatio", object, API_ObjectType, xRatio);
+                EVP_WRITE_REAL ("yRatio", object, API_ObjectType, yRatio);
                 EVP_WRITE_BOOL ("reflected", object, API_ObjectType, reflected);
             }
 
             if (!badValue.IsEmpty ()) {
                 GS::UniString names;
                 for (UIndex n = 0; n < badValue.GetSize (); ++n) {
-                    if (n > 0) names += ", ";
+                    if (n > 0)
+                        names += ", ";
                     names += badValue[n];
                 }
                 GS::UniString why = "not a usable value for: ";
@@ -490,18 +581,18 @@ public:
                 rec.Add ("succeeded", true);
                 rec.Add ("applied", applied);
                 ++changed;
-            } else {
+            }
+            else {
                 rec.Add ("succeeded", false);
                 rec.Add ("applied", GS::Array<GS::UniString> ());
-                rec.Add ("error",   EVP_ACAPI_FAIL ("ACAPI_Element_Change", err,
-                                                    GS::UniString ("writing " + kind + " details on " +
-                                                                   guidString)));
+                rec.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Change", err,
+                                                  GS::UniString ("writing " + kind + " details on " + guidString)));
             }
             results.Push (rec);
         }
 
         os.Add ("results", results);
-        os.Add ("count",   (GS::Int32) results.GetSize ());
+        os.Add ("count", (GS::Int32) results.GetSize ());
         os.Add ("changed", changed);
         return os;
     }
@@ -516,7 +607,7 @@ const NativeCommandRegistration kElementModifyCommandRegistrations[] = {
       R"json({"oneOf":[{"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"succeeded":{"type":"boolean"},"kind":{"type":"string","enum":["","slab","roof","mesh","wall","beam","column","object","lamp","polyline","fill","line","arc","circle","hotspot"]},"applied":{"type":"array","items":{"type":"string"}},"error":{"type":"string"}},"additionalProperties":false,"required":["elementId","succeeded","kind"]}},"count":{"type":"integer","minimum":0},"changed":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count","changed"]},{"type":"object","properties":{"ok":{"const":false},"error":{"type":"string"}},"additionalProperties":false,"required":["ok","error"]}]})json" }
 };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetElementModifyCommandRegistrations ()
 {

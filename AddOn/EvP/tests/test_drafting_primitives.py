@@ -117,3 +117,27 @@ def test_read_details_normalizes_drafting_geometry(monkeypatch):
     assert (line["beg_coordinate"], line["end_coordinate"], line["pen"]) == ((1, 2), (3, 4), 7)
     assert (circle["x"], circle["radius"], circle["pen"]) == (5, 2.5, 9)
     assert hotspot["x"] == 7 and hotspot["height"] == 0
+
+
+def test_circle_creation_sets_geometry_and_all_readers_accept_whole_arcs():
+    def source(name):
+        with open(os.path.join(_NATIVE, name), encoding="utf-8") as handle:
+            return handle.read()
+
+    create = source("DraftingPrimitiveCommands.cpp")
+    assert "element.header.type = typeId == API_CircleID ? API_ArcID : typeId;" in create
+    assert "element.arc.whole = typeId == API_CircleID;" in create
+    assert "element.arc.reflected = false;" in create
+    assert "element.arc.begAng = 0.0;" in create
+    assert "element.arc.endAng = 0.0;" in create
+    classifier = source("DraftingCurveKinds.hpp")
+    assert "type == API_ArcID && element.arc.whole" in classifier
+    assert 'details.Add ("radius", element.arc.r)' in classifier
+    assert 'details.Add ("endAngle", element.arc.endAng)' in classifier
+    verify = source("DraftingDatabaseTarget.cpp")
+    assert "IsWholeDraftingCurve (created)" in verify
+    assert "std::fabs (created.arc.ratio - 1.0)" in verify
+    assert "created.arc.r > 0.0" in verify
+    assert "whole=%d" in verify
+    for filename in ("ElementReadCommands.cpp", "ElementModifyCommands.cpp", "DraftingCommands.cpp"):
+        assert "IsWholeDraftingCurve (element)" in source(filename)

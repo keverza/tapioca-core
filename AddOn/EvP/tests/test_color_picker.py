@@ -41,8 +41,13 @@ def test_color_helper_and_probe_are_separate():
     with open(os.path.join(root, "ParamPanel.cpp"), encoding="utf-8") as source:
         panel = source.read()
     assert 'pc.type == "Color"' in panel
-    assert 'DG::GetColor ("Choose colour", &color)' in panel
-    assert "pc.colorHex = ColorToHex (color)" in panel
+    assert "BuildColorControl" in panel
+    with open(os.path.join(root, "ParamColorControls.cpp"), encoding="utf-8") as source:
+        colors = source.read()
+    assert 'DG::GetColor ("Choose colour", &color)' in colors
+    assert "hex = ColorToHex (color)" in colors
+    assert "context.FillRect" in colors
+    assert "swatch->Redraw" in colors
     assert 'pc.type == "DateProbe"' in panel
     with open(os.path.join(root, "ParamValues.cpp"), encoding="utf-8") as source:
         values = source.read()

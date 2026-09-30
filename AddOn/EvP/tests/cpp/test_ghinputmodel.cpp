@@ -122,6 +122,18 @@ TEST (GhInputModel, ColorIsOpaqueHexNotFreeText)
     EXPECT_TRUE (Coerce (color, "").ok);
 }
 
+TEST (GhInputModel, HourGetsClockBounds)
+{
+    const InputModel model = ParseInputModel (R"({"inputs":[{"id":"hour","type":"hour","default":"9"}]})");
+    ASSERT_EQ (1u, model.controls.size ());
+    const InputControl& hour = model.controls[0];
+    EXPECT_EQ (InputKind::Integer, hour.kind);
+    EXPECT_TRUE (Coerce (hour, "23").ok);
+    EXPECT_FALSE (Coerce (hour, "24").ok);
+    EXPECT_FALSE (Coerce (hour, "-1").ok);
+    EXPECT_FALSE (Coerce (hour, "9.5").ok);
+}
+
 TEST (GhInputModel, RowsAreOrderedByGroupThenOrder)
 {
     // The same rule the worker's discovery applied. Two sorts that disagreed

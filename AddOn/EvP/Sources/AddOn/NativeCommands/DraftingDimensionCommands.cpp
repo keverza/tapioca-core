@@ -30,16 +30,20 @@ GS::ObjectState Point (const API_Coord& point)
 const char* DimensionKind (API_ElemTypeID type)
 {
     switch (type) {
-        case API_DimensionID: return "linear";
-        case API_RadialDimensionID: return "radial";
-        case API_AngleDimensionID: return "angular";
-        case API_LevelDimensionID: return "level";
-        default: return nullptr;
+        case API_DimensionID:
+            return "linear";
+        case API_RadialDimensionID:
+            return "radial";
+        case API_AngleDimensionID:
+            return "angular";
+        case API_LevelDimensionID:
+            return "level";
+        default:
+            return nullptr;
     }
 }
 
-bool BuildStaticLinear (const GS::ObjectState& item, API_Element& element,
-                        API_ElementMemo& memo, GS::UniString& error)
+bool BuildStaticLinear (const GS::ObjectState& item, API_Element& element, API_ElementMemo& memo, GS::UniString& error)
 {
     API_Coord line = {}, direction = {};
     GS::Array<GS::ObjectState> requested;
@@ -55,7 +59,10 @@ bool BuildStaticLinear (const GS::ObjectState& item, API_Element& element,
     }
     direction.x /= length;
     direction.y /= length;
-    struct Witness { API_Coord point; double projection; };
+    struct Witness {
+        API_Coord point;
+        double projection;
+    };
     std::vector<Witness> witnesses;
     witnesses.reserve (requested.GetSize ());
     for (const GS::ObjectState& node : requested) {
@@ -90,8 +97,7 @@ bool BuildStaticLinear (const GS::ObjectState& item, API_Element& element,
     element.dimension.direction = direction;
     element.dimension.nDimElem = (Int32) witnesses.size ();
 
-    memo.dimElems = reinterpret_cast<API_DimElem**> (
-        BMhAllClear (element.dimension.nDimElem * sizeof (API_DimElem)));
+    memo.dimElems = reinterpret_cast<API_DimElem**> (BMhAllClear (element.dimension.nDimElem * sizeof (API_DimElem)));
     if (memo.dimElems == nullptr || *memo.dimElems == nullptr) {
         error = "out of memory allocating dimension witness points";
         return false;
@@ -113,8 +119,8 @@ bool BuildStaticAngular (const GS::ObjectState& item, API_Element& element, GS::
 {
     API_Coord origin = {}, ray1 = {}, ray2 = {};
     double radius = 0.0;
-    if (!ReadPoint (item, "origin", origin) || !ReadPoint (item, "ray1", ray1) ||
-        !ReadPoint (item, "ray2", ray2) || !ReadFiniteNumber (item, "radius", radius) || radius <= 0.0) {
+    if (!ReadPoint (item, "origin", origin) || !ReadPoint (item, "ray1", ray1) || !ReadPoint (item, "ray2", ray2) ||
+        !ReadFiniteNumber (item, "radius", radius) || radius <= 0.0) {
         error = "angular needs origin, two ray endpoints and positive arc radius";
         return false;
     }
@@ -125,7 +131,10 @@ bool BuildStaticAngular (const GS::ObjectState& item, API_Element& element, GS::
         error = "angular rays must be nonzero";
         return false;
     }
-    x1 /= l1; y1 /= l1; x2 /= l2; y2 /= l2;
+    x1 /= l1;
+    y1 /= l1;
+    x2 /= l2;
+    y2 /= l2;
     const double cross = x1 * y2 - y1 * x2;
     if (std::fabs (cross) < 1e-10) {
         error = "angular rays must not be parallel or opposite";
@@ -149,35 +158,96 @@ bool BuildStaticAngular (const GS::ObjectState& item, API_Element& element, GS::
     return true;
 }
 
-bool BuildStaticRadial (const GS::ObjectState& item, API_Element& element, GS::UniString& error)
+bool BuildRadial (const GS::ObjectState& item, API_Element& element, GS::UniString& error)
 {
     API_Coord base = {}, end = {};
     double radius = 0.0;
     if (!ReadPoint (item, "base", base) || !ReadPoint (item, "end", end) ||
-        !ReadFiniteNumber (item, "radius", radius) || radius <= 0.0 ||
-        (base.x == end.x && base.y == end.y)) {
+        !ReadFiniteNumber (item, "radius", radius) || radius <= 0.0 || (base.x == end.x && base.y == end.y)) {
         error = "radial needs a point on the circle, a distinct dimension-line end, and positive radius";
         return false;
     }
-    // API_Base describes a NON-static association. A zeroed base leaves this
-    // dimension independent; AC29 supplies no radial create example, so this
-    // path needs a live placement/readback probe before relying on it in scripts.
+    // Unassociated creation returned BADPARS in AC29 live tests. A supplied
+    // source explicitly opts into the SDK's API_Base type/GUID association.
+    element.radialDimension.base = {};
     element.radialDimension.base.base.type = API_ZombieElemID;
+    if (item.Contains ("sourceElementId")) {
+        GS::ObjectState sourceId;
+        GS::UniString sourceGuid;
+        if (!item.Get ("sourceElementId", sourceId) || !sourceId.Get ("guid", sourceGuid) || sourceGuid.IsEmpty ()) {
+            error = "radial sourceElementId needs a non-empty guid";
+            return false;
+        }
+        API_Element source = {};
+        source.header.guid = APIGuidFromString (sourceGuid.ToCStr ().Get ());
+        if (source.header.guid == APINULLGuid) {
+            error = "radial source guid is invalid";
+            return false;
+        }
+        if (const GSErrCode err = ACAPI_Element_Get (&source); err != NoError) {
+            error = EVP_ACAPI_FAIL ("ACAPI_Element_Get", err, "reading the radial source curve");
+            return false;
+        }
+        if ((source.header.type != API_ArcID && source.header.type != API_CircleID) ||
+            !std::isfinite (source.arc.ratio) || std::fabs (source.arc.ratio - 1.0) > 1e-9 ||
+            !std::isfinite (source.arc.r) || source.arc.r <= 0.0) {
+            error = "radial source must be a circular arc or circle, not an ellipse or another element type";
+            return false;
+        }
+        API_DatabaseInfo current = {}, containing = {};
+        const GSErrCode currentError = ACAPI_Database_GetCurrentDatabase (&current);
+        const GSErrCode containingError = ACAPI_Database_GetContainingDatabase (&source.header.guid, &containing);
+        if (currentError != NoError || containingError != NoError) {
+            error = "could not verify the radial source database";
+            return false;
+        }
+        if (current.typeID != containing.typeID ||
+            current.databaseUnId.elemSetId != containing.databaseUnId.elemSetId) {
+            error = "radial source must belong to the target database";
+            return false;
+        }
+        const double tolerance = std::max (1e-6, source.arc.r * 1e-6);
+        const double distance = std::hypot (base.x - source.arc.origC.x, base.y - source.arc.origC.y);
+        if (!std::isfinite (distance) || std::fabs (radius - source.arc.r) > tolerance ||
+            std::fabs (distance - source.arc.r) > tolerance) {
+            error = "radial radius and base point must match the source curve";
+            return false;
+        }
+        if (item.Contains ("floorInd") && element.header.floorInd != source.header.floorInd) {
+            error = "radial floorInd must match the source curve";
+            return false;
+        }
+        element.header.floorInd = source.header.floorInd;
+        element.radialDimension.base.base.type = source.header.type;
+        element.radialDimension.base.base.guid = source.header.guid;
+        // API_Base::line is true for APINeig_ArcOn; no vertex is selected.
+        element.radialDimension.base.base.line = true;
+        element.radialDimension.base.base.inIndex = 0;
+    }
     element.radialDimension.base.loc = base;
     element.radialDimension.endC = end;
     element.radialDimension.dimVal = radius;
+    // A drafting diagnostic must draw a leader even if the current tool default
+    // is text-only. Keep the default note/marker styling, not its association.
+    element.radialDimension.onlyDimensionText = false;
+    element.radialDimension.textPos = APIPos_Above;
+    element.radialDimension.textWay = APIDir_Radial;
     return true;
 }
 
 class CreateDraftingDimensionsCommand : public WriteCommand {
   public:
-    GS::String GetName () const override { return "CreateDraftingDimensions"; }
+    GS::String GetName () const override
+    {
+        return "CreateDraftingDimensions";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Array<GS::ObjectState> items;
         if (!params.Get ("dimensions", items) || items.IsEmpty ())
-            return NativeCommandResult::Failure (EVP_FAIL ("need non-empty dimensions array", "Tapioca.CreateDraftingDimensions"));
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("need non-empty dimensions array", "Tapioca.CreateDraftingDimensions"));
 
         GS::UniString targetDatabaseGuid, databaseError;
         AnchoredWorksheetDatabase database;
@@ -191,21 +261,28 @@ class CreateDraftingDimensionsCommand : public WriteCommand {
             GS::UniString kind;
             item.Get ("kind", kind);
             rec.Add ("kind", kind);
-            const API_ElemTypeID typeId = kind == "linear" ? API_DimensionID
-                : kind == "angular" ? API_AngleDimensionID
-                : kind == "radial" ? API_RadialDimensionID : API_ZombieElemID;
+            const API_ElemTypeID typeId = kind == "linear"    ? API_DimensionID
+                                          : kind == "angular" ? API_AngleDimensionID
+                                          : kind == "radial"  ? API_RadialDimensionID
+                                                              : API_ZombieElemID;
             bool wrongField = false;
             item.EnumerateFields ([&] (const GS::String& field) {
-                if (field == "kind" || field == "pen" || field == "layer" || field == "floorInd") return;
-                if (kind == "linear" && (field == "line" || field == "direction" || field == "points")) return;
+                if (field == "kind" || field == "pen" || field == "layer" || field == "floorInd")
+                    return;
+                if (kind == "linear" && (field == "line" || field == "direction" || field == "points"))
+                    return;
                 if (kind == "angular" && (field == "origin" || field == "ray1" || field == "ray2" ||
-                                           field == "radius" || field == "smallArc")) return;
-                if (kind == "radial" && (field == "base" || field == "end" || field == "radius")) return;
+                                          field == "radius" || field == "smallArc"))
+                    return;
+                if (kind == "radial" &&
+                    (field == "base" || field == "end" || field == "radius" || field == "sourceElementId"))
+                    return;
                 wrongField = true;
             });
             if (typeId == API_ZombieElemID || wrongField) {
                 rec.Add ("succeeded", false);
-                rec.Add ("error", EVP_FAIL ("kind must be linear|radial|angular, with only that kind's fields", "Tapioca.CreateDraftingDimensions"));
+                rec.Add ("error", EVP_FAIL ("kind must be linear|radial|angular, with only that kind's fields",
+                                            "Tapioca.CreateDraftingDimensions"));
                 results.Push (rec);
                 continue;
             }
@@ -217,12 +294,14 @@ class CreateDraftingDimensionsCommand : public WriteCommand {
             if (defaultsError != NoError || !ResolveLayerParam (item, element.header, layerError)) {
                 rec.Add ("succeeded", false);
                 rec.Add ("error", defaultsError != NoError
-                    ? EVP_ACAPI_FAIL ("ACAPI_Element_GetDefaults", defaultsError, kind) : layerError);
+                                      ? EVP_ACAPI_FAIL ("ACAPI_Element_GetDefaults", defaultsError, kind)
+                                      : layerError);
                 results.Push (rec);
                 continue;
             }
             GS::Int32 floorInd = 0;
-            if (item.Get ("floorInd", floorInd)) element.header.floorInd = (short) floorInd;
+            if (item.Get ("floorInd", floorInd))
+                element.header.floorInd = (short) floorInd;
             GS::Int32 pen = 0;
             if (item.Contains ("pen") && (!item.Get ("pen", pen) || pen < 1 || pen > 255)) {
                 rec.Add ("succeeded", false);
@@ -232,9 +311,9 @@ class CreateDraftingDimensionsCommand : public WriteCommand {
             }
             API_ElementMemo memo = {};
             GS::UniString geometryError;
-            const bool valid = typeId == API_DimensionID ? BuildStaticLinear (item, element, memo, geometryError)
-                : typeId == API_AngleDimensionID ? BuildStaticAngular (item, element, geometryError)
-                : BuildStaticRadial (item, element, geometryError);
+            const bool valid = typeId == API_DimensionID        ? BuildStaticLinear (item, element, memo, geometryError)
+                               : typeId == API_AngleDimensionID ? BuildStaticAngular (item, element, geometryError)
+                                                                : BuildRadial (item, element, geometryError);
             if (!valid) {
                 ACAPI_DisposeElemMemoHdls (&memo);
                 rec.Add ("succeeded", false);
@@ -243,22 +322,34 @@ class CreateDraftingDimensionsCommand : public WriteCommand {
                 continue;
             }
             if (pen != 0) {
-                if (typeId == API_DimensionID) element.dimension.linPen = (short) pen;
-                else if (typeId == API_RadialDimensionID) element.radialDimension.linPen = (short) pen;
-                else element.angleDimension.linPen = (short) pen;
+                if (typeId == API_DimensionID)
+                    element.dimension.linPen = (short) pen;
+                else if (typeId == API_RadialDimensionID)
+                    element.radialDimension.linPen = (short) pen;
+                else
+                    element.angleDimension.linPen = (short) pen;
             }
             const GSErrCode createError = ACAPI_Element_Create (&element, typeId == API_DimensionID ? &memo : nullptr);
             ACAPI_DisposeElemMemoHdls (&memo);
             if (createError != NoError) {
                 rec.Add ("succeeded", false);
-                rec.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Create", createError, kind));
-            } else {
+                GS::UniString context = kind;
+                if (typeId == API_RadialDimensionID)
+                    context += GS::UniString::Printf (
+                        " source=%T type=%d line=%d inIndex=%d",
+                        GS::UniString (APIGuidToString (element.radialDimension.base.base.guid).ToCStr ()).ToPrintf (),
+                        (int) element.radialDimension.base.base.type.typeID,
+                        (int) element.radialDimension.base.base.line, (int) element.radialDimension.base.base.inIndex);
+                rec.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Create", createError, context));
+            }
+            else {
                 GS::ObjectState elementId;
                 elementId.Add ("guid", GS::UniString (APIGuidToString (element.header.guid).ToCStr ()));
                 rec.Add ("succeeded", true);
                 rec.Add ("elementId", elementId);
                 GS::UniString verificationError;
-                if (!VerifyCreatedDraftingElement (element.header.guid, typeId, targetDatabaseGuid, rec, verificationError))
+                if (!VerifyCreatedDraftingElement (element.header.guid, typeId, targetDatabaseGuid, rec,
+                                                   verificationError))
                     return NativeCommandResult::Failure (verificationError);
                 ++created;
             }
@@ -267,7 +358,8 @@ class CreateDraftingDimensionsCommand : public WriteCommand {
         bool failOnError = false;
         params.Get ("failOnError", failOnError);
         if (failOnError && created != (GS::Int32) items.GetSize ())
-            return NativeCommandResult::Failure (EVP_FAIL ("one or more dimensions failed; transaction should roll back", "Tapioca.CreateDraftingDimensions"));
+            return NativeCommandResult::Failure (EVP_FAIL (
+                "one or more dimensions failed; transaction should roll back", "Tapioca.CreateDraftingDimensions"));
         GS::ObjectState response;
         response.Add ("results", results);
         response.Add ("count", created);
@@ -277,7 +369,10 @@ class CreateDraftingDimensionsCommand : public WriteCommand {
 
 class GetDraftingDimensionsCommand : public MainThreadCommand {
   public:
-    GS::String GetName () const override { return "GetDraftingDimensions"; }
+    GS::String GetName () const override
+    {
+        return "GetDraftingDimensions";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -286,7 +381,8 @@ class GetDraftingDimensionsCommand : public MainThreadCommand {
         GS::UniString scope ("database");
         params.Get ("scope", scope);
         if (scope != "database" && scope != "selection")
-            return NativeCommandResult::Failure (EVP_FAIL ("scope must be database or selection", "Tapioca.GetDraftingDimensions"));
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("scope must be database or selection", "Tapioca.GetDraftingDimensions"));
         GS::Array<API_Guid> guids;
         if (haveElements) {
             scope = "elements";
@@ -294,26 +390,33 @@ class GetDraftingDimensionsCommand : public MainThreadCommand {
                 GS::ObjectState elementId;
                 GS::UniString guid;
                 if (!item.Get ("elementId", elementId) || !elementId.Get ("guid", guid) || guid.IsEmpty ())
-                    return NativeCommandResult::Failure (EVP_FAIL ("each element needs elementId.guid", "Tapioca.GetDraftingDimensions"));
+                    return NativeCommandResult::Failure (
+                        EVP_FAIL ("each element needs elementId.guid", "Tapioca.GetDraftingDimensions"));
                 guids.Push (APIGuidFromString (guid.ToCStr ().Get ()));
             }
-        } else if (scope == "selection") {
+        }
+        else if (scope == "selection") {
             API_SelectionInfo selectionInfo = {};
             GS::Array<API_Neig> neigs;
             const GSErrCode selectionError = ACAPI_Selection_Get (&selectionInfo, &neigs, false);
             if (selectionInfo.marquee.coords != nullptr)
                 BMKillHandle (reinterpret_cast<GSHandle*> (&selectionInfo.marquee.coords));
             if (selectionError != NoError && selectionError != APIERR_NOSEL)
-                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Selection_Get", selectionError, "dimension selection"));
-            for (const API_Neig& neig : neigs) guids.Push (neig.guid);
-        } else {
-            for (const API_ElemTypeID typeId : { API_DimensionID, API_RadialDimensionID,
-                                                 API_AngleDimensionID, API_LevelDimensionID }) {
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_Selection_Get", selectionError, "dimension selection"));
+            for (const API_Neig& neig : neigs)
+                guids.Push (neig.guid);
+        }
+        else {
+            for (const API_ElemTypeID typeId :
+                 { API_DimensionID, API_RadialDimensionID, API_AngleDimensionID, API_LevelDimensionID }) {
                 GS::Array<API_Guid> found;
                 const GSErrCode listError = ACAPI_Element_GetElemList (typeId, &found);
                 if (listError != NoError)
-                    return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listError, "dimensions"));
-                for (const API_Guid& guid : found) guids.Push (guid);
+                    return NativeCommandResult::Failure (
+                        EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listError, "dimensions"));
+                for (const API_Guid& guid : found)
+                    guids.Push (guid);
             }
         }
 
@@ -345,7 +448,8 @@ class GetDraftingDimensionsCommand : public MainThreadCommand {
                 bool memoRead = memoError == NoError && memo.dimElems != nullptr && *memo.dimElems != nullptr;
                 GS::Array<GS::ObjectState> points;
                 if (memoRead) {
-                    const USize available = BMGetHandleSize (reinterpret_cast<GSHandle> (memo.dimElems)) / sizeof (API_DimElem);
+                    const USize available =
+                        BMGetHandleSize (reinterpret_cast<GSHandle> (memo.dimElems)) / sizeof (API_DimElem);
                     const USize count = std::min ((USize) std::max (0, element.dimension.nDimElem), available);
                     memoRead = available >= (USize) std::max (0, element.dimension.nDimElem);
                     for (USize i = 0; i < count; ++i)
@@ -354,22 +458,32 @@ class GetDraftingDimensionsCommand : public MainThreadCommand {
                 ACAPI_DisposeElemMemoHdls (&memo);
                 record.Add ("memoRead", memoRead);
                 record.Add ("points", points);
-            } else if (typeId == API_RadialDimensionID) {
+            }
+            else if (typeId == API_RadialDimensionID) {
                 record.Add ("pen", (GS::Int32) element.radialDimension.linPen);
                 record.Add ("base", Point (element.radialDimension.base.loc));
                 record.Add ("end", Point (element.radialDimension.endC));
                 record.Add ("radius", element.radialDimension.dimVal);
                 record.Add ("showOrigin", element.radialDimension.showOrigo);
-            } else if (typeId == API_AngleDimensionID) {
+                if (element.radialDimension.base.base.guid != APINULLGuid) {
+                    GS::ObjectState sourceId;
+                    sourceId.Add ("guid",
+                                  GS::UniString (APIGuidToString (element.radialDimension.base.base.guid).ToCStr ()));
+                    record.Add ("sourceElementId", sourceId);
+                }
+            }
+            else if (typeId == API_AngleDimensionID) {
                 record.Add ("pen", (GS::Int32) element.angleDimension.linPen);
                 record.Add ("origin", Point (element.angleDimension.origo));
                 record.Add ("position", Point (element.angleDimension.pos));
                 GS::Array<GS::ObjectState> bases;
-                for (int i = 0; i < 4; ++i) bases.Push (Point (element.angleDimension.base[i].loc));
+                for (int i = 0; i < 4; ++i)
+                    bases.Push (Point (element.angleDimension.base[i].loc));
                 record.Add ("bases", bases);
                 record.Add ("angleValue", element.angleDimension.dimVal);
                 record.Add ("smallArc", element.angleDimension.smallArc);
-            } else {
+            }
+            else {
                 record.Add ("pen", (GS::Int32) element.levelDimension.pen);
                 record.Add ("x", element.levelDimension.loc.x);
                 record.Add ("y", element.levelDimension.loc.y);
@@ -377,7 +491,8 @@ class GetDraftingDimensionsCommand : public MainThreadCommand {
                 record.Add ("isStatic", element.levelDimension.staticLevel);
                 record.Add ("markerSize", element.levelDimension.markerSize);
                 record.Add ("angle", element.levelDimension.angle);
-                record.Add ("parentGuid", GS::UniString (APIGuidToString (element.levelDimension.parentGuid).ToCStr ()));
+                record.Add ("parentGuid",
+                            GS::UniString (APIGuidToString (element.levelDimension.parentGuid).ToCStr ()));
             }
             records.Push (record);
         }
@@ -392,13 +507,17 @@ class GetDraftingDimensionsCommand : public MainThreadCommand {
 
 class SetDraftingDimensionStyleCommand : public WriteCommand {
   public:
-    GS::String GetName () const override { return "SetDraftingDimensionStyle"; }
+    GS::String GetName () const override
+    {
+        return "SetDraftingDimensionStyle";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Array<GS::ObjectState> edits;
         if (!params.Get ("edits", edits) || edits.IsEmpty ())
-            return NativeCommandResult::Failure (EVP_FAIL ("need non-empty edits array", "Tapioca.SetDraftingDimensionStyle"));
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("need non-empty edits array", "Tapioca.SetDraftingDimensionStyle"));
         GS::Array<GS::ObjectState> results;
         GS::Int32 changed = 0;
         for (const GS::ObjectState& edit : edits) {
@@ -417,7 +536,8 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
             const char* kind = getError == NoError ? DimensionKind (element.header.type.typeID) : nullptr;
             if (kind == nullptr) {
                 rec.Add ("succeeded", false);
-                rec.Add ("error", EVP_FAIL ("dimension not found or unsupported type", "Tapioca.SetDraftingDimensionStyle"));
+                rec.Add ("error",
+                         EVP_FAIL ("dimension not found or unsupported type", "Tapioca.SetDraftingDimensionStyle"));
                 results.Push (rec);
                 continue;
             }
@@ -425,17 +545,22 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
             const API_ElemTypeID typeId = element.header.type.typeID;
             bool wrongField = false;
             edit.EnumerateFields ([&] (const GS::String& field) {
-                if (field == "elementId" || field == "pen") return;
-                if (typeId == API_RadialDimensionID && field == "showOrigin") return;
-                if (typeId == API_AngleDimensionID && field == "smallArc") return;
-                if (typeId == API_LevelDimensionID && field == "markerSize") return;
+                if (field == "elementId" || field == "pen")
+                    return;
+                if (typeId == API_RadialDimensionID && field == "showOrigin")
+                    return;
+                if (typeId == API_AngleDimensionID && field == "smallArc")
+                    return;
+                if (typeId == API_LevelDimensionID && field == "markerSize")
+                    return;
                 wrongField = true;
             });
             GS::Int32 pen = 0;
             const bool hasPen = edit.Contains ("pen");
             bool flag = false;
             const char* flagName = typeId == API_RadialDimensionID ? "showOrigin" : "smallArc";
-            const bool hasFlag = (typeId == API_RadialDimensionID || typeId == API_AngleDimensionID) && edit.Contains (flagName);
+            const bool hasFlag =
+                (typeId == API_RadialDimensionID || typeId == API_AngleDimensionID) && edit.Contains (flagName);
             double markerSize = 0.0;
             const bool hasMarker = typeId == API_LevelDimensionID && edit.Contains ("markerSize");
             if (wrongField || (!hasPen && !hasFlag && !hasMarker) ||
@@ -443,7 +568,8 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
                 (hasFlag && !edit.Get (flagName, flag)) ||
                 (hasMarker && (!ReadFiniteNumber (edit, "markerSize", markerSize) || markerSize <= 0.0))) {
                 rec.Add ("succeeded", false);
-                rec.Add ("error", EVP_FAIL ("invalid/unsupported style fields for this dimension kind", "Tapioca.SetDraftingDimensionStyle"));
+                rec.Add ("error", EVP_FAIL ("invalid/unsupported style fields for this dimension kind",
+                                            "Tapioca.SetDraftingDimensionStyle"));
                 results.Push (rec);
                 continue;
             }
@@ -454,7 +580,8 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
                     element.dimension.linPen = (short) pen;
                     ACAPI_ELEMENT_MASK_SET (mask, API_DimensionType, linPen);
                 }
-            } else if (typeId == API_RadialDimensionID) {
+            }
+            else if (typeId == API_RadialDimensionID) {
                 if (hasPen) {
                     element.radialDimension.linPen = (short) pen;
                     ACAPI_ELEMENT_MASK_SET (mask, API_RadialDimensionType, linPen);
@@ -463,7 +590,8 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
                     element.radialDimension.showOrigo = flag;
                     ACAPI_ELEMENT_MASK_SET (mask, API_RadialDimensionType, showOrigo);
                 }
-            } else if (typeId == API_AngleDimensionID) {
+            }
+            else if (typeId == API_AngleDimensionID) {
                 if (hasPen) {
                     element.angleDimension.linPen = (short) pen;
                     ACAPI_ELEMENT_MASK_SET (mask, API_AngleDimensionType, linPen);
@@ -472,7 +600,8 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
                     element.angleDimension.smallArc = flag;
                     ACAPI_ELEMENT_MASK_SET (mask, API_AngleDimensionType, smallArc);
                 }
-            } else {
+            }
+            else {
                 if (hasPen) {
                     element.levelDimension.pen = (short) pen;
                     ACAPI_ELEMENT_MASK_SET (mask, API_LevelDimensionType, pen);
@@ -484,14 +613,18 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
             }
             const GSErrCode changeError = ACAPI_Element_Change (&element, &mask, nullptr, 0, true);
             rec.Add ("succeeded", changeError == NoError);
-            if (changeError == NoError) ++changed;
-            else rec.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Change", changeError, guidString));
+            if (changeError == NoError)
+                ++changed;
+            else
+                rec.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Change", changeError, guidString));
             results.Push (rec);
         }
         bool failOnError = false;
         params.Get ("failOnError", failOnError);
         if (failOnError && changed != (GS::Int32) edits.GetSize ())
-            return NativeCommandResult::Failure (EVP_FAIL ("one or more dimension styles failed; transaction should roll back", "Tapioca.SetDraftingDimensionStyle"));
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("one or more dimension styles failed; transaction should roll back",
+                          "Tapioca.SetDraftingDimensionStyle"));
         GS::ObjectState response;
         response.Add ("results", results);
         response.Add ("count", (GS::Int32) results.GetSize ());
@@ -502,14 +635,12 @@ class SetDraftingDimensionStyleCommand : public WriteCommand {
 
 const NativeCommandRegistration s_draftingDimensionRegistrations[] = {
     { "CreateDraftingDimensions", &MakeRegisteredNativeCommand<CreateDraftingDimensionsCommand>, false,
-      R"json({"type":"object","properties":{"dimensions":{"type":"array","minItems":1,"items":{"type":"object","properties":{"kind":{"type":"string","enum":["linear","radial","angular"]},"line":{"$ref":"#Point2D"},"direction":{"$ref":"#Point2D"},"points":{"type":"array","minItems":2,"maxItems":64,"items":{"$ref":"#Point2D"}},"base":{"$ref":"#Point2D"},"end":{"$ref":"#Point2D"},"origin":{"$ref":"#Point2D"},"ray1":{"$ref":"#Point2D"},"ray2":{"$ref":"#Point2D"},"radius":{"type":"number","exclusiveMinimum":0},"smallArc":{"type":"boolean"},"pen":{"type":"integer","minimum":1,"maximum":255},"layer":{"type":"string"},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["kind"]}},"databaseAnchorElementId":{"$ref":"#ElementId"},"failOnError":{"type":"boolean"}},"additionalProperties":false,"required":["dimensions"]})json",
+      R"json({"type":"object","properties":{"dimensions":{"type":"array","minItems":1,"items":{"type":"object","properties":{"kind":{"type":"string","enum":["linear","radial","angular"]},"line":{"$ref":"#Point2D"},"direction":{"$ref":"#Point2D"},"points":{"type":"array","minItems":2,"maxItems":64,"items":{"$ref":"#Point2D"}},"base":{"$ref":"#Point2D"},"end":{"$ref":"#Point2D"},"sourceElementId":{"$ref":"#ElementId"},"origin":{"$ref":"#Point2D"},"ray1":{"$ref":"#Point2D"},"ray2":{"$ref":"#Point2D"},"radius":{"type":"number","exclusiveMinimum":0},"smallArc":{"type":"boolean"},"pen":{"type":"integer","minimum":1,"maximum":255},"layer":{"type":"string"},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["kind"]}},"databaseAnchorElementId":{"$ref":"#ElementId"},"failOnError":{"type":"boolean"}},"additionalProperties":false,"required":["dimensions"]})json",
       R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["linear","radial","angular"]},"succeeded":{"type":"boolean"},"elementId":{"$ref":"#ElementId"},"databaseId":{"$ref":"#ElementId"},"layer":{"type":"string"},"verified":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false,"required":["kind","succeeded"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count"]})json" },
-    { "GetDraftingDimensions", &MakeRegisteredNativeCommand<GetDraftingDimensionsCommand>, false,
-      R"json({"type":"object","properties":{"elements":{"$ref":"#Elements"},"scope":{"type":"string","enum":["database","selection"]}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"scope":{"type":"string","enum":["database","selection","elements"]},"dimensions":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"kind":{"type":"string","enum":["linear","radial","angular","level"]},"floorInd":{"type":"integer"},"layer":{"type":"string"},"pen":{"type":"integer"},"line":{"$ref":"#Point2D"},"direction":{"$ref":"#Point2D"},"points":{"type":"array","items":{"$ref":"#Point2D"}},"nDimElem":{"type":"integer"},"memoRead":{"type":"boolean"},"base":{"$ref":"#Point2D"},"end":{"$ref":"#Point2D"},"radius":{"type":"number"},"showOrigin":{"type":"boolean"},"origin":{"$ref":"#Point2D"},"position":{"$ref":"#Point2D"},"bases":{"type":"array","items":{"$ref":"#Point2D"}},"angleValue":{"type":"number"},"smallArc":{"type":"boolean"},"x":{"type":"number"},"y":{"type":"number"},"level":{"type":"number"},"isStatic":{"type":"boolean"},"markerSize":{"type":"number"},"angle":{"type":"number"},"parentGuid":{"type":"string"}},"additionalProperties":false,"required":["elementId","kind","floorInd","layer","pen"]}},"count":{"type":"integer","minimum":0},"skipped":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["scope","dimensions","count","skipped"]})json" },
+    { "GetDraftingDimensions",
+      &MakeRegisteredNativeCommand<GetDraftingDimensionsCommand>, false, R"json({"type":"object","properties":{"elements":{"$ref":"#Elements"},"scope":{"type":"string","enum":["database","selection"]}},"additionalProperties":false})json", R"json({"type":"object","properties":{"scope":{"type":"string","enum":["database","selection","elements"]},"dimensions":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"kind":{"type":"string","enum":["linear","radial","angular","level"]},"floorInd":{"type":"integer"},"layer":{"type":"string"},"pen":{"type":"integer"},"line":{"$ref":"#Point2D"},"direction":{"$ref":"#Point2D"},"points":{"type":"array","items":{"$ref":"#Point2D"}},"nDimElem":{"type":"integer"},"memoRead":{"type":"boolean"},"base":{"$ref":"#Point2D"},"end":{"$ref":"#Point2D"},"sourceElementId":{"$ref":"#ElementId"},"radius":{"type":"number"},"showOrigin":{"type":"boolean"},"origin":{"$ref":"#Point2D"},"position":{"$ref":"#Point2D"},"bases":{"type":"array","items":{"$ref":"#Point2D"}},"angleValue":{"type":"number"},"smallArc":{"type":"boolean"},"x":{"type":"number"},"y":{"type":"number"},"level":{"type":"number"},"isStatic":{"type":"boolean"},"markerSize":{"type":"number"},"angle":{"type":"number"},"parentGuid":{"type":"string"}},"additionalProperties":false,"required":["elementId","kind","floorInd","layer","pen"]}},"count":{"type":"integer","minimum":0},"skipped":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["scope","dimensions","count","skipped"]})json" },
     { "SetDraftingDimensionStyle", &MakeRegisteredNativeCommand<SetDraftingDimensionStyleCommand>, false,
-      R"json({"type":"object","properties":{"edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"pen":{"type":"integer","minimum":1,"maximum":255},"showOrigin":{"type":"boolean"},"smallArc":{"type":"boolean"},"markerSize":{"type":"number","exclusiveMinimum":0}},"additionalProperties":false,"required":["elementId"],"minProperties":2}},"failOnError":{"type":"boolean"}},"additionalProperties":false,"required":["edits"]})json",
-      R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"kind":{"type":"string","enum":["linear","radial","angular","level"]},"succeeded":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false,"required":["succeeded"]}},"count":{"type":"integer","minimum":0},"changed":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count","changed"]})json" },
+      R"json({"type":"object","properties":{"edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"pen":{"type":"integer","minimum":1,"maximum":255},"showOrigin":{"type":"boolean"},"smallArc":{"type":"boolean"},"markerSize":{"type":"number","exclusiveMinimum":0}},"additionalProperties":false,"required":["elementId"],"minProperties":2}},"failOnError":{"type":"boolean"}},"additionalProperties":false,"required":["edits"]})json", R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"kind":{"type":"string","enum":["linear","radial","angular","level"]},"succeeded":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false,"required":["succeeded"]}},"count":{"type":"integer","minimum":0},"changed":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count","changed"]})json" },
 };
 
 } // namespace

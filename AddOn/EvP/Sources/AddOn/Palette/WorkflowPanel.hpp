@@ -53,13 +53,15 @@ struct WorkflowControl {
 
     // Exactly one of these is built, chosen by the row's kind. A heading builds
     // none of them and only `label`.
-    std::unique_ptr<DG::CheckBox> checkBox; // Boolean
-    std::unique_ptr<DG::PopUp> popUp;       // Enum
-    std::unique_ptr<DG::TextEdit> editText; // Text
+    std::unique_ptr<DG::CheckBox> checkBox;  // Boolean
+    std::unique_ptr<DG::PopUp> popUp;        // Enum
+    std::unique_ptr<DG::TextEdit> editText;  // Text
     std::unique_ptr<DG::Button> colorButton; // Color, native modal chooser
     GS::UniString colorHex;
+    std::unique_ptr<DG::UserItem> colorSwatch;
     std::unique_ptr<DG::RealEdit> realEdit; // Number
     std::unique_ptr<DG::IntEdit> intEdit;   // Integer
+    std::unique_ptr<DG::EditSpin> hourSpin;
 
     // Selection: five captioned buttons, because a selection is picked in
     // Archicad rather than typed. The same five verbs and the same two native
@@ -112,11 +114,11 @@ struct WorkflowControl {
     // command change, drawn over whatever the next command put there.
     template <typename Fn> void ForEachItem (Fn fn) const
     {
-        DG::Item* const items[] = { label.get (),           domainHint.get (),
-                                    slider.get (),          Widget (),
-                                    selectionUpdate.get (), selectionAdd.get (),
-                                    selectionRemove.get (), selectionReselect.get (),
-                                    selectionClear.get () };
+        DG::Item* const items[] = {
+            label.get (),           domainHint.get (),   slider.get (),          Widget (),
+            selectionUpdate.get (), selectionAdd.get (), selectionRemove.get (), selectionReselect.get (),
+            selectionClear.get (),  colorSwatch.get (),  hourSpin.get ()
+        };
         for (DG::Item* item : items) {
             if (item != nullptr)
                 fn (item);
@@ -172,6 +174,7 @@ class WorkflowPanel {
     WorkflowSnapshot Collect () const;
 
     bool HandleColorButton (const DG::Item* source);
+    bool HandleColorSwatchUpdate (const DG::UserItemUpdateEvent& ev) const;
 
     // True when the panel holds a schema at all -- an empty definition still
     // counts, because "loaded with no inputs" and "nothing loaded" are different

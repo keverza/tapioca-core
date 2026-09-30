@@ -71,7 +71,8 @@ void ControlPalette::PanelWheelTracked (const DG::PanelWheelTrackEvent& ev, bool
 // The band draws it; this only routes the event.
 void ControlPalette::UserItemUpdate (const DG::UserItemUpdateEvent& ev)
 {
-    if (!preview.HandleUserItemUpdate (ev))
+    if (!params.HandleColorSwatchUpdate (ev) && !workflow.HandleColorSwatchUpdate (ev) &&
+        !preview.HandleUserItemUpdate (ev))
         commandsPanel.HandleUserItemUpdate (ev);
 }
 

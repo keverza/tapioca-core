@@ -12,6 +12,8 @@ bool UsesSlider (const WorkflowRow& row)
 {
     if (row.isHeading || !row.enabled)
         return false;
+    if (row.declaredType == "hour")
+        return false;
     if (row.kind != InputKind::Number && row.kind != InputKind::Integer)
         return false;
     // Both ends, and a domain with width. A min equal to its max is a constant,
@@ -86,6 +88,7 @@ InputControl ControlOf (const WorkflowRow& row)
     control.hasMaximum = row.hasMaximum;
     control.maximum = row.maximum;
     control.defaultValue = row.initialValue;
+    control.declaredType = row.declaredType;
     return control;
 }
 

@@ -206,6 +206,12 @@ def ports_from_schema(schema, labels=None, explicit_titles=None):
                 entry["default"] = node["default"]
 
         _bounds(node, entry)
+        if entry["type"] == "Hour":
+            value = entry.get("default", 0)
+            if type(value) is not int or not 0 <= value <= 23:
+                raise PortError("Hour field %r needs an integer default from 0 to 23." % name)
+            entry["minimum"] = 0
+            entry["maximum"] = 23
 
         # UI metadata that JSON Schema has no vocabulary for. `readonly` and
         # `numeric` stay booleans; the C++ side reads them with os.Get(bool).

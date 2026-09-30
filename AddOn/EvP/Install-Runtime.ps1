@@ -6,6 +6,7 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
+    [ValidatePattern('^3\.12\.\d+$')]
     [string]   $Version    = '3.12.10',
     [string]   $Target     = (Join-Path $env:LOCALAPPDATA 'Tapioca\runtime'),
     [string[]] $Baseline   = @('numpy==2.0.2', 'pillow', 'requests', 'pydantic>=2.7,<3'),

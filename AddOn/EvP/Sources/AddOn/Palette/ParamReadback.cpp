@@ -276,6 +276,8 @@ GS::UniString ParamPanel::ParamNameAt (const DG::Item* item) const
         // as the field is.
         if (pc.Widget () == item || pc.label.get () == item)
             return pc.name;
+        if (pc.colorSwatch.get () == item || pc.hourSpin.get () == item)
+            return pc.name;
         // A FilePath row is TWO items: the field and the Browse button beside it.
         if (pc.browseButton != nullptr && pc.browseButton.get () == item)
             return pc.name;

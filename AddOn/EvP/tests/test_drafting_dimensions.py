@@ -26,6 +26,8 @@ def test_dimension_schemas_and_native_memo_contract():
     assert create["properties"]["dimensions"]["items"]["additionalProperties"] is False
     assert create["properties"]["dimensions"]["items"]["properties"]["kind"]["enum"] == [
         "linear", "radial", "angular"]
+    assert create["properties"]["dimensions"]["items"]["properties"]["sourceElementId"] == {"$ref": "#ElementId"}
+    assert response["properties"]["dimensions"]["items"]["properties"]["sourceElementId"] == {"$ref": "#ElementId"}
     assert created["additionalProperties"] is False
     assert "ok" not in created["properties"]
     assert "level" in response["properties"]["dimensions"]["items"]["properties"]["kind"]["enum"]
@@ -40,6 +42,14 @@ def test_dimension_schemas_and_native_memo_contract():
     assert "ACAPI_DisposeElemMemoHdls (&memo)" in cpp
     assert "ACAPI_Element_GetMemo (guid, &memo)" in cpp
     assert "ACAPI_ELEMENT_MASK_SET (mask, API_AngleDimensionType, smallArc)" in cpp
+    assert "element.radialDimension.base = {};" in cpp
+    assert "element.radialDimension.onlyDimensionText = false;" in cpp
+    assert "element.radialDimension.textWay = APIDir_Radial;" in cpp
+    assert "element.radialDimension.base.base.guid = source.header.guid;" in cpp
+    assert "element.radialDimension.base.base.type = source.header.type;" in cpp
+    assert "element.radialDimension.base.base.line = true;" in cpp
+    assert "radial source must belong to the target database" in cpp
+    assert "radial radius and base point must match the source curve" in cpp
 
 
 def test_create_dimensions_batched_and_anchored(monkeypatch):
@@ -81,6 +91,34 @@ def test_angular_dimension_transaction_and_kind_specific_validation():
     assert drafting.create_dimensions(angular, tx=Tx()) == "handle"
     with pytest.raises(ValueError, match="unknown"):
         drafting.create_dimensions(dict(angular, points=[(0, 0), (1, 0)]), tx=Tx())
+
+
+def test_associated_radial_source_wire_and_readback(monkeypatch):
+    captured = {}
+
+    class Tx:
+        def call(self, command, params):
+            captured.update(command=command, params=params)
+            return "handle"
+
+    radial = {"kind": "radial", "base": (4, 0), "end": (6, 0),
+              "radius": 4, "source_guid": "circle-1"}
+    assert drafting.create_dimensions(radial, tx=Tx()) == "handle"
+    assert captured["params"]["dimensions"][0]["sourceElementId"] == {"guid": "circle-1"}
+    with pytest.raises(ValueError, match="non-empty"):
+        drafting.create_dimensions(dict(radial, source_guid=""), tx=Tx())
+    with pytest.raises(ValueError, match="unknown"):
+        drafting.create_dimensions({"kind": "linear", "line": (0, 1), "direction": (1, 0),
+                                    "points": [(0, 0), (2, 0)], "source_guid": "circle-1"}, tx=Tx())
+
+    monkeypatch.setattr(drafting, "call", lambda *_: SimpleNamespace(data={"dimensions": [{
+        "kind": "radial", "elementId": {"guid": "radial-1"}, "sourceElementId": {"guid": "circle-1"},
+        "base": {"x": 4, "y": 0}, "end": {"x": 6, "y": 0}, "radius": 4,
+    }]}))
+    record = drafting.dimensions(["radial-1"])[0]
+    assert record["source_guid"] == "circle-1"
+    assert "sourceElementId" not in record
+    assert record["radius"] == 4
 
 
 def test_read_dimensions_and_sparse_style_edit(monkeypatch):

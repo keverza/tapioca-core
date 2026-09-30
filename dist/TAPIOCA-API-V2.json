@@ -1289,6 +1289,9 @@
                 "end": {
                   "$ref": "#Point2D"
                 },
+                "sourceElementId": {
+                  "$ref": "#ElementId"
+                },
                 "origin": {
                   "$ref": "#Point2D"
                 },
@@ -6487,6 +6490,9 @@
                 },
                 "end": {
                   "$ref": "#Point2D"
+                },
+                "sourceElementId": {
+                  "$ref": "#ElementId"
                 },
                 "radius": {
                   "type": "number"

@@ -138,7 +138,7 @@ def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
 
 _DIMENSION_FIELDS = {
     "linear": {"line", "direction", "points"},
-    "radial": {"base", "end", "radius"},
+    "radial": {"base", "end", "radius", "source_guid"},
     "angular": {"origin", "ray1", "ray2", "radius", "small_arc"},
 }
 _DIMENSION_REQUIRED = {
@@ -155,14 +155,18 @@ def _dimension_point(point):
 
 
 def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=None):
-    """Create static linear, radial or angular dimensions in model metres.
+    """Create drafting dimensions in model metres; linear/angular are static.
 
     Linear: ``line`` (point on dimension line), ``direction`` (nonzero vector),
     ``points`` (2..64 witness points). Radial: ``base`` (point on circle),
     ``end`` (leader end), ``radius``. Angular: ``origin``, ``ray1``, ``ray2``
     (ray endpoints), ``radius`` (arc distance), optional ``small_arc``.
     All points are (x, y) pairs. Optional ``pen``, ``layer`` and ``floor_ind``
-    override tool defaults. Radial geometry is not yet live-verified in Archicad.
+    override tool defaults. Radial ``source_guid`` explicitly associates to a
+    circular arc/circle in the target database. The source radius, base point and
+    floor are checked before creation. Without it, the unassociated radial path
+    is experimental and returned APIERR_BADPARS in AC29 live checks. Associated
+    radial placement still requires live verification.
     With ``tx``, returns a raw transaction Handle; otherwise aligned results.
     """
     if isinstance(dimensions, dict):
@@ -186,6 +190,10 @@ def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=
                 item[key] = [_dimension_point(p) for p in value]
             elif key in ("line", "direction", "base", "end", "origin", "ray1", "ray2"):
                 item[key] = _dimension_point(value)
+            elif key == "source_guid":
+                if not str(value).strip():
+                    raise ValueError("radial source_guid must be non-empty")
+                item["sourceElementId"] = {"guid": str(value)}
             else:
                 item[{"floor_ind": "floorInd", "small_arc": "smallArc"}.get(key, key)] = value
         items.append(item)
@@ -228,6 +236,8 @@ def dimensions(guids=None, scope="database"):
         record = dict(item)
         record["guid"] = (record.pop("elementId", None) or {}).get("guid", "")
         record["floor_ind"] = record.pop("floorInd", 0)
+        if "sourceElementId" in record:
+            record["source_guid"] = (record.pop("sourceElementId") or {}).get("guid", "")
         for key, alias in (("memoRead", "memo_read"), ("nDimElem", "n_dim_elem"),
                            ("showOrigin", "show_origin"), ("smallArc", "small_arc"),
                            ("angleValue", "angle_value"), ("isStatic", "is_static"),

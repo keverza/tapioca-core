@@ -148,6 +148,9 @@ struct ParamControl {
 
     // An opaque colour, blank until chosen when no valid default was supplied.
     GS::UniString colorHex;
+    std::unique_ptr<DG::UserItem> colorSwatch;
+    // Destroy the spin before its attached edit (members destroy in reverse).
+    std::unique_ptr<DG::EditSpin> hourSpin;
 
     // FilePath only: a compact Browse icon before the field. Typing a path by hand
     // stays possible; the button exists because remembering one is not the user's job.
@@ -247,6 +250,7 @@ class ParamPanel {
     bool HandleCheckItemChanged (const DG::CheckItemChangeEvent& ev, bool& reflow);
     bool HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflow);
     bool HandleDateTimeChanged (const DG::DateTimeChangeEvent& ev, bool& reflow);
+    bool HandleColorSwatchUpdate (const DG::UserItemUpdateEvent& ev) const;
     bool HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath = nullptr,
                               bool* reflow = nullptr);
 

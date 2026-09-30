@@ -2,6 +2,9 @@
 
 #include "Diagnostics/ApiError.hpp"
 #include "NativeCommands/CommandUtils.hpp"
+#include "NativeCommands/DraftingCurveKinds.hpp"
+
+#include <cmath>
 
 namespace geomsrv {
 
@@ -75,8 +78,21 @@ bool VerifyCreatedDraftingElement (const API_Guid& guid, API_ElemTypeID expected
             EVP_ACAPI_FAIL ("ACAPI_Element_GetElementFromAnywhere", err, "verifying a newly created drafting element");
         return false;
     }
-    if (created.header.type.typeID != expectedType) {
-        error = EVP_FAIL ("new drafting element has the wrong type", "verifying a newly created drafting element");
+    const bool matches = expectedType == API_CircleID
+                             ? IsWholeDraftingCurve (created) && std::isfinite (created.arc.ratio) &&
+                                   std::fabs (created.arc.ratio - 1.0) <= 1e-9 && std::isfinite (created.arc.r) &&
+                                   created.arc.r > 0.0
+                             : created.header.type.typeID == expectedType;
+    if (!matches) {
+        GS::UniString description =
+            GS::UniString::Printf ("new drafting element %T has the wrong type/geometry: expected=%d actual=%d",
+                                   GS::UniString (APIGuidToString (guid).ToCStr ()).ToPrintf (), (int) expectedType,
+                                   (int) created.header.type.typeID);
+        if (created.header.type == API_ArcID || created.header.type == API_CircleID)
+            description += GS::UniString::Printf (" whole=%d radius=%.9g ratio=%.9g begAngle=%.9g endAngle=%.9g",
+                                                  (int) created.arc.whole, created.arc.r, created.arc.ratio,
+                                                  created.arc.begAng, created.arc.endAng);
+        error = EVP_FAIL (description, "verifying a newly created drafting element");
         return false;
     }
 

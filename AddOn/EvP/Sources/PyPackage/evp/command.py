@@ -217,6 +217,29 @@ class _Color:
 Color = _Color()
 
 
+class _Hour:
+    """A 24-hour clock hour (integer 0..23) with native up/down digit arrows.
+
+    ``hour: evp.Hour = 9`` is independent of date/time epoch and timezone.
+    """
+
+    __slots__ = ("kind", "readonly", "show_when")
+
+    def __init__(self, readonly=False, show_when=None):
+        self.kind = "Hour"
+        self.readonly = readonly
+        self.show_when = show_when
+
+    def __call__(self, readonly=False, show_when=None):
+        return _Hour(readonly=readonly, show_when=show_when)
+
+    def __repr__(self):
+        return "evp.Hour"
+
+
+Hour = _Hour()
+
+
 class _FilePath:
     """A path selected through an open or save file dialog.
 

@@ -274,6 +274,10 @@ def _parse_run_signature(fn):
 
 
 def _validate_color_default(entry, line):
+    if entry["type"] == "Hour" and "default" in entry:
+        value = entry["default"]
+        if type(value) is not int or not 0 <= value <= 23:
+            raise ScanError("Hour default must be an integer from 0 to 23 (line %d)" % line, line)
     if entry["type"] != "Color" or "default" not in entry:
         return
     value = entry["default"]

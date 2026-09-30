@@ -259,7 +259,7 @@ InputKind InputKindFromName (const std::string& name)
     // no name at all, which is why AttributePickerTypes leaves pens out of the
     // picker table. The declared type survives on the row, so the slice that
     // gives them a storey list and a pen swatch changes only this line.
-    if (name == "story" || name == "pen")
+    if (name == "story" || name == "pen" || name == "hour")
         return InputKind::Integer;
 
     // Any "attribute:<Type>" is an attribute input; which Archicad control lists
@@ -334,6 +334,12 @@ InputModel ParseInputModel (const std::string& schemaJson)
         ReadBound (entry, "min", control.hasMinimum, control.minimum);
         ReadBound (entry, "max", control.hasMaximum, control.maximum);
         control.kind = InputKindFromName (control.declaredType);
+        if (control.declaredType == "hour") {
+            control.hasMinimum = true;
+            control.minimum = 0;
+            control.hasMaximum = true;
+            control.maximum = 23;
+        }
 
         if (const json::JsonValue* choices = entry.Find ("choices")) {
             if (const json::JsonArray* rows = choices->AsArray ()) {
