@@ -305,3 +305,31 @@ TEST (SlabSlices, EveryFloorCarriesItsArea)
     EXPECT_NEAR (summary.floors[1].areaM2, 100.0, 1e-9);
     EXPECT_FALSE (summary.body);
 }
+
+// ⚠️ THE USER, 2026-10-01: "If Storey has no name do not reuse previous number, increment as
+// it is a new storey" -- every slice above the top storey read the top storey's number. A
+// floor above the project's top storey is a storey of its own, one below its lowest too;
+// within them, two floors in one storey still share its number.
+TEST (SlabSlices, AFloorAboveTheTopStoreyIsAStoreyOfItsOwn)
+{
+    const ProjectStoreys five = Storeys ({ 0.0, 3.0, 6.0, 9.0, 12.1 }); // numbered -1 to 3
+    EXPECT_EQ (slab::StoreysAt (five, { 0.0, 3.0, 6.0, 9.0, 12.1, 15.2, 18.3, 21.4 }),
+               (std::vector<int> { -1, 0, 1, 2, 3, 4, 5, 6 }));
+    EXPECT_EQ (slab::StoreysAt (five, { 0.0, 1.5 }), (std::vector<int> { -1, -1 })) << "one storey, two floors";
+    const ProjectStoreys two = Storeys ({ 3.0, 6.0 }); // numbered -1 and 0
+    EXPECT_EQ (slab::StoreysAt (two, { 0.0, 1.5, 3.0, 6.0 }), (std::vector<int> { -3, -2, -1, 0 }))
+        << "below the lowest, numbered down from it";
+    EXPECT_EQ (slab::StoreysAt (ProjectStoreys (), { 0.0, 3.0 }), (std::vector<int> { 0, 0 }));
+}
+
+// The user's case through the slicing: eight floors over five storeys, the three above the
+// top one numbered on from it -- in the hover readout's "Storey" row.
+TEST (SlabSlices, TheSlicesAboveTheTopStoreyCountOn)
+{
+    std::vector<so::Slice> slices;
+    const slab::Summary summary = slab::SliceSlab (Block (0, 0, 20, 20, 0.0, 24.5), Rule (slab::Cut::Storeys),
+                                                   Storeys ({ 0.0, 3.0, 6.0, 9.0, 12.1 }), slices);
+    ASSERT_EQ (slices.size (), 8u) << summary.problem;
+    for (size_t k = 0; k < slices.size (); ++k)
+        EXPECT_EQ (slices[k].storey, int (k) - 1) << "floor " << k + 1;
+}

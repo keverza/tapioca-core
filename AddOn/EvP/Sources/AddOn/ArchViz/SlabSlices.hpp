@@ -88,6 +88,13 @@ SliceChain Contour (const Ring& ring, double chordMetres);
 // the lowest storey below them all; 0 with no storeys.
 int StoreyAt (const ProjectStoreys& storeys, double z);
 
+// ⚠️ THE STOREY OF EACH FLOOR, `heights` RISING (the user, 2026-10-01: "do not reuse the
+// previous number, increment as it is a new storey"). Within the project's storeys, the one
+// it lies in (`StoreyAt`); a floor above the top storey's level is a storey of its own,
+// numbered on from the top one, and a floor below the lowest is numbered down from it -- a
+// storey with no name never repeats another's number. All 0 with no storeys.
+std::vector<int> StoreysAt (const ProjectStoreys& storeys, const std::vector<double>& heights);
+
 struct Summary {
     std::string guid;
     std::string id;

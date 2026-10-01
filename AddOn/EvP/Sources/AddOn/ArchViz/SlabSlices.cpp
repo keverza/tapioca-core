@@ -239,6 +239,43 @@ int StoreyAt (const ProjectStoreys& storeys, double z)
     return at < storeys.indices.size () ? storeys.indices[at] : int (at);
 }
 
+std::vector<int> StoreysAt (const ProjectStoreys& storeys, const std::vector<double>& heights)
+{
+    std::vector<int> out (heights.size (), 0);
+    if (storeys.levels.empty ())
+        return out;
+    const double lowest = storeys.levels.front (), highest = storeys.levels.back ();
+    const int bottomIndex = StoreyAt (storeys, lowest), topIndex = StoreyAt (storeys, highest);
+    int below = 0;
+    for (const double z : heights)
+        below += z < lowest - kEpsilon ? 1 : 0;
+    int above = 0;
+    for (size_t k = 0; k < heights.size (); ++k) {
+        const double z = heights[k];
+        if (z > highest + kEpsilon)
+            out[k] = topIndex + ++above;
+        else if (z < lowest - kEpsilon)
+            out[k] = bottomIndex - below--;
+        else
+            out[k] = StoreyAt (storeys, z);
+    }
+    return out;
+}
+
+namespace {
+
+// Where each floor is cut: its base raised by the rule's offset, kept within the slab.
+std::vector<double> CutHeights (const std::vector<Floor>& floors, const Rule& rule, const Slab& slab)
+{
+    std::vector<double> heights;
+    heights.reserve (floors.size ());
+    for (const Floor& floor : floors)
+        heights.push_back ((std::min) ((std::max) (floor.base + rule.offsetMetres, slab.bottom), slab.top));
+    return heights;
+}
+
+} // namespace
+
 Summary SliceSlab (const Slab& slab, const Rule& rule, const ProjectStoreys& storeys,
                    std::vector<storysliceoverlay::Slice>& out)
 {
@@ -272,13 +309,15 @@ Summary SliceSlab (const Slab& slab, const Rule& rule, const ProjectStoreys& sto
 
     summary.floors = Floors (slab.bottom, slab.top, rule, storeys.levels, summary.problem);
     const std::string owner = slab.id.empty () ? std::string ("Slab") : slab.id;
+    const std::vector<double> heights = CutHeights (summary.floors, rule, slab);
+    const std::vector<int> storeyOf = StoreysAt (storeys, heights);
     for (size_t k = 0; k < summary.floors.size (); ++k) {
         storysliceoverlay::Slice slice;
         slice.chains = chains;
-        slice.z = (std::min) ((std::max) (summary.floors[k].base + rule.offsetMetres, slab.bottom), slab.top);
+        slice.z = heights[k];
         slice.areaM2 = summary.sliceAreaM2;
         slice.name = owner + " F" + std::to_string (k + 1);
-        slice.storey = StoreyAt (storeys, slice.z);
+        slice.storey = storeyOf[k];
         summary.floors[k].areaM2 = summary.sliceAreaM2;
         out.push_back (std::move (slice));
     }
@@ -300,10 +339,13 @@ Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const P
 
     summary.floors = Floors (slab.bottom, slab.top, rule, storeys.levels, summary.problem);
     const std::string owner = slab.id.empty () ? std::string ("Slab") : slab.id;
+    // Numbered over every floor, so one the operations removed leaves its number unused.
+    const std::vector<double> heights = CutHeights (summary.floors, rule, slab);
+    const std::vector<int> storeyOf = StoreysAt (storeys, heights);
     uint32_t emptied = 0;
     for (size_t k = 0; k < summary.floors.size (); ++k) {
         storysliceoverlay::Slice slice;
-        slice.z = (std::min) ((std::max) (summary.floors[k].base + rule.offsetMetres, slab.bottom), slab.top);
+        slice.z = heights[k];
         slice.chains = CrossSection (body, slice.z, slice.areaM2);
         summary.floors[k].areaM2 = slice.areaM2;
         if (slice.chains.empty ()) {
@@ -311,7 +353,7 @@ Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const P
             continue;
         }
         slice.name = owner + " F" + std::to_string (k + 1);
-        slice.storey = StoreyAt (storeys, slice.z);
+        slice.storey = storeyOf[k];
         summary.areaM2 += slice.areaM2;
         summary.sliceAreaM2 = (std::max) (summary.sliceAreaM2, slice.areaM2);
         out.push_back (std::move (slice));
