@@ -43,7 +43,9 @@ bool FrontWindowIsServedSession ();
 // Archicad only redraws its 3D window when something changes and a menu click
 // changes nothing. `CHAIN frames=0 draws=0/0 ... BLOCKED AT NoModelFrames` is
 // what that looks like, and it is what the Tapioca 3D Overlay menu item produced
-// every time: armed, correct, and waiting for a frame that was never coming.
+// every time: armed, correct, and waiting for a frame that was never coming. Its
+// three attempts count from the context hook going in: a frame asked for before then
+// nominates Archicad's chain, and nothing records it.
 //
 // ⚠️ PRODUCTION MUST NOT DEPEND ON THE USER DOING WHAT
 // A DIAGNOSTIC INSTRUCTS (§9). The regression command works only because it

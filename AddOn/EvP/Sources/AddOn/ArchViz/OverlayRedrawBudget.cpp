@@ -7,6 +7,7 @@
 #include "ArchViz/OverlayRedrawBudget.hpp"
 
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/OverlayRuntimeReport.hpp"
 
 namespace geomsrv {
@@ -42,6 +43,13 @@ const uint32_t kTicksBetweenColdStarts = 4; // the heartbeat runs 4x a second
 uint32_t g_coldStarts = 0;
 uint32_t g_ticksSinceCold = kTicksBetweenColdStarts;
 
+// ⚠️ ONLY A FRAME THE HOOKS SEE IS AN ANSWER (the user, 2026-09-30 15:09:45-47: all
+// three were asked before the context hook went in, and the camera then waited for an
+// orbit). Those before it still have a use -- their Presents are what nominates
+// Archicad's chain -- so they are not refused; the budget starts again, once, when the
+// hook goes in, and its first redraw is asked at once.
+bool g_hookSeen = false;
+
 } // namespace
 
 bool FrontWindowIsServedSession ()
@@ -66,13 +74,18 @@ void Consider (uint64_t modelFramesSeen)
     // frame resets the budget": a viewport that redraws for its own reasons must
     // never buy further attempts, which is the storm the extent budget is
     // shaped to avoid and the same trap one level along.
+    if (!g_hookSeen && dxgi::ContextHookInstalled ()) {
+        g_hookSeen = true;
+        g_coldStarts = 0;
+        g_ticksSinceCold = kTicksBetweenColdStarts;
+    }
     if (modelFramesSeen == 0 && g_coldStarts < kMaxColdStarts) {
         if (++g_ticksSinceCold >= kTicksBetweenColdStarts && FrontWindowIsServedSession ()) {
             g_ticksSinceCold = 0;
             ++g_coldStarts;
             ++g_requests;
             ACAPI_View_Redraw ();
-            if (g_coldStarts == kMaxColdStarts)
+            if (g_coldStarts == kMaxColdStarts && g_hookSeen)
                 report::Say ("CAMERA", "asked the 3D window to redraw three times and it produced no model "
                                        "frames -- navigate it once, or check it is the window in front");
         }
@@ -123,6 +136,7 @@ void Reset ()
     g_servedKnown = false;
     g_coldStarts = 0;
     g_ticksSinceCold = kTicksBetweenColdStarts;
+    g_hookSeen = false;
 }
 
 } // namespace redrawbudget
