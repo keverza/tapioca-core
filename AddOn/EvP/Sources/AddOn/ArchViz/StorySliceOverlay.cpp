@@ -8,6 +8,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/SlabBodies.hpp"
 #include "ArchViz/StorySliceSnapshot.hpp"
 
 #include <windows.h>
@@ -40,9 +41,17 @@ bool g_awaitingPass = false; // a pass we asked for has not been seen idle since
 
 // The slab sources.
 std::vector<std::string> g_targets;
-std::vector<uint64_t> g_stamps;
+std::vector<uint64_t> g_stamps; // the slabs' and their operators'
 std::vector<double> g_levels;
 uint32_t g_ticks = 0;
+// ⚠️ A SLAB SOLID ELEMENT OPERATIONS CUT IS SLICED FROM ITS 3D BODY (SlabSlices
+// `SliceBody`), and neither its record nor its stamp moves when an operator does, or when
+// a link is made (the user, 2026-10-01: a subtraction left the slices as they were). Each
+// slab's operators are followed with it, and its body comes from the extraction pass that
+// draws the wireframe, after it (SlabBodies.hpp).
+std::vector<std::vector<std::string>> g_operators; // per slab taken
+uint64_t g_bodies = 0;                             // the bodies' generation the slices were cut from
+bool g_bodyPass = false;                           // a pass for the bodies is wanted once the worker is free
 
 void Say (const std::string& message)
 {
@@ -75,18 +84,78 @@ bool Show (Built built)
 
 // ---- the slabs ----------------------------------------------------------------------
 
+// The slabs taken and every operator of theirs: an operator's edit moves the slab's body
+// and not its record.
+std::vector<std::string> Watched ()
+{
+    std::vector<std::string> all = g_targets;
+    for (const std::vector<std::string>& operators : g_operators)
+        all.insert (all.end (), operators.begin (), operators.end ());
+    return all;
+}
+
+std::vector<std::string> OperatedSlabs ()
+{
+    std::vector<std::string> operated;
+    for (size_t i = 0; i < g_targets.size () && i < g_operators.size (); ++i)
+        if (!g_operators[i].empty ())
+            operated.push_back (g_targets[i]);
+    return operated;
+}
+
+const std::vector<std::string>* OperatorsOf (const std::string& guid)
+{
+    for (size_t i = 0; i < g_targets.size () && i < g_operators.size (); ++i)
+        if (g_targets[i] == guid)
+            return &g_operators[i];
+    return nullptr;
+}
+
+// A pass that hands over the operated slabs' bodies: now if the extraction is free, else
+// once it is -- a pass already running read what it wanted at its start.
+void AskForBodies ()
+{
+    g_bodyPass = false;
+    if (OperatedSlabs ().empty ())
+        return;
+    ExtractionWorker& worker = ExtractionWorker::Get ();
+    if (worker.IsRunning ()) {
+        g_bodyPass = true;
+        return;
+    }
+    worker.Start (true);
+}
+
 void CutSlabs (const char* why)
 {
     const ProjectStoreys storeys = ReadStoreys ();
     g_levels = storeys.levels;
-    g_stamps = slabsource::Stamps (g_targets);
+    g_operators = slabsource::Operators (g_targets);
+    slabbodies::Want (OperatedSlabs ());
+    const std::shared_ptr<const slabbodies::Bodies> bodies = slabbodies::Latest ();
+    g_bodies = bodies != nullptr ? bodies->generation : 0;
+    g_stamps = slabsource::Stamps (Watched ());
     slabsource::Reading reading = slabsource::Read (g_targets, storeys);
     std::vector<Slice> slices;
     g_state.slabs.clear ();
+    g_state.waiting = false;
     std::string problems;
+    uint32_t waiting = 0;
     for (const slabslices::Slab& slab : reading.slabs) {
-        g_state.slabs.push_back (slabslices::SliceSlab (slab, g_request.rule, storeys, slices));
-        const slabslices::Summary& summary = g_state.slabs.back ();
+        const std::vector<std::string>* operators = OperatorsOf (slab.guid);
+        const Mesh* body = nullptr;
+        if (operators != nullptr && !operators->empty () && bodies != nullptr) {
+            const auto found = bodies->meshes.find (slab.guid);
+            body = found != bodies->meshes.end () ? &found->second : nullptr;
+        }
+        if (body != nullptr)
+            g_state.slabs.push_back (slabslices::SliceBody (slab, *body, g_request.rule, storeys, slices));
+        else
+            g_state.slabs.push_back (slabslices::SliceSlab (slab, g_request.rule, storeys, slices));
+        slabslices::Summary& summary = g_state.slabs.back ();
+        summary.operators = operators != nullptr ? uint32_t (operators->size ()) : 0u;
+        if (summary.operators != 0 && body == nullptr)
+            ++waiting;
         if (!summary.problem.empty ())
             problems += "; " + (summary.id.empty () ? summary.guid : summary.id) + ": " + summary.problem;
         if (summary.slopedEdges != 0)
@@ -94,6 +163,13 @@ void CutSlabs (const char* why)
                         std::to_string (summary.slopedEdges) + " edge(s) trimmed off vertical, cut as vertical";
     }
     g_state.skipped = std::move (reading.skipped);
+    // Drawn as its polygon until its body comes: right everywhere the operations are not.
+    if (waiting != 0) {
+        g_state.waiting = true;
+        problems += "; " + std::to_string (waiting) +
+                    " slab(s) cut by solid element operations drawn as their polygon until the 3D "
+                    "model's body arrives (it must be in the 3D window: shown, on a visible layer)";
+    }
     ++g_state.cuts;
     if (!Show (BuildLayer (slices, g_controls)))
         return;
@@ -115,8 +191,23 @@ void FollowSlabs ()
 {
     if (g_targets.empty ())
         return;
-    if (slabsource::Stamps (g_targets) != g_stamps) {
+    if (slabsource::Operators (g_targets) != g_operators) {
+        CutSlabs ("a solid element operation changed");
+        AskForBodies ();
+        return;
+    }
+    if (slabsource::Stamps (Watched ()) != g_stamps) {
         CutSlabs ("a slab changed");
+        AskForBodies ();
+        return;
+    }
+    if (g_bodyPass && !ExtractionWorker::Get ().IsRunning ())
+        AskForBodies ();
+    // A pass handed over new bodies -- one asked for here, or the model watch's after an
+    // edit the 3D model saw.
+    const std::shared_ptr<const slabbodies::Bodies> bodies = slabbodies::Latest ();
+    if (bodies != nullptr && bodies->generation != g_bodies && !OperatedSlabs ().empty ()) {
+        CutSlabs ("the 3D model changed");
         return;
     }
     if (++g_ticks % kStoreyTicks == 0 && ReadStoreys ().levels != g_levels)
@@ -219,6 +310,10 @@ void Forget ()
     g_stamps.clear ();
     g_levels.clear ();
     g_ticks = 0;
+    g_operators.clear ();
+    g_bodies = 0;
+    g_bodyPass = false;
+    slabbodies::Clear ();
     g_state = State {};
 }
 
@@ -264,6 +359,8 @@ State Apply (bool enabled, const Request& request, const Controls& controls, boo
     switch (request.source) {
         case Source::Model:
             g_targets.clear ();
+            g_operators.clear ();
+            slabbodies::Clear ();
             g_state.slabs.clear ();
             g_state.skipped.clear ();
             ApplyModel (refresh);
@@ -280,10 +377,12 @@ State Apply (bool enabled, const Request& request, const Controls& controls, boo
                 g_targets = std::move (guids);
             }
             CutSlabs (refresh ? "refresh" : "on");
+            AskForBodies ();
             break;
         case Source::Elements:
             g_targets = request.elements;
             CutSlabs (refresh ? "refresh" : "on");
+            AskForBodies ();
             break;
     }
     return g_state;

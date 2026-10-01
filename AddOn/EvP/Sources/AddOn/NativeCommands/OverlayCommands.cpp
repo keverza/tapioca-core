@@ -309,9 +309,12 @@ GS::ObjectState SlabRecord (const archviz::slabslices::Summary& slab)
         GS::ObjectState record;
         record.Add ("base", floor.base);
         record.Add ("height", floor.height);
+        record.Add ("areaM2", floor.areaM2);
         floors.Push (record);
     }
     os.Add ("floors", floors);
+    os.Add ("body", slab.body);
+    os.Add ("operators", (GS::Int32) slab.operators);
     os.Add ("slopedEdges", (GS::Int32) slab.slopedEdges);
     os.Add ("problem", Utf8 (slab.problem));
     return os;
@@ -503,12 +506,14 @@ constexpr const char kOverlayStorySlicesOutput[] = R"json({"type":"object","prop
         "elementId":{"$ref":"#ElementId"},"id":{"type":"string"},"bottom":{"type":"number"},"top":{"type":"number"},
         "footprintM2":{"type":"number"},"sliceAreaM2":{"type":"number"},"areaM2":{"type":"number"},
         "floors":{"type":"array","items":{"type":"object","properties":{
-            "base":{"type":"number"},"height":{"type":"number"}},
-          "additionalProperties":false,"required":["base","height"]}},
+            "base":{"type":"number"},"height":{"type":"number"},"areaM2":{"type":"number"}},
+          "additionalProperties":false,"required":["base","height","areaM2"]}},
+        "body":{"type":"boolean","description":"Cut from the slab's 3D body, solid element operations applied, rather than its polygon."},
+        "operators":{"type":"integer","minimum":0,"description":"The slab's solid element operation operators."},
         "slopedEdges":{"type":"integer","minimum":0},"problem":{"type":"string"}},
       "additionalProperties":false,
-      "required":["elementId","id","bottom","top","footprintM2","sliceAreaM2","areaM2","floors","slopedEdges",
-                  "problem"]}},
+      "required":["elementId","id","bottom","top","footprintM2","sliceAreaM2","areaM2","floors","body","operators",
+                  "slopedEdges","problem"]}},
     "skipped":{"type":"array","items":{"type":"object","properties":{
         "elementId":{"$ref":"#ElementId"},"reason":{"type":"string"}},
       "additionalProperties":false,"required":["elementId","reason"]}},

@@ -19,6 +19,7 @@
 #include "Geometry/Mesh.hpp"
 
 #include <cstddef>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -71,14 +72,17 @@ class StorySliceAccumulator final {
   public:
     // Arms the accumulator for a pass. `Active` stays false — and every other
     // call becomes a no-op — when there are no storeys or slices were not asked
-    // for, so the caller needs no second flag of its own.
+    // for and no slab's body is wanted, so the caller needs no second flag of its own.
     void Begin (const ProjectStoreys& storeys, bool wanted);
+    // ⚠️ ALSO ACTIVE FOR THE SLABS SLICED FROM THEIR BODY (SlabBodies.hpp): every pass
+    // hands over the meshes of the slabs wanted at its start, storeys or not.
     bool Active () const
     {
-        return !planes_.empty ();
+        return !planes_.empty () || !capture_.empty ();
     }
 
-    // Cut one element against every storey plane and keep the loops.
+    // Cut one element against every storey plane and keep the loops; and keep its
+    // mesh when it is a slab whose body is wanted.
     //
     // ⚠️ TAKES THE Mesh, WHICH IS DOUBLE, AND THAT IS LOAD-BEARING. The
     // ElementUpload built beside this narrows the same vertices to float, where a
@@ -88,7 +92,8 @@ class StorySliceAccumulator final {
     void Cut (const Mesh& mesh);
 
     // Union every storey, build the ribbon and the fill, and push one
-    // SetStorySlices command. Logs what it cut.
+    // SetStorySlices command. Logs what it cut. Publishes the wanted slabs' bodies
+    // (SlabBodies.hpp) -- by the same rule, only for a pass that finished.
     //
     // ⚠️ THE CALLER MUST ONLY CALL THIS FOR A PASS THAT ACTUALLY FINISHED. A
     // union over PART of a storey is not a rougher outline — it is a confident,
@@ -99,6 +104,8 @@ class StorySliceAccumulator final {
   private:
     std::vector<std::vector<Polyline>> loops_; // one bucket per storey
     std::vector<double> planes_;
+    std::set<std::string> capture_; // the slabs whose bodies this pass hands over
+    std::vector<Mesh> captured_;
     // Carried for the overlays' per-storey snapshot (StorySliceSnapshot.hpp).
     std::vector<std::string> names_;
     std::vector<int> indices_;

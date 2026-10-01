@@ -9,7 +9,10 @@
 //                         (SlabSlices.hpp), read from the database (SlabSliceSource.hpp).
 //                         `on` takes the slabs selected at that moment, or the ones named;
 //                         while on, an edit to one of them, or to the storeys, re-cuts
-//                         within a tick, and `refresh` re-reads them all.
+//                         within a tick, and `refresh` re-reads them all. A slab solid
+//                         element operations cut is sliced from its 3D body instead -- the
+//                         extraction's, after the pass that draws the wireframe -- and its
+//                         operators are followed with it (SlabBodies.hpp).
 //   model                 the whole model cut at each storey: the extraction's union
 //                         outlines, from a full pass (StorySliceAccumulator). An element
 //                         edit re-extracts incrementally and leaves them as they were;
@@ -45,7 +48,7 @@ struct State {
     bool enabled = false;
     Source source = Source::Selection;
     slabslices::Cut cut = slabslices::Cut::Storeys;
-    bool waiting = false;  // model: enabled and no cut yet, a full pass is asked for or running
+    bool waiting = false;  // model: no cut yet, a full pass asked for; slabs: a body not yet read
     uint32_t slices = 0;   // drawn under the filter
     double areaM2 = 0.0;   // their areas summed
     uint32_t storeys = 0;  // model: storeys in the latest cut

@@ -20406,14 +20406,27 @@
                       },
                       "height": {
                         "type": "number"
+                      },
+                      "areaM2": {
+                        "type": "number"
                       }
                     },
                     "additionalProperties": false,
                     "required": [
                       "base",
-                      "height"
+                      "height",
+                      "areaM2"
                     ]
                   }
+                },
+                "body": {
+                  "type": "boolean",
+                  "description": "Cut from the slab's 3D body, solid element operations applied, rather than its polygon."
+                },
+                "operators": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "The slab's solid element operation operators."
                 },
                 "slopedEdges": {
                   "type": "integer",
@@ -20433,6 +20446,8 @@
                 "sliceAreaM2",
                 "areaM2",
                 "floors",
+                "body",
+                "operators",
                 "slopedEdges",
                 "problem"
               ]

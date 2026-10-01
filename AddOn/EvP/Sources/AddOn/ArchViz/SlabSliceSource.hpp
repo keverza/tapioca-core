@@ -48,6 +48,11 @@ Reading Read (const std::vector<std::string>& guids, const ProjectStoreys& store
 // Each element's modification stamp, 0 for one that no longer exists.
 std::vector<uint64_t> Stamps (const std::vector<std::string>& guids);
 
+// Each element's solid element operation operators (`ACAPI_Element_SolidLink_GetOperators`),
+// empty for one no operation targets. A slab with any is sliced from its 3D body: its
+// record and stamp do not move when an operator does, or when a link is made.
+std::vector<std::vector<std::string>> Operators (const std::vector<std::string>& guids);
+
 } // namespace slabsource
 } // namespace archviz
 } // namespace geomsrv

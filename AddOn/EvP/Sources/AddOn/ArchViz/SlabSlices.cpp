@@ -3,6 +3,7 @@
 #include "ArchViz/SlabSlices.hpp"
 
 #include "ArchViz/PlanOverlayContent.hpp" // TessellateEdgeDouble: the one reading of an arc
+#include "Geometry/SliceEngine.hpp"       // SliceMesh: the one plane cut of a mesh
 
 #include <algorithm>
 #include <cmath>
@@ -27,6 +28,63 @@ double SignedArea (const std::vector<double>& xy)
     for (size_t i = 0, j = n - 1; i < n; j = i++)
         area += xy[j * 2] * xy[i * 2 + 1] - xy[i * 2] * xy[j * 2 + 1];
     return n < 3 ? 0.0 : area * 0.5;
+}
+
+bool InsideRing (double x, double y, const std::vector<double>& xy)
+{
+    const size_t n = xy.size () / 2;
+    bool inside = false;
+    for (size_t i = 0, j = n - 1; i < n; j = i++) {
+        const double xi = xy[i * 2], yi = xy[i * 2 + 1];
+        const double xj = xy[j * 2], yj = xy[j * 2 + 1];
+        if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+            inside = !inside;
+    }
+    return n >= 3 && inside;
+}
+
+// The cross-section of `body` at `z`: its loops as contours, and the area its closed
+// rings enclose, even-odd -- one solid's rings are disjoint, so a ring inside an odd
+// number of others is a hole. An open chain (a body that is not closed there) is kept
+// for the outline and counts for nothing.
+std::vector<SliceChain> CrossSection (const Mesh& body, double z, double& area)
+{
+    area = 0.0;
+    std::vector<SliceChain> chains;
+    if (body.vertices.empty () || body.triangles.empty ())
+        return chains;
+    if (body.bounds.Valid () && (body.bounds.mn[2] > z || body.bounds.mx[2] < z))
+        return chains;
+    // The storey slices' tangency lift (ExtractionStorySlices.cpp): a plane on a face
+    // of the body has no cross-section there.
+    if (IsTangentToPlane (body.vertices.data (), body.VertexCount (), z))
+        z += 1e-6;
+    const std::vector<Polyline> loops =
+        SliceMesh (body.vertices.data (), body.VertexCount (), body.triangles.data (), body.TriangleCount (), z);
+    for (const Polyline& loop : loops) {
+        SliceChain chain;
+        chain.closed = loop.closed;
+        // A closed loop ends on its start; a contour does not repeat it.
+        const size_t n = loop.PointCount () - (loop.closed && loop.PointCount () > 1 ? 1 : 0);
+        for (size_t i = 0; i < n; ++i) {
+            chain.xy.push_back (loop.pts[i * 3]);
+            chain.xy.push_back (loop.pts[i * 3 + 1]);
+        }
+        if (chain.Count () >= (chain.closed ? 3u : 2u))
+            chains.push_back (std::move (chain));
+    }
+    for (size_t i = 0; i < chains.size (); ++i) {
+        if (!chains[i].closed)
+            continue;
+        size_t around = 0;
+        for (size_t j = 0; j < chains.size (); ++j)
+            if (j != i && chains[j].closed && InsideRing (chains[i].xy[0], chains[i].xy[1], chains[j].xy))
+                ++around;
+        const double ring = std::fabs (SignedArea (chains[i].xy));
+        area += around % 2 == 0 ? ring : -ring;
+    }
+    area = (std::max) (area, 0.0);
+    return chains;
 }
 
 void StoreyFloors (double bottom, double top, double minTop, const std::vector<double>& levels,
@@ -221,9 +279,45 @@ Summary SliceSlab (const Slab& slab, const Rule& rule, const ProjectStoreys& sto
         slice.areaM2 = summary.sliceAreaM2;
         slice.name = owner + " F" + std::to_string (k + 1);
         slice.storey = StoreyAt (storeys, slice.z);
+        summary.floors[k].areaM2 = summary.sliceAreaM2;
         out.push_back (std::move (slice));
     }
     summary.areaM2 = summary.sliceAreaM2 * double (summary.floors.size ());
+    return summary;
+}
+
+Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const ProjectStoreys& storeys,
+                   std::vector<storysliceoverlay::Slice>& out)
+{
+    Summary summary;
+    summary.guid = slab.guid;
+    summary.id = slab.id;
+    summary.bottom = slab.bottom;
+    summary.top = slab.top;
+    summary.body = true;
+    const SliceChain outer = Contour (slab.outer, kChordMetres);
+    summary.footprintM2 = outer.Count () < 3 ? 0.0 : std::fabs (SignedArea (outer.xy));
+
+    summary.floors = Floors (slab.bottom, slab.top, rule, storeys.levels, summary.problem);
+    const std::string owner = slab.id.empty () ? std::string ("Slab") : slab.id;
+    uint32_t emptied = 0;
+    for (size_t k = 0; k < summary.floors.size (); ++k) {
+        storysliceoverlay::Slice slice;
+        slice.z = (std::min) ((std::max) (summary.floors[k].base + rule.offsetMetres, slab.bottom), slab.top);
+        slice.chains = CrossSection (body, slice.z, slice.areaM2);
+        summary.floors[k].areaM2 = slice.areaM2;
+        if (slice.chains.empty ()) {
+            ++emptied;
+            continue;
+        }
+        slice.name = owner + " F" + std::to_string (k + 1);
+        slice.storey = StoreyAt (storeys, slice.z);
+        summary.areaM2 += slice.areaM2;
+        summary.sliceAreaM2 = (std::max) (summary.sliceAreaM2, slice.areaM2);
+        out.push_back (std::move (slice));
+    }
+    if (emptied != 0 && summary.problem.empty ())
+        summary.problem = std::to_string (emptied) + " floor(s) with no cross-section: the operations removed them";
     return summary;
 }
 

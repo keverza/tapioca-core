@@ -177,6 +177,19 @@ std::vector<uint64_t> Stamps (const std::vector<std::string>& guids)
     return stamps;
 }
 
+std::vector<std::vector<std::string>> Operators (const std::vector<std::string>& guids)
+{
+    std::vector<std::vector<std::string>> all (guids.size ());
+    for (size_t i = 0; i < guids.size (); ++i) {
+        GS::Array<API_Guid> found;
+        if (ACAPI_Element_SolidLink_GetOperators (APIGuidFromString (guids[i].c_str ()), &found) != NoError)
+            continue; // not found, or not ours: the slab's own read says which
+        for (const API_Guid& guid : found)
+            all[i].push_back (Utf8 (APIGuidToString (guid)));
+    }
+    return all;
+}
+
 } // namespace slabsource
 } // namespace archviz
 } // namespace geomsrv

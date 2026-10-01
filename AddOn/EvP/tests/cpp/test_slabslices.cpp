@@ -50,6 +50,30 @@ slab::Slab Block (double x0, double y0, double x1, double y1, double bottom, dou
     return block;
 }
 
+// The walls of a body between `z0` and `z1`, each ring of x, y corners extruded -- what
+// a plane between them cuts. The caps lie in the planes the slices never cut.
+geomsrv::Mesh Walls (const std::vector<std::vector<double>>& rings, double z0, double z1)
+{
+    geomsrv::Mesh mesh;
+    mesh.guid = "11111111-2222-3333-4444-555555555555";
+    for (const std::vector<double>& ring : rings) {
+        const size_t n = ring.size () / 2;
+        for (size_t i = 0; i < n; ++i) {
+            const size_t j = (i + 1) % n;
+            const uint32_t base = uint32_t (mesh.vertices.size () / 3);
+            for (const double z : { z0, z1 }) {
+                mesh.vertices.insert (mesh.vertices.end (), { ring[i * 2], ring[i * 2 + 1], z });
+                mesh.vertices.insert (mesh.vertices.end (), { ring[j * 2], ring[j * 2 + 1], z });
+            }
+            // (i,z0) (j,z0) (i,z1) (j,z1)
+            mesh.triangles.insert (mesh.triangles.end (), { base, base + 1, base + 3, base, base + 3, base + 2 });
+        }
+    }
+    for (size_t v = 0; v + 2 < mesh.vertices.size (); v += 3)
+        mesh.bounds.Expand (mesh.vertices[v], mesh.vertices[v + 1], mesh.vertices[v + 2]);
+    return mesh;
+}
+
 } // namespace
 
 // ⚠️ THE FEASIBILITY FIGURES' OWN CASES (massingcalc.story_floors): from the storey the
@@ -222,4 +246,62 @@ TEST (SlabSlices, TheSlicesDrawAsTheStoreySliceLayer)
     ASSERT_EQ (built.layer.texts.size (), 2u);
     EXPECT_EQ (built.layer.texts[1].text, "A-01 F2  200.0 m\xC2\xB2");
     EXPECT_DOUBLE_EQ (built.layer.texts[1].at[2], 3.0);
+}
+
+// ⚠️ THE USER, 2026-10-01: a subtraction from a massing slab did not change its slices --
+// they were its polygon, and a solid element operation lives only in the 3D model. Cut
+// from the body, a courtyard subtracted through it is a HOLE in every floor (the storey
+// union would have filled it: it takes every ring as a region).
+TEST (SlabSlices, ABodysSubtractedCourtyardIsAHoleInEveryFloor)
+{
+    const slab::Slab block = Block (0.0, 0.0, 20.0, 10.0, 0.0, 9.0);
+    const geomsrv::Mesh body = Walls (
+        { { 0.0, 0.0, 20.0, 0.0, 20.0, 10.0, 0.0, 10.0 }, { 8.0, 3.0, 12.0, 3.0, 12.0, 7.0, 8.0, 7.0 } }, 0.0, 9.0);
+    slab::Rule rule = Rule (slab::Cut::Step);
+    rule.stepMetres = 3.0;
+    std::vector<so::Slice> slices;
+    const slab::Summary summary = slab::SliceBody (block, body, rule, Storeys ({ 0.0, 3.0, 6.0 }), slices);
+
+    ASSERT_EQ (slices.size (), 3u);
+    for (const so::Slice& slice : slices) {
+        EXPECT_NEAR (slice.areaM2, 200.0 - 16.0, 1e-6);
+        EXPECT_EQ (slice.chains.size (), 2u) << "the outline and the courtyard";
+    }
+    EXPECT_TRUE (summary.body);
+    EXPECT_NEAR (summary.areaM2, 3.0 * 184.0, 1e-6);
+    EXPECT_NEAR (summary.footprintM2, 200.0, 1e-6) << "the footprint stays the polygon's";
+    EXPECT_EQ (slices[1].name, "A-01 F2");
+    EXPECT_NEAR (summary.floors[2].areaM2, 184.0, 1e-6);
+}
+
+// The top floor subtracted away: the slab's record still reaches 9 m, its body 6 m. That
+// floor has no slice and is said, and the others are whole.
+TEST (SlabSlices, AFloorTheOperationsRemovedHasNoSlice)
+{
+    const slab::Slab block = Block (0.0, 0.0, 20.0, 10.0, 0.0, 9.0);
+    const geomsrv::Mesh body = Walls ({ { 0.0, 0.0, 20.0, 0.0, 20.0, 10.0, 0.0, 10.0 } }, 0.0, 6.0);
+    slab::Rule rule = Rule (slab::Cut::Step);
+    rule.stepMetres = 3.0;
+    std::vector<so::Slice> slices;
+    const slab::Summary summary = slab::SliceBody (block, body, rule, Storeys ({ 0.0, 3.0, 6.0 }), slices);
+
+    EXPECT_EQ (summary.floors.size (), 3u);
+    ASSERT_EQ (slices.size (), 2u);
+    EXPECT_NEAR (summary.areaM2, 400.0, 1e-6);
+    EXPECT_EQ (summary.floors[2].areaM2, 0.0);
+    EXPECT_NE (summary.problem.find ("1 floor(s) with no cross-section"), std::string::npos) << summary.problem;
+}
+
+// The polygon path names each floor's area too, so a reader need not know which path cut.
+TEST (SlabSlices, EveryFloorCarriesItsArea)
+{
+    const slab::Slab block = Block (0.0, 0.0, 10.0, 10.0, 0.0, 6.0);
+    slab::Rule rule = Rule (slab::Cut::Step);
+    rule.stepMetres = 3.0;
+    std::vector<so::Slice> slices;
+    const slab::Summary summary = slab::SliceSlab (block, rule, Storeys ({ 0.0, 3.0 }), slices);
+    ASSERT_EQ (summary.floors.size (), 2u);
+    EXPECT_NEAR (summary.floors[0].areaM2, 100.0, 1e-9);
+    EXPECT_NEAR (summary.floors[1].areaM2, 100.0, 1e-9);
+    EXPECT_FALSE (summary.body);
 }

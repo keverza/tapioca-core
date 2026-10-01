@@ -29,6 +29,7 @@
 
 #include "ArchViz/ExtractionStorySlices.hpp" // ProjectStoreys
 #include "ArchViz/StorySliceOverlayContent.hpp"
+#include "Geometry/Mesh.hpp"
 
 #include <cstdint>
 #include <string>
@@ -72,6 +73,7 @@ const char* CutName (Cut cut);
 struct Floor {
     double base = 0.0;   // world Z metres
     double height = 0.0; // to the next floor's base, or to the slab's top
+    double areaM2 = 0.0; // its slice; 0 where a body has no cross-section at its cut
 };
 
 // The floors of a slab from `bottom` to `top` under `rule`, bottom first. `levels` are
@@ -97,11 +99,27 @@ struct Summary {
     std::vector<Floor> floors;
     uint32_t slopedEdges = 0;
     std::string problem; // why there are no floors, when there are none
+    // Cut from the slab's 3D body (`SliceBody`), not its polygon; and its solid element
+    // operations' operators, which the caller counts.
+    bool body = false;
+    uint32_t operators = 0;
 };
 
 // The slices of one slab, appended to `out`: one per floor, at its base plus the
 // rule's offset, named "<ID> F<n>" ("Slab F<n>" without an ID).
 Summary SliceSlab (const Slab& slab, const Rule& rule, const ProjectStoreys& storeys,
+                   std::vector<storysliceoverlay::Slice>& out);
+
+// ⚠️ A SLAB SOLID ELEMENT OPERATIONS CUT IS NOT ITS POLYGON. A subtraction lives only in
+// the 3D model: the slab's record, and its 3D conversion through ModelAccess, are its
+// own geometry from before the operation (HANDOFF-SolidOperations §4). `body` is the
+// mesh the extraction read from the 3D model -- the one the overlays' wireframe draws,
+// operations applied. Same floors, cut heights and names as `SliceSlab`; each slice is
+// the body's cross-section at its cut, its rings even-odd (a subtracted courtyard is a
+// hole, not filled by a union), and a floor the operations emptied has no slice. The
+// footprint stays the polygon's: what the feasibility figures call it; `sliceAreaM2` is
+// the largest slice.
+Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const ProjectStoreys& storeys,
                    std::vector<storysliceoverlay::Slice>& out);
 
 } // namespace slabslices

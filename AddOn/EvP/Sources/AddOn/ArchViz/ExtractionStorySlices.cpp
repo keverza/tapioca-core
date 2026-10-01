@@ -5,6 +5,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/SlabBodies.hpp"         // the slabs sliced from their body
 #include "ArchViz/StorySliceGeometry.hpp" // ChainUnionSegments, BuildSliceRibbon/Fill
 #include "ArchViz/StorySliceSnapshot.hpp" // the same cuts, per storey, for the overlays
 #include "ArchViz/StorySliceUnion.hpp"    // UnionLoops
@@ -50,6 +51,9 @@ void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted)
     planes_.clear ();
     names_.clear ();
     indices_.clear ();
+    // Whatever the storeys: the slabs sliced from their body want them from every pass.
+    capture_ = slabbodies::Wanted ();
+    captured_.clear ();
     if (!wanted || storeys.Empty ())
         return;
     planes_ = storeys.levels;
@@ -60,6 +64,8 @@ void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted)
 
 void StorySliceAccumulator::Cut (const Mesh& mesh)
 {
+    if (!capture_.empty () && capture_.count (mesh.guid) != 0)
+        captured_.push_back (mesh);
     if (planes_.empty () || mesh.vertices.empty () || mesh.triangles.empty ())
         return;
 
@@ -105,6 +111,10 @@ double TriangleFanArea (const std::vector<StorySliceFillVertex>& tris, size_t be
 
 void StorySliceAccumulator::FinishAndPush ()
 {
+    if (!capture_.empty ()) {
+        slabbodies::Publish (std::move (captured_));
+        captured_.clear ();
+    }
     if (planes_.empty ())
         return;
 
