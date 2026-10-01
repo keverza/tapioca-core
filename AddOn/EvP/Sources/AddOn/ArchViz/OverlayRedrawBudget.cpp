@@ -51,6 +51,7 @@ uint32_t g_ticksSinceCold = kTicksBetweenColdStarts;
 bool g_hookSeen = false;
 // `AskSoon`: the cold starts after the hook a tick apart.
 bool g_soon = false;
+bool g_saidNoFrames = false;
 
 } // namespace
 
@@ -88,10 +89,15 @@ void Consider (uint64_t modelFramesSeen)
             ++g_coldStarts;
             ++g_requests;
             ACAPI_View_Redraw ();
-            if (g_coldStarts == kMaxColdStarts && g_hookSeen)
-                report::Say ("CAMERA", "asked the 3D window to redraw three times and it produced no model "
-                                       "frames -- navigate it once, or check it is the window in front");
         }
+    }
+    // ⚠️ SAID WHEN THE LAST ONE HAS HAD ITS TIME TO ANSWER, AND ONLY IF IT DID NOT. It was
+    // said as the third was asked, and the camera locked in the same second (the user,
+    // 2026-10-01 09:06:28).
+    else if (modelFramesSeen == 0 && g_hookSeen && !g_saidNoFrames && ++g_ticksSinceCold > spacing) {
+        g_saidNoFrames = true;
+        report::Say ("CAMERA", "asked the 3D window to redraw three times and it produced no model "
+                               "frames -- navigate it once, or check it is the window in front");
     }
 
     // ⚠️ THE BUDGET BELONGS TO THE EXTENT, NOT TO MODEL FRAMES.
@@ -146,6 +152,7 @@ void Reset ()
     g_ticksSinceCold = kTicksBetweenColdStarts;
     g_hookSeen = false;
     g_soon = false;
+    g_saidNoFrames = false;
 }
 
 } // namespace redrawbudget
