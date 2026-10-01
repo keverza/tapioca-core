@@ -499,21 +499,6 @@ Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration)
     return Lifecycle::Reacquiring;
 }
 
-const char* LifecycleName (Lifecycle state)
-{
-    switch (state) {
-        case Lifecycle::Unknown:
-            return "Unknown";
-        case Lifecycle::Learning:
-            return "Learning";
-        case Lifecycle::Locked:
-            return "Locked";
-        case Lifecycle::Reacquiring:
-            return "Reacquiring";
-    }
-    return "Unknown";
-}
-
 // ⚠️ EVERY TERM COMES FROM THE COPIED GROUP: `CopyGroups`
 // folds the slot's medians in, so nothing here needs the census's buffers.
 // ⚠️ NO EARLY RETURN, AND THAT IS THE POINT -- the same rule
@@ -809,21 +794,6 @@ BindReport GetBindReport ()
     return g_bind;
 }
 
-const char* BindReasonName (BindReason reason)
-{
-    switch (reason) {
-        case BindReason::Calibrating:
-            return "calibrating";
-        case BindReason::NoCandidate:
-            return "noCandidate";
-        case BindReason::HighestCoverage:
-            return "highestCoverage";
-        case BindReason::StationaryFallback:
-            return "stationaryFallback";
-    }
-    return "unknown";
-}
-
 void NoteModelRevision (uint32_t revision)
 {
     g_modelRevision = revision;
@@ -874,30 +844,6 @@ FingerprintDiagnosis GetFingerprintDiagnosis ()
 uint32_t EligibleCandidates ()
 {
     return g_eligibleCandidates;
-}
-
-const char* GateTermName (uint32_t term)
-{
-    switch (term) {
-        case kGateSamples:
-            return "samples";
-        case kGateCoverage:
-            return "coverage";
-        case kGateInsideClip:
-            return "insideClip";
-        case kGateFiniteTriangles:
-            return "finiteTriangles";
-        case kGateAreaPixels:
-            return "areaPixels";
-        case kGateEdgePixels:
-            return "edgePixels";
-        case kGateCentreError:
-            return "centreError";
-        case kGateProjectionDivides:
-            return "projectionDivides";
-        default:
-            return "?";
-    }
 }
 
 EligibilityDiagnosis GetEligibilityDiagnosis ()

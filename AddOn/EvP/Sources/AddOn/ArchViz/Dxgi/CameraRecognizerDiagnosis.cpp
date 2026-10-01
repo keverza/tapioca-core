@@ -1,8 +1,9 @@
 // ⚠️ BOUND BY OVERLAY-INVARIANTS.md §7 -- a refusal names its reason. A fingerprint
 // that matches nothing must say which term refused, or it costs a whole run to find out.
-// ArchViz/Dxgi/CameraRecognizerDiagnosis -- `NoteSoleMiss`, see CameraRecognizer.hpp.
-// What a refused draw looked like is the diagnosis, not the decision, and lives apart
-// from the matching it reports on.
+// ArchViz/Dxgi/CameraRecognizerDiagnosis -- `NoteSoleMiss` and the report's names, see
+// CameraRecognizer.hpp. What a refused draw looked like, and what the states are
+// called, is the report, not the decision, and lives apart from the matching it
+// reports on.
 
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 
@@ -56,6 +57,62 @@ void NoteSoleMiss (FingerprintDiagnosis& diagnosis, uint32_t term, const context
             out[2] = live.depthStencilDesc.format;
             out[3] = live.depthStencilDesc.sampleCount;
             break;
+    }
+}
+
+// The report's names for the recognizer's states, reasons and gate terms.
+
+const char* LifecycleName (Lifecycle state)
+{
+    switch (state) {
+        case Lifecycle::Unknown:
+            return "Unknown";
+        case Lifecycle::Learning:
+            return "Learning";
+        case Lifecycle::Locked:
+            return "Locked";
+        case Lifecycle::Reacquiring:
+            return "Reacquiring";
+    }
+    return "Unknown";
+}
+
+const char* BindReasonName (BindReason reason)
+{
+    switch (reason) {
+        case BindReason::Calibrating:
+            return "calibrating";
+        case BindReason::NoCandidate:
+            return "noCandidate";
+        case BindReason::HighestCoverage:
+            return "highestCoverage";
+        case BindReason::StationaryFallback:
+            return "stationaryFallback";
+    }
+    return "unknown";
+}
+
+const char* GateTermName (uint32_t term)
+{
+    switch (term) {
+        case kGateSamples:
+            return "samples";
+        case kGateCoverage:
+            return "coverage";
+        case kGateInsideClip:
+            return "insideClip";
+        case kGateFiniteTriangles:
+            return "finiteTriangles";
+        case kGateAreaPixels:
+            return "areaPixels";
+        case kGateEdgePixels:
+            return "edgePixels";
+        case kGateCentreError:
+            return "centreError";
+        case kGateProjectionDivides:
+            return "projectionDivides";
+        default:
+            return "?";
     }
 }
 
