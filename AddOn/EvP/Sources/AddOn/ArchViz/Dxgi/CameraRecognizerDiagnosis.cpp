@@ -92,6 +92,30 @@ const char* BindReasonName (BindReason reason)
     return "unknown";
 }
 
+const char* FingerprintTermName (uint32_t term)
+{
+    switch (term) {
+        case kTermOccurrence:
+            return "occurrence";
+        case kTermViewport:
+            return "viewport";
+        case kTermDrawKind:
+            return "drawKind";
+        case kTermIndexCount:
+            return "indexCount";
+        case kTermCameraWindows:
+            return "cameraWindows";
+        case kTermDepthPresence:
+            return "depthPresence";
+        case kTermRenderTargetDesc:
+            return "renderTargetDesc";
+        case kTermDepthDesc:
+            return "depthDesc";
+        default:
+            return "?";
+    }
+}
+
 const char* GateTermName (uint32_t term)
 {
     switch (term) {

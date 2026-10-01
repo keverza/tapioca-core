@@ -307,6 +307,7 @@ struct FingerprintDiagnosis {
     bool sampled[kFingerprintTermCount] = {};
 };
 FingerprintDiagnosis GetFingerprintDiagnosis ();
+const char* FingerprintTermName (uint32_t term);
 
 // RENDER THREAD. A draw that matched the fingerprint in every term but `term`: counted,
 // and the first such draw's value kept beside the fingerprint's
