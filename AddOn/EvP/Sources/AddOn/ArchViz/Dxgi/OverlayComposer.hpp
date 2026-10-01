@@ -49,6 +49,7 @@ struct Stats {
     // sized to the 3D view. Those agree only when the 3D view happens to fill the
     // window -- which is why the overlay was reported visible in full screen and
     // invisible in a window, with the log truthfully saying it had drawn.
+    // Counts a sample-count disagreement too (`DepthFitsTarget`): the same refusal.
     uint64_t sizeMismatches = 0;
     // Passes at which the user had hidden the overlay (OverlayVisibility.hpp): the HUD
     // alone drawn, no occluder rendered -- counted, not a silent return (§7).
@@ -61,6 +62,16 @@ struct Stats {
     uint32_t targetSamples = 0, depthSamples = 0;
 };
 Stats GetStats ();
+
+// ⚠️ WHETHER A DEPTH CAN BE BOUND BESIDE THE TARGET: D3D11 refuses a binding whose
+// render target and depth-stencil differ in size by one pixel OR IN SAMPLE COUNT, and
+// then nothing composed lands while every counter rises (2026-10-01, suspected: Archicad's
+// scene depth multisampled, the back buffer not). Pure, so tests/cpp states it.
+inline bool DepthFitsTarget (uint32_t targetWidth, uint32_t targetHeight, uint32_t targetSamples, uint32_t depthWidth,
+                             uint32_t depthHeight, uint32_t depthSamples)
+{
+    return targetWidth == depthWidth && targetHeight == depthHeight && targetSamples == depthSamples;
+}
 
 } // namespace overlaycompose
 } // namespace dxgi

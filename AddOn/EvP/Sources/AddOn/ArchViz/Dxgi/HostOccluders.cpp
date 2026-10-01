@@ -434,11 +434,11 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     return true;
 }
 
-// Format and sample count from Archicad's own depth, so the values are
-// comparable; dimensions from the surface this will be bound beside. See the
-// declaration of `Prepare` for why that distinction decides whether anything is
-// drawn at all.
-bool EnsureDepthTarget (ID3D11DeviceContext* context, uint32_t targetWidth, uint32_t targetHeight)
+// Format from Archicad's own depth; dimensions AND SAMPLE COUNT from the surface this
+// will be bound beside. See the declaration of `Prepare` for why that distinction
+// decides whether anything is drawn at all.
+bool EnsureDepthTarget (ID3D11DeviceContext* context, uint32_t targetWidth, uint32_t targetHeight,
+                        uint32_t targetSamples, uint32_t targetQuality)
 {
     ID3D11DepthStencilView* const sceneView = injection::depth::SceneView ();
     if (sceneView == nullptr)
@@ -461,9 +461,14 @@ bool EnsureDepthTarget (ID3D11DeviceContext* context, uint32_t targetWidth, uint
         desc.Width = targetWidth;
         desc.Height = targetHeight;
     }
+    if (targetSamples != 0) {
+        desc.SampleDesc.Count = targetSamples;
+        desc.SampleDesc.Quality = targetQuality;
+    }
 
     if (g_depthView != nullptr && desc.Width == g_depthDesc.Width && desc.Height == g_depthDesc.Height &&
-        desc.Format == g_depthDesc.Format && desc.SampleDesc.Count == g_depthDesc.SampleDesc.Count) {
+        desc.Format == g_depthDesc.Format && desc.SampleDesc.Count == g_depthDesc.SampleDesc.Count &&
+        desc.SampleDesc.Quality == g_depthDesc.SampleDesc.Quality) {
         return true;
     }
     ReleaseAndNull (g_depthView);
@@ -768,7 +773,8 @@ void Clear ()
 }
 
 ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
-                                 uint32_t targetWidth, uint32_t targetHeight)
+                                 uint32_t targetWidth, uint32_t targetHeight, uint32_t targetSamples,
+                                 uint32_t targetQuality)
 {
     if (context == nullptr || context1 == nullptr)
         return nullptr;
@@ -778,7 +784,7 @@ ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceConte
         ++g_stats.skippedNoGeometry;
         return nullptr;
     }
-    if (!EnsureDepthTarget (context, targetWidth, targetHeight)) {
+    if (!EnsureDepthTarget (context, targetWidth, targetHeight, targetSamples, targetQuality)) {
         // ⚠️ THE COMMONEST CAUSE IS THAT NOBODY HAS PUBLISHED
         // ARCHICAD'S DEPTH VIEW YET. This module copies its width, height, format
         // and sample count to make a matching private buffer; without one there

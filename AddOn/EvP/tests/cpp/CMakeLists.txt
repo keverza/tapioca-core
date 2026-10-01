@@ -649,6 +649,7 @@ set (EVP_TEST_SOURCES
     test_overlayhitmap.cpp
     test_overlayinput.cpp
     test_overlayhover.cpp
+    test_overlaycomposer.cpp
     test_camerarecognizer.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp

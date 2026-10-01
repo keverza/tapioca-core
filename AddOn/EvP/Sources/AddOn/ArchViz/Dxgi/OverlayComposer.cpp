@@ -30,11 +30,13 @@ Stats g_stats;
 // The pixel extent and sample count behind a view, or 0x0 and 0 when it cannot be
 // asked. Two COM calls, once per Present, to answer a question that decides whether
 // anything is drawn.
-void ViewExtent (ID3D11View* view, uint32_t& width, uint32_t& height, uint32_t& samples)
+void ViewExtent (ID3D11View* view, uint32_t& width, uint32_t& height, uint32_t& samples, uint32_t* quality = nullptr)
 {
     width = 0;
     height = 0;
     samples = 0;
+    if (quality != nullptr)
+        *quality = 0;
     if (view == nullptr)
         return;
     ID3D11Resource* resource = nullptr;
@@ -48,6 +50,8 @@ void ViewExtent (ID3D11View* view, uint32_t& width, uint32_t& height, uint32_t& 
         width = desc.Width;
         height = desc.Height;
         samples = desc.SampleDesc.Count;
+        if (quality != nullptr)
+            *quality = desc.SampleDesc.Quality;
         texture->Release ();
     }
     resource->Release ();
@@ -101,7 +105,8 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // screen where the two happen to be equal. The host occluder's depth is ours
     // to size; see `hostocclusion::Prepare`.
     ++g_stats.passes;
-    ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight, g_stats.targetSamples);
+    uint32_t targetQuality = 0;
+    ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight, g_stats.targetSamples, &targetQuality);
 
     // ---- the Diligent boundary, stage 2 of 5 -------------------------------
     // ⚠️ IT ATTACHES AND WRAPS AND DRAWS NOTHING, AND
@@ -141,18 +146,25 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
         return;
     }
 
-    ID3D11DepthStencilView* const hostView =
-        hostocclusion::Prepare (context, context1, wanted, g_stats.targetWidth, g_stats.targetHeight);
+    // ⚠️ THE HOST DEPTH TAKES THE TARGET'S SAMPLE COUNT, NOT ARCHICAD'S (2026-10-01):
+    // Archicad's scene depth can be multisampled while the back buffer we compose into
+    // is not, and a depth copied from it is then refused beside the target -- the
+    // suspected cause of nothing composed landing while every counter rose. Its values
+    // are never compared with Archicad's (OVERLAY-INVARIANTS.md §1, finding 1), so
+    // nothing needs its count.
+    ID3D11DepthStencilView* const hostView = hostocclusion::Prepare (
+        context, context1, wanted, g_stats.targetWidth, g_stats.targetHeight, g_stats.targetSamples, targetQuality);
     ID3D11DepthStencilView* overlayView = hostView != nullptr ? hostView : depthView;
 
     // ⚠️ AND STILL FAIL CLOSED IF THEY DISAGREE. `depthView` is
     // the injection's own copy of Archicad's depth and is NOT resized here, so a
-    // frame that falls back to it can still mismatch. Dropping the depth loses
-    // occlusion and draws anyway: worse than the intent, better than an invisible
-    // overlay, and the count says which frame it was.
+    // frame that falls back to it can still mismatch -- in size or in sample count.
+    // Dropping the depth loses occlusion and draws anyway: worse than the intent,
+    // better than an invisible overlay, and the count says which frame it was.
     ViewExtent (overlayView, g_stats.depthWidth, g_stats.depthHeight, g_stats.depthSamples);
     if (overlayView != nullptr && g_stats.targetWidth != 0 &&
-        (g_stats.targetWidth != g_stats.depthWidth || g_stats.targetHeight != g_stats.depthHeight)) {
+        !DepthFitsTarget (g_stats.targetWidth, g_stats.targetHeight, g_stats.targetSamples, g_stats.depthWidth,
+                          g_stats.depthHeight, g_stats.depthSamples)) {
         ++g_stats.sizeMismatches;
         overlayView = nullptr;
     }

@@ -135,11 +135,19 @@ void Clear ();
 //
 // This buffer is OURS: the host geometry is rendered into it from the extracted
 // model with the injected camera, so nothing about it needs Archicad's
-// dimensions. Only the FORMAT and SAMPLE COUNT are taken from the scene view, so
-// the depth values remain comparable. Passing 0 keeps the old behaviour of
-// matching the scene view exactly.
+// dimensions. Only the FORMAT is taken from the scene view. Passing 0 keeps the old
+// behaviour of matching the scene view exactly.
+//
+// ⚠️ `targetSamples`/`targetQuality` ARE THE TARGET'S TOO (2026-10-01). The sample
+// count used to be copied from the scene view "so the depth values remain comparable";
+// they never are (OVERLAY-INVARIANTS.md §1, finding 1: the depth is ours). Were
+// Archicad's scene depth multisampled and the back buffer not, the copy would be
+// refused beside the target and nothing composed would reach the screen while every
+// counter rose -- the suspected cause of exactly that on 2026-10-01 (the LIVE line's
+// `depth=WxH/samples` says). 0 takes the scene view's, as before.
 ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
-                                 uint32_t targetWidth, uint32_t targetHeight);
+                                 uint32_t targetWidth, uint32_t targetHeight, uint32_t targetSamples = 0,
+                                 uint32_t targetQuality = 0);
 
 // MAIN THREAD, at the start of an overlay session. Zero ONLY the render-thread
 // refusal counters. ⚠️ THE PUBLISHED SNAPSHOT DELIBERATELY
