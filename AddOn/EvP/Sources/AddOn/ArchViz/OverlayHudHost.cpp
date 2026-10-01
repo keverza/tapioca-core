@@ -134,6 +134,9 @@ void Engine::Impl::SetHover (bool on)
 {
     if (HoverMode (*store) == on)
         return;
+    // The readout is in the host: on, the host opens to show it.
+    if (on)
+        SetOpen (true);
     SetHoverMode (*store, on);
     changes.push_back (
         { "hover", std::string (), std::string (), std::string (), -1, on ? 1.0 : 0.0, on ? "on" : "off", true });
@@ -280,6 +283,36 @@ void Engine::Impl::Settings ()
     }
 }
 
+// ⚠️ HOVER MODE'S READOUT IS IN THE HOST (the user, 2026-10-01: in the ImGui panel, not near
+// the pointer). Under the page, whichever tab it shows: what the pointer is on -- a slice's
+// figures, a heatmap's value -- held while the pointer is on the HUD (Frame). A view that does
+// not read under the pointer says so rather than "nothing".
+void Engine::Impl::Readout ()
+{
+    ImGui::SeparatorText ("Under the pointer");
+    if (!readout.picks) {
+        ImGui::TextDisabled ("Not read in this view yet");
+        return;
+    }
+    if (!readout.active) {
+        ImGui::TextDisabled ("Nothing here");
+        return;
+    }
+    if (!readout.title.empty ())
+        ImGui::TextUnformatted (readout.title.c_str ());
+    if (readout.rows.empty () ||
+        !ImGui::BeginTable ("##readout", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings))
+        return;
+    for (const auto& row : readout.rows) {
+        ImGui::TableNextRow ();
+        ImGui::TableSetColumnIndex (0);
+        ImGui::TextDisabled ("%s", row.first.c_str ());
+        ImGui::TableSetColumnIndex (1);
+        ImGui::TextUnformatted (row.second.c_str ());
+    }
+    ImGui::EndTable ();
+}
+
 // ⚠️ ONE FLOATING PANEL, THE TITLED PANELS ITS TABS, SETTINGS LAST (the user, 2026-09-30: the
 // STUDY panel's design as the main one, its tabs switching between the studies; floating,
 // for the user to place anywhere in the view; a small, dense inspection panel). No title
@@ -380,6 +413,8 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
         }
         shownHost = now;
     }
+    if (drawn && store->hover)
+        Readout ();
     ImGui::End ();
     ImGui::PopFont ();
     ImGui::PopStyleColor (colours);

@@ -220,7 +220,7 @@ constexpr const char kHudInput[] = R"json({"type":"object","properties":{
     "fontScale":{"type":"number","minimum":0.5,"maximum":3,"description":"The HUD's text size; the nearest of its steps, 0.8 to 2."},
     "open":{"type":"boolean","description":"Open or close the HUD's floating panel, as the dock's tab does."},
     "visible":{"type":"boolean","description":"Show or hide the whole overlay and its HUD, as the dock's circle does; nothing is destroyed."},
-    "hover":{"type":"boolean","description":"Hover mode, as the HUD's Settings and menu set it: what is under the pointer -- a storey slice's figures, a heatmap's value -- shown by it."},
+    "hover":{"type":"boolean","description":"Hover mode, as the HUD's Settings and menu set it: what is under the pointer -- a storey slice's figures, a heatmap's value -- read out in the HUD's floating panel, which opens, and the item tinted."},
     "layerVisible":{"type":"object","description":"Show or hide one layer, as the HUD's Settings does; nothing is destroyed.","properties":{
         "layer":{"type":"string","minLength":1,"maxLength":64},"visible":{"type":"boolean"}},
       "additionalProperties":false,"required":["layer","visible"]},

@@ -356,8 +356,11 @@ bool RefreshHud ()
     bool changed = false;
     std::string error;
     overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::Plan);
-    if (overlayvisibility::Hovering () && input.pointer)
-        input.hover = HoverAt (input.x, input.y);
+    if (overlayvisibility::Hovering ()) {
+        if (input.pointer)
+            input.hover = HoverAt (input.x, input.y);
+        input.hover.picks = true; // the plan reads under the pointer: its readout may say "nothing"
+    }
     if (!dxgi::planguest::RefreshHud (overlaylayers::Layers (), input, changed, error)) {
         if (error != g_lastHudError)
             ArchVizLog ("PLAN OVERLAY  the HUD NOT LAID OUT for the pointer: " + error);

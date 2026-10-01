@@ -95,9 +95,11 @@ void Place (const overlaylayers::Panel& panel, float width, float height, float 
 
 // ⚠️ HOVER MODE (the user's stage 3): what is under the pointer, read by the view's runtime
 // (OverlayHover.hpp) and handed in with the pointer -- a storey slice's figures, a heatmap's
-// value -- and the triangles of the item it found, in view pixels, to tint. The HUD shows
-// it by the pointer while the mode is on (`HoverMode`) and the pointer is on no panel.
+// value -- and the triangles of the item it found, in view pixels, to tint. While the mode
+// is on (`HoverMode`) the HUD reads it out in its floating panel, under the page, and tints
+// the item where it is (the user, 2026-10-01: in the panel, not by the pointer).
 struct Hover {
+    bool picks = false; // the view reads what is under the pointer: the plan; 3D not yet
     bool active = false;
     std::string title;
     std::vector<std::pair<std::string, std::string>> rows; // label, value

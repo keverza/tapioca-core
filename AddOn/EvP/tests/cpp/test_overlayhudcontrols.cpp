@@ -672,24 +672,28 @@ TEST (OverlayHudControls, TheTextLandsOnWholePixels)
     EXPECT_GT (glyphs, 60u);
 }
 
-// ⚠️ THE USER'S STAGE 3: hover mode shows what is under the pointer by it -- a slice's
+// ⚠️ THE USER'S STAGE 3: hover mode reads out what is under the pointer -- a slice's
 // figures -- and tints the item. Its switch is in Settings, said as a "hover" change. Off,
-// or with the pointer on a panel, nothing is shown.
-TEST (OverlayHudControls, HoverModeShowsWhatIsUnderThePointerAndTintsIt)
+// nothing is shown. ⚠️ THE USER, 2026-10-01: the readout in the ImGui panel, not near the
+// pointer -- under the host's page, held while the pointer is on the panel to read it.
+TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
 {
     Watched hud;
     hud.engine.SetLayers ({ "tapioca.storeySlices" });
     const layers::Panel panel = Titled ("Area metrics");
     constexpr uint32_t kTint = 0xFFBA0046u; // the readout's tint, 0xRRGGBBAA
     hud::Input input = At (900.0f, 500.0f);
+    input.hover.picks = true;
     input.hover.active = true;
     input.hover.title = "A-01 F2";
     input.hover.rows = { { "Area", "184.0 mÂ²" } };
     input.hover.tint = { 800.0f, 400.0f, 1000.0f, 400.0f, 900.0f, 600.0f };
+    // The same view with nothing under the pointer.
+    hud::Input nothing = At (900.0f, 500.0f);
+    nothing.hover.picks = true;
 
     const hud::Layout off = hud.Lay ({ &panel }, input);
     EXPECT_FALSE (Drawn (off, kTint)) << "hover mode is off until it is turned on";
-    const size_t quiet = off.overlay.vertices.size ();
 
     // On in Settings: the check box after Show overlay.
     OpenSettings (hud, { &panel });
@@ -702,14 +706,56 @@ TEST (OverlayHudControls, HoverModeShowsWhatIsUnderThePointerAndTintsIt)
     ASSERT_EQ (hud.heard.back ().kind, "hover");
     EXPECT_EQ (hud.heard.back ().text, "on");
 
+    // Laid out twice: the host takes its size from the frame before.
+    hud.Lay ({ &panel }, nothing);
+    const hud::Layout idle = hud.Lay ({ &panel }, nothing);
+    hud.Lay ({ &panel }, input);
     const hud::Layout on = hud.Lay ({ &panel }, input);
     EXPECT_TRUE (Drawn (on, kTint)) << "the item tinted";
-    EXPECT_GT (on.overlay.vertices.size (), quiet + 3) << "and the readout by the pointer";
+    // The tint and its antialiased fringe are all that floats: nothing by the pointer.
+    for (const hud::Vertex& v : on.overlay.vertices)
+        ASSERT_EQ (v.rgba & 0xFFFFFF00u, kTint & 0xFFFFFF00u) << "something by the pointer besides the tint";
+    EXPECT_GT (on.host.height, idle.host.height) << "the slice's title and its row, read out in the panel";
+    EXPECT_GT (Rows (on.host, panel.textRgba).size (), Rows (idle.host, panel.textRgba).size ());
 
-    // On the host, the pointer is the HUD's: no readout, no tint.
-    hud::Input onPanel = input;
+    // Gone to the panel to read it: the pointer on the host, what is under it there says
+    // nothing -- the readout holds what the pointer was on, and nothing is tinted.
+    hud::Input onPanel = nothing;
     onPanel.x = 40.0f;
     onPanel.y = kRowY + 30.0f;
     hud.Lay ({ &panel }, onPanel);
-    EXPECT_FALSE (Drawn (hud.Lay ({ &panel }, onPanel), kTint));
+    const hud::Layout reading = hud.Lay ({ &panel }, onPanel);
+    EXPECT_FALSE (Drawn (reading, kTint));
+    EXPECT_FLOAT_EQ (reading.host.height, on.host.height) << "held while the pointer is on the HUD";
+    EXPECT_EQ (Rows (reading.host, panel.textRgba).size (), Rows (on.host, panel.textRgba).size ());
+
+    // Off the item again, off the panel: nothing to read out.
+    hud.Lay ({ &panel }, nothing);
+    EXPECT_FLOAT_EQ (hud.Lay ({ &panel }, nothing).host.height, idle.host.height);
+}
+
+// Turned on from the menu with the panel closed, the panel opens: the readout is in it.
+TEST (OverlayHudControls, HoverModeOpensThePanelItReadsOutIn)
+{
+    Watched hud;
+    hud.engine.SetLayers ({ "tapioca.storeySlices" });
+    const layers::Panel panel = Titled ("Area metrics");
+    hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    hud::SetHudOpen (*hud.state, false);
+    const hud::Layout closed = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    ASSERT_FALSE (hud::HudOpen (*hud.state));
+    ASSERT_EQ (closed.host.vertices.size (), 0u) << "closed to the dock";
+    // The dock's title: the menu from there.
+    const float dx = 1200.0f + closed.dock.offset[0] + closed.dock.width * 0.5f;
+    const float dy = 400.0f + closed.dock.offset[1] + closed.dock.height * 0.6f;
+    const hud::Layout menu = RightClick (hud, { &panel }, dx, dy);
+    ASSERT_TRUE (menu.popup);
+    const std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 6u) << "show overlay, show panel, Settings, hover readout, text size, layers";
+    float box[4] = {};
+    ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
+    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[3]));
+    EXPECT_TRUE (hud::HoverMode (*hud.state));
+    EXPECT_TRUE (hud::HudOpen (*hud.state)) << "the readout's panel open";
+    EXPECT_EQ (hud.heard.back ().kind, "hover");
 }

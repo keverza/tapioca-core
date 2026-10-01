@@ -890,6 +890,9 @@ ClickReport HudClicks ()
 
 void SetHoverMode (bool on)
 {
+    // The readout is in the HUD's floating panel: on, the panel opens to show it.
+    if (on)
+        overlayhud::SetHudOpen (*guesttext::HudState (), true);
     overlayhud::SetHoverMode (*guesttext::HudState (), on);
     FollowHudState ();
 }

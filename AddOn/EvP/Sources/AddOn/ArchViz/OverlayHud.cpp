@@ -522,10 +522,10 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
     }
 }
 
-// ⚠️ HOVER MODE (the user's stage 3): what is under the pointer, by it, and its item
-// tinted. Not while the pointer is on the HUD -- that is the HUD's -- nor on a legend, whose
-// own tip says its value. Down and right of the pointer, turned in near the view's far edges.
-void Engine::Impl::HoverTip (const Hover& hover, float scale, ImVec2 view)
+// ⚠️ HOVER MODE (the user's stage 3): the item under the pointer tinted where it is; what it
+// says is read out in the host (Readout). Not while the pointer is on the HUD -- that is the
+// HUD's -- nor on a legend, whose own tip says its value.
+void Engine::Impl::HoverTint (const Hover& hover)
 {
     if (!hover.active || highlight.active || ImGui::GetCurrentContext ()->HoveredWindow != nullptr)
         return;
@@ -534,27 +534,6 @@ void Engine::Impl::HoverTip (const Hover& hover, float scale, ImVec2 view)
         under->AddTriangleFilled (ImVec2 (hover.tint[i], hover.tint[i + 1]),
                                   ImVec2 (hover.tint[i + 2], hover.tint[i + 3]),
                                   ImVec2 (hover.tint[i + 4], hover.tint[i + 5]), IM_COL32 (255, 186, 0, 70));
-    const ImVec2 mouse = ImGui::GetIO ().MousePos;
-    const ImVec2 pivot (mouse.x > view.x * 0.7f ? 1.0f : 0.0f, mouse.y > view.y * 0.7f ? 1.0f : 0.0f);
-    const ImVec2 at (mouse.x + (pivot.x > 0.0f ? -12.0f : 18.0f) * scale,
-                     mouse.y + (pivot.y > 0.0f ? -12.0f : 20.0f) * scale);
-    ImGui::SetNextWindowPos (at, ImGuiCond_Always, pivot);
-    if (!ImGui::BeginTooltip ())
-        return;
-    if (!hover.title.empty ())
-        ImGui::TextUnformatted (hover.title.c_str ());
-    if (!hover.rows.empty () &&
-        ImGui::BeginTable ("##hoverrows", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
-        for (const auto& row : hover.rows) {
-            ImGui::TableNextRow ();
-            ImGui::TableSetColumnIndex (0);
-            ImGui::TextDisabled ("%s", row.first.c_str ());
-            ImGui::TableSetColumnIndex (1);
-            ImGui::TextUnformatted (row.second.c_str ());
-        }
-        ImGui::EndTable ();
-    }
-    ImGui::EndTooltip ();
 }
 
 // One frame of the whole set.
@@ -573,6 +552,16 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     highlight = Layout::Highlight {};
     inset = 0.0f;
     Gather (panels, keys);
+    // ⚠️ WHAT THE HOST READS OUT IS HELD WHILE THE POINTER IS ON THE HUD OR A LEGEND: gone to
+    // the panel to read it, the pointer crosses what is under the panel; a legend says its own.
+    bool onLegend = false;
+    for (const LegendBar& bar : legends)
+        onLegend = onLegend || (input.pointer && input.x >= bar.rect[0] && input.x <= bar.rect[2] &&
+                                input.y >= bar.rect[1] && input.y <= bar.rect[3]);
+    if (!store->hover)
+        readout = Hover {};
+    else if (ImGui::GetCurrentContext ()->HoveredWindow == nullptr && !onLegend)
+        readout = input.hover;
     Dock (panels, ui, view);
     // Hidden by the dock's circle: the dock alone.
     if (store->shown) {
@@ -586,7 +575,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     if (known && store->shown)
         LegendTips (legends, ui, view);
     if (known && store->shown && store->hover)
-        HoverTip (input.hover, ui, view);
+        HoverTint (input.hover);
     Menu (ui);
     // A dropdown's list is a popup: while one is open, the whole view is the HUD's.
     popup = ImGui::IsPopupOpen ("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
