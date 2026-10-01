@@ -224,3 +224,37 @@ TEST (StorySliceOverlay, EachFloorTakesItsColourAndTheOpacity)
     controls.fillOpacity = 0.0f; // nothing to fill
     EXPECT_TRUE (so::BuildLayer (slices, controls).layer.meshes.empty ());
 }
+
+// ⚠️ THE USER, 2026-10-01: one floor's label smaller than the others' on the same edge. A
+// vertex where the outline does not turn -- a cut through a body leaves them -- splits the
+// edge in two; the label's room is the whole straight run, not the piece at the corner.
+TEST (StorySliceOverlay, ALabelsRoomIsTheWholeStraightEdge)
+{
+    SliceChain split;
+    split.closed = true;
+    split.xy = { 0, 0, 4, 0, 10, 0, 10, 10, 0, 10 }; // the bottom edge, split at x = 4
+    so::SlicePlacement place;
+    ASSERT_TRUE (so::PlaceOnSlice ({ split }, split, 0.5, place));
+    EXPECT_NEAR (place.dx, 1.0, 1e-9);
+    EXPECT_NEAR (place.room, 9.0, 1e-9) << "10 m less the inset at both ends, not 4 m";
+    // An edge that does turn still ends there.
+    SliceChain bent;
+    bent.closed = true;
+    bent.xy = { 0, 0, 4, 0, 10, 1, 10, 10, 0, 10 };
+    ASSERT_TRUE (so::PlaceOnSlice ({ bent }, bent, 0.5, place));
+    EXPECT_NEAR (place.room, 3.0, 1e-9);
+}
+
+// ⚠️ AND ONE SIZE FOR EVERY LABEL LYING ON A SLICE: each fitted to its own slice, then all
+// the smallest, so every one still fits and none reads larger than the floor beside it.
+TEST (StorySliceOverlay, EveryLabelOnASliceTakesOneSize)
+{
+    so::Controls controls;
+    controls.labelName = true;
+    const so::Built built = so::BuildLayer (so::FromStoreys (TwoStoreys ()), controls); // 100 and 50 m2
+    ASSERT_EQ (built.layer.texts.size (), 2u);
+    EXPECT_GT (built.layer.texts[0].sizeMetres, 0.0f);
+    EXPECT_FLOAT_EQ (built.layer.texts[0].sizeMetres, built.layer.texts[1].sizeMetres);
+    EXPECT_LE (built.layer.texts[0].sizeMetres, so::LabelSizeMetres (0.0, 50.0, 0.0, built.layer.texts[1].text) + 1e-9)
+        << "no larger than the smaller slice's own";
+}

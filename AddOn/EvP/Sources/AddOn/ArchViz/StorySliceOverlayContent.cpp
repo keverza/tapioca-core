@@ -86,6 +86,31 @@ bool CornerAnchor (const std::vector<SliceChain>& contours, const SliceChain& ch
     return false;
 }
 
+namespace {
+
+// ⚠️ THE ROOM IS THE WHOLE STRAIGHT EDGE (the user, 2026-10-01: one floor's label smaller
+// than the others'). From vertex `i` towards `step` (+1 the next vertex, -1 the previous)
+// along (dx, dy): the edge, and those after it that go on the same way -- a vertex where the
+// outline does not turn, which a cut through a body leaves, does not end it.
+double StraightRun (const SliceChain& chain, size_t i, int step, double dx, double dy)
+{
+    const size_t n = chain.Count ();
+    double length = 0.0;
+    size_t at = i;
+    for (size_t k = 0; k < n; ++k) {
+        const size_t next = step > 0 ? (at + 1) % n : (at + n - 1) % n;
+        const double ex = chain.xy[next * 2] - chain.xy[at * 2], ey = chain.xy[next * 2 + 1] - chain.xy[at * 2 + 1];
+        const double l = std::hypot (ex, ey);
+        if (k > 0 && l > 1e-9 && (std::fabs (ex * dy - ey * dx) > 1e-3 * l || ex * dx + ey * dy <= 0.0))
+            break;
+        length += l;
+        at = next;
+    }
+    return length;
+}
+
+} // namespace
+
 bool PlaceOnSlice (const std::vector<SliceChain>& contours, const SliceChain& chain, double inset, SlicePlacement& out)
 {
     const size_t n = chain.Count ();
@@ -112,7 +137,8 @@ bool PlaceOnSlice (const std::vector<SliceChain>& contours, const SliceChain& ch
         const double sx = ax + bx, sy = ay + by; // into the slice, for a convex corner
         // Of the corner's two edges, the one whose left side is the slice: text along
         // it rises into the slice and reads the right way up from above.
-        const double candidates[2][3] = { { bx, by, lb }, { ax, ay, la } };
+        const double candidates[2][3] = { { bx, by, StraightRun (chain, i, 1, bx, by) },
+                                          { ax, ay, StraightRun (chain, i, -1, ax, ay) } };
         for (const auto& candidate : candidates) {
             const double dx = candidate[0], dy = candidate[1];
             const double ux = -dy, uy = dx;
@@ -207,6 +233,11 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
         return controls.storeys.empty () ||
                std::find (controls.storeys.begin (), controls.storeys.end (), slice.storey) != controls.storeys.end ();
     };
+    // ⚠️ ONE SIZE FOR EVERY LABEL LYING ON A SLICE (the user, 2026-10-01: "make sure font size
+    // on all slabs is same size"): each is fitted to its slice and edge, then all take the
+    // smallest, so every one still fits. A size asked for is already everyone's.
+    std::vector<size_t> onSlice;
+    double uniform = 0.0;
     std::vector<double> heights;
     for (const Slice& slice : slices)
         if (shown (slice))
@@ -302,6 +333,8 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
                     label.sizePixels = 32.0f; // the layout's resolution only
                     label.align = layers::Align::Left;
                     label.baseline = layers::Baseline::Bottom;
+                    uniform = onSlice.empty () ? label.sizeMetres : (std::min) (uniform, label.sizeMetres);
+                    onSlice.push_back (out.layer.texts.size ());
                     out.layer.texts.push_back (std::move (label));
                 }
             }
@@ -319,6 +352,8 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
         ++out.slices;
         out.areaM2 += slice.areaM2;
     }
+    for (const size_t at : onSlice)
+        out.layer.texts[at].sizeMetres = uniform;
     return out;
 }
 
