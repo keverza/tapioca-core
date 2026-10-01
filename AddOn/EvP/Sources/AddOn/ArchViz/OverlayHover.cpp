@@ -175,7 +175,7 @@ Hit PickView (const std::vector<std::shared_ptr<const layers::Layer>>& all, cons
     return hit;
 }
 
-void TintView (const layers::Mesh& mesh, const ProjectView& project, std::vector<float>& out, int64_t only)
+void TintModel (const layers::Mesh& mesh, std::vector<double>& out, int64_t only)
 {
     const size_t corners = mesh.points.size () / 3;
     for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
@@ -184,33 +184,8 @@ void TintView (const layers::Mesh& mesh, const ProjectView& project, std::vector
         const uint32_t i[3] = { mesh.indices[t], mesh.indices[t + 1], mesh.indices[t + 2] };
         if (i[0] >= corners || i[1] >= corners || i[2] >= corners)
             continue;
-        float corner[6] = {};
-        bool front = true;
-        for (int k = 0; k < 3 && front; ++k) {
-            float invW = 0.0f;
-            front = project (mesh.points[i[k] * 3], mesh.points[i[k] * 3 + 1], mesh.points[i[k] * 3 + 2], corner[k * 2],
-                             corner[k * 2 + 1], invW);
-        }
-        if (front)
-            out.insert (out.end (), corner, corner + 6);
-    }
-}
-
-void Tint (const layers::Mesh& mesh, const Project& project, std::vector<float>& out, int64_t only)
-{
-    const size_t corners = mesh.points.size () / 3;
-    for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
-        if (only >= 0 && int64_t (t / 3) != only)
-            continue;
-        const uint32_t i[3] = { mesh.indices[t], mesh.indices[t + 1], mesh.indices[t + 2] };
-        if (i[0] >= corners || i[1] >= corners || i[2] >= corners)
-            continue;
-        for (const uint32_t k : i) {
-            float px = 0.0f, py = 0.0f;
-            project (mesh.points[k * 3], mesh.points[k * 3 + 1], px, py);
-            out.push_back (px);
-            out.push_back (py);
-        }
+        for (const uint32_t k : i)
+            out.insert (out.end (), { mesh.points[k * 3], mesh.points[k * 3 + 1], mesh.points[k * 3 + 2] });
     }
 }
 

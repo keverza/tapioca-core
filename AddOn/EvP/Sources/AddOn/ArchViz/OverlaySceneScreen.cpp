@@ -58,6 +58,31 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
     AddPanels (panels, input, bars);
 }
 
+void Builder::AddHoverTint (const std::vector<double>& corners)
+{
+    const size_t triangles = corners.size () / 9;
+    if (triangles == 0)
+        return;
+    if (draft_.fillVertices + triangles * 3 > kMaxFillVertices) {
+        Truncated ();
+        return;
+    }
+    DraftFill fill;
+    fill.draw.shading = uint32_t (layers::Shading::Flat);
+    fill.draw.behind = kBehindShow;
+    fill.vertices.reserve (triangles * 3);
+    for (size_t c = 0; c < triangles * 3; ++c) {
+        DraftVertex v;
+        v.p[0] = corners[c * 3];
+        v.p[1] = corners[c * 3 + 1];
+        v.p[2] = corners[c * 3 + 2];
+        v.rgba = overlayhud::kHoverTintRgba;
+        fill.vertices.push_back (v);
+    }
+    draft_.fillVertices += fill.vertices.size ();
+    draft_.fills.push_back (std::move (fill));
+}
+
 // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
 // after everything else, over it.
 void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::Input& input,
@@ -84,6 +109,8 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
             return;
     }
     draft_.hand = layout.hand;
+    if (layout.hoverTint)
+        AddHoverTint (input.hover.tintModel);
     if (layout.highlight.active)
         draft_.highlight = { LayerKey (layout.highlight.layer), float (layout.highlight.low),
                              float (layout.highlight.high) };
@@ -360,6 +387,16 @@ template <typename Stream> uint64_t FingerprintOf (const Stream& hud)
 {
     uint64_t hash = 14695981039346656037ull;
     Mix (hash, hud.glyphs.data (), hud.glyphs.size () * sizeof (hud.glyphs[0]));
+    // ⚠️ AND ITS FILLS: hover mode's tint is one (`Builder::AddHoverTint`), and a tint that
+    // moved to another item must be uploaded. The vertices are 4-byte fields, unpadded; the
+    // draws are mixed field by field, past their padding.
+    Mix (hash, hud.fills.data (), hud.fills.size () * sizeof (hud.fills[0]));
+    for (const FillDraw& draw : hud.fillDraws) {
+        Mix (hash, &draw.first, sizeof (draw.first));
+        Mix (hash, &draw.count, sizeof (draw.count));
+        Mix (hash, &draw.behind, sizeof (draw.behind));
+        Mix (hash, &draw.opacity, sizeof (draw.opacity));
+    }
     for (const GlyphDraw& draw : hud.glyphDraws)
         Mix (hash, &draw, sizeof (draw));
     for (const auto& page : hud.pages) {

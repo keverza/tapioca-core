@@ -190,6 +190,10 @@ class Builder {
     void Truncated ();
     void SetRamp (FillDraw& draw, const layers::Colormap& colormap, double min, double max) const;
     void AddMesh (const layers::Layer& layer, const layers::Mesh& mesh);
+    // Hover mode's tint (OverlayHud.hpp `Hover::tintModel`): the item's triangles in model
+    // metres, one flat fill in `kHoverTintRgba`, never hidden -- drawn by the view's renderer
+    // with its camera or transform, so it stays on the item as the view moves.
+    void AddHoverTint (const std::vector<double>& corners);
     void AddPolyline (const layers::Layer& layer, const layers::Polyline& polyline);
     void AddDimension (const layers::Layer& layer, const layers::Dimension& dimension);
     // A tick, an arrowhead or a dot `size` pixels long at one end of a line, in the

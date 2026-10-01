@@ -49,11 +49,11 @@ Hit PickPlan (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& la
 // values, the value at the point first, in the decimals and unit of the layer's first legend.
 overlayhud::Hover Readout (const overlaylayers::Layer& layer, const Hit& hit);
 
-// The hit mesh's triangles -- or only triangle `only` -- each corner through `project`
-// (model x, y to view pixels), appended to `out` as x, y pairs. A slice is tinted whole; a
-// heatmap, the cell under the pointer.
-using Project = std::function<void (double x, double y, float& px, float& py)>;
-void Tint (const overlaylayers::Mesh& mesh, const Project& project, std::vector<float>& out, int64_t only = -1);
+// The hit mesh's triangles -- or only triangle `only` -- in model metres, appended to `out`
+// as x, y, z for each corner (OverlayHud.hpp `Hover::tintModel`). A slice is tinted whole;
+// a heatmap, the cell under the pointer. Both views: their renderers draw it with their own
+// camera or transform, so the tint stays on the item as the view moves.
+void TintModel (const overlaylayers::Mesh& mesh, std::vector<double>& out, int64_t only = -1);
 
 // ---- the 3D view (D19) ------------------------------------------------------------------
 
@@ -69,9 +69,6 @@ using ProjectView = std::function<bool (double x, double y, double z, float& px,
 // (`Behind::Fade`, the slices' default) or dashed, still seen, so still read.
 Hit PickView (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const ProjectView& project,
               float x, float y);
-
-// As `Tint`, through the 3D projection; a triangle with a corner behind the eye is left out.
-void TintView (const overlaylayers::Mesh& mesh, const ProjectView& project, std::vector<float>& out, int64_t only = -1);
 
 // The projection itself: clip = [x y z 1] * viewProjection (row vectors, as the shaders), and
 // the census's screen convention (InjectionOracle): px = vx + (ndcX / 2 + 1/2) * width,

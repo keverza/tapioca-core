@@ -159,12 +159,14 @@ struct Engine::Impl {
     // A legend's bar pointed at: the value there, beside the bar at the pointer.
     void LegendTips (const std::vector<LegendBar>& legends, float scale, ImVec2 view);
 
-    // Hover mode: the item under the pointer tinted where it is (`Input::hover`); and what
-    // the host reads out under its page -- what the pointer is on, or, while it is on the
-    // HUD or a legend, what it was on (`readout`, OverlayHudHost.cpp).
+    // Hover mode: whether the item under the pointer is tinted (`tinted`, `Layout::hoverTint`
+    // -- the view's renderer draws it, in model metres); and what the host reads out under
+    // its page -- what the pointer is on, or, while it is on the HUD or a legend, what it was
+    // on (`readout`, OverlayHudHost.cpp).
     void HoverTint (const Hover& hover);
     void Readout ();
     Hover readout;
+    bool tinted = false;
 
     // The titled panels found, the host's state made from them the first time, the tab it
     // shows held to one of them (OverlayHudHost.cpp).

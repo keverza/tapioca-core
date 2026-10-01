@@ -95,16 +95,23 @@ void Place (const overlaylayers::Panel& panel, float width, float height, float 
 
 // ⚠️ HOVER MODE (the user's stage 3): what is under the pointer, read by the view's runtime
 // (OverlayHover.hpp) and handed in with the pointer -- a storey slice's figures, a heatmap's
-// value -- and the triangles of the item it found, in view pixels, to tint. While the mode
-// is on (`HoverMode`) the HUD reads it out in its floating panel, under the page, and tints
-// the item where it is (the user, 2026-10-01: in the panel, not by the pointer).
+// value -- and the triangles of the item it found, to tint. While the mode is on
+// (`HoverMode`) the HUD reads it out in its floating panel, under the page (the user,
+// 2026-10-01: in the panel, not by the pointer), and says whether the item is tinted
+// (`Layout::hoverTint`). ⚠️ THE TINT IS IN MODEL METRES, drawn by the view's renderer with
+// its own camera or transform at every Present: in view pixels it stayed where the item
+// had been while the view orbited (the user, 2026-10-01), and ImGui's antialiased fringe
+// on each triangle showed the triangulation.
 struct Hover {
     bool picks = false; // the view reads what is under the pointer: both views do (D19)
     bool active = false;
     std::string title;
     std::vector<std::pair<std::string, std::string>> rows; // label, value
-    std::vector<float> tint;                               // x, y view pixels, three corners a triangle
+    std::vector<double> tintModel;                         // x, y, z model metres, three corners a triangle
 };
+
+// The tint over a hovered item, 0xRRGGBBAA.
+constexpr uint32_t kHoverTintRgba = 0xFFBA0046u;
 
 // The view a set is laid out for and the pointer over it (OverlayInput.hpp feeds it).
 // ImGui numbers the buttons: 0 left, 1 right, 2 middle, 3 and 4 the side ones.
@@ -178,6 +185,9 @@ struct Layout {
     // A dropdown's list or the HUD's menu is open: the whole view is the HUD's until it
     // closes, so the click that closes it never reaches Archicad.
     bool popup = false;
+    // Hover mode's item is tinted in this layout: the mode on, an item under the pointer, the
+    // pointer on neither the HUD nor a legend. The stream adds `Input::hover.tintModel`.
+    bool hoverTint = false;
 };
 
 // Where each change goes: the views' engines hand them to the event ring with their view.

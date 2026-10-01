@@ -681,19 +681,18 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     Watched hud;
     hud.engine.SetLayers ({ "tapioca.storeySlices" });
     const layers::Panel panel = Titled ("Area metrics");
-    constexpr uint32_t kTint = 0xFFBA0046u; // the readout's tint, 0xRRGGBBAA
     hud::Input input = At (900.0f, 500.0f);
     input.hover.picks = true;
     input.hover.active = true;
     input.hover.title = "A-01 F2";
     input.hover.rows = { { "Area", "184.0 mÂ²" } };
-    input.hover.tint = { 800.0f, 400.0f, 1000.0f, 400.0f, 900.0f, 600.0f };
+    input.hover.tintModel = { 0, 0, 3, 10, 0, 3, 10, 10, 3 }; // the slice's triangle, in model metres
     // The same view with nothing under the pointer.
     hud::Input nothing = At (900.0f, 500.0f);
     nothing.hover.picks = true;
 
     const hud::Layout off = hud.Lay ({ &panel }, input);
-    EXPECT_FALSE (Drawn (off, kTint)) << "hover mode is off until it is turned on";
+    EXPECT_FALSE (off.hoverTint) << "hover mode is off until it is turned on";
 
     // On in Settings: the check box after Show overlay.
     OpenSettings (hud, { &panel });
@@ -711,10 +710,10 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     const hud::Layout idle = hud.Lay ({ &panel }, nothing);
     hud.Lay ({ &panel }, input);
     const hud::Layout on = hud.Lay ({ &panel }, input);
-    EXPECT_TRUE (Drawn (on, kTint)) << "the item tinted";
-    // The tint and its antialiased fringe are all that floats: nothing by the pointer.
-    for (const hud::Vertex& v : on.overlay.vertices)
-        ASSERT_EQ (v.rgba & 0xFFFFFF00u, kTint & 0xFFFFFF00u) << "something by the pointer besides the tint";
+    EXPECT_TRUE (on.hoverTint) << "the item tinted -- by the view's renderer, in model metres";
+    // ⚠️ NOTHING FLOATS: no readout by the pointer, and no tint laid out in view pixels -- it
+    // stayed where the item had been while the view orbited (the user, 2026-10-01).
+    EXPECT_TRUE (on.overlay.vertices.empty ());
     EXPECT_GT (on.host.height, idle.host.height) << "the slice's title and its row, read out in the panel";
     EXPECT_GT (Rows (on.host, panel.textRgba).size (), Rows (idle.host, panel.textRgba).size ());
 
@@ -725,7 +724,7 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     onPanel.y = kRowY + 30.0f;
     hud.Lay ({ &panel }, onPanel);
     const hud::Layout reading = hud.Lay ({ &panel }, onPanel);
-    EXPECT_FALSE (Drawn (reading, kTint));
+    EXPECT_FALSE (reading.hoverTint);
     EXPECT_FLOAT_EQ (reading.host.height, on.host.height) << "held while the pointer is on the HUD";
     EXPECT_EQ (Rows (reading.host, panel.textRgba).size (), Rows (on.host, panel.textRgba).size ());
 

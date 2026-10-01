@@ -522,18 +522,16 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
     }
 }
 
-// ⚠️ HOVER MODE (the user's stage 3): the item under the pointer tinted where it is; what it
+// ⚠️ HOVER MODE (the user's stage 3): whether the item under the pointer is tinted; what it
 // says is read out in the host (Readout). Not while the pointer is on the HUD -- that is the
-// HUD's -- nor on a legend, whose own tip says its value.
+// HUD's -- nor on a legend, whose own tip says its value. ⚠️ NOTHING IS DRAWN HERE: the
+// tint is the item's own triangles in model metres, which the stream hands the view's
+// renderer (`Layout::hoverTint`) -- it follows the view as it moves, which pixels laid out
+// at the last pointer move did not.
 void Engine::Impl::HoverTint (const Hover& hover)
 {
-    if (!hover.active || highlight.active || ImGui::GetCurrentContext ()->HoveredWindow != nullptr)
-        return;
-    ImDrawList* const under = ImGui::GetBackgroundDrawList ();
-    for (size_t i = 0; i + 5 < hover.tint.size (); i += 6)
-        under->AddTriangleFilled (ImVec2 (hover.tint[i], hover.tint[i + 1]),
-                                  ImVec2 (hover.tint[i + 2], hover.tint[i + 3]),
-                                  ImVec2 (hover.tint[i + 4], hover.tint[i + 5]), IM_COL32 (255, 186, 0, 70));
+    tinted = hover.active && !hover.tintModel.empty () && !highlight.active &&
+             ImGui::GetCurrentContext ()->HoveredWindow == nullptr;
 }
 
 // One frame of the whole set.
@@ -574,6 +572,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
         ImGui::BringWindowToDisplayFront (dock);
     if (known && store->shown)
         LegendTips (legends, ui, view);
+    tinted = false;
     if (known && store->shown && store->hover)
         HoverTint (input.hover);
     Menu (ui);
@@ -754,6 +753,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         out.highlight = impl_->highlight;
         out.hand = impl_->hand;
         out.popup = impl_->popup;
+        out.hoverTint = impl_->tinted;
         for (size_t i = 0; i < panels.size (); ++i) {
             Built& built = out.panels[i];
             if (impl_->windows[i] != nullptr) {

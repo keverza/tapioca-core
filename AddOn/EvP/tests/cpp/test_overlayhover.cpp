@@ -116,25 +116,22 @@ TEST (OverlayHover, WhatSaysNothingOrIsNotInThePlanIsPassedOver)
     EXPECT_EQ (hit.layer, 0u);
 }
 
-// A slice is tinted whole; a heatmap, the triangle under the pointer -- through the plan's
-// transform to view pixels.
-TEST (OverlayHover, TheTintIsTheItemOrItsCellInViewPixels)
+// A slice is tinted whole; a heatmap, the triangle under the pointer -- IN MODEL METRES, which
+// each view's renderer draws with its own camera or transform: laid out in view pixels, the
+// tint stayed where the item had been while the view orbited (the user, 2026-10-01).
+TEST (OverlayHover, TheTintIsTheItemOrItsCellInModelMetres)
 {
-    const layers::Mesh mesh = Square (0, 0, 10, 10);
-    const hover::Project twice = [] (double x, double y, float& px, float& py) {
-        px = float (x * 2.0 + 100.0);
-        py = float (500.0 - y * 2.0);
-    };
-    std::vector<float> whole;
-    hover::Tint (mesh, twice, whole);
-    EXPECT_EQ (whole.size (), 12u) << "two triangles, three corners, x and y";
-    EXPECT_FLOAT_EQ (whole[0], 100.0f);
-    EXPECT_FLOAT_EQ (whole[1], 500.0f);
-    std::vector<float> cell;
-    hover::Tint (mesh, twice, cell, 1);
-    ASSERT_EQ (cell.size (), 6u);
-    EXPECT_FLOAT_EQ (cell[4], 100.0f); // its third corner, (0, 10)
-    EXPECT_FLOAT_EQ (cell[5], 480.0f);
+    const layers::Mesh mesh = Square (0, 0, 10, 10, 3.0);
+    std::vector<double> whole;
+    hover::TintModel (mesh, whole);
+    ASSERT_EQ (whole.size (), 18u) << "two triangles, three corners, x, y and z";
+    EXPECT_DOUBLE_EQ (whole[0], 0.0);
+    EXPECT_DOUBLE_EQ (whole[2], 3.0) << "at the slice's own height";
+    std::vector<double> cell;
+    hover::TintModel (mesh, cell, 1);
+    ASSERT_EQ (cell.size (), 9u);
+    EXPECT_DOUBLE_EQ (cell[6], 0.0); // its third corner, (0, 10)
+    EXPECT_DOUBLE_EQ (cell[7], 10.0);
 }
 
 // ---- the 3D view (D19) --------------------------------------------------------------------
@@ -229,17 +226,4 @@ TEST (OverlayHover, In3DTheProjectionIsTheCensussScreenConvention)
     EXPECT_FLOAT_EQ (px, 900.0f) << "ndc +1: the right edge";
     EXPECT_FLOAT_EQ (py, 50.0f) << "ndc +1: the top";
     EXPECT_FALSE (hover::ProjectThrough (m, viewport, 0.0, 0.0, 5.0, px, py, invW)) << "behind the eye";
-}
-
-// The 3D tint: a triangle reaching behind the eye is left out, the rest projected.
-TEST (OverlayHover, In3DTheTintLeavesOutWhatReachesBehindTheEye)
-{
-    layers::Mesh mesh;
-    mesh.points = { -1, -1, 0, 1, -1, 0, 0, 1, 0, 0, 0, 20 };
-    mesh.indices = { 0, 1, 2, 0, 1, 3 };
-    std::vector<float> out;
-    hover::TintView (mesh, kDown, out);
-    ASSERT_EQ (out.size (), 6u) << "one triangle, three corners, x and y";
-    EXPECT_FLOAT_EQ (out[0], 490.0f);
-    EXPECT_FLOAT_EQ (out[1], 410.0f);
 }

@@ -388,6 +388,48 @@ TEST (OverlayHud, TheFingerprintMovesOnlyWithThePixels)
     EXPECT_NE (hovered, first);
 }
 
+// ⚠️ THE USER, 2026-10-01: a tint laid out in view pixels stayed where the item had been while
+// the view orbited, and showed its triangulation. Hover mode's tint reaches the view's
+// renderer as the item's own triangles in model metres -- a world fill, never hidden, drawn
+// with the camera of every Present -- and a tint that moves changes the stream.
+TEST (OverlayHud, HoverModesTintIsAWorldFillInTheStream)
+{
+    layers::Layer layer;
+    layer.name = "tapioca.storeySlices";
+    layer.views = layers::Views::ThreeD;
+    const std::vector<std::shared_ptr<const layers::Layer>> all = { std::make_shared<const layers::Layer> (layer) };
+    Fresh hud;
+    const std::shared_ptr<hud::State> state = hud::NewState ();
+    hud.engine.UseState (state);
+    hud::SetHoverMode (*state, true);
+    hud::Input input = At (600.0f, 600.0f);
+    input.hover.picks = true;
+    input.hover.active = true;
+    input.hover.title = "A-01 F2";
+    input.hover.tintModel = { 0, 0, 3, 10, 0, 3, 10, 10, 3 };
+    scene::PrepareSceneHud (all, &hud.engine, 1.0f, input); // the frame before: the hover is seen
+    const scene::Scene tinted = scene::PrepareSceneHud (all, &hud.engine, 1.0f, input);
+    ASSERT_EQ (tinted.fillDraws.size (), 1u);
+    const scene::FillDraw& draw = tinted.fillDraws[0];
+    EXPECT_FALSE (draw.screen) << "in the world, not on the screen";
+    EXPECT_EQ (draw.behind, scene::kBehindShow);
+    ASSERT_EQ (draw.count, 3u);
+    const scene::SceneFillVertex& corner = tinted.fills[draw.first + 2];
+    EXPECT_FLOAT_EQ (corner.position[0], 10.0f);
+    EXPECT_FLOAT_EQ (corner.position[1], 10.0f);
+    EXPECT_FLOAT_EQ (corner.position[2], 3.0f);
+    EXPECT_EQ (corner.rgba, layers::ToUnorm (hud::kHoverTintRgba));
+
+    hud::Input moved = input;
+    moved.hover.tintModel = { 0, 0, 6, 10, 0, 6, 10, 10, 6 }; // the floor above
+    EXPECT_NE (scene::Fingerprint (scene::PrepareSceneHud (all, &hud.engine, 1.0f, moved)), scene::Fingerprint (tinted))
+        << "a tint on another item is uploaded";
+    hud::Input none = input;
+    none.hover = hud::Hover ();
+    none.hover.picks = true;
+    EXPECT_TRUE (scene::PrepareSceneHud (all, &hud.engine, 1.0f, none).fillDraws.empty ()) << "nothing under it";
+}
+
 // ---- a legend or ramp pointed at shows its band of the heatmap -----------------------------
 
 // ⚠️ STAGE 1 (the user, 2026-09-29): hovering a legend colour highlights that value range

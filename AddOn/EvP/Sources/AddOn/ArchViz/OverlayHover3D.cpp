@@ -83,7 +83,8 @@ void Fill (overlayhud::Input& input)
     overlayhud::Hover hover = overlayhover::Readout (*layers[hit.layer], hit);
     hover.picks = true;
     const bool whole = mesh.values.empty () && mesh.indices.size () / 3 <= kTintTriangles;
-    overlayhover::TintView (mesh, project, hover.tint, whole ? -1 : int64_t (hit.triangle));
+    // In model metres: the guest draws it with the camera of every Present, through an orbit.
+    overlayhover::TintModel (mesh, hover.tintModel, whole ? -1 : int64_t (hit.triangle));
     input.hover = std::move (hover);
 }
 
