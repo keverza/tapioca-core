@@ -148,6 +148,14 @@ class SunStudyFollower final {
     // the generation to carry with it and to check on completion.
     uint64_t NoteStarted (const SunStudyDependencySignature& signature, int64_t nowMs);
 
+    // A preview may be published without accepting the final grid. This check
+    // leaves the run active; commit NoteCompleted only after display enqueue.
+    bool CanPublishResult (uint64_t generation, const SunStudyDependencySignature& signature) const
+    {
+        return state_ == SunStudyFollowState::UpdatingVisible && haveRun_ && generation == generation_ &&
+               signature == runSignature_ && haveWorld_ && signature == worldSignature_;
+    }
+
     // A run finished. ⚠️ THE GENERATION IS CHECKED, NOT THE TIMING, and this is
     // the rule that stops a believable wrong answer: a study started against
     // snapshot 41 may complete after the model has moved to 42, and it will

@@ -3,7 +3,9 @@
 
 #include "SunStudy/SunStudySession.hpp"
 
+#include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -20,7 +22,8 @@ struct AdvanceRequest {
     size_t maxParallel = 1;
     double tmin = 0.001;
     double tmax = 0.0;
-    double maxMilliseconds = 0.0; // checked between complete timesteps, zero = unlimited
+    double maxMilliseconds = 0.0;   // checked between complete timesteps, zero = unlimited
+    std::function<void ()> onReady; // nonblocking notification after mailbox publication, outside its lock
 };
 
 struct AdvanceCompletion {
@@ -32,10 +35,12 @@ struct AdvanceCompletion {
     std::thread::id threadId;
     double wallMilliseconds = 0.0;
     bool priorityLowered = false;
+    std::chrono::steady_clock::time_point readyAt;
 };
 
 // Single-flight mailbox. Submit/Poll/Cancel never trace or join on their caller.
-// The worker only touches owned study data; it cannot call ACAPI or the gate.
+// Calculation only touches owned study data, never ACAPI. A ready notification
+// may post a nonblocking host wake, but must never wait on the main thread.
 // Cancellation drains at a timestep boundary and discards the completion.
 class SunStudyAdvanceWorker final {
   public:

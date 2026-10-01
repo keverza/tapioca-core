@@ -2,6 +2,7 @@
 #define EVP_SUNSTUDY_SUNSTUDYTASKWORKER_HPP
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -19,6 +20,7 @@ struct StudyTaskRequest {
     // mailbox is the publication boundary for results captured by shared value.
     std::function<void (const std::atomic<bool>&)> execute;
     std::function<void ()> discard;
+    std::function<void ()> onReady; // nonblocking wake after publication, outside the mailbox lock
 };
 
 struct StudyTaskCompletion {
@@ -28,6 +30,7 @@ struct StudyTaskCompletion {
     std::thread::id threadId;
     double wallMilliseconds = 0.0;
     bool priorityLowered = false;
+    std::chrono::steady_clock::time_point readyAt;
 };
 
 // Single-flight pure-work mailbox. Cancellation/discard (including destruction

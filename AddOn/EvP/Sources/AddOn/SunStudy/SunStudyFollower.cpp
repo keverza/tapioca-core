@@ -84,6 +84,11 @@ bool SunStudyFollower::Observe (const SunStudyDependencySignature& world, int64_
     if (state_ == SunStudyFollowState::NoStudy)
         return false; // nothing to invalidate; the world is just being recorded
 
+    // Polling an unchanged world cannot retry a failed preparation/publication.
+    // Its retained cache normally differs from the attempted run's inputs.
+    if (state_ == SunStudyFollowState::Failed && !first && previous == world)
+        return false;
+
     // ⚠️ AGAINST THE STUDY'S SIGNATURE, NOT THE LAST OBSERVED ONE. A world that
     // changes and changes back -- an element moved and undone -- is NOT stale,
     // and comparing against the previous observation would report it as stale
@@ -105,8 +110,7 @@ bool SunStudyFollower::Observe (const SunStudyDependencySignature& world, int64_
     // Against the RUN's signature, an unchanged world is agreement and the run
     // proceeds; a world that moves again still supersedes it, which is the
     // property that must not be lost.
-    const bool running =
-        state_ == SunStudyFollowState::Starting || state_ == SunStudyFollowState::UpdatingVisible;
+    const bool running = state_ == SunStudyFollowState::Starting || state_ == SunStudyFollowState::UpdatingVisible;
     const SunStudyDependencySignature& against = (running && haveRun_) ? runSignature_ : studySignature_;
     const SunStudyDirtyReason reason = WhatChanged (against, world);
     if (reason == SunStudyDirtyReason::None) {
@@ -215,6 +219,7 @@ void SunStudyFollower::NoteFailed (uint64_t generation, int64_t nowMs)
     }
     (void) nowMs;
     state_ = SunStudyFollowState::Failed;
+    haveRun_ = false;
 }
 
 void SunStudyFollower::Clear ()

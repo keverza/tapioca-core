@@ -3199,9 +3199,14 @@ def _one(command, params):
             return _v2({"studyId": "", "shown": False,
                         "viewerRunning": False, "elements": 0, "depth": 0,
                         "atlasWidth": 0, "atlasHeight": 0, "converged": False,
+                        "preview": False,
                         "hoursMax": 0.0, "debug": 0})
         if not _SUN_STUDY:
             return _err("no sun study to show - start one first")
+        preview = bool(params.get("preview", False))
+        converged = _SUN_STUDY["resolved"] >= _SUN_STUDY["total"]
+        if preview and not converged:
+            return _err("a coarse preview must resolve the complete day before display")
         # ⚠️ THE ELEMENT COUNT IS THE FAKE SNAPSHOT'S, NOT THE SAMPLE COUNT.
         # The whole point of the display verb is that it pairs a study with the
         # ELEMENTS the viewer holds, and a fake that answered with the sample
@@ -3217,6 +3222,7 @@ def _one(command, params):
         _SUN_OVERLAY.clear()
         _SUN_OVERLAY.update({
             "viewerRunning": True, "studyId": _SUN_STUDY["id"], "drawing": True,
+            "preview": preview,
             "elementsNamed": elements, "elementsAttached": elements,
             "refusedTriangleCount": 0, "refusedTopologyHash": 0,
             "atlasWidth": 256, "atlasHeight": 256,
@@ -3230,7 +3236,7 @@ def _one(command, params):
                     "viewerRunning": True,
                     "elements": elements,
                     "atlasWidth": 256, "atlasHeight": 256,
-                    "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
+                    "converged": converged, "preview": preview,
                     "hoursMax": hours_max, "debug": debug, "depth": depth})
 
     if command == "EvP.SunStudyFollowerState":
@@ -3250,6 +3256,7 @@ def _one(command, params):
                         "resolvedSteps": 0, "totalSteps": 0, "workerBusy": False,
                         "tickThread": "", "workerThread": "",
                         "stage": "idle", "navigationDeferred": False,
+                        "completionWakes": 0, "completionWakeFailures": 0,
                         "lastError": "", "description": "no sun study is being followed"})
         return _v2({"state": "Current", "autoFollow": True, "dirty": False,
                     "dirtyReason": "none", "generation": 1,
@@ -3263,6 +3270,7 @@ def _one(command, params):
                     "resolvedSteps": 0, "totalSteps": 0, "workerBusy": False,
                     "tickThread": "", "workerThread": "",
                     "stage": "current", "navigationDeferred": False,
+                    "completionWakes": 0, "completionWakeFailures": 0,
                     "description": "sun study '%s' is current for snapshot 1"
                                    % _SUN_OVERLAY.get("studyId", "")})
 
@@ -3274,6 +3282,7 @@ def _one(command, params):
         # the exact failure the real verb was added to surface.
         if not _SUN_OVERLAY:
             return _v2({"viewerRunning": False, "studyId": "", "drawing": False,
+                         "preview": False,
                         "elementsNamed": 0, "elementsAttached": 0,
                         "refusedTriangleCount": 0, "refusedTopologyHash": 0,
                         "atlasWidth": 0, "atlasHeight": 0, "atlasUploads": 0,

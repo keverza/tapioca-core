@@ -98,6 +98,8 @@ struct FollowerStats {
     bool workerBusy = false;
     std::string stage;
     bool navigationDeferred = false;
+    uint64_t completionWakes = 0;
+    uint64_t completionWakeFailures = 0;
     std::string tickThread;
     std::string workerThread;
     std::string lastError;

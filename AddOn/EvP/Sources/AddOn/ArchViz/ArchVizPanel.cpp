@@ -935,7 +935,9 @@ GSErrCode ArchVizPanel::PaletteControlCallBack (Int32, API_PaletteMessageID mess
 {
     switch (messageID) {
         case APIPalMsg_OpenPalette:
-            OpenViewer ();
+            // Saved workspace restoration is not a fresh explicit viewer open.
+            if (HasInstance () && GetInstance ().paletteState.CanShow ())
+                OpenViewer ();
             break;
         case APIPalMsg_ClosePalette:
             CloseViewer ();

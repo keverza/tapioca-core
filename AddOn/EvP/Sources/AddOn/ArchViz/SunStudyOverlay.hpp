@@ -150,6 +150,7 @@ struct SunStudyAtlasUpload {
     uint64_t sampleCount = 0;
     double analysedArea = 0.0;
     bool patchDomain = false;
+    bool preview = false; // complete temporal series at a coarser spatial grid, not the requested final grid
 
     size_t Bytes () const;
 };

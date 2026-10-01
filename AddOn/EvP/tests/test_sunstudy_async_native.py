@@ -62,6 +62,8 @@ def test_follower_diagnostic_fields_are_declared_in_the_strict_response_schema()
         "workerBusy",
         "stage",
         "navigationDeferred",
+        "completionWakes",
+        "completionWakeFailures",
         "resolvedSteps",
         "totalSteps",
         "tickThread",
@@ -75,7 +77,7 @@ def test_follower_diagnostic_fields_are_declared_in_the_strict_response_schema()
 def test_follower_preparation_uses_owned_capture_not_main_thread_start_command():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
     assert 'ExecuteNativeCommand ("StartSunStudy"' not in source
-    assert "CaptureSunStudyInputs (StartParams (gConfig), captured)" in source
+    assert "CaptureSunStudyInputs (StartParams (samplingConfig), captured)" in source
     assert "[captured, output]" in source
     assert "PrepareCapturedSunStudy (captured, cancelled)" in source
     assert "PreparationWorker ().Cancel" in source
@@ -102,3 +104,36 @@ def test_interactive_calculation_reserves_cpu_and_defers_capture_during_navigati
     policy = (_ADDON / "SunStudy" / "SunStudyThreadPolicy.hpp").read_text(encoding="utf-8")
     assert "THREAD_PRIORITY_BELOW_NORMAL" in policy
     assert "THREAD_MODE_BACKGROUND_BEGIN" not in policy
+
+
+def test_completions_post_a_session_guarded_main_thread_wake():
+    source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    assert "s_completionTickPending.exchange (true)" in source
+    assert "[sessionGeneration]" in source
+    assert "SessionGeneration () == sessionGeneration" in source
+    assert "WakeFollower (sessionGeneration)" in source
+    for filename in ("SunStudyAdvanceWorker.cpp", "SunStudyTaskWorker.cpp"):
+        worker = (_ADDON / "SunStudy" / filename).read_text(encoding="utf-8")
+        assert "NotifyStudyReady (ticket->request.onReady)" in worker
+
+
+def test_preview_resolves_a_complete_day_and_refines_the_original_config():
+    source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    assert "ActiveSunStudyConfig samplingConfig = gConfig" in source
+    assert "samplingConfig.grid = s_previewSpacing" in source
+    assert "s_previewEnabled && !refinement" in source
+    assert "StartReplacement (gRunSignature, now, true)" in source
+    assert 'show.Add ("preview", s_previewRun)' in source
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert "upload->preview && !converged" in display
+    assert '"preview":{"type":"boolean"}' in display
+
+
+def test_preview_and_final_publication_share_the_stale_guard_and_commit_after_enqueue():
+    source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    check = source.index("gFollower.CanPublishResult (gRunGeneration, gRunSignature)")
+    show = source.index('ExecuteNativeCommand ("ShowSunStudy", show)')
+    accept = source.index("gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now)")
+    assert check < show < accept
+    assert "!shown.ok || !enqueuedToViewer" in source
+    assert "ReleasePreview ();" in source.split("void DisableLocked ()", 1)[1]

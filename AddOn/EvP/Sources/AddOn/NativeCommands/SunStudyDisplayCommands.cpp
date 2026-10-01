@@ -115,6 +115,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         cleared.Add ("atlasWidth", (GS::Int32) 0);
         cleared.Add ("atlasHeight", (GS::Int32) 0);
         cleared.Add ("converged", false);
+        cleared.Add ("preview", false);
         cleared.Add ("hoursMax", 0.0);
         cleared.Add ("debug", (GS::Int32) 0);
         cleared.Add ("depth", (GS::Int32) 0);
@@ -168,6 +169,9 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     }
 
     auto upload = std::make_unique<archviz::SunStudyAtlasUpload> ();
+    params.Get ("preview", upload->preview);
+    if (upload->preview && !converged)
+        return NativeCommandResult::Failure ("a coarse preview must resolve the complete day before display");
     upload->studyId = id;
     upload->version = generation;
     upload->width = width;
@@ -270,6 +274,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     // hours resolved so far; showing it is legitimate and calling it final
     // is not, so the caller is told which it has rather than refused.
     os.Add ("converged", converged);
+    os.Add ("preview", upload->preview);
     os.Add ("hoursMax", (double) upload->hoursMax);
     os.Add ("debug", (GS::Int32) upload->debugMode);
     os.Add ("depth", (GS::Int32) upload->depthMode);
@@ -347,6 +352,7 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
             // and "viewer with no study" become the same answer to it.
             os.Add ("studyId", Text (std::string ()));
             os.Add ("drawing", false);
+            os.Add ("preview", false);
             os.Add ("elementsNamed", (GS::Int32) 0);
             os.Add ("elementsAttached", (GS::Int32) 0);
             os.Add ("refusedTriangleCount", (GS::Int32) 0);
@@ -368,6 +374,7 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
         const archviz::SunStudyOverlayStatus& overlay = stats.sunStudy;
         os.Add ("studyId", Text (overlay.studyId));
         os.Add ("drawing", overlay.drawing);
+        os.Add ("preview", overlay.preview);
         os.Add ("elementsNamed", (GS::Int32) overlay.elementsNamed);
         os.Add ("elementsAttached", (GS::Int32) overlay.elementsAttached);
         os.Add ("refusedTriangleCount", (GS::Int32) overlay.refusedTriangleCount);
@@ -546,6 +553,8 @@ class SunStudyFollowerStateCommand : public MainThreadCommand {
         os.Add ("workerBusy", stats.workerBusy);
         os.Add ("stage", Text (stats.stage));
         os.Add ("navigationDeferred", stats.navigationDeferred);
+        os.Add ("completionWakes", (GS::Int32) stats.completionWakes);
+        os.Add ("completionWakeFailures", (GS::Int32) stats.completionWakeFailures);
         os.Add ("tickThread", Text (stats.tickThread));
         os.Add ("workerThread", Text (stats.workerThread));
         os.Add ("lastError", Text (stats.lastError));
@@ -602,7 +611,8 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "hoursMax":{"type":"number"},
                 "debug":{"type":"integer"},
                 "depth":{"type":"integer"},
-                "follow":{"type":"boolean"}
+                "follow":{"type":"boolean"},
+                "preview":{"type":"boolean"}
             },
             "additionalProperties":false
         })json",
@@ -616,6 +626,7 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "atlasWidth":{"type":"integer"},
                 "atlasHeight":{"type":"integer"},
                 "converged":{"type":"boolean"},
+                "preview":{"type":"boolean"},
                 "hoursMax":{"type":"number"},
                 "debug":{"type":"integer"},
                 "depth":{"type":"integer"}
@@ -635,6 +646,7 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "viewerRunning":{"type":"boolean"},
                 "studyId":{"type":"string"},
                 "drawing":{"type":"boolean"},
+                "preview":{"type":"boolean"},
                 "elementsNamed":{"type":"integer"},
                 "elementsAttached":{"type":"integer"},
                 "refusedTriangleCount":{"type":"integer"},
@@ -716,6 +728,8 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "workerBusy":{"type":"boolean"},
                 "stage":{"type":"string"},
                 "navigationDeferred":{"type":"boolean"},
+                "completionWakes":{"type":"integer"},
+                "completionWakeFailures":{"type":"integer"},
                 "tickThread":{"type":"string"},
                 "workerThread":{"type":"string"},
                 "lastError":{"type":"string"},

@@ -1,11 +1,13 @@
 #include "SunStudy/SunStudyTaskWorker.hpp"
 #include "SunStudy/SunStudyRefreshSchedule.hpp"
+#include "SunStudy/SunStudyPreviewPlan.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <future>
 #include <stdexcept>
+#include <limits>
 
 using namespace evp::sunstudy;
 
@@ -158,6 +160,60 @@ TEST (SunStudyTaskWorker, ShutdownIsIdempotentAndRefusesNewTasks)
     EXPECT_FALSE (task.worker.Submit (task.request, task.error));
     EXPECT_FALSE (task.worker.Busy ());
     EXPECT_EQ (task.executions.load (), 0u);
+}
+
+TEST (SunStudyTaskWorker, PreparationNotificationCanPollOutsideTheMailboxLock)
+{
+    PausedTask task;
+    std::promise<StudyTaskCompletion> notified;
+    auto result = notified.get_future ();
+    task.request.onReady = [&task, &notified] () {
+        StudyTaskCompletion completion;
+        if (task.worker.Poll (completion))
+            notified.set_value (std::move (completion));
+    };
+    task.Release ();
+    ASSERT_TRUE (task.worker.Submit (task.request, task.error));
+    ASSERT_EQ (result.wait_for (std::chrono::seconds (5)), std::future_status::ready);
+    EXPECT_TRUE (result.get ().error.empty ());
+    EXPECT_FALSE (task.worker.Busy ());
+    task.worker.Shutdown ();
+}
+
+TEST (SunStudyTaskWorker, CancelledPreparationDoesNotNotify)
+{
+    PausedTask task;
+    std::atomic<size_t> wakes { 0 };
+    task.request.onReady = [&wakes] () { ++wakes; };
+    ASSERT_TRUE (task.worker.Submit (task.request, task.error));
+    ASSERT_TRUE (task.Started ());
+    task.worker.Cancel ();
+    task.Release ();
+    ASSERT_TRUE (task.WaitIdle ());
+    EXPECT_EQ (wakes.load (), 0u);
+}
+
+TEST (SunStudyPreviewPlan, SmallStudiesKeepOnlyTheRequestedGrid)
+{
+    const auto plan = MakeSunStudyPreviewPlan (65535, 0.25);
+    EXPECT_FALSE (plan.enabled);
+    EXPECT_EQ (plan.previewSpacing, 0.25);
+    EXPECT_EQ (plan.requestedSpacing, 0.25);
+}
+
+TEST (SunStudyPreviewPlan, LargeStudiesPreviewWithoutChangingTheFinalResolution)
+{
+    const auto plan = MakeSunStudyPreviewPlan (300000, 0.25);
+    EXPECT_TRUE (plan.enabled);
+    EXPECT_EQ (plan.previewSpacing, 1.0);
+    EXPECT_EQ (plan.requestedSpacing, 0.25);
+}
+
+TEST (SunStudyPreviewPlan, InvalidOrOverflowingSpacingCannotStartACoarsePreview)
+{
+    for (double spacing : { 0.0, -1.0, std::numeric_limits<double>::infinity (),
+                            std::numeric_limits<double>::quiet_NaN (), std::numeric_limits<double>::max () })
+        EXPECT_FALSE (MakeSunStudyPreviewPlan (300000, spacing).enabled);
 }
 
 TEST (SunStudyTaskWorker, ShutdownDrainsAnOutstandingTaskAndItsDiscard)

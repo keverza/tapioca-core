@@ -1,11 +1,24 @@
 #ifndef EVP_SUNSTUDY_SUNSTUDYTHREADPOLICY_HPP
 #define EVP_SUNSTUDY_SUNSTUDYTHREADPOLICY_HPP
 
+#include <functional>
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
 namespace evp::sunstudy {
+
+inline void NotifyStudyReady (const std::function<void ()>& notification)
+{
+    try {
+        if (notification)
+            notification ();
+    }
+    catch (...) {
+        // A failed wake must not kill calculation; heartbeat polling is the fallback.
+    }
+}
 
 inline bool UseInteractiveStudyPriority ()
 {

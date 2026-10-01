@@ -537,6 +537,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.sunStudy.sampleCount = impl_->sunSampleCount;
     s.sunStudy.analysedArea = impl_->sunAnalysedArea;
     s.sunStudy.patchDomain = impl_->sunPatchDomain;
+    s.sunStudy.preview = impl_->sunStudyPayload != nullptr && impl_->sunStudyPayload->preview;
     s.sunStudy.tintFrames = impl_->sunTintFrames;
     s.sunStudy.tintElementsDrawn = impl_->sunTintElementsDrawn;
     s.sunStudy.framesSkippedIncompleteBinding = impl_->sunFramesSkippedIncompleteBinding;

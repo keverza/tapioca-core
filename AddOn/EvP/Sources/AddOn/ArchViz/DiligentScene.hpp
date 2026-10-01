@@ -102,6 +102,7 @@ struct SunStudyOverlayStatus {
     uint64_t sampleCount = 0;
     double analysedArea = 0.0;
     bool patchDomain = false;
+    bool preview = false;
     size_t elementsNamed = 0;
     size_t elementsAttached = 0;
     // Why the others were turned away, split because the two mean different

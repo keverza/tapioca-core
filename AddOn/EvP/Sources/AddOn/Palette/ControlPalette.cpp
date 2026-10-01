@@ -194,20 +194,6 @@ void ControlPalette::DestroyInstance ()
 {
     instance = nullptr;
 }
-void ControlPalette::Show (bool focusSearch)
-{
-    preview.SetPaletteVisible (true);
-    DG::Palette::Show ();
-    if (focusSearch)
-        commandsPanel.FocusSearch ();
-}
-void ControlPalette::Hide ()
-{
-    CancelAutomaticPreview (true);
-    preview.SetPaletteVisible (false);
-    DG::Palette::Hide ();
-}
-
 void ControlPalette::SetCommandStatus (const GS::UniString& text)
 {
     commandStatus.SetText (text);

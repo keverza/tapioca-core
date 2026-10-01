@@ -4,6 +4,31 @@
 
 using geomsrv::archviz::ViewerPaletteState;
 
+TEST (ViewerPaletteState, ANewSessionCannotRestoreSavedWorkspaceVisibility)
+{
+    ViewerPaletteState previousSession;
+    previousSession.RequestOpen ();
+    ASSERT_TRUE (previousSession.CanShow ());
+    ViewerPaletteState newSession;
+    EXPECT_FALSE (newSession.CanShow ());
+    newSession.BeginHostHide (false);
+    EXPECT_FALSE (newSession.EndHostHide ());
+    newSession.RequestOpen ();
+    EXPECT_TRUE (newSession.CanShow ());
+}
+
+TEST (ViewerPaletteState, AProjectReplacementClosesIntentBeforeTheHostRestoresPalettes)
+{
+    ViewerPaletteState state;
+    state.RequestOpen ();
+    state.BeginHostHide (true);
+    state.RequestClose (); // New/Open/Close reset, even within a project-load hide
+    EXPECT_FALSE (state.EndHostHide ());
+    EXPECT_FALSE (state.CanShow ());
+    state.RequestOpen ();
+    EXPECT_TRUE (state.CanShow ());
+}
+
 TEST (ViewerPaletteState, AClosedInstanceDoesNotRestoreAfterAViewSwitch)
 {
     ViewerPaletteState state;

@@ -18,30 +18,52 @@
 // Declared there, defined there; ACAPI keys the modeless window on its hash.
 extern const GS::Guid paletteGuid;
 
+void ControlPalette::Show (bool focusSearch)
+{
+    paletteState.RequestOpen ();
+    if (!paletteState.CanShow ())
+        return;
+    preview.SetPaletteVisible (true);
+    DG::Palette::Show ();
+    if (focusSearch)
+        commandsPanel.FocusSearch ();
+}
+
+void ControlPalette::Hide ()
+{
+    paletteState.RequestClose ();
+    CancelAutomaticPreview (true);
+    preview.SetPaletteVisible (false);
+    DG::Palette::Hide ();
+}
+
 GSErrCode ControlPalette::PaletteControlCallBack (Int32, API_PaletteMessageID messageID, GS::IntPtr param)
 {
     switch (messageID) {
         case APIPalMsg_OpenPalette:
-            evp::StartupTrace ("ControlPalette: open callback entered");
-            if (!HasInstance ())
-                CreateInstance ();
-            if (!HasInstance ())
-                break;
-            evp::StartupTrace ("ControlPalette: showing palette");
-            GetInstance ().Show (true);
-            evp::StartupTrace ("ControlPalette: open callback complete");
+            // Archicad can replay this from its saved workspace. Only the
+            // add-on's explicit menu/API open authorizes a palette this session.
+            if (HasInstance () && GetInstance ().paletteState.CanShow ())
+                GetInstance ().Show (true);
             break;
         case APIPalMsg_ClosePalette:
             if (HasInstance ())
                 GetInstance ().Hide ();
             break;
         case APIPalMsg_HidePalette_Begin:
-            if (HasInstance () && GetInstance ().IsVisible ())
-                GetInstance ().Hide ();
+            if (HasInstance ()) {
+                auto& panel = GetInstance ();
+                panel.paletteState.BeginHostHide (panel.IsVisible ());
+                panel.CancelAutomaticPreview (true);
+                panel.preview.SetPaletteVisible (false);
+                panel.DG::Palette::Hide ();
+            }
             break;
         case APIPalMsg_HidePalette_End:
-            if (HasInstance () && !GetInstance ().IsVisible ())
-                GetInstance ().Show ();
+            if (HasInstance () && GetInstance ().paletteState.EndHostHide ()) {
+                GetInstance ().preview.SetPaletteVisible (true);
+                GetInstance ().DG::Palette::Show ();
+            }
             break;
 
         // Archicad telling us it is busy — opening a project, mostly. The FLAG

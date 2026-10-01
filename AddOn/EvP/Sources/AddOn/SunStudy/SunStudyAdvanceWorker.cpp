@@ -151,13 +151,17 @@ void SunStudyAdvanceWorker::ThreadMain ()
         completion.priorityLowered = priorityLowered;
         completion.wallMilliseconds =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
-        std::lock_guard<std::mutex> lock (mutex_);
-        if (ticket->cancelled.load () || stopping_) {
-            active_.reset ();
-            continue;
+        {
+            std::lock_guard<std::mutex> lock (mutex_);
+            if (ticket->cancelled.load () || stopping_) {
+                active_.reset ();
+                continue;
+            }
+            completion.readyAt = std::chrono::steady_clock::now ();
+            completion_ = std::move (completion);
+            ready_ = true;
         }
-        completion_ = std::move (completion);
-        ready_ = true;
+        NotifyStudyReady (ticket->request.onReady);
     }
 }
 

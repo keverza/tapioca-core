@@ -26790,6 +26790,9 @@
           },
           "follow": {
             "type": "boolean"
+          },
+          "preview": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -26816,6 +26819,9 @@
             "type": "integer"
           },
           "converged": {
+            "type": "boolean"
+          },
+          "preview": {
             "type": "boolean"
           },
           "hoursMax": {
@@ -27634,6 +27640,45 @@
           "snapshotRebuilds": {
             "type": "integer"
           },
+          "sessionGeneration": {
+            "type": "integer"
+          },
+          "cancelledRuns": {
+            "type": "integer"
+          },
+          "sliceSubmissions": {
+            "type": "integer"
+          },
+          "sliceCompletions": {
+            "type": "integer"
+          },
+          "resolvedSteps": {
+            "type": "integer"
+          },
+          "totalSteps": {
+            "type": "integer"
+          },
+          "workerBusy": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "navigationDeferred": {
+            "type": "boolean"
+          },
+          "completionWakes": {
+            "type": "integer"
+          },
+          "completionWakeFailures": {
+            "type": "integer"
+          },
+          "tickThread": {
+            "type": "string"
+          },
+          "workerThread": {
+            "type": "string"
+          },
           "lastError": {
             "type": "string"
           },
@@ -27670,6 +27715,9 @@
             "type": "string"
           },
           "drawing": {
+            "type": "boolean"
+          },
+          "preview": {
             "type": "boolean"
           },
           "elementsNamed": {

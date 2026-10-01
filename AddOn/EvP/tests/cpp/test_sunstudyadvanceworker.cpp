@@ -247,6 +247,54 @@ TEST (SunStudyAdvanceWorker, ShutdownIsIdempotentAndNeverFallsBackToInlineWork)
     EXPECT_FALSE (study.worker.Busy ());
 }
 
+TEST (SunStudyAdvanceWorker, CompletionNotificationCanPollThePublishedResultWithoutInteraction)
+{
+    PausedStudy study;
+    std::promise<AdvanceCompletion> notified;
+    auto result = notified.get_future ();
+    study.request.onReady = [&study, &notified] () {
+        AdvanceCompletion completion;
+        if (study.worker.Poll (completion))
+            notified.set_value (std::move (completion));
+    };
+    study.Release ();
+    ASSERT_TRUE (study.worker.Submit (study.request, study.error));
+    ASSERT_EQ (result.wait_for (std::chrono::seconds (5)), std::future_status::ready);
+    const auto completion = result.get ();
+    EXPECT_TRUE (completion.succeeded);
+    EXPECT_TRUE (completion.progress.converged);
+    EXPECT_FALSE (study.worker.Busy ());
+    study.worker.Shutdown ();
+}
+
+TEST (SunStudyAdvanceWorker, CancelledCalculationDoesNotWakeAClosedSession)
+{
+    PausedStudy study;
+    std::atomic<size_t> wakes { 0 };
+    study.request.onReady = [&wakes] () { ++wakes; };
+    ASSERT_TRUE (study.worker.Submit (study.request, study.error));
+    ASSERT_TRUE (study.Started ());
+    study.worker.Cancel ();
+    study.Release ();
+    ASSERT_TRUE (study.WaitIdle ());
+    EXPECT_EQ (wakes.load (), 0u);
+}
+
+TEST (SunStudyAdvanceWorker, ThrowingNotificationLeavesHeartbeatPollingUsable)
+{
+    PausedStudy study;
+    study.request.onReady = [] () { throw std::runtime_error ("test wake failure"); };
+    study.Release ();
+    ASSERT_TRUE (study.worker.Submit (study.request, study.error));
+    AdvanceCompletion completion;
+    ASSERT_TRUE (study.WaitResult (completion));
+    EXPECT_TRUE (completion.succeeded);
+    study.request.onReady = {};
+    ASSERT_TRUE (study.worker.Submit (study.request, study.error));
+    ASSERT_TRUE (study.WaitResult (completion));
+    EXPECT_TRUE (completion.succeeded);
+}
+
 TEST (SunStudyAdvanceWorker, SoftTimeBudgetStopsBetweenCompleteStepsAndCanResume)
 {
     PausedStudy study;

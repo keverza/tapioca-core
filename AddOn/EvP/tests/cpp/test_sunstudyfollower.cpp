@@ -439,3 +439,52 @@ TEST (SunStudyFollower, TheDescriptionNamesBothSnapshots)
     EXPECT_NE (text.find ("41"), std::string::npos);
     EXPECT_NE (text.find ("geometry"), std::string::npos);
 }
+
+TEST (SunStudyFollower, PreviewPublicationLeavesTheFinalGridRunActiveAcrossIdleTicks)
+{
+    SunStudyFollower follower = Adopted ();
+    follower.Observe (Sig (42), 1100);
+    const auto generation = follower.NoteStarted (Sig (42), 1400);
+    ASSERT_TRUE (follower.CanPublishResult (generation, Sig (42)));
+    EXPECT_EQ (follower.State (), SunStudyFollowState::UpdatingVisible);
+    EXPECT_EQ (follower.StudyId (), "study-a");
+    for (int64_t now = 1600; now <= 6000; now += 200) {
+        EXPECT_FALSE (follower.Observe (Sig (42), now));
+        EXPECT_TRUE (follower.CanPublishResult (generation, Sig (42)));
+    }
+    EXPECT_TRUE (follower.NoteCompleted (generation, "final-grid", Sig (42), 6200));
+    EXPECT_TRUE (follower.IsFullyCurrent ());
+    EXPECT_EQ (follower.StudyId (), "final-grid");
+}
+
+TEST (SunStudyFollower, BothPreviewAndFinalPublicationRefuseSupersededOrWrongInputs)
+{
+    SunStudyFollower follower = Adopted ();
+    follower.Observe (Sig (42), 1100);
+    const auto generation = follower.NoteStarted (Sig (42), 1400);
+    EXPECT_FALSE (follower.CanPublishResult (generation, Sig (41)));
+    follower.Observe (Sig (43), 1500);
+    EXPECT_FALSE (follower.CanPublishResult (generation, Sig (42)));
+    follower.Clear ();
+    EXPECT_FALSE (follower.CanPublishResult (generation, Sig (42)));
+}
+
+TEST (SunStudyFollower, DisplayFailureDoesNotAdoptAnUndisplayedOrErasedFinalCache)
+{
+    SunStudyFollower follower = Adopted ();
+    follower.Observe (Sig (42), 1100);
+    const auto generation = follower.NoteStarted (Sig (42), 1400);
+    ASSERT_TRUE (follower.CanPublishResult (generation, Sig (42)));
+    follower.NoteFailed (generation, 1500);
+    EXPECT_EQ (follower.State (), SunStudyFollowState::Failed);
+    EXPECT_EQ (follower.StudyId (), "study-a");
+    EXPECT_EQ (follower.StudySignature (), Sig (41));
+    EXPECT_FALSE (follower.CanPublishResult (generation, Sig (42)));
+    for (int64_t now = 1600; now <= 6000; now += 200) {
+        EXPECT_FALSE (follower.Observe (Sig (42), now));
+        EXPECT_EQ (follower.State (), SunStudyFollowState::Failed);
+        EXPECT_FALSE (follower.ShouldStart (now));
+    }
+    EXPECT_TRUE (follower.Observe (Sig (43), 6200));
+    EXPECT_TRUE (follower.ShouldStart (6500));
+}

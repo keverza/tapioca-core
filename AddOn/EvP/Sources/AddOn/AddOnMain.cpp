@@ -148,6 +148,9 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
         case APINotify_New:
         case APINotify_NewAndReset:
         case APINotify_Open:
+            if (ControlPalette::HasInstance ())
+                ControlPalette::GetInstance ().Hide ();
+            ArchVizPanel::CloseViewer ();
             geomsrv::sunfollow::Disable (); // invalidate calculation/adoption from the previous document
             // A document that replaces another ends the overlay the old one had, if
             // its Close did not already (a no-op then).
@@ -170,6 +173,9 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Close:
+            if (ControlPalette::HasInstance ())
+                ControlPalette::GetInstance ().Hide ();
+            ArchVizPanel::CloseViewer ();
             geomsrv::sunfollow::Disable ();
             // ⚠️ THE OVERLAY'S WINDOWS GO WITH THE PROJECT. Closing the floor plan
             // closes the project, and a session left running outlived its window.

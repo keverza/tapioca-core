@@ -328,6 +328,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         return;
 
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
+    if (study.preview)
+        ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
 
     // ---- the view ---------------------------------------------------------------
     //

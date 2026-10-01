@@ -137,8 +137,11 @@ void SunStudyTaskWorker::ThreadMain ()
                 return;
         }
         else {
+            completion.readyAt = std::chrono::steady_clock::now ();
             completion_ = std::move (completion);
             ready_ = true;
+            lock.unlock ();
+            NotifyStudyReady (ticket->request.onReady);
         }
     }
 }

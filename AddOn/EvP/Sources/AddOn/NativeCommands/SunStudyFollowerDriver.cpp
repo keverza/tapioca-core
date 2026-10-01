@@ -14,6 +14,7 @@
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyTaskWorker.hpp"
 #include "SunStudy/SunStudyRefreshSchedule.hpp"
+#include "SunStudy/SunStudyPreviewPlan.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Python/MainThreadGate.hpp"
 
@@ -81,6 +82,35 @@ std::string s_workerThread;
 evp::sunstudy::SunStudyRefreshSchedule s_refreshSchedule;
 std::string s_stage = "idle";
 bool s_navigationDeferred = false;
+std::atomic<bool> s_completionTickPending { false };
+std::atomic<uint64_t> s_completionWakes { 0 };
+std::atomic<uint64_t> s_completionWakeFailures { 0 };
+bool s_previewEnabled = false;
+double s_previewSpacing = 0.0;
+bool s_previewRun = false;
+bool s_refinementPending = false;
+std::string s_previewStudyId;
+uint64_t s_previewRevision = 0;
+int64_t s_phaseStartedMs = 0;
+
+void WakeFollower (uint64_t sessionGeneration)
+{
+    if (s_completionTickPending.exchange (true))
+        return;
+    GS::UniString error;
+    if (!evp::MainThreadGate::Get ().Post (
+            [sessionGeneration] () {
+                s_completionTickPending.store (false);
+                if (SessionGeneration () == sessionGeneration)
+                    Tick ();
+            },
+            error)) {
+        s_completionTickPending.store (false);
+        ++s_completionWakeFailures;
+    }
+    else
+        ++s_completionWakes;
+}
 
 struct PreparationResult {
     NativeCommandResult result;
@@ -265,8 +295,17 @@ void Log (const std::string& line)
     archviz::ArchVizLog ("sun follow: " + line);
 }
 
+void ReleasePreview ()
+{
+    if (!s_previewStudyId.empty ())
+        evp::sunstudy::SunStudyStore::Get ().Erase (s_previewStudyId, s_previewRevision);
+    s_previewStudyId.clear ();
+    s_previewRevision = 0;
+}
+
 void RetireRun (const char* reason, bool cancelled = true)
 {
+    s_refinementPending = false;
     PreparationWorker ().Cancel ();
     if (s_preparation != nullptr) {
         if (cancelled)
@@ -288,6 +327,11 @@ void LogHostPhase (const char* phase, int64_t started)
 {
     Log (std::string (phase) + " thread=" + std::to_string (::GetCurrentThreadId ()) +
          " wallMs=" + std::to_string (NowMs () - started));
+}
+
+double ReadyWaitMs (std::chrono::steady_clock::time_point readyAt)
+{
+    return std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - readyAt).count ();
 }
 
 // Refresh MeshStore so the geometry half of the signature can move.
@@ -315,21 +359,29 @@ bool RefreshSnapshot ()
     return true;
 }
 
-void StartReplacement (const SunStudyDependencySignature& signature, int64_t now)
+void StartReplacement (const SunStudyDependencySignature& signature, int64_t now, bool refinement = false)
 {
     // ⚠️ THE GENERATION IS TAKEN BEFORE THE COMMAND RUNS. StartSunStudy is not
     // instantaneous, and a generation read afterwards could already belong to an
     // edit that arrived while it worked -- which would make a superseded run look
     // current, the one failure this whole mechanism exists to prevent.
-    gRunGeneration = gFollower.NoteStarted (signature, now);
+    if (!refinement) {
+        gRunGeneration = gFollower.NoteStarted (signature, now);
+        ++gStarts;
+    }
     gRunSignature = signature;
     gRunStudyId.clear ();
     s_runProgress = {};
-    ++gStarts;
+    s_previewRun = s_previewEnabled && !refinement;
+    s_refinementPending = false;
 
     const int64_t started = NowMs ();
+    s_phaseStartedMs = started;
     std::shared_ptr<const CapturedSunStudyInputs> captured;
-    const NativeCommandResult capture = CaptureSunStudyInputs (StartParams (gConfig), captured);
+    ActiveSunStudyConfig samplingConfig = gConfig;
+    if (s_previewRun)
+        samplingConfig.grid = s_previewSpacing;
+    const NativeCommandResult capture = CaptureSunStudyInputs (StartParams (samplingConfig), captured);
     LogHostPhase ("sun capture", started);
     if (!capture.ok) {
         s_stage = "failed";
@@ -343,6 +395,8 @@ void StartReplacement (const SunStudyDependencySignature& signature, int64_t now
     evp::sunstudy::StudyTaskRequest request;
     request.sessionGeneration = s_sessionGeneration;
     request.runGeneration = gRunGeneration;
+    const uint64_t sessionGeneration = s_sessionGeneration;
+    request.onReady = [sessionGeneration] () { WakeFollower (sessionGeneration); };
     request.execute = [captured, output] (const std::atomic<bool>& cancelled) {
         output->result = PrepareCapturedSunStudy (captured, cancelled);
         if (output->result.ok) {
@@ -362,13 +416,17 @@ void StartReplacement (const SunStudyDependencySignature& signature, int64_t now
         s_preparation.reset ();
         return;
     }
-    s_stage = "preparing";
+    s_stage = s_previewRun ? "preparingPreview" : "preparing";
     Log ("preparing generation=" + std::to_string (gRunGeneration) +
          " snapshot=" + std::to_string (signature.geometry));
 }
 
 bool PollPreparation (int64_t now)
 {
+    if (s_refinementPending) {
+        StartReplacement (gRunSignature, now, true);
+        return false;
+    }
     if (s_preparation == nullptr)
         return true;
     evp::sunstudy::StudyTaskCompletion completion;
@@ -379,7 +437,8 @@ bool PollPreparation (int64_t now)
     thread << completion.threadId;
     s_workerThread = thread.str ();
     Log ("prepare workerThread=" + s_workerThread + " wallMs=" + std::to_string (completion.wallMilliseconds) +
-         " priorityLowered=" + std::to_string (completion.priorityLowered));
+         " priorityLowered=" + std::to_string (completion.priorityLowered) +
+         " readyWaitMs=" + std::to_string (ReadyWaitMs (completion.readyAt)));
     if (completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration) {
         ++gDiscarded;
         if (!output->studyId.empty ())
@@ -396,7 +455,7 @@ bool PollPreparation (int64_t now)
     }
     gRunStudyId = output->studyId;
     s_runRevision = output->revision;
-    s_stage = "calculating";
+    s_stage = s_previewRun ? "calculatingPreview" : (s_previewEnabled ? "refining" : "calculating");
     return true;
 }
 
@@ -412,6 +471,8 @@ void SubmitAdvanceSlice (int64_t now)
     // worker. Budget is soft: a whole timestep can exceed it.
     request.maxParallel = 1;
     request.maxMilliseconds = 40.0;
+    const uint64_t sessionGeneration = s_sessionGeneration;
+    request.onReady = [sessionGeneration] () { WakeFollower (sessionGeneration); };
     if (AdvanceWorker ().Submit (request, gLastError))
         ++s_sliceSubmissions;
     else {
@@ -455,6 +516,7 @@ void AdvanceOneSlice (int64_t now)
     Log ("advance workerThread=" + s_workerThread + " tickThread=" + s_tickThread +
          " wallMs=" + std::to_string (completion.wallMilliseconds) +
          " priorityLowered=" + std::to_string (completion.priorityLowered) +
+         " readyWaitMs=" + std::to_string (ReadyWaitMs (completion.readyAt)) +
          " resolved=" + std::to_string (s_runProgress.resolvedSteps) + "/" + std::to_string (s_runProgress.totalSteps));
     if (!completion.succeeded || (!s_runProgress.converged && completion.advanced == 0)) {
         gLastError = completion.error.empty () ? "sun study made no progress" : completion.error;
@@ -474,16 +536,13 @@ void AdvanceOneSlice (int64_t now)
     // A study started on snapshot 41 that completes after the model reached 42
     // completes SUCCESSFULLY, with a plausible result, and painting it would put
     // the old building's sunlight on the new one.
-    if (!gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now)) {
+    if (!gFollower.CanPublishResult (gRunGeneration, gRunSignature)) {
         ++gDiscarded;
         Log ("discarded generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId +
              " -- the model moved while it ran");
         RetireRun ("completion superseded", false);
         return;
     }
-
-    ++gAccepted;
-    ++gReruns;
 
     GS::ObjectState show;
     show.Add ("studyId", GS::UniString (gRunStudyId.c_str (), CC_UTF8));
@@ -493,6 +552,7 @@ void AdvanceOneSlice (int64_t now)
     // would re-adopt its own result, reset the quiet period it was started by,
     // and overwrite the configuration with one derived from itself.
     show.Add ("follow", false);
+    show.Add ("preview", s_previewRun);
     show.Add ("debug", (GS::Int32) gConfig.debug);
     show.Add ("depth", (GS::Int32) gConfig.depth);
     if (gConfig.hoursMax > 0.0)
@@ -501,11 +561,35 @@ void AdvanceOneSlice (int64_t now)
     s_stage = "displaying";
     const NativeCommandResult shown = ExecuteNativeCommand ("ShowSunStudy", show);
     LogHostPhase ("display", started);
-    if (!shown.ok)
-        gLastError = std::string (shown.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
-    Log ("accepted generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId + " -- displayed");
+    bool enqueuedToViewer = false;
+    if (shown.ok)
+        shown.data.Get ("shown", enqueuedToViewer);
+    if (!shown.ok || !enqueuedToViewer) {
+        gLastError = shown.ok ? "sun study viewer is no longer running"
+                              : std::string (shown.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+        gFollower.NoteFailed (gRunGeneration, now);
+        RetireRun ("display failed", false);
+        s_stage = "failed";
+        return;
+    }
+    if (s_previewRun) {
+        ReleasePreview ();
+        s_previewStudyId = gRunStudyId;
+        s_previewRevision = s_runRevision;
+        s_refinementPending = true;
+        Log ("complete-day coarse preview study=" + gRunStudyId +
+             " wallMs=" + std::to_string (NowMs () - s_phaseStartedMs) + " -- full grid refinement pending");
+    }
+    else {
+        gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now);
+        ReleasePreview ();
+        ++gAccepted;
+        ++gReruns;
+        Log ("accepted generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId +
+             " wallMs=" + std::to_string (NowMs () - s_phaseStartedMs) + " -- queued for display");
+    }
     gRunStudyId.clear ();
-    s_stage = shown.ok ? "current" : "failed";
+    s_stage = s_previewRun ? "previewVisible" : "current";
 }
 
 // ⚠️ THE LOCK IS ALREADY HELD BY THE CALLER. std::mutex is not recursive, so
@@ -515,9 +599,13 @@ void DisableLocked ()
     gAutoFollow = false;
     ++s_sessionGeneration; // queued adoption/completion from a closed session is obsolete
     RetireRun ("following disabled");
+    ReleasePreview ();
     s_runProgress = {};
     s_stage = "idle";
     s_navigationDeferred = false;
+    s_previewEnabled = false;
+    s_previewRun = false;
+    s_previewSpacing = 0.0;
     gConfig = ActiveSunStudyConfig {};
     gFollower.Clear ();
     gRunStudyId.clear ();
@@ -577,6 +665,14 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     std::lock_guard<std::mutex> lock (gMutex);
     if (sessionGeneration != s_sessionGeneration || !archviz::modelwatch::Get ().running)
         return;
+    if (studyId == s_previewStudyId) {
+        // Explicit adoption transfers cache ownership to the manual caller.
+        s_previewStudyId.clear ();
+        s_previewRevision = 0;
+    }
+    else
+        ReleasePreview ();
+    s_refinementPending = false;
     if (studyId == gRunStudyId) {
         // The user explicitly takes ownership of this cache; stop scheduling
         // it but do not erase the study just handed to the display consumer.
@@ -592,6 +688,13 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     gSeenGeometryEdits = archviz::modelwatch::Get ().geometryEdits;
     s_refreshSchedule.Reset (gSeenGeometryEdits);
     s_stage = "current";
+    size_t samples = 0;
+    double area = 0.0;
+    std::string footprintError;
+    const bool haveFootprint = evp::sunstudy::SunStudyStore::Get ().Footprint (studyId, samples, area, footprintError);
+    const auto previewPlan = evp::sunstudy::MakeSunStudyPreviewPlan (haveFootprint ? samples : 0, gConfig.grid);
+    s_previewEnabled = previewPlan.enabled;
+    s_previewSpacing = previewPlan.previewSpacing;
 
     const SunStudyDependencySignature signature = BuildCurrentSignature (gConfig);
     gFollower.Adopt (studyId, signature, NowMs ());
@@ -668,7 +771,7 @@ void Tick ()
     const SunStudyDependencySignature world = BuildCurrentSignature (gConfig);
     if (gFollower.Observe (world, now))
         Log (gFollower.Describe ());
-    if ((!gRunStudyId.empty () || s_preparation != nullptr) &&
+    if ((!gRunStudyId.empty () || s_preparation != nullptr || s_refinementPending) &&
         (gRunGeneration != gFollower.Generation () || gRunSignature != world))
         RetireRun ("inputs superseded");
 
@@ -700,7 +803,7 @@ void Tick ()
                 StartReplacement (world, now);
             break;
         case SunStudyFollowState::UpdatingVisible:
-            if (PollPreparation (now) && !s_navigationDeferred)
+            if (!s_navigationDeferred && PollPreparation (now))
                 AdvanceOneSlice (now);
             break;
         case SunStudyFollowState::NoStudy:
@@ -735,6 +838,8 @@ FollowerStats State ()
     stats.workerBusy = AdvanceWorker ().Busy () || PreparationWorker ().Busy ();
     stats.stage = s_stage;
     stats.navigationDeferred = s_navigationDeferred;
+    stats.completionWakes = s_completionWakes.load ();
+    stats.completionWakeFailures = s_completionWakeFailures.load ();
     evp::sunstudy::StudyProgress progress = s_runProgress;
     std::string error;
     if (!gRunStudyId.empty ())

@@ -21,6 +21,7 @@
 #include "Palette/ServerBand.hpp"
 #include "Palette/PaletteScroll.hpp"
 #include "Palette/AutomaticPreviewState.hpp"
+#include "ArchViz/ViewerPaletteState.hpp" // shared SDK-free explicit-open/host-hide policy
 // evp::CommandInfo and the scan that produces it — likewise not here.
 #include "Palette/CommandScan.hpp"
 // EVP_PRODUCT_NAME / ADDON_VERSION for the shell's user-facing status text and the
@@ -61,8 +62,8 @@ class ControlPalette final : public DG::Palette,
                              // The command combo's drop arrow is a drawn cell, not a
                              // button — it needs its paint and its press from here.
                              public DG::UserItemObserver,
-                              public DG::PopUpObserver,
-                              public DG::DateTimeObserver,
+                             public DG::PopUpObserver,
+                             public DG::DateTimeObserver,
                              public DG::TextEditBaseObserver,
                              public DG::ListBoxObserver,
                              public DG::SplitterObserver,
@@ -354,6 +355,7 @@ class ControlPalette final : public DG::Palette,
     static GSErrCode PaletteControlCallBack (Int32 referenceID, API_PaletteMessageID messageID, GS::IntPtr param);
 
     static GS::Ref<ControlPalette> instance;
+    geomsrv::archviz::ViewerPaletteState paletteState;
 
     DG::PushCheck runToggle; // pressed == running
     DG::LeftText urlText;    // the server's address, and nothing else
