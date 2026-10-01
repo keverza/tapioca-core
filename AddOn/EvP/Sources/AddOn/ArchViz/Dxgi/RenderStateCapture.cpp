@@ -49,6 +49,10 @@ SceneSignature g_signature;
 // and cheap enough that the triangle appears almost immediately.
 constexpr uint32_t kStableFramesRequired = 2;
 
+// A kept camera's scene extent, `ExpectSceneExtent`: whole pixels, width in the high
+// half; 0 is none. Written before Archicad's chain is nominated, read at its Present.
+std::atomic<uint64_t> g_expectedExtent { 0 };
+
 // The passes completed in the frame being watched. Sixteen is more separate
 // render passes than any capture has shown in one Archicad frame.
 constexpr size_t kMaxPassesPerFrame = 16;
@@ -375,6 +379,13 @@ void ForgetSceneSignature ()
     g_framePassCount = 0;
 }
 
+void ExpectSceneExtent (float width, float height)
+{
+    const uint64_t w = width > 0.0f ? uint64_t (width + 0.5f) : 0u;
+    const uint64_t h = height > 0.0f ? uint64_t (height + 0.5f) : 0u;
+    g_expectedExtent.store (w != 0 && h != 0 ? (w << 32) | h : 0u, std::memory_order_release);
+}
+
 bool OnCopyOrResolve (uint64_t sourceResource)
 {
     if (g_currentPass.generation == 0)
@@ -609,6 +620,14 @@ void OnPresent (uint64_t frameId)
             g_signature.draws = best->draws;
             g_signature.stableFrames = 1;
             g_signature.learned = false;
+            // The extent a kept camera's session learned: this frame is enough.
+            const uint64_t expected = g_expectedExtent.load (std::memory_order_acquire);
+            if (expected != 0 && SameExtent (best->viewport.width, float (expected >> 32)) &&
+                SameExtent (best->viewport.height, float (expected & 0xffffffffu))) {
+                g_expectedExtent.store (0, std::memory_order_release);
+                g_signature.stableFrames = kStableFramesRequired;
+                g_signature.learned = true;
+            }
         }
         g_framePassCount = 0;
     }
@@ -701,6 +720,7 @@ void Reset ()
     g_departures = DepartureStats {};
     g_signature = SceneSignature {};
     g_framePassCount = 0;
+    g_expectedExtent.store (0, std::memory_order_release);
     g_boundColourResource = 0;
     g_currentPass = ScenePass {};
     g_lastCompletedPass = ScenePass {};

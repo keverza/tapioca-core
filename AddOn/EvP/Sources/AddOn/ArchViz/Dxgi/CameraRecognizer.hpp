@@ -223,6 +223,47 @@ bool MatchesSelection (const contextstate::ContextState& live, uint32_t occurren
 void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uint32_t indexCount, uint32_t occurrence,
                       uint64_t modelGeneration);
 
+// ---------------------------------------------------------------------------
+// Kept across a view change
+// ---------------------------------------------------------------------------
+
+// ⚠️ A CAMERA KEPT WHILE ITS VIEW IS NOT IN FRONT IS TAKEN BACK BY A REBIND, NEVER
+// BY A RELEARN (§3). Leaving the 3D window stops the session -- its hooks would sit
+// in the frames of whatever is in front -- and the next one cleared the selection at
+// its arm and learned the camera again from 32 samples over 96 model frames, which
+// arrive only while the user orbits: 22 s and an orbit for 3D -> plan -> 3D (the
+// user, 2026-09-30 15:09:44-15:10:06). What was learned does not depend on the window
+// in front -- the fingerprint, the occurrence, the interpretation -- so `Keep` takes
+// it as the session ends and `Resume` commits it at the next arm (§4's `Commit`) with
+// none of the old session's bindings (§8): Reacquiring, until `MaintainBinding`
+// rebinds it on the first draw that matches the fingerprint, as after a resize.
+//
+// ⚠️ AND IT FAILS SAFE (HANDOFF-OverlayPatch, "fast resume across Plan -> 3D").
+// Nothing is relaxed for it: a draw agrees on every term or it is not the camera; it
+// is looked for only once the model generation advances (before that, occurrences
+// count across frames, §4); and an index count is adopted only for an edit the NEW
+// session's revision reports. One no draw matched for `kKeptGraceModelFrames` model
+// frames is dropped, and the census -- scoring all along -- chooses.
+struct KeptCamera {
+    bool valid = false;
+    Selection selection;
+    Fingerprint fingerprint;
+    bool calibrated = false;
+    // The camera draw of its census group (`camerachoice::IsCameraDraw`), which the
+    // next session's table no longer holds.
+    uint32_t cameraIndexCount = 0;
+};
+// MAIN THREAD, before the session stops. Valid only while a camera is selected; the
+// caller adds the camera draw's index count.
+KeptCamera Keep ();
+// MAIN THREAD, after the arm's `census::Reset` and before the context hook is in.
+void Resume (const KeptCamera& kept);
+// RENDER THREAD, from the census: the group a resumed camera's snapshot draw belongs
+// to in this session, for a selection that has none yet.
+void AdoptGroup (uint32_t groupId);
+// ANY THREAD. The camera draw's index count a resumed camera brought, or 0.
+uint32_t KeptCameraIndexCount ();
+
 // ⚠️ WHETHER THE CAMERA SURVIVED THE PHASE CHANGE, WHICH RUN
 // FORTY-FIVE HAD NO WAY TO ASK. `selectionMatches` counts draws that matched the
 // PINNED pointers, `logicalMatches` draws that matched the FINGERPRINT, and
@@ -351,6 +392,10 @@ struct BindingStats {
     // the model is untouched means the model-edit rule is firing on navigation
     // and must be withdrawn.
     uint64_t modelEditReselects = 0;
+    // Kept cameras committed at this session's arm, and those dropped because no draw
+    // matched them (`Resume`). A resume that worked shows as `rebinds`.
+    uint64_t resumes = 0;
+    uint64_t resumesDropped = 0;
     // The terms the last evaluated draw missed, one bit per fingerprint term, so
     // a refusal to adopt can be read rather than inferred.
     uint32_t lastMissMask = 0;

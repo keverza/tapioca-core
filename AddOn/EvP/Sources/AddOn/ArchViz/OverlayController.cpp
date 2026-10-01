@@ -268,10 +268,14 @@ void SyncMenuChecks ()
 //
 // ⚠️ `teardown` IS A PROJECT EVENT OR THE UNLOAD: the plan session then gives
 // everything back without calling ACAPI, which is no longer the plan's to redraw.
+// Otherwise the view changed, and the 3D session is suspended: its hooks go, what it
+// learned about the camera is kept for the 3D window's return (OverlayCameraKeep).
 void StopRenderers (bool teardown)
 {
-    if (runtime::Running ())
+    if (teardown)
         runtime::Stop ();
+    else
+        runtime::Suspend ();
     overlayinput::Detach (overlayinput::View::ThreeD);
     if (planruntime::Running ()) {
         if (teardown)
@@ -412,7 +416,7 @@ void FollowOnce (const char* how)
     if (injected || plan || portable)
         _snprintf_s (line, sizeof (line), _TRUNCATE, "%s -> %s (%s): %s in %llu ms", ViewKindName (g_servingView),
                      WindowTypeName (info.typeID), how,
-                     injected ? "3D overlay stopped, hooks released,"
+                     injected ? "3D overlay suspended, hooks released,"
                      : plan   ? "plan overlay stopped, its hook released,"
                               : "portable plan overlay closed",
                      (unsigned long long) took);
@@ -515,8 +519,8 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
         intent.wanted = false;
         if (which == Overlay::ThreeD) {
             const bool was = runtime::Running ();
-            if (was)
-                runtime::Stop ();
+            // Running or suspended behind another view: a kept camera goes with it.
+            runtime::Stop ();
             overlayinput::Detach (overlayinput::View::ThreeD);
             // ⚠️ THE LAST FRAME STILL CARRIES THE OVERLAY, ITS HUD INCLUDED. A still 3D view
             // presents nothing by itself: without a redraw the panels stayed on screen,

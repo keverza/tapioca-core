@@ -49,6 +49,8 @@ uint32_t g_ticksSinceCold = kTicksBetweenColdStarts;
 // Archicad's chain -- so they are not refused; the budget starts again, once, when the
 // hook goes in, and its first redraw is asked at once.
 bool g_hookSeen = false;
+// `AskSoon`: the cold starts after the hook a tick apart.
+bool g_soon = false;
 
 } // namespace
 
@@ -79,8 +81,9 @@ void Consider (uint64_t modelFramesSeen)
         g_coldStarts = 0;
         g_ticksSinceCold = kTicksBetweenColdStarts;
     }
+    const uint32_t spacing = g_hookSeen && g_soon ? 1u : kTicksBetweenColdStarts;
     if (modelFramesSeen == 0 && g_coldStarts < kMaxColdStarts) {
-        if (++g_ticksSinceCold >= kTicksBetweenColdStarts && FrontWindowIsServedSession ()) {
+        if (++g_ticksSinceCold >= spacing && FrontWindowIsServedSession ()) {
             g_ticksSinceCold = 0;
             ++g_coldStarts;
             ++g_requests;
@@ -122,6 +125,11 @@ void Consider (uint64_t modelFramesSeen)
     }
 }
 
+void AskSoon ()
+{
+    g_soon = true;
+}
+
 uint64_t Requests ()
 {
     return g_requests;
@@ -137,6 +145,7 @@ void Reset ()
     g_coldStarts = 0;
     g_ticksSinceCold = kTicksBetweenColdStarts;
     g_hookSeen = false;
+    g_soon = false;
 }
 
 } // namespace redrawbudget

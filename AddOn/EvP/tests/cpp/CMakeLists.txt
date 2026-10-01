@@ -478,6 +478,12 @@ set (EVP_ARCHVIZ_SOURCES
     # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ArchVizLogStub.cpp"
+    # Which draw is the 3D camera and how it is found again -- a resize, an edit, a view
+    # change -- from context states as the census hands them over. Its commit points the
+    # injection at the choice; the stub records where (InjectionCameraStub.cpp).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/CameraRecognizer.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/CameraRecognizerDiagnosis.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/InjectionCameraStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayFonts.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ImGuiContextLock.cpp"
     # The storey slices and the Watch annotations as overlay layers: which storeys, the
@@ -638,6 +644,7 @@ set (EVP_TEST_SOURCES
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
     test_overlayinput.cpp
+    test_camerarecognizer.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp
     test_overlayannotations.cpp

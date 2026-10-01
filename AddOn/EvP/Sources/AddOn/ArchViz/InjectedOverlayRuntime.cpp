@@ -19,6 +19,7 @@
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/OverlayCameraKeep.hpp"
 #include "ArchViz/OverlayRedrawBudget.hpp"
 #include "ArchViz/OverlayRuntimeReport.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
@@ -324,6 +325,8 @@ StartResult Arm ()
     cen::Reset ();
     cen::SetEnabled (true);
     cen::SetAutoSelect (true);
+    // A camera the last session kept across a view change, resumed (OverlayCameraKeep).
+    camerakeep::Apply ();
 
     // ⚠️ THE PRODUCTION STATE IS SET EXPLICITLY, NOT INHERITED. This
     // is the correction for a mistake made three times in this series: the
@@ -711,6 +714,7 @@ void Tick ()
     host::SetModelRevision (revision);
     cen::NoteModelRevision (revision);
 
+    camerakeep::Narrate ();
     const Health live = GetHealth ();
     report::Live (live);
     // ⚠️ THE CHAIN, WHICH 5cf72fa TOOK AWAY WHILE
@@ -911,8 +915,18 @@ Health GetHealth ()
     return health;
 }
 
+void Suspend ()
+{
+    if (!g_running)
+        return;
+    const camerakeep::Kept kept = camerakeep::Take ();
+    Stop ();
+    camerakeep::Hold (kept);
+}
+
 void Stop ()
 {
+    camerakeep::Forget ();
     if (!g_running)
         return;
     // ⚠️ ONLY IF WE ARMED IT, AND NOT WHILE THE PORTABLE

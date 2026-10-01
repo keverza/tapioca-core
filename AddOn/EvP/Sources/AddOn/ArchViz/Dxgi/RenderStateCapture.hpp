@@ -408,6 +408,16 @@ SceneSignature GetSceneSignature ();
 // anything else that makes the old signature a lie.
 void ForgetSceneSignature ();
 
+// MAIN THREAD, at an arm whose camera was kept (CameraRecognizer `Resume`): the extent
+// of the scene the last session learned. The first frame whose candidate pass has it
+// learns the signature, where two consecutive frames are asked for otherwise --
+// which a still view cannot give: the redraws asked for it are one model pass each,
+// and the frames between carry no camera pass and restart the count (15:09:47:
+// `stable=0 of 15 watched, candidates=0`). Nothing else is relaxed: the pass is still
+// the frame's largest full-viewport pass whose draws carried a camera, and its
+// targets are this session's. Used once; `Reset` forgets it (§8).
+void ExpectSceneExtent (float width, float height);
+
 // ---- render thread, from the context detours -------------------------------
 void OnViewport (const D3D11_VIEWPORT& viewport);
 void OnScissor (const RECT& rect);

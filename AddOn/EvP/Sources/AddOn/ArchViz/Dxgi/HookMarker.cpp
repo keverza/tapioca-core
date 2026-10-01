@@ -21,32 +21,33 @@ namespace dxgi {
 
 namespace {
 
-std::atomic<bool>     g_enabled {false};
-std::atomic<uint64_t> g_target {0};
-std::atomic<uint64_t> g_draws {0};
-std::atomic<uint64_t> g_failures {0};
+std::atomic<bool> g_enabled { false };
+std::atomic<uint64_t> g_target { 0 };
+// The window `NominateWindowOnSight` names, or 0.
+std::atomic<uint64_t> g_sightWindow { 0 };
+std::atomic<uint64_t> g_draws { 0 };
+std::atomic<uint64_t> g_failures { 0 };
 
 // The reason the last failure gave, as an index into `kStepNames`. An atomic
 // index rather than a string: the render thread must not allocate, and a torn
 // std::string read across threads is a crash rather than a bad message.
-enum FailureStep {
-    kNoFailure = 0,
-    kGetBuffer,
-    kGetDevice,
-    kNoContext1,
-    kCreateView
-};
-std::atomic<int> g_lastFailure {kNoFailure};
+enum FailureStep { kNoFailure = 0, kGetBuffer, kGetDevice, kNoContext1, kCreateView };
+std::atomic<int> g_lastFailure { kNoFailure };
 
 const char* StepName (int step)
 {
     switch (step) {
-        case kGetBuffer:   return "IDXGISwapChain::GetBuffer refused the back buffer";
-        case kGetDevice:   return "the back buffer would not name its device";
-        case kNoContext1:  return "the immediate context is not ID3D11DeviceContext1, so "
-                                  "ClearView is unavailable (Windows 8 or later is required)";
-        case kCreateView:  return "CreateRenderTargetView refused the back buffer";
-        default:           return "";
+        case kGetBuffer:
+            return "IDXGISwapChain::GetBuffer refused the back buffer";
+        case kGetDevice:
+            return "the back buffer would not name its device";
+        case kNoContext1:
+            return "the immediate context is not ID3D11DeviceContext1, so "
+                   "ClearView is unavailable (Windows 8 or later is required)";
+        case kCreateView:
+            return "CreateRenderTargetView refused the back buffer";
+        default:
+            return "";
     }
 }
 
@@ -69,9 +70,9 @@ constexpr int kMarkerSizePixels = 96;
 
 // Opaque red. Premultiplied alpha does not enter into it -- ClearView writes the
 // colour into the back buffer directly, exactly as a clear does.
-const float kMarkerColour[4] = {0.90f, 0.10f, 0.10f, 1.0f};
+const float kMarkerColour[4] = { 0.90f, 0.10f, 0.10f, 1.0f };
 
-}   // namespace
+} // namespace
 
 void DrawMarkerIfTarget (IDXGISwapChain* swapChain)
 {
@@ -85,8 +86,7 @@ void DrawMarkerIfTarget (IDXGISwapChain* swapChain)
     // Archicad's own device: the symptom is Archicad slowly running out of video
     // memory, which nobody would connect to a red square.
     ID3D11Texture2D* backBuffer = nullptr;
-    if (FAILED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &backBuffer)) ||
-        backBuffer == nullptr) {
+    if (FAILED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &backBuffer)) || backBuffer == nullptr) {
         Fail (kGetBuffer);
         return;
     }
@@ -129,17 +129,17 @@ void DrawMarkerIfTarget (IDXGISwapChain* swapChain)
         if (desc.Width > UINT (2 * outer) && desc.Height > UINT (2 * outer)) {
             const LONG rightEdge = LONG (desc.Width);
             const LONG bottomEdge = LONG (desc.Height);
-            const D3D11_RECT rects[4] = {
-                {inset, inset, outer, outer},
-                {rightEdge - outer, inset, rightEdge - inset, outer},
-                {inset, bottomEdge - outer, outer, bottomEdge - inset},
-                {rightEdge - outer, bottomEdge - outer, rightEdge - inset, bottomEdge - inset}
-            };
+            const D3D11_RECT rects[4] = { { inset, inset, outer, outer },
+                                          { rightEdge - outer, inset, rightEdge - inset, outer },
+                                          { inset, bottomEdge - outer, outer, bottomEdge - inset },
+                                          { rightEdge - outer, bottomEdge - outer, rightEdge - inset,
+                                            bottomEdge - inset } };
             context1->ClearView (view, kMarkerColour, rects, 4);
             g_draws.fetch_add (1, std::memory_order_relaxed);
         }
         view->Release ();
-    } else {
+    }
+    else {
         Fail (kCreateView);
     }
 
@@ -166,6 +166,7 @@ void SetMarkerEnabled (bool enabled)
         // address reused, which is the one way this file can touch memory that
         // is no longer a swap chain.
         g_target.store (0, std::memory_order_release);
+        g_sightWindow.store (0, std::memory_order_release);
     }
     g_enabled.store (enabled, std::memory_order_release);
 }
@@ -177,7 +178,14 @@ bool MarkerEnabled ()
 
 void SetMarkerTarget (uint64_t swapChain)
 {
+    // A nomination, or forgetting one, ends a window named on sight (§8).
+    g_sightWindow.store (0, std::memory_order_release);
     g_target.store (swapChain, std::memory_order_release);
+}
+
+void NominateWindowOnSight (uint64_t window)
+{
+    g_sightWindow.store (window, std::memory_order_release);
 }
 
 uint64_t MarkerTarget ()
@@ -202,6 +210,20 @@ void NominateArchicadChain ()
 {
     if (g_target.load (std::memory_order_acquire) != 0)
         return;
+    // The window a kept camera was drawn in: the chain presenting into it is Archicad's
+    // by identity, at its first Present, where the rule below infers it from sixty.
+    const uint64_t sight = g_sightWindow.load (std::memory_order_acquire);
+    if (sight != 0) {
+        ChainInfo chains[16];
+        const size_t count = GetChainInventory (chains, 16);
+        for (size_t i = 0; i < count; ++i) {
+            if (chains[i].window == sight && !chains[i].ours && chains[i].presents > 0) {
+                g_sightWindow.store (0, std::memory_order_release);
+                g_target.store (chains[i].swapChain, std::memory_order_release);
+                return;
+            }
+        }
+    }
     const PresentStats stats = GetPresentStats ();
     // ⚠️ A HANDFUL OF FRAMES IS NOT AN IDENTIFICATION. The busiest chain over
     // three frames could be anything that happened to redraw; over sixty it is
@@ -227,7 +249,7 @@ void NominateArchicadChain ()
         const HWND presented = (HWND) (uintptr_t) chainWindow;
         if (presented != documentWindow && !IsChild (documentWindow, presented) &&
             GetAncestor (presented, GA_ROOT) != GetAncestor (documentWindow, GA_ROOT))
-            return;   // the busiest chain is not the window we are over
+            return; // the busiest chain is not the window we are over
     }
     g_target.store (stats.busiestSwapChain, std::memory_order_release);
 }
@@ -243,6 +265,6 @@ MarkerStats GetMarkerStats ()
     return stats;
 }
 
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

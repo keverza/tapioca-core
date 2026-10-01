@@ -54,6 +54,14 @@ uint32_t g_fingerprintRevision = 0;
 // The model generation at which an edit made the locked occurrence suspect, or 0.
 // See `SuspectOccurrenceAfterModelEdit`.
 uint64_t g_occurrenceSuspectSince = 0;
+// A camera `Resume` brought from the last session and not yet found; the model
+// generation it was first looked for at; its camera draw's index count; and whether
+// the fingerprint's revision is still the old session's counter (`NoteModelRevision`).
+bool g_kept = false;
+uint64_t g_keptSince = 0;
+uint32_t g_keptCameraIndexCount = 0;
+bool g_rebaseRevision = false;
+const uint64_t kKeptGraceModelFrames = 4;
 
 BindingStats g_binding;
 FingerprintDiagnosis g_diagnosis;
@@ -396,6 +404,24 @@ static void AdoptResize (const contextstate::ContextState& live, uint32_t occurr
     ++g_binding.resizeRebinds;
 }
 
+// A kept camera (`Resume`) is looked for from the first model generation -- before it,
+// occurrences count across frames (§4) -- and dropped when no draw has matched it for
+// the grace: the release condition depends on model frames, never on the match it waits
+// for (stage 23: a refusal that can only clear by succeeding is a deadlock).
+static bool LookForKept (uint64_t modelGeneration)
+{
+    if (modelGeneration == 0)
+        return false;
+    if (g_keptSince == 0)
+        g_keptSince = modelGeneration;
+    if (modelGeneration <= g_keptSince + kKeptGraceModelFrames)
+        return true;
+    ClearSelection ();
+    injection::SetCameraSource (injection::CameraSource::Learner);
+    ++g_binding.resumesDropped;
+    return false;
+}
+
 // ⚠️ RE-ACQUIRE THE RUNTIME RESOURCES, DO NOT RE-DECIDE THE CAMERA.
 // This is the whole repair for run forty-five, and it is deliberately narrow: it
 // can only ever move the selection onto a draw that already matches the
@@ -405,6 +431,8 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
                       uint64_t modelGeneration)
 {
     if (!g_selection.valid)
+        return;
+    if (g_kept && !LookForKept (modelGeneration))
         return;
 
     // The pin is still live. Nothing to do, and that is the common case.
@@ -484,6 +512,7 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
     g_selection.projectionNumConstants = live.vsConstantBuffers[2].numConstants;
     g_selectionLastSeenModel = modelGeneration;
     ++g_binding.rebinds;
+    g_kept = false;
 }
 
 Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration)
@@ -797,6 +826,59 @@ BindReport GetBindReport ()
 void NoteModelRevision (uint32_t revision)
 {
     g_modelRevision = revision;
+    // A resumed fingerprint was committed under the OLD session's counter, and the new
+    // session's starts again at its own: its first revision is the commit's, or the
+    // restart would read as an edit and adopt an index count nothing reported.
+    if (g_rebaseRevision) {
+        g_fingerprintRevision = revision;
+        g_rebaseRevision = false;
+    }
+}
+
+KeptCamera Keep ()
+{
+    KeptCamera kept;
+    kept.valid = g_selection.valid && g_fingerprint.valid;
+    kept.selection = g_selection;
+    kept.fingerprint = g_fingerprint;
+    kept.calibrated = g_calibrated;
+    return kept;
+}
+
+void Resume (const KeptCamera& kept)
+{
+    if (!kept.valid)
+        return;
+    // What it scored and which draw it is survive; where it was found does not. With no
+    // binding term the pin matches nothing until the rebind puts it on this session's
+    // draw, and a run-local group id names nothing here (`AdoptGroup`).
+    Selection selection;
+    selection.valid = true;
+    selection.occurrenceIndex = kept.selection.occurrenceIndex;
+    selection.variant = kept.selection.variant;
+    selection.samples = kept.selection.samples;
+    selection.modelCoverage = kept.selection.modelCoverage;
+    selection.insideClip = kept.selection.insideClip;
+    selection.medianCentreError = kept.selection.medianCentreError;
+    selection.medianAreaPixels = kept.selection.medianAreaPixels;
+    selection.medianMaxEdgePixels = kept.selection.medianMaxEdgePixels;
+    Commit (selection, kept.fingerprint, kept.calibrated);
+    g_kept = true;
+    g_keptSince = 0;
+    g_keptCameraIndexCount = kept.cameraIndexCount;
+    g_rebaseRevision = true;
+    ++g_binding.resumes;
+}
+
+void AdoptGroup (uint32_t groupId)
+{
+    if (g_selection.valid && g_selection.groupId == 0)
+        g_selection.groupId = groupId;
+}
+
+uint32_t KeptCameraIndexCount ()
+{
+    return g_keptCameraIndexCount;
 }
 
 void ClearSelection ()
@@ -813,6 +895,9 @@ void ClearSelection ()
     g_calibrated = false;
     g_binding.calibrated = false;
     g_bind = BindReport {};
+    g_kept = false;
+    g_keptCameraIndexCount = 0;
+    g_rebaseRevision = false;
     injection::SetExpectedInterpretation (0xffffffffu);
 }
 
@@ -882,6 +967,9 @@ void ShutdownRecognizer ()
 {
     g_selection = Selection {};
     g_fingerprint = Fingerprint {};
+    g_kept = false;
+    g_keptCameraIndexCount = 0;
+    g_rebaseRevision = false;
     g_binding = BindingStats {};
     g_diagnosis = FingerprintDiagnosis {};
     g_selectionLastSeenModel = 0;

@@ -91,17 +91,24 @@ void ChooseMarkerTargetIfUnset ();
 // rendering bug.
 void NominateArchicadChain ();
 
+// MAIN THREAD, at an arm whose camera was kept (CameraRecognizer `Resume`): the window
+// the last session's chain presented into. The chain that presents into it is
+// nominated at its first Present: the window is the identity the sixty frames above
+// infer, and inferring it again took three seconds of a still view (15:09:44-47).
+// Ended by any `SetMarkerTarget` -- every arm and teardown -- and once used.
+void NominateWindowOnSight (uint64_t window);
+
 struct MarkerStats {
-    bool        enabled = false;
-    uint64_t    target = 0;
-    uint64_t    draws = 0;      // rectangles actually filled
-    uint64_t    failures = 0;   // frames where a D3D step refused
-    std::string lastError;      // the first step that refused, most recently
+    bool enabled = false;
+    uint64_t target = 0;
+    uint64_t draws = 0;    // rectangles actually filled
+    uint64_t failures = 0; // frames where a D3D step refused
+    std::string lastError; // the first step that refused, most recently
 };
 MarkerStats GetMarkerStats ();
 
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

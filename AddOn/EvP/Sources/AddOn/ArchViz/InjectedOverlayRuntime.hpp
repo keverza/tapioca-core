@@ -321,8 +321,13 @@ void Tick ();
 Health GetHealth ();
 
 // MAIN THREAD. Release everything: hooks, census, shaders, buffers, snapshot.
-// Only for shutdown or a deliberate reset; hiding uses `SetVisible`.
+// Only for shutdown or a deliberate reset; hiding uses `SetVisible`. It also forgets a
+// camera `Suspend` kept, running or not: a menu Off or a project event behind the plan.
 void Stop ();
+
+// MAIN THREAD, when the 3D window leaves the front. `Stop`, keeping what the session
+// learned about the camera for the next `Start` on the same window (OverlayCameraKeep).
+void Suspend ();
 
 } // namespace overlayruntime
 } // namespace archviz

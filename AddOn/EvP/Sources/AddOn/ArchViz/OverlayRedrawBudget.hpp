@@ -53,6 +53,12 @@ bool FrontWindowIsServedSession ();
 // item has no such luxury and should not need one.
 void Consider (uint64_t modelFramesSeen);
 
+// A camera kept across a view change (OverlayCameraKeep) needs two frames the hooks
+// see -- one learns the scene signature, the next rebinds it -- and nothing to
+// calibrate, so its cold starts after the hook go a tick apart instead of a second.
+// Still three; `Reset` puts the spacing back.
+void AskSoon ();
+
 // Cumulative, for the health record.
 uint64_t Requests ();
 

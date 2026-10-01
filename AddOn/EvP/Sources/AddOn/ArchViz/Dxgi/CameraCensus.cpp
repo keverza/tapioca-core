@@ -404,11 +404,13 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
                                                  viewport.height);
 }
 
-// The draw the selected group's camera samples came from (`camerachoice::IsCameraDraw`).
+// The draw the selected group's camera samples came from (`camerachoice::IsCameraDraw`);
+// for a kept camera (`Resume`), the one it brought until its group here has named one.
 uint32_t SelectedCameraIndexCount ()
 {
     const uint32_t id = GetSelection ().groupId;
-    return id >= 1 && id <= kGroupCapacity ? g_slots[id - 1].group.cameraIndexCount : 0u;
+    const uint32_t own = id >= 1 && id <= kGroupCapacity ? g_slots[id - 1].group.cameraIndexCount : 0u;
+    return own != 0 ? own : KeptCameraIndexCount ();
 }
 
 void ResolveSome (ID3D11DeviceContext* context)
@@ -690,7 +692,8 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     // and only its camera draw, not another draw that took its occurrence this frame.
     const bool pinned = injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
                         MatchesSelection (live, occurrence);
-    if (pinned && !camerachoice::IsCameraDraw (indexCount, SelectedCameraIndexCount ()))
+    const bool cameraDraw = camerachoice::IsCameraDraw (indexCount, SelectedCameraIndexCount ());
+    if (pinned && !cameraDraw)
         ++g_stats.snapshotsOtherDraw;
     else if (pinned) {
         contextstate::SceneDrawState draw;
@@ -796,6 +799,9 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     }
 
     Group& group = found->group;
+    // A kept camera's group in this session is the one its snapshot draw is in.
+    if (pinned && cameraDraw)
+        AdoptGroup (group.groupId);
     ++group.drawsObserved;
     group.lastPresent = present;
     group.passGeneration = pass.generation;
