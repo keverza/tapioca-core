@@ -158,6 +158,8 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyTaskWorker.cpp"
     # SunStudyFollower is when a study is stale, when to recompute it and which
     # result may become visible. It has no clock and no host of its own for
     # exactly that reason: every rule in it is about TIME and IDENTITY, and both
@@ -675,11 +677,15 @@ set (EVP_TEST_SOURCES
     test_sunstudyocclusion.cpp
     test_sunstudysession.cpp
     test_sunstudystore.cpp
+    test_sunstudystore_concurrency.cpp
+    test_sunstudyadvanceworker.cpp
+    test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp
     test_sunstudywinding.cpp
     test_sunstudyatlas.cpp
     test_sunstudyoverlay.cpp
     test_sunstudyfollower.cpp
+    test_viewerpalettestate.cpp
     test_surfacepatch.cpp
     test_sunstudycache.cpp
     test_sunstudypatchatlas.cpp

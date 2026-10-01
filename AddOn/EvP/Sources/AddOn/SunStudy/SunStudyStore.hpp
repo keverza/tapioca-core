@@ -15,10 +15,9 @@
 // memory. So the store copies them once and hands out a SampleSet pointing at
 // its own copy.
 //
-// ⚠️ EVERY ACCESS IS UNDER THE LOCK BECAUSE THE CALLERS ARE ON DIFFERENT
-// THREADS. Starting a study needs the host's main thread (the sun comes from
-// Archicad); advancing it deliberately does not, so that the work stays off that
-// thread. Those are different threads by design, not by accident.
+// The store lock guards ownership and published progress. Session readers refuse
+// an in-flight slice; Advance retains shared ownership until its slice finishes,
+// even if a caller cancels/clears the study in the meantime.
 //
 // ⚠️ THE LOCK IS NOT HELD ACROSS THE ANALYSIS ITSELF. Advancing a study is the
 // expensive part; holding the store's mutex for it would serialise every other
@@ -47,6 +46,8 @@ namespace evp::sunstudy {
 // Everything one live study holds. Addressed only through the store.
 struct StudyRecord {
     std::string id;
+    uint64_t storeRevision = 0; // assigned by Insert, never reused after Erase/Clear
+    std::atomic<bool> cancelRequested { false };
 
     // Owned copies; see the header note on why these are not borrowed.
     std::vector<double> positions;
@@ -54,7 +55,7 @@ struct StudyRecord {
 
     SunSeries series;
     SunStudySession session;
-    std::shared_ptr<CpuTraversal> traversal;
+    std::shared_ptr<const ITraversal> traversal;
 
     // Reported back so a caller can say what it studied without holding the
     // parameters itself.
@@ -154,22 +155,29 @@ class SunStudyStore final {
     static SunStudyStore& Get ();
 
     // Takes ownership of `record`'s buffers and returns the id it was filed
-    // under. An empty `record.id` gets a generated one.
+    // under. An empty `record.id` gets a generated one. Duplicate explicit ids
+    // are refused (empty return), never used to replace a live session.
     std::string Insert (std::unique_ptr<StudyRecord> record);
 
     // ⚠️ ADVANCING DOES NOT HOLD THE STORE'S LOCK. It takes the lock only to
     // resolve the id to a record, then releases it and works on the record
-    // itself. Two callers advancing the SAME study concurrently is the one thing
-    // that would race, and it is prevented by a per-record flag rather than by
-    // serialising every unrelated caller behind the slow path.
+    // itself. It retains shared ownership until completion. A per-record flag
+    // prevents concurrent advancing and mutable-session reads; progress reads
+    // use the last published snapshot rather than waiting on the slow path.
     //
     // Returns false when the id is unknown or another thread is already
-    // advancing that study; `error` says which.
+    // advancing that study, or traversal throws; `error` says which.
     bool Advance (const std::string& id, size_t maxSteps, size_t maxParallel, double tmin, double tmax,
-                  size_t& advanced, std::string& error);
+                  size_t& advanced, std::string& error, const std::atomic<bool>* cancelled = nullptr,
+                  uint64_t expectedRevision = 0);
 
-    // A snapshot of one study's progress and parameters. False when unknown.
-    bool Progress (const std::string& id, StudyProgress& progress, std::string& error) const;
+    // Last completed-slice progress, safe and cheap even during Advance.
+    bool Progress (const std::string& id, StudyProgress& progress, std::string& error,
+                   uint64_t expectedRevision = 0) const;
+
+    // Queue a request against this record, not a replacement with the same id.
+    // Zero means absent; revision checks and resolution are atomic under mutex_.
+    uint64_t Revision (const std::string& id) const;
 
     // Read under the lock and copy out, so a caller never holds a pointer into
     // a study another thread may erase.
@@ -252,7 +260,7 @@ class SunStudyStore final {
     bool ReadAt (const std::string& id, uint64_t snapshotId, size_t face, size_t meshIndex, const double point[3],
                  SunStudyReading& reading, uint8_t& role, double& daylightHours, std::string& error) const;
 
-    bool Erase (const std::string& id);
+    bool Erase (const std::string& id, uint64_t expectedRevision = 0);
     void Clear ();
 
     std::vector<std::string> Ids () const;
@@ -260,11 +268,15 @@ class SunStudyStore final {
 
   private:
     SunStudyStore () = default;
+    // Called only with mutex_ held. Session data is mutable outside that lock.
+    bool SessionReadable (const std::string& id, std::string& error) const;
 
     mutable std::mutex mutex_;
-    std::map<std::string, std::unique_ptr<StudyRecord>> studies_;
+    std::map<std::string, std::shared_ptr<StudyRecord>> studies_;
     std::map<std::string, bool> advancing_;
+    std::map<std::string, StudyProgress> progress_;
     uint64_t nextId_ = 1;
+    uint64_t nextRevision_ = 1;
 };
 
 } // namespace evp::sunstudy

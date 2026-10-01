@@ -73,6 +73,11 @@ using sunstudysupport::Utf8;
 // ---------------------------------------------------------------------------
 class StartSunStudyCommand : public MainThreadCommand {
   public:
+    StartSunStudyCommand () = default;
+    StartSunStudyCommand (std::shared_ptr<const CapturedSunStudyInputs> captured, const std::atomic<bool>* cancelled)
+        : captured_ (std::move (captured)), cancelled_ (cancelled)
+    {
+    }
     GS::String GetName () const override
     {
         return "StartSunStudy";
@@ -80,13 +85,21 @@ class StartSunStudyCommand : public MainThreadCommand {
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
-        if (snapshot == nullptr)
-            return NativeCommandResult::Failure ("no snapshot is live - call Tapioca.BuildSnapshot first");
+        auto captured = captured_;
+        if (captured == nullptr) {
+            const NativeCommandResult capture = CaptureSunStudyInputs (params, captured);
+            if (!capture.ok)
+                return capture;
+        }
+        const std::shared_ptr<const Snapshot>& snapshot = captured->snapshot;
+        if (IsCancelled ())
+            return NativeCommandResult::Failure ("sun study preparation cancelled");
 
         std::shared_ptr<const QueryEngine> engine = QueryIndexCache::Get ().For (snapshot);
         if (engine == nullptr)
             return NativeCommandResult::Failure ("the snapshot has no geometry to study");
+        if (IsCancelled ())
+            return NativeCommandResult::Failure ("sun study preparation cancelled");
 
         // ---- which elements are MEASURED, and which only cast shadow ---------
         //
@@ -116,12 +129,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         if (const auto subset = evp::sunstudy::OccluderSnapshot (*snapshot, roles))
             occluders = std::make_shared<const QueryEngine> (subset);
 
-        API_PlaceInfo place = {};
-        const GSErrCode err = ACAPI_GeoLocation_GetPlaceSets (&place);
-        if (err != NoError) {
-            return NativeCommandResult::Failure (
-                EVP_ACAPI_FAIL ("ACAPI_GeoLocation_GetPlaceSets", err, "reading the project's geo location"));
-        }
+        const API_PlaceInfo& place = captured->place;
 
         const GS::Int32 year = ReadInt (params, "year", place.year);
         const GS::Int32 month = ReadInt (params, "month", place.month);
@@ -131,40 +139,8 @@ class StartSunStudyCommand : public MainThreadCommand {
         const GS::Int32 hourTo = ReadInt (params, "hourTo", 24);
         const double minAltitude = ReadDouble (params, "minAltitudeDeg", 0.0);
 
-        // ---- the day's sun, one host call per timestep -----------------------
-        //
-        // ⚠️ ARCHICAD COMPUTES EVERY ONE OF THESE. A solar formula written here
-        // would be a second answer, and a study whose sun disagrees with the
-        // model's own shadows is worse than no study.
-        std::vector<SunStep> raw;
-        for (const evp::sunstudy::TimeOfDay& moment : evp::sunstudy::EnumerateTimesteps (timestep, hourFrom, hourTo)) {
-            API_PlaceInfo moment_place = place;
-            moment_place.year = (unsigned short) year;
-            moment_place.month = (unsigned short) month;
-            moment_place.day = (unsigned short) day;
-            moment_place.hour = (unsigned short) moment.hour;
-            moment_place.minute = (unsigned short) moment.minute;
-            moment_place.second = 0;
-
-            if (ACAPI_GeoLocation_CalcSunOnPlace (&moment_place) != NoError)
-                continue; // a moment the host could not resolve is dropped, not guessed
-
-            SunStep step;
-            step.time = moment;
-            step.altitudeDegrees = moment_place.sunAngZ * 180.0 / 3.14159265358979323846;
-
-            // Model space, exactly as GetPlaceInfo reports it: sunAngXY is
-            // already measured from +X in the model's own frame, so this is a
-            // plain spherical-to-cartesian with no north term.
-            const double horizontal = std::cos (moment_place.sunAngZ);
-            step.direction[0] = horizontal * std::cos (moment_place.sunAngXY);
-            step.direction[1] = horizontal * std::sin (moment_place.sunAngXY);
-            step.direction[2] = std::sin (moment_place.sunAngZ);
-            raw.push_back (step);
-        }
-
         auto record = std::make_unique<StudyRecord> ();
-        record->series = SunSeries::FromSteps (raw, timestep, minAltitude);
+        record->series = captured->series;
         record->timestepMinutes = timestep;
         record->year = year;
         record->month = month;
@@ -317,6 +293,8 @@ class StartSunStudyCommand : public MainThreadCommand {
             const std::vector<uint32_t> oriented =
                 evp::sunstudy::OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (),
                                               triangles.size () / 3, groups.data (), winding);
+            if (IsCancelled ())
+                return NativeCommandResult::Failure ("sun study preparation cancelled");
 
             // ⚠️ THIS MACHINE'S CEILING, ENFORCED AT THE SAMPLER. See SunStudyLimits.hpp.
             const auto limits = MachineAnalysisLimits (record->series.StepCount (), patchDomain);
@@ -436,6 +414,8 @@ class StartSunStudyCommand : public MainThreadCommand {
                 static_cast<uint64_t> (grid.columns) * 73856093ull ^ static_cast<uint64_t> (grid.rows) * 19349663ull;
         }
 
+        if (IsCancelled ())
+            return NativeCommandResult::Failure ("sun study preparation cancelled");
         record->gridSpacing = spacing;
         record->groundPad = reportedPad;
         // The OCCLUDERS: the whole snapshot, or the analysis + context subset.
@@ -458,6 +438,8 @@ class StartSunStudyCommand : public MainThreadCommand {
         const double daylightHours = record->series.DaylightHours ();
         const size_t sourceSteps = record->sourceStepCount;
 
+        if (IsCancelled ())
+            return NativeCommandResult::Failure ("sun study preparation cancelled");
         const std::string id = SunStudyStore::Get ().Insert (std::move (record));
         if (id.empty ())
             return NativeCommandResult::Failure ("the sun study could not be stored");
@@ -507,6 +489,14 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("timestep", timestep);
         return os;
     }
+
+  private:
+    bool IsCancelled () const
+    {
+        return cancelled_ != nullptr && cancelled_->load ();
+    }
+    std::shared_ptr<const CapturedSunStudyInputs> captured_;
+    const std::atomic<bool>* cancelled_ = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -990,6 +980,15 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
 };
 
 } // namespace
+
+NativeCommandResult PrepareCapturedSunStudy (const std::shared_ptr<const CapturedSunStudyInputs>& captured,
+                                             const std::atomic<bool>& cancelled)
+{
+    if (captured == nullptr || captured->snapshot == nullptr)
+        return NativeCommandResult::Failure ("sun study preparation requires owned inputs");
+    GS::ProcessControlInterruptDelegate processControl (nullptr);
+    return StartSunStudyCommand (captured, &cancelled).ExecuteNative (captured->params, processControl);
+}
 
 NativeCommandRegistrations GetSunStudyCommandRegistrations ()
 {

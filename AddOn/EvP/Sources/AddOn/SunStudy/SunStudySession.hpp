@@ -3,12 +3,9 @@
 
 // SunStudy/SunStudySession — a study that is ADVANCED, not awaited.
 //
-// ⚠️ THIS IS THE WHOLE REASON THE FEATURE DOES NOT STUTTER THE HOST. A study is
-// seconds of work; a caller that blocks for it freezes whatever thread asked.
-// So the session owns the state and exposes ONE SMALL STEP: `Advance` resolves
-// as many timesteps as the caller's budget allows and returns immediately. A
-// frame loop calls it once a frame, a graph node calls it once an evaluation,
-// and neither ever holds a thread for the whole run.
+// Advance is synchronous on its caller, including traversal shard joins. A
+// timestep budget is not a host-time budget: callers that need responsiveness
+// must dispatch calculation to a worker rather than trace from a host timer.
 //
 // ⚠️ WHICH ALSO MEANS PARTIAL RESULTS ARE THE NORMAL STATE, and the API is
 // shaped so a caller cannot mistake one for a finished one. `Progress` reports
@@ -38,6 +35,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace evp::sunstudy {
@@ -97,7 +95,7 @@ class SunStudySession final {
     // already means "nothing to do", which is exactly what a caller that lost
     // the race should conclude.
     size_t Advance (const ITraversal& traversal, size_t maxSteps, double tmin = 0.001, double tmax = 0.0,
-                    size_t maxParallel = 0);
+                    size_t maxParallel = 0, const std::function<bool ()>& isCancelled = {});
 
     // Whether an Advance is running right now. For diagnostics and tests; a
     // caller must not branch on it, because it can change the instant it is

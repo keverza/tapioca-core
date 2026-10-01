@@ -454,7 +454,13 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # either on this side would be a second change detector.
     ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/ExtractionThread.hpp"),
     ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/ModelWatch.hpp"),
+    # Read the existing atomic navigation signal to defer expensive host capture;
+    # the driver neither installs hooks nor controls camera synchronization.
+    ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/CameraWake.hpp"),
     ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/ArchVizLog.hpp"),
+    # Viewer teardown owns the follower timer's lifetime; disarm immediately on
+    # close rather than letting a fast reopen keep the previous session armed.
+    ("ArchViz/ArchVizPanel.cpp", "NativeCommands/SunStudyFollowerDriver.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),

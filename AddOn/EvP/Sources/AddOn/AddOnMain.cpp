@@ -35,6 +35,7 @@
 #include "NativeCommands/PlanOverlayCommands.hpp" // ShutdownPlanOverlay — Win32 windows we own
 #include "ArchViz/ViewportOverlayWindow.hpp"      // the 3D overlay, same hazard
 #include "NativeCommands/GraphCaptureService.hpp"
+#include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "NodeGraph/ArchicadHostImpl.hpp"   // the graph runtime's one ACAPI seam
 #include "NodeGraph/GraphRuntimeState.hpp"  // the graphs whose script nodes are reloaded
 #include "Python/GraphScriptRuntime.hpp"    // the Python half of the script node family
@@ -147,6 +148,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
         case APINotify_New:
         case APINotify_NewAndReset:
         case APINotify_Open:
+            geomsrv::sunfollow::Disable (); // invalidate calculation/adoption from the previous document
             // A document that replaces another ends the overlay the old one had, if
             // its Close did not already (a no-op then).
             geomsrv::archviz::overlaycontrol::OnProjectClosed ();
@@ -168,6 +170,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Close:
+            geomsrv::sunfollow::Disable ();
             // ⚠️ THE OVERLAY'S WINDOWS GO WITH THE PROJECT. Closing the floor plan
             // closes the project, and a session left running outlived its window.
             geomsrv::archviz::overlaycontrol::OnProjectClosed ();
@@ -179,6 +182,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Quit:
+            geomsrv::sunfollow::Shutdown ();
             geomsrv::ServerState::Get ().modelOpen.store (false);
             geomsrv::ArmWorker::Get ().Stop ();
             geomsrv::archviz::ExtractionWorker::Get ().Stop ();
@@ -596,6 +600,7 @@ GSErrCode Initialize (void)
 
 GSErrCode FreeData (void)
 {
+    geomsrv::sunfollow::Shutdown (); // never join a calculation thread under loader-lock destruction
     // RE51.D1's worker is guarded by the same crash breadcrumb as experimental
     // camera sync. Join it before ShutDownCameraSync clears that breadcrumb, so
     // a crash during D3D12 teardown still blocks an automatic retry next session.

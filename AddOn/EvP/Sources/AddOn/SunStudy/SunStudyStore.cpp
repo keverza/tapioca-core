@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 
 namespace evp::sunstudy {
 
@@ -124,26 +125,38 @@ std::string SunStudyStore::Insert (std::unique_ptr<StudyRecord> record)
         return std::string ();
 
     std::lock_guard<std::mutex> lock (mutex_);
-    if (record->id.empty ())
-        record->id = "sun-" + std::to_string (nextId_++);
+    if (record->id.empty ()) {
+        do {
+            record->id = "sun-" + std::to_string (nextId_++);
+        } while (studies_.find (record->id) != studies_.end ());
+    }
 
     const std::string id = record->id;
+    if (studies_.find (id) != studies_.end ())
+        return std::string (); // never replace the session of an in-flight slice
+    record->storeRevision = nextRevision_++;
     advancing_[id] = false;
+    progress_[id] = record->session.Progress ();
     studies_[id] = std::move (record);
     return id;
 }
 
 bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxParallel, double tmin, double tmax,
-                             size_t& advanced, std::string& error)
+                             size_t& advanced, std::string& error, const std::atomic<bool>* cancelled,
+                             uint64_t expectedRevision)
 {
     advanced = 0;
 
-    StudyRecord* record = nullptr;
+    std::shared_ptr<StudyRecord> record;
     {
         std::lock_guard<std::mutex> lock (mutex_);
         const auto found = studies_.find (id);
         if (found == studies_.end ()) {
             error = "no sun study with id '" + id + "'";
+            return false;
+        }
+        if (expectedRevision != 0 && found->second->storeRevision != expectedRevision) {
+            error = "sun study record changed";
             return false;
         }
         // ⚠️ A PER-STUDY FLAG, NOT A GLOBAL ONE. Two callers advancing the SAME
@@ -154,30 +167,55 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
             return false;
         }
         advancing_[id] = true;
-        record = found->second.get ();
+        record = found->second;
     }
 
     const auto start = std::chrono::steady_clock::now ();
-    if (record->traversal != nullptr)
-        advanced = record->session.Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel);
+    bool succeeded = true;
+    try {
+        if (record->traversal != nullptr)
+            advanced =
+                record->session.Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel, [record, cancelled] () {
+                    return record->cancelRequested.load () || (cancelled != nullptr && cancelled->load ());
+                });
+    }
+    catch (const std::exception& exception) {
+        error = "sun study '" + id + "' advance failed: " + exception.what ();
+        succeeded = false;
+    }
+    catch (...) {
+        error = "sun study '" + id + "' advance failed";
+        succeeded = false;
+    }
     const double elapsed =
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - start).count ();
 
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        // ⚠️ RE-LOOK RATHER THAN REUSE THE POINTER. Erase could have run while
-        // the lock was released, in which case `record` is gone and touching it
-        // is a use-after-free -- the exact hazard that not holding the lock buys
-        // performance at the cost of.
+        // Retained ownership protects the calculation; identity protects a new
+        // study inserted under the same id after cancellation from a late finish.
         const auto found = studies_.find (id);
-        if (found != studies_.end ())
+        if (found != studies_.end () && found->second == record) {
             found->second->analysisMilliseconds += elapsed;
-        advancing_[id] = false;
+            progress_[id] = record->session.Progress ();
+            advancing_[id] = false;
+        }
+    }
+    return succeeded;
+}
+
+bool SunStudyStore::SessionReadable (const std::string& id, std::string& error) const
+{
+    const auto advancing = advancing_.find (id);
+    if (advancing != advancing_.end () && advancing->second) {
+        error = "computing";
+        return false;
     }
     return true;
 }
 
-bool SunStudyStore::Progress (const std::string& id, StudyProgress& progress, std::string& error) const
+bool SunStudyStore::Progress (const std::string& id, StudyProgress& progress, std::string& error,
+                              uint64_t expectedRevision) const
 {
     std::lock_guard<std::mutex> lock (mutex_);
     const auto found = studies_.find (id);
@@ -185,8 +223,19 @@ bool SunStudyStore::Progress (const std::string& id, StudyProgress& progress, st
         error = "no sun study with id '" + id + "'";
         return false;
     }
-    progress = found->second->session.Progress ();
+    if (expectedRevision != 0 && found->second->storeRevision != expectedRevision) {
+        error = "sun study record changed";
+        return false;
+    }
+    progress = progress_.at (id);
     return true;
+}
+
+uint64_t SunStudyStore::Revision (const std::string& id) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    return found == studies_.end () ? 0 : found->second->storeRevision;
 }
 
 bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
@@ -198,6 +247,8 @@ bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours,
         error = "no sun study with id '" + id + "'";
         return false;
     }
+    if (!SessionReadable (id, error))
+        return false;
     hours = found->second->session.SunHours ();
     positions = found->second->positions;
     return true;
@@ -213,6 +264,8 @@ bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, 
         return false;
     }
 
+    if (!SessionReadable (id, error))
+        return false;
     const StudyRecord& record = *found->second;
     hours = record.session.SunHours ();
     positions = record.positions;
@@ -243,6 +296,8 @@ bool SunStudyStore::AtlasImage (const std::string& id, uint32_t& width, uint32_t
         return false;
     }
 
+    if (!SessionReadable (id, error))
+        return false;
     const StudyRecord& record = *found->second;
     if (!record.atlas.valid) {
         // ⚠️ THE PATCH CASE IS NAMED SEPARATELY BECAUSE THE GENERAL MESSAGE IS
@@ -275,6 +330,8 @@ bool SunStudyStore::PatchAtlasImage (const std::string& id, uint32_t& width, uin
         return false;
     }
 
+    if (!SessionReadable (id, error))
+        return false;
     const StudyRecord& record = *found->second;
     if (!record.IsPatchDomain () || !record.patchGrid.valid || record.patchAtlas.Width () == 0) {
         error = "study '" + id + "' is not a patch-domain study with a packed atlas";
@@ -298,6 +355,8 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
         return false;
     }
 
+    if (!SessionReadable (id, error))
+        return false;
     const StudyRecord& record = *found->second;
     if (record.IsPatchDomain ()) {
         if (!record.patchGrid.valid || record.patchAtlas.Width () == 0) {
@@ -329,7 +388,7 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
 
     spacing = record.gridSpacing;
     daylightHours = record.series.DaylightHours ();
-    const StudyProgress progress = record.session.Progress ();
+    const StudyProgress progress = progress_.at (id);
     converged = progress.converged;
     generation = progress.generation;
     return true;
@@ -348,11 +407,8 @@ bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t f
         error = "no sun study with id '" + id + "'";
         return false;
     }
-    const auto advancing = advancing_.find (id);
-    if (advancing != advancing_.end () && advancing->second) {
-        error = "computing";
+    if (!SessionReadable (id, error))
         return false;
-    }
     const StudyRecord& record = *found->second;
     if (record.snapshotId != snapshotId) {
         error = "stale";
@@ -376,6 +432,8 @@ bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std:
         error = "no sun study with id '" + id + "'";
         return false;
     }
+    if (!SessionReadable (id, error))
+        return false;
     const StudyRecord& record = *found->second;
     const OcclusionAccumulator& accumulator = record.session.Accumulator ();
 
@@ -466,18 +524,27 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     return true;
 }
 
-bool SunStudyStore::Erase (const std::string& id)
+bool SunStudyStore::Erase (const std::string& id, uint64_t expectedRevision)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (expectedRevision != 0 && (found == studies_.end () || found->second->storeRevision != expectedRevision))
+        return false;
+    if (found != studies_.end ())
+        found->second->cancelRequested.store (true);
     advancing_.erase (id);
+    progress_.erase (id);
     return studies_.erase (id) > 0;
 }
 
 void SunStudyStore::Clear ()
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    for (const auto& entry : studies_)
+        entry.second->cancelRequested.store (true);
     studies_.clear ();
     advancing_.clear ();
+    progress_.clear ();
 }
 
 std::vector<std::string> SunStudyStore::Ids () const

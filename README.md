@@ -1,3 +1,5 @@
+[Made by and Architect, not a Programmer. Decisions are mine, but code is AI.]
+
 # Tapioca
 ![Tapioca logo](./docs/static/Logo.jpg)
 

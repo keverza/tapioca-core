@@ -7,7 +7,13 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ModelWatch.hpp"
+#include "ArchViz/CameraWake.hpp"
+#include "NativeCommands/SunStudyCommands.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
+#include "SunStudy/SunStudyAdvanceWorker.hpp"
+#include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyTaskWorker.hpp"
+#include "SunStudy/SunStudyRefreshSchedule.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Python/MainThreadGate.hpp"
 
@@ -16,6 +22,7 @@
 #include <algorithm>
 #include <cstring>
 #include <mutex>
+#include <sstream>
 
 namespace geomsrv {
 namespace sunfollow {
@@ -27,10 +34,8 @@ using evp::sunstudy::SunStudyDirtyReason;
 using evp::sunstudy::SunStudyFollower;
 using evp::sunstudy::SunStudyFollowState;
 
-// ⚠️ EVERYTHING HERE IS MAIN-THREAD ONLY AND THE MUTEX GUARDS THE READER, NOT
-// THE WRITER. Tick() runs on a ::SetTimer callback, which is the main thread;
-// State() is called from a bus command, which may be another. Only the second
-// needs protecting.
+// Host policy and ACAPI stay on the main thread. State/Disable may be called
+// from a command worker; the calculation worker owns no driver state or SDK data.
 std::mutex gMutex;
 
 SunStudyFollower gFollower;
@@ -65,6 +70,44 @@ uint64_t gDiscarded = 0;
 uint64_t gReruns = 0;
 uint64_t gSnapshotRebuilds = 0;
 std::string gLastError;
+uint64_t s_sessionGeneration = 1;
+uint64_t s_runRevision = 0;
+uint64_t s_cancelledRuns = 0;
+uint64_t s_sliceSubmissions = 0;
+uint64_t s_sliceCompletions = 0;
+evp::sunstudy::StudyProgress s_runProgress;
+std::string s_tickThread;
+std::string s_workerThread;
+evp::sunstudy::SunStudyRefreshSchedule s_refreshSchedule;
+std::string s_stage = "idle";
+bool s_navigationDeferred = false;
+
+struct PreparationResult {
+    NativeCommandResult result;
+    std::string studyId;
+    uint64_t revision = 0;
+};
+std::shared_ptr<PreparationResult> s_preparation;
+
+evp::sunstudy::SunStudyTaskWorker& PreparationWorker ()
+{
+    static auto* worker = new evp::sunstudy::SunStudyTaskWorker ();
+    return *worker;
+}
+
+bool NavigationActive ()
+{
+    return archviz::camerawake::Navigating (250) || (::GetAsyncKeyState (VK_MBUTTON) & 0x8000) != 0 ||
+           (::GetAsyncKeyState (VK_RBUTTON) & 0x8000) != 0;
+}
+
+evp::sunstudy::SunStudyAdvanceWorker& AdvanceWorker ()
+{
+    // Explicitly joined on quit/unload, not by static destruction under the
+    // loader lock. Construction is cheap; its thread starts on first Submit.
+    static auto* worker = new evp::sunstudy::SunStudyAdvanceWorker ();
+    return *worker;
+}
 
 int64_t NowMs ()
 {
@@ -213,6 +256,7 @@ void HideOverlay ()
 {
     GS::ObjectState params;
     params.Add ("show", false);
+    params.Add ("follow", false); // internal hide must not recursively lock Disable
     ExecuteNativeCommand ("ShowSunStudy", params);
 }
 
@@ -221,13 +265,35 @@ void Log (const std::string& line)
     archviz::ArchVizLog ("sun follow: " + line);
 }
 
+void RetireRun (const char* reason, bool cancelled = true)
+{
+    PreparationWorker ().Cancel ();
+    if (s_preparation != nullptr) {
+        if (cancelled)
+            ++s_cancelledRuns;
+        s_preparation.reset ();
+    }
+    AdvanceWorker ().Cancel ();
+    if (gRunStudyId.empty ())
+        return;
+    if (cancelled)
+        ++s_cancelledRuns;
+    evp::sunstudy::SunStudyStore::Get ().Erase (gRunStudyId, s_runRevision);
+    Log ("retired study=" + gRunStudyId + " -- " + reason);
+    gRunStudyId.clear ();
+    s_runRevision = 0;
+}
+
+void LogHostPhase (const char* phase, int64_t started)
+{
+    Log (std::string (phase) + " thread=" + std::to_string (::GetCurrentThreadId ()) +
+         " wallMs=" + std::to_string (NowMs () - started));
+}
+
 // Refresh MeshStore so the geometry half of the signature can move.
 //
-// ⚠️ PROMPTLY ON A REPORTED EDIT, NOT ON THE DEBOUNCE, because the rebuild is
-// what CONFIRMS the edit -- until the snapshot advances, nothing downstream can
-// tell that the model moved, and the overlay would go on showing a heat map of a
-// building that has changed. The quiet period governs the replacement STUDY, not
-// this.
+// Called after geometry notifications settle, outside navigation. Known pending
+// edits prevent accepting any completion even before MeshStore's id changes.
 bool RefreshSnapshot ()
 {
     // ⚠️ FALSE MEANS THE SIGNAL MUST NOT BE CONSUMED. An extraction already in
@@ -238,7 +304,9 @@ bool RefreshSnapshot ()
     if (archviz::ExtractionWorker::Get ().IsRunning ())
         return false;
 
+    const int64_t started = NowMs ();
     const NativeCommandResult result = ExecuteNativeCommand ("BuildSnapshot", GS::ObjectState ());
+    LogHostPhase ("snapshot", started);
     ++gSnapshotRebuilds;
     if (!result.ok) {
         gLastError = std::string (result.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
@@ -256,20 +324,100 @@ void StartReplacement (const SunStudyDependencySignature& signature, int64_t now
     gRunGeneration = gFollower.NoteStarted (signature, now);
     gRunSignature = signature;
     gRunStudyId.clear ();
+    s_runProgress = {};
     ++gStarts;
 
-    const NativeCommandResult result = ExecuteNativeCommand ("StartSunStudy", StartParams (gConfig));
-    if (!result.ok) {
-        gLastError = std::string (result.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+    const int64_t started = NowMs ();
+    std::shared_ptr<const CapturedSunStudyInputs> captured;
+    const NativeCommandResult capture = CaptureSunStudyInputs (StartParams (gConfig), captured);
+    LogHostPhase ("sun capture", started);
+    if (!capture.ok) {
+        s_stage = "failed";
+        gLastError = std::string (capture.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
         gFollower.NoteFailed (gRunGeneration, now);
-        Log ("start refused -- " + gLastError);
+        Log ("capture refused -- " + gLastError);
         return;
     }
-    GS::UniString id;
-    result.data.Get ("studyId", id);
-    gRunStudyId = std::string (id.ToCStr (0, MaxUSize, CC_UTF8).Get ());
-    Log ("started generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId +
+    s_preparation = std::make_shared<PreparationResult> ();
+    const auto output = s_preparation;
+    evp::sunstudy::StudyTaskRequest request;
+    request.sessionGeneration = s_sessionGeneration;
+    request.runGeneration = gRunGeneration;
+    request.execute = [captured, output] (const std::atomic<bool>& cancelled) {
+        output->result = PrepareCapturedSunStudy (captured, cancelled);
+        if (output->result.ok) {
+            GS::UniString id;
+            output->result.data.Get ("studyId", id);
+            output->studyId = std::string (id.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+            output->revision = evp::sunstudy::SunStudyStore::Get ().Revision (output->studyId);
+        }
+    };
+    request.discard = [output] () {
+        if (!output->studyId.empty ())
+            evp::sunstudy::SunStudyStore::Get ().Erase (output->studyId, output->revision);
+    };
+    if (!PreparationWorker ().Submit (std::move (request), gLastError)) {
+        s_stage = "failed";
+        gFollower.NoteFailed (gRunGeneration, now);
+        s_preparation.reset ();
+        return;
+    }
+    s_stage = "preparing";
+    Log ("preparing generation=" + std::to_string (gRunGeneration) +
          " snapshot=" + std::to_string (signature.geometry));
+}
+
+bool PollPreparation (int64_t now)
+{
+    if (s_preparation == nullptr)
+        return true;
+    evp::sunstudy::StudyTaskCompletion completion;
+    if (!PreparationWorker ().Poll (completion))
+        return false;
+    const auto output = std::move (s_preparation);
+    std::ostringstream thread;
+    thread << completion.threadId;
+    s_workerThread = thread.str ();
+    Log ("prepare workerThread=" + s_workerThread + " wallMs=" + std::to_string (completion.wallMilliseconds) +
+         " priorityLowered=" + std::to_string (completion.priorityLowered));
+    if (completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration) {
+        ++gDiscarded;
+        if (!output->studyId.empty ())
+            evp::sunstudy::SunStudyStore::Get ().Erase (output->studyId, output->revision);
+        return false;
+    }
+    if (!completion.error.empty () || !output->result.ok) {
+        gLastError = completion.error.empty () ? std::string (output->result.error.ToCStr (0, MaxUSize, CC_UTF8).Get ())
+                                               : completion.error;
+        gFollower.NoteFailed (gRunGeneration, now);
+        s_stage = "failed";
+        Log ("preparation refused -- " + gLastError);
+        return false;
+    }
+    gRunStudyId = output->studyId;
+    s_runRevision = output->revision;
+    s_stage = "calculating";
+    return true;
+}
+
+void SubmitAdvanceSlice (int64_t now)
+{
+    evp::sunstudy::AdvanceRequest request;
+    request.studyId = gRunStudyId;
+    request.sessionGeneration = s_sessionGeneration;
+    request.runGeneration = gRunGeneration;
+    request.recordRevision = s_runRevision;
+    // Host interactivity takes precedence over CPU throughput. Single-thread
+    // traversal also avoids creating normal-priority shards from the low-priority
+    // worker. Budget is soft: a whole timestep can exceed it.
+    request.maxParallel = 1;
+    request.maxMilliseconds = 40.0;
+    if (AdvanceWorker ().Submit (request, gLastError))
+        ++s_sliceSubmissions;
+    else {
+        gFollower.NoteFailed (gRunGeneration, now);
+        RetireRun ("submission failed", false);
+    }
 }
 
 void AdvanceOneSlice (int64_t now)
@@ -279,22 +427,46 @@ void AdvanceOneSlice (int64_t now)
         return;
     }
 
-    GS::ObjectState params;
-    params.Add ("studyId", GS::UniString (gRunStudyId.c_str (), CC_UTF8));
-    // One bounded slice. See the header: this is a scheduler.
-    params.Add ("maxSteps", (GS::Int32) 8);
-    const NativeCommandResult result = ExecuteNativeCommand ("AdvanceSunStudy", params);
-    if (!result.ok) {
-        gLastError = std::string (result.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
-        gFollower.NoteFailed (gRunGeneration, now);
-        Log ("advance failed -- " + gLastError);
+    evp::sunstudy::AdvanceCompletion completion;
+    if (!AdvanceWorker ().Poll (completion)) {
+        if (!AdvanceWorker ().Busy ())
+            SubmitAdvanceSlice (now);
         return;
     }
-
-    bool converged = false;
-    result.data.Get ("converged", converged);
-    if (!converged)
+    ++s_sliceCompletions;
+    std::ostringstream thread;
+    thread << completion.threadId;
+    s_workerThread = thread.str ();
+    if (completion.request.sessionGeneration != s_sessionGeneration ||
+        completion.request.runGeneration != gRunGeneration || completion.request.studyId != gRunStudyId ||
+        completion.request.recordRevision != s_runRevision) {
+        ++gDiscarded;
+        Log ("discarded a late calculation slice");
         return;
+    }
+    if (evp::sunstudy::SunStudyStore::Get ().Revision (gRunStudyId) != s_runRevision) {
+        ++gDiscarded;
+        gLastError = "sun study record changed before publication";
+        gFollower.NoteFailed (gRunGeneration, now);
+        RetireRun ("record replaced", false);
+        return;
+    }
+    s_runProgress = completion.progress;
+    Log ("advance workerThread=" + s_workerThread + " tickThread=" + s_tickThread +
+         " wallMs=" + std::to_string (completion.wallMilliseconds) +
+         " priorityLowered=" + std::to_string (completion.priorityLowered) +
+         " resolved=" + std::to_string (s_runProgress.resolvedSteps) + "/" + std::to_string (s_runProgress.totalSteps));
+    if (!completion.succeeded || (!s_runProgress.converged && completion.advanced == 0)) {
+        gLastError = completion.error.empty () ? "sun study made no progress" : completion.error;
+        gFollower.NoteFailed (gRunGeneration, now);
+        Log ("advance failed -- " + gLastError);
+        RetireRun ("advance failed", false);
+        return;
+    }
+    if (!s_runProgress.converged) {
+        SubmitAdvanceSlice (now);
+        return;
+    }
 
     // ---- the result is in; may it be shown? --------------------------------
     //
@@ -306,10 +478,7 @@ void AdvanceOneSlice (int64_t now)
         ++gDiscarded;
         Log ("discarded generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId +
              " -- the model moved while it ran");
-        GS::ObjectState cancel;
-        cancel.Add ("studyId", GS::UniString (gRunStudyId.c_str (), CC_UTF8));
-        ExecuteNativeCommand ("CancelSunStudy", cancel);
-        gRunStudyId.clear ();
+        RetireRun ("completion superseded", false);
         return;
     }
 
@@ -328,11 +497,15 @@ void AdvanceOneSlice (int64_t now)
     show.Add ("depth", (GS::Int32) gConfig.depth);
     if (gConfig.hoursMax > 0.0)
         show.Add ("hoursMax", gConfig.hoursMax);
+    const int64_t started = NowMs ();
+    s_stage = "displaying";
     const NativeCommandResult shown = ExecuteNativeCommand ("ShowSunStudy", show);
+    LogHostPhase ("display", started);
     if (!shown.ok)
         gLastError = std::string (shown.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
     Log ("accepted generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId + " -- displayed");
     gRunStudyId.clear ();
+    s_stage = shown.ok ? "current" : "failed";
 }
 
 // ⚠️ THE LOCK IS ALREADY HELD BY THE CALLER. std::mutex is not recursive, so
@@ -340,11 +513,22 @@ void AdvanceOneSlice (int64_t now)
 void DisableLocked ()
 {
     gAutoFollow = false;
+    ++s_sessionGeneration; // queued adoption/completion from a closed session is obsolete
+    RetireRun ("following disabled");
+    s_runProgress = {};
+    s_stage = "idle";
+    s_navigationDeferred = false;
     gConfig = ActiveSunStudyConfig {};
     gFollower.Clear ();
     gRunStudyId.clear ();
     if (gTimer != 0) {
-        ::KillTimer (nullptr, gTimer);
+        const UINT_PTR timer = gTimer;
+        if (evp::MainThreadGate::Get ().IsMainThread ())
+            ::KillTimer (nullptr, timer);
+        else {
+            GS::UniString error;
+            evp::MainThreadGate::Get ().Post ([timer] () { ::KillTimer (nullptr, timer); }, error);
+        }
         gTimer = 0;
     }
 }
@@ -382,13 +566,32 @@ void ArmTimer ()
 
 } // namespace
 
-void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config)
+void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint64_t sessionGeneration)
 {
+    if (!evp::MainThreadGate::Get ().IsMainThread ()) {
+        GS::UniString error;
+        evp::MainThreadGate::Get ().Post (
+            [studyId, config, sessionGeneration] () { Adopt (studyId, config, sessionGeneration); }, error);
+        return;
+    }
     std::lock_guard<std::mutex> lock (gMutex);
+    if (sessionGeneration != s_sessionGeneration || !archviz::modelwatch::Get ().running)
+        return;
+    if (studyId == gRunStudyId) {
+        // The user explicitly takes ownership of this cache; stop scheduling
+        // it but do not erase the study just handed to the display consumer.
+        AdvanceWorker ().Cancel ();
+        gRunStudyId.clear ();
+        s_runRevision = 0;
+    }
+    else
+        RetireRun ("manual study adopted");
     gConfig = config;
     gConfig.valid = true;
     gAutoFollow = true;
     gSeenGeometryEdits = archviz::modelwatch::Get ().geometryEdits;
+    s_refreshSchedule.Reset (gSeenGeometryEdits);
+    s_stage = "current";
 
     const SunStudyDependencySignature signature = BuildCurrentSignature (gConfig);
     gFollower.Adopt (studyId, signature, NowMs ());
@@ -399,10 +602,23 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config)
     Log ("following study " + studyId + " at snapshot " + std::to_string (signature.geometry));
 }
 
+uint64_t SessionGeneration ()
+{
+    std::lock_guard<std::mutex> lock (gMutex);
+    return s_sessionGeneration;
+}
+
 void Disable ()
 {
     std::lock_guard<std::mutex> lock (gMutex);
     DisableLocked ();
+}
+
+void Shutdown ()
+{
+    Disable ();
+    AdvanceWorker ().Shutdown ();
+    PreparationWorker ().Shutdown ();
 }
 
 void Tick ()
@@ -427,11 +643,22 @@ void Tick ()
     }
 
     const int64_t now = NowMs ();
+    s_tickThread = std::to_string (::GetCurrentThreadId ());
 
     // ---- 1. has Archicad reported a genuine element change? ------------------
     const uint32_t edits = archviz::modelwatch::Get ().geometryEdits;
-    if (edits != gSeenGeometryEdits && RefreshSnapshot ())
+    s_navigationDeferred = NavigationActive ();
+    if (s_refreshSchedule.Observe (edits, now))
+        RetireRun ("geometry changed");
+    if (s_refreshSchedule.Pending ()) {
+        s_stage = "waitingForGeometry";
+        if (!s_refreshSchedule.Ready (now, s_navigationDeferred))
+            return;
+        if (!RefreshSnapshot ())
+            return; // never accept an old result while a known edit awaits capture
         gSeenGeometryEdits = edits;
+        s_refreshSchedule.Complete ();
+    }
 
     // ---- 2. observe the world, once, through one path ----------------------
     // ⚠️ EVERY TICK, NOT ONLY THE INTERESTING ONES. An environment-only tick
@@ -441,6 +668,9 @@ void Tick ()
     const SunStudyDependencySignature world = BuildCurrentSignature (gConfig);
     if (gFollower.Observe (world, now))
         Log (gFollower.Describe ());
+    if ((!gRunStudyId.empty () || s_preparation != nullptr) &&
+        (gRunGeneration != gFollower.Generation () || gRunSignature != world))
+        RetireRun ("inputs superseded");
 
     // ---- 3. the overlay STAYS UP ------------------------------------------
     //
@@ -465,11 +695,13 @@ void Tick ()
     // ---- 4. act on the decision --------------------------------------------
     switch (gFollower.State ()) {
         case SunStudyFollowState::DirtyVisible:
-            if (gFollower.ShouldStart (now))
+            if (gFollower.ShouldStart (now) && !AdvanceWorker ().Busy () && !PreparationWorker ().Busy () &&
+                !s_navigationDeferred)
                 StartReplacement (world, now);
             break;
         case SunStudyFollowState::UpdatingVisible:
-            AdvanceOneSlice (now);
+            if (PollPreparation (now) && !s_navigationDeferred)
+                AdvanceOneSlice (now);
             break;
         case SunStudyFollowState::NoStudy:
         case SunStudyFollowState::Current:
@@ -496,6 +728,21 @@ FollowerStats State ()
     stats.discardedCompletions = gDiscarded;
     stats.automaticReruns = gReruns;
     stats.snapshotRebuilds = gSnapshotRebuilds;
+    stats.sessionGeneration = s_sessionGeneration;
+    stats.cancelledRuns = s_cancelledRuns;
+    stats.sliceSubmissions = s_sliceSubmissions;
+    stats.sliceCompletions = s_sliceCompletions;
+    stats.workerBusy = AdvanceWorker ().Busy () || PreparationWorker ().Busy ();
+    stats.stage = s_stage;
+    stats.navigationDeferred = s_navigationDeferred;
+    evp::sunstudy::StudyProgress progress = s_runProgress;
+    std::string error;
+    if (!gRunStudyId.empty ())
+        evp::sunstudy::SunStudyStore::Get ().Progress (gRunStudyId, progress, error, s_runRevision);
+    stats.resolvedSteps = progress.resolvedSteps;
+    stats.totalSteps = progress.totalSteps;
+    stats.tickThread = s_tickThread;
+    stats.workerThread = s_workerThread;
     stats.lastError = gLastError;
     stats.description = gFollower.Describe ();
     stats.millisecondsUntilStart = gFollower.MillisecondsUntilStart (NowMs ());

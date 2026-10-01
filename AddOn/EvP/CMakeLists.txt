@@ -87,95 +87,36 @@ set (ResourceObjectsDir "${CMAKE_BINARY_DIR}/ResourceObjects")
 file (MAKE_DIRECTORY "${ResourceObjectsDir}")
 
 # ---- Notebook browser UI ---------------------------------------------------
+find_program (NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
+set (TAPIOCA_EMBEDDED_UI_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
+include ("${TAPIOCA_EMBEDDED_UI_CMAKE_DIR}/EmbeddedUI.cmake")
 set (NotebookUIFolder "${CMAKE_CURRENT_LIST_DIR}/NotebookUI")
-set (NotebookUIOutput "${NotebookUIFolder}/dist/index.html")
 set (NOTEBOOK_UI_RESOURCE_ID 32551)
 file (GLOB_RECURSE NotebookUIFiles CONFIGURE_DEPENDS
     "${NotebookUIFolder}/src/*"
-    "${NotebookUIFolder}/scripts/*")
+    "${NotebookUIFolder}/scripts/*"
+    "${NotebookUIFolder}/public/*")
 list (APPEND NotebookUIFiles
     "${NotebookUIFolder}/index.html"
     "${NotebookUIFolder}/tsconfig.json"
     "${NotebookUIFolder}/vite.config.ts")
 
-find_program (NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
-
-# ⚠️ `npm ci` DELETES node_modules AND REINSTALLS IT. It must therefore depend on
-# the LOCKFILE and nothing else. Listed among the bundle's sources - as it was -
-# it re-ran on every edit to a single .svelte file, which was wrong three ways:
-# it reinstalled several hundred megabytes to rebuild one bundle, it made an
-# incremental UI build take minutes, and on Windows it FAILED outright whenever
-# any process still held one of the installed native binaries open:
-#
-#   npm error EPERM: operation not permitted, unlink
-#   '...\node_modules\@rolldown\.binding-win32-x64-msvc-...\rolldown-binding.win32-x64-msvc.node'
-#
-# A loaded .node is a mapped image and cannot be unlinked on Windows, so an
-# editor's language server, a watcher, or an interrupted install of its own is
-# enough to break an unrelated C++ build. Installing only when the lockfile moves
-# removes the whole class.
-#
-# ⚠️ THE STAMP LIVES INSIDE node_modules ON PURPOSE. A stamp in the build tree
-# would survive someone deleting node_modules by hand, and the next build would
-# then run typecheck against a tree that is not there and fail with something
-# that looks nothing like "your dependencies are missing".
-set (NotebookUIInstallStamp "${NotebookUIFolder}/node_modules/.tapioca-install.stamp")
-add_custom_command (
-    OUTPUT "${NotebookUIInstallStamp}"
-    DEPENDS "${NotebookUIFolder}/package.json" "${NotebookUIFolder}/package-lock.json"
-    WORKING_DIRECTORY "${NotebookUIFolder}"
-    COMMENT "EvP: installing the Tapioca Notebook UI dependencies"
-    COMMAND "${NPM_EXECUTABLE}" ci
-    COMMAND "${CMAKE_COMMAND}" -E touch "${NotebookUIInstallStamp}"
-    VERBATIM)
-
-add_custom_command (
-    OUTPUT "${NotebookUIOutput}"
-    DEPENDS ${NotebookUIFiles} "${NotebookUIInstallStamp}"
-    WORKING_DIRECTORY "${NotebookUIFolder}"
-    COMMENT "EvP: building the self-contained Tapioca Notebook UI"
-    COMMAND "${NPM_EXECUTABLE}" run typecheck
-    COMMAND "${NPM_EXECUTABLE}" run build
-    VERBATIM)
-add_custom_target (EvPNotebookUI ALL DEPENDS "${NotebookUIOutput}")
-set_target_properties (EvPNotebookUI PROPERTIES FOLDER Resources)
+TapiocaAddEmbeddedUI (NotebookUI "${NotebookUIFolder}" ${NotebookUIFiles})
 
 # ---- Node graph editor UI ---------------------------------------------------
 set (GraphUIFolder "${CMAKE_CURRENT_LIST_DIR}/GraphUI")
-set (GraphUIOutput "${GraphUIFolder}/dist/index.html")
 set (GRAPH_UI_RESOURCE_ID 32571)
 file (GLOB_RECURSE GraphUIFiles CONFIGURE_DEPENDS
     "${GraphUIFolder}/src/*"
-    "${GraphUIFolder}/scripts/*")
+    "${GraphUIFolder}/scripts/*"
+    "${GraphUIFolder}/public/*")
 list (APPEND GraphUIFiles
     "${GraphUIFolder}/index.html"
     "${GraphUIFolder}/svelte.config.js"
     "${GraphUIFolder}/tsconfig.json"
     "${GraphUIFolder}/vite.config.ts")
 
-# Installation is keyed on the lockfile, not on the sources. See the note on
-# NotebookUIInstallStamp above for what running `npm ci` per source edit costs
-# and for the Windows unlink failure it produces.
-set (GraphUIInstallStamp "${GraphUIFolder}/node_modules/.tapioca-install.stamp")
-add_custom_command (
-    OUTPUT "${GraphUIInstallStamp}"
-    DEPENDS "${GraphUIFolder}/package.json" "${GraphUIFolder}/package-lock.json"
-    WORKING_DIRECTORY "${GraphUIFolder}"
-    COMMENT "EvP: installing the Tapioca Node Graph UI dependencies"
-    COMMAND "${NPM_EXECUTABLE}" ci
-    COMMAND "${CMAKE_COMMAND}" -E touch "${GraphUIInstallStamp}"
-    VERBATIM)
-
-add_custom_command (
-    OUTPUT "${GraphUIOutput}"
-    DEPENDS ${GraphUIFiles} "${GraphUIInstallStamp}"
-    WORKING_DIRECTORY "${GraphUIFolder}"
-    COMMENT "EvP: building the self-contained Tapioca Node Graph UI"
-    COMMAND "${NPM_EXECUTABLE}" run typecheck
-    COMMAND "${NPM_EXECUTABLE}" run build
-    VERBATIM)
-add_custom_target (EvPGraphUI ALL DEPENDS "${GraphUIOutput}")
-set_target_properties (EvPGraphUI PROPERTIES FOLDER Resources)
+TapiocaAddEmbeddedUI (GraphUI "${GraphUIFolder}" ${GraphUIFiles})
 
 # ---- WebUI command palette preview -----------------------------------------
 # This first WebUI slice is intentionally a self-contained visual page. Keeping
@@ -237,7 +178,7 @@ if (WIN32)
         COMMENT "EvP: converting the Tapioca Notebook HTML resource"
         COMMAND "${AC_API_DEVKIT_DIR}/Support/Tools/Win/ResConv.exe"
             -m r -T W -q utf8 1252
-            -p "${NotebookUIFolder}"
+            -p "${NotebookUIBuildFolder}"
             -i "${ResourceObjectsDir}/NotebookUI.grc"
             -o "${NotebookUIResourceRc2}"
         VERBATIM)
@@ -255,7 +196,7 @@ if (WIN32)
         COMMENT "EvP: converting the Tapioca Node Graph HTML resource"
         COMMAND "${AC_API_DEVKIT_DIR}/Support/Tools/Win/ResConv.exe"
             -m r -T W -q utf8 1252
-            -p "${GraphUIFolder}"
+            -p "${GraphUIBuildFolder}"
             -i "${ResourceObjectsDir}/GraphUI.grc"
             -o "${GraphUIResourceRc2}"
         VERBATIM)

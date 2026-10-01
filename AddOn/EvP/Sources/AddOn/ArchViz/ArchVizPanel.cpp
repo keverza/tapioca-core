@@ -15,6 +15,7 @@
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SceneRenderMode -- the overlay starts in wireframe
 #include "ResourceIds.hpp"
+#include "NativeCommands/SunStudyFollowerDriver.hpp"
 
 #include "DGWin.h" // DGGetDialogItemWindow / DGGetDPIForDialogItem
 
@@ -147,11 +148,15 @@ void ArchVizPanel::Show ()
                                       "running and its viewport child would be empty (PLAT-RE57)");
         return;
     }
+    paletteState.RequestOpen ();
+    if (!paletteState.CanShow ())
+        return;
     DG::Palette::Show ();
 }
 
 void ArchVizPanel::Hide ()
 {
+    paletteState.RequestClose ();
     DG::Palette::Hide ();
 }
 
@@ -526,6 +531,7 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
 
 void ArchVizPanel::CloseDiligentOverlay ()
 {
+    geomsrv::sunfollow::Disable ();
     // ⚠️ THE RENDER THREAD JOINS BEFORE THE WINDOW GOES, unconditionally and in
     // that order. Presenting a composition swap chain whose target HWND has been
     // destroyed is a crash blamed on Archicad -- the same rule the palette child
@@ -550,6 +556,8 @@ void ArchVizPanel::CloseDiligentOverlay ()
 
 void ArchVizPanel::CloseViewer ()
 {
+    if (HasInstance ())
+        GetInstance ().paletteState.RequestClose ();
     // Stop D3D12 before camera-sync teardown clears the shared experiment
     // breadcrumb. A crash during the D3D12 join must survive into safe mode.
     CloseD3D12FeasibilityProbe ();
@@ -646,6 +654,7 @@ void* ArchVizPanel::ViewportWindow () const
 
 void ArchVizPanel::StopRenderer ()
 {
+    geomsrv::sunfollow::Disable ();
     // ⚠️ UNCONDITIONALLY, AND BEFORE THE EARLY RETURN. The timer is a
     // process-wide Win32 resource that outlives this palette if it is not
     // killed, and it calls ACAPI — leaving it armed after teardown is the exact
@@ -906,6 +915,7 @@ void ArchVizPanel::PanelIdle (const DG::PanelIdleEvent& /*ev*/)
 
 void ArchVizPanel::PanelCloseRequested (const DG::PanelCloseRequestEvent&, bool* accepted)
 {
+    paletteState.RequestClose ();
     // The window is about to go; the renderer must be gone FIRST and this joins.
     StopRenderer ();
     Hide ();
@@ -934,12 +944,15 @@ GSErrCode ArchVizPanel::PaletteControlCallBack (Int32, API_PaletteMessageID mess
             // Archicad is hiding every palette (a modal is coming up). The
             // renderer keeps running: this is temporary, the HWND stays alive, and
             // tearing the device down and back up for a modal would cost seconds.
-            if (HasInstance () && GetInstance ().IsVisible ())
-                GetInstance ().Hide ();
+            if (HasInstance ()) {
+                ArchVizPanel& panel = GetInstance ();
+                panel.paletteState.BeginHostHide (panel.IsVisible ());
+                panel.DG::Palette::Hide ();
+            }
             break;
         case APIPalMsg_HidePalette_End:
-            if (HasInstance () && !GetInstance ().IsVisible ())
-                GetInstance ().Show ();
+            if (HasInstance () && GetInstance ().paletteState.EndHostHide () && !OverlayRunning ())
+                GetInstance ().DG::Palette::Show ();
             break;
         case APIPalMsg_IsPaletteVisible:
             *(reinterpret_cast<bool*> (param)) = HasInstance () && GetInstance ().IsVisible ();

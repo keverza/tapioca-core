@@ -29,6 +29,7 @@
 // For CameraStart, returned by value from ReadArchicadCamera below. Light:
 // DiligentViewport.hpp pulls no Diligent headers, only <thread>/<mutex>.
 #include "ArchViz/DiligentViewport.hpp"
+#include "ArchViz/ViewerPaletteState.hpp"
 
 #include <memory>
 #include <string>
@@ -261,6 +262,7 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
     std::unique_ptr<DG::UserItem> viewport;
     // So the idle poll does not rewrite an unchanged status line every tick.
     GS::UniString lastStatus;
+    geomsrv::archviz::ViewerPaletteState paletteState;
     // ⚠️ THE LAST DPI SCALE DG ACTUALLY ANSWERED WITH. `DisplayScale()` is asked
     // during window switches and palette hide/show, when the item's window may
     // momentarily not be askable — and answering 1.0 there sizes the backbuffer

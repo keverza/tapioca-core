@@ -93,9 +93,14 @@ class ShowSunStudyCommand : public MainThreadCommand {
 
 NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const
 {
+    bool follow = true;
+    params.Get ("follow", follow);
+    const uint64_t sessionGeneration = follow ? sunfollow::SessionGeneration () : 0;
     bool show = true;
     params.Get ("show", show);
     if (!show) {
+        if (follow)
+            sunfollow::Disable ();
         // THE CLEAR IS UNCONDITIONAL AND NAMES NO STUDY. "Stop showing a
         // study" must work when the study has already been cancelled, when
         // the id is forgotten, and when the viewer is showing one this
@@ -285,8 +290,6 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     // ⚠️ AND THE DRIVER'S OWN RERUNS COME BACK THROUGH HERE. `follow=false` is
     // what stops a rerun from re-adopting itself and resetting the quiet period
     // it was started by; the driver passes it, a person never does.
-    bool follow = true;
-    params.Get ("follow", follow);
     if (follow && haveMetadata) {
         sunfollow::ActiveSunStudyConfig config;
         config.year = metadata.year;
@@ -304,7 +307,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.debug = adoptedDebug;
         config.depth = adoptedDepth;
         config.hoursMax = rampTop;
-        sunfollow::Adopt (id, config);
+        sunfollow::Adopt (id, config, sessionGeneration);
     }
     return os;
 }
@@ -534,6 +537,17 @@ class SunStudyFollowerStateCommand : public MainThreadCommand {
         os.Add ("discardedCompletions", (GS::Int32) stats.discardedCompletions);
         os.Add ("automaticReruns", (GS::Int32) stats.automaticReruns);
         os.Add ("snapshotRebuilds", (GS::Int32) stats.snapshotRebuilds);
+        os.Add ("sessionGeneration", (GS::Int32) stats.sessionGeneration);
+        os.Add ("cancelledRuns", (GS::Int32) stats.cancelledRuns);
+        os.Add ("sliceSubmissions", (GS::Int32) stats.sliceSubmissions);
+        os.Add ("sliceCompletions", (GS::Int32) stats.sliceCompletions);
+        os.Add ("resolvedSteps", (GS::Int32) stats.resolvedSteps);
+        os.Add ("totalSteps", (GS::Int32) stats.totalSteps);
+        os.Add ("workerBusy", stats.workerBusy);
+        os.Add ("stage", Text (stats.stage));
+        os.Add ("navigationDeferred", stats.navigationDeferred);
+        os.Add ("tickThread", Text (stats.tickThread));
+        os.Add ("workerThread", Text (stats.workerThread));
         os.Add ("lastError", Text (stats.lastError));
         // The sentence a person can act on: "scene snapshot 124 != study
         // snapshot 123" says which way to look; `dirty=true` does not.
@@ -693,6 +707,17 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "discardedCompletions":{"type":"integer"},
                 "automaticReruns":{"type":"integer"},
                 "snapshotRebuilds":{"type":"integer"},
+                "sessionGeneration":{"type":"integer"},
+                "cancelledRuns":{"type":"integer"},
+                "sliceSubmissions":{"type":"integer"},
+                "sliceCompletions":{"type":"integer"},
+                "resolvedSteps":{"type":"integer"},
+                "totalSteps":{"type":"integer"},
+                "workerBusy":{"type":"boolean"},
+                "stage":{"type":"string"},
+                "navigationDeferred":{"type":"boolean"},
+                "tickThread":{"type":"string"},
+                "workerThread":{"type":"string"},
                 "lastError":{"type":"string"},
                 "description":{"type":"string"}
             },

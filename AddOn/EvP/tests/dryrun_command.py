@@ -3245,6 +3245,11 @@ def _one(command, params):
                         "millisecondsUntilStart": -1, "starts": 0,
                         "acceptedCompletions": 0, "discardedCompletions": 0,
                         "automaticReruns": 0, "snapshotRebuilds": 0,
+                        "sessionGeneration": 1, "cancelledRuns": 0,
+                        "sliceSubmissions": 0, "sliceCompletions": 0,
+                        "resolvedSteps": 0, "totalSteps": 0, "workerBusy": False,
+                        "tickThread": "", "workerThread": "",
+                        "stage": "idle", "navigationDeferred": False,
                         "lastError": "", "description": "no sun study is being followed"})
         return _v2({"state": "Current", "autoFollow": True, "dirty": False,
                     "dirtyReason": "none", "generation": 1,
@@ -3253,6 +3258,11 @@ def _one(command, params):
                     "millisecondsUntilStart": -1, "starts": 0,
                     "acceptedCompletions": 0, "discardedCompletions": 0,
                     "automaticReruns": 0, "snapshotRebuilds": 0, "lastError": "",
+                    "sessionGeneration": 1, "cancelledRuns": 0,
+                    "sliceSubmissions": 0, "sliceCompletions": 0,
+                    "resolvedSteps": 0, "totalSteps": 0, "workerBusy": False,
+                    "tickThread": "", "workerThread": "",
+                    "stage": "current", "navigationDeferred": False,
                     "description": "sun study '%s' is current for snapshot 1"
                                    % _SUN_OVERLAY.get("studyId", "")})
 

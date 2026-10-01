@@ -17,9 +17,10 @@
 //     reports diagnostics
 //
 // ⚠️ AND IT IMPLEMENTS NO ANALYSIS. It is an internal command client:
-// `StartSunStudy`, `AdvanceSunStudy`, `ShowSunStudy`, `CancelSunStudy` and
-// `BuildSnapshot` are reached through `ExecuteNativeCommand`, exactly as a
-// script would reach them. There must stay ONE implementation of a sun study,
+// Snapshot/display use ExecuteNativeCommand. Preparation uses StartSunStudy's
+// shared capture/preparation seam, with the pure portion on a task worker. Slices
+// use SunStudyAdvanceWorker over the SAME SunStudyStore::Advance as the public
+// advance command. There must stay ONE implementation of a sun study,
 // and a driver that copied StartSunStudy's sun gather, sampling, winding proof
 // and atlas build would be a second one -- silently diverging the first time
 // either was fixed.
@@ -88,26 +89,40 @@ struct FollowerStats {
     uint64_t discardedCompletions = 0;
     uint64_t automaticReruns = 0;
     uint64_t snapshotRebuilds = 0;
+    uint64_t sessionGeneration = 0;
+    uint64_t cancelledRuns = 0;
+    uint64_t sliceSubmissions = 0;
+    uint64_t sliceCompletions = 0;
+    size_t resolvedSteps = 0;
+    size_t totalSteps = 0;
+    bool workerBusy = false;
+    std::string stage;
+    bool navigationDeferred = false;
+    std::string tickThread;
+    std::string workerThread;
     std::string lastError;
     std::string description;
 };
 
 // Adopt the study `studyId` as the one to follow, with the configuration it was
 // run with. Called by `ShowSunStudy` after a MANUAL display succeeded. MAIN
-// THREAD. Arms the tick timer.
-void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config);
+// THREAD via the gate if needed. A display begun before close cannot re-arm it.
+void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint64_t sessionGeneration);
+uint64_t SessionGeneration ();
 
-// Stop following. Does not cancel a study or hide an overlay: those are the
-// caller's, and `ShowSunStudy show=false` is how an overlay comes off.
+// Disarm and cancel only the driver's replacement study, without joining the
+// worker or erasing the manually displayed cache. Advances drain cooperatively.
 void Disable ();
+
+// Quit/unload only: disarm, then join before the module can be unloaded.
+void Shutdown ();
 
 // One scheduling step. MAIN THREAD ONLY -- it calls ACAPI through the commands
 // it drives.
 //
-// ⚠️ AT MOST ONE BOUNDED SLICE PER TICK. A `while (!converged) Advance()` on the
-// host's timer is a frozen Archicad on any model big enough to matter, and the
-// whole point of the advance-not-await session design is that nothing ever waits
-// for a study. This is a scheduler.
+// Poll/submit preparation and calculation without waiting. Geometry/sun capture
+// and display assembly still require main-thread time. Known navigation defers
+// host capture, new slices and display; already-running pure work drains off-thread.
 void Tick ();
 
 FollowerStats State ();

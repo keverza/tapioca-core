@@ -40,7 +40,7 @@ void SunStudySession::Sync (const StudyInputs& inputs, const SunSeries& series, 
 }
 
 size_t SunStudySession::Advance (const ITraversal& traversal, size_t maxSteps, double tmin, double tmax,
-                                 size_t maxParallel)
+                                 size_t maxParallel, const std::function<bool ()>& isCancelled)
 {
     if (!initialised_ || maxSteps == 0)
         return 0;
@@ -53,11 +53,24 @@ size_t SunStudySession::Advance (const ITraversal& traversal, size_t maxSteps, d
     if (!advancing_.compare_exchange_strong (expected, true, std::memory_order_acq_rel))
         return 0;
 
-    const size_t resolved =
-        accumulator_.AccumulateRange (traversal, samples_, series_, nextStep_, maxSteps, tmin, tmax, maxParallel);
-    nextStep_ += resolved;
+    struct DispatchRelease {
+        std::atomic<bool>& flag;
+        ~DispatchRelease ()
+        {
+            flag.store (false, std::memory_order_release);
+        }
+    } release { advancing_ };
 
-    advancing_.store (false, std::memory_order_release);
+    size_t resolved = 0;
+    while (resolved < maxSteps && nextStep_ < series_.StepCount ()) {
+        if (isCancelled && isCancelled ())
+            break;
+        if (accumulator_.AccumulateRange (traversal, samples_, series_, nextStep_, 1, tmin, tmax, maxParallel) == 0)
+            break;
+        ++nextStep_;
+        ++resolved;
+    }
+
     return resolved;
 }
 
