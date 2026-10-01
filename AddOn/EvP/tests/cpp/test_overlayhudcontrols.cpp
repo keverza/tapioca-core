@@ -457,12 +457,12 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     const layers::Panel panel = Titled ("Sun study", 0x11AA22FFu);
     OpenSettings (hud, { &panel });
     const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    // The check boxes, at the page's left: Show overlay, then one per layer.
+    // The check boxes, at the page's left: Show overlay, Hover readout, then one per layer.
     const float x = 16.0f + 24.0f;
     std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
-    ASSERT_EQ (boxes.size (), 3u);
+    ASSERT_EQ (boxes.size (), 4u);
     const uint64_t revision = hud::Revision (*hud.state);
-    hud.Click ({ &panel }, x, Middle (boxes[1]));
+    hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_FALSE (hud::LayerShown (*hud.state, "hud"));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "tapioca.storeySlices"));
     EXPECT_GT (hud::Revision (*hud.state), revision);
@@ -473,8 +473,8 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     const hud::Layout without = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_EQ (Presses (hud, { &panel }, without.host).size (), 2u) << "Settings and the close button";
     boxes = Controls (hud, { &panel }, without.host, x);
-    ASSERT_EQ (boxes.size (), 3u);
-    hud.Click ({ &panel }, x, Middle (boxes[1]));
+    ASSERT_EQ (boxes.size (), 4u);
+    hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "hud"));
     EXPECT_EQ (Presses (hud, { &panel }, hud.Lay ({ &panel }, At (600.0f, 600.0f)).host).size (), 3u);
 }
@@ -532,7 +532,8 @@ TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
     const hud::Layout menu = RightClick (hud, { &panel }, x, y);
     ASSERT_TRUE (menu.popup);
     std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 4u) << "show overlay, show panel, Settings, text size -- reset position disabled";
+    ASSERT_EQ (items.size (), 5u) << "show overlay, show panel, Settings, hover readout, text size -- reset position "
+                                     "disabled";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     EXPECT_NEAR (box[0], x, 32.0f) << "at the pointer";
@@ -550,7 +551,7 @@ TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
     ASSERT_TRUE (again.popup);
     EXPECT_FALSE (hud::ContentShown (*hud.state)) << "a right click is not the title's press";
     items = Rows (again.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 4u);
+    ASSERT_EQ (items.size (), 5u);
     ASSERT_TRUE (Box (again.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
     EXPECT_TRUE (hud::ContentShown (*hud.state));
@@ -569,7 +570,7 @@ TEST (OverlayHudControls, TheMenuOpensSettingsAndSetsTheTextSize)
     const float x = 16.0f + open.host.width * 0.5f, y = 16.0f + open.host.height - 4.0f;
     hud::Layout menu = RightClick (hud, { &panel }, x, y);
     std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 5u) << "the four, then the layers";
+    ASSERT_EQ (items.size (), 6u) << "the five, then the layers";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[2]));
@@ -582,18 +583,28 @@ TEST (OverlayHudControls, TheMenuOpensSettingsAndSetsTheTextSize)
     const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     menu = RightClick (hud, { &panel }, 16.0f + settings.host.width * 0.5f, 16.0f + settings.host.height - 4.0f);
     items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 5u);
+    ASSERT_EQ (items.size (), 6u);
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     float frame[4] = {};
     ASSERT_TRUE (Box (menu.overlay, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u, frame));
-    hud.Lay ({ &panel }, At (box[0] + 4.0f, Middle (items[3])));
-    const hud::Layout sub = hud.Lay ({ &panel }, At (box[0] + 4.0f, Middle (items[3])));
+    hud.Lay ({ &panel }, At (box[0] + 4.0f, Middle (items[4])));
+    const hud::Layout sub = hud.Lay ({ &panel }, At (box[0] + 4.0f, Middle (items[4])));
     const std::vector<std::pair<float, float>> steps = Rows (sub.overlay, panel.textRgba, frame[2]);
     ASSERT_EQ (steps.size (), 9u) << "80 % to 200 %";
     hud.Click ({ &panel }, frame[2] + 24.0f, Middle (steps[3]));
     EXPECT_FLOAT_EQ (hud.engine.FontScale (), 1.1f);
     EXPECT_EQ (hud.heard.back ().kind, "fontScale");
     EXPECT_EQ (hud.heard.back ().text, "110 %");
+
+    // Hover readout, after Settings: turned on and said.
+    const hud::Layout after = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    menu = RightClick (hud, { &panel }, 16.0f + after.host.width * 0.5f, 16.0f + after.host.height - 4.0f);
+    items = Rows (menu.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 6u);
+    ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
+    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[3]));
+    EXPECT_TRUE (hud::HoverMode (*hud.state));
+    EXPECT_EQ (hud.heard.back ().kind, "hover");
 }
 
 // ---- what the user changed, for Python -------------------------------------------------------
@@ -659,4 +670,46 @@ TEST (OverlayHudControls, TheTextLandsOnWholePixels)
         EXPECT_NEAR (v.y, std::round (v.y), 1e-3);
     }
     EXPECT_GT (glyphs, 60u);
+}
+
+// ⚠️ THE USER'S STAGE 3: hover mode shows what is under the pointer by it -- a slice's
+// figures -- and tints the item. Its switch is in Settings, said as a "hover" change. Off,
+// or with the pointer on a panel, nothing is shown.
+TEST (OverlayHudControls, HoverModeShowsWhatIsUnderThePointerAndTintsIt)
+{
+    Watched hud;
+    hud.engine.SetLayers ({ "tapioca.storeySlices" });
+    const layers::Panel panel = Titled ("Area metrics");
+    constexpr uint32_t kTint = 0xFFBA0046u; // the readout's tint, 0xRRGGBBAA
+    hud::Input input = At (900.0f, 500.0f);
+    input.hover.active = true;
+    input.hover.title = "A-01 F2";
+    input.hover.rows = { { "Area", "184.0 mÂ²" } };
+    input.hover.tint = { 800.0f, 400.0f, 1000.0f, 400.0f, 900.0f, 600.0f };
+
+    const hud::Layout off = hud.Lay ({ &panel }, input);
+    EXPECT_FALSE (Drawn (off, kTint)) << "hover mode is off until it is turned on";
+    const size_t quiet = off.overlay.vertices.size ();
+
+    // On in Settings: the check box after Show overlay.
+    OpenSettings (hud, { &panel });
+    const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    const float x = 16.0f + 24.0f;
+    const std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
+    ASSERT_EQ (boxes.size (), 3u) << "Show overlay, Hover readout, the layer";
+    hud.Click ({ &panel }, x, Middle (boxes[1]));
+    EXPECT_TRUE (hud::HoverMode (*hud.state));
+    ASSERT_EQ (hud.heard.back ().kind, "hover");
+    EXPECT_EQ (hud.heard.back ().text, "on");
+
+    const hud::Layout on = hud.Lay ({ &panel }, input);
+    EXPECT_TRUE (Drawn (on, kTint)) << "the item tinted";
+    EXPECT_GT (on.overlay.vertices.size (), quiet + 3) << "and the readout by the pointer";
+
+    // On the host, the pointer is the HUD's: no readout, no tint.
+    hud::Input onPanel = input;
+    onPanel.x = 40.0f;
+    onPanel.y = kRowY + 30.0f;
+    hud.Lay ({ &panel }, onPanel);
+    EXPECT_FALSE (Drawn (hud.Lay ({ &panel }, onPanel), kTint));
 }

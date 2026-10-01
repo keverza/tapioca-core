@@ -85,6 +85,10 @@ struct HudOwner {
     // Have Archicad draw the view again: the HUD changed and a still view presents
     // nothing. From the posted message or its timer: ACAPI allowed.
     void (*redraw) () = nullptr;
+    // Hover mode is on (OverlayHud.hpp `Hover`): a move anywhere on the view, and the
+    // pointer leaving it, ask for a layout -- what is under the pointer -- and the move is
+    // still Archicad's. Called from the hook: an atomic. Null: never.
+    bool (*hovering) () = nullptr;
 };
 
 // The canvas `view`'s overlay composes into, and its owner. Again with a different

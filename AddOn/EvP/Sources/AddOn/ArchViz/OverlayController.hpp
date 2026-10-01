@@ -243,6 +243,7 @@ struct HudReport {
     bool visible = true;                   // the whole overlay shown (the dock's circle)
     std::vector<std::string> hiddenLayers; // the layers the user hid
     float fontScale = 1.0f;
+    bool hover = false; // hover mode: what is under the pointer, shown by it
     std::vector<HudPanel> panels;
 };
 HudReport Hud ();
@@ -267,6 +268,9 @@ void SetLayerVisible (const std::string& layer, bool visible);
 // The HUD's text size, the nearest step (0.8 to 2), laid out again in both views. MAIN
 // THREAD.
 void SetHudFontScale (float scale);
+// Hover mode (OverlayHud.hpp `Hover`) in both views, as Settings and the HUD's menu set it.
+// MAIN THREAD.
+void SetHoverMode (bool on);
 
 // How long each click keeps the main thread busy, the HUD's and any other window's alike
 // (ArchViz/OverlayClickTiming.hpp): armed afresh or disarmed, and what it holds. MAIN

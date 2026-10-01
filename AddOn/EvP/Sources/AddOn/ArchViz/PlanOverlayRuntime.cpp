@@ -15,8 +15,10 @@
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/ExperimentGuard.hpp"
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/OverlayHover.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 #include "ArchViz/PlanFrameSession.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
 #include "ArchViz/PlanViewCamera.hpp"
@@ -299,6 +301,51 @@ bool HudShown ()
     return g_running;
 }
 
+// ⚠️ HOVER MODE IN THE PLAN (OverlayHover.hpp, D13): what is under the pointer, picked on the
+// main thread in model metres -- the HUD's layout is where the pointer is known, and the
+// plan's transform is read here as its Present reads it (finding 14). A slice is tinted
+// whole, a heatmap's cell alone.
+constexpr size_t kTintTriangles = 4096; // a mesh larger than this tints only the triangle hit
+overlayhud::Hover HoverAt (float x, float y)
+{
+    overlayhud::Hover none;
+    if (!overlayvisibility::ContentShown ())
+        return none;
+    PlanViewTransform read;
+    {
+        const OwnAcapi own;
+        read = ReadPlanViewTransform (g_logicalWidth, g_logicalHeight);
+    }
+    if (!read.valid)
+        return none;
+    const plancontent::PixelTransform t = ToPhysical (read);
+    const double det = t.xx * t.yy - t.xy * t.yx;
+    if (std::fabs (det) < 1e-18)
+        return none;
+    const double px = double (x) - t.ox, py = double (y) - t.oy;
+    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaycontrol::ShownLayers ();
+    const overlayhover::Hit hit =
+        overlayhover::PickPlan (layers, (t.yy * px - t.xy * py) / det, (t.xx * py - t.yx * px) / det);
+    if (!hit.found)
+        return none;
+    const overlaylayers::Mesh& mesh = layers[hit.layer]->meshes[hit.mesh];
+    overlayhud::Hover hover = overlayhover::Readout (*layers[hit.layer], hit);
+    const bool whole = mesh.values.empty () && mesh.indices.size () / 3 <= kTintTriangles;
+    overlayhover::Tint (
+        mesh,
+        [&t] (double mx, double my, float& ox, float& oy) {
+            ox = float (t.xx * mx + t.xy * my + t.ox);
+            oy = float (t.yx * mx + t.yy * my + t.oy);
+        },
+        hover.tint, whole ? -1 : int64_t (hit.triangle));
+    return hover;
+}
+
+bool Hovering ()
+{
+    return overlayvisibility::Hovering ();
+}
+
 // The input layer's refresh: the HUD laid out again for the pointer, uploaded when what
 // it draws changed.
 std::string g_lastHudError;
@@ -308,8 +355,10 @@ bool RefreshHud ()
         return false;
     bool changed = false;
     std::string error;
-    if (!dxgi::planguest::RefreshHud (overlaylayers::Layers (), overlayinput::TakeInput (overlayinput::View::Plan),
-                                      changed, error)) {
+    overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::Plan);
+    if (overlayvisibility::Hovering () && input.pointer)
+        input.hover = HoverAt (input.x, input.y);
+    if (!dxgi::planguest::RefreshHud (overlaylayers::Layers (), input, changed, error)) {
         if (error != g_lastHudError)
             ArchVizLog ("PLAN OVERLAY  the HUD NOT LAID OUT for the pointer: " + error);
         g_lastHudError = error;
@@ -338,6 +387,7 @@ void AttachHudInput ()
     owner.shown = &HudShown;
     owner.refresh = &RefreshHud;
     owner.redraw = &RedrawHud;
+    owner.hovering = &Hovering;
     if (!overlayinput::Attach (overlayinput::View::Plan, g_canvas, owner, error))
         ArchVizLog ("PLAN OVERLAY  the HUD takes no input: " + error);
 }

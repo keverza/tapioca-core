@@ -130,6 +130,15 @@ void Engine::Impl::ShowLayer (const std::string& name, bool shownNow)
                          shownNow ? "shown" : "hidden", true });
 }
 
+void Engine::Impl::SetHover (bool on)
+{
+    if (HoverMode (*store) == on)
+        return;
+    SetHoverMode (*store, on);
+    changes.push_back (
+        { "hover", std::string (), std::string (), std::string (), -1, on ? 1.0 : 0.0, on ? "on" : "off", true });
+}
+
 void Engine::Impl::SetOpen (bool open)
 {
     const bool was = HudOpen (*store);
@@ -255,6 +264,10 @@ void Engine::Impl::Settings ()
     bool all = store->shown;
     if (ImGui::Checkbox ("Show overlay##tapioca.shown", &all))
         ShowOverlay (all);
+    // What is under the pointer -- a slice's figures, a heatmap's value -- by it.
+    bool hover = HoverMode (*store);
+    if (ImGui::Checkbox ("Hover readout##tapioca.hover", &hover))
+        SetHover (hover);
     if (layerNames.empty ()) {
         ImGui::TextDisabled ("No layers");
         return;
@@ -416,6 +429,8 @@ void Engine::Impl::Menu (float ui)
         }
         if (ImGui::MenuItem ("Settings"))
             ShowSettings ();
+        if (ImGui::MenuItem ("Hover readout", nullptr, HoverMode (*store)))
+            SetHover (!HoverMode (*store));
         ImGui::Separator ();
         if (ImGui::BeginMenu ("Text size")) {
             for (uint32_t k = 0; k < kFontStepCount; ++k)

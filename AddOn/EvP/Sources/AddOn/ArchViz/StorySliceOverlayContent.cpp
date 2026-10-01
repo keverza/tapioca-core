@@ -238,6 +238,13 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
                 mesh.styled = true;
                 mesh.style.opacity = controls.fillOpacity;
                 mesh.style.behind = controls.fillBehind;
+                // What hover mode says over it (OverlayHover.hpp): the slice's figures.
+                char level[48] = {};
+                std::snprintf (level, sizeof (level), "%+.2f m", slice.z);
+                mesh.hoverTitle = slice.name.empty () ? std::string ("Slice") : slice.name;
+                mesh.hoverRows = { { "Area", AreaText (slice.areaM2, controls.decimals, std::string (), false) },
+                                   { "Storey", std::to_string (slice.storey) },
+                                   { "Cut at", level } };
                 out.layer.meshes.push_back (std::move (mesh));
             }
         }

@@ -766,6 +766,7 @@ HudReport Hud ()
     out.fontScale = overlayhud::FontScaleOf (*state);
     out.open = overlayhud::HudOpen (*state);
     out.visible = overlayhud::ContentShown (*state);
+    out.hover = overlayhud::HoverMode (*state);
     out.hiddenLayers = overlayhud::HiddenLayers (*state);
     const std::string selected = overlayhud::SelectedKey (*state);
     for (const auto& layer : overlaylayers::Layers ())
@@ -809,6 +810,8 @@ void FollowHudState ()
     g_followedRevision = revision;
     // Shown or hidden as a whole: read at Present, nothing rebuilt.
     overlayvisibility::SetContentShown (overlayhud::ContentShown (*state));
+    // Hover mode: read by the input hook, which then follows the pointer over the whole view.
+    overlayvisibility::SetHovering (overlayhud::HoverMode (*state));
     // A layer hidden or shown again: the content is rebuilt without it -- the 3D view's now,
     // the plan's at its next tick, as the store moved.
     std::vector<std::string> hidden = overlayhud::HiddenLayers (*state);
@@ -883,6 +886,12 @@ ClickReport HudClicks ()
         out.clicks.push_back (std::move (record));
     }
     return out;
+}
+
+void SetHoverMode (bool on)
+{
+    overlayhud::SetHoverMode (*guesttext::HudState (), on);
+    FollowHudState ();
 }
 
 void SetHudFontScale (float scale)

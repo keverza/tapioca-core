@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace geomsrv {
@@ -159,6 +160,10 @@ struct Mesh {
     Colormap colormap;
     MeshStyle style;
     bool styled = false; // the caller gave a style: the guest draws it
+    // Hover mode (OverlayHover.hpp): what the HUD says over this mesh -- a title, and rows of
+    // a label and a value. A mesh with `values` also says the value under the pointer.
+    std::string hoverTitle;
+    std::vector<std::pair<std::string, std::string>> hoverRows;
 };
 
 // A text's halo width that grows with the text as it is drawn -- see `Text::haloPixels`.

@@ -63,6 +63,7 @@ struct State {
     // controller follows `revision` (overlaycontrol::FollowHudState).
     bool shown = true;
     std::set<std::string> hidden; // layer names
+    bool hover = false;           // hover mode (OverlayHud.hpp `Hover`)
     uint64_t revision = 0;
     // The floating panel the titled panels are tabs of: open or closed to the dock, the tab
     // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where: `offset` logical pixels
@@ -158,6 +159,9 @@ struct Engine::Impl {
     // A legend's bar pointed at: the value there, beside the bar at the pointer.
     void LegendTips (const std::vector<LegendBar>& legends, float scale, ImVec2 view);
 
+    // Hover mode: what is under the pointer by it, and its item tinted (`Input::hover`).
+    void HoverTip (const Hover& hover, float scale, ImVec2 view);
+
     // The titled panels found, the host's state made from them the first time, the tab it
     // shows held to one of them (OverlayHudHost.cpp).
     void Gather (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys);
@@ -185,6 +189,7 @@ struct Engine::Impl {
     // Settings tab, the text size's step, the host back where its tab asks to be.
     void ShowOverlay (bool shown);
     void ShowLayer (const std::string& name, bool shown);
+    void SetHover (bool on);
     void SetOpen (bool open);
     void ShowSettings ();
     void SetFontStep (uint32_t step);

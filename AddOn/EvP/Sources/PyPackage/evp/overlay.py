@@ -921,8 +921,8 @@ def layers():
 def events(since=0, max_events=256):
     """What the user changed on the HUD after event number `since`: the panel opened or
     closed ("hud"), its tab ("panel"), a section folded, the text size ("fontScale"), its
-    position reset, the overlay or a layer shown or hidden ("overlay", "layer") -- and each
-    control's new value.
+    position reset, the overlay or a layer shown or hidden ("overlay", "layer"), hover mode
+    ("hover") -- and each control's new value.
 
     Returns {"lastSeq", "gap", "events"}; each event is {seq, timeMs, view ("3d" or
     "plan"), kind, layer, panel, title, id, item, value, text, final}. Keep `lastSeq` and
@@ -952,9 +952,10 @@ def wait_events(since=0, timeout=None, interval=0.05, max_events=256):
 
 def hud_state():
     """What the user left the HUD as: {"open", "visible", "hiddenLayers", "fontScale",
-    "panels", "lastSeq", "clickTiming"} -- `open` whether the floating panel is (closed,
-    only the dock's tab shows), `visible` whether the overlay is drawn at all (the dock's
-    circle), `hiddenLayers` the ones the user hid in Settings; each panel {layer, panel,
+    "hover", "panels", "lastSeq", "clickTiming"} -- `open` whether the floating panel is
+    (closed, only the dock's tab shows), `visible` whether the overlay is drawn at all (the
+    dock's circle), `hiddenLayers` the ones the user hid in Settings, `hover` whether hover
+    mode is on (:func:`set_hover`); each panel {layer, panel,
     title, selected, values}: `selected` the tab shown, `values` its controls' as
     [{id, value}], the tab bar's too. Read events from `lastSeq` on to follow it."""
     return call("Tapioca.OverlayHud", {}).data or {}
@@ -998,3 +999,11 @@ def set_text_size(scale):
     """The HUD's text size in both views, the nearest of its steps (0.8 to 2): what
     Settings' text size and the HUD's menu choose. Returns :func:`hud_state`'s record."""
     return call("Tapioca.OverlayHud", {"fontScale": float(scale)}).data or {}
+
+
+def set_hover(on=True):
+    """Hover mode in both views, as the HUD's Settings and menu set it: what is under the
+    pointer -- a storey slice's figures, a heatmap's value at that point -- shown by the
+    pointer, the slice tinted. A mesh says something there when it has values or
+    hover text. Returns :func:`hud_state`'s record."""
+    return call("Tapioca.OverlayHud", {"hover": bool(on)}).data or {}

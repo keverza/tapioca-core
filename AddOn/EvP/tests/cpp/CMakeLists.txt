@@ -474,6 +474,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayClickTiming.cpp"
     # Where the HUD is on the view and whose a mouse gesture is (OverlayInput.cpp takes the messages).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHitMap.cpp"
+    # Hover mode's pick in the plan: what is under the pointer, and what the HUD says of it.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHover.cpp"
     # The hooks and the canvas themselves: plain Win32, a window of the test's own thread for the
     # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
@@ -644,6 +646,7 @@ set (EVP_TEST_SOURCES
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
     test_overlayinput.cpp
+    test_overlayhover.cpp
     test_camerarecognizer.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp

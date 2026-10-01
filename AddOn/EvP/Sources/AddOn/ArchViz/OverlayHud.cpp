@@ -223,6 +223,19 @@ uint64_t Revision (const State& state)
     return state.revision;
 }
 
+bool HoverMode (const State& state)
+{
+    return state.hover;
+}
+
+void SetHoverMode (State& state, bool on)
+{
+    if (state.hover != on) {
+        state.hover = on;
+        ++state.revision;
+    }
+}
+
 std::vector<std::pair<std::string, double>> Values (const State& state, const std::string& key)
 {
     std::vector<std::pair<std::string, double>> out;
@@ -509,6 +522,41 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
     }
 }
 
+// ⚠️ HOVER MODE (the user's stage 3): what is under the pointer, by it, and its item
+// tinted. Not while the pointer is on the HUD -- that is the HUD's -- nor on a legend, whose
+// own tip says its value. Down and right of the pointer, turned in near the view's far edges.
+void Engine::Impl::HoverTip (const Hover& hover, float scale, ImVec2 view)
+{
+    if (!hover.active || highlight.active || ImGui::GetCurrentContext ()->HoveredWindow != nullptr)
+        return;
+    ImDrawList* const under = ImGui::GetBackgroundDrawList ();
+    for (size_t i = 0; i + 5 < hover.tint.size (); i += 6)
+        under->AddTriangleFilled (ImVec2 (hover.tint[i], hover.tint[i + 1]),
+                                  ImVec2 (hover.tint[i + 2], hover.tint[i + 3]),
+                                  ImVec2 (hover.tint[i + 4], hover.tint[i + 5]), IM_COL32 (255, 186, 0, 70));
+    const ImVec2 mouse = ImGui::GetIO ().MousePos;
+    const ImVec2 pivot (mouse.x > view.x * 0.7f ? 1.0f : 0.0f, mouse.y > view.y * 0.7f ? 1.0f : 0.0f);
+    const ImVec2 at (mouse.x + (pivot.x > 0.0f ? -12.0f : 18.0f) * scale,
+                     mouse.y + (pivot.y > 0.0f ? -12.0f : 20.0f) * scale);
+    ImGui::SetNextWindowPos (at, ImGuiCond_Always, pivot);
+    if (!ImGui::BeginTooltip ())
+        return;
+    if (!hover.title.empty ())
+        ImGui::TextUnformatted (hover.title.c_str ());
+    if (!hover.rows.empty () &&
+        ImGui::BeginTable ("##hoverrows", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+        for (const auto& row : hover.rows) {
+            ImGui::TableNextRow ();
+            ImGui::TableSetColumnIndex (0);
+            ImGui::TextDisabled ("%s", row.first.c_str ());
+            ImGui::TableSetColumnIndex (1);
+            ImGui::TextUnformatted (row.second.c_str ());
+        }
+        ImGui::EndTable ();
+    }
+    ImGui::EndTooltip ();
+}
+
 // One frame of the whole set.
 void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys,
                           float scale, const Input& input, const std::vector<LegendBar>& legends, float delta)
@@ -537,6 +585,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
         ImGui::BringWindowToDisplayFront (dock);
     if (known && store->shown)
         LegendTips (legends, ui, view);
+    if (known && store->shown && store->hover)
+        HoverTip (input.hover, ui, view);
     Menu (ui);
     // A dropdown's list is a popup: while one is open, the whole view is the HUD's.
     popup = ImGui::IsPopupOpen ("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);

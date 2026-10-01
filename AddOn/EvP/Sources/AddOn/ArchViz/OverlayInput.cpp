@@ -377,7 +377,8 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     // ⚠️ NOTHING WHILE ARCHICAD OWNS THE GESTURE: a wall drawn across a panel is not the
     // HUD's to redraw under.
     const bool hudsTurn = g_router.GetOwner () != Owner::Host;
-    if (hudsTurn && (over || self->wasOver || button || g_router.GetOwner () == Owner::Hud))
+    const bool hovering = self->owner.hovering != nullptr && self->owner.hovering ();
+    if (hudsTurn && (over || self->wasOver || button || g_router.GetOwner () == Owner::Hud || hovering))
         RequestRefresh (*self);
     self->wasOver = over;
     return route;
@@ -488,7 +489,8 @@ void Left (const MSG& message)
     if (target == nullptr || !target->inside)
         return;
     target->inside = false;
-    if (target->wasOver && g_router.GetOwner () != Owner::Host)
+    const bool hovering = target->owner.hovering != nullptr && target->owner.hovering ();
+    if ((target->wasOver || hovering) && g_router.GetOwner () != Owner::Host)
         RequestRefresh (*target);
     target->wasOver = false;
 }

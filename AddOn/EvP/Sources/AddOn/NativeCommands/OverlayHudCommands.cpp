@@ -125,6 +125,11 @@ class OverlayHudCommand : public MainThreadCommand {
             params.Get ("visible", visible);
             control::SetOverlayVisible (visible);
         }
+        if (params.Contains ("hover")) {
+            bool hover = false;
+            params.Get ("hover", hover);
+            control::SetHoverMode (hover);
+        }
         GS::ObjectState layerVisible;
         if (params.Get ("layerVisible", layerVisible)) {
             GS::UniString layer;
@@ -159,6 +164,7 @@ class OverlayHudCommand : public MainThreadCommand {
             hidden.Push (Utf8 (layer));
         os.Add ("hiddenLayers", hidden);
         os.Add ("fontScale", double (report.fontScale));
+        os.Add ("hover", report.hover);
         os.Add ("panels", panels);
         // Where a caller that reads the state starts reading the events from.
         os.Add ("lastSeq", GS::Int64 (hudevents::LastSeq ()));
@@ -201,7 +207,7 @@ constexpr const char kEventsOutput[] = R"json({"type":"object","properties":{
         "seq":{"type":"integer","minimum":1},
         "timeMs":{"type":"integer","minimum":0,"description":"Wall clock, milliseconds since 1970 UTC."},
         "view":{"type":"string","enum":["3d","plan"]},
-        "kind":{"type":"string","description":"hud, panel, section, fontScale, position, overlay, layer, or a control's kind."},
+        "kind":{"type":"string","description":"hud, panel, section, fontScale, position, overlay, layer, hover, or a control's kind."},
         "layer":{"type":"string"},"panel":{"type":"integer"},"title":{"type":"string"},
         "id":{"type":"string"},"item":{"type":"integer"},
         "value":{"type":"number"},"text":{"type":"string"},
@@ -214,6 +220,7 @@ constexpr const char kHudInput[] = R"json({"type":"object","properties":{
     "fontScale":{"type":"number","minimum":0.5,"maximum":3,"description":"The HUD's text size; the nearest of its steps, 0.8 to 2."},
     "open":{"type":"boolean","description":"Open or close the HUD's floating panel, as the dock's tab does."},
     "visible":{"type":"boolean","description":"Show or hide the whole overlay and its HUD, as the dock's circle does; nothing is destroyed."},
+    "hover":{"type":"boolean","description":"Hover mode, as the HUD's Settings and menu set it: what is under the pointer -- a storey slice's figures, a heatmap's value -- shown by it."},
     "layerVisible":{"type":"object","description":"Show or hide one layer, as the HUD's Settings does; nothing is destroyed.","properties":{
         "layer":{"type":"string","minLength":1,"maxLength":64},"visible":{"type":"boolean"}},
       "additionalProperties":false,"required":["layer","visible"]},
@@ -228,6 +235,7 @@ constexpr const char kHudOutput[] = R"json({"type":"object","properties":{
     "visible":{"type":"boolean","description":"The overlay is shown; hidden, only the dock's tab is drawn."},
     "hiddenLayers":{"type":"array","items":{"type":"string"}},
     "fontScale":{"type":"number"},
+    "hover":{"type":"boolean","description":"Hover mode is on."},
     "panels":{"type":"array","items":{"type":"object","properties":{
         "layer":{"type":"string"},"panel":{"type":"integer","minimum":0},"title":{"type":"string"},
         "selected":{"type":"boolean","description":"The tab the floating panel shows."},
@@ -252,7 +260,7 @@ constexpr const char kHudOutput[] = R"json({"type":"object","properties":{
           "required":["target","windowClass","ageMs","complete","busyMicroseconds","firstIdleMicroseconds","bursts",
                       "layoutMicroseconds","layouts","redrawMicroseconds","redraws"]}}},
       "additionalProperties":false,"required":["armed","idles","clicks"]}},
-  "additionalProperties":false,"required":["open","visible","hiddenLayers","fontScale","panels","lastSeq","clickTiming"]})json";
+  "additionalProperties":false,"required":["open","visible","hiddenLayers","fontScale","hover","panels","lastSeq","clickTiming"]})json";
 
 const NativeCommandRegistration kOverlayHudCommandRegistrations[] = {
     { "OverlayHudEvents", &MakeRegisteredNativeCommand<OverlayHudEventsCommand>, false, kEventsInput, kEventsOutput },

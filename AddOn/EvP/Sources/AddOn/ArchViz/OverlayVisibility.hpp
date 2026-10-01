@@ -35,6 +35,25 @@ inline void SetContentShown (bool shown)
     ContentFlag ().store (shown, std::memory_order_release);
 }
 
+// ⚠️ HOVER MODE (OverlayHud.hpp `HoverMode`), READ BY THE INPUT HOOK: on, a move anywhere
+// on the view asks for the HUD's layout -- what is under the pointer -- and is still
+// Archicad's. Off, only moves over the HUD do. Same source, same follower.
+inline std::atomic<bool>& HoverFlag ()
+{
+    static std::atomic<bool> on { false };
+    return on;
+}
+
+inline bool Hovering ()
+{
+    return HoverFlag ().load (std::memory_order_acquire);
+}
+
+inline void SetHovering (bool on)
+{
+    HoverFlag ().store (on, std::memory_order_release);
+}
+
 } // namespace overlayvisibility
 } // namespace archviz
 } // namespace geomsrv

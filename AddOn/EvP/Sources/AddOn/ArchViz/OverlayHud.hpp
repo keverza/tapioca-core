@@ -93,6 +93,17 @@ struct Built {
 void Place (const overlaylayers::Panel& panel, float width, float height, float scale, float fraction[2],
             float offset[2], float inset = 0.0f);
 
+// ⚠️ HOVER MODE (the user's stage 3): what is under the pointer, read by the view's runtime
+// (OverlayHover.hpp) and handed in with the pointer -- a storey slice's figures, a heatmap's
+// value -- and the triangles of the item it found, in view pixels, to tint. The HUD shows
+// it by the pointer while the mode is on (`HoverMode`) and the pointer is on no panel.
+struct Hover {
+    bool active = false;
+    std::string title;
+    std::vector<std::pair<std::string, std::string>> rows; // label, value
+    std::vector<float> tint;                               // x, y view pixels, three corners a triangle
+};
+
 // The view a set is laid out for and the pointer over it (OverlayInput.hpp feeds it).
 // ImGui numbers the buttons: 0 left, 1 right, 2 middle, 3 and 4 the side ones.
 struct Input {
@@ -106,6 +117,7 @@ struct Input {
         bool down = false;
     };
     std::vector<Button> buttons; // since the last layout, in order
+    Hover hover;
 };
 
 // A legend's colour bar as it is on the view (drawn by the scene, OverlaySceneScreen),
@@ -121,7 +133,7 @@ struct LegendBar {
 // hidden, a control's value. For Python (OverlayHudEvents.hpp); `key` splits into the
 // panel's layer and place.
 struct Change {
-    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer"; or a control's:
+    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; or a control's:
     // "checkbox", "slider", "combo", "tab", "button"
     std::string kind;
     std::string key;   // the panel's; empty for the HUD's own (the text size, Settings)
@@ -199,6 +211,10 @@ bool LayerShown (const State& state, const std::string& layer);
 std::vector<std::string> HiddenLayers (const State& state);
 void SetContentShown (State& state, bool shown);
 void SetLayerShown (State& state, const std::string& layer, bool shown);
+// Hover mode: off until the user turns it on in Settings or the HUD's menu, or Python does;
+// both views. `Revision` moves with it.
+bool HoverMode (const State& state);
+void SetHoverMode (State& state, bool on);
 uint64_t Revision (const State& state);
 // The values a panel's controls hold, by id -- the tab bar's too -- in id order.
 std::vector<std::pair<std::string, double>> Values (const State& state, const std::string& key);

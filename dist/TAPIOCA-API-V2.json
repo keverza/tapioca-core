@@ -18909,6 +18909,10 @@
             "type": "boolean",
             "description": "Show or hide the whole overlay and its HUD, as the dock's circle does; nothing is destroyed."
           },
+          "hover": {
+            "type": "boolean",
+            "description": "Hover mode, as the HUD's Settings and menu set it: what is under the pointer -- a storey slice's figures, a heatmap's value -- shown by it."
+          },
           "layerVisible": {
             "type": "object",
             "description": "Show or hide one layer, as the HUD's Settings does; nothing is destroyed.",
@@ -18974,6 +18978,10 @@
           },
           "fontScale": {
             "type": "number"
+          },
+          "hover": {
+            "type": "boolean",
+            "description": "Hover mode is on."
           },
           "panels": {
             "type": "array",
@@ -19127,6 +19135,7 @@
           "visible",
           "hiddenLayers",
           "fontScale",
+          "hover",
           "panels",
           "lastSeq",
           "clickTiming"
@@ -19186,7 +19195,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "description": "hud, panel, section, fontScale, position, overlay, layer, or a control's kind."
+                  "description": "hud, panel, section, fontScale, position, overlay, layer, hover, or a control's kind."
                 },
                 "layer": {
                   "type": "string"
