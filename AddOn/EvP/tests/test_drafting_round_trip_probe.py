@@ -22,7 +22,8 @@ def _probe(monkeypatch):
     return module
 
 
-def test_creates_sources_then_dimensions_from_readback(monkeypatch):
+@pytest.mark.parametrize("extend_radial_leader", [False, True])
+def test_creates_sources_then_dimensions_from_readback(monkeypatch, extend_radial_leader):
     probe = _probe(monkeypatch)
     history = []
     raw = {}
@@ -56,8 +57,7 @@ def test_creates_sources_then_dimensions_from_readback(monkeypatch):
         item = raw[kind]
         record = {"guid": kind, "kind": kind, "found": True}
         if kind == "line":
-            record.update(beg_coordinate=(item["x"], item["y"]),
-                          end_coordinate=(item["end_x"], item["end_y"]))
+            record.update(beg_coordinate=(item["x"], item["y"]), end_coordinate=(item["end_x"], item["end_y"]))
         elif kind in ("arc", "circle", "hotspot"):
             record.update(x=item["x"], y=item["y"], radius=item.get("radius"))
             if kind == "arc":
@@ -74,13 +74,13 @@ def test_creates_sources_then_dimensions_from_readback(monkeypatch):
         item = raw[kind]
         record = {"guid": kind, "kind": kind}
         if kind == "linear":
-            record.update(memo_read=True, points=item["points"], line=item["line"],
-                          direction=item["direction"])
+            record.update(memo_read=True, points=item["points"], line=item["line"], direction=item["direction"])
         elif kind == "radial":
             record.update(base=item["base"], end=item["end"], radius=item["radius"], source_guid=item["source_guid"])
+            if extend_radial_leader:
+                record["end"] = (item["end"][0] + 0.2, item["end"][1])
         else:
-            record.update(origin=item["origin"], bases=[item["origin"], item["ray1"],
-                                                           item["origin"], item["ray2"]])
+            record.update(origin=item["origin"], bases=[item["origin"], item["ray1"], item["origin"], item["ray2"]])
         return [record]
 
     monkeypatch.setattr(evp.drafting, "create_primitives", create_primitives)
@@ -102,6 +102,7 @@ def test_creates_sources_then_dimensions_from_readback(monkeypatch):
     assert raw["angular"]["origin"] == (14.0, 23.0)
     assert raw["fill"]["layer"] == "2D Drafting - General"
     assert any("created=9/9 read=9/9 failures=none" in line for line in lines)
+    assert any("radial leader adjusted" in line for line in lines) is extend_radial_leader
 
 
 def test_one_failed_create_does_not_hide_other_errors(monkeypatch):
@@ -131,8 +132,7 @@ def test_combined_probe_scans_native_date_time_controls(monkeypatch):
     probe = _probe(monkeypatch)
     result = _scanner.scan_file(probe.__file__, "DraftingRoundTripProbe")
     params = {entry["name"]: entry for entry in result["params"]}
-    for name, kind in (("date", "DateProbe"), ("time", "TimeProbe"),
-                       ("calendar", "CalendarProbe")):
+    for name, kind in (("date", "DateProbe"), ("time", "TimeProbe"), ("calendar", "CalendarProbe")):
         assert params[name]["type"] == kind
         assert params[name]["default"] == 0
 
@@ -150,8 +150,7 @@ def test_date_time_readback_runs_without_drafting_confirmation(monkeypatch):
 
     probe.run(confirm=False, date=1790670600, time=34200, calendar=1790636400)
 
-    for control, value in (("DateControl", 1790670600), ("TimeControl", 34200),
-                           ("CalendarControl", 1790636400)):
+    for control, value in (("DateControl", 1790670600), ("TimeControl", 34200), ("CalendarControl", 1790636400)):
         assert any(control in line and "raw Int32=%d" % value in line for line in lines)
     assert any("logs/scan.log" in line for line in lines)
     assert any("created=0/9 read=0/0 failures=none" in line for line in lines)
@@ -170,10 +169,41 @@ def test_date_time_readback_runs_when_drafting_input_is_missing(monkeypatch):
 
 def test_radial_readback_detects_wrong_source(monkeypatch):
     probe = _probe(monkeypatch)
-    expected = {"kind": "radial", "base": (1, 0), "end": (2, 0),
-                "radius": 1, "source_guid": "circle-1"}
+    expected = {"kind": "radial", "base": (1, 0), "end": (2, 0), "radius": 1, "source_guid": "circle-1"}
     actual = dict(expected, source_guid="circle-2")
     assert "radial source" in probe._check_geometry("radial", actual, expected)
+
+
+@pytest.mark.parametrize(
+    "end, matches",
+    [
+        ((105.9, 100), True),
+        ((106.1, 100), True),
+        ((105.8, 100), False),
+        ((105.1, 100), False),
+        ((105.5, 100), False),
+        ((106.1, 100.01), False),
+        ((float("nan"), 100), False),
+        ((float("inf"), 100), False),
+        (None, False),
+        ((106.1,), False),
+    ],
+)
+def test_radial_leader_readback_allows_only_same_ray_extension(monkeypatch, end, matches):
+    probe = _probe(monkeypatch)
+    expected = {"kind": "radial", "base": (105.5, 100), "end": (105.9, 100), "radius": 0.5, "source_guid": "circle-1"}
+    actual = dict(expected, end=end)
+    mismatch = probe._check_geometry("radial", actual, expected)
+    assert (not mismatch) is matches
+
+
+def test_radial_leader_normalization_preserves_base_radius_and_source_checks(monkeypatch):
+    probe = _probe(monkeypatch)
+    expected = {"kind": "radial", "base": (1, 1), "end": (2, 2), "radius": 1, "source_guid": "circle-1"}
+    actual = dict(expected, end=(3, 3))
+    assert probe._check_geometry("radial", actual, expected) == ""
+    for key, wrong in (("base", (1, 1.01)), ("radius", 2), ("source_guid", "circle-2")):
+        assert probe._check_geometry("radial", dict(actual, **{key: wrong}), expected)
 
 
 @pytest.mark.parametrize("arc_read_ok", [True, False])
@@ -188,8 +218,18 @@ def test_radial_uses_only_verified_arc_when_circle_fails(monkeypatch, arc_read_o
         return [{"ok": False, "error": "wrong type"}]
 
     def details(guids):
-        return [{"guid": "arc", "found": arc_read_ok, "kind": "arc", "x": 13.0,
-                 "y": 20.0, "radius": 0.5, "beg_angle": 0.0, "end_angle": math.pi / 2.0}]
+        return [
+            {
+                "guid": "arc",
+                "found": arc_read_ok,
+                "kind": "arc",
+                "x": 13.0,
+                "y": 20.0,
+                "radius": 0.5,
+                "beg_angle": 0.0,
+                "end_angle": math.pi / 2.0,
+            }
+        ]
 
     def create_dimensions(item):
         radial_requests.append(item)

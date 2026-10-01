@@ -167,68 +167,65 @@ bool BuildRadial (const GS::ObjectState& item, API_Element& element, GS::UniStri
         error = "radial needs a point on the circle, a distinct dimension-line end, and positive radius";
         return false;
     }
-    // Unassociated creation returned BADPARS in AC29 live tests. A supplied
-    // source explicitly opts into the SDK's API_Base type/GUID association.
+    // AC29 rejects unassociated radial creation with BADPARS. Never inherit a
+    // tool-default association; bind only to the explicitly validated source.
     element.radialDimension.base = {};
-    element.radialDimension.base.base.type = API_ZombieElemID;
-    if (item.Contains ("sourceElementId")) {
-        GS::ObjectState sourceId;
-        GS::UniString sourceGuid;
-        if (!item.Get ("sourceElementId", sourceId) || !sourceId.Get ("guid", sourceGuid) || sourceGuid.IsEmpty ()) {
-            error = "radial sourceElementId needs a non-empty guid";
-            return false;
-        }
-        API_Element source = {};
-        source.header.guid = APIGuidFromString (sourceGuid.ToCStr ().Get ());
-        if (source.header.guid == APINULLGuid) {
-            error = "radial source guid is invalid";
-            return false;
-        }
-        if (const GSErrCode err = ACAPI_Element_Get (&source); err != NoError) {
-            error = EVP_ACAPI_FAIL ("ACAPI_Element_Get", err, "reading the radial source curve");
-            return false;
-        }
-        if ((source.header.type != API_ArcID && source.header.type != API_CircleID) ||
-            !std::isfinite (source.arc.ratio) || std::fabs (source.arc.ratio - 1.0) > 1e-9 ||
-            !std::isfinite (source.arc.r) || source.arc.r <= 0.0) {
-            error = "radial source must be a circular arc or circle, not an ellipse or another element type";
-            return false;
-        }
-        API_DatabaseInfo current = {}, containing = {};
-        const GSErrCode currentError = ACAPI_Database_GetCurrentDatabase (&current);
-        const GSErrCode containingError = ACAPI_Database_GetContainingDatabase (&source.header.guid, &containing);
-        if (currentError != NoError || containingError != NoError) {
-            error = "could not verify the radial source database";
-            return false;
-        }
-        if (current.typeID != containing.typeID ||
-            current.databaseUnId.elemSetId != containing.databaseUnId.elemSetId) {
-            error = "radial source must belong to the target database";
-            return false;
-        }
-        const double tolerance = std::max (1e-6, source.arc.r * 1e-6);
-        const double distance = std::hypot (base.x - source.arc.origC.x, base.y - source.arc.origC.y);
-        if (!std::isfinite (distance) || std::fabs (radius - source.arc.r) > tolerance ||
-            std::fabs (distance - source.arc.r) > tolerance) {
-            error = "radial radius and base point must match the source curve";
-            return false;
-        }
-        if (item.Contains ("floorInd") && element.header.floorInd != source.header.floorInd) {
-            error = "radial floorInd must match the source curve";
-            return false;
-        }
-        element.header.floorInd = source.header.floorInd;
-        element.radialDimension.base.base.type = source.header.type;
-        element.radialDimension.base.base.guid = source.header.guid;
-        // API_Base::line is true for APINeig_ArcOn; no vertex is selected.
-        element.radialDimension.base.base.line = true;
-        element.radialDimension.base.base.inIndex = 0;
+    GS::ObjectState sourceId;
+    GS::UniString sourceGuid;
+    if (!item.Get ("sourceElementId", sourceId) || !sourceId.Get ("guid", sourceGuid) || sourceGuid.IsEmpty ()) {
+        error = "radial sourceElementId needs a non-empty guid; unassociated creation is unsupported";
+        return false;
     }
+    API_Element source = {};
+    source.header.guid = APIGuidFromString (sourceGuid.ToCStr ().Get ());
+    if (source.header.guid == APINULLGuid) {
+        error = "radial source guid is invalid";
+        return false;
+    }
+    if (const GSErrCode err = ACAPI_Element_Get (&source); err != NoError) {
+        error = EVP_ACAPI_FAIL ("ACAPI_Element_Get", err, "reading the radial source curve");
+        return false;
+    }
+    if ((source.header.type != API_ArcID && source.header.type != API_CircleID) || !std::isfinite (source.arc.ratio) ||
+        std::fabs (source.arc.ratio - 1.0) > 1e-9 || !std::isfinite (source.arc.r) || source.arc.r <= 0.0) {
+        error = "radial source must be a circular arc or circle, not an ellipse or another element type";
+        return false;
+    }
+    API_DatabaseInfo current = {}, containing = {};
+    if (const GSErrCode err = ACAPI_Database_GetCurrentDatabase (&current); err != NoError) {
+        error = EVP_ACAPI_FAIL ("ACAPI_Database_GetCurrentDatabase", err, "checking the radial target database");
+        return false;
+    }
+    if (const GSErrCode err = ACAPI_Database_GetContainingDatabase (&source.header.guid, &containing); err != NoError) {
+        error = EVP_ACAPI_FAIL ("ACAPI_Database_GetContainingDatabase", err, "checking the radial source database");
+        return false;
+    }
+    if (current.typeID != containing.typeID || current.databaseUnId.elemSetId != containing.databaseUnId.elemSetId) {
+        error = "radial source must belong to the target database";
+        return false;
+    }
+    const double tolerance = std::max (1e-6, source.arc.r * 1e-6);
+    const double distance = std::hypot (base.x - source.arc.origC.x, base.y - source.arc.origC.y);
+    if (!std::isfinite (distance) || std::fabs (radius - source.arc.r) > tolerance ||
+        std::fabs (distance - source.arc.r) > tolerance) {
+        error = "radial radius and base point must match the source curve";
+        return false;
+    }
+    if (item.Contains ("floorInd") && element.header.floorInd != source.header.floorInd) {
+        error = "radial floorInd must match the source curve";
+        return false;
+    }
+    element.header.floorInd = source.header.floorInd;
+    element.radialDimension.base.base.type = source.header.type;
+    element.radialDimension.base.base.guid = source.header.guid;
+    // API_Base::line is true for APINeig_ArcOn; no vertex is selected.
+    element.radialDimension.base.base.line = true;
+    element.radialDimension.base.base.inIndex = 0;
     element.radialDimension.base.loc = base;
     element.radialDimension.endC = end;
     element.radialDimension.dimVal = radius;
-    // A drafting diagnostic must draw a leader even if the current tool default
-    // is text-only. Keep the default note/marker styling, not its association.
+    // Always draw a leader, even with text-only tool defaults. AC29 may extend
+    // endC during creation to fit the default note/marker; readback is authoritative.
     element.radialDimension.onlyDimensionText = false;
     element.radialDimension.textPos = APIPos_Above;
     element.radialDimension.textWay = APIDir_Radial;

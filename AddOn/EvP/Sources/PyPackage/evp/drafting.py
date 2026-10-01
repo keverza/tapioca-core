@@ -1,9 +1,9 @@
-"""Layer 2 — 2D drafting writes: text and raster figures.
+"""Layer 2 — native 2D drafting creation, readback and sparse edits.
 
     evp.drafting.create_text([{"text": "A-01", "x": 0, "y": 0}], layer="Notes", tx=tx)
     evp.drafting.place_picture(png_path, x=0, y=0, width=10, height=7.5, tx=tx)
 
-Both are native (`EvP.CreateText` / `EvP.PlacePicture`), and both are writes — pass an
+Both are native (`Tapioca.CreateText` / `Tapioca.PlacePicture`), and both are writes — pass an
 open `evp.transaction` as `tx` to fuse a whole run into ONE undo step.
 
 WHY NOT TAPIR, for text: `Tapir.CreateTexts` sets coordinate / text / height / pen /
@@ -16,8 +16,9 @@ memo handle, which no JSON schema can carry, so neither the `archicad` package n
 Tapir can place one.
 """
 
-from .api import call
+import math
 
+from .api import call
 
 _PRIMITIVE_FIELDS = {
     "line": {"x", "y", "endX", "endY", "pen", "layer", "floorInd"},
@@ -26,8 +27,11 @@ _PRIMITIVE_FIELDS = {
     "hotspot": {"x", "y", "height", "pen", "layer", "floorInd"},
 }
 _PRIMITIVE_ALIASES = {
-    "end_x": "endX", "end_y": "endY", "beg_angle": "begAngle",
-    "end_angle": "endAngle", "floor_ind": "floorInd",
+    "end_x": "endX",
+    "end_y": "endY",
+    "beg_angle": "begAngle",
+    "end_angle": "endAngle",
+    "floor_ind": "floorInd",
 }
 
 
@@ -75,15 +79,18 @@ def create_primitives(elements, database_anchor=None, fail_on_error=False, tx=No
     if tx is not None:
         return tx.call("Tapioca.CreateDraftingPrimitives", params)
     data = call("Tapioca.CreateDraftingPrimitives", params).data or {}
-    return [{
-        "kind": result.get("kind", ""),
-        "ok": bool(result.get("succeeded", False)),
-        "guid": (result.get("elementId") or {}).get("guid", ""),
-        "database_guid": (result.get("databaseId") or {}).get("guid", ""),
-        "layer": result.get("layer", ""),
-        "verified": bool(result.get("verified", False)),
-        "error": result.get("error", ""),
-    } for result in data.get("results") or []]
+    return [
+        {
+            "kind": result.get("kind", ""),
+            "ok": bool(result.get("succeeded", False)),
+            "guid": (result.get("elementId") or {}).get("guid", ""),
+            "database_guid": (result.get("databaseId") or {}).get("guid", ""),
+            "layer": result.get("layer", ""),
+            "verified": bool(result.get("verified", False)),
+            "error": result.get("error", ""),
+        }
+        for result in data.get("results") or []
+    ]
 
 
 def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
@@ -126,14 +133,17 @@ def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
     if tx is not None:
         return tx.call("Tapioca.CreateFills", params)
     data = call("Tapioca.CreateFills", params).data or {}
-    return [{
-        "ok": bool(result.get("succeeded", False)),
-        "guid": (result.get("elementId") or {}).get("guid", ""),
-        "database_guid": (result.get("databaseId") or {}).get("guid", ""),
-        "layer": result.get("layer", ""),
-        "verified": bool(result.get("verified", False)),
-        "error": result.get("error", ""),
-    } for result in data.get("results") or []]
+    return [
+        {
+            "ok": bool(result.get("succeeded", False)),
+            "guid": (result.get("elementId") or {}).get("guid", ""),
+            "database_guid": (result.get("databaseId") or {}).get("guid", ""),
+            "layer": result.get("layer", ""),
+            "verified": bool(result.get("verified", False)),
+            "error": result.get("error", ""),
+        }
+        for result in data.get("results") or []
+    ]
 
 
 _DIMENSION_FIELDS = {
@@ -143,15 +153,21 @@ _DIMENSION_FIELDS = {
 }
 _DIMENSION_REQUIRED = {
     "linear": {"line", "direction", "points"},
-    "radial": {"base", "end", "radius"},
+    "radial": {"base", "end", "radius", "source_guid"},
     "angular": {"origin", "ray1", "ray2", "radius"},
 }
 
 
 def _dimension_point(point):
     """Accept model-coordinate (x, y) pairs, never ambiguous bare scalars."""
-    x, y = point
-    return {"x": float(x), "y": float(y)}
+    try:
+        x, y = point
+        x, y = float(x), float(y)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError("dimension point must be a finite (x, y) pair") from error
+    if not math.isfinite(x) or not math.isfinite(y):
+        raise ValueError("dimension point must be a finite (x, y) pair")
+    return {"x": x, "y": y}
 
 
 def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=None):
@@ -159,14 +175,15 @@ def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=
 
     Linear: ``line`` (point on dimension line), ``direction`` (nonzero vector),
     ``points`` (2..64 witness points). Radial: ``base`` (point on circle),
-    ``end`` (leader end), ``radius``. Angular: ``origin``, ``ray1``, ``ray2``
+    ``end`` (leader end), ``radius``, ``source_guid``. Angular: ``origin``, ``ray1``, ``ray2``
     (ray endpoints), ``radius`` (arc distance), optional ``small_arc``.
     All points are (x, y) pairs. Optional ``pen``, ``layer`` and ``floor_ind``
-    override tool defaults. Radial ``source_guid`` explicitly associates to a
+    override tool defaults. Required radial ``source_guid`` associates to a
     circular arc/circle in the target database. The source radius, base point and
-    floor are checked before creation. Without it, the unassociated radial path
-    is experimental and returned APIERR_BADPARS in AC29 live checks. Associated
-    radial placement still requires live verification.
+    floor are checked before creation. Unassociated radial creation is unsupported
+    (AC29 returned APIERR_BADPARS). Associated circle placement is live-verified;
+    Archicad may extend the requested leader end to fit its note/marker defaults.
+    Read back the dimension for its final geometry.
     With ``tx``, returns a raw transaction Handle; otherwise aligned results.
     """
     if isinstance(dimensions, dict):
@@ -176,12 +193,12 @@ def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=
         kind = dimension.get("kind")
         if kind not in _DIMENSION_FIELDS:
             raise ValueError("dimension kind must be linear, radial or angular")
-        unknown = set(dimension) - _DIMENSION_FIELDS[kind] - {
-            "kind", "pen", "layer", "floor_ind"}
-        missing = _DIMENSION_REQUIRED[kind] - set(dimension)
+        unknown = set(dimension) - _DIMENSION_FIELDS[kind] - {"kind", "pen", "layer", "floor_ind"}
+        missing = {key for key in _DIMENSION_REQUIRED[kind] if dimension.get(key) is None}
         if unknown or missing:
-            raise ValueError("invalid %s dimension fields: unknown=%s missing=%s" %
-                             (kind, sorted(unknown), sorted(missing)))
+            raise ValueError(
+                "invalid %s dimension fields: unknown=%s missing=%s" % (kind, sorted(unknown), sorted(missing))
+            )
         item = {"kind": kind}
         for key, value in dimension.items():
             if key == "kind" or value is None:
@@ -191,9 +208,10 @@ def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=
             elif key in ("line", "direction", "base", "end", "origin", "ray1", "ray2"):
                 item[key] = _dimension_point(value)
             elif key == "source_guid":
-                if not str(value).strip():
+                source_guid = str(value).strip()
+                if not source_guid:
                     raise ValueError("radial source_guid must be non-empty")
-                item["sourceElementId"] = {"guid": str(value)}
+                item["sourceElementId"] = {"guid": source_guid}
             else:
                 item[{"floor_ind": "floorInd", "small_arc": "smallArc"}.get(key, key)] = value
         items.append(item)
@@ -207,15 +225,18 @@ def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=
     if tx is not None:
         return tx.call("Tapioca.CreateDraftingDimensions", params)
     data = call("Tapioca.CreateDraftingDimensions", params).data or {}
-    return [{
-        "kind": result.get("kind", ""),
-        "ok": bool(result.get("succeeded", False)),
-        "guid": (result.get("elementId") or {}).get("guid", ""),
-        "database_guid": (result.get("databaseId") or {}).get("guid", ""),
-        "layer": result.get("layer", ""),
-        "verified": bool(result.get("verified", False)),
-        "error": result.get("error", ""),
-    } for result in data.get("results") or []]
+    return [
+        {
+            "kind": result.get("kind", ""),
+            "ok": bool(result.get("succeeded", False)),
+            "guid": (result.get("elementId") or {}).get("guid", ""),
+            "database_guid": (result.get("databaseId") or {}).get("guid", ""),
+            "layer": result.get("layer", ""),
+            "verified": bool(result.get("verified", False)),
+            "error": result.get("error", ""),
+        }
+        for result in data.get("results") or []
+    ]
 
 
 def dimensions(guids=None, scope="database"):
@@ -238,10 +259,16 @@ def dimensions(guids=None, scope="database"):
         record["floor_ind"] = record.pop("floorInd", 0)
         if "sourceElementId" in record:
             record["source_guid"] = (record.pop("sourceElementId") or {}).get("guid", "")
-        for key, alias in (("memoRead", "memo_read"), ("nDimElem", "n_dim_elem"),
-                           ("showOrigin", "show_origin"), ("smallArc", "small_arc"),
-                           ("angleValue", "angle_value"), ("isStatic", "is_static"),
-                           ("markerSize", "marker_size"), ("parentGuid", "parent_guid")):
+        for key, alias in (
+            ("memoRead", "memo_read"),
+            ("nDimElem", "n_dim_elem"),
+            ("showOrigin", "show_origin"),
+            ("smallArc", "small_arc"),
+            ("angleValue", "angle_value"),
+            ("isStatic", "is_static"),
+            ("markerSize", "marker_size"),
+            ("parentGuid", "parent_guid"),
+        ):
             if key in record:
                 record[alias] = record.pop(key)
         for key in ("line", "direction", "base", "end", "origin", "position"):
@@ -266,8 +293,9 @@ def set_dimension_style(edits, tx=None, fail_on_error=False):
             raise ValueError("unsupported or empty dimension style for %s" % guid)
         item = {"elementId": {"guid": str(guid)}}
         for key, value in style.items():
-            item[{"show_origin": "showOrigin", "small_arc": "smallArc",
-                  "marker_size": "markerSize"}.get(key, key)] = value
+            item[{"show_origin": "showOrigin", "small_arc": "smallArc", "marker_size": "markerSize"}.get(key, key)] = (
+                value
+            )
         items.append(item)
     if not items:
         return []
@@ -277,31 +305,45 @@ def set_dimension_style(edits, tx=None, fail_on_error=False):
     if tx is not None:
         return tx.call("Tapioca.SetDraftingDimensionStyle", params)
     data = call("Tapioca.SetDraftingDimensionStyle", params).data or {}
-    return [{"guid": (item.get("elementId") or {}).get("guid", ""),
-             "kind": item.get("kind", ""), "ok": bool(item.get("succeeded", False)),
-             "error": item.get("error", "")}
-            for item in data.get("results") or []]
+    return [
+        {
+            "guid": (item.get("elementId") or {}).get("guid", ""),
+            "kind": item.get("kind", ""),
+            "ok": bool(item.get("succeeded", False)),
+            "error": item.get("error", ""),
+        }
+        for item in data.get("results") or []
+    ]
+
 
 #: Every anchor the two commands accept — which point of the box (x, y) names.
 #: Getting this wrong is the usual reason placed text or images look offset.
 ANCHORS = (
-    "topLeft", "topCenter", "topRight",
-    "middleLeft", "middleCenter", "middleRight",
-    "bottomLeft", "bottomCenter", "bottomRight",
+    "topLeft",
+    "topCenter",
+    "topRight",
+    "middleLeft",
+    "middleCenter",
+    "middleRight",
+    "bottomLeft",
+    "bottomCenter",
+    "bottomRight",
 )
 
 
 def polyline_rectangles(database_anchor):
     """Return every Polyline bounding rectangle in an anchored worksheet."""
-    data = call(
-        "Tapioca.ListDraftingPolylines",
-        {"databaseAnchorElementId": {"guid": str(database_anchor)}},
-    ).data or {}
+    data = (
+        call(
+            "Tapioca.ListDraftingPolylines",
+            {"databaseAnchorElementId": {"guid": str(database_anchor)}},
+        ).data
+        or {}
+    )
     return [
         {
             "guid": (item.get("elementId") or {}).get("guid", ""),
-            "rect": (item.get("x", 0.0), item.get("y", 0.0),
-                     item.get("width", 0.0), item.get("height", 0.0)),
+            "rect": (item.get("x", 0.0), item.get("y", 0.0), item.get("width", 0.0), item.get("height", 0.0)),
             "layer": item.get("layer", ""),
             "database_guid": (data.get("databaseId") or {}).get("guid", ""),
         }
@@ -334,14 +376,33 @@ def create_polyline(coordinates, layer=None, database_anchor=None, tx=None):
         "verified": bool(data.get("verified", False)),
     }
 
+
 #: Horizontal justification within the text box (distinct from `anchor`, which
 #: positions the box itself).
 JUSTIFICATIONS = ("left", "center", "right", "full")
 
 _TEXT_KEYS = {
-    "text", "x", "y", "floorInd", "layer", "size", "angle", "pen", "font",
-    "just", "anchor", "bold", "italic", "underline", "strikeOut", "width",
-    "fixedAngle", "fixedSize", "spacing", "widthFactor", "charSpaceFactor",
+    "text",
+    "x",
+    "y",
+    "floorInd",
+    "layer",
+    "size",
+    "angle",
+    "pen",
+    "font",
+    "just",
+    "anchor",
+    "bold",
+    "italic",
+    "underline",
+    "strikeOut",
+    "width",
+    "fixedAngle",
+    "fixedSize",
+    "spacing",
+    "widthFactor",
+    "charSpaceFactor",
     "inheritDefaults",
 }
 
@@ -370,10 +431,7 @@ def _text_item(item, defaults):
             continue
         key = _TEXT_ALIASES.get(key, key)
         if key not in _TEXT_KEYS:
-            raise ValueError(
-                "unknown text field %r (want one of: %s)"
-                % (key, ", ".join(sorted(_TEXT_KEYS)))
-            )
+            raise ValueError("unknown text field %r (want one of: %s)" % (key, ", ".join(sorted(_TEXT_KEYS))))
         out[key] = value
 
     for required in ("text", "x", "y"):
@@ -460,20 +518,37 @@ def create_text(texts, tx=None, database_anchor=None, fail_on_error=False, **def
     data = call("EvP.CreateText", params).data or {}
     result = []
     for item in data.get("results") or []:
-        result.append({
-            "ok": bool(item.get("succeeded", False)),
-            "guid": (item.get("elementId") or {}).get("guid", ""),
-            "database_guid": (item.get("databaseId") or {}).get("guid", ""),
-            "layer": item.get("layer", ""),
-            "verified": bool(item.get("verified", False)),
-            "error": item.get("error", ""),
-        })
+        result.append(
+            {
+                "ok": bool(item.get("succeeded", False)),
+                "guid": (item.get("elementId") or {}).get("guid", ""),
+                "database_guid": (item.get("databaseId") or {}).get("guid", ""),
+                "layer": item.get("layer", ""),
+                "verified": bool(item.get("verified", False)),
+                "error": item.get("error", ""),
+            }
+        )
     return result
 
 
-def place_picture(path, x, y, width=None, height=None, dpi=None, layer=None, anchor=None,
-                  rot_angle=None, mirrored=None, transparent=None, name=None,
-                  floor_ind=None, use_pixel_size=None, database_anchor=None, tx=None):
+def place_picture(
+    path,
+    x,
+    y,
+    width=None,
+    height=None,
+    dpi=None,
+    layer=None,
+    anchor=None,
+    rot_angle=None,
+    mirrored=None,
+    transparent=None,
+    name=None,
+    floor_ind=None,
+    use_pixel_size=None,
+    database_anchor=None,
+    tx=None,
+):
     """Place a raster image as a Figure element. `path` is a file on disk.
 
     The image is read from disk BY ARCHICAD, not sent over the bus — so write it
@@ -512,10 +587,17 @@ def place_picture(path, x, y, width=None, height=None, dpi=None, layer=None, anc
     if width is not None and height is not None:
         params["width"] = width
         params["height"] = height
-    for key, value in (("layer", layer), ("anchor", anchor), ("rotAngle", rot_angle),
-                       ("mirrored", mirrored), ("transparent", transparent),
-                       ("name", name), ("floorInd", floor_ind), ("dpi", dpi),
-                       ("usePixelSize", use_pixel_size)):
+    for key, value in (
+        ("layer", layer),
+        ("anchor", anchor),
+        ("rotAngle", rot_angle),
+        ("mirrored", mirrored),
+        ("transparent", transparent),
+        ("name", name),
+        ("floorInd", floor_ind),
+        ("dpi", dpi),
+        ("usePixelSize", use_pixel_size),
+    ):
         if value is not None:
             params[key] = value
     if database_anchor:
