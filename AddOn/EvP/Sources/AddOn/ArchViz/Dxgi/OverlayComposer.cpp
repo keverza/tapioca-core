@@ -27,12 +27,14 @@ namespace {
 
 Stats g_stats;
 
-// The pixel extent behind a view, or 0x0 when it cannot be asked. Two COM calls,
-// once per Present, to answer a question that decides whether anything is drawn.
-void ViewExtent (ID3D11View* view, uint32_t& width, uint32_t& height)
+// The pixel extent and sample count behind a view, or 0x0 and 0 when it cannot be
+// asked. Two COM calls, once per Present, to answer a question that decides whether
+// anything is drawn.
+void ViewExtent (ID3D11View* view, uint32_t& width, uint32_t& height, uint32_t& samples)
 {
     width = 0;
     height = 0;
+    samples = 0;
     if (view == nullptr)
         return;
     ID3D11Resource* resource = nullptr;
@@ -45,6 +47,7 @@ void ViewExtent (ID3D11View* view, uint32_t& width, uint32_t& height)
         texture->GetDesc (&desc);
         width = desc.Width;
         height = desc.Height;
+        samples = desc.SampleDesc.Count;
         texture->Release ();
     }
     resource->Release ();
@@ -98,7 +101,7 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // screen where the two happen to be equal. The host occluder's depth is ours
     // to size; see `hostocclusion::Prepare`.
     ++g_stats.passes;
-    ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight);
+    ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight, g_stats.targetSamples);
 
     // ---- the Diligent boundary, stage 2 of 5 -------------------------------
     // ⚠️ IT ATTACHES AND WRAPS AND DRAWS NOTHING, AND
@@ -147,7 +150,7 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // frame that falls back to it can still mismatch. Dropping the depth loses
     // occlusion and draws anyway: worse than the intent, better than an invisible
     // overlay, and the count says which frame it was.
-    ViewExtent (overlayView, g_stats.depthWidth, g_stats.depthHeight);
+    ViewExtent (overlayView, g_stats.depthWidth, g_stats.depthHeight, g_stats.depthSamples);
     if (overlayView != nullptr && g_stats.targetWidth != 0 &&
         (g_stats.targetWidth != g_stats.depthWidth || g_stats.targetHeight != g_stats.depthHeight)) {
         ++g_stats.sizeMismatches;

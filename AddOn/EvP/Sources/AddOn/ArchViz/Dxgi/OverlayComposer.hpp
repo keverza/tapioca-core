@@ -55,6 +55,10 @@ struct Stats {
     uint64_t hidden = 0;
     uint32_t targetWidth = 0, targetHeight = 0;
     uint32_t depthWidth = 0, depthHeight = 0;
+    // ⚠️ AND THE SAMPLE COUNTS (2026-10-01): D3D11 refuses a render target and a depth
+    // whose sample counts differ just as it refuses a pixel of width, and the size alone
+    // read equal while the user saw nothing. 0 when the view could not be asked.
+    uint32_t targetSamples = 0, depthSamples = 0;
 };
 Stats GetStats ();
 

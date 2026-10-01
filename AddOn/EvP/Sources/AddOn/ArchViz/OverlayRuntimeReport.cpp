@@ -292,19 +292,24 @@ void Live (const Health& health)
     const uint64_t present = health.presentInjections;
     const uint64_t compose = health.overlayDraws;
     // The passes the user's hide held the content back at: composing, and nothing to see.
-    const uint64_t hidden = dxgi::overlaycompose::GetStats ().hidden;
-    char line[480] = {};
+    const dxgi::overlaycompose::Stats composed = dxgi::overlaycompose::GetStats ();
+    const uint64_t hidden = composed.hidden;
+    // ⚠️ TARGET AND DEPTH SAY THEIR SAMPLE COUNTS AFTER THE SLASH: equal sizes with
+    // different counts is a binding D3D11 refuses, and everything composed then lands
+    // nowhere while every counter here rises (2026-10-01).
+    char line[512] = {};
     _snprintf_s (
         line, sizeof (line), _TRUNCATE,
-        "%s present+%llu compose+%llu lines=%u curved=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
+        "%s present+%llu compose+%llu lines=%u curved=%u host=%u cam=%s vp=%ux%u target=%ux%u/%u depth=%ux%u/%u "
         "rebind=%llu miss=0x%02x | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
         "mismatch+%llu hidden+%llu cam(new+%llu repeat+%llu LATE+%llu) "
         "age(0=%llu 1=%llu 2=%llu 3+=%llu max=%u of %llu) suppressed+%llu redraw=%llu",
         compose > g_mark.compose ? "composing" : "NOT COMPOSING", (unsigned long long) (present - g_mark.present),
         (unsigned long long) (compose - g_mark.compose), health.linesDrawn, health.silhouetteEdges,
         health.hostOpaqueTriangles, CameraStateName (health.camera), health.acceptedViewportWidth,
-        health.acceptedViewportHeight, health.targetWidth, health.targetHeight, health.composeDepthWidth,
-        health.composeDepthHeight, (unsigned long long) health.resizeRebinds, health.lastMissMask,
+        health.acceptedViewportHeight, health.targetWidth, health.targetHeight, composed.targetSamples,
+        health.composeDepthWidth, health.composeDepthHeight, composed.depthSamples,
+        (unsigned long long) health.resizeRebinds, health.lastMissMask,
         (unsigned long long) (health.skippedStaleCamera - g_mark.stale),
         (unsigned long long) (health.hostNoDepthTarget - g_mark.noDepth),
         (unsigned long long) (health.hostNoGeometry - g_mark.noGeometry),
