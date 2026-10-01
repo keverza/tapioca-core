@@ -99,7 +99,7 @@ void Place (const overlaylayers::Panel& panel, float width, float height, float 
 // is on (`HoverMode`) the HUD reads it out in its floating panel, under the page, and tints
 // the item where it is (the user, 2026-10-01: in the panel, not by the pointer).
 struct Hover {
-    bool picks = false; // the view reads what is under the pointer: the plan; 3D not yet
+    bool picks = false; // the view reads what is under the pointer: both views do (D19)
     bool active = false;
     std::string title;
     std::vector<std::pair<std::string, std::string>> rows; // label, value

@@ -166,6 +166,21 @@ void NoteCameraContent (const float* view16, const float* projection16, float vp
 // correlation value for diagnostics, not the proof of pass equality.
 uint64_t ContentSignature ();
 
+// ⚠️ THE SAME DECODE, KEPT FOR THE MAIN THREAD'S 3D PICK (hover mode, HANDOFF-OverlayHud
+// D19): the selected camera's `b1` and `b0` as stored and the viewport they were drawn
+// into, written by `NoteCameraContent` under a single-writer sequence -- atomics only,
+// no lock and no allocation on the render thread (§11). A copy that changed while it was
+// read is refused rather than torn; `serial` rises with every decode. Cleared by `Reset`.
+struct CameraCopy {
+    float view[16] = {};
+    float projection[16] = {};
+    float viewport[4] = {}; // x, y, width, height
+    uint64_t serial = 0;
+};
+// MAIN THREAD. False before the first decode of the session, or when every attempt met
+// a write in flight.
+bool LatestCamera (CameraCopy& out);
+
 // RENDER THREAD, when the renderer takes a fresh camera for composition
 // (`NEW_SCENE`). Stamps the accepted camera with the content signature and the
 // capture serial that were current at that instant.

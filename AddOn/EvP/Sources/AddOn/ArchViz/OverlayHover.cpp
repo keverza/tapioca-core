@@ -104,6 +104,98 @@ overlayhud::Hover Readout (const layers::Layer& layer, const Hit& hit)
     return hover;
 }
 
+bool ProjectThrough (const double m[16], const float viewport[4], double x, double y, double z, float& px, float& py,
+                     float& invW)
+{
+    double clip[4];
+    for (int c = 0; c < 4; ++c)
+        clip[c] = x * m[c] + y * m[4 + c] + z * m[8 + c] + m[12 + c];
+    if (!(clip[3] > 1e-9))
+        return false; // behind the eye, or on its plane
+    const double ndcX = clip[0] / clip[3], ndcY = clip[1] / clip[3];
+    px = float (viewport[0] + (ndcX * 0.5 + 0.5) * viewport[2]);
+    py = float (viewport[1] + (0.5 - ndcY * 0.5) * viewport[3]);
+    invW = float (1.0 / clip[3]);
+    return std::isfinite (px) && std::isfinite (py);
+}
+
+Hit PickView (const std::vector<std::shared_ptr<const layers::Layer>>& all, const ProjectView& project, float x,
+              float y)
+{
+    Hit hit;
+    float nearest = 0.0f; // 1/w of the nearest hit: larger is nearer
+    std::vector<float> sx, sy, iw;
+    std::vector<uint8_t> seen;
+    for (size_t li = 0; li < all.size (); ++li) {
+        const layers::Layer& layer = *all[li];
+        if (!layers::DrawnIn (layer.views, layers::Views::ThreeD))
+            continue;
+        for (size_t mi = 0; mi < layer.meshes.size (); ++mi) {
+            const layers::Mesh& mesh = layer.meshes[mi];
+            if (!SaysSomething (mesh))
+                continue;
+            // Each corner projected once.
+            const size_t corners = mesh.points.size () / 3;
+            sx.assign (corners, 0.0f);
+            sy.assign (corners, 0.0f);
+            iw.assign (corners, 0.0f);
+            seen.assign (corners, 0);
+            for (size_t k = 0; k < corners; ++k)
+                seen[k] =
+                    project (mesh.points[k * 3], mesh.points[k * 3 + 1], mesh.points[k * 3 + 2], sx[k], sy[k], iw[k])
+                        ? 1
+                        : 0;
+            for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
+                const uint32_t i0 = mesh.indices[t], i1 = mesh.indices[t + 1], i2 = mesh.indices[t + 2];
+                if (i0 >= corners || i1 >= corners || i2 >= corners || !seen[i0] || !seen[i1] || !seen[i2])
+                    continue;
+                const double a[2] = { sx[i0], sy[i0] }, b[2] = { sx[i1], sy[i1] }, c[2] = { sx[i2], sy[i2] };
+                double w[3] = {};
+                if (!Weights (x, y, a, b, c, w))
+                    continue;
+                // 1/w is linear on the screen; the point's own, against the nearest so far.
+                const double depth = w[0] * iw[i0] + w[1] * iw[i1] + w[2] * iw[i2];
+                if (!(depth > nearest))
+                    continue;
+                nearest = float (depth);
+                hit = Hit ();
+                hit.found = true;
+                hit.layer = li;
+                hit.mesh = mi;
+                hit.triangle = uint32_t (t / 3);
+                if (mesh.values.size () >= corners) {
+                    hit.hasValue = true;
+                    hit.value = (w[0] * iw[i0] * mesh.values[i0] + w[1] * iw[i1] * mesh.values[i1] +
+                                 w[2] * iw[i2] * mesh.values[i2]) /
+                                depth;
+                }
+            }
+        }
+    }
+    return hit;
+}
+
+void TintView (const layers::Mesh& mesh, const ProjectView& project, std::vector<float>& out, int64_t only)
+{
+    const size_t corners = mesh.points.size () / 3;
+    for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
+        if (only >= 0 && int64_t (t / 3) != only)
+            continue;
+        const uint32_t i[3] = { mesh.indices[t], mesh.indices[t + 1], mesh.indices[t + 2] };
+        if (i[0] >= corners || i[1] >= corners || i[2] >= corners)
+            continue;
+        float corner[6] = {};
+        bool front = true;
+        for (int k = 0; k < 3 && front; ++k) {
+            float invW = 0.0f;
+            front = project (mesh.points[i[k] * 3], mesh.points[i[k] * 3 + 1], mesh.points[i[k] * 3 + 2], corner[k * 2],
+                             corner[k * 2 + 1], invW);
+        }
+        if (front)
+            out.insert (out.end (), corner, corner + 6);
+    }
+}
+
 void Tint (const layers::Mesh& mesh, const Project& project, std::vector<float>& out, int64_t only)
 {
     const size_t corners = mesh.points.size () / 3;

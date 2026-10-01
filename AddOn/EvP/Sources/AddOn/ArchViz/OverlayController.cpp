@@ -22,6 +22,7 @@
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/OverlayAnnotations.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
+#include "ArchViz/OverlayHover3D.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -162,9 +163,11 @@ bool RefreshHud3D ()
     if (!runtime::Running ())
         return false;
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
+    overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::ThreeD);
+    overlayhover3d::Fill (input); // hover mode: what the pointer is on (D19)
     overlayscene::Scene hud =
         overlayscene::PrepareSceneHud (layers, HudIn3D (layers) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
-                                       g_scale3D, overlayinput::TakeInput (overlayinput::View::ThreeD), &g_legends3D);
+                                       g_scale3D, input, &g_legends3D);
     const bool changed = PublishHud3D (std::move (hud));
     // What the user did there may be the dock's circle or a layer hidden.
     FollowHudState ();
@@ -203,6 +206,7 @@ void FollowHudInput ()
         owner.shown = &HudShown3D;
         owner.refresh = &RefreshHud3D;
         owner.redraw = &RedrawHud3D;
+        owner.hovering = &overlayhover3d::Hovering;
         if (!overlayinput::Attach (overlayinput::View::ThreeD, HWND (uintptr_t (chains[i].window)), owner, error) &&
             error != g_inputError)
             Narrate ("OVERLAY", "the 3D HUD takes no input: " + error);

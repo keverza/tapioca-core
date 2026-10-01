@@ -1005,6 +1005,7 @@ def set_hover(on=True):
     """Hover mode in both views, as the HUD's Settings and menu set it: what is under the
     pointer -- a storey slice's figures, a heatmap's value at that point -- read out in the
     HUD's floating panel, under its page, the item tinted. Turning it on opens the panel.
-    A mesh says something there when it has values or hover text; the Floor Plan reads it,
-    3D not yet. Returns :func:`hud_state`'s record."""
+    A mesh says something there when it has values or hover text. The Floor Plan reads the
+    item on top; 3D reads the nearest, with the value of the surface at that point.
+    Returns :func:`hud_state`'s record."""
     return call("Tapioca.OverlayHud", {"hover": bool(on)}).data or {}

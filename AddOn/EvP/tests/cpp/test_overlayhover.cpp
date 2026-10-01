@@ -136,3 +136,110 @@ TEST (OverlayHover, TheTintIsTheItemOrItsCellInViewPixels)
     EXPECT_FLOAT_EQ (cell[4], 100.0f); // its third corner, (0, 10)
     EXPECT_FLOAT_EQ (cell[5], 480.0f);
 }
+
+// ---- the 3D view (D19) --------------------------------------------------------------------
+
+namespace {
+
+// A camera at (0, 0, 10) looking down -z, 100 px per unit at distance 1, the view's centre
+// at (500, 400): what the 3D pick is handed in place of Archicad's.
+const hover::ProjectView kDown = [] (double x, double y, double z, float& px, float& py, float& invW) {
+    const double w = 10.0 - z;
+    if (!(w > 1e-9))
+        return false;
+    px = float (500.0 + 100.0 * x / w);
+    py = float (400.0 - 100.0 * y / w);
+    invW = float (1.0 / w);
+    return true;
+};
+
+std::shared_ptr<const layers::Layer> Layer3D (const std::string& name, std::vector<layers::Mesh> meshes)
+{
+    return Layer (name, std::move (meshes), layers::Views::ThreeD);
+}
+
+layers::Mesh Slice3D (const char* name, double half, double z)
+{
+    layers::Mesh mesh = Square (-half, -half, half, half, z);
+    mesh.hoverTitle = name;
+    return mesh;
+}
+
+} // namespace
+
+// ⚠️ THE USER'S STAGE 3 IN 3D: what is under the pointer is what is NEAREST there -- the
+// upper floor over the lower one -- whatever order the layers were drawn in.
+TEST (OverlayHover, In3DTheNearestIsPickedNotTheLastDrawn)
+{
+    const std::vector<std::shared_ptr<const layers::Layer>> all = {
+        Layer3D ("upper", { Slice3D ("F3", 2.0, 3.0) }),
+        Layer3D ("lower", { Slice3D ("F0", 5.0, 0.0) }),
+    };
+    hover::Hit hit = hover::PickView (all, kDown, 500.0f, 400.0f);
+    ASSERT_TRUE (hit.found);
+    EXPECT_EQ (hit.layer, 0u) << "the upper floor, drawn first, is nearer";
+    hit = hover::PickView (all, kDown, 540.0f, 400.0f); // x = 4 at z = 0, outside the upper one
+    ASSERT_TRUE (hit.found);
+    EXPECT_EQ (hit.layer, 1u);
+    EXPECT_FALSE (hover::PickView (all, kDown, 900.0f, 400.0f).found) << "off both";
+}
+
+// Behind the eye has no place on the view; a layer the 3D view does not draw is not picked.
+TEST (OverlayHover, In3DWhatIsBehindTheEyeOrOnlyInThePlanIsPassedOver)
+{
+    const std::vector<std::shared_ptr<const layers::Layer>> all = {
+        Layer3D ("behind", { Slice3D ("behind", 5.0, 12.0) }),
+        Layer ("plan", { Slice3D ("plan", 5.0, 0.0) }, layers::Views::TwoD),
+    };
+    EXPECT_FALSE (hover::PickView (all, kDown, 500.0f, 400.0f).found);
+}
+
+// ⚠️ A HEATMAP'S VALUE IS THE SURFACE'S AT THE POINT, NOT THE SCREEN'S: on a face receding
+// from the eye, interpolated on the screen it would read 1.5 where the surface holds 2.
+TEST (OverlayHover, In3DAValueIsInterpolatedOnTheSurfaceNotTheScreen)
+{
+    layers::Mesh heat;
+    heat.points = { 0, -1, 0, 4, -1, 4, 4, 1, 4, 0, 1, 0 }; // z rises with x, towards the eye
+    heat.indices = { 0, 1, 2, 0, 2, 3 };
+    heat.values = { 0.0, 4.0, 4.0, 0.0 }; // the value is x
+    const std::vector<std::shared_ptr<const layers::Layer>> all = { Layer3D ("sun", { heat }) };
+    // x = 2 lies at w = 8: 500 + 100 * 2 / 8.
+    const hover::Hit hit = hover::PickView (all, kDown, 525.0f, 400.0f);
+    ASSERT_TRUE (hit.found);
+    ASSERT_TRUE (hit.hasValue);
+    EXPECT_NEAR (hit.value, 2.0, 1e-4);
+}
+
+// The projection the 3D pick and tint use: row vectors through the matrix, the census's
+// screen convention -- the right edge at ndc +1, the top at ndc +1.
+TEST (OverlayHover, In3DTheProjectionIsTheCensussScreenConvention)
+{
+    double m[16] = {};
+    m[0] = 1.0;   // clip x = x
+    m[5] = 1.0;   // clip y = y
+    m[10] = 1.0;  // clip z = z
+    m[11] = -1.0; // clip w = -z: looking down -z from the origin
+    const float viewport[4] = { 100.0f, 50.0f, 800.0f, 600.0f };
+    float px = 0.0f, py = 0.0f, invW = 0.0f;
+    ASSERT_TRUE (hover::ProjectThrough (m, viewport, 0.0, 0.0, -5.0, px, py, invW));
+    EXPECT_FLOAT_EQ (px, 500.0f);
+    EXPECT_FLOAT_EQ (py, 350.0f);
+    EXPECT_FLOAT_EQ (invW, 0.2f);
+    ASSERT_TRUE (hover::ProjectThrough (m, viewport, 5.0, 5.0, -5.0, px, py, invW));
+    EXPECT_FLOAT_EQ (px, 900.0f) << "ndc +1: the right edge";
+    EXPECT_FLOAT_EQ (py, 50.0f) << "ndc +1: the top";
+    EXPECT_FALSE (hover::ProjectThrough (m, viewport, 0.0, 0.0, 5.0, px, py, invW)) << "behind the eye";
+}
+
+// The 3D tint: a triangle reaching behind the eye is left out, the rest projected.
+TEST (OverlayHover, In3DTheTintLeavesOutWhatReachesBehindTheEye)
+{
+    layers::Mesh mesh;
+    mesh.points = { -1, -1, 0, 1, -1, 0, 0, 1, 0, 0, 0, 20 };
+    mesh.indices = { 0, 1, 2, 0, 1, 3 };
+    std::vector<float> out;
+    hover::TintView (mesh, kDown, out);
+    ASSERT_EQ (out.size (), 6u) << "one triangle, three corners, x and y";
+    EXPECT_FLOAT_EQ (out[0], 490.0f);
+    EXPECT_FLOAT_EQ (out[1], 410.0f);
+}

@@ -7,7 +7,10 @@
 //
 // ⚠️ PICKED ON THE SIDE THAT HAS THE TRANSFORM (HANDOFF-OverlayHud D13). The plan's is read
 // on the main thread at its Present (finding 14), so the plan picks here, on the CPU, in
-// model metres; the 3D camera is the GPU's (finding 1), and the 3D view picks there.
+// model metres. ⚠️ AND SO DOES 3D (D19): the census already decodes the selected
+// camera's `b1`/`b0` on the CPU after every capture (`freshness::LatestCamera`), so the 3D
+// view projects its meshes through the matrix the shaders draw with and picks the nearest
+// -- no pass of its own on the render thread.
 //
 // ⚠️ ONLY WHAT SAYS SOMETHING IS PICKED: a mesh with hover text (`Mesh::hoverTitle`,
 // `hoverRows`) or with values. Anything else -- a caller's plain fill -- is passed over, and
@@ -51,6 +54,30 @@ overlayhud::Hover Readout (const overlaylayers::Layer& layer, const Hit& hit);
 // heatmap, the cell under the pointer.
 using Project = std::function<void (double x, double y, float& px, float& py)>;
 void Tint (const overlaylayers::Mesh& mesh, const Project& project, std::vector<float>& out, int64_t only = -1);
+
+// ---- the 3D view (D19) ------------------------------------------------------------------
+
+// A model point to view pixels through a camera; `invW` is 1/w -- larger is nearer.
+// False behind the eye, where the point has no place on the view.
+using ProjectView = std::function<bool (double x, double y, double z, float& px, float& py, float& invW)>;
+
+// ⚠️ THE 3D VIEW PICKS THE NEAREST, NOT THE LAST DRAWN: the triangle of a mesh drawn in 3D
+// that says something, whose projection covers the view pixel (x, y), nearest the eye at
+// that pixel. A triangle with a corner behind the eye is passed over. The value is
+// interpolated perspective-correctly -- what the surface holds at the point, not on the
+// screen. ⚠️ THE BUILDING DOES NOT HIDE WHAT IS PICKED: what it hides is drawn faded
+// (`Behind::Fade`, the slices' default) or dashed, still seen, so still read.
+Hit PickView (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const ProjectView& project,
+              float x, float y);
+
+// As `Tint`, through the 3D projection; a triangle with a corner behind the eye is left out.
+void TintView (const overlaylayers::Mesh& mesh, const ProjectView& project, std::vector<float>& out, int64_t only = -1);
+
+// The projection itself: clip = [x y z 1] * viewProjection (row vectors, as the shaders), and
+// the census's screen convention (InjectionOracle): px = vx + (ndcX / 2 + 1/2) * width,
+// py = vy + (1/2 - ndcY / 2) * height. `viewport` is x, y, width, height.
+bool ProjectThrough (const double viewProjection[16], const float viewport[4], double x, double y, double z, float& px,
+                     float& py, float& invW);
 
 } // namespace overlayhover
 } // namespace archviz
