@@ -112,10 +112,11 @@ void PublishLayers ();
 // labels -- the 12:24 run recorded both frame paths and no way to say which
 // minute was which.
 //
-// ⚠️ AND IT CANNOT BE DONE BY APPENDING TO THE LOG FROM
-// OUTSIDE. `ArchVizLog` holds the file open for the session with FILE_SHARE_READ,
-// so a second WRITER is refused -- which is why this goes through the command
-// rather than around it.
+// ⚠️ AND IT GOES THROUGH THE LOG, NOT AROUND IT. `ArchVizLog` holds its file for
+// the session; it shares writes only so another Archicad can leave the one line that
+// says where its own log went (ArchViz/LogClaim.hpp). A marker appended from outside
+// would carry neither the log's clock nor its lock -- which is why this goes through
+// the command.
 //
 // It writes one line and touches nothing else. Marking is not a mode.
 void Mark (const std::string& note);

@@ -22,6 +22,10 @@
 // It rotates at the shared 5 MiB cap, like every other host log (CLAUDE.md,
 // "Where output goes"). Nothing here needs a flag; it is always on.
 //
+// ⚠️ ONE PROCESS A FILE. A second Archicad running the add-on writes `archviz-2.log`
+// (then -3 ...), and leaves a line in `archviz.log` saying so (ArchViz/LogClaim.hpp).
+// It used to lose every line of its session, silently.
+//
 // ⚠️ AND IT COSTS ABOUT 3 MICROSECONDS A LINE, WHICH IT
 // DID NOT ALWAYS. It held no handle: every line resolved the data directory
 // twice, verified the directory chain, stat'd the file, opened it, wrote,

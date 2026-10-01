@@ -2,6 +2,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 
+#include "ArchViz/LogClaim.hpp"
 #include "Python/PathUtils.hpp" // ACAPI-FREE by design — see its header. That is
                                 // what makes it legal from the render thread.
 
@@ -52,7 +53,10 @@ std::mutex logMutex;
 // cause.
 const uint64_t kLogCapBytes = 5ull * 1024ull * 1024ull;
 
-GS::UniString g_path;
+GS::UniString g_base; // archviz.log
+// The file this process holds: `g_base`, or -- another Archicad writing that -- one of its
+// own beside it (ArchViz/LogClaim.hpp).
+std::wstring g_path;
 HANDLE g_file = INVALID_HANDLE_VALUE;
 uint64_t g_bytes = 0;
 
@@ -82,48 +86,12 @@ void CloseLocked ()
 void RotateLocked ()
 {
     CloseLocked ();
-    if (g_path.IsEmpty ())
+    if (g_path.empty ())
         return;
 
-    const UIndex dot = g_path.FindLast ('.');
-    const UIndex sep = g_path.FindLast ('\\');
-    GS::UniString backup;
-    if (dot != MaxUIndex && (sep == MaxUIndex || dot > sep))
-        backup =
-            g_path.GetSubstring (0, dot) + GS::UniString (".1") + g_path.GetSubstring (dot, g_path.GetLength () - dot);
-    else
-        backup = g_path + GS::UniString (".1");
-
-    ::DeleteFileW ((LPCWSTR) backup.ToUStr ().Get ());
-    ::MoveFileW ((LPCWSTR) g_path.ToUStr ().Get (), (LPCWSTR) backup.ToUStr ().Get ());
-}
-
-bool OpenLocked ()
-{
-    if (g_file != INVALID_HANDLE_VALUE)
-        return true;
-
-    if (g_path.IsEmpty ()) {
-        g_path = ArchVizLogPath ();
-        if (g_path.IsEmpty ())
-            return false; // no %LOCALAPPDATA%; nothing to do, and not worth failing a render over
-    }
-
-    // CreateDirectoryChain, because the open below does not create parents and on
-    // a fresh install logs\ does not exist -- the mistake AddOnMain's startup log
-    // already paid for once. Once per open rather than once per line.
-    const GS::UniString logs (evp::EvpDataDir () + GS::UniString ("\\logs"));
-    evp::CreateDirectoryChain (logs);
-
-    // FILE_SHARE_READ so the log can be tailed while a run is in flight.
-    g_file = ::CreateFileW ((LPCWSTR) g_path.ToUStr ().Get (), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (g_file == INVALID_HANDLE_VALUE)
-        return false;
-
-    LARGE_INTEGER size = {};
-    g_bytes = ::GetFileSizeEx (g_file, &size) != 0 ? (uint64_t) size.QuadPart : 0;
-    return true;
+    const std::wstring backup = logclaim::BackupPath (g_path);
+    ::DeleteFileW (backup.c_str ());
+    ::MoveFileW (g_path.c_str (), backup.c_str ());
 }
 
 // Wall-clock stamp. Lines from the render thread, the extraction thread and the
@@ -138,6 +106,35 @@ std::string Stamp ()
     char buf[16] = {};
     std::snprintf (buf, sizeof (buf), "%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
     return std::string (buf);
+}
+
+bool OpenLocked ()
+{
+    if (g_file != INVALID_HANDLE_VALUE)
+        return true;
+
+    if (g_base.IsEmpty ()) {
+        g_base = ArchVizLogPath ();
+        if (g_base.IsEmpty ())
+            return false; // no %LOCALAPPDATA%; nothing to do, and not worth failing a render over
+    }
+
+    // CreateDirectoryChain, because the open below does not create parents and on
+    // a fresh install logs\ does not exist -- the mistake AddOnMain's startup log
+    // already paid for once. Once per open rather than once per line.
+    const GS::UniString logs (evp::EvpDataDir () + GS::UniString ("\\logs"));
+    evp::CreateDirectoryChain (logs);
+
+    // ⚠️ archviz.log, unless another Archicad writes it: then a file of this process's
+    // own, named in a line left in archviz.log (ArchViz/LogClaim.hpp). Its open refused,
+    // a second Archicad used to drop every line of its session without a word.
+    const logclaim::Claim claim = logclaim::Take (std::wstring ((const wchar_t*) g_base.ToUStr ().Get ()), Stamp ());
+    if (claim.file == nullptr)
+        return false;
+    g_file = (HANDLE) claim.file;
+    g_path = claim.path;
+    g_bytes = claim.bytes;
+    return true;
 }
 
 } // namespace
