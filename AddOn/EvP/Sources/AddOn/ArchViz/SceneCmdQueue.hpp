@@ -320,6 +320,15 @@ class SceneCmdQueue final {
     // supersedes a queued partial one.
     void Clear ();
 
+    // ⚠️ HELD ONLY WHILE SOMEBODY TAKES. The portable viewport is the one consumer;
+    // without it every pass's commands waited here for nobody -- a whole model's meshes
+    // per pass, for the life of the process, and the injected overlay runs a pass on
+    // every edit. Without a consumer a push stores nothing; the occluders are fed at push
+    // time and do not depend on it. Declared before the consumer's own first extraction
+    // starts; withdrawn, it drops what is held.
+    void SetConsumer (bool present);
+    bool HasConsumer () const;
+
     size_t PendingCount () const;
     size_t PendingBytes () const;
 
@@ -331,6 +340,7 @@ class SceneCmdQueue final {
     mutable std::mutex mutex_;
     std::vector<SceneCmd> queue_;
     size_t pendingBytes_ = 0;
+    bool consumer_ = false;
 };
 
 } // namespace archviz

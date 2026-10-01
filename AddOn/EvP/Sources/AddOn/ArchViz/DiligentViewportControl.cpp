@@ -77,6 +77,8 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
         stats_.cameraSource = camera.source;
         currentCameraAvailable_ = false;
     }
+    // The scene queue's one consumer: before the extraction that feeds it (SceneCmdQueue.hpp).
+    SceneCmdQueue::Get ().SetConsumer (true);
     running_.store (true);
     ArchVizLog ("---- Diligent viewport starting: " + std::to_string (surface.width) + "x" +
                 std::to_string (surface.height) + " ----");
@@ -89,8 +91,8 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
 }
 
 bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, float dpi, const CameraStart& camera,
-                                     int renderQuality,
-                                     const CaptureOverlays& overlays, uint64_t& captureId, std::string& error)
+                                     int renderQuality, const CaptureOverlays& overlays, uint64_t& captureId,
+                                     std::string& error)
 {
     // The single capture IS a one-frame batch, and delegating rather than
     // duplicating is what keeps the two from drifting: there is one validation
@@ -100,13 +102,14 @@ bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, float dpi,
     // evp.outputs.diligent_capture are untouched.
     CaptureFrame single;
     single.camera = camera;
-    return StartCaptureBatch (width, height, dpi, { single }, renderQuality, overlays, std::string {}, captureId, error);
+    return StartCaptureBatch (width, height, dpi, { single }, renderQuality, overlays, std::string {}, captureId,
+                              error);
 }
 
 bool DiligentViewport::StartCaptureBatch (uint32_t width, uint32_t height, float dpi,
-                                           const std::vector<CaptureFrame>& frames, int renderQuality,
-                                           const CaptureOverlays& overlays,
-                                          const std::string& outputDirectory, uint64_t& captureId, std::string& error)
+                                          const std::vector<CaptureFrame>& frames, int renderQuality,
+                                          const CaptureOverlays& overlays, const std::string& outputDirectory,
+                                          uint64_t& captureId, std::string& error)
 {
     std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
     captureId = 0;
@@ -206,6 +209,8 @@ bool DiligentViewport::StartCaptureBatch (uint32_t width, uint32_t height, float
     // contours -- without them. A capture is one pass; there is no second
     // chance to catch.
     ExtractionWorker::Get ().SetStorySlicesWanted (overlays.storySlices);
+    // The capture's viewport takes this pass, and starts after it (SceneCmdQueue.hpp).
+    SceneCmdQueue::Get ().SetConsumer (true);
     ExtractionWorker::Get ().Start (true);
     Surface surface;
     surface.mode = SurfaceMode::Offscreen;
@@ -217,7 +222,7 @@ bool DiligentViewport::StartCaptureBatch (uint32_t width, uint32_t height, float
     // handed (see `framedRealGeometry`).
     if (!StartUnlocked (surface, captureFrames_.front ().camera)) {
         ExtractionWorker::Get ().Stop ();
-        SceneCmdQueue::Get ().Clear ();
+        SceneCmdQueue::Get ().SetConsumer (false);
         activeCaptureId_.store (0);
         std::lock_guard<std::mutex> lock (mutex_);
         captureStats_.status = "failed";
@@ -268,6 +273,7 @@ void DiligentViewport::Stop ()
     if (worker_.joinable ())
         worker_.join ();
     running_.store (false);
+    SceneCmdQueue::Get ().SetConsumer (false);
     std::lock_guard<std::mutex> lock (mutex_);
     stats_.running = false;
 }

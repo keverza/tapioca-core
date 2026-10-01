@@ -28,12 +28,14 @@ SurfaceMaterial Make (int32_t index, float r, float g, float b, float alpha = 1.
 {
     SurfaceMaterial m;
     m.index = index;
-    m.r = r; m.g = g; m.b = b;
+    m.r = r;
+    m.g = g;
+    m.b = b;
     m.alpha = alpha;
     return m;
 }
 
-}   // namespace
+} // namespace
 
 TEST (MaterialTable, EmptyTableAnswersEveryLookupWithOpaqueWhite)
 {
@@ -91,10 +93,10 @@ TEST (MaterialTable, OpaqueThresholdKeepsNearlySolidSurfacesOutOfTheBlendedPass)
     // Treating that as blended would put the WHOLE BUILDING in the transparent
     // pass, which does not write depth — the model then draws inside-out.
     EXPECT_FALSE (0.9999f < kOpaqueAlpha);
-    EXPECT_FALSE (1.0f    < kOpaqueAlpha);
+    EXPECT_FALSE (1.0f < kOpaqueAlpha);
     // Real glass must still blend.
     EXPECT_TRUE (0.15f < kOpaqueAlpha);
-    EXPECT_TRUE (0.9f  < kOpaqueAlpha);
+    EXPECT_TRUE (0.9f < kOpaqueAlpha);
 }
 
 TEST (MaterialTable, ShineIsReadAsAPhongExponentAndNotAsAGlossFraction)
@@ -186,6 +188,7 @@ TEST (MaterialTable, TravelsThroughTheQueueAsAnOwningHandover)
     // reuses (SceneCmdQueue.hpp's whole premise).
     SceneCmdQueue& q = SceneCmdQueue::Get ();
     q.Clear ();
+    q.SetConsumer (true);
 
     auto table = std::make_unique<MaterialTable> ();
     table->Set (Make (4, 0.25f, 0.5f, 0.75f, 0.4f));
@@ -210,6 +213,7 @@ TEST (MaterialTable, EnvironmentRidesTheQueueByValue)
 {
     SceneCmdQueue& q = SceneCmdQueue::Get ();
     q.Clear ();
+    q.SetConsumer (true);
 
     EnvironmentUpload env;
     env.sunX = 0.3f;
@@ -235,6 +239,7 @@ TEST (MaterialTable, BatchOrderPutsTheTableAheadOfItsGeometry)
     // SetEnvironment -> upserts, and Take must preserve exactly that.
     SceneCmdQueue& q = SceneCmdQueue::Get ();
     q.Clear ();
+    q.SetConsumer (true);
 
     q.PushBeginBatch (true);
     auto table = std::make_unique<MaterialTable> ();

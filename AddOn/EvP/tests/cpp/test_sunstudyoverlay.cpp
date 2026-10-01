@@ -454,6 +454,7 @@ TEST (SunStudyOverlay, QueueCarriesAndReplacesAStudy)
 {
     SceneCmdQueue& queue = SceneCmdQueue::Get ();
     queue.Clear ();
+    queue.SetConsumer (true);
 
     auto first = std::make_unique<SunStudyAtlasUpload> ();
     first->studyId = "study-1";

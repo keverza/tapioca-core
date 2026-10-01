@@ -66,14 +66,38 @@ struct SceneQueueTest : ::testing::Test {
     void SetUp () override
     {
         SceneCmdQueue::Get ().Clear ();
+        SceneCmdQueue::Get ().SetConsumer (true); // the viewport, taking
     }
     void TearDown () override
     {
-        SceneCmdQueue::Get ().Clear ();
+        SceneCmdQueue::Get ().SetConsumer (false);
     }
 };
 
 } // namespace
+
+// ⚠️ NOTHING IS KEPT FOR NOBODY. Only the portable viewport takes; with the injected
+// overlay alone every pass's meshes waited here for the life of the process.
+TEST_F (SceneQueueTest, ACommandNobodyWillTakeIsNotKept)
+{
+    SceneCmdQueue& q = SceneCmdQueue::Get ();
+    q.SetConsumer (false);
+    q.PushBeginBatch (true);
+    q.PushUpsert (MakeUpload ("a"));
+    q.PushEndBatch ();
+    EXPECT_EQ (q.PendingCount (), 0u);
+    EXPECT_EQ (q.PendingBytes (), 0u);
+    EXPECT_FALSE (q.HasConsumer ());
+
+    q.SetConsumer (true);
+    q.PushUpsert (MakeUpload ("b"));
+    EXPECT_EQ (q.PendingCount (), 1u);
+    EXPECT_GT (q.PendingBytes (), 0u);
+
+    q.SetConsumer (false);
+    EXPECT_EQ (q.PendingCount (), 0u) << "what the consumer did not take goes with it";
+    EXPECT_EQ (q.PendingBytes (), 0u);
+}
 
 TEST_F (SceneQueueTest, PreservesOrderAcrossPartialTakes)
 {

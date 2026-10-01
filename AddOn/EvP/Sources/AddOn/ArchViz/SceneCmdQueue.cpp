@@ -99,6 +99,8 @@ void SceneCmdQueue::PushBeginBatch (bool full)
     // building to it.
     dxgi::hostocclusion::BeginBatch (full);
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::BeginBatch;
     cmd.full = full;
@@ -114,6 +116,8 @@ void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
     FeedOpaqueOccluders (*upload);
 
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     pendingBytes_ += upload->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::UpsertElement;
@@ -124,6 +128,8 @@ void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
 void SceneCmdQueue::PushRemove (const std::string& guid)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::RemoveElement;
     cmd.guid = guid;
@@ -137,6 +143,8 @@ void SceneCmdQueue::PushEndBatch ()
     // occludes anything.
     dxgi::hostocclusion::EndBatch ();
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::EndBatch;
     queue_.push_back (std::move (cmd));
@@ -156,6 +164,8 @@ void SceneCmdQueue::PushMaterials (std::unique_ptr<MaterialTable> materials)
     g_hostMaterials = retained.get ();
 
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     pendingBytes_ += materials->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::SetMaterials;
@@ -166,6 +176,8 @@ void SceneCmdQueue::PushMaterials (std::unique_ptr<MaterialTable> materials)
 void SceneCmdQueue::PushEnvironment (const EnvironmentUpload& environment)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::SetEnvironment;
     cmd.environment = environment;
@@ -175,6 +187,8 @@ void SceneCmdQueue::PushEnvironment (const EnvironmentUpload& environment)
 void SceneCmdQueue::PushSelection (std::vector<std::string> guids)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::SetSelection;
     cmd.selection = std::move (guids);
@@ -187,6 +201,8 @@ void SceneCmdQueue::PushStorySlices (std::unique_ptr<StorySliceUpload> slices)
         return; // same rule as PushUpsert: a null node would be a consumer crash
 
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     pendingBytes_ += slices->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::SetStorySlices;
@@ -200,6 +216,8 @@ void SceneCmdQueue::PushBeginPointLayer (std::unique_ptr<PointLayerUpload> layer
         return;
 
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     pendingBytes_ += layer->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::BeginPointLayer;
@@ -210,6 +228,8 @@ void SceneCmdQueue::PushBeginPointLayer (std::unique_ptr<PointLayerUpload> layer
 void SceneCmdQueue::PushClearPointLayer (const std::string& layerId)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::ClearPointLayer;
     cmd.pointLayerId = layerId;
@@ -222,6 +242,8 @@ void SceneCmdQueue::PushUpsertPointNode (std::unique_ptr<PointNodeUpload> node)
         return;
 
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     pendingBytes_ += node->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::UpsertPointNode;
@@ -232,6 +254,8 @@ void SceneCmdQueue::PushUpsertPointNode (std::unique_ptr<PointNodeUpload> node)
 void SceneCmdQueue::PushEndPointLayer (const std::string& layerId)
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::EndPointLayer;
     cmd.pointLayerId = layerId;
@@ -244,6 +268,8 @@ void SceneCmdQueue::PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> stud
         return; // a null node would be a consumer crash; see PushUpsert
 
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     pendingBytes_ += study->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::SetSunStudyAtlas;
@@ -254,6 +280,8 @@ void SceneCmdQueue::PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> stud
 void SceneCmdQueue::PushClearSunStudy ()
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::ClearSunStudy;
     queue_.push_back (std::move (cmd));
@@ -297,6 +325,22 @@ std::vector<SceneCmd> SceneCmdQueue::Take (size_t max)
     // receive.
     queue_.erase (queue_.begin (), queue_.begin () + ptrdiff_t (take));
     return out;
+}
+
+void SceneCmdQueue::SetConsumer (bool present)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    consumer_ = present;
+    if (present)
+        return;
+    queue_.clear ();
+    pendingBytes_ = 0;
+}
+
+bool SceneCmdQueue::HasConsumer () const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    return consumer_;
 }
 
 void SceneCmdQueue::Clear ()
