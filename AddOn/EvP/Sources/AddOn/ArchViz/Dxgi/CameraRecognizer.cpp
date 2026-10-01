@@ -227,49 +227,8 @@ static bool MatchesFingerprint (const contextstate::ContextState& live, DrawKind
     // terms is some other pass and says nothing; a draw that agrees on seven and
     // disagrees on one is the camera, and that one term is the bug.
     g_lastSoleMiss = failures == 1 ? int (lastFailure) : -1;
-    if (failures == 1) {
-        ++g_diagnosis.soleMiss[lastFailure];
-        if (!g_diagnosis.sampled[lastFailure]) {
-            g_diagnosis.sampled[lastFailure] = true;
-            uint32_t* out = g_diagnosis.observed[lastFailure];
-            switch (lastFailure) {
-                case kTermOccurrence:
-                    out[0] = occurrence;
-                    break;
-                case kTermViewport:
-                    out[0] = uint32_t (live.viewportWidth);
-                    out[1] = uint32_t (live.viewportHeight);
-                    out[2] = uint32_t (live.viewportX);
-                    out[3] = uint32_t (live.viewportY);
-                    break;
-                case kTermDrawKind:
-                    out[0] = uint32_t (kind);
-                    break;
-                case kTermIndexCount:
-                    out[0] = indexCount;
-                    break;
-                case kTermCameraWindows:
-                    out[0] = live.vsConstantBuffers[1].numConstants;
-                    out[1] = live.vsConstantBuffers[2].numConstants;
-                    break;
-                case kTermDepthPresence:
-                    out[0] = live.depthStencil != 0 ? 1u : 0u;
-                    break;
-                case kTermRenderTargetDesc:
-                    out[0] = live.renderTargetDesc.width;
-                    out[1] = live.renderTargetDesc.height;
-                    out[2] = live.renderTargetDesc.format;
-                    out[3] = live.renderTargetDesc.sampleCount;
-                    break;
-                default:
-                    out[0] = live.depthStencilDesc.width;
-                    out[1] = live.depthStencilDesc.height;
-                    out[2] = live.depthStencilDesc.format;
-                    out[3] = live.depthStencilDesc.sampleCount;
-                    break;
-            }
-        }
-    }
+    if (failures == 1)
+        NoteSoleMiss (g_diagnosis, lastFailure, live, kind, indexCount, occurrence);
     return false;
 }
 
@@ -612,6 +571,41 @@ static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage
     return failures == 0;
 }
 
+// ⚠️ SELECTING A CANDIDATE AND POINTING THE INJECTION AT IT ARE ONE TRANSACTION
+// (§4), AND IT IS THIS FUNCTION. They were two acts in two places:
+// `ViewerCameraCensus {select:true}` selected and THEN set the source, while
+// `SetAutoSelect` selected and did not. The runtime therefore reached a state that
+// is not supposed to exist --
+//
+//     selection.valid = true, lifecycle = Locked
+//     BUT cameraSource = Learner
+//
+// -- in which the recognizer truthfully reports a locked camera while the
+// injection sources from the Learner, whose snapshot path stands down once a
+// census group is chosen. No snapshot, no `Active`, no Present, and no skip
+// counter anywhere to say so. So no caller sets the source: every commit is this.
+static void Commit (const Selection& chosen, const Fingerprint& print, bool calibrated)
+{
+    g_selection = chosen;
+    // The index count in this fingerprint belongs to THIS model revision.
+    g_fingerprintRevision = g_modelRevision;
+    injection::SetCameraSource (injection::CameraSource::CensusSelectedGroup);
+    g_fingerprint = print;
+    g_binding.fingerprintValid = true;
+    g_selectionLastSeenModel = 0;
+    g_calibrated = calibrated;
+    g_binding.calibrated = calibrated;
+    // ⚠️ THE SHADER IS TOLD WHAT WAS LEARNED, AND REFUSES IF IT CANNOT HONOUR IT.
+    // This is the link that was missing for run thirty-three: the census proved
+    // `p * V * Pt` twice over while the shader rendered `p * V * P`, and nothing
+    // in the pipeline compared the two.
+    injection::SetExpectedInterpretation (chosen.variant);
+    // ⚠️ THE OCCURRENCE TRAVELS WITH THE SIGNATURE. They are one identity, and
+    // handing over only half of it is what let the snapshot take whichever draw
+    // of the family came last.
+    injection::SetSelectedOccurrence (chosen.occurrenceIndex);
+}
+
 // ⚠️ THE TABLE ARRIVES AS A COPY AND THIS FILE NEVER TOUCHES
 // THE CENSUS'S SLOTS. That is what makes the seam real rather than a file move:
 // the decision is a pure function of the measurements plus the gate, and it
@@ -747,28 +741,6 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
     chosen.medianCentreError = best->medianCentreError;
     chosen.medianAreaPixels = best->medianAreaPixels;
     chosen.medianMaxEdgePixels = best->medianMaxEdgePixels;
-    g_selection = chosen;
-    // The index count in this fingerprint belongs to THIS model revision.
-    g_fingerprintRevision = g_modelRevision;
-
-    // ⚠️ SELECTING A CANDIDATE AND POINTING THE INJECTION AT IT ARE
-    // ONE TRANSACTION, AND THEY LIVE HERE. They were two acts in two places:
-    // `ViewerCameraCensus {select:true}` called this and THEN set the source,
-    // while `SetAutoSelect` called this and did not. The runtime therefore
-    // reached a state that is not supposed to exist --
-    //
-    //     selection.valid = true, lifecycle = Locked
-    //     BUT cameraSource = Learner
-    //
-    // -- in which the recognizer truthfully reports a locked camera while the
-    // injection sources from the Learner, whose snapshot path stands down once a
-    // census group is chosen. No snapshot, no `Active`, no Present, and no skip
-    // counter anywhere to say so.
-    //
-    // ⚠️ SO NO CALLER SETS THE SOURCE ANY MORE. One implementation,
-    // reached by both the explicit command and the automatic promotion, is the
-    // only arrangement in which the two cannot drift apart again.
-    injection::SetCameraSource (injection::CameraSource::CensusSelectedGroup);
 
     // ⚠️ AND THE SAME DECISION IS RECORDED IN TERMS THAT OUTLIVE THE
     // RESOURCES. `chosen` is how to find the camera right now; this is what the
@@ -797,11 +769,7 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
     print.variant = chosen.variant;
     print.drawOrdinalFirst = uint32_t (best->drawSequenceFirst);
     print.drawOrdinalLast = uint32_t (best->drawSequenceLast);
-    g_fingerprint = print;
-    g_binding.fingerprintValid = true;
-    g_selectionLastSeenModel = 0;
-    g_calibrated = calibrated;
-    g_binding.calibrated = calibrated;
+    Commit (chosen, print, calibrated);
     g_bind.selected = true;
     g_bind.groupId = chosen.groupId;
     g_bind.occurrenceIndex = chosen.occurrenceIndex;
@@ -811,16 +779,6 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
     g_bind.centreError = best->medianCentreError;
     g_bind.reason = calibrated ? BindReason::HighestCoverage : BindReason::StationaryFallback;
     ++g_bind.serial;
-
-    // ⚠️ THE SHADER IS TOLD WHAT WAS LEARNED, AND REFUSES IF IT CANNOT HONOUR IT.
-    // This is the link that was missing for run thirty-three: the census proved
-    // `p * V * Pt` twice over while the shader rendered `p * V * P`, and nothing
-    // in the pipeline compared the two.
-    injection::SetExpectedInterpretation (chosen.variant);
-    // ⚠️ THE OCCURRENCE TRAVELS WITH THE SIGNATURE. They are one identity, and
-    // handing over only half of it is what let the snapshot take whichever draw
-    // of the family came last.
-    injection::SetSelectedOccurrence (chosen.occurrenceIndex);
     return true;
 }
 

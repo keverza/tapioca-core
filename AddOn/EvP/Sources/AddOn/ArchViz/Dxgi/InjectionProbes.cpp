@@ -5,6 +5,7 @@
 
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
+#include "ArchViz/Dxgi/InjectionRenderer.hpp"
 
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
@@ -368,6 +369,12 @@ void EndQuery (ID3D11DeviceContext* context, size_t probe)
     ++g_stats.probe[probe].queriesIssued;
 }
 
+// The selected family's draws in this model frame and the last, for
+// `OnSelectedFamilyDraw` (see the header).
+uint32_t g_selectionOccurrencesThisFrame = 0;
+uint32_t g_selectionOccurrencesLastFrame = 0;
+uint64_t g_selectionFrame = 0;
+
 } // namespace
 
 void RetainSceneDepthView (ID3D11DepthStencilView* view)
@@ -656,6 +663,25 @@ void DrawDepthProof (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     ReleaseAndNull (savedBlend);
     ReleaseAndNull (boundDsv);
     ReleaseAndNull (boundRtv);
+}
+
+void OnSelectedFamilyDraw (ID3D11DeviceContext* context, uint32_t occurrence, uint64_t modelGeneration)
+{
+    if (g_selectionFrame != modelGeneration) {
+        g_selectionFrame = modelGeneration;
+        g_selectionOccurrencesLastFrame = g_selectionOccurrencesThisFrame;
+        g_selectionOccurrencesThisFrame = 0;
+    }
+    ++g_selectionOccurrencesThisFrame;
+    if (!ProofPrimitives () || g_selectionOccurrencesLastFrame == 0 ||
+        occurrence + 1 != g_selectionOccurrencesLastFrame)
+        return;
+    ID3D11DeviceContext1* context1 = nullptr;
+    if (SUCCEEDED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), (void**) &context1)) &&
+        context1 != nullptr) {
+        DrawDepthProof (context, context1);
+        context1->Release ();
+    }
 }
 
 void SetAnchor (float x, float y, float z, float sizeMetres)

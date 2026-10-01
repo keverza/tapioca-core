@@ -62,15 +62,6 @@ bool g_hostRequested = false;
 // Whether THIS runtime armed the model watch, so stopping the overlay does not
 // stop a watch the portable viewport is relying on.
 bool g_modelWatchStarted = false;
-// ⚠️ HOW MANY REDRAWS THIS STALL HAS ALREADY ASKED FOR.
-// Present re-raises the request on every suppressed frame, so without a bound a
-// stall that Archicad cannot answer would ask forever at four requests a second.
-// The count resets the moment anything composes, because that IS the answer.
-// ⚠️ THE 3D WINDOW THIS SESSION SERVES, NOT WHICHEVER ONE IS
-// IN FRONT. `APIdefs_Database.h` says `typeID` identifies the Floor Plan and 3D
-// Model databases and `index` is the window index, so the pair is the session
-// identity. Resizing one 3D window and switching away before the heartbeat fires
-// must not send that repair to whatever is in front now.
 uint64_t g_reacquisitions = 0;
 CameraState g_lastCamera = CameraState::Unavailable;
 HostState g_lastHost = HostState::Idle;
@@ -636,12 +627,6 @@ void Tick ()
     // SEES THE TRANSITION. The recognizer knows its own state at any instant; it
     // does not know that the previous instant was different, and "how often did
     // this happen" is the number that says whether a session was healthy.
-    // ⚠️ THE ANCHOR FOLLOWS THE VIEW WHILE THERE IS NO LOCK, AND
-    // STOPS THE MOMENT THERE IS ONE. Panning moves the orbit target, so an anchor
-    // fixed at arm time drifts off screen and the scores stop meaning anything.
-    // Moving it AFTER a lock would be worse: the accumulated samples that won the
-    // selection were measured against the old one, and mixing the two would make
-    // a healthy group look like it had started failing.
     // ⚠️ THE ANCHOR FOLLOWS THE VIEW WHILE THERE IS NO LOCK, AND
     // FREEZES THE MOMENT THERE IS ONE. Panning moves the orbit target, so an
     // anchor fixed at arm time drifts off screen and the scores stop meaning

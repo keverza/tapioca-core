@@ -1192,6 +1192,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/PresentedContent.cpp",
     "ArchViz/Dxgi/DrawRecorder.cpp",
     "ArchViz/Dxgi/CameraRecognizer.cpp",
+    "ArchViz/Dxgi/CameraRecognizerDiagnosis.cpp",
     "ArchViz/Dxgi/HostOccluders.cpp",
     "ArchViz/Dxgi/HostOverlay.cpp",
     "ArchViz/Dxgi/ImageTransferTrace.cpp",

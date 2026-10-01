@@ -267,6 +267,12 @@ struct FingerprintDiagnosis {
 };
 FingerprintDiagnosis GetFingerprintDiagnosis ();
 
+// RENDER THREAD. A draw that matched the fingerprint in every term but `term`: counted,
+// and the first such draw's value kept beside the fingerprint's
+// (CameraRecognizerDiagnosis.cpp).
+void NoteSoleMiss (FingerprintDiagnosis& diagnosis, uint32_t term, const contextstate::ContextState& live,
+                   DrawKind kind, uint32_t indexCount, uint32_t occurrence);
+
 // ⚠️ THE LOCK IS A STATE, NOT AN EVENT, AND SAYING SO IS THE POINT.
 // Every run so far has asked "did phase A's camera survive?" at the end and got
 // one bit back, which cannot distinguish "never found" from "found and lost" from

@@ -139,6 +139,18 @@ void DrawAll (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D
 // measured in.
 void DrawDepthProof (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1);
 
+// RENDER THREAD, from the census, at every draw of the SELECTED camera signature:
+// counts the family's draws in each model frame and, while the proof primitives are
+// on (§10), draws the depth proof at the one predicted to be the frame's last.
+//
+// ⚠️ THE LATEST POINT INSIDE THE PASS, NOT THE CAMERA'S OWN DRAW. The camera
+// occurrence is usually the FIRST draw of its family, when Archicad's depth buffer
+// holds almost nothing -- injecting there would let the BEHIND primitive through and
+// read as "depth not working" when it only means "nothing had been drawn yet". So the
+// last occurrence of the previous model frame is this frame's prediction, which
+// self-corrects in one frame and needs no lookahead.
+void OnSelectedFamilyDraw (ID3D11DeviceContext* context, uint32_t occurrence, uint64_t modelGeneration);
+
 // RENDER THREAD, from the census, at the depth proof: keeps a reference to the
 // depth view the model pass was using, so Present can try to test against it.
 //

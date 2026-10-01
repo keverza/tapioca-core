@@ -184,17 +184,6 @@ bool SameTarget (const SignatureCounter& counter, const contextstate::ContextSta
 }
 SignatureCounter g_counters[kSignatureCounters];
 
-// ⚠️ THE DEPTH PROOF WANTS THE LATEST POINT INSIDE THE PASS, NOT THE CAMERA'S
-// OWN DRAW. The camera occurrence is usually the FIRST draw of its family, when
-// Archicad's depth buffer holds almost nothing -- injecting there would let the
-// BEHIND primitive through and read as "depth not working" when it only means
-// "nothing had been drawn yet". So the last occurrence of the previous model
-// frame is used as this frame's prediction, which self-corrects in one frame and
-// needs no lookahead.
-uint32_t g_selectionOccurrencesThisFrame = 0;
-uint32_t g_selectionOccurrencesLastFrame = 0;
-uint64_t g_selectionFrame = 0;
-
 template <typename T> void ReleaseAndNull (T*& object)
 {
     if (object != nullptr) {
@@ -693,24 +682,9 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     // cyan and a yellow triangle -- but ONLY WHILE THE MODEL WAS BEING REDRAWN,
     // because this runs in the scene pass. "Coloured triangles during navigation
     // and nothing at rest" was the shape of the report, and it is the shape of
-    // this call site.
-    if (MatchesSelectionSignature (live)) {
-        if (g_selectionFrame != modelGeneration) {
-            g_selectionFrame = modelGeneration;
-            g_selectionOccurrencesLastFrame = g_selectionOccurrencesThisFrame;
-            g_selectionOccurrencesThisFrame = 0;
-        }
-        ++g_selectionOccurrencesThisFrame;
-        if (injection::ProofPrimitives () && g_selectionOccurrencesLastFrame > 0 &&
-            occurrence + 1 == g_selectionOccurrencesLastFrame) {
-            ID3D11DeviceContext1* context1 = nullptr;
-            if (SUCCEEDED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), (void**) &context1)) &&
-                context1 != nullptr) {
-                injection::probes::DrawDepthProof (context, context1);
-                context1->Release ();
-            }
-        }
-    }
+    // this call site. Gated, and where it is drawn, in `probes::OnSelectedFamilyDraw`.
+    if (MatchesSelectionSignature (live))
+        injection::probes::OnSelectedFamilyDraw (context, occurrence, modelGeneration);
 
     // Only the locked group supplies the verified image witness and camera snapshot --
     // and only its camera draw, not another draw that took its occurrence this frame.
