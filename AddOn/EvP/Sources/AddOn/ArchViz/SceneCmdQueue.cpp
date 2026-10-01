@@ -1,6 +1,7 @@
 #include "ArchViz/SceneCmdQueue.hpp"
 
 #include "ArchViz/Dxgi/HostOccluders.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 
 #include <algorithm>
 
@@ -12,6 +13,13 @@ size_t ElementUpload::Bytes () const
     return guid.capacity () + vertices.capacity () * sizeof (float) + normals.capacity () * sizeof (float) +
            indices.capacity () * sizeof (uint32_t) + ranges.capacity () * sizeof (MaterialRange) +
            wireEdges.capacity () * sizeof (uint32_t);
+}
+
+size_t ElementUpload::PayloadBytes () const
+{
+    return guid.size () + vertices.size () * sizeof (float) + normals.size () * sizeof (float) +
+           indices.size () * sizeof (uint32_t) + ranges.size () * sizeof (MaterialRange) +
+           wireEdges.size () * sizeof (uint32_t);
 }
 
 size_t PointLayerUpload::Bytes () const
@@ -113,7 +121,12 @@ void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
         return; // nothing to hand over; a null node would be a consumer crash
 
     // ⚠️ BEFORE THE MOVE, BECAUSE AFTER IT THERE IS NOTHING TO READ.
+    const auto feedStarted = std::chrono::steady_clock::now ();
     FeedOpaqueOccluders (*upload);
+    const double feedMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - feedStarted).count ();
+    ArchVizLog ("pipeline: stage=geometry-occluders packet=" + std::to_string (upload->packetId) +
+                " payloadBytes=" + std::to_string (upload->PayloadBytes ()) + " wallMs=" + std::to_string (feedMs));
 
     std::lock_guard<std::mutex> lock (mutex_);
     if (!consumer_)
@@ -121,6 +134,7 @@ void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
     pendingBytes_ += upload->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::UpsertElement;
+    cmd.queuedAt = std::chrono::steady_clock::now ();
     cmd.upload = std::move (upload);
     queue_.push_back (std::move (cmd));
 }
@@ -273,6 +287,7 @@ void SceneCmdQueue::PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> stud
     pendingBytes_ += study->Bytes ();
     SceneCmd cmd;
     cmd.type = SceneCmdType::SetSunStudyAtlas;
+    cmd.queuedAt = std::chrono::steady_clock::now ();
     cmd.sunStudy = std::move (study);
     queue_.push_back (std::move (cmd));
 }

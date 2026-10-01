@@ -5,6 +5,7 @@
 
 #include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/DiligentSceneImpl.hpp"
+#include "ArchViz/ScenePacketTrace.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -128,6 +129,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
     size_t applied = 0;
     const size_t elementsBefore = impl_->elements.size ();
     for (SceneCmd& cmd : batch) {
+        ScenePacketTrace packetTrace (cmd);
         ++applied;
 
         switch (cmd.type) {
@@ -224,6 +226,7 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 }
 
                 Entry* existing = impl_->Find (upload.guid);
+                packetTrace.CpuPrepared ();
                 Entry fresh;
                 Entry& e = existing != nullptr ? *existing : fresh;
 
@@ -271,6 +274,10 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                         ++e.transparentRanges;
                 }
 
+                if (existing == nullptr)
+                    packetTrace.Applied (fresh.gpuBytes);
+                else
+                    packetTrace.Applied (e.gpuBytes);
                 if (existing == nullptr)
                     impl_->elements.push_back (std::move (fresh));
                 break;
@@ -350,6 +357,8 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 // Whole, and it replaces: ApplySunStudy releases the previous
                 // atlas and every element's previous side buffer first.
                 ApplySunStudy (device, std::move (cmd.sunStudy));
+                if (impl_->sunStudyPayload != nullptr)
+                    packetTrace.Applied ();
                 break;
 
             case SceneCmdType::ClearSunStudy:

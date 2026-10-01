@@ -33,6 +33,7 @@
 #include "ArchViz/SunStudyOverlay.hpp" // SunStudyAtlasUpload
 
 #include <cstdint>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -103,6 +104,8 @@ enum class SceneCmdType : uint8_t {
 // converting or re-ordering on the render thread.
 struct ElementUpload {
     std::string guid;
+    uint64_t packetId = 0;
+    std::chrono::steady_clock::time_point capturedAt;
 
     // ⚠️ FLOAT, CONVERTED BY THE PRODUCER. `geomsrv::Mesh::vertices` is DOUBLE
     // (world metres); the GPU wants float, and the conversion belongs on the
@@ -138,6 +141,7 @@ struct ElementUpload {
     // Retained heap bytes, so "how much is the viewer holding" is reportable
     // rather than folklore — the same courtesy geomsrv::Mesh::Bytes offers.
     size_t Bytes () const;
+    size_t PayloadBytes () const;
 };
 
 struct PointLayerUpload {
@@ -247,6 +251,7 @@ struct StorySliceUpload {
 
 struct SceneCmd {
     SceneCmdType type = SceneCmdType::BeginBatch;
+    std::chrono::steady_clock::time_point queuedAt;
     // Set for UpsertElement, null otherwise.
     std::unique_ptr<ElementUpload> upload;
     // Set for SetMaterials, null otherwise. Owning, same handover rule as

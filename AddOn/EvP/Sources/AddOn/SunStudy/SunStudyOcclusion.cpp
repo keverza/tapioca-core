@@ -1,6 +1,7 @@
 #include "SunStudy/SunStudyOcclusion.hpp"
 
 #include <algorithm>
+#include <chrono>
 
 namespace evp::sunstudy {
 
@@ -27,6 +28,35 @@ void OcclusionAccumulator::Reset ()
     std::fill (bits_.begin (), bits_.end (), 0ull);
     std::fill (stepResolved_.begin (), stepResolved_.end (), uint8_t { 0 });
     resolvedCount_ = 0;
+    selective_ = false;
+    activeSamples_.clear ();
+}
+
+bool OcclusionAccumulator::SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples)
+{
+    if (&source == this || !source.Complete () || source.stepCount_ != stepCount_ ||
+        sourceSamples.size () != sampleCount_ || resolvedCount_ != 0)
+        return false;
+    for (const size_t sample : sourceSamples) {
+        if (sample != kNoReuse && sample >= source.sampleCount_)
+            return false;
+    }
+    activeSamples_.clear ();
+    std::fill (bits_.begin (), bits_.end (), 0ull);
+    for (size_t sample = 0; sample < sampleCount_; ++sample) {
+        const size_t from = sourceSamples[sample];
+        if (from == kNoReuse)
+            activeSamples_.push_back (static_cast<uint32_t> (sample));
+        else
+            std::copy_n (source.bits_.begin () + from * wordsPerSample_, wordsPerSample_,
+                         bits_.begin () + sample * wordsPerSample_);
+    }
+    selective_ = true;
+    if (activeSamples_.empty ()) {
+        std::fill (stepResolved_.begin (), stepResolved_.end (), uint8_t { 1 });
+        resolvedCount_ = stepCount_;
+    }
+    return true;
 }
 
 bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const SampleSet& samples, size_t stepIndex,
@@ -48,10 +78,14 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
 
     const size_t word = stepIndex / kBitsPerWord;
     const uint64_t bit = 1ull << (stepIndex % kBitsPerWord);
+    const auto started = std::chrono::steady_clock::now ();
+    traceMilliseconds_ = 0.0;
 
     // Re-resolving a step must not double-count, so its bit is cleared first.
-    for (size_t s = 0; s < sampleCount_; ++s)
+    for (size_t i = 0; i < ActiveSampleCount (); ++i) {
+        const size_t s = selective_ ? activeSamples_[i] : i;
         bits_[s * wordsPerSample_ + word] &= ~bit;
+    }
 
     // ⚠️ BACK-FACING SAMPLES ARE CULLED BEFORE THE RAY, NOT AFTER. A surface
     // turned away from the sun is self-shadowed whatever the geometry does, so
@@ -61,10 +95,11 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     // traversal's work contiguous.
     frontFacingOrigins_.clear ();
     frontFacingIndex_.clear ();
-    frontFacingOrigins_.reserve (sampleCount_ * 3);
-    frontFacingIndex_.reserve (sampleCount_);
+    frontFacingOrigins_.reserve (ActiveSampleCount () * 3);
+    frontFacingIndex_.reserve (ActiveSampleCount ());
 
-    for (size_t s = 0; s < sampleCount_; ++s) {
+    for (size_t i = 0; i < ActiveSampleCount (); ++i) {
+        const size_t s = selective_ ? activeSamples_[i] : i;
         if (samples.normals != nullptr) {
             const double* n = &samples.normals[s * 3];
             const double incidence = n[0] * sunDirection[0] + n[1] * sunDirection[1] + n[2] * sunDirection[2];
@@ -79,10 +114,14 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     }
 
     const size_t traced = frontFacingIndex_.size ();
+    const auto compacted = std::chrono::steady_clock::now ();
+    compactMilliseconds_ = std::chrono::duration<double, std::milli> (compacted - started).count ();
     if (traced > 0) {
         occluded_.assign (traced, 0u);
         traversal.OccludeDirectional (frontFacingOrigins_.data (), traced, sunDirection, tmin, tmax, occluded_.data (),
                                       maxParallel);
+        traceMilliseconds_ =
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - compacted).count ();
 
         for (size_t i = 0; i < traced; ++i) {
             if (occluded_[i] != 0)

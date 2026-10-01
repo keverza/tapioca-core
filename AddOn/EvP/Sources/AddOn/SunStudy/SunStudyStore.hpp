@@ -82,6 +82,11 @@ struct StudyRecord {
     // The snapshot the study ran on. A face index means something only against
     // it: after a rebuild the same index names another triangle.
     uint64_t snapshotId = 0;
+    std::shared_ptr<const geomsrv::Snapshot> snapshot;
+    // Owning mesh index per sample; never treated as identity across snapshots.
+    std::vector<uint32_t> sampleMeshes;
+    size_t reusedSamples = 0;
+    bool defaultRayBounds = true;
     size_t sourceStepCount = 0;
 
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the
@@ -178,6 +183,12 @@ class SunStudyStore final {
     // Queue a request against this record, not a replacement with the same id.
     // Zero means absent; revision checks and resolution are atomic under mutex_.
     uint64_t Revision (const std::string& id) const;
+
+    // Retain a completed record without copying megabytes on the host thread.
+    // Converged sessions are immutable: Advance returns before touching them.
+    // Only sample/geometry/series/accumulator fields may be read through this
+    // handle; cancellation remains atomic and metadata is not a worker API.
+    std::shared_ptr<const StudyRecord> CompletedRecord (const std::string& id) const;
 
     // Read under the lock and copy out, so a caller never holds a pointer into
     // a study another thread may erase.

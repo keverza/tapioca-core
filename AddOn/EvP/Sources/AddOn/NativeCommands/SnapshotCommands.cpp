@@ -12,6 +12,7 @@
 #include "Metadata/MetadataStore.hpp"
 #include "Screenshot/ScreenshotStore.hpp"
 #include "Server/ServerState.hpp"
+#include "ArchViz/ScenePacketTrace.hpp"
 
 #include <chrono>
 #include <memory>
@@ -82,7 +83,10 @@ class BuildSnapshotCommand : public MainThreadCommand {
         pc.SetProcessName ("EvP: extracting geometry");
 
         const uint64_t id = g_nextSnapshotId++;
+        const auto captureStarted = std::chrono::steady_clock::now ();
         auto snap = selectionOnly ? ExtractSelectedElements (id) : ExtractAllElements (id);
+        const double captureMs =
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - captureStarted).count ();
 
         if (!snap) {
             return NativeCommandResult::Failure (selectionOnly ? "could not read the selection"
@@ -90,6 +94,7 @@ class BuildSnapshotCommand : public MainThreadCommand {
         }
 
         GS::ObjectState os;
+        archviz::LogSnapshotCapture (*snap, captureMs);
 
         // Drop excluded types before anything downstream pays for them.
         size_t droppedElems = 0, droppedTris = 0;

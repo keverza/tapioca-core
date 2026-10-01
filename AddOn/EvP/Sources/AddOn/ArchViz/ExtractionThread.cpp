@@ -8,6 +8,7 @@
 #include "ArchViz/ExtractionSubstance.hpp"   // ReadProjectSubstances, ObserveElementSubstances
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/MeshGroups.hpp"
+#include "ArchViz/ElementPacket.hpp"
 #include "ArchViz/ExtractionStorySlices.hpp" // ReadStoreys, StorySliceAccumulator
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "Geometry/GeometryExtractor.hpp"
@@ -100,7 +101,7 @@ struct SliceState {
     }
     std::atomic<int64_t> holdMs { 0 };
     std::atomic<bool> completed { false };
-    std::vector<Mesh> meshes;
+    std::vector<CapturedMeshPacket> meshes;
     // RE51: what this slice saw about which surfaces sit on which substances.
     // ⚠️ PLAIN, LIKE `meshes`, AND HARVESTED ON THE SAME TERMS -- only when the
     // slice completed AND the Invoke returned ok. A timed-out slice is abandoned
@@ -124,6 +125,7 @@ struct SliceState {
 struct ModelHandle {
     ModelerAPI::Model* model = nullptr;
     int32_t count = 0;
+    double captureMilliseconds = 0.0;
 
     // ⚠️ SET WHEN THE ACQUIRE TIMES OUT, AND THE LAMBDA MUST CHECK IT. A gate
     // Invoke that reports a timeout may STILL RUN LATER — the contract says so
@@ -134,57 +136,17 @@ struct ModelHandle {
     std::atomic<bool> abandoned { false };
 };
 
-// One extracted Mesh -> one ElementUpload, ready for the GPU.
-//
-// ⚠️ THIS RUNS ON THE WORKER THREAD, BETWEEN SLICES, and that is the whole
-// division of labour (see the header). Nothing here is ACAPI; all of it is the
-// per-vertex and per-triangle work that would otherwise be charged to Archicad's
-// main thread for no reason.
-std::unique_ptr<ElementUpload> MakeUpload (const Mesh& mesh)
+// Main-thread capture: record timings without logging inside a host slice.
+bool CaptureElementPacket (ModelerAPI::Model& model, int32_t index, std::vector<CapturedMeshPacket>& packets)
 {
-    if (mesh.triangles.empty () || mesh.vertices.empty ())
-        return nullptr;
-
-    auto up = std::make_unique<ElementUpload> ();
-    up->guid = mesh.guid;
-
-    // double -> float. See ElementUpload's ⚠️ on georeferenced projects: this is
-    // where the ~10 cm quantisation would enter, and `bounds` is carried so a
-    // later rebase can fix it without re-extracting (PLAT-BGFX-P6-PRECISION).
-    up->vertices.resize (mesh.vertices.size ());
-    for (size_t i = 0; i < mesh.vertices.size (); ++i)
-        up->vertices[i] = static_cast<float> (mesh.vertices[i]);
-
-    up->normals = mesh.normals; // already float, already per-corner
-
-    // ⚠️ THE ONE ALGORITHM THAT FAILS SILENTLY (plan §6.3). Skipping it renders
-    // every surface of an element in the first material's colour.
-    BuildMaterialGroups (mesh.triangles, mesh.triMaterial, up->indices, up->ranges, &mesh.triWireEdges, &up->wireEdges);
-    if (up->indices.empty ())
-        return nullptr;
-
-    if (mesh.bounds.Valid ()) {
-        for (int k = 0; k < 3; ++k) {
-            up->boundsMin[k] = static_cast<float> (mesh.bounds.mn[k]);
-            up->boundsMax[k] = static_cast<float> (mesh.bounds.mx[k]);
-        }
-    }
-    else {
-        // An element whose AABB never got expanded still has vertices; deriving
-        // the box here keeps it out of the world bounds' "zoom to fit" as a
-        // point at infinity, which would frame the camera on nothing.
-        for (int k = 0; k < 3; ++k) {
-            up->boundsMin[k] = 1e30f;
-            up->boundsMax[k] = -1e30f;
-        }
-        for (size_t i = 0; i + 2 < up->vertices.size (); i += 3) {
-            for (int k = 0; k < 3; ++k) {
-                up->boundsMin[k] = std::min (up->boundsMin[k], up->vertices[i + k]);
-                up->boundsMax[k] = std::max (up->boundsMax[k], up->vertices[i + k]);
-            }
-        }
-    }
-    return up;
+    CapturedMeshPacket packet;
+    const auto started = std::chrono::steady_clock::now ();
+    if (!ExtractElementAt (model, index, packet.mesh))
+        return false;
+    packet.capturedAt = std::chrono::steady_clock::now ();
+    packet.captureMilliseconds = std::chrono::duration<double, std::milli> (packet.capturedAt - started).count ();
+    packets.push_back (std::move (packet));
+    return true;
 }
 
 } // namespace
@@ -358,6 +320,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     GS::UniString gateErr;
     const bool acquired = evp::MainThreadGate::Get ().Invoke (
         [handle, materials, env, haveEnv, substances, storeys, full, wantStorySlices] {
+            const auto started = std::chrono::steady_clock::now ();
             auto model = std::make_unique<ModelerAPI::Model> ();
             if (!AcquireCurrentModel (*model))
                 return; // handle->model stays null: "no 3D model"
@@ -377,6 +340,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 *storeys = ReadStoreys ();
             haveEnv->store (ReadEnvironment (*env));
             handle->model = model.release (); // ⚠️ ownership moves to the pass
+            handle->captureMilliseconds =
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
         },
         AcquireTimeoutMs, gateErr);
     const int64_t acquireMs = NowMs () - acquireStart;
@@ -404,6 +369,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         fail ("this project has no 3D model to show - open the 3D window once, then refresh");
         return false;
     }
+    ArchVizLog ("pipeline: stage=geometry-acquire elements=" + std::to_string (handle->count) +
+                " hostCaptureMs=" + std::to_string (handle->captureMilliseconds) +
+                " gateRoundTripMs=" + std::to_string (acquireMs) + " full=" + std::to_string (full));
 
     StorySliceAccumulator storeySlices;
     storeySlices.Begin (*storeys, wantStorySlices && full);
@@ -537,10 +505,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 int32_t i = st->next.load ();
                 while (i <= count) {
                     if (wanted->empty ()) {
-                        Mesh mesh;
-                        if (ExtractElementAt (*model, i, mesh))
-                            st->meshes.push_back (std::move (mesh));
-                        else
+                        if (!CaptureElementPacket (*model, i, st->meshes))
                             st->NoteEmpty (ElementTypeNameAt (*model, i));
                     }
                     else {
@@ -552,10 +517,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                         // exist.
                         const std::string guid = ElementGuidAt (*model, i);
                         if (!guid.empty () && wanted->count (guid) > 0) {
-                            Mesh mesh;
-                            if (ExtractElementAt (*model, i, mesh))
-                                st->meshes.push_back (std::move (mesh));
-                            else
+                            if (!CaptureElementPacket (*model, i, st->meshes))
                                 st->NoteEmpty (ElementTypeNameAt (*model, i));
                             st->matched.push_back (guid);
                         }
@@ -606,17 +568,22 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         consecutiveTimeouts = 0;
 
         const int32_t advanced = st->next.load ();
+        ArchVizLog ("pipeline: stage=geometry-slice first=" + std::to_string (cursor) +
+                    " next=" + std::to_string (advanced) + " elements=" + std::to_string (st->meshes.size ()) +
+                    " hostHoldMs=" + std::to_string (st->holdMs.load ()) +
+                    " gateRoundTripMs=" + std::to_string (NowMs () - sliceStart));
 
         // ---- the worker's own half: convert, group, hand over ---------------
         // Off the main thread, while Archicad has it back.
         uint32_t pushed = 0;
         uint64_t triangles = 0;
-        for (const Mesh& mesh : st->meshes) {
+        for (const auto& packet : st->meshes) {
+            const Mesh& mesh = packet.mesh;
             if (extractedGuids != nullptr)
                 extractedGuids->push_back (mesh.guid);
             storeySlices.Cut (mesh); // no-op unless slices were asked for
 
-            std::unique_ptr<ElementUpload> up = MakeUpload (mesh);
+            std::unique_ptr<ElementUpload> up = MakeElementPacket (packet);
             if (up == nullptr)
                 continue;
             triangles += up->indices.size () / 3;

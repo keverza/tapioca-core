@@ -62,6 +62,27 @@ class OcclusionAccumulator final {
     // Clears every bit and every step's done-flag.
     void Reset ();
 
+    // Copy complete-day bits for proven unaffected samples. Unmapped samples
+    // alone are traced on later steps; zero sunlight is a reusable result too.
+    static constexpr size_t kNoReuse = static_cast<size_t> (-1);
+    bool SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples);
+    size_t ActiveSampleCount () const
+    {
+        return selective_ ? activeSamples_.size () : sampleCount_;
+    }
+    size_t LastRayCount () const
+    {
+        return frontFacingIndex_.size ();
+    }
+    double LastCompactMilliseconds () const
+    {
+        return compactMilliseconds_;
+    }
+    double LastTraceMilliseconds () const
+    {
+        return traceMilliseconds_;
+    }
+
     // Resolve one timestep for every sample.
     //
     // Returns false for an out-of-range step or a mismatched sample set, having
@@ -122,6 +143,10 @@ class OcclusionAccumulator final {
 
     std::vector<uint64_t> bits_;
     std::vector<uint8_t> stepResolved_;
+    bool selective_ = false;
+    std::vector<uint32_t> activeSamples_;
+    double compactMilliseconds_ = 0.0;
+    double traceMilliseconds_ = 0.0;
 
     // Reused across steps; see the header note on per-step allocation.
     mutable std::vector<double> frontFacingOrigins_;

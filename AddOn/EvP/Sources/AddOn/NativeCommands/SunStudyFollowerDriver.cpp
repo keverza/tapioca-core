@@ -14,7 +14,6 @@
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyTaskWorker.hpp"
 #include "SunStudy/SunStudyRefreshSchedule.hpp"
-#include "SunStudy/SunStudyPreviewPlan.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Python/MainThreadGate.hpp"
 
@@ -85,12 +84,7 @@ bool s_navigationDeferred = false;
 std::atomic<bool> s_completionTickPending { false };
 std::atomic<uint64_t> s_completionWakes { 0 };
 std::atomic<uint64_t> s_completionWakeFailures { 0 };
-bool s_previewEnabled = false;
-double s_previewSpacing = 0.0;
-bool s_previewRun = false;
-bool s_refinementPending = false;
-std::string s_previewStudyId;
-uint64_t s_previewRevision = 0;
+std::shared_ptr<const evp::sunstudy::StudyRecord> s_reuseRecord;
 int64_t s_phaseStartedMs = 0;
 
 void WakeFollower (uint64_t sessionGeneration)
@@ -295,17 +289,8 @@ void Log (const std::string& line)
     archviz::ArchVizLog ("sun follow: " + line);
 }
 
-void ReleasePreview ()
-{
-    if (!s_previewStudyId.empty ())
-        evp::sunstudy::SunStudyStore::Get ().Erase (s_previewStudyId, s_previewRevision);
-    s_previewStudyId.clear ();
-    s_previewRevision = 0;
-}
-
 void RetireRun (const char* reason, bool cancelled = true)
 {
-    s_refinementPending = false;
     PreparationWorker ().Cancel ();
     if (s_preparation != nullptr) {
         if (cancelled)
@@ -359,29 +344,24 @@ bool RefreshSnapshot ()
     return true;
 }
 
-void StartReplacement (const SunStudyDependencySignature& signature, int64_t now, bool refinement = false)
+void StartReplacement (const SunStudyDependencySignature& signature, int64_t now)
 {
     // ⚠️ THE GENERATION IS TAKEN BEFORE THE COMMAND RUNS. StartSunStudy is not
     // instantaneous, and a generation read afterwards could already belong to an
     // edit that arrived while it worked -- which would make a superseded run look
     // current, the one failure this whole mechanism exists to prevent.
-    if (!refinement) {
-        gRunGeneration = gFollower.NoteStarted (signature, now);
-        ++gStarts;
-    }
+    gRunGeneration = gFollower.NoteStarted (signature, now);
+    ++gStarts;
     gRunSignature = signature;
     gRunStudyId.clear ();
     s_runProgress = {};
-    s_previewRun = s_previewEnabled && !refinement;
-    s_refinementPending = false;
 
     const int64_t started = NowMs ();
     s_phaseStartedMs = started;
     std::shared_ptr<const CapturedSunStudyInputs> captured;
-    ActiveSunStudyConfig samplingConfig = gConfig;
-    if (s_previewRun)
-        samplingConfig.grid = s_previewSpacing;
-    const NativeCommandResult capture = CaptureSunStudyInputs (StartParams (samplingConfig), captured);
+    // Never replace the whole atlas with a coarse grid. Unchanged receivers
+    // retain their full-resolution day; dirty receivers use the requested grid.
+    const NativeCommandResult capture = CaptureSunStudyInputs (StartParams (gConfig), captured);
     LogHostPhase ("sun capture", started);
     if (!capture.ok) {
         s_stage = "failed";
@@ -397,8 +377,11 @@ void StartReplacement (const SunStudyDependencySignature& signature, int64_t now
     request.runGeneration = gRunGeneration;
     const uint64_t sessionGeneration = s_sessionGeneration;
     request.onReady = [sessionGeneration] () { WakeFollower (sessionGeneration); };
-    request.execute = [captured, output] (const std::atomic<bool>& cancelled) {
-        output->result = PrepareCapturedSunStudy (captured, cancelled);
+    const auto accepted = gFollower.StudySignature ();
+    const auto reuseSource =
+        accepted.sun == signature.sun && accepted.sampling == signature.sampling ? s_reuseRecord : nullptr;
+    request.execute = [captured, output, reuseSource] (const std::atomic<bool>& cancelled) {
+        output->result = PrepareCapturedSunStudy (captured, cancelled, reuseSource);
         if (output->result.ok) {
             GS::UniString id;
             output->result.data.Get ("studyId", id);
@@ -416,17 +399,13 @@ void StartReplacement (const SunStudyDependencySignature& signature, int64_t now
         s_preparation.reset ();
         return;
     }
-    s_stage = s_previewRun ? "preparingPreview" : "preparing";
+    s_stage = "preparing";
     Log ("preparing generation=" + std::to_string (gRunGeneration) +
          " snapshot=" + std::to_string (signature.geometry));
 }
 
 bool PollPreparation (int64_t now)
 {
-    if (s_refinementPending) {
-        StartReplacement (gRunSignature, now, true);
-        return false;
-    }
     if (s_preparation == nullptr)
         return true;
     evp::sunstudy::StudyTaskCompletion completion;
@@ -455,7 +434,7 @@ bool PollPreparation (int64_t now)
     }
     gRunStudyId = output->studyId;
     s_runRevision = output->revision;
-    s_stage = s_previewRun ? "calculatingPreview" : (s_previewEnabled ? "refining" : "calculating");
+    s_stage = "calculating";
     return true;
 }
 
@@ -552,7 +531,7 @@ void AdvanceOneSlice (int64_t now)
     // would re-adopt its own result, reset the quiet period it was started by,
     // and overwrite the configuration with one derived from itself.
     show.Add ("follow", false);
-    show.Add ("preview", s_previewRun);
+    show.Add ("preview", false);
     show.Add ("debug", (GS::Int32) gConfig.debug);
     show.Add ("depth", (GS::Int32) gConfig.depth);
     if (gConfig.hoursMax > 0.0)
@@ -572,24 +551,14 @@ void AdvanceOneSlice (int64_t now)
         s_stage = "failed";
         return;
     }
-    if (s_previewRun) {
-        ReleasePreview ();
-        s_previewStudyId = gRunStudyId;
-        s_previewRevision = s_runRevision;
-        s_refinementPending = true;
-        Log ("complete-day coarse preview study=" + gRunStudyId +
-             " wallMs=" + std::to_string (NowMs () - s_phaseStartedMs) + " -- full grid refinement pending");
-    }
-    else {
-        gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now);
-        ReleasePreview ();
-        ++gAccepted;
-        ++gReruns;
-        Log ("accepted generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId +
-             " wallMs=" + std::to_string (NowMs () - s_phaseStartedMs) + " -- queued for display");
-    }
+    s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (gRunStudyId);
+    gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now);
+    ++gAccepted;
+    ++gReruns;
+    Log ("accepted generation=" + std::to_string (gRunGeneration) + " study=" + gRunStudyId +
+         " wallMs=" + std::to_string (NowMs () - s_phaseStartedMs) + " -- full-resolution queued for display");
     gRunStudyId.clear ();
-    s_stage = s_previewRun ? "previewVisible" : "current";
+    s_stage = "current";
 }
 
 // ⚠️ THE LOCK IS ALREADY HELD BY THE CALLER. std::mutex is not recursive, so
@@ -599,13 +568,10 @@ void DisableLocked ()
     gAutoFollow = false;
     ++s_sessionGeneration; // queued adoption/completion from a closed session is obsolete
     RetireRun ("following disabled");
-    ReleasePreview ();
+    s_reuseRecord.reset ();
     s_runProgress = {};
     s_stage = "idle";
     s_navigationDeferred = false;
-    s_previewEnabled = false;
-    s_previewRun = false;
-    s_previewSpacing = 0.0;
     gConfig = ActiveSunStudyConfig {};
     gFollower.Clear ();
     gRunStudyId.clear ();
@@ -665,14 +631,6 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     std::lock_guard<std::mutex> lock (gMutex);
     if (sessionGeneration != s_sessionGeneration || !archviz::modelwatch::Get ().running)
         return;
-    if (studyId == s_previewStudyId) {
-        // Explicit adoption transfers cache ownership to the manual caller.
-        s_previewStudyId.clear ();
-        s_previewRevision = 0;
-    }
-    else
-        ReleasePreview ();
-    s_refinementPending = false;
     if (studyId == gRunStudyId) {
         // The user explicitly takes ownership of this cache; stop scheduling
         // it but do not erase the study just handed to the display consumer.
@@ -688,13 +646,7 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     gSeenGeometryEdits = archviz::modelwatch::Get ().geometryEdits;
     s_refreshSchedule.Reset (gSeenGeometryEdits);
     s_stage = "current";
-    size_t samples = 0;
-    double area = 0.0;
-    std::string footprintError;
-    const bool haveFootprint = evp::sunstudy::SunStudyStore::Get ().Footprint (studyId, samples, area, footprintError);
-    const auto previewPlan = evp::sunstudy::MakeSunStudyPreviewPlan (haveFootprint ? samples : 0, gConfig.grid);
-    s_previewEnabled = previewPlan.enabled;
-    s_previewSpacing = previewPlan.previewSpacing;
+    s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (studyId);
 
     const SunStudyDependencySignature signature = BuildCurrentSignature (gConfig);
     gFollower.Adopt (studyId, signature, NowMs ());
@@ -771,7 +723,7 @@ void Tick ()
     const SunStudyDependencySignature world = BuildCurrentSignature (gConfig);
     if (gFollower.Observe (world, now))
         Log (gFollower.Describe ());
-    if ((!gRunStudyId.empty () || s_preparation != nullptr || s_refinementPending) &&
+    if ((!gRunStudyId.empty () || s_preparation != nullptr) &&
         (gRunGeneration != gFollower.Generation () || gRunSignature != world))
         RetireRun ("inputs superseded");
 

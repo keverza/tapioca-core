@@ -5,6 +5,7 @@
 #include "NativeCommands/CommandUtils.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
+#include "NativeCommands/SunStudyPreparation.hpp"
 
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
@@ -74,8 +75,9 @@ using sunstudysupport::Utf8;
 class StartSunStudyCommand : public MainThreadCommand {
   public:
     StartSunStudyCommand () = default;
-    StartSunStudyCommand (std::shared_ptr<const CapturedSunStudyInputs> captured, const std::atomic<bool>* cancelled)
-        : captured_ (std::move (captured)), cancelled_ (cancelled)
+    StartSunStudyCommand (std::shared_ptr<const CapturedSunStudyInputs> captured, const std::atomic<bool>* cancelled,
+                          std::shared_ptr<const StudyRecord> reuseSource = nullptr)
+        : captured_ (std::move (captured)), cancelled_ (cancelled), reuseSource_ (std::move (reuseSource))
     {
     }
     GS::String GetName () const override
@@ -92,10 +94,12 @@ class StartSunStudyCommand : public MainThreadCommand {
                 return capture;
         }
         const std::shared_ptr<const Snapshot>& snapshot = captured->snapshot;
+        SunStudyPreparationTrace trace (snapshot->id);
         if (IsCancelled ())
             return NativeCommandResult::Failure ("sun study preparation cancelled");
 
         std::shared_ptr<const QueryEngine> engine = QueryIndexCache::Get ().For (snapshot);
+        trace.Mark ("bvh");
         if (engine == nullptr)
             return NativeCommandResult::Failure ("the snapshot has no geometry to study");
         if (IsCancelled ())
@@ -128,6 +132,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         std::shared_ptr<const QueryEngine> occluders = engine;
         if (const auto subset = evp::sunstudy::OccluderSnapshot (*snapshot, roles))
             occluders = std::make_shared<const QueryEngine> (subset);
+        trace.Mark ("roles-occluders");
 
         const API_PlaceInfo& place = captured->place;
 
@@ -153,23 +158,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         // ---- the samples -----------------------------------------------------
         double snapshotMin[3] = { 0.0, 0.0, 0.0 };
         double snapshotMax[3] = { 0.0, 0.0, 0.0 };
-        bool haveBounds = false;
-        for (const Mesh& mesh : snapshot->meshes) {
-            for (size_t v = 0; v + 2 < mesh.vertices.size (); v += 3) {
-                for (int axis = 0; axis < 3; ++axis) {
-                    const double value = mesh.vertices[v + axis];
-                    if (!haveBounds) {
-                        snapshotMin[axis] = snapshotMax[axis] = value;
-                    }
-                    else {
-                        snapshotMin[axis] = std::min (snapshotMin[axis], value);
-                        snapshotMax[axis] = std::max (snapshotMax[axis], value);
-                    }
-                }
-                haveBounds = true;
-            }
-        }
-        if (!haveBounds)
+        if (!SunStudySnapshotBounds (*snapshot, snapshotMin, snapshotMax))
             return NativeCommandResult::Failure ("the snapshot has no vertices to bound");
 
         const double spacing = ReadDouble (params, "grid", 2.0);
@@ -282,6 +271,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                     triangles.push_back (base + index);
                 groups.resize (triangles.size () / 3, static_cast<uint32_t> (m));
             }
+            trace.Mark ("flatten", vertices.size () * sizeof (double) + triangles.size () * sizeof (uint32_t));
 
             // ⚠️ WINDING IS PROVED BEFORE ANYTHING IS SAMPLED, because every
             // later step trusts the face normal: the sampler lifts each sample
@@ -293,6 +283,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             const std::vector<uint32_t> oriented =
                 evp::sunstudy::OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (),
                                               triangles.size () / 3, groups.data (), winding);
+            trace.Mark ("winding", oriented.size () * sizeof (uint32_t));
             if (IsCancelled ())
                 return NativeCommandResult::Failure ("sun study preparation cancelled");
 
@@ -329,6 +320,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 evp::sunstudy::PatchSampleGrid patches =
                     evp::sunstudy::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
                                                          oriented.size () / 3, groups.data (), elementOf, patchOptions);
+                trace.Mark ("sampling", patches.positions.size () * sizeof (double) * 2);
                 if (!patches.valid)
                     return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
 
@@ -348,6 +340,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 // already handed out -- and the result draws perfectly, in
                 // somebody else's colours.
                 record->patchAtlas.Fit (patches, 1, limits.maxAtlasDimension);
+                trace.Mark ("atlas", record->patchAtlas.TexelCount () * sizeof (float));
                 if (record->patchAtlas.Width () == 0) {
                     return NativeCommandResult::Failure (
                         "the patch atlas could not be packed within the maximum texture dimension - ask for a "
@@ -370,6 +363,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 const evp::sunstudy::SampleGrid samples =
                     evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
                                                     oriented.size () / 3, groups.data (), options);
+                trace.Mark ("sampling", samples.positions.size () * sizeof (double) * 2);
                 if (!samples.valid)
                     return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
 
@@ -385,6 +379,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 // every texture coordinate already handed to a consumer.
                 record->sampleGrid = samples;
                 record->atlas = evp::sunstudy::BuildSunStudyAtlas (samples);
+                trace.Mark ("atlas", record->atlas.width * static_cast<size_t> (record->atlas.height) * sizeof (float));
                 atlasWidth = record->atlas.width;
                 atlasHeight = record->atlas.height;
                 atlasFaces = record->atlas.placedFaces;
@@ -433,6 +428,8 @@ class StartSunStudyCommand : public MainThreadCommand {
         inputs.sunVersion = record->series.Version ();
         inputs.gridVersion = gridVersion;
         record->session.Sync (inputs, record->series, record->Samples ());
+        FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_);
+        trace.Mark ("reuse-seed", record->session.Accumulator ().Bits ().size () * sizeof (uint64_t));
 
         const StudyProgress progress = record->session.Progress ();
         const double daylightHours = record->series.DaylightHours ();
@@ -497,6 +494,7 @@ class StartSunStudyCommand : public MainThreadCommand {
     }
     std::shared_ptr<const CapturedSunStudyInputs> captured_;
     const std::atomic<bool>* cancelled_ = nullptr;
+    std::shared_ptr<const StudyRecord> reuseSource_;
 };
 
 // ---------------------------------------------------------------------------
@@ -982,12 +980,14 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
 } // namespace
 
 NativeCommandResult PrepareCapturedSunStudy (const std::shared_ptr<const CapturedSunStudyInputs>& captured,
-                                             const std::atomic<bool>& cancelled)
+                                             const std::atomic<bool>& cancelled,
+                                             std::shared_ptr<const evp::sunstudy::StudyRecord> reuseSource)
 {
     if (captured == nullptr || captured->snapshot == nullptr)
         return NativeCommandResult::Failure ("sun study preparation requires owned inputs");
     GS::ProcessControlInterruptDelegate processControl (nullptr);
-    return StartSunStudyCommand (captured, &cancelled).ExecuteNative (captured->params, processControl);
+    return StartSunStudyCommand (captured, &cancelled, std::move (reuseSource))
+        .ExecuteNative (captured->params, processControl);
 }
 
 NativeCommandRegistrations GetSunStudyCommandRegistrations ()

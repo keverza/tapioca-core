@@ -464,6 +464,12 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),
+    # Pipeline instrumentation must share the renderer packet byte accounting
+    # and log sink, not copy them into the command/analysis engines. These narrow
+    # adapters observe owned packets only; no device, UI, or SDK calls are added.
+    ("NativeCommands/SnapshotCommands.cpp", "ArchViz/ScenePacketTrace.hpp"),
+    ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/ScenePacketTrace.hpp"),
+    ("NativeCommands/SunStudyPreparation.cpp", "ArchViz/ArchVizLog.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentFxLink.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentProbe.hpp"),

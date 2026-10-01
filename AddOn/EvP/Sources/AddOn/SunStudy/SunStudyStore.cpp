@@ -159,6 +159,12 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
             error = "sun study record changed";
             return false;
         }
+        if (progress_.at (id).converged)
+            return true; // completed accumulator is an immutable reuse source
+        if (found->second->reusedSamples != 0 && (tmin != 0.001 || tmax != 0.0)) {
+            error = "incremental sun study requires its original ray bounds";
+            return false;
+        }
         // ⚠️ A PER-STUDY FLAG, NOT A GLOBAL ONE. Two callers advancing the SAME
         // study would interleave slices into one accumulator; two callers
         // advancing DIFFERENT studies is fine and must stay fine.
@@ -168,6 +174,8 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         }
         advancing_[id] = true;
         record = found->second;
+        if (tmin != 0.001 || tmax != 0.0)
+            record->defaultRayBounds = false;
     }
 
     const auto start = std::chrono::steady_clock::now ();
@@ -236,6 +244,15 @@ uint64_t SunStudyStore::Revision (const std::string& id) const
     std::lock_guard<std::mutex> lock (mutex_);
     const auto found = studies_.find (id);
     return found == studies_.end () ? 0 : found->second->storeRevision;
+}
+
+std::shared_ptr<const StudyRecord> SunStudyStore::CompletedRecord (const std::string& id) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end () || advancing_.at (id) || !progress_.at (id).converged)
+        return nullptr;
+    return found->second;
 }
 
 bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
@@ -502,6 +519,9 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
 
     const StudyRecord& source = *found->second;
     copyOfMetadata.id = source.id;
+    copyOfMetadata.snapshotId = source.snapshotId;
+    copyOfMetadata.reusedSamples = source.reusedSamples;
+    copyOfMetadata.defaultRayBounds = source.defaultRayBounds;
     copyOfMetadata.timestepMinutes = source.timestepMinutes;
     copyOfMetadata.year = source.year;
     copyOfMetadata.month = source.month;

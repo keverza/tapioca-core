@@ -1,5 +1,6 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
+#include "ArchViz/ScenePacketTrace.hpp"
 
 #include "NativeCommands/SunStudyDisplayCommands.hpp"
 
@@ -123,6 +124,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     }
 
     const std::string id = ReadStudyId (params);
+    const auto displayStarted = std::chrono::steady_clock::now ();
     if (id.empty ())
         return NativeCommandResult::Failure ("no sun study to show - start one first");
 
@@ -151,6 +153,8 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
     if (snapshot == nullptr)
         return NativeCommandResult::Failure ("no snapshot is live - call Tapioca.BuildSnapshot first");
+    if (haveMetadata && metadata.snapshotId != snapshot->id)
+        return NativeCommandResult::Failure ("the model was rebuilt under the study; start a new one");
 
     // THE FACE COUNTS MUST AGREE BEFORE ANYTHING IS BUILT. The study's faces
     // are the snapshot's triangles CONCATENATED in mesh order, so a snapshot
@@ -281,6 +285,9 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     const uint32_t adoptedDebug = upload->debugMode;
     const uint32_t adoptedDepth = upload->depthMode;
 
+    const double displayMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - displayStarted).count ();
+    archviz::LogSunStudyDisplay (*upload, snapshot->id, displayMs);
     archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (upload));
 
     // ---- arm the follower, but only for a study a PERSON asked to see -------

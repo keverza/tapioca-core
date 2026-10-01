@@ -18,6 +18,7 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include <chrono>
 #include "ArchViz/DiligentShaders.hpp"
 
 #include <Sampler.h>
@@ -267,7 +268,13 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
     data.pSubResources = &level;
     data.NumSubresources = 1;
 
+    const auto atlasStarted = std::chrono::steady_clock::now ();
     device->CreateTexture (desc, &data, &impl_->sunAtlasTexture);
+    ArchVizLog (
+        "pipeline: stage=sun-atlas-upload study=" + study->studyId +
+        " payloadBytes=" + std::to_string (study->texels->size () * sizeof (float)) + " apiMs=" +
+        std::to_string (
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - atlasStarted).count ()));
     if (impl_->sunAtlasTexture == nullptr) {
         impl_->sunStudyId = study->studyId;
         impl_->sunRejection = "the " + std::to_string (study->width) + "x" + std::to_string (study->height) +
@@ -316,7 +323,13 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
         Diligent::TextureData stepData;
         stepData.pSubResources = slices.data ();
         stepData.NumSubresources = words;
+        const auto stepsStarted = std::chrono::steady_clock::now ();
         device->CreateTexture (stepDesc, &stepData, &impl_->sunStepTexture);
+        ArchVizLog (
+            "pipeline: stage=sun-steps-upload study=" + study->studyId +
+            " payloadBytes=" + std::to_string (plane * words * sizeof (uint32_t)) + " apiMs=" +
+            std::to_string (
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - stepsStarted).count ()));
         if (impl_->sunStepTexture != nullptr) {
             impl_->sunStepSRV = impl_->sunStepTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
             impl_->sunStepCount = carried ? study->stepCount : 0u;
@@ -402,7 +415,13 @@ void DiligentScene::AttachSunStudy (Diligent::IRenderDevice* device)
         bd.Mode = Diligent::BUFFER_MODE_STRUCTURED;
         bd.ElementByteStride = sizeof (SunFaceMap);
         const Diligent::BufferData bufferData { map.faces.data (), bd.Size };
+        const auto faceStarted = std::chrono::steady_clock::now ();
         device->CreateBuffer (bd, &bufferData, &entry->sunFaceBuffer);
+        ArchVizLog (
+            "pipeline: stage=sun-face-upload study=" + study.studyId + " guid=" + map.guid + " payloadBytes=" +
+            std::to_string (bd.Size) + " applied=" + std::to_string (entry->sunFaceBuffer != nullptr) + " apiMs=" +
+            std::to_string (
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - faceStarted).count ()));
         if (entry->sunFaceBuffer != nullptr)
             ++attached;
     }

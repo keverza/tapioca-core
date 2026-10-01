@@ -77,9 +77,9 @@ def test_follower_diagnostic_fields_are_declared_in_the_strict_response_schema()
 def test_follower_preparation_uses_owned_capture_not_main_thread_start_command():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
     assert 'ExecuteNativeCommand ("StartSunStudy"' not in source
-    assert "CaptureSunStudyInputs (StartParams (samplingConfig), captured)" in source
-    assert "[captured, output]" in source
-    assert "PrepareCapturedSunStudy (captured, cancelled)" in source
+    assert "CaptureSunStudyInputs (StartParams (gConfig), captured)" in source
+    assert "[captured, output, reuseSource]" in source
+    assert "PrepareCapturedSunStudy (captured, cancelled, reuseSource)" in source
     assert "PreparationWorker ().Cancel" in source
     assert "PreparationWorker ().Shutdown" in source
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
@@ -117,23 +117,47 @@ def test_completions_post_a_session_guarded_main_thread_wake():
         assert "NotifyStudyReady (ticket->request.onReady)" in worker
 
 
-def test_preview_resolves_a_complete_day_and_refines_the_original_config():
+def test_automatic_replacement_never_coarsens_and_reuses_only_compatible_accepted_cache():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
-    assert "ActiveSunStudyConfig samplingConfig = gConfig" in source
-    assert "samplingConfig.grid = s_previewSpacing" in source
-    assert "s_previewEnabled && !refinement" in source
-    assert "StartReplacement (gRunSignature, now, true)" in source
-    assert 'show.Add ("preview", s_previewRun)' in source
+    assert "s_previewSpacing" not in source
+    assert "MakeSunStudyPreviewPlan" not in source
+    assert "accepted.sun == signature.sun && accepted.sampling == signature.sampling" in source
+    assert "CompletedRecord (studyId)" in source
+    assert "CompletedRecord (gRunStudyId)" in source
+    assert 'show.Add ("preview", false)' in source
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
     assert "upload->preview && !converged" in display
     assert '"preview":{"type":"boolean"}' in display
 
 
-def test_preview_and_final_publication_share_the_stale_guard_and_commit_after_enqueue():
+def test_incremental_publication_uses_the_stale_guard_and_commits_after_enqueue():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
     check = source.index("gFollower.CanPublishResult (gRunGeneration, gRunSignature)")
     show = source.index('ExecuteNativeCommand ("ShowSunStudy", show)')
     accept = source.index("gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now)")
     assert check < show < accept
     assert "!shown.ok || !enqueuedToViewer" in source
-    assert "ReleasePreview ();" in source.split("void DisableLocked ()", 1)[1]
+    assert "s_reuseRecord.reset ();" in source.split("void DisableLocked ()", 1)[1]
+
+
+def test_pipeline_telemetry_covers_capture_conversion_queue_upload_and_each_sun_step():
+    archviz = _ADDON / "ArchViz"
+    extraction = (archviz / "ExtractionThread.cpp").read_text(encoding="utf-8")
+    assert "stage=geometry-acquire" in extraction
+    assert "stage=geometry-slice" in extraction
+    assert "CaptureElementPacket (*model, i, st->meshes)" in extraction
+    assert "MakeElementPacket (packet)" in extraction
+    conversion = (archviz / "ElementPacket.cpp").read_text(encoding="utf-8")
+    for field in ("sourceBytes=", "payloadBytes=", "captureMs=", "convertMs="):
+        assert field in conversion
+    apply = (archviz / "ScenePacketTrace.cpp").read_text(encoding="utf-8")
+    assert "queueWaitMs=" in apply and "apiApplyMs=" in apply
+    upload = (archviz / "DiligentSceneSunStudy.cpp").read_text(encoding="utf-8")
+    for stage in ("sun-atlas-upload", "sun-steps-upload", "sun-face-upload"):
+        assert f"stage={stage}" in upload
+    prepare = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
+    assert "SetStepObserver" in prepare
+    for field in ("step=", "dirty=", "rays=", "rayPacketBytes=", "traceMs=", "compactMs="):
+        assert field in prepare
+    reuse = (_ADDON / "SunStudy" / "SunStudyReuse.cpp").read_text(encoding="utf-8")
+    assert "ACAPI_" not in reuse and "MainThreadGate" not in reuse

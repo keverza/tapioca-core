@@ -158,6 +158,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyTaskWorker.cpp"
     # SunStudyFollower is when a study is stale, when to recompute it and which
@@ -389,6 +390,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudHierarchy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ElementPacket.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ScenePacketTrace.cpp"
     # SceneCmdQueue feeds ArchViz/Dxgi/HostOccluders at every batch boundary,
     # and that file is Direct3D 11. The stub answers the production "no room"
     # reply so the queue stops feeding; see the file for what it must not grow.
@@ -689,6 +692,7 @@ set (EVP_TEST_SOURCES
     test_viewerpalettestate.cpp
     test_surfacepatch.cpp
     test_sunstudycache.cpp
+    test_sunstudyreuse.cpp
     test_sunstudypatchatlas.cpp
     test_sunstudyroles.cpp
     test_sunstudyreading.cpp

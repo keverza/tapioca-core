@@ -36,6 +36,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <utility>
 #include <vector>
 
 namespace evp::sunstudy {
@@ -76,6 +77,14 @@ class SunStudySession final {
     // The session does NOT own `samples`; the caller keeps the arrays alive for
     // as long as it keeps advancing.
     void Sync (const StudyInputs& inputs, const SunSeries& series, const SampleSet& samples);
+
+    bool SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples);
+    // Called on the analysis worker after each complete timestep; never ACAPI.
+    using StepObserver = std::function<void (size_t, const OcclusionAccumulator&, double)>;
+    void SetStepObserver (StepObserver observer)
+    {
+        stepObserver_ = std::move (observer);
+    }
 
     // Resolve up to `maxSteps` more timesteps. Returns how many it resolved: 0
     // means converged, or nothing to do.
@@ -145,6 +154,7 @@ class SunStudySession final {
     uint64_t generation_ = 0;
     size_t nextStep_ = 0;
     bool initialised_ = false;
+    StepObserver stepObserver_;
 
     // ⚠️ MUTABLE STATE THAT IS NOT PART OF THE RESULT, so it is atomic rather
     // than guarded by the session's own lock: there is no lock, and adding one

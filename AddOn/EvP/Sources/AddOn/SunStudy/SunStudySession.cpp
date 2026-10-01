@@ -1,6 +1,7 @@
 #include "SunStudy/SunStudySession.hpp"
 
 #include <algorithm>
+#include <chrono>
 
 namespace evp::sunstudy {
 
@@ -39,6 +40,15 @@ void SunStudySession::Sync (const StudyInputs& inputs, const SunSeries& series, 
     samples_ = samples;
 }
 
+bool SunStudySession::SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples)
+{
+    if (!initialised_ || nextStep_ != 0 || !accumulator_.SeedReusable (source, sourceSamples))
+        return false;
+    if (accumulator_.Complete ())
+        nextStep_ = series_.StepCount ();
+    return true;
+}
+
 size_t SunStudySession::Advance (const ITraversal& traversal, size_t maxSteps, double tmin, double tmax,
                                  size_t maxParallel, const std::function<bool ()>& isCancelled)
 {
@@ -65,10 +75,21 @@ size_t SunStudySession::Advance (const ITraversal& traversal, size_t maxSteps, d
     while (resolved < maxSteps && nextStep_ < series_.StepCount ()) {
         if (isCancelled && isCancelled ())
             break;
+        const auto started = std::chrono::steady_clock::now ();
         if (accumulator_.AccumulateRange (traversal, samples_, series_, nextStep_, 1, tmin, tmax, maxParallel) == 0)
             break;
         ++nextStep_;
         ++resolved;
+        if (stepObserver_) {
+            const double elapsed =
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+            // Diagnostics must not turn a completed step into a failed slice.
+            try {
+                stepObserver_ (nextStep_ - 1, accumulator_, elapsed);
+            }
+            catch (...) {
+            }
+        }
     }
 
     return resolved;

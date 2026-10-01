@@ -7,6 +7,10 @@
 
 #include <atomic>
 
+namespace evp::sunstudy {
+struct StudyRecord;
+}
+
 namespace geomsrv {
 
 struct CapturedSunStudyInputs {
@@ -21,7 +25,8 @@ NativeCommandResult CaptureSunStudyInputs (const GS::ObjectState& params,
                                            std::shared_ptr<const CapturedSunStudyInputs>& captured);
 // Owned immutable capture; no ACAPI or gate. Same preparation as StartSunStudy.
 NativeCommandResult PrepareCapturedSunStudy (const std::shared_ptr<const CapturedSunStudyInputs>& captured,
-                                             const std::atomic<bool>& cancelled);
+                                             const std::atomic<bool>& cancelled,
+                                             std::shared_ptr<const evp::sunstudy::StudyRecord> reuseSource = nullptr);
 
 // The sun study's bus surface: StartSunStudy, AdvanceSunStudy, SunStudyState,
 // GetSunStudyResults, CancelSunStudy.
