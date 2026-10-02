@@ -80,8 +80,8 @@ bool Arm (const char* mode, std::string& error);
 // Delete the breadcrumb after a clean teardown. Idempotent.
 void Disarm ();
 
-}   // namespace experimentguard
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace experimentguard
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

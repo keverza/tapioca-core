@@ -2,8 +2,8 @@
 
 #include "ArchViz/ExperimentGuard.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
-#include "Python/PathUtils.hpp"     // EvpDataDir, PathExists, ReadTextFile, WriteTextFile
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
+#include "Python/PathUtils.hpp"   // EvpDataDir, PathExists, ReadTextFile, WriteTextFile
 
 #include <windows.h>
 
@@ -13,8 +13,8 @@ namespace experimentguard {
 
 namespace {
 
-bool        g_checked = false;
-bool        g_blocked = false;
+bool g_checked = false;
+bool g_blocked = false;
 std::string g_why;
 
 // ⚠️ NO SUBDIRECTORY. Both files sit directly in the Tapioca root, next to
@@ -45,7 +45,10 @@ GS::UniString SafeModePath ()
 // spellings are now checked. Named explicitly rather than by wildcard, because
 // enumerating a directory at startup is what the fixed name existed to avoid.
 const wchar_t* const kLegacyBreadcrumbNames[] = {
-    L"\\ARMED_hookdiag", L"\\ARMED_hookdraw", L"\\ARMED_wake", L"\\ARMED_hideonnav",
+    L"\\ARMED_hookdiag",
+    L"\\ARMED_hookdraw",
+    L"\\ARMED_wake",
+    L"\\ARMED_hideonnav",
 };
 
 // The first breadcrumb present, under any of its spellings, or empty.
@@ -79,7 +82,7 @@ void Block (const std::string& why)
     ArchVizLog ("experiment guard: BLOCKED for this session -- " + why);
 }
 
-}   // namespace
+} // namespace
 
 void CheckAtStartup ()
 {
@@ -113,8 +116,7 @@ void CheckAtStartup ()
         // ONE degraded session; leaving the file behind would make every
         // subsequent launch refuse too, which is a different kind of stuck.
         ::DeleteFileW ((LPCWSTR) found.ToUStr ().Get ());
-        Block ("the previous Archicad session ended while the experimental mode '" +
-               Utf8 (armedMode) +
+        Block ("the previous Archicad session ended while the experimental mode '" + Utf8 (armedMode) +
                "' was armed; experimental camera-sync modes are disabled for this "
                "session and will be available again after the next restart");
         return;
@@ -158,8 +160,8 @@ bool Arm (const char* mode, std::string& error)
 
     GS::UniString writeError;
     if (!evp::WriteTextFile (path, GS::UniString (mode, CC_UTF8), writeError)) {
-        error = "the crash-loop breadcrumb could not be written (" + Utf8 (writeError) +
-                "); refusing to arm without it";
+        error =
+            "the crash-loop breadcrumb could not be written (" + Utf8 (writeError) + "); refusing to arm without it";
         return false;
     }
 
@@ -176,6 +178,6 @@ void Disarm ()
     ArchVizLog ("experiment guard: disarmed cleanly");
 }
 
-}   // namespace experimentguard
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace experimentguard
+} // namespace archviz
+} // namespace geomsrv
