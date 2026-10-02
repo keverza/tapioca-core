@@ -693,6 +693,9 @@ set (EVP_TEST_SOURCES
     # Where the census's anchor stands while it learns: header-only, on the cameras logged
     # by the whole-site run that never locked.
     test_cameraanchor.cpp
+    # What a b1/b0 pair says about its camera -- pitch, field, off-axis shift: header-only,
+    # on the camera logged while two-point perspective was toggled.
+    test_camerashape.cpp
     test_camerachoice.cpp
     test_plananchorribbon.cpp
     test_pickvote.cpp

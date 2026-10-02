@@ -32,6 +32,7 @@
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/PatchProfile.hpp"
+#include "ArchViz/ProjectionModeWatch.hpp"
 
 #include <windows.h>
 
@@ -655,7 +656,9 @@ void Tick ()
     // ⚠️ AND WHAT THE 3D WINDOW SHOWS: isolation, a layer, a filter edit no element, and the
     // overlay follows them -- re-extracting, and moving the revision so the camera can re-pin
     // when the draw it was pinned to is gone (ModelContentWatch.hpp).
-    modelcontentwatch::Tick (FrontWindowIs3D ());
+    const bool threeDInFront = FrontWindowIs3D ();
+    modelcontentwatch::Tick (threeDInFront);
+    projectionmodewatch::Tick (threeDInFront); // a measurement: says, changes nothing
     const uint32_t revision = modelwatch::Get ().revision;
     host::SetModelRevision (revision);
     cen::NoteModelRevision (revision);
@@ -874,6 +877,7 @@ void Stop ()
 {
     camerakeep::Forget ();
     modelcontentwatch::Release (); // §8: the held model goes with the session, on this thread
+    projectionmodewatch::Reset ();
     if (!g_running)
         return;
     // ⚠️ ONLY IF WE ARMED IT, AND NOT WHILE THE PORTABLE
