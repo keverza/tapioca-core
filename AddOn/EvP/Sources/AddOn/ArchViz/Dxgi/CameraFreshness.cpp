@@ -109,6 +109,10 @@ bool ReadCamera (const CameraSlot& slot, CameraCopy& out)
 
 // The selected camera, for the main thread's 3D pick (`LatestCamera`).
 CameraSlot g_selectedCamera;
+// Any group's, for the census's anchor while it learns (`LearningCamera`), and the widest
+// viewport, in pixels, one came from this session.
+CameraSlot g_learningCamera;
+std::atomic<uint64_t> g_learningWidest { 0 };
 
 std::atomic<uint64_t> g_acceptedSignature { 0 };
 std::atomic<uint64_t> g_acceptedSerial { 0 };
@@ -320,6 +324,26 @@ bool LatestCamera (CameraCopy& out)
     return ReadCamera (g_selectedCamera, out);
 }
 
+void NoteLearningCamera (const float view16[16], const float projection16[16], float vpX, float vpY, float vpW,
+                         float vpH)
+{
+    if (view16 == nullptr || projection16 == nullptr || !(vpW >= 1.0f) || !(vpH >= 1.0f))
+        return;
+    const uint64_t area = uint64_t (vpW) * uint64_t (vpH);
+    uint64_t widest = g_learningWidest.load (std::memory_order_relaxed);
+    while (area > widest && !g_learningWidest.compare_exchange_weak (widest, area, std::memory_order_relaxed)) {
+    }
+    if (area * 4 < widest)
+        return; // an inset, not the 3D window
+    const float viewport[4] = { vpX, vpY, vpW, vpH };
+    WriteCamera (g_learningCamera, view16, projection16, viewport);
+}
+
+bool LearningCamera (CameraCopy& out)
+{
+    return ReadCamera (g_learningCamera, out);
+}
+
 void NoteAuthoritativeSnapshot ()
 {
     g_snapshots.fetch_add (1, std::memory_order_relaxed);
@@ -421,6 +445,9 @@ void Reset ()
     g_ledgerUsed = 0;
     // The 3D pick reads no camera of a previous session (§8).
     g_selectedCamera.sequence.store (0, std::memory_order_release);
+    // Nor does the census's anchor.
+    g_learningCamera.sequence.store (0, std::memory_order_release);
+    g_learningWidest.store (0, std::memory_order_relaxed);
     // Section 10: a run that inherits the previous one's gate is a run whose
     // evidence nobody can trust.
     g_gateEnabled.store (false, std::memory_order_release);

@@ -387,8 +387,14 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
         ++g_stats.readbacksOtherDraw;
         return;
     }
-    if (camera)
+    if (camera) {
         slot.group.cameraIndexCount = slot.pendingIndexCount;
+        // ⚠️ AND THE ANCHOR STANDS ON IT WHILE THE CENSUS LEARNS (Dxgi/CameraAnchor.hpp):
+        // a point on screen by construction, not the model's middle or Archicad's stored
+        // target, which a large site orbited leaves off screen for good.
+        injection::freshness::NoteLearningCamera (view, projection, viewport.x, viewport.y, viewport.width,
+                                                  viewport.height);
+    }
     else // the camera draw itself, not a camera: the ledger keeps what it held
         injection::freshness::NoteRefusedMatrices (slot.group.groupId, slot.group.occurrenceIndex,
                                                    slot.pendingIndexCount, slot.pendingGeneration, view, projection);

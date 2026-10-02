@@ -674,6 +674,9 @@ set (EVP_TEST_SOURCES
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
     test_cameralayout.cpp
+    # Where the census's anchor stands while it learns: header-only, on the cameras logged
+    # by the whole-site run that never locked.
+    test_cameraanchor.cpp
     test_camerachoice.cpp
     test_plananchorribbon.cpp
     test_pickvote.cpp

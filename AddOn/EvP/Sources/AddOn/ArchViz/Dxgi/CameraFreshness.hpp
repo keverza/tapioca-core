@@ -181,6 +181,18 @@ struct CameraCopy {
 // a write in flight.
 bool LatestCamera (CameraCopy& out);
 
+// ⚠️ THE CAMERA THE CENSUS LEARNS FROM, FOR ITS ANCHOR (Dxgi/CameraAnchor.hpp): the latest
+// pair that decodes as one camera from ANY group the census scores, selected or not --
+// before a lock there is no selected one, and every model draw of a frame carries the same
+// camera (finding 1). Only from a viewport at least a quarter of the widest seen this
+// session, so a small inset never stands in for the 3D window. Kept like `LatestCamera`;
+// cleared by `Reset`.
+// RENDER THREAD, from the census's readback.
+void NoteLearningCamera (const float view16[16], const float projection16[16], float vpX, float vpY, float vpW,
+                         float vpH);
+// MAIN THREAD.
+bool LearningCamera (CameraCopy& out);
+
 // RENDER THREAD, when the renderer takes a fresh camera for composition
 // (`NEW_SCENE`). Stamps the accepted camera with the content signature and the
 // capture serial that were current at that instant.

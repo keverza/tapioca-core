@@ -9,7 +9,9 @@
 #include "ArchViz/OverlayCensusAnchor.hpp"
 
 #include "ArchViz/ArchVizPanel.hpp"
+#include "ArchViz/Dxgi/CameraAnchor.hpp"
 #include "ArchViz/Dxgi/CameraCensus.hpp"
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 
 #include <cmath>
@@ -20,7 +22,9 @@ namespace overlaycensusanchor {
 
 namespace {
 
+namespace cameraanchor = dxgi::cameraanchor;
 namespace cen = dxgi::census;
+namespace freshness = dxgi::injection::freshness;
 namespace host = dxgi::hostocclusion;
 
 // The census gate wants a median area of 50 px squared and a longest edge of
@@ -46,15 +50,31 @@ float ClampAnchorSize (float size)
 // while the log looks perfectly healthy. Run sixty-two reached `Learning` and
 // stayed there for a whole session on exactly that.
 //
-// ⚠️ THE EXTRACTED MODEL'S OWN CENTRE IS THE ANCHOR, AND ASKING
-// ARCHICAD FOR A CAMERA IS THE FALLBACK RATHER THAN THE OTHER WAY ROUND. The
-// building is where the user is looking, by construction, whatever the
-// projection; a camera read adds a dependency on projection settings for a number
-// the geometry already answers. The camera path stays only for the moments before
-// the first extraction publishes.
+// ⚠️ THE CAMERA THE CENSUS IS DECODING PLACES IT, ONCE THERE IS ONE; THE MODEL'S
+// CENTRE, THEN ARCHICAD'S STORED TARGET, ONLY UNTIL THEN. "The building is where the
+// user is looking" held for a building and not for a site: one a kilometre from the
+// origin, orbited, kept its bounding-box centre -- and Archicad's stored view target,
+// which does not follow an orbit -- inside the image in 17-69% of the samples against
+// the 95% the gate asks, and never locked (2026-10-01 13:51). The point on the decoded
+// camera's centre ray, deep past any orbit's pivot, is on screen by construction, and
+// the runtime places it again every tick until a lock (Dxgi/CameraAnchor.hpp).
 bool PointAtView (std::string& how)
 {
     const host::Stats stats = host::GetStats ();
+    freshness::CameraCopy learning;
+    cameraanchor::Anchor onRay;
+    if (freshness::LearningCamera (learning)) {
+        const double boundsMin[3] = { stats.boundsMin[0], stats.boundsMin[1], stats.boundsMin[2] };
+        const double boundsMax[3] = { stats.boundsMax[0], stats.boundsMax[1], stats.boundsMax[2] };
+        if (cameraanchor::OnCentreRay (learning.view, learning.projection, stats.boundsValid ? boundsMin : nullptr,
+                                       stats.boundsValid ? boundsMax : nullptr, onRay)) {
+            // Its size is a share of its depth, the same on screen at any depth: not clamped.
+            cen::SetAnchor (float (onRay.at[0]), float (onRay.at[1]), float (onRay.at[2]), float (onRay.size));
+            how = "view centre";
+            return true;
+        }
+    }
+
     if (stats.boundsValid) {
         const float centre[3] = { (stats.boundsMin[0] + stats.boundsMax[0]) * 0.5f,
                                   (stats.boundsMin[1] + stats.boundsMax[1]) * 0.5f,
