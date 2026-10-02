@@ -7,6 +7,7 @@
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadEnvironment, ForgetEnvironmentLog
 #include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/ModelContentWatch.hpp" // the held model's element count
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp" // census::NoteModelRevision
 #include "ArchViz/Dxgi/HostOccluders.hpp"    // hostocclusion::SetModelRevision
@@ -15,6 +16,8 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <set>
+#include <string>
 #include <memory>
 
 namespace geomsrv {
@@ -59,12 +62,28 @@ void Rearm (uint32_t intervalMs);
 bool gKeepAlive = false;
 // A change was seen while the worker was busy and still needs extracting.
 bool gPendingRefresh = false;
+// Elements a busy worker could not take yet, updated one by one once it is free.
+std::set<std::string> gPendingElements;
+// When the watch last STARTED a full pass, and when it last polled the generator: a large
+// change list from a poll that follows such a pass is what that pass already read.
+uint64_t gLastFullStartMs = 0;
+uint64_t gLastPollMs = 0;
 
 bool StartPass ()
 {
     if (ExtractionWorker::Get ().IsRunning ())
         return false;
     ExtractionWorker::Get ().Start (/*full*/ true);
+    gLastFullStartMs = ::GetTickCount64 ();
+    gPendingElements.clear (); // a full pass reads them all
+    return true;
+}
+
+bool StartUpdate (const std::set<std::string>& guids)
+{
+    if (ExtractionWorker::Get ().IsRunning ())
+        return false;
+    ExtractionWorker::Get ().StartUpdate (guids);
     return true;
 }
 
@@ -107,6 +126,8 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     if (gBaseline == nullptr)
         return;
 
+    const uint64_t previousPollMs = gLastPollMs;
+    gLastPollMs = ::GetTickCount64 ();
     const modeldiff::Result diff = gBaseline->Poll ();
     ++gStats.polls;
 
@@ -147,12 +168,7 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     if (diff.firstCall || !diff.AnythingChanged ()) {
         // A refresh deferred by a busy worker is taken as soon as one is free,
         // without waiting for another edit to come along and ask again.
-        if (gPendingRefresh && StartPass ()) {
-            gPendingRefresh = false;
-            ++gStats.refreshes;
-            ArchVizLog ("model watch: re-extracting a change that arrived while the "
-                        "previous pass was still running");
-        }
+        ServePending ();
         return;
     }
 
@@ -210,6 +226,34 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // case where the watch is not running, not the only path.
     dxgi::hostocclusion::SetModelRevision (gStats.revision);
     dxgi::census::NoteModelRevision (gStats.revision);
+
+    // A few elements are updated by GUID (`RouteChange`): the ones the model holds with
+    // geometry are replaced, every other -- deleted, hidden -- removed.
+    std::set<std::string> named (diff.created.begin (), diff.created.end ());
+    named.insert (diff.modified.begin (), diff.modified.end ());
+    named.insert (diff.deleted.begin (), diff.deleted.end ());
+    const size_t elements = size_t (std::max<int32_t> (modelcontentwatch::Get ().elements, 0));
+    const Route route = RouteChange (named.size (), elements, gLastFullStartMs, previousPollMs);
+    if (route == Route::Update) {
+        gPendingElements.insert (named.begin (), named.end ());
+        // The storey cut is a union over the whole model: with slices shown, a full pass follows.
+        if (ExtractionWorker::Get ().StorySlicesWanted ())
+            gPendingRefresh = true;
+        if (StartUpdate (gPendingElements)) {
+            ++gStats.refreshes;
+            ArchVizLog ("model watch: updating " + std::to_string (gPendingElements.size ()) + " elements -- " +
+                        std::to_string (diff.created.size ()) + " new, " + std::to_string (diff.modified.size ()) +
+                        " modified, " + std::to_string (diff.deleted.size ()) + " deleted");
+            gPendingElements.clear ();
+        }
+        return;
+    }
+    if (route == Route::AlreadyRead) {
+        ArchVizLog ("model watch: " + std::to_string (named.size ()) +
+                    " changed elements, already read by the full pass started " +
+                    std::to_string (::GetTickCount64 () - gLastFullStartMs) + " ms ago");
+        return;
+    }
 
     // ⚠️ AND IF THE PASS CANNOT START, REMEMBER IT. Waiting
     // for the NEXT change would leave this one unextracted indefinitely on a
@@ -309,6 +353,27 @@ bool RefreshNow ()
         gBaseline->Poll (/*reset*/ true);
     ArchVizLog ("model watch: manual refresh -- re-extracting the whole model.");
     return true;
+}
+
+void ServePending ()
+{
+    if (ExtractionWorker::Get ().IsRunning ())
+        return;
+    if (gPendingRefresh) {
+        if (StartPass ()) {
+            gPendingRefresh = false;
+            ++gStats.refreshes;
+            ArchVizLog ("model watch: re-extracting a change that arrived while the "
+                        "previous pass was still running");
+        }
+        return;
+    }
+    if (!gPendingElements.empty () && StartUpdate (gPendingElements)) {
+        ++gStats.refreshes;
+        ArchVizLog ("model watch: updating " + std::to_string (gPendingElements.size ()) +
+                    " elements that changed while a pass was running");
+        gPendingElements.clear ();
+    }
 }
 
 void NoteContentChanged (bool passRunning)

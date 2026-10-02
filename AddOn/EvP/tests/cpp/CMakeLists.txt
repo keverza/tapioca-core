@@ -674,6 +674,7 @@ set (EVP_TEST_SOURCES
     # When a change to what the 3D window shows is acted on: header-only.
     test_modelcontentwatch.cpp
     test_occluderstore.cpp
+    test_modelwatchroute.cpp
     test_logclaim.cpp
     test_breadcrumb.cpp
     test_camerarecognizer.cpp

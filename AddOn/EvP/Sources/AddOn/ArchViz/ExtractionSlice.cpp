@@ -73,9 +73,13 @@ void Run (ModelerAPI::Model& model, int32_t count, SliceState& st, const std::se
             // exist.
             const std::string guid = ElementGuidAt (model, i);
             if (!guid.empty () && wanted.count (guid) > 0) {
-                if (!CaptureElementPacket (model, i, st.meshes))
+                // ⚠️ MATCHED ONLY WITH GEOMETRY. An element hidden in 3D can stay in the model's
+                // list with nothing to draw (2026-10-02 11:45: three hidden, the count still 3889);
+                // counted as seen, it was never removed and its old wireframe stayed on screen.
+                if (CaptureElementPacket (model, i, st.meshes))
+                    st.matched.push_back (guid);
+                else
                     st.NoteEmpty (ElementTypeNameAt (model, i), EmptyReasonAt (model, i));
-                st.matched.push_back (guid);
             }
         }
         // ⚠️ EVERY ELEMENT, NOT ONLY THE TESSELLATED ONES, and it

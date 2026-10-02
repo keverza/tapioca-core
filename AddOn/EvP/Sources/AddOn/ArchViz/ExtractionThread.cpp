@@ -132,6 +132,17 @@ void ExtractionWorker::Start (bool full, int64_t sliceMs, int64_t gapMs, int64_t
     StartWith (opt);
 }
 
+void ExtractionWorker::StartUpdate (const std::set<std::string>& guids, int64_t sliceMs, int64_t gapMs)
+{
+    Options opt;
+    opt.mode = Mode::Once;
+    opt.full = false;
+    opt.sliceMs = sliceMs;
+    opt.gapMs = gapMs;
+    opt.only = guids;
+    StartWith (opt);
+}
+
 void ExtractionWorker::StartLive (int64_t settleMs, int64_t pollMs, int64_t sliceMs, int64_t gapMs, bool armObservers)
 {
     Options opt;
@@ -192,7 +203,7 @@ ExtractionWorker::Progress ExtractionWorker::Snapshot () const
 void ExtractionWorker::Run (Options opt)
 {
     std::vector<std::string> extracted;
-    const bool ok = RunPass (opt, opt.full, std::set<std::string> (), &extracted);
+    const bool ok = RunPass (opt, opt.only.empty () && opt.full, opt.only, opt.only.empty () ? &extracted : nullptr);
 
     if (opt.mode == Mode::Live && ok && !stopFlag_.load ()) {
         // ⚠⚠ NO OBSERVERS, NO WATCH LOOP — AND THE SECOND HALF IS AS IMPORTANT AS

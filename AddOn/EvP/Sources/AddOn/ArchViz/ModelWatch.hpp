@@ -34,6 +34,7 @@
 //
 // MAIN THREAD ONLY, all of it.
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -100,6 +101,32 @@ void SetKeepAlive (bool keepAlive);
 // change, and "the picture looks wrong, rebuild it" is a request no change
 // detector can be asked to infer. Returns false when a pass is already running.
 bool RefreshNow ();
+
+// What a poll's change list is answered with -- pure, so tests/cpp pins it.
+//
+// ⚠️ A FEW ELEMENTS ARE UPDATED BY GUID, NOT BY A FULL PASS: three hidden elements cost a whole
+// re-extraction (2026-10-02 11:45: 4.9 s of a 3889-element project); updated by GUID they cost
+// three. Past `kLargeChange`, or a quarter of the model, the walk reads most of it anyway and a
+// full pass also keeps the substances and storey cuts current. And a LARGE list from a poll that
+// follows a full pass the watch started since the previous poll is what that pass already read:
+// isolating or showing all is seen within a tick by ModelContentWatch, which starts a full pass,
+// and the generator, polled seconds later, reported the same change -- a second full pass ran
+// for nothing (11:44:12, `3883 new`, 4.8 s).
+enum class Route { Update, Full, AlreadyRead };
+constexpr size_t kLargeChange = 500;
+inline Route RouteChange (size_t changed, size_t elements, uint64_t lastFullStartMs, uint64_t previousPollMs)
+{
+    if (changed <= kLargeChange && changed * 4 <= elements)
+        return Route::Update;
+    if (previousPollMs != 0 && lastFullStartMs > previousPollMs)
+        return Route::AlreadyRead;
+    return Route::Full;
+}
+
+// MAIN THREAD. Start what a busy worker had to leave -- a full pass, or the elements to update
+// one by one -- once it is free. ModelContentWatch calls it every tick of the overlay's runtime,
+// so it does not wait for the next poll of the generator (every 30 s on a large project).
+void ServePending ();
 
 // MAIN THREAD. What the 3D window shows changed without an element edit (ModelContentWatch):
 // the revision moves, and a full re-extraction starts -- unless a pass is running, which starts

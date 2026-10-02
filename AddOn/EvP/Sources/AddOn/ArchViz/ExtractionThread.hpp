@@ -208,6 +208,12 @@ class ExtractionWorker final {
     // main thread indefinitely.
     void Start (bool full = true, int64_t sliceMs = 8, int64_t gapMs = 16, int64_t maxSeconds = 300);
 
+    // Re-extract ONLY these elements (GUIDs): each one the model holds with geometry is
+    // replaced, every other -- deleted, hidden, filtered out -- is removed. The walk reads
+    // GUIDs only and tessellates the matches, so three changed elements cost three, not the
+    // whole model (ModelWatch, from the difference generator's lists).
+    void StartUpdate (const std::set<std::string>& guids, int64_t sliceMs = 8, int64_t gapMs = 16);
+
     // One pass, then WATCH: arm the observer on what the 3D view shows, register
     // a dirty cursor of our own, and re-extract what changes until stopped.
     //
@@ -284,6 +290,8 @@ class ExtractionWorker final {
         int64_t pollMs = 100;
         // See StartLive: attaching observers WRITES TO THE PROJECT DATABASE.
         bool armObservers = false;
+        // `StartUpdate`: the only elements this pass reads; empty for the whole model.
+        std::set<std::string> only;
     };
 
     void StartWith (const Options& opt);

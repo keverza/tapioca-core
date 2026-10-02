@@ -60,6 +60,7 @@ void Tick (bool threeDInFront)
         Release ();
         return;
     }
+    modelwatch::ServePending ();
     const bool passRunning = ExtractionWorker::Get ().IsRunning ();
     const bool passEnded = g_passWasRunning && !passRunning;
     g_passWasRunning = passRunning;
