@@ -84,8 +84,10 @@ std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Bas
 
 // WHY the element at a 1-based index produced no mesh, in a few words that aggregate:
 // past the model's end (and its count now), invalid, which bodies it has instead of
-// tessellated ones (NURBS, untessellated mesh, a point cloud, a light), bodies with no
-// polygons, or polygons every one of which was refused.
+// tessellated ones (NURBS, untessellated mesh, a point cloud, a light), what kind its
+// tessellated bodies are when none has a polygon (wire, no vertices, edges or points only,
+// and whether mesh or NURBS bodies sit beside them), or polygons every one of which was
+// refused.
 //
 // ⚠️ THE GAP LINE NAMED WHAT WAS MISSING AND NOT WHY (2026-10-02): 217 windows, 44 columns,
 // 1187 objects with no mesh, and 528 elements past the model's end -- the last slice of a

@@ -488,14 +488,48 @@ std::string EmptyReasonAt (const ModelerAPI::Model& model, int32_t index1Based)
             return "light only";
         return "no bodies";
     }
-    Int32 polygons = 0;
+    // ⚠️ "BODIES WITH NO POLYGONS" WAS ONE BUCKET FOR FOUR KINDS (2026-10-02: every window,
+    // door, column, beam, stair, railing and object of a project fell in it), and which one
+    // decides the reader: an edge-only (wire) body has lines a wireframe can draw, one with
+    // no vertices has nothing, and mesh bodies beside with polygons mean read those.
+    Int32 wire = 0, empty = 0, edgesOnly = 0, pointsOnly = 0, polygons = 0;
     for (Int32 iBody = 1; iBody <= tessellated; ++iBody) {
         ModelerAPI::MeshBody body;
         elem.GetTessellatedBody (iBody, &body);
-        if (body.GetVertexCount () > 0)
+        if (body.IsWireBody ())
+            ++wire;
+        else if (body.GetVertexCount () <= 0)
+            ++empty;
+        else if (body.GetPolygonCount () > 0)
             polygons += body.GetPolygonCount ();
+        else if (body.GetEdgeCount () > 0)
+            ++edgesOnly;
+        else
+            ++pointsOnly;
     }
-    return polygons > 0 ? "every polygon refused" : "bodies with no polygons";
+    if (polygons > 0)
+        return "every polygon refused";
+    std::string kinds;
+    const auto kind = [&kinds] (Int32 count, const char* name) {
+        if (count > 0)
+            kinds += (kinds.empty () ? "" : "+") + std::string (name);
+    };
+    kind (wire, "wire");
+    kind (empty, "no vertices");
+    kind (edgesOnly, "edges, no polygons");
+    kind (pointsOnly, "points only");
+    std::string reason = "tessellated bodies: " + kinds;
+    Int32 meshPolygons = 0;
+    for (Int32 iBody = 1; iBody <= elem.GetMeshBodyCount (); ++iBody) {
+        ModelerAPI::MeshBody body;
+        elem.GetMeshBody (iBody, &body);
+        meshPolygons += body.GetPolygonCount ();
+    }
+    if (elem.GetMeshBodyCount () > 0)
+        reason += meshPolygons > 0 ? "; mesh bodies WITH polygons beside" : "; mesh bodies beside, no polygons";
+    if (elem.GetNurbsBodyCount () > 0)
+        reason += "; NURBS bodies beside";
+    return reason;
 }
 
 void ExpandElementAndParts (const API_Guid& guid, std::set<std::string>& out)
