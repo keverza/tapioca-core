@@ -105,8 +105,11 @@ class StartSunStudyCommand : public MainThreadCommand {
         // matters is its ROLE. See SunStudy/SunStudyRoles.hpp for the table --
         // naming nothing reproduces the study as it was before roles existed.
         const std::vector<std::string> analysisPicked = ReadStringList (params, "analysisElements");
-        const std::vector<std::string> contextPicked = ReadStringList (params, "contextElements");
-        const std::vector<std::string> ignoredPicked = ReadStringList (params, "ignoredElements");
+        const auto& binding = captured->selectionBinding;
+        const auto contextPicked =
+            binding.contextSet.empty () ? ReadStringList (params, "contextElements") : captured->contextElements;
+        const auto ignoredPicked =
+            binding.ignoredSet.empty () ? ReadStringList (params, "ignoredElements") : captured->ignoredElements;
         const evp::sunstudy::ElementRoles roles =
             evp::sunstudy::ResolveElementRoles (*snapshot, analysisPicked, contextPicked, ignoredPicked);
         if (roles.analysisNamedButAbsent) {
@@ -414,6 +417,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         record->analysisElements = analysisPicked;
         record->contextElements = contextPicked;
         record->ignoredElements = ignoredPicked;
+        record->selectionBinding = binding;
         record->snapshotId = snapshot->id;
         for (const evp::sunstudy::ElementRole role : roles.roles)
             record->elementRoles.push_back (static_cast<uint8_t> (role));
@@ -798,6 +802,8 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "analysisElements":{"type":"array","items":{"type":"string","minLength":1}},
                 "contextElements":{"type":"array","items":{"type":"string","minLength":1}},
                 "ignoredElements":{"type":"array","items":{"type":"string","minLength":1}},
+                "contextSelectionSet":{"type":"string","minLength":1},
+                "ignoredSelectionSet":{"type":"string","minLength":1},
                 "positions":{"type":"array","items":{"type":"number"}},
                 "normals":{"type":"array","items":{"type":"number"}},
                 "positionsPacked":{"type":"string"},

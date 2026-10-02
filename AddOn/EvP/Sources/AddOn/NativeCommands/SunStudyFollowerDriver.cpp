@@ -9,6 +9,7 @@
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/CameraWake.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
+#include "NativeCommands/SelectionSetStore.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAdvanceWorker.hpp"
 #include "SunStudy/SunStudyStore.hpp"
@@ -266,12 +267,16 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
         context.Push (GS::UniString (guid.c_str (), CC_UTF8));
     if (!analysis.IsEmpty ())
         params.Add ("analysisElements", analysis);
-    if (!context.IsEmpty ())
+    if (!config.selectionBinding.contextSet.empty ())
+        params.Add ("contextSelectionSet", GS::UniString (config.selectionBinding.contextSet.c_str (), CC_UTF8));
+    else if (!context.IsEmpty ())
         params.Add ("contextElements", context);
     GS::Array<GS::UniString> ignored;
     for (const std::string& guid : config.ignoredElements)
         ignored.Push (GS::UniString (guid.c_str (), CC_UTF8));
-    if (!ignored.IsEmpty ())
+    if (!config.selectionBinding.ignoredSet.empty ())
+        params.Add ("ignoredSelectionSet", GS::UniString (config.selectionBinding.ignoredSet.c_str (), CC_UTF8));
+    else if (!ignored.IsEmpty ())
         params.Add ("ignoredElements", ignored);
     return params;
 }
@@ -287,6 +292,38 @@ void HideOverlay ()
 void Log (const std::string& line)
 {
     archviz::ArchVizLog ("sun follow: " + line);
+}
+
+void RefreshRoleSelections ()
+{
+    auto& binding = gConfig.selectionBinding;
+    if (binding.generation == 0)
+        return;
+    const auto& store = SelectionSetStore::Get ();
+    if (binding.generation == store.Generation () && binding.revision == store.Revision ())
+        return;
+    binding.revision = store.Revision ();
+    uint64_t generation = store.Generation ();
+    const auto read = [&store, &generation] (const std::string& name) {
+        std::vector<std::string> guids;
+        if (name.empty ())
+            return guids;
+        const GS::UniString setName (name.c_str (), CC_UTF8);
+        if (!store.IsDeclared (setName))
+            generation = 0;
+        else
+            for (const auto& guid : store.Values (setName))
+                guids.emplace_back (guid.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+        return guids;
+    };
+    const auto context = read (binding.contextSet), ignored = read (binding.ignoredSet);
+    const auto refreshed =
+        binding.Refresh (generation, context, ignored, gConfig.contextElements, gConfig.ignoredElements);
+    if (refreshed == evp::sunstudy::SelectionBindingRefresh::Detached)
+        Log ("role selection source detached -- retaining the last exclusions");
+    else if (refreshed == evp::sunstudy::SelectionBindingRefresh::Changed)
+        Log ("role selections changed context=" + std::to_string (gConfig.contextElements.size ()) +
+             " ignored=" + std::to_string (gConfig.ignoredElements.size ()));
 }
 
 void RetireRun (const char* reason, bool cancelled = true)
@@ -699,6 +736,10 @@ void Tick ()
 
     const int64_t now = NowMs ();
     s_tickThread = std::to_string (::GetCurrentThreadId ());
+    // Refresh before signature comparison AND before any completion may publish.
+    // Role changes need no geometry capture; the sampling dependency invalidates
+    // the old result and schedules one latest-target replacement.
+    RefreshRoleSelections ();
 
     // ---- 1. has Archicad reported a genuine element change? ------------------
     const uint32_t edits = archviz::modelwatch::Get ().geometryEdits;

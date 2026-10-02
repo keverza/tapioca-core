@@ -34,6 +34,7 @@
 //     DiligentScene           a display consumer, and nothing more
 
 #include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudySelectionBinding.hpp"
 
 #include <cstdint>
 #include <string>
@@ -65,6 +66,7 @@ struct ActiveSunStudyConfig {
     std::vector<std::string> analysisElements;
     std::vector<std::string> contextElements;
     std::vector<std::string> ignoredElements;
+    evp::sunstudy::SunStudySelectionBinding selectionBinding;
     // Display, carried so a rerun comes back looking the way the user left it --
     // a replacement that reverted to the hours ramp while they were reading a
     // `cell checker` would read as the diagnostic having been taken away.

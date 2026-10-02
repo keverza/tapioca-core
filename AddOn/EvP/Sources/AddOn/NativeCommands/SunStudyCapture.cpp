@@ -3,6 +3,7 @@
 
 #include "NativeCommands/SunStudyCommands.hpp"
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
+#include "NativeCommands/SelectionSetStore.hpp"
 #include "Python/MainThreadGate.hpp"
 
 #include <algorithm>
@@ -17,6 +18,28 @@ NativeCommandResult CaptureSunStudyInputs (const GS::ObjectState& params,
         return NativeCommandResult::Failure ("sun study input capture requires the host main thread");
     auto inputs = std::make_shared<CapturedSunStudyInputs> ();
     inputs->params = params;
+    auto& binding = inputs->selectionBinding;
+    binding.contextSet = sunstudysupport::ReadString (params, "contextSelectionSet", "");
+    binding.ignoredSet = sunstudysupport::ReadString (params, "ignoredSelectionSet", "");
+    auto& selections = SelectionSetStore::Get ();
+    const auto readSet = [&selections] (const std::string& name, std::vector<std::string>& guids) {
+        const GS::UniString setName (name.c_str (), CC_UTF8);
+        if (!selections.IsDeclared (setName))
+            return false;
+        for (const auto& guid : selections.Values (setName))
+            guids.push_back (sunstudysupport::Utf8 (guid));
+        return true;
+    };
+    if ((!binding.contextSet.empty () &&
+         (params.Contains ("contextElements") || !readSet (binding.contextSet, inputs->contextElements))) ||
+        (!binding.ignoredSet.empty () &&
+         (params.Contains ("ignoredElements") || !readSet (binding.ignoredSet, inputs->ignoredElements))))
+        return NativeCommandResult::Failure (
+            "role selection sets must be declared and cannot also specify element lists");
+    if (!binding.contextSet.empty () || !binding.ignoredSet.empty ()) {
+        binding.generation = selections.Generation ();
+        binding.revision = selections.Revision ();
+    }
     inputs->snapshot = MeshStore::Get ().Current ();
     if (inputs->snapshot == nullptr)
         return NativeCommandResult::Failure ("no snapshot is live - call Tapioca.BuildSnapshot first");

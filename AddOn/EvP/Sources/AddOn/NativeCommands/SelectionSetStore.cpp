@@ -37,6 +37,8 @@ SelectionSetStore& SelectionSetStore::Get ()
 
 void SelectionSetStore::Configure (const GS::Array<GS::UniString>& names, bool exclusiveSets)
 {
+    ++generation;
+    ++revision;
     exclusive = exclusiveSets;
     entries.Clear ();
     for (const GS::UniString& name : names) {
@@ -48,6 +50,8 @@ void SelectionSetStore::Configure (const GS::Array<GS::UniString>& names, bool e
 
 void SelectionSetStore::Clear ()
 {
+    ++generation;
+    ++revision;
     entries.Clear ();
 }
 
@@ -115,6 +119,7 @@ bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::U
         return false;
     }
 
+    ++revision;
     changed = 0;
     if (mutation == Mutation::Replace) {
         GS::Array<GS::UniString> unique;

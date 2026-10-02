@@ -200,6 +200,7 @@ TEST (SunStudyStore, DescribeCarriesTheDomainSoAFollowerRerunMeasuresTheSameWay)
     record->domain = SamplingDomain::SurfacePatch;
     record->analysisElements = { "{A}" };
     record->contextElements = { "{B}", "{C}" };
+    record->selectionBinding = { "Context", "Ignored", 41, 52 };
     const std::string id = SunStudyStore::Get ().Insert (std::move (record));
 
     StudyRecord metadata;
@@ -209,6 +210,10 @@ TEST (SunStudyStore, DescribeCarriesTheDomainSoAFollowerRerunMeasuresTheSameWay)
     // The roles travel the same way, or a rerun would analyse the context.
     EXPECT_EQ (metadata.analysisElements, (std::vector<std::string> { "{A}" }));
     EXPECT_EQ (metadata.contextElements, (std::vector<std::string> { "{B}", "{C}" }));
+    EXPECT_EQ (metadata.selectionBinding.contextSet, "Context");
+    EXPECT_EQ (metadata.selectionBinding.ignoredSet, "Ignored");
+    EXPECT_EQ (metadata.selectionBinding.generation, 41u);
+    EXPECT_EQ (metadata.selectionBinding.revision, 52u);
 }
 
 TEST (SunStudyStore, DescribeCopiesMetadataWithoutHandingOutAPointer)

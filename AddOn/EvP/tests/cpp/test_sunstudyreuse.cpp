@@ -1,5 +1,6 @@
 #include "SunStudy/SunStudyReuse.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
+#include "SunStudy/SunStudyRoles.hpp"
 #include "ArchViz/ElementPacket.hpp"
 #include "ArchViz/ScenePacketTrace.hpp"
 
@@ -79,15 +80,21 @@ class CountTraversal : public ITraversal {
     CpuTraversal cpu_;
 };
 
-std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> snapshot, bool patch, size_t steps = 4)
+std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> snapshot, bool patch, size_t steps = 4,
+                                       const std::vector<std::string>& context = {},
+                                       const std::vector<std::string>& ignored = {})
 {
     auto record = std::make_unique<StudyRecord> ();
     record->snapshot = snapshot;
     record->snapshotId = snapshot->id;
     record->series = Day (steps);
     record->gridSpacing = 0.75;
-    record->traversal = std::make_shared<CountTraversal> (snapshot);
-    record->elementRoles.assign (snapshot->meshes.size (), 0);
+    const auto roles = ResolveElementRoles (*snapshot, {}, context, ignored);
+    const auto subset = OccluderSnapshot (*snapshot, roles);
+    record->traversal = std::make_shared<CountTraversal> (subset != nullptr ? subset : snapshot);
+    for (const auto role : roles.roles)
+        record->elementRoles.push_back (static_cast<uint8_t> (role));
+    const auto sampleMask = roles.SampleMask ();
     std::vector<double> vertices;
     std::vector<uint32_t> triangles, groups;
     std::vector<std::string> elements;
@@ -105,6 +112,7 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         PatchSamplerOptions options;
         options.spacing = record->gridSpacing;
         options.normalOffset = 0.01;
+        options.sampleGroup = &sampleMask;
         record->patchGrid = BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
                                                   triangles.size () / 3, groups.data (), elements, options);
         record->positions = record->patchGrid.positions;
@@ -114,6 +122,7 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         SamplerOptions options;
         options.spacing = record->gridSpacing;
         options.normalOffset = 0.01;
+        options.sampleGroup = &sampleMask;
         record->sampleGrid = BuildSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
                                               triangles.size () / 3, groups.data (), options);
         record->positions = record->sampleGrid.positions;
@@ -166,6 +175,32 @@ TEST_P (SunStudyReuse, MoveAddDeleteAndReorderMatchFullRecomputationWithFewerRay
         const auto* full = dynamic_cast<const CountTraversal*> (oracle->traversal.get ());
         EXPECT_LT (traced->rays, full->rays) << edit;
         EXPECT_DOUBLE_EQ (incremental->gridSpacing, source->gridSpacing);
+    }
+}
+
+TEST_P (SunStudyReuse, RemovingContextOrIgnoredRestoresSamplesWithoutAGeometryEdit)
+{
+    const auto scene = Scene ();
+    const std::atomic<bool> cancelled { false };
+    for (bool ignored : { false, true }) {
+        const std::vector<std::string> exclude { "near" };
+        auto source = Prepared (scene, GetParam (), 4, ignored ? std::vector<std::string> {} : exclude,
+                                ignored ? exclude : std::vector<std::string> {});
+        Complete (*source);
+        auto restored = Prepared (scene, GetParam ());
+        auto oracle = Prepared (scene, GetParam ());
+        EXPECT_EQ (source->snapshotId, restored->snapshotId);
+        ASSERT_GT (restored->positions.size (), source->positions.size ());
+        ReuseUnaffectedSamples (*source, *restored, cancelled);
+        size_t restoredSamples = 0;
+        for (const auto mesh : restored->sampleMeshes)
+            restoredSamples += mesh == 0 ? 1 : 0;
+        ASSERT_GT (restoredSamples, 0u);
+        EXPECT_LE (restored->reusedSamples, restored->positions.size () / 3 - restoredSamples);
+        Complete (*restored);
+        Complete (*oracle);
+        EXPECT_EQ (restored->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
+        EXPECT_EQ (restored->session.SunHours (), oracle->session.SunHours ());
     }
 }
 

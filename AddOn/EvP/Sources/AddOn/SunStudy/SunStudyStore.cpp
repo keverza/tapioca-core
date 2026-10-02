@@ -537,6 +537,7 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.analysisElements = source.analysisElements;
     copyOfMetadata.contextElements = source.contextElements;
     copyOfMetadata.ignoredElements = source.ignoredElements;
+    copyOfMetadata.selectionBinding = source.selectionBinding;
     copyOfMetadata.elementRoles = source.elementRoles;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;

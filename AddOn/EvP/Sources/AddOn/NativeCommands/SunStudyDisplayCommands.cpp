@@ -316,6 +316,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.analysisElements = metadata.analysisElements;
         config.contextElements = metadata.contextElements;
         config.ignoredElements = metadata.ignoredElements;
+        config.selectionBinding = metadata.selectionBinding;
         config.debug = adoptedDebug;
         config.depth = adoptedDepth;
         config.hoursMax = rampTop;
@@ -515,6 +516,28 @@ class SunStudyPatchPreviewCommand : public MainThreadCommand {
 };
 
 // ---------------------------------------------------------------------------
+// Tapioca.PauseSunStudyFollowing
+// Manual rebuilds must retire the old automatic producer BEFORE BuildSnapshot.
+// Preserve the displayed full-resolution atlas; cancel without joining workers.
+class PauseSunStudyFollowingCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "PauseSunStudyFollowing";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
+    NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        sunfollow::Disable ();
+        GS::ObjectState os;
+        os.Add ("autoFollow", false);
+        return os;
+    }
+};
+
 // Tapioca.SunStudyFollowerState - the ANALYSIS lifecycle.
 //
 // ⚠️ DELIBERATELY SEPARATE FROM SunStudyOverlayState, WHICH REPORTS RENDERER
@@ -609,6 +632,9 @@ class SunStudyFollowerStateCommand : public MainThreadCommand {
 // ---------------------------------------------------------------------------
 
 const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
+    { "PauseSunStudyFollowing", &MakeRegisteredNativeCommand<PauseSunStudyFollowingCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"autoFollow":{"type":"boolean"}},"required":["autoFollow"],"additionalProperties":false})json" },
     { "ShowSunStudy", &MakeRegisteredNativeCommand<ShowSunStudyCommand>, false,
       R"json({
             "type":"object",

@@ -33,6 +33,7 @@
 #include "SunStudy/SunStudyReading.hpp"
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunStudySession.hpp"
+#include "SunStudy/SunStudySelectionBinding.hpp"
 
 #include <cstdint>
 #include <map>
@@ -76,6 +77,7 @@ struct StudyRecord {
     std::vector<std::string> analysisElements;
     std::vector<std::string> contextElements;
     std::vector<std::string> ignoredElements;
+    SunStudySelectionBinding selectionBinding;
 
     // The roles AS RESOLVED, one per snapshot mesh (an ElementRole value), for
     // the display's role view. ⚠️ ALIGNED WITH THE SNAPSHOT THE STUDY RAN ON;

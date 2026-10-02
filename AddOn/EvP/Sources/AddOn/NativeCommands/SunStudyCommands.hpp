@@ -4,6 +4,7 @@
 #include "NativeCommands/CommandRegistration.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "SunStudy/SunSeries.hpp"
+#include "SunStudy/SunStudySelectionBinding.hpp"
 
 #include <atomic>
 
@@ -18,6 +19,8 @@ struct CapturedSunStudyInputs {
     std::shared_ptr<const Snapshot> snapshot;
     API_PlaceInfo place = {};
     evp::sunstudy::SunSeries series;
+    evp::sunstudy::SunStudySelectionBinding selectionBinding;
+    std::vector<std::string> contextElements, ignoredElements;
 };
 
 // Main-thread capture only; no BVH, winding proof, sampling or atlas assembly.

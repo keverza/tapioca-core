@@ -3,6 +3,7 @@
 
 #include "APIEnvir.h"
 #include "ACAPinc.h"
+#include <cstdint>
 
 namespace geomsrv {
 
@@ -19,6 +20,14 @@ class SelectionSetStore {
     // one (update or add) removes it from every other.
     void Configure (const GS::Array<GS::UniString>& names, bool exclusive = false);
     void Clear ();
+    uint64_t Generation () const
+    {
+        return generation;
+    }
+    uint64_t Revision () const
+    {
+        return revision;
+    }
     bool IsDeclared (const GS::UniString& name) const;
     GS::Array<GS::UniString> Names () const;
     GS::Array<GS::UniString> Values (const GS::UniString& name) const;
@@ -38,6 +47,8 @@ class SelectionSetStore {
 
     GS::Array<Entry> entries;
     bool exclusive = false;
+    uint64_t generation = 1; // declaration lifetime, not content changes; main-thread-only
+    uint64_t revision = 1;   // successful mutations/declarations; avoids copying sets on every follower tick
 
     // Take every element of `kept` out of the other entries; returns how many.
     GS::Int32 RemoveFromOthers (const Entry& kept);

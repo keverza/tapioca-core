@@ -3188,6 +3188,9 @@ def _one(command, params):
                     "patchAtlasResized": False,
                     "weldingLooksBroken": False})
 
+    if command == "EvP.PauseSunStudyFollowing":
+        return _v2({"autoFollow": False})
+
     if command == "EvP.ShowSunStudy":
         # ⚠️ show=False MUST ANSWER WITHOUT A STUDY. The native verb clears the
         # viewer unconditionally and names no study, precisely so a stale tint

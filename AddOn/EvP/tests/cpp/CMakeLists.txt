@@ -707,6 +707,7 @@ set (EVP_TEST_SOURCES
     test_sunseries.cpp
     test_sunstudyocclusion.cpp
     test_sunstudyoccluders.cpp
+    test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp
     test_sunstudysession.cpp
     test_sunstudystore.cpp

@@ -145,7 +145,9 @@ def test_pipeline_telemetry_covers_capture_conversion_queue_upload_and_each_sun_
     extraction = (archviz / "ExtractionThread.cpp").read_text(encoding="utf-8")
     assert "stage=geometry-acquire" in extraction
     assert "stage=geometry-slice" in extraction
-    assert "CaptureElementPacket (*model, i, st->meshes)" in extraction
+    assert "extractionslice::Run (*model, count, *st, *wanted" in extraction
+    slice_source = (archviz / "ExtractionSlice.cpp").read_text(encoding="utf-8")
+    assert "CaptureElementPacket (model, i, st.meshes)" in slice_source
     assert "MakeElementPacket (packet)" in extraction
     conversion = (archviz / "ElementPacket.cpp").read_text(encoding="utf-8")
     for field in ("sourceBytes=", "payloadBytes=", "captureMs=", "convertMs="):
@@ -239,3 +241,52 @@ def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explic
     assert "OccludeDirectionalCancellable" in (_ADDON / "SunStudy" / "SunStudyOcclusion.cpp").read_text(
         encoding="utf-8"
     )
+
+
+def test_bound_role_sets_are_captured_on_main_and_followed_before_completion_can_publish():
+    capture = (_ADDON / "NativeCommands" / "SunStudyCapture.cpp").read_text(encoding="utf-8")
+    assert capture.index("IsMainThread ()") < capture.index("SelectionSetStore::Get ()")
+    for field in ("contextSelectionSet", "ignoredSelectionSet"):
+        assert field in capture
+    assert "binding.generation = selections.Generation ()" in capture
+    assert "binding.revision = selections.Revision ()" in capture
+    assert 'params.Contains ("contextElements")' in capture
+    assert 'params.Contains ("ignoredElements")' in capture
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert "SelectionSetStore" not in commands
+    assert "record->selectionBinding = binding" in commands
+    assert "captured->contextElements" in commands
+    assert "captured->ignoredElements" in commands
+    source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    tick = source.split("void Tick ()", 1)[1].split("FollowerStats State ()", 1)[0]
+    assert tick.index("RefreshRoleSelections ()") < tick.index("BuildCurrentSignature (gConfig)")
+    assert tick.index("RefreshRoleSelections ()") < tick.index("AdvanceOneSlice (now)")
+    assert "binding.generation == store.Generation () && binding.revision == store.Revision ()" in source
+    assert "binding.Refresh (" in source
+    start_params = source.split("GS::ObjectState StartParams (", 1)[1].split("void HideOverlay ()", 1)[0]
+    for role in ("context", "ignored"):
+        assert f'params.Add ("{role}SelectionSet"' in start_params
+        assert f'params.Add ("{role}Elements"' in start_params
+    store = (_ADDON / "NativeCommands" / "SelectionSetStore.cpp").read_text(encoding="utf-8")
+    configure = store.split("void SelectionSetStore::Configure (", 1)[1].split("void SelectionSetStore::Clear ()", 1)[0]
+    clear = store.split("void SelectionSetStore::Clear ()", 1)[1].split("SelectionSetStore::Entry*", 1)[0]
+    for declaration_change in (configure, clear):
+        assert "++generation;" in declaration_change
+        assert "++revision;" in declaration_change
+    mutation = store.split("bool SelectionSetStore::Mutate (", 1)[1]
+    assert "++revision;" in mutation
+    assert "++generation;" not in mutation
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert "config.selectionBinding = metadata.selectionBinding" in display
+
+
+def test_pause_retires_old_producer_but_does_not_clear_display_or_join():
+    source = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    pause = source.split("class PauseSunStudyFollowingCommand", 1)[1].split("class SunStudyFollowerStateCommand", 1)[0]
+    assert "sunfollow::Disable ()" in pause
+    assert "PushClearSunStudy" not in pause
+    assert "join" not in pause
+    registration = source.split('{ "PauseSunStudyFollowing",', 1)[1].split('{ "ShowSunStudy",', 1)[0]
+    schemas = re.findall(r'R"json\((.*?)\)json"', registration, re.DOTALL)
+    assert json.loads(schemas[0])["additionalProperties"] is False
+    assert json.loads(schemas[1])["required"] == ["autoFollow"]
