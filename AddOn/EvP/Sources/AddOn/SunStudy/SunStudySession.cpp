@@ -76,7 +76,8 @@ size_t SunStudySession::Advance (const ITraversal& traversal, size_t maxSteps, d
         if (isCancelled && isCancelled ())
             break;
         const auto started = std::chrono::steady_clock::now ();
-        if (accumulator_.AccumulateRange (traversal, samples_, series_, nextStep_, 1, tmin, tmax, maxParallel) == 0)
+        if (accumulator_.AccumulateRange (traversal, samples_, series_, nextStep_, 1, tmin, tmax, maxParallel,
+                                          isCancelled) == 0)
             break;
         ++nextStep_;
         ++resolved;

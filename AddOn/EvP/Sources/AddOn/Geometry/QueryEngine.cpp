@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 
 namespace geomsrv {
@@ -87,6 +88,58 @@ QueryEngine::QueryEngine (std::shared_ptr<const Snapshot> snap) : snapshot (std:
 }
 
 QueryEngine::~QueryEngine () = default;
+
+TraversalScene QueryEngine::ExportTraversalScene (const std::function<bool ()>& isCancelled) const
+{
+    TraversalScene scene;
+    if (isCancelled && isCancelled ())
+        return scene;
+    const auto& nodes = impl->accel.GetNodes ();
+    const auto& indices = impl->accel.GetIndices ();
+    scene.nodes.reserve (nodes.size ());
+    scene.triangles.reserve (triToMesh.size ());
+    bool cancelled = false;
+    std::function<void (uint32_t)> append = [&] (uint32_t index) {
+        if (cancelled)
+            return;
+        if (scene.nodes.size () % 1024 == 0 && isCancelled && isCancelled ()) {
+            cancelled = true;
+            return;
+        }
+        const auto& source = nodes[index];
+        const size_t target = scene.nodes.size ();
+        TraversalNode node {};
+        std::copy_n (source.bmin, 3, node.min);
+        std::copy_n (source.bmax, 3, node.max);
+        node.first = static_cast<uint32_t> (scene.triangles.size ());
+        node.count = source.flag == 0 ? 0 : source.data[0];
+        scene.nodes.push_back (node);
+        if (source.flag == 0) {
+            append (source.data[0]);
+            append (source.data[1]);
+        }
+        else {
+            for (uint32_t i = 0; i < node.count; ++i) {
+                if (i % 1024 == 0 && isCancelled && isCancelled ()) {
+                    cancelled = true;
+                    return;
+                }
+                const uint32_t triangle = indices[source.data[1] + i];
+                TraversalTriangle tri {};
+                std::copy_n (&verts[faces[triangle * 3] * 3], 3, tri.a);
+                std::copy_n (&verts[faces[triangle * 3 + 1] * 3], 3, tri.b);
+                std::copy_n (&verts[faces[triangle * 3 + 2] * 3], 3, tri.c);
+                scene.triangles.push_back (tri);
+            }
+        }
+        scene.nodes[target].escape = static_cast<uint32_t> (scene.nodes.size ());
+    };
+    if (!nodes.empty ())
+        append (0);
+    if (cancelled || (isCancelled && isCancelled ()))
+        return {};
+    return scene;
+}
 
 QueryEngine::RayHit QueryEngine::Raycast (const double org[3], const double dir[3], double maxDist) const
 {

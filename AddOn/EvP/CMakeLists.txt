@@ -393,7 +393,7 @@ target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS} ${TAPIOCA_TEXT_LIBS} 
 # d3dcompiler/dxguid/gdi32 came in through ARCHVIZ_LIBS with bgfx. The Diligent
 # D3D11 backend compiles its HLSL at runtime, so d3dcompiler is still needed and
 # is now named here rather than inherited from a renderer that is gone.
-target_link_libraries (${ADDON_LIB} d3dcompiler dxguid gdi32)
+target_link_libraries (${ADDON_LIB} d3dcompiler dxguid gdi32 d3d11 dxgi)
 target_link_libraries (${ADDON_LIB} "${WEBVIEW2_DIR}/build/native/x64/WebView2LoaderStatic.lib" version)
 # winmm: timeBeginPeriod, which the overlay's camera sync holds while it is armed.
 # Without it SetTimer cannot fire between Windows' 15.625 ms ticks and the sync

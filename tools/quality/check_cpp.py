@@ -470,6 +470,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/SnapshotCommands.cpp", "ArchViz/ScenePacketTrace.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/ScenePacketTrace.hpp"),
     ("NativeCommands/SunStudyPreparation.cpp", "ArchViz/ArchVizLog.hpp"),
+    # The automatic preparation adapter selects a renderer-owned compute backend
+    # through ITraversal; the shared SunStudy engine still knows no device API.
+    ("NativeCommands/SunStudyPreparation.cpp", "ArchViz/SunStudyGpuTraversal.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentFxLink.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentProbe.hpp"),

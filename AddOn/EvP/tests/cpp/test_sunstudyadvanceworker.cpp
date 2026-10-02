@@ -156,7 +156,7 @@ TEST (SunStudyAdvanceWorker, SubmissionDoesNotCalculateOrWaitOnTheCaller)
     EXPECT_EQ (hours, std::vector<double> { 3.0 });
 }
 
-TEST (SunStudyAdvanceWorker, CancelDoesNotJoinAndStopsBeforeTheNextTimestep)
+TEST (SunStudyAdvanceWorker, CancelDoesNotJoinAndLeavesInterruptedTimestepUncommitted)
 {
     PausedStudy study;
     ASSERT_TRUE (study.worker.Submit (study.request, study.error));
@@ -169,11 +169,14 @@ TEST (SunStudyAdvanceWorker, CancelDoesNotJoinAndStopsBeforeTheNextTimestep)
     EXPECT_EQ (study.gate->calls.load (), 1u);
     AdvanceCompletion completion;
     EXPECT_FALSE (study.worker.Poll (completion));
+    StudyProgress cancelledProgress;
+    ASSERT_TRUE (SunStudyStore::Get ().Progress (study.request.studyId, cancelledProgress, study.error));
+    EXPECT_EQ (cancelledProgress.resolvedSteps, 0u);
     ++study.request.sessionGeneration;
     ASSERT_TRUE (study.worker.Submit (study.request, study.error));
     ASSERT_TRUE (study.WaitResult (completion));
     EXPECT_EQ (completion.request.sessionGeneration, 8u);
-    EXPECT_EQ (completion.advanced, 2u);
+    EXPECT_EQ (completion.advanced, 3u);
     EXPECT_TRUE (completion.progress.converged);
 }
 
@@ -352,8 +355,9 @@ TEST (SunStudySession, CooperativeCancellationCommitsOnlyCompleteStepsAndCanResu
     PausedStudy study;
     study.Release ();
     auto record = Record (study.traversal);
-    size_t checks = 0;
-    EXPECT_EQ (record->session.Advance (*study.traversal, 3, 0.001, 0.0, 1, [&checks] () { return checks++ > 0; }), 1u);
+    bool cancelled = false;
+    record->session.SetStepObserver ([&cancelled] (size_t, const OcclusionAccumulator&, double) { cancelled = true; });
+    EXPECT_EQ (record->session.Advance (*study.traversal, 3, 0.001, 0.0, 1, [&cancelled] () { return cancelled; }), 1u);
     EXPECT_EQ (record->session.Progress ().resolvedSteps, 1u);
     EXPECT_FALSE (record->session.Progress ().converged);
     EXPECT_EQ (record->session.Advance (*study.traversal, 3, 0.001, 0.0, 1), 2u);

@@ -702,15 +702,32 @@ void Tick ()
 
     // ---- 1. has Archicad reported a genuine element change? ------------------
     const uint32_t edits = archviz::modelwatch::Get ().geometryEdits;
+    int64_t signatureObservedMs = now;
     s_navigationDeferred = NavigationActive ();
-    if (s_refreshSchedule.Observe (edits, now))
+    if (s_refreshSchedule.Observe (edits, now)) {
         RetireRun ("geometry changed");
+        archviz::ArchVizLog ("pipeline: stage=sun-batch-pending edits=" + std::to_string (edits) +
+                             " signals=" + std::to_string (s_refreshSchedule.PendingSignals ()) +
+                             " observations=" + std::to_string (s_refreshSchedule.PendingObservations ()) +
+                             " quietMs=" + std::to_string (s_refreshSchedule.QuietMilliseconds ()) +
+                             " pendingTargets=1");
+    }
     if (s_refreshSchedule.Pending ()) {
         s_stage = "waitingForGeometry";
         if (!s_refreshSchedule.Ready (now, s_navigationDeferred))
             return;
+        // Cancellation is cooperative. Do not capture intermediate snapshots
+        // while an old preparation/timestep is still draining on its worker.
+        if (AdvanceWorker ().Busy () || PreparationWorker ().Busy ())
+            return;
         if (!RefreshSnapshot ())
             return; // never accept an old result while a known edit awaits capture
+        signatureObservedMs = s_refreshSchedule.LastEditMs ();
+        archviz::ArchVizLog ("pipeline: stage=sun-batch-capture edits=" + std::to_string (edits) +
+                             " signals=" + std::to_string (s_refreshSchedule.PendingSignals ()) +
+                             " observations=" + std::to_string (s_refreshSchedule.PendingObservations ()) +
+                             " quietMs=" + std::to_string (s_refreshSchedule.QuietMilliseconds ()) + " waitMs=" +
+                             std::to_string (NowMs () - s_refreshSchedule.BatchStartedMs ()) + " pendingTargets=0");
         gSeenGeometryEdits = edits;
         s_refreshSchedule.Complete ();
     }
@@ -721,7 +738,9 @@ void Tick ()
     // nothing -- which is exactly the property that keeps navigation free, and
     // it is cheaper to guarantee with one path than with a special case.
     const SunStudyDependencySignature world = BuildCurrentSignature (gConfig);
-    if (gFollower.Observe (world, now))
+    // Geometry has already settled before capture; do not debounce it a second
+    // time. Sun/sampling-only changes still use the follower's normal delay.
+    if (gFollower.Observe (world, signatureObservedMs))
         Log (gFollower.Describe ());
     if ((!gRunStudyId.empty () || s_preparation != nullptr) &&
         (gRunGeneration != gFollower.Generation () || gRunSignature != world))
@@ -802,7 +821,8 @@ FollowerStats State ()
     stats.workerThread = s_workerThread;
     stats.lastError = gLastError;
     stats.description = gFollower.Describe ();
-    stats.millisecondsUntilStart = gFollower.MillisecondsUntilStart (NowMs ());
+    stats.millisecondsUntilStart = s_refreshSchedule.Pending () ? s_refreshSchedule.MillisecondsUntilReady (NowMs ())
+                                                                : gFollower.MillisecondsUntilStart (NowMs ());
     return stats;
 }
 

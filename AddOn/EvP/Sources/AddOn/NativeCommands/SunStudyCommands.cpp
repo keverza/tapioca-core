@@ -428,7 +428,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         inputs.sunVersion = record->series.Version ();
         inputs.gridVersion = gridVersion;
         record->session.Sync (inputs, record->series, record->Samples ());
-        FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_);
+        FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_, occluders);
         trace.Mark ("reuse-seed", record->session.Accumulator ().Bits ().size () * sizeof (uint64_t));
 
         const StudyProgress progress = record->session.Progress ();

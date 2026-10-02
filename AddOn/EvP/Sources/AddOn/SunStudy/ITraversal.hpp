@@ -15,13 +15,13 @@
 // measured run says the baseline is insufficient — and behind this interface,
 // finding that out costs one class rather than a rewrite.
 //
-// ⚠️ IMPLEMENTATIONS MUST BE SAFE FOR CONCURRENT CALLS AND MUST NOT MUTATE. The
-// analysis shards its own work across threads and every backend is handed the
-// same immutable scene, so a backend that caches into itself turns a correct
-// result into a racy one that is right most of the time.
+// Implementations must be safe for concurrent calls over an immutable scene.
+// Private GPU resource/scratch caches must be synchronised, never shared with
+// the renderer's immediate context or its mutable scene.
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 
 namespace evp::sunstudy {
 
@@ -55,6 +55,18 @@ class ITraversal {
     // asserted, and both arms have to be otherwise identical.
     virtual void OccludeDirectional (const double* origins, size_t count, const double dir[3], double tmin, double tmax,
                                      uint8_t* out, size_t maxParallel = 0) const = 0;
+
+    // A backend may cancel between bounded GPU packets. False means the entire
+    // timestep is uncommitted; partial output must never become resolved bits.
+    virtual bool OccludeDirectionalCancellable (const double* origins, size_t count, const double dir[3], double tmin,
+                                                double tmax, uint8_t* out, size_t maxParallel,
+                                                const std::function<bool ()>& isCancelled) const
+    {
+        if (isCancelled && isCancelled ())
+            return false;
+        OccludeDirectional (origins, count, dir, tmin, tmax, out, maxParallel);
+        return !isCancelled || !isCancelled ();
+    }
 
     // The general form: every query carries its own direction. Needed by the
     // hemisphere probe, where each sample fires a fan rather than one ray, and

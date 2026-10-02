@@ -1,6 +1,7 @@
 #include "NativeCommands/SunStudyPreparation.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/SunStudyGpuTraversal.hpp"
 
 #include <algorithm>
 
@@ -37,8 +38,14 @@ void SunStudyPreparationTrace::Mark (const char* stage, size_t payloadBytes)
 }
 
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
-                                const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled)
+                                const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
+                                std::shared_ptr<const QueryEngine> occluders)
 {
+    // Only the owned automatic path opts into GPU waits. Public/manual studies
+    // keep their CPU baseline and maxParallel measurement contract. Device and
+    // shader creation are lazy, so fully reused studies touch no GPU at all.
+    if (cancelled != nullptr)
+        record.traversal = std::make_shared<archviz::SunStudyGpuTraversal> (std::move (occluders));
     record.snapshot = std::move (snapshot);
     evp::sunstudy::SetSampleMeshes (record);
     const std::atomic<bool> notCancelled { false };

@@ -8,7 +8,8 @@ namespace geomsrv {
 
 bool SunStudySnapshotBounds (const Snapshot& snapshot, double min[3], double max[3]);
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
-                                const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled);
+                                const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
+                                std::shared_ptr<const QueryEngine> occluders);
 
 // Adjacent phase durations, not cumulative timings; payload bytes are used
 // array bytes, not allocator capacity or GPU-completion time.

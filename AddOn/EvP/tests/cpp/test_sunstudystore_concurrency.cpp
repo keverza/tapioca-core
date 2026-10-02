@@ -173,7 +173,9 @@ TEST (SunStudyStoreConcurrency, EraseDuringAdvanceDoesNotDestroyBorrowedSampleBu
     EXPECT_EQ (SunStudyStore::Get ().Count (), 0u);
     slice.Finish ();
     EXPECT_TRUE (slice.succeeded) << slice.error;
-    EXPECT_EQ (slice.advanced, 1u);
+    // The owned buffers survived the blocked traversal, but cancellation now
+    // rolls back its uncommitted timestep instead of resolving stale bits.
+    EXPECT_EQ (slice.advanced, 0u);
     StudyProgress progress;
     std::string error;
     EXPECT_FALSE (SunStudyStore::Get ().Progress (slice.id, progress, error));

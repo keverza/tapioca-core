@@ -161,3 +161,51 @@ def test_pipeline_telemetry_covers_capture_conversion_queue_upload_and_each_sun_
         assert field in prepare
     reuse = (_ADDON / "SunStudy" / "SunStudyReuse.cpp").read_text(encoding="utf-8")
     assert "ACAPI_" not in reuse and "MainThreadGate" not in reuse
+
+
+def test_geometry_batches_wait_for_worker_drain_before_capture_and_do_not_debounce_twice():
+    source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    pending = source.split("if (s_refreshSchedule.Pending ()) {", 1)[1].split("// ---- 2.", 1)[0]
+    assert pending.index("AdvanceWorker ().Busy () || PreparationWorker ().Busy ()") < pending.index(
+        "if (!RefreshSnapshot ())"
+    )
+    assert "signatureObservedMs = s_refreshSchedule.LastEditMs ()" in pending
+    assert "gFollower.Observe (world, signatureObservedMs)" in source
+    assert "s_refreshSchedule.MillisecondsUntilReady (NowMs ())" in source
+    for stage in ("sun-batch-pending", "sun-batch-capture"):
+        assert f"stage={stage}" in source
+    for field in ("signals=", "observations=", "quietMs=", "waitMs=", "pendingTargets="):
+        assert field in source
+
+
+def test_gpu_selection_is_only_for_owned_automatic_preparation_and_uses_role_filtered_scene():
+    source = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
+    assert "if (cancelled != nullptr)" in source
+    assert "std::make_shared<archviz::SunStudyGpuTraversal> (std::move (occluders))" in source
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert "FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_, occluders)" in commands
+    assert "D3D11" not in commands
+
+
+def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explicit_fallback():
+    source = (_ADDON / "ArchViz" / "SunStudyGpuTraversal.cpp").read_text(encoding="utf-8")
+    for forbidden in ("ACAPI_", "MainThreadGate", "DiligentViewport", "D3D_DRIVER_TYPE_WARP"):
+        assert forbidden not in source
+    for required in (
+        "D3D11CreateDevice",
+        "D3D11_FEATURE_DOUBLES",
+        "D3D11_ASYNC_GETDATA_DONOTFLUSH",
+        "D3D11_MAP_FLAG_DO_NOT_WAIT",
+        "kPacketRays = 4096",
+        "kRayWorkLimit = 4096",
+        "isCancelled ()",
+        "CPU/GPU parity mismatch",
+        "TAPIOCA_SUNSTUDY_GPU",
+        "stage=sun-gpu-init",
+        "stage=sun-gpu-step",
+        "stage=sun-gpu-fallback",
+    ):
+        assert required in source
+    assert "OccludeDirectionalCancellable" in (_ADDON / "SunStudy" / "SunStudyOcclusion.cpp").read_text(
+        encoding="utf-8"
+    )

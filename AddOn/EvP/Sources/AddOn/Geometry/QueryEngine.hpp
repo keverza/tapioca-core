@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
 
 // Narrowphase geometry queries (M5) over a snapshot: raycast, closest-surface-
 // point and nearest-element. Backed by a per-snapshot triangle BVH (nanort)
@@ -18,6 +19,27 @@
 // traversal is const/read-only), so many worker threads can raycast the same
 // engine in parallel.
 namespace geomsrv {
+
+// Stackless, depth-first traversal packet. Branches continue at the next node;
+// a miss skips to `escape`. Leaves address a contiguous triangle range. Doubles
+// preserve the CPU scene, including georeferenced and sub-millimetre geometry.
+struct TraversalNode {
+    double min[3];
+    double max[3];
+    uint32_t first = 0;
+    uint32_t count = 0;
+    uint32_t escape = 0;
+    uint32_t padding = 0;
+};
+struct TraversalTriangle {
+    double a[3];
+    double b[3];
+    double c[3];
+};
+struct TraversalScene {
+    std::vector<TraversalNode> nodes;
+    std::vector<TraversalTriangle> triangles;
+};
 
 class QueryEngine {
   public:
@@ -84,6 +106,10 @@ class QueryEngine {
     // normalised -- it is normalised here, so tmin/tmax are true distances in
     // metres either way.
     bool Occluded (const double org[3], const double dir[3], double tmin, double tmax) const;
+
+    // Export the EXISTING BVH, never build a second spatial index for a backend.
+    // Cancellation returns an empty packet, never a partially threaded tree.
+    TraversalScene ExportTraversalScene (const std::function<bool ()>& isCancelled = {}) const;
 
     // ---- All-hits ("pierce") raycast ---------------------------------------
     // Every surface the ray passes through, sorted by t ascending. Back faces are

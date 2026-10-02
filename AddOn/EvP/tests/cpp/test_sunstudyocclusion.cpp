@@ -172,6 +172,50 @@ TEST (SunStudyOcclusion, ReResolvingWithADifferentSunReplacesTheBit)
     EXPECT_FALSE (accumulator.Lit (1, 0)) << "back-facing now, so the old set bit must have been cleared";
 }
 
+TEST (SunStudyOcclusion, CancellationDuringTraversalPreservesPreviouslyResolvedBits)
+{
+    Scene scene;
+    OcclusionAccumulator accumulator (2, 2);
+    ASSERT_TRUE (accumulator.AccumulateStep (*scene.traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1));
+    const auto before = accumulator.Bits ();
+    // The default backend polls before and after its complete traversal. Cancel
+    // at that last poll, not by relying on how many times compaction polls.
+    class CancellingTraversal final : public ITraversal {
+      public:
+        mutable bool cancelled = false;
+        void OccludeDirectional (const double*, size_t count, const double*, double, double, uint8_t* out,
+                                 size_t) const override
+        {
+            std::fill_n (out, count, uint8_t { 1 });
+            cancelled = true;
+        }
+        void OccludeRays (const OcclusionRay*, size_t, uint8_t*, size_t) const override
+        {
+        }
+        uint64_t SceneVersion () const override
+        {
+            return 11;
+        }
+    } traversal;
+    const auto cancel = [&] { return traversal.cancelled; };
+    EXPECT_FALSE (accumulator.AccumulateStep (traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1, cancel));
+    EXPECT_EQ (accumulator.Bits (), before);
+    EXPECT_TRUE (accumulator.StepResolved (0));
+    traversal.cancelled = false;
+    EXPECT_FALSE (accumulator.AccumulateStep (traversal, scene.Samples (), 1, kSunUp, 0.001, 0.0, 1, cancel));
+    EXPECT_EQ (accumulator.Bits (), before);
+    EXPECT_FALSE (accumulator.StepResolved (1));
+    EXPECT_EQ (accumulator.ResolvedStepCount (), 1u);
+}
+
+TEST (SunStudyOcclusion, CancelledEmptyStepDoesNotResolve)
+{
+    Scene scene;
+    OcclusionAccumulator accumulator (0, 1);
+    EXPECT_FALSE (accumulator.AccumulateStep (*scene.traversal, {}, 0, kSunUp, 0.001, 0.0, 1, [] { return true; }));
+    EXPECT_FALSE (accumulator.StepResolved (0));
+}
+
 TEST (SunStudyOcclusion, RangeAccumulationWalksTheSeriesInSlices)
 {
     Scene scene;

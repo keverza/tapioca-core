@@ -484,6 +484,8 @@ set (EVP_ARCHVIZ_SOURCES
     # The hooks and the canvas themselves: plain Win32, a window of the test's own thread for the
     # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+    # Independent sun-analysis compute device; no renderer, window or ACAPI.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyGpuTraversal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ArchVizLogStub.cpp"
     # Which file the log writes when another Archicad writes archviz.log: plain Win32, two
     # claims of the test's own standing for two processes.
@@ -697,6 +699,7 @@ set (EVP_TEST_SOURCES
     test_cputraversal.cpp
     test_sunseries.cpp
     test_sunstudyocclusion.cpp
+    test_sunstudygputraversal.cpp
     test_sunstudysession.cpp
     test_sunstudystore.cpp
     test_sunstudystore_concurrency.cpp
@@ -863,7 +866,7 @@ target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 Tapio
 # the compiler and its reflection, no GPU. The guest's depth pull is RUN, on WARP --
 # the software device every Windows has, no hardware GPU (test_guestdepthpull.cpp).
 if (WIN32)
-    target_link_libraries (EvPGeomTests PRIVATE d3dcompiler dxguid d3d11)
+    target_link_libraries (EvPGeomTests PRIVATE d3dcompiler dxguid d3d11 dxgi)
 endif ()
 
 if (MSVC)

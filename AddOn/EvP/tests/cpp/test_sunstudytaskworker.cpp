@@ -1,13 +1,16 @@
 #include "SunStudy/SunStudyTaskWorker.hpp"
 #include "SunStudy/SunStudyRefreshSchedule.hpp"
+#include "SunStudy/SunStudyFollower.hpp"
 #include "SunStudy/SunStudyPreviewPlan.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <future>
 #include <stdexcept>
 #include <limits>
+#include <vector>
 
 using namespace evp::sunstudy;
 
@@ -272,9 +275,12 @@ TEST (SunStudyRefreshSchedule, EditBurstsCoalesceButNavigationDefersCapture)
     EXPECT_TRUE (schedule.Observe (42, 100));
     EXPECT_TRUE (schedule.Observe (43, 300));
     EXPECT_FALSE (schedule.Ready (400, false));
-    EXPECT_FALSE (schedule.Ready (600, true));
+    EXPECT_FALSE (schedule.Ready (1049, false));
+    EXPECT_FALSE (schedule.Ready (1050, true));
     EXPECT_TRUE (schedule.Pending ());
-    EXPECT_TRUE (schedule.Ready (601, false));
+    EXPECT_TRUE (schedule.Ready (1050, false));
+    EXPECT_EQ (schedule.PendingSignals (), 2u);
+    EXPECT_EQ (schedule.PendingObservations (), 2u);
 }
 
 TEST (SunStudyRefreshSchedule, FailedCaptureRemainsPendingAndNewDocumentsResetIt)
@@ -287,4 +293,144 @@ TEST (SunStudyRefreshSchedule, FailedCaptureRemainsPendingAndNewDocumentsResetIt
     schedule.Reset (0);
     EXPECT_FALSE (schedule.Pending ());
     EXPECT_FALSE (schedule.Observe (0, 800));
+}
+
+TEST (SunStudyRefreshSchedule, HundredsOfEditsKeepOneLatestTargetUntilTheLastQuietWindow)
+{
+    SunStudyRefreshSchedule schedule;
+    schedule.Reset (0);
+    for (uint32_t edit = 1; edit <= 500; ++edit) {
+        const int64_t now = edit * 750;
+        ASSERT_TRUE (schedule.Observe (edit, now));
+        EXPECT_TRUE (schedule.Pending ());
+        if (edit > 1)
+            EXPECT_FALSE (schedule.Ready (now + 749, false));
+    }
+    EXPECT_EQ (schedule.PendingSignals (), 500u);
+    EXPECT_EQ (schedule.PendingObservations (), 500u);
+    EXPECT_EQ (schedule.BatchStartedMs (), 750);
+    EXPECT_EQ (schedule.LastEditMs (), 375000);
+    EXPECT_EQ (schedule.QuietMilliseconds (), 1500);
+    EXPECT_FALSE (schedule.Ready (376499, false));
+    EXPECT_TRUE (schedule.Ready (376500, false));
+    schedule.Complete ();
+    EXPECT_FALSE (schedule.Pending ());
+    EXPECT_EQ (schedule.PendingSignals (), 0u);
+    EXPECT_EQ (schedule.PendingObservations (), 0u);
+    EXPECT_FALSE (schedule.Observe (500, 400000));
+}
+
+TEST (SunStudyRefreshSchedule, NearbyEditsAfterCaptureStillBelongToTheBurst)
+{
+    SunStudyRefreshSchedule schedule;
+    schedule.Reset (0);
+    ASSERT_TRUE (schedule.Observe (1, 100));
+    ASSERT_TRUE (schedule.Ready (400, false));
+    schedule.Complete ();
+    ASSERT_TRUE (schedule.Observe (2, 850));
+    EXPECT_EQ (schedule.QuietMilliseconds (), 750);
+    EXPECT_EQ (schedule.PendingSignals (), 1u);
+    EXPECT_EQ (schedule.BatchStartedMs (), 850);
+    ASSERT_TRUE (schedule.Observe (3, 1600));
+    EXPECT_EQ (schedule.QuietMilliseconds (), 1500);
+    EXPECT_FALSE (schedule.Ready (3099, false));
+    EXPECT_TRUE (schedule.Ready (3100, false));
+}
+
+TEST (SunStudyRefreshSchedule, AnIsolatedEditRecoversTheShortDelayAndPollingCannotExtendIt)
+{
+    SunStudyRefreshSchedule schedule;
+    schedule.Reset (0);
+    ASSERT_TRUE (schedule.Observe (3, 100));
+    EXPECT_EQ (schedule.QuietMilliseconds (), 1500);
+    schedule.Complete ();
+    ASSERT_TRUE (schedule.Observe (4, 2101));
+    EXPECT_EQ (schedule.QuietMilliseconds (), 300);
+    for (int64_t now = 2150; now <= 2400; now += 50)
+        EXPECT_FALSE (schedule.Observe (4, now));
+    EXPECT_EQ (schedule.MillisecondsUntilReady (2400), 1);
+    EXPECT_TRUE (schedule.Ready (2401, false));
+}
+
+TEST (SunStudyRefreshSchedule, CounterWrapAndSessionResetDoNotLoseOrReplayEdits)
+{
+    SunStudyRefreshSchedule schedule;
+    schedule.Reset (std::numeric_limits<uint32_t>::max () - 1);
+    ASSERT_TRUE (schedule.Observe (1, 100));
+    EXPECT_EQ (schedule.PendingSignals (), 3u);
+    EXPECT_EQ (schedule.PendingObservations (), 1u);
+    EXPECT_EQ (schedule.QuietMilliseconds (), 1500);
+    EXPECT_FALSE (schedule.Ready (1600, true));
+    EXPECT_TRUE (schedule.Ready (1600, false));
+    schedule.Reset (0);
+    EXPECT_EQ (schedule.QuietMilliseconds (), 300);
+    EXPECT_EQ (schedule.MillisecondsUntilReady (10000), -1);
+    EXPECT_EQ (schedule.PendingSignals (), 0u);
+    ASSERT_TRUE (schedule.Observe (1, 10001));
+    EXPECT_TRUE (schedule.Ready (10301, false));
+}
+
+TEST (SunStudyRefreshSchedule, WatchCadenceBurstCapturesOnlyTheFirstAndLatestModel)
+{
+    SunStudyRefreshSchedule schedule;
+    schedule.Reset (0);
+    std::vector<uint32_t> captures;
+    for (int64_t now = 0; now <= 77000; now += 50) {
+        const uint32_t edits = static_cast<uint32_t> (std::min<int64_t> (now / 750, 100));
+        schedule.Observe (edits, now);
+        if (schedule.Ready (now, false)) {
+            captures.push_back (edits);
+            schedule.Complete ();
+        }
+    }
+    ASSERT_EQ (captures.size (), 2u);
+    EXPECT_EQ (captures.front (), 1u);
+    EXPECT_EQ (captures.back (), 100u);
+    EXPECT_FALSE (schedule.Pending ());
+}
+
+TEST (SunStudyRefreshSchedule, CapturedGeometryDoesNotWaitThroughASecondFollowerDebounce)
+{
+    SunStudyRefreshSchedule schedule;
+    schedule.Reset (0);
+    SunStudyFollower follower;
+    const SunStudyDependencySignature original { 1, 2, 3 };
+    const SunStudyDependencySignature edited { 2, 2, 3 };
+    follower.Adopt ("original", original, 0);
+    schedule.Observe (1, 100);
+    ASSERT_TRUE (schedule.Ready (400, false));
+    follower.Observe (edited, schedule.LastEditMs ());
+    schedule.Complete ();
+    EXPECT_TRUE (follower.ShouldStart (400));
+    EXPECT_EQ (follower.MillisecondsUntilStart (400), 0);
+    const auto generation = follower.NoteStarted (edited, 400);
+    EXPECT_TRUE (follower.CanPublishResult (generation, edited));
+    ASSERT_TRUE (follower.NoteCompleted (generation, "edited", edited, 500));
+    // An unrelated sun-input change has not passed the geometry quiet window.
+    follower.Observe ({ 2, 4, 3 }, 600);
+    EXPECT_FALSE (follower.ShouldStart (899));
+    EXPECT_TRUE (follower.ShouldStart (900));
+}
+
+TEST (SunStudyRefreshSchedule, CancelledPreparationCannotBuildACaptureBacklog)
+{
+    PausedTask task;
+    ASSERT_TRUE (task.worker.Submit (task.request, task.error));
+    ASSERT_TRUE (task.Started ());
+    SunStudyRefreshSchedule schedule;
+    schedule.Reset (0);
+    for (uint32_t edit = 1; edit <= 50; ++edit) {
+        schedule.Observe (edit, edit * 750);
+        task.worker.Cancel ();
+        EXPECT_FALSE (schedule.Ready (edit * 750 + 1500, false) && !task.worker.Busy ());
+        EXPECT_FALSE (task.worker.Submit (task.request, task.error));
+    }
+    task.Release ();
+    ASSERT_TRUE (task.WaitIdle ());
+    EXPECT_TRUE (schedule.Ready (50 * 750 + 1500, false));
+    EXPECT_EQ (schedule.PendingSignals (), 50u);
+    EXPECT_EQ (task.executions.load (), 1u);
+    EXPECT_EQ (task.discards.load (), 1u);
+    schedule.Complete ();
+    EXPECT_FALSE (schedule.Pending ());
 }

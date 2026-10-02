@@ -91,13 +91,14 @@ class OcclusionAccumulator final {
     //
     // `tmin` skips the surface the sample sits on; `tmax <= 0` is unbounded.
     bool AccumulateStep (const ITraversal& traversal, const SampleSet& samples, size_t stepIndex,
-                         const double sunDirection[3], double tmin = 0.001, double tmax = 0.0, size_t maxParallel = 0);
+                         const double sunDirection[3], double tmin = 0.001, double tmax = 0.0, size_t maxParallel = 0,
+                         const std::function<bool ()>& isCancelled = {});
 
     // Convenience: resolve `[firstStep, firstStep + maxSteps)` of a series.
     // Returns how many it actually resolved.
     size_t AccumulateRange (const ITraversal& traversal, const SampleSet& samples, const SunSeries& series,
                             size_t firstStep, size_t maxSteps, double tmin = 0.001, double tmax = 0.0,
-                            size_t maxParallel = 0);
+                            size_t maxParallel = 0, const std::function<bool ()>& isCancelled = {});
 
     bool StepResolved (size_t stepIndex) const;
     size_t ResolvedStepCount () const

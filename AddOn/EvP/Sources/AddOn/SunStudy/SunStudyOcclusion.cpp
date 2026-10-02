@@ -60,11 +60,14 @@ bool OcclusionAccumulator::SeedReusable (const OcclusionAccumulator& source, con
 }
 
 bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const SampleSet& samples, size_t stepIndex,
-                                           const double sunDirection[3], double tmin, double tmax, size_t maxParallel)
+                                           const double sunDirection[3], double tmin, double tmax, size_t maxParallel,
+                                           const std::function<bool ()>& isCancelled)
 {
     if (stepIndex >= stepCount_ || sunDirection == nullptr)
         return false;
     if (samples.count != sampleCount_)
+        return false;
+    if (isCancelled && isCancelled ())
         return false;
     if (sampleCount_ == 0) {
         if (stepResolved_[stepIndex] == 0) {
@@ -81,12 +84,6 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     const auto started = std::chrono::steady_clock::now ();
     traceMilliseconds_ = 0.0;
 
-    // Re-resolving a step must not double-count, so its bit is cleared first.
-    for (size_t i = 0; i < ActiveSampleCount (); ++i) {
-        const size_t s = selective_ ? activeSamples_[i] : i;
-        bits_[s * wordsPerSample_ + word] &= ~bit;
-    }
-
     // ⚠️ BACK-FACING SAMPLES ARE CULLED BEFORE THE RAY, NOT AFTER. A surface
     // turned away from the sun is self-shadowed whatever the geometry does, so
     // tracing it is pure waste — and around half the samples are back-facing at
@@ -99,6 +96,8 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     frontFacingIndex_.reserve (ActiveSampleCount ());
 
     for (size_t i = 0; i < ActiveSampleCount (); ++i) {
+        if (i % 4096 == 0 && isCancelled && isCancelled ())
+            return false;
         const size_t s = selective_ ? activeSamples_[i] : i;
         if (samples.normals != nullptr) {
             const double* n = &samples.normals[s * 3];
@@ -118,11 +117,21 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     compactMilliseconds_ = std::chrono::duration<double, std::milli> (compacted - started).count ();
     if (traced > 0) {
         occluded_.assign (traced, 0u);
-        traversal.OccludeDirectional (frontFacingOrigins_.data (), traced, sunDirection, tmin, tmax, occluded_.data (),
-                                      maxParallel);
+        if (!traversal.OccludeDirectionalCancellable (frontFacingOrigins_.data (), traced, sunDirection, tmin, tmax,
+                                                      occluded_.data (), maxParallel, isCancelled))
+            return false;
         traceMilliseconds_ =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - compacted).count ();
-
+    }
+    if (isCancelled && isCancelled ())
+        return false;
+    // Commit only after a complete packet set. Cancellation/re-resolution must
+    // not clear an existing step or corrupt any reused complete-day samples.
+    for (size_t i = 0; i < ActiveSampleCount (); ++i) {
+        const size_t s = selective_ ? activeSamples_[i] : i;
+        bits_[s * wordsPerSample_ + word] &= ~bit;
+    }
+    if (traced > 0) {
         for (size_t i = 0; i < traced; ++i) {
             if (occluded_[i] != 0)
                 continue; // something in the way
@@ -140,12 +149,14 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
 
 size_t OcclusionAccumulator::AccumulateRange (const ITraversal& traversal, const SampleSet& samples,
                                               const SunSeries& series, size_t firstStep, size_t maxSteps, double tmin,
-                                              double tmax, size_t maxParallel)
+                                              double tmax, size_t maxParallel,
+                                              const std::function<bool ()>& isCancelled)
 {
     size_t done = 0;
     const size_t limit = std::min (series.StepCount (), stepCount_);
     for (size_t step = firstStep; step < limit && done < maxSteps; ++step) {
-        if (!AccumulateStep (traversal, samples, step, series.Step (step).direction, tmin, tmax, maxParallel))
+        if (!AccumulateStep (traversal, samples, step, series.Step (step).direction, tmin, tmax, maxParallel,
+                             isCancelled))
             break;
         ++done;
     }
