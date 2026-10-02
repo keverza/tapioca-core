@@ -3,6 +3,7 @@
 
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ExtractionReport.hpp"
+#include "ArchViz/ExtractionSlice.hpp"       // SliceState, Run -- one slice's work
 #include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadMaterials, ReadEnvironment
 #include "ArchViz/ExtractionSubstance.hpp"   // ReadProjectSubstances, ObserveElementSubstances
@@ -28,6 +29,8 @@ namespace geomsrv {
 namespace archviz {
 
 namespace {
+
+using extractionslice::SliceState;
 
 int64_t NowMs ()
 {
@@ -83,44 +86,6 @@ constexpr uint32_t kMaxRestarts = 8;
 // small enough that the viewer's memory does not track the project's size.
 constexpr size_t MaxPendingBytes = 96u * 1024u * 1024u;
 
-// What one extraction slice reports back. ATOMICS and shared BY VALUE, because
-// a timed-out Invoke may still run the job LATER, after this loop iteration has
-// moved on — the gate's contract says so explicitly. `meshes` is plain (not
-// atomic) and is read ONLY when `completed` is true AND the Invoke returned ok;
-// a slice that timed out is ABANDONED whole, never harvested, and the shared_ptr
-// keeps it alive for the late writer.
-struct SliceState {
-    std::atomic<int32_t> next { 1 };       // 1-BASED: ModelerAPI indices are
-    std::atomic<int32_t> changedTo { -1 }; // the model's count, once it is not the pass's
-    std::atomic<uint32_t> empty { 0 };
-    // Slice local and touched only by the slice's own main-thread body, so a
-    // plain map is correct here where `empty` needs an atomic. Merged into
-    // `Progress::emptyByType` under the pass mutex.
-    std::map<std::string, uint32_t> emptyByType;
-    std::map<std::string, std::map<std::string, uint32_t>> emptyReasons;
-    // ⚠️ ONE CALL, THREE FACTS: it drew nothing, it was a <kind>, and why. The count
-    // alone cannot tell a dimension from a missing morph, nor a NURBS body from none.
-    void NoteEmpty (const std::string& kind, std::string reason)
-    {
-        empty.fetch_add (1);
-        ++emptyByType[kind];
-        ++emptyReasons[kind][std::move (reason)];
-    }
-    std::atomic<int64_t> holdMs { 0 };
-    std::atomic<bool> completed { false };
-    std::vector<CapturedMeshPacket> meshes;
-    // RE51: what this slice saw about which surfaces sit on which substances.
-    // ⚠️ PLAIN, LIKE `meshes`, AND HARVESTED ON THE SAME TERMS -- only when the
-    // slice completed AND the Invoke returned ok. A timed-out slice is abandoned
-    // whole; half its observations would bias the vote it feeds.
-    std::vector<SurfaceSubstanceObservation> observations;
-    // PARTIAL PASSES ONLY: which of the wanted GUIDs this slice actually saw in
-    // the model. What is NOT seen by the end of the pass is what was deleted (or
-    // hidden, or moved off the storey), and that is how a removal is derived
-    // without interpreting an event id.
-    std::vector<std::string> matched;
-};
-
 // The model, and the fact that it must die on the main thread.
 //
 // ⚠️ RAW POINTER ON PURPOSE. `ModelerAPI::Model` is a DevKit object whose
@@ -142,19 +107,6 @@ struct ModelHandle {
     // the delete happens where it is legal.
     std::atomic<bool> abandoned { false };
 };
-
-// Main-thread capture: record timings without logging inside a host slice.
-bool CaptureElementPacket (ModelerAPI::Model& model, int32_t index, std::vector<CapturedMeshPacket>& packets)
-{
-    CapturedMeshPacket packet;
-    const auto started = std::chrono::steady_clock::now ();
-    if (!ExtractElementAt (model, index, packet.mesh))
-        return false;
-    packet.capturedAt = std::chrono::steady_clock::now ();
-    packet.captureMilliseconds = std::chrono::duration<double, std::milli> (packet.capturedAt - started).count ();
-    packets.push_back (std::move (packet));
-    return true;
-}
 
 } // namespace
 
@@ -502,58 +454,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         const bool observeSubstances = full && !substances->byAttribute.empty ();
         const bool ok = evp::MainThreadGate::Get ().Invoke (
             [model, count, st, wanted, sliceMs, observeSubstances, substances] {
-                // The budget is checked INSIDE the slice, on the main thread, so
-                // the bound is on how long Archicad is actually held — not on
-                // how many elements we guessed would fit.
-                //
-                // ⚠️ AT LEAST ONE ELEMENT PER SLICE, ALWAYS. A single element
-                // can take longer than the whole budget (a curtain wall, a
-                // stair), and a loop that checked the clock FIRST would extract
-                // nothing, report no progress, and spin forever on that element.
-                const int64_t begin = NowMs ();
-                int32_t i = st->next.load ();
-                // ⚠️ THE MODEL IS ARCHICAD'S LIVE ONE, NOT A COPY: isolating, a layer or a filter
-                // changes it between slices, and the rest of the pass read past its end (2026-10-02:
-                // 3388 elements). Asked here, where it holds still.
-                if (model->GetElementCount () != count) {
-                    st->changedTo.store (model->GetElementCount ());
-                    st->completed.store (true);
-                    return;
-                }
-                while (i <= count) {
-                    if (wanted->empty ()) {
-                        if (!CaptureElementPacket (*model, i, st->meshes))
-                            st->NoteEmpty (ElementTypeNameAt (*model, i), EmptyReasonAt (*model, i));
-                    }
-                    else {
-                        // ⚠️ THE GUID FIRST, THE GEOMETRY ONLY IF IT MATCHES.
-                        // Tessellating an element to discover it was not the one
-                        // that changed is the entire cost of the pass, spent on
-                        // nothing — which would make a partial refresh as
-                        // expensive as a full one and leave it no reason to
-                        // exist.
-                        const std::string guid = ElementGuidAt (*model, i);
-                        if (!guid.empty () && wanted->count (guid) > 0) {
-                            if (!CaptureElementPacket (*model, i, st->meshes))
-                                st->NoteEmpty (ElementTypeNameAt (*model, i), EmptyReasonAt (*model, i));
-                            st->matched.push_back (guid);
-                        }
-                    }
-                    // ⚠️ EVERY ELEMENT, NOT ONLY THE TESSELLATED ONES, and it
-                    // is the same on both pass shapes because the loop already
-                    // visits every index either way. A vote taken over only the
-                    // elements a filter happened to match would be a different
-                    // vote each refresh, so a surface's substance would change
-                    // as the user edited unrelated parts of the building.
-                    if (observeSubstances)
-                        ObserveElementSubstances (*model, i, *substances, st->observations);
-                    ++i;
-                    if (NowMs () - begin >= sliceMs)
-                        break;
-                }
-                st->next.store (i);
-                st->holdMs.store (NowMs () - begin);
-                st->completed.store (true);
+                extractionslice::Run (*model, count, *st, *wanted, sliceMs, observeSubstances, *substances);
             },
             SliceTimeoutMs, sliceErr);
         const int64_t sliceElapsed = NowMs () - sliceStart;

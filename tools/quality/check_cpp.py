@@ -70,19 +70,6 @@ OVERSIZED = {
         "entry freezes what is left: the discovery scorer is evidence, not a growth "
         "area, and the next feature extracts a seam rather than adding to it",
     ),
-    "ArchViz/ExtractionThread.cpp": (
-        1011,
-        "the extraction pass's control flow: the main-thread gate hops, the element "
-        "cursor, the slice budget, and the abandonment rules that make a timed-out job "
-        "safe. Everything in it that answers a QUESTION rather than schedules one has "
-        "already been extracted along that seam -- ExtractionEnvironment.cpp (the "
-        "surface pool and the sun), ExtractionSubstance.cpp (the building-material "
-        "vote), and ExtractionStorySlices.cpp (the storey cut and its union, added "
-        "2026-08-24). What is left is the pass itself, and splitting THAT would create "
-        "a second description of the gate protocol -- the same fault "
-        "DiligentViewport.cpp's entry refuses for pass ordering. This entry freezes "
-        "its size; the next feature extracts a seam rather than growing it",
-    ),
     "ArchViz/DiligentViewport.cpp": (
         1093,
         "the single render-thread lifecycle and frame-order authority. Device and "
