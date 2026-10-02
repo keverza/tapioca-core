@@ -42,6 +42,17 @@
 // projection and anything else is refused. Parallel projections stay unsupported,
 // as they were.
 //
+// ⚠️ EXCEPT THE LENS SHIFT, WHICH ONLY `b2` CARRIES (2026-10-02, finding 1 amended).
+// Two-point perspective levels the view and moves the image instead of tilting it.
+// Archicad writes the level camera into `b0` and `b1` and the shift into `b2` alone:
+// at 16:14:56 `(p - eye) * b0` put every model point 175.9 px of 1206 below
+// Archicad's own ModelToScreen, x exact, while in perspective a moment earlier it
+// agreed within 0.52 px. `b2`'s x and w columns were `b0`'s; its y column was
+// `b0`'s plus 0.2914 times w -- the 3-point camera's y. So the image is
+// `(p - eye) * b0` with `clip.xy += shift * clip.w`, and `LensShift` reads the shift
+// from `b2` only when `b2` proves to be `b0` moved along w and nothing else. A screen
+// map, the previous image's camera and a still 3-point view all give no shift.
+//
 // Conventions are interpretation 0 (§1.2): sixteen floats as stored, row-major,
 // multiplied `p * M`.
 
@@ -57,8 +68,12 @@ namespace cameralayout {
 
 // The window the camera's projection is COPIED from. `b2` keeps its place in the
 // identity terms (window sizes, the pinned buffer): it is bound as a 16-constant
-// window at every model draw in every state measured. Nothing reads its bytes.
+// window at every model draw in every state measured. Its bytes are read for the lens
+// shift alone (`LensShift`): its first matrix is copied beside `b0`'s, at
+// `kCompositeOffset` of the overlay's projection window.
 constexpr size_t kProjectionWindow = 0;
+constexpr size_t kCompositeWindow = 2;
+constexpr uint32_t kCompositeOffset = 64;
 
 // The interpretation bit that says the camera is `(p - eye) * b0`. Bits 0 and 1
 // are the transposes and bit 2 the reversed order (the oracle's numbering), so
@@ -178,6 +193,45 @@ inline double RotationMismatch (const float b0[16], const float view[16])
         worst = d > worst ? d : worst;
     }
     return worst;
+}
+
+// How far `b2` moves `b0`'s image along its w column: `b2`'s x and y columns less
+// `b0`'s, along w, in NDC. True with the shift only when `b2` is `b0` moved that way
+// and nothing else -- its w column `b0`'s, and what is left of x and y once the shift
+// is taken out within `kShiftTolerance`; otherwise false and no shift. The rows
+// compared are the three that multiply the point, so `b2`'s translation (it is view
+// x projection) does not enter. ⚠️ `camerashader::Compose` writes the same test in
+// HLSL (`ArchicadLensShift`); they change together.
+constexpr double kShiftTolerance = 1e-4;
+
+inline bool LensShift (const float b0[16], const float b2[16], double shift[2])
+{
+    shift[0] = 0.0;
+    shift[1] = 0.0;
+    if (!detail::Finite (b0) || !detail::Finite (b2))
+        return false;
+    double w[3], w2[3], x[3], x2[3], y[3], y2[3];
+    detail::Column (b0, 3, w);
+    detail::Column (b2, 3, w2);
+    detail::Column (b0, 0, x);
+    detail::Column (b2, 0, x2);
+    detail::Column (b0, 1, y);
+    detail::Column (b2, 1, y2);
+    const double ww = detail::Dot (w, w);
+    if (!(ww > 1e-6))
+        return false;
+    const double rx[3] = { x2[0] - x[0], x2[1] - x[1], x2[2] - x[2] };
+    const double ry[3] = { y2[0] - y[0], y2[1] - y[1], y2[2] - y[2] };
+    const double sx = detail::Dot (rx, w) / ww;
+    const double sy = detail::Dot (ry, w) / ww;
+    for (int i = 0; i < 3; ++i) {
+        if (std::fabs (w2[i] - w[i]) > kShiftTolerance || std::fabs (rx[i] - sx * w[i]) > kShiftTolerance ||
+            std::fabs (ry[i] - sy * w[i]) > kShiftTolerance)
+            return false;
+    }
+    shift[0] = sx;
+    shift[1] = sy;
+    return true;
 }
 
 // The camera's position: V = [R 0; t 1] maps it to the origin, so eye = -t * R^T.

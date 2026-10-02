@@ -152,6 +152,70 @@ float ImageDifference (const float b0[16], const float view[16], const float ref
 
 const float kIdentity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
+// 2026-10-02, the draw recorder at one still camera: 16:14:47 in perspective, 16:14:56 the
+// same camera in two-point perspective. The 12144-index model draw's `b1`, `b0` and `b2`,
+// and where Archicad's own ModelToScreen put the model's corners and centre in the
+// 2118x1206 window (16000 is ModelToScreen's off-screen answer).
+constexpr float kPerspectiveView[16] = { 0.947874248f, -0.040562473f, 0.316052437f,  0.0f,
+                                         0.318644732f, 0.120661736f,  -0.940162897f, 0.0f,
+                                         -1.04e-07f,   0.991864622f,  0.127297163f,  0.0f,
+                                         -685.595337f, 43.8004379f,   -590.43512f,   1.0f };
+constexpr float kPerspectiveB0[16] = { 1.23541057f,  -0.092852734f, -0.328952521f, -0.316052437f,
+                                       0.415305138f, 0.276210278f,  0.978536904f,  0.940162897f,
+                                       -1.36e-07f,   2.27050614f,   -0.132492959f, -0.127297163f,
+                                       0.0f,         0.0f,          -0.204081625f, 0.0f };
+constexpr float kPerspectiveB2[16] = { 1.23541069f,  -0.092852719f, -0.31612885f,  -0.316051692f,
+                                       0.415304095f, 0.276210219f,  0.940392673f,  0.940163136f,
+                                       0.0f,         2.2705059f,    -0.127328232f, -0.127297148f,
+                                       -893.570251f, 100.264824f,   590.437622f,   590.434631f };
+constexpr float kTwoPointView[16] = { 0.947874248f,  0.0f,        0.318644732f, 0.0f, 0.318644732f, 0.0f,
+                                      -0.947874248f, 0.0f,        0.0f,         1.0f, 0.0f,         0.0f,
+                                      -685.595337f,  -31.716547f, -591.207397f, 1.0f };
+constexpr float kTwoPointB0[16] = { 1.22536015f,  0.0f,         -0.331650645f, -0.318644732f, 0.411926538f, 0.0f,
+                                    0.986562967f, 0.947874248f, 0.0f,          2.27050614f,   0.0f,         0.0f,
+                                    0.0f,         0.0f,         -0.204081625f, 0.0f };
+constexpr float kTwoPointB2[16] = { 1.22536027f,  -0.092852712f, -0.318721741f, -0.318643957f,
+                                    0.411925465f, 0.276210219f,  0.948105872f,  0.947874486f,
+                                    0.0f,         2.27050567f,   0.0f,          0.0f,
+                                    -886.30072f,  100.264839f,   591.210693f,   591.206909f };
+constexpr float kSitePoints[9][3] = {
+    { 421.989746f, -388.515656f, -24.5f }, { 421.989746f, -388.515656f, 48.0f },  { 421.989746f, 118.421326f, -24.5f },
+    { 421.989746f, 118.421326f, 48.0f },   { 952.254272f, -388.515656f, -24.5f }, { 952.254272f, -388.515656f, 48.0f },
+    { 952.254272f, 118.421326f, -24.5f },  { 952.254272f, 118.421326f, 48.0f },   { 687.122009f, -135.047165f, 11.75f },
+};
+constexpr float kPerspectivePixels[9][2] = { { -4894.0f, 1250.0f }, { -5535.0f, 161.0f },   { 460.0f, 563.0f },
+                                             { 451.0f, 386.0f },    { 16000.0f, 16000.0f }, { 16000.0f, -16000.0f },
+                                             { 1929.0f, 620.0f },   { 1950.0f, 368.0f },    { 623.0f, 539.0f } };
+constexpr float kTwoPointPixels[9][2] = { { -5275.0f, 1297.0f }, { -5275.0f, 175.0f },   { 463.0f, 563.0f },
+                                          { 463.0f, 388.0f },    { 16000.0f, 16000.0f }, { 16000.0f, -16000.0f },
+                                          { 1931.0f, 620.0f },   { 1931.0f, 372.0f },    { 626.0f, 539.0f } };
+constexpr float kSiteWidth = 2118.0f;
+constexpr float kSiteHeight = 1206.0f;
+
+// The worst pixel distance, over the points Archicad put inside the window, between
+// Archicad's ModelToScreen and the overlay's image: `(p - eye) * b0`, moved by `shift`.
+double WorstPixelError (const float view[16], const float b0[16], const double shift[2], const float pixels[9][2])
+{
+    double eye[3];
+    cl::Eye (view, eye);
+    double worst = 0.0;
+    for (int p = 0; p < 9; ++p) {
+        if (!(pixels[p][0] >= 0.0f && pixels[p][0] <= kSiteWidth && pixels[p][1] >= 0.0f &&
+              pixels[p][1] <= kSiteHeight))
+            continue;
+        double clip[4];
+        for (int c = 0; c < 4; ++c)
+            clip[c] = (kSitePoints[p][0] - eye[0]) * b0[c] + (kSitePoints[p][1] - eye[1]) * b0[4 + c] +
+                      (kSitePoints[p][2] - eye[2]) * b0[8 + c] + b0[12 + c];
+        clip[0] += shift[0] * clip[3];
+        clip[1] += shift[1] * clip[3];
+        const double x = (clip[0] / clip[3] + 1.0) * 0.5 * kSiteWidth;
+        const double y = (1.0 - clip[1] / clip[3]) * 0.5 * kSiteHeight;
+        worst = std::fmax (worst, std::fmax (std::fabs (x - pixels[p][0]), std::fabs (y - pixels[p][1])));
+    }
+    return worst;
+}
+
 } // namespace
 
 // ⚠️ THE ACCEPTANCE TEST OF THE WHOLE DECODE: the pair the census scores must put
@@ -299,6 +363,48 @@ TEST (CameraShaderSource, AnUndeclarableOrMissingShaderFallsBackToVariantZero)
     EXPECT_EQ (cs::SlotToBind (0xffffffffu, shaders), 0u) << "nothing selected";
 }
 
+// ⚠️ FINDING 1 AMENDED (2026-10-02): two-point perspective's image is `(p - eye) * b0`
+// moved along w by a shift that only `b2` carries. Unshifted it lands 175.9 px below
+// Archicad; shifted, where Archicad does.
+TEST (CameraLayout, TwoPointPerspectivesShiftIsInB2AndPutsTheModelWhereArchicadDoes)
+{
+    double shift[2] = {};
+    ASSERT_TRUE (cl::LensShift (kTwoPointB0, kTwoPointB2, shift));
+    EXPECT_NEAR (shift[0], 0.0, 1e-5);
+    EXPECT_NEAR (shift[1], 0.2914, 1e-4) << "the 3-point camera's y: -fy * tan (-7.31 deg)";
+    EXPECT_LT (WorstPixelError (kTwoPointView, kTwoPointB0, shift, kTwoPointPixels), 1.0);
+    const double none[2] = {};
+    EXPECT_GT (WorstPixelError (kTwoPointView, kTwoPointB0, none, kTwoPointPixels), 170.0) << "what the overlay drew";
+    float decoded[16];
+    EXPECT_EQ (cl::Decode (kTwoPointView, kTwoPointB0, decoded), cl::Layout::Relative) << "the level camera decodes";
+}
+
+TEST (CameraLayout, AStill3PointViewHasNoShift)
+{
+    double shift[2] = { 1.0, 1.0 };
+    ASSERT_TRUE (cl::LensShift (kPerspectiveB0, kPerspectiveB2, shift));
+    EXPECT_NEAR (shift[0], 0.0, 1e-5);
+    EXPECT_NEAR (shift[1], 0.0, 1e-5);
+    EXPECT_LT (WorstPixelError (kPerspectiveView, kPerspectiveB0, shift, kPerspectivePixels), 1.0);
+    ASSERT_TRUE (cl::LensShift (kStillB0, kStillB2, shift)) << "2026-09-27, plane hidden";
+    EXPECT_NEAR (shift[1], 0.0, 1e-5);
+}
+
+// What `b2` holds while the camera moves -- a screen map, or another image's camera --
+// is not `b0` moved along w, and gives no shift.
+TEST (CameraLayout, AScreenMapOrAnotherCameraGivesNoShift)
+{
+    double shift[2] = { 1.0, 1.0 };
+    EXPECT_FALSE (cl::LensShift (kOrbitB0, kOrbitB2, shift)) << "21:00:33, orbiting";
+    EXPECT_EQ (shift[0], 0.0);
+    EXPECT_EQ (shift[1], 0.0);
+    EXPECT_FALSE (cl::LensShift (kPerspectiveB0, kTwoPointB2, shift)) << "the other mode's camera";
+    EXPECT_FALSE (cl::LensShift (kTwoPointB0, kPerspectiveB2, shift));
+    EXPECT_FALSE (cl::LensShift (kStillB0, kIdentity, shift));
+    const float empty[16] = {};
+    EXPECT_FALSE (cl::LensShift (kTwoPointB0, empty, shift)) << "a b2 copy never made";
+}
+
 TEST (CameraShaderSource, EachLayoutComposesItsOwnClip)
 {
     char separate[cs::kMaxSource] = {};
@@ -308,9 +414,13 @@ TEST (CameraShaderSource, EachLayoutComposesItsOwnClip)
     const std::string a (separate), b (relative);
     EXPECT_NE (a.find ("return mul (mul (world, View), Projection);"), std::string::npos);
     EXPECT_NE (b.find ("float3 eye = -mul (View[3].xyz, transpose ((float3x3) View));"), std::string::npos);
-    EXPECT_NE (b.find ("mul (float4 (world.xyz - eye * world.w, world.w), Projection); c.z = "), std::string::npos)
-        << "the point moved to the eye, then our depth";
+    EXPECT_NE (b.find ("mul (float4 (world.xyz - eye * world.w, world.w), Projection); c.xy += "), std::string::npos)
+        << "the point moved to the eye, then the lens shift";
     EXPECT_EQ (b.find ("mul (mul (world, View), Projection)"), std::string::npos) << "b0 already holds the rotation";
+    EXPECT_NE (b.find ("c.xy += ArchicadLensShift () * c.w; c.z = "), std::string::npos) << "the shift, then our depth";
+    EXPECT_NE (b.find ("float4x4 Projection; row_major float4x4 Composite; };"), std::string::npos)
+        << "b2 beside b0, in the same layout";
+    EXPECT_EQ (a.find ("c.xy += ArchicadLensShift ()"), std::string::npos) << "only the relative layout shifts";
     EXPECT_EQ (a.substr (a.size () - 4), "BODY");
     EXPECT_FALSE (cs::Compose (4u, "BODY", separate, sizeof (separate))) << "reversed order refused";
 }

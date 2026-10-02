@@ -9,7 +9,8 @@
 // four lines are the entire camera contract: our `b1` holds Archicad's view and
 // our `b2` the window its projection was copied from (Archicad's `b0` since
 // 2026-09-27, CameraLayout.hpp), both 256-byte windows with the matrix at offset
-// 0, and whether each is read `row_major` or `column_major` is what the census
+// 0 -- and, at offset 64 of ours, Archicad's own `b2` (`Composite`), read for the
+// lens shift alone (2026-10-02) -- and whether each is read `row_major` or `column_major` is what the census
 // MEASURED rather than what anyone assumed. Run thirty-three spent a whole run
 // with the census proving one reading while the shader implemented another,
 // because the claim lived in a comment instead of in the code.
@@ -93,25 +94,51 @@ inline bool Compose (uint32_t interpretation, const char* body, char* out, size_
     // point moved to it, through Archicad's rotation x projection -- x, y and w are
     // Archicad's -- and OUR depth, the line `cameralayout::DecodedDepth` applies to
     // what the census scores.
-    char clip[320] = {};
+    //
+    // ⚠️ AND THE LENS SHIFT ONLY `b2` CARRIES (CameraLayout.hpp, finding 1 amended
+    // 2026-10-02): two-point perspective's image is that clip moved by `shift * w`.
+    // `Composite` is Archicad's `b2`, copied beside `b0` at offset 64 of the same
+    // window, in the same layout, and `ArchicadLensShift` is `cameralayout::LensShift`
+    // -- the shift only when `b2` is `b0` moved along w and nothing else, so a screen
+    // map, the previous image's camera and a still 3-point view all give none.
+    char clip[400] = {};
     if (relative)
         _snprintf_s (clip, sizeof (clip), _TRUNCATE,
                      "float3 eye = -mul (View[3].xyz, transpose ((float3x3) View)); "
                      "float4 c = mul (float4 (world.xyz - eye * world.w, world.w), Projection); "
+                     "c.xy += ArchicadLensShift () * c.w; "
                      "c.z = %.9g * c.w + (%.9g); return c;",
                      cameralayout::kDepthA, cameralayout::kDepthB);
     else
         _snprintf_s (clip, sizeof (clip), _TRUNCATE, "return mul (mul (world, View), Projection);");
+    char shift[900] = {};
+    _snprintf_s (shift, sizeof (shift), _TRUNCATE,
+                 "float2 ArchicadLensShift () { "
+                 "float3 w = float3 (Projection._14, Projection._24, Projection._34); "
+                 "float ww = dot (w, w); "
+                 "float3 rw = float3 (Composite._14, Composite._24, Composite._34) - w; "
+                 "float3 rx = float3 (Composite._11, Composite._21, Composite._31) - "
+                 "float3 (Projection._11, Projection._21, Projection._31); "
+                 "float3 ry = float3 (Composite._12, Composite._22, Composite._32) - "
+                 "float3 (Projection._12, Projection._22, Projection._32); "
+                 "if (!(ww > 1e-6)) return float2 (0, 0); "
+                 "float2 s = float2 (dot (rx, w), dot (ry, w)) / ww; "
+                 "if (any (abs (rw) > %.9g) || any (abs (rx - s.x * w) > %.9g) || any (abs (ry - s.y * w) > %.9g)) "
+                 "return float2 (0, 0); "
+                 "return s; }\n",
+                 cameralayout::kShiftTolerance, cameralayout::kShiftTolerance, cameralayout::kShiftTolerance);
     // `ArchicadParallel`: `_44` alone is 1 for a parallel projection; for a
     // rotation x projection the whole w column must also be (0, 0, 0, 1).
+    const char* const projectionLayout = layouts[(interpretation >> 1) & 1u];
     const int written =
         _snprintf_s (out, outBytes, _TRUNCATE,
                      "cbuffer ArchicadView : register (b1)       { %s float4x4 View; };\n"
-                     "cbuffer ArchicadProjection : register (b2) { %s float4x4 Projection; };\n"
+                     "cbuffer ArchicadProjection : register (b2) { %s float4x4 Projection; %s float4x4 Composite; };\n"
+                     "%s"
                      "float4 ArchicadClip (float4 world) { %s }\n"
                      "bool ArchicadParallel () { return %s; }\n"
                      "%s",
-                     layouts[interpretation & 1u], layouts[(interpretation >> 1) & 1u], clip,
+                     layouts[interpretation & 1u], projectionLayout, projectionLayout, shift, clip,
                      relative ? "all (abs (float3 (Projection._14, Projection._24, Projection._34)) < 1e-4) && "
                                 "abs (Projection._44 - 1.0) < 1e-4"
                               : "abs (Projection._44 - 1.0) < 1e-4",

@@ -315,6 +315,19 @@ void CopyCameraWindows (ID3D11DeviceContext* context, const contextstate::SceneD
                                     reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
     g_projectionCopies.fetch_add (1, std::memory_order_relaxed);
 
+    // ⚠️ AND ARCHICAD'S `b2` BESIDE IT, at `kCompositeOffset` of our projection window:
+    // the lens shift two-point perspective draws with is there and nowhere else
+    // (CameraLayout.hpp, finding 1 amended 2026-10-02). Its first matrix only, and only
+    // from a 16-constant window -- otherwise `b0`'s own matrix goes there, which
+    // `ArchicadLensShift` reads as no shift, so a stale `b2` is never kept.
+    const contextstate::ConstantBufferBinding& composite = draw.vsConstantBuffers[cameralayout::kCompositeWindow];
+    const bool compositeBound = composite.IsBound () && composite.numConstants == kExpectedWindowConstants;
+    const contextstate::ConstantBufferBinding& shiftSource = compositeBound ? composite : projection;
+    box.left = shiftSource.ByteOffset ();
+    box.right = box.left + 64;
+    context->CopySubresourceRegion (g_projectionSnapshot, 0, cameralayout::kCompositeOffset, 0, 0,
+                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (shiftSource.buffer)), 0, &box);
+
     // ⚠️ EVERY QUALIFYING DRAW, NOT A GUESS AT THE LAST ONE. Two 256-byte GPU
     // copies are nothing beside a draw, and overwriting on each one means that by
     // Present the snapshot simply holds the most recent camera of the pass --
