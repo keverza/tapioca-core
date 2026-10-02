@@ -3,9 +3,12 @@
 #include "ArchViz/ExperimentGuard.hpp"
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
-#include "Python/PathUtils.hpp"   // EvpDataDir, PathExists, ReadTextFile, WriteTextFile
+#include "ArchViz/Breadcrumb.hpp" // Hold, Release, Sweep
+#include "Python/PathUtils.hpp"   // EvpDataDir
 
 #include <windows.h>
+
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
@@ -16,6 +19,8 @@ namespace {
 bool g_checked = false;
 bool g_blocked = false;
 std::string g_why;
+// The breadcrumb this process holds while something of it is armed (Breadcrumb.hpp).
+breadcrumb::Held g_held;
 
 // ⚠️ NO SUBDIRECTORY. Both files sit directly in the Tapioca root, next to
 // `logs\` -- a recovery instruction the user follows while Archicad is broken
@@ -51,21 +56,20 @@ const wchar_t* const kLegacyBreadcrumbNames[] = {
     L"\\ARMED_hideonnav",
 };
 
-// The first breadcrumb present, under any of its spellings, or empty.
-GS::UniString FindBreadcrumb ()
+std::wstring Wide (const GS::UniString& text)
 {
+    return std::wstring ((const wchar_t*) text.ToUStr ().Get ());
+}
+
+// Every file a breadcrumb may be: each process's (Breadcrumb.hpp), then the legacy
+// spellings, which nothing writes and so nothing holds.
+std::vector<std::wstring> BreadcrumbPaths ()
+{
+    std::vector<std::wstring> paths = breadcrumb::PathsOf (Wide (BreadcrumbPath ()));
     const GS::UniString root = evp::EvpDataDir ();
-    if (root.IsEmpty ())
-        return GS::UniString ();
-    const GS::UniString primary = BreadcrumbPath ();
-    if (evp::PathExists (primary))
-        return primary;
-    for (const wchar_t* name : kLegacyBreadcrumbNames) {
-        const GS::UniString candidate = root + GS::UniString (name);
-        if (evp::PathExists (candidate))
-            return candidate;
-    }
-    return GS::UniString ();
+    for (const wchar_t* name : kLegacyBreadcrumbNames)
+        paths.push_back (Wide (root) + name);
+    return paths;
 }
 
 // UTF-8 out of a UniString, the way PathUtils does it. The no-argument
@@ -106,17 +110,20 @@ void CheckAtStartup ()
         return;
     }
 
-    const GS::UniString found = FindBreadcrumb ();
-    if (!found.IsEmpty ()) {
-        GS::UniString armedMode;
-        evp::ReadTextFile (found, armedMode);
-        if (armedMode.IsEmpty ())
-            armedMode = GS::UniString ("(unnamed -- a hand-written breadcrumb)");
-        // ⚠️ DELETED HERE, BEFORE THE BLOCK IS LATCHED. One bad launch must cost
-        // ONE degraded session; leaving the file behind would make every
-        // subsequent launch refuse too, which is a different kind of stuck.
-        ::DeleteFileW ((LPCWSTR) found.ToUStr ().Get ());
-        Block ("the previous Archicad session ended while the experimental mode '" + Utf8 (armedMode) +
+    // ⚠️ DELETED HERE, BEFORE THE BLOCK IS LATCHED. One bad launch must cost
+    // ONE degraded session; leaving the file behind would make every
+    // subsequent launch refuse too, which is a different kind of stuck.
+    // ⚠️ AND ONLY WHAT NO RUNNING PROCESS HOLDS. Another Archicad's breadcrumb, held
+    // while its modes are armed, is not a crash: it is neither read as one nor deleted.
+    const breadcrumb::Found found = breadcrumb::Sweep (BreadcrumbPaths ());
+    if (found.held > 0)
+        ArchVizLog ("experiment guard: " + std::to_string (found.held) +
+                    " breadcrumb(s) held by another running Archicad -- its armed modes, not a crash");
+    if (!found.left.empty ()) {
+        std::string armedMode = found.left.front ();
+        if (armedMode.empty ())
+            armedMode = "(unnamed -- a hand-written breadcrumb)";
+        Block ("the previous Archicad session ended while the experimental mode '" + armedMode +
                "' was armed; experimental camera-sync modes are disabled for this "
                "session and will be available again after the next restart");
         return;
@@ -158,23 +165,43 @@ bool Arm (const char* mode, std::string& error)
         return false;
     }
 
-    GS::UniString writeError;
-    if (!evp::WriteTextFile (path, GS::UniString (mode, CC_UTF8), writeError)) {
-        error =
-            "the crash-loop breadcrumb could not be written (" + Utf8 (writeError) + "); refusing to arm without it";
-        return false;
+    // Armed again while armed: the one breadcrumb this process holds names the new mode,
+    // as the single file always has.
+    if (g_held.file != nullptr) {
+        if (!breadcrumb::Rewrite (g_held, mode)) {
+            error = "the crash-loop breadcrumb could not be rewritten; refusing to arm without it";
+            return false;
+        }
+    }
+    else {
+        g_held = breadcrumb::Hold (Wide (path), mode);
+        if (g_held.file == nullptr) {
+            error = "the crash-loop breadcrumb could not be written (the Tapioca folder refused it, or "
+                    "every one of EXPERIMENT_ARMED to EXPERIMENT_ARMED-" +
+                    std::to_string (breadcrumb::kMaxHolders) +
+                    " is held by a running Archicad); refusing to arm without it";
+            return false;
+        }
     }
 
-    ArchVizLog ("experiment guard: armed '" + std::string (mode) + "'");
+    std::string where;
+    if (g_held.path != Wide (path)) {
+        // EXPERIMENT_ARMED-<n>: the name is ASCII.
+        where = " in ";
+        for (wchar_t c : g_held.path.substr (g_held.path.find_last_of (L'\\') + 1))
+            where += c < 128 ? char (c) : '?';
+        where += " -- another running Archicad holds EXPERIMENT_ARMED";
+    }
+    ArchVizLog ("experiment guard: armed '" + std::string (mode) + "'" + where);
     return true;
 }
 
 void Disarm ()
 {
-    const GS::UniString path = BreadcrumbPath ();
-    if (path.IsEmpty () || !evp::PathExists (path))
+    // ⚠️ ONLY THIS PROCESS'S. Another Archicad's breadcrumb guards its own session.
+    if (g_held.file == nullptr)
         return;
-    ::DeleteFileW ((LPCWSTR) path.ToUStr ().Get ());
+    breadcrumb::Release (g_held);
     ArchVizLog ("experiment guard: disarmed cleanly");
 }
 

@@ -11,14 +11,14 @@
 // persisted, one commit per step) assumes the user can still get to a command
 // line inside Archicad. This is the one that holds when they cannot.
 //
-// THE MECHANISM IS ONE FILE, DELIBERATELY.
+// THE MECHANISM IS ONE FILE A PROCESS, DELIBERATELY.
 //
 //   * `EXPERIMENT_ARMED` is written BEFORE an experimental mechanism installs
-//     itself and deleted AFTER it has cleanly torn down. Finding it at startup
-//     therefore means exactly one thing: the last session died while that
-//     mechanism was live. The session that finds it refuses to arm anything
-//     experimental, and deletes it -- so ONE bad launch costs one degraded
-//     session, not a loop.
+//     itself, HELD OPEN while it is live, and deleted AFTER it has cleanly torn
+//     down (ArchViz/Breadcrumb.hpp). Finding it at startup with nobody holding it
+//     therefore means exactly one thing: a session died while that mechanism was
+//     live. The session that finds it refuses to arm anything experimental, and
+//     deletes it -- so ONE bad launch costs one degraded session, not a loop.
 //
 //   * `SAFE_MODE` is the user's own switch, created by hand from Explorer with
 //     Archicad closed. It is never deleted by us, so it holds until they remove
@@ -31,11 +31,19 @@
 // the recovery instruction is one exact path that can be given to the user
 // verbatim rather than a wildcard they have to interpret.
 //
-// ⚠️ THIS IS NOT A LOCK. Two Archicad instances sharing one %LOCALAPPDATA% will
-// confuse each other -- the second to start clears the first's breadcrumb. That
-// is accepted: the failure mode is a missed guard on an experimental feature,
-// and the alternative (a per-process lock file) has its own stale-entry problem
-// that fails in the same direction with more code.
+// ⚠️ TWO ARCHICADS DO NOT CONFUSE EACH OTHER ANY MORE, AND THE OLD TRADE-OFF WAS
+// WRONG ABOUT WHICH WAY THEY DID. It was accepted on the grounds that the failure
+// was a missed guard on an experimental feature. But the 3D overlay's own camera
+// sync arms 'hookdiag', so the second Archicad to start read the first's live
+// breadcrumb as a crash and BLOCKED: no hooks and no 3D overlay for its whole
+// session (2026-10-02, `BLOCKED AT Hook`), the first's breadcrumb deleted on the
+// way. A held file has no stale-entry problem -- Windows lets go of it when its
+// process dies -- so each running process holds its own (`EXPERIMENT_ARMED`, then
+// `-2` ...), and the startup check passes over the held ones.
+//
+// ⚠️ WITHIN ONE PROCESS IT IS STILL ONE BREADCRUMB. Every mechanism that arms
+// rewrites the same file with its mode, and the first `Disarm` deletes it while
+// another mechanism may still be live -- as before.
 //
 // THREAD SAFETY: `CheckAtStartup` runs once from `Initialize`; everything after
 // it is main-thread only, called from the camera-sync mode switch.
@@ -77,7 +85,8 @@ std::string SafeModeFilePath ();
 // prevent, so a failed write is a refusal, never a warning.
 bool Arm (const char* mode, std::string& error);
 
-// Delete the breadcrumb after a clean teardown. Idempotent.
+// Delete this process's breadcrumb after a clean teardown -- never another
+// Archicad's. Idempotent.
 void Disarm ();
 
 } // namespace experimentguard

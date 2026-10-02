@@ -488,6 +488,9 @@ set (EVP_ARCHVIZ_SOURCES
     # Which file the log writes when another Archicad writes archviz.log: plain Win32, two
     # claims of the test's own standing for two processes.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/LogClaim.cpp"
+    # The experiment guard's crash-loop file, held while armed: a second Archicad's live one is
+    # not a crash. Plain Win32, two holds of the test's own standing for two processes.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/Breadcrumb.cpp"
     # Which draw is the 3D camera and how it is found again -- a resize, an edit, a view
     # change -- from context states as the census hands them over. Its commit points the
     # injection at the choice; the stub records where (InjectionCameraStub.cpp).
@@ -657,6 +660,7 @@ set (EVP_TEST_SOURCES
     test_overlayhover.cpp
     test_overlaycomposer.cpp
     test_logclaim.cpp
+    test_breadcrumb.cpp
     test_camerarecognizer.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp
