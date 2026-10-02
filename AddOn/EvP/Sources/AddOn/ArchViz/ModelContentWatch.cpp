@@ -14,8 +14,14 @@
 #include "Geometry/GeometryExtractor.hpp"
 
 #include <Model.hpp>
+#include <ModelElement.hpp>
+#include <ModelMeshBody.hpp>
 
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <string>
+#include <unordered_map>
 
 namespace geomsrv {
 namespace archviz {
@@ -38,6 +44,131 @@ Reading Read (const ModelerAPI::Model& model)
 // Ticks between attempts after an acquire failed.
 constexpr uint32_t kAcquireBackoffTicks = 8;
 
+// ---- the sweep: a MEASUREMENT (2026-10-02) ------------------------------------
+//
+// ⚠️ A HIDE THAT KEEPS THE ELEMENT IN THE MODEL'S LIST IS INVISIBLE TO `Read`: three elements
+// hidden at 11:45 left the count at 3889 and the sampled GUIDs alone, and only the difference
+// generator saw them -- whose poll costs up to 2833 ms of the main thread on that project, so it
+// runs every 30 s. Whether a cheap per-element walk can see what it sees is two numbers nobody
+// has measured: what one walk of every element costs, and whether an element's change stamp
+// (`Element::GetGenId`) or its tessellated vertex count moves on a hide and on an edit. This
+// walks the held model a couple of milliseconds a tick, and when a walk completes says what it
+// cost and what differs from the previous one. It changes nothing extracted.
+struct Signature {
+    uint32_t genId = 0;
+    int64_t vertices = 0;
+};
+using Signatures = std::unordered_map<std::string, Signature>;
+
+constexpr double kSweepBudgetMs = 2.0;
+// A sweep that found nothing different still says what it cost, this often.
+constexpr uint32_t kSweepHeartbeat = 20;
+
+Signatures g_sweepPrevious;
+Signatures g_sweepCurrent;
+int32_t g_sweepNext = 1; // 1-based, like every ModelerAPI index
+int32_t g_sweepCount = 0;
+double g_sweepMs = 0.0;
+double g_sweepTickMaxMs = 0.0;
+uint32_t g_sweepTicks = 0;
+uint32_t g_sweeps = 0;
+
+std::string SampleOf (const std::vector<std::string>& guids)
+{
+    std::string sample;
+    for (size_t i = 0; i < guids.size () && i < 3; ++i)
+        sample += (i > 0 ? " " : "") + guids[i];
+    return sample;
+}
+
+void FinishSweep ()
+{
+    ++g_sweeps;
+    std::vector<std::string> stamped, reshaped, emptied, filled, appeared, vanished;
+    uint32_t stampedAndReshaped = 0;
+    if (!g_sweepPrevious.empty ()) {
+        for (const auto& entry : g_sweepCurrent) {
+            const auto before = g_sweepPrevious.find (entry.first);
+            if (before == g_sweepPrevious.end ()) {
+                appeared.push_back (entry.first);
+                continue;
+            }
+            const bool stamp = before->second.genId != entry.second.genId;
+            const bool shape = before->second.vertices != entry.second.vertices;
+            if (stamp)
+                stamped.push_back (entry.first);
+            if (shape) {
+                reshaped.push_back (entry.first);
+                if (entry.second.vertices == 0)
+                    emptied.push_back (entry.first);
+                else if (before->second.vertices == 0)
+                    filled.push_back (entry.first);
+            }
+            stampedAndReshaped += stamp && shape ? 1u : 0u;
+        }
+        for (const auto& entry : g_sweepPrevious)
+            if (g_sweepCurrent.find (entry.first) == g_sweepCurrent.end ())
+                vanished.push_back (entry.first);
+    }
+    const bool changed = !stamped.empty () || !reshaped.empty () || !appeared.empty () || !vanished.empty ();
+    if (g_sweeps == 1 || changed || g_sweeps % kSweepHeartbeat == 0) {
+        char cost[200] = {};
+        std::snprintf (cost, sizeof (cost), "%d elements in %.1f ms over %u ticks (at most %.2f ms a tick)",
+                       g_sweepCount, g_sweepMs, g_sweepTicks, g_sweepTickMaxMs);
+        std::string line = "model watch: content sweep #" + std::to_string (g_sweeps) + ", " + cost;
+        if (changed)
+            line += "; since the last: change stamp moved on " + std::to_string (stamped.size ()) + " (" +
+                    std::to_string (stampedAndReshaped) + " of them reshaped), vertices changed on " +
+                    std::to_string (reshaped.size ()) + " (to none " + std::to_string (emptied.size ()) +
+                    ", from none " + std::to_string (filled.size ()) + "), appeared " +
+                    std::to_string (appeared.size ()) + ", vanished " + std::to_string (vanished.size ()) +
+                    " -- e.g. stamp [" + SampleOf (stamped) + "] vertices [" + SampleOf (reshaped) + "]";
+        ArchVizLog (line);
+    }
+    g_sweepPrevious.swap (g_sweepCurrent);
+    g_sweepCurrent.clear ();
+}
+
+void SweepTick (const ModelerAPI::Model& model)
+{
+    if (g_sweepNext == 1) {
+        g_sweepCount = model.GetElementCount ();
+        g_sweepCurrent.clear ();
+        g_sweepCurrent.reserve (size_t (std::max (g_sweepCount, 0)));
+        g_sweepMs = 0.0;
+        g_sweepTickMaxMs = 0.0;
+        g_sweepTicks = 0;
+    }
+    if (g_sweepCount <= 0 || model.GetElementCount () != g_sweepCount) {
+        g_sweepNext = 1; // the content changed under the walk; the next one starts over
+        return;
+    }
+    const auto started = std::chrono::steady_clock::now ();
+    double elapsed = 0.0;
+    do {
+        ModelerAPI::Element element;
+        model.GetElement (g_sweepNext, &element);
+        Signature signature;
+        signature.genId = element.GetGenId ();
+        const Int32 bodies = element.GetTessellatedBodyCount ();
+        for (Int32 body = 1; body <= bodies; ++body) {
+            ModelerAPI::MeshBody mesh;
+            element.GetTessellatedBody (body, &mesh);
+            signature.vertices += mesh.GetVertexCount ();
+        }
+        g_sweepCurrent[APIGuidToString (GSGuid2APIGuid (element.GetElemGuid ())).ToCStr ().Get ()] = signature;
+        ++g_sweepNext;
+        elapsed = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+    } while (g_sweepNext <= g_sweepCount && elapsed < kSweepBudgetMs);
+    g_sweepMs += elapsed;
+    g_sweepTickMaxMs = std::max (g_sweepTickMaxMs, elapsed);
+    ++g_sweepTicks;
+    if (g_sweepNext > g_sweepCount) {
+        FinishSweep ();
+        g_sweepNext = 1;
+    }
+}
+
 ModelerAPI::Model* g_model = nullptr;
 Settle g_settle;
 bool g_passWasRunning = false;
@@ -52,6 +183,11 @@ void Release ()
     g_model = nullptr;
     g_settle.Reset (Reading {});
     g_stats.elements = -1;
+    // A model taken afresh is compared with nothing: its first sweep is the baseline.
+    g_sweepPrevious.clear ();
+    g_sweepCurrent.clear ();
+    g_sweepNext = 1;
+    g_sweeps = 0;
 }
 
 void Tick (bool threeDInFront)
@@ -102,8 +238,10 @@ void Tick (bool threeDInFront)
         }
     }
     const int32_t before = g_settle.Baseline ().count;
-    if (!g_settle.Observe (now))
+    if (!g_settle.Observe (now)) {
+        SweepTick (*g_model);
         return;
+    }
 
     ++g_stats.changes;
     ArchVizLog ("model watch: the 3D window's content changed, " + std::to_string (before) + " -> " +

@@ -27,6 +27,11 @@
 // revision. A pass that FINISHED read the model as it was when it began, so the first idle tick
 // after one compares that count with the model's now and re-extracts if they differ.
 //
+// ⚠️ AND, AS A MEASUREMENT, IT WALKS THE HELD MODEL A COUPLE OF MILLISECONDS A TICK: each
+// element's change stamp and tessellated vertex count, compared walk to walk and logged as
+// `content sweep` -- whether a hide or an edit that keeps the count can be seen this way, and at
+// what cost (the .cpp says why). It changes nothing extracted.
+//
 // MAIN THREAD, all of it: the model is DevKit code and dies where it was made.
 
 #include <cstdint>
