@@ -92,12 +92,14 @@ struct SliceState {
     // plain map is correct here where `empty` needs an atomic. Merged into
     // `Progress::emptyByType` under the pass mutex.
     std::map<std::string, uint32_t> emptyByType;
-    // ⚠️ ONE CALL, TWO FACTS: it drew nothing, and it was a
-    // <kind>. The count alone cannot tell a dimension from a missing morph.
-    void NoteEmpty (std::string kind)
+    std::map<std::string, std::map<std::string, uint32_t>> emptyReasons;
+    // ⚠️ ONE CALL, THREE FACTS: it drew nothing, it was a <kind>, and why. The count
+    // alone cannot tell a dimension from a missing morph, nor a NURBS body from none.
+    void NoteEmpty (const std::string& kind, std::string reason)
     {
         empty.fetch_add (1);
-        ++emptyByType[std::move (kind)];
+        ++emptyByType[kind];
+        ++emptyReasons[kind][std::move (reason)];
     }
     std::atomic<int64_t> holdMs { 0 };
     std::atomic<bool> completed { false };
@@ -288,6 +290,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         std::lock_guard<std::mutex> lock (mutex_);
         progress_.total = progress_.extracted = progress_.empty = progress_.pushed = 0;
         progress_.emptyByType.clear ();
+        progress_.emptyReasons.clear ();
         progress_.triangles = 0;
         progress_.slices = 0;
         progress_.longestHoldMs = progress_.longestRoundTripMs = 0;
@@ -506,7 +509,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 while (i <= count) {
                     if (wanted->empty ()) {
                         if (!CaptureElementPacket (*model, i, st->meshes))
-                            st->NoteEmpty (ElementTypeNameAt (*model, i));
+                            st->NoteEmpty (ElementTypeNameAt (*model, i), EmptyReasonAt (*model, i));
                     }
                     else {
                         // ⚠️ THE GUID FIRST, THE GEOMETRY ONLY IF IT MATCHES.
@@ -518,7 +521,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                         const std::string guid = ElementGuidAt (*model, i);
                         if (!guid.empty () && wanted->count (guid) > 0) {
                             if (!CaptureElementPacket (*model, i, st->meshes))
-                                st->NoteEmpty (ElementTypeNameAt (*model, i));
+                                st->NoteEmpty (ElementTypeNameAt (*model, i), EmptyReasonAt (*model, i));
                             st->matched.push_back (guid);
                         }
                     }
@@ -599,7 +602,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.extracted += uint32_t (st->meshes.size ());
             progress_.empty += st->empty.load ();
-            progress_.MergeEmptyKinds (st->emptyByType);
+            progress_.MergeEmptyKinds (st->emptyByType, st->emptyReasons);
             progress_.pushed += pushed;
             progress_.triangles += triangles;
             ++progress_.slices;

@@ -29,6 +29,17 @@ namespace extractionreport {
 // knows.
 void Pass (const ExtractionWorker::Progress& progress, bool partial, size_t elementsSeen, uint32_t removed);
 
+// The two lists a pass's empty elements are told in: ORDINARY (2D kinds, and `+`-prefixed
+// parts whose owner carries the mesh) and GAP (every other kind: solid elements the overlay
+// is not drawing), each gap followed by why, the commonest reason first --
+// `object x1187 (NURBS bodies only x1187)`. Pure, so tests/cpp pins it.
+struct EmptyLists {
+    std::string ordinary;
+    std::string gaps;
+};
+EmptyLists DescribeEmpty (const std::map<std::string, uint32_t>& byType,
+                          const std::map<std::string, std::map<std::string, uint32_t>>& reasons);
+
 // The notice a single-pass live sync owes its reader. See ExtractionThread for
 // why observers are off: attaching them writes to the project database.
 void SinglePassNotice ();

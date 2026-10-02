@@ -8,41 +8,61 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 namespace geomsrv {
 namespace archviz {
 namespace extractionreport {
+
+EmptyLists DescribeEmpty (const std::map<std::string, uint32_t>& byType,
+                          const std::map<std::string, std::map<std::string, uint32_t>>& reasons)
+{
+    // ⚠️ ORDINARY AND GAP ON SEPARATE LINES, BECAUSE
+    // ONE LIST MADE THEM INDISTINGUISHABLE. A 356-element project reported
+    // `beam x1, column x1, railing x1, type61 x18, type62 x18` in one string:
+    // two real holes in the overlay sitting in a list of eighteen baluster
+    // sets that never had a mesh to begin with. Telling those apart needs the
+    // Archicad element model, so the code does it rather than the reader.
+    //
+    // 2D kinds and `+`-prefixed composite PARTS are ordinary. Everything else
+    // produced no mesh and should have -- and says why (`EmptyReasonAt`).
+    static const char* const kOrdinary[] = { "dimension", "text", "label", "fill", "change marker" };
+    EmptyLists lists;
+    for (const auto& entry : byType) {
+        const bool part = !entry.first.empty () && entry.first[0] == '+';
+        bool flat = false;
+        for (const char* name : kOrdinary)
+            flat = flat || entry.first == name;
+        std::string& into = (part || flat) ? lists.ordinary : lists.gaps;
+        if (!into.empty ())
+            into += ", ";
+        into += (part ? entry.first.substr (1) : entry.first) + " x" + std::to_string (entry.second);
+        const auto why = reasons.find (entry.first);
+        if (part || flat || why == reasons.end () || why->second.empty ())
+            continue;
+        std::vector<std::pair<std::string, uint32_t>> ranked (why->second.begin (), why->second.end ());
+        std::stable_sort (ranked.begin (), ranked.end (),
+                          [] (const auto& a, const auto& b) { return a.second > b.second; });
+        into += " (";
+        for (size_t i = 0; i < ranked.size (); ++i)
+            into += (i > 0 ? ", " : "") + ranked[i].first + " x" + std::to_string (ranked[i].second);
+        into += ")";
+    }
+    return lists;
+}
 
 void Pass (const ExtractionWorker::Progress& progress, bool partial, size_t elementsSeen, uint32_t removed)
 {
     const ExtractionWorker::Progress& summary = progress;
     // Printed only when something drew nothing, so a clean pass stays quiet.
     if (!summary.emptyByType.empty ()) {
-        // ⚠️ ORDINARY AND GAP ON SEPARATE LINES, BECAUSE
-        // ONE LIST MADE THEM INDISTINGUISHABLE. A 356-element project reported
-        // `beam x1, column x1, railing x1, type61 x18, type62 x18` in one string:
-        // two real holes in the overlay sitting in a list of eighteen baluster
-        // sets that never had a mesh to begin with. Telling those apart needs the
-        // Archicad element model, so the code does it rather than the reader.
-        //
-        // 2D kinds and `+`-prefixed composite PARTS are ordinary. Everything else
-        // produced no mesh and should have.
-        static const char* const kOrdinary[] = { "dimension", "text", "label", "fill", "change marker" };
-        std::string ordinary;
-        std::string gaps;
-        for (const auto& entry : summary.emptyByType) {
-            const bool part = !entry.first.empty () && entry.first[0] == '+';
-            bool flat = false;
-            for (const char* name : kOrdinary)
-                flat = flat || entry.first == name;
-            std::string& into = (part || flat) ? ordinary : gaps;
-            if (!into.empty ())
-                into += ", ";
-            into += (part ? entry.first.substr (1) : entry.first) + " x" + std::to_string (entry.second);
-        }
-        if (!ordinary.empty ())
-            ArchVizLog ("extraction: no mesh, ORDINARY (2D, or a part whose owner carries it) - " + ordinary);
-        if (!gaps.empty ())
-            ArchVizLog ("extraction: no mesh, GAP - " + gaps + "  (solid elements the overlay is not drawing)");
+        const EmptyLists lists = DescribeEmpty (summary.emptyByType, summary.emptyReasons);
+        if (!lists.ordinary.empty ())
+            ArchVizLog ("extraction: no mesh, ORDINARY (2D, or a part whose owner carries it) - " + lists.ordinary);
+        if (!lists.gaps.empty ())
+            ArchVizLog ("extraction: no mesh, GAP - " + lists.gaps + "  (solid elements the overlay is not drawing)");
     }
 
     ArchVizLog ("extraction: " + summary.phase + (partial ? " (partial)" : " (full)") + " - " +

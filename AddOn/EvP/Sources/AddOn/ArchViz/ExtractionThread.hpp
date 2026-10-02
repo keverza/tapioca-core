@@ -143,12 +143,18 @@ class ExtractionWorker final {
         // is a whole element class missing from the reference wireframe. Slice
         // local, merged under the pass mutex like every other counter here.
         std::map<std::string, uint32_t> emptyByType;
+        // ... and WHY, per kind (`EmptyReasonAt`): the gap line names the reasons.
+        std::map<std::string, std::map<std::string, uint32_t>> emptyReasons;
         // Merging belongs with the thing being merged into, not spelled out at
         // every call site.
-        void MergeEmptyKinds (const std::map<std::string, uint32_t>& slice)
+        void MergeEmptyKinds (const std::map<std::string, uint32_t>& slice,
+                              const std::map<std::string, std::map<std::string, uint32_t>>& reasons)
         {
             for (const auto& entry : slice)
                 emptyByType[entry.first] += entry.second;
+            for (const auto& kind : reasons)
+                for (const auto& reason : kind.second)
+                    emptyReasons[kind.first][reason.first] += reason.second;
         }
         uint32_t pushed = 0;    // uploads handed to the queue
         uint32_t materials = 0; // surfaces in the pool

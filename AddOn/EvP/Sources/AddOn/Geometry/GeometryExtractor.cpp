@@ -466,6 +466,38 @@ std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Bas
     return other;
 }
 
+std::string EmptyReasonAt (const ModelerAPI::Model& model, int32_t index1Based)
+{
+    const Int32 count = model.GetElementCount ();
+    if (index1Based < 1 || index1Based > count)
+        return "past the model's end, which holds " + std::to_string (count) + " now";
+
+    ModelerAPI::Element elem;
+    model.GetElement (static_cast<Int32> (index1Based), &elem);
+    if (elem.IsInvalid ())
+        return "invalid";
+    const Int32 tessellated = elem.GetTessellatedBodyCount ();
+    if (tessellated <= 0) {
+        if (elem.GetNurbsBodyCount () > 0)
+            return "NURBS bodies only";
+        if (elem.GetMeshBodyCount () > 0)
+            return "mesh bodies, none tessellated";
+        if (elem.GetPointCloudCount () > 0)
+            return "point cloud only";
+        if (elem.GetLightCount () > 0)
+            return "light only";
+        return "no bodies";
+    }
+    Int32 polygons = 0;
+    for (Int32 iBody = 1; iBody <= tessellated; ++iBody) {
+        ModelerAPI::MeshBody body;
+        elem.GetTessellatedBody (iBody, &body);
+        if (body.GetVertexCount () > 0)
+            polygons += body.GetPolygonCount ();
+    }
+    return polygons > 0 ? "every polygon refused" : "bodies with no polygons";
+}
+
 void ExpandElementAndParts (const API_Guid& guid, std::set<std::string>& out)
 {
     // One implementation, two callers: selection-scoped extraction and live

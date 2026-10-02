@@ -82,6 +82,16 @@ bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh
 // is by definition the small set.
 std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Based);
 
+// WHY the element at a 1-based index produced no mesh, in a few words that aggregate:
+// past the model's end (and its count now), invalid, which bodies it has instead of
+// tessellated ones (NURBS, untessellated mesh, a point cloud, a light), bodies with no
+// polygons, or polygons every one of which was refused.
+//
+// ⚠️ THE GAP LINE NAMED WHAT WAS MISSING AND NOT WHY (2026-10-02): 217 windows, 44 columns,
+// 1187 objects with no mesh, and 528 elements past the model's end -- the last slice of a
+// pass -- and nothing to choose a fix by. Called only for elements that drew nothing.
+std::string EmptyReasonAt (const ModelerAPI::Model& model, int32_t index1Based);
+
 // The GUID of the element at a 1-based index, WITHOUT tessellating it.
 //
 // The cheap half of `ExtractElementAt`, and what makes a PARTIAL refresh
