@@ -49,6 +49,7 @@
 // Archicad's frame, which is the one thing this whole rung may never do.
 
 #include <cstdint>
+#include <string>
 
 struct ID3D11Buffer;
 struct ID3D11DepthStencilView;
@@ -61,12 +62,13 @@ namespace dxgi {
 namespace hostocclusion {
 
 // ---- extraction thread ------------------------------------------------------
-// MAIN/EXTRACTION THREAD. Start accumulating a new set of opaque host surfaces.
-// `full` discards what was there; otherwise the batch adds to it.
+// MAIN/EXTRACTION THREAD. Start a batch: `full` starts the model empty; otherwise the batch
+// replaces and removes elements of the one already held.
 void BeginBatch (bool full);
 
-// MAIN/EXTRACTION THREAD. Add one element's vertex block and return the base to
-// offset its indices by, or `kNoBase` when it would not fit.
+// MAIN/EXTRACTION THREAD. Start one element's geometry from its vertex block, REPLACING
+// whatever the store held under `guid` (OccluderStore.hpp): the indices that follow are this
+// element's own, 0-based into `xyz`. False -- counted -- when it would not fit.
 //
 // ⚠️ VERTICES ONCE PER ELEMENT, INDICES ONCE PER OPAQUE RANGE, AND THE
 // SPLIT IS NOT COSMETIC. An element is material-grouped into several ranges; the
@@ -78,12 +80,15 @@ void BeginBatch (bool full);
 // Positions are world metres, xyz interleaved, in Archicad's own coordinates --
 // the same numbers `ElementUpload::vertices` carries, because the overlay's
 // camera is Archicad's and expects nothing else.
-constexpr uint32_t kNoBase = 0xffffffffu;
-uint32_t AddVertices (const float* xyz, uint32_t vertexCount);
+bool BeginElement (const std::string& guid, const float* xyz, uint32_t vertexCount);
+
+// MAIN/EXTRACTION THREAD. The element is no longer in the 3D model -- hidden, deleted, filtered
+// out: its triangles leave the occluder and the wireframe at this batch's `EndBatch`.
+void RemoveElement (const std::string& guid);
 
 // MAIN/EXTRACTION THREAD. ⚠️ OPAQUE RANGES ONLY, AND THE CALLER HAS
 // ALREADY DECIDED THAT. See the header note: this file never sees a material.
-void AddOpaqueIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount);
+void AddOpaqueIndices (const uint32_t* indices, uint32_t indexCount);
 
 // EXTRACTION THREAD. Triangles of a TRANSPARENT surface: glass, a build plane, a
 // helper.
@@ -97,7 +102,7 @@ void AddOpaqueIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t in
 // So the split is between the two USES, not at the input: the occluder renders
 // opaque triangles only, and the feature-edge pass that makes the wireframe sees
 // opaque and transparent alike.
-void AddTransparentIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount);
+void AddTransparentIndices (const uint32_t* indices, uint32_t indexCount);
 
 // MAIN/EXTRACTION THREAD. ⚠️ WHAT WAS REJECTED IS EVIDENCE TOO. A run
 // with zero opaque triangles and zero transparent ones means the extraction

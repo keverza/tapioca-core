@@ -397,6 +397,8 @@ set (EVP_ARCHVIZ_SOURCES
     # and that file is Direct3D 11. The stub answers the production "no room"
     # reply so the queue stops feeding; see the file for what it must not grow.
     "${CMAKE_CURRENT_SOURCE_DIR}/HostOcclusionLinkStub.cpp"
+    # The occluder's per-element store: pure, so an element replaced or removed is pinned here.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/OccluderStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
     # the Diligent port. It belongs here more than almost anything else in
@@ -671,6 +673,7 @@ set (EVP_TEST_SOURCES
     test_extractionreport.cpp
     # When a change to what the 3D window shows is acted on: header-only.
     test_modelcontentwatch.cpp
+    test_occluderstore.cpp
     test_logclaim.cpp
     test_breadcrumb.cpp
     test_camerarecognizer.cpp

@@ -3,7 +3,7 @@
 // ArchViz/Dxgi/HostOccluders.cpp is Direct3D 11 and can never join the offline
 // build, while SceneCmdQueue.cpp -- which the offline gate DOES compile -- feeds
 // it at every batch boundary. This file supplies only the calls SceneCmdQueue
-// makes, as no-ops. AddVertices answers kNoBase, which is the production
+// makes, as no-ops. BeginElement answers false, which is the production
 // "no room" answer, so the queue stops feeding exactly as it would in Archicad
 // when the occluder store is full: nothing here invents a behaviour of its own.
 //
@@ -22,16 +22,20 @@ void BeginBatch (bool)
 {
 }
 
-uint32_t AddVertices (const float*, uint32_t)
+bool BeginElement (const std::string&, const float*, uint32_t)
 {
-    return kNoBase;
+    return false;
 }
 
-void AddOpaqueIndices (uint32_t, const uint32_t*, uint32_t)
+void RemoveElement (const std::string&)
 {
 }
 
-void AddTransparentIndices (uint32_t, const uint32_t*, uint32_t)
+void AddOpaqueIndices (const uint32_t*, uint32_t)
+{
+}
+
+void AddTransparentIndices (const uint32_t*, uint32_t)
 {
 }
 

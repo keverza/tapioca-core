@@ -9,6 +9,7 @@
 #include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
+#include "ArchViz/Dxgi/OccluderStore.hpp"
 
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
@@ -18,6 +19,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -67,6 +69,11 @@ struct Snapshot {
 
 std::atomic<Snapshot*> g_published { nullptr };
 Snapshot* g_building = nullptr;
+// PRODUCER THREAD: the model's triangles per element, and the batch being applied to it.
+occluderstore::Store g_store;
+bool g_batchOpen = false;
+bool g_batchFull = false;
+uint64_t g_batchRemovals = 0;
 
 ID3D11Device* g_device = nullptr;
 ID3D11Buffer* g_vertexBuffer = nullptr;
@@ -550,17 +557,15 @@ bool TakeAndUpload (ID3D11DeviceContext* context)
 
 void BeginBatch (bool full)
 {
-    if (g_building == nullptr)
-        g_building = new Snapshot ();
-    if (full) {
-        g_building->positions.clear ();
-        g_building->indices.clear ();
-        // ⚠️ APPENDED TO, THEREFORE CLEARED HERE. Leaving
-        // this out would keep every historical glass triangle in the edge build,
-        // so the wireframe would accumulate the ghosts of surfaces that had since
-        // been deleted or turned opaque.
-        g_building->transparentIndices.clear ();
-    }
+    // ⚠️ A FULL BATCH STARTS THE STORE EMPTY; A PARTIAL ONE CHANGES IT IN PLACE
+    // (OccluderStore.hpp). The flat buffers the render thread sees are assembled
+    // from the store at `EndBatch`, so neither kind can draw an element twice or
+    // keep one the model no longer holds.
+    if (full)
+        g_store.Clear ();
+    g_batchOpen = true;
+    g_batchFull = full;
+    g_batchRemovals = 0;
     ++g_stats.extractionGeneration;
     // Stamped at the START of the batch: an edit that arrives mid-extraction is
     // NOT in this snapshot, and claiming it would make the report lie in the one
@@ -569,28 +574,30 @@ void BeginBatch (bool full)
     ++g_stats.batchBegins;
     g_batchElements = 0;
     g_batchOpaqueIndices = 0;
-    g_stats.pendingVertices = uint32_t (g_building->positions.size () / 3);
+    g_stats.pendingVertices = uint32_t (g_store.VertexCount ());
     g_stats.publishFailureReason[0] = 0;
 }
 
-uint32_t AddVertices (const float* xyz, uint32_t vertexCount)
+bool BeginElement (const std::string& guid, const float* xyz, uint32_t vertexCount)
 {
     if (xyz == nullptr || vertexCount == 0)
-        return kNoBase;
+        return false;
     ++g_stats.elementsReceived;
     ++g_batchElements;
-    if (g_building == nullptr)
-        g_building = new Snapshot ();
-
-    const uint32_t base = uint32_t (g_building->positions.size () / 3);
-    if (base + vertexCount > kMaxVertices) {
+    if (!g_store.Begin (guid, xyz, vertexCount, kMaxVertices)) {
         ++g_stats.droppedOverCapacity;
-        return kNoBase;
+        return false;
     }
-    g_building->positions.insert (g_building->positions.end (), xyz, xyz + size_t (vertexCount) * 3);
     g_stats.opaqueVerticesAdded += vertexCount;
-    g_stats.pendingVertices = uint32_t (g_building->positions.size () / 3);
-    return base;
+    g_stats.pendingVertices = uint32_t (g_store.VertexCount ());
+    return true;
+}
+
+void RemoveElement (const std::string& guid)
+{
+    if (g_store.Remove (guid))
+        ++g_batchRemovals;
+    g_stats.pendingVertices = uint32_t (g_store.VertexCount ());
 }
 
 void NoteTransparent (uint32_t indexCount)
@@ -598,27 +605,20 @@ void NoteTransparent (uint32_t indexCount)
     g_stats.transparentTrianglesSkipped += indexCount / 3;
 }
 
-void AddTransparentIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount)
+void AddTransparentIndices (const uint32_t* indices, uint32_t indexCount)
 {
-    if (g_building == nullptr || indices == nullptr || indexCount == 0)
-        return;
-    g_building->transparentIndices.reserve (g_building->transparentIndices.size () + indexCount);
-    for (uint32_t i = 0; i < indexCount; ++i)
-        g_building->transparentIndices.push_back (vertexBase + indices[i]);
+    g_store.AddTransparent (indices, indexCount);
 }
 
-void AddOpaqueIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount)
+void AddOpaqueIndices (const uint32_t* indices, uint32_t indexCount)
 {
-    if (indices == nullptr || indexCount == 0 || vertexBase == kNoBase || g_building == nullptr)
+    if (indices == nullptr || indexCount == 0)
         return;
     g_stats.opaqueTriangles += indexCount / 3;
-    if (g_building->indices.size () + indexCount > kMaxIndices) {
+    if (!g_store.AddOpaque (indices, indexCount, kMaxIndices)) {
         ++g_stats.droppedOverCapacity;
         return;
     }
-    g_building->indices.reserve (g_building->indices.size () + indexCount);
-    for (uint32_t i = 0; i < indexCount; ++i)
-        g_building->indices.push_back (vertexBase + indices[i]);
     g_stats.opaqueIndicesAdded += indexCount;
     g_batchOpaqueIndices += indexCount;
 }
@@ -632,11 +632,19 @@ void EndBatch ()
     // publish writes down WHY, because "no host geometry" with no reason
     // attached is what sent run fifty-six looking at the opacity classifier
     // while the classifier was working perfectly.
-    if (g_building == nullptr) {
+    if (!g_batchOpen) {
         PublishFailed ("EndBatch arrived with no batch open");
         return;
     }
-    if (g_building->indices.empty ()) {
+    g_batchOpen = false;
+    delete g_building;
+    g_building = new Snapshot ();
+    g_store.Assemble (g_building->positions, g_building->indices, g_building->transparentIndices);
+    // ⚠️ AN EMPTY STORE IS PUBLISHED WHEN THIS BATCH EMPTIED IT -- everything hidden, removed,
+    // or a full batch of nothing: the 3D window shows nothing, and keeping the previous
+    // snapshot would keep drawing what is no longer there.
+    const bool emptied = g_store.ElementCount () == 0 && (g_batchFull || g_batchRemovals > 0);
+    if (g_building->indices.empty () && !emptied) {
         char why[160] = {};
         if (g_batchElements == 0)
             strncpy_s (why, sizeof (why), "the batch carried no elements at all", _TRUNCATE);
@@ -647,9 +655,6 @@ void EndBatch ()
         delete g_building;
         g_building = nullptr;
         return;
-    }
-    if (g_batchOpaqueIndices == 0) {
-        PublishFailed ("indices were held over from a previous batch, and none were added to this one");
     }
 
     ++g_stats.publishAttempted;
@@ -757,6 +762,8 @@ void Clear ()
     delete g_published.exchange (nullptr, std::memory_order_acq_rel);
     delete g_building;
     g_building = nullptr;
+    g_store.Clear ();
+    g_batchOpen = false;
     g_uploadedIndices = 0;
     g_uploadedLineIndices = 0;
     g_stats.haveSnapshot = false;

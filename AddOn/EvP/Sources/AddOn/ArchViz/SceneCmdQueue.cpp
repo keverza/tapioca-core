@@ -72,8 +72,7 @@ void FeedOpaqueOccluders (const ElementUpload& upload)
     // material-grouped into several ranges and the first version of this handed
     // the whole vertex array to each of them, copying every wall as many times
     // as it had materials.
-    const uint32_t base = dxgi::hostocclusion::AddVertices (upload.vertices.data (), uint32_t (upload.VertexCount ()));
-    if (base == dxgi::hostocclusion::kNoBase)
+    if (!dxgi::hostocclusion::BeginElement (upload.guid, upload.vertices.data (), uint32_t (upload.VertexCount ())))
         return;
 
     // The ranges are already contiguous per material, so an opaque material is
@@ -90,11 +89,10 @@ void FeedOpaqueOccluders (const ElementUpload& upload)
             // `AddTransparentIndices`. Counted as well, so "no opaque geometry"
             // can still be told apart from "no geometry at all".
             dxgi::hostocclusion::NoteTransparent (range.indexCount);
-            dxgi::hostocclusion::AddTransparentIndices (base, upload.indices.data () + range.firstIndex,
-                                                        range.indexCount);
+            dxgi::hostocclusion::AddTransparentIndices (upload.indices.data () + range.firstIndex, range.indexCount);
             continue;
         }
-        dxgi::hostocclusion::AddOpaqueIndices (base, upload.indices.data () + range.firstIndex, range.indexCount);
+        dxgi::hostocclusion::AddOpaqueIndices (upload.indices.data () + range.firstIndex, range.indexCount);
     }
 }
 
@@ -141,6 +139,9 @@ void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
 
 void SceneCmdQueue::PushRemove (const std::string& guid)
 {
+    // The occluder follows the scene here too: an element hidden or deleted leaves it at this
+    // batch's end (OccluderStore.hpp) -- with or without a portable viewport taking commands.
+    dxgi::hostocclusion::RemoveElement (guid);
     std::lock_guard<std::mutex> lock (mutex_);
     if (!consumer_)
         return;
