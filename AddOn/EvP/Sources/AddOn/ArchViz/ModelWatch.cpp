@@ -68,6 +68,8 @@ std::set<std::string> gPendingElements;
 // change list from a poll that follows such a pass is what that pass already read.
 uint64_t gLastFullStartMs = 0;
 uint64_t gLastPollMs = 0;
+// Elements the content sweep sent to be updated since the generator's last poll.
+std::set<std::string> gSweptSincePoll;
 
 bool StartPass ()
 {
@@ -128,6 +130,8 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
 
     const uint64_t previousPollMs = gLastPollMs;
     gLastPollMs = ::GetTickCount64 ();
+    const std::set<std::string> swept = std::move (gSweptSincePoll);
+    gSweptSincePoll.clear ();
     const modeldiff::Result diff = gBaseline->Poll ();
     ++gStats.polls;
 
@@ -232,6 +236,14 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     std::set<std::string> named (diff.created.begin (), diff.created.end ());
     named.insert (diff.modified.begin (), diff.modified.end ());
     named.insert (diff.deleted.begin (), diff.deleted.end ());
+    // ⚠️ A LIST NAMING ONLY WHAT THE SWEEP ALREADY UPDATED IS NOT READ AGAIN: the sweep saw the
+    // hide and the edit 10-12 s before this poll reported them (12:30-12:31).
+    if (!named.empty () && std::includes (swept.begin (), swept.end (), named.begin (), named.end ())) {
+        ++gStats.alreadySwept;
+        ArchVizLog ("model watch: " + std::to_string (named.size ()) +
+                    " changed elements, already updated from the content sweep");
+        return;
+    }
     const size_t elements = size_t (std::max<int32_t> (modelcontentwatch::Get ().elements, 0));
     const Route route = RouteChange (named.size (), elements, gLastFullStartMs, previousPollMs);
     if (route == Route::Update) {
@@ -376,18 +388,57 @@ void ServePending ()
     }
 }
 
-void NoteContentChanged (bool passRunning)
+void NoteContentChanged (bool extract)
 {
     ++gStats.contentChanges;
     ++gStats.revision;
     dxgi::hostocclusion::SetModelRevision (gStats.revision);
     dxgi::census::NoteModelRevision (gStats.revision);
-    if (passRunning)
+    if (!extract)
         return;
     if (StartPass ())
         ++gStats.refreshes;
     else
         gPendingRefresh = true;
+}
+
+void NoteSweepChange (const std::set<std::string>& changed, size_t elements, bool countChanged)
+{
+    ++gStats.sweepChanges;
+    ++gStats.revision;
+    dxgi::hostocclusion::SetModelRevision (gStats.revision);
+    dxgi::census::NoteModelRevision (gStats.revision);
+    gSweptSincePoll.insert (changed.begin (), changed.end ());
+    const bool passRunning = ExtractionWorker::Get ().IsRunning ();
+    if (RouteChange (changed.size (), elements, 0, 0) == Route::Update) {
+        gPendingElements.insert (changed.begin (), changed.end ());
+        // The storey cut is a union over the whole model: with slices shown, a full pass follows.
+        if (ExtractionWorker::Get ().StorySlicesWanted ())
+            gPendingRefresh = true;
+        if (StartUpdate (gPendingElements)) {
+            ++gStats.refreshes;
+            ArchVizLog ("model watch: the content sweep saw " + std::to_string (changed.size ()) +
+                        " elements change -- updating " + std::to_string (gPendingElements.size ()));
+            gPendingElements.clear ();
+        }
+        else {
+            ArchVizLog ("model watch: the content sweep saw " + std::to_string (changed.size ()) +
+                        " elements change -- updating them once the pass in flight ends");
+        }
+        return;
+    }
+    if (passRunning && countChanged) {
+        ArchVizLog ("model watch: the content sweep saw " + std::to_string (changed.size ()) +
+                    " elements change -- the pass in flight starts again on the model");
+        return;
+    }
+    gPendingRefresh = true;
+    if (StartPass ()) {
+        gPendingRefresh = false;
+        ++gStats.refreshes;
+        ArchVizLog ("model watch: the content sweep saw " + std::to_string (changed.size ()) +
+                    " elements change -- re-extracting the model");
+    }
 }
 
 Stats Get ()

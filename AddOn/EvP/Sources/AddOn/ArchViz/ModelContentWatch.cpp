@@ -44,21 +44,13 @@ Reading Read (const ModelerAPI::Model& model)
 // Ticks between attempts after an acquire failed.
 constexpr uint32_t kAcquireBackoffTicks = 8;
 
-// ---- the sweep: a MEASUREMENT (2026-10-02) ------------------------------------
+// ---- the sweep: the detector (see the header) ---------------------------------
 //
 // ⚠️ A HIDE THAT KEEPS THE ELEMENT IN THE MODEL'S LIST IS INVISIBLE TO `Read`: three elements
 // hidden at 11:45 left the count at 3889 and the sampled GUIDs alone, and only the difference
 // generator saw them -- whose poll costs up to 2833 ms of the main thread on that project, so it
-// runs every 30 s. Whether a cheap per-element walk can see what it sees is two numbers nobody
-// has measured: what one walk of every element costs, and whether an element's change stamp
-// (`Element::GetGenId`) or its tessellated vertex count moves on a hide and on an edit. This
-// walks the held model a couple of milliseconds a tick, and when a walk completes says what it
-// cost and what differs from the previous one. It changes nothing extracted.
-struct Signature {
-    uint32_t genId = 0;
-    int64_t vertices = 0;
-};
-using Signatures = std::unordered_map<std::string, Signature>;
+// runs every 30 s. The walk sees them: measured 12:30-12:31, ~5.4 ms a walk over 3 ticks, a hide
+// seen 12 s and an edit 10 s before the generator reported them.
 
 constexpr double kSweepBudgetMs = 2.0;
 // A sweep that found nothing different still says what it cost, this often.
@@ -68,6 +60,7 @@ Signatures g_sweepPrevious;
 Signatures g_sweepCurrent;
 int32_t g_sweepNext = 1; // 1-based, like every ModelerAPI index
 int32_t g_sweepCount = 0;
+int32_t g_sweepPreviousCount = -1;
 double g_sweepMs = 0.0;
 double g_sweepTickMaxMs = 0.0;
 uint32_t g_sweepTicks = 0;
@@ -84,33 +77,10 @@ std::string SampleOf (const std::vector<std::string>& guids)
 void FinishSweep ()
 {
     ++g_sweeps;
-    std::vector<std::string> stamped, reshaped, emptied, filled, appeared, vanished;
-    uint32_t stampedAndReshaped = 0;
-    if (!g_sweepPrevious.empty ()) {
-        for (const auto& entry : g_sweepCurrent) {
-            const auto before = g_sweepPrevious.find (entry.first);
-            if (before == g_sweepPrevious.end ()) {
-                appeared.push_back (entry.first);
-                continue;
-            }
-            const bool stamp = before->second.genId != entry.second.genId;
-            const bool shape = before->second.vertices != entry.second.vertices;
-            if (stamp)
-                stamped.push_back (entry.first);
-            if (shape) {
-                reshaped.push_back (entry.first);
-                if (entry.second.vertices == 0)
-                    emptied.push_back (entry.first);
-                else if (before->second.vertices == 0)
-                    filled.push_back (entry.first);
-            }
-            stampedAndReshaped += stamp && shape ? 1u : 0u;
-        }
-        for (const auto& entry : g_sweepPrevious)
-            if (g_sweepCurrent.find (entry.first) == g_sweepCurrent.end ())
-                vanished.push_back (entry.first);
-    }
-    const bool changed = !stamped.empty () || !reshaped.empty () || !appeared.empty () || !vanished.empty ();
+    const SweepDiff diff = g_sweepPrevious.empty () ? SweepDiff {} : Compare (g_sweepPrevious, g_sweepCurrent);
+    const std::vector<std::string>& stamped = diff.stamped;
+    const std::vector<std::string>& reshaped = diff.reshaped;
+    const bool changed = diff.Any ();
     if (g_sweeps == 1 || changed || g_sweeps % kSweepHeartbeat == 0) {
         char cost[200] = {};
         std::snprintf (cost, sizeof (cost), "%d elements in %.1f ms over %u ticks (at most %.2f ms a tick)",
@@ -118,14 +88,19 @@ void FinishSweep ()
         std::string line = "model watch: content sweep #" + std::to_string (g_sweeps) + ", " + cost;
         if (changed)
             line += "; since the last: change stamp moved on " + std::to_string (stamped.size ()) + " (" +
-                    std::to_string (stampedAndReshaped) + " of them reshaped), vertices changed on " +
-                    std::to_string (reshaped.size ()) + " (to none " + std::to_string (emptied.size ()) +
-                    ", from none " + std::to_string (filled.size ()) + "), appeared " +
-                    std::to_string (appeared.size ()) + ", vanished " + std::to_string (vanished.size ()) +
-                    " -- e.g. stamp [" + SampleOf (stamped) + "] vertices [" + SampleOf (reshaped) + "]";
+                    std::to_string (diff.stampedAndReshaped) + " of them reshaped), vertices changed on " +
+                    std::to_string (reshaped.size ()) + " (to none " + std::to_string (diff.emptied) + ", from none " +
+                    std::to_string (diff.filled) + "), appeared " + std::to_string (diff.appeared.size ()) +
+                    ", vanished " + std::to_string (diff.vanished.size ()) + " -- e.g. stamp [" + SampleOf (stamped) +
+                    "] vertices [" + SampleOf (reshaped) + "]";
         ArchVizLog (line);
     }
+    // ⚠️ AND WHAT DIFFERS IS UPDATED: exactly those elements, or the model when they are many.
+    if (changed)
+        modelwatch::NoteSweepChange (diff.Changed (), size_t (std::max (g_sweepCount, 0)),
+                                     g_sweepPreviousCount >= 0 && g_sweepPreviousCount != g_sweepCount);
     g_sweepPrevious.swap (g_sweepCurrent);
+    g_sweepPreviousCount = g_sweepCount;
     g_sweepCurrent.clear ();
 }
 
@@ -171,7 +146,6 @@ void SweepTick (const ModelerAPI::Model& model)
 
 ModelerAPI::Model* g_model = nullptr;
 Settle g_settle;
-bool g_passWasRunning = false;
 uint32_t g_acquireWait = 0;
 Stats g_stats;
 
@@ -187,6 +161,7 @@ void Release ()
     g_sweepPrevious.clear ();
     g_sweepCurrent.clear ();
     g_sweepNext = 1;
+    g_sweepPreviousCount = -1;
     g_sweeps = 0;
 }
 
@@ -198,8 +173,6 @@ void Tick (bool threeDInFront)
     }
     modelwatch::ServePending ();
     const bool passRunning = ExtractionWorker::Get ().IsRunning ();
-    const bool passEnded = g_passWasRunning && !passRunning;
-    g_passWasRunning = passRunning;
     if (g_model == nullptr) {
         // ⚠️ NOT BEFORE A PASS IN FLIGHT HAS ACQUIRED ITS OWN: until then Archicad may still be
         // generating the 3D, and acquiring would wait for it here, on the main thread.
@@ -224,31 +197,21 @@ void Tick (bool threeDInFront)
     }
 
     const Reading now = Read (*g_model);
-    if (passEnded) {
-        const ExtractionWorker::Progress pass = ExtractionWorker::Get ().Snapshot ();
-        if (pass.done && int32_t (pass.total) != now.count) {
-            ++g_stats.changes;
-            ArchVizLog ("model watch: the 3D window's content changed as the last pass ended, " +
-                        std::to_string (pass.total) + " -> " + std::to_string (now.count) +
-                        " elements -- re-extracting what it shows now");
-            g_settle.Reset (now);
-            g_stats.elements = now.count;
-            modelwatch::NoteContentChanged (/*passRunning*/ false);
-            return;
-        }
-    }
     const int32_t before = g_settle.Baseline ().count;
-    if (!g_settle.Observe (now)) {
-        SweepTick (*g_model);
-        return;
+    if (g_settle.Observe (now)) {
+        // ⚠️ THE REVISION MOVES AT ONCE, SO THE CAMERA RE-PINS; WHICH ELEMENTS TO READ IS THE
+        // SWEEP'S, a walk later (~1 s) -- unless there is no walk to compare with yet.
+        const bool sweepReads = !g_sweepPrevious.empty ();
+        ++g_stats.changes;
+        ArchVizLog ("model watch: the 3D window's content changed, " + std::to_string (before) + " -> " +
+                    std::to_string (now.count) + " elements (isolation, a layer or a filter) -- " +
+                    (sweepReads ? std::string ("the content sweep says which")
+                                : std::string (passRunning ? "the pass in flight starts again on it"
+                                                           : "re-extracting what it shows now")));
+        g_stats.elements = now.count;
+        modelwatch::NoteContentChanged (/*extract*/ !sweepReads && !passRunning);
     }
-
-    ++g_stats.changes;
-    ArchVizLog ("model watch: the 3D window's content changed, " + std::to_string (before) + " -> " +
-                std::to_string (now.count) + " elements (isolation, a layer or a filter) -- " +
-                (passRunning ? "the pass in flight starts again on it" : "re-extracting what it shows now"));
-    g_stats.elements = now.count;
-    modelwatch::NoteContentChanged (passRunning);
+    SweepTick (*g_model);
 }
 
 Stats Get ()

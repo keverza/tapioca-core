@@ -36,6 +36,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <set>
 #include <string>
 
 namespace geomsrv {
@@ -68,6 +69,10 @@ struct Stats {
     // camera and its occluder, so an edit and a visibility change re-pin the camera alike.
     uint32_t contentChanges = 0;
     uint32_t revision = 0;
+    // Walks of the held model that found elements changed (ModelContentWatch's sweep), and the
+    // generator's lists dropped because the sweep had already updated every element they named.
+    uint32_t sweepChanges = 0;
+    uint32_t alreadySwept = 0;
     int64_t lastDiffMs = 0;  // what the last poll cost
     int64_t worstDiffMs = 0; // the worst one, which is what set the interval
     uint32_t intervalMs = 0; // the cadence it has settled on
@@ -129,9 +134,16 @@ inline Route RouteChange (size_t changed, size_t elements, uint64_t lastFullStar
 void ServePending ();
 
 // MAIN THREAD. What the 3D window shows changed without an element edit (ModelContentWatch):
-// the revision moves, and a full re-extraction starts -- unless a pass is running, which starts
-// again on the changed model by itself (ExtractionThread).
-void NoteContentChanged (bool passRunning);
+// the revision moves -- the camera may re-pin -- and, with `extract`, a full re-extraction
+// starts (or waits for the pass in flight).
+void NoteContentChanged (bool extract);
+
+// MAIN THREAD. The content sweep found these elements appeared, vanished, or with their change
+// stamp or vertices moved: the revision moves, and they are updated (`RouteChange`), or the model
+// is re-extracted when they are many -- unless a pass is running and the count changed under it,
+// which starts that pass again by itself. Remembered until the next generator poll, which then
+// drops a list naming nothing else.
+void NoteSweepChange (const std::set<std::string>& changed, size_t elements, bool countChanged);
 
 Stats Get ();
 

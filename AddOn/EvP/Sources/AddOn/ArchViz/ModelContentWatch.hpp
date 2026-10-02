@@ -27,15 +27,20 @@
 // revision. A pass that FINISHED read the model as it was when it began, so the first idle tick
 // after one compares that count with the model's now and re-extracts if they differ.
 //
-// ⚠️ AND, AS A MEASUREMENT, IT WALKS THE HELD MODEL A COUPLE OF MILLISECONDS A TICK: each
-// element's change stamp and tessellated vertex count, compared walk to walk and logged as
-// `content sweep` -- whether a hide or an edit that keeps the count can be seen this way, and at
-// what cost (the .cpp says why). It changes nothing extracted.
+// ⚠️ AND THE SWEEP IS THE DETECTOR: it walks the held model at most 2 ms a tick -- each element's
+// change stamp and tessellated vertex count -- and a walk that differs from the previous one sends
+// exactly those elements to be updated (`modelwatch::NoteSweepChange`). Measured 12:30-12:31 on
+// 3889 elements: a walk costs ~5.4 ms over 3 ticks, it saw a hide 12 s and an edit 10 s before the
+// difference generator did, and the generator's poll costs up to 2833 ms. A change of the COUNT
+// still moves the revision at once (the camera re-pins); which elements to read is the sweep's.
 //
 // MAIN THREAD, all of it: the model is DevKit code and dies where it was made.
 
 #include <cstdint>
+#include <set>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
@@ -97,6 +102,71 @@ class Settle {
     Reading pending_;
     uint32_t pendingTicks_ = 0;
 };
+
+// ---- the content sweep -------------------------------------------------------------------------
+// What one walk of the held model reads per element (GUID): its change stamp
+// (`ModelerAPI::Element::GetGenId`) and its tessellated vertex count.
+struct Signature {
+    uint32_t genId = 0;
+    int64_t vertices = 0;
+};
+using Signatures = std::unordered_map<std::string, Signature>;
+
+// What differs between two walks. Pure, so tests/cpp pins it.
+struct SweepDiff {
+    std::vector<std::string> appeared, vanished, stamped, reshaped;
+    size_t emptied = 0, filled = 0, stampedAndReshaped = 0;
+
+    bool Any () const
+    {
+        return !appeared.empty () || !vanished.empty () || !stamped.empty () || !reshaped.empty ();
+    }
+    // The elements an update must read again: every one that appeared, vanished, or whose stamp
+    // or vertices moved -- the shown replaced, the gone removed (ExtractionWorker::StartUpdate).
+    std::set<std::string> Changed () const
+    {
+        std::set<std::string> changed (appeared.begin (), appeared.end ());
+        changed.insert (vanished.begin (), vanished.end ());
+        changed.insert (stamped.begin (), stamped.end ());
+        changed.insert (reshaped.begin (), reshaped.end ());
+        return changed;
+    }
+};
+
+// ⚠️ THE NULL GUID IS NOT AN ELEMENT. Elements with no GUID of their own read as it (12:31:43:
+// its stamp moved beside a real edit's); it names nothing an update could read.
+inline const char* NullGuid ()
+{
+    return "00000000-0000-0000-0000-000000000000";
+}
+
+inline SweepDiff Compare (const Signatures& before, const Signatures& after)
+{
+    SweepDiff diff;
+    for (const auto& entry : after) {
+        if (entry.first == NullGuid ())
+            continue;
+        const auto was = before.find (entry.first);
+        if (was == before.end ()) {
+            diff.appeared.push_back (entry.first);
+            continue;
+        }
+        const bool stamp = was->second.genId != entry.second.genId;
+        const bool shape = was->second.vertices != entry.second.vertices;
+        if (stamp)
+            diff.stamped.push_back (entry.first);
+        if (shape) {
+            diff.reshaped.push_back (entry.first);
+            diff.emptied += entry.second.vertices == 0 ? 1 : 0;
+            diff.filled += was->second.vertices == 0 ? 1 : 0;
+        }
+        diff.stampedAndReshaped += stamp && shape ? 1 : 0;
+    }
+    for (const auto& entry : before)
+        if (entry.first != NullGuid () && after.find (entry.first) == after.end ())
+            diff.vanished.push_back (entry.first);
+    return diff;
+}
 
 // Every tick of the 3D overlay's runtime. `threeDInFront`: Archicad's 3D window is the front one.
 void Tick (bool threeDInFront);

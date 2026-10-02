@@ -558,7 +558,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     // an event id would get WRONG — an element moved onto a hidden layer, or off
     // this storey, is equally "not in the model" and equally must disappear.
     uint32_t removed = 0;
-    if (partial) {
+    // ⚠️ NOT FROM A WALK THE MODEL CHANGED UNDER: the GUIDs it never reached are not gone.
+    if (partial && changedTo < 0) {
         for (const std::string& guid : filter) {
             if (found.count (guid) == 0) {
                 SceneCmdQueue::Get ().PushRemove (guid);
@@ -623,14 +624,16 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
 
         extractionreport::Pass (progress_, partial, partial ? filter.size () : (size_t) progress_.total, removed);
     }
-    // ⚠️ AND AGAIN ON THE MODEL AS IT IS NOW -- full, since nothing says what changed, after it
-    // settles, and a bounded number of times so a model that never settles cannot hold the worker.
+    // ⚠️ AND AGAIN ON THE MODEL AS IT IS NOW -- a full pass full, since nothing says what changed;
+    // an update over the same elements, since the content sweep reads what did (ModelContentWatch)
+    // -- after it settles, and a bounded number of times so a model that never settles cannot hold
+    // the worker.
     if (changedTo >= 0 && !stopFlag_.load () && restarts_ < kMaxRestarts) {
         ++restarts_;
         std::this_thread::sleep_for (std::chrono::milliseconds (kRestartSettleMs));
         if (extractedGuids != nullptr)
             extractedGuids->clear ();
-        return RunPass (opt, /*full*/ true, std::set<std::string> (), extractedGuids);
+        return RunPass (opt, full, filter, extractedGuids);
     }
     restarts_ = 0;
     return true;

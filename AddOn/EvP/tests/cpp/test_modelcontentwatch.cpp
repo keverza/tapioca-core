@@ -70,3 +70,57 @@ TEST (ModelContentWatch, ALayerSwappedForOneOfTheSameSizeIsAChange)
     EXPECT_FALSE (settle.Observe (Of (120, "A", "N", "Z")));
     EXPECT_TRUE (settle.Observe (Of (120, "A", "N", "Z")));
 }
+
+// ---- the content sweep's diff: what an update must read again ----------------------------------
+
+namespace {
+
+watch::Signatures Walk (std::initializer_list<std::pair<const char*, watch::Signature>> elements)
+{
+    watch::Signatures walk;
+    for (const auto& element : elements)
+        walk[element.first] = element.second;
+    return walk;
+}
+
+} // namespace
+
+TEST (ModelContentWatch, AWalkThatReadsTheSameIsNoChange)
+{
+    const watch::Signatures walk = Walk ({ { "A", { 1, 100 } }, { "B", { 2, 200 } } });
+    EXPECT_FALSE (watch::Compare (walk, walk).Any ());
+}
+
+// 12:30:41: three elements hidden, the model's count unchanged -- only a walk sees which.
+TEST (ModelContentWatch, AHiddenElementVanishesOrEmptiesAndIsReadAgain)
+{
+    const watch::Signatures before = Walk ({ { "A", { 1, 100 } }, { "B", { 2, 200 } }, { "C", { 3, 300 } } });
+    const watch::Signatures after = Walk ({ { "A", { 1, 100 } }, { "C", { 3, 0 } }, { "D", { 4, 40 } } });
+    const watch::SweepDiff diff = watch::Compare (before, after);
+    EXPECT_EQ (diff.vanished, (std::vector<std::string> { "B" }));
+    EXPECT_EQ (diff.appeared, (std::vector<std::string> { "D" }));
+    EXPECT_EQ (diff.reshaped, (std::vector<std::string> { "C" }));
+    EXPECT_EQ (diff.emptied, 1u);
+    EXPECT_EQ (diff.Changed (), (std::set<std::string> { "B", "C", "D" }));
+}
+
+// 12:31:43: an edit moved the element's change stamp and its vertices.
+TEST (ModelContentWatch, AnEditedElementIsReadAgainByItsStampOrItsVertices)
+{
+    const watch::Signatures before = Walk ({ { "A", { 1, 100 } }, { "B", { 2, 200 } } });
+    const watch::Signatures after = Walk ({ { "A", { 7, 100 } }, { "B", { 2, 260 } } });
+    const watch::SweepDiff diff = watch::Compare (before, after);
+    EXPECT_EQ (diff.stamped, (std::vector<std::string> { "A" }));
+    EXPECT_EQ (diff.reshaped, (std::vector<std::string> { "B" }));
+    EXPECT_EQ (diff.stampedAndReshaped, 0u);
+    EXPECT_EQ (diff.Changed (), (std::set<std::string> { "A", "B" }));
+}
+
+// 12:31:43: the null GUID's stamp moved beside the real edit; it names nothing to read.
+TEST (ModelContentWatch, TheNullGuidIsNeverAChange)
+{
+    const watch::Signatures before = Walk ({ { watch::NullGuid (), { 1, 0 } }, { "A", { 1, 100 } } });
+    const watch::Signatures after = Walk ({ { watch::NullGuid (), { 9, 5 } }, { "A", { 1, 100 } } });
+    EXPECT_FALSE (watch::Compare (before, after).Any ());
+    EXPECT_FALSE (watch::Compare (before, Walk ({ { "A", { 1, 100 } } })).Any ()) << "nor its vanishing";
+}
