@@ -55,11 +55,60 @@ std::atomic<uint64_t> g_contentChanges { 0 }; // ... of those, that differed
 std::atomic<uint64_t> g_contentChangedMs { 0 };
 std::atomic<uint64_t> g_contentDecodedMs { 0 };
 
-// The decoded camera itself, for the main thread's 3D pick (`LatestCamera`): 36 words --
-// view, projection, viewport -- under a sequence that is odd while they are written.
+// A decoded camera as the main thread reads it: 36 words -- view, projection, viewport --
+// under a sequence that is odd while they are written. One writer, the render thread;
+// atomics only (§11). Static storage: zero, "nothing decoded", before the first write.
 constexpr size_t kCameraWords = 36;
-std::atomic<uint32_t> g_cameraSequence { 0 };
-std::atomic<uint32_t> g_cameraWords[kCameraWords]; // static storage: zero before the first write
+struct CameraSlot {
+    std::atomic<uint32_t> sequence { 0 };
+    std::atomic<uint32_t> words[kCameraWords];
+};
+
+void WriteCamera (CameraSlot& slot, const float view[16], const float projection[16], const float viewport[4])
+{
+    const uint32_t sequence = slot.sequence.load (std::memory_order_relaxed);
+    slot.sequence.store (sequence + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_release);
+    const auto put = [&slot] (size_t at, float value) {
+        uint32_t bits = 0;
+        std::memcpy (&bits, &value, sizeof (bits));
+        slot.words[at].store (bits, std::memory_order_relaxed);
+    };
+    for (size_t i = 0; i < 16; ++i) {
+        put (i, view[i]);
+        put (16 + i, projection[i]);
+    }
+    for (size_t i = 0; i < 4; ++i)
+        put (32 + i, viewport[i]);
+    slot.sequence.store (sequence + 2, std::memory_order_release);
+}
+
+// A copy that changed while it was read is refused rather than torn.
+bool ReadCamera (const CameraSlot& slot, CameraCopy& out)
+{
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        const uint32_t before = slot.sequence.load (std::memory_order_acquire);
+        if (before == 0)
+            return false; // nothing decoded this session
+        if ((before & 1u) != 0)
+            continue;
+        uint32_t words[kCameraWords];
+        for (size_t i = 0; i < kCameraWords; ++i)
+            words[i] = slot.words[i].load (std::memory_order_relaxed);
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (slot.sequence.load (std::memory_order_relaxed) != before)
+            continue;
+        std::memcpy (out.view, words, sizeof (out.view));
+        std::memcpy (out.projection, words + 16, sizeof (out.projection));
+        std::memcpy (out.viewport, words + 32, sizeof (out.viewport));
+        out.serial = before / 2u;
+        return true;
+    }
+    return false;
+}
+
+// The selected camera, for the main thread's 3D pick (`LatestCamera`).
+CameraSlot g_selectedCamera;
 
 std::atomic<uint64_t> g_acceptedSignature { 0 };
 std::atomic<uint64_t> g_acceptedSerial { 0 };
@@ -258,21 +307,7 @@ void NoteCameraContent (const float* view16, const float* projection16, float vp
 
     // The copy the 3D pick reads: odd while written, so a reader never takes half of it.
     const float viewport[4] = { vpX, vpY, vpW, vpH };
-    const uint32_t sequence = g_cameraSequence.load (std::memory_order_relaxed);
-    g_cameraSequence.store (sequence + 1, std::memory_order_relaxed);
-    std::atomic_thread_fence (std::memory_order_release);
-    const auto put = [] (size_t at, float value) {
-        uint32_t bits = 0;
-        std::memcpy (&bits, &value, sizeof (bits));
-        g_cameraWords[at].store (bits, std::memory_order_relaxed);
-    };
-    for (size_t i = 0; i < 16; ++i) {
-        put (i, view16[i]);
-        put (16 + i, projection16[i]);
-    }
-    for (size_t i = 0; i < 4; ++i)
-        put (32 + i, viewport[i]);
-    g_cameraSequence.store (sequence + 2, std::memory_order_release);
+    WriteCamera (g_selectedCamera, view16, projection16, viewport);
 }
 
 uint64_t ContentSignature ()
@@ -282,25 +317,7 @@ uint64_t ContentSignature ()
 
 bool LatestCamera (CameraCopy& out)
 {
-    for (int attempt = 0; attempt < 4; ++attempt) {
-        const uint32_t before = g_cameraSequence.load (std::memory_order_acquire);
-        if (before == 0)
-            return false; // nothing decoded this session
-        if ((before & 1u) != 0)
-            continue;
-        uint32_t words[kCameraWords];
-        for (size_t i = 0; i < kCameraWords; ++i)
-            words[i] = g_cameraWords[i].load (std::memory_order_relaxed);
-        std::atomic_thread_fence (std::memory_order_acquire);
-        if (g_cameraSequence.load (std::memory_order_relaxed) != before)
-            continue;
-        std::memcpy (out.view, words, sizeof (out.view));
-        std::memcpy (out.projection, words + 16, sizeof (out.projection));
-        std::memcpy (out.viewport, words + 32, sizeof (out.viewport));
-        out.serial = before / 2u;
-        return true;
-    }
-    return false;
+    return ReadCamera (g_selectedCamera, out);
 }
 
 void NoteAuthoritativeSnapshot ()
@@ -403,7 +420,7 @@ void Reset ()
 {
     g_ledgerUsed = 0;
     // The 3D pick reads no camera of a previous session (§8).
-    g_cameraSequence.store (0, std::memory_order_release);
+    g_selectedCamera.sequence.store (0, std::memory_order_release);
     // Section 10: a run that inherits the previous one's gate is a run whose
     // evidence nobody can trust.
     g_gateEnabled.store (false, std::memory_order_release);
