@@ -29,12 +29,18 @@ namespace extractionreport {
 // knows.
 void Pass (const ExtractionWorker::Progress& progress, bool partial, size_t elementsSeen, uint32_t removed);
 
-// The two lists a pass's empty elements are told in: ORDINARY (2D kinds, and `+`-prefixed
-// parts whose owner carries the mesh) and GAP (every other kind: solid elements the overlay
-// is not drawing), each gap followed by why, the commonest reason first --
-// `object x1187 (NURBS bodies only x1187)`. Pure, so tests/cpp pins it.
+// The three lists a pass's empty elements are told in, pure so tests/cpp pins them:
+// - ORDINARY: 2D kinds, and `+`-prefixed parts with nothing of their own to draw;
+// - CARRIED: elements whose geometry is ANOTHER element's -- an opening's (window, door,
+//   skylight, opening) is its host wall's or roof's, a container's (column, beam, stair,
+//   railing, curtain wall) is its parts', each of which the model lists with its own GUID;
+// - GAP: every other kind -- solid elements the overlay is not drawing -- each followed by
+//   why, the commonest reason first: `object x3 (no bodies x3)`.
+// One reason is a gap whatever the kind: `past the model's end`, the model changed under the
+// pass and the element was never read.
 struct EmptyLists {
     std::string ordinary;
+    std::string carried;
     std::string gaps;
 };
 EmptyLists DescribeEmpty (const std::map<std::string, uint32_t>& byType,

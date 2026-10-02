@@ -456,6 +456,19 @@ std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Bas
             return "+railing toprail end";
         case API_SkylightID:
             return "skylight";
+        // ⚠️ NAMED, NOT `type4`/`type5`: an opening's geometry is its host wall's, so an empty
+        // window or door is no hole (the user, 2026-10-02) -- the report can only say so of a
+        // kind it can name. The segments are the parts a column's or beam's geometry is on.
+        case API_WindowID:
+            return "window";
+        case API_DoorID:
+            return "door";
+        case API_OpeningID:
+            return "opening";
+        case API_ColumnSegmentID:
+            return "column segment";
+        case API_BeamSegmentID:
+            return "beam segment";
         case API_ChangeMarkerID:
             return "change marker";
         default:
