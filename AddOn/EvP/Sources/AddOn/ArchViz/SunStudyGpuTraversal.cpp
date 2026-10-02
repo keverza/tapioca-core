@@ -34,8 +34,9 @@ struct Parameters {
     uint32_t axesAndCount[4];
     uint32_t sceneAndFlags[4];
     double guard[4];
+    uint32_t partitions[4];
 };
-static_assert (sizeof (Parameters) == 128);
+static_assert (sizeof (Parameters) == 144);
 static_assert (sizeof (TraversalNode) == 64);
 static_assert (sizeof (TraversalTriangle) == 72);
 
@@ -80,22 +81,71 @@ bool RayParameters (const double dir[3], double tmin, double tmax, Parameters& p
 } // namespace
 
 struct SunStudyGpuTraversal::Impl {
-    std::shared_ptr<const QueryEngine> engine;
-    evp::sunstudy::CpuTraversal cpu;
+    struct SceneBuffers {
+        ComPtr<ID3D11Buffer> nodes, triangles;
+        ComPtr<ID3D11ShaderResourceView> nodeView, triangleView;
+        uint32_t nodeCount = 0;
+        size_t bytes = 0;
+        double padding = 0.0;
+    };
+    std::shared_ptr<const QueryEngine> engine, contextEngine;
+    evp::sunstudy::SunStudyPartitionTraversal cpu;
     mutable std::mutex mutex;
+    std::shared_ptr<std::mutex> deviceMutex = std::make_shared<std::mutex> ();
     SunStudyGpuStats stats;
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<ID3D11ComputeShader> shader;
-    ComPtr<ID3D11Buffer> nodes, triangles, origins, output, staging, constants;
-    ComPtr<ID3D11ShaderResourceView> nodeView, triangleView, originView;
+    ComPtr<ID3D11Buffer> origins, output, staging, constants;
+    ComPtr<ID3D11ShaderResourceView> originView;
     ComPtr<ID3D11UnorderedAccessView> outputView;
     ComPtr<ID3D11Query> completed;
-    uint32_t nodeCount = 0;
-    double boundsPadding = 0.0;
+    ComPtr<ID3D11Query> timestampBegin, timestampEnd, timestampDisjoint;
+    HANDLE yieldTimer = nullptr;
+    std::shared_ptr<SceneBuffers> analysisScene, contextScene;
 
-    explicit Impl (std::shared_ptr<const QueryEngine> source) : engine (std::move (source)), cpu (engine)
+    Impl (std::shared_ptr<const QueryEngine> source, std::shared_ptr<const QueryEngine> contextSource,
+          const Impl* previous)
+        : engine (std::move (source)), contextEngine (std::move (contextSource)), cpu (engine, contextEngine)
     {
+        if (previous == nullptr)
+            return;
+        std::lock_guard<std::mutex> lock (previous->mutex);
+        // A fully sample-reused generation never initialises its inherited
+        // backend. Carry its proven immutable buffers through that generation.
+        if (!previous->stats.available &&
+            (previous->stats.attempted || previous->device == nullptr || previous->shader == nullptr))
+            return;
+        device = previous->device;
+        context = previous->context;
+        shader = previous->shader;
+        deviceMutex = previous->deviceMutex;
+        stats.deviceReused = true;
+        stats.adapter = previous->stats.adapter;
+        if (engine == previous->engine)
+            analysisScene = previous->analysisScene;
+        if (contextEngine != nullptr && contextEngine == previous->contextEngine) {
+            contextScene = previous->contextScene;
+            stats.contextReused = contextScene != nullptr;
+        }
+    }
+
+    ~Impl ()
+    {
+        if (yieldTimer != nullptr)
+            CloseHandle (yieldTimer);
+    }
+
+    void YieldPacket ()
+    {
+        const auto started = Clock::now ();
+        LARGE_INTEGER due;
+        due.QuadPart = -10000; // 1 ms, relative, in 100 ns units
+        if (yieldTimer != nullptr && SetWaitableTimer (yieldTimer, &due, 0, nullptr, nullptr, FALSE))
+            WaitForSingleObject (yieldTimer, INFINITE);
+        else
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+        stats.pollSleepMilliseconds += Milliseconds (started);
     }
 
     bool Buffer (size_t bytes, uint32_t stride, UINT binds, const void* data, ComPtr<ID3D11Buffer>& buffer,
@@ -114,6 +164,34 @@ struct SunStudyGpuTraversal::Impl {
         if (FAILED (device->CreateBuffer (&desc, data == nullptr ? nullptr : &initial, &buffer)))
             return false;
         return view == nullptr || SUCCEEDED (device->CreateShaderResourceView (buffer.Get (), nullptr, &*view));
+    }
+
+    bool BuildScene (const std::shared_ptr<const QueryEngine>& source, std::shared_ptr<SceneBuffers>& target,
+                     const std::function<bool ()>& isCancelled)
+    {
+        if (target != nullptr)
+            return true;
+        target = std::make_shared<SceneBuffers> ();
+        if (source == nullptr || source->TriangleCount () == 0)
+            return true;
+        const TraversalScene scene = source->ExportTraversalScene (isCancelled);
+        if ((isCancelled && isCancelled ()) || scene.nodes.empty () ||
+            scene.nodes.size () > std::numeric_limits<uint32_t>::max ())
+            return false;
+        target->nodeCount = static_cast<uint32_t> (scene.nodes.size ());
+        double extent = 1.0;
+        for (int axis = 0; axis < 3; ++axis)
+            extent = std::max ({ extent, std::abs (scene.nodes[0].min[axis]), std::abs (scene.nodes[0].max[axis]) });
+        target->padding = extent * 64.0 * std::numeric_limits<double>::epsilon ();
+        target->bytes =
+            scene.nodes.size () * sizeof (TraversalNode) + scene.triangles.size () * sizeof (TraversalTriangle);
+        if (!Buffer (scene.nodes.size () * sizeof (TraversalNode), sizeof (TraversalNode), D3D11_BIND_SHADER_RESOURCE,
+                     scene.nodes.data (), target->nodes, &target->nodeView) ||
+            !Buffer (scene.triangles.size () * sizeof (TraversalTriangle), sizeof (TraversalTriangle),
+                     D3D11_BIND_SHADER_RESOURCE, scene.triangles.data (), target->triangles, &target->triangleView))
+            return false;
+        stats.sceneUploadedBytes += target->bytes;
+        return true;
     }
 
     void Disable (const std::string& error)
@@ -195,7 +273,9 @@ struct SunStudyGpuTraversal::Impl {
         const auto started = Clock::now ();
         // Upper bound: one leaf per triangle plus its branches. Refuse before
         // duplicating a massive CPU scene alongside the viewer's GPU resources.
-        if (engine->TriangleCount () > kSceneBudgetBytes / (sizeof (TraversalTriangle) + 2 * sizeof (TraversalNode))) {
+        const size_t triangleCount =
+            engine->TriangleCount () + (contextEngine != nullptr ? contextEngine->TriangleCount () : 0);
+        if (triangleCount > kSceneBudgetBytes / (sizeof (TraversalTriangle) + 2 * sizeof (TraversalNode))) {
             Disable ("traversal scene exceeds conservative 512 MiB GPU budget");
             return false;
         }
@@ -204,44 +284,40 @@ struct SunStudyGpuTraversal::Impl {
             Disable ("disabled by TAPIOCA_SUNSTUDY_GPU=0");
             return false;
         }
-        if (!CreateDevice ()) {
+        if (device == nullptr && !CreateDevice ()) {
             Disable ("hardware FP64 D3D11 compute unavailable; no precision downgrade");
             return false;
         }
         if (isCancelled && isCancelled ())
             return false;
-        ComPtr<ID3DBlob> code, errors;
-        if (FAILED (D3DCompile (
-                kSunStudyGpuShader, sizeof (kSunStudyGpuShader) - 1, "TapiocaSunStudy", nullptr, nullptr, "main",
-                "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_IEEE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
-                &code, &errors))) {
-            Disable (errors == nullptr ? "compute shader compilation failed"
-                                       : std::string (static_cast<const char*> (errors->GetBufferPointer ()),
-                                                      errors->GetBufferSize ()));
+        if (shader == nullptr) {
+            ComPtr<ID3DBlob> code, errors;
+            if (FAILED (D3DCompile (kSunStudyGpuShader, sizeof (kSunStudyGpuShader) - 1, "TapiocaSunStudy", nullptr,
+                                    nullptr, "main", "cs_5_0",
+                                    D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_IEEE_STRICTNESS |
+                                        D3DCOMPILE_OPTIMIZATION_LEVEL3,
+                                    0, &code, &errors))) {
+                Disable (errors == nullptr ? "compute shader compilation failed"
+                                           : std::string (static_cast<const char*> (errors->GetBufferPointer ()),
+                                                          errors->GetBufferSize ()));
+                return false;
+            }
+            if (FAILED (device->CreateComputeShader (code->GetBufferPointer (), code->GetBufferSize (), nullptr,
+                                                     &shader))) {
+                Disable ("compute shader creation failed");
+                return false;
+            }
+        }
+        const size_t beforeContext = stats.sceneUploadedBytes;
+        if (!BuildScene (contextEngine, contextScene, isCancelled) ||
+            !BuildScene (engine, analysisScene, isCancelled)) {
+            Disable ("GPU traversal scene allocation failed or cancelled");
             return false;
         }
-        if (FAILED (
-                device->CreateComputeShader (code->GetBufferPointer (), code->GetBufferSize (), nullptr, &shader))) {
-            Disable ("compute shader creation failed");
-            return false;
-        }
-        const TraversalScene scene = engine->ExportTraversalScene (isCancelled);
+        stats.contextUploadedBytes = stats.contextReused ? 0 : contextScene->bytes;
         if (isCancelled && isCancelled ())
             return false;
-        if (scene.nodes.empty () || scene.nodes.size () > std::numeric_limits<uint32_t>::max ()) {
-            Disable ("empty or oversized traversal scene");
-            return false;
-        }
-        nodeCount = static_cast<uint32_t> (scene.nodes.size ());
-        double extent = 1.0;
-        for (int axis = 0; axis < 3; ++axis)
-            extent = std::max ({ extent, std::abs (scene.nodes[0].min[axis]), std::abs (scene.nodes[0].max[axis]) });
-        boundsPadding = extent * 64.0 * std::numeric_limits<double>::epsilon ();
-        if (!Buffer (scene.nodes.size () * sizeof (TraversalNode), sizeof (TraversalNode), D3D11_BIND_SHADER_RESOURCE,
-                     scene.nodes.data (), nodes, &nodeView) ||
-            !Buffer (scene.triangles.size () * sizeof (TraversalTriangle), sizeof (TraversalTriangle),
-                     D3D11_BIND_SHADER_RESOURCE, scene.triangles.data (), triangles, &triangleView) ||
-            !Buffer (kPacketRays * 3 * sizeof (double), 3 * sizeof (double), D3D11_BIND_SHADER_RESOURCE, nullptr,
+        if (!Buffer (kPacketRays * 3 * sizeof (double), 3 * sizeof (double), D3D11_BIND_SHADER_RESOURCE, nullptr,
                      origins, &originView) ||
             !Buffer (kPacketRays * sizeof (uint32_t), sizeof (uint32_t), D3D11_BIND_UNORDERED_ACCESS, nullptr,
                      output) ||
@@ -260,12 +336,29 @@ struct SunStudyGpuTraversal::Impl {
             Disable ("GPU completion/readback allocation failed");
             return false;
         }
+        // Optional diagnostics. The existing result event covers these queries;
+        // their values are read once, never waited on or polled separately.
+        D3D11_QUERY_DESC timestamp { D3D11_QUERY_TIMESTAMP, 0 };
+        D3D11_QUERY_DESC disjoint { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
+        if (FAILED (device->CreateQuery (&timestamp, &timestampBegin)) ||
+            FAILED (device->CreateQuery (&timestamp, &timestampEnd)) ||
+            FAILED (device->CreateQuery (&disjoint, &timestampDisjoint))) {
+            timestampBegin.Reset ();
+            timestampEnd.Reset ();
+            timestampDisjoint.Reset ();
+        }
+        // Sleep(1) can oversleep by a full Windows timer tick per packet. Use a
+        // worker-local high-resolution timer without changing host timer policy.
+        yieldTimer = CreateWaitableTimerExW (nullptr, nullptr, 0x00000002, TIMER_MODIFY_STATE | SYNCHRONIZE);
         stats.available = true;
         ArchVizLog ("pipeline: stage=sun-gpu-init snapshot=" + std::to_string (cpu.SceneVersion ()) +
-                    " backend=d3d11-fp64 adapter=\"" + stats.adapter + "\" nodes=" + std::to_string (nodeCount) +
-                    " triangles=" + std::to_string (scene.triangles.size ()) + " sceneBytes=" +
-                    std::to_string (scene.nodes.size () * sizeof (TraversalNode) +
-                                    scene.triangles.size () * sizeof (TraversalTriangle)) +
+                    " backend=d3d11-fp64 adapter=\"" + stats.adapter +
+                    "\" nodes=" + std::to_string (analysisScene->nodeCount + contextScene->nodeCount) +
+                    " triangles=" + std::to_string (triangleCount) +
+                    " sceneBytes=" + std::to_string (analysisScene->bytes + contextScene->bytes) +
+                    " sceneUploadedBytes=" + std::to_string (stats.sceneUploadedBytes - beforeContext) +
+                    " contextUploadedBytes=" + std::to_string (stats.contextUploadedBytes) + " contextReused=" +
+                    std::to_string (stats.contextReused) + " deviceReused=" + std::to_string (stats.deviceReused) +
                     " packetRays=" + std::to_string (kPacketRays) + " rayWorkLimit=" + std::to_string (kRayWorkLimit) +
                     " wallMs=" + std::to_string (Milliseconds (started)));
         return true;
@@ -276,21 +369,32 @@ struct SunStudyGpuTraversal::Impl {
     {
         const auto started = Clock::now ();
         params.axesAndCount[3] = count;
-        params.sceneAndFlags[0] = nodeCount;
+        params.sceneAndFlags[0] = analysisScene->nodeCount;
+        params.partitions[0] = contextScene->nodeCount;
         params.sceneAndFlags[3] = kRayWorkLimit;
-        params.guard[0] = boundsPadding;
+        params.guard[0] = std::max (analysisScene->padding, contextScene->padding);
         params.guard[1] = 1e-12; // ambiguous arithmetic is resolved by the CPU
         D3D11_BOX box { 0, 0, 0, static_cast<UINT> (count * 3 * sizeof (double)), 1, 1 };
         context->UpdateSubresource (origins.Get (), 0, &box, positions, 0, 0);
         context->UpdateSubresource (constants.Get (), 0, nullptr, &params, 0, 0);
-        ID3D11ShaderResourceView* views[] = { nodeView.Get (), triangleView.Get (), originView.Get () };
+        ID3D11ShaderResourceView* views[] = { analysisScene->nodeView.Get (), analysisScene->triangleView.Get (),
+                                              originView.Get (), contextScene->nodeView.Get (),
+                                              contextScene->triangleView.Get () };
         ID3D11UnorderedAccessView* uav = outputView.Get ();
         ID3D11Buffer* cb = constants.Get ();
         context->CSSetShader (shader.Get (), nullptr, 0);
-        context->CSSetShaderResources (0, 3, views);
+        context->CSSetShaderResources (0, 5, views);
         context->CSSetUnorderedAccessViews (0, 1, &uav, nullptr);
         context->CSSetConstantBuffers (0, 1, &cb);
+        if (timestampDisjoint != nullptr) {
+            context->Begin (timestampDisjoint.Get ());
+            context->End (timestampBegin.Get ());
+        }
         context->Dispatch ((count + kGroupRays - 1) / kGroupRays, 1, 1);
+        if (timestampDisjoint != nullptr) {
+            context->End (timestampEnd.Get ());
+            context->End (timestampDisjoint.Get ());
+        }
         uav = nullptr;
         context->CSSetUnorderedAccessViews (0, 1, &uav, nullptr);
         context->CopyResource (staging.Get (), output.Get ());
@@ -317,7 +421,7 @@ struct SunStudyGpuTraversal::Impl {
             // No render/host wait. Yield a low-priority analysis worker while
             // short packets run; back off only for an unusually delayed GPU.
             if (Milliseconds (submitted) > 2.0)
-                std::this_thread::sleep_for (std::chrono::milliseconds (1));
+                YieldPacket ();
             else
                 std::this_thread::yield ();
         }
@@ -329,12 +433,28 @@ struct SunStudyGpuTraversal::Impl {
         std::memcpy (answers, mapped.pData, count * sizeof (uint32_t));
         context->Unmap (staging.Get (), 0);
         stats.readbackMilliseconds += Milliseconds (submitted);
+        if (timestampDisjoint != nullptr) {
+            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT timing {};
+            UINT64 begin = 0, end = 0;
+            constexpr UINT flags = D3D11_ASYNC_GETDATA_DONOTFLUSH;
+            if (context->GetData (timestampDisjoint.Get (), &timing, sizeof (timing), flags) == S_OK &&
+                !timing.Disjoint && timing.Frequency > 0 &&
+                context->GetData (timestampBegin.Get (), &begin, sizeof (begin), flags) == S_OK &&
+                context->GetData (timestampEnd.Get (), &end, sizeof (end), flags) == S_OK && end >= begin) {
+                stats.computeMilliseconds +=
+                    static_cast<double> (end - begin) * 1000.0 / static_cast<double> (timing.Frequency);
+                ++stats.timedDispatches;
+            }
+        }
         return true;
     }
 };
 
-SunStudyGpuTraversal::SunStudyGpuTraversal (std::shared_ptr<const QueryEngine> engine)
-    : impl_ (std::make_unique<Impl> (std::move (engine)))
+SunStudyGpuTraversal::SunStudyGpuTraversal (std::shared_ptr<const QueryEngine> engine,
+                                            std::shared_ptr<const QueryEngine> context,
+                                            const SunStudyGpuTraversal* previous)
+    : impl_ (std::make_unique<Impl> (std::move (engine), std::move (context),
+                                     previous != nullptr ? previous->impl_.get () : nullptr))
 {
 }
 SunStudyGpuTraversal::~SunStudyGpuTraversal () = default;
@@ -350,12 +470,14 @@ bool SunStudyGpuTraversal::OccludeDirectionalCancellable (const double* origins,
                                                           const std::function<bool ()>& isCancelled) const
 {
     std::lock_guard<std::mutex> lock (impl_->mutex);
+    std::lock_guard<std::mutex> deviceLock (*impl_->deviceMutex);
     if (isCancelled && isCancelled ())
         return false;
     Parameters params {};
     if (origins == nullptr || dir == nullptr || out == nullptr || count < kPacketRays || impl_->engine == nullptr ||
-        impl_->engine->TriangleCount () == 0 || !RayParameters (dir, tmin, tmax, params) ||
-        !impl_->Initialise (isCancelled)) {
+        (impl_->engine->TriangleCount () == 0 &&
+         (impl_->contextEngine == nullptr || impl_->contextEngine->TriangleCount () == 0)) ||
+        !RayParameters (dir, tmin, tmax, params) || !impl_->Initialise (isCancelled)) {
         return impl_->CpuDirectional (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
     }
     const auto started = Clock::now ();
@@ -381,13 +503,13 @@ bool SunStudyGpuTraversal::OccludeDirectionalCancellable (const double* origins,
                 return impl_->CpuDirectional (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
             }
             if (answers[i] == 2) {
-                answers[i] = impl_->engine->Occluded (origin, dir, tmin, tmax) ? 1 : 0;
+                answers[i] = impl_->cpu.Occluded (origin, dir, tmin, tmax) ? 1 : 0;
                 ++impl_->stats.cpuFallbackRays;
             }
             // Validate the first packet of EACH direction, then sparse packets.
             // A mismatch disables this backend and replays the WHOLE timestep.
             if (first == 0 || i % 257 == 0) {
-                const uint32_t cpu = impl_->engine->Occluded (origin, dir, tmin, tmax) ? 1 : 0;
+                const uint32_t cpu = impl_->cpu.Occluded (origin, dir, tmin, tmax) ? 1 : 0;
                 ++impl_->stats.validationRays;
                 if (answers[i] != cpu) {
                     impl_->Disable ("CPU/GPU parity mismatch");
@@ -410,6 +532,9 @@ bool SunStudyGpuTraversal::OccludeDirectionalCancellable (const double* origins,
         " submitMs=" + std::to_string (impl_->stats.submitMilliseconds - previous.submitMilliseconds) +
         " readbackWaitMs=" + std::to_string (impl_->stats.readbackMilliseconds - previous.readbackMilliseconds) +
         " cpuCheckMs=" + std::to_string (impl_->stats.cpuCheckMilliseconds - previous.cpuCheckMilliseconds) +
+        " pollSleepMs=" + std::to_string (impl_->stats.pollSleepMilliseconds - previous.pollSleepMilliseconds) +
+        " gpuComputeMs=" + std::to_string (impl_->stats.computeMilliseconds - previous.computeMilliseconds) +
+        " timedPackets=" + std::to_string (impl_->stats.timedDispatches - previous.timedDispatches) +
         " wallMs=" + std::to_string (Milliseconds (started)));
     return true;
 }

@@ -2,11 +2,15 @@
 #define EVP_NATIVECOMMANDS_SUNSTUDYPREPARATION_HPP
 
 #include "SunStudy/SunStudyStore.hpp"
+#include "SunStudy/SunStudyOccluders.hpp"
 #include <chrono>
 
 namespace geomsrv {
 
 bool SunStudySnapshotBounds (const Snapshot& snapshot, double min[3], double max[3]);
+std::shared_ptr<const evp::sunstudy::SunStudyOccluders>
+PrepareSunStudyOccluders (std::shared_ptr<const Snapshot> snapshot, const evp::sunstudy::ElementRoles& roles,
+                          const evp::sunstudy::StudyRecord* previous, const std::function<bool ()>& isCancelled);
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
                                 const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
                                 std::shared_ptr<const QueryEngine> occluders);

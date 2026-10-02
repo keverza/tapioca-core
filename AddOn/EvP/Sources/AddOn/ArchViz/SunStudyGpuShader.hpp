@@ -14,6 +14,8 @@ struct Triangle { double3 a; double3 b; double3 c; };
 StructuredBuffer<Node> nodes : register(t0);
 StructuredBuffer<Triangle> triangles : register(t1);
 StructuredBuffer<double3> origins : register(t2);
+StructuredBuffer<Node> contextNodes : register(t3);
+StructuredBuffer<Triangle> contextTriangles : register(t4);
 RWStructuredBuffer<uint> answers : register(u0);
 cbuffer Parameters : register(b0) {
     double4 inverseAndMin;
@@ -21,6 +23,7 @@ cbuffer Parameters : register(b0) {
     uint4 axesAndCount;
     uint4 sceneAndFlags;
     double4 guard;
+    uint4 partitions;
 };
 double Magnitude(double x) { return x < 0.0 ? -x : x; }
 // SM5 cannot dynamically address FP64 vector components. Explicit selection
@@ -88,24 +91,35 @@ uint TriangleHit(Triangle tri, double3 origin) {
         Magnitude(V) <= edgeError || Magnitude(W) <= edgeError) return 2;
     return 1;
 }
-[numthreads(64, 1, 1)]
-void main(uint3 thread : SV_DispatchThreadID) {
-    if (thread.x >= axesAndCount.w) return;
-    double3 origin = origins[thread.x];
-    uint index = 0, result = 0, work = 0;
-    [loop] while (index < sceneAndFlags.x) {
-        if (++work > sceneAndFlags.w) { answers[thread.x] = 2; return; }
-        Node node = nodes[index];
+uint TraceTree(double3 origin, bool context, inout uint work) {
+    uint index = 0, result = 0;
+    uint count = context ? partitions.x : sceneAndFlags.x;
+    [loop] while (index < count) {
+        if (++work > sceneAndFlags.w) return 2;
+        Node node;
+        if (context) node = contextNodes[index]; else node = nodes[index];
         if (!BoxHit(node, origin)) { index = node.escape; continue; }
         [loop] for (uint i = 0; i < node.count; ++i) {
-            if (++work > sceneAndFlags.w) { answers[thread.x] = 2; return; }
-            uint hit = TriangleHit(triangles[node.first + i], origin);
-            if (hit == 1) { answers[thread.x] = 1; return; }
+            if (++work > sceneAndFlags.w) return 2;
+            Triangle tri;
+            if (context) tri = contextTriangles[node.first + i]; else tri = triangles[node.first + i];
+            uint hit = TriangleHit(tri, origin);
+            if (hit == 1) return 1;
             if (hit == 2) result = 2;
         }
         ++index;
     }
-    answers[thread.x] = result;
+    return result;
+}
+[numthreads(64, 1, 1)]
+void main(uint3 thread : SV_DispatchThreadID) {
+    if (thread.x >= axesAndCount.w) return;
+    double3 origin = origins[thread.x];
+    uint work = 0;
+    uint context = TraceTree(origin, true, work);
+    if (context == 1) { answers[thread.x] = 1; return; }
+    uint analysis = TraceTree(origin, false, work);
+    answers[thread.x] = analysis == 1 ? 1 : (context == 2 || analysis == 2 ? 2 : 0);
 }
 )hlsl";
 

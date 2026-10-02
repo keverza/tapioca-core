@@ -43,6 +43,8 @@
 
 namespace evp::sunstudy {
 
+struct SunStudyOccluders;
+
 // Everything one live study holds. Addressed only through the store.
 struct StudyRecord {
     std::string id;
@@ -56,6 +58,7 @@ struct StudyRecord {
     SunSeries series;
     SunStudySession session;
     std::shared_ptr<const ITraversal> traversal;
+    std::shared_ptr<const SunStudyOccluders> occluders;
 
     // Reported back so a caller can say what it studied without holding the
     // parameters itself.

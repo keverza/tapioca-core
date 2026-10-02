@@ -60,6 +60,26 @@ bool Unavailable (const geomsrv::archviz::SunStudyGpuStats& stats)
     return !stats.available && (stats.error.find ("unavailable") != std::string::npos ||
                                 stats.error.find ("disabled by") != std::string::npos);
 }
+
+geomsrv::Snapshot PartitionScene ()
+{
+    auto snapshot = *MakeScene ();
+    snapshot.meshes[0].guid = "analysis";
+    auto context = snapshot.meshes[0];
+    context.guid = "site";
+    for (size_t v = 0; v < context.vertices.size (); v += 3) {
+        context.vertices[v] += 1.0;
+        context.vertices[v + 2] += 2.0;
+    }
+    snapshot.meshes.push_back (std::move (context));
+    return snapshot;
+}
+
+auto Partition (const geomsrv::Snapshot& scene, const evp::sunstudy::SunStudyOccluders* previous = nullptr)
+{
+    return evp::sunstudy::BuildSunStudyOccluders (scene, evp::sunstudy::ResolveElementRoles (scene, {}, { "site" }),
+                                                  previous);
+}
 } // namespace
 
 TEST (SunStudyGpuTraversal, ShaderCompilesAndMatchesPacketAbi)
@@ -81,10 +101,10 @@ TEST (SunStudyGpuTraversal, ShaderCompilesAndMatchesPacketAbi)
     auto* params = reflection->GetConstantBufferByName ("Parameters");
     D3D11_SHADER_BUFFER_DESC buffer {};
     ASSERT_TRUE (SUCCEEDED (params->GetDesc (&buffer)));
-    EXPECT_EQ (buffer.Size, 128u);
-    const std::pair<const char*, UINT> offsets[] = {
-        { "inverseAndMin", 0 }, { "shearAndMax", 32 }, { "axesAndCount", 64 }, { "sceneAndFlags", 80 }, { "guard", 96 }
-    };
+    EXPECT_EQ (buffer.Size, 144u);
+    const std::pair<const char*, UINT> offsets[] = { { "inverseAndMin", 0 }, { "shearAndMax", 32 },
+                                                     { "axesAndCount", 64 }, { "sceneAndFlags", 80 },
+                                                     { "guard", 96 },        { "partitions", 128 } };
     for (const auto& [name, offset] : offsets) {
         D3D11_SHADER_VARIABLE_DESC desc {};
         ASSERT_TRUE (SUCCEEDED (params->GetVariableByName (name)->GetDesc (&desc))) << name;
@@ -96,6 +116,8 @@ TEST (SunStudyGpuTraversal, ShaderCompilesAndMatchesPacketAbi)
     EXPECT_NE (text.find ("dcl_resource_structured t0, 64"), std::string::npos);
     EXPECT_NE (text.find ("dcl_resource_structured t1, 72"), std::string::npos);
     EXPECT_NE (text.find ("dcl_resource_structured t2, 24"), std::string::npos);
+    EXPECT_NE (text.find ("dcl_resource_structured t3, 64"), std::string::npos);
+    EXPECT_NE (text.find ("dcl_resource_structured t4, 72"), std::string::npos);
 }
 
 TEST (SunStudyGpuTraversal, EmptySceneExportsNoNodes)
@@ -388,4 +410,122 @@ TEST (SunStudyGpuTraversal, ConcurrentDirectionalCallsShareNoScratch)
     cpu.OccludeDirectional (origins.data (), b.size (), down, 0.001, 0.0, expectedB.data (), 1);
     EXPECT_EQ (a, expectedA);
     EXPECT_EQ (b, expectedB);
+}
+
+TEST (SunStudyGpuTraversal, PartitionedSceneMatchesCombinedCpuAcrossDirectionsAndBounds)
+{
+    const auto scene = PartitionScene ();
+    const auto parts = Partition (scene);
+    SunStudyGpuTraversal gpu (parts->analysis, parts->context);
+    evp::sunstudy::CpuTraversal cpu (
+        std::make_shared<geomsrv::QueryEngine> (std::make_shared<geomsrv::Snapshot> (scene)));
+    const auto origins = MakeOrigins (8197);
+    std::vector<uint8_t> actual (8197), expected (8197);
+    const double directions[][3] = { { 0, 0, 1 }, { 0, 0, -1 }, { 0.23, -0.11, 0.87 }, { 1, 0, 0 } };
+    for (const auto& direction : directions) {
+        for (double tmax : { 0.0, 3.0, 10.0 }) {
+            gpu.OccludeDirectional (origins.data (), actual.size (), direction, 0.001, tmax, actual.data (), 1);
+            cpu.OccludeDirectional (origins.data (), expected.size (), direction, 0.001, tmax, expected.data (), 1);
+            EXPECT_EQ (actual, expected);
+            if (Unavailable (gpu.Stats ()))
+                GTEST_SKIP () << gpu.Stats ().error;
+            ASSERT_TRUE (gpu.Stats ().available) << gpu.Stats ().error;
+        }
+    }
+    EXPECT_GT (gpu.Stats ().contextUploadedBytes, 0u);
+    EXPECT_GT (gpu.Stats ().sceneUploadedBytes, gpu.Stats ().contextUploadedBytes);
+    EXPECT_FALSE (gpu.Stats ().contextReused);
+    EXPECT_LE (gpu.Stats ().timedDispatches, gpu.Stats ().dispatches);
+    EXPECT_GE (gpu.Stats ().computeMilliseconds, 0.0);
+}
+
+TEST (SunStudyGpuTraversal, EmptyAnalysisStillTracesContext)
+{
+    auto scene = PartitionScene ();
+    scene.meshes.erase (scene.meshes.begin ());
+    const auto parts = Partition (scene);
+    SunStudyGpuTraversal gpu (parts->analysis, parts->context);
+    evp::sunstudy::CpuTraversal cpu (parts->context);
+    const auto origins = MakeOrigins (8192);
+    const double up[] = { 0, 0, 1 };
+    std::vector<uint8_t> actual (8192), expected (8192);
+    gpu.OccludeDirectional (origins.data (), actual.size (), up, 0.001, 0, actual.data (), 1);
+    cpu.OccludeDirectional (origins.data (), expected.size (), up, 0.001, 0, expected.data (), 1);
+    EXPECT_EQ (actual, expected);
+    if (Unavailable (gpu.Stats ()))
+        GTEST_SKIP () << gpu.Stats ().error;
+    ASSERT_TRUE (gpu.Stats ().available) << gpu.Stats ().error;
+    EXPECT_EQ (gpu.Stats ().sceneUploadedBytes, gpu.Stats ().contextUploadedBytes);
+}
+
+TEST (SunStudyGpuTraversal, ReplacementsReuseContextAndDeviceAfterOriginalIsDestroyed)
+{
+    auto scene = PartitionScene ();
+    const auto first = Partition (scene);
+    auto original = std::make_unique<SunStudyGpuTraversal> (first->analysis, first->context);
+    const auto origins = MakeOrigins (8192);
+    const double up[] = { 0, 0, 1 };
+    std::vector<uint8_t> actual (8192), expected (8192);
+    original->OccludeDirectional (origins.data (), actual.size (), up, 0.001, 0, actual.data (), 1);
+    if (Unavailable (original->Stats ()))
+        GTEST_SKIP () << original->Stats ().error;
+    ASSERT_TRUE (original->Stats ().available) << original->Stats ().error;
+    scene.id = 502;
+    for (size_t v = 0; v < scene.meshes[0].vertices.size (); v += 3)
+        scene.meshes[0].vertices[v] += 0.25;
+    const auto next = Partition (scene, first.get ());
+    ASSERT_TRUE (next->contextReused);
+    // A fully reused middle generation never dispatches. It must still carry
+    // immutable resources to the next dirty generation, without owner pointers.
+    auto middle = std::make_unique<SunStudyGpuTraversal> (next->analysis, next->context, original.get ());
+    EXPECT_FALSE (middle->Stats ().attempted);
+    original.reset ();
+    SunStudyGpuTraversal replacement (next->analysis, next->context, middle.get ());
+    middle.reset ();
+    replacement.OccludeDirectional (origins.data (), actual.size (), up, 0.001, 0, actual.data (), 1);
+    evp::sunstudy::CpuTraversal cpu (
+        std::make_shared<geomsrv::QueryEngine> (std::make_shared<geomsrv::Snapshot> (scene)));
+    cpu.OccludeDirectional (origins.data (), expected.size (), up, 0.001, 0, expected.data (), 1);
+    EXPECT_EQ (actual, expected);
+    ASSERT_TRUE (replacement.Stats ().available) << replacement.Stats ().error;
+    EXPECT_TRUE (replacement.Stats ().deviceReused);
+    EXPECT_TRUE (replacement.Stats ().contextReused);
+    EXPECT_EQ (replacement.Stats ().contextUploadedBytes, 0u);
+    EXPECT_GT (replacement.Stats ().sceneUploadedBytes, 0u);
+    EXPECT_EQ (replacement.SceneVersion (), 502u);
+}
+
+TEST (SunStudyGpuTraversal, EditedContextUploadsFreshBuffersAndSharedDeviceCallsRemainIndependent)
+{
+    auto scene = PartitionScene ();
+    const auto first = Partition (scene);
+    SunStudyGpuTraversal original (first->analysis, first->context);
+    const auto origins = MakeOrigins (8192);
+    const double up[] = { 0, 0, 1 };
+    std::vector<uint8_t> oldResult (8192), actual (8192), expected (8192), oldAgain (8192);
+    original.OccludeDirectional (origins.data (), oldResult.size (), up, 0.001, 0, oldResult.data (), 1);
+    if (Unavailable (original.Stats ()))
+        GTEST_SKIP () << original.Stats ().error;
+    ASSERT_TRUE (original.Stats ().available) << original.Stats ().error;
+    scene.id = 502;
+    for (size_t v = 0; v < scene.meshes[1].vertices.size (); v += 3)
+        scene.meshes[1].vertices[v + 1] += 1000;
+    const auto changed = Partition (scene, first.get ());
+    ASSERT_FALSE (changed->contextReused);
+    SunStudyGpuTraversal replacement (changed->analysis, changed->context, &original);
+    auto concurrent = std::async (std::launch::async, [&] {
+        original.OccludeDirectional (origins.data (), oldAgain.size (), up, 0.001, 0, oldAgain.data (), 1);
+    });
+    replacement.OccludeDirectional (origins.data (), actual.size (), up, 0.001, 0, actual.data (), 1);
+    concurrent.get ();
+    evp::sunstudy::CpuTraversal cpu (
+        std::make_shared<geomsrv::QueryEngine> (std::make_shared<geomsrv::Snapshot> (scene)));
+    cpu.OccludeDirectional (origins.data (), expected.size (), up, 0.001, 0, expected.data (), 1);
+    EXPECT_EQ (actual, expected);
+    EXPECT_EQ (oldAgain, oldResult);
+    EXPECT_NE (oldResult, actual);
+    ASSERT_TRUE (replacement.Stats ().available) << replacement.Stats ().error;
+    EXPECT_TRUE (replacement.Stats ().deviceReused);
+    EXPECT_FALSE (replacement.Stats ().contextReused);
+    EXPECT_GT (replacement.Stats ().contextUploadedBytes, 0u);
 }

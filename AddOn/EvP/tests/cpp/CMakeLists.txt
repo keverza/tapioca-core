@@ -151,6 +151,7 @@ set (EVP_DYNAMO_SOURCES
 set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRaster.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOccluders.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunSeries.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOcclusion.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySession.cpp"
@@ -701,6 +702,7 @@ set (EVP_TEST_SOURCES
     test_cputraversal.cpp
     test_sunseries.cpp
     test_sunstudyocclusion.cpp
+    test_sunstudyoccluders.cpp
     test_sunstudygputraversal.cpp
     test_sunstudysession.cpp
     test_sunstudystore.cpp

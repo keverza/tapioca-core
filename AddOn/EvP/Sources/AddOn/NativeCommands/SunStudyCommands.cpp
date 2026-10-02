@@ -6,6 +6,7 @@
 #include "NativeCommands/SunStudyCommands.hpp"
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
 #include "NativeCommands/SunStudyPreparation.hpp"
+#include "SunStudy/SunStudyOccluders.hpp"
 
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
@@ -98,13 +99,6 @@ class StartSunStudyCommand : public MainThreadCommand {
         if (IsCancelled ())
             return NativeCommandResult::Failure ("sun study preparation cancelled");
 
-        std::shared_ptr<const QueryEngine> engine = QueryIndexCache::Get ().For (snapshot);
-        trace.Mark ("bvh");
-        if (engine == nullptr)
-            return NativeCommandResult::Failure ("the snapshot has no geometry to study");
-        if (IsCancelled ())
-            return NativeCommandResult::Failure ("sun study preparation cancelled");
-
         // ---- which elements are MEASURED, and which only cast shadow ---------
         //
         // Every element is one material to the analysis; the distinction that
@@ -126,12 +120,11 @@ class StartSunStudyCommand : public MainThreadCommand {
         // Per element (= per sampler group), whether its faces are measured.
         const std::vector<uint8_t> sampleMask = roles.SampleMask ();
 
-        // ⚠️ A SECOND BVH ONLY WHEN SOMETHING IS IGNORED. Context casts shadow
-        // exactly as analysis does, so the occluders are the whole snapshot --
-        // and its cached BVH -- unless both lists were named.
-        std::shared_ptr<const QueryEngine> occluders = engine;
-        if (const auto subset = evp::sunstudy::OccluderSnapshot (*snapshot, roles))
-            occluders = std::make_shared<const QueryEngine> (subset);
+        const auto occluderParts =
+            PrepareSunStudyOccluders (snapshot, roles, reuseSource_.get (), [this] { return IsCancelled (); });
+        if (occluderParts == nullptr)
+            return NativeCommandResult::Failure ("sun study occluder preparation cancelled or invalid");
+        const auto& occluders = occluderParts->analysis;
         trace.Mark ("roles-occluders");
 
         const API_PlaceInfo& place = captured->place;
@@ -414,7 +407,9 @@ class StartSunStudyCommand : public MainThreadCommand {
         record->gridSpacing = spacing;
         record->groundPad = reportedPad;
         // The OCCLUDERS: the whole snapshot, or the analysis + context subset.
-        record->traversal = std::make_shared<CpuTraversal> (occluders);
+        record->occluders = occluderParts;
+        record->traversal =
+            std::make_shared<evp::sunstudy::SunStudyPartitionTraversal> (occluders, occluderParts->context);
         // Kept so a follower rerun measures the same elements the same way.
         record->analysisElements = analysisPicked;
         record->contextElements = contextPicked;
@@ -424,7 +419,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             record->elementRoles.push_back (static_cast<uint8_t> (role));
 
         evp::sunstudy::StudyInputs inputs;
-        inputs.geometryVersion = engine->SnapshotId ();
+        inputs.geometryVersion = snapshot->id;
         inputs.sunVersion = record->series.Version ();
         inputs.gridVersion = gridVersion;
         record->session.Sync (inputs, record->series, record->Samples ());

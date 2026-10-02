@@ -181,10 +181,40 @@ def test_geometry_batches_wait_for_worker_drain_before_capture_and_do_not_deboun
 def test_gpu_selection_is_only_for_owned_automatic_preparation_and_uses_role_filtered_scene():
     source = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
     assert "if (cancelled != nullptr)" in source
-    assert "std::make_shared<archviz::SunStudyGpuTraversal> (std::move (occluders))" in source
+    assert "std::make_shared<archviz::SunStudyGpuTraversal> (" in source
+    assert "record.occluders != nullptr ? record.occluders->context : nullptr, previousGpu" in source
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
     assert "FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_, occluders)" in commands
     assert "D3D11" not in commands
+
+
+def test_context_index_reuse_does_not_build_a_combined_scene_first():
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    preparation = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
+    separated, combined = preparation.split("if (roles.context > 0)", 1)[1].split("auto parts", 1)
+    assert "BuildSunStudyOccluders" in separated
+    assert "previous->occluders.get ()" in separated
+    assert "QueryIndexCache" not in separated
+    assert "QueryIndexCache::Get ().For (snapshot)" in combined
+    assert "PrepareSunStudyOccluders (" in commands
+    assert "record->occluders = occluderParts" in commands
+    assert "inputs.geometryVersion = snapshot->id" in commands
+    source = (_ADDON / "SunStudy" / "SunStudyOccluders.cpp").read_text(encoding="utf-8")
+    assert "ACAPI_" not in source and "MainThreadGate" not in source
+    assert "CanonicalGuid (mesh.guid)" in source
+    assert "mesh->vertices != found->second->vertices" in source
+    assert "mesh->triangles != found->second->triangles" in source
+    assert "parts->context = previous->context" in source
+
+
+def test_gpu_context_buffers_reuse_only_matching_immutable_index_on_private_device():
+    source = (_ADDON / "ArchViz" / "SunStudyGpuTraversal.cpp").read_text(encoding="utf-8")
+    assert "contextEngine == previous->contextEngine" in source
+    assert "contextScene = previous->contextScene" in source
+    assert "deviceMutex = previous->deviceMutex" in source
+    assert "deviceLock (*impl_->deviceMutex)" in source
+    for field in ("contextReused=", "contextUploadedBytes=", "deviceReused=", "gpuComputeMs=", "timedPackets="):
+        assert field in source
 
 
 def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explicit_fallback():

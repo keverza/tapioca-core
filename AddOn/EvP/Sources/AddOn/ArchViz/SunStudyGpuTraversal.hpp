@@ -1,7 +1,7 @@
 #ifndef EVP_ARCHVIZ_SUNSTUDYGPUTRAVERSAL_HPP
 #define EVP_ARCHVIZ_SUNSTUDYGPUTRAVERSAL_HPP
 
-#include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/SunStudyOccluders.hpp"
 
 #include <memory>
 #include <string>
@@ -11,6 +11,10 @@ namespace geomsrv::archviz {
 struct SunStudyGpuStats {
     bool attempted = false;
     bool available = false;
+    bool deviceReused = false;
+    bool contextReused = false;
+    size_t sceneUploadedBytes = 0;
+    size_t contextUploadedBytes = 0;
     uint64_t dispatches = 0;
     uint64_t gpuRays = 0;
     uint64_t cpuFallbackRays = 0;
@@ -18,6 +22,9 @@ struct SunStudyGpuStats {
     double submitMilliseconds = 0.0;
     double readbackMilliseconds = 0.0; // includes GPU queue/execution waiting, not a GPU timestamp
     double cpuCheckMilliseconds = 0.0;
+    double pollSleepMilliseconds = 0.0; // overlaps result waiting
+    double computeMilliseconds = 0.0;   // valid GPU timestamp pairs only
+    uint64_t timedDispatches = 0;
     std::string adapter;
     std::string error;
 };
@@ -29,7 +36,9 @@ struct SunStudyGpuStats {
 // back to the original CPU tracer. General non-directional queries stay CPU.
 class SunStudyGpuTraversal final : public evp::sunstudy::ITraversal {
   public:
-    explicit SunStudyGpuTraversal (std::shared_ptr<const QueryEngine> engine);
+    explicit SunStudyGpuTraversal (std::shared_ptr<const QueryEngine> engine,
+                                   std::shared_ptr<const QueryEngine> context = nullptr,
+                                   const SunStudyGpuTraversal* previous = nullptr);
     ~SunStudyGpuTraversal () override;
     void OccludeDirectional (const double* origins, size_t count, const double dir[3], double tmin, double tmax,
                              uint8_t* out, size_t maxParallel = 0) const override;

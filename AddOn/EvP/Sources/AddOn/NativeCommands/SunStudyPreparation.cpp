@@ -1,5 +1,6 @@
 #include "NativeCommands/SunStudyPreparation.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
+#include "SunStudy/SunStudyOccluders.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/SunStudyGpuTraversal.hpp"
 
@@ -23,6 +24,22 @@ bool SunStudySnapshotBounds (const Snapshot& snapshot, double min[3], double max
     return haveBounds;
 }
 
+std::shared_ptr<const evp::sunstudy::SunStudyOccluders>
+PrepareSunStudyOccluders (std::shared_ptr<const Snapshot> snapshot, const evp::sunstudy::ElementRoles& roles,
+                          const evp::sunstudy::StudyRecord* previous, const std::function<bool ()>& isCancelled)
+{
+    // A combined BVH built first would defeat reuse of a large static site.
+    if (roles.context > 0)
+        return evp::sunstudy::BuildSunStudyOccluders (
+            *snapshot, roles, previous != nullptr ? previous->occluders.get () : nullptr, isCancelled);
+    auto parts = std::make_shared<evp::sunstudy::SunStudyOccluders> ();
+    if (const auto subset = evp::sunstudy::OccluderSnapshot (*snapshot, roles))
+        parts->analysis = std::make_shared<const QueryEngine> (subset);
+    else
+        parts->analysis = QueryIndexCache::Get ().For (snapshot);
+    return (parts->analysis == nullptr || (isCancelled && isCancelled ())) ? nullptr : parts;
+}
+
 SunStudyPreparationTrace::SunStudyPreparationTrace (uint64_t snapshot)
     : snapshot_ (snapshot), last_ (std::chrono::steady_clock::now ())
 {
@@ -44,8 +61,18 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
     // Only the owned automatic path opts into GPU waits. Public/manual studies
     // keep their CPU baseline and maxParallel measurement contract. Device and
     // shader creation are lazy, so fully reused studies touch no GPU at all.
-    if (cancelled != nullptr)
-        record.traversal = std::make_shared<archviz::SunStudyGpuTraversal> (std::move (occluders));
+    if (cancelled != nullptr) {
+        const auto* previousGpu =
+            reuseSource != nullptr ? dynamic_cast<const archviz::SunStudyGpuTraversal*> (reuseSource->traversal.get ())
+                                   : nullptr;
+        record.traversal = std::make_shared<archviz::SunStudyGpuTraversal> (
+            std::move (occluders), record.occluders != nullptr ? record.occluders->context : nullptr, previousGpu);
+    }
+    if (record.occluders != nullptr && record.occluders->context != nullptr)
+        archviz::ArchVizLog ("pipeline: stage=sun-context-index snapshot=" + std::to_string (record.snapshotId) +
+                             " meshes=" + std::to_string (record.occluders->context->MeshCount ()) +
+                             " triangles=" + std::to_string (record.occluders->context->TriangleCount ()) +
+                             " reused=" + std::to_string (record.occluders->contextReused));
     record.snapshot = std::move (snapshot);
     evp::sunstudy::SetSampleMeshes (record);
     const std::atomic<bool> notCancelled { false };
