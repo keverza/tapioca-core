@@ -6,6 +6,7 @@
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
+#include "ArchViz/Dxgi/ComposeTiming.hpp"
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
@@ -105,6 +106,9 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // screen where the two happen to be equal. The host occluder's depth is ours
     // to size; see `hostocclusion::Prepare`.
     ++g_stats.passes;
+    // ⚠️ WHAT EACH STAGE BELOW COSTS, MEASURED (ComposeTiming.hpp): GPU timestamps between
+    // them and the CPU time to the end, read back on later Presents, never waited for.
+    composetiming::BeginFrame (context);
     uint32_t targetQuality = 0;
     ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight, g_stats.targetSamples, &targetQuality);
 
@@ -143,6 +147,8 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
         if (targetView != nullptr)
             context->OMSetRenderTargets (1, &targetView, nullptr);
         sceneguest::Draw (context, wanted, targetView, nullptr);
+        composetiming::Mark (context, composetiming::Stage::Guest);
+        composetiming::EndFrame (context);
         return;
     }
 
@@ -155,6 +161,7 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     ID3D11DepthStencilView* const hostView = hostocclusion::Prepare (
         context, context1, wanted, g_stats.targetWidth, g_stats.targetHeight, g_stats.targetSamples, targetQuality);
     ID3D11DepthStencilView* overlayView = hostView != nullptr ? hostView : depthView;
+    composetiming::Mark (context, composetiming::Stage::Occluder);
 
     // ⚠️ AND STILL FAIL CLOSED IF THEY DISAGREE. `depthView` is
     // the injection's own copy of Archicad's depth and is NOT resized here, so a
@@ -196,15 +203,20 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
         }
     }
 
+    composetiming::Mark (context, composetiming::Stage::Host);
+
     // ⚠️ THE CALLER'S LAYERS LAST (Tapioca.SetOverlayLayer): over the reference, with
     // the same camera and against the same occluder depth, so what a script draws
     // moves with the model in the frame the model is drawn in.
     layers3d::Draw (context, context1, wanted, overlayView);
+    composetiming::Mark (context, composetiming::Stage::Layers);
 
     // ⚠️ AND WHAT THE DILIGENT GUEST DRAWS LAST (§12b): texts, dimensions, legends,
     // styled and heatmap meshes, depth-styled lines -- the same camera, the same
     // target and the same occluder depth, inside this Present's guard.
     sceneguest::Draw (context, wanted, targetView, overlayView);
+    composetiming::Mark (context, composetiming::Stage::Guest);
+    composetiming::EndFrame (context);
 
     // Collect any checkpoint occlusion results that became ready. The
     // diagnostic is disarmed by default and this costs one branch; see
@@ -217,6 +229,7 @@ void Shutdown ()
     hostoverlay::Shutdown ();
     layers3d::ReleaseDeviceObjects ();
     sceneguest::ReleaseDeviceObjects ();
+    composetiming::ReleaseDeviceObjects ();
 }
 
 } // namespace overlaycompose

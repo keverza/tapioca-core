@@ -8,6 +8,7 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/ComposeTiming.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
@@ -273,6 +274,28 @@ void Gate ()
         Say ("GATE", std::string ("refused (sole/total): ") + terms);
 }
 
+// ⚠️ WHAT THE COMPOSITION COST SINCE THE LAST COST LINE, beside the LIVE line it explains
+// (Dxgi/ComposeTiming.hpp): GPU milliseconds per stage, the CPU's, and Archicad's frame
+// interval while composing -- so "laggy" can be split into ours and Archicad's own.
+// Percentiles are bucket upper bounds, hence "<=". Nothing composed, nothing said.
+static void Cost ()
+{
+    namespace timing = dxgi::composetiming;
+    const timing::Window w = timing::Take ();
+    if (w.timed + w.untimed + w.cpuFrames == 0)
+        return;
+    char line[512] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "frames %llu timed, %llu untimed | GPU ms mean (max): occluder %.2f (%.2f) host %.2f (%.2f) "
+                 "layers %.2f (%.2f) guest %.2f (%.2f) | GPU total p50<=%.2f p95<=%.2f max %.2f | CPU mean %.2f "
+                 "max %.2f ms over %llu | frame interval p50<=%.1f p95<=%.1f ms over %llu",
+                 (unsigned long long) w.timed, (unsigned long long) w.untimed, w.stageMeanMs[0], w.stageMaxMs[0],
+                 w.stageMeanMs[1], w.stageMaxMs[1], w.stageMeanMs[2], w.stageMaxMs[2], w.stageMeanMs[3],
+                 w.stageMaxMs[3], w.gpuP50Ms, w.gpuP95Ms, w.gpuMaxMs, w.cpuMeanMs, w.cpuMaxMs,
+                 (unsigned long long) w.cpuFrames, w.intervalP50Ms, w.intervalP95Ms, (unsigned long long) w.intervals);
+    Say ("COST", line);
+}
+
 // ⚠️ WHAT IS HAPPENING NOW, WHICH NO CUMULATIVE COUNTER CAN
 // SAY. A run reported `OVERLAY DRAWING (85 lines)` and the user saw nothing on
 // screen -- both true: one pass had composed, and then the chain went silent
@@ -353,6 +376,7 @@ void Live (const Health& health)
         g_liveTicks = 0;
         g_lastLive = current;
         Say ("LIVE", current);
+        Cost ();
     }
     Guest ();
 }

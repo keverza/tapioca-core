@@ -1211,6 +1211,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/InjectionCamera.cpp",
     "ArchViz/Dxgi/InjectionDepth.cpp",
     "ArchViz/Dxgi/CameraFreshness.cpp",
+    "ArchViz/Dxgi/ComposeTiming.cpp",
     "ArchViz/Dxgi/DiligentGuest.cpp",
     "ArchViz/Dxgi/GuestGpu.cpp",
     "ArchViz/Dxgi/InjectedDiligentContext.cpp",
