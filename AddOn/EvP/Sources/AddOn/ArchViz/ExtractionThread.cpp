@@ -70,6 +70,10 @@ constexpr int AcquireTimeoutMs = 20000;
 // freeze the user reported. Past this, live sync pauses itself and says so.
 constexpr int64_t LiveAcquireBudgetMs = 3000;
 
+// A pass whose model changed under it starts again this long after, at most this often.
+constexpr int64_t kRestartSettleMs = 500;
+constexpr uint32_t kMaxRestarts = 8;
+
 // Stop queueing when this much is waiting for the GPU. Peak memory is otherwise
 // roughly the whole snapshot twice (SceneCmdQueue.hpp's ⚠️ on being unbounded),
 // and on a large project the extractor easily outruns a 32-command-per-frame
@@ -86,7 +90,8 @@ constexpr size_t MaxPendingBytes = 96u * 1024u * 1024u;
 // a slice that timed out is ABANDONED whole, never harvested, and the shared_ptr
 // keeps it alive for the late writer.
 struct SliceState {
-    std::atomic<int32_t> next { 1 }; // 1-BASED: ModelerAPI indices are
+    std::atomic<int32_t> next { 1 };       // 1-BASED: ModelerAPI indices are
+    std::atomic<int32_t> changedTo { -1 }; // the model's count, once it is not the pass's
     std::atomic<uint32_t> empty { 0 };
     // Slice local and touched only by the slice's own main-thread body, so a
     // plain map is correct here where `empty` needs an atomic. Merged into
@@ -455,6 +460,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     std::vector<SurfaceSubstanceObservation> observations;
 
     int32_t cursor = 1; // 1-BASED
+    int32_t changedTo = -1;
     int consecutiveTimeouts = 0;
     bool gaveUp = false;
     int64_t throttledMs = 0;
@@ -506,6 +512,14 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 // nothing, report no progress, and spin forever on that element.
                 const int64_t begin = NowMs ();
                 int32_t i = st->next.load ();
+                // ⚠️ THE MODEL IS ARCHICAD'S LIVE ONE, NOT A COPY: isolating, a layer or a filter
+                // changes it between slices, and the rest of the pass read past its end (2026-10-02:
+                // 3388 elements). Asked here, where it holds still.
+                if (model->GetElementCount () != count) {
+                    st->changedTo.store (model->GetElementCount ());
+                    st->completed.store (true);
+                    return;
+                }
                 while (i <= count) {
                     if (wanted->empty ()) {
                         if (!CaptureElementPacket (*model, i, st->meshes))
@@ -569,6 +583,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             continue;
         }
         consecutiveTimeouts = 0;
+        if ((changedTo = st->changedTo.load ()) >= 0)
+            break;
 
         const int32_t advanced = st->next.load ();
         ArchVizLog ("pipeline: stage=geometry-slice first=" + std::to_string (cursor) +
@@ -687,11 +703,24 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             ++progress_.partialPasses;
         else
             ++progress_.fullPasses;
-        if (progress_.phase == "extracting" || progress_.phase == "re-extracting")
+        if (changedTo >= 0)
+            progress_.phase = "restarting: the 3D model changed under the pass, " + std::to_string (handle->count) +
+                              " -> " + std::to_string (changedTo) + " elements";
+        else if (progress_.phase == "extracting" || progress_.phase == "re-extracting")
             progress_.phase = progress_.done ? "idle" : "stopped";
 
         extractionreport::Pass (progress_, partial, partial ? filter.size () : (size_t) progress_.total, removed);
     }
+    // ⚠️ AND AGAIN ON THE MODEL AS IT IS NOW -- full, since nothing says what changed, after it
+    // settles, and a bounded number of times so a model that never settles cannot hold the worker.
+    if (changedTo >= 0 && !stopFlag_.load () && restarts_ < kMaxRestarts) {
+        ++restarts_;
+        std::this_thread::sleep_for (std::chrono::milliseconds (kRestartSettleMs));
+        if (extractedGuids != nullptr)
+            extractedGuids->clear ();
+        return RunPass (opt, /*full*/ true, std::set<std::string> (), extractedGuids);
+    }
+    restarts_ = 0;
     return true;
 }
 

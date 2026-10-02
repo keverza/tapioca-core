@@ -326,6 +326,7 @@ class ExtractionWorker final {
 
     std::thread worker_;
     std::atomic<bool> stopFlag_ { false };
+    uint32_t restarts_ = 0; // worker thread: passes restarted in a row (`RunPass`)
     std::atomic<bool> running_ { false };
     std::atomic<bool> storySlicesWanted_ { false };
     mutable std::mutex mutex_;
