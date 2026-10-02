@@ -668,6 +668,8 @@ set (EVP_TEST_SOURCES
     test_overlaycomposer.cpp
     test_composetiming.cpp
     test_extractionreport.cpp
+    # When a change to what the 3D window shows is acted on: header-only.
+    test_modelcontentwatch.cpp
     test_logclaim.cpp
     test_breadcrumb.cpp
     test_camerarecognizer.cpp

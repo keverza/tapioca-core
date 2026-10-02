@@ -77,7 +77,8 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // it was silent about the COUNTER. `geometryEdits` never moved for an edit
     // that arrived while the worker was busy.
     //
-    // ⚠️ AND `geometryEdits` IS THE MODEL REVISION. It is what
+    // ⚠️ AND IT MOVES THE MODEL REVISION (`revision`: these edits, and what the 3D window
+    // shows -- ModelContentWatch). It is what
     // `hostocclusion::SetModelRevision` publishes and what the camera recognizer
     // compares to decide that an index count moved because the MODEL moved. A
     // missed bump means the recognizer never learns the model changed, which is
@@ -187,6 +188,7 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // Tying it to StartPass would lose exactly the edits that arrive during a
     // busy moment -- which is most of them during a drag.
     ++gStats.geometryEdits;
+    ++gStats.revision;
 
     // ⚠️ PUBLISHED HERE, NOT BY A COURIER ON ITS OWN CLOCK.
     // The occluder stamps `publishedRevision` at BeginBatch from the revision it
@@ -206,8 +208,8 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     //
     // The runtime tick still publishes every tick. It is now a BACKSTOP for the
     // case where the watch is not running, not the only path.
-    dxgi::hostocclusion::SetModelRevision (gStats.geometryEdits);
-    dxgi::census::NoteModelRevision (gStats.geometryEdits);
+    dxgi::hostocclusion::SetModelRevision (gStats.revision);
+    dxgi::census::NoteModelRevision (gStats.revision);
 
     // ⚠️ AND IF THE PASS CANNOT START, REMEMBER IT. Waiting
     // for the NEXT change would leave this one unextracted indefinitely on a
@@ -307,6 +309,20 @@ bool RefreshNow ()
         gBaseline->Poll (/*reset*/ true);
     ArchVizLog ("model watch: manual refresh -- re-extracting the whole model.");
     return true;
+}
+
+void NoteContentChanged (bool passRunning)
+{
+    ++gStats.contentChanges;
+    ++gStats.revision;
+    dxgi::hostocclusion::SetModelRevision (gStats.revision);
+    dxgi::census::NoteModelRevision (gStats.revision);
+    if (passRunning)
+        return;
+    if (StartPass ())
+        ++gStats.refreshes;
+    else
+        gPendingRefresh = true;
 }
 
 Stats Get ()

@@ -24,6 +24,7 @@
 #include "ArchViz/OverlayRedrawBudget.hpp"
 #include "ArchViz/OverlayRuntimeReport.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
+#include "ArchViz/ModelContentWatch.hpp"
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
@@ -651,7 +652,11 @@ void Tick ()
     // `Start` read `geometryEdits` before any edit had happened, so the whole
     // revision chain reported `model=0 published=0 gpu=0` for the life of the
     // session while the watch counted edits beside it.
-    const uint32_t revision = modelwatch::Get ().geometryEdits;
+    // ⚠️ AND WHAT THE 3D WINDOW SHOWS: isolation, a layer, a filter edit no element, and the
+    // overlay follows them -- re-extracting, and moving the revision so the camera can re-pin
+    // when the draw it was pinned to is gone (ModelContentWatch.hpp).
+    modelcontentwatch::Tick (FrontWindowIs3D ());
+    const uint32_t revision = modelwatch::Get ().revision;
     host::SetModelRevision (revision);
     cen::NoteModelRevision (revision);
 
@@ -868,6 +873,7 @@ void Suspend ()
 void Stop ()
 {
     camerakeep::Forget ();
+    modelcontentwatch::Release (); // §8: the held model goes with the session, on this thread
     if (!g_running)
         return;
     // ⚠️ ONLY IF WE ARMED IT, AND NOT WHILE THE PORTABLE

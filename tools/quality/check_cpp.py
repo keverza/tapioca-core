@@ -1235,6 +1235,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/OverlayRelease.cpp",
     "ArchViz/OverlayCameraKeep.cpp",
     "ArchViz/OverlayCensusAnchor.cpp",
+    "ArchViz/ModelContentWatch.cpp",
     "ArchViz/OverlayHover3D.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",
     "ArchViz/PlanFrameSession.cpp",

@@ -62,6 +62,11 @@ struct Stats {
     // the right shape because a poller that missed a tick must still see that
     // something happened, which a boolean flag cannot promise.
     uint32_t geometryEdits = 0;
+    // Changes to what the 3D window SHOWS -- isolation, a layer, a filter -- that edit no
+    // element (ModelContentWatch), and the revision both move: what the overlay stamps on its
+    // camera and its occluder, so an edit and a visibility change re-pin the camera alike.
+    uint32_t contentChanges = 0;
+    uint32_t revision = 0;
     int64_t lastDiffMs = 0;  // what the last poll cost
     int64_t worstDiffMs = 0; // the worst one, which is what set the interval
     uint32_t intervalMs = 0; // the cadence it has settled on
@@ -95,6 +100,11 @@ void SetKeepAlive (bool keepAlive);
 // change, and "the picture looks wrong, rebuild it" is a request no change
 // detector can be asked to infer. Returns false when a pass is already running.
 bool RefreshNow ();
+
+// MAIN THREAD. What the 3D window shows changed without an element edit (ModelContentWatch):
+// the revision moves, and a full re-extraction starts -- unless a pass is running, which starts
+// again on the changed model by itself (ExtractionThread).
+void NoteContentChanged (bool passRunning);
 
 Stats Get ();
 
