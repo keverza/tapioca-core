@@ -97,8 +97,11 @@ std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double
 }
 
 StepMaskAtlas PackStepMasks (size_t sampleCount, size_t stepCount, const std::function<bool (size_t, size_t)>& lit,
-                             const std::vector<int64_t>& texelOfSample, uint32_t width, uint32_t height)
+                             const std::vector<int64_t>& texelOfSample, uint32_t width, uint32_t height,
+                             const std::function<bool ()>& isCancelled)
 {
+    if (isCancelled && isCancelled ())
+        return {};
     StepMaskAtlas out;
     out.width = width;
     out.height = height;
@@ -114,6 +117,9 @@ StepMaskAtlas PackStepMasks (size_t sampleCount, size_t stepCount, const std::fu
         return out;
 
     for (size_t sample = 0; sample < sampleCount && sample < texelOfSample.size (); ++sample) {
+        // Cancellation discards the whole image, never a plausible partial day.
+        if (sample % 1024 == 0 && isCancelled && isCancelled ())
+            return {};
         const int64_t texel = texelOfSample[sample];
         if (texel < 0 || static_cast<size_t> (texel) >= plane)
             continue;
@@ -122,6 +128,8 @@ StepMaskAtlas PackStepMasks (size_t sampleCount, size_t stepCount, const std::fu
                 out.masks[(step >> 5) * plane + static_cast<size_t> (texel)] |= 1u << (step & 31u);
         }
     }
+    if (isCancelled && isCancelled ())
+        return {};
     return out;
 }
 

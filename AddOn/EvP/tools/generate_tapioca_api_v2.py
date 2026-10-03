@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 # ⚠️ THESE ARE A TRIPWIRE, NOT BOOKKEEPING — a surface change must be
 # DELIBERATE, so adding a command is meant to fail here until the number is
 # updated in the same commit. On 2026-08-15 they were found eleven behind
@@ -252,7 +251,9 @@ from typing import Any
 # 230 -> 233 with static dimension create, typed read and sparse style edits.
 # 233 -> 235 with OverlayHudEvents and OverlayHud, what the user does on the overlays'
 # HUD for Python (2026-09-30), in OverlayHudCommands.cpp.
-EXPECTED_REGISTRY_COMMANDS = 235
+# 235 -> 236 with PauseSunStudyFollowing, the manual-rerun isolation command
+# already registered by the sun-study repairs (2026-10-02).
+EXPECTED_REGISTRY_COMMANDS = 236
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -267,21 +268,22 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 248 -> 249 with CreateFills.
 # 249 -> 252 with static dimension create, read and style edit.
 # 252 -> 254 with the HUD's events and state.
-EXPECTED_TOTAL_COMMANDS = 254
+# 254 -> 255 with that same pause command.
+EXPECTED_TOTAL_COMMANDS = 255
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
-SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'
+SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'
 REGISTRATION_PATTERN = re.compile(
     rf'\{{\s*"(?P<name>[A-Za-z0-9]+)"\s*,\s*'
-    rf'&MakeRegisteredNativeCommand<[^>]+>\s*,\s*(?:true|false)\s*,\s*'
-    rf'(?P<input>{SCHEMA_EXPRESSION_PATTERN})\s*,\s*'
-    rf'(?P<output>{SCHEMA_EXPRESSION_PATTERN})\s*\}}',
+    rf"&MakeRegisteredNativeCommand<[^>]+>\s*,\s*(?:true|false)\s*,\s*"
+    rf"(?P<input>{SCHEMA_EXPRESSION_PATTERN})\s*,\s*"
+    rf"(?P<output>{SCHEMA_EXPRESSION_PATTERN})\s*\}}",
     re.DOTALL,
 )
 LOCAL_SCHEMA_PATTERN = re.compile(
     rf'\{{\s*"(?P<name>[A-Za-z0-9]+)"\s*,\s*'
-    rf'(?P<input>{SCHEMA_EXPRESSION_PATTERN})\s*,\s*'
-    rf'(?P<output>{SCHEMA_EXPRESSION_PATTERN})\s*\}}',
+    rf"(?P<input>{SCHEMA_EXPRESSION_PATTERN})\s*,\s*"
+    rf"(?P<output>{SCHEMA_EXPRESSION_PATTERN})\s*\}}",
     re.DOTALL,
 )
 
@@ -298,16 +300,12 @@ def join_adjacent_json_literals(text):
 
 
 CONSTANT_PATTERN = re.compile(
-    rf'(?:constexpr\s+)?const\s+char\s+(?P<name>[A-Za-z_]\w*)\[\]\s*=\s*'
-    rf'R"json\((?P<json>.*?)\)json"\s*;',
+    r"(?:constexpr\s+)?const\s+char\s+(?P<name>[A-Za-z_]\w*)\[\]\s*=\s*"
+    r'R"json\((?P<json>.*?)\)json"\s*;',
     re.DOTALL,
 )
-REGISTRY_NAME_PATTERN = re.compile(
-    r'\{\s*"([A-Za-z0-9]+)"\s*,\s*&MakeRegisteredNativeCommand<'
-)
-LOCAL_VERB_PATTERN = re.compile(
-    r'\{\s*"([A-Za-z0-9]+)"\s*,\s*DispatcherExecutionKind::'
-)
+REGISTRY_NAME_PATTERN = re.compile(r'\{\s*"([A-Za-z0-9]+)"\s*,\s*&MakeRegisteredNativeCommand<')
+LOCAL_VERB_PATTERN = re.compile(r'\{\s*"([A-Za-z0-9]+)"\s*,\s*DispatcherExecutionKind::')
 
 
 class CatalogError(RuntimeError):
@@ -369,16 +367,14 @@ def extract_registry_commands(native_dir: Path) -> list[Command]:
         constants = _constants(source, path)
         for match in REGISTRATION_PATTERN.finditer(source):
             name = match.group("name")
-            commands.append(Command(
-                name=name,
-                implementation="native-registry",
-                input_scheme=_resolve_schema(
-                    match.group("input"), constants, f"{path.name}:{name} input"
-                ),
-                output_scheme=_resolve_schema(
-                    match.group("output"), constants, f"{path.name}:{name} output"
-                ),
-            ))
+            commands.append(
+                Command(
+                    name=name,
+                    implementation="native-registry",
+                    input_scheme=_resolve_schema(match.group("input"), constants, f"{path.name}:{name} input"),
+                    output_scheme=_resolve_schema(match.group("output"), constants, f"{path.name}:{name} output"),
+                )
+            )
 
     parsed_names = [command.name for command in commands]
     if parsed_names != discovered_names:
@@ -391,15 +387,13 @@ def extract_registry_commands(native_dir: Path) -> list[Command]:
 def extract_local_commands(schemas_path: Path, verbs_path: Path) -> tuple[dict[str, Any], list[Command]]:
     source = schemas_path.read_text(encoding="utf-8")
     constants = _constants(source, schemas_path)
-    definitions_match = re.search(
-        rf'kSchemaDefinitions\[\]\s*=\s*R"json\((.*?)\)json"', source, re.DOTALL
-    )
+    definitions_match = re.search(r'kSchemaDefinitions\[\]\s*=\s*R"json\((.*?)\)json"', source, re.DOTALL)
     if definitions_match is None:
         raise CatalogError(f"missing shared definitions in {schemas_path}")
     definitions = _load_json(definitions_match.group(1), "shared definitions")
 
     table_match = re.search(
-        r'constexpr\s+CommandSchema\s+schemas\[\]\s*=\s*\{(.*?)\n\};',
+        r"constexpr\s+CommandSchema\s+schemas\[\]\s*=\s*\{(.*?)\n\};",
         source,
         re.DOTALL,
     )
@@ -453,9 +447,7 @@ def extract_catalog(repo_root: Path) -> Catalog:
     names = [command.name for command in commands]
     _validate_unique_count(names, EXPECTED_TOTAL_COMMANDS, "total")
 
-    api_source = (evp_root / "Sources" / "PyPackage" / "evp" / "api.py").read_text(
-        encoding="utf-8"
-    )
+    api_source = (evp_root / "Sources" / "PyPackage" / "evp" / "api.py").read_text(encoding="utf-8")
     version_match = re.search(r'^API_VERSION\s*=\s*"([^"]+)"', api_source, re.MULTILINE)
     if version_match is None:
         raise CatalogError("missing API_VERSION in evp/api.py")
@@ -516,15 +508,8 @@ def _schema_columns(schema: dict[str, Any]) -> tuple[str, str]:
         properties = {}
     required = set(schema.get("required", []))
     alternatives = schema.get("oneOf", schema.get("anyOf", []))
-    conditional = {
-        name
-        for branch in alternatives
-        if isinstance(branch, dict)
-        for name in branch.get("required", [])
-    }
-    required_items = [
-        f"`{name}`: {_type_label(value)}" for name, value in properties.items() if name in required
-    ]
+    conditional = {name for branch in alternatives if isinstance(branch, dict) for name in branch.get("required", [])}
+    required_items = [f"`{name}`: {_type_label(value)}" for name, value in properties.items() if name in required]
     if alternatives:
         groups = [
             " + ".join(f"`{name}`" for name in branch.get("required", []))
@@ -550,20 +535,15 @@ def _cell(items: list[str]) -> str:
 def _output_column(schema: dict[str, Any]) -> str:
     alternatives = schema.get("oneOf", schema.get("anyOf", []))
     if alternatives:
-        variants = [
-            _output_column(branch)
-            for branch in alternatives
-            if isinstance(branch, dict)
-        ]
+        variants = [_output_column(branch) for branch in alternatives if isinstance(branch, dict)]
         return " OR ".join(variants)
     properties = schema.get("properties", {})
     if not isinstance(properties, dict) or not properties:
         return _type_label(schema)
     required = set(schema.get("required", []))
-    return _cell([
-        f"`{name}{'' if name in required else '?'}`: {_type_label(value)}"
-        for name, value in properties.items()
-    ])
+    return _cell(
+        [f"`{name}{'' if name in required else '?'}`: {_type_label(value)}" for name, value in properties.items()]
+    )
 
 
 def render_markdown(catalog: Catalog) -> str:
@@ -580,8 +560,7 @@ def render_markdown(catalog: Catalog) -> str:
     for command in catalog.commands:
         required, optional = _schema_columns(command.input_scheme)
         lines.append(
-            f"| `Tapioca.{command.name}` | {required} | {optional} | "
-            f"{_output_column(command.output_scheme)} |"
+            f"| `Tapioca.{command.name}` | {required} | {optional} | {_output_column(command.output_scheme)} |"
         )
     return "\n".join(lines) + "\n"
 

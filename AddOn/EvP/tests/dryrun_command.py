@@ -441,6 +441,7 @@ _SUN_STUDY = {}
 # What the RENDERER would report. Empty until a study is actually shown, so the
 # fake can model "pushed at a viewer that is not there" -- see EvP.ShowSunStudy.
 _SUN_OVERLAY = {}
+_SUN_DISPLAY_PREPARATION = {}
 
 
 def _ok(data):
@@ -3042,8 +3043,11 @@ def _one(command, params):
         n_ignored = 2 - n_analysis - n_context
         _SUN_STUDY.clear()
         _SUN_STUDY.update({"id": "sun-1", "total": above, "resolved": 0,
-                           "samples": sample_count, "ms": 0.0})
+                           "samples": sample_count, "ms": 0.0,
+                           "backend": str(params.get("backend", "cpu")),
+                           "daylightHours": above * step_minutes / 60.0})
         return _v2({"studyId": "sun-1",
+                    "backend": _SUN_STUDY["backend"],
                     "domain": domain, "patchCount": patch_count,
                     "analysisElementCount": n_analysis,
                     "contextElementCount": n_context,
@@ -3082,6 +3086,7 @@ def _one(command, params):
                     "sampleCount": _SUN_STUDY["samples"], "generation": 1,
                     "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
                     "empty": False,
+                    "admissionMilliseconds": 0.0,
                     "analysisMilliseconds": _SUN_STUDY["ms"]})
 
     if command == "EvP.SunStudyState":
@@ -3101,7 +3106,7 @@ def _one(command, params):
             return _v2({"studyId": "", "hours": [], "count": 0,
                         "converged": False, "empty": True})
         count = _SUN_STUDY["samples"]
-        span = _SUN_STUDY["total"] * 1.0
+        span = _SUN_STUDY.get("daylightHours", _SUN_STUDY["total"] * 1.0)
         # A gradient with genuinely shaded and genuinely lit samples, so the
         # command's own "every sample is identical" checks are exercised rather
         # than trivially satisfied.
@@ -3111,7 +3116,18 @@ def _one(command, params):
                "totalSteps": _SUN_STUDY["total"],
                "sampleCount": count, "generation": 1,
                "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
-               "empty": False}
+                "empty": False}
+        out["summaryOnly"] = bool(params.get("summaryOnly", False))
+        if out["summaryOnly"]:
+            if any(params.get(key) for key in ("includePositions", "includeAtlas", "includeSteps")):
+                return _err("summaryOnly cannot request positions, atlas or step arrays")
+            out.update(hours=[], minHours=min(hours) if hours else 0.0,
+                       meanHours=sum(hours) / count if count else 0.0,
+                       maxHours=max(hours) if hours else 0.0,
+                       daylightHours=span,
+                       fullyLit=sum(1 for h in hours if h >= span - 1e-9),
+                       fullyShaded=sum(1 for h in hours if h <= 1e-9))
+            return _v2(out)
         if params.get("includePositions"):
             _pos = [float((i % 20) - 10) if a == 0 else
                     (float((i // 20) - 10) if a == 1 else 0.1)
@@ -3189,6 +3205,7 @@ def _one(command, params):
                     "weldingLooksBroken": False})
 
     if command == "EvP.PauseSunStudyFollowing":
+        _SUN_DISPLAY_PREPARATION.clear()
         return _v2({"autoFollow": False})
 
     if command == "EvP.ShowSunStudy":
@@ -3198,11 +3215,12 @@ def _one(command, params):
         # refused without a live study would let a caller that only ever tests
         # the happy path through.
         if not bool(params.get("show", True)):
+            _SUN_DISPLAY_PREPARATION.clear()
             _SUN_OVERLAY.clear()
             return _v2({"studyId": "", "shown": False,
                         "viewerRunning": False, "elements": 0, "depth": 0,
                         "atlasWidth": 0, "atlasHeight": 0, "converged": False,
-                        "preview": False,
+                        "preview": False, "preparing": False,
                         "hoursMax": 0.0, "debug": 0})
         if not _SUN_STUDY:
             return _err("no sun study to show - start one first")
@@ -3215,15 +3233,14 @@ def _one(command, params):
         # ELEMENTS the viewer holds, and a fake that answered with the sample
         # count would let a caller confuse the two and still look right.
         debug = int(params.get("debug", 0))
-        debug = 0 if debug < 0 else (3 if debug > 3 else debug)
+        debug = 0 if debug < 0 else (7 if debug > 7 else debug)
         depth = int(params.get("depth", 0))
         depth = 0 if depth < 0 else (2 if depth > 2 else depth)
         hours_max = float(params.get("hoursMax", 0.0))
         if hours_max <= 0.0:
             hours_max = float(_SUN_STUDY["total"])
         elements = 1 if _SCENARIO == "topography" else len(_SNAP_GUIDS)
-        _SUN_OVERLAY.clear()
-        _SUN_OVERLAY.update({
+        overlay = {
             "viewerRunning": True, "studyId": _SUN_STUDY["id"], "drawing": True,
             "preview": preview,
             "elementsNamed": elements, "elementsAttached": elements,
@@ -3234,13 +3251,23 @@ def _one(command, params):
             # A fake that always reported a clean frame history would hide the
             # one counter this pass was instrumented for.
             "tintFrames": 120, "tintElementsDrawn": 120 * elements,
-            "framesSkippedIncompleteBinding": 0, "rejection": ""})
+            "framesSkippedIncompleteBinding": 0, "rejection": ""}
+        # This scenario exercises clients that wait for preparation, not just a
+        # successful command response. The previous image stays visible meanwhile.
+        preparing = _SCENARIO == "sunstudy_display_async"
+        if preparing:
+            _SUN_DISPLAY_PREPARATION.update(polls=2, payload=overlay,
+                                            studyId=_SUN_STUDY["id"])
+        else:
+            _SUN_OVERLAY.clear()
+            _SUN_OVERLAY.update(overlay)
         return _v2({"studyId": _SUN_STUDY["id"], "shown": True,
                     "viewerRunning": True,
                     "elements": elements,
                     "atlasWidth": 256, "atlasHeight": 256,
                     "converged": converged, "preview": preview,
-                    "hoursMax": hours_max, "debug": debug, "depth": depth})
+                    "hoursMax": hours_max, "debug": debug, "depth": depth,
+                    "preparing": preparing})
 
     if command == "EvP.SunStudyFollowerState":
         # ⚠️ THE FAKE FOLLOWS ONLY WHAT WAS SHOWN. autoFollow is armed by a
@@ -3278,6 +3305,18 @@ def _one(command, params):
                                    % _SUN_OVERLAY.get("studyId", "")})
 
     if command == "EvP.SunStudyOverlayState":
+        if _SUN_DISPLAY_PREPARATION:
+            _SUN_DISPLAY_PREPARATION["polls"] -= 1
+            if _SUN_DISPLAY_PREPARATION["polls"] <= 0:
+                _SUN_OVERLAY.clear()
+                _SUN_OVERLAY.update(_SUN_DISPLAY_PREPARATION["payload"])
+                _SUN_DISPLAY_PREPARATION.clear()
+            else:
+                pending = dict(_SUN_OVERLAY)
+                pending.update(viewerRunning=True, preparing=True,
+                               pendingStudyId=_SUN_DISPLAY_PREPARATION["studyId"],
+                               preparationError="")
+                return _v2(pending)
         # ⚠️ THE FAKE MUST MODEL "SENT BUT NOT DRAWN", because that is the whole
         # reason the verb exists. It reports a RUNNING viewer only when a study
         # has actually been shown in this process; a fake that always answered
@@ -3292,12 +3331,16 @@ def _one(command, params):
                         "atlasBytesUploaded": 0, "revision": 0, "depth": 0,
                         "tintFrames": 0, "tintElementsDrawn": 0,
                         "framesSkippedIncompleteBinding": 0,
-                        "rejection": "no Diligent viewport is running - nothing "
+                         "preparing": False, "pendingStudyId": "", "preparationError": "",
+                         "rejection": "no Diligent viewport is running - nothing "
                                      "can be displaying a study"})
-        return _v2(dict(_SUN_OVERLAY))
+        out = dict(_SUN_OVERLAY)
+        out.update(preparing=False, pendingStudyId="", preparationError="")
+        return _v2(out)
 
     if command == "EvP.CancelSunStudy":
         erased = 1 if _SUN_STUDY else 0
+        _SUN_DISPLAY_PREPARATION.clear()
         _SUN_STUDY.clear()
         return _v2({"studyId": params.get("studyId", ""), "erased": erased})
 
@@ -3454,6 +3497,7 @@ def _one(command, params):
                     "triangleCount": 12 * mesh_count, "snapshotId": 1,
                     "scope": params.get("scope", "all"), "hasMetadata": False,
                     "metaLevel": "none", "metadataCancelled": False,
+                    "sharedCapture": bool(params.get("reuseShared") and _diligent["open"]),
                     "retainedBytes": 4096})
 
     # ⚠️ The mesh table is what makes evp.geometry.snapshot() return anything.

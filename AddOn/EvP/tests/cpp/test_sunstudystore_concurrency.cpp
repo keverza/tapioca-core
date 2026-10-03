@@ -284,3 +284,56 @@ TEST (SunStudyStoreConcurrency, CancelledQueuedRecordNeverTracesOrWaitsForTheAct
     EXPECT_TRUE (store.Progress (id, progress, error));
     EXPECT_EQ (progress.resolvedSteps, 0u);
 }
+
+TEST (SunStudyStoreConcurrency, DisplayLeaseDoesNotBlockProgressOrErasureAndCannotResurrectTheRecord)
+{
+    auto& store = SunStudyStore::Get ();
+    store.Clear ();
+    const auto id = store.Insert (Record (std::make_shared<PausedTraversal> (std::make_shared<TraversalGate> ())));
+    const auto revision = store.Revision (id);
+    std::promise<void> entered, release;
+    auto releasing = release.get_future ().share ();
+    std::string error;
+    auto display = std::async (std::launch::async, [&] {
+        return store.ReadDisplayRecord (
+            id, revision,
+            [&] (const StudyRecord& record) {
+                entered.set_value ();
+                releasing.wait ();
+                EXPECT_EQ (record.positions.size (), 3u);
+            },
+            error);
+    });
+    entered.get_future ().wait ();
+    StudyProgress progress;
+    std::string progressError;
+    EXPECT_TRUE (store.Progress (id, progress, progressError));
+    EXPECT_TRUE (store.Erase (id));
+    const auto replacement =
+        store.Insert (Record (std::make_shared<PausedTraversal> (std::make_shared<TraversalGate> ())));
+    EXPECT_NE (store.Revision (replacement), revision);
+    release.set_value ();
+    EXPECT_FALSE (display.get ());
+    EXPECT_EQ (error, "sun study display cancelled");
+    EXPECT_FALSE (store.ReadDisplayRecord (replacement, revision, [] (const StudyRecord&) { FAIL (); }, error));
+    store.Clear ();
+}
+
+TEST (SunStudyStoreConcurrency, DisplayWaitingForATimestepCancelsWithoutJoiningOrCopyingArrays)
+{
+    RunningSlice slice;
+    auto& store = SunStudyStore::Get ();
+    std::atomic<bool> cancelled { false };
+    std::string error;
+    auto display = std::async (std::launch::async, [&] {
+        return store.ReadDisplayRecord (
+            slice.id, store.Revision (slice.id), [] (const StudyRecord&) { FAIL (); }, error, &cancelled);
+    });
+    EXPECT_EQ (display.wait_for (std::chrono::milliseconds (30)), std::future_status::timeout);
+    cancelled.store (true);
+    const auto finished = display.wait_for (std::chrono::seconds (2));
+    slice.Finish ();
+    EXPECT_EQ (finished, std::future_status::ready);
+    EXPECT_FALSE (display.get ());
+    EXPECT_EQ (error, "sun study display cancelled");
+}

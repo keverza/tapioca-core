@@ -8,7 +8,11 @@
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/CameraWake.hpp"
+#include "ArchViz/DiligentViewport.hpp"
+#include "ArchViz/SceneCmdQueue.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
+#include "NativeCommands/SunStudyCommandsSupport.hpp"
+#include "NativeCommands/SunStudyDisplayPreparation.hpp"
 #include "NativeCommands/SelectionSetStore.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAdvanceWorker.hpp"
@@ -113,6 +117,7 @@ struct PreparationResult {
     uint64_t revision = 0;
 };
 std::shared_ptr<PreparationResult> s_preparation;
+std::shared_ptr<PreparedSunStudyDisplay> s_display;
 
 evp::sunstudy::SunStudyTaskWorker& PreparationWorker ()
 {
@@ -188,13 +193,7 @@ void MixDouble (uint64_t& hash, double value)
 // 37-rebuild bug wearing a different hat.
 uint64_t SunInputHash (const API_PlaceInfo& place, const ActiveSunStudyConfig& config)
 {
-    uint64_t hash = 1469598103934665603ull;
-    MixDouble (hash, place.latitude);
-    MixDouble (hash, place.longitude);
-    MixDouble (hash, place.altitude);
-    Mix (hash, static_cast<uint64_t> (place.sumTime));
-    Mix (hash, static_cast<uint64_t> (place.timeZoneInMinutes));
-    MixDouble (hash, place.north);
+    uint64_t hash = sunstudysupport::PlaceInputHash (place);
     Mix (hash, static_cast<uint64_t> (config.year));
     Mix (hash, static_cast<uint64_t> (config.month));
     Mix (hash, static_cast<uint64_t> (config.day));
@@ -340,6 +339,7 @@ void RefreshRoleSelections ()
 void RetireRun (const char* reason, bool cancelled = true)
 {
     PreparationWorker ().Cancel ();
+    s_display.reset ();
     if (s_preparation != nullptr) {
         if (cancelled)
             ++s_cancelledRuns;
@@ -511,8 +511,14 @@ void SubmitAdvanceSlice (int64_t now)
     }
 }
 
+void PollDisplay (int64_t now);
+
 void AdvanceOneSlice (int64_t now)
 {
+    if (s_display != nullptr) {
+        PollDisplay (now);
+        return;
+    }
     if (gRunStudyId.empty ()) {
         gFollower.NoteFailed (gRunGeneration, now);
         return;
@@ -574,34 +580,64 @@ void AdvanceOneSlice (int64_t now)
         return;
     }
 
-    GS::ObjectState show;
-    show.Add ("studyId", GS::UniString (gRunStudyId.c_str (), CC_UTF8));
-    show.Add ("show", true);
-    // ⚠️ THE DRIVER'S OWN DISPLAY MUST NOT RE-ADOPT. ShowSunStudy arms the
-    // follower for a study a person asked to see; a rerun coming back through it
-    // would re-adopt its own result, reset the quiet period it was started by,
-    // and overwrite the configuration with one derived from itself.
-    show.Add ("follow", false);
-    show.Add ("preview", false);
-    show.Add ("debug", (GS::Int32) gConfig.debug);
-    show.Add ("depth", (GS::Int32) gConfig.depth);
-    if (gConfig.hoursMax > 0.0)
-        show.Add ("hoursMax", gConfig.hoursMax);
-    const int64_t started = NowMs ();
+    archviz::SunStudyDisplayOptions options;
+    options.hoursMax = gConfig.hoursMax;
+    options.debug = gConfig.debug;
+    options.depth = gConfig.depth;
+    options.preview = false;
+    const auto snapshot = MeshStore::Get ().Current ();
+    const auto id = gRunStudyId;
+    const auto revision = s_runRevision;
+    s_display = std::make_shared<PreparedSunStudyDisplay> ();
+    const auto output = s_display;
+    evp::sunstudy::StudyTaskRequest request;
+    request.sessionGeneration = s_sessionGeneration;
+    request.runGeneration = gRunGeneration;
+    const auto sessionGeneration = s_sessionGeneration;
+    request.onReady = [sessionGeneration] { WakeFollower (sessionGeneration); };
+    request.execute = [id, revision, snapshot, options, output] (const std::atomic<bool>& cancelled) {
+        PrepareSunStudyDisplay (id, revision, snapshot, options, *output, cancelled);
+    };
+    request.discard = [output] { output->upload.reset (); };
+    if (!PreparationWorker ().Submit (std::move (request), gLastError)) {
+        gFollower.NoteFailed (gRunGeneration, now);
+        RetireRun ("display preparation refused", false);
+        return;
+    }
     s_stage = "displaying";
-    const NativeCommandResult shown = ExecuteNativeCommand ("ShowSunStudy", show);
-    LogHostPhase ("display", started);
-    bool enqueuedToViewer = false;
-    if (shown.ok)
-        shown.data.Get ("shown", enqueuedToViewer);
-    if (!shown.ok || !enqueuedToViewer) {
-        gLastError = shown.ok ? "sun study viewer is no longer running"
-                              : std::string (shown.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+}
+
+void PollDisplay (int64_t now)
+{
+    evp::sunstudy::StudyTaskCompletion completion;
+    if (!PreparationWorker ().Poll (completion))
+        return;
+    const auto output = std::move (s_display);
+    if (completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration ||
+        evp::sunstudy::SunStudyStore::Get ().Revision (gRunStudyId) != s_runRevision ||
+        !gFollower.CanPublishResult (gRunGeneration, gRunSignature)) {
+        ++gDiscarded;
+        RetireRun ("display completion superseded", false);
+        return;
+    }
+    if (!completion.error.empty () || output->upload == nullptr || !archviz::DiligentViewport::Get ().IsRunning ()) {
+        gLastError = !completion.error.empty ()
+                         ? completion.error
+                         : (output->upload == nullptr ? output->error : "sun study viewer is no longer running");
         gFollower.NoteFailed (gRunGeneration, now);
         RetireRun ("display failed", false);
         s_stage = "failed";
         return;
     }
+    if (!evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (gRunStudyId, s_runRevision, [&] {
+            archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (output->upload));
+        })) {
+        gFollower.NoteFailed (gRunGeneration, now);
+        RetireRun ("display cancelled before enqueue", false);
+        return;
+    }
+    Log ("display workerMs=" + std::to_string (completion.wallMilliseconds) +
+         " readyWaitMs=" + std::to_string (ReadyWaitMs (completion.readyAt)));
     s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (gRunStudyId);
     gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now);
     ++gAccepted;
@@ -617,6 +653,7 @@ void AdvanceOneSlice (int64_t now)
 void DisableLocked ()
 {
     gAutoFollow = false;
+    CancelManualSunStudyDisplays ();
     ++s_sessionGeneration; // queued adoption/completion from a closed session is obsolete
     RetireRun ("following disabled");
     s_reuseRecord.reset ();
@@ -714,6 +751,27 @@ uint64_t SessionGeneration ()
     return s_sessionGeneration;
 }
 
+bool PublishInSession (uint64_t sessionGeneration, const ActiveSunStudyConfig& config,
+                       const std::function<bool ()>& publish)
+{
+    if (!evp::MainThreadGate::Get ().IsMainThread ())
+        return false;
+    std::lock_guard<std::mutex> lock (gMutex);
+    if (sessionGeneration != s_sessionGeneration)
+        return false;
+    if (config.placeInputHash != 0) {
+        API_PlaceInfo place = {};
+        if (ACAPI_GeoLocation_GetPlaceSets (&place) != NoError ||
+            sunstudysupport::PlaceInputHash (place) != config.placeInputHash)
+            return false;
+    }
+    const auto& binding = config.selectionBinding;
+    if (binding.generation != 0 && (binding.generation != SelectionSetStore::Get ().Generation () ||
+                                    binding.revision != SelectionSetStore::Get ().Revision ()))
+        return false;
+    return publish ();
+}
+
 void Disable ()
 {
     std::lock_guard<std::mutex> lock (gMutex);
@@ -725,6 +783,7 @@ void Shutdown ()
     Disable ();
     AdvanceWorker ().Shutdown ();
     PreparationWorker ().Shutdown ();
+    ShutdownManualSunStudyDisplays ();
 }
 
 void Tick ()

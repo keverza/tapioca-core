@@ -7,6 +7,7 @@
 #include <limits>
 #include <vector>
 #include <utility>
+#include <functional>
 
 namespace evp::sunstudy {
 
@@ -30,7 +31,8 @@ inline bool AtlasRegionsValid (const std::vector<AtlasRegion>& regions, uint32_t
 template <typename T>
 std::vector<AtlasRegion> AtlasChangedRegions (uint32_t width, uint32_t height, uint32_t layers,
                                               const std::vector<T>& before, const std::vector<T>& after,
-                                              size_t maxRegionsPerLayer = 512)
+                                              size_t maxRegionsPerLayer = 512,
+                                              const std::function<bool ()>& isCancelled = {})
 {
     if (width == 0 || height == 0 || layers == 0 ||
         static_cast<size_t> (width) * height > std::numeric_limits<size_t>::max () / layers ||
@@ -42,6 +44,8 @@ std::vector<AtlasRegion> AtlasChangedRegions (uint32_t width, uint32_t height, u
         const size_t firstRegion = regions.size ();
         std::vector<size_t> previous;
         for (uint32_t y = 0; y < height; ++y) {
+            if (isCancelled && isCancelled ())
+                return {}; // caller must discard, never publish a partial delta
             std::vector<size_t> current;
             for (uint32_t x = 0; x < width;) {
                 const auto changed = [&] (uint32_t column) {

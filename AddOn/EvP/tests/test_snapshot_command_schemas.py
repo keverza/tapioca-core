@@ -1,8 +1,8 @@
 """Keep the first API v2 native schemas valid and deliberately strict."""
+
 import json
 import os
 import re
-
 
 _SOURCE_PATH = os.path.join(
     os.path.dirname(__file__), "..", "Sources", "AddOn", "NativeCommands", "SnapshotCommands.cpp"
@@ -28,6 +28,7 @@ def test_build_snapshot_schema_models_its_public_inputs():
     assert build_input["properties"]["scope"]["enum"] == ["all", "selection"]
     assert build_input["properties"]["excludeTypes"]["items"]["type"] == "integer"
     assert build_input["properties"]["meta"]["oneOf"][1]["enum"] == ["none", "basic", "full"]
+    assert build_input["properties"]["reuseShared"] == {"type": "boolean"}
 
 
 def test_snapshot_success_schemas_forbid_legacy_payload_fields():
@@ -40,12 +41,23 @@ def test_snapshot_success_schemas_declare_and_require_emitted_fields():
     build, release, status, info = _schemas()[1::2]
 
     assert set(build["properties"]) == {
-        "snapshotId", "scope", "elementCount", "vertexCount", "triangleCount",
-        "hasMetadata", "metaLevel", "metadataCancelled", "droppedElements",
-        "droppedTriangles", "retainedBytes",
+        "snapshotId",
+        "scope",
+        "elementCount",
+        "vertexCount",
+        "triangleCount",
+        "hasMetadata",
+        "metaLevel",
+        "metadataCancelled",
+        "droppedElements",
+        "droppedTriangles",
+        "retainedBytes",
+        "sharedCapture",
     }
     assert set(build["required"]) == set(build["properties"]) - {
-        "droppedElements", "droppedTriangles",
+        "droppedElements",
+        "droppedTriangles",
+        "sharedCapture",
     }
     assert set(release["properties"]) == {"freedBytes", "retainedBytes"}
     assert set(release["required"]) == set(release["properties"])

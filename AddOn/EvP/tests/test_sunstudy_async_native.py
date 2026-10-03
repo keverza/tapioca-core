@@ -37,8 +37,10 @@ def test_adoption_is_gated_and_a_closed_session_cannot_rearm_following():
     assert "sessionGeneration != s_sessionGeneration" in adopt
     assert "++s_sessionGeneration" in source
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
-    assert "sunfollow::Adopt (id, config, sessionGeneration)" in display
-    assert display.index("sunfollow::SessionGeneration ()") < display.index("PushSunStudyAtlas")
+    assert display.index("sunfollow::SessionGeneration ()") < display.index("SubmitManualSunStudyDisplay")
+    preparation = (_ADDON / "NativeCommands" / "SunStudyDisplayPreparation.cpp").read_text(encoding="utf-8")
+    assert "sunfollow::Adopt (request.studyId, request.config, request.sessionGeneration)" in preparation
+    assert preparation.index("PublishInSession") < preparation.index("PushSunStudyAtlas")
 
 
 def test_worker_is_joined_on_both_quit_and_unload():
@@ -124,19 +126,20 @@ def test_automatic_replacement_never_coarsens_and_reuses_only_compatible_accepte
     assert "accepted.sun == signature.sun && accepted.sampling == signature.sampling" in source
     assert "CompletedRecord (studyId)" in source
     assert "CompletedRecord (gRunStudyId)" in source
-    assert 'show.Add ("preview", false)' in source
+    assert "options.preview = false" in source
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
-    assert "upload->preview && !converged" in display
+    assert "options.preview && !progress.converged" in display
     assert '"preview":{"type":"boolean"}' in display
 
 
 def test_incremental_publication_uses_the_stale_guard_and_commits_after_enqueue():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
     check = source.index("gFollower.CanPublishResult (gRunGeneration, gRunSignature)")
-    show = source.index('ExecuteNativeCommand ("ShowSunStudy", show)')
+    show = source.index("PushSunStudyAtlas (std::move (output->upload))")
     accept = source.index("gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now)")
     assert check < show < accept
-    assert "!shown.ok || !enqueuedToViewer" in source
+    assert "completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration" in source
+    assert "output->upload == nullptr || !archviz::DiligentViewport::Get ().IsRunning ()" in source
     assert "s_reuseRecord.reset ();" in source.split("void DisableLocked ()", 1)[1]
 
 
@@ -397,3 +400,71 @@ def test_replacements_reuse_allocations_and_renderer_uploads_exact_base_regions_
     )
     assert "SameSunStudyElementMap" in render
     assert "study->baseTexels.reset ()" in render
+
+
+def test_display_assembly_is_worker_owned_and_publication_is_guarded_after_preparation():
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    show = display.split("NativeCommandResult ShowSunStudyCommand::ExecuteNative", 1)[1].split(
+        "class SunStudyOverlayStateCommand", 1
+    )[0]
+    assert "SubmitManualSunStudyDisplay" in show
+    for forbidden in ("DisplayData (", "StepMasks (", "BuildSunStudyElementMap", "ScatterToAtlas"):
+        assert forbidden not in show
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    advance = driver.split("void AdvanceOneSlice", 1)[1].split("void DisableLocked", 1)[0]
+    assert 'ExecuteNativeCommand ("ShowSunStudy"' not in advance
+    assert "PrepareSunStudyDisplay (id, revision, snapshot, options, *output, cancelled)" in driver
+    assert "PollDisplay (now)" in driver
+    service = (_ADDON / "NativeCommands" / "SunStudyDisplayPreparation.cpp").read_text(encoding="utf-8")
+    assert "ReadDisplayRecord" in service
+    assert "MainThreadGate::Get ().Post ([request, generation]" in service
+    for guard in (
+        "generation == s_manualGeneration",
+        "request.revision",
+        "request.captureStamp",
+        "IsRunning ()",
+        "PublishInSession",
+    ):
+        assert guard in service
+    assert "CancelManualSunStudyDisplays" in show
+    assert "ShutdownManualSunStudyDisplays ()" in driver
+    for filename in ("SunStudy/SunStudyDisplayData.cpp", "ArchViz/SunStudyDisplayAssembler.cpp"):
+        pure = (_ADDON / filename).read_text(encoding="utf-8")
+        assert "ACAPI_" not in pure and "MainThreadGate" not in pure
+    cache = (_ADDON / "SunStudy" / "SunStudyDisplayData.cpp").read_text(encoding="utf-8")
+    assert "record.displayCache->resolvedSteps == progress.resolvedSteps" in cache
+    assert "LitStepCount (sample)" in cache  # no repeated full SunHours vector in scatter
+
+
+def test_compact_result_requests_skip_unrequested_sample_and_atlas_transfers():
+    source = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    result = source.split("class GetSunStudyResultsCommand", 1)[1].split("class CancelSunStudyCommand", 1)[0]
+    assert re.search(r"error,\s*wantPositions,\s*&progress\)", result)
+    assert "summaryOnly && (wantPositions || wantAtlas || wantSteps)" in result
+    assert "SunStudyStore::Get ().Summary" in result
+    schemas = re.findall(r'R"json\((.*?)\)json"', source.split('{ "GetSunStudyResults",', 1)[1], re.DOTALL)
+    request, response = map(json.loads, schemas[:2])
+    assert request["properties"]["summaryOnly"] == {"type": "boolean"}
+    for field in ("minHours", "meanHours", "maxHours", "daylightHours", "fullyLit", "fullyShaded"):
+        assert field in response["properties"]
+        assert f'os.Add ("{field}"' in result
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert '"preparationError":{"type":"string"}' in display
+    assert '"preparing":{"type":"boolean"}' in display
+
+
+def test_manual_publication_rechecks_sun_roles_and_capture_and_linearizes_record_cancellation():
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    publish = driver.split("bool PublishInSession", 1)[1].split("void Disable ()", 1)[0]
+    assert "IsMainThread ()" in publish
+    assert "ACAPI_GeoLocation_GetPlaceSets" in publish
+    assert "PlaceInputHash (place) != config.placeInputHash" in publish
+    assert "binding.generation != SelectionSetStore::Get ().Generation ()" in publish
+    assert "binding.revision != SelectionSetStore::Get ().Revision ()" in publish
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert "record->placeInputHash = sunstudysupport::PlaceInputHash (place)" in commands
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert "snapshot->captureStamp != 0 ? snapshot->captureStamp" in display
+    for filename in ("SunStudyDisplayPreparation.cpp", "SunStudyFollowerDriver.cpp"):
+        source = (_ADDON / "NativeCommands" / filename).read_text(encoding="utf-8")
+        assert "PublishDisplayRecord" in source

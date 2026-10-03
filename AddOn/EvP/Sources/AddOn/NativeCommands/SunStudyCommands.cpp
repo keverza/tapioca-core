@@ -54,17 +54,8 @@ using sunstudysupport::Text;
 using sunstudysupport::UnpackDoubles;
 using sunstudysupport::Utf8;
 
-// ⚠️ THE PROGRESS FIELDS ARE WRITTEN OUT IN EVERY COMMAND RATHER THAN THROUGH A
-// HELPER, AND THAT IS DELIBERATE. tools/schema_check.py reads the text of each
-// ExecuteNative to prove that every field the response schema REQUIRES is
-// actually added; a field contributed by a file-local helper is invisible to it,
-// so the gate would pass a command whose every call then fails validation at
-// runtime. That gate has already cost two live runs (see its header), and
-// hiding six fields from it to save four repetitions is a bad trade.
-//
-// ⚠️ BOTH FLAGS, ALWAYS, wherever they appear below. `converged` alone cannot
-// distinguish a finished study from one that had nothing to analyse -- both
-// report zero hours everywhere, and only `empty` separates them.
+// Keep required progress fields visible to schema_check.py in each command.
+// `empty` separates no analysis from a finished study with zero sunlight.
 
 // ---------------------------------------------------------------------------
 // Tapioca.StartSunStudy
@@ -108,9 +99,7 @@ class StartSunStudyCommand : public MainThreadCommand {
 
         // ---- which elements are MEASURED, and which only cast shadow ---------
         //
-        // Every element is one material to the analysis; the distinction that
-        // matters is its ROLE. See SunStudy/SunStudyRoles.hpp for the table --
-        // naming nothing reproduces the study as it was before roles existed.
+        // Element roles precede the optional per-face material filter.
         const auto& binding = captured->selectionBinding;
         const auto analysisPicked =
             binding.analysisSet.empty () ? ReadStringList (params, "analysisElements") : captured->analysisElements;
@@ -176,6 +165,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         auto record = std::make_unique<StudyRecord> ();
         record->backend = backend;
         record->series = captured->series;
+        record->placeInputHash = sunstudysupport::PlaceInputHash (place);
         record->timestepMinutes = timestep;
         record->year = year;
         record->month = month;
@@ -631,17 +621,25 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
         params.Get ("includeSteps", wantSteps);
         bool packed = false;
         params.Get ("packed", packed);
+        bool wantPositions = false, wantAtlas = false, summaryOnly = false;
+        params.Get ("includePositions", wantPositions);
+        params.Get ("includeAtlas", wantAtlas);
+        params.Get ("summaryOnly", summaryOnly);
+        if (summaryOnly && (wantPositions || wantAtlas || wantSteps))
+            return NativeCommandResult::Failure ("summaryOnly cannot request positions, atlas or step arrays");
 
         std::vector<double> hours;
         std::vector<double> positions;
         std::vector<double> normals;
         std::vector<uint8_t> stepBits;
         std::string error;
-        if (!SunStudyStore::Get ().Results (id, hours, positions, normals, wantSteps ? &stepBits : nullptr, error))
-            return NativeCommandResult::Failure (Text (error));
-
+        evp::sunstudy::SunStudyResultSummary summary;
         StudyProgress progress;
-        SunStudyStore::Get ().Progress (id, progress, error);
+        if (summaryOnly
+                ? !SunStudyStore::Get ().Summary (id, summary, error, &progress)
+                : !SunStudyStore::Get ().Results (id, hours, positions, normals, wantSteps ? &stepBits : nullptr, error,
+                                                  wantPositions, &progress))
+            return NativeCommandResult::Failure (Text (error));
 
         GS::Array<double> hoursArray;
         for (const double value : hours)
@@ -650,19 +648,27 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
         GS::ObjectState os;
         os.Add ("studyId", Text (id));
         os.Add ("hours", hoursArray);
-        os.Add ("count", (GS::Int32) hours.size ());
+        os.Add ("count", (GS::Int32) (summaryOnly ? summary.count : hours.size ()));
         os.Add ("resolvedSteps", (GS::Int32) progress.resolvedSteps);
         os.Add ("totalSteps", (GS::Int32) progress.totalSteps);
         os.Add ("sampleCount", (GS::Int32) progress.sampleCount);
         os.Add ("generation", (GS::Int32) progress.generation);
         os.Add ("converged", progress.converged);
         os.Add ("empty", progress.empty);
+        os.Add ("summaryOnly", summaryOnly);
+        if (summaryOnly) {
+            os.Add ("minHours", summary.minHours);
+            os.Add ("meanHours", summary.meanHours);
+            os.Add ("maxHours", summary.maxHours);
+            os.Add ("daylightHours", summary.daylightHours);
+            os.Add ("fullyLit", (GS::Int32) summary.fullyLit);
+            os.Add ("fullyShaded", (GS::Int32) summary.fullyShaded);
+            return os;
+        }
 
-        // ⚠️ POSITIONS ARE OPTIONAL AND OFF BY DEFAULT. They are three doubles
-        // per sample against one for the hours, so shipping them on every poll
-        // triples the wire cost of a value that never changes during a study.
-        bool wantPositions = false;
-        if (params.Get ("includePositions", wantPositions) && wantPositions) {
+        // Positions/normals are immutable and opt-in; do not even copy them for
+        // a consumer that only needs sunlight values.
+        if (wantPositions) {
             if (packed) {
                 os.Add ("positionsPacked", PackDoubles (positions));
                 os.Add ("normalsPacked", PackDoubles (normals));
@@ -673,11 +679,7 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
                     positionArray.Push (value);
                 os.Add ("positions", positionArray);
 
-                // ⚠️ NORMALS TRAVEL WITH POSITIONS, NEVER SEPARATELY. A consumer
-                // that has the points but not their orientation cannot reproduce
-                // the back-face cull, so it counts the sun striking the far side of
-                // every wall -- and then disagrees with this engine on exactly the
-                // samples the cull would have settled, which reads as a tracer bug.
+                // Normals travel with positions so clients reproduce back-face culling.
                 GS::Array<double> normalArray;
                 for (const double value : normals)
                     normalArray.Push (value);
@@ -685,18 +687,12 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
             }
         }
 
-        bool wantAtlas = false;
-        if (params.Get ("includeAtlas", wantAtlas) && wantAtlas) {
+        if (wantAtlas) {
             uint32_t atlasWidth = 0;
             uint32_t atlasHeight = 0;
             std::vector<float> image;
             std::string atlasError;
-            // ⚠️ WHICHEVER ATLAS THIS STUDY ACTUALLY HAS. The two are packed by
-            // different allocators, so a caller cannot be handed one while
-            // believing it has the other -- the picture would draw perfectly,
-            // with every surface reading a stranger's hours. `atlasDomain` says
-            // which arrived; a reader that ignores it is reading coordinates it
-            // cannot interpret.
+            // `atlasDomain` identifies the actual allocator, not the requested mode.
             const bool patchAtlas =
                 SunStudyStore::Get ().PatchAtlasImage (id, atlasWidth, atlasHeight, image, atlasError);
             if (patchAtlas || SunStudyStore::Get ().AtlasImage (id, atlasWidth, atlasHeight, image, atlasError)) {
@@ -710,9 +706,7 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
                 os.Add ("atlasPacked", Base64Encode (bytes));
             }
             else {
-                // ⚠️ REPORTED, NOT SILENT. A ground-plane study legitimately has
-                // no atlas; a caller that got an empty field with no reason
-                // would read it as "no sun anywhere".
+                // Ground-plane studies legitimately have no surface atlas.
                 os.Add ("atlasReason", Text (atlasError));
             }
         }
@@ -925,6 +919,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "includePositions":{"type":"boolean"},
                 "includeSteps":{"type":"boolean"},
                 "includeAtlas":{"type":"boolean"},
+                "summaryOnly":{"type":"boolean"},
                 "packed":{"type":"boolean"}
             },
             "additionalProperties":false
@@ -934,6 +929,13 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
             "properties":{
                 "studyId":{"type":"string"},
                 "hours":{"type":"array","items":{"type":"number"}},
+                "summaryOnly":{"type":"boolean"},
+                "minHours":{"type":"number"},
+                "meanHours":{"type":"number"},
+                "maxHours":{"type":"number"},
+                "daylightHours":{"type":"number"},
+                "fullyLit":{"type":"integer"},
+                "fullyShaded":{"type":"integer"},
                 "positions":{"type":"array","items":{"type":"number"}},
                 "normals":{"type":"array","items":{"type":"number"}},
                 "stepBits":{"type":"array","items":{"type":"integer"}},

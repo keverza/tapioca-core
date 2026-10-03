@@ -17,8 +17,8 @@
 //     reports diagnostics
 //
 // ⚠️ AND IT IMPLEMENTS NO ANALYSIS. It is an internal command client:
-// Snapshot/display use ExecuteNativeCommand. Preparation uses StartSunStudy's
-// shared capture/preparation seam, with the pure portion on a task worker. Slices
+// Snapshot uses ExecuteNativeCommand. Preparation/display use the manual verbs'
+// shared pure worker producers. Slices
 // use SunStudyAdvanceWorker over the SAME SunStudyStore::Advance as the public
 // advance command. There must stay ONE implementation of a sun study,
 // and a driver that copied StartSunStudy's sun gather, sampling, winding proof
@@ -38,6 +38,7 @@
 
 #include <cstdint>
 #include <string>
+#include <functional>
 #include <vector>
 
 namespace geomsrv {
@@ -70,7 +71,8 @@ struct ActiveSunStudyConfig {
     std::string preset;
     double glassThreshold = 0.4;
     bool analysisRestricted = false;
-    std::string backend = "gpu";
+    std::string backend = "cpu";
+    uint64_t placeInputHash = 0;
     // Display, carried so a rerun comes back looking the way the user left it --
     // a replacement that reverted to the hours ramp while they were reading a
     // `cell checker` would read as the diagnostic having been taken away.
@@ -117,6 +119,10 @@ struct FollowerStats {
 // THREAD via the gate if needed. A display begun before close cannot re-arm it.
 void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint64_t sessionGeneration);
 uint64_t SessionGeneration ();
+// Main-thread only: validate captured sun/role inputs and serialize enqueue with
+// Disable/teardown. The callback must not re-enter the follower or wait on host.
+bool PublishInSession (uint64_t sessionGeneration, const ActiveSunStudyConfig& config,
+                       const std::function<bool ()>& publish);
 
 // Disarm and cancel only the driver's replacement study, without joining the
 // worker or erasing the manually displayed cache. Advances drain cooperatively.
@@ -129,8 +135,8 @@ void Shutdown ();
 // it drives.
 //
 // Poll/submit preparation and calculation without waiting. Geometry/sun capture
-// and display assembly still require main-thread time. Known navigation defers
-// host capture, new slices and display; already-running pure work drains off-thread.
+// require main-thread time; display assembly is worker-side. Known navigation
+// defers host capture, new slices and display; pure work drains off-thread.
 void Tick ();
 
 FollowerStats State ();

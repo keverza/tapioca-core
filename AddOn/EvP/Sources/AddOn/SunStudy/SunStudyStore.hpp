@@ -35,6 +35,7 @@
 #include "SunStudy/SunStudySession.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
+#include "SunStudy/SunStudyResultSummary.hpp"
 
 #include <cstdint>
 #include <map>
@@ -46,12 +47,18 @@
 namespace evp::sunstudy {
 
 struct SunStudyOccluders;
+struct StudyDisplayData;
 
 // Everything one live study holds. Addressed only through the store.
 struct StudyRecord {
     std::string id;
     uint64_t storeRevision = 0; // assigned by Insert, never reused after Erase/Clear
     std::atomic<bool> cancelRequested { false };
+    mutable std::timed_mutex sessionMutex; // workers hold it; progress never does
+    mutable std::shared_ptr<const StudyDisplayData> displayCache;
+    mutable SunStudyResultSummary resultSummary;
+    mutable uint64_t summaryGeneration = UINT64_MAX;
+    mutable size_t summaryResolvedSteps = SIZE_MAX;
 
     // Owned copies; see the header note on why these are not borrowed.
     std::vector<double> positions;
@@ -97,6 +104,7 @@ struct StudyRecord {
     size_t reusedSamples = 0;
     bool defaultRayBounds = true;
     size_t sourceStepCount = 0;
+    uint64_t placeInputHash = 0; // zero only for independent/legacy producers
 
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the
     // whole backend decision rests on, kept where a live run can read it.
@@ -218,7 +226,21 @@ class SunStudyStore final {
     // viewer's single-instant and AM/PM modes read. One byte per (sample, step)
     // on the wire, so it is opt-in.
     bool Results (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
-                  std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error) const;
+                  std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error,
+                  bool includePositions = true, StudyProgress* progress = nullptr) const;
+    bool Summary (const std::string& id, SunStudyResultSummary& summary, std::string& error,
+                  StudyProgress* progress = nullptr) const;
+
+    // Worker-only lease: retain ownership and a stable session, then call outside
+    // the store lock. Erasure/cancellation and progress remain nonblocking.
+    bool ReadDisplayRecord (const std::string& id, uint64_t revision,
+                            const std::function<void (const StudyRecord&)>& read, std::string& error,
+                            const std::atomic<bool>* cancelled = nullptr) const;
+    bool DisplayInfo (const std::string& id, uint32_t& width, uint32_t& height, size_t& faces, double& daylightHours,
+                      uint64_t& revision, uint64_t& snapshotId, std::string& error) const;
+    // Linearize a ready packet with record cancellation/replacement. The short
+    // enqueue callback must not re-enter the store or wait on the host.
+    bool PublishDisplayRecord (const std::string& id, uint64_t revision, const std::function<void ()>& enqueue) const;
 
     // The hours as a texture image, `width * height` floats, with a negative
     // sentinel in every texel no sample landed on.

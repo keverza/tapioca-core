@@ -53,7 +53,7 @@ size_t SunStudyAtlasUpload::Bytes () const
         bytes += baseTexels->capacity () * sizeof (float);
     if (baseStepMasks != nullptr && baseStepMasks != stepMasks)
         bytes += baseStepMasks->capacity () * sizeof (uint32_t);
-    for (const SunStudyElementMap& element : elements)
+    for (const SunStudyElementMap& element : Elements ())
         bytes += sizeof (SunStudyElementMap) + element.Bytes ();
     return bytes;
 }

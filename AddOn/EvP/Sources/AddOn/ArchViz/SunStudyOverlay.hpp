@@ -115,6 +115,13 @@ struct SunStudyAtlasUpload {
     std::vector<evp::sunstudy::AtlasRegion> atlasRegions;
 
     std::vector<SunStudyElementMap> elements;
+    // Worker-prepared immutable maps; display-only changes share these too. The
+    // legacy vector remains for independent queue producers and offline fixtures.
+    std::shared_ptr<const std::vector<SunStudyElementMap>> sharedElements;
+    const std::vector<SunStudyElementMap>& Elements () const
+    {
+        return sharedElements != nullptr ? *sharedElements : elements;
+    }
 
     // The top of the tint ramp in hours. ⚠️ CARRIED, NOT DERIVED IN THE SHADER:
     // a per-pixel max is impossible, and normalising to the study's own maximum

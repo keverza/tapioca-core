@@ -8,6 +8,15 @@ namespace evp::sunstudy {
 
 namespace {
 
+SunStudyResultSummary SummarizeRecord (const StudyRecord& record)
+{
+    const auto& accumulator = record.session.Accumulator ();
+    const double quantum = record.series.HoursPerStep ();
+    return SummarizeSunHours (
+        accumulator.SampleCount (), record.series.DaylightHours (),
+        [&accumulator, quantum] (size_t sample) { return accumulator.LitStepCount (sample) * quantum; });
+}
+
 // The patch atlas image as the hours stand. Called with the store's lock HELD,
 // by both readers that serve it, so the whole-study image has one definition.
 std::vector<float> ScatterPatchImage (const StudyRecord& record)
@@ -180,6 +189,7 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
     const auto queued = std::chrono::steady_clock::now ();
     auto start = queued;
     bool succeeded = true;
+    std::unique_lock<std::timed_mutex> sessionLock (record->sessionMutex, std::defer_lock);
     try {
         std::unique_lock<std::timed_mutex> lane (executionMutex_, std::defer_lock);
         const auto isCancelled = [record, cancelled] () {
@@ -187,9 +197,16 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         };
         while (!isCancelled () && !lane.try_lock_for (std::chrono::milliseconds (10))) {
         }
+        while (lane.owns_lock () && !isCancelled () && !sessionLock.try_lock_for (std::chrono::milliseconds (10))) {
+        }
         start = std::chrono::steady_clock::now ();
-        if (lane.owns_lock () && !isCancelled () && record->traversal != nullptr)
+        if (lane.owns_lock () && sessionLock.owns_lock () && !isCancelled () && record->traversal != nullptr)
             advanced = record->session.Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel, isCancelled);
+        if (sessionLock.owns_lock () && record->session.Progress ().converged) {
+            record->resultSummary = SummarizeRecord (*record);
+            record->summaryGeneration = record->session.Progress ().generation;
+            record->summaryResolvedSteps = record->session.Progress ().resolvedSteps;
+        }
     }
     catch (const std::exception& exception) {
         error = "sun study '" + id + "' advance failed: " + exception.what ();
@@ -288,7 +305,8 @@ bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours,
 }
 
 bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
-                             std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error) const
+                             std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error,
+                             bool includePositions, StudyProgress* progress) const
 {
     std::lock_guard<std::mutex> lock (mutex_);
     const auto found = studies_.find (id);
@@ -300,9 +318,17 @@ bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, 
     if (!SessionReadable (id, error))
         return false;
     const StudyRecord& record = *found->second;
+    if (progress != nullptr)
+        *progress = progress_.at (id);
     hours = record.session.SunHours ();
-    positions = record.positions;
-    normals = record.normals;
+    if (includePositions) {
+        positions = record.positions;
+        normals = record.normals;
+    }
+    else {
+        positions.clear ();
+        normals.clear ();
+    }
 
     if (stepBits != nullptr) {
         const OcclusionAccumulator& accumulator = record.session.Accumulator ();
@@ -316,6 +342,95 @@ bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, 
                 (*stepBits)[sample * steps + step] = accumulator.Lit (sample, step) ? 1u : 0u;
         }
     }
+    return true;
+}
+
+bool SunStudyStore::Summary (const std::string& id, SunStudyResultSummary& summary, std::string& error,
+                             StudyProgress* returnedProgress) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end () || !SessionReadable (id, error)) {
+        if (found == studies_.end ())
+            error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    const auto& record = *found->second;
+    const auto progress = progress_.at (id);
+    if (returnedProgress != nullptr)
+        *returnedProgress = progress;
+    if (record.summaryGeneration != progress.generation || record.summaryResolvedSteps != progress.resolvedSteps) {
+        record.resultSummary = SummarizeRecord (record);
+        record.summaryGeneration = progress.generation;
+        record.summaryResolvedSteps = progress.resolvedSteps;
+    }
+    summary = record.resultSummary;
+    return true;
+}
+
+bool SunStudyStore::ReadDisplayRecord (const std::string& id, uint64_t revision,
+                                       const std::function<void (const StudyRecord&)>& read, std::string& error,
+                                       const std::atomic<bool>* cancelled) const
+{
+    std::shared_ptr<StudyRecord> record;
+    {
+        std::lock_guard<std::mutex> lock (mutex_);
+        const auto found = studies_.find (id);
+        if (found == studies_.end () || found->second->storeRevision != revision) {
+            error = "sun study display source changed";
+            return false;
+        }
+        record = found->second;
+    }
+    const auto stop = [&] { return record->cancelRequested.load () || (cancelled != nullptr && cancelled->load ()); };
+    std::unique_lock<std::timed_mutex> session (record->sessionMutex, std::defer_lock);
+    while (!stop () && !session.try_lock_for (std::chrono::milliseconds (10))) {
+    }
+    if (!session.owns_lock () || stop ()) {
+        error = "sun study display cancelled";
+        return false;
+    }
+    read (*record); // no store lock across atlas scatter, bit packing or map assembly
+    if (stop ()) {
+        error = "sun study display cancelled";
+        return false;
+    }
+    return true;
+}
+
+bool SunStudyStore::DisplayInfo (const std::string& id, uint32_t& width, uint32_t& height, size_t& faces,
+                                 double& daylightHours, uint64_t& revision, uint64_t& snapshotId,
+                                 std::string& error) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    const auto& record = *found->second;
+    width = record.IsPatchDomain () ? record.patchAtlas.Width () : record.atlas.width;
+    height = record.IsPatchDomain () ? record.patchAtlas.Height () : record.atlas.height;
+    faces = record.IsPatchDomain () ? record.patchGrid.patchOfTriangle.size () : record.atlas.tiles.size ();
+    daylightHours = record.series.DaylightHours ();
+    revision = record.storeRevision;
+    snapshotId = record.snapshotId;
+    if (width == 0 || height == 0 || (!record.IsPatchDomain () && !record.atlas.valid)) {
+        error = "sun study has no model-surface atlas";
+        return false;
+    }
+    return true;
+}
+
+bool SunStudyStore::PublishDisplayRecord (const std::string& id, uint64_t revision,
+                                          const std::function<void ()>& enqueue) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end () || found->second->storeRevision != revision ||
+        found->second->cancelRequested.load () || !enqueue)
+        return false;
+    enqueue ();
     return true;
 }
 
@@ -560,6 +675,7 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.elementRoles = source.elementRoles;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;
+    copyOfMetadata.placeInputHash = source.placeInputHash;
     copyOfMetadata.analysisMilliseconds = source.analysisMilliseconds;
     copyOfMetadata.admissionMilliseconds = source.admissionMilliseconds;
     copyOfMetadata.backend = source.backend;

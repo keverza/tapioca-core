@@ -12,6 +12,28 @@
 namespace geomsrv {
 namespace sunstudysupport {
 
+uint64_t PlaceInputHash (const API_PlaceInfo& place)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const auto mix = [&hash] (uint64_t value) {
+        for (int byte = 0; byte < 8; ++byte) {
+            hash ^= (value >> (byte * 8)) & 0xffull;
+            hash *= 1099511628211ull;
+        }
+    };
+    for (double value : { place.latitude, place.longitude, place.altitude, place.north }) {
+        if (value == 0.0)
+            value = 0.0; // normalize signed zero
+        uint64_t bits = 0;
+        static_assert (sizeof (bits) == sizeof (value));
+        std::memcpy (&bits, &value, sizeof (bits));
+        mix (bits);
+    }
+    mix (static_cast<uint64_t> (place.sumTime));
+    mix (static_cast<uint64_t> (place.timeZoneInMinutes));
+    return hash != 0 ? hash : 1u;
+}
+
 std::string Utf8 (const GS::UniString& text)
 {
     return std::string (text.ToCStr (0, MaxUSize, CC_UTF8).Get ());

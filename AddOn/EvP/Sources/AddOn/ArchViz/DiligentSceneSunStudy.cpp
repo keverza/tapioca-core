@@ -366,9 +366,9 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, Diligent::ID
     else {
         std::map<std::string, const SunStudyElementMap*> before, after;
         bool unique = true;
-        for (const auto& map : impl_->sunStudyPayload->elements)
+        for (const auto& map : impl_->sunStudyPayload->Elements ())
             unique = before.emplace (map.guid, &map).second && unique;
-        for (const auto& map : study->elements)
+        for (const auto& map : study->Elements ())
             unique = after.emplace (map.guid, &map).second && unique;
         for (auto& entry : impl_->elements) {
             const auto oldMap = before.find (entry.guid), newMap = after.find (entry.guid);
@@ -445,7 +445,7 @@ void DiligentScene::AttachSunStudy (Diligent::IRenderDevice* device)
     size_t refusedHash = 0;
     size_t refusedCount = 0;
     size_t absent = 0;
-    for (const SunStudyElementMap& map : study.elements) {
+    for (const SunStudyElementMap& map : study.Elements ()) {
         Entry* entry = impl_->Find (map.guid);
 
         // ⚠️ THE RULE IS NOT HERE. ClassifySunFaceBinding is pure and lives in
@@ -499,7 +499,7 @@ void DiligentScene::AttachSunStudy (Diligent::IRenderDevice* device)
             ++attached;
     }
 
-    impl_->sunElementsNamed = study.elements.size ();
+    impl_->sunElementsNamed = study.Elements ().size ();
     impl_->sunElementsAttached = attached;
     impl_->sunRefusedTriangleCount = refusedCount;
     impl_->sunRefusedTopologyHash = refusedHash;
@@ -514,10 +514,10 @@ void DiligentScene::AttachSunStudy (Diligent::IRenderDevice* device)
     // a reader looking for a model mismatch that is not there -- or, worse, lets
     // them wait for a bind that is never coming.
     impl_->sunRejection.clear ();
-    if (study.elements.empty ()) {
+    if (study.Elements ().empty ()) {
         impl_->sunRejection = "the study named no elements";
     }
-    else if (attached == 0 && absent == study.elements.size ()) {
+    else if (attached == 0 && absent == study.Elements ().size ()) {
         impl_->sunRejection = "none of the study's " + std::to_string (absent) +
                               " element(s) have reached the viewer yet - the tint appears when the extraction "
                               "that carries them finishes";
@@ -526,9 +526,9 @@ void DiligentScene::AttachSunStudy (Diligent::IRenderDevice* device)
         impl_->sunRejection = "no element accepted the study - the viewer holds a different extraction of this "
                               "model than the study measured";
     }
-    else if (attached < study.elements.size ()) {
-        impl_->sunRejection = std::to_string (study.elements.size () - attached) + " of " +
-                              std::to_string (study.elements.size ()) + " element(s) not tinted (" +
+    else if (attached < study.Elements ().size ()) {
+        impl_->sunRejection = std::to_string (study.Elements ().size () - attached) + " of " +
+                              std::to_string (study.Elements ().size ()) + " element(s) not tinted (" +
                               std::to_string (absent) + " not yet received, " +
                               std::to_string (refusedCount + refusedHash) + " refused)";
     }
@@ -552,7 +552,7 @@ void DiligentScene::AttachSunStudy (Diligent::IRenderDevice* device)
 
     ArchVizLog ("Diligent scene: sun study '" + impl_->sunStudyId + "' atlas " + std::to_string (impl_->sunAtlasWidth) +
                 "x" + std::to_string (impl_->sunAtlasHeight) + ", " + std::to_string (attached) + " of " +
-                std::to_string (study.elements.size ()) + " elements attached" +
+                std::to_string (study.Elements ().size ()) + " elements attached" +
                 (absent > 0 ? ", " + std::to_string (absent) + " not yet received" : "") +
                 (refusedHash > 0 ? ", " + std::to_string (refusedHash) +
                                        " refused (the viewer holds a different extraction of that element)"

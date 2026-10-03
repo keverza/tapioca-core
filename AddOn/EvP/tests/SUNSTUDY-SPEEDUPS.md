@@ -70,6 +70,74 @@ Analysis remains the model minus Context/Ignored, with Late filtering glass face
 - Offline tests cover reorder/removal/creation, ambiguous identities, growth,
   random exact reconstruction, shadow bits, stale bases and changed side mappings.
 
+## 5. Worker display assembly and compact results
+
+- Manual `ShowSunStudy` queues pure display work and returns `preparing=true` when
+  accepted; it no longer scatters hours, packs step bits or builds side maps on the
+  host thread. `SunStudyOverlayState` reports `preparing`, `pendingStudyId` and
+  `preparationError`; renderer attachment remains the final acknowledgement.
+- The follower uses the same producer on its task worker. Completion rechecks
+  session/run/record/snapshot identity before enqueue and only then accepts the
+  replacement. Hide, cancellation, edits and viewer teardown cannot resurrect it.
+- Manual publication also rechecks the original place inputs, live role binding
+  and model capture stamp. Enqueue is serialized with record cancellation, not a
+  revision read followed by an unguarded push. No worker calls the host SDK.
+- A worker-held session lease protects even partial-day display reads without
+  holding the store lock. Progress and cancellation remain nonblocking; no worker
+  waits on the host. Teardown joins workers only on quit/unload.
+- Immutable hours/step images and per-element maps are shared across display-only
+  changes. Cache keys include resolved steps as well as session generation, so a
+  partial day cannot masquerade as its later result. No sample arrays are copied
+  to construct display payloads.
+- `GetSunStudyResults(summaryOnly=true)` returns count/min/mean/max/daylight and
+  fully lit/shaded counts with an empty `hours` array, no sample/atlas transfers.
+  Conflicting bulk options refuse. Existing full results remain available for
+  accuracy comparisons; `includePositions=false` now also avoids native copies.
+- Offline tests compare both cached display domains to legacy images/every step
+  bit, exercise reuse/invalidation, stable ownership, cancelled leases and schemas.
+- The smoke client exposes the CPU/GPU choice (CPU default), requests compatible
+  shared capture, and reads a compact summary by default. `fresh_snapshot` retains
+  the host-capture baseline; `detailed_results` retains raw sample/atlas checks.
+  It waits on small overlay-state packets for renderer attachment, not for bulk
+  arrays. The fake wire exercises delayed preparation and hide-before-completion.
+
+## Final offline validation
+
+- **2,001 C++ tests passed**, including GPU parity, both atlas domains, selective
+  reuse, texture regions, worker/display leases and cancellation. Two existing
+  tests remain disabled. D3D tests used Microsoft Basic Render Driver, not the
+  live RTX 4070 Ti; these results are correctness evidence, not speed claims.
+- **104 focused Python tests passed** across seams, fake-wire behavior, strict
+  schemas/catalog generation, preset metadata, scanners and the private smoke
+  client. Full core pytest: **646 passed, 6 skipped, 2 pre-existing failures**.
+  The Dynamo template target assertion and preview mouse-routing source assertion
+  both reproduce at the pre-speedup commit `e41ed81`; no unrelated fix is included.
+- C++ architecture/formatting, Python quality/scanners, native schema checks,
+  structure and secret checks passed. The stale native catalog count is corrected
+  for the already-registered `PauseSunStudyFollowing` command.
+  The shared `dryrun_command.py` harness retains its same five baseline Ruff
+  findings (imports and two unrelated semicolon lines); it was not mass-formatted.
+- CPU/compact, GPU/Late/patch/compact, and fresh-capture/detailed smoke dry runs
+  each completed twice, with real input-schema validation and delayed display
+  preparation. They are fake-wire checks, not Archicad acceptance.
+- The final **RelWithDebInfo `EvPAddOn` build succeeded** after explicit CMake
+  regeneration. Output: `AddOn/EvP/build_29/EvP.apx`. It has not been deployed.
+- Evidence lives under `C:/Users/Dever/AppData/Local/Temp/opencode/`:
+  `sun-speedups-final-cpp-tests.log`, `sun-speedups-final-python-tests.log`,
+  `sun-speedups-smoke-*-dryrun.log`, and `sun-speedups-final-native-build.log`.
+
+## Commit sequence
+
+1. `9f0ba8c` — GPU packets/readback/exact CPU checks.
+2. `4383501` — shared calculation admission and explicit CPU/GPU choice.
+3. `5fc4fb8` — shared revision-compatible sliced capture.
+4. `80a4346` — stable atlas allocations and exact texture-region uploads.
+5. This commit — worker-side cached display and compact result summaries.
+
+The private smoke command/handoff and parent repository's core pointer are tracked
+in a separate integration commit because `core` is a Git submodule. No deployment,
+push, or live run is part of this offline implementation.
+
 ## Deferred live acceptance
 
 Compare `sun-gpu-step` CPU checks, GPU compute, wait, fallback reasons, and wall time
