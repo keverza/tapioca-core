@@ -54,6 +54,22 @@ Analysis remains the model minus Context/Ignored, with Late filtering glass face
 - Offline gates cover assembly, immutability, creation/deletion, missing revisions,
   material renumbering, partial/cancelled passes, ownership and native slicing seams.
 
+## 4. Persistent allocations and region-only GPU uploads
+
+- Replacement studies copy compatible patch allocation state. Triangle studies
+  use the same allocator with canonical GUID/local-face keys (ambiguous identities
+  fall back to baseline packing). Surviving tiles keep addresses; removals leave
+  holes, and growth explicitly rebuilds. No sunlight values are trusted from keys.
+- Exact changed row runs, including retired texels, are merged into rectangles for
+  hours and all step-bit layers. Fragmentation falls back to one plane update.
+- Renderer updates require the exact retained immutable image base, not just a
+  study name/dimension match. Missed commands, resize and viewer restart use the
+  carried full image. Unchanged side maps keep their GPU buffers.
+- Allocation happens before visible replacement; failed textures keep the previous
+  overlay. Applied base images are released, rather than kept for the viewer lifetime.
+- Offline tests cover reorder/removal/creation, ambiguous identities, growth,
+  random exact reconstruction, shadow bits, stale bases and changed side mappings.
+
 ## Deferred live acceptance
 
 Compare `sun-gpu-step` CPU checks, GPU compute, wait, fallback reasons, and wall time

@@ -26,10 +26,37 @@
 
 #include <algorithm>
 #include <cstring>
+#include <map>
 #include <string>
 
 namespace geomsrv {
 namespace archviz {
+
+namespace {
+template <typename T>
+uint64_t UploadSunRegions (Diligent::IDeviceContext* context, Diligent::ITexture* texture, uint32_t width,
+                           uint32_t height, const std::vector<T>& values,
+                           const std::vector<evp::sunstudy::AtlasRegion>& regions)
+{
+    uint64_t bytes = 0;
+    for (const auto& region : regions) {
+        Diligent::Box box;
+        box.MinX = region.x;
+        box.MinY = region.y;
+        box.MaxX = region.x + region.width;
+        box.MaxY = region.y + region.height;
+        Diligent::TextureSubResData data;
+        data.pData = &values[region.layer * static_cast<size_t> (width) * height +
+                             region.y * static_cast<size_t> (width) + region.x];
+        data.Stride = static_cast<Diligent::Uint64> (width) * sizeof (T);
+        context->UpdateTexture (texture, 0, region.layer, box, data,
+                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        bytes += static_cast<uint64_t> (region.width) * region.height * sizeof (T);
+    }
+    return bytes;
+}
+} // namespace
 
 bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                             uint32_t depthBufferFormat, std::string& error)
@@ -220,17 +247,11 @@ void DiligentScene::ClearSunStudy ()
     impl_->sunRejection.clear ();
 }
 
-void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_ptr<SunStudyAtlasUpload> study)
+void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                                   std::unique_ptr<SunStudyAtlasUpload> study)
 {
     if (impl_ == nullptr)
         return;
-
-    // ⚠️ THE PREVIOUS STUDY GOES FIRST, UNCONDITIONALLY. Whatever happens below,
-    // the resources that described the old atlas must not survive into a frame
-    // that binds the new one: a side buffer holding the OLD packing indexes the
-    // NEW texture with tiles that have moved, and every face then reads some
-    // other face's hours. Nothing about that looks like an error.
-    ClearSunStudy ();
 
     if (device == nullptr || study == nullptr)
         return;
@@ -240,12 +261,22 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
         return;
     }
     if (study->texels->size () != static_cast<size_t> (study->width) * study->height) {
-        impl_->sunStudyId = study->studyId;
         impl_->sunRejection = "the atlas image is " + std::to_string (study->texels->size ()) + " texels for a " +
                               std::to_string (study->width) + "x" + std::to_string (study->height) + " atlas";
         ArchVizLog ("Diligent scene: sun study '" + study->studyId + "' refused -- " + impl_->sunRejection);
         return;
     }
+
+    const bool incremental = context != nullptr && impl_->sunStudyPayload != nullptr &&
+                             impl_->sunAtlasTexture != nullptr &&
+                             CanApplySunAtlasRegions (*impl_->sunStudyPayload, *study);
+    const bool stepIncremental =
+        incremental && impl_->sunStepTexture != nullptr && CanApplySunStepRegions (*impl_->sunStudyPayload, *study);
+    Diligent::RefCntAutoPtr<Diligent::ITexture> atlasTexture, stepTexture;
+    if (incremental)
+        atlasTexture = impl_->sunAtlasTexture;
+    if (stepIncremental)
+        stepTexture = impl_->sunStepTexture;
 
     Diligent::TextureDesc desc;
     desc.Name = "ArchViz sun study atlas";
@@ -258,7 +289,7 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
     // turn "no sample here" into "nought hours" -- a shadow that is not there,
     // which is the one failure the whole atlas design is written against.
     desc.Format = Diligent::TEX_FORMAT_R32_FLOAT;
-    desc.Usage = Diligent::USAGE_IMMUTABLE;
+    desc.Usage = Diligent::USAGE_DEFAULT;
     desc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
 
     Diligent::TextureSubResData level;
@@ -269,34 +300,29 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
     data.NumSubresources = 1;
 
     const auto atlasStarted = std::chrono::steady_clock::now ();
-    device->CreateTexture (desc, &data, &impl_->sunAtlasTexture);
-    ArchVizLog (
-        "pipeline: stage=sun-atlas-upload study=" + study->studyId +
-        " payloadBytes=" + std::to_string (study->texels->size () * sizeof (float)) + " apiMs=" +
-        std::to_string (
-            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - atlasStarted).count ()));
-    if (impl_->sunAtlasTexture == nullptr) {
-        impl_->sunStudyId = study->studyId;
+    if (!incremental)
+        device->CreateTexture (desc, &data, &atlasTexture);
+    if (atlasTexture == nullptr) {
         impl_->sunRejection = "the " + std::to_string (study->width) + "x" + std::to_string (study->height) +
                               " R32_FLOAT atlas texture could not be created";
         ArchVizLog ("Diligent scene: sun study '" + study->studyId + "' refused -- " + impl_->sunRejection);
         return;
     }
-    ++impl_->sunAtlasUploads;
-    impl_->sunAtlasBytesUploaded += static_cast<uint64_t> (study->texels->size ()) * sizeof (float);
-    impl_->sunAtlasSRV = impl_->sunAtlasTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    const double atlasCreateMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - atlasStarted).count ();
 
     // ---- the per-step bits, for the shadow views ------------------------------
     //
     // ⚠️ ALWAYS A TEXTURE, EVEN WITHOUT BITS. The pipeline binds g_sunSteps on
     // every draw; a study that carried none gets one zeroed slice, and
     // `sunStepCount` stays 0 so the HUD does not offer views with no day in them.
-    {
-        const uint32_t words = study->stepWords > 0 ? study->stepWords : 1u;
-        const size_t plane = static_cast<size_t> (study->width) * study->height;
+    const auto stepsStarted = std::chrono::steady_clock::now ();
+    const uint32_t words = study->stepWords > 0 ? study->stepWords : 1u;
+    const size_t plane = static_cast<size_t> (study->width) * study->height;
+    const bool carried = study->stepMasks != nullptr && study->stepMasks->size () == plane * words;
+    if (!stepIncremental) {
         std::vector<uint32_t> zeros;
         const uint32_t* bits = nullptr;
-        const bool carried = study->stepMasks != nullptr && study->stepMasks->size () == plane * words;
         if (carried)
             bits = study->stepMasks->data ();
         else {
@@ -313,7 +339,7 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
         // ⚠️ R32_UINT, READ WITH Load. Bits are not a filterable quantity, and a
         // sampler in front of them would blend two surfaces' days into neither.
         stepDesc.Format = Diligent::TEX_FORMAT_R32_UINT;
-        stepDesc.Usage = Diligent::USAGE_IMMUTABLE;
+        stepDesc.Usage = Diligent::USAGE_DEFAULT;
         stepDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
         std::vector<Diligent::TextureSubResData> slices (words);
         for (uint32_t word = 0; word < words; ++word) {
@@ -323,23 +349,70 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
         Diligent::TextureData stepData;
         stepData.pSubResources = slices.data ();
         stepData.NumSubresources = words;
-        const auto stepsStarted = std::chrono::steady_clock::now ();
-        device->CreateTexture (stepDesc, &stepData, &impl_->sunStepTexture);
-        ArchVizLog (
-            "pipeline: stage=sun-steps-upload study=" + study->studyId +
-            " payloadBytes=" + std::to_string (plane * words * sizeof (uint32_t)) + " apiMs=" +
-            std::to_string (
-                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - stepsStarted).count ()));
-        if (impl_->sunStepTexture != nullptr) {
-            impl_->sunStepSRV = impl_->sunStepTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-            impl_->sunStepCount = carried ? study->stepCount : 0u;
-            impl_->sunNoonStep = study->noonStep;
-            impl_->sunStepMinutes = study->stepMinutes;
-        }
-        else {
-            ArchVizLog ("Diligent scene: sun study step-bit texture could not be created -- shadow views off");
+        device->CreateTexture (stepDesc, &stepData, &stepTexture);
+    }
+    if (stepTexture == nullptr) {
+        impl_->sunRejection = "the step-bit texture could not be created; retaining previous overlay";
+        ArchVizLog ("Diligent scene: sun study refused -- " + impl_->sunRejection);
+        return;
+    }
+    const double stepsCreateMs =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - stepsStarted).count ();
+
+    // Allocation must succeed before changing the visible payload or bindings.
+    // Region updates and publication occur together on the render thread.
+    if (!incremental)
+        ClearSunStudy ();
+    else {
+        std::map<std::string, const SunStudyElementMap*> before, after;
+        bool unique = true;
+        for (const auto& map : impl_->sunStudyPayload->elements)
+            unique = before.emplace (map.guid, &map).second && unique;
+        for (const auto& map : study->elements)
+            unique = after.emplace (map.guid, &map).second && unique;
+        for (auto& entry : impl_->elements) {
+            const auto oldMap = before.find (entry.guid), newMap = after.find (entry.guid);
+            if (!unique || oldMap == before.end () || newMap == after.end () ||
+                !SameSunStudyElementMap (*oldMap->second, *newMap->second))
+                entry.sunFaceBuffer.Release ();
         }
     }
+    const auto atlasUpdateStarted = std::chrono::steady_clock::now ();
+    const uint64_t atlasBytes = incremental ? UploadSunRegions (context, atlasTexture, study->width, study->height,
+                                                                *study->texels, study->atlasRegions)
+                                            : study->texels->size () * sizeof (float);
+    ArchVizLog ("pipeline: stage=sun-atlas-upload study=" + study->studyId +
+                " payloadBytes=" + std::to_string (atlasBytes) + " partial=" + std::to_string (incremental) +
+                " regions=" + std::to_string (study->atlasRegions.size ()) + " apiMs=" +
+                std::to_string (atlasCreateMs + std::chrono::duration<double, std::milli> (
+                                                    std::chrono::steady_clock::now () - atlasUpdateStarted)
+                                                    .count ()));
+    const auto stepUpdateStarted = std::chrono::steady_clock::now ();
+    const uint64_t stepBytes = stepIncremental ? UploadSunRegions (context, stepTexture, study->width, study->height,
+                                                                   *study->stepMasks, study->stepRegions)
+                                               : plane * words * sizeof (uint32_t);
+    ArchVizLog ("pipeline: stage=sun-steps-upload study=" + study->studyId +
+                " payloadBytes=" + std::to_string (stepBytes) + " partial=" + std::to_string (stepIncremental) +
+                " regions=" + std::to_string (study->stepRegions.size ()) + " apiMs=" +
+                std::to_string (stepsCreateMs + std::chrono::duration<double, std::milli> (
+                                                    std::chrono::steady_clock::now () - stepUpdateStarted)
+                                                    .count ()));
+    impl_->sunAtlasTexture = std::move (atlasTexture);
+    impl_->sunStepTexture = std::move (stepTexture);
+    if (atlasBytes > 0)
+        ++impl_->sunAtlasUploads;
+    impl_->sunAtlasBytesUploaded += atlasBytes;
+    impl_->sunAtlasSRV = impl_->sunAtlasTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    impl_->sunStepSRV = impl_->sunStepTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    impl_->sunStepCount = carried ? study->stepCount : 0u;
+    impl_->sunNoonStep = study->noonStep;
+    impl_->sunStepMinutes = study->stepMinutes;
+    impl_->sunRejection.clear ();
+    // Once applied, the renderer only needs the current content, not its base.
+    study->baseTexels.reset ();
+    study->baseStepMasks.reset ();
+    study->atlasRegions.clear ();
+    study->stepRegions.clear ();
 
     impl_->sunStudyId = study->studyId;
     impl_->sunStudyVersion = study->version;

@@ -161,6 +161,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPreset.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlasReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
@@ -715,6 +716,7 @@ set (EVP_TEST_SOURCES
     test_sunstudygputraversal.cpp
     test_sunstudysession.cpp
     test_sunstudystore.cpp
+    test_sunstudytextureupdates.cpp
     test_sunstudystore_concurrency.cpp
     test_sunstudyadvanceworker.cpp
     test_sunstudytaskworker.cpp

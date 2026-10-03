@@ -381,3 +381,19 @@ def test_viewer_and_follower_share_only_complete_revision_guarded_sliced_capture
     assert '"reuseShared":{"type":"boolean"}' in commands
     assembly = (_ADDON / "Geometry" / "SnapshotAssembly.cpp").read_text(encoding="utf-8")
     assert "ACAPI_" not in assembly and "MainThreadGate" not in assembly
+
+
+def test_replacements_reuse_allocations_and_renderer_uploads_exact_base_regions_with_full_fallback():
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert "record->patchAtlas = reuseSource->patchAtlas" in commands
+    assert "BuildStableTriangleAtlas" in commands
+    render = (_ADDON / "ArchViz" / "DiligentSceneSunStudy.cpp").read_text(encoding="utf-8")
+    assert "CanApplySunAtlasRegions (*impl_->sunStudyPayload, *study)" in render
+    assert "CanApplySunStepRegions (*impl_->sunStudyPayload, *study)" in render
+    assert "context->UpdateTexture (texture, 0, region.layer" in render
+    assert "device->CreateTexture (desc, &data, &atlasTexture)" in render
+    assert render.index("device->CreateTexture (stepDesc") < render.index(
+        "ClearSunStudy ();", render.index("void DiligentScene::ApplySunStudy")
+    )
+    assert "SameSunStudyElementMap" in render
+    assert "study->baseTexels.reset ()" in render

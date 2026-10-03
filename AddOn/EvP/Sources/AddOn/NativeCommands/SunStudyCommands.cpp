@@ -14,6 +14,7 @@
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
+#include "SunStudy/SunStudyAtlasReuse.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
@@ -316,12 +317,10 @@ class StartSunStudyCommand : public MainThreadCommand {
                 // faces too small to carry a lattice. Same meaning, same remedy.
                 undersizedFaces = patches.centroidPatches;
 
-                // ⚠️ FITTED ONCE, HERE, AND KEPT FOR THE STUDY'S LIFETIME. Every
-                // later update re-fits THIS atlas, which is what keeps an
-                // untouched surface's rectangle where it was. A fresh atlas per
-                // read would repack and invalidate every texture coordinate
-                // already handed out -- and the result draws perfectly, in
-                // somebody else's colours.
+                // Fit a copy of the compatible immutable source's allocations.
+                if (reuseSource != nullptr && reuseSource->IsPatchDomain () && reuseSource->gridSpacing == spacing &&
+                    reuseSource->patchAtlas.Width () <= limits.maxAtlasDimension)
+                    record->patchAtlas = reuseSource->patchAtlas;
                 record->patchAtlas.Fit (patches, 1, limits.maxAtlasDimension);
                 trace.Mark ("atlas", record->patchAtlas.TexelCount () * sizeof (float));
                 if (record->patchAtlas.Width () == 0) {
@@ -348,11 +347,11 @@ class StartSunStudyCommand : public MainThreadCommand {
                 degenerateFaces = samples.degenerateFaces;
                 excludedSurfaces = samples.excludedFaces;
 
-                // ⚠️ BUILT ONCE, HERE, BESIDE THE SAMPLES IT DESCRIBES. The packing
-                // is a pure function of the sample grid, so rebuilding it per read
-                // would produce a different arrangement and silently invalidate
-                // every texture coordinate already handed to a consumer.
-                record->atlas = evp::sunstudy::BuildSunStudyAtlas (samples);
+                record->atlas = evp::sunstudy::BuildStableTriangleAtlas (
+                    samples, *snapshot, record->triangleAllocations,
+                    reuseSource != nullptr && !reuseSource->IsPatchDomain () && reuseSource->gridSpacing == spacing
+                        ? &reuseSource->triangleAllocations
+                        : nullptr);
                 trace.Mark ("atlas", record->atlas.width * static_cast<size_t> (record->atlas.height) * sizeof (float));
                 atlasWidth = record->atlas.width;
                 atlasHeight = record->atlas.height;

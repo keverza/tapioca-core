@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace geomsrv {
 namespace archviz {
@@ -9,6 +10,33 @@ namespace archviz {
 size_t SunStudyElementMap::Bytes () const
 {
     return guid.capacity () + faces.capacity () * sizeof (SunFaceMap);
+}
+
+bool SameSunStudyElementMap (const SunStudyElementMap& a, const SunStudyElementMap& b)
+{
+    return a.guid == b.guid && a.topologyHash == b.topologyHash && a.faces.size () == b.faces.size () &&
+           (a.faces.empty () ||
+            std::memcmp (a.faces.data (), b.faces.data (), a.faces.size () * sizeof (SunFaceMap)) == 0);
+}
+
+bool CanApplySunAtlasRegions (const SunStudyAtlasUpload& previous, const SunStudyAtlasUpload& update)
+{
+    const size_t plane = static_cast<size_t> (update.width) * update.height;
+    return update.width == previous.width && update.height == previous.height && plane > 0 &&
+           update.baseTexels != nullptr && update.baseTexels == previous.texels && update.texels != nullptr &&
+           update.baseTexels->size () == plane && update.texels->size () == plane &&
+           evp::sunstudy::AtlasRegionsValid (update.atlasRegions, update.width, update.height, 1);
+}
+
+bool CanApplySunStepRegions (const SunStudyAtlasUpload& previous, const SunStudyAtlasUpload& update)
+{
+    const size_t plane = static_cast<size_t> (update.width) * update.height;
+    return update.width == previous.width && update.height == previous.height && plane > 0 && update.stepWords > 0 &&
+           update.stepWords == previous.stepWords && update.baseStepMasks != nullptr &&
+           update.baseStepMasks == previous.stepMasks && update.stepMasks != nullptr &&
+           update.baseStepMasks->size () == plane * update.stepWords &&
+           update.stepMasks->size () == plane * update.stepWords &&
+           evp::sunstudy::AtlasRegionsValid (update.stepRegions, update.width, update.height, update.stepWords);
 }
 
 size_t SunStudyAtlasUpload::Bytes () const
@@ -19,6 +47,12 @@ size_t SunStudyAtlasUpload::Bytes () const
     // atlas because a second owner exists is the opposite of what it is for.
     if (texels != nullptr)
         bytes += texels->capacity () * sizeof (float);
+    if (stepMasks != nullptr)
+        bytes += stepMasks->capacity () * sizeof (uint32_t);
+    if (baseTexels != nullptr && baseTexels != texels)
+        bytes += baseTexels->capacity () * sizeof (float);
+    if (baseStepMasks != nullptr && baseStepMasks != stepMasks)
+        bytes += baseStepMasks->capacity () * sizeof (uint32_t);
     for (const SunStudyElementMap& element : elements)
         bytes += sizeof (SunStudyElementMap) + element.Bytes ();
     return bytes;

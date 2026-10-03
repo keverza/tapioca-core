@@ -109,6 +109,7 @@ struct StudyRecord {
     // them: rebuilding it per read would repack the atlas and invalidate every
     // texture coordinate a consumer had already been handed.
     SunStudyAtlas atlas;
+    SunStudyPatchAtlas triangleAllocations;
     SampleGrid sampleGrid;
     SurfaceSamplingLayout samplingLayout;
 

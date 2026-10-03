@@ -20,6 +20,7 @@
 #include "SunStudy/SunStudyStore.hpp"
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,37 @@ namespace geomsrv {
 namespace {
 
 using evp::sunstudy::SunStudyStore;
+
+// Weak history owns no extra atlas after viewer/queue teardown. Scan content on
+// the producer, never giant images on the render thread.
+std::mutex s_textureHistoryMutex;
+std::weak_ptr<const std::vector<float>> s_previousTexels;
+std::weak_ptr<const std::vector<uint32_t>> s_previousSteps;
+uint32_t s_previousWidth = 0, s_previousHeight = 0, s_previousWords = 0;
+
+void PrepareTextureDeltas (archviz::SunStudyAtlasUpload& upload)
+{
+    std::lock_guard<std::mutex> lock (s_textureHistoryMutex);
+    if (upload.width == s_previousWidth && upload.height == s_previousHeight) {
+        if (auto base = s_previousTexels.lock (); base != nullptr && base->size () == upload.texels->size ()) {
+            upload.baseTexels = std::move (base);
+            upload.atlasRegions =
+                evp::sunstudy::AtlasChangedRegions (upload.width, upload.height, 1, *upload.baseTexels, *upload.texels);
+        }
+        if (upload.stepWords == s_previousWords && upload.stepMasks != nullptr) {
+            if (auto base = s_previousSteps.lock (); base != nullptr && base->size () == upload.stepMasks->size ()) {
+                upload.baseStepMasks = std::move (base);
+                upload.stepRegions = evp::sunstudy::AtlasChangedRegions (upload.width, upload.height, upload.stepWords,
+                                                                         *upload.baseStepMasks, *upload.stepMasks);
+            }
+        }
+    }
+    s_previousTexels = upload.texels;
+    s_previousSteps = upload.stepMasks;
+    s_previousWidth = upload.width;
+    s_previousHeight = upload.height;
+    s_previousWords = upload.stepWords;
+}
 
 std::string Utf8 (const GS::UniString& text)
 {
@@ -288,6 +320,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     const double displayMs =
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - displayStarted).count ();
     archviz::LogSunStudyDisplay (*upload, snapshot->id, displayMs);
+    PrepareTextureDeltas (*upload);
     archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (upload));
 
     // ---- arm the follower, but only for a study a PERSON asked to see -------
