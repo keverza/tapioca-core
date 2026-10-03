@@ -2,6 +2,7 @@
 
 #include "ArchViz/OverlayHud.hpp"
 
+#include "ArchViz/HudClip.hpp"
 #include "ArchViz/ImGuiContextLock.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
@@ -564,6 +565,7 @@ void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
     const ImDrawData* data = ImGui::GetDrawData ();
     if (data == nullptr)
         return;
+    std::vector<hudclip::Corner> cut;
     for (const ImDrawList* list : data->CmdLists) {
         const int panel = PanelOf (list);
         Built& into = panel < 0                              ? out.overlay
@@ -580,11 +582,20 @@ void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
                 ++unsampled;
                 continue;
             }
-            for (unsigned int e = 0; e < command.ElemCount; ++e) {
+            // ⚠️ CUT TO THE COMMAND'S RECTANGLE, as the scissor a renderer of ImGui's would set
+            // (HudClip.hpp): a scrolled page's rows past its edges are not drawn.
+            const hudclip::Rect clip { command.ClipRect.x, command.ClipRect.y, command.ClipRect.z, command.ClipRect.w };
+            const auto corner = [&] (unsigned int e) {
                 const ImDrawVert& v =
                     list->VtxBuffer[int (command.VtxOffset + list->IdxBuffer[int (command.IdxOffset + e)])];
-                into.vertices.push_back (
-                    { v.pos.x - origin.x, v.pos.y - origin.y, v.uv.x, v.uv.y, Unpacked (v.col), uint32_t (slot) });
+                return hudclip::Corner { v.pos.x, v.pos.y, v.uv.x, v.uv.y, v.col };
+            };
+            for (unsigned int e = 0; e + 2 < command.ElemCount; e += 3) {
+                cut.clear ();
+                hudclip::Clip (corner (e), corner (e + 1), corner (e + 2), clip, cut);
+                for (const hudclip::Corner& c : cut)
+                    into.vertices.push_back (
+                        { c.x - origin.x, c.y - origin.y, c.u, c.v, Unpacked (c.col), uint32_t (slot) });
             }
         }
     }

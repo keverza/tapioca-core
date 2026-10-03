@@ -487,6 +487,8 @@ set (EVP_ARCHVIZ_SOURCES
     # font atlas, the same library the add-on links (TapiocaImGui below). Every HUD's
     # look, dock and floating panel are HudShell's.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
+    # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
     # The Selection page's Tapioca metadata: the schema's fields, their controls, an edit.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMetadata.cpp"
     # The building section: the massing slabs' floors picked and given their usage.
@@ -685,6 +687,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudwidgets.cpp
     test_overlayhudown.cpp
     test_hudshell.cpp
+    test_hudclip.cpp
     test_hudmetadata.cpp
     test_hudsection.cpp
     test_tapiocametadata.cpp
