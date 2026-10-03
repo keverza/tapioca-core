@@ -251,8 +251,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // does nothing" looks identical either way.
             std::string pickError;
             if (!offscreen && !pick.Init (device, pickError))
-                ArchVizLog ("Diligent viewport: picking is unavailable (" + pickError +
-                            "); the viewport runs without it");
+                ViewerWarning ("Diligent viewport: picking is unavailable (" + pickError +
+                               "); the viewport runs without it");
             {
                 std::lock_guard<std::mutex> lock (mutex_);
                 stats_.pickAvailable = pick.IsReady ();
@@ -270,12 +270,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             std::string hudError;
             if (!offscreen && !hud.Init (device, target.ColorFormat (), target.DepthFormat (), hudError))
-                ArchVizLog ("Diligent viewport: the ImGui HUD did not start (" + hudError +
-                            "); the viewport runs without it");
+                ViewerWarning ("Diligent viewport: the ImGui HUD did not start (" + hudError +
+                               "); the viewport runs without it");
             std::string textError;
             if (!textLayer.Init (device, target.ColorFormat (), textError))
-                ArchVizLog ("Diligent viewport: the scene-text layer did not start (" + textError +
-                            "); the viewport runs without retained labels");
+                ViewerWarning ("Diligent viewport: the scene-text layer did not start (" + textError +
+                               "); the viewport runs without retained labels");
             hudState.debugView = debugView_.load ();
             hudState.renderMode = renderMode_.load ();
             hudState.showCallout = showCallout_.load ();
@@ -1045,7 +1045,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         }
         if (activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ())
             activeCaptureId_.store (0);
-        ArchVizLog ("Diligent viewport FAILED: " + stats_.error);
+        ViewerFailed ("Diligent viewport FAILED: " + stats_.error);
     }
     catch (...) {
         releaseEverything ();
@@ -1058,7 +1058,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         }
         if (activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ())
             activeCaptureId_.store (0);
-        ArchVizLog ("Diligent viewport FAILED: " + stats_.error);
+        ViewerFailed ("Diligent viewport FAILED: " + stats_.error);
     }
 
     if (offscreen)

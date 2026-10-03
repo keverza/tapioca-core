@@ -6,6 +6,7 @@
 #include "ArchViz/SelectionMetadata.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/SectionModel.hpp"
 #include "ArchViz/TextPrompt.hpp"
@@ -73,6 +74,7 @@ int64_t NowMs ()
 void Fail (const std::string& error)
 {
     ArchVizLog ("METADATA     " + error);
+    hudconsole::Error ("Metadata", error); // before the lock: the console's listener posts here
     std::lock_guard<std::mutex> lock (g_mutex);
     g_lastError = error;
 }
@@ -316,16 +318,16 @@ hudmeta::Page PageOf (const std::string& guid)
     return hudmeta::Page {};
 }
 
-void Later (std::function<void ()> work)
+bool Later (std::function<void ()> work)
 {
     const HWND window = g_window.load (std::memory_order_acquire);
     if (window == nullptr || !work)
-        return;
+        return false;
     {
         std::lock_guard<std::mutex> lock (g_mutex);
         g_later.push_back (std::move (work));
     }
-    ::PostMessageW (window, kLaterMessage, 0, 0);
+    return ::PostMessageW (window, kLaterMessage, 0, 0) != FALSE;
 }
 
 void Changed ()
@@ -353,8 +355,10 @@ void Arm ()
     const HWND window = g_classRegistered ? ::CreateWindowExW (0, kClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
                                                                instance, nullptr)
                                           : nullptr;
-    if (window == nullptr)
+    if (window == nullptr) {
         ArchVizLog ("METADATA     the editor's window could not be made: the HUD's metadata edits will not be written");
+        hudconsole::Error ("Metadata", "the HUD's edits will not be written: the editor's window could not be made");
+    }
     g_window.store (window, std::memory_order_release);
 }
 

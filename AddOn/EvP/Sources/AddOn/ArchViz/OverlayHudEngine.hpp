@@ -85,6 +85,10 @@ struct State {
     std::vector<hudmeta::Edit> metadataEdits;
     // The building section's floors picked (PickedFloors), both views'.
     hudsection::Run floors;
+    // The console's marks (HudConsole.hpp `Draw`): the newest entry the Debug tab has shown, and
+    // the newest its Clear hid. Both views'.
+    uint64_t consoleSeen = 0;
+    uint64_t consoleCleared = 0;
 };
 
 struct Engine::Impl {

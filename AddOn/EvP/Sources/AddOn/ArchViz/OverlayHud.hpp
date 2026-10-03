@@ -61,6 +61,7 @@
 //
 // MAIN THREAD. Pure apart from ImGui, so tests/cpp builds it with the vendored imgui.
 
+#include "ArchViz/HudConsole.hpp"
 #include "ArchViz/HudMetadata.hpp"
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
@@ -224,6 +225,9 @@ struct OwnPages {
     hudmeta::Page metadata;
     hudsection::Section section;
     std::vector<hudshell::Card> debug;
+    // What the Debug tab's console says (HudConsole.hpp), oldest first: the tab's title counts the
+    // errors and warnings the HUD has not shown yet.
+    std::vector<hudconsole::Entry> console;
     // ⚠️ THE DOCK IS A SWITCH BETWEEN THE OVERLAY AND THE SEPARATE VIEWER (the user, 2026-10-03):
     // the overlay's circle at its top -- its state; filled while the overlay is shown, and
     // pressed it shows or hides it -- and the viewer's at its bottom, pressed to switch to it

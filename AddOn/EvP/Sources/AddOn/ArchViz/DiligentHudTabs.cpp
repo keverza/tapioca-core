@@ -7,6 +7,7 @@
 #include "ArchViz/DiligentHudNames.hpp"
 #include "ArchViz/DiligentHudSections.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/HudConsole.hpp"
 #include "ArchViz/HudMetadata.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
 #include "ArchViz/SectionModel.hpp"
@@ -143,10 +144,13 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
     DrawSunStudyHudSection (state, scene);
 }
 
-void DebugPage (HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width, uint32_t height,
-                float ui)
+void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width,
+                uint32_t height, float ui)
 {
     const overlaylayers::Panel& look = hudshell::PlainLook ();
+    // ⚠️ THE CONSOLE FIRST (the user, 2026-10-03: what to check when something is failing): the
+    // whole process's, the overlays' failures with the viewer's -- read here on the render thread.
+    hudconsole::Draw (hudconsole::Entries (), look, shell.consoleSeen, shell.consoleCleared);
     // ⚠️ THE COMBO'S INDEX IS THE ENUM VALUE (DiligentHudNames.hpp): a reordering is a static_assert.
     ImGui::SetNextItemWidth (-FLT_MIN);
     ImGui::Combo ("##debugview", &state.debugView, kDebugViewNames, kDebugViewCount);

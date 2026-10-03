@@ -24,6 +24,7 @@
 #include "Metadata/MetadataExtractor.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -375,6 +376,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.selection = Selection ();
     pages.metadata = g_metadata;
     pages.section = g_section.section;
+    pages.console = hudconsole::Entries (); // the Debug tab's console: what to check when something fails
     return pages;
 }
 
@@ -419,6 +421,34 @@ void Forget ()
     g_presentsPlan = Rate {};
     g_drawnPlan = Rate {};
     g_prelockDrawn = Rate {};
+}
+
+void WakeOnConsole (bool on)
+{
+    if (!on) {
+        hudconsole::SetListener ({});
+        return;
+    }
+    hudconsole::SetListener ([] () {
+        // One layout for a burst: the next entry posts again only once this one has run, and
+        // not twice in half a second -- an entry said by a layout must not lay the HUD out again
+        // and again with every new number in it.
+        static std::atomic<bool> pending { false };
+        static std::atomic<int64_t> lastMs { 0 };
+        const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds> (
+                                std::chrono::steady_clock::now ().time_since_epoch ())
+                                .count ();
+        if (now - lastMs.load () < 500 || pending.exchange (true))
+            return;
+        lastMs = now;
+        const bool posted = selectionmetadata::Later ([] () {
+            pending = false;
+            overlayinput::RequestLayout (overlayinput::View::ThreeD);
+            overlayinput::RequestLayout (overlayinput::View::Plan);
+        });
+        if (!posted)
+            pending = false; // no window (unloading): nothing to wake, and no burst held shut
+    });
 }
 
 } // namespace overlayhudmodel

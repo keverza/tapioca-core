@@ -6,6 +6,7 @@
 #include "ArchViz/OverlayInput.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 
 #include <commctrl.h>
 
@@ -749,10 +750,13 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
     if (g_mouseHook == nullptr) {
         g_mouseHook = ::SetWindowsHookExW (WH_MOUSE, &MouseProc, nullptr, ::GetCurrentThreadId ());
         g_passed = Passed ();
-        if (g_mouseHook == nullptr)
-            ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_MOUSE) failed with GetLastError " +
-                        std::to_string (::GetLastError ()) +
+        if (g_mouseHook == nullptr) {
+            const DWORD code = ::GetLastError ();
+            ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_MOUSE) failed with GetLastError " + std::to_string (code) +
                         ": the message hook decides the buttons, after Windows has told the canvas's parent");
+            hudconsole::Warning ("HUD", "a click on the HUD may reach Archicad too: its mouse hook was refused (" +
+                                            std::to_string (code) + ")");
+        }
     }
     if (moved) {
         g_router.Reset ();

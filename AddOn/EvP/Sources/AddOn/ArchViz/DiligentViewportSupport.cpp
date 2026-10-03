@@ -11,6 +11,7 @@
 #include "ArchViz/NavLog.hpp" // the presented-frame half of the desync measurement
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
+#include "ArchViz/HudConsole.hpp" // ViewerWarning, ViewerFailed
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/DiligentScene.hpp"
@@ -169,6 +170,29 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
                 request.motionViewProj, request.eye, request.jitter, CullMode::Cw, request.debugView,
                 Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex);
     scene.AdvanceFrame (request.motionViewProj);
+}
+
+namespace {
+
+// The log line without its "Diligent viewport: " prefix, for the console's reader.
+std::string Plain (const std::string& line)
+{
+    const std::string::size_type colon = line.find (": ");
+    return colon != std::string::npos && colon < 40 ? line.substr (colon + 2) : line;
+}
+
+} // namespace
+
+void ViewerWarning (const std::string& line)
+{
+    ArchVizLog (line);
+    hudconsole::Warning ("Viewer", Plain (line));
+}
+
+void ViewerFailed (const std::string& line)
+{
+    ArchVizLog (line);
+    hudconsole::Error ("Viewer", "stopped: " + Plain (line));
 }
 
 void InstallDiligentDebugCallback ()

@@ -75,10 +75,15 @@ std::shared_ptr<State> NewState ()
 
 void ClearState (State& state)
 {
-    // The revision goes on: a renderer following it sees the reset as a change.
+    // The revision goes on: a renderer following it sees the reset as a change. The console's
+    // marks too: its entries are the process's, not the project's (HudConsole.hpp), and what
+    // was shown or cleared before stays so.
     const uint64_t revision = state.revision + 1;
+    const uint64_t consoleSeen = state.consoleSeen, consoleCleared = state.consoleCleared;
     state = State {};
     state.revision = revision;
+    state.consoleSeen = consoleSeen;
+    state.consoleCleared = consoleCleared;
 }
 
 float FontScaleOf (const State& state)

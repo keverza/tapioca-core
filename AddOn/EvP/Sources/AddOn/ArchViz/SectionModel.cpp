@@ -6,6 +6,7 @@
 #include "ArchViz/SectionModel.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionStorySlices.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -98,8 +99,10 @@ void Show (const std::vector<storysliceoverlay::Slice>& slices, const hudsection
     built.layer.name = kLayerName;
     const std::string refused = overlaylayers::Validate (built.layer);
     if (built.slices == 0 || !refused.empty ()) {
-        if (!refused.empty ())
+        if (!refused.empty ()) {
             ArchVizLog ("SECTION      the picked floors NOT DRAWN: " + refused);
+            hudconsole::Warning ("Section", "the picked floors are not drawn: " + refused);
+        }
         Hide ();
         return;
     }

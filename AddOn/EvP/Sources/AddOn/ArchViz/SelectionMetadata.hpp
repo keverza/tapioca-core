@@ -46,8 +46,8 @@ void Request (std::vector<hudmeta::Edit> edits, std::vector<std::string> guids =
 hudmeta::Page PageOf (const std::string& guid);
 
 // `work` on the main thread, from the same window's message loop: what a render thread's HUD
-// needs read (SectionModel.hpp `Published`). Dropped when there is no window.
-void Later (std::function<void ()> work);
+// needs read (SectionModel.hpp `Published`). Dropped when there is no window: false then.
+bool Later (std::function<void ()> work);
 
 // ⚠️ THE PROJECT'S METADATA CHANGED OUTSIDE THE HUDS -- a script wrote an element's or the
 // schema (NativeCommands/MetadataCommands.cpp): every HUD reads its page and its section

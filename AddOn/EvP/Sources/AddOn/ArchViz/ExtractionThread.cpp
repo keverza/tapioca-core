@@ -5,6 +5,7 @@
 #include "ArchViz/ExtractionReport.hpp"
 #include "ArchViz/ExtractionSlice.hpp"       // SliceState, Run -- one slice's work
 #include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
+#include "ArchViz/HudConsole.hpp"            // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadMaterials, ReadEnvironment
 #include "ArchViz/ExtractionSubstance.hpp"   // ReadProjectSubstances, ObserveElementSubstances
 #include "ArchViz/MaterialTable.hpp"
@@ -251,10 +252,13 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     auto baseSnapshot = MeshStore::Get ().Shared ();
 
     const auto fail = [this, started] (const std::string& why) {
-        std::lock_guard<std::mutex> lock (mutex_);
-        progress_.phase = why;
-        progress_.elapsedMs = NowMs () - started;
+        {
+            std::lock_guard<std::mutex> lock (mutex_);
+            progress_.phase = why;
+            progress_.elapsedMs = NowMs () - started;
+        }
         ArchVizLog ("extraction: " + why);
+        hudconsole::Error ("Model", "not read: " + why);
     };
 
     {

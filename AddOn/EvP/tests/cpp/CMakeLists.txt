@@ -489,6 +489,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
     # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
+    # The Debug tab's console: what to check when something fails, said from any thread.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudConsole.cpp"
     # The Selection page's Tapioca metadata: the schema's fields, their controls, an edit.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMetadata.cpp"
     # The building section: the massing slabs' floors picked and given their usage.
@@ -688,6 +690,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudown.cpp
     test_hudshell.cpp
     test_hudclip.cpp
+    test_hudconsole.cpp
     test_hudmetadata.cpp
     test_hudsection.cpp
     test_tapiocametadata.cpp

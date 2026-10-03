@@ -1,6 +1,7 @@
 #include "ArchViz/DiligentViewportTarget.hpp"
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
@@ -463,8 +464,10 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
                         ArchVizLog ("ArchViz palette: swap-chain resize failed -- recreating the target");
                         resized = impl_->CreatePaletteSwapChain (w, h, recreateError);
                         retryable = resized;
-                        if (!resized)
+                        if (!resized) {
                             ArchVizLog ("ArchViz palette: " + recreateError);
+                            hudconsole::Warning ("Viewer", "the view could not be resized: " + recreateError);
+                        }
                     }
                     impl_->resizeFailed = !resized;
                 }

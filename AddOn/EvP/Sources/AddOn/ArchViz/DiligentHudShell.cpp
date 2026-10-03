@@ -3,6 +3,7 @@
 #include "ArchViz/DiligentHudShell.hpp"
 
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/HudConsole.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 
 #include <imgui.h>
@@ -76,7 +77,9 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     if (scene.sunStudy.drawing)
         tabs.push_back ({ kSunStudyKey, "Sun study" });
     tabs.push_back ({ hudshell::kSettingsKey, "Settings" });
-    tabs.push_back ({ hudshell::kDebugKey, "Debug" });
+    // The console's errors and warnings not shown yet, counted on the tab (HudConsole.hpp).
+    const uint32_t unseen = hudconsole::Unseen (hudconsole::Entries (), shell.consoleSeen, shell.consoleCleared);
+    tabs.push_back ({ hudshell::kDebugKey, unseen > 0 ? "Debug (" + std::to_string (unseen) + ")" : "Debug" });
     bool held = false;
     for (const hudshell::HostTab& tab : tabs)
         held = held || tab.key == shell.held;
@@ -136,7 +139,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         else if (key == hudshell::kSettingsKey)
             SettingsPage (shell, state, scene);
         else if (key == hudshell::kDebugKey)
-            DebugPage (state, scene, frame, width, height, ui);
+            DebugPage (shell, state, scene, frame, width, height, ui);
         else
             StatsPage (state, scene, ui);
         ImGui::PopItemWidth ();

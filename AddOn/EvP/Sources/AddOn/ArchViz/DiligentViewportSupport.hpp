@@ -43,6 +43,12 @@ class PlanAnchorLayer;
 struct HudState;
 
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
+
+// A line for archviz.log that the HUDs' console says too (HudConsole.hpp): a viewer that runs
+// without a part of it, or did not run at all. Said from DiligentViewport.cpp's frame loop,
+// which is at its frozen size: a line there, line for line.
+void ViewerWarning (const std::string& line);
+void ViewerFailed (const std::string& line);
 bool ShouldIsolateGraphInteraction (const HudState& hud, const InputSnapshot& input);
 
 // Which of the scene's two passes this frame runs, and running it.

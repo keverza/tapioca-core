@@ -12,6 +12,7 @@
 
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- a failed bind must say so, not crash
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
@@ -169,6 +170,7 @@ void DrawSliceSet (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
         if (!layer.Init (device, colorBufferFormat, depthBufferFormat, initError)) {
             initFailed = true;
             ArchVizLog (std::string ("Diligent scene: ") + layerName + " unavailable (" + initError + ")");
+            hudconsole::Warning ("Viewer", std::string ("the ") + layerName + " is unavailable: " + initError);
             return;
         }
     }
@@ -182,8 +184,10 @@ void DrawSliceSet (Diligent::IRenderDevice* device, Diligent::IDeviceContext* co
         const std::vector<StorySliceVertex>& outline = pending != nullptr ? pending->outline : kNoOutline;
         const std::vector<StorySliceFillVertex>& fill = pending != nullptr ? pending->fill : kNoFill;
         std::string uploadError;
-        if (!layer.Upload (device, context, outline, fill, uploadError))
+        if (!layer.Upload (device, context, outline, fill, uploadError)) {
             ArchVizLog (std::string ("Diligent scene: ") + setName + " not uploaded (" + uploadError + ")");
+            hudconsole::Warning ("Viewer", std::string ("the ") + setName + " was not uploaded: " + uploadError);
+        }
         // ⚠️ FREED ONCE UPLOADED. The set is a copy of every storey's contour and
         // its fill; holding it after the GPU has it is the whole overlay's memory
         // charged twice, for nothing.

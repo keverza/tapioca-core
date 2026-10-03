@@ -619,6 +619,8 @@ GSErrCode Initialize (void)
     // The overlay or the viewer, never both: the HUD's switch posts to a window of this thread.
     geomsrv::archviz::surfaceswitch::Arm ();
     geomsrv::archviz::selectionmetadata::Arm ();
+    // The Debug tab's console: an entry wakes the overlays' HUDs through that window's loop.
+    geomsrv::archviz::overlayhudmodel::WakeOnConsole (true);
 
     return NoError;
 }
@@ -732,6 +734,7 @@ GSErrCode FreeData (void)
     geomsrv::archviz::overlayinput::Shutdown ();
     // The surface switch's window, on the same terms.
     geomsrv::archviz::surfaceswitch::Shutdown ();
+    geomsrv::archviz::overlayhudmodel::WakeOnConsole (false); // before the window it posts to goes
     geomsrv::archviz::selectionmetadata::Shutdown ();
     geomsrv::ShutdownPlanOverlay ();
     // The 3D overlay's window and class, on exactly the same terms -- its

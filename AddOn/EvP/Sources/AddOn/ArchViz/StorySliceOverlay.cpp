@@ -6,6 +6,7 @@
 #include "ArchViz/StorySliceOverlay.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/SlabBodies.hpp"
@@ -57,6 +58,9 @@ void Say (const std::string& message)
 {
     g_state.message = message;
     ArchVizLog ("STOREY SLICES  " + message);
+    // What did not happen is the console's ("NOT CUT", "NOT DRAWN"); what did is the log's.
+    if (message.rfind ("NOT ", 0) == 0)
+        hudconsole::Warning ("Storey slices", message);
 }
 
 // The layer on the overlays, or gone when it has nothing in it. False with the

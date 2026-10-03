@@ -32,6 +32,7 @@
 #include "ArchViz/OverlayVisibility.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
@@ -208,11 +209,15 @@ void HeartbeatHud3D ()
 // the 3D window is closed and reopened. On this heartbeat rather than the runtime's
 // tick; without a running 3D overlay it takes nothing (§8).
 std::string g_inputError;
+// The 3D guest drew less than it was given at the last publish (PublishLayers): said to the HUD's
+// console when it starts, not at every publish -- and forgotten with the session (§8).
+bool g_notDrawing3D = false;
 void FollowHudInput ()
 {
     if (!runtime::Running ()) {
         overlayinput::Detach (overlayinput::View::ThreeD);
         g_inputError.clear ();
+        g_notDrawing3D = false;
         return;
     }
     const uint64_t chain = dxgi::MarkerTarget ();
@@ -230,8 +235,10 @@ void FollowHudInput ()
         owner.redraw = &RedrawHud3D;
         owner.hovering = &overlayhover3d::Hovering;
         if (!overlayinput::Attach (overlayinput::View::ThreeD, HWND (uintptr_t (chains[i].window)), owner, error) &&
-            error != g_inputError)
+            error != g_inputError) {
             Narrate ("OVERLAY", "the 3D HUD takes no input: " + error);
+            hudconsole::Warning ("Overlay", "the 3D HUD takes no input: " + error);
+        }
         g_inputError = error;
         return;
     }
@@ -349,6 +356,8 @@ void StartRenderer (Overlay which)
             return;
         }
         Narrate ("OVERLAY", std::string ("3D NOT STARTED (") + intent.code + ") - " + intent.message);
+        hudconsole::Error ("Overlay",
+                           std::string ("the 3D overlay did not start (") + intent.code + "): " + intent.message);
         if (!started.retryable)
             Narrate ("OVERLAY", "this will not become true by waiting; the 3D overlay is unavailable here");
         return;
@@ -375,8 +384,11 @@ void StartRenderer (Overlay which)
     intent.retryable = !started.ok && code != planruntime::StartError::NoContentReader &&
                        code != planruntime::StartError::AlreadyRunning && code != planruntime::StartError::Blocked &&
                        code != planruntime::StartError::PresentHook;
-    if (!started.ok)
+    if (!started.ok) {
         Narrate ("OVERLAY", std::string ("2D NOT STARTED (") + intent.code + ") - " + intent.message);
+        hudconsole::Error ("Overlay", std::string ("the floor plan's overlay did not start (") + intent.code +
+                                          "): " + intent.message);
+    }
 }
 
 ViewKind KindOf (API_WindowTypeID type)
@@ -542,6 +554,7 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
     const ViewKind front = CurrentView ();
     Narrate ("OVERLAY", std::string (OverlayName (which)) + (wanted ? " on" : " off") + " (" + how + "), " +
                             ViewKindName (front) + " in front");
+    hudconsole::Note ("Overlay", std::string (OverlayName (which)) + (wanted ? " on" : " off"));
     if (!wanted) {
         intent.wanted = false;
         if (which == Overlay::ThreeD) {
@@ -656,8 +669,10 @@ void OnProjectClosed ()
     overlayrelease::Shared ();
     overlayhudmodel::Forget ();
     FollowHudState ();
-    if (active)
+    if (active) {
         Narrate ("OVERLAY", "the project closed; both overlays are off -- start them again from the menu");
+        hudconsole::Note ("Overlay", "the project closed: both overlays are off");
+    }
 }
 
 void Mark (const std::string& note)
@@ -845,12 +860,21 @@ void PublishLayers ()
     hud.generation = scene.generation;
     const overlayscene::Problems& problems = scene.problems;
     const uint32_t panelsNotDrawn = hud.problems.textsNotLaidOut;
-    if (problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated + panelsNotDrawn > 0)
+    const bool notDrawing =
+        problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated + panelsNotDrawn > 0;
+    // To the console when it starts: a publish follows every layout, and its counts move.
+    if (notDrawing && !g_notDrawing3D)
+        hudconsole::Warning ("Overlay",
+                             "not everything is drawn in 3D: " +
+                                 (hud.problems.lastError.empty () ? problems.lastError : hud.problems.lastError));
+    g_notDrawing3D = notDrawing;
+    if (notDrawing) {
         Narrate ("OVERLAY", "3D guest NOT DRAWING " + std::to_string (problems.textsNotLaidOut) + " texts, " +
                                 std::to_string (problems.dimensionsNotResolved) + " dimensions, " +
                                 std::to_string (panelsNotDrawn) + " panels, " + std::to_string (problems.truncated) +
                                 " past the budget: " +
                                 (hud.problems.lastError.empty () ? problems.lastError : hud.problems.lastError));
+    }
     dxgi::sceneguest::Publish (std::move (scene), scale);
     PublishHud3D (std::move (hud));
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)

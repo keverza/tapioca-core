@@ -342,8 +342,11 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     for (const size_t i : titled)
         spec.tabs.push_back ({ keys[i], panels[i]->title });
     spec.tabs.push_back ({ kSettingsKey, "Settings" });
-    if (own.standalone)
-        spec.tabs.push_back ({ kDebugKey, "Debug" });
+    // The console's errors and warnings not shown yet, counted on the tab: said where it is seen.
+    if (own.standalone) {
+        const uint32_t unseen = hudconsole::Unseen (own.console, store->consoleSeen, store->consoleCleared);
+        spec.tabs.push_back ({ kDebugKey, unseen > 0 ? "Debug (" + std::to_string (unseen) + ")" : "Debug" });
+    }
     const auto page = [&] (const std::string& k) {
         if (k == kSettingsKey) {
             Settings ();

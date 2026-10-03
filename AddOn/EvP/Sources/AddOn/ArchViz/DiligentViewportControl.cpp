@@ -22,6 +22,7 @@
 #include "ArchViz/DiligentViewport.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp" // BuildAnchorRibbonSet
@@ -86,6 +87,8 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
     running_.store (true);
     ArchVizLog ("---- Diligent viewport starting: " + std::to_string (surface.width) + "x" +
                 std::to_string (surface.height) + " ----");
+    if (surface.mode == SurfaceMode::PaletteChild)
+        hudconsole::Note ("Viewer", camera.valid && camera.cut ? "opened in the floor plan's place" : "opened");
     // ⚠️ NO BUTTON MAY BE HELD FROM A PREVIOUS RUN. The wheel button is polled
     // globally, so a viewport opened while the user happens to be mid-drag in
     // Archicad would latch that drag on its first frame.

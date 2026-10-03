@@ -45,6 +45,11 @@ void FollowFloors (const hudsection::Run& run);
 // The project closed (§8): the selection and the rates are that project's.
 void Forget ();
 
+// ⚠️ A NEW CONSOLE ENTRY IS LAID OUT WITHOUT WAITING FOR THE POINTER (HudConsole.hpp): on, every
+// entry said -- on any thread -- asks both views' HUDs for a layout from the message loop, one
+// for a burst, so the Debug tab's count appears when something fails. Off at unload.
+void WakeOnConsole (bool on);
+
 } // namespace overlayhudmodel
 } // namespace archviz
 } // namespace geomsrv

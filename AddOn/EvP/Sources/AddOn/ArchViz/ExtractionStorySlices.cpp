@@ -4,6 +4,7 @@
 #include "ArchViz/ExtractionStorySlices.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/SlabBodies.hpp"         // the slabs sliced from their body
 #include "ArchViz/StorySliceGeometry.hpp" // ChainUnionSegments, BuildSliceRibbon/Fill
@@ -13,6 +14,7 @@
 #include "Geometry/SliceEngine.hpp"       // SliceMesh, IsTangentToPlane
 
 #include <cmath>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +31,8 @@ ProjectStoreys ReadStoreys ()
         ArchVizLog (std::string ("extraction: storey read failed, story slices will be empty ") +
                     "(ACAPI_ProjectSetting_GetStorySettings: " + std::string (evp::DescribeErr (err).ToCStr ().Get ()) +
                     ")");
+        hudconsole::Warning ("Model", std::string ("the storeys were not read: no storey slices (") +
+                                          evp::DescribeErr (err).ToCStr ().Get () + ")");
         return out;
     }
     if (info.data != nullptr) {
@@ -145,6 +149,14 @@ void StorySliceAccumulator::FinishAndPush ()
         ArchVizLog ("extraction: plan cut at " + std::to_string (planZ_) + " m - " +
                     std::to_string (planLoops_.size ()) + " loops, " + std::to_string (unioned.size ()) +
                     " union segments, " + std::to_string (int64_t (plan->areaM2)) + " m2 cut");
+        // The plan view's one sign that it works: the walls it found, or that it found none.
+        char height[32] = {};
+        std::snprintf (height, sizeof (height), "%.2f m", planZ_);
+        if (unioned.empty ())
+            hudconsole::Warning ("Viewer", std::string ("the plan's cut at ") + height + " meets nothing");
+        else
+            hudconsole::Note ("Viewer", std::string ("the plan's cut at ") + height + ": " +
+                                            std::to_string (int64_t (plan->areaM2)) + " m2 of walls");
         SceneCmdQueue::Get ().PushPlanCut (std::move (plan));
         planLoops_.clear ();
     }

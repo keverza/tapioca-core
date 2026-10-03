@@ -49,6 +49,9 @@ struct Shell {
     hudshell::Placement placement;
     uint32_t fontStep = hudshell::kFontStepDefault;
     hudsection::Run floors; // the building section's floors picked on the Selection tab
+    // The Debug tab's console marks (HudConsole.hpp `Draw`): shown, and hidden by its Clear.
+    uint64_t consoleSeen = 0;
+    uint64_t consoleCleared = 0;
 };
 
 // What one frame of the viewer costs, measured by DiligentHud.
@@ -70,8 +73,8 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
 void StatsPage (HudState& state, const DiligentSceneStats& scene, float ui);
 void SelectionPage (Shell& shell, const HudState& state, float ui);
 void SunStudyPage (HudState& state, const DiligentSceneStats& scene);
-void DebugPage (HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width, uint32_t height,
-                float ui);
+void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width,
+                uint32_t height, float ui);
 // The HUD's own rows, then the Render/Display sections.
 void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scene);
 

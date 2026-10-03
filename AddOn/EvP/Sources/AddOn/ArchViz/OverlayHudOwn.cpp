@@ -84,6 +84,8 @@ void Engine::Impl::SelectionPage (float ui)
 
 void Engine::Impl::DebugPage (float ui)
 {
+    // ⚠️ THE CONSOLE FIRST (the user, 2026-10-03: what to check when something is failing).
+    hudconsole::Draw (own.console, *look, store->consoleSeen, store->consoleCleared);
     hudshell::Cards (own.debug, *look, ui);
     // What the HUD itself costs: the owner cannot see it, the engine measures it.
     hudshell::Card hud;

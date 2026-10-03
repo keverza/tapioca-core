@@ -9,6 +9,7 @@
 #include "ArchViz/SurfaceSwitch.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/OverlayController.hpp"
@@ -53,6 +54,7 @@ void Perform (Surface to)
         const bool plan = control::CurrentView () == control::ViewKind::FloorPlan;
         ArchVizLog (std::string ("SURFACE      the HUD switches to the viewer") + (plan ? ", in plan mode" : "") +
                     ": the overlays go off");
+        hudconsole::Note ("Switch", plan ? "to the viewer, in plan mode" : "to the viewer");
         // The overlays are turned off inside (BeforeViewerOpens).
         ArchVizPanel::OpenViewer (plan);
     }
@@ -95,8 +97,10 @@ void Arm ()
     const HWND window = g_classRegistered ? ::CreateWindowExW (0, kClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
                                                                instance, nullptr)
                                           : nullptr;
-    if (window == nullptr)
+    if (window == nullptr) {
         ArchVizLog ("SURFACE      the switch's window could not be made: the HUD's circles will not switch");
+        hudconsole::Error ("Switch", "the dock's circles will not switch: the switch's window could not be made");
+    }
     g_window.store (window, std::memory_order_release);
 }
 
