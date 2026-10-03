@@ -291,8 +291,11 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     // and a second gate hop would cost a round trip to save nothing.
     auto storeys = std::make_shared<ProjectStoreys> ();
     // ⚠️ READ ONCE, HERE. Re-reading per element would let a mid-pass toggle
-    // union a storey against only the elements reached so far.
+    // union a storey against only the elements reached so far. The plan view's
+    // cut likewise (SetPlanCut).
     const bool wantStorySlices = storySlicesWanted_.load ();
+    double planCutZ = 0.0;
+    const bool wantPlanCut = PlanCut (planCutZ);
 
     const int64_t acquireStart = NowMs ();
     GS::UniString gateErr;
@@ -365,7 +368,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                                partial ? baseSnapshot : nullptr, effectiveFilter);
 
     StorySliceAccumulator storeySlices;
-    storeySlices.Begin (*storeys, wantStorySlices && full);
+    storeySlices.Begin (*storeys, wantStorySlices && full, wantPlanCut && full, planCutZ);
 
     // From here on the model MUST be released through the gate, on every exit
     // path. One lambda, called from each of them.

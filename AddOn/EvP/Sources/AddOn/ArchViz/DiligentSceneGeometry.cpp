@@ -335,6 +335,14 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 }
                 break;
 
+            case SceneCmdType::SetPlanCut:
+                // The plan view's cut, stashed the same way (DrawPlanCut drains it).
+                impl_->pendingPlanCut = std::move (cmd.storySlices);
+                impl_->planCutDirty = true;
+                impl_->planCutAreaM2 = impl_->pendingPlanCut != nullptr ? impl_->pendingPlanCut->areaM2 : 0.0;
+                impl_->planCutReceived = true;
+                break;
+
             case SceneCmdType::BeginPointLayer:
                 if (cmd.pointLayer != nullptr)
                     impl_->pointCloud.BeginLayer (*cmd.pointLayer);
@@ -605,6 +613,9 @@ DiligentSceneStats DiligentScene::Stats () const
     s.storeySliceFillVertices = impl_->storySlices.FillVertexCount ();
     s.storeySliceAreaM2 = impl_->storeySliceAreaM2;
     s.storeySliceLayerReady = impl_->storySlices.IsReady ();
+    s.planCutReceived = impl_->planCutReceived;
+    s.planCutVertices = impl_->planCut.OutlineVertexCount ();
+    s.planCutAreaM2 = impl_->planCutAreaM2;
 
     const DiligentPointCloudStats pointStats = impl_->pointCloud.Stats ();
     s.pointLayers = pointStats.layers;

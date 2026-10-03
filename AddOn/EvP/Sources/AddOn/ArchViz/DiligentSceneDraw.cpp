@@ -206,6 +206,17 @@ void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const fl
                   surfaceHeight, colorBufferFormat, depthBufferFormat, params);
 }
 
+void DiligentScene::DrawPlanCut (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                 uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                 const StorySliceLayer::DrawParams& params)
+{
+    if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
+        return;
+    DrawSliceSet (impl_->device, context, impl_->planCut, impl_->pendingPlanCut, impl_->planCutDirty,
+                  impl_->planCutInitFailed, "plan cut layer", "plan cut", viewProj, surfaceWidth, surfaceHeight,
+                  colorBufferFormat, depthBufferFormat, params);
+}
+
 void DiligentScene::DrawGhPreview (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                                    uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                                    const GhPreviewStyle& style, const GhPreviewLayer::DrawParams& params)

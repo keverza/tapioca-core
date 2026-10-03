@@ -4,7 +4,9 @@
 
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp" // ApplyArchicadCamera
+#include "ArchViz/StorySliceLayer.hpp"
 
 namespace geomsrv {
 namespace archviz {
@@ -54,6 +56,22 @@ bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last)
     last = hud.orthographic;
     camera.SwitchProjection (hud.orthographic);
     return true;
+}
+
+void DrawPlanCut (DiligentScene& scene, Diligent::IDeviceContext* context, const HudState& hud, bool blanked,
+                  const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat, uint32_t depthFormat)
+{
+    if (!hud.planMode || !hud.planCutShown || blanked)
+        return;
+    StorySliceLayer::DrawParams params;
+    params.widthPixels = hud.planCutWidthPixels;
+    params.rgba = hud.planCutRgba;
+    params.fillRgba = hud.planCutFillRgba;
+    params.drawFill = hud.planCutFill;
+    // Solid where something is in front of it as where nothing is: above the cut, nothing is --
+    // and a turned view still reads the cut whole.
+    params.occluded = OccludedStyle::Solid;
+    scene.DrawPlanCut (context, viewProj, width, height, colorFormat, depthFormat, params);
 }
 
 } // namespace archviz

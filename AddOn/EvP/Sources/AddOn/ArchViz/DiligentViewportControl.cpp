@@ -77,6 +77,10 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
         stats_.cameraSource = camera.source;
         currentCameraAvailable_ = false;
     }
+    // The plan view's cut, asked for before the extraction that feeds this run begins
+    // (ExtractionWorker::SetPlanCut): a run opened from the plan wants its walls' outline at the
+    // storey's cut (ViewerPlanMode.hpp); any other run, none.
+    ExtractionWorker::Get ().SetPlanCut (camera.valid && camera.orthographic && camera.cut, camera.cutZ);
     // The scene queue's one consumer: before the extraction that feeds it (SceneCmdQueue.hpp).
     SceneCmdQueue::Get ().SetConsumer (true);
     running_.store (true);
@@ -274,6 +278,7 @@ void DiligentViewport::Stop ()
         worker_.join ();
     running_.store (false);
     SceneCmdQueue::Get ().SetConsumer (false);
+    ExtractionWorker::Get ().SetPlanCut (false, 0.0); // nobody draws it now
     std::lock_guard<std::mutex> lock (mutex_);
     stats_.running = false;
 }

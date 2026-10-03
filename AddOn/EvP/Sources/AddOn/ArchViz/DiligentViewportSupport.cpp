@@ -24,6 +24,7 @@
 #include "ArchViz/SceneTextLiveCheck.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/ViewerPlanMode.hpp" // DrawPlanCut, with the storey slices' step
 
 #include <algorithm>
 #include <atomic>
@@ -414,6 +415,8 @@ void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* c
         params.occluded = OccludedStyle (hudState.storySliceOccluded);
         scene.DrawStorySlices (context, viewProj, width, height, colorFormat, depthFormat, params);
     }
+    // The plan view's cut, its walls' outline: plan mode's own (ViewerPlanMode.hpp).
+    DrawPlanCut (scene, context, hudState, blanked, viewProj, width, height, colorFormat, depthFormat);
 
     // ⚠️ THE ONE-SHOT IS CONSUMED HERE, and it asks the EXTRACTION worker for a
     // pass rather than doing anything itself -- the cut runs during a full pass

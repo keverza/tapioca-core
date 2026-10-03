@@ -370,6 +370,16 @@ struct HudState {
     bool planMode = false;
     bool planOrbit = false;
     bool planTopView = false;
+    // ⚠️ THE PLAN'S CUT, ITS WALLS' OUTLINE AT LEAST (the user, 2026-10-03: the plan view should
+    // have wall outlines at least, to see that it works). The model cut at the storey's cut
+    // height by the extraction (ExtractionWorker::SetPlanCut), its outline drawn over the plan
+    // and its inside filled -- the poche a plan draws a cut wall with. Drawn whatever is in
+    // front of it: nothing is, above the cut.
+    bool planCutShown = true;
+    bool planCutFill = true;
+    float planCutWidthPixels = 2.0f;
+    uint32_t planCutRgba = 0x1E1E1EFFu;     // near black, as a plan's cut line
+    uint32_t planCutFillRgba = 0x3C3C3CA0u; // dark grey, most of the way opaque
 
     // ---- story slices ------------------------------------------------------
     // Every storey's horizontal cut through the model, boolean-unioned into one

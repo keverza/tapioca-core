@@ -113,6 +113,18 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         ImGui::Checkbox ("orbit##plan", &state.planOrbit);
         ImGui::TextDisabled (state.planOrbit ? "Shift + wheel-button drag turns the view"
                                              : "held: Shift + wheel-button drag pans, as without Shift");
+        // The cut: the walls' outline at the storey's cut height (ViewerPlanMode.hpp `DrawPlanCut`).
+        ImGui::Checkbox ("wall outlines (the cut)##plan", &state.planCutShown);
+        if (state.planCutShown) {
+            ImGui::Checkbox ("fill the cut walls##plan", &state.planCutFill);
+            ImGui::SliderFloat ("line##plancut", &state.planCutWidthPixels, 1.0f, 6.0f, "%.1f px");
+            if (!scene.planCutReceived)
+                ImGui::TextDisabled ("the cut comes with the model's first full read");
+            else if (scene.planCutVertices == 0)
+                ImGui::TextDisabled ("the cut meets nothing at this storey's cut height");
+            else
+                ImGui::TextDisabled ("%.0f m\xC2\xB2 cut at the storey's cut height", scene.planCutAreaM2);
+        }
     }
 
     ImGui::SeparatorText ("Display");

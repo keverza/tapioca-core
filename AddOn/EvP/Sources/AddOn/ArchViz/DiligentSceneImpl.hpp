@@ -564,6 +564,13 @@ struct geomsrv::archviz::DiligentScene::Impl {
     bool storySliceInitFailed = false;
     uint32_t storeySliceCount = 0;
     double storeySliceAreaM2 = 0.0;
+    // ---- the plan view's cut: the same kind of set, drawn only in plan mode ----
+    StorySliceLayer planCut;
+    std::unique_ptr<StorySliceUpload> pendingPlanCut;
+    bool planCutDirty = false;
+    bool planCutInitFailed = false;
+    bool planCutReceived = false; // a pass has cut it: an empty set is then an answer
+    double planCutAreaM2 = 0.0;
 
     // ⚠️ ONE METHOD RATHER THAN FIVE LINES AT THE CALL SITE, because the call
     // site is DiligentScene.cpp -- a file the architecture gate has FROZEN at its
@@ -577,6 +584,13 @@ struct geomsrv::archviz::DiligentScene::Impl {
         storySliceInitFailed = false;
         storeySliceCount = 0;
         storeySliceAreaM2 = 0.0;
+        // The plan view's cut goes with them: the same kind of layer, the same teardown.
+        planCut.Shutdown ();
+        pendingPlanCut.reset ();
+        planCutDirty = false;
+        planCutInitFailed = false;
+        planCutReceived = false;
+        planCutAreaM2 = 0.0;
     }
 
     // ---- the Grasshopper preview overlay -----------------------------------

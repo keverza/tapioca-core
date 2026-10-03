@@ -274,6 +274,22 @@ class ExtractionWorker final {
         return storySlicesWanted_.load ();
     }
 
+    // ⚠️ THE PLAN VIEW'S CUT (ViewerPlanMode.hpp; the user, 2026-10-03: the plan view in the viewer
+    // should have wall outlines at least). The viewer opened in the plan's place wants the model
+    // cut at the storey's cut height, `z` in world metres, from a FULL pass, as the storey slices
+    // are and for the same reason -- read at the pass's start. Set before the viewer's first pass
+    // begins, so that pass cuts it; off with the viewer. Any thread.
+    void SetPlanCut (bool wanted, double z)
+    {
+        planCutZ_.store (z);
+        planCutWanted_.store (wanted);
+    }
+    bool PlanCut (double& z) const
+    {
+        z = planCutZ_.load ();
+        return planCutWanted_.load ();
+    }
+
   private:
     ExtractionWorker () = default;
     ~ExtractionWorker ();
@@ -337,6 +353,8 @@ class ExtractionWorker final {
     uint32_t restarts_ = 0; // worker thread: passes restarted in a row (`RunPass`)
     std::atomic<bool> running_ { false };
     std::atomic<bool> storySlicesWanted_ { false };
+    std::atomic<bool> planCutWanted_ { false };
+    std::atomic<double> planCutZ_ { 0.0 };
     mutable std::mutex mutex_;
     Progress progress_;
 };

@@ -98,6 +98,10 @@ enum class SceneCmdType : uint8_t {
     // Forget the study: no atlas, no side buffers, ordinary shading everywhere.
     // Pushed on cancel, on clear, and by the consumer's own full-rebuild rule.
     ClearSunStudy,
+    // The plan view's cut (ExtractionWorker::SetPlanCut): the model cut at the storey's cut
+    // height, its outline and fill, WHOLE, as SetStorySlices is and carried in its field. Drawn
+    // only in the viewer's plan mode (ViewerPlanMode.hpp).
+    SetPlanCut,
 };
 
 // One element's geometry, ready for the GPU: nothing here needs interpreting,
@@ -270,7 +274,7 @@ struct SceneCmd {
     std::unique_ptr<PointNodeUpload> pointNode;
     // ClearPointLayer and EndPointLayer only.
     std::string pointLayerId;
-    // SetStorySlices only. Owning, same handover rule as `upload`.
+    // SetStorySlices and SetPlanCut only. Owning, same handover rule as `upload`.
     std::unique_ptr<StorySliceUpload> storySlices;
     // SetSunStudyAtlas only, and NULL for ClearSunStudy -- the consumer tells
     // the two apart by the command type, never by the pointer.
@@ -307,6 +311,7 @@ class SceneCmdQueue final {
     void PushEnvironment (const EnvironmentUpload& environment);
     void PushSelection (std::vector<std::string> guids);
     void PushStorySlices (std::unique_ptr<StorySliceUpload> slices);
+    void PushPlanCut (std::unique_ptr<StorySliceUpload> cut);
     void PushBeginPointLayer (std::unique_ptr<PointLayerUpload> layer);
     void PushClearPointLayer (const std::string& layerId);
     void PushUpsertPointNode (std::unique_ptr<PointNodeUpload> node);

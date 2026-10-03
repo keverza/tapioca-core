@@ -20,10 +20,15 @@
 
 #include <cstdint>
 
+namespace Diligent {
+struct IDeviceContext;
+} // namespace Diligent
+
 namespace geomsrv {
 namespace archviz {
 
 class Camera;
+class DiligentScene;
 struct HudState;
 
 // ⚠️ THE EYE A LITTLE OVER THE STOREY'S CUT, NOT ON IT: the near plane (Camera::NearClip, 5 cm)
@@ -45,6 +50,15 @@ bool NavigateViewer (Camera& camera, HudState& hud, const InputSnapshot& input, 
 // The HUD's projection toggle, on the frame it changed (Camera::SwitchProjection): true then,
 // and the frame loop resets its temporal history. `last` is the frame loop's.
 bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last);
+
+// ⚠️ THE PLAN'S CUT, ITS WALLS' OUTLINE (the user, 2026-10-03: the plan view should have wall
+// outlines at least). In plan mode, unless the HUD hides it: the model's cut at the storey's cut
+// height (ExtractionWorker::SetPlanCut, cut by the viewer's first full pass), outlined and its
+// inside filled in the HUD's style -- drawn whatever is in front of it, since nothing is.
+// Every frame, from the storey slices' step (DiligentViewportSupport.cpp).
+void DrawPlanCut (DiligentScene& scene, Diligent::IDeviceContext* context, const HudState& hud, bool blanked,
+                  const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                  uint32_t depthFormat);
 
 } // namespace archviz
 } // namespace geomsrv
