@@ -141,55 +141,69 @@ void DiligentScene::DrawIds (Diligent::IDeviceContext* context, const float view
     }
 }
 
-void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
-                                     uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
-                                     const StorySliceLayer::DrawParams& params)
-{
-    if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
-        return;
+namespace {
 
-    if (!impl_->storySlices.IsReady ()) {
+// One set of slice contours on the GPU (StorySliceLayer): its layer built on the first frame,
+// its pending set uploaded on the first frame with a context, then drawn. `layerName` and
+// `setName` say which in archviz.log.
+void DrawSliceSet (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, StorySliceLayer& layer,
+                   std::unique_ptr<StorySliceUpload>& pending, bool& dirty, bool& initFailed, const char* layerName,
+                   const char* setName, const float viewProj[16], uint32_t surfaceWidth, uint32_t surfaceHeight,
+                   uint32_t colorBufferFormat, uint32_t depthBufferFormat, const StorySliceLayer::DrawParams& params)
+{
+    if (!layer.IsReady ()) {
         // ⚠️ ONCE. A layer whose shaders will not compile will not compile on the
         // next frame either, and retrying puts the HLSL compiler in the frame loop
         // and its error in the log sixty times a second.
-        if (impl_->storySliceInitFailed) {
+        if (initFailed) {
             // ⚠️ AND DROP THE PENDING SET. Without this the storey contours and
             // their fill -- the largest thing this feature allocates -- are held
             // for the life of the viewer waiting for an upload that can never
             // happen, on exactly the machine whose GPU already could not build the
             // layer.
-            impl_->pendingStorySlices.reset ();
-            impl_->storySlicesDirty = false;
+            pending.reset ();
+            dirty = false;
             return;
         }
         std::string initError;
-        if (!impl_->storySlices.Init (impl_->device, colorBufferFormat, depthBufferFormat, initError)) {
-            impl_->storySliceInitFailed = true;
-            ArchVizLog ("Diligent scene: story slice layer unavailable (" + initError + ")");
+        if (!layer.Init (device, colorBufferFormat, depthBufferFormat, initError)) {
+            initFailed = true;
+            ArchVizLog (std::string ("Diligent scene: ") + layerName + " unavailable (" + initError + ")");
             return;
         }
     }
 
     // The deferred upload. See the header: Consume has no context, so the set
     // waits here until the first frame that can actually fill a buffer.
-    if (impl_->storySlicesDirty) {
-        impl_->storySlicesDirty = false;
+    if (dirty) {
+        dirty = false;
         static const std::vector<StorySliceVertex> kNoOutline;
         static const std::vector<StorySliceFillVertex> kNoFill;
-        const std::vector<StorySliceVertex>& outline =
-            impl_->pendingStorySlices != nullptr ? impl_->pendingStorySlices->outline : kNoOutline;
-        const std::vector<StorySliceFillVertex>& fill =
-            impl_->pendingStorySlices != nullptr ? impl_->pendingStorySlices->fill : kNoFill;
+        const std::vector<StorySliceVertex>& outline = pending != nullptr ? pending->outline : kNoOutline;
+        const std::vector<StorySliceFillVertex>& fill = pending != nullptr ? pending->fill : kNoFill;
         std::string uploadError;
-        if (!impl_->storySlices.Upload (impl_->device, context, outline, fill, uploadError))
-            ArchVizLog ("Diligent scene: story slices not uploaded (" + uploadError + ")");
+        if (!layer.Upload (device, context, outline, fill, uploadError))
+            ArchVizLog (std::string ("Diligent scene: ") + setName + " not uploaded (" + uploadError + ")");
         // ⚠️ FREED ONCE UPLOADED. The set is a copy of every storey's contour and
         // its fill; holding it after the GPU has it is the whole overlay's memory
         // charged twice, for nothing.
-        impl_->pendingStorySlices.reset ();
+        pending.reset ();
     }
 
-    impl_->storySlices.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
+    layer.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
+}
+
+} // namespace
+
+void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                     uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                     const StorySliceLayer::DrawParams& params)
+{
+    if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
+        return;
+    DrawSliceSet (impl_->device, context, impl_->storySlices, impl_->pendingStorySlices, impl_->storySlicesDirty,
+                  impl_->storySliceInitFailed, "story slice layer", "story slices", viewProj, surfaceWidth,
+                  surfaceHeight, colorBufferFormat, depthBufferFormat, params);
 }
 
 void DiligentScene::DrawGhPreview (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
