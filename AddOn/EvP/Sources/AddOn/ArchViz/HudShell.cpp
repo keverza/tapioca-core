@@ -356,6 +356,51 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     return result;
 }
 
+bool Section (const char* label, bool defaultOpen)
+{
+    return ImGui::CollapsingHeader (label, defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : 0);
+}
+
+bool HudSettings (uint32_t& fontStep, Placement& placement, bool& reset)
+{
+    bool changed = false;
+    reset = false;
+    ImGui::SeparatorText ("HUD");
+    if (!ImGui::BeginTable ("##hudsettings", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+        return false;
+    ImGui::TableSetupColumn ("##label", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn ("##value", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableNextRow ();
+    ImGui::TableSetColumnIndex (0);
+    ImGui::AlignTextToFramePadding ();
+    ImGui::TextUnformatted ("Text size");
+    ImGui::TableSetColumnIndex (1);
+    const uint32_t step = (std::min) (fontStep, kFontStepCount - 1);
+    ImGui::SetNextItemWidth (-FLT_MIN);
+    if (ImGui::BeginCombo ("##textsize", Percent (kFontSteps[step]).c_str (), ImGuiComboFlags_HeightLargest)) {
+        for (uint32_t k = 0; k < kFontStepCount; ++k)
+            if (ImGui::Selectable (Percent (kFontSteps[k]).c_str (), k == step) && k != step) {
+                fontStep = k;
+                changed = true;
+            }
+        ImGui::EndCombo ();
+    }
+    ImGui::TableNextRow ();
+    ImGui::TableSetColumnIndex (0);
+    ImGui::AlignTextToFramePadding ();
+    ImGui::TextUnformatted ("Position");
+    ImGui::TableSetColumnIndex (1);
+    ImGui::BeginDisabled (!placement.placed);
+    if (ImGui::Button ("Reset##position", ImVec2 (-FLT_MIN, 0.0f)) && placement.placed) {
+        placement.placed = false;
+        reset = true;
+        changed = true;
+    }
+    ImGui::EndDisabled ();
+    ImGui::EndTable ();
+    return changed;
+}
+
 namespace {
 
 // A line of text in the look's muted colour, wrapped at a width that does not depend on the

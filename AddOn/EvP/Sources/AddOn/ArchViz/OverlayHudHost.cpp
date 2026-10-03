@@ -254,33 +254,15 @@ void Engine::Impl::Opening (bool open, const std::string& title)
 // A- A+, for the HUD's style and the overlay's display). Small and dense, as a page is.
 void Engine::Impl::Settings ()
 {
-    ImGui::SeparatorText ("HUD");
-    if (ImGui::BeginTable ("##hudsettings", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
-        ImGui::TableSetupColumn ("##label", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn ("##value", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableNextRow ();
-        ImGui::TableSetColumnIndex (0);
-        ImGui::AlignTextToFramePadding ();
-        ImGui::TextUnformatted ("Text size");
-        ImGui::TableSetColumnIndex (1);
-        const uint32_t step = store->fontStep;
-        ImGui::SetNextItemWidth (-FLT_MIN);
-        if (ImGui::BeginCombo ("##textsize", Percent (kFontSteps[step]).c_str (), ImGuiComboFlags_HeightLargest)) {
-            for (uint32_t k = 0; k < kFontStepCount; ++k)
-                if (ImGui::Selectable (Percent (kFontSteps[k]).c_str (), k == step))
-                    SetFontStep (k);
-            ImGui::EndCombo ();
-        }
-        ImGui::TableNextRow ();
-        ImGui::TableSetColumnIndex (0);
-        ImGui::AlignTextToFramePadding ();
-        ImGui::TextUnformatted ("Position");
-        ImGui::TableSetColumnIndex (1);
-        ImGui::BeginDisabled (!store->host.placement.placed);
-        if (ImGui::Button ("Reset##position", ImVec2 (-FLT_MIN, 0.0f)))
+    // Every HUD's own rows (HudShell.hpp): the step and the position, each change said once.
+    uint32_t step = store->fontStep;
+    hudshell::Placement placement = store->host.placement;
+    bool reset = false;
+    if (hudshell::HudSettings (step, placement, reset)) {
+        if (reset)
             ResetPosition ();
-        ImGui::EndDisabled ();
-        ImGui::EndTable ();
+        else
+            SetFontStep (step);
     }
     ImGui::SeparatorText ("Overlay");
     bool all = store->shown;

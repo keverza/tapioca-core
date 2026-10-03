@@ -1,5 +1,9 @@
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentHudNames.hpp"
 #include "ArchViz/DiligentHudSections.hpp"
+#include "ArchViz/DiligentHudShell.hpp"
+#include "ArchViz/HudShell.hpp"
+#include "ArchViz/SceneTextFont.hpp" // the overlays' bundled font: the viewer's HUD is in it too
 #include "ArchViz/AnnotationHudControls.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
@@ -21,52 +25,15 @@
 #include <SwapChain.h>
 
 #include <cmath>
+#include <cstdint>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
 
 namespace {
-
-// The debug views, by the names the user already knows from the command's
-// `debug_view` parameter. ⚠️ THE ORDER IS THE DiligentDebugView ENUM'S ORDER --
-// the combo's index IS the value, so an insertion here silently renumbers them.
-const char* const kDebugViewNames[] = {
-    "final",
-    "normals",
-    "lit",
-    "base color",
-    "sun vector",
-    "shadow",
-    "roughness",
-    "G-buffer normals",
-    "G-buffer depth",
-    "ambient occlusion",
-    "G-buffer albedo",
-    "G-buffer roughness",
-    "G-buffer material",
-    "motion vectors",
-};
-constexpr int kDebugViewCount = int (sizeof (kDebugViewNames) / sizeof (kDebugViewNames[0]));
-
-static_assert (kDebugViewCount == int (DiligentDebugView::MotionVectors) + 1,
-               "the HUD's combo and DiligentDebugView have drifted apart");
-
-// The render modes, in SceneRenderMode's order -- the combo's index IS the
-// value, exactly as for the debug views above.
-const char* const kRenderModeNames[] = { "shaded", "wireframe", "shaded + wireframe" };
-constexpr int kRenderModeCount = int (sizeof (kRenderModeNames) / sizeof (kRenderModeNames[0]));
-
-static_assert (kRenderModeCount == int (SceneRenderMode::ShadedWireframe) + 1,
-               "the HUD's combo and SceneRenderMode have drifted apart");
-
-// The render qualities, in RenderQuality's order -- same rule again: the combo's
-// index IS the enum value.
-const char* const kRenderQualityNames[] = { "fast", "realistic" };
-constexpr int kRenderQualityCount = int (sizeof (kRenderQualityNames) / sizeof (kRenderQualityNames[0]));
-
-static_assert (kRenderQualityCount == int (RenderQuality::Realistic) + 1,
-               "the HUD's combo and RenderQuality have drifted apart");
 
 // ImGui's mouse button numbering, against InputRingBuffer's bitmask.
 int ToImGuiButton (uint8_t button)
@@ -96,6 +63,13 @@ struct DiligentHud::Impl {
     float heldWorstMs = 0.0f;
     double heldUntilSeconds = 0.0;
     ImGuiGraphInteractionLab graphInteractionLab;
+
+    // ⚠️ THE OVERLAYS' HUD IS THE TEMPLATE (the user, 2026-10-03): the same font, the same dense
+    // style, the same dock and floating panel (DiligentHudShell.hpp), kept across frames here.
+    std::vector<uint8_t> fontBytes; // ImGui reads it for as long as the atlas lives
+    ImFont* font = nullptr;
+    std::string fontNote;
+    viewerhud::Shell shell;
 };
 
 namespace {
@@ -182,6 +156,22 @@ bool DiligentHud::Init (Diligent::IRenderDevice* device, uint32_t colorBufferFor
         return false;
     }
 
+    // ⚠️ THE BUNDLED FONT, PIXEL-SNAPPED AS THE OVERLAYS' HUD HAS IT (OverlayHud.cpp CrispFont):
+    // ImGui 1.92 rasterises it at every size asked for (the renderer has textures). Without it
+    // the HUD is in ImGui's own font, and Debug says why.
+    std::string fontError;
+    if (LoadBundledSceneTextFont (impl_->fontBytes, fontError) && !impl_->fontBytes.empty ()) {
+        ImFontConfig config;
+        config.FontDataOwnedByAtlas = false;
+        config.PixelSnapH = true;
+        config.OversampleH = 1;
+        config.OversampleV = 1;
+        impl_->font =
+            io.Fonts->AddFontFromMemoryTTF (impl_->fontBytes.data (), int (impl_->fontBytes.size ()), 16.0f, &config);
+    }
+    if (impl_->font == nullptr)
+        impl_->fontNote = "The HUD is in ImGui's own font: the bundled one could not be read (" + fontError + ")";
+
     impl_->ready = true;
     return true;
 }
@@ -242,8 +232,25 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         io.AddMouseWheelEvent (0.0f, float (input.wheelDelta) / 120.0f);
     io.AddKeyEvent (ImGuiMod_Shift, input.shift);
 
+    // Every HUD's style (HudShell.hpp) at the system's DPI -- the scale the overlays' 3D HUD
+    // takes too -- times the text size the user chose.
+    const UINT systemDpi = ::GetDpiForSystem ();
+    const float dpiScale = systemDpi != 0 ? float (systemDpi) / 96.0f : 1.0f;
+    hudshell::BaseStyle (dpiScale * hudshell::FontScaleOfStep (impl_->shell.fontStep));
+
     impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
     ImGui::NewFrame ();
+    ImGui::PushFont (impl_->font, 13.0f * dpiScale);
+
+    // The frame's cost, every frame: the badge and Debug both say it.
+    const float frameMs = io.DeltaTime * 1000.0f;
+    if (frameMs > impl_->worstMsInWindow)
+        impl_->worstMsInWindow = frameMs;
+    if (impl_->worstMsInWindow > impl_->heldWorstMs || now >= impl_->heldUntilSeconds) {
+        impl_->heldWorstMs = impl_->worstMsInWindow;
+        impl_->heldUntilSeconds = now + kWorstHoldSeconds;
+        impl_->worstMsInWindow = 0.0f;
+    }
 
     ImDrawList* annotationDrawList = ImGui::GetBackgroundDrawList ();
     for (const ScreenTriangle& triangle : annotations.triangles) {
@@ -277,6 +284,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     }
 
     if (!showControls) {
+        ImGui::PopFont ();
         ImGui::Render ();
         impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
         impl_->renderer->EndFrame ();
@@ -317,24 +325,17 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         ImGui::End ();
     }
 
-    ImGui::SetNextWindowPos (ImVec2 (12.0f, 12.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize (ImVec2 (300.0f, 0.0f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin ("Tapioca viewport")) {
-        ImGui::Text ("%.1f fps   %u x %u", state.fps, width, height);
-        if (!state.adapter.empty ())
-            ImGui::TextWrapped ("%s", state.adapter.c_str ());
-
-        ImGui::Separator ();
-
-        // ---- CONTROLS: PANEL ONLY -----------------------------------------
-        //
-        // ⚠️ THE OVERLAY GETS READOUTS, NEVER WIDGETS. `WS_EX_TRANSPARENT` is
-        // all-or-nothing per window (PLAT-RE55), so on the overlay every one of
-        // these would DRAW and none of them could be clicked. A control that
-        // cannot be operated is worse than an absent one: the user tries it,
-        // nothing happens, and a window style reads as the viewer having hung.
-        // So the overlay shows the same STATE as text, and the panel owns input.
-        if (state.readOnly) {
+    // ⚠️ THE READ-ONLY OVERLAY SURFACE KEEPS ITS FLAT READOUT (HANDOFF-HudTabs.md caveat 4):
+    // `WS_EX_TRANSPARENT` is all-or-nothing per window (PLAT-RE55), so there every widget
+    // would DRAW and none could be clicked. Everywhere else the HUD is the overlays' design.
+    if (state.readOnly) {
+        ImGui::SetNextWindowPos (ImVec2 (12.0f, 12.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize (ImVec2 (300.0f, 0.0f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin ("Tapioca viewport")) {
+            ImGui::Text ("%.1f fps   %u x %u", state.fps, width, height);
+            if (!state.adapter.empty ())
+                ImGui::TextWrapped ("%s", state.adapter.c_str ());
+            ImGui::Separator ();
             ImGui::TextDisabled ("overlay: click-through, display only");
             ImGui::Text (
                 "view %s   surfaces %s",
@@ -345,67 +346,30 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                                                  ? state.renderQuality
                                                  : 0],
                          state.orthographic ? "axonometric" : "perspective");
+            ImGui::Separator ();
+            ImGui::Text ("elements %llu", (unsigned long long) scene.elements);
+            ImGui::Text ("triangles %llu", (unsigned long long) scene.triangles);
+            ImGui::Text ("materials %llu   misses %llu", (unsigned long long) scene.materials,
+                         (unsigned long long) scene.materialMisses);
+            if (scene.pending > 0)
+                ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f), "extracting: %llu queued",
+                                    (unsigned long long) scene.pending);
+            ImGui::Separator ();
+            DrawLightInspector (state, scene);
+            DrawShadowSettings (state, scene);
+            ImGui::Text ("draws %llu   materials in pool %llu", (unsigned long long) scene.drawCalls,
+                         (unsigned long long) scene.materials);
         }
-        else {
-            // ⚠️ THE COMBO'S INDEX IS THE ENUM VALUE. See kDebugViewNames.
-            ImGui::SetNextItemWidth (-1.0f);
-            ImGui::Combo ("##debugview", &state.debugView, kDebugViewNames, kDebugViewCount);
-            ImGui::TextDisabled ("debug view");
-
-            ImGui::SetNextItemWidth (-1.0f);
-            ImGui::Combo ("##rendermode", &state.renderMode, kRenderModeNames, kRenderModeCount);
-            ImGui::TextDisabled ("surfaces -- wireframe is what makes the OVERLAY readable");
-            if (state.renderMode != int (SceneRenderMode::Shaded)) {
-                // 1 = outlines only, and the default. The floor is 1, not 0:
-                // a tessellation factor of 0 culls the patch.
-                ImGui::SliderInt ("wire subdivisions", &state.wireTessellation, 1, 16);
-                ImGui::SliderFloat ("wire width", &state.wireLineWidth, 0.5f, 3.0f, "%.2f px");
-            }
-            DrawAnnotationHudControls (state);
-
-            // ⚠️ A SEPARATE COMBO FROM THE ONE ABOVE, not more entries in it.
-            // Quality and surfaces are independent axes and every pairing is
-            // wanted -- see RenderQuality in ViewerSettings.hpp.
-            ImGui::SetNextItemWidth (-1.0f);
-            ImGui::Combo ("##renderquality", &state.renderQuality, kRenderQualityNames, kRenderQualityCount);
-            ImGui::TextDisabled ("quality -- realistic adds specular + tone mapping");
-
-            ImGui::Checkbox ("axonometric (parallel projection)", &state.orthographic);
-            ImGui::Checkbox ("graph interaction lab", &state.showGraphInteractionLab);
-            DrawSceneTextLiveCheckControls (state);
-            DrawSunStudyHudSection (state, scene);
-
-            DrawEnvironmentControls (state, scene);
-
-            DrawPostProcessingControls (state, scene);
-
-            DrawStorySliceControls (state, scene);
-
-            DrawGhPreviewControls (state);
-            ImGui::Checkbox ("callout under the cursor", &state.showCallout);
-            ImGui::Checkbox ("selected element properties", &state.showProperties);
-        }
-
-        ImGui::Separator ();
-        ImGui::Text ("elements %llu", (unsigned long long) scene.elements);
-        ImGui::Text ("triangles %llu", (unsigned long long) scene.triangles);
-        if (scene.pointLayers > 0)
-            ImGui::Text ("point clouds %llu   visible %llu / %llu", (unsigned long long) scene.pointLayers,
-                         (unsigned long long) scene.visiblePoints, (unsigned long long) scene.points);
-        ImGui::Text ("materials %llu   misses %llu", (unsigned long long) scene.materials,
-                     (unsigned long long) scene.materialMisses);
-        if (scene.pending > 0)
-            ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f), "extracting: %llu queued",
-                                (unsigned long long) scene.pending);
-
-        ImGui::Separator ();
-        DrawLightInspector (state, scene);
-
-        DrawShadowSettings (state, scene);
-        ImGui::Text ("draws %llu   materials in pool %llu", (unsigned long long) scene.drawCalls,
-                     (unsigned long long) scene.materials);
+        ImGui::End ();
     }
-    ImGui::End ();
+    else {
+        viewerhud::Frame figures;
+        figures.frameMs = frameMs;
+        figures.worstMs = impl_->heldWorstMs;
+        figures.dpiScale = dpiScale;
+        figures.fontNote = impl_->fontNote.c_str ();
+        viewerhud::Draw (impl_->shell, state, scene, width, height, impl_->font, figures);
+    }
 
     if (state.showGraphInteractionLab)
         impl_->graphInteractionLab.Draw (width, height, input, state.frameLatency, state.showGraphInteractionLab,
@@ -425,15 +389,6 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     // must never make ImGui want the mouse, or the camera and the pick stop
     // responding under a corner of the screen.
     if (state.showFpsBadge) {
-        const float frameMs = io.DeltaTime * 1000.0f;
-        if (frameMs > impl_->worstMsInWindow)
-            impl_->worstMsInWindow = frameMs;
-        if (impl_->worstMsInWindow > impl_->heldWorstMs || now >= impl_->heldUntilSeconds) {
-            impl_->heldWorstMs = impl_->worstMsInWindow;
-            impl_->heldUntilSeconds = now + kWorstHoldSeconds;
-            impl_->worstMsInWindow = 0.0f;
-        }
-
         // Right-hand edge, top. Pivot (1,0) is what keeps it anchored there as
         // the text width changes rather than growing off the surface.
         ImGui::SetNextWindowPos (ImVec2 (float (width) - 8.0f, 8.0f), ImGuiCond_Always, ImVec2 (1.0f, 0.0f));
@@ -460,8 +415,12 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
 
     DrawHoverCallout (state, input, width, height);
 
-    DrawSelectedElementWindow (state, height);
+    // The picked element's facts: the Selection tab's, but on the read-only surface, which has
+    // no tabs and keeps its window.
+    if (state.readOnly)
+        DrawSelectedElementWindow (state, height);
 
+    ImGui::PopFont ();
     ImGui::Render ();
     impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
     impl_->renderer->EndFrame ();

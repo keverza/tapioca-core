@@ -161,6 +161,17 @@ struct HostResult {
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer);
 
+// ---- widgets every page uses (HANDOFF-HudTabs.md's shared helpers) -----------------------
+
+// A collapsing section; false while it is folded, so a page can `if (!Section (...)) return;`.
+// ImGui keeps its open state by its label's id.
+bool Section (const char* label, bool defaultOpen = false);
+
+// The HUD's own settings, the same in every HUD: its text size's step and its position --
+// a Reset that puts the floating panel back where its look asks. True when either was changed
+// by the user in this frame; `reset` says which.
+bool HudSettings (uint32_t& fontStep, Placement& placement, bool& reset);
+
 // ---- the HUD's own tabs ----------------------------------------------------------------
 // ⚠️ EVERY HUD HAS THEM, WITH OR WITHOUT A CALLER'S PANEL (the user, 2026-10-03): Stats -- the
 // dashboard, Selection -- the selected elements and their Tapioca metadata, Settings -- the
