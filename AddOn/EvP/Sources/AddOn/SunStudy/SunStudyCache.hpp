@@ -50,15 +50,22 @@ struct PatchKey {
     // surface agree on it; a surface that moved does not.
     uint64_t plane = 0;
 
+    // Distinct disconnected patches can share the same quantised plane/origin.
+    // Their occurrence within that element's ordered patch set keeps tiles
+    // separate; it is stable across edits/reorders of OTHER elements.
+    uint32_t occurrence = 0;
+
     bool operator< (const PatchKey& other) const
     {
         if (element != other.element)
             return element < other.element;
-        return plane < other.plane;
+        if (plane != other.plane)
+            return plane < other.plane;
+        return occurrence < other.occurrence;
     }
     bool operator== (const PatchKey& other) const
     {
-        return element == other.element && plane == other.plane;
+        return element == other.element && plane == other.plane && occurrence == other.occurrence;
     }
 };
 

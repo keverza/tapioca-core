@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace evp::sunstudy {
 
@@ -62,8 +63,11 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
     grid.patchOfTriangle.assign (faceCount, PatchSampleGrid::kNoPatch);
 
     grid.spans.reserve (patches.size ());
+    std::map<PatchKey, uint32_t> occurrences;
     for (size_t index = 0; index < patches.size (); ++index) {
         const SurfacePatch& patch = patches[index];
+        PatchKey key = MakePatchKey (patch.group < elementOf.size () ? elementOf[patch.group] : std::string (), patch);
+        key.occurrence = occurrences[key]++;
         const PatchGrid& lattice = lattices[index];
         if (lattice.cells.empty ())
             continue;
@@ -71,7 +75,7 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
             ++grid.centroidPatches;
 
         PatchSampleSpan span;
-        span.key = MakePatchKey (patch.group < elementOf.size () ? elementOf[patch.group] : std::string (), patch);
+        span.key = key;
         span.first = grid.areas.size ();
         span.count = lattice.cells.size ();
         span.columns = lattice.columns;

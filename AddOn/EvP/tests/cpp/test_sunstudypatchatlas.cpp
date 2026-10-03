@@ -7,6 +7,7 @@
 // OTHER surface's texture coordinates survived. So the assertions here are about
 // counts and addresses, not about values.
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <string>
@@ -247,6 +248,55 @@ TEST (PatchAtlas, EverySampleLandsOnItsOwnPatchsTile)
         EXPECT_GE (y, allocation->y);
         EXPECT_LT (y, allocation->y + allocation->height);
     }
+}
+
+TEST (PatchAtlas, CollidingQuantisedPlanesKeepSeparateTilesAndZeroResults)
+{
+    Scene scene;
+    AddQuad (scene, "same-element", 0, 0, 4, 3, 0);
+    AddQuad (scene, "same-element", 0, 0, 4, 3, 0);      // disconnected, coincident geometry
+    AddQuad (scene, "same-element", 0, 0, 4, 3, 0.0001); // below the key quantum
+    const auto grid = SampleOf (scene, 1.0);
+    ASSERT_TRUE (grid.valid);
+    ASSERT_EQ (grid.spans.size (), 3u);
+    EXPECT_EQ (grid.spans[0].key.plane, grid.spans[1].key.plane);
+    EXPECT_EQ (grid.spans[0].key.plane, grid.spans[2].key.plane);
+
+    SunStudyPatchAtlas atlas;
+    atlas.Fit (grid);
+    ASSERT_EQ (atlas.AllocationCount (), grid.spans.size ());
+    std::vector<float> image (atlas.TexelCount (), -1.0f);
+    for (size_t span = 0; span < grid.spans.size (); ++span)
+        ASSERT_TRUE (atlas.ScatterPatch (grid, span, std::vector<double> (grid.spans[span].count, span * 3.0), image));
+    std::set<int64_t> texels;
+    for (size_t sample = 0; sample < grid.Count (); ++sample) {
+        const auto texel = atlas.TexelOf (grid, sample);
+        ASSERT_GE (texel, 0);
+        ASSERT_LT (static_cast<size_t> (texel), image.size ());
+        EXPECT_TRUE (texels.insert (texel).second);
+        EXPECT_FLOAT_EQ (image[static_cast<size_t> (texel)], grid.spanOf[sample] * 3.0f);
+    }
+    EXPECT_EQ (texels.size (), grid.Count ());
+    EXPECT_GT (std::count (image.begin (), image.end (), -1.0f), 0);
+    EXPECT_EQ (std::count (image.begin (), image.end (), 0.0f), grid.spans[0].count);
+}
+
+TEST (PatchAtlas, CollisionDiscriminatorsSurviveAnUnrelatedElementInsertedBeforeThem)
+{
+    Scene before;
+    AddQuad (before, "same-element", 0, 0, 4, 3, 0);
+    AddQuad (before, "same-element", 0, 0, 4, 3, 0);
+    const auto oldGrid = SampleOf (before, 1.0);
+    Scene after;
+    AddQuad (after, "new-element", 10, 0, 14, 3, 0);
+    AddQuad (after, "same-element", 0, 0, 4, 3, 0);
+    AddQuad (after, "same-element", 0, 0, 4, 3, 0);
+    const auto newGrid = SampleOf (after, 1.0);
+    ASSERT_EQ (oldGrid.spans.size (), 2u);
+    ASSERT_EQ (newGrid.spans.size (), 3u);
+    for (size_t span = 0; span < oldGrid.spans.size (); ++span)
+        EXPECT_EQ (oldGrid.spans[span].key, newGrid.spans[span + 1].key);
+    EXPECT_FALSE (oldGrid.spans[0].key == oldGrid.spans[1].key);
 }
 
 TEST (PatchAtlas, RefittingAnUnchangedGridMovesNothing)
