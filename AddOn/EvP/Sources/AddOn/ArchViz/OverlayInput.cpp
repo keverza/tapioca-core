@@ -685,6 +685,8 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.pointer = target.inside;
     input.x = target.x;
     input.y = target.y;
+    // Read as the layout is: it follows the press that asked for it, the key held through both.
+    input.shift = ::GetKeyState (VK_SHIFT) < 0;
     if (take) {
         input.buttons = std::move (target.buttons);
         target.buttons.clear ();

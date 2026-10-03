@@ -134,6 +134,7 @@ struct Input {
         bool down = false;
     };
     std::vector<Button> buttons; // since the last layout, in order
+    bool shift = false;          // held now: a shift-press extends a pick (the building section's)
     Hover hover;
 };
 

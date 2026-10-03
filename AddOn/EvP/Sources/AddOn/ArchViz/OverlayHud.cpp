@@ -681,6 +681,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     // frame apart, and a press after a move a frame after the move.
     ImGuiIO& io = ImGui::GetIO ();
     io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
+    io.AddKeyEvent (ImGuiMod_Shift, input.shift);
     for (const Input::Button& button : input.buttons)
         io.AddMouseButtonEvent (button.button, button.down);
     int frames = kFrames + int (input.buttons.size ()) + (input.buttons.empty () ? 0 : 1);
