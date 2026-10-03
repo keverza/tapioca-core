@@ -84,3 +84,52 @@ TEST (SunStudyPreset, ReceiverClassificationUsesTheRetainedSnapshotMaterialPool)
     EXPECT_EQ (BuildSunStudyReceivers (newer, roles, true, newer.materialTransparency, 0.4).analysisFaces, 0u);
     EXPECT_EQ (captured.materialTransparency.at (0), 0.7);
 }
+
+TEST (SunStudyPreset, AutomaticAnalysisAppliesContextAndIgnoredBeforeGlassFiltering)
+{
+    auto pane = MakeBox ("pane-and-frame", 0, 0, 0);
+    pane.triMaterial.assign (12, 1);
+    pane.triMaterial[2] = pane.triMaterial[3] = 7;
+    auto opaque = MakeBox ("opaque", 15, 0, 0);
+    opaque.triMaterial.assign (12, 1);
+    const auto scene = MakeSnapshot ({ pane, MakeBox ("context", 5, 0, 0), MakeBox ("ignored", 10, 0, 0), opaque });
+    const std::map<int32_t, double> transparency { { 0, 0.7 }, { 1, 0.0 }, { 7, 0.7 } };
+    const auto roles = ResolveElementRoles (scene, {}, { "context" }, { "ignored" });
+    EXPECT_EQ (roles.roles, (std::vector<ElementRole> { ElementRole::Analysis, ElementRole::Context,
+                                                        ElementRole::Ignored, ElementRole::Analysis }));
+    for (const bool late : { false, true }) {
+        const auto receivers = BuildSunStudyReceivers (scene, roles, late, transparency, 0.4);
+        EXPECT_EQ (receivers.analysisFaces, late ? 2u : 24u);
+        EXPECT_EQ (receivers.contextFaces, late ? 34u : 12u);
+        EXPECT_EQ (receivers.roles.roles[1], ElementRole::Context); // even transparent Context stays unmeasured
+        EXPECT_EQ (receivers.roles.roles[2], ElementRole::Ignored);
+        const auto occluders = OccluderSnapshot (scene, receivers.roles);
+        ASSERT_NE (occluders, nullptr);
+        EXPECT_EQ (occluders->TotalTriangles (), 36u); // opaque faces and Context still cast shadow
+    }
+}
+
+TEST (SunStudyPreset, EmptySelectionsNewObjectsAndClearedContextKeepAnalysisAutomatic)
+{
+    const auto initial = MakeSnapshot ({ MakeBox ("existing", 0, 0, 0), MakeBox ("context", 5, 0, 0) });
+    auto next = initial;
+    next.meshes.push_back (MakeBox ("new-glass", 10, 0, 0));
+    auto newOpaque = MakeBox ("new-opaque", 15, 0, 0);
+    newOpaque.triMaterial.assign (12, 1);
+    next.meshes.push_back (newOpaque);
+    const std::map<int32_t, double> transparency { { 0, 0.7 }, { 1, 0.0 } };
+    for (const bool late : { false, true }) {
+        const auto before =
+            BuildSunStudyReceivers (initial, ResolveElementRoles (initial, {}, { "context" }), late, transparency, 0.4);
+        EXPECT_EQ (before.analysisFaces, 12u);
+        const auto added =
+            BuildSunStudyReceivers (next, ResolveElementRoles (next, {}, { "context" }), late, transparency, 0.4);
+        EXPECT_EQ (added.analysisFaces, late ? 24u : 36u);
+        EXPECT_EQ (added.roles.roles[2], ElementRole::Analysis); // new glass joins without any Analysis pick
+        const auto cleared =
+            BuildSunStudyReceivers (next, ResolveElementRoles (next, {}, {}, {}), late, transparency, 0.4);
+        EXPECT_EQ (cleared.analysisFaces, late ? 36u : 48u);
+        EXPECT_EQ (cleared.contextFaces, late ? 12u : 0u);
+        EXPECT_EQ (cleared.roles.ignored, 0u);
+    }
+}
