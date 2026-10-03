@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -185,4 +186,57 @@ TEST (HudSection, FloorsArePickedByAPressAShiftPressAndADrag)
     hud.Lay ({}, At (x, highest));
     hud.Lay ({}, At (x, highest, { { 0, false } }));
     EXPECT_EQ (hud::PickedFloors (*hud.state), (hs::Run { 1, 2 })) << "dragged from the middle floor up";
+}
+
+// ⚠️ THE RIGHT CLICK IS THE SECTION'S: it opens the values to assign, not the HUD's own menu,
+// and the first one pressed is one edit per slab with a floor in the run.
+TEST (HudSection, ARightClickAssignsAValueToThePickedFloors)
+{
+    Watched hud;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    pages.selection.known = true;
+    pages.selection.count = 2;
+    pages.section =
+        hs::Build ({ SlabOf ("A", 0, 2, 800.0), SlabOf ("B", 2, 2, 300.0) }, Storeys (4), meta::DefaultSchema ());
+    hud.engine.SetOwnPages (pages);
+    hud::SelectKey (*hud.state, shell::kSelectionKey);
+    const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
+    const float x = 16.0f + out.host.width * 0.5f;
+    float top = 0.0f;
+    for (float y = 52.0f; y < 16.0f + out.host.height; y += 1.0f)
+        if (hud.Lay ({}, At (x, y)).hand) {
+            top = y;
+            break;
+        }
+    ASSERT_GT (top, 0.0f);
+    const float pitch = std::floor (13.0f * 1.2f) + 1.0f;
+    // Floors 3 down to 0, top first: pick floors 1-2 by a drag, then right-click on floor 2.
+    const float floor2 = top + pitch + 4.0f, floor1 = top + 2.0f * pitch + 4.0f;
+    hud.Lay ({}, At (x, floor1, { { 0, true } }));
+    hud.Lay ({}, At (x, floor2));
+    hud.Lay ({}, At (x, floor2, { { 0, false } }));
+    ASSERT_EQ (hud::PickedFloors (*hud.state), (hs::Run { 1, 2 }));
+    hud.Lay ({}, At (x, floor2, { { 1, true } }));
+    hud.Lay ({}, At (x, floor2, { { 1, false } }));
+    // The menu at the pointer: below the click, the first row the hand shows over is the first
+    // value -- Residential.
+    float option = 0.0f;
+    for (float y = floor2 + 2.0f; y < floor2 + 120.0f; y += 1.0f)
+        if (hud.Lay ({}, At (x + 30.0f, y)).hand) {
+            option = y + 3.0f;
+            break;
+        }
+    ASSERT_GT (option, 0.0f) << "the section's menu is open";
+    hud.Click ({}, x + 30.0f, option);
+    const std::vector<hm::Edit> edits = hud::TakeMetadataEdits (*hud.state);
+    ASSERT_EQ (edits.size (), 2u) << "one per slab in the run";
+    EXPECT_EQ (edits[0].element, "A");
+    EXPECT_DOUBLE_EQ (edits[0].from, 1.0);
+    EXPECT_DOUBLE_EQ (edits[0].to, 1.0);
+    EXPECT_EQ (edits[1].element, "B");
+    EXPECT_DOUBLE_EQ (edits[1].from, 2.0);
+    EXPECT_DOUBLE_EQ (edits[1].to, 2.0);
+    EXPECT_EQ (edits[0].text, "residential");
+    EXPECT_EQ (edits[0].action, hm::Edit::Action::Set);
 }
