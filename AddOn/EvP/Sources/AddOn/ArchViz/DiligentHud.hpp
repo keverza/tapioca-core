@@ -54,15 +54,6 @@ struct HudState {
     uint32_t width = 0;
     uint32_t height = 0;
     std::string adapter;
-    // ⚠️ THE FPS READOUT IS A REQUIREMENT, NOT A DECORATION, and it is drawn in
-    // its own always-visible window rather than inside the main panel. The
-    // add-on renders on top of Archicad and must never slow it down; the only
-    // way to notice that it has started to is to be able to see the frame cost
-    // at every moment, including while the main panel is collapsed, scrolled
-    // away, or -- on the overlay, which is click-through -- impossible to
-    // uncollapse at all.
-    bool showFpsBadge = true;
-
     // OFF by default.
     //
     // ⚠️ THIS IS AN EXPERIMENT, NOT A FEATURE, AND THE OVERLAY IS NOT THE PLACE

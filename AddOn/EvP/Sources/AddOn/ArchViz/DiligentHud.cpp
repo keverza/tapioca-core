@@ -53,12 +53,13 @@ struct DiligentHud::Impl {
     bool ready = false;
     double lastTimeSeconds = 0.0;
 
-    // ---- the frame-cost badge ----------------------------------------------
+    // ---- the frame's cost --------------------------------------------------
     // ⚠️ THE WORST FRAME MATTERS MORE THAN THE AVERAGE, and an average is what an
     // fps counter shows. A viewer that runs at 60 fps and stalls for 200 ms when
     // an extraction batch lands has taken 200 ms out of ARCHICAD's UI thread's
     // neighbourhood, and the mean over the same second still reads ~55 fps. So
-    // the badge carries both, and the peak is held long enough to be read.
+    // the Debug tab (and the read-only surface's readout) carries both, and the
+    // peak is held long enough to be read.
     float worstMsInWindow = 0.0f;
     float heldWorstMs = 0.0f;
     double heldUntilSeconds = 0.0;
@@ -333,6 +334,11 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         ImGui::SetNextWindowSize (ImVec2 (300.0f, 0.0f), ImGuiCond_FirstUseEver);
         if (ImGui::Begin ("Tapioca viewport")) {
             ImGui::Text ("%.1f fps   %u x %u", state.fps, width, height);
+            // The worst frame of the last seconds, held to be read: a stall the mean hides.
+            if (impl_->heldWorstMs > kSlowFrameMs)
+                ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "worst %.0f ms", impl_->heldWorstMs);
+            else
+                ImGui::TextDisabled ("worst %.0f ms", impl_->heldWorstMs);
             if (!state.adapter.empty ())
                 ImGui::TextWrapped ("%s", state.adapter.c_str ());
             ImGui::Separator ();
@@ -377,41 +383,9 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     state.graphInteractionActive = ImGui::IsAnyItemActive ();
     DrawSunStudyInspectorTooltip (state, input, width, height);
 
-    // ---- the frame-cost badge, ALWAYS ON -----------------------------------
-    // ⚠️ A SEPARATE WINDOW FROM THE PANEL ABOVE, DELIBERATELY. The panel is
-    // collapsible, movable and scrollable, and on the overlay it is also
-    // CLICK-THROUGH -- so once it is collapsed or pushed off the surface there is
-    // no way to get the number back without restarting the viewer. The
-    // requirement is that the add-on's cost is visible at every moment, and a
-    // readout that can be lost does not meet it.
-    //
-    // NoInputs is load-bearing for the same reason it is on the callout: this
-    // must never make ImGui want the mouse, or the camera and the pick stop
-    // responding under a corner of the screen.
-    if (state.showFpsBadge) {
-        // Right-hand edge, top. Pivot (1,0) is what keeps it anchored there as
-        // the text width changes rather than growing off the surface.
-        ImGui::SetNextWindowPos (ImVec2 (float (width) - 8.0f, 8.0f), ImGuiCond_Always, ImVec2 (1.0f, 0.0f));
-        ImGui::SetNextWindowBgAlpha (0.55f);
-        const ImGuiWindowFlags badgeFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                                            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-                                            ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
-                                            ImGuiWindowFlags_NoInputs;
-        if (ImGui::Begin ("##fps", nullptr, badgeFlags)) {
-            // The render thread's own measured rate (a half-second window), not
-            // ImGui's -- they agree while the viewer is healthy and diverge
-            // exactly when something is wrong, and the renderer's is the true one.
-            ImGui::Text ("%.0f fps   %.1f ms", state.fps, frameMs);
-            const bool slow = impl_->heldWorstMs > kSlowFrameMs;
-            if (slow) {
-                ImGui::TextColored (ImVec4 (1.0f, 0.55f, 0.35f, 1.0f), "worst %.0f ms", impl_->heldWorstMs);
-            }
-            else {
-                ImGui::TextDisabled ("worst %.0f ms", impl_->heldWorstMs);
-            }
-        }
-        ImGui::End ();
-    }
+    // ⚠️ NO FRAME-COST BADGE OVER THE VIEW (the user, 2026-10-03: a leftover panel; remove it).
+    // The cost is the Debug tab's -- the rate, this frame, the worst of the last seconds -- and
+    // the read-only surface's flat readout says it, which has no tabs.
 
     DrawHoverCallout (state, input, width, height);
 
