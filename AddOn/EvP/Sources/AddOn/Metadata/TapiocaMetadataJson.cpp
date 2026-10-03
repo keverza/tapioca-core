@@ -347,7 +347,7 @@ bool Parse (const std::string& text, json::JsonValue& root, std::string& error)
         return false;
     }
     if (parsed.value.AsObject () == nullptr) {
-        error = "the document is a JSON object";
+        error = "the document is not a JSON object";
         return false;
     }
     root = std::move (parsed.value);
