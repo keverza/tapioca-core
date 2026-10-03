@@ -12,6 +12,7 @@
 #include "ArchViz/Dxgi/CameraRecognizer.hpp" // census::NoteModelRevision
 #include "ArchViz/Dxgi/HostOccluders.hpp"    // hostocclusion::SetModelRevision
 #include "Notify/ModelDiff.hpp"
+#include "Geometry/MeshStore.hpp"
 
 #include <windows.h>
 
@@ -209,6 +210,7 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // busy moment -- which is most of them during a drag.
     ++gStats.geometryEdits;
     ++gStats.revision;
+    MeshStore::Get ().BumpCaptureStamp ();
 
     // ⚠️ PUBLISHED HERE, NOT BY A COURIER ON ITS OWN CLOCK.
     // The occluder stamps `publishedRevision` at BeginBatch from the revision it
@@ -301,6 +303,7 @@ void Rearm (uint32_t intervalMs)
 
 bool Start (uint32_t floorMs)
 {
+    MeshStore::Get ().SetCaptureActive (true);
     gFloorMs = std::max<uint32_t> (floorMs, 100);
 
     // ⚠️ A FRESH BASELINE ON EVERY ARM. A baseline left over from a previous
@@ -315,8 +318,10 @@ bool Start (uint32_t floorMs)
     ForgetEnvironmentLog ();
 
     Rearm (gFloorMs);
-    if (!gStats.running)
+    if (!gStats.running) {
+        MeshStore::Get ().SetCaptureActive (false);
         return false;
+    }
 
     // Establish the baseline immediately rather than on the first tick, so the
     // interval between opening the viewer and the first poll is not a blind spot.
@@ -343,6 +348,7 @@ void SetKeepAlive (bool keepAlive)
 
 void Stop ()
 {
+    MeshStore::Get ().SetCaptureActive (false);
     if (gTimer != 0) {
         ::KillTimer (nullptr, gTimer);
         gTimer = 0;
@@ -355,6 +361,7 @@ void Stop ()
 
 bool RefreshNow ()
 {
+    MeshStore::Get ().BumpCaptureStamp ();
     if (!StartPass ())
         return false;
     ++gStats.refreshes;
@@ -392,6 +399,7 @@ void NoteContentChanged (bool extract)
 {
     ++gStats.contentChanges;
     ++gStats.revision;
+    MeshStore::Get ().BumpCaptureStamp ();
     dxgi::hostocclusion::SetModelRevision (gStats.revision);
     dxgi::census::NoteModelRevision (gStats.revision);
     if (!extract)
@@ -406,6 +414,7 @@ void NoteSweepChange (const std::set<std::string>& changed, size_t elements, boo
 {
     ++gStats.sweepChanges;
     ++gStats.revision;
+    MeshStore::Get ().BumpCaptureStamp ();
     dxgi::hostocclusion::SetModelRevision (gStats.revision);
     dxgi::census::NoteModelRevision (gStats.revision);
     gSweptSincePoll.insert (changed.begin (), changed.end ());
@@ -444,6 +453,11 @@ void NoteSweepChange (const std::set<std::string>& changed, size_t elements, boo
 Stats Get ()
 {
     return gStats;
+}
+
+uint64_t CaptureStamp ()
+{
+    return MeshStore::Get ().CaptureStamp ();
 }
 
 } // namespace modelwatch

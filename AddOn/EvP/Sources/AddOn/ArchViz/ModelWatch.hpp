@@ -146,6 +146,9 @@ void NoteContentChanged (bool extract);
 void NoteSweepChange (const std::set<std::string>& changed, size_t elements, bool countChanged);
 
 Stats Get ();
+// Any thread: monotonic capture identity, including watch restarts/visibility
+// changes. Stats itself remains main-thread-only.
+uint64_t CaptureStamp ();
 
 } // namespace modelwatch
 } // namespace archviz

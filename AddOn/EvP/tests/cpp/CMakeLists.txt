@@ -58,6 +58,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/RenderEngine.cpp"
     "${GEOM_DIR}/SpatialQueries.cpp"
     "${GEOM_DIR}/VertexWeld.cpp"
+    "${GEOM_DIR}/SnapshotAssembly.cpp"
     "${GEOM_DIR}/GeometryEngine.cpp"
     # Primitives.cpp builds the solids the node catalog offers. Pure maths with
     # no ACAPI, and every way of getting it wrong is a PICTURE - a rounded box, a
@@ -156,8 +157,13 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOcclusion.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySession.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPreset.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlasReuse.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyDisplayData.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyDisplayAssembler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
@@ -652,6 +658,7 @@ set (EVP_TEST_SOURCES
     test_normals.cpp
     test_geometryengine.cpp
     test_meshgroups.cpp
+    test_snapshotassembly.cpp
     test_wireframeedges.cpp
     test_scenecmdqueue.cpp
     ${EVP_SCENE_TEXT_TESTS}
@@ -728,10 +735,15 @@ set (EVP_TEST_SOURCES
     test_sunstudygputraversal.cpp
     test_sunstudysession.cpp
     test_sunstudystore.cpp
+    test_sunstudytextureupdates.cpp
+    test_sunstudydisplaypreparation.cpp
     test_sunstudystore_concurrency.cpp
     test_sunstudyadvanceworker.cpp
     test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp
+    test_sunstudysurfacesampling.cpp
+    test_sunstudypreset.cpp
+    test_sunstudyreceivers.cpp
     test_sunstudywinding.cpp
     test_sunstudyatlas.cpp
     test_sunstudyoverlay.cpp

@@ -13,6 +13,9 @@
 #include "ArchViz/ExtractionStorySlices.hpp" // ReadStoreys, StorySliceAccumulator
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "Geometry/GeometryExtractor.hpp"
+#include "Geometry/SnapshotAssembly.hpp"
+#include "Geometry/MeshStore.hpp"
+#include "ArchViz/ModelWatch.hpp"
 #include "Notify/ChangeTracker.hpp" // the viewer is its SECOND consumer - own cursor
 #include "Python/MainThreadGate.hpp"
 #include "Diagnostics/ApiError.hpp" // DescribeErr - never print a bare GSErrCode
@@ -98,6 +101,8 @@ struct ModelHandle {
     ModelerAPI::Model* model = nullptr;
     int32_t count = 0;
     double captureMilliseconds = 0.0;
+    uint64_t captureStamp = 0;
+    std::map<int32_t, double> transparency;
 
     // ⚠️ SET WHEN THE ACQUIRE TIMES OUT, AND THE LAMBDA MUST CHECK IT. A gate
     // Invoke that reports a timeout may STILL RUN LATER — the contract says so
@@ -241,7 +246,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                                 std::vector<std::string>* extractedGuids)
 {
     const int64_t started = NowMs ();
-    const bool partial = !filter.empty ();
+    bool partial = !filter.empty ();
+    std::set<std::string> effectiveFilter = filter;
+    auto baseSnapshot = MeshStore::Get ().Shared ();
 
     const auto fail = [this, started] (const std::string& why) {
         std::lock_guard<std::mutex> lock (mutex_);
@@ -304,6 +311,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 return;
 
             handle->count = ModelElementCount (*model);
+            handle->captureStamp = modelwatch::CaptureStamp ();
+            handle->transparency = ReadMaterialTransparency (*model);
             *materials = ReadMaterials (*model);
             if (full)
                 *substances = ReadProjectSubstances ();
@@ -344,6 +353,17 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 " hostCaptureMs=" + std::to_string (handle->captureMilliseconds) +
                 " gateRoundTripMs=" + std::to_string (acquireMs) + " full=" + std::to_string (full));
 
+    if (partial && !SnapshotAssembly::CanUpdate (baseSnapshot.get (), handle->captureStamp, handle->transparency)) {
+        // A pool renumber or missing/intermediate baseline cannot be spliced.
+        // Use this same acquired model for a complete sliced viewer/study pass.
+        effectiveFilter.clear ();
+        partial = false;
+        full = true;
+        ArchVizLog ("pipeline: stage=geometry-shared-full reason=incompatible-incremental-baseline");
+    }
+    SnapshotAssembly assembly (MeshStore::Get ().NextId (), handle->captureStamp, handle->transparency,
+                               partial ? baseSnapshot : nullptr, effectiveFilter);
+
     StorySliceAccumulator storeySlices;
     storeySlices.Begin (*storeys, wantStorySlices && full);
 
@@ -373,6 +393,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         // — and it is what made a live-sync run report success while arming
         // nothing and never updating. Said plainly here so the probe can stop
         // instead of waiting for edits that can never be reported.
+        if (auto empty = assembly.Finish (modelwatch::CaptureStamp () == handle->captureStamp))
+            MeshStore::Get ().PublishShared (empty);
         releaseModel ();
         fail ("the 3D model is EMPTY (0 elements). Nothing can be extracted or "
               "watched. Open the 3D window and check the building is visible "
@@ -418,7 +440,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         SceneCmdQueue::Get ().PushEnvironment (*env);
 
     // ---- phase 2: walk the model, a few milliseconds at a time --------------
-    auto wanted = std::make_shared<const std::set<std::string>> (filter);
+    auto wanted = std::make_shared<const std::set<std::string>> (effectiveFilter);
     std::set<std::string> found;
     std::vector<SurfaceSubstanceObservation> observations;
 
@@ -464,7 +486,12 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         // every body to record `Unknown` for all of them would be pure cost.
         const bool observeSubstances = full && !substances->byAttribute.empty ();
         const bool ok = evp::MainThreadGate::Get ().Invoke (
-            [model, count, st, wanted, sliceMs, observeSubstances, substances] {
+            [model, count, st, wanted, sliceMs, observeSubstances, substances, handle] {
+                if (modelwatch::CaptureStamp () != handle->captureStamp) {
+                    st->changedTo.store (ModelElementCount (*model));
+                    st->completed.store (true);
+                    return;
+                }
                 extractionslice::Run (*model, count, *st, *wanted, sliceMs, observeSubstances, *substances);
             },
             SliceTimeoutMs, sliceErr);
@@ -508,13 +535,14 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         // Off the main thread, while Archicad has it back.
         uint32_t pushed = 0;
         uint64_t triangles = 0;
-        for (const auto& packet : st->meshes) {
+        for (auto& packet : st->meshes) {
             const Mesh& mesh = packet.mesh;
             if (extractedGuids != nullptr)
                 extractedGuids->push_back (mesh.guid);
             storeySlices.Cut (mesh); // no-op unless slices were asked for
 
             std::unique_ptr<ElementUpload> up = MakeElementPacket (packet);
+            assembly.Add (std::move (packet.mesh)); // retained doubles, no second host extraction
             if (up == nullptr)
                 continue;
             triangles += up->indices.size () / 3;
@@ -560,7 +588,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     uint32_t removed = 0;
     // ⚠️ NOT FROM A WALK THE MODEL CHANGED UNDER: the GUIDs it never reached are not gone.
     if (partial && changedTo < 0) {
-        for (const std::string& guid : filter) {
+        for (const std::string& guid : effectiveFilter) {
             if (found.count (guid) == 0) {
                 SceneCmdQueue::Get ().PushRemove (guid);
                 ++removed;
@@ -604,6 +632,15 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
 
     releaseModel ();
 
+    const bool complete = cursor > handle->count && !gaveUp && !stopFlag_.load () && changedTo < 0 &&
+                          modelwatch::CaptureStamp () == handle->captureStamp;
+    if (auto snapshot = assembly.Finish (complete)) {
+        MeshStore::Get ().PublishShared (snapshot);
+        ArchVizLog ("pipeline: stage=geometry-shared-snapshot snapshot=" + std::to_string (snapshot->id) +
+                    " captureStamp=" + std::to_string (snapshot->captureStamp) + " meshes=" +
+                    std::to_string (snapshot->meshes.size ()) + " incremental=" + std::to_string (partial));
+    }
+
     {
         std::lock_guard<std::mutex> lock (mutex_);
         progress_.done = (cursor > handle->count) && !gaveUp;
@@ -628,7 +665,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     // an update over the same elements, since the content sweep reads what did (ModelContentWatch)
     // -- after it settles, and a bounded number of times so a model that never settles cannot hold
     // the worker.
-    if (changedTo >= 0 && !stopFlag_.load () && restarts_ < kMaxRestarts) {
+    if ((changedTo >= 0 || (!complete && !gaveUp)) && !stopFlag_.load () && restarts_ < kMaxRestarts) {
         ++restarts_;
         std::this_thread::sleep_for (std::chrono::milliseconds (kRestartSettleMs));
         if (extractedGuids != nullptr)

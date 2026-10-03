@@ -6,6 +6,7 @@
 #include "APIdefs_Interface.h" // API_AttributePicker (Layer/Pen/Fill/LineType)
 #include "DGModule.hpp"
 #include "DGDateTime.hpp"
+#include "Palette/ParamAdvisory.hpp"
 
 #include <memory>
 #include <vector>
@@ -170,6 +171,7 @@ struct ParamControl {
     // behind a popover: it needs no click, so the constraint is known BEFORE
     // typing. On the left so it never eats into the input box's width.
     std::unique_ptr<DG::LeftText> domainHint;
+    std::unique_ptr<ParamAdvisory> advisory;
 
     // A parameter with no default in run()'s signature. Run stays disabled until
     // every one of these has a usable value, so a command cannot be started in a
@@ -214,6 +216,7 @@ class ParamPanel {
     // HIDDEN; the shell lays out and then calls ShowControls.
     void Rebuild (const CommandInfo& info);
     void ShowControls ();
+    bool RefreshAdvisories ();
     void Clear ();
 
     // Position the block in the band starting at `top` — description, then the rows

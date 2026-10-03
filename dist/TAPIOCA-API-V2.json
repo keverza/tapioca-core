@@ -144,6 +144,9 @@
           },
           "analysisMilliseconds": {
             "type": "number"
+          },
+          "admissionMilliseconds": {
+            "type": "number"
           }
         },
         "additionalProperties": false,
@@ -239,6 +242,9 @@
               "type": "integer"
             }
           },
+          "reuseShared": {
+            "type": "boolean"
+          },
           "meta": {
             "oneOf": [
               {
@@ -292,6 +298,9 @@
             ]
           },
           "metadataCancelled": {
+            "type": "boolean"
+          },
+          "sharedCapture": {
             "type": "boolean"
           },
           "droppedElements": {
@@ -11259,6 +11268,9 @@
           "includeAtlas": {
             "type": "boolean"
           },
+          "summaryOnly": {
+            "type": "boolean"
+          },
           "packed": {
             "type": "boolean"
           }
@@ -11276,6 +11288,27 @@
             "items": {
               "type": "number"
             }
+          },
+          "summaryOnly": {
+            "type": "boolean"
+          },
+          "minHours": {
+            "type": "number"
+          },
+          "meanHours": {
+            "type": "number"
+          },
+          "maxHours": {
+            "type": "number"
+          },
+          "daylightHours": {
+            "type": "number"
+          },
+          "fullyLit": {
+            "type": "integer"
+          },
+          "fullyShaded": {
+            "type": "integer"
           },
           "positions": {
             "type": "array",
@@ -27125,6 +27158,9 @@
           },
           "depth": {
             "type": "integer"
+          },
+          "preparing": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -27667,6 +27703,29 @@
               "patch"
             ]
           },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "early",
+              "late"
+            ]
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "gpu"
+            ]
+          },
+          "glassThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "analysisSelectionSet": {
+            "type": "string",
+            "minLength": 1
+          },
           "analysisElements": {
             "type": "array",
             "items": {
@@ -27811,6 +27870,24 @@
             "type": "integer"
           },
           "excludedSurfaces": {
+            "type": "integer"
+          },
+          "preset": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "presetReason": {
+            "type": "string"
+          },
+          "analysisFaceCount": {
+            "type": "integer"
+          },
+          "contextFaceCount": {
+            "type": "integer"
+          },
+          "unknownMaterialFaces": {
             "type": "integer"
           },
           "latitude": {
@@ -28062,6 +28139,15 @@
           },
           "rejection": {
             "type": "string"
+          },
+          "preparing": {
+            "type": "boolean"
+          },
+          "pendingStudyId": {
+            "type": "string"
+          },
+          "preparationError": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
@@ -28236,6 +28322,12 @@
           },
           "analysisMilliseconds": {
             "type": "number"
+          },
+          "admissionMilliseconds": {
+            "type": "number"
+          },
+          "backend": {
+            "type": "string"
           }
         },
         "additionalProperties": false,

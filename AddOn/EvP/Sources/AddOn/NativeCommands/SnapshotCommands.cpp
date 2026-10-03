@@ -21,8 +21,6 @@ namespace geomsrv {
 
 namespace {
 
-uint64_t g_nextSnapshotId = 1;
-
 // Parse the `meta` param: false / "none" / true / "basic" / "full".
 // NOTE `true` maps to BASIC, not FULL. Properties + classifications require
 // GetPropertyDefinitions + GetPropertyValues + GetPropertyValueString PER ELEMENT,
@@ -82,9 +80,17 @@ class BuildSnapshotCommand : public MainThreadCommand {
 
         pc.SetProcessName ("EvP: extracting geometry");
 
-        const uint64_t id = g_nextSnapshotId++;
         const auto captureStarted = std::chrono::steady_clock::now ();
-        auto snap = selectionOnly ? ExtractSelectedElements (id) : ExtractAllElements (id);
+        const uint64_t stamp = MeshStore::Get ().CaptureStamp ();
+        bool reuseShared = false;
+        params.Get ("reuseShared", reuseShared);
+        auto snap =
+            reuseShared && !selectionOnly && MeshStore::Get ().CaptureActive () ? MeshStore::Get ().Shared () : nullptr;
+        const bool sharedCapture = snap != nullptr && snap->captureStamp == stamp && snap->completeModel;
+        if (!sharedCapture) {
+            const uint64_t id = MeshStore::Get ().NextId ();
+            snap = selectionOnly ? ExtractSelectedElements (id) : ExtractAllElements (id, stamp);
+        }
         const double captureMs =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - captureStarted).count ();
 
@@ -100,8 +106,9 @@ class BuildSnapshotCommand : public MainThreadCommand {
         size_t droppedElems = 0, droppedTris = 0;
         if (!excludeTypes.empty ()) {
             auto keep = std::make_shared<Snapshot> ();
-            keep->id = snap->id;
+            keep->id = MeshStore::Get ().NextId (); // a subset must not alias the shared query index
             keep->scope = snap->scope;
+            keep->materialTransparency = snap->materialTransparency;
             for (auto& m : snap->meshes) {
                 if (std::find (excludeTypes.begin (), excludeTypes.end (), m.elemType) != excludeTypes.end ()) {
                     ++droppedElems;
@@ -151,6 +158,7 @@ class BuildSnapshotCommand : public MainThreadCommand {
                                             : level == MetaLevel::Basic ? "basic"
                                                                         : "none"));
         os.Add ("metadataCancelled", cancelled);
+        os.Add ("sharedCapture", sharedCapture);
         if (!excludeTypes.empty ()) {
             os.Add ("droppedElements", static_cast<GS::Int64> (droppedElems));
             os.Add ("droppedTriangles", static_cast<GS::Int64> (droppedTris));
@@ -288,6 +296,7 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
             "properties":{
                 "scope":{"type":"string","enum":["all","selection"]},
                 "excludeTypes":{"type":"array","items":{"type":"integer"}},
+                "reuseShared":{"type":"boolean"},
                 "meta":{"oneOf":[
                     {"type":"boolean"},
                     {"type":"string","enum":["none","basic","full"]}
@@ -306,6 +315,7 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
                 "hasMetadata":{"type":"boolean"},
                 "metaLevel":{"type":"string","enum":["none","basic","full","cancelled"]},
                 "metadataCancelled":{"type":"boolean"},
+                "sharedCapture":{"type":"boolean"},
                 "droppedElements":{"type":"integer"},
                 "droppedTriangles":{"type":"integer"},
                 "retainedBytes":{"type":"integer"}

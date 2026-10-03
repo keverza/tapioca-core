@@ -19,6 +19,11 @@ struct SunStudyGpuStats {
     uint64_t gpuRays = 0;
     uint64_t cpuFallbackRays = 0;
     uint64_t validationRays = 0;
+    uint64_t ambiguousRays = 0;
+    uint64_t workLimitRays = 0;
+    uint64_t cpuCheckRays = 0; // union of fallback and validation, traced only once
+    uint64_t readbackBytes = 0;
+    size_t maxInFlight = 0;
     double submitMilliseconds = 0.0;
     double readbackMilliseconds = 0.0; // includes GPU queue/execution waiting, not a GPU timestamp
     double cpuCheckMilliseconds = 0.0;

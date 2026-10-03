@@ -435,7 +435,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // elements; uploading them all at once stops the viewer presenting
             // for a second and takes that second out of Archicad's UI thread
             // with it. 32 is the same starting point the bgfx path uses.
-            const size_t consumed = annotationsOnly ? 0 : scene.Consume (device, 32);
+            const size_t consumed = annotationsOnly ? 0 : scene.Consume (device, 32, context);
             if (consumed > 0)
                 scene.ResetTemporalAntiAliasingHistory ();
 

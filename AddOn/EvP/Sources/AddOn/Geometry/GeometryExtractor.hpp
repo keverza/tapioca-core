@@ -26,7 +26,7 @@ namespace geomsrv {
 bool AcquireCurrentModel (ModelerAPI::Model& model);
 
 // Extract every element in the current 3D window's model ("all"). Null on error.
-std::shared_ptr<const Snapshot> ExtractAllElements (uint64_t snapshotId);
+std::shared_ptr<const Snapshot> ExtractAllElements (uint64_t snapshotId, uint64_t captureStamp = 0);
 
 // Extract only the currently selected elements ("selection"). Null on error;
 // an empty (0-element) snapshot means nothing is selected.
@@ -40,6 +40,10 @@ std::shared_ptr<const Snapshot> ExtractSelectedElements (uint64_t snapshotId);
 // to reach into the modeler headers.
 // MAIN THREAD ONLY.
 int32_t ModelElementCount (const ModelerAPI::Model& model);
+
+// MAIN THREAD: the double-precision material pool from the SAME acquired model
+// as the geometry. Used by synchronous and sliced snapshot captures.
+std::map<int32_t, double> ReadMaterialTransparency (const ModelerAPI::Model& model);
 
 // One element of `model`, by its 1-BASED index, into `mesh`. False if the index
 // is out of range or the element yielded nothing drawable.

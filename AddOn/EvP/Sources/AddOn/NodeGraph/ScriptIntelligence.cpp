@@ -390,14 +390,13 @@ class ScriptIntelligence::Impl {
     {
         if (process && process->Running () && initialised)
             return true;
-        if (!LanguageServerInstalled ()) {
-            error = "code intelligence is not installed";
-            return false;
-        }
 
+        // The process factory owns startup, including injected/offline servers
+        // with no executable on disk. Check installation only to explain a failure.
         process = StartLanguageServerProcess (LanguageServerExecutable (), { "--stdio" });
         if (!process) {
-            error = "the language server would not start";
+            error = LanguageServerInstalled () ? "the language server would not start"
+                                               : "code intelligence is not installed";
             return false;
         }
         inbox.clear ();

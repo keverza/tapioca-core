@@ -100,7 +100,8 @@ struct SurfacePatchOptions {
 // patch's plane by whatever the noise happened to be.
 std::vector<SurfacePatch> BuildSurfacePatches (const double* vertices, size_t vertexCount, const uint32_t* triangles,
                                                size_t faceCount, const uint32_t* groups,
-                                               const SurfacePatchOptions& options = SurfacePatchOptions ());
+                                               const SurfacePatchOptions& options = SurfacePatchOptions (),
+                                               const std::vector<uint8_t>* facePartition = nullptr);
 
 // Where one cell of a patch's lattice sits.
 struct PatchCell {

@@ -441,6 +441,14 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # the driver neither installs hooks nor controls camera synchronization.
     ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/CameraWake.hpp"),
     ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/ArchVizLog.hpp"),
+    # Display preparation is pure worker work; these adapters own only enqueue
+    # and viewer-lifetime acknowledgement, not GPU/device or analysis policy.
+    ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/DiligentViewport.hpp"),
+    ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/SceneCmdQueue.hpp"),
+    ("NativeCommands/SunStudyDisplayPreparation.hpp", "ArchViz/SunStudyDisplayAssembler.hpp"),
+    ("NativeCommands/SunStudyDisplayPreparation.cpp", "ArchViz/DiligentViewport.hpp"),
+    ("NativeCommands/SunStudyDisplayPreparation.cpp", "ArchViz/SceneCmdQueue.hpp"),
+    ("NativeCommands/SunStudyDisplayPreparation.cpp", "ArchViz/ScenePacketTrace.hpp"),
     # Viewer teardown owns the follower timer's lifetime; disarm immediately on
     # close rather than letting a fast reopen keep the previous session armed.
     ("ArchViz/ArchVizPanel.cpp", "NativeCommands/SunStudyFollowerDriver.hpp"),

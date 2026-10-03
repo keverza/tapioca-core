@@ -228,9 +228,9 @@ size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, c
             continue;
         const size_t from = samplesBefore[old][index];
         const double* point = &target.positions[sample * 3];
+        const double* normal = target.normals.data () + sample * 3;
         if (!std::equal (point, point + 3, &source.positions[from * 3]) ||
-            !std::equal (&target.normals[sample * 3], &target.normals[sample * 3 + 3], &source.normals[from * 3]) ||
-            InShadowZone (point, zones, target.series))
+            !std::equal (normal, normal + 3, &source.normals[from * 3]) || InShadowZone (point, zones, target.series))
             continue;
         reuse[sample] = from;
         ++reused;

@@ -37,8 +37,10 @@ def test_adoption_is_gated_and_a_closed_session_cannot_rearm_following():
     assert "sessionGeneration != s_sessionGeneration" in adopt
     assert "++s_sessionGeneration" in source
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
-    assert "sunfollow::Adopt (id, config, sessionGeneration)" in display
-    assert display.index("sunfollow::SessionGeneration ()") < display.index("PushSunStudyAtlas")
+    assert display.index("sunfollow::SessionGeneration ()") < display.index("SubmitManualSunStudyDisplay")
+    preparation = (_ADDON / "NativeCommands" / "SunStudyDisplayPreparation.cpp").read_text(encoding="utf-8")
+    assert "sunfollow::Adopt (request.studyId, request.config, request.sessionGeneration)" in preparation
+    assert preparation.index("PublishInSession") < preparation.index("PushSunStudyAtlas")
 
 
 def test_worker_is_joined_on_both_quit_and_unload():
@@ -124,19 +126,20 @@ def test_automatic_replacement_never_coarsens_and_reuses_only_compatible_accepte
     assert "accepted.sun == signature.sun && accepted.sampling == signature.sampling" in source
     assert "CompletedRecord (studyId)" in source
     assert "CompletedRecord (gRunStudyId)" in source
-    assert 'show.Add ("preview", false)' in source
+    assert "options.preview = false" in source
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
-    assert "upload->preview && !converged" in display
+    assert "options.preview && !progress.converged" in display
     assert '"preview":{"type":"boolean"}' in display
 
 
 def test_incremental_publication_uses_the_stale_guard_and_commits_after_enqueue():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
     check = source.index("gFollower.CanPublishResult (gRunGeneration, gRunSignature)")
-    show = source.index('ExecuteNativeCommand ("ShowSunStudy", show)')
+    show = source.index("PushSunStudyAtlas (std::move (output->upload))")
     accept = source.index("gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now)")
     assert check < show < accept
-    assert "!shown.ok || !enqueuedToViewer" in source
+    assert "completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration" in source
+    assert "output->upload == nullptr || !archviz::DiligentViewport::Get ().IsRunning ()" in source
     assert "s_reuseRecord.reset ();" in source.split("void DisableLocked ()", 1)[1]
 
 
@@ -180,13 +183,22 @@ def test_geometry_batches_wait_for_worker_drain_before_capture_and_do_not_deboun
         assert field in source
 
 
-def test_gpu_selection_is_only_for_owned_automatic_preparation_and_uses_role_filtered_scene():
+def test_gpu_selection_is_explicit_for_both_producers_and_uses_role_filtered_scene():
     source = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
-    assert "if (cancelled != nullptr)" in source
+    assert 'if (record.backend == "gpu")' in source
     assert "std::make_shared<archviz::SunStudyGpuTraversal> (" in source
     assert "record.occluders != nullptr ? record.occluders->context : nullptr, previousGpu" in source
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
-    assert "FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_, occluders)" in commands
+    assert "FinishSunStudyPreparation (*record, snapshot, reuseSource.get (), cancelled_, occluders)" in commands
+    assert 'ReadString (params, "backend", cancelled_ != nullptr ? "gpu" : "cpu")' in commands
+    assert "sunfollow::Disable ()" in commands
+    request = re.findall(r'R"json\((.*?)\)json"', commands.split('{ "StartSunStudy",', 1)[1], re.DOTALL)[0]
+    assert json.loads(request)["properties"]["backend"]["enum"] == ["cpu", "gpu"]
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    assert 'params.Add ("backend"' in driver
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert "config.backend = metadata.backend" in display
+    assert "reuseSource != nullptr && cancelled != nullptr" in source  # manual CPU baseline traces a fresh day
     assert "D3D11" not in commands
 
 
@@ -228,7 +240,9 @@ def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explic
         "D3D11_FEATURE_DOUBLES",
         "D3D11_ASYNC_GETDATA_DONOTFLUSH",
         "D3D11_MAP_FLAG_DO_NOT_WAIT",
-        "kPacketRays = 4096",
+        "kMinGpuRays = 4096",
+        "kPacketRays = 16384",
+        "kInFlightPackets = 3",
         "kRayWorkLimit = 4096",
         "isCancelled ()",
         "CPU/GPU parity mismatch",
@@ -241,6 +255,17 @@ def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explic
     assert "OccludeDirectionalCancellable" in (_ADDON / "SunStudy" / "SunStudyOcclusion.cpp").read_text(
         encoding="utf-8"
     )
+
+
+def test_gpu_pipeline_keeps_exact_cpu_guards_and_avoids_duplicate_serial_checks():
+    source = (_ADDON / "ArchViz" / "SunStudyGpuTraversal.cpp").read_text(encoding="utf-8")
+    assert "cpu.Occluded (" not in source
+    assert "cpu.OccludeDirectional (&checkPositions" in source
+    assert "answers[i] >= 2 || validate" in source
+    assert "CopySubresourceRegion (packet.staging" in source
+    assert "ReadPacket (packet" in source and "SubmitPacket (packet" in source
+    for field in ("ambiguousRays=", "workLimitRays=", "cpuCheckRays=", "maxInFlight="):
+        assert field in source
 
 
 def test_bound_role_sets_are_captured_on_main_and_followed_before_completion_can_publish():
@@ -290,3 +315,156 @@ def test_pause_retires_old_producer_but_does_not_clear_display_or_join():
     schemas = re.findall(r'R"json\((.*?)\)json"', registration, re.DOTALL)
     assert json.loads(schemas[0])["additionalProperties"] is False
     assert json.loads(schemas[1])["required"] == ["autoFollow"]
+
+
+def test_surface_sampling_reuse_remains_owned_sdk_free_and_separate_from_result_reuse():
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert re.search(
+        r"BuildSurfaceSampling\s*\(\s*\*snapshot,\s*sampleMask,\s*options,\s*reuseSource\.get\s*\(\s*\)", commands
+    )
+    assert "record->samplingLayout = std::move (sampling.layout)" in commands
+    sampling = (_ADDON / "SunStudy" / "SunStudySurfaceSampling.cpp").read_text(encoding="utf-8")
+    assert "ACAPI_" not in sampling and "MainThreadGate" not in sampling
+    assert "item.vertices == oldMesh.vertices && item.triangles == oldMesh.triangles" in sampling
+    assert "oldSpan.sampleFaces == span.sampleFaces" in sampling
+    preparation = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
+    for field in ("stage=sun-grid-reuse", "reusedMeshes=", "rebuiltMeshes=", "reusedGridSamples=", "generatedSamples="):
+        assert field in preparation
+
+
+def test_presets_glass_filter_and_live_analysis_survive_follower_adoption_and_strict_schemas():
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    registration = commands.split('{ "StartSunStudy",', 1)[1].split('{ "AdvanceSunStudy",', 1)[0]
+    schemas = re.findall(r'R"json\((.*?)\)json"', registration, re.DOTALL)
+    request, response = map(json.loads, schemas)
+    for field in ("preset", "glassThreshold", "analysisSelectionSet"):
+        assert field in request["properties"]
+    assert request["properties"]["preset"]["enum"] == ["early", "late"]
+    for field in ("preset", "presetReason", "analysisFaceCount", "contextFaceCount", "unknownMaterialFaces"):
+        assert field in response["properties"]
+        assert f'os.Add ("{field}"' in commands
+    assert request["additionalProperties"] is False and response["additionalProperties"] is False
+    assert "analysisRestricted && analysisPicked.empty ()" in commands
+    capture = (_ADDON / "NativeCommands" / "SunStudyCapture.cpp").read_text(encoding="utf-8")
+    assert "inputs->materialTransparency = inputs->snapshot->materialTransparency" in capture
+    assert "AcquireCurrentModel" not in capture
+    extraction = (_ADDON / "Geometry" / "GeometryExtractor.cpp").read_text(encoding="utf-8")
+    snapshot = extraction.split("std::shared_ptr<const Snapshot> BuildSnapshot", 1)[1].split("return snap;", 1)[0]
+    assert "snap->materialTransparency = ReadMaterialTransparency (model)" in snapshot
+    assert snapshot.index("ReadMaterialTransparency (model)") < snapshot.index("GetElementCount ()")
+    assert "result.emplace (index, material.GetTransparency ())" in extraction
+    filtered = (_ADDON / "NativeCommands" / "SnapshotCommands.cpp").read_text(encoding="utf-8")
+    assert "keep->materialTransparency = snap->materialTransparency" in filtered
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    for field in ("preset", "glassThreshold", "analysisRestricted"):
+        assert f"config.{field} = metadata.{field}" in display
+        assert f"config.{field}" in driver
+    assert "read (binding.analysisSet)" in driver
+    assert 'params.Add ("analysisSelectionSet"' in driver
+    assert "RecommendSunStudyPreset" not in driver  # fixed after initial adoption, no oscillation during edits
+
+
+def test_viewer_and_follower_share_only_complete_revision_guarded_sliced_captures():
+    extraction = (_ADDON / "ArchViz" / "ExtractionThread.cpp").read_text(encoding="utf-8")
+    assert "assembly.Add (std::move (packet.mesh))" in extraction
+    assert "PublishShared (snapshot)" in extraction
+    assert "SnapshotAssembly::CanUpdate" in extraction
+    assert "modelwatch::CaptureStamp () != handle->captureStamp" in extraction
+    assert "!gaveUp && !stopFlag_.load () && changedTo < 0" in extraction
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    refresh = driver.split("bool RefreshSnapshot ()", 1)[1].split("void StartReplacement", 1)[0]
+    assert "MeshStore::Get ().Shared ()" in refresh
+    assert "ExtractionWorker::Get ().Start (true)" in refresh
+    assert 'params.Add ("reuseShared", true)' in refresh
+    assert "CaptureStamp ()" in driver.split("void Tick ()", 1)[1]
+    commands = (_ADDON / "NativeCommands" / "SnapshotCommands.cpp").read_text(encoding="utf-8")
+    assert "snap->captureStamp == stamp && snap->completeModel" in commands
+    assert "keep->id = MeshStore::Get ().NextId ()" in commands
+    assert '"reuseShared":{"type":"boolean"}' in commands
+    assembly = (_ADDON / "Geometry" / "SnapshotAssembly.cpp").read_text(encoding="utf-8")
+    assert "ACAPI_" not in assembly and "MainThreadGate" not in assembly
+
+
+def test_replacements_reuse_allocations_and_renderer_uploads_exact_base_regions_with_full_fallback():
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert "record->patchAtlas = reuseSource->patchAtlas" in commands
+    assert "BuildStableTriangleAtlas" in commands
+    render = (_ADDON / "ArchViz" / "DiligentSceneSunStudy.cpp").read_text(encoding="utf-8")
+    assert "CanApplySunAtlasRegions (*impl_->sunStudyPayload, *study)" in render
+    assert "CanApplySunStepRegions (*impl_->sunStudyPayload, *study)" in render
+    assert "context->UpdateTexture (texture, 0, region.layer" in render
+    assert "device->CreateTexture (desc, &data, &atlasTexture)" in render
+    assert render.index("device->CreateTexture (stepDesc") < render.index(
+        "ClearSunStudy ();", render.index("void DiligentScene::ApplySunStudy")
+    )
+    assert "SameSunStudyElementMap" in render
+    assert "study->baseTexels.reset ()" in render
+
+
+def test_display_assembly_is_worker_owned_and_publication_is_guarded_after_preparation():
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    show = display.split("NativeCommandResult ShowSunStudyCommand::ExecuteNative", 1)[1].split(
+        "class SunStudyOverlayStateCommand", 1
+    )[0]
+    assert "SubmitManualSunStudyDisplay" in show
+    for forbidden in ("DisplayData (", "StepMasks (", "BuildSunStudyElementMap", "ScatterToAtlas"):
+        assert forbidden not in show
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    advance = driver.split("void AdvanceOneSlice", 1)[1].split("void DisableLocked", 1)[0]
+    assert 'ExecuteNativeCommand ("ShowSunStudy"' not in advance
+    assert "PrepareSunStudyDisplay (id, revision, snapshot, options, *output, cancelled)" in driver
+    assert "PollDisplay (now)" in driver
+    service = (_ADDON / "NativeCommands" / "SunStudyDisplayPreparation.cpp").read_text(encoding="utf-8")
+    assert "ReadDisplayRecord" in service
+    assert "MainThreadGate::Get ().Post ([request, generation]" in service
+    for guard in (
+        "generation == s_manualGeneration",
+        "request.revision",
+        "request.captureStamp",
+        "IsRunning ()",
+        "PublishInSession",
+    ):
+        assert guard in service
+    assert "CancelManualSunStudyDisplays" in show
+    assert "ShutdownManualSunStudyDisplays ()" in driver
+    for filename in ("SunStudy/SunStudyDisplayData.cpp", "ArchViz/SunStudyDisplayAssembler.cpp"):
+        pure = (_ADDON / filename).read_text(encoding="utf-8")
+        assert "ACAPI_" not in pure and "MainThreadGate" not in pure
+    cache = (_ADDON / "SunStudy" / "SunStudyDisplayData.cpp").read_text(encoding="utf-8")
+    assert "record.displayCache->resolvedSteps == progress.resolvedSteps" in cache
+    assert "LitStepCount (sample)" in cache  # no repeated full SunHours vector in scatter
+
+
+def test_compact_result_requests_skip_unrequested_sample_and_atlas_transfers():
+    source = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    result = source.split("class GetSunStudyResultsCommand", 1)[1].split("class CancelSunStudyCommand", 1)[0]
+    assert re.search(r"error,\s*wantPositions,\s*&progress\)", result)
+    assert "summaryOnly && (wantPositions || wantAtlas || wantSteps)" in result
+    assert "SunStudyStore::Get ().Summary" in result
+    schemas = re.findall(r'R"json\((.*?)\)json"', source.split('{ "GetSunStudyResults",', 1)[1], re.DOTALL)
+    request, response = map(json.loads, schemas[:2])
+    assert request["properties"]["summaryOnly"] == {"type": "boolean"}
+    for field in ("minHours", "meanHours", "maxHours", "daylightHours", "fullyLit", "fullyShaded"):
+        assert field in response["properties"]
+        assert f'os.Add ("{field}"' in result
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert '"preparationError":{"type":"string"}' in display
+    assert '"preparing":{"type":"boolean"}' in display
+
+
+def test_manual_publication_rechecks_sun_roles_and_capture_and_linearizes_record_cancellation():
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    publish = driver.split("bool PublishInSession", 1)[1].split("void Disable ()", 1)[0]
+    assert "IsMainThread ()" in publish
+    assert "ACAPI_GeoLocation_GetPlaceSets" in publish
+    assert "PlaceInputHash (place) != config.placeInputHash" in publish
+    assert "binding.generation != SelectionSetStore::Get ().Generation ()" in publish
+    assert "binding.revision != SelectionSetStore::Get ().Revision ()" in publish
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert "record->placeInputHash = sunstudysupport::PlaceInputHash (place)" in commands
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert "snapshot->captureStamp != 0 ? snapshot->captureStamp" in display
+    for filename in ("SunStudyDisplayPreparation.cpp", "SunStudyFollowerDriver.cpp"):
+        source = (_ADDON / "NativeCommands" / filename).read_text(encoding="utf-8")
+        assert "PublishDisplayRecord" in source

@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <map>
 
 // Plain geometry containers — no ACAPI, no msgpack. Built on the main thread by
 // GeometryExtractor, read on worker threads via MeshStore. All coordinates are
@@ -46,6 +47,12 @@ struct Snapshot {
     uint64_t id = 0;
     std::string scope = "all"; // "all" (whole 3D model) or "selection"
     std::vector<Mesh> meshes;
+    // Modeler material indices belong to this exact capture's pool. Keeping
+    // transparency beside the geometry prevents a later pool renumbering from
+    // reclassifying old faces. Fractions, not percentages; missing is unknown.
+    std::map<int32_t, double> materialTransparency;
+    uint64_t captureStamp = 0;  // nonzero model-watch epoch/revision, not a snapshot id
+    bool completeModel = false; // never true for selection/type-filtered/partial walks
 
     size_t TotalTriangles () const
     {
@@ -73,7 +80,8 @@ struct Snapshot {
 
     size_t Bytes () const
     {
-        size_t n = sizeof (Snapshot) + scope.capacity ();
+        size_t n = sizeof (Snapshot) + scope.capacity () +
+                   materialTransparency.size () * (sizeof (std::pair<const int32_t, double>) + 3 * sizeof (void*));
         for (const auto& m : meshes)
             n += sizeof (Mesh) + m.Bytes ();
         return n;

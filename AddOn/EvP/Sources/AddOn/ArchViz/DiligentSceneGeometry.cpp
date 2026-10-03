@@ -117,7 +117,7 @@ bool DiligentScene::AddOverlayMesh (Diligent::IRenderDevice* device, const char*
     return true;
 }
 
-size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxCommands)
+size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxCommands, Diligent::IDeviceContext* context)
 {
     if (device == nullptr || !impl_->ready)
         return 0;
@@ -354,9 +354,8 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 break;
 
             case SceneCmdType::SetSunStudyAtlas:
-                // Whole, and it replaces: ApplySunStudy releases the previous
-                // atlas and every element's previous side buffer first.
-                ApplySunStudy (device, std::move (cmd.sunStudy));
+                // The full fallback travels with every region update.
+                ApplySunStudy (device, context, std::move (cmd.sunStudy));
                 if (impl_->sunStudyPayload != nullptr)
                     packetTrace.Applied ();
                 break;

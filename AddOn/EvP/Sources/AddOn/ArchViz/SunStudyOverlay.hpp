@@ -45,6 +45,7 @@
 
 #include "ArchViz/MeshGroups.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
+#include "SunStudy/SunStudyTextureDelta.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -88,6 +89,8 @@ struct SunStudyElementMap {
     size_t Bytes () const;
 };
 
+bool SameSunStudyElementMap (const SunStudyElementMap& a, const SunStudyElementMap& b);
+
 // A completed study, whole, ready to replace whatever the viewer held.
 //
 // ⚠️ THE IMAGE IS SHARED, NOT COPIED. A 256x256 atlas is 256 KB and an 8192 one
@@ -107,8 +110,18 @@ struct SunStudyAtlasUpload {
     uint32_t width = 0;
     uint32_t height = 0;
     std::shared_ptr<const std::vector<float>> texels;
+    // Exact base identity. A consumer that skipped it uses the full image.
+    std::shared_ptr<const std::vector<float>> baseTexels;
+    std::vector<evp::sunstudy::AtlasRegion> atlasRegions;
 
     std::vector<SunStudyElementMap> elements;
+    // Worker-prepared immutable maps; display-only changes share these too. The
+    // legacy vector remains for independent queue producers and offline fixtures.
+    std::shared_ptr<const std::vector<SunStudyElementMap>> sharedElements;
+    const std::vector<SunStudyElementMap>& Elements () const
+    {
+        return sharedElements != nullptr ? *sharedElements : elements;
+    }
 
     // The top of the tint ramp in hours. ⚠️ CARRIED, NOT DERIVED IN THE SHADER:
     // a per-pixel max is impossible, and normalising to the study's own maximum
@@ -139,6 +152,8 @@ struct SunStudyAtlasUpload {
     // `stepWords` slices of width x height uint32, slice-major, the same texels
     // as `texels`. Shared, like the hours image, and for the same reason.
     std::shared_ptr<const std::vector<uint32_t>> stepMasks;
+    std::shared_ptr<const std::vector<uint32_t>> baseStepMasks;
+    std::vector<evp::sunstudy::AtlasRegion> stepRegions;
     uint32_t stepWords = 0;
     uint32_t stepCount = 0;
     // Solar noon, the AM / PM split; and each step's time of day in minutes,
@@ -154,6 +169,9 @@ struct SunStudyAtlasUpload {
 
     size_t Bytes () const;
 };
+
+bool CanApplySunAtlasRegions (const SunStudyAtlasUpload& previous, const SunStudyAtlasUpload& update);
+bool CanApplySunStepRegions (const SunStudyAtlasUpload& previous, const SunStudyAtlasUpload& update);
 
 // How the tint pass tests depth. ⚠️ AN ABI with the `depth=` argument of
 // Tapioca.ShowSunStudy and with the PSO array in DiligentSceneImpl.

@@ -8,7 +8,11 @@
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/CameraWake.hpp"
+#include "ArchViz/DiligentViewport.hpp"
+#include "ArchViz/SceneCmdQueue.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
+#include "NativeCommands/SunStudyCommandsSupport.hpp"
+#include "NativeCommands/SunStudyDisplayPreparation.hpp"
 #include "NativeCommands/SelectionSetStore.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAdvanceWorker.hpp"
@@ -113,6 +117,7 @@ struct PreparationResult {
     uint64_t revision = 0;
 };
 std::shared_ptr<PreparationResult> s_preparation;
+std::shared_ptr<PreparedSunStudyDisplay> s_display;
 
 evp::sunstudy::SunStudyTaskWorker& PreparationWorker ()
 {
@@ -188,13 +193,7 @@ void MixDouble (uint64_t& hash, double value)
 // 37-rebuild bug wearing a different hat.
 uint64_t SunInputHash (const API_PlaceInfo& place, const ActiveSunStudyConfig& config)
 {
-    uint64_t hash = 1469598103934665603ull;
-    MixDouble (hash, place.latitude);
-    MixDouble (hash, place.longitude);
-    MixDouble (hash, place.altitude);
-    Mix (hash, static_cast<uint64_t> (place.sumTime));
-    Mix (hash, static_cast<uint64_t> (place.timeZoneInMinutes));
-    MixDouble (hash, place.north);
+    uint64_t hash = sunstudysupport::PlaceInputHash (place);
     Mix (hash, static_cast<uint64_t> (config.year));
     Mix (hash, static_cast<uint64_t> (config.month));
     Mix (hash, static_cast<uint64_t> (config.day));
@@ -211,6 +210,9 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
     MixDouble (hash, config.grid);
     // The domain dices the surfaces differently, so it IS a sampling input.
     Mix (hash, config.patchDomain ? 1ull : 0ull);
+    Mix (hash, config.preset == "late" ? 1ull : 0ull);
+    MixDouble (hash, config.glassThreshold);
+    Mix (hash, config.analysisRestricted ? 1ull : 0ull);
     // Which elements are measured and which only cast shadow are sampling
     // inputs too: re-picking them must re-measure.
     MixGuids (hash, config.analysisElements);
@@ -250,6 +252,7 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     params.Add ("hourTo", (GS::Int32) config.hourTo);
     params.Add ("minAltitudeDeg", config.minAltitudeDeg);
     params.Add ("grid", config.grid);
+    params.Add ("backend", GS::UniString (config.backend.c_str (), CC_UTF8));
     // ⚠️ SURFACES, ALWAYS. It is the only mode that builds an atlas, and the
     // display path refuses a study without one -- so a follower that inherited
     // `ground` would rerun for ever and never show anything.
@@ -257,6 +260,10 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     // ⚠️ THE ADOPTED STUDY'S DOMAIN, SENT EXPLICITLY. StartSunStudy defaults to
     // `triangle`, so leaving this out reran every patch study as a triangle one.
     params.Add ("domain", GS::UniString (config.patchDomain ? "patch" : "triangle"));
+    if (!config.preset.empty ()) {
+        params.Add ("preset", GS::UniString (config.preset.c_str (), CC_UTF8));
+        params.Add ("glassThreshold", config.glassThreshold);
+    }
     // ⚠️ THE ROLES, SENT ON EVERY RERUN. StartSunStudy with no lists analyses
     // every element, so dropping them would turn the context into analysis.
     GS::Array<GS::UniString> analysis;
@@ -265,7 +272,9 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     GS::Array<GS::UniString> context;
     for (const std::string& guid : config.contextElements)
         context.Push (GS::UniString (guid.c_str (), CC_UTF8));
-    if (!analysis.IsEmpty ())
+    if (!config.selectionBinding.analysisSet.empty ())
+        params.Add ("analysisSelectionSet", GS::UniString (config.selectionBinding.analysisSet.c_str (), CC_UTF8));
+    else if (!analysis.IsEmpty () || config.analysisRestricted)
         params.Add ("analysisElements", analysis);
     if (!config.selectionBinding.contextSet.empty ())
         params.Add ("contextSelectionSet", GS::UniString (config.selectionBinding.contextSet.c_str (), CC_UTF8));
@@ -316,9 +325,10 @@ void RefreshRoleSelections ()
                 guids.emplace_back (guid.ToCStr (0, MaxUSize, CC_UTF8).Get ());
         return guids;
     };
-    const auto context = read (binding.contextSet), ignored = read (binding.ignoredSet);
-    const auto refreshed =
-        binding.Refresh (generation, context, ignored, gConfig.contextElements, gConfig.ignoredElements);
+    const auto context = read (binding.contextSet), ignored = read (binding.ignoredSet),
+               analysis = read (binding.analysisSet);
+    const auto refreshed = binding.Refresh (generation, context, ignored, gConfig.contextElements,
+                                            gConfig.ignoredElements, analysis, &gConfig.analysisElements);
     if (refreshed == evp::sunstudy::SelectionBindingRefresh::Detached)
         Log ("role selection source detached -- retaining the last exclusions");
     else if (refreshed == evp::sunstudy::SelectionBindingRefresh::Changed)
@@ -329,6 +339,7 @@ void RefreshRoleSelections ()
 void RetireRun (const char* reason, bool cancelled = true)
 {
     PreparationWorker ().Cancel ();
+    s_display.reset ();
     if (s_preparation != nullptr) {
         if (cancelled)
             ++s_cancelledRuns;
@@ -362,16 +373,19 @@ double ReadyWaitMs (std::chrono::steady_clock::time_point readyAt)
 // edits prevent accepting any completion even before MeshStore's id changes.
 bool RefreshSnapshot ()
 {
-    // ⚠️ FALSE MEANS THE SIGNAL MUST NOT BE CONSUMED. An extraction already in
-    // flight will finish and this tick simply comes round again in 200 ms; a
-    // driver that marked the edit as seen anyway would drop it, and the study
-    // would go on describing a building that had changed -- the exact silent
-    // failure the whole follower exists to prevent.
-    if (archviz::ExtractionWorker::Get ().IsRunning ())
+    const auto shared = MeshStore::Get ().Shared ();
+    if (shared == nullptr || shared->captureStamp != archviz::modelwatch::CaptureStamp ()) {
+        if (!archviz::ExtractionWorker::Get ().IsRunning ()) {
+            archviz::ExtractionWorker::Get ().Start (true);
+            Log ("requested shared sliced geometry capture");
+        }
         return false;
+    }
 
     const int64_t started = NowMs ();
-    const NativeCommandResult result = ExecuteNativeCommand ("BuildSnapshot", GS::ObjectState ());
+    GS::ObjectState params;
+    params.Add ("reuseShared", true);
+    const NativeCommandResult result = ExecuteNativeCommand ("BuildSnapshot", params);
     LogHostPhase ("snapshot", started);
     ++gSnapshotRebuilds;
     if (!result.ok) {
@@ -497,8 +511,14 @@ void SubmitAdvanceSlice (int64_t now)
     }
 }
 
+void PollDisplay (int64_t now);
+
 void AdvanceOneSlice (int64_t now)
 {
+    if (s_display != nullptr) {
+        PollDisplay (now);
+        return;
+    }
     if (gRunStudyId.empty ()) {
         gFollower.NoteFailed (gRunGeneration, now);
         return;
@@ -560,34 +580,64 @@ void AdvanceOneSlice (int64_t now)
         return;
     }
 
-    GS::ObjectState show;
-    show.Add ("studyId", GS::UniString (gRunStudyId.c_str (), CC_UTF8));
-    show.Add ("show", true);
-    // ⚠️ THE DRIVER'S OWN DISPLAY MUST NOT RE-ADOPT. ShowSunStudy arms the
-    // follower for a study a person asked to see; a rerun coming back through it
-    // would re-adopt its own result, reset the quiet period it was started by,
-    // and overwrite the configuration with one derived from itself.
-    show.Add ("follow", false);
-    show.Add ("preview", false);
-    show.Add ("debug", (GS::Int32) gConfig.debug);
-    show.Add ("depth", (GS::Int32) gConfig.depth);
-    if (gConfig.hoursMax > 0.0)
-        show.Add ("hoursMax", gConfig.hoursMax);
-    const int64_t started = NowMs ();
+    archviz::SunStudyDisplayOptions options;
+    options.hoursMax = gConfig.hoursMax;
+    options.debug = gConfig.debug;
+    options.depth = gConfig.depth;
+    options.preview = false;
+    const auto snapshot = MeshStore::Get ().Current ();
+    const auto id = gRunStudyId;
+    const auto revision = s_runRevision;
+    s_display = std::make_shared<PreparedSunStudyDisplay> ();
+    const auto output = s_display;
+    evp::sunstudy::StudyTaskRequest request;
+    request.sessionGeneration = s_sessionGeneration;
+    request.runGeneration = gRunGeneration;
+    const auto sessionGeneration = s_sessionGeneration;
+    request.onReady = [sessionGeneration] { WakeFollower (sessionGeneration); };
+    request.execute = [id, revision, snapshot, options, output] (const std::atomic<bool>& cancelled) {
+        PrepareSunStudyDisplay (id, revision, snapshot, options, *output, cancelled);
+    };
+    request.discard = [output] { output->upload.reset (); };
+    if (!PreparationWorker ().Submit (std::move (request), gLastError)) {
+        gFollower.NoteFailed (gRunGeneration, now);
+        RetireRun ("display preparation refused", false);
+        return;
+    }
     s_stage = "displaying";
-    const NativeCommandResult shown = ExecuteNativeCommand ("ShowSunStudy", show);
-    LogHostPhase ("display", started);
-    bool enqueuedToViewer = false;
-    if (shown.ok)
-        shown.data.Get ("shown", enqueuedToViewer);
-    if (!shown.ok || !enqueuedToViewer) {
-        gLastError = shown.ok ? "sun study viewer is no longer running"
-                              : std::string (shown.error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+}
+
+void PollDisplay (int64_t now)
+{
+    evp::sunstudy::StudyTaskCompletion completion;
+    if (!PreparationWorker ().Poll (completion))
+        return;
+    const auto output = std::move (s_display);
+    if (completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration ||
+        evp::sunstudy::SunStudyStore::Get ().Revision (gRunStudyId) != s_runRevision ||
+        !gFollower.CanPublishResult (gRunGeneration, gRunSignature)) {
+        ++gDiscarded;
+        RetireRun ("display completion superseded", false);
+        return;
+    }
+    if (!completion.error.empty () || output->upload == nullptr || !archviz::DiligentViewport::Get ().IsRunning ()) {
+        gLastError = !completion.error.empty ()
+                         ? completion.error
+                         : (output->upload == nullptr ? output->error : "sun study viewer is no longer running");
         gFollower.NoteFailed (gRunGeneration, now);
         RetireRun ("display failed", false);
         s_stage = "failed";
         return;
     }
+    if (!evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (gRunStudyId, s_runRevision, [&] {
+            archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (output->upload));
+        })) {
+        gFollower.NoteFailed (gRunGeneration, now);
+        RetireRun ("display cancelled before enqueue", false);
+        return;
+    }
+    Log ("display workerMs=" + std::to_string (completion.wallMilliseconds) +
+         " readyWaitMs=" + std::to_string (ReadyWaitMs (completion.readyAt)));
     s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (gRunStudyId);
     gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now);
     ++gAccepted;
@@ -603,6 +653,7 @@ void AdvanceOneSlice (int64_t now)
 void DisableLocked ()
 {
     gAutoFollow = false;
+    CancelManualSunStudyDisplays ();
     ++s_sessionGeneration; // queued adoption/completion from a closed session is obsolete
     RetireRun ("following disabled");
     s_reuseRecord.reset ();
@@ -680,7 +731,7 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     gConfig = config;
     gConfig.valid = true;
     gAutoFollow = true;
-    gSeenGeometryEdits = archviz::modelwatch::Get ().geometryEdits;
+    gSeenGeometryEdits = static_cast<uint32_t> (archviz::modelwatch::CaptureStamp ());
     s_refreshSchedule.Reset (gSeenGeometryEdits);
     s_stage = "current";
     s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (studyId);
@@ -700,6 +751,27 @@ uint64_t SessionGeneration ()
     return s_sessionGeneration;
 }
 
+bool PublishInSession (uint64_t sessionGeneration, const ActiveSunStudyConfig& config,
+                       const std::function<bool ()>& publish)
+{
+    if (!evp::MainThreadGate::Get ().IsMainThread ())
+        return false;
+    std::lock_guard<std::mutex> lock (gMutex);
+    if (sessionGeneration != s_sessionGeneration)
+        return false;
+    if (config.placeInputHash != 0) {
+        API_PlaceInfo place = {};
+        if (ACAPI_GeoLocation_GetPlaceSets (&place) != NoError ||
+            sunstudysupport::PlaceInputHash (place) != config.placeInputHash)
+            return false;
+    }
+    const auto& binding = config.selectionBinding;
+    if (binding.generation != 0 && (binding.generation != SelectionSetStore::Get ().Generation () ||
+                                    binding.revision != SelectionSetStore::Get ().Revision ()))
+        return false;
+    return publish ();
+}
+
 void Disable ()
 {
     std::lock_guard<std::mutex> lock (gMutex);
@@ -711,6 +783,7 @@ void Shutdown ()
     Disable ();
     AdvanceWorker ().Shutdown ();
     PreparationWorker ().Shutdown ();
+    ShutdownManualSunStudyDisplays ();
 }
 
 void Tick ()
@@ -742,7 +815,7 @@ void Tick ()
     RefreshRoleSelections ();
 
     // ---- 1. has Archicad reported a genuine element change? ------------------
-    const uint32_t edits = archviz::modelwatch::Get ().geometryEdits;
+    const uint32_t edits = static_cast<uint32_t> (archviz::modelwatch::CaptureStamp ());
     int64_t signatureObservedMs = now;
     s_navigationDeferred = NavigationActive ();
     if (s_refreshSchedule.Observe (edits, now)) {

@@ -85,7 +85,8 @@ SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const ui
         grid.layouts.assign (faceCount, FaceLayout ());
 
     for (size_t face = 0; face < faceCount; ++face) {
-        if (!SamplesFace (options.sampleGroup, groups, face)) {
+        if (!SamplesFace (options.sampleGroup, groups, face) ||
+            (options.sampleFace != nullptr && face < options.sampleFace->size () && (*options.sampleFace)[face] == 0)) {
             ++grid.excludedFaces;
             continue;
         }
@@ -145,8 +146,8 @@ SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const ui
             for (long ui = uStart; ui <= uEnd; ++ui) {
                 double offset[2] = { 0.0, 0.0 };
                 if (jitterScale > 0.0)
-                    CellJitter (static_cast<uint32_t> (face), static_cast<uint32_t> (ui), static_cast<uint32_t> (vi),
-                                offset);
+                    CellJitter (static_cast<uint32_t> (face) + options.jitterFaceOffset, static_cast<uint32_t> (ui),
+                                static_cast<uint32_t> (vi), offset);
 
                 const double su = (static_cast<double> (ui) + 0.5 + offset[0] * jitterScale) * options.spacing;
                 const double sv = (static_cast<double> (vi) + 0.5 + offset[1] * jitterScale) * options.spacing;

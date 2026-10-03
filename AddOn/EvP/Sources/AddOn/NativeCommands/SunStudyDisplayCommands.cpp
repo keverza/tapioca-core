@@ -8,6 +8,7 @@
 #include "NativeCommands/CommandUtils.hpp"
 
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
+#include "NativeCommands/SunStudyDisplayPreparation.hpp"
 
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
@@ -74,10 +75,9 @@ double ReadDouble (const GS::ObjectState& params, const char* key, double fallba
 // which is where geometry has always flowed, and the reason this is a scene
 // command rather than a return value.
 //
-// GATE-FREE, AND IT CALLS NO ACAPI TO STAY THAT WAY. Everything it needs is
-// already resident: the study is in the store and the meshes are in MeshStore.
-// Asking Archicad's main thread to show a result that is already computed would
-// put a stutter in the one place the whole native core exists to avoid one.
+// Admission and assembly use resident data only: the study and meshes are in
+// their stores. Assembly runs off-thread; completion posts only a small host
+// input recheck and enqueue, never atlas scatter or per-face map construction.
 class ShowSunStudyCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -96,10 +96,10 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
 {
     bool follow = true;
     params.Get ("follow", follow);
-    const uint64_t sessionGeneration = follow ? sunfollow::SessionGeneration () : 0;
     bool show = true;
     params.Get ("show", show);
     if (!show) {
+        CancelManualSunStudyDisplays ();
         if (follow)
             sunfollow::Disable ();
         // THE CLEAR IS UNCONDITIONAL AND NAMES NO STUDY. "Stop showing a
@@ -120,190 +120,76 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         cleared.Add ("hoursMax", 0.0);
         cleared.Add ("debug", (GS::Int32) 0);
         cleared.Add ("depth", (GS::Int32) 0);
+        cleared.Add ("preparing", false);
         return cleared;
     }
 
     const std::string id = ReadStudyId (params);
-    const auto displayStarted = std::chrono::steady_clock::now ();
     if (id.empty ())
         return NativeCommandResult::Failure ("no sun study to show - start one first");
 
-    std::vector<evp::sunstudy::AtlasTile> tiles;
-    std::vector<evp::sunstudy::FaceLayout> layouts;
-    uint32_t width = 0;
-    uint32_t height = 0;
-    double spacing = 0.0;
-    std::vector<float> image;
+    uint32_t width = 0, height = 0;
+    size_t faces = 0;
     double daylightHours = 0.0;
-    bool converged = false;
-    uint64_t generation = 0;
+    uint64_t revision = 0, snapshotId = 0;
     std::string error;
-    if (!SunStudyStore::Get ().DisplayData (id, tiles, layouts, width, height, spacing, image, daylightHours, converged,
-                                            generation, error))
+    if (!SunStudyStore::Get ().DisplayInfo (id, width, height, faces, daylightHours, revision, snapshotId, error))
         return NativeCommandResult::Failure (Text (error));
-
-    // What the study was RUN with, so a replacement can be run the same way.
-    // ⚠️ FROM THE STUDY RECORD, NOT FROM THIS COMMAND'S PARAMETERS. ShowSunStudy
-    // takes no date and no grid; a follower configured from what was typed here
-    // would rerun a different study from the one on screen.
     evp::sunstudy::StudyRecord metadata;
-    std::string describeError;
-    const bool haveMetadata = SunStudyStore::Get ().Describe (id, metadata, describeError);
-
-    std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
-    if (snapshot == nullptr)
-        return NativeCommandResult::Failure ("no snapshot is live - call Tapioca.BuildSnapshot first");
-    if (haveMetadata && metadata.snapshotId != snapshot->id)
+    evp::sunstudy::StudyProgress progress;
+    if (!SunStudyStore::Get ().Describe (id, metadata, error) ||
+        !SunStudyStore::Get ().Progress (id, progress, error, revision))
+        return NativeCommandResult::Failure (Text (error));
+    const auto snapshot = MeshStore::Get ().Current ();
+    if (snapshot == nullptr || snapshot->id != snapshotId || snapshot->TotalTriangles () != faces)
         return NativeCommandResult::Failure ("the model was rebuilt under the study; start a new one");
-
-    // THE FACE COUNTS MUST AGREE BEFORE ANYTHING IS BUILT. The study's faces
-    // are the snapshot's triangles CONCATENATED in mesh order, so a snapshot
-    // rebuilt since the study was started shifts every face base -- and a
-    // shifted base does not fail, it hands each element some other element's
-    // atlas tiles. The per-element topology hash catches the same fault one
-    // element at a time; this catches it in one sentence and says what to do
-    // about it.
-    size_t snapshotFaces = 0;
-    for (const Mesh& mesh : snapshot->meshes)
-        snapshotFaces += mesh.TriangleCount ();
-    if (snapshotFaces != tiles.size ()) {
-        return NativeCommandResult::Failure (Text (
-            "study '" + id + "' measured " + std::to_string (tiles.size ()) + " faces but the live snapshot has " +
-            std::to_string (snapshotFaces) + " - the model was rebuilt under the study; start a new one"));
-    }
-
-    auto upload = std::make_unique<archviz::SunStudyAtlasUpload> ();
-    params.Get ("preview", upload->preview);
-    if (upload->preview && !converged)
+    ManualSunStudyDisplayRequest request;
+    request.studyId = id;
+    request.revision = revision;
+    request.snapshot = snapshot;
+    request.captureStamp = snapshot->captureStamp != 0 ? snapshot->captureStamp : MeshStore::Get ().CaptureStamp ();
+    if (MeshStore::Get ().CaptureActive () && request.captureStamp != MeshStore::Get ().CaptureStamp ())
+        return NativeCommandResult::Failure ("the model changed after capture; start a new study");
+    request.follow = follow;
+    auto& options = request.options;
+    params.Get ("preview", options.preview);
+    if (options.preview && !progress.converged)
         return NativeCommandResult::Failure ("a coarse preview must resolve the complete day before display");
-    upload->studyId = id;
-    upload->version = generation;
-    upload->width = width;
-    upload->height = height;
-    upload->texels = std::make_shared<const std::vector<float>> (std::move (image));
-    // The study's own daylight length, not its measured maximum: two studies
-    // of the same building must be comparable, and normalising each to its
-    // own peak makes the darkest scheme look as sunny as the brightest.
+    // Compare studies against their own daylight length, not their measured peak.
     const double rampTop = ReadDouble (params, "hoursMax", daylightHours > 0.0 ? daylightHours : 1.0);
-    upload->hoursMax = static_cast<float> (rampTop > 0.0 ? rampTop : 1.0);
+    options.hoursMax = rampTop > 0.0 ? rampTop : 1.0;
     const GS::Int32 debug = ReadInt (params, "debug", 0);
-    // Captured before the payload is handed over: `upload` is moved into the
-    // queue below and must not be read after that.
     const GS::Int32 lastMode = static_cast<GS::Int32> (archviz::SunStudyDebugMode::ShadowFan);
-    upload->debugMode = static_cast<uint32_t> (debug < 0 ? 0 : (debug > lastMode ? lastMode : debug));
-    const bool roleView = upload->debugMode == static_cast<uint32_t> (archviz::SunStudyDebugMode::Roles);
-    // ⚠️ `depth` WAS IN THE SCHEMA AND NEVER READ: every study drew in Equal
-    // whatever the caller asked, so the three-way depth diagnostic could not
-    // separate anything. Clamped to SunStudyDepthMode.
+    options.debug = static_cast<uint32_t> (debug < 0 ? 0 : (debug > lastMode ? lastMode : debug));
     const GS::Int32 depth = ReadInt (params, "depth", 0);
     const GS::Int32 lastDepth = static_cast<GS::Int32> (archviz::SunStudyDepthMode::Always);
-    upload->depthMode = static_cast<uint32_t> (depth < 0 ? 0 : (depth > lastDepth ? lastDepth : depth));
-    // The per-step bits for the shadow views, in the atlas's own layout. A study
-    // that cannot give them still shows hours; the HUD offers no shadow view.
-    {
-        evp::sunstudy::StepMaskAtlas steps;
-        std::string stepError;
-        if (SunStudyStore::Get ().StepMasks (id, steps, upload->stepMinutes, upload->noonStep, stepError) &&
-            steps.width == width && steps.height == height) {
-            upload->stepWords = steps.words;
-            upload->stepCount = steps.steps;
-            upload->stepMasks = std::make_shared<const std::vector<uint32_t>> (std::move (steps.masks));
-        }
-    }
-    // The study's size, for the viewer's machine-limits readout.
-    {
-        size_t samples = 0;
-        double area = 0.0;
-        std::string footprintError;
-        if (SunStudyStore::Get ().Footprint (id, samples, area, footprintError)) {
-            upload->sampleCount = samples;
-            upload->analysedArea = area;
-        }
-        upload->patchDomain = haveMetadata && metadata.IsPatchDomain ();
-    }
-    // The ramp's quantum: the study's own timestep, in hours.
-    if (haveMetadata && metadata.timestepMinutes > 0)
-        upload->quantumHours = static_cast<float> (metadata.timestepMinutes) / 60.0f;
-
-    // ⚠️ THE ROLE VIEW NEEDS THE ROLES THE STUDY RESOLVED, ONE PER MESH OF THE
-    // SNAPSHOT IT RAN ON. The face-count check above already refused a rebuilt
-    // snapshot; this refuses a record without roles rather than colouring every
-    // element "analysis" by default -- which is exactly the picture a correct
-    // study with nothing picked would give, and so would hide the fault.
-    if (roleView && (!haveMetadata || metadata.elementRoles.size () != snapshot->meshes.size ())) {
+    options.depth = static_cast<uint32_t> (depth < 0 ? 0 : (depth > lastDepth ? lastDepth : depth));
+    if (options.debug == static_cast<uint32_t> (archviz::SunStudyDebugMode::Roles) &&
+        metadata.elementRoles.size () != snapshot->meshes.size ()) {
         return NativeCommandResult::Failure (
             Text ("study '" + id + "' carries no element roles for this snapshot - start a new study"));
     }
-
-    uint32_t faceBase = 0;
-    size_t built = 0;
-    for (size_t m = 0; m < snapshot->meshes.size (); ++m) {
-        const Mesh& mesh = snapshot->meshes[m];
-        archviz::SunStudyElementMap map;
-        map.guid = mesh.guid;
-        const bool ok =
-            roleView ? archviz::BuildSunStudyRoleMap (metadata.elementRoles[m], mesh.triangles, mesh.triMaterial, map)
-                     : archviz::BuildSunStudyElementMap (tiles, layouts, spacing, mesh.triangles, mesh.triMaterial,
-                                                         faceBase, map);
-        if (ok) {
-            upload->elements.push_back (std::move (map));
-            ++built;
-        }
-        faceBase += static_cast<uint32_t> (mesh.TriangleCount ());
-    }
-
-    // ⚠️ WHETHER A VIEWPORT EXISTS AT ALL, REPORTED BEFORE THE PUSH. A
-    // SceneCmdQueue push cannot fail and cannot reply: the queue is a
-    // singleton, so a command aimed at a viewer that is not running simply
-    // waits in it until something calls Clear() -- which a viewport start
-    // and a palette teardown both do. Without this lane the verb answers
-    // "shown: true, elements: 6" for a model nobody has tinted, which is
-    // precisely what happened on 2026-09-15 and what made five PASSes in the
-    // smoke log describe a study that was never drawn.
     const bool viewerRunning = archviz::DiligentViewport::Get ().IsRunning ();
 
     GS::ObjectState os;
     os.Add ("studyId", Text (id));
-    // ⚠️ `shown` NOW MEANS "A VIEWER WAS RUNNING TO SHOW IT", not "the push
-    // succeeded". The push always succeeds and never meant anything.
+    // Accepted for asynchronous preparation, not renderer acknowledgement.
     os.Add ("shown", viewerRunning);
     os.Add ("viewerRunning", viewerRunning);
-    // ⚠️ RENAMED FROM `elements` IN SPIRIT: this is what the PRODUCER built,
-    // not what the renderer bound. Tapioca.SunStudyOverlayState is the only
-    // thing that can answer the second question.
-    os.Add ("elements", (GS::Int32) built);
+    os.Add ("elements", (GS::Int32) snapshot->meshes.size ());
     os.Add ("atlasWidth", (GS::Int32) width);
     os.Add ("atlasHeight", (GS::Int32) height);
     // REPORTED, NOT ENFORCED. An unconverged study has a real atlas of the
     // hours resolved so far; showing it is legitimate and calling it final
     // is not, so the caller is told which it has rather than refused.
-    os.Add ("converged", converged);
-    os.Add ("preview", upload->preview);
-    os.Add ("hoursMax", (double) upload->hoursMax);
-    os.Add ("debug", (GS::Int32) upload->debugMode);
-    os.Add ("depth", (GS::Int32) upload->depthMode);
-    const uint32_t adoptedDebug = upload->debugMode;
-    const uint32_t adoptedDepth = upload->depthMode;
-
-    const double displayMs =
-        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - displayStarted).count ();
-    archviz::LogSunStudyDisplay (*upload, snapshot->id, displayMs);
-    archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (upload));
-
-    // ---- arm the follower, but only for a study a PERSON asked to see -------
-    //
-    // ⚠️ THIS IS THE ONLY PLACE AUTO-FOLLOW IS EVER TURNED ON, and it is
-    // deliberately not "the viewer opened". A viewer that spontaneously began
-    // analysing a building nobody asked about would burn the machine on every
-    // open and would surprise the user with a heat map they never requested.
-    // Until someone has run one study and displayed it, there is no active
-    // configuration and the follower sits in NoStudy.
-    //
-    // ⚠️ AND THE DRIVER'S OWN RERUNS COME BACK THROUGH HERE. `follow=false` is
-    // what stops a rerun from re-adopting itself and resetting the quiet period
-    // it was started by; the driver passes it, a person never does.
-    if (follow && haveMetadata) {
-        sunfollow::ActiveSunStudyConfig config;
+    os.Add ("converged", progress.converged);
+    os.Add ("preview", options.preview);
+    os.Add ("hoursMax", options.hoursMax);
+    os.Add ("debug", (GS::Int32) options.debug);
+    os.Add ("depth", (GS::Int32) options.depth);
+    os.Add ("preparing", viewerRunning);
+    {
+        auto& config = request.config;
         config.year = metadata.year;
         config.month = metadata.month;
         config.day = metadata.day;
@@ -317,10 +203,21 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.contextElements = metadata.contextElements;
         config.ignoredElements = metadata.ignoredElements;
         config.selectionBinding = metadata.selectionBinding;
-        config.debug = adoptedDebug;
-        config.depth = adoptedDepth;
+        config.preset = metadata.preset;
+        config.glassThreshold = metadata.glassThreshold;
+        config.analysisRestricted = metadata.analysisRestricted;
+        config.backend = metadata.backend;
+        config.placeInputHash = metadata.placeInputHash;
+        config.debug = options.debug;
+        config.depth = options.depth;
         config.hoursMax = rampTop;
-        sunfollow::Adopt (id, config, sessionGeneration);
+    }
+    if (viewerRunning) {
+        if (follow)
+            sunfollow::Disable (); // stop the old producer, keep its visible overlay
+        request.sessionGeneration = sunfollow::SessionGeneration ();
+        if (!SubmitManualSunStudyDisplay (std::move (request), error))
+            return NativeCommandResult::Failure (Text (error));
     }
     return os;
 }
@@ -352,6 +249,10 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         GS::ObjectState os;
+        const auto preparation = ManualSunStudyDisplayStatus ();
+        os.Add ("preparing", preparation.preparing);
+        os.Add ("pendingStudyId", Text (preparation.studyId));
+        os.Add ("preparationError", Text (preparation.error));
         const bool running = archviz::DiligentViewport::Get ().IsRunning ();
         os.Add ("viewerRunning", running);
         if (!running) {
@@ -662,7 +563,8 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "preview":{"type":"boolean"},
                 "hoursMax":{"type":"number"},
                 "debug":{"type":"integer"},
-                "depth":{"type":"integer"}
+                "depth":{"type":"integer"},
+                "preparing":{"type":"boolean"}
             },
             "additionalProperties":false,
             "required":["studyId","shown","elements"]
@@ -693,7 +595,10 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "tintFrames":{"type":"integer"},
                 "tintElementsDrawn":{"type":"integer"},
                 "framesSkippedIncompleteBinding":{"type":"integer"},
-                "rejection":{"type":"string"}
+                "rejection":{"type":"string"},
+                "preparing":{"type":"boolean"},
+                "pendingStudyId":{"type":"string"},
+                "preparationError":{"type":"string"}
             },
             "additionalProperties":false,
             "required":["viewerRunning","studyId","drawing","elementsNamed","elementsAttached"]

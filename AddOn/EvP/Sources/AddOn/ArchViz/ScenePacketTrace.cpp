@@ -16,7 +16,7 @@ size_t SunStudyPayloadBytes (const SunStudyAtlasUpload& study)
         bytes += study.texels->size () * sizeof (float);
     if (study.stepMasks != nullptr)
         bytes += study.stepMasks->size () * sizeof (uint32_t);
-    for (const auto& element : study.elements)
+    for (const auto& element : study.Elements ())
         bytes += element.guid.size () + element.faces.size () * sizeof (SunFaceMap);
     return bytes;
 }
@@ -87,7 +87,7 @@ void LogSunStudyDisplay (const SunStudyAtlasUpload& study, uint64_t snapshot, do
     ArchVizLog ("pipeline: stage=sun-display study=" + study.studyId + " snapshot=" + std::to_string (snapshot) +
                 " payloadBytes=" + std::to_string (SunStudyPayloadBytes (study)) +
                 " atlasBytes=" + std::to_string (study.texels != nullptr ? study.texels->size () * sizeof (float) : 0) +
-                " elements=" + std::to_string (study.elements.size ()) + " wallMs=" + std::to_string (wallMs));
+                " elements=" + std::to_string (study.Elements ().size ()) + " wallMs=" + std::to_string (wallMs));
 }
 
 } // namespace geomsrv::archviz

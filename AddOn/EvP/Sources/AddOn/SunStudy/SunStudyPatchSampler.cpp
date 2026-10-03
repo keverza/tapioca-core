@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace evp::sunstudy {
 
@@ -26,7 +27,7 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
         return grid;
 
     const std::vector<SurfacePatch> patches =
-        BuildSurfacePatches (vertices, vertexCount, triangles, faceCount, groups, options.patch);
+        BuildSurfacePatches (vertices, vertexCount, triangles, faceCount, groups, options.patch, options.sampleFace);
     if (patches.empty ())
         return grid;
 
@@ -41,8 +42,11 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
         // A context surface keeps its slot with an EMPTY lattice, which the
         // emission loop below already skips -- so it gets no span and its
         // triangles keep kNoPatch, with no second skip rule to keep in step.
-        const bool analysed = options.sampleGroup == nullptr || patch.group >= options.sampleGroup->size () ||
-                              (*options.sampleGroup)[patch.group] != 0;
+        const bool analysed =
+            (options.sampleGroup == nullptr || patch.group >= options.sampleGroup->size () ||
+             (*options.sampleGroup)[patch.group] != 0) &&
+            (options.sampleFace == nullptr || patch.triangles.front () >= options.sampleFace->size () ||
+             (*options.sampleFace)[patch.triangles.front ()] != 0);
         if (!analysed) {
             ++grid.excludedPatches;
             lattices.emplace_back ();
@@ -50,8 +54,10 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
         }
         lattices.push_back (BuildPatchGrid (patch, vertices, triangles, options.spacing));
         projected += lattices.back ().cells.size ();
-        if (projected > options.maxSamples)
+        if (projected > options.maxSamples) {
+            grid.sampleLimitExceeded = true;
             return grid; // invalid; the caller asks for a coarser grid
+        }
     }
 
     // ⚠️ SIZED TO EVERY SOURCE TRIANGLE AND PRE-FILLED WITH kNoPatch, not
@@ -62,8 +68,11 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
     grid.patchOfTriangle.assign (faceCount, PatchSampleGrid::kNoPatch);
 
     grid.spans.reserve (patches.size ());
+    std::map<PatchKey, uint32_t> occurrences;
     for (size_t index = 0; index < patches.size (); ++index) {
         const SurfacePatch& patch = patches[index];
+        PatchKey key = MakePatchKey (patch.group < elementOf.size () ? elementOf[patch.group] : std::string (), patch);
+        key.occurrence = occurrences[key]++;
         const PatchGrid& lattice = lattices[index];
         if (lattice.cells.empty ())
             continue;
@@ -71,7 +80,7 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
             ++grid.centroidPatches;
 
         PatchSampleSpan span;
-        span.key = MakePatchKey (patch.group < elementOf.size () ? elementOf[patch.group] : std::string (), patch);
+        span.key = key;
         span.first = grid.areas.size ();
         span.count = lattice.cells.size ();
         span.columns = lattice.columns;

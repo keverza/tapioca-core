@@ -68,7 +68,8 @@ std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double
 // `lit(sample, step)` is the study's answer; `texelOfSample[i]` is where the
 // hours atlas put sample i, or negative for none.
 StepMaskAtlas PackStepMasks (size_t sampleCount, size_t stepCount, const std::function<bool (size_t, size_t)>& lit,
-                             const std::vector<int64_t>& texelOfSample, uint32_t width, uint32_t height);
+                             const std::vector<int64_t>& texelOfSample, uint32_t width, uint32_t height,
+                             const std::function<bool ()>& isCancelled = {});
 
 // The step at which the sun stands highest -- solar noon as the project itself
 // reports it, the web study's AM / PM split. ⚠️ NOT 12:00: clock noon is off

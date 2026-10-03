@@ -113,6 +113,8 @@ struct PatchSampleGrid {
     size_t centroidPatches = 0;
     // Surfaces of CONTEXT elements: formed, then given no samples.
     size_t excludedPatches = 0;
+    // Distinguishes a refusal from a mesh with only excluded/degenerate patches.
+    bool sampleLimitExceeded = false;
     bool valid = false;
 
     // A triangle that no patch claimed: degenerate, or dropped by the builder.
@@ -140,6 +142,9 @@ struct PatchSamplerOptions {
     // patch is wholly analysed or wholly context; a context patch gets no span
     // and its triangles stay `kNoPatch`.
     const std::vector<uint8_t>* sampleGroup = nullptr;
+    // Splits coplanar patches at receiver/context boundaries, so an opaque
+    // frame cannot become sampled just because it shares a plane with glass.
+    const std::vector<uint8_t>* sampleFace = nullptr;
 };
 
 // Build the patch-domain sample set for a snapshot's concatenated geometry.

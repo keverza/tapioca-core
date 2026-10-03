@@ -14,6 +14,7 @@
 #include <Polygon.hpp>
 #include <ConvexPolygon.hpp>
 #include <AttributeIndex.hpp>
+#include <ModelMaterial.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -203,11 +204,15 @@ std::string ElemGuidString (const ModelerAPI::Element& elem)
 // Walk a model and build a snapshot. If `filter` is non-null, only elements
 // whose GUID is in the set are kept. Shared by "all" and "selection".
 std::shared_ptr<const Snapshot> BuildSnapshot (const ModelerAPI::Model& model, uint64_t snapshotId, const char* scope,
-                                               const std::set<std::string>* filter)
+                                               const std::set<std::string>* filter, uint64_t captureStamp = 0)
 {
     auto snap = std::make_shared<Snapshot> ();
     snap->id = snapshotId;
     snap->scope = scope;
+    snap->captureStamp = captureStamp;
+
+    snap->materialTransparency = ReadMaterialTransparency (model);
+    snap->completeModel = filter == nullptr;
 
     const Int32 nElements = model.GetElementCount ();
     snap->meshes.reserve (static_cast<size_t> (nElements > 0 ? nElements : 0));
@@ -683,6 +688,23 @@ int32_t ModelElementCount (const ModelerAPI::Model& model)
     return n > 0 ? static_cast<int32_t> (n) : 0;
 }
 
+std::map<int32_t, double> ReadMaterialTransparency (const ModelerAPI::Model& model)
+{
+    std::map<int32_t, double> result;
+    for (Int32 index = 1; index <= model.GetMaterialCount (); ++index) {
+        try {
+            ModelerAPI::Material material;
+            model.GetMaterial (ModelerAPI::AttributeIndex (ModelerAPI::AttributeIndex::MaterialIndex, index),
+                               &material);
+            result.emplace (index, material.GetTransparency ());
+        }
+        catch (const GS::Exception&) {
+            // Unknown stays unqualified; never acquire a different pool later.
+        }
+    }
+    return result;
+}
+
 bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh& mesh)
 {
     if (index1Based < 1 || index1Based > model.GetElementCount ())
@@ -693,13 +715,13 @@ bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh
     return ExtractElement (elem, mesh);
 }
 
-std::shared_ptr<const Snapshot> ExtractAllElements (uint64_t snapshotId)
+std::shared_ptr<const Snapshot> ExtractAllElements (uint64_t snapshotId, uint64_t captureStamp)
 {
     ModelerAPI::Model model;
     if (!AcquireCurrentModel (model))
         return nullptr;
 
-    return BuildSnapshot (model, snapshotId, "all", nullptr);
+    return BuildSnapshot (model, snapshotId, "all", nullptr, captureStamp);
 }
 
 std::shared_ptr<const Snapshot> ExtractSelectedElements (uint64_t snapshotId)

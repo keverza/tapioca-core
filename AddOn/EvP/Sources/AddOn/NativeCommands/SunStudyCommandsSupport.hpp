@@ -28,6 +28,10 @@
 namespace geomsrv {
 namespace sunstudysupport {
 
+// Value-only fingerprint of the place inputs used by the sun calculation. It
+// excludes camera/display state, and is shared by capture and publication.
+uint64_t PlaceInputHash (const API_PlaceInfo& place);
+
 std::string Utf8 (const GS::UniString& text);
 GS::UniString Text (const std::string& text);
 

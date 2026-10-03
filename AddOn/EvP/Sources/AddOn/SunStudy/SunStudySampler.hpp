@@ -124,6 +124,10 @@ struct SamplerOptions {
     // regular architecture, not to add entropy.
     double jitter = 0.0;
 
+    // Preserve the whole-snapshot jitter seed when building a mesh-local grid.
+    // Output face indices remain local and are rebased by the caller.
+    uint32_t jitterFaceOffset = 0;
+
     size_t maxSamples = 4000000;
 
     // Fill `layouts`, `cellColumns` and `cellRows`. Off by default: only a
@@ -140,6 +144,9 @@ struct SamplerOptions {
     // snapshot, because the display addresses tiles by that index; an excluded
     // face simply has no samples and no tile, which draws as ordinary shading.
     const std::vector<uint8_t>* sampleGroup = nullptr;
+    // Optional receiver filter, parallel to source faces. Unmeasured faces
+    // retain their addresses and still belong to the occluder scene.
+    const std::vector<uint8_t>* sampleFace = nullptr;
 };
 
 // True when `groups`/`sampleGroup` say this face belongs to an analysis element.

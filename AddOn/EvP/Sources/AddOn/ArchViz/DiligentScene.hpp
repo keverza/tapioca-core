@@ -345,7 +345,7 @@ class DiligentScene final {
     // elements; uploading them all in one frame stops the viewer presenting for
     // a second and takes that second out of Archicad's UI thread too. Returns
     // how many it applied.
-    size_t Consume (Diligent::IRenderDevice* device, size_t maxCommands);
+    size_t Consume (Diligent::IRenderDevice* device, size_t maxCommands, Diligent::IDeviceContext* context = nullptr);
 
     // Everything visible, opaque pass then transparent pass. `viewProj` is
     // MatrixMath's row-major product, uploaded unchanged (DiligentShaders.hpp
@@ -792,7 +792,8 @@ class DiligentScene final {
                                  uint32_t depthBufferFormat, std::string& error);
     // Take ownership of a completed study: upload the atlas, build one side
     // buffer per element it names, and drop the previous study's resources.
-    void ApplySunStudy (Diligent::IRenderDevice* device, std::unique_ptr<SunStudyAtlasUpload> study);
+    void ApplySunStudy (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                        std::unique_ptr<SunStudyAtlasUpload> study);
     // Forget it. ⚠️ ALSO CALLED ON A FULL GEOMETRY BATCH: a side buffer is
     // indexed by triangle, so geometry that changed under a study leaves every
     // face reading a neighbour's tile -- which draws as a result.

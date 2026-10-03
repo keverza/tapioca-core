@@ -22,8 +22,8 @@
 // ⚠️ THE LOCK IS NOT HELD ACROSS THE ANALYSIS ITSELF. Advancing a study is the
 // expensive part; holding the store's mutex for it would serialise every other
 // caller behind it, including a cheap progress poll from the UI. `Advance`
-// therefore takes the lock, finds the session, and releases it — see the note on
-// the method.
+// therefore takes the lock, finds the session, and releases it. A separate
+// cancellable execution lane prevents manual/automatic CPU or GPU contention.
 
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
@@ -34,6 +34,8 @@
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunStudySession.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
+#include "SunStudy/SunStudySurfaceSampling.hpp"
+#include "SunStudy/SunStudyResultSummary.hpp"
 
 #include <cstdint>
 #include <map>
@@ -45,12 +47,18 @@
 namespace evp::sunstudy {
 
 struct SunStudyOccluders;
+struct StudyDisplayData;
 
 // Everything one live study holds. Addressed only through the store.
 struct StudyRecord {
     std::string id;
     uint64_t storeRevision = 0; // assigned by Insert, never reused after Erase/Clear
     std::atomic<bool> cancelRequested { false };
+    mutable std::timed_mutex sessionMutex; // workers hold it; progress never does
+    mutable std::shared_ptr<const StudyDisplayData> displayCache;
+    mutable SunStudyResultSummary resultSummary;
+    mutable uint64_t summaryGeneration = UINT64_MAX;
+    mutable size_t summaryResolvedSteps = SIZE_MAX;
 
     // Owned copies; see the header note on why these are not borrowed.
     std::vector<double> positions;
@@ -78,6 +86,9 @@ struct StudyRecord {
     std::vector<std::string> contextElements;
     std::vector<std::string> ignoredElements;
     SunStudySelectionBinding selectionBinding;
+    std::string preset; // resolved early/late; empty retains legacy role semantics
+    double glassThreshold = 0.4;
+    bool analysisRestricted = false;
 
     // The roles AS RESOLVED, one per snapshot mesh (an ElementRole value), for
     // the display's role view. ⚠️ ALIGNED WITH THE SNAPSHOT THE STUDY RAN ON;
@@ -93,17 +104,22 @@ struct StudyRecord {
     size_t reusedSamples = 0;
     bool defaultRayBounds = true;
     size_t sourceStepCount = 0;
+    uint64_t placeInputHash = 0; // zero only for independent/legacy producers
 
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the
     // whole backend decision rests on, kept where a live run can read it.
     double analysisMilliseconds = 0.0;
+    double admissionMilliseconds = 0.0;
+    std::string backend = "cpu"; // requested backend; GPU retains exact CPU fallback
 
     // The study's result as a texture, and the map from a point on the model
     // into it. Built once beside the samples, because it is a pure function of
     // them: rebuilding it per read would repack the atlas and invalidate every
     // texture coordinate a consumer had already been handed.
     SunStudyAtlas atlas;
+    SunStudyPatchAtlas triangleAllocations;
     SampleGrid sampleGrid;
+    SurfaceSamplingLayout samplingLayout;
 
     // ---- the SurfacePatch domain ------------------------------------------
     //
@@ -194,6 +210,7 @@ class SunStudyStore final {
     // Only sample/geometry/series/accumulator fields may be read through this
     // handle; cancellation remains atomic and metadata is not a worker API.
     std::shared_ptr<const StudyRecord> CompletedRecord (const std::string& id) const;
+    std::shared_ptr<const StudyRecord> LatestCompletedRecord () const;
 
     // Read under the lock and copy out, so a caller never holds a pointer into
     // a study another thread may erase.
@@ -209,7 +226,21 @@ class SunStudyStore final {
     // viewer's single-instant and AM/PM modes read. One byte per (sample, step)
     // on the wire, so it is opt-in.
     bool Results (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
-                  std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error) const;
+                  std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error,
+                  bool includePositions = true, StudyProgress* progress = nullptr) const;
+    bool Summary (const std::string& id, SunStudyResultSummary& summary, std::string& error,
+                  StudyProgress* progress = nullptr) const;
+
+    // Worker-only lease: retain ownership and a stable session, then call outside
+    // the store lock. Erasure/cancellation and progress remain nonblocking.
+    bool ReadDisplayRecord (const std::string& id, uint64_t revision,
+                            const std::function<void (const StudyRecord&)>& read, std::string& error,
+                            const std::atomic<bool>* cancelled = nullptr) const;
+    bool DisplayInfo (const std::string& id, uint32_t& width, uint32_t& height, size_t& faces, double& daylightHours,
+                      uint64_t& revision, uint64_t& snapshotId, std::string& error) const;
+    // Linearize a ready packet with record cancellation/replacement. The short
+    // enqueue callback must not re-enter the store or wait on the host.
+    bool PublishDisplayRecord (const std::string& id, uint64_t revision, const std::function<void ()>& enqueue) const;
 
     // The hours as a texture image, `width * height` floats, with a negative
     // sentinel in every texel no sample landed on.
@@ -288,6 +319,7 @@ class SunStudyStore final {
     bool SessionReadable (const std::string& id, std::string& error) const;
 
     mutable std::mutex mutex_;
+    std::timed_mutex executionMutex_;
     std::map<std::string, std::shared_ptr<StudyRecord>> studies_;
     std::map<std::string, bool> advancing_;
     std::map<std::string, StudyProgress> progress_;

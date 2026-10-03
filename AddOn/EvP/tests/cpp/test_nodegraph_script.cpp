@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <map>
 #include <fstream>
@@ -233,8 +234,11 @@ class WithFakeServer {
   public:
     explicit WithFakeServer (FakeLanguageServer* server)
     {
+        ScriptIntelligence::Get ().Shutdown ();
         SetLanguageServerProcessFactory (
             [server] (const std::string&, const std::vector<std::string>&) -> std::unique_ptr<ILanguageServerProcess> {
+                if (server == nullptr)
+                    return nullptr;
                 return std::unique_ptr<ILanguageServerProcess> (new Borrowed (server));
             });
     }
@@ -272,6 +276,38 @@ class WithFakeServer {
       private:
         FakeLanguageServer* target_;
     };
+};
+
+class WithLocalAppData {
+  public:
+    explicit WithLocalAppData (const std::string& value)
+    {
+        const char* previous = std::getenv ("LOCALAPPDATA");
+        hadPrevious = previous != nullptr;
+        if (hadPrevious)
+            previousValue = previous;
+        Set (value.c_str ());
+    }
+    ~WithLocalAppData ()
+    {
+        Set (hadPrevious ? previousValue.c_str () : nullptr);
+    }
+
+  private:
+    static void Set (const char* value)
+    {
+#if defined(_WIN32)
+        _putenv_s ("LOCALAPPDATA", value == nullptr ? "" : value);
+#else
+        if (value == nullptr)
+            unsetenv ("LOCALAPPDATA");
+        else
+            setenv ("LOCALAPPDATA", value, 1);
+#endif
+    }
+
+    bool hadPrevious = false;
+    std::string previousValue;
 };
 
 } // namespace
@@ -454,6 +490,26 @@ TEST (ScriptIntelligenceClient, ConfiguresTheNodesOwnImportRootsOnEveryRequest)
     EXPECT_EQ (entries->size (), workspace.importRoots.size ());
 }
 
+TEST (ScriptIntelligenceClient, AnInjectedServerNeedsNoInstalledExecutableOrRuntimePath)
+{
+    const TempWorkspace node ("tapioca_lsp_without_runtime");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    const WithLocalAppData environment ("");
+    ASSERT_TRUE (LanguageServerExecutable ().empty ());
+    ASSERT_FALSE (LanguageServerInstalled ());
+
+    FakeLanguageServer server;
+    server.completionJson = R"({"items":[{"label":"hypot","kind":3}]})";
+    const WithFakeServer installed (&server);
+    std::string error;
+    const auto completions =
+        ScriptIntelligence::Get ().Complete (workspace, "main.py", "import math\nmath.hy\n", 1, 7, error);
+    ASSERT_TRUE (error.empty ()) << error;
+    ASSERT_EQ (completions.size (), 1u);
+    EXPECT_EQ (completions[0].label, "hypot");
+    EXPECT_NE (RequestFor (server, "initialize").Find ("params"), nullptr);
+}
+
 TEST (ScriptIntelligenceClient, TheSecondRequestChangesTheDocumentRatherThanOpeningItAgain)
 {
     // ⚠️ VERSIONS MUST INCREASE AND NEVER REPEAT. A server that sees a version it
@@ -468,7 +524,9 @@ TEST (ScriptIntelligenceClient, TheSecondRequestChangesTheDocumentRatherThanOpen
 
     std::string error;
     ScriptIntelligence::Get ().Complete (workspace, "main.py", "a = 1\n", 0, 5, error);
+    ASSERT_TRUE (error.empty ()) << error;
     ScriptIntelligence::Get ().Complete (workspace, "main.py", "a = 12\n", 0, 6, error);
+    ASSERT_TRUE (error.empty ()) << error;
 
     int opens = 0;
     std::vector<int64_t> versions;
@@ -507,6 +565,7 @@ TEST (ScriptIntelligenceClient, TheEditorsBufferIsSentRatherThanTheFileOnDisk)
 
     std::string error;
     ScriptIntelligence::Get ().Complete (workspace, "main.py", "# unsaved edit\n", 0, 14, error);
+    ASSERT_TRUE (error.empty ()) << error;
 
     const json::JsonValue opened = RequestFor (server, "textDocument/didOpen");
     std::string text;
@@ -522,15 +581,34 @@ TEST (ScriptIntelligenceClient, AServerThatWillNotStartIsAnEmptyListAndAReasonRa
     // a script node, a graph or Archicad down.
     const TempWorkspace node ("tapioca_lsp_absent");
     const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
-
-    SetLanguageServerProcessFactory (nullptr);
-    ScriptIntelligence::Get ().Shutdown ();
+    const WithLocalAppData environment (node.Path ());
+    ASSERT_FALSE (LanguageServerInstalled ());
+    const WithFakeServer installed (nullptr);
 
     std::string error;
     const std::vector<ScriptCompletion> completions =
         ScriptIntelligence::Get ().Complete (workspace, "main.py", "x = 1\n", 0, 5, error);
     EXPECT_TRUE (completions.empty ());
-    EXPECT_FALSE (error.empty ());
+    EXPECT_EQ (error, "code intelligence is not installed");
+}
+
+TEST (ScriptIntelligenceClient, AnInstalledServerThatWillNotStartReportsAStartupFailure)
+{
+    const TempWorkspace node ("tapioca_lsp_failed_start");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    const TempWorkspace localAppData ("tapioca_lsp_installed_runtime");
+    const std::filesystem::path scripts =
+        std::filesystem::path (localAppData.Path ()) / "Tapioca" / "runtime" / "Scripts";
+    std::filesystem::create_directories (scripts);
+    std::ofstream (scripts / "basedpyright-langserver.exe", std::ios::binary).close ();
+    const WithLocalAppData environment (localAppData.Path ());
+    ASSERT_TRUE (LanguageServerInstalled ());
+    const WithFakeServer installed (nullptr);
+
+    std::string error;
+    const auto completions = ScriptIntelligence::Get ().Complete (workspace, "main.py", "x = 1\n", 0, 5, error);
+    EXPECT_TRUE (completions.empty ());
+    EXPECT_EQ (error, "the language server would not start");
 }
 
 // ---------------------------------------------------------------------------
