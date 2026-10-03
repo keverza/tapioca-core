@@ -6,6 +6,8 @@
 #include "ArchViz/SelectionMetadata.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/OverlayHudModel.hpp"
+#include "ArchViz/SectionModel.hpp"
 #include "ArchViz/TextPrompt.hpp"
 #include "Metadata/MetadataStorage.hpp"
 
@@ -324,6 +326,15 @@ void Later (std::function<void ()> work)
         g_later.push_back (std::move (work));
     }
     ::PostMessageW (window, kLaterMessage, 0, 0);
+}
+
+void Changed ()
+{
+    Later ([] () {
+        ReadAsked ();                         // the viewer's picked element
+        sectionmodel::SelectionChanged ();    // the viewer's section, while it is open
+        overlayhudmodel::SelectionChanged (); // the overlays' page and section
+    });
 }
 
 void Arm ()

@@ -4,6 +4,7 @@
 #include "NativeCommands/MetadataCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
 
+#include "ArchViz/SelectionMetadata.hpp" // the HUDs read again what a script wrote
 #include "Metadata/MetadataStorage.hpp"
 #include "Metadata/TapiocaMetadata.hpp"
 
@@ -203,6 +204,8 @@ class SetElementMetadataCommand : public WriteCommand {
             ++changed;
             results.Push (rec);
         }
+        if (changed > 0)
+            archviz::selectionmetadata::Changed ();
         GS::ObjectState os;
         os.Add ("results", results);
         os.Add ("count", (GS::Int32) results.GetSize ());
@@ -291,6 +294,7 @@ class SetMetadataSchemaCommand : public WriteCommand {
         // NO undo scope here -- see WriteCommand. The caller has one open.
         if (!meta::storage::WriteSchema (schema, error))
             return NativeCommandResult::Failure (EVP_FAIL (Uni (error), "Tapioca.SetMetadataSchema"));
+        archviz::selectionmetadata::Changed ();
         GS::ObjectState os;
         os.Add ("revision", (GS::Int32) (schema.revision + 1));
         os.Add ("added", (GS::Int32) added);

@@ -372,6 +372,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # state verb asks the controller, which owns both views' HUDs.
     ("NativeCommands/OverlayHudCommands.cpp", "ArchViz/OverlayHudEvents.hpp"),
     ("NativeCommands/OverlayHudCommands.cpp", "ArchViz/OverlayController.hpp"),
+    # The metadata verbs (2026-10-03): a script's write is shown by the HUDs' Selection pages
+    # and building sections, which read the project only when told -- the one entry point
+    # that tells them, deferred past the verb's undo scope.
+    ("NativeCommands/MetadataCommands.cpp", "ArchViz/SelectionMetadata.hpp"),
     # The massing slabs' floor slices read each slab's polygon through the one walk of
     # a polygon memo. Its indexing -- 1-based coords, the closing repeat, the arc
     # lookup by begIndex -- must not exist twice, and it lives with the element reads.

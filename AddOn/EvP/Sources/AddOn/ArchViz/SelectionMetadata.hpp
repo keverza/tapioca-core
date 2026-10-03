@@ -49,6 +49,11 @@ hudmeta::Page PageOf (const std::string& guid);
 // needs read (SectionModel.hpp `Published`). Dropped when there is no window.
 void Later (std::function<void ()> work);
 
+// ⚠️ THE PROJECT'S METADATA CHANGED OUTSIDE THE HUDS -- a script wrote an element's or the
+// schema (NativeCommands/MetadataCommands.cpp): every HUD reads its page and its section
+// again, from the message loop -- after the writer's undo scope closes. Any thread.
+void Changed ();
+
 // The message-only window the requests are posted to: made at load, gone at unload.
 void Arm ();
 void Shutdown ();
