@@ -473,7 +473,9 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneScreen.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneMath.cpp"
     # The HUD panels: laid out by the vendored Dear ImGui into triangles over its own
-    # font atlas, the same library the add-on links (TapiocaImGui below).
+    # font atlas, the same library the add-on links (TapiocaImGui below). Every HUD's
+    # look, dock and floating panel are HudShell's.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"

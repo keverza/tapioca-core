@@ -18,32 +18,7 @@ namespace overlayhud {
 
 namespace {
 
-std::string Percent (float scale)
-{
-    return std::to_string (int (std::lround (scale * 100.0f))) + " %";
-}
-
-// The host's window: one name in every context, whatever tab it shows.
-constexpr char kHostName[] = "###tapioca.hud";
-// The close button at the end of the tab row.
-constexpr char kClose[] = "\xC3\x97##tapioca.close";
-// The built-in tab, after the panels'.
-constexpr char kSettingsTab[] = "Settings###tapioca.settings";
-
-// The look the host takes when it shows no layer's panel -- Settings, with no titled panel to
-// borrow from: the light card, small.
-const layers::Panel& PlainPanel ()
-{
-    static const layers::Panel panel = [] () {
-        layers::Panel plain;
-        layers::ApplyTheme (plain, layers::PanelTheme::Light);
-        plain.title = "Overlay";
-        plain.sizePixels = 13.0f;
-        plain.widthPixels = 220.0f;
-        return plain;
-    }();
-    return panel;
-}
+using hudshell::Percent;
 
 std::string LayerOf (const std::string& key)
 {
@@ -83,7 +58,9 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
     // and hides them, Settings lists them.
     present = !titled.empty () || !layerNames.empty ();
     showsPanel = false;
-    look = &PlainPanel ();
+    // The look the host takes when it shows no layer's panel -- Settings, with no titled
+    // panel to borrow from: the light card, small.
+    look = &hudshell::PlainLook ();
     if (!present)
         return;
     State::Host& host = store->host;
@@ -107,7 +84,7 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
             showsPanel = true;
         }
     // Settings takes the look of the first panel, when there is one.
-    look = showsPanel ? panels[shown] : !titled.empty () ? panels[titled.front ()] : &PlainPanel ();
+    look = showsPanel ? panels[shown] : !titled.empty () ? panels[titled.front ()] : &hudshell::PlainLook ();
     showing = showsPanel ? panels[shown]->title : titled.empty () ? look->title : "Settings";
 }
 
@@ -173,9 +150,9 @@ void Engine::Impl::SetFontStep (uint32_t step)
 
 void Engine::Impl::ResetPosition ()
 {
-    if (!store->host.placed)
+    if (!store->host.placement.placed)
         return;
-    store->host.placed = false;
+    store->host.placement.placed = false;
     changes.push_back ({ "position", std::string (), std::string (), std::string (), -1, 0.0, "reset", true });
 }
 
@@ -208,8 +185,8 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
         const bool open = HudOpen (*store) && store->shown;
         bool toggled = false;
         const bool pressed =
-            items::VerticalTab ("##hud", showing, colours, open, store->shown,
-                                ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale, toggled);
+            hudshell::DockTab ("##hud", showing, colours, open, store->shown,
+                               ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale, toggled);
         if (toggled) {
             ShowOverlay (!store->shown);
         }
@@ -257,7 +234,7 @@ void Engine::Impl::Settings ()
         ImGui::AlignTextToFramePadding ();
         ImGui::TextUnformatted ("Position");
         ImGui::TableSetColumnIndex (1);
-        ImGui::BeginDisabled (!store->host.placed);
+        ImGui::BeginDisabled (!store->host.placement.placed);
         if (ImGui::Button ("Reset##position", ImVec2 (-FLT_MIN, 0.0f)))
             ResetPosition ();
         ImGui::EndDisabled ();
@@ -324,111 +301,44 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     State::Host& host = store->host;
     if (!present || !HudOpen (*store) || !store->shown)
         return;
-    const layers::Panel& panel = *look;
-    ImGuiWindow* const existing = ImGui::FindWindowByName (kHostName);
-    const ImGuiContext& g = *ImGui::GetCurrentContext ();
-    const bool moving = existing != nullptr && g.MovingWindow != nullptr && g.MovingWindow->RootWindow == existing;
-    // ⚠️ NOT PLACED WHILE IT IS DRAGGED: ImGui moved it before this Begin, and a place set
-    // now would put it back under the pointer's start.
-    if (!moving) {
-        if (host.placed) {
-            const ImVec2 size = existing != nullptr ? existing->Size : ImVec2 (0.0f, 0.0f);
-            const bool right = (host.corner & 1u) != 0, bottom = (host.corner & 2u) != 0;
-            float x = right ? view.x - host.offset[0] * scale - size.x : host.offset[0] * scale;
-            float y = bottom ? view.y - host.offset[1] * scale - size.y : host.offset[1] * scale;
-            // Inside the view, however it was resized.
-            x = (std::min) ((std::max) (x, 0.0f), (std::max) (view.x - size.x, 0.0f));
-            y = (std::min) ((std::max) (y, 0.0f), (std::max) (view.y - size.y, 0.0f));
-            ImGui::SetNextWindowPos (ImVec2 (std::floor (x), std::floor (y)), ImGuiCond_Always);
-        }
-        else {
-            // Where the tab it shows asks to be, as an untitled panel is placed.
-            const int column = int (panel.anchor) % 3, row = int (panel.anchor) / 3;
-            const ImVec2 pivot (float (column) * 0.5f, float (row) * 0.5f);
-            const float inwardX = column == 2 ? -1.0f : 1.0f, inwardY = row == 2 ? -1.0f : 1.0f;
-            ImGui::SetNextWindowPos (
-                ImVec2 (pivot.x * view.x + inwardX * panel.offsetPixels[0] * scale - (column == 2 ? inset : 0.0f),
-                        pivot.y * view.y + inwardY * panel.offsetPixels[1] * scale),
-                ImGuiCond_Always, pivot);
-        }
-    }
-    const int colours = PushPanelStyle (panel, ui);
-    ImFont* const face = FontFor (panel.font);
-    ImGui::PushFont (face, panel.sizePixels * ui);
-    // As wide as its tab row needs, or the panel's width when that is wider.
-    const ImGuiStyle& style = ImGui::GetStyle ();
-    float row = 2.0f * style.WindowPadding.x;
+    hudshell::HostSpec spec;
+    spec.look = look;
+    spec.font = FontFor (look->font);
+    spec.scale = scale;
+    spec.ui = ui;
+    spec.view = view;
+    spec.inset = inset;
     for (const size_t i : titled)
-        row +=
-            ImGui::CalcTextSize (panels[i]->title.c_str ()).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
-    for (const char* tab : { kSettingsTab, kClose })
-        row += ImGui::CalcTextSize (tab, nullptr, true).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
-    const float width = (std::max) (std::ceil (row), panel.widthPixels * ui);
-    ImGui::SetNextWindowSizeConstraints (ImVec2 (width, 0.0f),
-                                         ImVec2 (panel.widthPixels > 0.0f ? width : FLT_MAX, FLT_MAX));
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                                   ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                                   ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoCollapse;
-    const bool drawn = ImGui::Begin (kHostName, nullptr, flags);
-    ImGuiWindow* const window = ImGui::GetCurrentWindow ();
-    windows.back () = window;
-    bool close = false;
-    if (drawn && ImGui::BeginTabBar ("##hud")) {
-        std::string now;
-        // ⚠️ THE HELD TAB ASKED FOR ONLY WHERE THIS CONTEXT SHOWED ANOTHER, as a panel's own
-        // tab bar (OverlayHudControls.cpp): asked every frame, ImGui applies it over the
-        // user's click.
-        const auto asked = [&] (const std::string& k) {
-            return k == host.selected && shownHost != host.selected ? ImGuiTabItemFlags_SetSelected : 0;
-        };
-        for (const size_t i : titled) {
-            const std::string& k = keys[i];
-            if (ImGui::BeginTabItem ((panels[i]->title + "###" + k).c_str (), nullptr, asked (k))) {
-                now = k;
+        spec.tabs.push_back ({ keys[i], panels[i]->title });
+    spec.tabs.push_back ({ kSettingsKey, "Settings" });
+    const auto page = [&] (const std::string& k) {
+        if (k == kSettingsKey) {
+            Settings ();
+            return;
+        }
+        for (const size_t i : titled)
+            if (keys[i] == k) {
                 key = k;
                 layer = LayerOf (k);
                 Items (*panels[i], StateOf (k, *panels[i]), ui);
-                ImGui::EndTabItem ();
+                return;
             }
-        }
-        if (ImGui::BeginTabItem (kSettingsTab, nullptr, asked (kSettingsKey))) {
-            now = kSettingsKey;
-            Settings ();
-            ImGui::EndTabItem ();
-        }
-        close = ImGui::TabItemButton (kClose, ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip);
-        ImGui::EndTabBar ();
-        // The user's press on another tab: one this context did not show last frame, and
-        // not the held one it was asked to show.
-        if (!now.empty () && !shownHost.empty () && now != shownHost && now != host.selected) {
-            host.selected = now;
-            std::string title = "Settings";
-            for (const size_t i : titled)
-                if (keys[i] == now)
-                    title = panels[i]->title;
-            changes.push_back (
-                { "panel", now == kSettingsKey ? std::string () : now, title, std::string (), -1, 1.0, title, true });
-        }
-        shownHost = now;
+    };
+    const hudshell::HostResult result = hudshell::Host (spec, host.selected, shownHost, host.placement, page, [&] () {
+        if (store->hover)
+            Readout ();
+    });
+    windows.back () = result.window;
+    if (!result.pressed.empty ()) {
+        host.selected = result.pressed;
+        std::string title = "Settings";
+        for (const size_t i : titled)
+            if (keys[i] == result.pressed)
+                title = panels[i]->title;
+        changes.push_back ({ "panel", result.pressed == kSettingsKey ? std::string () : result.pressed, title,
+                             std::string (), -1, 1.0, title, true });
     }
-    if (drawn && store->hover)
-        Readout ();
-    ImGui::End ();
-    ImGui::PopFont ();
-    ImGui::PopStyleColor (colours);
-    ImGui::PopStyleVar (kStyleVars);
-    // Dragged: where to, from the view's corner nearest it, in logical pixels.
-    if (moving) {
-        const ImVec2 pos = window->Pos, size = window->Size;
-        const bool right = pos.x + size.x * 0.5f > view.x * 0.5f, bottom = pos.y + size.y * 0.5f > view.y * 0.5f;
-        host.placed = true;
-        host.corner = uint8_t ((right ? 1u : 0u) | (bottom ? 2u : 0u));
-        host.offset[0] = (std::max) (right ? view.x - pos.x - size.x : pos.x, 0.0f) / scale;
-        host.offset[1] = (std::max) (bottom ? view.y - pos.y - size.y : pos.y, 0.0f) / scale;
-    }
-    if (close)
+    if (result.closed)
         SetOpen (false);
 }
 
@@ -451,7 +361,7 @@ void Engine::Impl::Menu (float ui)
     if (ImGui::IsMouseReleased (ImGuiMouseButton_Right) && ImGui::GetCurrentContext ()->HoveredWindow != nullptr)
         ImGui::OpenPopup (kMenu);
     const layers::Panel& panel = *look;
-    const int colours = PushPanelStyle (panel, ui);
+    const int colours = hudshell::PushLook (panel, ui);
     ImGui::PushFont (FontFor (panel.font), panel.sizePixels * ui);
     if (ImGui::BeginPopup (kMenu, ImGuiWindowFlags_NoMove)) {
         const bool all = store->shown;
@@ -481,13 +391,13 @@ void Engine::Impl::Menu (float ui)
             }
             ImGui::EndMenu ();
         }
-        if (ImGui::MenuItem ("Reset position", nullptr, false, store->host.placed))
+        if (ImGui::MenuItem ("Reset position", nullptr, false, store->host.placement.placed))
             ResetPosition ();
         ImGui::EndPopup ();
     }
     ImGui::PopFont ();
     ImGui::PopStyleColor (colours);
-    ImGui::PopStyleVar (kStyleVars);
+    ImGui::PopStyleVar (hudshell::kLookVars);
 }
 
 } // namespace overlayhud

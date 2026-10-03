@@ -9,6 +9,7 @@
 //
 // MAIN THREAD, inside ImGui's lock (ImGuiContextLock.hpp) wherever a frame is laid out.
 
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHud.hpp"
 
 #include <imgui.h>
@@ -31,17 +32,13 @@ namespace layers = overlaylayers;
 // The host's own tab, after the panels': the HUD's settings.
 constexpr char kSettingsKey[] = "tapioca.settings";
 
-// The dock's one tab: its font, its padding across and along its turned title, and the gap
-// between it and a panel on the view's right column.
-constexpr float kDockFontPixels = 12.0f;
-constexpr float kDockPadding[2] = { 5.0f, 12.0f };
-constexpr float kDockGap = 6.0f;
-// ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
-// HUD's font size). Settings and the HUD's menu choose one; every size of the HUD -- text,
-// padding, widths, the dock itself -- follows, the distances from the view's edges do not.
-constexpr float kFontSteps[] = { 0.8f, 0.9f, 1.0f, 1.1f, 1.25f, 1.4f, 1.6f, 1.8f, 2.0f };
-constexpr uint32_t kFontStepCount = uint32_t (sizeof (kFontSteps) / sizeof (kFontSteps[0]));
-constexpr uint32_t kFontStepDefault = 2;
+// The dock and the text size are every HUD's (HudShell.hpp).
+using hudshell::kDockFontPixels;
+using hudshell::kDockGap;
+using hudshell::kDockPadding;
+using hudshell::kFontStepCount;
+using hudshell::kFontStepDefault;
+using hudshell::kFontSteps;
 
 // What the user did to each panel, by its key (OverlayHud.hpp's third note).
 struct State {
@@ -66,23 +63,16 @@ struct State {
     bool hover = false;           // hover mode (OverlayHud.hpp `Hover`)
     uint64_t revision = 0;
     // The floating panel the titled panels are tabs of: open or closed to the dock, the tab
-    // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where: `offset` logical pixels
-    // in from the edges of the view's `corner` nearest it (1 right, 2 bottom), so a view
-    // resized keeps it that far from them.
+    // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where
+    // (hudshell::Placement), so a view resized keeps it that far from its nearest corner.
     struct Host {
         bool known = false; // set from the panels the first time there were any
         bool open = true;
         std::string selected;
-        bool placed = false;
-        uint8_t corner = 0;
-        float offset[2] = { 0.0f, 0.0f };
+        hudshell::Placement placement;
     };
     Host host;
 };
-
-// A panel's own look over the base; the number of colours pushed, and of style vars.
-int PushPanelStyle (const layers::Panel& panel, float scale);
-constexpr int kStyleVars = 3;
 
 struct Engine::Impl {
     ImGuiContext* context = nullptr;

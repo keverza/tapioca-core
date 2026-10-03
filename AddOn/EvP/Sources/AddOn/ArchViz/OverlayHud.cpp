@@ -17,9 +17,7 @@ namespace geomsrv {
 namespace archviz {
 namespace overlayhud {
 
-using items::Colour;
 using items::Unpacked;
-using items::WithAlpha;
 
 namespace {
 
@@ -32,77 +30,6 @@ constexpr int kAttempts = 3;
 // The frames after the first advance ImGui's clock by almost nothing: the first carries
 // the time since the last layout, so a double click is timed as the user made it.
 constexpr float kSettleSeconds = 1.0e-4f;
-
-// The style every panel starts from; each pushes its own colours and spacing over it.
-void BaseStyle (float scale)
-{
-    ImGuiStyle& style = ImGui::GetStyle ();
-    style = ImGuiStyle ();
-    ImGui::StyleColorsDark (&style);
-    // ⚠️ DENSE (the user, 2026-09-30: a small, content-dense inspection panel, not unused
-    // space): a pixel less round every frame and between items than ImGui's own.
-    style.FramePadding = ImVec2 (4.0f, 2.0f);
-    style.ItemSpacing = ImVec2 (6.0f, 3.0f);
-    style.ItemInnerSpacing = ImVec2 (4.0f, 3.0f);
-    style.CellPadding = ImVec2 (4.0f, 1.0f);
-    style.ScaleAllSizes (scale);
-    style.WindowMinSize = ImVec2 (1.0f, 1.0f);
-    style.FrameRounding = 2.0f * scale;
-}
-
-} // namespace
-
-int PushPanelStyle (const layers::Panel& panel, float scale)
-{
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding,
-                         ImVec2 (panel.paddingPixels * scale, panel.paddingPixels * scale));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding, panel.roundingPixels * scale);
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize,
-                         (panel.borderRgba & 0xFFu) != 0 ? (std::max) (1.0f, scale) : 0.0f);
-    const uint32_t text = panel.textRgba;
-    const uint32_t accent = panel.accentRgba;
-    const std::pair<ImGuiCol, uint32_t> colours[] = {
-        { ImGuiCol_WindowBg, panel.backgroundRgba },
-        { ImGuiCol_Border, panel.borderRgba },
-        { ImGuiCol_Text, text },
-        { ImGuiCol_Separator, WithAlpha (text, 0.3f) },
-        { ImGuiCol_FrameBg, WithAlpha (text, 0.12f) },
-        { ImGuiCol_TableHeaderBg, WithAlpha (text, 0.12f) },
-        { ImGuiCol_TableBorderLight, WithAlpha (text, 0.2f) },
-        { ImGuiCol_TableBorderStrong, WithAlpha (text, 0.3f) },
-        { ImGuiCol_TableRowBgAlt, WithAlpha (text, 0.05f) },
-        // ⚠️ WHAT THE POINTER CAN PRESS IS TINTED WITH THE ACCENT (the user, 2026-09-29): a
-        // button reads as one at rest -- a faint fill -- and plainly when pointed at and
-        // pressed, as a section's row does.
-        { ImGuiCol_Header, WithAlpha (accent, 0.14f) }, // a dropdown's chosen option
-        { ImGuiCol_HeaderHovered, WithAlpha (accent, 0.16f) },
-        { ImGuiCol_HeaderActive, WithAlpha (accent, 0.28f) },
-        { ImGuiCol_Button, WithAlpha (text, 0.07f) },
-        { ImGuiCol_ButtonHovered, WithAlpha (accent, 0.30f) },
-        { ImGuiCol_ButtonActive, WithAlpha (accent, 0.48f) },
-        { ImGuiCol_FrameBgHovered, WithAlpha (accent, 0.20f) },
-        { ImGuiCol_FrameBgActive, WithAlpha (accent, 0.32f) },
-        { ImGuiCol_CheckMark, accent },
-        { ImGuiCol_SliderGrab, accent },
-        { ImGuiCol_SliderGrabActive, accent },
-        // A tab bar: the tab shown tinted, a line of the accent over it. The same whether
-        // ImGui thinks the panel focused or not -- the HUD takes no focus the user sees.
-        { ImGuiCol_Tab, WithAlpha (text, 0.06f) },
-        { ImGuiCol_TabHovered, WithAlpha (accent, 0.30f) },
-        { ImGuiCol_TabSelected, WithAlpha (accent, 0.20f) },
-        { ImGuiCol_TabSelectedOverline, accent },
-        { ImGuiCol_TabDimmed, WithAlpha (text, 0.06f) },
-        { ImGuiCol_TabDimmedSelected, WithAlpha (accent, 0.20f) },
-        { ImGuiCol_TabDimmedSelectedOverline, accent },
-        // Its tooltips in its own colours, nearly opaque over the model.
-        { ImGuiCol_PopupBg, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u },
-    };
-    for (const auto& colour : colours)
-        ImGui::PushStyleColor (colour.first, Colour (colour.second));
-    return int (sizeof (colours) / sizeof (colours[0]));
-}
-
-namespace {
 
 // ⚠️ PIXEL-SNAPPED, NOT OVERSAMPLED (the user, 2026-09-30: the light panel's text slightly
 // blurry). ImGui's default rasterises glyphs twice as wide for sub-pixel placement and lets
@@ -155,7 +82,7 @@ void ClearState (State& state)
 
 float FontScaleOf (const State& state)
 {
-    return kFontSteps[(std::min) (state.fontStep, kFontStepCount - 1)];
+    return hudshell::FontScaleOfStep (state.fontStep);
 }
 
 void SetFontScale (State& state, float scale)
@@ -476,7 +403,7 @@ void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, s
     }
     // ### keeps the window's identity -- and so its state.
     const std::string name = "###tapioca.panel." + key;
-    const int colours = PushPanelStyle (panel, ui);
+    const int colours = hudshell::PushLook (panel, ui);
     ImGui::PushFont (FontFor (panel.font), panel.sizePixels * ui);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
@@ -489,7 +416,7 @@ void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, s
     ImGui::PopFont ();
     ImGui::End ();
     ImGui::PopStyleColor (colours);
-    ImGui::PopStyleVar (kStyleVars);
+    ImGui::PopStyleVar (hudshell::kLookVars);
 }
 
 // A legend's bar pointed at: the value there, beside the bar at the pointer.
@@ -543,8 +470,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     const ImVec2 view = known ? ImVec2 (input.width, input.height) : ImVec2 (16384.0f, 16384.0f);
     io.DisplaySize = view;
     io.DeltaTime = delta;
-    const float ui = scale * kFontSteps[(std::min) (store->fontStep, kFontStepCount - 1)];
-    BaseStyle (ui);
+    const float ui = scale * hudshell::FontScaleOfStep (store->fontStep);
+    hudshell::BaseStyle (ui);
     ImGui::NewFrame ();
     windows.assign (panels.size () + 2, nullptr);
     highlight = Layout::Highlight {};
@@ -781,9 +708,9 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
             built.width = host->Size.x;
             built.height = host->Size.y;
             const State::Host& state = impl_->store->host;
-            if (state.placed) {
-                built.fraction[0] = (state.corner & 1u) != 0 ? 1.0f : 0.0f;
-                built.fraction[1] = (state.corner & 2u) != 0 ? 1.0f : 0.0f;
+            if (state.placement.placed) {
+                built.fraction[0] = (state.placement.corner & 1u) != 0 ? 1.0f : 0.0f;
+                built.fraction[1] = (state.placement.corner & 2u) != 0 ? 1.0f : 0.0f;
             }
             else {
                 Place (*impl_->look, built.width, built.height, at, built.fraction, built.offset, impl_->inset);
