@@ -107,12 +107,20 @@ bool PortableRunning ()
 UINT_PTR g_timer = 0;
 constexpr UINT kTickMs = 500;
 
-// Whether the 3D HUD is on screen: the overlay shown and composing with a camera.
-// Called from the HUD's message hook, on this thread: plain reads and atomics.
-bool HudShown3D ()
+// Whether the 3D overlay composes with a camera: the HUD is drawn with it at every Present.
+bool ComposingWithCamera ()
 {
     return runtime::Running () && runtime::Visible () &&
            dxgi::injection::GetArmState () == dxgi::injection::ArmState::Active && dxgi::injection::SnapshotValid ();
+}
+
+// Whether the 3D HUD is on screen: composed with the camera, or drawn alone before one was
+// chosen in the last second (Dxgi/PrelockHud.hpp). Called from the HUD's message hook, on this
+// thread: plain reads and atomics.
+bool HudShown3D ()
+{
+    return ComposingWithCamera () ||
+           (runtime::Running () && runtime::Visible () && dxgi::sceneguest::HudOnlyRecently (1000));
 }
 
 // ---- the 3D HUD ------------------------------------------------------------------
@@ -188,7 +196,10 @@ void HeartbeatHud3D ()
     const bool changed = PublishHud3D (
         overlayscene::PrepareSceneHud (overlaylayers::Layers (), overlayhudmodel::Prepare (overlayinput::View::ThreeD),
                                        g_scale3D, input, &g_legends3D));
-    if (changed && HudShown3D () && overlayhud::SelectedKey (*guesttext::HudState ()) != hudshell::kDebugKey)
+    // ⚠️ AND ONLY ONCE THE CAMERA IS LOCKED: before, a redraw is the cold start's budget's to
+    // spend (OverlayRedrawBudget.hpp), never the HUD's -- the HUD drawn alone shows with the
+    // frames Archicad presents anyway (Dxgi/PrelockHud.hpp).
+    if (changed && ComposingWithCamera () && overlayhud::SelectedKey (*guesttext::HudState ()) != hudshell::kDebugKey)
         RedrawHud3D ();
 }
 

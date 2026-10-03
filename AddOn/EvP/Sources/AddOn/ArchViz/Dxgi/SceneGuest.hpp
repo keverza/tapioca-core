@@ -51,6 +51,15 @@ void PublishHud (overlayscene::Scene hud, float dpiScale);
 void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTargetView* target,
            ID3D11DepthStencilView* depth);
 
+// ⚠️ RENDER THREAD, AT PRESENT, BEFORE A CAMERA IS CHOSEN (Dxgi/PrelockHud.hpp): the HUD's stream
+// alone -- glyph quads fixed to the view, which read no camera -- into `target`, `width` x
+// `height`, inside the caller's ScopedPipelineState with the viewport bound. A neutral camera of
+// the guest's own fills the pipelines' camera windows; nothing of the census is read or bound.
+enum class HudOnly : uint8_t { Drawn, Nothing, NoTarget, Failed };
+HudOnly DrawHudOnly (ID3D11DeviceContext* context, ID3D11RenderTargetView* target, float width, float height);
+// Any thread: the HUD was drawn alone within the last `withinMilliseconds` -- it is on screen.
+bool HudOnlyRecently (uint32_t withinMilliseconds);
+
 // Once no Present can reach it (the composer's Shutdown). Keeps what was published.
 void ReleaseDeviceObjects ();
 
@@ -83,6 +92,7 @@ struct Stats {
     uint32_t drawMicroseconds = 0;
     // The HUD's stream: its uploads, what it holds now and what laying it out cost.
     uint64_t hudUploads = 0;
+    uint64_t hudOnlyDraws = 0; // the HUD drawn alone, before a camera was chosen
     uint32_t hudGlyphVertices = 0;
     uint32_t hudPrepareMicroseconds = 0;
 };

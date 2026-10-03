@@ -75,6 +75,10 @@ std::atomic<bool> s_adapterKnown { false };
 std::atomic<uint32_t> s_prepareUs { 0 }, s_built { 0 }, s_reused { 0 }, s_lastDrawUs { 0 }, s_drawUs { 0 };
 std::atomic<uint64_t> s_vertexBytes { 0 }, s_pageBytes { 0 };
 std::atomic<uint64_t> s_hudUploads { 0 };
+// The HUD drawn alone, before a camera is chosen (DrawHudOnly), and when last -- a steady-clock
+// millisecond the input layer reads to know the HUD is on screen.
+std::atomic<uint64_t> s_hudOnlyDraws { 0 };
+std::atomic<int64_t> s_hudOnlyAtMs { 0 };
 std::atomic<uint32_t> s_hudGlyphs { 0 }, s_hudPrepareUs { 0 };
 
 uint32_t Since (std::chrono::steady_clock::time_point started)
@@ -88,8 +92,23 @@ void Bump (std::atomic<uint64_t>& counter)
     counter.fetch_add (1, std::memory_order_relaxed);
 }
 
+// ⚠️ THE HUD'S OWN CAMERA BEFORE THERE IS ONE: zeros, the guest's, never Archicad's or the
+// census's buffers. The HUD is glyph quads fixed to the view, whose vertex shader reads no camera
+// (GuestShaderSources.hpp, VSGlyph's screen-anchored branch); the pipelines still declare the
+// two camera windows, and a binding left empty is refused at the draw.
+Diligent::RefCntAutoPtr<Diligent::IBuffer> g_neutralView, g_neutralProjection;
+
+int64_t SteadyMs ()
+{
+    return int64_t (
+        std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now ().time_since_epoch ())
+            .count ());
+}
+
 void ReleaseRenderObjects ()
 {
+    g_neutralView.Release ();
+    g_neutralProjection.Release ();
     g_content = gpu::Content {};
     g_pages.clear ();
     g_hudContent = gpu::Content {};
@@ -244,6 +263,29 @@ bool BindCamera (ID3D11Buffer* view, ID3D11Buffer* projection)
     return true;
 }
 
+// The neutral camera bound on the HUD's bindings; the next camera draw binds the real one again
+// (BindCamera compares against the native buffers, forgotten here).
+bool BindNeutralCamera ()
+{
+    if (g_neutralView == nullptr || g_neutralProjection == nullptr) {
+        Diligent::BufferDesc desc;
+        desc.Name = "Tapioca HUD neutral camera";
+        desc.Size = 256; // a camera window: sixteen constants
+        desc.Usage = Diligent::USAGE_IMMUTABLE;
+        desc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
+        const std::vector<uint8_t> zeros (256, 0);
+        Diligent::BufferData data (zeros.data (), zeros.size ());
+        g_guest.Device ()->CreateBuffer (desc, &data, &g_neutralView);
+        g_guest.Device ()->CreateBuffer (desc, &data, &g_neutralProjection);
+        if (g_neutralView == nullptr || g_neutralProjection == nullptr)
+            return false;
+    }
+    gpu::BindCamera (g_pipelines, g_hudPages, g_neutralView, g_neutralProjection);
+    g_viewNative = nullptr;
+    g_projectionNative = nullptr;
+    return true;
+}
+
 } // namespace
 
 void Publish (overlayscene::Scene scene, float dpiScale)
@@ -349,6 +391,55 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
     s_drawCalls.fetch_add (drawn.drawCalls, std::memory_order_relaxed);
 }
 
+HudOnly DrawHudOnly (ID3D11DeviceContext* context, ID3D11RenderTargetView* target, float width, float height)
+{
+    if (Published* const fresh = g_publishedHud.exchange (nullptr, std::memory_order_acq_rel)) {
+        g_currentHud.reset (fresh);
+        g_hudDirty = true;
+    }
+    if (g_currentHud == nullptr || g_currentHud->scene.Empty ()) {
+        if (g_hudDirty) {
+            g_hudContent = gpu::Content {};
+            g_hudDirty = false;
+        }
+        return HudOnly::Nothing;
+    }
+    if (context == nullptr || target == nullptr || !(width >= 1.0f && height >= 1.0f))
+        return HudOnly::NoTarget;
+    // Slot 0's pipelines: no interpretation is chosen yet, and the HUD reads no camera. A camera
+    // chosen later with another slot rebuilds them once (EnsurePipelines).
+    if (!EnsureAttached (context) || !EnsurePipelines (0)) {
+        Bump (s_failed);
+        return HudOnly::Failed;
+    }
+    if (g_hudDirty) {
+        if (!UploadHud ()) {
+            Bump (s_failed);
+            return HudOnly::Failed;
+        }
+        g_hudDirty = false;
+    }
+    if (!BindNeutralCamera ()) {
+        Bump (s_failed);
+        return HudOnly::Failed;
+    }
+    const float dpiScale = g_currentHud->dpiScale;
+    const float frame[4] = { width, height, dpiScale, overlay::kGuestDepthPullFraction };
+    g_guest.BeginDraw (context, target, nullptr);
+    gpu::DrawStats drawn;
+    gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, frame, false, dpiScale, drawn);
+    Bump (s_hudOnlyDraws);
+    s_drawCalls.fetch_add (drawn.drawCalls, std::memory_order_relaxed);
+    s_hudOnlyAtMs.store (SteadyMs (), std::memory_order_relaxed);
+    return HudOnly::Drawn;
+}
+
+bool HudOnlyRecently (uint32_t withinMilliseconds)
+{
+    const int64_t at = s_hudOnlyAtMs.load (std::memory_order_relaxed);
+    return at != 0 && SteadyMs () - at <= int64_t (withinMilliseconds);
+}
+
 void ReleaseDeviceObjects ()
 {
     ReleaseRenderObjects ();
@@ -366,8 +457,9 @@ void ReleaseDeviceObjects ()
     s_vertexBytes.store (0, std::memory_order_relaxed);
     s_pageBytes.store (0, std::memory_order_relaxed);
     for (std::atomic<uint64_t>* counter :
-         { &s_draws, &s_drawCalls, &s_uploads, &s_noCamera, &s_noViewport, &s_failed, &s_hudUploads })
+         { &s_draws, &s_drawCalls, &s_uploads, &s_noCamera, &s_noViewport, &s_failed, &s_hudUploads, &s_hudOnlyDraws })
         counter->store (0, std::memory_order_relaxed);
+    s_hudOnlyAtMs.store (0, std::memory_order_relaxed);
     s_failure.store ("", std::memory_order_relaxed);
 }
 
@@ -398,6 +490,7 @@ Stats GetStats ()
     stats.lastDrawMicroseconds = s_lastDrawUs.load (std::memory_order_relaxed);
     stats.drawMicroseconds = s_drawUs.load (std::memory_order_relaxed);
     stats.hudUploads = s_hudUploads.load (std::memory_order_relaxed);
+    stats.hudOnlyDraws = s_hudOnlyDraws.load (std::memory_order_relaxed);
     stats.hudGlyphVertices = s_hudGlyphs.load (std::memory_order_relaxed);
     stats.hudPrepareMicroseconds = s_hudPrepareUs.load (std::memory_order_relaxed);
     return stats;

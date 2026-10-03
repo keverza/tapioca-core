@@ -9,6 +9,7 @@
 #include "ArchViz/OverlayHudModel.hpp"
 
 #include "ArchViz/Dxgi/PlanGuest.hpp"
+#include "ArchViz/Dxgi/PrelockHud.hpp"
 #include "ArchViz/Dxgi/SceneGuest.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
@@ -111,7 +112,7 @@ struct Rate {
         last = total;
     }
 };
-Rate g_composes3D, g_presentsPlan, g_drawnPlan;
+Rate g_composes3D, g_presentsPlan, g_drawnPlan, g_prelockDrawn;
 
 std::string Format (const char* format, double value)
 {
@@ -304,6 +305,17 @@ overlayhud::OwnPages ThreeD ()
     camera.figures.push_back ({ "Blocked at", health.blockedAt.empty () ? std::string ("-") : health.blockedAt });
     camera.figures.push_back ({ "Model frames", std::to_string (health.modelFramesSeen) });
     camera.figures.push_back ({ "Re-acquired", std::to_string (health.reacquisitions) });
+    // The HUD drawn alone before the camera (Dxgi/PrelockHud.hpp): how often, and why not.
+    const dxgi::prelockhud::Stats prelock = dxgi::prelockhud::GetStats ();
+    g_prelockDrawn.Note (prelock.drawn);
+    if (!locked) {
+        camera.figures.push_back ({ "HUD alone", RateText (g_prelockDrawn, "a second") });
+        if (prelock.failed + prelock.noTarget > 0)
+            camera.figures.push_back ({ "HUD alone refused",
+                                        std::to_string (prelock.failed) + " failed, " +
+                                            std::to_string (prelock.noTarget) + " without a target",
+                                        kRed });
+    }
     pages.debug.push_back (std::move (camera));
     return pages;
 }
@@ -384,6 +396,7 @@ void Forget ()
     g_composes3D = Rate {};
     g_presentsPlan = Rate {};
     g_drawnPlan = Rate {};
+    g_prelockDrawn = Rate {};
 }
 
 } // namespace overlayhudmodel

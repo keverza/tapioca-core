@@ -1207,6 +1207,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/PassProvenanceFirstTransition.cpp",
     "ArchViz/Dxgi/PlanFrameRecord.cpp",
     "ArchViz/Dxgi/PlanOverlayLayer.cpp",
+    "ArchViz/Dxgi/PrelockHud.cpp",
     "ArchViz/Dxgi/PresentProfile.cpp",
     "ArchViz/Dxgi/SceneGuest.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
