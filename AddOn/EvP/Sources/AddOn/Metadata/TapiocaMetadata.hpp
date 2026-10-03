@@ -208,6 +208,11 @@ bool Unrelate (EntityMetadata& meta, const std::string& type, const std::string&
 bool JoinSet (EntityMetadata& meta, const std::string& set);
 bool LeaveSet (EntityMetadata& meta, const std::string& set);
 
+// `from` laid over `into`: its properties set by key, its classifications by system, its ranges
+// assigned (AssignRange), its relationships related, its tags and sets joined. What `from` does
+// not mention is kept. The identity -- entity id, GUID -- stays `into`'s.
+void Merge (EntityMetadata& into, const EntityMetadata& from);
+
 // ⚠️ COMPUTED VALUES ARE INVALIDATED, AUTHORED ONES NEVER ARE: the geometry they were computed
 // from changed. Every Computed and Cached property -- of `generator` alone when it is given --
 // goes, and those of the ranges too. Returns how many went.

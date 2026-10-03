@@ -359,3 +359,31 @@ TEST (TapiocaMetadata, EachPrimitiveIsHeldOnce)
     EXPECT_TRUE (meta::RemoveTag (entity, "locked"));
     EXPECT_TRUE (entity.Empty ());
 }
+
+// A merge lays one entity's primitives over another's and keeps what it does not mention.
+TEST (TapiocaMetadata, AMergeKeepsWhatItDoesNotMention)
+{
+    meta::EntityMetadata into;
+    meta::AdoptElement (into, "A");
+    meta::SetProperty (into, Usage ("office"));
+    meta::AddTag (into, "existing");
+    meta::AssignRange (into, Floors (0, 9, { Usage ("residential") }));
+    meta::EntityMetadata edit;
+    meta::AdoptElement (edit, "B");
+    meta::Property phase;
+    phase.key = "planning.phase";
+    phase.value = meta::Value::Option ("new");
+    meta::SetProperty (edit, phase);
+    meta::AddTag (edit, "review");
+    meta::AssignRange (edit, Floors (0, 0, { Usage ("commercial") }));
+    const std::string identity = into.entityId;
+    meta::Merge (into, edit);
+    EXPECT_EQ (into.entityId, identity);
+    EXPECT_EQ (into.archicadGuid, "A");
+    EXPECT_NE (meta::FindProperty (into, "program.usage"), nullptr);
+    EXPECT_NE (meta::FindProperty (into, "planning.phase"), nullptr);
+    EXPECT_TRUE (meta::HasTag (into, "existing"));
+    EXPECT_TRUE (meta::HasTag (into, "review"));
+    EXPECT_EQ (UsageAt (into, 0), "commercial");
+    EXPECT_EQ (UsageAt (into, 1), "residential");
+}

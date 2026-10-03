@@ -477,6 +477,22 @@ bool LeaveSet (EntityMetadata& meta, const std::string& set)
     return meta.sets.size () != before;
 }
 
+void Merge (EntityMetadata& into, const EntityMetadata& from)
+{
+    for (const Property& property : from.properties)
+        SetProperty (into, property);
+    for (const Classification& classification : from.classifications)
+        Classify (into, classification.system, classification.value, classification.provenance);
+    for (const RangeAssignment& range : from.ranges)
+        AssignRange (into, range);
+    for (const Relationship& relationship : from.relationships)
+        Relate (into, relationship);
+    for (const std::string& tag : from.tags)
+        AddTag (into, tag);
+    for (const std::string& set : from.sets)
+        JoinSet (into, set);
+}
+
 size_t InvalidateComputed (EntityMetadata& meta, const std::string& generator)
 {
     const auto stale = [&] (const Property& p) {
