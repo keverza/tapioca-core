@@ -252,6 +252,11 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphRuntimeState.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphSerializer.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphStore.cpp"
+    # Metadata/TapiocaMetadata.cpp is the typed property graph Tapioca keeps on an element and
+    # the project's schema: pure, over the graph runtime's JSON beside it.
+    "${EVP_ROOT}/Sources/AddOn/Metadata/TapiocaMetadata.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Metadata/TapiocaMetadataJson.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Metadata/TapiocaSchema.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Json.cpp"
     # The rhino.compute wire. DevKit-free and socket-free by construction, so the
     # half that fails silently - request shaping and response parsing - is proved
@@ -668,6 +673,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudevents.cpp
     test_overlayhudwidgets.cpp
     test_overlayhudown.cpp
+    test_tapiocametadata.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
     test_overlayinput.cpp
