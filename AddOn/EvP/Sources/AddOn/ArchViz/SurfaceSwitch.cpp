@@ -49,9 +49,12 @@ void Perform (Surface to)
     g_performed.fetch_add (1, std::memory_order_relaxed);
     namespace control = overlaycontrol;
     if (to == Surface::Viewer) {
-        ArchVizLog ("SURFACE      the HUD switches to the viewer: the overlays go off");
+        // From the floor plan, the viewer opens in its place: top-down, cut at the storey.
+        const bool plan = control::CurrentView () == control::ViewKind::FloorPlan;
+        ArchVizLog (std::string ("SURFACE      the HUD switches to the viewer") + (plan ? ", in plan mode" : "") +
+                    ": the overlays go off");
         // The overlays are turned off inside (BeforeViewerOpens).
-        ArchVizPanel::OpenViewer ();
+        ArchVizPanel::OpenViewer (plan);
     }
     else {
         const control::ViewKind front = control::CurrentView ();
