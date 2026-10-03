@@ -172,9 +172,12 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
     ImGui::TextDisabled ("free memory %.1f GB", double (freeRam) / 1.0e9);
     ImGui::Text ("max %.2f M samples, set by %s", Mega (double (limits.maxSamples)),
                  evp::sunstudy::LimitBindingName (limits.binding));
-    ImGui::TextDisabled ("  sampler %.1f M | memory %.1f M | GPU %.1f M | texture %.1f M",
+    // Indented, not led by spaces: a wrapped line keeps the indent.
+    ImGui::Indent ();
+    ImGui::TextDisabled ("sampler %.1f M | memory %.1f M | GPU %.1f M | texture %.1f M",
                          Mega (double (limits.samplerCap)), Mega (double (limits.ramCap)),
                          Mega (double (limits.gpuCap)), Mega (double (limits.textureCap)));
+    ImGui::Unindent ();
     ImGui::Text ("max %.0f M rays per study (%u steps, %s domain)", Mega (double (limits.maxRays)), unsigned (steps),
                  patch ? "patch" : "triangle");
     if (study.analysedArea > 0.0) {

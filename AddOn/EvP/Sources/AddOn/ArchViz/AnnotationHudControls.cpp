@@ -11,12 +11,12 @@ namespace geomsrv::archviz {
 void DrawAnnotationHudControls (HudState& state)
 {
     ImGui::Checkbox ("dimensions on edge hover (0.5 s)", &state.annotationDimensionsOnHover);
-    ImGui::SliderFloat ("annotation model text height", &state.annotationTextHeightMetres, 0.02f, 0.50f, "%.2f m");
+    ImGui::SliderFloat ("model text height", &state.annotationTextHeightMetres, 0.02f, 0.50f, "%.2f m");
     ImGui::SliderFloat ("dimension offset", &state.annotationDimensionOffsetMetres, 0.02f, 1.00f, "%.2f m");
     ImGui::SliderFloat ("witness start gap", &state.annotationWitnessStartGapMetres, 0.0f, 0.20f, "%.2f m");
     ImGui::SliderFloat ("witness overhang", &state.annotationWitnessOverhangMetres, 0.0f, 0.20f, "%.2f m");
-    ImGui::SliderFloat ("annotation hide below", &state.annotationHideBelowPixels, 2.0f, 24.0f, "%.0f px");
-    ImGui::SliderFloat ("annotation cap above", &state.annotationCapAbovePixels, 12.0f, 96.0f, "%.0f px");
+    ImGui::SliderFloat ("hide below", &state.annotationHideBelowPixels, 2.0f, 24.0f, "%.0f px");
+    ImGui::SliderFloat ("cap above", &state.annotationCapAbovePixels, 12.0f, 96.0f, "%.0f px");
     state.annotationCapAbovePixels = std::max (state.annotationCapAbovePixels, state.annotationHideBelowPixels);
 }
 

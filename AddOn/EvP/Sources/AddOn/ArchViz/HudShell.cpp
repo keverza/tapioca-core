@@ -315,6 +315,13 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
                                    ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoCollapse;
     result.drawn = ImGui::Begin (spec.window, nullptr, flags);
     result.window = ImGui::GetCurrentWindow ();
+    // ⚠️ TEXT FLOWS INSIDE THE PADDING (the user, 2026-10-03: text overflowed the panel and was
+    // cut off). A panel of a set width wraps every line of its pages at its content's right
+    // edge. The WINDOW's edge, not a cell's: a column sized to its content measures its text,
+    // and text wrapped at that column's own edge would never let it grow.
+    const bool wrapped = result.drawn && panel.widthPixels > 0.0f;
+    if (wrapped)
+        ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + ImGui::GetContentRegionAvail ().x);
     if (result.drawn && ImGui::BeginTabBar ("##hud")) {
         std::string now;
         const auto asked = [&] (const std::string& key) {
@@ -339,6 +346,8 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     }
     if (result.drawn && footer)
         footer ();
+    if (wrapped)
+        ImGui::PopTextWrapPos ();
     ImGui::End ();
     ImGui::PopFont ();
     ImGui::PopStyleColor (colours);
@@ -404,11 +413,15 @@ bool HudSettings (uint32_t& fontStep, Placement& placement, bool& reset)
 namespace {
 
 // A line of text in the look's muted colour, wrapped at a width that does not depend on the
-// window it is in: an auto-sized panel would otherwise grow to fit the line.
+// window it is in: an auto-sized panel would otherwise grow to fit the line. Never past the
+// edge a panel of a set width wraps its pages at (Host).
 void Muted (const std::string& text, const layers::Panel& look, uint32_t rgba = 0)
 {
     ImGui::PushStyleColor (ImGuiCol_Text, Colour ((rgba & 0xFFu) != 0 ? rgba : WithAlpha (look.textRgba, 0.6f)));
-    ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + 18.0f * ImGui::GetFontSize ());
+    float wrap = ImGui::GetCursorPosX () + 18.0f * ImGui::GetFontSize ();
+    if (const float edge = ImGui::GetCurrentWindow ()->DC.TextWrapPos; edge > 0.0f)
+        wrap = (std::min) (wrap, edge);
+    ImGui::PushTextWrapPos (wrap);
     ImGui::TextUnformatted (text.c_str ());
     ImGui::PopTextWrapPos ();
     ImGui::PopStyleColor ();

@@ -673,6 +673,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudevents.cpp
     test_overlayhudwidgets.cpp
     test_overlayhudown.cpp
+    test_hudshell.cpp
     test_tapiocametadata.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp

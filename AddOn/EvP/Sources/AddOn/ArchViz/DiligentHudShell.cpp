@@ -32,6 +32,18 @@ std::string TitleOf (const std::string& key)
     return "Stats";
 }
 
+// The overlays' plain card, wider: the viewer's pages hold the render settings' labelled
+// sliders, which the overlays' 220 px leaves no room to name.
+const layers::Panel& ViewerLook ()
+{
+    static const layers::Panel panel = [] () {
+        layers::Panel look = hudshell::PlainLook ();
+        look.widthPixels = 280.0f;
+        return look;
+    }();
+    return panel;
+}
+
 // The viewer's own circle: busy while it still reads the model, neutral once it holds it.
 hudshell::Circle ViewerCircle (const DiligentSceneStats& scene)
 {
@@ -56,7 +68,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     const ImVec2 view = ImVec2 (float (width), float (height));
     const float scale = frame.dpiScale;
     const float ui = scale * hudshell::FontScaleOfStep (shell.fontStep);
-    const layers::Panel& look = hudshell::PlainLook ();
+    const layers::Panel& look = ViewerLook ();
 
     // The tabs: the own ones, and the sun study's while one is on screen.
     std::vector<hudshell::HostTab> tabs = { { hudshell::kStatsKey, "Stats" },
@@ -114,6 +126,9 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     spec.inset = inset;
     spec.tabs = tabs;
     const auto page = [&] (const std::string& key) {
+        // ⚠️ A CONTROL LEAVES ITS LABEL HALF THE ROW: ImGui's own width in an auto-sized window
+        // is 16 em -- the whole panel -- and every label after a slider was cut off.
+        ImGui::PushItemWidth (std::floor (ImGui::GetContentRegionAvail ().x * 0.5f));
         if (key == hudshell::kSelectionKey)
             SelectionPage (state, ui);
         else if (key == kSunStudyKey)
@@ -124,6 +139,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
             DebugPage (state, scene, frame, width, height, ui);
         else
             StatsPage (state, scene, ui);
+        ImGui::PopItemWidth ();
     };
     const hudshell::HostResult result =
         hudshell::Host (spec, shell.held, shell.shownLast, shell.placement, page, nullptr);

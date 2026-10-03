@@ -409,7 +409,7 @@ void DrawShadowSettings (HudState& state, const DiligentSceneStats& scene)
                 ImGui::SliderFloat ("receiver bias clamp", &state.shadowReceiverBiasClamp, 0.0f, 20.0f);
             }
             else {
-                ImGui::SliderFloat ("light bleeding reduction", &state.shadowLightBleeding, 0.0f, 0.99f);
+                ImGui::SliderFloat ("bleed reduction", &state.shadowLightBleeding, 0.0f, 0.99f);
                 ImGui::SliderFloat ("variance bias", &state.shadowVsmBias, 0.00001f, 0.1f, "%.5f",
                                     ImGuiSliderFlags_Logarithmic);
             }
