@@ -452,6 +452,53 @@ bool RightClickClaimed ()
     return g_claimedBy == ImGui::GetCurrentContext () && g_claimedFrame == ImGui::GetFrameCount ();
 }
 
+namespace {
+
+// The panel's height at most (HudShell.hpp, Host): hanging from the view's top or bottom edge, all
+// of the view but its offset from that edge and a margin at the other; centred, or dragged --
+// the drag is kept inside the view -- all but a margin at each.
+float TallestPanel (const layers::Panel& panel, const Placement& placement, float scale, float viewHeight)
+{
+    const float margin = std::floor (kViewMargin * scale);
+    const bool middleRow = int (panel.anchor) / 3 == 1;
+    if (!placement.placed && !middleRow)
+        return viewHeight - std::floor (panel.offsetPixels[1] * scale) - margin;
+    return viewHeight - 2.0f * margin;
+}
+
+// ⚠️ THE PAGE IN A REGION OF ITS OWN, AS TALL AS IT IS UP TO WHAT THE PANEL HAS LEFT: under the
+// tab row (where the cursor is), over the footer (`footer`, its height in the last frame) and
+// the window's padding. Past that it scrolls; the tab row stays. ⚠️ ITS OWN WRAP EDGE: a child
+// window starts without its parent's. True when the page scrolls.
+//
+// A panel of a set width holds its page to it. One sized to its content lets its page grow with
+// what it holds, never narrower than `least` -- the tab row's width, which a control that fills
+// its row takes, as the panel's own did; never the panel's current width either, or a wide page
+// once shown would hold every later one as wide.
+bool ScrollingPage (const std::string& key, const std::function<void (const std::string& key)>& page, float tallest,
+                    float footer, bool setWidth, float least)
+{
+    const ImGuiStyle& style = ImGui::GetStyle ();
+    const float used = ImGui::GetCursorScreenPos ().y - ImGui::GetCurrentWindow ()->Pos.y;
+    const float below = style.WindowPadding.y + (footer > 0.0f ? footer + style.ItemSpacing.y : 0.0f);
+    const float most = (std::max) (std::floor (tallest - used - below), kLeastPageEm * ImGui::GetFontSize ());
+    ImGui::SetNextWindowSizeConstraints (ImVec2 (setWidth ? 0.0f : least, 0.0f), ImVec2 (FLT_MAX, most));
+    const ImGuiChildFlags sizing = ImGuiChildFlags_AutoResizeY | (setWidth ? 0 : ImGuiChildFlags_AutoResizeX);
+    bool scrolls = false;
+    if (ImGui::BeginChild ("##page", ImVec2 (0.0f, 0.0f), sizing, ImGuiWindowFlags_NoNav)) {
+        if (setWidth)
+            ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + ImGui::GetContentRegionAvail ().x);
+        page (key);
+        if (setWidth)
+            ImGui::PopTextWrapPos ();
+        scrolls = ImGui::GetScrollMaxY () > 0.0f;
+    }
+    ImGui::EndChild ();
+    return scrolls;
+}
+
+} // namespace
+
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer)
 {
@@ -495,8 +542,10 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
         row += ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
     row += ImGui::CalcTextSize (kClose, nullptr, true).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
     const float width = (std::max) (std::ceil (row), panel.widthPixels * ui);
+    const float tallest =
+        (std::max) (TallestPanel (panel, placement, scale, view.y), 2.0f * kLeastPageEm * panel.sizePixels * ui);
     ImGui::SetNextWindowSizeConstraints (ImVec2 (width, 0.0f),
-                                         ImVec2 (panel.widthPixels > 0.0f ? width : FLT_MAX, FLT_MAX));
+                                         ImVec2 (panel.widthPixels > 0.0f ? width : FLT_MAX, tallest));
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
                                    ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
@@ -504,11 +553,16 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
                                    ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoCollapse;
     result.drawn = ImGui::Begin (spec.window, nullptr, flags);
     result.window = ImGui::GetCurrentWindow ();
+    // The footer's height in the last frame, kept with the window: what the page leaves for it.
+    ImGuiStorage* const storage = ImGui::GetStateStorage ();
+    const ImGuiID footerId = ImGui::GetID ("##tapioca.footer");
+    const float footerLast = storage->GetFloat (footerId, 0.0f);
     // ⚠️ TEXT FLOWS INSIDE THE PADDING (the user, 2026-10-03: text overflowed the panel and was
     // cut off). A panel of a set width wraps every line of its pages at its content's right
     // edge. The WINDOW's edge, not a cell's: a column sized to its content measures its text,
     // and text wrapped at that column's own edge would never let it grow.
-    const bool wrapped = result.drawn && panel.widthPixels > 0.0f;
+    const bool setWidth = panel.widthPixels > 0.0f;
+    const bool wrapped = result.drawn && setWidth;
     if (wrapped)
         ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + ImGui::GetContentRegionAvail ().x);
     if (result.drawn && ImGui::BeginTabBar ("##hud")) {
@@ -520,7 +574,8 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
             if (ImGui::BeginTabItem ((tab.title + "###" + tab.key).c_str (), nullptr, asked (tab.key))) {
                 now = tab.key;
                 if (page)
-                    page (tab.key);
+                    result.scrolls = ScrollingPage (tab.key, page, tallest, footerLast, setWidth,
+                                                    width - 2.0f * style.WindowPadding.x);
                 ImGui::EndTabItem ();
             }
         }
@@ -533,8 +588,12 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
         shownLast = now;
         result.shown = now;
     }
-    if (result.drawn && footer)
-        footer ();
+    if (result.drawn) {
+        const float before = ImGui::GetCursorPosY ();
+        if (footer)
+            footer ();
+        storage->SetFloat (footerId, footer ? ImGui::GetCursorPosY () - before : 0.0f);
+    }
     if (wrapped)
         ImGui::PopTextWrapPos ();
     ImGui::End ();

@@ -171,12 +171,19 @@ struct HostSpec {
 
 struct HostResult {
     bool drawn = false;
-    bool closed = false; // the close button at the tab row's end
-    std::string pressed; // the tab the user pressed in this frame; empty for none
-    std::string shown;   // the tab whose page was drawn
-    bool moved = false;  // dragged in this frame: `placement` says where to
+    bool closed = false;  // the close button at the tab row's end
+    std::string pressed;  // the tab the user pressed in this frame; empty for none
+    std::string shown;    // the tab whose page was drawn
+    bool moved = false;   // dragged in this frame: `placement` says where to
+    bool scrolls = false; // the page shown is taller than the room it has: it scrolls
     ImGuiWindow* window = nullptr;
 };
+
+// The panel's margin from the view's edge where its look gives none -- the far edge from the
+// one it hangs from -- in logical pixels; and the least of a page it shows however short the
+// view, in its font's em.
+constexpr float kViewMargin = 8.0f;
+constexpr float kLeastPageEm = 4.0f;
 
 // ⚠️ ONE FLOATING PANEL, ITS TABS ITS HEAD (the user, 2026-09-30: the STUDY panel's design as
 // the main one; floating, for the user to place anywhere in the view; a small, dense
@@ -188,6 +195,13 @@ struct HostResult {
 // CONTEXT SHOWED ANOTHER: asked every frame, ImGui applies it over the user's click. A press
 // on another tab is `pressed` -- the caller decides whether to hold it. `page` draws a tab's
 // page; `footer`, when given, draws under every page.
+//
+// ⚠️ NEVER TALLER THAN THE VIEW; THE PAGE SCROLLS, THE TAB ROW STAYS (the user, 2026-10-03: the
+// Settings page ran off the view and could not be read). The panel takes at most the view's
+// height but its offset from the edge it hangs from and a margin at the other (`kViewMargin`;
+// a margin at each when it is centred or was dragged); a page taller than what is left under
+// the tab row and over the footer scrolls inside it, by the wheel and by its bar, each tab's
+// at its own place.
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer);
 

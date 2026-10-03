@@ -1,7 +1,8 @@
 // ArchViz/HudShell: the HUD's tips and the text in its panel (the user, 2026-10-03). A tip is
 // said beside what it names on a light ground, its arrow at it, not at the pointer -- to the
 // left of the dock's circles, turned to the other side where the view has no room. A panel of
-// a set width wraps its text inside its padding instead of cutting it off at its edge.
+// a set width wraps its text inside its padding instead of cutting it off at its edge. And the
+// panel is never taller than the view: a page longer than it scrolls under the tab row.
 
 #include "hud_fixture.hpp"
 
@@ -120,4 +121,60 @@ TEST (HudText, TextFlowsInsideAPanelOfASetWidth)
     ASSERT_TRUE (Box (out.host, shell::WithAlpha (look.textRgba, 0.6f), box));
     EXPECT_LE (box[2], out.host.width - look.paddingPixels + 1.0f) << "the note wraps inside the padding";
     EXPECT_GT (box[3] - box[1], 1.5f * 13.0f) << "on more than one line";
+}
+
+namespace {
+
+constexpr uint32_t kFirstRgba = 0x1565C0FFu;
+constexpr uint32_t kLastRgba = 0xAD1457FFu;
+
+// Stats far taller than a short view: thirty cards, the first figure and the last in colours
+// of their own.
+hud::OwnPages LongStats ()
+{
+    hud::OwnPages pages = Standalone ();
+    for (int k = 0; k < 30; ++k) {
+        shell::Card card;
+        card.title = "Card " + std::to_string (k);
+        card.figures.push_back ({ "Figure", "value " + std::to_string (k),
+                                  k == 0    ? kFirstRgba
+                                  : k == 29 ? kLastRgba
+                                            : 0u });
+        pages.stats.push_back (card);
+    }
+    return pages;
+}
+
+hud::Input Short (float x, float y)
+{
+    hud::Input input = At (x, y);
+    input.height = 400.0f;
+    return input;
+}
+
+} // namespace
+
+// ⚠️ THE USER: the Settings page ran off the view and could not be read -- the panel is never
+// taller than the view; what its page does not hold is not drawn past it.
+TEST (HudScroll, ThePanelIsNeverTallerThanTheView)
+{
+    Fresh hud;
+    hud.engine.SetOwnPages (LongStats ());
+    const hud::Layout out = hud.Lay ({}, Short (100.0f, 380.0f));
+    ASSERT_GT (out.host.height, 0.0f);
+    const float top = out.host.fraction[1] * 400.0f + out.host.offset[1];
+    EXPECT_GE (top, 0.0f);
+    EXPECT_LE (top + out.host.height, 400.0f - shell::kViewMargin + 0.5f) << "a margin above the view's bottom";
+    EXPECT_GT (out.host.height, 400.0f * 0.75f) << "the panel takes the room it has";
+    EXPECT_TRUE (Drawn (out, kFirstRgba) || [&] () {
+        float box[4] = {};
+        return Box (out.host, kFirstRgba, box);
+    }()) << "the page's top is shown";
+    float box[4] = {};
+    EXPECT_FALSE (Box (out.host, kLastRgba, box)) << "its bottom is past the panel: not drawn over the view";
+    // Every triangle of the panel inside it -- its border's antialiased fringe a pixel out.
+    for (const hud::Vertex& v : out.host.vertices) {
+        EXPECT_GE (v.y, -1.5f);
+        EXPECT_LE (v.y, out.host.height + 1.5f);
+    }
 }
