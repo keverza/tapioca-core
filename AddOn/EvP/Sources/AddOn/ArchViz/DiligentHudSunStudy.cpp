@@ -11,6 +11,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/HudShell.hpp" // the tips
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "Geometry/MeshStore.hpp"
@@ -56,8 +57,8 @@ void Swatch (const char* id, const ImVec4& colour, const char* tooltip)
 {
     ImGui::ColorButton (id, colour, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
                         ImVec2 (16.0f, 16.0f));
-    if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("%s", tooltip);
+    // Above it: the swatches stand in rows, and a tip beside one would cover its neighbours.
+    hudshell::Tip (tooltip, hudshell::TipSide::Above);
 }
 
 // The inspector's reading as text, shared by the tooltip and the panel line so

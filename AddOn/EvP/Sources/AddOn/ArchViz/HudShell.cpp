@@ -131,6 +131,176 @@ const layers::Panel& PlainLook ()
     return panel;
 }
 
+namespace {
+
+// A tip's measures, in its font's em: padding across and down, the arrow's half-width (and
+// length), the gap between its point and what it names, the rounding, the view margin, the
+// widest line, the swatch and the space after it.
+constexpr float kTipPadX = 0.62f, kTipPadY = 0.36f, kTipArrow = 0.42f, kTipGap = 0.18f, kTipRound = 0.3f,
+                kTipMargin = 0.3f, kTipWrap = 22.0f, kTipSwatch = 0.85f, kTipSwatchGap = 0.4f;
+
+float Within (float value, float low, float high)
+{
+    return (std::max) (low, (std::min) (value, high));
+}
+
+TipSide Opposite (TipSide side)
+{
+    switch (side) {
+        case TipSide::Left:
+            return TipSide::Right;
+        case TipSide::Right:
+            return TipSide::Left;
+        case TipSide::Above:
+            return TipSide::Below;
+        case TipSide::Below:
+            return TipSide::Above;
+    }
+    return side;
+}
+
+// The bubble's top-left for an arrow `arrow` long whose point is at `at`, the bubble on `side`.
+ImVec2 BubbleAt (ImVec2 at, TipSide side, ImVec2 size, float arrow)
+{
+    switch (side) {
+        case TipSide::Left:
+            return ImVec2 (at.x - arrow - size.x, at.y - size.y * 0.5f);
+        case TipSide::Right:
+            return ImVec2 (at.x + arrow, at.y - size.y * 0.5f);
+        case TipSide::Above:
+            return ImVec2 (at.x - size.x * 0.5f, at.y - arrow - size.y);
+        case TipSide::Below:
+            return ImVec2 (at.x - size.x * 0.5f, at.y + arrow);
+    }
+    return at;
+}
+
+// Whether a bubble at `min` stays in the view along its side's axis.
+bool Fits (ImVec2 min, ImVec2 size, TipSide side, ImVec2 view, float margin)
+{
+    switch (side) {
+        case TipSide::Left:
+            return min.x >= margin;
+        case TipSide::Right:
+            return min.x + size.x <= view.x - margin;
+        case TipSide::Above:
+            return min.y >= margin;
+        case TipSide::Below:
+            return min.y + size.y <= view.y - margin;
+    }
+    return true;
+}
+
+// The bubble at `at` on `side`, or at `opposite` on the other side when only that fits.
+void PlaceTip (ImVec2 at, ImVec2 opposite, TipSide side, const std::string& text, uint32_t swatch)
+{
+    if (text.empty ())
+        return;
+    ImFont* const font = ImGui::GetFont ();
+    const float em = ImGui::GetFontSize ();
+    const bool swatched = (swatch & 0xFFu) != 0;
+    const float lead = swatched ? (kTipSwatch + kTipSwatchGap) * em : 0.0f;
+    const ImVec2 words = font->CalcTextSizeA (em, FLT_MAX, kTipWrap * em, text.c_str ());
+    const ImVec2 size (std::ceil (2.0f * kTipPadX * em + lead + words.x),
+                       std::ceil (2.0f * kTipPadY * em + (std::max) (words.y, em)));
+    const ImVec2 view = ImGui::GetIO ().DisplaySize;
+    const float margin = kTipMargin * em, arrow = std::floor (kTipArrow * em);
+    ImVec2 min = BubbleAt (at, side, size, arrow);
+    if (!Fits (min, size, side, view, margin)) {
+        const TipSide other = Opposite (side);
+        const ImVec2 flipped = BubbleAt (opposite, other, size, arrow);
+        if (Fits (flipped, size, other, view, margin)) {
+            side = other;
+            at = opposite;
+            min = flipped;
+        }
+    }
+    // In the view, however it was placed; on whole pixels, so its edges are crisp.
+    min.x = std::floor (Within (min.x, margin, view.x - margin - size.x));
+    min.y = std::floor (Within (min.y, margin, view.y - margin - size.y));
+    const ImVec2 max (min.x + size.x, min.y + size.y);
+    const float round = std::floor (kTipRound * em);
+
+    ImDrawList* const draw = ImGui::GetForegroundDrawList ();
+    // A soft shadow: three widening rounds a pixel down, fainter outwards.
+    for (int k = 3; k >= 1; --k) {
+        const float grow = float (k);
+        draw->AddRectFilled (ImVec2 (min.x - grow, min.y - grow + 1.0f), ImVec2 (max.x + grow, max.y + grow + 1.0f),
+                             Packed (uint32_t (5 * (4 - k))), round + grow);
+    }
+    const ImU32 ground = Packed (kTipGroundRgba), edge = Packed (kTipEdgeRgba);
+    draw->AddRectFilled (min, max, ground, round);
+    draw->AddRect (min, max, edge, round, 0, 1.0f);
+    // The arrow: its base on the bubble's edge facing `at`, a pixel in so it covers the edge
+    // there, its point at `at`. ⚠️ CLOCKWISE ON THE SCREEN, or ImGui fringes it inwards.
+    const float half = arrow;
+    ImVec2 first, last; // the base's ends: the top one, or the left one
+    const bool across = side == TipSide::Left || side == TipSide::Right;
+    if (across) {
+        const float y = Within (at.y, min.y + round + half, max.y - round - half);
+        const float x = side == TipSide::Left ? max.x - 1.0f : min.x + 1.0f;
+        first = ImVec2 (x, y - half);
+        last = ImVec2 (x, y + half);
+    }
+    else {
+        const float x = Within (at.x, min.x + round + half, max.x - round - half);
+        const float y = side == TipSide::Above ? max.y - 1.0f : min.y + 1.0f;
+        first = ImVec2 (x - half, y);
+        last = ImVec2 (x + half, y);
+    }
+    if (side == TipSide::Left || side == TipSide::Below)
+        draw->AddTriangleFilled (first, at, last, ground);
+    else
+        draw->AddTriangleFilled (last, at, first, ground);
+    draw->AddLine (first, at, edge, 1.0f);
+    draw->AddLine (at, last, edge, 1.0f);
+
+    ImVec2 pen (min.x + std::floor (kTipPadX * em), min.y + std::floor (kTipPadY * em));
+    if (swatched) {
+        const float s = std::floor (kTipSwatch * em);
+        const ImVec2 a (pen.x, pen.y + std::floor ((em - s) * 0.5f));
+        draw->AddRectFilled (a, ImVec2 (a.x + s, a.y + s), Packed (swatch), 0.18f * em);
+        draw->AddRect (a, ImVec2 (a.x + s, a.y + s), edge, 0.18f * em);
+        pen.x += lead;
+    }
+    draw->AddText (font, em, pen, Packed (kTipInkRgba), text.c_str (), nullptr, kTipWrap * em);
+}
+
+} // namespace
+
+void TipAt (ImVec2 at, TipSide side, const std::string& text, uint32_t swatch)
+{
+    PlaceTip (at, at, side, text, swatch);
+}
+
+void TipBeside (ImVec2 min, ImVec2 max, TipSide side, const std::string& text, uint32_t swatch)
+{
+    const float gap = kTipGap * ImGui::GetFontSize ();
+    const ImVec2 middle ((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
+    const auto point = [&] (TipSide s) {
+        switch (s) {
+            case TipSide::Left:
+                return ImVec2 (min.x - gap, middle.y);
+            case TipSide::Right:
+                return ImVec2 (max.x + gap, middle.y);
+            case TipSide::Above:
+                return ImVec2 (middle.x, min.y - gap);
+            case TipSide::Below:
+                return ImVec2 (middle.x, max.y + gap);
+        }
+        return middle;
+    };
+    PlaceTip (point (side), point (Opposite (side)), side, text, swatch);
+}
+
+bool Tip (const std::string& text, TipSide side, uint32_t swatch)
+{
+    if (text.empty () || !ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        return false;
+    TipBeside (ImGui::GetItemRectMin (), ImGui::GetItemRectMax (), side, text, swatch);
+    return true;
+}
+
 float FontScaleOfStep (uint32_t step)
 {
     return kFontSteps[(std::min) (step, kFontStepCount - 1)];
@@ -226,8 +396,8 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
                 draw->PathStroke (Packed (kBusyRgba), 0, stroke);
             }
         }
-        if (!c.tip.empty () && ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("%s", c.tip.c_str ());
+        // Beside the circle, out over the view: the dock is at the view's right edge.
+        Tip (c.tip, TipSide::Left);
         return pressed;
     };
     ImGui::PushID (id);

@@ -1,11 +1,15 @@
-// ArchViz/HudShell: the text in the HUD's panel (the user, 2026-10-03). A panel of a set width
-// wraps its text inside its padding instead of cutting it off at its edge.
+// ArchViz/HudShell: the HUD's tips and the text in its panel (the user, 2026-10-03). A tip is
+// said beside what it names on a light ground, its arrow at it, not at the pointer -- to the
+// left of the dock's circles, turned to the other side where the view has no room. A panel of
+// a set width wraps its text inside its padding instead of cutting it off at its edge.
 
 #include "hud_fixture.hpp"
 
 #include "ArchViz/HudShell.hpp"
 
 #include <gtest/gtest.h>
+
+#include <utility>
 
 using namespace hudtest;
 
@@ -21,10 +25,73 @@ hud::OwnPages Standalone ()
     hud::OwnPages pages;
     pages.standalone = true;
     pages.overlay.phase = shell::Phase::Ready;
+    pages.overlay.tip = "The overlay: press to hide it and its HUD";
+    pages.viewer.tip = "The separate viewer: press to switch to it";
     return pages;
 }
 
+// The dock's top circle, in view pixels (test_overlayhudown.cpp's).
+std::pair<float, float> TopCircle (const hud::Built& dock)
+{
+    return { 1200.0f + dock.offset[0] + dock.width * 0.5f, 400.0f + dock.offset[1] + dock.width * 0.5f };
+}
+
 } // namespace
+
+// ⚠️ THE USER: the vertical tab's hover text on a light background, as a tooltip to the left
+// side, not where the pointer is.
+TEST (HudTips, TheDocksCircleSaysItsTipToItsLeftOnALightGround)
+{
+    Watched hud;
+    hud.engine.SetOwnPages (Standalone ());
+    const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
+    EXPECT_FALSE (Drawn (out, shell::kTipGroundRgba)) << "nothing pointed at, no tip";
+
+    const auto top = TopCircle (out.dock);
+    const hud::Layout pointed = hud.Lay ({}, At (top.first, top.second));
+    float box[4] = {};
+    ASSERT_TRUE (Box (pointed.overlay, shell::kTipGroundRgba, box)) << "the tip, on its light ground";
+    const float dockLeft = 1200.0f + pointed.dock.offset[0];
+    EXPECT_LT (box[2], dockLeft) << "left of the dock, its arrow's point included";
+    EXPECT_GT (box[2], dockLeft - 8.0f) << "its arrow at the dock";
+    EXPECT_LT (box[1], top.second);
+    EXPECT_GT (box[3], top.second) << "level with the circle";
+    EXPECT_TRUE (Drawn (pointed, shell::kTipInkRgba)) << "its text, dark";
+
+    // Not at the pointer: the same tip wherever on the circle the pointer is.
+    float again[4] = {};
+    ASSERT_TRUE (Box (hud.Lay ({}, At (top.first - 3.0f, top.second + 3.0f)).overlay, shell::kTipGroundRgba, again));
+    for (int k = 0; k < 4; ++k)
+        EXPECT_FLOAT_EQ (again[k], box[k]);
+}
+
+// A section's (i) near the view's left edge: no room for the tip on its left, so it is on its
+// right -- and in the view either way.
+TEST (HudTips, ATipTurnsToTheSideWithRoom)
+{
+    Fresh hud;
+    layers::Panel panel;
+    layers::PanelItem section = Item (layers::ItemKind::Section, "Sun");
+    section.info = "What the study measures: the direct sun each surface receives over the day";
+    panel.items.push_back (section);
+    panel.items.push_back (Item (layers::ItemKind::Text, "Below the section"));
+    // Along the section's row until the pointer finds the marker.
+    float x = 0.0f, y = 0.0f;
+    float box[4] = {};
+    for (float row = 20.0f; row < 48.0f && x == 0.0f; row += 2.0f)
+        for (float across = 16.0f; across < 240.0f; across += 1.0f)
+            if (Box (hud.Lay ({ &panel }, At (across, row)).overlay, shell::kTipGroundRgba, box)) {
+                x = across;
+                y = row;
+                break;
+            }
+    ASSERT_GT (x, 0.0f) << "the marker says its tip";
+    EXPECT_GT (box[0], x) << "on the marker's right: its left has no room";
+    EXPECT_GE (box[0], 0.0f);
+    EXPECT_LE (box[2], 1200.0f) << "in the view";
+    EXPECT_LT (box[1], y);
+    EXPECT_GT (box[3], y);
+}
 
 // ⚠️ THE USER: text in the panel overflowed and was cut off -- it must flow inside the panel.
 // A figure and a note far wider than the plain card wrap inside its padding.

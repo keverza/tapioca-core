@@ -32,10 +32,11 @@ using hudshell::WithAlpha;
 std::string Number (double value, uint32_t decimals);
 
 // What a ramp says at `t` along it -- the value, or the band it falls in, and its colour
-// -- in a tooltip at `at` (its `pivot` there). `band` is what its heatmap shows while
-// the ramp is pointed at: the colormap's band, or a twentieth of the range either side.
+// -- in the HUD's tip (HudShell.hpp), its arrow at `at`, on `side` of it. `band` is what its
+// heatmap shows while the ramp is pointed at: the colormap's band, or a twentieth of the
+// range either side.
 void ValueTip (const overlaylayers::Colormap& colormap, float t, double low, double high, uint32_t decimals,
-               const std::string& unit, ImVec2 at, ImVec2 pivot, float scale, double band[2]);
+               const std::string& unit, ImVec2 at, hudshell::TipSide side, double band[2]);
 
 // `panel.items[begin, end)`, rows, in two aligned columns.
 void Rows (const overlaylayers::Panel& panel, size_t begin, size_t end, float scale);

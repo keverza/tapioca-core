@@ -32,7 +32,7 @@ std::string Number (double value, uint32_t decimals)
 }
 
 void ValueTip (const layers::Colormap& colormap, float t, double low, double high, uint32_t decimals,
-               const std::string& unit, ImVec2 at, ImVec2 pivot, float scale, double band[2])
+               const std::string& unit, ImVec2 at, hudshell::TipSide side, double band[2])
 {
     t = (std::min) ((std::max) (t, 0.0f), 1.0f);
     std::string text;
@@ -53,17 +53,7 @@ void ValueTip (const layers::Colormap& colormap, float t, double low, double hig
     }
     if (!unit.empty ())
         text += " " + unit;
-    ImGui::SetNextWindowPos (at, ImGuiCond_Always, pivot);
-    if (!ImGui::BeginTooltip ())
-        return;
-    const float s = ImGui::GetFontSize ();
-    const ImVec2 p = ImGui::GetCursorScreenPos ();
-    ImGui::GetWindowDrawList ()->AddRectFilled (p, ImVec2 (p.x + s, p.y + s),
-                                                Packed (overlayscene::RampAt (colormap.stops, colourAt)), 2.0f * scale);
-    ImGui::Dummy (ImVec2 (s, s));
-    ImGui::SameLine ();
-    ImGui::TextUnformatted (text.c_str ());
-    ImGui::EndTooltip ();
+    hudshell::TipAt (at, side, text, overlayscene::RampAt (colormap.stops, colourAt));
 }
 
 void Rows (const layers::Panel& panel, size_t begin, size_t end, float scale)
@@ -227,7 +217,7 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
     if (w <= 0.0f || !ImGui::IsWindowHovered () || !ImGui::IsMouseHoveringRect (p, ImVec2 (p.x + w, p.y + h)))
         return false;
     ValueTip (item.colormap, (mouse.x - p.x) / w, low, high, item.decimals, item.unit,
-              ImVec2 (mouse.x, p.y - 2.0f * scale), ImVec2 (0.5f, 1.0f), scale, band);
+              ImVec2 (mouse.x, p.y - 2.0f * scale), hudshell::TipSide::Above, band);
     return true;
 }
 
@@ -256,16 +246,9 @@ void Section (const layers::Panel& panel, const layers::PanelItem& item, bool& o
                        "i");
         ImGui::Dummy (ImVec2 (d, line));
         const ImVec2 low = ImGui::GetItemRectMin (), high = ImGui::GetItemRectMax ();
-        if (ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (low, high)) {
-            // At the marker, not the pointer: moving over it draws nothing new.
-            ImGui::SetNextWindowPos (ImVec2 (low.x, high.y + 4.0f * scale), ImGuiCond_Always);
-            if (ImGui::BeginTooltip ()) {
-                ImGui::PushTextWrapPos (ImGui::GetFontSize () * 22.0f);
-                ImGui::TextUnformatted (item.info.c_str ());
-                ImGui::PopTextWrapPos ();
-                ImGui::EndTooltip ();
-            }
-        }
+        // Beside the marker, not at the pointer: moving over it draws nothing new.
+        if (ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (low, high))
+            hudshell::TipBeside (low, high, hudshell::TipSide::Left, item.info);
     }
     if (!item.value.empty ()) {
         ImGui::SameLine ();
@@ -293,19 +276,11 @@ uint32_t SegmentColour (const layers::PanelItem& item, size_t index, size_t coun
 
 namespace {
 
-// A small tooltip at `at` (its `pivot` there): a swatch of `rgba`, then `text`.
-void KeyTip (uint32_t rgba, const std::string& text, ImVec2 at, ImVec2 pivot, float scale)
+// The HUD's tip over `at` (HudShell.hpp): a swatch of `rgba`, then `text`. Above what it names:
+// segments and bars stand side by side, and a tip beside one would cover its neighbours.
+void KeyTip (uint32_t rgba, const std::string& text, ImVec2 at)
 {
-    ImGui::SetNextWindowPos (at, ImGuiCond_Always, pivot);
-    if (!ImGui::BeginTooltip ())
-        return;
-    const float s = ImGui::GetFontSize ();
-    const ImVec2 p = ImGui::GetCursorScreenPos ();
-    ImGui::GetWindowDrawList ()->AddRectFilled (p, ImVec2 (p.x + s, p.y + s), Packed (rgba), 3.0f * scale);
-    ImGui::Dummy (ImVec2 (s, s));
-    ImGui::SameLine ();
-    ImGui::TextUnformatted (text.c_str ());
-    ImGui::EndTooltip ();
+    hudshell::TipAt (at, hudshell::TipSide::Above, text, rgba);
 }
 
 uint32_t PerRow (uint32_t perRow, uint32_t fallback)
@@ -434,7 +409,7 @@ void Stack (const layers::Panel& panel, const layers::PanelItem& item, float wid
             if (!item.unit.empty ())
                 text += " " + item.unit;
             text += "  (" + share + ")";
-            KeyTip (colour, text, ImVec2 ((x + x1) * 0.5f, p.y - 2.0f * scale), ImVec2 (0.5f, 1.0f), scale);
+            KeyTip (colour, text, ImVec2 ((x + x1) * 0.5f, p.y - 2.0f * scale));
         }
         x = x1;
     }
@@ -518,8 +493,7 @@ void Bars (const layers::Panel& panel, const layers::PanelItem& item, float widt
         if (pointed && mouse.x >= low.x + slot * float (i) && mouse.x < low.x + slot * float (i + 1)) {
             std::string text = i < item.labels.size () ? item.labels[i] + "  " : std::string ();
             text += Number (item.values[i], item.decimals) + item.unit;
-            KeyTip (colour, text, ImVec2 (x0 + bar * 0.5f, (std::min) (y, zero) - 2.0f * scale), ImVec2 (0.5f, 1.0f),
-                    scale);
+            KeyTip (colour, text, ImVec2 (x0 + bar * 0.5f, (std::min) (y, zero) - 2.0f * scale));
         }
     }
     if (!item.text.empty ()) {

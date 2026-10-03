@@ -57,6 +57,30 @@ constexpr int kLookVars = 3;
 // The light card, small: the look of a HUD that shows no caller's panel.
 const overlaylayers::Panel& PlainLook ();
 
+// ---- tips -----------------------------------------------------------------------------------
+
+// ⚠️ A TIP IS SAID BESIDE WHAT IT IS ABOUT, NOT AT THE POINTER (the user, 2026-10-03: the dock's
+// hover text on a light ground, to the circle's left, as the system's own tooltip with its arrow
+// at what it names -- and so elsewhere on the HUD). One look whatever the card's: a near-white
+// bubble, dark text, a hairline edge, a soft shadow. On the side asked while the view has room
+// there, on the opposite side otherwise, never off the view. Drawn last, on the foreground
+// list: no window, so it never takes the pointer and never counts as the HUD under it.
+enum class TipSide : uint8_t { Left, Right, Above, Below };
+
+constexpr uint32_t kTipGroundRgba = 0xF9F9F9FAu;
+constexpr uint32_t kTipEdgeRgba = 0x00000030u;
+constexpr uint32_t kTipInkRgba = 0x1B1B1BFFu;
+
+// `text` in the bubble, its arrow's point at `at` and the bubble on `side` of it, in the current
+// font; `swatch` (alpha not 0) a square of that colour before the text. Lines past 22 em wrap.
+void TipAt (ImVec2 at, TipSide side, const std::string& text, uint32_t swatch = 0);
+
+// Beside the rectangle `min`-`max`: its middle on `side`, a hair away.
+void TipBeside (ImVec2 min, ImVec2 max, TipSide side, const std::string& text, uint32_t swatch = 0);
+
+// The last item's tip while the pointer is on it, disabled or not. True when it was said.
+bool Tip (const std::string& text, TipSide side = TipSide::Left, uint32_t swatch = 0);
+
 // ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
 // HUD's font size). Settings and the HUD's menu choose one; every size of the HUD -- text,
 // padding, widths, the dock itself -- follows, the distances from the view's edges do not.

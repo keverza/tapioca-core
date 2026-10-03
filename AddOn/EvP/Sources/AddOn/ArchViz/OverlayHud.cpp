@@ -442,8 +442,8 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
         double band[2] = {};
         if (legend.horizontal) {
             items::ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min, legend.colormap.max,
-                             legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f),
-                             scale, band);
+                             legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale),
+                             hudshell::TipSide::Above, band);
         }
         else {
             // Towards the middle of the view, away from the edge the legend sits at.
@@ -451,7 +451,7 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
             items::ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min, legend.colormap.max,
                              legend.decimals, legend.unit,
                              ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
-                             ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale, band);
+                             left ? hudshell::TipSide::Left : hudshell::TipSide::Right, band);
         }
         highlight = { true, bar.layer, band[0], band[1] };
         return;
