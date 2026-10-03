@@ -102,6 +102,7 @@ class BuildSnapshotCommand : public MainThreadCommand {
             auto keep = std::make_shared<Snapshot> ();
             keep->id = snap->id;
             keep->scope = snap->scope;
+            keep->materialTransparency = snap->materialTransparency;
             for (auto& m : snap->meshes) {
                 if (std::find (excludeTypes.begin (), excludeTypes.end (), m.elemType) != excludeTypes.end ()) {
                     ++droppedElems;

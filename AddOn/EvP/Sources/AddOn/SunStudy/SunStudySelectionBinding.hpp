@@ -15,10 +15,13 @@ struct SunStudySelectionBinding {
     std::string contextSet, ignoredSet;
     uint64_t generation = 0;
     uint64_t revision = 0;
+    std::string analysisSet;
 
     SelectionBindingRefresh Refresh (uint64_t currentGeneration, const std::vector<std::string>& context,
                                      const std::vector<std::string>& ignored, std::vector<std::string>& studyContext,
-                                     std::vector<std::string>& studyIgnored)
+                                     std::vector<std::string>& studyIgnored,
+                                     const std::vector<std::string>& analysis = {},
+                                     std::vector<std::string>* studyAnalysis = nullptr)
     {
         if (generation == 0)
             return SelectionBindingRefresh::Inactive;
@@ -34,11 +37,16 @@ struct SunStudySelectionBinding {
         };
         const bool contextChanged = !contextSet.empty () && canonical (context) != canonical (studyContext);
         const bool ignoredChanged = !ignoredSet.empty () && canonical (ignored) != canonical (studyIgnored);
+        const bool analysisChanged =
+            !analysisSet.empty () && studyAnalysis != nullptr && canonical (analysis) != canonical (*studyAnalysis);
         if (contextChanged)
             studyContext = context; // an empty live set is an intentional removal, not a missing source
         if (ignoredChanged)
             studyIgnored = ignored;
-        return contextChanged || ignoredChanged ? SelectionBindingRefresh::Changed : SelectionBindingRefresh::Unchanged;
+        if (analysisChanged)
+            *studyAnalysis = analysis;
+        return contextChanged || ignoredChanged || analysisChanged ? SelectionBindingRefresh::Changed
+                                                                   : SelectionBindingRefresh::Unchanged;
     }
 };
 

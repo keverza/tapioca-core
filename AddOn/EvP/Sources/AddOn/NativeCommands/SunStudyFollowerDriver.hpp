@@ -67,6 +67,9 @@ struct ActiveSunStudyConfig {
     std::vector<std::string> contextElements;
     std::vector<std::string> ignoredElements;
     evp::sunstudy::SunStudySelectionBinding selectionBinding;
+    std::string preset;
+    double glassThreshold = 0.4;
+    bool analysisRestricted = false;
     // Display, carried so a rerun comes back looking the way the user left it --
     // a replacement that reverted to the hours ramp while they were reading a
     // `cell checker` would read as the diagnostic having been taken away.

@@ -82,7 +82,9 @@ class CountTraversal : public ITraversal {
 
 std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> snapshot, bool patch, size_t steps = 4,
                                        const std::vector<std::string>& context = {},
-                                       const std::vector<std::string>& ignored = {})
+                                       const std::vector<std::string>& ignored = {},
+                                       const StudyRecord* previous = nullptr, bool meshSampling = false,
+                                       const std::vector<std::vector<uint8_t>>& faceMasks = {})
 {
     auto record = std::make_unique<StudyRecord> ();
     record->snapshot = snapshot;
@@ -95,9 +97,25 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
     for (const auto role : roles.roles)
         record->elementRoles.push_back (static_cast<uint8_t> (role));
     const auto sampleMask = roles.SampleMask ();
+    if (meshSampling) {
+        SurfaceSamplingOptions options;
+        options.domain = patch ? SamplingDomain::SurfacePatch : SamplingDomain::TriangleLegacy;
+        options.spacing = record->gridSpacing;
+        auto sampling = BuildSurfaceSampling (*snapshot, sampleMask, options, previous, {}, faceMasks);
+        record->domain = options.domain;
+        record->samplingLayout = std::move (sampling.layout);
+        record->sampleGrid = std::move (sampling.triangles);
+        record->patchGrid = std::move (sampling.patches);
+        record->positions = patch ? record->patchGrid.positions : record->sampleGrid.positions;
+        record->normals = patch ? record->patchGrid.normals : record->sampleGrid.normals;
+        SetSampleMeshes (*record);
+        record->session.Sync ({ snapshot->id, record->series.Version (), 1 }, record->series, record->Samples ());
+        return record;
+    }
     std::vector<double> vertices;
     std::vector<uint32_t> triangles, groups;
     std::vector<std::string> elements;
+    std::vector<uint8_t> faces;
     for (size_t m = 0; m < snapshot->meshes.size (); ++m) {
         const auto& mesh = snapshot->meshes[m];
         const uint32_t base = static_cast<uint32_t> (vertices.size () / 3);
@@ -106,6 +124,12 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
             triangles.push_back (base + index);
         groups.resize (triangles.size () / 3, static_cast<uint32_t> (m));
         elements.push_back (mesh.guid);
+        if (!faceMasks.empty ()) {
+            if (faceMasks[m].empty ())
+                faces.insert (faces.end (), mesh.TriangleCount (), 1);
+            else
+                faces.insert (faces.end (), faceMasks[m].begin (), faceMasks[m].end ());
+        }
     }
     if (patch) {
         record->domain = SamplingDomain::SurfacePatch;
@@ -113,6 +137,7 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         options.spacing = record->gridSpacing;
         options.normalOffset = 0.01;
         options.sampleGroup = &sampleMask;
+        options.sampleFace = faceMasks.empty () ? nullptr : &faces;
         record->patchGrid = BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
                                                   triangles.size () / 3, groups.data (), elements, options);
         record->positions = record->patchGrid.positions;
@@ -123,6 +148,7 @@ std::unique_ptr<StudyRecord> Prepared (std::shared_ptr<const geomsrv::Snapshot> 
         options.spacing = record->gridSpacing;
         options.normalOffset = 0.01;
         options.sampleGroup = &sampleMask;
+        options.sampleFace = faceMasks.empty () ? nullptr : &faces;
         record->sampleGrid = BuildSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
                                               triangles.size () / 3, groups.data (), options);
         record->positions = record->sampleGrid.positions;
@@ -204,6 +230,51 @@ TEST_P (SunStudyReuse, RemovingContextOrIgnoredRestoresSamplesWithoutAGeometryEd
     }
 }
 
+TEST_P (SunStudyReuse, CachedGridsAndSelectiveResultsMatchFreshCpuForEditsAndRoles)
+{
+    auto source = Prepared (Scene (), GetParam (), 70, {}, {}, nullptr, true);
+    Complete (*source);
+    const std::atomic<bool> cancelled { false };
+    for (int edit = 0; edit < 7; ++edit) {
+        SCOPED_TRACE (edit);
+        auto next = Scene (edit == 0 ? 9 : 6);
+        next->id = 2;
+        if (edit == 1)
+            next->meshes.erase (next->meshes.begin () + 1);
+        if (edit == 2) {
+            auto added = Wall (3);
+            added.guid = "new";
+            next->meshes.insert (next->meshes.begin (), added);
+        }
+        if (edit == 3)
+            std::reverse (next->meshes.begin (), next->meshes.end ());
+        if (edit == 4)
+            next->meshes[0].triMaterial = { 12, 13 };
+        const std::vector<std::string> context =
+            edit == 5 ? std::vector<std::string> { "near" } : std::vector<std::string> {};
+        const std::vector<std::string> ignored =
+            edit == 6 ? std::vector<std::string> { "wall" } : std::vector<std::string> {};
+        auto incremental = Prepared (next, GetParam (), 70, context, ignored, source.get (), true);
+        auto oracle = Prepared (next, GetParam (), 70, context, ignored);
+        ASSERT_EQ (incremental->positions, oracle->positions);
+        ASSERT_EQ (incremental->normals, oracle->normals);
+        ReuseUnaffectedSamples (*source, *incremental, cancelled);
+        Complete (*incremental);
+        Complete (*oracle);
+        EXPECT_EQ (incremental->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
+        EXPECT_EQ (incremental->session.SunHours (), oracle->session.SunHours ());
+        EXPECT_GT (incremental->reusedSamples, 0u);
+        if (edit == 4) {
+            EXPECT_EQ (incremental->session.Accumulator ().ActiveSampleCount (), 0u);
+            const auto* traced = dynamic_cast<const CountTraversal*> (incremental->traversal.get ());
+            ASSERT_NE (traced, nullptr);
+            EXPECT_EQ (traced->rays, 0u);
+            const auto hours = incremental->session.SunHours ();
+            EXPECT_GT (std::count (hours.begin (), hours.end (), 0.0), 0);
+        }
+    }
+}
+
 TEST_P (SunStudyReuse, SourceMustBeCompleteCompatibleUnambiguousAndNotCancelled)
 {
     auto source = Prepared (Scene (), GetParam ());
@@ -227,6 +298,33 @@ TEST_P (SunStudyReuse, SourceMustBeCompleteCompatibleUnambiguousAndNotCancelled)
     ambiguous->meshes[2].guid = ambiguous->meshes[0].guid;
     target->snapshot = ambiguous;
     EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), 0u);
+}
+
+TEST_P (SunStudyReuse, GlassFaceMasksMatchFreshCpuAndUnmeasuredFacesStillCastShadows)
+{
+    std::vector<std::vector<uint8_t>> masks { { 1, 0 }, {}, {} };
+    auto source = Prepared (Scene (), GetParam (), 70, {}, {}, nullptr, true, masks);
+    Complete (*source);
+    const std::atomic<bool> cancelled { false };
+    for (int edit = 0; edit < 3; ++edit) {
+        auto next = Scene (edit == 0 ? 9 : 6);
+        next->id = 2;
+        auto changed = masks;
+        if (edit == 1)
+            changed[0] = { 0, 1 }; // material/picked receiver change, same geometry
+        if (edit == 2)
+            changed[0].clear (); // manual early-model switch restores both faces
+        auto incremental = Prepared (next, GetParam (), 70, {}, {}, source.get (), true, changed);
+        auto oracle = Prepared (next, GetParam (), 70, {}, {}, nullptr, false, changed);
+        ASSERT_EQ (incremental->positions, oracle->positions);
+        ASSERT_EQ (incremental->normals, oracle->normals);
+        ReuseUnaffectedSamples (*source, *incremental, cancelled);
+        Complete (*incremental);
+        Complete (*oracle);
+        EXPECT_EQ (incremental->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
+        EXPECT_EQ (incremental->session.SunHours (), oracle->session.SunHours ());
+        EXPECT_GT (incremental->reusedSamples, 0u);
+    }
 }
 
 TEST_P (SunStudyReuse, OppositeSunsDoNotDirtyTheWholeSiteThroughTheUnionEnvelope)

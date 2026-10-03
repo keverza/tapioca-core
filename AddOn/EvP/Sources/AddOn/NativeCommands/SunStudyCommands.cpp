@@ -14,6 +14,8 @@
 #include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudySampler.hpp"
+#include "SunStudy/SunStudySurfaceSampling.hpp"
+#include "SunStudy/SunStudyPreset.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
 
@@ -104,14 +106,33 @@ class StartSunStudyCommand : public MainThreadCommand {
         // Every element is one material to the analysis; the distinction that
         // matters is its ROLE. See SunStudy/SunStudyRoles.hpp for the table --
         // naming nothing reproduces the study as it was before roles existed.
-        const std::vector<std::string> analysisPicked = ReadStringList (params, "analysisElements");
         const auto& binding = captured->selectionBinding;
+        const auto analysisPicked =
+            binding.analysisSet.empty () ? ReadStringList (params, "analysisElements") : captured->analysisElements;
         const auto contextPicked =
             binding.contextSet.empty () ? ReadStringList (params, "contextElements") : captured->contextElements;
         const auto ignoredPicked =
             binding.ignoredSet.empty () ? ReadStringList (params, "ignoredElements") : captured->ignoredElements;
-        const evp::sunstudy::ElementRoles roles =
-            evp::sunstudy::ResolveElementRoles (*snapshot, analysisPicked, contextPicked, ignoredPicked);
+        const auto requestedPreset = ReadString (params, "preset", "");
+        if (!requestedPreset.empty () && requestedPreset != "early" && requestedPreset != "late")
+            return NativeCommandResult::Failure ("preset must be early or late");
+        if (!requestedPreset.empty () && ReadString (params, "samples", "surfaces") != "surfaces")
+            return NativeCommandResult::Failure ("analysis presets require samples='surfaces'");
+        const bool analysisRestricted =
+            !binding.analysisSet.empty () || (!requestedPreset.empty () && params.Contains ("analysisElements"));
+        if (analysisRestricted && analysisPicked.empty ())
+            return NativeCommandResult::Failure (
+                "Analysis picks are empty - pick receiver elements or use model scope; the study was not widened");
+        const double glassThreshold = ReadDouble (params, "glassThreshold", 0.4);
+        if (!std::isfinite (glassThreshold) || glassThreshold < 0.0 || glassThreshold > 1.0)
+            return NativeCommandResult::Failure ("glassThreshold must be a transparency fraction from 0 to 1");
+        const auto preset = requestedPreset;
+        const std::string presetReason = "manual selection";
+        // In a design preset, all unpicked geometry is CONTEXT, not implicitly
+        // ignored just because the user also named some Context elements.
+        auto roles = evp::sunstudy::ResolveElementRoles (
+            *snapshot, analysisPicked,
+            !preset.empty () && !analysisPicked.empty () ? std::vector<std::string> {} : contextPicked, ignoredPicked);
         if (roles.analysisNamedButAbsent) {
             // ⚠️ REFUSED, NOT WIDENED. An empty intersection is not an empty
             // list: "measure these" with none of them present must not become
@@ -120,6 +141,13 @@ class StartSunStudyCommand : public MainThreadCommand {
                 GS::UniString ("none of the ") + GS::UniString::Printf ("%u", (unsigned) analysisPicked.size ()) +
                 " analysis element(s) is left to measure - they are absent from the snapshot or all ignored");
         }
+        const auto receivers = evp::sunstudy::BuildSunStudyReceivers (*snapshot, roles, preset == "late",
+                                                                      captured->materialTransparency, glassThreshold);
+        if (preset == "late" && receivers.analysisFaces == 0)
+            return NativeCommandResult::Failure (
+                "no transparency-qualified glass faces in the analysis scope - adjust glassThreshold or picks, or "
+                "manually choose early; no whole-model fallback was run");
+        roles = receivers.roles;
         // Per element (= per sampler group), whether its faces are measured.
         const std::vector<uint8_t> sampleMask = roles.SampleMask ();
 
@@ -256,70 +284,32 @@ class StartSunStudyCommand : public MainThreadCommand {
             // Sampling the model's own faces asks no such question, and it is
             // also what the browser-side study measures -- which is what lets
             // the two be diffed sample for sample rather than merely compared.
-            std::vector<double> vertices;
-            std::vector<uint32_t> triangles;
-            std::vector<uint32_t> groups;
-            for (size_t m = 0; m < snapshot->meshes.size (); ++m) {
-                const Mesh& mesh = snapshot->meshes[m];
-                const uint32_t base = static_cast<uint32_t> (vertices.size () / 3);
-                vertices.insert (vertices.end (), mesh.vertices.begin (), mesh.vertices.end ());
-                for (uint32_t index : mesh.triangles)
-                    triangles.push_back (base + index);
-                groups.resize (triangles.size () / 3, static_cast<uint32_t> (m));
-            }
-            trace.Mark ("flatten", vertices.size () * sizeof (double) + triangles.size () * sizeof (uint32_t));
-
-            // ⚠️ WINDING IS PROVED BEFORE ANYTHING IS SAMPLED, because every
-            // later step trusts the face normal: the sampler lifts each sample
-            // ALONG it and the occlusion pass culls on it. An inward-wound
-            // element would push its samples into the solid and report its
-            // sunlit face as permanently dark -- a plausible study of a building
-            // that happens to be in shade.
-            evp::sunstudy::WindingReport winding;
-            const std::vector<uint32_t> oriented =
-                evp::sunstudy::OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (),
-                                              triangles.size () / 3, groups.data (), winding);
-            trace.Mark ("winding", oriented.size () * sizeof (uint32_t));
-            if (IsCancelled ())
-                return NativeCommandResult::Failure ("sun study preparation cancelled");
-
-            // ⚠️ THIS MACHINE'S CEILING, ENFORCED AT THE SAMPLER. See SunStudyLimits.hpp.
             const auto limits = MachineAnalysisLimits (record->series.StepCount (), patchDomain);
-            evp::sunstudy::SamplerOptions options;
+            evp::sunstudy::SurfaceSamplingOptions options;
+            options.domain = patchDomain ? evp::sunstudy::SamplingDomain::SurfacePatch
+                                         : evp::sunstudy::SamplingDomain::TriangleLegacy;
             options.maxSamples = limits.maxSamples;
             options.spacing = spacing;
             options.normalOffset = zOffset;
             options.jitter = ReadDouble (params, "jitter", 0.0);
-            options.wantLayouts = true;
-            options.sampleGroup = &sampleMask; // groups[] are mesh indices
+            auto sampling = evp::sunstudy::BuildSurfaceSampling (
+                *snapshot, sampleMask, options, reuseSource_.get (), [this] { return IsCancelled (); },
+                receivers.faces);
+            trace.Mark ("sampling", (sampling.triangles.Count () + sampling.patches.Count ()) * 6 * sizeof (double));
+            LogSunStudySurfaceSampling (snapshot->id, sampling);
+            if (IsCancelled ())
+                return NativeCommandResult::Failure ("sun study preparation cancelled");
+            if (!sampling.valid)
+                return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
+            record->samplingLayout = std::move (sampling.layout);
+            closedGroups = sampling.winding.closed;
+            flippedGroups = sampling.winding.flipped;
+            size_t faceCount = 0;
+            for (const auto& mesh : snapshot->meshes)
+                faceCount += mesh.triangles.size () / 3;
 
             if (patchDomain) {
-                // ⚠️ THE *ORIENTED* TRIANGLES, NOT THE RAW ONES, AND IT MATTERS
-                // MORE HERE THAN IT DOES BELOW. The patch builder merges by
-                // comparing NORMALS for coplanarity, so two adjacent faces of one
-                // flat wall that happen to be wound oppositely have opposing
-                // normals and refuse to merge: the surface splits silently back
-                // into triangles and patch mode quietly becomes triangle mode
-                // with extra steps. The triangle path needs the orientation only
-                // for the sample lift; this path needs it for the TOPOLOGY.
-                evp::sunstudy::PatchSamplerOptions patchOptions;
-                patchOptions.spacing = spacing;
-                patchOptions.normalOffset = zOffset;
-                patchOptions.maxSamples = limits.maxSamples;
-                patchOptions.sampleGroup = &sampleMask; // groups[] are mesh indices
-
-                std::vector<std::string> elementOf;
-                elementOf.reserve (snapshot->meshes.size ());
-                for (const Mesh& mesh : snapshot->meshes)
-                    elementOf.push_back (mesh.guid);
-
-                evp::sunstudy::PatchSampleGrid patches =
-                    evp::sunstudy::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
-                                                         oriented.size () / 3, groups.data (), elementOf, patchOptions);
-                trace.Mark ("sampling", patches.positions.size () * sizeof (double) * 2);
-                if (!patches.valid)
-                    return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
-
+                auto patches = std::move (sampling.patches);
                 record->domain = evp::sunstudy::SamplingDomain::SurfacePatch;
                 record->positions = patches.positions;
                 record->normals = patches.normals;
@@ -346,23 +336,15 @@ class StartSunStudyCommand : public MainThreadCommand {
                 atlasHeight = record->patchAtlas.Height ();
                 atlasFaces = record->patchAtlas.AllocationCount ();
 
-                closedGroups = winding.closed;
-                flippedGroups = winding.flipped;
                 gridVersion = static_cast<uint64_t> (patches.Count ()) * 73856093ull ^
                               static_cast<uint64_t> (patches.spans.size ()) * 19349663ull ^
-                              static_cast<uint64_t> (triangles.size ()) * 83492791ull;
+                              static_cast<uint64_t> (faceCount * 3) * 83492791ull;
                 patchCount = patches.spans.size ();
                 record->patchGrid = std::move (patches);
             }
             else {
 
-                const evp::sunstudy::SampleGrid samples =
-                    evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
-                                                    oriented.size () / 3, groups.data (), options);
-                trace.Mark ("sampling", samples.positions.size () * sizeof (double) * 2);
-                if (!samples.valid)
-                    return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
-
+                auto samples = std::move (sampling.triangles);
                 record->positions = samples.positions;
                 record->normals = samples.normals;
                 undersizedFaces = samples.undersizedFaces;
@@ -373,16 +355,14 @@ class StartSunStudyCommand : public MainThreadCommand {
                 // is a pure function of the sample grid, so rebuilding it per read
                 // would produce a different arrangement and silently invalidate
                 // every texture coordinate already handed to a consumer.
-                record->sampleGrid = samples;
                 record->atlas = evp::sunstudy::BuildSunStudyAtlas (samples);
                 trace.Mark ("atlas", record->atlas.width * static_cast<size_t> (record->atlas.height) * sizeof (float));
                 atlasWidth = record->atlas.width;
                 atlasHeight = record->atlas.height;
                 atlasFaces = record->atlas.placedFaces;
-                closedGroups = winding.closed;
-                flippedGroups = winding.flipped;
                 gridVersion = static_cast<uint64_t> (samples.Count ()) * 73856093ull ^
-                              static_cast<uint64_t> (triangles.size ()) * 19349663ull;
+                              static_cast<uint64_t> (faceCount * 3) * 19349663ull;
+                record->sampleGrid = std::move (samples);
             } // end of the triangle domain
         }
         else {
@@ -418,6 +398,9 @@ class StartSunStudyCommand : public MainThreadCommand {
         record->contextElements = contextPicked;
         record->ignoredElements = ignoredPicked;
         record->selectionBinding = binding;
+        record->preset = preset;
+        record->glassThreshold = glassThreshold;
+        record->analysisRestricted = analysisRestricted;
         record->snapshotId = snapshot->id;
         for (const evp::sunstudy::ElementRole role : roles.roles)
             record->elementRoles.push_back (static_cast<uint8_t> (role));
@@ -469,6 +452,11 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("unmatchedContext", (GS::Int32) roles.unmatchedContext);
         os.Add ("unmatchedIgnored", (GS::Int32) roles.unmatchedIgnored);
         os.Add ("excludedSurfaces", (GS::Int32) excludedSurfaces);
+        os.Add ("preset", Text (preset));
+        os.Add ("presetReason", Text (presetReason));
+        os.Add ("analysisFaceCount", (GS::Int32) receivers.analysisFaces);
+        os.Add ("contextFaceCount", (GS::Int32) receivers.contextFaces);
+        os.Add ("unknownMaterialFaces", (GS::Int32) receivers.unknownMaterialFaces);
         os.Add ("undersizedFaces", (GS::Int32) undersizedFaces);
         os.Add ("degenerateFaces", (GS::Int32) degenerateFaces);
         os.Add ("closedGroups", (GS::Int32) closedGroups);
@@ -799,6 +787,9 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "zOffset":{"type":"number"},
                 "samples":{"type":"string","enum":["surfaces","ground","explicit"]},
                 "domain":{"type":"string","enum":["triangle","patch"]},
+                "preset":{"type":"string","enum":["early","late"]},
+                "glassThreshold":{"type":"number","minimum":0,"maximum":1},
+                "analysisSelectionSet":{"type":"string","minLength":1},
                 "analysisElements":{"type":"array","items":{"type":"string","minLength":1}},
                 "contextElements":{"type":"array","items":{"type":"string","minLength":1}},
                 "ignoredElements":{"type":"array","items":{"type":"string","minLength":1}},
@@ -845,6 +836,11 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "unmatchedContext":{"type":"integer"},
                 "unmatchedIgnored":{"type":"integer"},
                 "excludedSurfaces":{"type":"integer"},
+                "preset":{"type":"string"},
+                "presetReason":{"type":"string"},
+                "analysisFaceCount":{"type":"integer"},
+                "contextFaceCount":{"type":"integer"},
+                "unknownMaterialFaces":{"type":"integer"},
                 "latitude":{"type":"number"},
                 "longitude":{"type":"number"},
                 "northDeg":{"type":"number"},

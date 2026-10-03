@@ -21,6 +21,7 @@ NativeCommandResult CaptureSunStudyInputs (const GS::ObjectState& params,
     auto& binding = inputs->selectionBinding;
     binding.contextSet = sunstudysupport::ReadString (params, "contextSelectionSet", "");
     binding.ignoredSet = sunstudysupport::ReadString (params, "ignoredSelectionSet", "");
+    binding.analysisSet = sunstudysupport::ReadString (params, "analysisSelectionSet", "");
     auto& selections = SelectionSetStore::Get ();
     const auto readSet = [&selections] (const std::string& name, std::vector<std::string>& guids) {
         const GS::UniString setName (name.c_str (), CC_UTF8);
@@ -33,16 +34,21 @@ NativeCommandResult CaptureSunStudyInputs (const GS::ObjectState& params,
     if ((!binding.contextSet.empty () &&
          (params.Contains ("contextElements") || !readSet (binding.contextSet, inputs->contextElements))) ||
         (!binding.ignoredSet.empty () &&
-         (params.Contains ("ignoredElements") || !readSet (binding.ignoredSet, inputs->ignoredElements))))
+         (params.Contains ("ignoredElements") || !readSet (binding.ignoredSet, inputs->ignoredElements))) ||
+        (!binding.analysisSet.empty () &&
+         (params.Contains ("analysisElements") || !readSet (binding.analysisSet, inputs->analysisElements))))
         return NativeCommandResult::Failure (
             "role selection sets must be declared and cannot also specify element lists");
-    if (!binding.contextSet.empty () || !binding.ignoredSet.empty ()) {
+    if (!binding.contextSet.empty () || !binding.ignoredSet.empty () || !binding.analysisSet.empty ()) {
         binding.generation = selections.Generation ();
         binding.revision = selections.Revision ();
     }
     inputs->snapshot = MeshStore::Get ().Current ();
     if (inputs->snapshot == nullptr)
         return NativeCommandResult::Failure ("no snapshot is live - call Tapioca.BuildSnapshot first");
+    const auto preset = sunstudysupport::ReadString (params, "preset", "");
+    if (preset == "late")
+        inputs->materialTransparency = inputs->snapshot->materialTransparency;
     const GSErrCode err = ACAPI_GeoLocation_GetPlaceSets (&inputs->place);
     if (err != NoError)
         return NativeCommandResult::Failure (

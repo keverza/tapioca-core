@@ -8,6 +8,7 @@
 namespace geomsrv {
 
 bool SunStudySnapshotBounds (const Snapshot& snapshot, double min[3], double max[3]);
+void LogSunStudySurfaceSampling (uint64_t snapshot, const evp::sunstudy::SurfaceSamplingResult& result);
 std::shared_ptr<const evp::sunstudy::SunStudyOccluders>
 PrepareSunStudyOccluders (std::shared_ptr<const Snapshot> snapshot, const evp::sunstudy::ElementRoles& roles,
                           const evp::sunstudy::StudyRecord* previous, const std::function<bool ()>& isCancelled);

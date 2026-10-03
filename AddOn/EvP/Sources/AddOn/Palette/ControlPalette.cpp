@@ -205,9 +205,7 @@ void ControlPalette::PanelIdle (const DG::PanelIdleEvent&)
     // fires on commit (Tab/Enter/focus loss) rather than per keystroke — so this
     // is the backstop that keeps Run from looking stuck after typing.
     //
-    // No longer throttled: WhatIsMissing() stopped calling ACAPI when selection
-    // was dropped from the gate, so it is now just string and pointer checks.
-    // The throttle only bought latency.
+    // The run gate is unthrottled: it no longer acquires host geometry.
     //
     // But it is NOT free of Archicad: the run gate reads attribute pickers back,
     // and those belong to the project. While Archicad says it is busy (project
@@ -222,6 +220,8 @@ void ControlPalette::PanelIdle (const DG::PanelIdleEvent&)
 
     RefreshSearchFilter ();
     PollAutomaticPreview ();
+    if (params.RefreshAdvisories ())
+        ReflowParams ();
 }
 
 // F2 — see the header. One string compare per idle is the whole cost.

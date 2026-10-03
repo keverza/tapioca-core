@@ -290,3 +290,50 @@ def test_pause_retires_old_producer_but_does_not_clear_display_or_join():
     schemas = re.findall(r'R"json\((.*?)\)json"', registration, re.DOTALL)
     assert json.loads(schemas[0])["additionalProperties"] is False
     assert json.loads(schemas[1])["required"] == ["autoFollow"]
+
+
+def test_surface_sampling_reuse_remains_owned_sdk_free_and_separate_from_result_reuse():
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    assert re.search(
+        r"BuildSurfaceSampling\s*\(\s*\*snapshot,\s*sampleMask,\s*options,\s*reuseSource_\.get\s*\(\s*\)", commands
+    )
+    assert "record->samplingLayout = std::move (sampling.layout)" in commands
+    sampling = (_ADDON / "SunStudy" / "SunStudySurfaceSampling.cpp").read_text(encoding="utf-8")
+    assert "ACAPI_" not in sampling and "MainThreadGate" not in sampling
+    assert "item.vertices == oldMesh.vertices && item.triangles == oldMesh.triangles" in sampling
+    assert "oldSpan.sampleFaces == span.sampleFaces" in sampling
+    preparation = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
+    for field in ("stage=sun-grid-reuse", "reusedMeshes=", "rebuiltMeshes=", "reusedGridSamples=", "generatedSamples="):
+        assert field in preparation
+
+
+def test_presets_glass_filter_and_live_analysis_survive_follower_adoption_and_strict_schemas():
+    commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
+    registration = commands.split('{ "StartSunStudy",', 1)[1].split('{ "AdvanceSunStudy",', 1)[0]
+    schemas = re.findall(r'R"json\((.*?)\)json"', registration, re.DOTALL)
+    request, response = map(json.loads, schemas)
+    for field in ("preset", "glassThreshold", "analysisSelectionSet"):
+        assert field in request["properties"]
+    assert request["properties"]["preset"]["enum"] == ["early", "late"]
+    for field in ("preset", "presetReason", "analysisFaceCount", "contextFaceCount", "unknownMaterialFaces"):
+        assert field in response["properties"]
+        assert f'os.Add ("{field}"' in commands
+    assert request["additionalProperties"] is False and response["additionalProperties"] is False
+    assert "analysisRestricted && analysisPicked.empty ()" in commands
+    capture = (_ADDON / "NativeCommands" / "SunStudyCapture.cpp").read_text(encoding="utf-8")
+    assert "inputs->materialTransparency = inputs->snapshot->materialTransparency" in capture
+    assert "AcquireCurrentModel" not in capture
+    extraction = (_ADDON / "Geometry" / "GeometryExtractor.cpp").read_text(encoding="utf-8")
+    snapshot = extraction.split("std::shared_ptr<const Snapshot> BuildSnapshot", 1)[1].split("return snap;", 1)[0]
+    assert "snap->materialTransparency.emplace (index, material.GetTransparency ())" in snapshot
+    assert snapshot.index("GetMaterialCount ()") < snapshot.index("GetElementCount ()")
+    filtered = (_ADDON / "NativeCommands" / "SnapshotCommands.cpp").read_text(encoding="utf-8")
+    assert "keep->materialTransparency = snap->materialTransparency" in filtered
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    for field in ("preset", "glassThreshold", "analysisRestricted"):
+        assert f"config.{field} = metadata.{field}" in display
+        assert f"config.{field}" in driver
+    assert "read (binding.analysisSet)" in driver
+    assert 'params.Add ("analysisSelectionSet"' in driver
+    assert "RecommendSunStudyPreset" not in driver  # fixed after initial adoption, no oscillation during edits

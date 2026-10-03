@@ -74,8 +74,7 @@ class Float:
 
     __slots__ = ("unit", "minimum", "maximum", "readonly", "default_from", "show_when")
 
-    def __init__(self, unit=None, minimum=None, maximum=None, readonly=False, default_from=None,
-                 show_when=None):
+    def __init__(self, unit=None, minimum=None, maximum=None, readonly=False, default_from=None, show_when=None):
         self.unit = unit
         self.minimum = minimum
         self.maximum = maximum
@@ -87,8 +86,7 @@ class Float:
 class Int:
     __slots__ = ("minimum", "maximum", "readonly", "default_from", "show_when")
 
-    def __init__(self, minimum=None, maximum=None, readonly=False, default_from=None,
-                 show_when=None):
+    def __init__(self, minimum=None, maximum=None, readonly=False, default_from=None, show_when=None):
         self.minimum = minimum
         self.maximum = maximum
         self.readonly = readonly
@@ -99,11 +97,12 @@ class Int:
 class Enum:
     """A fixed choice — becomes a DG::PopUp."""
 
-    __slots__ = ("choices", "show_when")
+    __slots__ = ("choices", "show_when", "advice")
 
-    def __init__(self, *choices, show_when=None):
+    def __init__(self, *choices, show_when=None, advice=None):
         self.choices = list(choices)
         self.show_when = show_when
+        self.advice = advice
 
 
 class Bool:
@@ -185,11 +184,11 @@ class _ProjectList:
         return "evp.%s" % self.kind
 
 
-Layer = _ProjectList("Layer")        # -> APIUserControlType_Layer,      value: layer name
-Pen = _ProjectList("Pen")            # -> APIUserControlType_Pen,        value: pen number (int)
-Fill = _ProjectList("Fill")          # -> APIUserControlType_AllFill,    value: fill name
+Layer = _ProjectList("Layer")  # -> APIUserControlType_Layer,      value: layer name
+Pen = _ProjectList("Pen")  # -> APIUserControlType_Pen,        value: pen number (int)
+Fill = _ProjectList("Fill")  # -> APIUserControlType_AllFill,    value: fill name
 LineType = _ProjectList("LineType")  # -> APIUserControlType_SymbolLine, value: line type name
-Surface = _ProjectList("Surface")    # -> APIUserControlType_Material,   value: surface name
+Surface = _ProjectList("Surface")  # -> APIUserControlType_Material,   value: surface name
 Story = _ProjectList("Story")
 
 
@@ -329,7 +328,7 @@ ProjectField = _ProjectField()
 # but a guid is invisible in Archicad's UI, so a user cannot supply one either. The
 # picker is the only shape that closes the gap: the ROW shows `name — folder/path`,
 # the VALUE handed to run() is the guid. Never ask for either half as text.
-View = _ProjectList("View")          # -> placeable View Map items,     value: guid
+View = _ProjectList("View")  # -> placeable View Map items,     value: guid
 Database = _ProjectList("Database")  # -> independent databases,        value: guid
 
 
@@ -447,15 +446,15 @@ Favourite = _Favourite()
 # Shell (beams and railings have no composites — they use PROFILES); profiles exist
 # per family too. Pick the one that matches the element you are about to create.
 BuildingMaterial = _ProjectList("BuildingMaterial")  # -> basic-structure element material
-WallComposite = _ProjectList("WallComposite")        # -> composites usable on walls
-SlabComposite = _ProjectList("SlabComposite")        # -> composites usable on slabs
-RoofComposite = _ProjectList("RoofComposite")        # -> composites usable on roofs
-ShellComposite = _ProjectList("ShellComposite")      # -> composites usable on shells
-WallProfile = _ProjectList("WallProfile")            # -> complex profiles usable on walls
-BeamProfile = _ProjectList("BeamProfile")            # -> complex profiles usable on beams
-ColumnProfile = _ProjectList("ColumnProfile")        # -> complex profiles usable on columns
-HandrailProfile = _ProjectList("HandrailProfile")    # -> complex profiles usable on railings
-AllProfile = _ProjectList("AllProfile")              # -> every complex profile
+WallComposite = _ProjectList("WallComposite")  # -> composites usable on walls
+SlabComposite = _ProjectList("SlabComposite")  # -> composites usable on slabs
+RoofComposite = _ProjectList("RoofComposite")  # -> composites usable on roofs
+ShellComposite = _ProjectList("ShellComposite")  # -> composites usable on shells
+WallProfile = _ProjectList("WallProfile")  # -> complex profiles usable on walls
+BeamProfile = _ProjectList("BeamProfile")  # -> complex profiles usable on beams
+ColumnProfile = _ProjectList("ColumnProfile")  # -> complex profiles usable on columns
+HandrailProfile = _ProjectList("HandrailProfile")  # -> complex profiles usable on railings
+AllProfile = _ProjectList("AllProfile")  # -> every complex profile
 
 
 #: The band types the palette can size. "text" is the fallback every planning
@@ -463,12 +462,31 @@ AllProfile = _ProjectList("AllProfile")              # -> every complex profile
 PREVIEW_KINDS = ("text", "3d", "plan2d")
 
 
-def command(title=None, category="General", requires_api=None, requires_tapir=None, runtime="embedded",
-             description=None, requires=None, needs_selection=False, labels=None,
-             timeout_s=0, tags=None, selection_sets=None, camera_sets=None,
-             inputs=None, outputs=None, plan=None, needs_preview=False,
-             preview=None, preview_kind=None, actions=None,
-             preview_on_selection=False, preview_overrides=None, exclusive_selection_sets=False):
+def command(
+    title=None,
+    category="General",
+    requires_api=None,
+    requires_tapir=None,
+    runtime="embedded",
+    description=None,
+    requires=None,
+    needs_selection=False,
+    labels=None,
+    timeout_s=0,
+    tags=None,
+    selection_sets=None,
+    camera_sets=None,
+    inputs=None,
+    outputs=None,
+    plan=None,
+    needs_preview=False,
+    preview=None,
+    preview_kind=None,
+    actions=None,
+    preview_on_selection=False,
+    preview_overrides=None,
+    exclusive_selection_sets=False,
+):
     """Mark `run` as an EvP command.
 
     title        shown in the palette (defaults to the folder name)
@@ -620,9 +638,7 @@ def _preview_kind(declared, preview_fn):
     and one without gets the text diff — which is free and always available."""
     if declared is not None:
         if declared not in PREVIEW_KINDS:
-            raise ValueError(
-                "unknown preview_kind %r. Known: %s"
-                % (declared, ", ".join(PREVIEW_KINDS)))
+            raise ValueError("unknown preview_kind %r. Known: %s" % (declared, ", ".join(PREVIEW_KINDS)))
         return declared
     return "3d" if preview_fn is not None else "text"
 
@@ -647,6 +663,7 @@ def action(label, name=None):
     `label` is what the button says and MUST be a literal: the palette reads it
     with the AST scanner, which never executes the file.
     """
+
     def decorate(fn):
         fn.__evp_action__ = {"name": name or fn.__name__, "label": str(label)}
         return fn
@@ -695,6 +712,7 @@ def menu(label, region="panel", name=None):
     `label` and `region` MUST be literals: the palette reads them with the AST
     scanner, which never executes the file.
     """
+
     def decorate(fn):
         fn.__evp_action__ = {"name": name or fn.__name__, "label": str(label)}
         fn.__evp_menu__ = {"region": str(region)}

@@ -7,6 +7,7 @@
 #include "SunStudy/SunStudySelectionBinding.hpp"
 
 #include <atomic>
+#include <map>
 
 namespace evp::sunstudy {
 struct StudyRecord;
@@ -21,6 +22,8 @@ struct CapturedSunStudyInputs {
     evp::sunstudy::SunSeries series;
     evp::sunstudy::SunStudySelectionBinding selectionBinding;
     std::vector<std::string> contextElements, ignoredElements;
+    std::vector<std::string> analysisElements;
+    std::map<int32_t, double> materialTransparency;
 };
 
 // Main-thread capture only; no BVH, winding proof, sampling or atlas assembly.

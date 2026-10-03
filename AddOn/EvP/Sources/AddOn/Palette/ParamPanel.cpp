@@ -163,6 +163,9 @@ void ParamPanel::Rebuild (const CommandInfo& info)
         if (!projectUnit.IsEmpty ())
             labelText += " (" + projectUnit + ")";
         pc.label->SetText (labelText);
+        GS::UniString advice;
+        if (os.Get ("advice", advice) && advice == "sun-study-size")
+            pc.advisory = std::make_unique<ParamAdvisory> (panel);
 
         if (pc.type == "bool" || pc.type == "Bool") {
             // evp.Bool is a bare `bool` with room for kwargs — same control, so a
@@ -654,39 +657,6 @@ void ParamPanel::Rebuild (const CommandInfo& info)
     ApplyVisibility ();
 }
 
-// F3 — the show_whens against the values the controls hold right now. The rule
-// evaluation is Palette/ParamVisibility's, on purpose: it is the half of this
-// feature that can be wrong invisibly, so it lives where a test can reach it.
-bool ParamPanel::ApplyVisibility ()
-{
-    std::vector<std::string> names, values;
-    std::vector<VisibilityRule> rules;
-    names.reserve (paramControls.size ());
-    values.reserve (paramControls.size ());
-    rules.reserve (paramControls.size ());
-
-    for (const ParamControl& pc : paramControls) {
-        names.push_back (Utf8 (pc.name));
-        values.push_back (Utf8 (pc.CurrentValueText ()));
-        VisibilityRule rule;
-        rule.controller = Utf8 (pc.showWhenParam);
-        for (const GS::UniString& value : pc.showWhenValues)
-            rule.values.push_back (Utf8 (value));
-        rules.push_back (std::move (rule));
-    }
-
-    const std::vector<bool> visible = EvaluateVisibility (names, values, rules);
-
-    bool changed = false;
-    for (size_t i = 0; i < paramControls.size (); ++i) {
-        if (paramControls[i].visible != visible[i]) {
-            paramControls[i].visible = visible[i];
-            changed = true;
-        }
-    }
-    return changed;
-}
-
 // Reveal everything AFTER the shell has positioned it. A dynamically created DG item
 // starts hidden at its construction rect; showing it first and moving it afterwards
 // makes every control flash in the panel's top-left corner on the way to its real
@@ -714,6 +684,8 @@ void ParamPanel::ShowControls ()
         else {
             pc.label->Hide ();
             pc.Widget ()->Hide ();
+            if (pc.advisory)
+                pc.advisory->Hide ();
         }
         if (pc.domainHint) {
             if (on)
@@ -796,6 +768,10 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
         clip.Place (pc.browseButton.get (),
                     DG::Rect (assemblyLeft, y, (short) (assemblyLeft + BrowseButtonWidth), y + RowHeight));
         y += RowHeight + RowGap;
+        if (pc.advisory) {
+            pc.advisory->Refresh (pc.CurrentValueText ());
+            y += pc.advisory->PlaceAt (y, left, right, clip);
+        }
     };
 
     // A group of rows, or false when it has none to place. INVISIBLE ROWS ARE
@@ -861,6 +837,7 @@ bool ParamPanel::HandleCheckItemChanged (const DG::CheckItemChangeEvent& ev, boo
             static_cast<DG::PushCheck*> (pc.control.get ())->Uncheck ();
         }
         reflow = ApplyVisibility ();
+        reflow = RefreshAdvisories () || reflow;
         return true;
     }
     return false;
@@ -874,6 +851,7 @@ bool ParamPanel::HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflo
         if (ev.GetSource () != pc.control.get ())
             continue;
         reflow = ApplyVisibility ();
+        reflow = RefreshAdvisories () || reflow;
         return true;
     }
     return false;

@@ -156,6 +156,8 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOcclusion.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySession.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPreset.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
@@ -715,6 +717,9 @@ set (EVP_TEST_SOURCES
     test_sunstudyadvanceworker.cpp
     test_sunstudytaskworker.cpp
     test_sunstudysampler.cpp
+    test_sunstudysurfacesampling.cpp
+    test_sunstudypreset.cpp
+    test_sunstudyreceivers.cpp
     test_sunstudywinding.cpp
     test_sunstudyatlas.cpp
     test_sunstudyoverlay.cpp

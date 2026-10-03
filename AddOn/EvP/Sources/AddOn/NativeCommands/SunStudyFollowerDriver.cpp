@@ -211,6 +211,9 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
     MixDouble (hash, config.grid);
     // The domain dices the surfaces differently, so it IS a sampling input.
     Mix (hash, config.patchDomain ? 1ull : 0ull);
+    Mix (hash, config.preset == "late" ? 1ull : 0ull);
+    MixDouble (hash, config.glassThreshold);
+    Mix (hash, config.analysisRestricted ? 1ull : 0ull);
     // Which elements are measured and which only cast shadow are sampling
     // inputs too: re-picking them must re-measure.
     MixGuids (hash, config.analysisElements);
@@ -257,6 +260,10 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     // ⚠️ THE ADOPTED STUDY'S DOMAIN, SENT EXPLICITLY. StartSunStudy defaults to
     // `triangle`, so leaving this out reran every patch study as a triangle one.
     params.Add ("domain", GS::UniString (config.patchDomain ? "patch" : "triangle"));
+    if (!config.preset.empty ()) {
+        params.Add ("preset", GS::UniString (config.preset.c_str (), CC_UTF8));
+        params.Add ("glassThreshold", config.glassThreshold);
+    }
     // ⚠️ THE ROLES, SENT ON EVERY RERUN. StartSunStudy with no lists analyses
     // every element, so dropping them would turn the context into analysis.
     GS::Array<GS::UniString> analysis;
@@ -265,7 +272,9 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     GS::Array<GS::UniString> context;
     for (const std::string& guid : config.contextElements)
         context.Push (GS::UniString (guid.c_str (), CC_UTF8));
-    if (!analysis.IsEmpty ())
+    if (!config.selectionBinding.analysisSet.empty ())
+        params.Add ("analysisSelectionSet", GS::UniString (config.selectionBinding.analysisSet.c_str (), CC_UTF8));
+    else if (!analysis.IsEmpty () || config.analysisRestricted)
         params.Add ("analysisElements", analysis);
     if (!config.selectionBinding.contextSet.empty ())
         params.Add ("contextSelectionSet", GS::UniString (config.selectionBinding.contextSet.c_str (), CC_UTF8));
@@ -316,9 +325,10 @@ void RefreshRoleSelections ()
                 guids.emplace_back (guid.ToCStr (0, MaxUSize, CC_UTF8).Get ());
         return guids;
     };
-    const auto context = read (binding.contextSet), ignored = read (binding.ignoredSet);
-    const auto refreshed =
-        binding.Refresh (generation, context, ignored, gConfig.contextElements, gConfig.ignoredElements);
+    const auto context = read (binding.contextSet), ignored = read (binding.ignoredSet),
+               analysis = read (binding.analysisSet);
+    const auto refreshed = binding.Refresh (generation, context, ignored, gConfig.contextElements,
+                                            gConfig.ignoredElements, analysis, &gConfig.analysisElements);
     if (refreshed == evp::sunstudy::SelectionBindingRefresh::Detached)
         Log ("role selection source detached -- retaining the last exclusions");
     else if (refreshed == evp::sunstudy::SelectionBindingRefresh::Changed)

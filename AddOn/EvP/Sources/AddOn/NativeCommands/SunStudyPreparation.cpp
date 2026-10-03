@@ -8,6 +8,15 @@
 
 namespace geomsrv {
 
+void LogSunStudySurfaceSampling (uint64_t snapshot, const evp::sunstudy::SurfaceSamplingResult& result)
+{
+    archviz::ArchVizLog ("pipeline: stage=sun-grid-reuse snapshot=" + std::to_string (snapshot) +
+                         " reusedMeshes=" + std::to_string (result.reusedMeshes) +
+                         " rebuiltMeshes=" + std::to_string (result.rebuiltMeshes) +
+                         " reusedGridSamples=" + std::to_string (result.reusedSamples) + " generatedSamples=" +
+                         std::to_string (result.generatedSamples) + " valid=" + std::to_string (result.valid));
+}
+
 bool SunStudySnapshotBounds (const Snapshot& snapshot, double min[3], double max[3])
 {
     bool haveBounds = false;

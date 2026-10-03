@@ -175,7 +175,8 @@ bool PointInTriangle2D (double px, double py, const double t[6])
 
 std::vector<SurfacePatch> BuildSurfacePatches (const double* vertices, size_t vertexCount, const uint32_t* triangles,
                                                size_t faceCount, const uint32_t* groups,
-                                               const SurfacePatchOptions& options)
+                                               const SurfacePatchOptions& options,
+                                               const std::vector<uint8_t>* facePartition)
 {
     std::vector<SurfacePatch> patches;
     if (vertices == nullptr || triangles == nullptr || faceCount == 0 || vertexCount == 0)
@@ -248,6 +249,11 @@ std::vector<SurfacePatch> BuildSurfacePatches (const double* vertices, size_t ve
                     continue;
                 for (const uint32_t neighbour : found->second) {
                     if (taken[neighbour])
+                        continue;
+                    // A receiver/context boundary is a real patch boundary,
+                    // even when the geometry is perfectly coplanar.
+                    if (facePartition != nullptr && seed < facePartition->size () &&
+                        neighbour < facePartition->size () && (*facePartition)[seed] != (*facePartition)[neighbour])
                         continue;
                     // ⚠️ COMPARED AGAINST THE SEED, NOT AGAINST THE NEIGHBOUR WE
                     // ARRIVED FROM. Chaining "close enough to my neighbour" walks

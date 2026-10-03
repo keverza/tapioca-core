@@ -34,6 +34,7 @@
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunStudySession.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
+#include "SunStudy/SunStudySurfaceSampling.hpp"
 
 #include <cstdint>
 #include <map>
@@ -78,6 +79,9 @@ struct StudyRecord {
     std::vector<std::string> contextElements;
     std::vector<std::string> ignoredElements;
     SunStudySelectionBinding selectionBinding;
+    std::string preset; // resolved early/late; empty retains legacy role semantics
+    double glassThreshold = 0.4;
+    bool analysisRestricted = false;
 
     // The roles AS RESOLVED, one per snapshot mesh (an ElementRole value), for
     // the display's role view. ⚠️ ALIGNED WITH THE SNAPSHOT THE STUDY RAN ON;
@@ -104,6 +108,7 @@ struct StudyRecord {
     // texture coordinate a consumer had already been handed.
     SunStudyAtlas atlas;
     SampleGrid sampleGrid;
+    SurfaceSamplingLayout samplingLayout;
 
     // ---- the SurfacePatch domain ------------------------------------------
     //

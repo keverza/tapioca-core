@@ -14,6 +14,7 @@
 #include <Polygon.hpp>
 #include <ConvexPolygon.hpp>
 #include <AttributeIndex.hpp>
+#include <ModelMaterial.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -208,6 +209,20 @@ std::shared_ptr<const Snapshot> BuildSnapshot (const ModelerAPI::Model& model, u
     auto snap = std::make_shared<Snapshot> ();
     snap->id = snapshotId;
     snap->scope = scope;
+
+    // MAIN THREAD, on the same held ModelerAPI model as the triangles below.
+    // A separate acquisition at study start could have a renumbered pool.
+    for (Int32 index = 1; index <= model.GetMaterialCount (); ++index) {
+        try {
+            ModelerAPI::Material material;
+            model.GetMaterial (ModelerAPI::AttributeIndex (ModelerAPI::AttributeIndex::MaterialIndex, index),
+                               &material);
+            snap->materialTransparency.emplace (index, material.GetTransparency ());
+        }
+        catch (const GS::Exception&) {
+            // Unknown material stays unqualified; geometry remains usable.
+        }
+    }
 
     const Int32 nElements = model.GetElementCount ();
     snap->meshes.reserve (static_cast<size_t> (nElements > 0 ? nElements : 0));

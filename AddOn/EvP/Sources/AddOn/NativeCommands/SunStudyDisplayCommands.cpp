@@ -317,6 +317,9 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.contextElements = metadata.contextElements;
         config.ignoredElements = metadata.ignoredElements;
         config.selectionBinding = metadata.selectionBinding;
+        config.preset = metadata.preset;
+        config.glassThreshold = metadata.glassThreshold;
+        config.analysisRestricted = metadata.analysisRestricted;
         config.debug = adoptedDebug;
         config.depth = adoptedDepth;
         config.hoursMax = rampTop;
