@@ -661,11 +661,11 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // looking at; a frame that picks against geometry it did not draw
             // resolves clicks to elements that are not on screen, which is the
             // hardest possible version of "picking selects the wrong thing".
-            // ⚠️ THE ORTHOGRAPHIC CAMERA IS THE TEST because it is what the plan
-            // path fits (PlanViewCamera -> FitPlanCamera). ⚠️ AND THAT TEST IS
-            // TOO BROAD NOW -- the HUD's axonometric toggle also makes the camera
-            // orthographic without making it a plan; see PLAT-RE142.
-            const bool drawingOverThePlan = camera.IsOrthographic ();
+            // ⚠️ OVER THE PLAN, NOT MERELY PARALLEL (PLAT-RE142): only the overlay
+            // surface ever lies over Archicad's plan. The palette's parallel camera --
+            // the axonometric toggle, the viewer opened in the plan's place -- is the
+            // viewer's own picture, and drew nothing (the user, 2026-10-03: empty).
+            const bool drawingOverThePlan = camera.IsOrthographic () && surface.mode == SurfaceMode::Overlay;
             const bool modelIsDrawn =
                 !drawingOverThePlan && !blanked && !ShouldIsolateGraphInteraction (hudState, input);
             ApplyShadowSettings (scene, hudState);
