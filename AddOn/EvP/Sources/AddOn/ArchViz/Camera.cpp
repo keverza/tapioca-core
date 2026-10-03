@@ -34,6 +34,9 @@ constexpr float kDollyPerNotch = 0.12f;
 
 constexpr float kMinDistance = 0.05f;
 constexpr float kMaxDistance = 100000.0f;
+// A parallel view's half-height, zoomed: a few centimetres to a hundred kilometres.
+constexpr float kMinHalfHeight = 0.02f;
+constexpr float kMaxHalfHeight = 100000.0f;
 // Just short of straight up/down. AT the pole the up vector and the view
 // direction are parallel and mtxLookAt produces a degenerate matrix — the view
 // snaps to a random roll, which reads as the model spinning.
@@ -149,6 +152,21 @@ void Camera::FrameLastBounds ()
 
 void Camera::Basis (float right[3], float up[3]) const
 {
+    // ⚠️ THE TOP-DOWN POSE'S AXES ARE ITS ROTATION'S, NOT THE ORBIT'S (the user, 2026-10-03: the
+    // viewer opened in the plan's place, panned by hand). GetViewMatrix gives that pose an
+    // explicit up, (-sin r, cos r, 0), and LookAtRH's screen +x is then (cos r, sin r, 0); the
+    // orbit's formulas below, at yaw 0 and the pole, say +y and -x -- a quarter turn off, and a
+    // pan or a zoom towards the cursor went sideways. The overlay never noticed: Archicad drives
+    // its plan camera and it takes no input.
+    if (topDown_) {
+        right[0] = std::cos (topDownRotation_);
+        right[1] = std::sin (topDownRotation_);
+        right[2] = 0.0f;
+        up[0] = -std::sin (topDownRotation_);
+        up[1] = std::cos (topDownRotation_);
+        up[2] = 0.0f;
+        return;
+    }
     const float cp = std::cos (pitch_);
     const float sp = std::sin (pitch_);
     const float cy = std::cos (yaw_);
@@ -246,12 +264,18 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
     if (!imguiWantsMouse && input.wheelDelta != 0) {
         // Multiplicative: each notch changes the distance by a FRACTION, so the
         // zoom feels the same at 2 m and at 200 m.
-        const float wanted = distance_ * std::pow (1.0f - kDollyPerNotch, float (input.wheelDelta) / 120.0f);
-        const float clamped = std::clamp (wanted, kMinDistance, kMaxDistance);
+        // ⚠️ A PARALLEL VIEW ZOOMS BY ITS EXTENT, NOT ITS DISTANCE. Nothing a parallel camera
+        // sees depends on how far away it is, so moving the eye zoomed nothing -- and in the
+        // viewer opened in the plan's place it lowered the eye through the storey's cut, until
+        // the view below it was empty. The half-height takes the factor; the eye stays.
+        const float factor = std::pow (1.0f - kDollyPerNotch, float (input.wheelDelta) / 120.0f);
+        const float now = orthographic_ ? orthoHalfHeight_ : distance_;
+        const float clamped = orthographic_ ? std::clamp (now * factor, kMinHalfHeight, kMaxHalfHeight)
+                                            : std::clamp (now * factor, kMinDistance, kMaxDistance);
         // The factor ACTUALLY applied, which is not the requested one at the
         // limits. Anchoring with the requested factor would slide the target
         // sideways every notch once the zoom has bottomed out.
-        const float applied = clamped / distance_;
+        const float applied = clamped / now;
 
         if (input.inside && applied != 1.0f) {
             // The world point under the cursor, on the focal plane. Keeping THAT
@@ -274,7 +298,10 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
             targetZ_ = pz + applied * (targetZ_ - pz);
         }
 
-        distance_ = clamped;
+        if (orthographic_)
+            orthoHalfHeight_ = clamped;
+        else
+            distance_ = clamped;
         moved = true;
     }
 
@@ -289,6 +316,15 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
         return moved;
 
     if (nav_ == NavMode::Orbit) {
+        // ⚠️ AN ORBIT LEAVES THE TOP-DOWN POSE, as SetOrbit does, and from where it is: the orbit
+        // just short of the pole whose screen up is the plan's -- (-cos yaw, -sin yaw) there
+        // against (-sin r, cos r), so yaw = r - 90 degrees. Kept, the pose's fixed roll fought
+        // the orbit's eye.
+        if (topDown_) {
+            yaw_ = topDownRotation_ - 0.5f * kPi;
+            pitch_ = kPitchLimit;
+            topDown_ = false;
+        }
         yaw_ -= float (dx) * kOrbitPerPixel;
         // Dragging DOWN looks down at the model, which is the convention every
         // CAD orbit uses; inverting it here is the single most complained-about

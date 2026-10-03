@@ -762,6 +762,7 @@ set (EVP_TEST_SOURCES
     test_sunstudylimits.cpp
     test_cursortotarget.cpp
     test_camera_cursorray.cpp
+    test_camera_plan.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp
