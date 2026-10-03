@@ -58,6 +58,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/RenderEngine.cpp"
     "${GEOM_DIR}/SpatialQueries.cpp"
     "${GEOM_DIR}/VertexWeld.cpp"
+    "${GEOM_DIR}/SnapshotAssembly.cpp"
     "${GEOM_DIR}/GeometryEngine.cpp"
     # Primitives.cpp builds the solids the node catalog offers. Pure maths with
     # no ACAPI, and every way of getting it wrong is a PICTURE - a rounded box, a
@@ -642,6 +643,7 @@ set (EVP_TEST_SOURCES
     test_normals.cpp
     test_geometryengine.cpp
     test_meshgroups.cpp
+    test_snapshotassembly.cpp
     test_wireframeedges.cpp
     test_scenecmdqueue.cpp
     ${EVP_SCENE_TEXT_TESTS}

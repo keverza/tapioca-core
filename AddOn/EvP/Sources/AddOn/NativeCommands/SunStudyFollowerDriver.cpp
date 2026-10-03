@@ -373,16 +373,19 @@ double ReadyWaitMs (std::chrono::steady_clock::time_point readyAt)
 // edits prevent accepting any completion even before MeshStore's id changes.
 bool RefreshSnapshot ()
 {
-    // ⚠️ FALSE MEANS THE SIGNAL MUST NOT BE CONSUMED. An extraction already in
-    // flight will finish and this tick simply comes round again in 200 ms; a
-    // driver that marked the edit as seen anyway would drop it, and the study
-    // would go on describing a building that had changed -- the exact silent
-    // failure the whole follower exists to prevent.
-    if (archviz::ExtractionWorker::Get ().IsRunning ())
+    const auto shared = MeshStore::Get ().Shared ();
+    if (shared == nullptr || shared->captureStamp != archviz::modelwatch::CaptureStamp ()) {
+        if (!archviz::ExtractionWorker::Get ().IsRunning ()) {
+            archviz::ExtractionWorker::Get ().Start (true);
+            Log ("requested shared sliced geometry capture");
+        }
         return false;
+    }
 
     const int64_t started = NowMs ();
-    const NativeCommandResult result = ExecuteNativeCommand ("BuildSnapshot", GS::ObjectState ());
+    GS::ObjectState params;
+    params.Add ("reuseShared", true);
+    const NativeCommandResult result = ExecuteNativeCommand ("BuildSnapshot", params);
     LogHostPhase ("snapshot", started);
     ++gSnapshotRebuilds;
     if (!result.ok) {
@@ -691,7 +694,7 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     gConfig = config;
     gConfig.valid = true;
     gAutoFollow = true;
-    gSeenGeometryEdits = archviz::modelwatch::Get ().geometryEdits;
+    gSeenGeometryEdits = static_cast<uint32_t> (archviz::modelwatch::CaptureStamp ());
     s_refreshSchedule.Reset (gSeenGeometryEdits);
     s_stage = "current";
     s_reuseRecord = evp::sunstudy::SunStudyStore::Get ().CompletedRecord (studyId);
@@ -753,7 +756,7 @@ void Tick ()
     RefreshRoleSelections ();
 
     // ---- 1. has Archicad reported a genuine element change? ------------------
-    const uint32_t edits = archviz::modelwatch::Get ().geometryEdits;
+    const uint32_t edits = static_cast<uint32_t> (archviz::modelwatch::CaptureStamp ());
     int64_t signatureObservedMs = now;
     s_navigationDeferred = NavigationActive ();
     if (s_refreshSchedule.Observe (edits, now)) {

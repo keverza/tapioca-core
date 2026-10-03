@@ -34,6 +34,26 @@ Analysis remains the model minus Context/Ignored, with Late filtering glass face
 - Offline tests cover queued cancellation, nonblocking progress, exception/revision
   safety, completed-record selection and backend/schema/adoption seams.
 
+## 3. Shared and incremental geometry capture
+
+- The viewer retains the original double meshes from its existing bounded host
+  slices and assembles a completed immutable snapshot on the worker. No second
+  host tessellation is needed for sun-study reruns.
+- One monotonic model-watch stamp covers edits, visibility/sweep changes and watch
+  epochs. A superseded/incomplete/cancelled pass never publishes a usable capture.
+- Small updates splice changed/new meshes and remove absent/hidden ones. Missing
+  revisions, selection/filtered bases or transparency-pool changes force a full
+  sliced pass, not a guessed merge. Material classification stays capture-owned.
+- The follower requests/waits for this shared capture without blocking the host;
+  `BuildSnapshot(reuseShared=true)` adopts it cheaply. Legacy explicit BuildSnapshot
+  remains a fresh synchronous baseline by default. It does not magically slice
+  Archicad's indivisible model-generation call.
+- Snapshot IDs share one allocator. Filtered copies receive distinct IDs and cannot
+  alias the full snapshot's query cache. Viewer capture does not overwrite a manual
+  selection/filtered snapshot or its metadata as a side effect.
+- Offline gates cover assembly, immutability, creation/deletion, missing revisions,
+  material renumbering, partial/cancelled passes, ownership and native slicing seams.
+
 ## Deferred live acceptance
 
 Compare `sun-gpu-step` CPU checks, GPU compute, wait, fallback reasons, and wall time

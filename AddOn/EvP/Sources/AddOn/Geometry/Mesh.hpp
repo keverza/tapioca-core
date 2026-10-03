@@ -51,6 +51,8 @@ struct Snapshot {
     // transparency beside the geometry prevents a later pool renumbering from
     // reclassifying old faces. Fractions, not percentages; missing is unknown.
     std::map<int32_t, double> materialTransparency;
+    uint64_t captureStamp = 0;  // nonzero model-watch epoch/revision, not a snapshot id
+    bool completeModel = false; // never true for selection/type-filtered/partial walks
 
     size_t TotalTriangles () const
     {

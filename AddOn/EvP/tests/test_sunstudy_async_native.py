@@ -347,8 +347,9 @@ def test_presets_glass_filter_and_live_analysis_survive_follower_adoption_and_st
     assert "AcquireCurrentModel" not in capture
     extraction = (_ADDON / "Geometry" / "GeometryExtractor.cpp").read_text(encoding="utf-8")
     snapshot = extraction.split("std::shared_ptr<const Snapshot> BuildSnapshot", 1)[1].split("return snap;", 1)[0]
-    assert "snap->materialTransparency.emplace (index, material.GetTransparency ())" in snapshot
-    assert snapshot.index("GetMaterialCount ()") < snapshot.index("GetElementCount ()")
+    assert "snap->materialTransparency = ReadMaterialTransparency (model)" in snapshot
+    assert snapshot.index("ReadMaterialTransparency (model)") < snapshot.index("GetElementCount ()")
+    assert "result.emplace (index, material.GetTransparency ())" in extraction
     filtered = (_ADDON / "NativeCommands" / "SnapshotCommands.cpp").read_text(encoding="utf-8")
     assert "keep->materialTransparency = snap->materialTransparency" in filtered
     driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
@@ -359,3 +360,24 @@ def test_presets_glass_filter_and_live_analysis_survive_follower_adoption_and_st
     assert "read (binding.analysisSet)" in driver
     assert 'params.Add ("analysisSelectionSet"' in driver
     assert "RecommendSunStudyPreset" not in driver  # fixed after initial adoption, no oscillation during edits
+
+
+def test_viewer_and_follower_share_only_complete_revision_guarded_sliced_captures():
+    extraction = (_ADDON / "ArchViz" / "ExtractionThread.cpp").read_text(encoding="utf-8")
+    assert "assembly.Add (std::move (packet.mesh))" in extraction
+    assert "PublishShared (snapshot)" in extraction
+    assert "SnapshotAssembly::CanUpdate" in extraction
+    assert "modelwatch::CaptureStamp () != handle->captureStamp" in extraction
+    assert "!gaveUp && !stopFlag_.load () && changedTo < 0" in extraction
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    refresh = driver.split("bool RefreshSnapshot ()", 1)[1].split("void StartReplacement", 1)[0]
+    assert "MeshStore::Get ().Shared ()" in refresh
+    assert "ExtractionWorker::Get ().Start (true)" in refresh
+    assert 'params.Add ("reuseShared", true)' in refresh
+    assert "CaptureStamp ()" in driver.split("void Tick ()", 1)[1]
+    commands = (_ADDON / "NativeCommands" / "SnapshotCommands.cpp").read_text(encoding="utf-8")
+    assert "snap->captureStamp == stamp && snap->completeModel" in commands
+    assert "keep->id = MeshStore::Get ().NextId ()" in commands
+    assert '"reuseShared":{"type":"boolean"}' in commands
+    assembly = (_ADDON / "Geometry" / "SnapshotAssembly.cpp").read_text(encoding="utf-8")
+    assert "ACAPI_" not in assembly and "MainThreadGate" not in assembly
