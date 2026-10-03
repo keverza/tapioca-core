@@ -258,6 +258,8 @@ TEST_P (SunStudyReuse, MaterialOnlyEditNeedsNoRaysAndSeedPreservesNeverLitSample
 {
     auto source = Prepared (Scene (), GetParam ());
     Complete (*source);
+    const auto hours = source->session.SunHours ();
+    ASSERT_GT (std::count (hours.begin (), hours.end (), 0.0), 0);
     auto next = Scene ();
     next->meshes[0].triMaterial = { 12, 13 };
     auto target = Prepared (next, GetParam ());
@@ -266,6 +268,36 @@ TEST_P (SunStudyReuse, MaterialOnlyEditNeedsNoRaysAndSeedPreservesNeverLitSample
     EXPECT_TRUE (target->session.Progress ().converged);
     EXPECT_EQ (target->session.Accumulator ().Bits (), source->session.Accumulator ().Bits ());
     EXPECT_EQ (target->session.Accumulator ().ActiveSampleCount (), 0u);
+    Complete (*target);
+    EXPECT_EQ (target->session.SunHours (), hours);
+    const auto* traced = dynamic_cast<const CountTraversal*> (target->traversal.get ());
+    ASSERT_NE (traced, nullptr);
+    EXPECT_EQ (traced->rays, 0u);
+}
+
+TEST_P (SunStudyReuse, ChangedLastNormalKeepsOnlyThatSampleDirty)
+{
+    auto source = Prepared (Scene (), GetParam ());
+    Complete (*source);
+    auto target = Prepared (Scene (), GetParam ());
+    auto oracle = Prepared (Scene (), GetParam ());
+    const size_t count = target->positions.size () / 3;
+    ASSERT_GT (count, 1u);
+    ASSERT_GT (source->session.Accumulator ().LitStepCount (count - 1), 0u);
+    // The last xyz normal's end is one-past the vector, never a valid subscript.
+    for (auto* record : { target.get (), oracle.get () }) {
+        for (size_t axis = 0; axis < 3; ++axis)
+            record->normals[(count - 1) * 3 + axis] *= -1.0;
+    }
+    const std::atomic<bool> cancelled { false };
+    EXPECT_EQ (ReuseUnaffectedSamples (*source, *target, cancelled), count - 1);
+    EXPECT_EQ (target->session.Accumulator ().ActiveSampleCount (), 1u);
+    EXPECT_FALSE (target->session.Progress ().converged);
+    Complete (*target);
+    Complete (*oracle);
+    EXPECT_EQ (target->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
+    EXPECT_EQ (target->session.SunHours (), oracle->session.SunHours ());
+    EXPECT_EQ (target->session.Accumulator ().LitStepCount (count - 1), 0u);
 }
 
 INSTANTIATE_TEST_SUITE_P (Domains, SunStudyReuse, testing::Values (false, true));
