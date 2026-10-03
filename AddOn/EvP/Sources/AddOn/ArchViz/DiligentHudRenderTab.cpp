@@ -116,8 +116,16 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         // The cut: the walls' outline at the storey's cut height (ViewerPlanMode.hpp `DrawPlanCut`).
         ImGui::Checkbox ("wall outlines (the cut)##plan", &state.planCutShown);
         if (state.planCutShown) {
-            ImGui::Checkbox ("fill the cut walls##plan", &state.planCutFill);
+            ImGui::SetNextItemWidth (-FLT_MIN);
+            hudshell::ColourChoice ("##plancutline", state.planCutRgba);
+            ImGui::TextDisabled ("line colour");
             ImGui::SliderFloat ("line##plancut", &state.planCutWidthPixels, 1.0f, 6.0f, "%.1f px");
+            ImGui::Checkbox ("fill the cut walls##plan", &state.planCutFill);
+            if (state.planCutFill) {
+                ImGui::SetNextItemWidth (-FLT_MIN);
+                hudshell::ColourChoice ("##plancutfill", state.planCutFillRgba, true);
+                ImGui::TextDisabled ("fill colour");
+            }
             if (!scene.planCutReceived)
                 ImGui::TextDisabled ("the cut comes with the model's first full read");
             else if (scene.planCutVertices == 0)

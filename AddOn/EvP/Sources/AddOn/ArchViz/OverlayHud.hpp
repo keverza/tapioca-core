@@ -67,6 +67,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
+#include "ArchViz/StorySliceOverlayContent.hpp" // the storey slices' controls, on Settings
 
 #include <cstdint>
 #include <functional>
@@ -159,7 +160,8 @@ struct LegendBar {
 struct Change {
     // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; "metadata" (a
     // field of the Selection page: `id` its key, `value` and `text` what it was set to); "floors"
-    // (the building section's run: `text` its storeys, "" for none); or a control's: "checkbox",
+    // (the building section's run: `text` its storeys, "" for none); "display" (Settings' Displays:
+    // `id` and `text` what changed, "slices on", "slices line"); or a control's: "checkbox",
     // "slider", "combo", "tab", "button"
     std::string kind;
     std::string key;   // the panel's; empty for the HUD's own (the text size, Settings)
@@ -210,6 +212,19 @@ struct Layout {
 // Where each change goes: the views' engines hand them to the event ring with their view.
 using ChangeSink = std::function<void (const Change&)>;
 
+// ⚠️ THE ADD-ON'S OWN DISPLAYS, SWITCHED AND STYLED FROM SETTINGS (the user, 2026-10-03: Settings
+// should have options for the additional information displays there are -- the storey slices
+// on and off, and their style). What they are now, from the view's owner; what the user makes
+// them, `TakeDisplays`' -- the owner applies it after the layout (StorySliceOverlay.hpp: a new
+// look is `Restyle`, nothing read again).
+struct Displays {
+    bool slicesOn = false;
+    bool slicesFromModel = false;       // the whole model cut at each storey; else the selected massing slabs
+    storysliceoverlay::Controls slices; // their look: line, fill, labels
+    std::string slicesSaid;             // what they said last: what was cut, or why nothing was
+    bool annotationsOn = false;         // the Watch trace's annotations
+};
+
 // ⚠️ THE HUD'S OWN PAGES (the user, 2026-10-03: the HUD always starts with the overlay; Stats,
 // Selection, Settings and Debug are its own). What they show, from the view's owner before
 // each layout -- the engine reads nothing of the runtimes. `standalone`: the overlay runs in
@@ -228,6 +243,8 @@ struct OwnPages {
     // What the Debug tab's console says (HudConsole.hpp), oldest first: the tab's title counts the
     // errors and warnings the HUD has not shown yet.
     std::vector<hudconsole::Entry> console;
+    // The add-on's own displays, as they are: Settings switches and styles them.
+    Displays displays;
     // ⚠️ THE DOCK IS A SWITCH BETWEEN THE OVERLAY AND THE SEPARATE VIEWER (the user, 2026-10-03):
     // the overlay's circle at its top -- its state; filled while the overlay is shown, and
     // pressed it shows or hides it -- and the viewer's at its bottom, pressed to switch to it
@@ -272,6 +289,9 @@ bool TakeViewerRequest (State& state);
 // What the user changed in the Selection page's metadata since the last call, in order: the
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
+// What the user set the displays to on Settings since the last call: true, and `displays` the
+// whole of it -- the owner applies it, after the layout, never inside it.
+bool TakeDisplays (State& state, Displays& displays);
 // The floors picked on the building section (HudSection.hpp): the owner draws their slices on
 // the 3D overlay, and clears them when the section is another building's.
 hudsection::Run PickedFloors (const State& state);

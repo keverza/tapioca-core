@@ -618,6 +618,69 @@ bool Section (const char* label, bool defaultOpen)
     return ImGui::CollapsingHeader (label, defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : 0);
 }
 
+namespace {
+
+// The colours a display is drawn in: drafting greys first, then a few that read on a model.
+struct Named {
+    const char* name;
+    uint32_t rgb; // 0xRRGGBB
+};
+constexpr Named kPalette[] = {
+    { "Black", 0x1E1E1Eu }, { "Graphite", 0x3C3C3Cu }, { "Grey", 0x8C8C8Cu }, { "Light grey", 0xC8C8C8u },
+    { "White", 0xFFFFFFu }, { "Blue", 0x2F6FD0u },     { "Teal", 0x1F9E89u }, { "Green", 0x3A9A3Au },
+    { "Amber", 0xE8A33Du }, { "Orange", 0xE4572Eu },   { "Red", 0xD64545u },  { "Violet", 0x7B4FD0u },
+};
+
+// A swatch a line high, from `at`, in `rgba` made opaque -- a translucent fill shows its hue.
+void Swatch (ImVec2 at, float height, uint32_t rgba)
+{
+    const float side = std::floor (height * 0.7f);
+    const ImVec2 a (at.x, at.y + std::floor ((height - side) * 0.5f));
+    ImDrawList* const draw = ImGui::GetWindowDrawList ();
+    draw->AddRectFilled (a, ImVec2 (a.x + side, a.y + side), Packed (rgba | 0xFFu), 0.15f * side);
+    draw->AddRect (a, ImVec2 (a.x + side, a.y + side), Packed (kTipEdgeRgba), 0.15f * side);
+}
+
+} // namespace
+
+bool ColourChoice (const char* id, uint32_t& rgba, bool keepAlpha)
+{
+    const uint32_t rgb = rgba >> 8;
+    const Named* shown = nullptr;
+    for (const Named& named : kPalette)
+        if (named.rgb == rgb)
+            shown = &named;
+    const float h = ImGui::GetTextLineHeight ();
+    const float lead = std::floor (h * 0.7f) + ImGui::GetStyle ().ItemInnerSpacing.x;
+    bool chosen = false;
+    ImGui::PushID (id);
+    const bool open = ImGui::BeginCombo ("##colour", nullptr, ImGuiComboFlags_CustomPreview);
+    if (ImGui::BeginComboPreview ()) {
+        const ImVec2 at = ImGui::GetCursorScreenPos ();
+        Swatch (at, h, rgba);
+        ImGui::SetCursorScreenPos (ImVec2 (at.x + lead, at.y));
+        ImGui::TextUnformatted (shown != nullptr ? shown->name : "custom");
+        ImGui::EndComboPreview ();
+    }
+    if (open) {
+        for (const Named& named : kPalette) {
+            const ImVec2 at = ImGui::GetCursorScreenPos ();
+            ImGui::PushID (named.name);
+            if (ImGui::Selectable ("##named", &named == shown) && &named != shown) {
+                rgba = (named.rgb << 8) | (keepAlpha ? (rgba & 0xFFu) : 0xFFu);
+                chosen = true;
+            }
+            ImGui::PopID ();
+            Swatch (at, h, named.rgb << 8);
+            ImGui::GetWindowDrawList ()->AddText (ImVec2 (at.x + lead, at.y), ImGui::GetColorU32 (ImGuiCol_Text),
+                                                  named.name);
+        }
+        ImGui::EndCombo ();
+    }
+    ImGui::PopID ();
+    return chosen;
+}
+
 bool HudSettings (uint32_t& fontStep, Placement& placement, bool& reset)
 {
     bool changed = false;

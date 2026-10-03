@@ -13,6 +13,7 @@
 #include "ArchViz/Dxgi/SceneGuest.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/OverlayAnnotations.hpp" // Settings' displays: the Watch annotations
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayInput.hpp"
@@ -21,6 +22,7 @@
 #include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/SectionModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
+#include "ArchViz/StorySliceOverlay.hpp" // Settings' displays: the storey slices
 #include "Metadata/MetadataExtractor.hpp"
 
 #include <algorithm>
@@ -377,7 +379,39 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.metadata = g_metadata;
     pages.section = g_section.section;
     pages.console = hudconsole::Entries (); // the Debug tab's console: what to check when something fails
+    // The add-on's own displays as they are: Settings switches and styles them (ApplyDisplays).
+    const storysliceoverlay::State slices = storysliceoverlay::Describe ();
+    pages.displays.slicesOn = slices.enabled;
+    pages.displays.slicesFromModel = storysliceoverlay::LastRequest ().source == storysliceoverlay::Source::Model;
+    pages.displays.slices = storysliceoverlay::LastControls ();
+    pages.displays.slicesSaid = slices.message;
+    pages.displays.annotationsOn = overlayannotations::Describe ().enabled;
     return pages;
+}
+
+void ApplyDisplays (const overlayhud::Displays& displays)
+{
+    namespace slices = storysliceoverlay;
+    const slices::State now = slices::Describe ();
+    slices::Request request = slices::LastRequest ();
+    const slices::Source source = displays.slicesFromModel ? slices::Source::Model : slices::Source::Selection;
+    if (!displays.slicesOn) {
+        if (now.enabled)
+            slices::Apply (false, slices::Request {}, displays.slices, false);
+    }
+    else if (!now.enabled || request.source != source) {
+        // On, or from elsewhere: the selected slabs taken now, or the model's cut asked for.
+        request.source = source;
+        request.elements.clear ();
+        slices::Apply (true, request, displays.slices, false);
+    }
+    else {
+        slices::Restyle (displays.slices);
+    }
+    if (displays.annotationsOn != overlayannotations::Describe ().enabled)
+        overlayannotations::Apply (displays.annotationsOn);
+    overlayinput::RequestLayout (overlayinput::View::ThreeD);
+    overlayinput::RequestLayout (overlayinput::View::Plan);
 }
 
 overlayhud::Engine* Prepare (overlayinput::View view)

@@ -45,6 +45,12 @@ void FollowFloors (const hudsection::Run& run);
 // The project closed (§8): the selection and the rates are that project's.
 void Forget ();
 
+// Settings' displays as the user set them (OverlayHud.hpp `Displays`), applied: the storey slices
+// switched on (taking the selection, or asking for the model's cut) or off, or -- on and from the
+// same source -- given their new look without anything read again (StorySliceOverlay::Restyle);
+// the Watch annotations switched. Then both HUDs laid out again with what it made of it.
+void ApplyDisplays (const overlayhud::Displays& displays);
+
 // ⚠️ A NEW CONSOLE ENTRY IS LAID OUT WITHOUT WAITING FOR THE POINTER (HudConsole.hpp): on, every
 // entry said -- on any thread -- asks both views' HUDs for a layout from the message loop, one
 // for a burst, so the Debug tab's count appears when something fails. Off at unload.

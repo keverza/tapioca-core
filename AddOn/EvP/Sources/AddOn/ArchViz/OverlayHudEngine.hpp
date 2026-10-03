@@ -89,6 +89,10 @@ struct State {
     // the newest its Clear hid. Both views'.
     uint64_t consoleSeen = 0;
     uint64_t consoleCleared = 0;
+    // The displays as the user set them on Settings, not yet taken by the owner (TakeDisplays):
+    // while pending, Settings shows them rather than what the owner said before.
+    Displays displays;
+    bool displaysPending = false;
 };
 
 struct Engine::Impl {
@@ -196,8 +200,10 @@ struct Engine::Impl {
     // The host opened or closed: said, with the tab it shows.
     void Opening (bool open, const std::string& title);
 
-    // The Settings page: the HUD's style, the overlay's display (OverlayHudHost.cpp).
+    // The Settings page: the HUD's style, the overlay's display (OverlayHudHost.cpp), and the
+    // add-on's own displays switched and styled (OverlayHudDisplays.cpp).
     void Settings ();
+    void DisplaySettings ();
 
     // The own pages (OverlayHudOwn.cpp): Stats -- the owner's cards, then each panel that asked
     // to be one; Selection; Debug. And the title on a tab, by its key.

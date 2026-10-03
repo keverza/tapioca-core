@@ -4,6 +4,7 @@
 #include "ArchViz/DiligentHudSections.hpp"
 
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/HudShell.hpp" // ColourChoice
 #include "ArchViz/InputRingBuffer.hpp"
 
 #include <imgui.h>
@@ -222,7 +223,16 @@ void DrawStorySliceControls (HudState& state, const DiligentSceneStats& scene)
                                  scene.storeySliceAreaM2);
         }
 
+        // Their colours, from a few (the user, 2026-10-03: style controls for the displays).
+        ImGui::SetNextItemWidth (-1.0f);
+        hudshell::ColourChoice ("##slicecolour", state.storySliceRgba);
+        ImGui::TextDisabled ("line colour");
         ImGui::Checkbox ("fill the contour", &state.storySliceFill);
+        if (state.storySliceFill) {
+            ImGui::SetNextItemWidth (-1.0f);
+            hudshell::ColourChoice ("##slicefill", state.storySliceFillRgba, true);
+            ImGui::TextDisabled ("fill colour");
+        }
 
         // ⚠️ THREE STATES, NOT A "HIDE BEHIND GEOMETRY" BOOL. They answer
         // different questions: hidden reads the storey as a plan, dashed

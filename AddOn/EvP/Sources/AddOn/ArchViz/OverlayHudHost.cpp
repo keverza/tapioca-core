@@ -272,16 +272,16 @@ void Engine::Impl::Settings ()
     bool hover = HoverMode (*store);
     if (ImGui::Checkbox ("Hover readout##tapioca.hover", &hover))
         SetHover (hover);
-    if (layerNames.empty ()) {
+    if (layerNames.empty ())
         ImGui::TextDisabled ("No layers");
-        return;
-    }
     // Each layer drawn here, shown or hidden: a hidden one draws nothing, its panels no tab.
     for (const std::string& name : layerNames) {
         bool on = LayerShown (*store, name);
         if (ImGui::Checkbox ((Readable (name) + "##layer." + name).c_str (), &on))
             ShowLayer (name, on);
     }
+    // The add-on's own displays: switched on and off, and styled (OverlayHudDisplays.cpp).
+    DisplaySettings ();
 }
 
 // ⚠️ HOVER MODE'S READOUT IS IN THE HOST (the user, 2026-10-01: in the ImGui panel, not near

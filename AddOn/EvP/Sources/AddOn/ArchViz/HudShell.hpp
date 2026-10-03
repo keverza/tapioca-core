@@ -211,6 +211,13 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
 // ImGui keeps its open state by its label's id.
 bool Section (const char* label, bool defaultOpen = false);
 
+// ⚠️ A COLOUR IS CHOSEN FROM A FEW, NOT MIXED (the user, 2026-10-03: style controls for what
+// the HUD displays; editing by dropdowns, not dialogs). A dropdown of named colours, each with
+// its swatch, the one set shown in it -- by name, or as "custom" with its swatch when it is none
+// of them. `keepAlpha`: a choice keeps `rgba`'s own alpha (a fill's translucency). True when the
+// user chose another.
+bool ColourChoice (const char* id, uint32_t& rgba, bool keepAlpha = false);
+
 // The HUD's own settings, the same in every HUD: its text size's step and its position --
 // a Reset that puts the floating panel back where its look asks. True when either was changed
 // by the user in this frame; `reset` says which.

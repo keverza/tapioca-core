@@ -85,6 +85,10 @@ void FollowHudState ()
         selectionmetadata::Request (std::move (edits), {}, [] () { overlayhudmodel::SelectionChanged (); });
     // The building section's floors picked: their slices on the 3D overlay.
     overlayhudmodel::FollowFloors (overlayhud::PickedFloors (*state));
+    // Settings' displays, as the user set them: switched, or a new look on what was cut.
+    overlayhud::Displays displays;
+    if (overlayhud::TakeDisplays (*state, displays))
+        overlayhudmodel::ApplyDisplays (displays);
     const uint64_t revision = overlayhud::Revision (*state);
     if (revision == g_followedRevision)
         return;
