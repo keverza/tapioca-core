@@ -7,7 +7,7 @@ namespace geomsrv::archviz {
 // divisions/normalisation are done once in double precision on the CPU. The
 // triangle test is nanort's watertight shear test, with scaled distance bounds
 // instead of per-ray double division. Result 2 requests exact CPU resolution,
-// also when the bounded node/triangle work allowance is exhausted.
+// while result 3 identifies bounded node/triangle work exhaustion. Both use CPU.
 inline constexpr char kSunStudyGpuShader[] = R"hlsl(
 struct Node { double3 lo; double3 hi; uint first; uint count; uint escape; uint pad; };
 struct Triangle { double3 a; double3 b; double3 c; };
@@ -95,12 +95,12 @@ uint TraceTree(double3 origin, bool context, inout uint work) {
     uint index = 0, result = 0;
     uint count = context ? partitions.x : sceneAndFlags.x;
     [loop] while (index < count) {
-        if (++work > sceneAndFlags.w) return 2;
+        if (++work > sceneAndFlags.w) return 3;
         Node node;
         if (context) node = contextNodes[index]; else node = nodes[index];
         if (!BoxHit(node, origin)) { index = node.escape; continue; }
         [loop] for (uint i = 0; i < node.count; ++i) {
-            if (++work > sceneAndFlags.w) return 2;
+            if (++work > sceneAndFlags.w) return 3;
             Triangle tri;
             if (context) tri = contextTriangles[node.first + i]; else tri = triangles[node.first + i];
             uint hit = TriangleHit(tri, origin);
@@ -119,7 +119,7 @@ void main(uint3 thread : SV_DispatchThreadID) {
     uint context = TraceTree(origin, true, work);
     if (context == 1) { answers[thread.x] = 1; return; }
     uint analysis = TraceTree(origin, false, work);
-    answers[thread.x] = analysis == 1 ? 1 : (context == 2 || analysis == 2 ? 2 : 0);
+    answers[thread.x] = analysis == 1 ? 1 : max(context, analysis);
 }
 )hlsl";
 

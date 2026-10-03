@@ -254,7 +254,7 @@ TEST (SunStudyGpuTraversal, HardwarePacketsMatchCpuAcrossDirectionsBoundsAndGeor
                 EXPECT_EQ (actual, expected) << "offset=" << offset << " tmax=" << tmax;
             }
         }
-        EXPECT_EQ (gpu.Stats ().dispatches, 45u);
+        EXPECT_EQ (gpu.Stats ().dispatches, 15u);
         EXPECT_EQ (gpu.Stats ().gpuRays, 8197u * 15);
         EXPECT_GT (gpu.Stats ().validationRays, 4096u);
         std::printf ("GPU sun parity: adapter=%s rays=%llu fallback=%llu\n", gpu.Stats ().adapter.c_str (),
@@ -295,6 +295,31 @@ TEST (SunStudyGpuTraversal, BoundaryRaysAndAccumulatorBitsMatchCpu)
     ASSERT_TRUE (expected.AccumulateStep (cpu, samples, 1, up, 0.001, 5.0, 1));
     EXPECT_EQ (actual.Bits (), expected.Bits ());
     EXPECT_GT (gpu.Stats ().cpuFallbackRays, 0u) << "edges and distance boundaries must use CPU resolution";
+    EXPECT_LT (gpu.Stats ().cpuCheckRays, gpu.Stats ().cpuFallbackRays + gpu.Stats ().validationRays);
+    EXPECT_EQ (gpu.Stats ().cpuFallbackRays, gpu.Stats ().ambiguousRays + gpu.Stats ().workLimitRays);
+}
+
+TEST (SunStudyGpuTraversal, PacketRingRefillsWithoutLosingTailOrReorderingAnswers)
+{
+    auto engine = std::make_shared<geomsrv::QueryEngine> (MakeScene (1e9));
+    SunStudyGpuTraversal gpu (engine);
+    evp::sunstudy::CpuTraversal cpu (engine);
+    const auto origins = MakeOrigins (16384 * 7 + 37, 1e9);
+    const double dir[] = { 0.23, -0.11, 0.87 };
+    std::vector<uint8_t> actual (origins.size () / 3), expected (actual.size ());
+    for (const double tmax : { 0.0, 7.0 }) {
+        ASSERT_TRUE (gpu.OccludeDirectionalCancellable (origins.data (), actual.size (), dir, 0.001, tmax,
+                                                        actual.data (), 4, [] { return false; }));
+        if (Unavailable (gpu.Stats ()))
+            GTEST_SKIP () << gpu.Stats ().error;
+        ASSERT_TRUE (gpu.Stats ().available) << gpu.Stats ().error;
+        cpu.OccludeDirectional (origins.data (), expected.size (), dir, 0.001, tmax, expected.data (), 4);
+        EXPECT_EQ (actual, expected);
+    }
+    EXPECT_EQ (gpu.Stats ().dispatches, 16u);
+    EXPECT_EQ (gpu.Stats ().maxInFlight, 3u);
+    EXPECT_EQ (gpu.Stats ().readbackBytes, actual.size () * sizeof (uint32_t) * 2);
+    EXPECT_EQ (gpu.Stats ().gpuRays, actual.size () * 2);
 }
 
 TEST (SunStudyGpuTraversal, ClosedAndSlopedSolidsAndThinOccludersMatchCpu)

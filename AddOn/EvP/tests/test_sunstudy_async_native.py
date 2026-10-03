@@ -228,7 +228,9 @@ def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explic
         "D3D11_FEATURE_DOUBLES",
         "D3D11_ASYNC_GETDATA_DONOTFLUSH",
         "D3D11_MAP_FLAG_DO_NOT_WAIT",
-        "kPacketRays = 4096",
+        "kMinGpuRays = 4096",
+        "kPacketRays = 16384",
+        "kInFlightPackets = 3",
         "kRayWorkLimit = 4096",
         "isCancelled ()",
         "CPU/GPU parity mismatch",
@@ -241,6 +243,17 @@ def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explic
     assert "OccludeDirectionalCancellable" in (_ADDON / "SunStudy" / "SunStudyOcclusion.cpp").read_text(
         encoding="utf-8"
     )
+
+
+def test_gpu_pipeline_keeps_exact_cpu_guards_and_avoids_duplicate_serial_checks():
+    source = (_ADDON / "ArchViz" / "SunStudyGpuTraversal.cpp").read_text(encoding="utf-8")
+    assert "cpu.Occluded (" not in source
+    assert "cpu.OccludeDirectional (&checkPositions" in source
+    assert "answers[i] >= 2 || validate" in source
+    assert "CopySubresourceRegion (packet.staging" in source
+    assert "ReadPacket (packet" in source and "SubmitPacket (packet" in source
+    for field in ("ambiguousRays=", "workLimitRays=", "cpuCheckRays=", "maxInFlight="):
+        assert field in source
 
 
 def test_bound_role_sets_are_captured_on_main_and_followed_before_completion_can_publish():

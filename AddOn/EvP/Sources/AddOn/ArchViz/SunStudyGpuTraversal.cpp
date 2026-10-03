@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -23,7 +24,9 @@ namespace geomsrv::archviz {
 namespace {
 using Microsoft::WRL::ComPtr;
 using Clock = std::chrono::steady_clock;
-constexpr uint32_t kPacketRays = 4096;
+constexpr uint32_t kMinGpuRays = 4096;
+constexpr uint32_t kPacketRays = 16384;
+constexpr size_t kInFlightPackets = 3;
 constexpr uint32_t kGroupRays = 64;
 constexpr uint32_t kRayWorkLimit = 4096;
 constexpr size_t kSceneBudgetBytes = 512ull * 1024 * 1024;
@@ -88,6 +91,15 @@ struct SunStudyGpuTraversal::Impl {
         size_t bytes = 0;
         double padding = 0.0;
     };
+    struct PacketBuffers {
+        ComPtr<ID3D11Buffer> origins, output, staging, constants;
+        ComPtr<ID3D11ShaderResourceView> originView;
+        ComPtr<ID3D11UnorderedAccessView> outputView;
+        ComPtr<ID3D11Query> completed, timestampBegin, timestampEnd, timestampDisjoint;
+        size_t first = 0;
+        uint32_t count = 0;
+        Clock::time_point submitted;
+    };
     std::shared_ptr<const QueryEngine> engine, contextEngine;
     evp::sunstudy::SunStudyPartitionTraversal cpu;
     mutable std::mutex mutex;
@@ -96,11 +108,7 @@ struct SunStudyGpuTraversal::Impl {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<ID3D11ComputeShader> shader;
-    ComPtr<ID3D11Buffer> origins, output, staging, constants;
-    ComPtr<ID3D11ShaderResourceView> originView;
-    ComPtr<ID3D11UnorderedAccessView> outputView;
-    ComPtr<ID3D11Query> completed;
-    ComPtr<ID3D11Query> timestampBegin, timestampEnd, timestampDisjoint;
+    std::array<PacketBuffers, kInFlightPackets> packets;
     HANDLE yieldTimer = nullptr;
     std::shared_ptr<SceneBuffers> analysisScene, contextScene;
 
@@ -255,10 +263,10 @@ struct SunStudyGpuTraversal::Impl {
             stats.cpuFallbackRays += count;
             return !isCancelled || !isCancelled ();
         }
-        for (size_t first = 0; first < count; first += kPacketRays) {
+        for (size_t first = 0; first < count; first += kMinGpuRays) {
             if (isCancelled ())
                 return false;
-            const size_t size = std::min<size_t> (kPacketRays, count - first);
+            const size_t size = std::min<size_t> (kMinGpuRays, count - first);
             cpu.OccludeDirectional (&positions[first * 3], size, dir, tmin, tmax, &answers[first], maxParallel);
             stats.cpuFallbackRays += size;
         }
@@ -317,35 +325,34 @@ struct SunStudyGpuTraversal::Impl {
         stats.contextUploadedBytes = stats.contextReused ? 0 : contextScene->bytes;
         if (isCancelled && isCancelled ())
             return false;
-        if (!Buffer (kPacketRays * 3 * sizeof (double), 3 * sizeof (double), D3D11_BIND_SHADER_RESOURCE, nullptr,
-                     origins, &originView) ||
-            !Buffer (kPacketRays * sizeof (uint32_t), sizeof (uint32_t), D3D11_BIND_UNORDERED_ACCESS, nullptr,
-                     output) ||
-            !Buffer (sizeof (Parameters), 0, D3D11_BIND_CONSTANT_BUFFER, nullptr, constants) ||
-            FAILED (device->CreateUnorderedAccessView (output.Get (), nullptr, &outputView))) {
-            Disable ("GPU scene or packet allocation failed");
-            return false;
-        }
         D3D11_BUFFER_DESC readback {};
         readback.ByteWidth = kPacketRays * sizeof (uint32_t);
         readback.Usage = D3D11_USAGE_STAGING;
         readback.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         D3D11_QUERY_DESC query { D3D11_QUERY_EVENT, 0 };
-        if (FAILED (device->CreateBuffer (&readback, nullptr, &staging)) ||
-            FAILED (device->CreateQuery (&query, &completed))) {
-            Disable ("GPU completion/readback allocation failed");
-            return false;
-        }
         // Optional diagnostics. The existing result event covers these queries;
         // their values are read once, never waited on or polled separately.
         D3D11_QUERY_DESC timestamp { D3D11_QUERY_TIMESTAMP, 0 };
         D3D11_QUERY_DESC disjoint { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
-        if (FAILED (device->CreateQuery (&timestamp, &timestampBegin)) ||
-            FAILED (device->CreateQuery (&timestamp, &timestampEnd)) ||
-            FAILED (device->CreateQuery (&disjoint, &timestampDisjoint))) {
-            timestampBegin.Reset ();
-            timestampEnd.Reset ();
-            timestampDisjoint.Reset ();
+        for (auto& packet : packets) {
+            if (!Buffer (kPacketRays * 3 * sizeof (double), 3 * sizeof (double), D3D11_BIND_SHADER_RESOURCE, nullptr,
+                         packet.origins, &packet.originView) ||
+                !Buffer (kPacketRays * sizeof (uint32_t), sizeof (uint32_t), D3D11_BIND_UNORDERED_ACCESS, nullptr,
+                         packet.output) ||
+                !Buffer (sizeof (Parameters), 0, D3D11_BIND_CONSTANT_BUFFER, nullptr, packet.constants) ||
+                FAILED (device->CreateUnorderedAccessView (packet.output.Get (), nullptr, &packet.outputView)) ||
+                FAILED (device->CreateBuffer (&readback, nullptr, &packet.staging)) ||
+                FAILED (device->CreateQuery (&query, &packet.completed))) {
+                Disable ("GPU packet ring allocation failed");
+                return false;
+            }
+            if (FAILED (device->CreateQuery (&timestamp, &packet.timestampBegin)) ||
+                FAILED (device->CreateQuery (&timestamp, &packet.timestampEnd)) ||
+                FAILED (device->CreateQuery (&disjoint, &packet.timestampDisjoint))) {
+                packet.timestampBegin.Reset ();
+                packet.timestampEnd.Reset ();
+                packet.timestampDisjoint.Reset ();
+            }
         }
         // Sleep(1) can oversleep by a full Windows timer tick per packet. Use a
         // worker-local high-resolution timer without changing host timer policy.
@@ -364,8 +371,7 @@ struct SunStudyGpuTraversal::Impl {
         return true;
     }
 
-    bool Packet (const double* positions, uint32_t count, Parameters params, uint32_t* answers,
-                 const std::function<bool ()>& isCancelled)
+    void SubmitPacket (PacketBuffers& packet, const double* positions, size_t first, uint32_t count, Parameters params)
     {
         const auto started = Clock::now ();
         params.axesAndCount[3] = count;
@@ -375,78 +381,141 @@ struct SunStudyGpuTraversal::Impl {
         params.guard[0] = std::max (analysisScene->padding, contextScene->padding);
         params.guard[1] = 1e-12; // ambiguous arithmetic is resolved by the CPU
         D3D11_BOX box { 0, 0, 0, static_cast<UINT> (count * 3 * sizeof (double)), 1, 1 };
-        context->UpdateSubresource (origins.Get (), 0, &box, positions, 0, 0);
-        context->UpdateSubresource (constants.Get (), 0, nullptr, &params, 0, 0);
+        context->UpdateSubresource (packet.origins.Get (), 0, &box, positions, 0, 0);
+        context->UpdateSubresource (packet.constants.Get (), 0, nullptr, &params, 0, 0);
         ID3D11ShaderResourceView* views[] = { analysisScene->nodeView.Get (), analysisScene->triangleView.Get (),
-                                              originView.Get (), contextScene->nodeView.Get (),
+                                              packet.originView.Get (), contextScene->nodeView.Get (),
                                               contextScene->triangleView.Get () };
-        ID3D11UnorderedAccessView* uav = outputView.Get ();
-        ID3D11Buffer* cb = constants.Get ();
+        ID3D11UnorderedAccessView* uav = packet.outputView.Get ();
+        ID3D11Buffer* cb = packet.constants.Get ();
         context->CSSetShader (shader.Get (), nullptr, 0);
         context->CSSetShaderResources (0, 5, views);
         context->CSSetUnorderedAccessViews (0, 1, &uav, nullptr);
         context->CSSetConstantBuffers (0, 1, &cb);
-        if (timestampDisjoint != nullptr) {
-            context->Begin (timestampDisjoint.Get ());
-            context->End (timestampBegin.Get ());
+        if (packet.timestampDisjoint != nullptr) {
+            context->Begin (packet.timestampDisjoint.Get ());
+            context->End (packet.timestampBegin.Get ());
         }
         context->Dispatch ((count + kGroupRays - 1) / kGroupRays, 1, 1);
-        if (timestampDisjoint != nullptr) {
-            context->End (timestampEnd.Get ());
-            context->End (timestampDisjoint.Get ());
+        if (packet.timestampDisjoint != nullptr) {
+            context->End (packet.timestampEnd.Get ());
+            context->End (packet.timestampDisjoint.Get ());
         }
         uav = nullptr;
         context->CSSetUnorderedAccessViews (0, 1, &uav, nullptr);
-        context->CopyResource (staging.Get (), output.Get ());
-        context->End (completed.Get ());
-        context->Flush ();
+        D3D11_BOX resultBox { 0, 0, 0, static_cast<UINT> (count * sizeof (uint32_t)), 1, 1 };
+        context->CopySubresourceRegion (packet.staging.Get (), 0, 0, 0, 0, packet.output.Get (), 0, &resultBox);
+        context->End (packet.completed.Get ());
         ++stats.dispatches;
         stats.gpuRays += count;
-        const auto submitted = Clock::now ();
-        stats.submitMilliseconds += std::chrono::duration<double, std::milli> (submitted - started).count ();
+        packet.first = first;
+        packet.count = count;
+        packet.submitted = Clock::now ();
+        stats.submitMilliseconds += Milliseconds (started);
+    }
+
+    bool ReadPacket (PacketBuffers& packet, uint32_t* answers, const std::function<bool ()>& isCancelled)
+    {
+        const auto waiting = Clock::now ();
         BOOL ready = FALSE;
         for (;;) {
             const HRESULT result =
-                context->GetData (completed.Get (), &ready, sizeof (ready), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+                context->GetData (packet.completed.Get (), &ready, sizeof (ready), D3D11_ASYNC_GETDATA_DONOTFLUSH);
             if (result == S_OK && ready)
                 break;
             if (isCancelled && isCancelled ()) {
                 Disable ("in-flight GPU packet cancelled");
                 return false;
             }
-            if (FAILED (result) || FAILED (device->GetDeviceRemovedReason ()) || Milliseconds (submitted) > 5000.0) {
+            if (FAILED (result) || FAILED (device->GetDeviceRemovedReason ()) ||
+                Milliseconds (packet.submitted) > 5000.0) {
                 Disable ("GPU packet completion failed or timed out");
                 return false;
             }
             // No render/host wait. Yield a low-priority analysis worker while
             // short packets run; back off only for an unusually delayed GPU.
-            if (Milliseconds (submitted) > 2.0)
+            if (Milliseconds (waiting) > 2.0)
                 YieldPacket ();
             else
                 std::this_thread::yield ();
         }
         D3D11_MAPPED_SUBRESOURCE mapped {};
-        if (FAILED (context->Map (staging.Get (), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped))) {
+        if (FAILED (context->Map (packet.staging.Get (), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped))) {
             Disable ("completed GPU packet could not be mapped");
             return false;
         }
-        std::memcpy (answers, mapped.pData, count * sizeof (uint32_t));
-        context->Unmap (staging.Get (), 0);
-        stats.readbackMilliseconds += Milliseconds (submitted);
-        if (timestampDisjoint != nullptr) {
+        std::memcpy (answers, mapped.pData, packet.count * sizeof (uint32_t));
+        context->Unmap (packet.staging.Get (), 0);
+        stats.readbackBytes += packet.count * sizeof (uint32_t);
+        stats.readbackMilliseconds += Milliseconds (waiting);
+        if (packet.timestampDisjoint != nullptr) {
             D3D11_QUERY_DATA_TIMESTAMP_DISJOINT timing {};
             UINT64 begin = 0, end = 0;
             constexpr UINT flags = D3D11_ASYNC_GETDATA_DONOTFLUSH;
-            if (context->GetData (timestampDisjoint.Get (), &timing, sizeof (timing), flags) == S_OK &&
+            if (context->GetData (packet.timestampDisjoint.Get (), &timing, sizeof (timing), flags) == S_OK &&
                 !timing.Disjoint && timing.Frequency > 0 &&
-                context->GetData (timestampBegin.Get (), &begin, sizeof (begin), flags) == S_OK &&
-                context->GetData (timestampEnd.Get (), &end, sizeof (end), flags) == S_OK && end >= begin) {
+                context->GetData (packet.timestampBegin.Get (), &begin, sizeof (begin), flags) == S_OK &&
+                context->GetData (packet.timestampEnd.Get (), &end, sizeof (end), flags) == S_OK && end >= begin) {
                 stats.computeMilliseconds +=
                     static_cast<double> (end - begin) * 1000.0 / static_cast<double> (timing.Frequency);
                 ++stats.timedDispatches;
             }
         }
         return true;
+    }
+
+    bool CheckPacket (const double* positions, size_t first, uint32_t count, const double dir[3], double tmin,
+                      double tmax, const uint32_t* answers, uint8_t* out, size_t maxParallel,
+                      const std::function<bool ()>& isCancelled)
+    {
+        const auto checking = Clock::now ();
+        std::vector<double> checkPositions;
+        std::vector<uint32_t> indices;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (i % 256 == 0 && isCancelled && isCancelled ())
+                return false;
+            const double* origin = &positions[(first + i) * 3];
+            if (answers[i] > 3 || !std::isfinite (origin[0]) || !std::isfinite (origin[1]) ||
+                !std::isfinite (origin[2])) {
+                Disable ("invalid GPU packet input/output");
+                return false;
+            }
+            // Keep full validation of the first 4096 rays of EVERY direction,
+            // then sparse checks. Ambiguous rays remain exact, not sampled.
+            const bool validate = first + i < kMinGpuRays || (first + i) % 257 == 0;
+            stats.validationRays += validate ? 1 : 0;
+            if (answers[i] >= 2) {
+                ++stats.cpuFallbackRays;
+                stats.ambiguousRays += answers[i] == 2 ? 1 : 0;
+                stats.workLimitRays += answers[i] == 3 ? 1 : 0;
+            }
+            if (answers[i] >= 2 || validate) {
+                indices.push_back (i);
+                checkPositions.insert (checkPositions.end (), origin, origin + 3);
+            }
+            else
+                out[first + i] = static_cast<uint8_t> (answers[i]);
+        }
+        std::vector<uint8_t> checks (indices.size ());
+        // Chunking bounds cancellation latency; the CPU baseline's parallel
+        // packet tracer replaces thousands of serial single-ray calls.
+        for (size_t offset = 0; offset < indices.size (); offset += kMinGpuRays) {
+            if (isCancelled && isCancelled ())
+                return false;
+            const size_t size = std::min<size_t> (kMinGpuRays, indices.size () - offset);
+            cpu.OccludeDirectional (&checkPositions[offset * 3], size, dir, tmin, tmax, &checks[offset], maxParallel);
+            stats.cpuCheckRays += size;
+        }
+        for (size_t j = 0; j < indices.size (); ++j) {
+            const uint32_t i = indices[j];
+            if (answers[i] < 2 && answers[i] != checks[j]) {
+                Disable ("CPU/GPU parity mismatch");
+                return false;
+            }
+            out[first + i] = checks[j];
+        }
+        stats.cpuCheckMilliseconds += Milliseconds (checking);
+        return !isCancelled || !isCancelled ();
     }
 };
 
@@ -474,7 +543,7 @@ bool SunStudyGpuTraversal::OccludeDirectionalCancellable (const double* origins,
     if (isCancelled && isCancelled ())
         return false;
     Parameters params {};
-    if (origins == nullptr || dir == nullptr || out == nullptr || count < kPacketRays || impl_->engine == nullptr ||
+    if (origins == nullptr || dir == nullptr || out == nullptr || count < kMinGpuRays || impl_->engine == nullptr ||
         (impl_->engine->TriangleCount () == 0 &&
          (impl_->contextEngine == nullptr || impl_->contextEngine->TriangleCount () == 0)) ||
         !RayParameters (dir, tmin, tmax, params) || !impl_->Initialise (isCancelled)) {
@@ -482,53 +551,55 @@ bool SunStudyGpuTraversal::OccludeDirectionalCancellable (const double* origins,
     }
     const auto started = Clock::now ();
     const auto previous = impl_->stats;
-    uint32_t answers[kPacketRays];
-    for (size_t first = 0; first < count; first += kPacketRays) {
+    std::vector<uint32_t> answers (kPacketRays);
+    size_t next = 0;
+    const auto submit = [&] (Impl::PacketBuffers& packet) {
+        const uint32_t size = static_cast<uint32_t> (std::min<size_t> (kPacketRays, count - next));
+        impl_->SubmitPacket (packet, &origins[next * 3], next, size, params);
+        next += size;
+    };
+    const size_t inFlight = std::min<size_t> (kInFlightPackets, (count + kPacketRays - 1) / kPacketRays);
+    impl_->stats.maxInFlight = std::max (impl_->stats.maxInFlight, inFlight);
+    for (size_t p = 0; p < inFlight; ++p)
+        submit (impl_->packets[p]);
+    impl_->context->Flush ();
+    for (size_t p = 0, resolved = 0; resolved < count; ++p) {
         if (isCancelled && isCancelled ())
             return false;
-        const uint32_t size = static_cast<uint32_t> (std::min<size_t> (kPacketRays, count - first));
-        if (!impl_->Packet (&origins[first * 3], size, params, answers, isCancelled)) {
+        auto& packet = impl_->packets[p % inFlight];
+        const size_t first = packet.first;
+        const uint32_t size = packet.count;
+        if (!impl_->ReadPacket (packet, answers.data (), isCancelled)) {
             if (isCancelled && isCancelled ())
                 return false;
             return impl_->CpuDirectional (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
         }
-        const auto checking = Clock::now ();
-        for (uint32_t i = 0; i < size; ++i) {
-            if (i % 256 == 0 && isCancelled && isCancelled ())
-                return false;
-            const double* origin = &origins[(first + i) * 3];
-            if (answers[i] > 2 || !std::isfinite (origin[0]) || !std::isfinite (origin[1]) ||
-                !std::isfinite (origin[2])) {
-                impl_->Disable ("invalid GPU packet input/output");
-                return impl_->CpuDirectional (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
-            }
-            if (answers[i] == 2) {
-                answers[i] = impl_->cpu.Occluded (origin, dir, tmin, tmax) ? 1 : 0;
-                ++impl_->stats.cpuFallbackRays;
-            }
-            // Validate the first packet of EACH direction, then sparse packets.
-            // A mismatch disables this backend and replays the WHOLE timestep.
-            if (first == 0 || i % 257 == 0) {
-                const uint32_t cpu = impl_->cpu.Occluded (origin, dir, tmin, tmax) ? 1 : 0;
-                ++impl_->stats.validationRays;
-                if (answers[i] != cpu) {
-                    impl_->Disable ("CPU/GPU parity mismatch");
-                    return impl_->CpuDirectional (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
-                }
-            }
-            out[first + i] = static_cast<uint8_t> (answers[i]);
+        // Refill before CPU checks so the GPU and exact CPU work overlap. A
+        // failure still replays the whole timestep, never a mixed partial day.
+        if (next < count) {
+            submit (packet);
+            impl_->context->Flush ();
         }
-        impl_->stats.cpuCheckMilliseconds += Milliseconds (checking);
+        if (!impl_->CheckPacket (origins, first, size, dir, tmin, tmax, answers.data (), out, maxParallel,
+                                 isCancelled)) {
+            if (isCancelled && isCancelled ())
+                return false;
+            return impl_->CpuDirectional (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);
+        }
+        resolved += size;
     }
     ArchVizLog (
         "pipeline: stage=sun-gpu-step snapshot=" + std::to_string (SceneVersion ()) + " backend=d3d11-fp64 rays=" +
         std::to_string (count) + " packets=" + std::to_string (impl_->stats.dispatches - previous.dispatches) +
         " cpuFallbackRays=" + std::to_string (impl_->stats.cpuFallbackRays - previous.cpuFallbackRays) +
+        " ambiguousRays=" + std::to_string (impl_->stats.ambiguousRays - previous.ambiguousRays) +
+        " workLimitRays=" + std::to_string (impl_->stats.workLimitRays - previous.workLimitRays) +
+        " cpuCheckRays=" + std::to_string (impl_->stats.cpuCheckRays - previous.cpuCheckRays) +
+        " maxInFlight=" + std::to_string (inFlight) +
         " validationRays=" + std::to_string (impl_->stats.validationRays - previous.validationRays) + " uploadBytes=" +
         std::to_string (count * 3 * sizeof (double) +
                         (impl_->stats.dispatches - previous.dispatches) * sizeof (Parameters)) +
-        " readbackBytes=" +
-        std::to_string ((impl_->stats.dispatches - previous.dispatches) * kPacketRays * sizeof (uint32_t)) +
+        " readbackBytes=" + std::to_string (impl_->stats.readbackBytes - previous.readbackBytes) +
         " submitMs=" + std::to_string (impl_->stats.submitMilliseconds - previous.submitMilliseconds) +
         " readbackWaitMs=" + std::to_string (impl_->stats.readbackMilliseconds - previous.readbackMilliseconds) +
         " cpuCheckMs=" + std::to_string (impl_->stats.cpuCheckMilliseconds - previous.cpuCheckMilliseconds) +
