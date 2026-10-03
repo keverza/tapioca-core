@@ -61,6 +61,7 @@
 //
 // MAIN THREAD. Pure apart from ImGui, so tests/cpp builds it with the vendored imgui.
 
+#include "ArchViz/HudMetadata.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
@@ -149,8 +150,9 @@ struct LegendBar {
 // hidden, a control's value. For Python (OverlayHudEvents.hpp); `key` splits into the
 // panel's layer and place.
 struct Change {
-    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; or a control's:
-    // "checkbox", "slider", "combo", "tab", "button"
+    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover", "metadata" (a
+    // field of the Selection page: `id` its key, `value` and `text` what it was set to); or a
+    // control's: "checkbox", "slider", "combo", "tab", "button"
     std::string kind;
     std::string key;   // the panel's; empty for the HUD's own (the text size, Settings)
     std::string title; // the panel's
@@ -209,6 +211,9 @@ struct OwnPages {
     bool standalone = false;
     std::vector<hudshell::Card> stats;
     hudshell::SelectionPage selection;
+    // The selection's Tapioca metadata, under its list: what the user changes there is
+    // `TakeMetadataEdits`'.
+    hudmeta::Page metadata;
     std::vector<hudshell::Card> debug;
     // ⚠️ THE DOCK IS A SWITCH BETWEEN THE OVERLAY AND THE SEPARATE VIEWER (the user, 2026-10-03):
     // the overlay's circle at its top -- its state; filled while the overlay is shown, and
@@ -251,6 +256,9 @@ void SetLayerShown (State& state, const std::string& layer, bool shown);
 // The viewer's circle pressed since the last call: the owner switches to the viewer -- after
 // the layout, never inside it -- and the request is gone.
 bool TakeViewerRequest (State& state);
+// What the user changed in the Selection page's metadata since the last call, in order: the
+// owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
+std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
 // Hover mode: off until the user turns it on in Settings or the HUD's menu, or Python does;
 // both views. `Revision` moves with it.
 bool HoverMode (const State& state);

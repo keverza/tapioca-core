@@ -81,6 +81,8 @@ struct State {
     std::set<std::string> seenPanels;
     // The viewer's circle pressed, and not yet taken by the owner (TakeViewerRequest).
     bool viewerRequested = false;
+    // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
+    std::vector<hudmeta::Edit> metadataEdits;
 };
 
 struct Engine::Impl {

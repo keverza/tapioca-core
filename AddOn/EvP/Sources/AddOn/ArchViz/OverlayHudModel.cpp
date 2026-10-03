@@ -19,6 +19,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayRuntimeReport.hpp"
 #include "ArchViz/PlanOverlayRuntime.hpp"
+#include "ArchViz/SelectionMetadata.hpp"
 #include "Metadata/MetadataExtractor.hpp"
 
 #include <algorithm>
@@ -44,24 +45,11 @@ constexpr uint32_t kAmber = 0xD9822BFFu;
 constexpr uint32_t kRed = 0xD64545FFu;
 
 // ---- the selection, read when Archicad says it changed ----------------------------------
+// ⚠️ AND WHEN THE HUD WROTE ITS METADATA: the writer lays the page out again with what the
+// elements then hold (SelectionMetadata.hpp `Request`'s `done`).
 bool g_selectionDirty = true;
 hudshell::SelectionPage g_selection;
-
-std::vector<std::string> SelectedGuids ()
-{
-    std::vector<std::string> out;
-    API_SelectionInfo info = {};
-    GS::Array<API_Neig> neigs;
-    const GSErrCode err = ACAPI_Selection_Get (&info, &neigs, false);
-    // The marquee's handle is ours to free, selected or not (SelectionBridge.cpp says why).
-    if (info.marquee.coords != nullptr)
-        BMKillHandle (reinterpret_cast<GSHandle*> (&info.marquee.coords));
-    if (err != NoError)
-        return out; // APIERR_NOSEL among others: nothing selected
-    for (UInt32 i = 0; i < neigs.GetSize (); ++i)
-        out.push_back (APIGuidToString (neigs[i].guid).ToCStr ().Get ());
-    return out;
-}
+hudmeta::Page g_metadata;
 
 const hudshell::SelectionPage& Selection ()
 {
@@ -70,11 +58,14 @@ const hudshell::SelectionPage& Selection ()
     g_selectionDirty = false;
     g_selection = hudshell::SelectionPage {};
     g_selection.known = true;
-    const std::vector<std::string> guids = SelectedGuids ();
+    g_metadata = hudmeta::Page {};
+    g_metadata.known = true;
+    const std::vector<std::string> guids = selectionmetadata::SelectedGuids ();
     g_selection.count = uint32_t (guids.size ());
     if (guids.empty ())
         return g_selection;
     const std::vector<std::string> listed (guids.begin (), guids.begin () + (std::min) (guids.size (), kListed));
+    g_metadata = selectionmetadata::Read (listed, g_selection.count);
     const std::shared_ptr<const MetaSet> facts = ExtractMetadataFor (listed, MetaLevel::Basic);
     for (const std::string& guid : listed) {
         hudshell::SelectedElement element;
@@ -369,6 +360,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
 {
     overlayhud::OwnPages pages = view == overlayinput::View::ThreeD ? ThreeD () : Plan ();
     pages.selection = Selection ();
+    pages.metadata = g_metadata;
     return pages;
 }
 
@@ -393,6 +385,7 @@ void Forget ()
     g_framesMovedAt = std::chrono::steady_clock::time_point {};
     g_selectionDirty = true;
     g_selection = hudshell::SelectionPage {};
+    g_metadata = hudmeta::Page {};
     g_composes3D = Rate {};
     g_presentsPlan = Rate {};
     g_drawnPlan = Rate {};

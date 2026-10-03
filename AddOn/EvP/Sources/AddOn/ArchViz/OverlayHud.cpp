@@ -157,6 +157,13 @@ bool TakeViewerRequest (State& state)
     return requested;
 }
 
+std::vector<hudmeta::Edit> TakeMetadataEdits (State& state)
+{
+    std::vector<hudmeta::Edit> edits;
+    edits.swap (state.metadataEdits);
+    return edits;
+}
+
 bool HoverMode (const State& state)
 {
     return state.hover;

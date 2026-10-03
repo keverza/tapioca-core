@@ -15,7 +15,9 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
+#include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 
 #include <algorithm>
@@ -76,6 +78,11 @@ void FollowHudState ()
     // layout that took the press (SurfaceSwitch.hpp).
     if (overlayhud::TakeViewerRequest (*state))
         surfaceswitch::Request (surfaceswitch::Surface::Viewer);
+    // The Selection page's metadata edits: written from the message loop too, in one undo step,
+    // to every element selected then; the page is read again after (SelectionMetadata.hpp).
+    std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);
+    if (!edits.empty ())
+        selectionmetadata::Request (std::move (edits), {}, [] () { overlayhudmodel::SelectionChanged (); });
     const uint64_t revision = overlayhud::Revision (*state);
     if (revision == g_followedRevision)
         return;

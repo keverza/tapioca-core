@@ -59,6 +59,16 @@ void Engine::Impl::StatsPage (const std::vector<const layers::Panel*>& panels, c
 void Engine::Impl::SelectionPage (float ui)
 {
     hudshell::SelectionList (own.selection, *look, ui);
+    // ⚠️ SAID, NOT WRITTEN: the owner writes an edit from the message loop, in one undo step,
+    // and lays the HUD out again with what the elements then hold (SelectionMetadata.hpp).
+    if (own.selection.count == 0)
+        return;
+    for (hudmeta::Edit& edit : hudmeta::Editor (own.metadata, *look, ui)) {
+        changes.push_back ({ "metadata", std::string (), "Selection", edit.id, -1,
+                             edit.kind == hudmeta::FieldKind::Toggle ? (edit.on ? 1.0 : 0.0) : edit.number, edit.text,
+                             true });
+        store->metadataEdits.push_back (std::move (edit));
+    }
 }
 
 void Engine::Impl::DebugPage (float ui)

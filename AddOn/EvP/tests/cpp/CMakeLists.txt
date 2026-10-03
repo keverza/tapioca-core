@@ -481,6 +481,8 @@ set (EVP_ARCHVIZ_SOURCES
     # font atlas, the same library the add-on links (TapiocaImGui below). Every HUD's
     # look, dock and floating panel are HudShell's.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
+    # The Selection page's Tapioca metadata: the schema's fields, their controls, an edit.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMetadata.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
@@ -674,6 +676,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudwidgets.cpp
     test_overlayhudown.cpp
     test_hudshell.cpp
+    test_hudmetadata.cpp
     test_tapiocametadata.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
