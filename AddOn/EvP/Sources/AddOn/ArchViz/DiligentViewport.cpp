@@ -31,6 +31,7 @@
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/Uniforms.hpp"
+#include "ArchViz/ViewerPlanMode.hpp"
 #include "Screenshot/ScreenshotStore.hpp"
 
 #include <windows.h>
@@ -214,7 +215,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             // ---- where the camera starts ------------------------------------
             float distance = 0.0f;
-            if (ApplyArchicadCamera (camera, cameraStart, surface.width, surface.height, &distance)) {
+            if (StartViewerCamera (camera, hudState, cameraStart, surface.width, surface.height, &distance)) {
                 ArchVizLog ("Diligent viewport camera from Archicad (" + cameraStart.source + "): target " +
                             std::to_string (cameraStart.target[0]) + "," + std::to_string (cameraStart.target[1]) +
                             "," + std::to_string (cameraStart.target[2]) + " distance " + std::to_string (distance) +
@@ -313,8 +314,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         uint32_t lastEnvironmentSettingsSeq = environmentSettingsSeq_.load ();
         bool lastCommandedCallout = showCallout_.load ();
         // ⚠️ THE EDGE, NOT THE STATE. The projection is re-derived only on the
-        // frame the toggle CHANGES -- see the block that reads this for why a
-        // per-frame recompute would make a parallel view refuse to zoom.
+        // frame the toggle CHANGES (ViewerPlanMode.cpp, Camera::SwitchProjection):
+        // a per-frame recompute would undo every zoom of a parallel view.
         bool lastOrthographic = hudState.orthographic;
         uint64_t lastCommandedSunSeq = sunOverrideSeq_.load ();
         uint64_t lastPlanAnchorSeq = 0; // 0 so the FIRST set is always adopted
@@ -542,7 +543,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // scene, which puts the panel underneath the building. One frame of
             // latency on "was that click for the combo box" is invisible; the
             // alternative is an orbit every time the user opens the dropdown.
-            if (!offscreen && camera.ApplyInput (input, hudState.wantsMouse, width, height))
+            if (!offscreen && NavigateViewer (camera, hudState, input, width, height))
                 userHasNavigated = true;
 
             // ---- the overlay path: Archicad drives ----------------------------
@@ -595,19 +596,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // Apply the projection mode before deriving either stable or
             // jittered matrices. Doing it later records one frame in the wrong
             // projection and contaminates temporal history.
-            if (hudState.orthographic != lastOrthographic) {
-                if (hudState.orthographic) {
-                    constexpr float kPi = 3.14159265358979323846f;
-                    const float halfHeight =
-                        camera.Distance () * std::tan (camera.FovDegreesVertical () * 0.5f * (kPi / 180.0f));
-                    camera.SetOrthographic (true, halfHeight > 1e-3f ? halfHeight : 1.0f);
-                }
-                else {
-                    camera.SetOrthographic (false, 0.0f);
-                }
+            if (FollowProjectionToggle (camera, hudState, lastOrthographic))
                 scene.ResetTemporalAntiAliasingHistory ();
-                lastOrthographic = hudState.orthographic;
-            }
 
             const bool blanked = blanked_.load ();
             scene.SetViewportSize (width, height);

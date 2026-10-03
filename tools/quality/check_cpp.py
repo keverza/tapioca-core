@@ -63,7 +63,7 @@ OVERSIZED = {
         "area, and the next feature extracts a seam rather than adding to it",
     ),
     "ArchViz/DiligentViewport.cpp": (
-        1093,
+        1083,
         "the single render-thread lifecycle and frame-order authority. Device and "
         "target control, support algorithms, scene storage/draw passes, and offscreen "
         "target ownership already live in separate translation units; splitting the "
@@ -71,7 +71,9 @@ OVERSIZED = {
         "entry freezes its current size, so future work must extract rather than grow it. "
         "+3 for the storey section overlay (2026-08-24): its 48-line frame-loop body was "
         "extracted to DiligentViewportSupport.cpp::UpdateAndDrawStorySlices, leaving only "
-        "the ordered call site, which is irreducible for anything that draws in the frame",
+        "the ordered call site, which is irreducible for anything that draws in the frame. "
+        "-10 for the viewer's plan mode (2026-10-03): the projection toggle's body moved to "
+        "ViewerPlanMode.cpp with the camera's start and navigation, three call sites left",
     ),
     "Palette/ControlPalette.cpp": (
         626,

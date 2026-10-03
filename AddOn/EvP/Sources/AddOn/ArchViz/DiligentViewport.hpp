@@ -248,10 +248,10 @@ struct CameraStart {
     bool orthographic = false;
     float orthoHalfHeightMetres = 0.0f; // half the window's height, in model metres
     float planRotationRadians = 0.0f;   // CCW angle of the screen's +X in model space
-    // ⚠️ A PLAN, CUT: the eye sits at `cutZ`, world metres -- a storey's cut plane -- so what is
-    // above it is behind the camera and only the storey and what lies below show, as on the
-    // floor plan (the viewer opened in the plan's place, ArchVizPanel::ReadPlanViewerCamera).
-    // Without it the parallel camera looks from far above, roofs first.
+    // ⚠️ A PLAN, CUT: the eye sits just over `cutZ`, world metres -- a storey's cut plane -- so
+    // what is above it is behind the camera and only the storey and what lies below show, as on
+    // the floor plan (the viewer opened in the plan's place, ArchVizPanel::ReadPlanViewerCamera;
+    // ViewerPlanMode.hpp). Without it the parallel camera looks from far above, roofs first.
     bool cut = false;
     float cutZ = 0.0f;
 

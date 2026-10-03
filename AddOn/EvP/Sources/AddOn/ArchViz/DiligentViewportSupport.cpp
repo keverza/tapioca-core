@@ -198,9 +198,8 @@ bool ApplyArchicadCamera (Camera& camera, const CameraStart& start, uint32_t wid
     // its far plane from it.
     if (start.orthographic) {
         constexpr float kPlanEyeHeightMetres = 5000.0f;
-        // A cut puts the eye on its plane: the target that far below it.
-        camera.SetTarget (start.target[0], start.target[1],
-                          start.cut ? start.cutZ - kPlanEyeHeightMetres : start.target[2]);
+        // A cut (the viewer opened in the plan's place) moves the eye onto it: ViewerPlanMode.cpp.
+        camera.SetTarget (start.target[0], start.target[1], start.target[2]);
         camera.SetDistance (kPlanEyeHeightMetres);
         camera.SetTopDown (start.planRotationRadians);
         camera.SetOrthographic (true, start.orthoHalfHeightMetres);

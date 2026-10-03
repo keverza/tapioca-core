@@ -152,3 +152,101 @@ TEST (CameraPlan, AnOrbitLeavesThePlanPoseFromWhereItIs)
     for (int k = 0; k < 16; ++k)
         EXPECT_NEAR (mine[k], theirs[k], 2e-3f) << "element " << k;
 }
+
+// ---- plan mode: the plan stays a plan unless the user frees it -------------------------------
+
+namespace {
+
+// The viewer opened in the plan's place: its home the plan, its orbit held.
+Camera PlanMode (float rotation)
+{
+    Camera camera = Plan (rotation);
+    camera.SetPlanHome (rotation, 3.1f, 12.0f);
+    camera.SetOrbitLocked (true);
+    return camera;
+}
+
+} // namespace
+
+// ⚠️ THE USER, 2026-10-03: the orbit locked out in the plan view. Held, the Shift-drag that
+// orbits elsewhere pans, and the plan is still straight down.
+TEST (CameraPlan, AHeldOrbitPans)
+{
+    Camera camera = PlanMode (0.6f);
+    const float world[3] = { 123.0f, 37.0f, 2.0f };
+    float x0 = 0.0f, y0 = 0.0f;
+    ToPixel (camera, world, x0, y0);
+    Drag (camera, 500, 300, 560, 330, true);
+    EXPECT_TRUE (camera.IsTopDown ());
+    float x1 = 0.0f, y1 = 0.0f;
+    ToPixel (camera, world, x1, y1);
+    EXPECT_NEAR (x1 - x0, 60.0f, 0.5f);
+    EXPECT_NEAR (y1 - y0, 30.0f, 0.5f);
+}
+
+// ⚠️ THE USER: a way back to the top view once it was turned. Freed and turned, the top view is
+// the plan again: straight down at its rotation, the eye on the cut, parallel, centred where the
+// view was.
+TEST (CameraPlan, TheTopViewComesBackFromAnOrbit)
+{
+    Camera camera = PlanMode (0.6f);
+    camera.SetOrbitLocked (false);
+    Drag (camera, 500, 300, 640, 420, true);
+    ASSERT_FALSE (camera.IsTopDown ());
+    float before[3];
+    camera.GetTarget (before);
+    camera.ReturnToPlan ();
+    EXPECT_TRUE (camera.IsTopDown ());
+    EXPECT_TRUE (camera.IsOrthographic ());
+    EXPECT_NEAR (Eye (camera), 3.1f, 1e-3f);
+    EXPECT_NEAR (camera.TopDownRotationRadians (), 0.6f, 1e-6f);
+    float after[3];
+    camera.GetTarget (after);
+    EXPECT_FLOAT_EQ (after[0], before[0]);
+    EXPECT_FLOAT_EQ (after[1], before[1]);
+    // The same picture as the plan opened with, moved by nothing but the target's place.
+    Camera home = Plan (0.6f);
+    home.SetTarget (after[0], after[1], after[2]);
+    float mine[16], theirs[16];
+    camera.GetViewMatrix (mine);
+    home.GetViewMatrix (theirs);
+    for (int k = 0; k < 16; ++k)
+        EXPECT_NEAR (mine[k], theirs[k], 1e-3f) << "element " << k;
+}
+
+// A fit in the plan's pose frames the model from the cut, not from above the roof.
+TEST (CameraPlan, AFitInThePlanFramesFromTheCut)
+{
+    Camera camera = PlanMode (0.0f);
+    const float low[3] = { 0.0f, 0.0f, -3.0f }, high[3] = { 60.0f, 30.0f, 40.0f };
+    camera.FrameBounds (low, high);
+    EXPECT_TRUE (camera.IsTopDown ());
+    EXPECT_NEAR (Eye (camera), 3.1f, 1e-3f);
+    EXPECT_GT (camera.OrthoHalfHeightMetres (), 30.0f) << "the whole model in the extent";
+}
+
+// The projection toggle keeps the picture at the target -- and, in the plan's pose, the cut:
+// a perspective eye over it, a parallel one back on it.
+TEST (CameraPlan, TheProjectionToggleKeepsThePicture)
+{
+    Camera camera;
+    camera.SetTarget (0.0f, 0.0f, 0.0f);
+    camera.SetDistance (20.0f);
+    camera.SetOrbit (0.4f, 0.5f);
+    camera.SwitchProjection (true);
+    const float half = 20.0f * std::tan (22.5f * 3.14159265358979f / 180.0f);
+    EXPECT_NEAR (camera.OrthoHalfHeightMetres (), half, 1e-4f);
+    InputSnapshot wheel = Pointer (500, 300);
+    wheel.wheelDelta = 120;
+    camera.ApplyInput (wheel, false, kWidth, kHeight);
+    camera.SwitchProjection (false);
+    EXPECT_NEAR (camera.Distance (), 20.0f * 0.88f, 1e-3f) << "the parallel zoom kept";
+
+    Camera plan = PlanMode (0.6f);
+    plan.SwitchProjection (false);
+    EXPECT_FALSE (plan.IsOrthographic ());
+    EXPECT_GT (Eye (plan), 3.1f + 10.0f) << "over the cut, looking at it";
+    plan.SwitchProjection (true);
+    EXPECT_NEAR (plan.OrthoHalfHeightMetres (), 12.0f, 1e-3f);
+    EXPECT_NEAR (Eye (plan), 3.1f, 1e-3f) << "back on the cut";
+}

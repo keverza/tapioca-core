@@ -81,6 +81,32 @@ void Camera::SetOrthographic (bool on, float halfHeightMetres)
     orthoHalfHeight_ = orthographic_ ? halfHeightMetres : 0.0f;
 }
 
+void Camera::SwitchProjection (bool parallel)
+{
+    const float tanHalf = std::tan (fovDegrees_ * kDegToRad * 0.5f);
+    if (parallel == orthographic_)
+        return;
+    // ⚠️ IN THE PLAN'S POSE THE CUT IS WHERE A PARALLEL EYE STANDS AND WHAT A PERSPECTIVE ONE LOOKS
+    // AT: the plan's target lies the whole eye height below the model, and a perspective eye a
+    // few metres above it would be underground.
+    const bool onPlan = topDown_ && planHome_;
+    if (parallel) {
+        const float half = distance_ * tanHalf;
+        SetOrthographic (true, half > 1e-3f ? half : 1.0f);
+        if (onPlan)
+            targetZ_ = planEyeZ_ - distance_;
+        return;
+    }
+    // ⚠️ BACK TO PERSPECTIVE AT THE EXTENT THE PARALLEL VIEW WAS ZOOMED TO, not at the distance it
+    // left with: a parallel zoom moves no eye, and the old distance would undo every notch.
+    const float half = orthoHalfHeight_;
+    SetOrthographic (false, 0.0f);
+    if (half > 0.0f && tanHalf > 1e-6f)
+        SetDistance (half / tanHalf);
+    if (onPlan)
+        targetZ_ = planEyeZ_;
+}
+
 void Camera::SetTopDown (float rotationRadians)
 {
     topDown_ = true;
@@ -96,6 +122,27 @@ void Camera::SetTopDown (float rotationRadians)
     // Keeps GetEyePosition (which is shared with the orbit path) directly above
     // the target; the screen's roll comes from the up vector in GetViewMatrix.
     yaw_ = 0.0f;
+}
+
+void Camera::SetPlanHome (float rotationRadians, float eyeZ, float halfHeightMetres)
+{
+    planHome_ = true;
+    planRotation_ = rotationRadians;
+    planEyeZ_ = eyeZ;
+    planHalfHeight_ = halfHeightMetres;
+}
+
+void Camera::ReturnToPlan ()
+{
+    if (!planHome_)
+        return;
+    // What the view shows at its middle, kept as wide: parallel, its own extent; in perspective,
+    // the focal plane's.
+    const float half = orthographic_ ? orthoHalfHeight_ : FocalHalfHeight ();
+    SetTopDown (planRotation_);
+    // The eye back on the cut, straight over the point the view is centred on.
+    targetZ_ = planEyeZ_ - distance_;
+    SetOrthographic (true, half > 1e-3f && half < kMaxHalfHeight ? half : planHalfHeight_);
 }
 
 void Camera::SetFovDegreesVertical (float degrees)
@@ -133,6 +180,10 @@ void Camera::FrameBounds (const float minXyz[3], const float maxXyz[3])
     // somewhere else entirely. "Zoom to fit" then appeared to do nothing.
     if (orthographic_)
         orthoHalfHeight_ = radius > 0.0f ? radius * 1.15f : 12.0f;
+    // ⚠️ THE PLAN'S FIT IS FROM THE CUT: in the plan's pose the eye stays on the storey's cut and
+    // looks down at the model's middle -- backed off above it, the roofs would hide the storey.
+    if (topDown_ && planHome_)
+        targetZ_ = planEyeZ_ - distance_;
 }
 
 void Camera::SetBounds (const float minXyz[3], const float maxXyz[3])
@@ -246,7 +297,7 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
             // latched, the drag survives the cursor crossing the HUD — and
             // leaving the viewport entirely.
             if (ours)
-                nav_ = input.shift ? NavMode::Orbit : NavMode::Pan;
+                nav_ = input.shift && !orbitLocked_ ? NavMode::Orbit : NavMode::Pan;
         }
     }
     else if (!input.navButton && navWasDown_) {
@@ -256,9 +307,9 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
 
     // Shift is read LIVE, not latched with the button: in Archicad, adding Shift
     // part-way through a pan turns it into an orbit without letting go, and
-    // that is a habit worth not breaking.
+    // that is a habit worth not breaking. The orbit held (SetOrbitLocked): a pan still.
     if (nav_ != NavMode::None)
-        nav_ = input.shift ? NavMode::Orbit : NavMode::Pan;
+        nav_ = input.shift && !orbitLocked_ ? NavMode::Orbit : NavMode::Pan;
 
     // ---- wheel: zoom TOWARD THE CURSOR -------------------------------------
     if (!imguiWantsMouse && input.wheelDelta != 0) {

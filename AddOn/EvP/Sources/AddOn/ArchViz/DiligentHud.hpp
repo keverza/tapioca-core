@@ -361,6 +361,16 @@ struct HudState {
     // orthographic camera was the plan overlay's.
     bool orthographic = false;
 
+    // ---- plan mode: the viewer opened in the floor plan's place --------------
+    // ⚠️ THE PLAN VIEW STAYS A PLAN UNLESS THE USER SAYS OTHERWISE (the user, 2026-10-03: a way
+    // to restore the top view once rotated, or orbit locked out in the plan view). Set at the
+    // start from the camera (DiligentViewportSupport.cpp `StartViewerCamera`), never by the HUD;
+    // while it holds, the orbit is a pan unless `planOrbit` is on, and `planTopView` -- a
+    // one-shot, cleared by the frame loop -- puts the camera back on the plan.
+    bool planMode = false;
+    bool planOrbit = false;
+    bool planTopView = false;
+
     // ---- story slices ------------------------------------------------------
     // Every storey's horizontal cut through the model, boolean-unioned into one
     // outline per level. The heights come from Archicad's own storey settings,

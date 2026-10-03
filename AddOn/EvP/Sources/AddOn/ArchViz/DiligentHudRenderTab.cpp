@@ -103,6 +103,18 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
     bool reset = false;
     hudshell::HudSettings (shell.fontStep, shell.placement, reset);
 
+    // ---- the plan: the viewer opened in the floor plan's place (ViewerPlanMode.hpp) ----------
+    // ⚠️ THE USER, 2026-10-03: a way back to the top view once it was turned, or no orbit in the
+    // plan view at all. Both: the orbit is held until freed here, and the top view is a press.
+    if (state.planMode && hudshell::Section ("plan", true)) {
+        if (ImGui::Button ("Top view##plan", ImVec2 (-FLT_MIN, 0.0f)))
+            state.planTopView = true;
+        hudshell::Tip ("Straight down again, at the plan's rotation, on the storey's cut");
+        ImGui::Checkbox ("orbit##plan", &state.planOrbit);
+        ImGui::TextDisabled (state.planOrbit ? "Shift + wheel-button drag turns the view"
+                                             : "held: Shift + wheel-button drag pans, as without Shift");
+    }
+
     ImGui::SeparatorText ("Display");
     // ---- 1. preview: the headline control --------------------------------------------------
     const Preview now = MatchPreview (state);
@@ -138,8 +150,12 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
     DrawShadowSettings (state, scene);
     DrawPostProcessingControls (state, scene);
     // ---- 6. camera -------------------------------------------------------------------------
-    if (hudshell::Section ("camera"))
+    if (hudshell::Section ("camera")) {
+        // A plan is parallel while it is held to the plan; freed, it can be turned to perspective.
+        ImGui::BeginDisabled (state.planMode && !state.planOrbit);
         ImGui::Checkbox ("axonometric (parallel projection)", &state.orthographic);
+        ImGui::EndDisabled ();
+    }
     // ---- 7. visibility ---------------------------------------------------------------------
     if (hudshell::Section ("visibility")) {
         ImGui::Checkbox ("callout under the cursor", &state.showCallout);

@@ -88,6 +88,10 @@ class Camera final {
     {
         return orthographic_;
     }
+    // The HUD's projection toggle: the projection switched with the picture at the target kept
+    // -- parallel at the extent the perspective showed there, perspective at the distance that
+    // shows the parallel extent (a parallel view zooms by its extent, ApplyInput).
+    void SwitchProjection (bool parallel);
     // The two numbers that, with GetTarget, are the whole plan pose. Exposed for
     // the desync measurement (PLAT-RE84): the render thread logs what it just
     // PRESENTED, and an offline pass compares that against what Archicad had at
@@ -106,6 +110,34 @@ class Camera final {
     // +X axis in model space -- 0 puts model north (+Y) up, which is an
     // unrotated plan. Any later orbit input leaves this pose in the ordinary way.
     void SetTopDown (float rotationRadians);
+    bool IsTopDown () const
+    {
+        return topDown_;
+    }
+
+    // ---- the viewer opened in the plan's place --------------------------------
+    // ⚠️ THE PLAN IS ITS HOME (the user, 2026-10-03: a way back to the top view once it was
+    // rotated, or no orbit at all in the plan view). Its rotation, the eye's height on the
+    // storey's cut and the plan's half-height, for `ReturnToPlan`; while the pose is held, a fit
+    // (FrameBounds) frames the model from the cut, not from above the roof.
+    void SetPlanHome (float rotationRadians, float eyeZ, float halfHeightMetres);
+    bool HasPlanHome () const
+    {
+        return planHome_;
+    }
+    // Straight down again at the plan's rotation, the eye on the cut, parallel: the point the
+    // view is centred on kept, and its zoom when it was parallel. Nothing without a home.
+    void ReturnToPlan ();
+    // ⚠️ HELD, THE ORBIT IS A PAN: Shift with the navigation button pans, as without it -- the
+    // plan view cannot be turned by accident. Off, it orbits as anywhere.
+    void SetOrbitLocked (bool locked)
+    {
+        orbitLocked_ = locked;
+    }
+    bool OrbitLocked () const
+    {
+        return orbitLocked_;
+    }
 
     // ⚠️ VERTICAL, in degrees. Archicad's own `viewCone` is HORIZONTAL, so a
     // caller copying Archicad's camera must convert with the aspect ratio
@@ -244,6 +276,13 @@ class Camera final {
     // degenerate), and only the projection changes GetProjMatrix.
     bool topDown_ = false;
     float topDownRotation_ = 0.0f; // radians, CCW, of the SCREEN's +X in model space
+
+    // ---- the plan the viewer opened in (SetPlanHome) --------------------------
+    bool planHome_ = false;
+    float planRotation_ = 0.0f;
+    float planEyeZ_ = 0.0f;       // world metres: on the storey's cut
+    float planHalfHeight_ = 0.0f; // the plan's own extent, for a view that is no longer parallel
+    bool orbitLocked_ = false;
 
     // Field of view, degrees, VERTICAL. ⚠️ Archicad's own `viewCone` is
     // HORIZONTAL and in degrees (confirmed, see the projection-overlay work);
