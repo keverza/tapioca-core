@@ -26,6 +26,7 @@ namespace {
 namespace meta = metadata;
 
 constexpr UINT kEditMessage = WM_APP + 0x52;
+constexpr UINT kReadMessage = WM_APP + 0x53;
 constexpr wchar_t kClassName[] = L"TapiocaSelectionMetadata";
 
 struct Pending {
@@ -39,6 +40,13 @@ bool g_classRegistered = false;
 std::mutex g_mutex; // the queue and the last error
 std::deque<Pending> g_queue;
 std::string g_lastError;
+// The one element a render thread's HUD asked for (PageOf): its page once read, by GUID.
+struct Slot {
+    std::string asked;
+    std::string held;
+    hudmeta::Page page;
+};
+Slot g_slot;
 // ⚠️ A DIALOG RUNS ITS OWN MESSAGE LOOP, which delivers the next request's message while the
 // first is still asking: that one is left queued, and the write in progress drains it after.
 bool g_writing = false;
@@ -158,6 +166,24 @@ void Write (Pending& pending)
                     std::to_string (written) + " element(s)");
 }
 
+// The element asked for, read -- on the main thread.
+void ReadAsked ()
+{
+    std::string guid;
+    {
+        std::lock_guard<std::mutex> lock (g_mutex);
+        guid = g_slot.asked;
+    }
+    if (guid.empty ())
+        return;
+    hudmeta::Page page = Read ({ guid }, 1);
+    std::lock_guard<std::mutex> lock (g_mutex);
+    if (g_slot.asked != guid)
+        return; // another was asked for meanwhile: its own message reads it
+    g_slot.held = guid;
+    g_slot.page = std::move (page);
+}
+
 void Drain ()
 {
     if (g_writing)
@@ -177,12 +203,18 @@ void Drain ()
             pending.done ();
     }
     g_writing = false;
+    // What was written may be the element a render thread's HUD shows.
+    ReadAsked ();
 }
 
 LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     if (message == kEditMessage) {
         Drain ();
+        return 0;
+    }
+    if (message == kReadMessage) {
+        ReadAsked ();
         return 0;
     }
     return ::DefWindowProcW (window, message, wParam, lParam);
@@ -252,6 +284,24 @@ void Request (std::vector<hudmeta::Edit> edits, std::vector<std::string> guids, 
         g_dropped.fetch_add (1, std::memory_order_relaxed);
 }
 
+hudmeta::Page PageOf (const std::string& guid)
+{
+    if (guid.empty ())
+        return hudmeta::Page {};
+    {
+        std::lock_guard<std::mutex> lock (g_mutex);
+        if (g_slot.held == guid && g_slot.asked == guid)
+            return g_slot.page;
+        if (g_slot.asked == guid)
+            return hudmeta::Page {}; // asked, not read yet
+        g_slot.asked = guid;
+    }
+    const HWND window = g_window.load (std::memory_order_acquire);
+    if (window != nullptr)
+        ::PostMessageW (window, kReadMessage, 0, 0);
+    return hudmeta::Page {};
+}
+
 void Arm ()
 {
     if (g_window.load (std::memory_order_acquire) != nullptr)
@@ -284,6 +334,7 @@ void Shutdown ()
     }
     std::lock_guard<std::mutex> lock (g_mutex);
     g_queue.clear ();
+    g_slot = Slot {};
 }
 
 Stats GetStats ()

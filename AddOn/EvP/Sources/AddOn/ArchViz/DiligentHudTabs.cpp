@@ -7,7 +7,9 @@
 #include "ArchViz/DiligentHudNames.hpp"
 #include "ArchViz/DiligentHudSections.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/HudMetadata.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
+#include "ArchViz/SelectionMetadata.hpp"
 
 #include <imgui.h>
 
@@ -119,6 +121,13 @@ void SelectionPage (const HudState& state, float ui)
         { "Materials", Count (picked.materialRanges) + (picked.hasTransparency ? ", some transparent" : "") });
     card.note = "Axis-aligned bounding box of the mesh -- not Archicad's computed quantities. " + picked.guid;
     hudshell::Cards ({ card }, look, ui);
+
+    // ⚠️ ITS TAPIOCA METADATA IS READ AND WRITTEN ON THE MAIN THREAD (SelectionMetadata.hpp):
+    // this is the render thread, which calls neither ACAPI nor the gate. The page is the one
+    // last read for the picked element; an edit goes to it alone, in one undo step.
+    std::vector<hudmeta::Edit> edits = hudmeta::Editor (selectionmetadata::PageOf (picked.guid), look, ui);
+    if (!edits.empty ())
+        selectionmetadata::Request (std::move (edits), { picked.guid });
 }
 
 void SunStudyPage (HudState& state, const DiligentSceneStats& scene)

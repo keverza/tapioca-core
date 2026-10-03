@@ -13,7 +13,7 @@
 // element in ONE undo step, each element read, laid over, validated against the project's
 // schema and written. An element the schema refuses is left as it was and said.
 //
-// MAIN THREAD: Read, Arm, Shutdown, SelectedGuids. Request and GetStats: any thread.
+// MAIN THREAD: Read, Arm, Shutdown, SelectedGuids. Request, PageOf and GetStats: any thread.
 
 #include "ArchViz/HudMetadata.hpp"
 
@@ -37,6 +37,13 @@ hudmeta::Page Read (const std::vector<std::string>& listed, uint32_t selected);
 // are written -- then `done` on the main thread, when given: the owner reads its page again.
 void Request (std::vector<hudmeta::Edit> edits, std::vector<std::string> guids = {},
               std::function<void ()> done = nullptr);
+
+// ⚠️ ONE ELEMENT'S PAGE FOR A HUD THAT CANNOT READ THE PROJECT -- the viewer's, on its render
+// thread (the user, 2026-10-03: its Selection tab edits the picked element's scheme too). What
+// was read for `guid` when it is the element asked for last; otherwise a page not yet `known`,
+// and it is read on the main thread. Read again after every write that names it. Empty
+// `guid`: nothing picked, nothing read.
+hudmeta::Page PageOf (const std::string& guid);
 
 // The message-only window the requests are posted to: made at load, gone at unload.
 void Arm ();
