@@ -29,8 +29,10 @@
 #ifndef GEOMSRV_ARCHVIZ_OVERLAYRUNTIMEREPORT_HPP
 #define GEOMSRV_ARCHVIZ_OVERLAYRUNTIMEREPORT_HPP
 
+#include "ArchViz/Dxgi/ComposeTiming.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 
+#include <cstdint>
 #include <string>
 
 namespace geomsrv {
@@ -119,6 +121,11 @@ void FramePath ();
 // distribution a scale term would be built from. A threshold chosen without it
 // in front of us is how the census acquired its other seven.
 void Variants ();
+
+// What the last COST line measured -- the window it took (Dxgi/ComposeTiming.hpp), kept
+// so the HUD's Debug page can say it without taking measurements from the log -- and how
+// many milliseconds ago it was taken. False before the session's first.
+bool LastCost (dxgi::composetiming::Window& window, uint64_t& ageMilliseconds);
 
 // At the start of a session. See OVERLAY-INVARIANTS.md section 8.
 void Reset ();

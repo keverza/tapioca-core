@@ -29,8 +29,12 @@ namespace overlayhud {
 
 namespace layers = overlaylayers;
 
-// The host's own tab, after the panels': the HUD's settings.
-constexpr char kSettingsKey[] = "tapioca.settings";
+// The host's own tabs (HudShell.hpp): Stats and Selection before the panels', Settings and
+// Debug after them; without `OwnPages::standalone`, Settings alone.
+using hudshell::kDebugKey;
+using hudshell::kSelectionKey;
+using hudshell::kSettingsKey;
+using hudshell::kStatsKey;
 
 // The dock and the text size are every HUD's (HudShell.hpp).
 using hudshell::kDockFontPixels;
@@ -72,6 +76,9 @@ struct State {
         hudshell::Placement placement;
     };
     Host host;
+    // The titled panels' keys the HUD has shown a tab for: a key not among them is a panel
+    // that just arrived, and a standalone HUD turns to it -- the user ran what made it.
+    std::set<std::string> seenPanels;
 };
 
 struct Engine::Impl {
@@ -106,10 +113,13 @@ struct Engine::Impl {
     // (a titled one's is none: it is a tab of the host), then the dock's, then the host's.
     std::vector<ImGuiWindow*> windows;
     // The layers drawn in this view, for Settings; the titled panels of the shown ones by
-    // their place in the set; which the host shows (none: Settings, or no titled panel);
-    // the look it takes; whether there is any HUD here at all -- a layer to show or hide.
+    // their place in the set, and those that are cards on the Stats page; which the host shows
+    // (none: an own page, or no titled panel); the look it takes; whether there is any HUD
+    // here at all -- the overlay running, or a layer to show or hide.
     std::vector<std::string> layerNames;
+    OwnPages own;
     std::vector<size_t> titled;
+    std::vector<size_t> statsCards;
     size_t shown = 0;
     bool showsPanel = false;
     const layers::Panel* look = nullptr;
@@ -176,6 +186,14 @@ struct Engine::Impl {
 
     // The Settings page: the HUD's style, the overlay's display (OverlayHudHost.cpp).
     void Settings ();
+
+    // The own pages (OverlayHudOwn.cpp): Stats -- the owner's cards, then each panel that asked
+    // to be one; Selection; Debug. And the title on a tab, by its key.
+    void StatsPage (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float ui);
+    void SelectionPage (float ui);
+    void DebugPage (float ui);
+    std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,
+                         const std::vector<std::string>& keys) const;
 
     // The HUD's menu at the pointer, on a right click anywhere on it (OverlayHudHost.cpp).
     void Menu (float ui);

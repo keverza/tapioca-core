@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchVizLog.hpp"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 
@@ -274,6 +275,11 @@ void Gate ()
         Say ("GATE", std::string ("refused (sole/total): ") + terms);
 }
 
+// The last window a COST line said, and when: the HUD reads it (`LastCost`).
+static dxgi::composetiming::Window g_lastCost;
+static bool g_haveCost = false;
+static std::chrono::steady_clock::time_point g_lastCostAt {};
+
 // ⚠️ WHAT THE COMPOSITION COST SINCE THE LAST COST LINE, beside the LIVE line it explains
 // (Dxgi/ComposeTiming.hpp): GPU milliseconds per stage, the CPU's, and Archicad's frame
 // interval while composing -- so "laggy" can be split into ours and Archicad's own.
@@ -284,6 +290,9 @@ static void Cost ()
     const timing::Window w = timing::Take ();
     if (w.timed + w.untimed + w.cpuFrames == 0)
         return;
+    g_lastCost = w;
+    g_haveCost = true;
+    g_lastCostAt = std::chrono::steady_clock::now ();
     char line[512] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "frames %llu timed, %llu untimed | GPU ms mean (max): occluder %.2f (%.2f) host %.2f (%.2f) "
@@ -788,8 +797,21 @@ void Variants ()
     Say ("VARIANTS", current);
 }
 
+bool LastCost (dxgi::composetiming::Window& window, uint64_t& ageMilliseconds)
+{
+    if (!g_haveCost)
+        return false;
+    window = g_lastCost;
+    ageMilliseconds = uint64_t (
+        std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now () - g_lastCostAt)
+            .count ());
+    return true;
+}
+
 void Reset ()
 {
+    g_haveCost = false;
+    g_lastCost = dxgi::composetiming::Window {};
     g_matricesSaid = 0;
     g_lastBindSerial = 0;
     g_lastSync.clear ();

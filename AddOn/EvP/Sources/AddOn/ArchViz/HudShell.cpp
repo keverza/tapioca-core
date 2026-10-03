@@ -293,6 +293,98 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     return result;
 }
 
+namespace {
+
+// A line of text in the look's muted colour, wrapped at a width that does not depend on the
+// window it is in: an auto-sized panel would otherwise grow to fit the line.
+void Muted (const std::string& text, const layers::Panel& look, uint32_t rgba = 0)
+{
+    ImGui::PushStyleColor (ImGuiCol_Text, Colour ((rgba & 0xFFu) != 0 ? rgba : WithAlpha (look.textRgba, 0.6f)));
+    ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + 18.0f * ImGui::GetFontSize ());
+    ImGui::TextUnformatted (text.c_str ());
+    ImGui::PopTextWrapPos ();
+    ImGui::PopStyleColor ();
+}
+
+} // namespace
+
+void Cards (const std::vector<Card>& cards, const layers::Panel& look, float scale)
+{
+    for (size_t c = 0; c < cards.size (); ++c) {
+        const Card& card = cards[c];
+        ImGui::PushID (int (c));
+        if (!card.title.empty ())
+            ImGui::SeparatorText (card.title.c_str ());
+        if (!card.figures.empty () &&
+            ImGui::BeginTable ("##figures", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+            for (const Figure& figure : card.figures) {
+                ImGui::TableNextRow ();
+                ImGui::TableSetColumnIndex (0);
+                ImGui::PushStyleColor (ImGuiCol_Text, Colour (WithAlpha (look.textRgba, 0.72f)));
+                ImGui::TextUnformatted (figure.label.c_str ());
+                ImGui::PopStyleColor ();
+                ImGui::TableSetColumnIndex (1);
+                ImGui::PushStyleColor (ImGuiCol_Text,
+                                       Colour ((figure.rgba & 0xFFu) != 0 ? figure.rgba : look.textRgba));
+                ImGui::TextUnformatted (figure.value.c_str ());
+                ImGui::PopStyleColor ();
+            }
+            ImGui::EndTable ();
+        }
+        if (card.progress >= 0.0) {
+            const float fraction = float ((std::min) (card.progress, 1.0));
+            ImGui::PushStyleColor (ImGuiCol_PlotHistogram, Colour (look.accentRgba));
+            ImGui::ProgressBar (fraction, ImVec2 (14.0f * ImGui::GetFontSize (), 12.0f * scale),
+                                card.progressText.empty () ? "" : card.progressText.c_str ());
+            ImGui::PopStyleColor ();
+        }
+        if (!card.note.empty ())
+            Muted (card.note, look, card.noteRgba);
+        ImGui::PopID ();
+    }
+}
+
+void SelectionList (const SelectionPage& page, const layers::Panel& look, float scale)
+{
+    (void) scale;
+    if (!page.known) {
+        Muted ("The selection has not been read yet", look);
+        return;
+    }
+    if (page.count == 0) {
+        Muted ("Nothing selected", look);
+        if (!page.note.empty ())
+            Muted (page.note, look);
+        return;
+    }
+    ImGui::Text ("%u selected", page.count);
+    if (!page.elements.empty () && ImGui::BeginTable ("##selection", 3,
+                                                      ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings |
+                                                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn ("Element");
+        ImGui::TableSetupColumn ("Layer");
+        ImGui::TableSetupColumn ("Storey");
+        ImGui::TableHeadersRow ();
+        for (const SelectedElement& element : page.elements) {
+            ImGui::TableNextRow ();
+            ImGui::TableSetColumnIndex (0);
+            const std::string name = element.id.empty ()
+                                         ? element.type
+                                         : (element.type.empty () ? element.id : element.type + "  " + element.id);
+            ImGui::TextUnformatted (name.empty () ? element.guid.c_str () : name.c_str ());
+            ImGui::TableSetColumnIndex (1);
+            ImGui::TextUnformatted (element.layer.c_str ());
+            ImGui::TableSetColumnIndex (2);
+            ImGui::TextUnformatted (element.storey.c_str ());
+        }
+        ImGui::EndTable ();
+    }
+    if (page.count > page.elements.size ())
+        Muted ("and " + std::to_string (page.count - uint32_t (page.elements.size ())) + " more", look);
+    if (!page.note.empty ())
+        Muted (page.note, look);
+}
+
 } // namespace hudshell
 } // namespace archviz
 } // namespace geomsrv

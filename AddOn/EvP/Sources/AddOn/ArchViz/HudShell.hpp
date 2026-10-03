@@ -134,6 +134,63 @@ struct HostResult {
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer);
 
+// ---- the HUD's own tabs ----------------------------------------------------------------
+// ⚠️ EVERY HUD HAS THEM, WITH OR WITHOUT A CALLER'S PANEL (the user, 2026-10-03): Stats -- the
+// dashboard, Selection -- the selected elements and their Tapioca metadata, Settings -- the
+// display, Debug -- what the surface costs. A caller's titled panels sit between Selection and
+// Settings; one that asks for Stats (`Panel::tab`) is a card on the Stats page instead.
+
+constexpr char kStatsKey[] = "tapioca.stats";
+constexpr char kSelectionKey[] = "tapioca.selection";
+constexpr char kSettingsKey[] = "tapioca.settings";
+constexpr char kDebugKey[] = "tapioca.debug";
+// What a caller's panel names to be a card on the Stats page rather than a tab of its own.
+constexpr char kStatsTab[] = "stats";
+
+// A figure: a muted label and its value; `rgba` alpha 0 is the card's text colour.
+struct Figure {
+    std::string label;
+    std::string value;
+    uint32_t rgba = 0;
+};
+
+// A card: a heading over figures in two aligned columns, then -- when `progress` is in
+// [0, 1] -- a bar saying `progressText`, then `note` in a line of its own (`noteRgba` alpha 0:
+// muted).
+struct Card {
+    std::string title;
+    std::vector<Figure> figures;
+    double progress = -1.0;
+    std::string progressText;
+    std::string note;
+    uint32_t noteRgba = 0;
+};
+
+// The cards one after another. `scale` is the look's: what the bar's height and the gaps take.
+void Cards (const std::vector<Card>& cards, const overlaylayers::Panel& look, float scale);
+
+// One selected element as the HUD lists it.
+struct SelectedElement {
+    std::string guid;
+    std::string type; // Archicad's name for its kind: "Slab", "Wall"
+    std::string id;   // its element ID
+    std::string layer;
+    std::string storey; // its home storey
+};
+
+// What is selected in the surface the HUD is over: Archicad's selection under the overlay,
+// the viewer's pick in the viewer. `known` false: the surface has not said yet.
+struct SelectionPage {
+    bool known = false;
+    uint32_t count = 0;                    // how many are selected; `elements` holds the first few
+    std::vector<SelectedElement> elements; // in selection order
+    std::string note;                      // what the surface says beside them
+};
+
+// The Selection page's list: how many, then a row per element -- its kind and ID, its layer
+// and storey -- and a line for the rest.
+void SelectionList (const SelectionPage& page, const overlaylayers::Panel& look, float scale);
+
 } // namespace hudshell
 } // namespace archviz
 } // namespace geomsrv

@@ -1,0 +1,297 @@
+// ⚠️ BOUND BY OVERLAY-INVARIANTS.md -- sixty live runs bought those findings
+// and each cost at least one. What this says about the overlay obeys §7: deltas, not
+// totals, and nothing printed that was not measured.
+// ArchViz/OverlayHudModel -- see the header.
+
+#include "APIEnvir.h"
+#include "ACAPinc.h"
+
+#include "ArchViz/OverlayHudModel.hpp"
+
+#include "ArchViz/Dxgi/PlanGuest.hpp"
+#include "ArchViz/Dxgi/SceneGuest.hpp"
+#include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/OverlayGuestText.hpp"
+#include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/OverlayRuntimeReport.hpp"
+#include "ArchViz/PlanOverlayRuntime.hpp"
+#include "Metadata/MetadataExtractor.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+namespace geomsrv {
+namespace archviz {
+namespace overlayhudmodel {
+
+namespace {
+
+using hudshell::Card;
+using hudshell::Figure;
+
+// How many selected elements the Selection page lists by name; the rest are counted.
+constexpr size_t kListed = 12;
+// A colour that says something needs attention, and one that says something is wrong.
+constexpr uint32_t kAmber = 0xD9822BFFu;
+constexpr uint32_t kRed = 0xD64545FFu;
+
+// ---- the selection, read when Archicad says it changed ----------------------------------
+bool g_selectionDirty = true;
+hudshell::SelectionPage g_selection;
+
+std::vector<std::string> SelectedGuids ()
+{
+    std::vector<std::string> out;
+    API_SelectionInfo info = {};
+    GS::Array<API_Neig> neigs;
+    const GSErrCode err = ACAPI_Selection_Get (&info, &neigs, false);
+    // The marquee's handle is ours to free, selected or not (SelectionBridge.cpp says why).
+    if (info.marquee.coords != nullptr)
+        BMKillHandle (reinterpret_cast<GSHandle*> (&info.marquee.coords));
+    if (err != NoError)
+        return out; // APIERR_NOSEL among others: nothing selected
+    for (UInt32 i = 0; i < neigs.GetSize (); ++i)
+        out.push_back (APIGuidToString (neigs[i].guid).ToCStr ().Get ());
+    return out;
+}
+
+const hudshell::SelectionPage& Selection ()
+{
+    if (!g_selectionDirty)
+        return g_selection;
+    g_selectionDirty = false;
+    g_selection = hudshell::SelectionPage {};
+    g_selection.known = true;
+    const std::vector<std::string> guids = SelectedGuids ();
+    g_selection.count = uint32_t (guids.size ());
+    if (guids.empty ())
+        return g_selection;
+    const std::vector<std::string> listed (guids.begin (), guids.begin () + (std::min) (guids.size (), kListed));
+    const std::shared_ptr<const MetaSet> facts = ExtractMetadataFor (listed, MetaLevel::Basic);
+    for (const std::string& guid : listed) {
+        hudshell::SelectedElement element;
+        element.guid = guid;
+        if (facts != nullptr)
+            if (const ElementMeta* meta = facts->Find (guid)) {
+                element.type = meta->typeName;
+                element.id = meta->elemId;
+                element.layer = meta->layer;
+                element.storey = meta->story;
+            }
+        g_selection.elements.push_back (std::move (element));
+    }
+    return g_selection;
+}
+
+// ---- rates over a second or more (§7) ---------------------------------------------------
+struct Rate {
+    std::chrono::steady_clock::time_point at {};
+    uint64_t last = 0;
+    double perSecond = -1.0; // -1: not measured yet
+    void Note (uint64_t total)
+    {
+        const auto now = std::chrono::steady_clock::now ();
+        if (at == std::chrono::steady_clock::time_point {} || total < last) {
+            at = now;
+            last = total;
+            return;
+        }
+        const double seconds = std::chrono::duration<double> (now - at).count ();
+        if (seconds < 1.0)
+            return;
+        perSecond = double (total - last) / seconds;
+        at = now;
+        last = total;
+    }
+};
+Rate g_composes3D, g_presentsPlan, g_drawnPlan;
+
+std::string Format (const char* format, double value)
+{
+    char text[64] = {};
+    std::snprintf (text, sizeof (text), format, value);
+    return text;
+}
+
+std::string RateText (const Rate& rate, const char* unit)
+{
+    return rate.perSecond < 0.0 ? std::string ("measuring") : Format ("%.1f", rate.perSecond) + " " + unit;
+}
+
+std::string LayersText ()
+{
+    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
+    const size_t hidden = overlayhud::HiddenLayers (*guesttext::HudState ()).size ();
+    return std::to_string (layers.size ()) + (hidden > 0 ? " (" + std::to_string (hidden) + " hidden)" : "");
+}
+
+// The host extraction's progress, as a card, while it reads the model.
+void Extraction (std::vector<Card>& cards)
+{
+    const ExtractionWorker::Progress progress = ExtractionWorker::Get ().Snapshot ();
+    if (!progress.running || progress.total == 0 || progress.done)
+        return;
+    Card card;
+    card.title = "Reading the model";
+    const uint32_t read = (std::min) (progress.extracted + progress.empty, progress.total);
+    card.progress = double (read) / double (progress.total);
+    card.progressText = std::to_string (read) + " / " + std::to_string (progress.total);
+    card.note = progress.phase;
+    cards.push_back (std::move (card));
+}
+
+overlayhud::OwnPages ThreeD ()
+{
+    overlayhud::OwnPages pages;
+    pages.standalone = true;
+    const overlayruntime::Health health = overlayruntime::GetHealth ();
+    g_composes3D.Note (health.overlayDraws);
+    const bool locked = health.camera == overlayruntime::CameraState::Locked;
+
+    Card overlay;
+    overlay.title = "Overlay - 3D";
+    overlay.figures.push_back ({ "Camera", overlayruntime::CameraStateName (health.camera), locked ? 0u : kAmber });
+    overlay.figures.push_back ({ "Model", std::string (overlayruntime::HostStateName (health.host)) +
+                                              (health.hostOpaqueTriangles > 0
+                                                   ? ", " + std::to_string (health.hostOpaqueTriangles) + " triangles"
+                                                   : std::string ()) });
+    overlay.figures.push_back ({ "Layers", LayersText () });
+    if (!locked && !health.blockedAt.empty ())
+        overlay.note = "Waiting at " + health.blockedAt;
+    pages.stats.push_back (std::move (overlay));
+    Extraction (pages.stats);
+
+    // ---- Debug: what one Archicad frame costs, ours and Archicad's own --------------------
+    // ⚠️ RATES ARE DEBUG'S, NEVER STATS': Stats asks for a frame when it changes (the
+    // controller's heartbeat), and a figure that moves every second would ask every second.
+    Card frame;
+    frame.title = "Frame";
+    frame.figures.push_back ({ "Composing", RateText (g_composes3D, "a second") });
+    dxgi::composetiming::Window cost;
+    uint64_t age = 0;
+    if (overlayruntime::report::LastCost (cost, age)) {
+        if (cost.intervals > 0)
+            frame.figures.push_back (
+                { "Archicad frame", "<= " + Format ("%.1f", cost.intervalP50Ms) + " ms p50 (" +
+                                        Format ("%.0f", cost.intervalP50Ms > 0.0 ? 1000.0 / cost.intervalP50Ms : 0.0) +
+                                        " fps)" });
+        if (cost.timed > 0)
+            frame.figures.push_back ({ "Overlay GPU", "<= " + Format ("%.2f", cost.gpuP50Ms) +
+                                                          " ms p50, <= " + Format ("%.2f", cost.gpuP95Ms) + " p95" });
+        if (cost.cpuFrames > 0)
+            frame.figures.push_back ({ "Overlay CPU", Format ("%.2f", cost.cpuMeanMs) + " ms mean" });
+        frame.note = std::to_string (cost.timed + cost.untimed) + " frames, measured " +
+                     Format ("%.0f", double (age) / 1000.0) + " s ago";
+    }
+    else {
+        frame.note = "Nothing composed yet: the cost is measured once the overlay draws";
+    }
+    pages.debug.push_back (std::move (frame));
+
+    const dxgi::sceneguest::Stats guest = dxgi::sceneguest::GetStats ();
+    Card surface;
+    surface.title = "Surface";
+    if (health.targetWidth > 0)
+        surface.figures.push_back (
+            { "Size", std::to_string (health.targetWidth) + " x " + std::to_string (health.targetHeight) + " px" });
+    surface.figures.push_back (
+        { "GPU", guest.adapter[0] != 0 ? std::string (guest.adapter) : std::string ("not attached yet") });
+    surface.figures.push_back ({ "Guest draw", std::to_string (guest.lastDrawMicroseconds) + " us last, " +
+                                                   std::to_string (guest.drawMicroseconds) + " us mean" });
+    if (guest.failure != nullptr && guest.failure[0] != 0)
+        surface.figures.push_back ({ "Failed", guest.failure, kRed });
+    pages.debug.push_back (std::move (surface));
+
+    Card camera;
+    camera.title = "Camera";
+    camera.figures.push_back ({ "State", overlayruntime::CameraStateName (health.camera) });
+    camera.figures.push_back ({ "Blocked at", health.blockedAt.empty () ? std::string ("-") : health.blockedAt });
+    camera.figures.push_back ({ "Model frames", std::to_string (health.modelFramesSeen) });
+    camera.figures.push_back ({ "Re-acquired", std::to_string (health.reacquisitions) });
+    pages.debug.push_back (std::move (camera));
+    return pages;
+}
+
+overlayhud::OwnPages Plan ()
+{
+    overlayhud::OwnPages pages;
+    pages.standalone = true;
+    const planruntime::Status status = planruntime::GetStatus ();
+    g_presentsPlan.Note (status.canvasPresents);
+    g_drawnPlan.Note (status.drawn);
+
+    Card overlay;
+    overlay.title = "Overlay - floor plan";
+    overlay.figures.push_back ({ "Storey", std::to_string (status.storey) });
+    overlay.figures.push_back (
+        { "Walls", std::to_string (status.rings) + " outlines, " + std::to_string (status.segments) + " edges" });
+    overlay.figures.push_back ({ "Layers", LayersText () });
+    if (!status.lastError.empty ()) {
+        overlay.note = status.lastError;
+        overlay.noteRgba = kRed;
+    }
+    pages.stats.push_back (std::move (overlay));
+
+    const dxgi::planguest::Stats guest = dxgi::planguest::GetStats ();
+    Card frame;
+    frame.title = "Frame";
+    frame.figures.push_back ({ "Plan presents", RateText (g_presentsPlan, "a second") });
+    frame.figures.push_back ({ "Overlay drawn", RateText (g_drawnPlan, "a second") });
+    frame.figures.push_back ({ "Guest draw", std::to_string (guest.lastDrawMicroseconds) + " us last, " +
+                                                 std::to_string (guest.drawMicroseconds) + " us mean" });
+    pages.debug.push_back (std::move (frame));
+
+    Card surface;
+    surface.title = "Surface";
+    surface.figures.push_back (
+        { "Size", std::to_string (status.canvasWidth) + " x " + std::to_string (status.canvasHeight) + " px" });
+    surface.figures.push_back ({ "DPI scale", Format ("%.2f", status.dpi) });
+    surface.figures.push_back ({ "GPU", guest.adapter.empty () ? std::string ("not attached yet") : guest.adapter });
+    if (!guest.lastError.empty ())
+        surface.figures.push_back ({ "Failed", guest.lastError, kRed });
+    pages.debug.push_back (std::move (surface));
+    return pages;
+}
+
+} // namespace
+
+overlayhud::OwnPages Pages (overlayinput::View view)
+{
+    overlayhud::OwnPages pages = view == overlayinput::View::ThreeD ? ThreeD () : Plan ();
+    pages.selection = Selection ();
+    return pages;
+}
+
+overlayhud::Engine* Prepare (overlayinput::View view)
+{
+    overlayhud::Engine* const hud = guesttext::Hud (view);
+    if (hud != nullptr)
+        hud->SetOwnPages (Pages (view));
+    return hud;
+}
+
+void SelectionChanged ()
+{
+    g_selectionDirty = true;
+    overlayinput::RequestLayout (overlayinput::View::ThreeD);
+    overlayinput::RequestLayout (overlayinput::View::Plan);
+}
+
+void Forget ()
+{
+    g_selectionDirty = true;
+    g_selection = hudshell::SelectionPage {};
+    g_composes3D = Rate {};
+    g_presentsPlan = Rate {};
+    g_drawnPlan = Rate {};
+}
+
+} // namespace overlayhudmodel
+} // namespace archviz
+} // namespace geomsrv

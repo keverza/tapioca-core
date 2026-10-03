@@ -386,6 +386,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
         "collapsed":{"type":"boolean","description":"A titled panel is a tab of the HUD's one floating panel; on the first titled panel, it starts that panel closed to the dock's tab at the view's right edge."},
         "theme":{"type":"string","enum":["dark","light"],"description":"The colours, rounding and padding the panel does not give: dark glass, or the light card."},
+        "tab":{"type":"string","enum":["stats"],"description":"A card on the HUD's own Stats page, under the panel's title, instead of a tab of its own."},
         "items":{"type":"array","maxItems":200,"items":{"type":"object","properties":{
             "kind":{"type":"string","enum":["text","row","separator","spacing","progress","swatch","ramp","plot",
                                             "table","section","metrics","stack","bars","checkbox","slider","combo",

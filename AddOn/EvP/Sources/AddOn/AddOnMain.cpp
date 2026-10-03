@@ -15,6 +15,7 @@
 #include "Palette/ControlPalette.hpp"
 #include "ArchViz/ArchVizPanel.hpp" // the Diligent 3D viewer palette
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/OverlayHudModel.hpp" // the HUD's Selection page, told when the selection changes
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp" // its geometry producer, joined on teardown
@@ -228,6 +229,15 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
         default:
             break;
     }
+    return NoError;
+}
+
+// ---- Archicad's selection, for the HUD's Selection page --------------------
+// ⚠️ A NOTIFICATION, NOT AN ELEMENT OBSERVER: it writes nothing to the project (an observer
+// does -- OVERLAY-INVARIANTS.md §5). It only says the page must read the selection again.
+static GSErrCode SelectionChangeHandler (const API_Neig* /*selElemNeig*/)
+{
+    geomsrv::archviz::overlayhudmodel::SelectionChanged ();
     return NoError;
 }
 
@@ -600,6 +610,7 @@ GSErrCode Initialize (void)
     // Track model open/close on the main thread for /health.
     ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, ProjectEventHandler);
     RefreshModelOpen (); // seed current state
+    ACAPI_Notification_CatchSelectionChange (SelectionChangeHandler);
 
     return NoError;
 }
@@ -718,6 +729,7 @@ GSErrCode FreeData (void)
     geomsrv::archviz::viewportoverlay::Shutdown ();
     // Detach the project-event handler so the add-on can unload cleanly.
     ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, nullptr);
+    ACAPI_Notification_CatchSelectionChange (nullptr);
     // LAST, because everything above it may still narrate its own teardown. The
     // viewer log holds one handle for the session; this is where it goes back.
     // Reopening is lazy, so a line after this point is still written.

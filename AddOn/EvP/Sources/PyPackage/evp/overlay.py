@@ -211,7 +211,11 @@ class Panel:
     anchor. A click on a panel never reaches Archicad, and what the user does stays done
     when the layer is set again. `theme` "light" is the
     design's card -- near-white, dark text, rounded -- under any colour given here.
-    `accent` tints what the pointer can press, when pointed at and pressed."""
+    `accent` tints what the pointer can press, when pointed at and pressed.
+
+    The HUD has pages of its own -- Stats, Selection, Settings, Debug -- whenever the
+    overlay runs; `tab="stats"` makes this panel a card on the Stats page, under its
+    title, instead of a tab of its own."""
 
     def __init__(
         self,
@@ -229,6 +233,7 @@ class Panel:
         collapsed=None,
         theme=None,
         accent=None,
+        tab=None,
     ):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
@@ -243,6 +248,10 @@ class Panel:
             if theme not in ("dark", "light"):
                 raise ValueError("theme is dark or light")
             self._panel["theme"] = theme
+        if tab is not None:
+            if tab != "stats":
+                raise ValueError('tab is "stats" (a card on the Stats page) or None')
+            self._panel["tab"] = tab
         for key, value in (
             ("widthPixels", width),
             ("sizePixels", size),

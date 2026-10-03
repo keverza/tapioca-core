@@ -381,6 +381,9 @@ struct Panel {
     std::string font; // as a text's; ImGui rasterises it (OverlayHud.hpp)
     bool collapsed = false;
     PanelTheme theme = PanelTheme::Dark;
+    // Where in the HUD it goes: empty -- a tab of its own when titled, fixed to its anchor
+    // when not -- or "stats", a card on the HUD's own Stats page, under its title.
+    std::string tab;
     std::vector<PanelItem> items;
 };
 

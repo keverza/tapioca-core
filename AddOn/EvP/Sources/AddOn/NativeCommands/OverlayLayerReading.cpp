@@ -497,6 +497,8 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
     ReadFloat (item, "paddingPixels", panel.paddingPixels);
     if (item.Contains ("collapsed"))
         item.Get ("collapsed", panel.collapsed);
+    if (item.Contains ("tab"))
+        panel.tab = StringValue (item, "tab");
     if (!ReadFont (item, "font", panel.font, error))
         return false;
     if (!ReadColour (item, "color", panel.textRgba, error) ||

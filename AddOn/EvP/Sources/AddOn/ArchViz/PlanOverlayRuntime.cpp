@@ -15,7 +15,10 @@
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/ExperimentGuard.hpp"
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHover.hpp"
+#include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
@@ -71,6 +74,7 @@ plancontent::Content g_content;
 uint64_t g_generation = 0; // never reset: a new session's content is always new to the layer
 bool g_readyLogged = false;
 bool g_redrawPending = false;
+uint32_t g_hudBeats = 0; // ticks, for the HUD's own heartbeat
 std::string g_lastError;
 std::string g_lastGuestError;
 uint64_t g_reportedGuestDraws = 0;
@@ -344,18 +348,31 @@ bool Hovering ()
 // The input layer's refresh: the HUD laid out again for the pointer, uploaded when what
 // it draws changed.
 std::string g_lastHudError;
+// The pointer for the HUD's layout, with what hover mode reads under it: the presses since
+// the last layout handed over (`take`), or none -- a heartbeat's layout replays no press.
+overlayhud::Input HudInput (bool take)
+{
+    overlayhud::Input input = take ? overlayinput::TakeInput (overlayinput::View::Plan)
+                                   : overlayinput::CurrentInput (overlayinput::View::Plan);
+    if (!take)
+        input.buttons.clear ();
+    if (overlayvisibility::Hovering ()) {
+        if (input.pointer)
+            input.hover = HoverAt (input.x, input.y);
+        input.hover.picks = true; // the plan reads under the pointer: its readout may say "nothing"
+    }
+    return input;
+}
+
 bool RefreshHud ()
 {
     if (!g_running)
         return false;
     bool changed = false;
     std::string error;
-    overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::Plan);
-    if (overlayvisibility::Hovering ()) {
-        if (input.pointer)
-            input.hover = HoverAt (input.x, input.y);
-        input.hover.picks = true; // the plan reads under the pointer: its readout may say "nothing"
-    }
+    const overlayhud::Input input = HudInput (true);
+    // The HUD is there with or without a layer: the overlay runs, its own pages say what.
+    overlayhudmodel::Prepare (overlayinput::View::Plan);
     if (!dxgi::planguest::RefreshHud (overlaylayers::Layers (), input, changed, error)) {
         if (error != g_lastHudError)
             ArchVizLog ("PLAN OVERLAY  the HUD NOT LAID OUT for the pointer: " + error);
@@ -494,6 +511,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         // when the store moved (§11). With none of those, nothing attaches.
         bool guestChanged = false;
         error.clear ();
+        overlayhudmodel::Prepare (overlayinput::View::Plan);
         if (dxgi::planguest::Prepare (layer::Device (), overlaycontrol::ShownLayers (), overlaylayers::Layers (),
                                       layersGeneration, float (g_dpi),
                                       overlayinput::CurrentInput (overlayinput::View::Plan), guestChanged, error)) {
@@ -519,6 +537,18 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         else if (error != g_lastGuestError) {
             ArchVizLog ("PLAN OVERLAY  guest NOT DRAWING: " + error);
             g_lastGuestError = error;
+        }
+        // ⚠️ THE OWN PAGES MOVE WITHOUT THE POINTER, twice a second; a change asks for a frame
+        // except on Debug (OverlayController.cpp's heartbeat says why).
+        if (++g_hudBeats % 5 == 0 && overlayhud::HudOpen (*guesttext::HudState ())) {
+            bool hudChanged = false;
+            error.clear ();
+            if (dxgi::planguest::RefreshHud (overlaylayers::Layers (), HudInput (false), hudChanged, error) &&
+                hudChanged) {
+                overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
+                if (overlayhud::SelectedKey (*guesttext::HudState ()) != hudshell::kDebugKey)
+                    g_redrawPending = true;
+            }
         }
     }
     if (g_redrawPending && inFront) {
@@ -600,6 +630,7 @@ StartResult Start ()
     g_storeyKnown = false;
     g_readyLogged = false;
     g_redrawPending = false;
+    g_hudBeats = 0;
     g_lastError.clear ();
     g_reported = layer::Stats {};
     g_content = plancontent::Content {};

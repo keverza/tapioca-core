@@ -49,8 +49,9 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
             for (size_t i = 0; i < layer->panels.size (); ++i)
                 panels.push_back ({ &layer->panels[i], layer->name, uint32_t (i) });
         }
-    // Nothing drawn here, nothing of the HUD.
-    if (names.empty () && bars.empty ())
+    // Nothing drawn here, nothing of the HUD -- unless the overlay runs here: then the HUD is
+    // here too, its own pages with or without a layer (OverlayHud.hpp `OwnPages`).
+    if (names.empty () && bars.empty () && (hud_ == nullptr || !hud_->Standalone ()))
         return;
     // Every layer drawn here, for the HUD's Settings -- and a reason for its dock.
     if (hud_ != nullptr)

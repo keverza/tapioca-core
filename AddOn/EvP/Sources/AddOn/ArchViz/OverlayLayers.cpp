@@ -120,6 +120,8 @@ std::string ValidatePanel (const Panel& panel)
 {
     if (panel.title.size () > kMaxTextBytes)
         return "title is at most 512 bytes";
+    if (!panel.tab.empty () && panel.tab != "stats")
+        return "tab is \"stats\" -- a card on the HUD's Stats page -- or absent";
     if (!std::isfinite (panel.offsetPixels[0]) || !std::isfinite (panel.offsetPixels[1]) ||
         !InRange (panel.widthPixels, 0.0f, 4000.0f) || !InRange (panel.sizePixels, 6.0f, 96.0f) ||
         !InRange (panel.roundingPixels, 0.0f, 64.0f) || !InRange (panel.paddingPixels, 0.0f, 64.0f))

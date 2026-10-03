@@ -24,6 +24,7 @@
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHover3D.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayRelease.hpp"
@@ -120,16 +121,6 @@ std::vector<overlayinput::Region> g_legends3D;
 float g_scale3D = 1.0f;
 uint64_t g_hudPrint3D = 0;
 
-// Whether the view's HUD has anything to lay out: panels, or legends to hover.
-// Any layer drawn in 3D: its dock shows and hides the overlay, its Settings the layers.
-bool HudIn3D (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
-{
-    for (const auto& layer : layers)
-        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD))
-            return true;
-    return false;
-}
-
 // The HUD handed to the guest, and where it now is to the input; true when what it
 // draws changed.
 bool PublishHud3D (overlayscene::Scene hud)
@@ -165,9 +156,9 @@ bool RefreshHud3D ()
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
     overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::ThreeD);
     overlayhover3d::Fill (input); // hover mode: what the pointer is on (D19)
-    overlayscene::Scene hud =
-        overlayscene::PrepareSceneHud (layers, HudIn3D (layers) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
-                                       g_scale3D, input, &g_legends3D);
+    // ⚠️ THE HUD IS THERE WITH OR WITHOUT A LAYER: the overlay runs, its own pages say what.
+    overlayscene::Scene hud = overlayscene::PrepareSceneHud (
+        layers, overlayhudmodel::Prepare (overlayinput::View::ThreeD), g_scale3D, input, &g_legends3D);
     const bool changed = PublishHud3D (std::move (hud));
     // What the user did there may be the dock's circle or a layer hidden.
     FollowHudState ();
@@ -179,6 +170,25 @@ void RedrawHud3D ()
 {
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
         ACAPI_View_Redraw ();
+}
+
+// ⚠️ THE OWN PAGES MOVE WITHOUT THE POINTER -- the camera locks, the model is read, the
+// selection changes -- so once a heartbeat the HUD is laid out again where the pointer is, no
+// press replayed. A still view presents nothing, so a change asks for a frame -- except on
+// Debug, whose figures move every time and whose redraw would be its own measurement: it is
+// drawn with Archicad's next frame.
+void HeartbeatHud3D ()
+{
+    if (!runtime::Running () || !overlayhud::HudOpen (*guesttext::HudState ()))
+        return;
+    overlayhud::Input input = overlayinput::CurrentInput (overlayinput::View::ThreeD);
+    input.buttons.clear ();
+    overlayhover3d::Fill (input);
+    const bool changed = PublishHud3D (
+        overlayscene::PrepareSceneHud (overlaylayers::Layers (), overlayhudmodel::Prepare (overlayinput::View::ThreeD),
+                                       g_scale3D, input, &g_legends3D));
+    if (changed && HudShown3D () && overlayhud::SelectedKey (*guesttext::HudState ()) != hudshell::kDebugKey)
+        RedrawHud3D ();
 }
 
 // ⚠️ THE 3D HUD'S INPUT FOLLOWS THE CANVAS THE OVERLAY COMPOSES INTO -- the nominated
@@ -219,6 +229,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
     overlaycontrol::FollowView ();
     FollowHudInput ();
+    HeartbeatHud3D ();
 }
 
 void StartHeartbeat ()
@@ -553,6 +564,9 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
     }
     else {
         intent.wanted = true;
+        // ⚠️ THE MENU OPENS THE HUD (the user, 2026-10-03: it always starts with the overlay).
+        if (std::string (how) == "menu")
+            overlayhud::SetHudOpen (*guesttext::HudState (), true);
         // The Watch trace's annotations follow wherever an overlay is (OverlayAnnotations.hpp).
         overlayannotations::EnsureStarted ();
         // Laid out for 3D only while it is wanted (PublishLayers): now, before it draws.
@@ -625,6 +639,7 @@ void OnProjectClosed ()
     Forget3D ();
     overlayrelease::Plan ();
     overlayrelease::Shared ();
+    overlayhudmodel::Forget ();
     FollowHudState ();
     if (active)
         Narrate ("OVERLAY", "the project closed; both overlays are off -- start them again from the menu");
@@ -810,8 +825,8 @@ void PublishLayers ()
     // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud), laid
     // out for where the pointer is now.
     overlayscene::Scene hud =
-        overlayscene::PrepareSceneHud (all, HudIn3D (all) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
-                                       scale, overlayinput::CurrentInput (overlayinput::View::ThreeD), &g_legends3D);
+        overlayscene::PrepareSceneHud (all, overlayhudmodel::Prepare (overlayinput::View::ThreeD), scale,
+                                       overlayinput::CurrentInput (overlayinput::View::ThreeD), &g_legends3D);
     hud.generation = scene.generation;
     const overlayscene::Problems& problems = scene.problems;
     const uint32_t panelsNotDrawn = hud.problems.textsNotLaidOut;

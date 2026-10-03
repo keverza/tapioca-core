@@ -126,6 +126,12 @@ overlayhud::Engine* Hud (overlayinput::View view)
     return g_hud[at].get ();
 }
 
+bool HudStandalone (overlayinput::View view)
+{
+    const overlayhud::Engine* hud = g_hud[view == overlayinput::View::ThreeD ? 0 : 1].get ();
+    return hud != nullptr && hud->Standalone ();
+}
+
 std::shared_ptr<overlayhud::State> HudState ()
 {
     if (g_hudState == nullptr)

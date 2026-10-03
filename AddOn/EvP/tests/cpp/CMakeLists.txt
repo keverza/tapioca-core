@@ -478,6 +478,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudEvents.cpp"
@@ -666,6 +667,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudcontrols.cpp
     test_overlayhudevents.cpp
     test_overlayhudwidgets.cpp
+    test_overlayhudown.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
     test_overlayinput.cpp

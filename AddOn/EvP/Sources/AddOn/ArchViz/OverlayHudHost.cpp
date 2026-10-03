@@ -51,12 +51,20 @@ std::string Readable (const std::string& name)
 void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys)
 {
     titled.clear ();
-    for (size_t i = 0; i < panels.size (); ++i)
-        if (!panels[i]->title.empty () && LayerShown (*store, LayerOf (keys[i])))
+    statsCards.clear ();
+    const bool standalone = own.standalone;
+    for (size_t i = 0; i < panels.size (); ++i) {
+        if (!LayerShown (*store, LayerOf (keys[i])))
+            continue;
+        // A card on the Stats page where the HUD has one; elsewhere what it would be without.
+        if (standalone && panels[i]->tab == hudshell::kStatsTab)
+            statsCards.push_back (i);
+        else if (!panels[i]->title.empty ())
             titled.push_back (i);
+    }
     // Any layer drawn here -- shown or hidden -- is a reason for the dock: its circle shows
-    // and hides them, Settings lists them.
-    present = !titled.empty () || !layerNames.empty ();
+    // and hides them, Settings lists them. The overlay running here is reason enough.
+    present = standalone || !titled.empty () || !layerNames.empty ();
     showsPanel = false;
     // The look the host takes when it shows no layer's panel -- Settings, with no titled
     // panel to borrow from: the light card, small.
@@ -65,27 +73,51 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
         return;
     State::Host& host = store->host;
     // The first titled panel ever says how the host starts, open or closed; before one,
-    // it is closed (HudOpen) -- a layer of lines alone does not open a panel.
+    // it is closed (HudOpen) -- a layer of lines alone does not open a panel. A HUD that is
+    // there for the overlay starts open.
     if (!host.known && !titled.empty ()) {
         host.known = true;
         host.open = !panels[titled.front ()]->collapsed;
     }
-    // The tab held is one of them, or Settings: the first panel, when the one held is gone.
-    if (host.selected != kSettingsKey) {
-        bool held = false;
-        for (const size_t i : titled)
-            held = held || keys[i] == host.selected;
-        if (!held)
-            host.selected = titled.empty () ? std::string (kSettingsKey) : keys[titled.front ()];
+    if (!host.known && standalone) {
+        host.known = true;
+        host.open = true;
     }
+    // ⚠️ A PANEL THAT JUST ARRIVED IS SHOWN: the user ran what made it. Once -- a layer set
+    // again with the same panels takes nothing from the tab the user chose since.
+    if (standalone) {
+        std::string arrived;
+        for (const size_t i : titled)
+            if (store->seenPanels.insert (keys[i]).second && arrived.empty ())
+                arrived = keys[i];
+        if (!arrived.empty ())
+            host.selected = arrived;
+    }
+    // The tab held is one of them or an own page: otherwise Stats, or -- without own pages --
+    // the first panel, when the one held is gone.
+    bool held =
+        host.selected == kSettingsKey ||
+        (standalone && (host.selected == kStatsKey || host.selected == kSelectionKey || host.selected == kDebugKey));
+    for (const size_t i : titled)
+        held = held || keys[i] == host.selected;
+    if (!held)
+        host.selected = standalone        ? std::string (kStatsKey)
+                        : titled.empty () ? std::string (kSettingsKey)
+                                          : keys[titled.front ()];
     for (const size_t i : titled)
         if (keys[i] == host.selected) {
             shown = i;
             showsPanel = true;
         }
-    // Settings takes the look of the first panel, when there is one.
-    look = showsPanel ? panels[shown] : !titled.empty () ? panels[titled.front ()] : &hudshell::PlainLook ();
-    showing = showsPanel ? panels[shown]->title : titled.empty () ? look->title : "Settings";
+    // An own page takes the look of the first panel, when there is one.
+    look = showsPanel             ? panels[shown]
+           : !titled.empty ()     ? panels[titled.front ()]
+           : !statsCards.empty () ? panels[statsCards.front ()]
+                                  : &hudshell::PlainLook ();
+    showing = showsPanel        ? panels[shown]->title
+              : standalone      ? TitleOf (host.selected, panels, keys)
+              : titled.empty () ? look->title
+                                : "Settings";
 }
 
 void Engine::Impl::ShowOverlay (bool shownNow)
@@ -308,12 +340,32 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     spec.ui = ui;
     spec.view = view;
     spec.inset = inset;
+    // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
+    // Settings.
+    if (own.standalone) {
+        spec.tabs.push_back ({ kStatsKey, "Stats" });
+        spec.tabs.push_back ({ kSelectionKey, "Selection" });
+    }
     for (const size_t i : titled)
         spec.tabs.push_back ({ keys[i], panels[i]->title });
     spec.tabs.push_back ({ kSettingsKey, "Settings" });
+    if (own.standalone)
+        spec.tabs.push_back ({ kDebugKey, "Debug" });
     const auto page = [&] (const std::string& k) {
         if (k == kSettingsKey) {
             Settings ();
+            return;
+        }
+        if (k == kStatsKey) {
+            StatsPage (panels, keys, ui);
+            return;
+        }
+        if (k == kSelectionKey) {
+            SelectionPage (ui);
+            return;
+        }
+        if (k == kDebugKey) {
+            DebugPage (ui);
             return;
         }
         for (const size_t i : titled)
@@ -331,12 +383,12 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     windows.back () = result.window;
     if (!result.pressed.empty ()) {
         host.selected = result.pressed;
-        std::string title = "Settings";
+        const std::string title = TitleOf (result.pressed, panels, keys);
+        bool panel = false;
         for (const size_t i : titled)
-            if (keys[i] == result.pressed)
-                title = panels[i]->title;
-        changes.push_back ({ "panel", result.pressed == kSettingsKey ? std::string () : result.pressed, title,
-                             std::string (), -1, 1.0, title, true });
+            panel = panel || keys[i] == result.pressed;
+        changes.push_back (
+            { "panel", panel ? result.pressed : std::string (), title, std::string (), -1, 1.0, title, true });
     }
     if (result.closed)
         SetOpen (false);

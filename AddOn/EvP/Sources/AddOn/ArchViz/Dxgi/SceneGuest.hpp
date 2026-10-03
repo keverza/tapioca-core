@@ -70,6 +70,7 @@ struct Stats {
     uint32_t glyphVertices = 0;
     uint32_t pages = 0;
     const char* failure = ""; // a static string: what failed, when something did
+    const char* adapter = ""; // the GPU Archicad's device is on, once the guest has attached
     // What the content costs: preparing it on the main thread (layers built and reused,
     // OverlayScene.hpp), the bytes it holds on the GPU, and drawing it at Present on the
     // render thread -- the last draw, and a running mean over about the last sixteen.

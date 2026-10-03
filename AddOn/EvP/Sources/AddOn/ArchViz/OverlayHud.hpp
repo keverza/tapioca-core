@@ -40,6 +40,12 @@
 // without a title stands alone at its anchor, as before; one on the view's right column
 // moves in beside the dock.
 //
+// ⚠️ THE HUD STARTS WITH THE OVERLAY (the user, 2026-10-03). Where the overlay runs, its owner
+// says so (`OwnPages::standalone`) and the HUD is there with no layer at all: its own tabs --
+// Stats, Selection, Settings, Debug -- around the callers' titled panels, a panel that just
+// arrived shown once, and a panel that asks for Stats a card on that page. Its look, dock and
+// floating panel are every HUD's (HudShell.hpp).
+//
 // ⚠️ THE TEXT SIZE IS THE USER'S: chosen in Settings or the HUD's menu, it scales the whole
 // HUD -- text, padding, widths and the dock -- by a few steps, in both views; the
 // distances from the view's edges stay.
@@ -55,6 +61,7 @@
 //
 // MAIN THREAD. Pure apart from ImGui, so tests/cpp builds it with the vendored imgui.
 
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
 
@@ -193,6 +200,18 @@ struct Layout {
 // Where each change goes: the views' engines hand them to the event ring with their view.
 using ChangeSink = std::function<void (const Change&)>;
 
+// ⚠️ THE HUD'S OWN PAGES (the user, 2026-10-03: the HUD always starts with the overlay; Stats,
+// Selection, Settings and Debug are its own). What they show, from the view's owner before
+// each layout -- the engine reads nothing of the runtimes. `standalone`: the overlay runs in
+// this view, so the dock, the floating panel and the own tabs are there whether or not a
+// caller set a layer; false, the HUD is the caller's panels and Settings, as it was.
+struct OwnPages {
+    bool standalone = false;
+    std::vector<hudshell::Card> stats;
+    hudshell::SelectionPage selection;
+    std::vector<hudshell::Card> debug;
+};
+
 struct Stats {
     uint32_t builds = 0;        // sets of panels laid out
     uint32_t frames = 0;        // ImGui frames they took
@@ -254,6 +273,10 @@ class Engine final {
     // The layers drawn in the view the next `Build` is for, shown or hidden: what Settings
     // lists for the user to show and hide.
     void SetLayers (std::vector<std::string> names);
+    // What the HUD's own pages show in the next `Build`s, and whether it is there without a
+    // layer (`OwnPages::standalone`).
+    void SetOwnPages (OwnPages pages);
+    bool Standalone () const;
 
     // The HUD's text size, a factor on every size but the distances from the view's edges:
     // one of a few steps (0.8 to 2), chosen in Settings or the HUD's menu. Set, the step

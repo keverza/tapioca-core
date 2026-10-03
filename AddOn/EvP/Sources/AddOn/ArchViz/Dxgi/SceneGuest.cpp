@@ -16,6 +16,7 @@
 #include <RenderDeviceD3D11.h>
 
 #include <atomic>
+#include <cstring>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -67,6 +68,10 @@ std::atomic<uint64_t> s_draws { 0 }, s_drawCalls { 0 }, s_uploads { 0 };
 std::atomic<uint64_t> s_noCamera { 0 }, s_noViewport { 0 }, s_failed { 0 };
 std::atomic<uint32_t> s_fills { 0 }, s_lines { 0 }, s_glyphs { 0 }, s_pages { 0 };
 std::atomic<const char*> s_failure { "" };
+// The adapter's name, written once by the render thread at the first attach and read by the
+// main thread after `s_adapterKnown`: never rewritten, so a reader never sees it change.
+char s_adapter[128] = {};
+std::atomic<bool> s_adapterKnown { false };
 std::atomic<uint32_t> s_prepareUs { 0 }, s_built { 0 }, s_reused { 0 }, s_lastDrawUs { 0 }, s_drawUs { 0 };
 std::atomic<uint64_t> s_vertexBytes { 0 }, s_pageBytes { 0 };
 std::atomic<uint64_t> s_hudUploads { 0 };
@@ -117,6 +122,10 @@ bool EnsureAttached (ID3D11DeviceContext* context)
         if (ok) {
             s_attached.store (true, std::memory_order_relaxed);
             s_attachMs.store (g_guest.GetStats ().attachMilliseconds, std::memory_order_relaxed);
+            if (!s_adapterKnown.load (std::memory_order_acquire)) {
+                strncpy_s (s_adapter, sizeof (s_adapter), g_guest.GetStats ().adapter, _TRUNCATE);
+                s_adapterKnown.store (true, std::memory_order_release);
+            }
         }
         else {
             g_attachFailed = true;
@@ -380,6 +389,7 @@ Stats GetStats ()
     stats.glyphVertices = s_glyphs.load (std::memory_order_relaxed);
     stats.pages = s_pages.load (std::memory_order_relaxed);
     stats.failure = s_failure.load (std::memory_order_relaxed);
+    stats.adapter = s_adapterKnown.load (std::memory_order_acquire) ? s_adapter : "";
     stats.prepareMicroseconds = s_prepareUs.load (std::memory_order_relaxed);
     stats.layersBuilt = s_built.load (std::memory_order_relaxed);
     stats.layersReused = s_reused.load (std::memory_order_relaxed);

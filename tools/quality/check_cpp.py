@@ -1220,6 +1220,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayControllerHud.cpp",
+    "ArchViz/OverlayHudModel.cpp",
     "ArchViz/OverlayInput.cpp",
     "ArchViz/OverlayRelease.cpp",
     "ArchViz/OverlayCameraKeep.cpp",

@@ -381,9 +381,11 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
 void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui,
                            ImVec2 view)
 {
-    // A titled panel is a tab of the host (OverlayHudHost.cpp), not a window of its own; a
-    // hidden layer's panel is not drawn.
-    if (!panel.title.empty () || !LayerShown (*store, key.substr (0, key.rfind ('#'))))
+    // A titled panel is a tab of the host (OverlayHudHost.cpp), not a window of its own, and
+    // one that asked to be a Stats card is that wherever the HUD has a Stats page; a hidden
+    // layer's panel is not drawn.
+    if (!panel.title.empty () || (own.standalone && panel.tab == hudshell::kStatsTab) ||
+        !LayerShown (*store, key.substr (0, key.rfind ('#'))))
         return;
     PanelState& state = StateOf (key, panel);
     this->key = key;
