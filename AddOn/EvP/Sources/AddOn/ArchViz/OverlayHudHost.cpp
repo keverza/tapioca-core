@@ -323,6 +323,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
                          float scale, float ui, ImVec2 view)
 {
     State::Host& host = store->host;
+    hostScrolls = false;
     if (!present || !HudOpen (*store) || !store->shown)
         return;
     hudshell::HostSpec spec;
@@ -373,6 +374,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
             Readout ();
     });
     windows.back () = result.window;
+    hostScrolls = result.scrolls;
     if (!result.pressed.empty ()) {
         host.selected = result.pressed;
         const std::string title = TitleOf (result.pressed, panels, keys);

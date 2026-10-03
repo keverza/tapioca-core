@@ -150,6 +150,27 @@ TEST (OverlayHitMap, NavigationIsNeverTaken)
     EXPECT_EQ (router.Decide (Move (), true), input::Route::Take);
 }
 
+// ⚠️ BUT THE WHEEL OVER A PAGE THAT SCROLLS IS THE HUD'S (the user, 2026-10-03: a vertical
+// scroll bar when a page is taller than the view): it scrolls the page, the view does not zoom
+// under it. Sideways, or while a gesture of Archicad's is held, it is still the view's.
+TEST (OverlayHitMap, TheWheelOverAPageThatScrollsIsTheHuds)
+{
+    input::Router router;
+    input::Event wheel;
+    wheel.kind = input::EventKind::Wheel;
+    wheel.wheel = -1.0f;
+    EXPECT_EQ (router.Decide (wheel, true, true), input::Route::Take);
+    EXPECT_EQ (router.Decide (wheel, true, false), input::Route::Pass) << "a panel that does not scroll";
+    EXPECT_EQ (router.Decide (wheel, false, false), input::Route::Pass) << "the view";
+    input::Event sideways = wheel;
+    sideways.wheel = 0.0f;
+    EXPECT_EQ (router.Decide (sideways, true, true), input::Route::Pass);
+    // A pan begun in the view and dragged over the panel: its wheel is the view's.
+    router.Decide (Press (input::Button::Middle, kMiddle), false);
+    EXPECT_EQ (router.Decide (wheel, true, true), input::Route::Pass);
+    EXPECT_EQ (router.GetOwner (), input::Owner::Host) << "the wheel moves no latch";
+}
+
 // The button came up outside every window: the first move with nothing held ends the
 // gesture, rather than leaving the HUD holding every move after it.
 TEST (OverlayHitMap, AGestureWhoseReleaseWasLostEndsAtTheNextMove)

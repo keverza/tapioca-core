@@ -19,7 +19,7 @@ int HitMap::Hit (float x, float y, float width, float height) const
     return -1;
 }
 
-Route Router::Verdict (const Event& event, bool overHud, Owner& owner)
+Route Router::Verdict (const Event& event, bool overHud, bool overScroll, Owner& owner)
 {
     // A gesture whose release went unseen ends at the first move with nothing held.
     if (owner != Owner::None && event.kind == EventKind::Move && event.held == 0)
@@ -43,20 +43,22 @@ Route Router::Verdict (const Event& event, bool overHud, Owner& owner)
                 return Route::Pass;
             return overHud ? Route::Take : Route::Pass;
         case EventKind::Wheel:
-            return Route::Pass;
+            // A page that scrolls under the pointer scrolls; everywhere else the view zooms --
+            // and while a gesture is Archicad's, the wheel is its too.
+            return overScroll && event.wheel != 0.0f && owner != Owner::Host ? Route::Take : Route::Pass;
     }
     return Route::Pass;
 }
 
-Route Router::Decide (const Event& event, bool overHud)
+Route Router::Decide (const Event& event, bool overHud, bool overScroll)
 {
-    return Verdict (event, overHud, owner_);
+    return Verdict (event, overHud, overScroll, owner_);
 }
 
-Route Router::Preview (const Event& event, bool overHud) const
+Route Router::Preview (const Event& event, bool overHud, bool overScroll) const
 {
     Owner owner = owner_;
-    return Verdict (event, overHud, owner);
+    return Verdict (event, overHud, overScroll, owner);
 }
 
 } // namespace overlayinput

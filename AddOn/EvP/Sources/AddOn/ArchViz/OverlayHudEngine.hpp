@@ -135,6 +135,8 @@ struct Engine::Impl {
     std::string showing;
     // The tab the host's tab bar showed in this context's last frame: a panel key.
     std::string shownHost;
+    // The page the host shows scrolls (hudshell::HostResult::scrolls): the wheel over it is the HUD's.
+    bool hostScrolls = false;
     // The dock's width this frame: how far the view's right column moves in.
     float inset = 0.0f;
     // Which tab each tab bar showed in this context's last frame, by panel key and bar id,

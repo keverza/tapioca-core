@@ -16,7 +16,9 @@
 // first move with no button held.
 //
 // ⚠️ NAVIGATION IS NEVER TAKEN. The wheel and the middle button pan and zoom over the
-// HUD as anywhere else.
+// HUD as anywhere else -- but for the wheel over a panel whose page scrolls (`Region::scrolls`;
+// the user, 2026-10-03: a vertical scroll bar when a page is taller than the view): there it
+// scrolls the page, as over any scrolling list, and the view does not zoom under it.
 //
 // Pure: no Win32, tests/cpp builds it.
 
@@ -48,6 +50,8 @@ struct Region {
     bool logical = false;
     // A legend's colour bar inside it, the same way: what the HUD hovers for a value.
     float bar[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // A panel whose page is taller than it: the wheel over it scrolls the page.
+    bool scrolls = false;
 };
 
 struct HitMap {
@@ -76,6 +80,7 @@ struct Event {
     EventKind kind = EventKind::Move;
     Button button = Button::Left; // a press's or a release's
     uint32_t held = 0;
+    float wheel = 0.0f; // the wheel's notches, positive turned away from the user; 0 sideways
 };
 
 enum class Route : uint8_t { Pass = 0, Take = 1 };
@@ -83,11 +88,12 @@ enum class Owner : uint8_t { None = 0, Hud = 1, Host = 2 };
 
 class Router {
   public:
-    // A message being removed from the queue: its route, the latch moved by it.
-    Route Decide (const Event& event, bool overHud);
+    // A message being removed from the queue: its route, the latch moved by it. `overScroll`:
+    // the pointer is over a region that scrolls (`Region::scrolls`).
+    Route Decide (const Event& event, bool overHud, bool overScroll = false);
     // A message only peeked at: the route it would get, the latch untouched -- it
     // comes back to be removed.
-    Route Preview (const Event& event, bool overHud) const;
+    Route Preview (const Event& event, bool overHud, bool overScroll = false) const;
     Owner GetOwner () const
     {
         return owner_;
@@ -98,7 +104,7 @@ class Router {
     }
 
   private:
-    static Route Verdict (const Event& event, bool overHud, Owner& owner);
+    static Route Verdict (const Event& event, bool overHud, bool overScroll, Owner& owner);
     Owner owner_ = Owner::None;
 };
 

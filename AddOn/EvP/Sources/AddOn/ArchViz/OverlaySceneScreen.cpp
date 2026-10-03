@@ -132,6 +132,7 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
         region.rect[1] = built.offset[1];
         region.rect[2] = built.offset[0] + built.width;
         region.rect[3] = built.offset[1] + built.height;
+        region.scrolls = built.scrolls; // the wheel over a page that scrolls is the HUD's
         draft_.regions.push_back (std::move (region));
         DraftGlyph glyph;
         glyph.anchor[0] = built.fraction[0];

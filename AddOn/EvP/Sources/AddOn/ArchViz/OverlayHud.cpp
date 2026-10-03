@@ -705,6 +705,10 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     io.AddKeyEvent (ImGuiMod_Shift, input.shift);
     for (const Input::Button& button : input.buttons)
         io.AddMouseButtonEvent (button.button, button.down);
+    // The wheel the input layer took over a page that scrolls: ImGui scrolls the page under the
+    // pointer by it.
+    if (input.wheel != 0.0f)
+        io.AddMouseWheelEvent (0.0f, input.wheel);
     int frames = kFrames + int (input.buttons.size ()) + (input.buttons.empty () ? 0 : 1);
     const bool known = input.width >= 1.0f && input.height >= 1.0f;
     for (int attempt = 0; attempt < kAttempts; ++attempt) {
@@ -745,6 +749,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
             Built& built = out.host;
             built.width = host->Size.x;
             built.height = host->Size.y;
+            built.scrolls = impl_->hostScrolls;
             const State::Host& state = impl_->store->host;
             if (state.placement.placed) {
                 built.fraction[0] = (state.placement.corner & 1u) != 0 ? 1.0f : 0.0f;

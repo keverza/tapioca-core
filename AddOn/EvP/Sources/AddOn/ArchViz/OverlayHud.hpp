@@ -94,6 +94,9 @@ struct Built {
     // Where it goes: its top-left `offset` pixels from `fraction` of the view (Place).
     float fraction[2] = { 0.0f, 0.0f };
     float offset[2] = { 0.0f, 0.0f };
+    // Its page is taller than it and scrolls (the host's, hudshell::Host): the wheel over it is
+    // the HUD's (OverlayHitMap.hpp `Region::scrolls`).
+    bool scrolls = false;
 };
 
 // Where a panel's top-left goes: a fraction of the view, and view pixels from it -- the
@@ -136,6 +139,7 @@ struct Input {
     };
     std::vector<Button> buttons; // since the last layout, in order
     bool shift = false;          // held now: a shift-press extends a pick (the building section's)
+    float wheel = 0.0f;          // notches turned over a page that scrolls since the last layout
     Hover hover;
 };
 

@@ -178,3 +178,30 @@ TEST (HudScroll, ThePanelIsNeverTallerThanTheView)
         EXPECT_LE (v.y, out.host.height + 1.5f);
     }
 }
+
+// The wheel over the panel scrolls its page; its tab row stays where it was. The input layer
+// takes the wheel there only because the panel says its page scrolls.
+TEST (HudScroll, TheWheelScrollsThePageUnderATabRowThatStays)
+{
+    Fresh hud;
+    hud.engine.SetOwnPages (LongStats ());
+    const hud::Layout top = hud.Lay ({}, Short (100.0f, 380.0f));
+    ASSERT_GT (top.host.height, 0.0f);
+    EXPECT_TRUE (top.host.scrolls) << "the input layer is told the wheel is the panel's here";
+    const float x = top.host.fraction[0] * 1200.0f + top.host.offset[0] + top.host.width * 0.5f;
+    const float y = top.host.fraction[1] * 400.0f + top.host.offset[1] + top.host.height * 0.5f;
+    const layers::Panel& look = shell::PlainLook ();
+    float before[4] = {}, after[4] = {};
+    ASSERT_TRUE (Box (top.host, look.textRgba, before));
+
+    hud::Input wheel = Short (x, y);
+    wheel.wheel = -60.0f; // far past the page's end: it stops there
+    hud.Lay ({}, wheel);
+    const hud::Layout scrolled = hud.Lay ({}, Short (x, y));
+    float box[4] = {};
+    EXPECT_TRUE (Box (scrolled.host, kLastRgba, box)) << "the page's end is shown";
+    EXPECT_FALSE (Box (scrolled.host, kFirstRgba, box)) << "its top scrolled out, not drawn over the tab row";
+    EXPECT_FLOAT_EQ (scrolled.host.height, top.host.height) << "the panel itself did not move";
+    ASSERT_TRUE (Box (scrolled.host, look.textRgba, after));
+    EXPECT_FLOAT_EQ (after[1], before[1]) << "the tab row's titles where they were";
+}
