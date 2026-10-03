@@ -67,10 +67,9 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
                                 const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
                                 std::shared_ptr<const QueryEngine> occluders)
 {
-    // Only the owned automatic path opts into GPU waits. Public/manual studies
-    // keep their CPU baseline and maxParallel measurement contract. Device and
-    // shader creation are lazy, so fully reused studies touch no GPU at all.
-    if (cancelled != nullptr) {
+    // Both producers choose explicitly. CPU remains the public default; FP64
+    // GPU packets retain exact fallback and lazy device creation.
+    if (record.backend == "gpu") {
         const auto* previousGpu =
             reuseSource != nullptr ? dynamic_cast<const archviz::SunStudyGpuTraversal*> (reuseSource->traversal.get ())
                                    : nullptr;
@@ -85,7 +84,8 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
     record.snapshot = std::move (snapshot);
     evp::sunstudy::SetSampleMeshes (record);
     const std::atomic<bool> notCancelled { false };
-    if (reuseSource != nullptr)
+    // Manual benchmarks always trace a fresh day, even if grids/atlases reuse.
+    if (reuseSource != nullptr && cancelled != nullptr)
         evp::sunstudy::ReuseUnaffectedSamples (*reuseSource, record, cancelled != nullptr ? *cancelled : notCancelled);
     const uint64_t snapshotId = record.snapshotId;
     archviz::ArchVizLog ("pipeline: stage=sun-reuse snapshot=" + std::to_string (snapshotId) +

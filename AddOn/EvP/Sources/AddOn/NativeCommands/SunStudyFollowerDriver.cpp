@@ -253,6 +253,7 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     params.Add ("hourTo", (GS::Int32) config.hourTo);
     params.Add ("minAltitudeDeg", config.minAltitudeDeg);
     params.Add ("grid", config.grid);
+    params.Add ("backend", GS::UniString (config.backend.c_str (), CC_UTF8));
     // ⚠️ SURFACES, ALWAYS. It is the only mode that builds an atlas, and the
     // display path refuses a study without one -- so a follower that inherited
     // `ground` would rerun for ever and never show anything.

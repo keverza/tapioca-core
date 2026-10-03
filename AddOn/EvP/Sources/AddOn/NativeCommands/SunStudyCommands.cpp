@@ -6,6 +6,7 @@
 #include "NativeCommands/SunStudyCommands.hpp"
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
 #include "NativeCommands/SunStudyPreparation.hpp"
+#include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
 
 #include "Geometry/MeshStore.hpp"
@@ -37,13 +38,8 @@ using evp::sunstudy::SunSeries;
 using evp::sunstudy::SunStep;
 using evp::sunstudy::SunStudyStore;
 
-// ⚠️ THE PARAMETER READING AND BULK PACKING LIVE IN
-// NativeCommands/SunStudyCommandsSupport, NOT HERE. This domain and the
-// display domain are separate files because one command file exports exactly
-// one provider -- but they speak the same wire format, and two private copies
-// of a base64 packer is how two callers of "the same" format begin to
-// disagree about it. `using` rather than qualification at every call site,
-// because these read as language here.
+// Shared parameter/packing helpers keep the calculation and display wire formats
+// identical; each command translation unit still exports one domain provider.
 using sunstudysupport::LimitRefusal;
 using sunstudysupport::MachineAnalysisLimits;
 using sunstudysupport::PackBits;
@@ -90,8 +86,16 @@ class StartSunStudyCommand : public MainThreadCommand {
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
+        const auto backend = ReadString (params, "backend", cancelled_ != nullptr ? "gpu" : "cpu");
+        if (backend != "cpu" && backend != "gpu")
+            return NativeCommandResult::Failure ("backend must be cpu or gpu");
+        auto reuseSource = reuseSource_;
         auto captured = captured_;
         if (captured == nullptr) {
+            // Manual ownership supersedes the follower's old producer, not its
+            // visible overlay. The shared lane drains any cancelled timestep.
+            sunfollow::Disable ();
+            reuseSource = SunStudyStore::Get ().LatestCompletedRecord ();
             const NativeCommandResult capture = CaptureSunStudyInputs (params, captured);
             if (!capture.ok)
                 return capture;
@@ -152,7 +156,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         const std::vector<uint8_t> sampleMask = roles.SampleMask ();
 
         const auto occluderParts =
-            PrepareSunStudyOccluders (snapshot, roles, reuseSource_.get (), [this] { return IsCancelled (); });
+            PrepareSunStudyOccluders (snapshot, roles, reuseSource.get (), [this] { return IsCancelled (); });
         if (occluderParts == nullptr)
             return NativeCommandResult::Failure ("sun study occluder preparation cancelled or invalid");
         const auto& occluders = occluderParts->analysis;
@@ -169,6 +173,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         const double minAltitude = ReadDouble (params, "minAltitudeDeg", 0.0);
 
         auto record = std::make_unique<StudyRecord> ();
+        record->backend = backend;
         record->series = captured->series;
         record->timestepMinutes = timestep;
         record->year = year;
@@ -192,14 +197,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         const bool sampleSurfaces = (sampleMode == "surfaces");
         const bool sampleExplicit = (sampleMode == "explicit");
 
-        // ---- which DOMAIN the surfaces are diced into --------------------
-        //
-        // ⚠️ A DOMAIN IS NOT A SAMPLE MODE, which is why it is a separate
-        // parameter rather than a fourth `samples` value. `samples` says WHAT is
-        // measured -- the model's faces, a ground plane, or points the caller
-        // supplies. `domain` says how those faces are DIVIDED: per source
-        // triangle, or per coplanar surface. Folding them into one enum would
-        // have made "ground, patch" spellable, and it means nothing.
+        // Sampling says what to measure; domain says how to dice model faces.
         const std::string domainName = ReadString (params, "domain", "triangle");
         const bool patchDomain = (domainName == "patch");
         if (!patchDomain && domainName != "triangle") {
@@ -293,8 +291,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             options.normalOffset = zOffset;
             options.jitter = ReadDouble (params, "jitter", 0.0);
             auto sampling = evp::sunstudy::BuildSurfaceSampling (
-                *snapshot, sampleMask, options, reuseSource_.get (), [this] { return IsCancelled (); },
-                receivers.faces);
+                *snapshot, sampleMask, options, reuseSource.get (), [this] { return IsCancelled (); }, receivers.faces);
             trace.Mark ("sampling", (sampling.triangles.Count () + sampling.patches.Count ()) * 6 * sizeof (double));
             LogSunStudySurfaceSampling (snapshot->id, sampling);
             if (IsCancelled ())
@@ -410,7 +407,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         inputs.sunVersion = record->series.Version ();
         inputs.gridVersion = gridVersion;
         record->session.Sync (inputs, record->series, record->Samples ());
-        FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_, occluders);
+        FinishSunStudyPreparation (*record, snapshot, reuseSource.get (), cancelled_, occluders);
         trace.Mark ("reuse-seed", record->session.Accumulator ().Bits ().size () * sizeof (uint64_t));
 
         const StudyProgress progress = record->session.Progress ();
@@ -453,6 +450,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("unmatchedIgnored", (GS::Int32) roles.unmatchedIgnored);
         os.Add ("excludedSurfaces", (GS::Int32) excludedSurfaces);
         os.Add ("preset", Text (preset));
+        os.Add ("backend", Text (backend));
         os.Add ("presetReason", Text (presetReason));
         os.Add ("analysisFaceCount", (GS::Int32) receivers.analysisFaces);
         os.Add ("contextFaceCount", (GS::Int32) receivers.contextFaces);
@@ -509,9 +507,7 @@ class AdvanceSunStudyCommand : public MainThreadCommand {
         if (id.empty ())
             return NativeCommandResult::Failure ("no sun study is live - call Tapioca.StartSunStudy first");
 
-        // ⚠️ THE DEFAULT SLICE IS SMALL BECAUSE THE CALLER'S BUDGET IS UNKNOWN.
-        // A caller that wants the whole study in one call asks for it; one that
-        // wants to stay responsive does not have to know to ask for less.
+        // Small default slice: the caller's responsiveness budget is unknown.
         const GS::Int32 maxSteps = std::max<GS::Int32> (1, ReadInt (params, "maxSteps", 4));
         const GS::Int32 maxParallel = std::max<GS::Int32> (0, ReadInt (params, "maxParallel", 0));
         const double tmin = ReadDouble (params, "tmin", 0.001);
@@ -539,6 +535,7 @@ class AdvanceSunStudyCommand : public MainThreadCommand {
         os.Add ("converged", progress.converged);
         os.Add ("empty", progress.empty);
         os.Add ("analysisMilliseconds", metadata.analysisMilliseconds);
+        os.Add ("admissionMilliseconds", metadata.admissionMilliseconds);
         return os;
     }
 };
@@ -602,6 +599,8 @@ class SunStudyStateCommand : public MainThreadCommand {
         os.Add ("groundPad", metadata.groundPad);
         os.Add ("sourceStepCount", (GS::Int32) metadata.sourceStepCount);
         os.Add ("analysisMilliseconds", metadata.analysisMilliseconds);
+        os.Add ("admissionMilliseconds", metadata.admissionMilliseconds);
+        os.Add ("backend", Text (metadata.backend));
         return os;
     }
 };
@@ -788,6 +787,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "samples":{"type":"string","enum":["surfaces","ground","explicit"]},
                 "domain":{"type":"string","enum":["triangle","patch"]},
                 "preset":{"type":"string","enum":["early","late"]},
+                "backend":{"type":"string","enum":["cpu","gpu"]},
                 "glassThreshold":{"type":"number","minimum":0,"maximum":1},
                 "analysisSelectionSet":{"type":"string","minLength":1},
                 "analysisElements":{"type":"array","items":{"type":"string","minLength":1}},
@@ -837,6 +837,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "unmatchedIgnored":{"type":"integer"},
                 "excludedSurfaces":{"type":"integer"},
                 "preset":{"type":"string"},
+                "backend":{"type":"string"},
                 "presetReason":{"type":"string"},
                 "analysisFaceCount":{"type":"integer"},
                 "contextFaceCount":{"type":"integer"},
@@ -875,7 +876,8 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "generation":{"type":"integer"},
                 "converged":{"type":"boolean"},
                 "empty":{"type":"boolean"},
-                "analysisMilliseconds":{"type":"number"}
+                "analysisMilliseconds":{"type":"number"},
+                "admissionMilliseconds":{"type":"number"}
             },
             "additionalProperties":false,
             "required":["studyId","advanced","resolvedSteps","totalSteps","converged","empty"]
@@ -909,7 +911,9 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "grid":{"type":"number"},
                 "groundPad":{"type":"number"},
                 "sourceStepCount":{"type":"integer"},
-                "analysisMilliseconds":{"type":"number"}
+                "analysisMilliseconds":{"type":"number"},
+                "admissionMilliseconds":{"type":"number"},
+                "backend":{"type":"string"}
             },
             "additionalProperties":false,
             "required":["studyIds","studyCount","studyId","live"]

@@ -225,6 +225,7 @@ TEST (SunStudyStore, DescribeCopiesMetadataWithoutHandingOutAPointer)
     record->year = 2026;
     record->month = 3;
     record->day = 21;
+    record->backend = "gpu";
     const std::string id = SunStudyStore::Get ().Insert (std::move (record));
 
     StudyRecord metadata;
@@ -237,6 +238,29 @@ TEST (SunStudyStore, DescribeCopiesMetadataWithoutHandingOutAPointer)
     EXPECT_EQ (metadata.year, 2026);
     EXPECT_EQ (metadata.month, 3);
     EXPECT_EQ (metadata.day, 21);
+    EXPECT_EQ (metadata.backend, "gpu");
+}
+
+TEST (SunStudyStore, LatestReusableRecordIsCompletedAndRevisionOrderedNotLexicographic)
+{
+    StoreFixture fixture;
+    auto& store = SunStudyStore::Get ();
+    EXPECT_EQ (store.LatestCompletedRecord (), nullptr);
+    auto older = MakeRecord (1);
+    older->id = "z-older";
+    const auto oldId = store.Insert (std::move (older));
+    auto newer = MakeRecord (1);
+    newer->id = "a-newer";
+    const auto newId = store.Insert (std::move (newer));
+    size_t advanced = 0;
+    std::string error;
+    EXPECT_EQ (store.LatestCompletedRecord (), nullptr);
+    ASSERT_TRUE (store.Advance (oldId, 1, 1, 0.001, 0.0, advanced, error));
+    EXPECT_EQ (store.LatestCompletedRecord ()->id, oldId);
+    ASSERT_TRUE (store.Advance (newId, 1, 1, 0.001, 0.0, advanced, error));
+    EXPECT_EQ (store.LatestCompletedRecord ()->id, newId);
+    EXPECT_TRUE (store.Erase (newId));
+    EXPECT_EQ (store.LatestCompletedRecord ()->id, oldId);
 }
 
 // The measurement the backend decision rests on has to survive to a live run,

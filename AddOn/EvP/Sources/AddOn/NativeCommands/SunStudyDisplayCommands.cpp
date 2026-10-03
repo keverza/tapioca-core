@@ -320,6 +320,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.preset = metadata.preset;
         config.glassThreshold = metadata.glassThreshold;
         config.analysisRestricted = metadata.analysisRestricted;
+        config.backend = metadata.backend;
         config.debug = adoptedDebug;
         config.depth = adoptedDepth;
         config.hoursMax = rampTop;

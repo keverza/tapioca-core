@@ -165,9 +165,8 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
             error = "incremental sun study requires its original ray bounds";
             return false;
         }
-        // ⚠️ A PER-STUDY FLAG, NOT A GLOBAL ONE. Two callers advancing the SAME
-        // study would interleave slices into one accumulator; two callers
-        // advancing DIFFERENT studies is fine and must stay fine.
+        // Per-study ownership remains independent of the calculation lane:
+        // same-record re-entry refuses, different records queue cancellably.
         if (advancing_[id]) {
             error = "sun study '" + id + "' is already being advanced";
             return false;
@@ -178,14 +177,19 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
             record->defaultRayBounds = false;
     }
 
-    const auto start = std::chrono::steady_clock::now ();
+    const auto queued = std::chrono::steady_clock::now ();
+    auto start = queued;
     bool succeeded = true;
     try {
-        if (record->traversal != nullptr)
-            advanced =
-                record->session.Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel, [record, cancelled] () {
-                    return record->cancelRequested.load () || (cancelled != nullptr && cancelled->load ());
-                });
+        std::unique_lock<std::timed_mutex> lane (executionMutex_, std::defer_lock);
+        const auto isCancelled = [record, cancelled] () {
+            return record->cancelRequested.load () || (cancelled != nullptr && cancelled->load ());
+        };
+        while (!isCancelled () && !lane.try_lock_for (std::chrono::milliseconds (10))) {
+        }
+        start = std::chrono::steady_clock::now ();
+        if (lane.owns_lock () && !isCancelled () && record->traversal != nullptr)
+            advanced = record->session.Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel, isCancelled);
     }
     catch (const std::exception& exception) {
         error = "sun study '" + id + "' advance failed: " + exception.what ();
@@ -205,6 +209,7 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         const auto found = studies_.find (id);
         if (found != studies_.end () && found->second == record) {
             found->second->analysisMilliseconds += elapsed;
+            found->second->admissionMilliseconds += std::chrono::duration<double, std::milli> (start - queued).count ();
             progress_[id] = record->session.Progress ();
             advancing_[id] = false;
         }
@@ -253,6 +258,17 @@ std::shared_ptr<const StudyRecord> SunStudyStore::CompletedRecord (const std::st
     if (found == studies_.end () || advancing_.at (id) || !progress_.at (id).converged)
         return nullptr;
     return found->second;
+}
+
+std::shared_ptr<const StudyRecord> SunStudyStore::LatestCompletedRecord () const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    std::shared_ptr<const StudyRecord> latest;
+    for (const auto& [id, record] : studies_)
+        if (!advancing_.at (id) && progress_.at (id).converged &&
+            (latest == nullptr || record->storeRevision > latest->storeRevision))
+            latest = record;
+    return latest;
 }
 
 bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
@@ -545,6 +561,8 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;
     copyOfMetadata.analysisMilliseconds = source.analysisMilliseconds;
+    copyOfMetadata.admissionMilliseconds = source.admissionMilliseconds;
+    copyOfMetadata.backend = source.backend;
     return true;
 }
 

@@ -22,8 +22,8 @@
 // ⚠️ THE LOCK IS NOT HELD ACROSS THE ANALYSIS ITSELF. Advancing a study is the
 // expensive part; holding the store's mutex for it would serialise every other
 // caller behind it, including a cheap progress poll from the UI. `Advance`
-// therefore takes the lock, finds the session, and releases it — see the note on
-// the method.
+// therefore takes the lock, finds the session, and releases it. A separate
+// cancellable execution lane prevents manual/automatic CPU or GPU contention.
 
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
@@ -101,6 +101,8 @@ struct StudyRecord {
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the
     // whole backend decision rests on, kept where a live run can read it.
     double analysisMilliseconds = 0.0;
+    double admissionMilliseconds = 0.0;
+    std::string backend = "cpu"; // requested backend; GPU retains exact CPU fallback
 
     // The study's result as a texture, and the map from a point on the model
     // into it. Built once beside the samples, because it is a pure function of
@@ -199,6 +201,7 @@ class SunStudyStore final {
     // Only sample/geometry/series/accumulator fields may be read through this
     // handle; cancellation remains atomic and metadata is not a worker API.
     std::shared_ptr<const StudyRecord> CompletedRecord (const std::string& id) const;
+    std::shared_ptr<const StudyRecord> LatestCompletedRecord () const;
 
     // Read under the lock and copy out, so a caller never holds a pointer into
     // a study another thread may erase.
@@ -293,6 +296,7 @@ class SunStudyStore final {
     bool SessionReadable (const std::string& id, std::string& error) const;
 
     mutable std::mutex mutex_;
+    std::timed_mutex executionMutex_;
     std::map<std::string, std::shared_ptr<StudyRecord>> studies_;
     std::map<std::string, bool> advancing_;
     std::map<std::string, StudyProgress> progress_;

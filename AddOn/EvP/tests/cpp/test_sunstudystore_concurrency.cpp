@@ -234,3 +234,53 @@ TEST (SunStudyStoreConcurrency, ATraversalExceptionReleasesBothDispatchGuardsFor
     EXPECT_TRUE (progress.converged);
     store.Clear ();
 }
+
+TEST (SunStudyStoreConcurrency, ManualAndAutomaticRecordsShareOneCalculationLaneWithoutBlockingProgress)
+{
+    RunningSlice first;
+    auto& store = SunStudyStore::Get ();
+    auto gate = std::make_shared<TraversalGate> ();
+    gate->release.set_value ();
+    auto entered = gate->entered.get_future ();
+    const auto id = store.Insert (Record (std::make_shared<PausedTraversal> (gate)));
+    size_t advanced = 0;
+    std::string error;
+    auto second =
+        std::async (std::launch::async, [&] { return store.Advance (id, 1, 1, 0.001, 0.0, advanced, error); });
+    EXPECT_EQ (entered.wait_for (std::chrono::milliseconds (50)), std::future_status::timeout);
+    StudyProgress progress;
+    EXPECT_TRUE (store.Progress (id, progress, error));
+    EXPECT_EQ (progress.resolvedSteps, 0u);
+    first.Finish ();
+    EXPECT_TRUE (second.get ());
+    EXPECT_EQ (advanced, 1u);
+    StudyRecord metadata;
+    EXPECT_TRUE (store.Describe (id, metadata, error));
+    EXPECT_GT (metadata.admissionMilliseconds, 0.0);
+}
+
+TEST (SunStudyStoreConcurrency, CancelledQueuedRecordNeverTracesOrWaitsForTheActiveStudy)
+{
+    RunningSlice first;
+    auto& store = SunStudyStore::Get ();
+    auto gate = std::make_shared<TraversalGate> ();
+    gate->release.set_value ();
+    auto entered = gate->entered.get_future ();
+    const auto id = store.Insert (Record (std::make_shared<PausedTraversal> (gate)));
+    size_t advanced = 0;
+    std::string error;
+    std::atomic<bool> cancelled { false };
+    auto queued = std::async (std::launch::async,
+                              [&] { return store.Advance (id, 1, 1, 0.001, 0.0, advanced, error, &cancelled); });
+    EXPECT_EQ (entered.wait_for (std::chrono::milliseconds (30)), std::future_status::timeout);
+    cancelled.store (true);
+    const auto finished = queued.wait_for (std::chrono::seconds (2));
+    first.Finish (); // always release before a future destructor, even on failure
+    EXPECT_EQ (finished, std::future_status::ready);
+    EXPECT_TRUE (queued.get ());
+    EXPECT_EQ (advanced, 0u);
+    EXPECT_EQ (entered.wait_for (std::chrono::milliseconds (0)), std::future_status::timeout);
+    StudyProgress progress;
+    EXPECT_TRUE (store.Progress (id, progress, error));
+    EXPECT_EQ (progress.resolvedSteps, 0u);
+}

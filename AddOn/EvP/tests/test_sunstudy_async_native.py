@@ -180,13 +180,22 @@ def test_geometry_batches_wait_for_worker_drain_before_capture_and_do_not_deboun
         assert field in source
 
 
-def test_gpu_selection_is_only_for_owned_automatic_preparation_and_uses_role_filtered_scene():
+def test_gpu_selection_is_explicit_for_both_producers_and_uses_role_filtered_scene():
     source = (_ADDON / "NativeCommands" / "SunStudyPreparation.cpp").read_text(encoding="utf-8")
-    assert "if (cancelled != nullptr)" in source
+    assert 'if (record.backend == "gpu")' in source
     assert "std::make_shared<archviz::SunStudyGpuTraversal> (" in source
     assert "record.occluders != nullptr ? record.occluders->context : nullptr, previousGpu" in source
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
-    assert "FinishSunStudyPreparation (*record, snapshot, reuseSource_.get (), cancelled_, occluders)" in commands
+    assert "FinishSunStudyPreparation (*record, snapshot, reuseSource.get (), cancelled_, occluders)" in commands
+    assert 'ReadString (params, "backend", cancelled_ != nullptr ? "gpu" : "cpu")' in commands
+    assert "sunfollow::Disable ()" in commands
+    request = re.findall(r'R"json\((.*?)\)json"', commands.split('{ "StartSunStudy",', 1)[1], re.DOTALL)[0]
+    assert json.loads(request)["properties"]["backend"]["enum"] == ["cpu", "gpu"]
+    driver = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
+    assert 'params.Add ("backend"' in driver
+    display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
+    assert "config.backend = metadata.backend" in display
+    assert "reuseSource != nullptr && cancelled != nullptr" in source  # manual CPU baseline traces a fresh day
     assert "D3D11" not in commands
 
 
@@ -308,7 +317,7 @@ def test_pause_retires_old_producer_but_does_not_clear_display_or_join():
 def test_surface_sampling_reuse_remains_owned_sdk_free_and_separate_from_result_reuse():
     commands = (_ADDON / "NativeCommands" / "SunStudyCommands.cpp").read_text(encoding="utf-8")
     assert re.search(
-        r"BuildSurfaceSampling\s*\(\s*\*snapshot,\s*sampleMask,\s*options,\s*reuseSource_\.get\s*\(\s*\)", commands
+        r"BuildSurfaceSampling\s*\(\s*\*snapshot,\s*sampleMask,\s*options,\s*reuseSource\.get\s*\(\s*\)", commands
     )
     assert "record->samplingLayout = std::move (sampling.layout)" in commands
     sampling = (_ADDON / "SunStudy" / "SunStudySurfaceSampling.cpp").read_text(encoding="utf-8")

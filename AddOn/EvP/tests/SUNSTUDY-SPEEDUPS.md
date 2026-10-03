@@ -19,6 +19,21 @@ Analysis remains the model minus Context/Ignored, with Late filtering glass face
   ring wrap/tails, concurrency, cancellation, and immutable context-buffer reuse.
   The offline D3D adapter reports Microsoft Basic Render Driver, not the live RTX.
 
+## 2. One calculation lane and explicit backend
+
+- `StartSunStudy` accepts `backend=cpu|gpu` (CPU default); both paths use the same
+  session, role-filtered occluders, exact GPU fallback, and store advance method.
+  Follower adoption preserves the requested backend rather than changing it.
+- A native manual start cancels/disarms the old automatic producer but retains
+  its visible overlay. This no longer depends on a Python client calling Pause.
+- A shared cancellable lane prevents concurrent manual/automatic calculations
+  from competing; progress/cancellation never waits on the store lock. Admission
+  wait is reported separately from calculation time.
+- Completed records supply immutable grid/atlas reuse sources. Manual benchmarks
+  deliberately do not seed results: CPU/GPU baseline runs still trace a fresh day.
+- Offline tests cover queued cancellation, nonblocking progress, exception/revision
+  safety, completed-record selection and backend/schema/adoption seams.
+
 ## Deferred live acceptance
 
 Compare `sun-gpu-step` CPU checks, GPU compute, wait, fallback reasons, and wall time

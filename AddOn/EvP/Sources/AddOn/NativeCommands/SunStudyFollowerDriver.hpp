@@ -70,6 +70,7 @@ struct ActiveSunStudyConfig {
     std::string preset;
     double glassThreshold = 0.4;
     bool analysisRestricted = false;
+    std::string backend = "gpu";
     // Display, carried so a rerun comes back looking the way the user left it --
     // a replacement that reverted to the hours ramp while they were reading a
     // `cell checker` would read as the diagnostic having been taken away.
