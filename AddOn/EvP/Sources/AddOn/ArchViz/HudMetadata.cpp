@@ -143,7 +143,8 @@ void Swatch (ImDrawList* draw, ImVec2 at, float h, uint32_t rgba)
     draw->AddRectFilled (ImVec2 (at.x, y), ImVec2 (at.x + s, y + s), hudshell::Packed (rgba), 2.0f);
 }
 
-// An option of a dropdown: its swatch, its label. True when chosen.
+} // namespace
+
 bool OptionRow (const Option& option, bool chosen)
 {
     const float h = ImGui::GetTextLineHeight ();
@@ -159,6 +160,8 @@ bool OptionRow (const Option& option, bool chosen)
     draw->AddText (ImVec2 (at.x + lead, at.y), ImGui::GetColorU32 (ImGuiCol_Text), option.label.c_str ());
     return pressed;
 }
+
+namespace {
 
 void ChoiceControl (const Field& field, std::vector<Edit>& edits)
 {
@@ -464,7 +467,10 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
         return true;
     }
     if (edit.action == Edit::Action::Clear) {
-        meta::RemoveProperty (entity, edit.id);
+        if (edit.domain.empty ())
+            meta::RemoveProperty (entity, edit.id);
+        else
+            meta::ClearRange (entity, edit.domain, edit.from, edit.to, edit.id);
         return true;
     }
     if (edit.action == Edit::Action::AskText) {
@@ -491,6 +497,20 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
     }
     property.state = meta::State::Authored;
     property.provenance = provenance;
+    if (!edit.domain.empty ()) {
+        if (edit.to < edit.from) {
+            error = edit.id + ": a range ending before it starts";
+            return false;
+        }
+        meta::RangeAssignment range;
+        range.domain = edit.domain;
+        range.from = edit.from;
+        range.to = edit.to;
+        range.provenance = provenance;
+        range.properties.push_back (std::move (property));
+        meta::AssignRange (entity, range);
+        return true;
+    }
     meta::SetProperty (entity, std::move (property));
     return true;
 }

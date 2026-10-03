@@ -83,6 +83,8 @@ struct State {
     bool viewerRequested = false;
     // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
     std::vector<hudmeta::Edit> metadataEdits;
+    // The building section's floors picked (PickedFloors), both views'.
+    hudsection::Run floors;
 };
 
 struct Engine::Impl {

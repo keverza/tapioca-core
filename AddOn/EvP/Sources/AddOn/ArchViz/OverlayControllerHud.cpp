@@ -83,6 +83,8 @@ void FollowHudState ()
     std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);
     if (!edits.empty ())
         selectionmetadata::Request (std::move (edits), {}, [] () { overlayhudmodel::SelectionChanged (); });
+    // The building section's floors picked: their slices on the 3D overlay.
+    overlayhudmodel::FollowFloors (overlayhud::PickedFloors (*state));
     const uint64_t revision = overlayhud::Revision (*state);
     if (revision == g_followedRevision)
         return;

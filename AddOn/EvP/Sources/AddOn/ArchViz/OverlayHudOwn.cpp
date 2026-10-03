@@ -63,7 +63,18 @@ void Engine::Impl::SelectionPage (float ui)
     // and lays the HUD out again with what the elements then hold (SelectionMetadata.hpp).
     if (own.selection.count == 0)
         return;
-    for (hudmeta::Edit& edit : hudmeta::Editor (own.metadata, *look, ui)) {
+    // The massing slabs' building section first: its floors picked, a value given to them.
+    const hudsection::Run before = store->floors;
+    std::vector<hudmeta::Edit> edits = hudsection::Diagram (own.section, store->floors, *look, ui);
+    if (store->floors != before) {
+        const hudsection::Run& run = store->floors;
+        changes.push_back (
+            { "floors", std::string (), "Selection", own.section.key, -1, double (run.first),
+              run.Empty () ? std::string () : std::to_string (run.first) + "-" + std::to_string (run.last), true });
+    }
+    for (hudmeta::Edit& edit : hudmeta::Editor (own.metadata, *look, ui))
+        edits.push_back (std::move (edit));
+    for (hudmeta::Edit& edit : edits) {
         changes.push_back ({ "metadata", std::string (), "Selection", edit.id, -1,
                              edit.kind == hudmeta::FieldKind::Toggle ? (edit.on ? 1.0 : 0.0) : edit.number, edit.text,
                              true });

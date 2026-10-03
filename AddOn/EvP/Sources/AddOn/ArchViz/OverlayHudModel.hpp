@@ -38,6 +38,10 @@ overlayhud::Engine* Prepare (overlayinput::View view);
 // again. From Archicad's notification: cheap, nothing read here.
 void SelectionChanged ();
 
+// The floors the user picked on the building section, after a layout: their slices drawn on
+// the 3D overlay when they, or the section, changed (SectionModel.hpp).
+void FollowFloors (const hudsection::Run& run);
+
 // The project closed (§8): the selection and the rates are that project's.
 void Forget ();
 

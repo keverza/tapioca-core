@@ -483,6 +483,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
     # The Selection page's Tapioca metadata: the schema's fields, their controls, an edit.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMetadata.cpp"
+    # The building section: the massing slabs' floors picked and given their usage.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudSection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
@@ -677,6 +679,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudown.cpp
     test_hudshell.cpp
     test_hudmetadata.cpp
+    test_hudsection.cpp
     test_tapiocametadata.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp

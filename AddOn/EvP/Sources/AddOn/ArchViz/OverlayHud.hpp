@@ -62,6 +62,7 @@
 // MAIN THREAD. Pure apart from ImGui, so tests/cpp builds it with the vendored imgui.
 
 #include "ArchViz/HudMetadata.hpp"
+#include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
@@ -151,9 +152,10 @@ struct LegendBar {
 // hidden, a control's value. For Python (OverlayHudEvents.hpp); `key` splits into the
 // panel's layer and place.
 struct Change {
-    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover", "metadata" (a
-    // field of the Selection page: `id` its key, `value` and `text` what it was set to); or a
-    // control's: "checkbox", "slider", "combo", "tab", "button"
+    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; "metadata" (a
+    // field of the Selection page: `id` its key, `value` and `text` what it was set to); "floors"
+    // (the building section's run: `text` its storeys, "" for none); or a control's: "checkbox",
+    // "slider", "combo", "tab", "button"
     std::string kind;
     std::string key;   // the panel's; empty for the HUD's own (the text size, Settings)
     std::string title; // the panel's
@@ -213,8 +215,10 @@ struct OwnPages {
     std::vector<hudshell::Card> stats;
     hudshell::SelectionPage selection;
     // The selection's Tapioca metadata, under its list: what the user changes there is
-    // `TakeMetadataEdits`'.
+    // `TakeMetadataEdits`'. Above it, the selected massing slabs' building section, its floors
+    // picked into `PickedFloors`.
     hudmeta::Page metadata;
+    hudsection::Section section;
     std::vector<hudshell::Card> debug;
     // ⚠️ THE DOCK IS A SWITCH BETWEEN THE OVERLAY AND THE SEPARATE VIEWER (the user, 2026-10-03):
     // the overlay's circle at its top -- its state; filled while the overlay is shown, and
@@ -260,6 +264,10 @@ bool TakeViewerRequest (State& state);
 // What the user changed in the Selection page's metadata since the last call, in order: the
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
+// The floors picked on the building section (HudSection.hpp): the owner draws their slices on
+// the 3D overlay, and clears them when the section is another building's.
+hudsection::Run PickedFloors (const State& state);
+void SetPickedFloors (State& state, const hudsection::Run& run);
 // Hover mode: off until the user turns it on in Settings or the HUD's menu, or Python does;
 // both views. `Revision` moves with it.
 bool HoverMode (const State& state);

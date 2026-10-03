@@ -135,6 +135,12 @@ struct DockPress {
 DockPress DockTab (const char* id, const std::string& label, const overlaylayers::Panel& look, bool open,
                    const Circle& top, const Circle* bottom, ImVec2 padding, float scale);
 
+// ⚠️ A RIGHT CLICK A CONTROL ANSWERS IS THE CONTROL'S: the HUD's own menu opens on a right click
+// anywhere on the HUD (OverlayHudHost.cpp `Menu`) unless a control -- the building section's
+// floors -- claimed the click in this frame. Per ImGui context and frame; under its lock.
+void ClaimRightClick ();
+bool RightClickClaimed ();
+
 // ---- the floating panel ---------------------------------------------------------------
 
 // Where the user left the panel: `offset` logical pixels in from the edges of the view's

@@ -83,6 +83,13 @@ struct Edit {
     double number = 0.0;
     bool on = false;
     std::string label; // the field's, for the dialog and the undo step's name
+    // ⚠️ OVER A PART OF THE ELEMENT when `domain` is given: positions `from` to `to` of it -- floors
+    // 3 to 7 -- assigned the value (metadata::AssignRange) or cleared of it (ClearRange).
+    std::string domain;
+    double from = 0.0;
+    double to = 0.0;
+    // Only this element's, when given: a range clipped to one element's own floors.
+    std::string element;
 };
 
 // The fields of `entities` -- the selected elements read -- under `schema`: its definitions that
@@ -90,6 +97,9 @@ struct Edit {
 // system; one per tag it offers. `selected` is how many an edit goes to.
 Page Fields (const metadata::ProjectSchema& schema, const std::vector<metadata::EntityMetadata>& entities,
              uint32_t selected);
+
+// An option of a dropdown or a menu: its colour's swatch, its label. True when chosen.
+bool OptionRow (const Option& option, bool chosen);
 
 // The page drawn in `look`; what the user changed in this frame.
 std::vector<Edit> Editor (const Page& page, const overlaylayers::Panel& look, float scale);

@@ -433,6 +433,25 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     return press;
 }
 
+namespace {
+
+// Who claimed the right click, and in which frame: one HUD lays out at a time, under ImGui's lock.
+const ImGuiContext* g_claimedBy = nullptr;
+int g_claimedFrame = -1;
+
+} // namespace
+
+void ClaimRightClick ()
+{
+    g_claimedBy = ImGui::GetCurrentContext ();
+    g_claimedFrame = ImGui::GetFrameCount ();
+}
+
+bool RightClickClaimed ()
+{
+    return g_claimedBy == ImGui::GetCurrentContext () && g_claimedFrame == ImGui::GetFrameCount ();
+}
+
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
                  const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer)
 {

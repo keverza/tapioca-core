@@ -19,6 +19,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayRuntimeReport.hpp"
 #include "ArchViz/PlanOverlayRuntime.hpp"
+#include "ArchViz/SectionModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
 #include "Metadata/MetadataExtractor.hpp"
 
@@ -50,6 +51,12 @@ constexpr uint32_t kRed = 0xD64545FFu;
 bool g_selectionDirty = true;
 hudshell::SelectionPage g_selection;
 hudmeta::Page g_metadata;
+// The selected massing slabs' building section, and what of it is on the 3D overlay: the run
+// shown, of which reading (moved on every read).
+sectionmodel::Reading g_section;
+uint64_t g_sectionReads = 0;
+hudsection::Run g_shownRun;
+uint64_t g_shownReads = 0;
 
 const hudshell::SelectionPage& Selection ()
 {
@@ -62,6 +69,12 @@ const hudshell::SelectionPage& Selection ()
     g_metadata.known = true;
     const std::vector<std::string> guids = selectionmetadata::SelectedGuids ();
     g_selection.count = uint32_t (guids.size ());
+    // The section: its floors picked are another building's when its slabs are others.
+    sectionmodel::Reading section = sectionmodel::Read (guids);
+    if (section.slabs != g_section.slabs)
+        overlayhud::SetPickedFloors (*guesttext::HudState (), hudsection::Run {});
+    g_section = std::move (section);
+    ++g_sectionReads;
     if (guids.empty ())
         return g_selection;
     const std::vector<std::string> listed (guids.begin (), guids.begin () + (std::min) (guids.size (), kListed));
@@ -361,6 +374,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     overlayhud::OwnPages pages = view == overlayinput::View::ThreeD ? ThreeD () : Plan ();
     pages.selection = Selection ();
     pages.metadata = g_metadata;
+    pages.section = g_section.section;
     return pages;
 }
 
@@ -379,6 +393,18 @@ void SelectionChanged ()
     overlayinput::RequestLayout (overlayinput::View::Plan);
 }
 
+void FollowFloors (const hudsection::Run& run)
+{
+    if (run == g_shownRun && g_shownReads == g_sectionReads && (run.Empty () || sectionmodel::Shown ()))
+        return;
+    g_shownRun = run;
+    g_shownReads = g_sectionReads;
+    if (run.Empty ())
+        sectionmodel::Hide ();
+    else
+        sectionmodel::Show (g_section.slices, run, hudshell::PlainLook ().accentRgba);
+}
+
 void Forget ()
 {
     g_framesSeen = 0;
@@ -386,6 +412,8 @@ void Forget ()
     g_selectionDirty = true;
     g_selection = hudshell::SelectionPage {};
     g_metadata = hudmeta::Page {};
+    g_section = sectionmodel::Reading {};
+    g_shownRun = hudsection::Run {};
     g_composes3D = Rate {};
     g_presentsPlan = Rate {};
     g_drawnPlan = Rate {};

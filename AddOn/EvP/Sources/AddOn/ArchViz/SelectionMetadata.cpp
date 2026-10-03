@@ -134,7 +134,7 @@ void Write (Pending& pending)
             // leave empty metadata on every element that never had it.
             const std::string before = meta::ToJson (entity);
             for (const hudmeta::Edit& edit : pending.edits)
-                if (!hudmeta::Apply (entity, edit, schema, now, why))
+                if ((edit.element.empty () || edit.element == guid) && !hudmeta::Apply (entity, edit, schema, now, why))
                     note (why);
             if (meta::ToJson (entity) == before)
                 continue;

@@ -164,6 +164,16 @@ std::vector<hudmeta::Edit> TakeMetadataEdits (State& state)
     return edits;
 }
 
+hudsection::Run PickedFloors (const State& state)
+{
+    return state.floors;
+}
+
+void SetPickedFloors (State& state, const hudsection::Run& run)
+{
+    state.floors = run;
+}
+
 bool HoverMode (const State& state)
 {
     return state.hover;
