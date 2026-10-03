@@ -150,6 +150,13 @@ uint64_t Revision (const State& state)
     return state.revision;
 }
 
+bool TakeViewerRequest (State& state)
+{
+    const bool requested = state.viewerRequested;
+    state.viewerRequested = false;
+    return requested;
+}
+
 bool HoverMode (const State& state)
 {
     return state.hover;

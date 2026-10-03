@@ -210,6 +210,12 @@ struct OwnPages {
     std::vector<hudshell::Card> stats;
     hudshell::SelectionPage selection;
     std::vector<hudshell::Card> debug;
+    // ⚠️ THE DOCK IS A SWITCH BETWEEN THE OVERLAY AND THE SEPARATE VIEWER (the user, 2026-10-03):
+    // the overlay's circle at its top -- its state; filled while the overlay is shown, and
+    // pressed it shows or hides it -- and the viewer's at its bottom, pressed to switch to it
+    // (`TakeViewerRequest`). Their states are the owner's to say.
+    hudshell::Circle overlay;
+    hudshell::Circle viewer;
 };
 
 struct Stats {
@@ -242,6 +248,9 @@ bool LayerShown (const State& state, const std::string& layer);
 std::vector<std::string> HiddenLayers (const State& state);
 void SetContentShown (State& state, bool shown);
 void SetLayerShown (State& state, const std::string& layer, bool shown);
+// The viewer's circle pressed since the last call: the owner switches to the viewer -- after
+// the layout, never inside it -- and the request is gone.
+bool TakeViewerRequest (State& state);
 // Hover mode: off until the user turns it on in Settings or the HUD's menu, or Python does;
 // both views. `Revision` moves with it.
 bool HoverMode (const State& state);

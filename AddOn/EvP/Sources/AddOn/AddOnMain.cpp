@@ -17,6 +17,7 @@
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayHudModel.hpp" // the HUD's Selection page, told when the selection changes
 #include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/SurfaceSwitch.hpp" // the overlay or the viewer -- its window must not outlive the DLL
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp" // its geometry producer, joined on teardown
 #include "ArchViz/CameraSyncMode.hpp"   // camera-sync mechanism switch — torn down on exit
@@ -611,6 +612,8 @@ GSErrCode Initialize (void)
     ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, ProjectEventHandler);
     RefreshModelOpen (); // seed current state
     ACAPI_Notification_CatchSelectionChange (SelectionChangeHandler);
+    // The overlay or the viewer, never both: the HUD's switch posts to a window of this thread.
+    geomsrv::archviz::surfaceswitch::Arm ();
 
     return NoError;
 }
@@ -722,6 +725,8 @@ GSErrCode FreeData (void)
     geomsrv::archviz::overlaycontrol::StopAll ();
     // The HUD's message hook, whatever StopAll found: its procedure lives in this DLL.
     geomsrv::archviz::overlayinput::Shutdown ();
+    // The surface switch's window, on the same terms.
+    geomsrv::archviz::surfaceswitch::Shutdown ();
     geomsrv::ShutdownPlanOverlay ();
     // The 3D overlay's window and class, on exactly the same terms -- its
     // WndProc lives in this DLL too, and PlanOverlay's crashed Archicad on close

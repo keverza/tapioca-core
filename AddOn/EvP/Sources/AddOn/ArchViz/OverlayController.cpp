@@ -36,6 +36,7 @@
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 #include "ArchViz/PlanOverlayRuntime.hpp"
+#include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 
 #include <windows.h>
@@ -564,8 +565,11 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
     }
     else {
         intent.wanted = true;
-        // ⚠️ THE MENU OPENS THE HUD (the user, 2026-10-03: it always starts with the overlay).
-        if (std::string (how) == "menu")
+        // ⚠️ THE OVERLAY OR THE VIEWER, NEVER BOTH (the user, 2026-10-03; SurfaceSwitch.hpp).
+        surfaceswitch::BeforeOverlayStarts ();
+        // ⚠️ THE MENU AND THE HUD'S SWITCH OPEN THE HUD (the user, 2026-10-03: it always starts
+        // with the overlay).
+        if (std::string (how) == "menu" || std::string (how) == "hud")
             overlayhud::SetHudOpen (*guesttext::HudState (), true);
         // The Watch trace's annotations follow wherever an overlay is (OverlayAnnotations.hpp).
         overlayannotations::EnsureStarted ();

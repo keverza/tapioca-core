@@ -141,17 +141,55 @@ std::string Percent (float scale)
     return std::to_string (int (std::lround (scale * 100.0f))) + " %";
 }
 
-// ⚠️ ONE TAB, ITS TITLE TURNED, AND A CIRCLE (the user, 2026-09-30: one tab, its text rotated
-// 90 degrees, that opens and closes the panel; on it, a filled or empty circle that shows
-// and hides the whole overlay and its HUD without destroying them).
-bool DockTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, bool shown,
-              ImVec2 padding, float scale, bool& toggled)
+namespace {
+
+// `a` towards `b` by `t`, channel by channel.
+uint32_t Mix (uint32_t a, uint32_t b, float t)
 {
+    t = (std::min) ((std::max) (t, 0.0f), 1.0f);
+    uint32_t out = 0;
+    for (int shift = 0; shift < 32; shift += 8) {
+        const float x = float ((a >> shift) & 0xFFu), y = float ((b >> shift) & 0xFFu);
+        out |= uint32_t (std::lround (x + (y - x) * t)) << shift;
+    }
+    return out;
+}
+
+constexpr float kPi = 3.14159265358979f;
+
+} // namespace
+
+uint32_t CircleColour (const Circle& circle, uint32_t ink, double seconds)
+{
+    switch (circle.phase) {
+        case Phase::Off:
+            return WithAlpha (ink, 0.55f);
+        case Phase::Ready:
+            return ink;
+        case Phase::Busy:
+            return circle.progress >= 0.0f ? Mix (kBusyRgba, ink, circle.progress) : kBusyRgba;
+        case Phase::Attention:
+            // Once a second, half of it faint: a still layout taken twice a second alternates.
+            return std::fmod (seconds, 1.0) < 0.5 ? ink : WithAlpha (ink, 0.25f);
+        case Phase::Error:
+            return kErrorRgba;
+    }
+    return ink;
+}
+
+// ⚠️ ONE TAB, ITS TITLE TURNED, AND ITS SURFACES' CIRCLES (the user, 2026-09-30: one tab, its
+// text rotated 90 degrees, that opens and closes the panel; 2026-10-03: the overlay's circle at
+// its top, the separate viewer's at its bottom -- a switch between the two).
+DockPress DockTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, const Circle& top,
+                   const Circle* bottom, ImVec2 padding, float scale)
+{
+    DockPress press;
     const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
     const float across = std::ceil (text.y + 2.0f * padding.x);
     const float r = (std::min) (6.0f * scale, across * 0.5f);
     const uint32_t fill = open ? panel.accentRgba : panel.backgroundRgba;
     const uint32_t ink = open ? Contrast (panel.accentRgba) : panel.textRgba;
+    const double seconds = ImGui::GetTime ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     // One part: its ground, its tint when pointed at and pressed, its edge while closed.
     const auto part = [&] (ImVec2 a, ImVec2 b, ImDrawFlags corners) {
@@ -164,25 +202,50 @@ bool DockTab (const char* id, const std::string& label, const layers::Panel& pan
             draw->AddRectFilled (a, b, Packed (tint), r, corners);
         }
     };
-    // The circle: the whole overlay shown (filled) or hidden (a ring).
+    // A circle: its square, a disc while its surface is shown or a ring, an arc while busy.
+    const auto circle = [&] (const char* name, const Circle& c, ImDrawFlags corners, ImVec2& from, ImVec2& to) {
+        const bool pressed = ImGui::InvisibleButton (name, ImVec2 (across, across));
+        from = ImGui::GetItemRectMin ();
+        to = ImGui::GetItemRectMax ();
+        part (from, to, corners);
+        const ImVec2 centre (std::floor ((from.x + to.x) * 0.5f), std::floor ((from.y + to.y) * 0.5f));
+        const float radius = std::floor (across * 0.22f) + 0.5f;
+        const ImU32 colour = Packed (CircleColour (c, ink, seconds));
+        const float stroke = (std::max) (1.0f, 1.5f * scale);
+        if (c.active)
+            draw->AddCircleFilled (centre, radius, colour);
+        else
+            draw->AddCircle (centre, radius, colour, 0, stroke);
+        if (c.phase == Phase::Busy) {
+            // How far, clockwise from the top; turning a quarter round when it cannot say.
+            const float start =
+                c.progress >= 0.0f ? -0.5f * kPi : -0.5f * kPi + float (std::fmod (seconds, 1.0)) * 2.0f * kPi;
+            const float sweep = c.progress >= 0.0f ? 2.0f * kPi * (std::min) (c.progress, 1.0f) : 0.5f * kPi;
+            if (sweep > 0.0f) {
+                draw->PathArcTo (centre, radius + 2.5f * scale, start, start + sweep, 24);
+                draw->PathStroke (Packed (kBusyRgba), 0, stroke);
+            }
+        }
+        if (!c.tip.empty () && ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("%s", c.tip.c_str ());
+        return pressed;
+    };
     ImGui::PushID (id);
-    toggled = ImGui::InvisibleButton ("##shown", ImVec2 (across, across));
-    const ImVec2 ca = ImGui::GetItemRectMin (), cb = ImGui::GetItemRectMax ();
-    part (ca, cb, ImDrawFlags_RoundCornersTopLeft);
-    const ImVec2 centre (std::floor ((ca.x + cb.x) * 0.5f), std::floor ((ca.y + cb.y) * 0.5f));
-    const float radius = std::floor (across * 0.22f) + 0.5f;
-    if (shown)
-        draw->AddCircleFilled (centre, radius, Packed (ink));
-    else
-        draw->AddCircle (centre, radius, Packed (ink), 0, (std::max) (1.0f, 1.5f * scale));
+    ImVec2 topFrom, topTo, bottomFrom, bottomTo;
+    press.top = circle ("##shown", top, ImDrawFlags_RoundCornersTopLeft, topFrom, topTo);
     // The title, under it.
-    const bool pressed = ImGui::InvisibleButton ("##title", ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
+    press.title = ImGui::InvisibleButton ("##title", ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
     const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
-    part (a, b, ImDrawFlags_RoundCornersBottomLeft);
+    part (a, b, bottom != nullptr ? ImDrawFlags_RoundCornersNone : ImDrawFlags_RoundCornersBottomLeft);
+    ImVec2 last = b;
+    if (bottom != nullptr) {
+        press.bottom = circle ("##viewer", *bottom, ImDrawFlags_RoundCornersBottomLeft, bottomFrom, bottomTo);
+        last = bottomTo;
+    }
     ImGui::PopID ();
     if (!open) {
         const uint32_t edge = (panel.borderRgba & 0xFFu) != 0 ? panel.borderRgba : WithAlpha (panel.textRgba, 0.25f);
-        draw->AddRect (ca, b, Packed (edge), r, ImDrawFlags_RoundCornersLeft, (std::max) (1.0f, scale));
+        draw->AddRect (topFrom, last, Packed (edge), r, ImDrawFlags_RoundCornersLeft, (std::max) (1.0f, scale));
     }
     // Laid out across, round the title's middle, then turned: every corner stays on a
     // whole pixel. Unclipped while across -- the window is as narrow as the text is tall.
@@ -197,7 +260,7 @@ bool DockTab (const char* id, const std::string& label, const layers::Panel& pan
         const float dx = v.pos.x - middle.x, dy = v.pos.y - middle.y;
         v.pos = ImVec2 (middle.x - dy, middle.y + dx);
     }
-    return pressed;
+    return press;
 }
 
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,

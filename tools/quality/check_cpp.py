@@ -1221,6 +1221,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayControllerHud.cpp",
     "ArchViz/OverlayHudModel.cpp",
+    "ArchViz/SurfaceSwitch.cpp",
     "ArchViz/OverlayInput.cpp",
     "ArchViz/OverlayRelease.cpp",
     "ArchViz/OverlayCameraKeep.cpp",

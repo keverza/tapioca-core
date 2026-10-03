@@ -11,6 +11,7 @@
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/ViewportCursor.hpp"
 #include "ArchViz/SelectionBridge.hpp"
+#include "ArchViz/SurfaceSwitch.hpp" // the viewer or the overlay, never both
 #include "ArchViz/ViewportOverlayWindow.hpp"
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SceneRenderMode -- the overlay starts in wireframe
@@ -170,6 +171,8 @@ void ArchVizPanel::Hide ()
 // close box unreachable (PLAT-RE56) it is the only such route left.
 void ArchVizPanel::OpenViewer ()
 {
+    // The viewer or the overlay, never both (SurfaceSwitch.hpp).
+    geomsrv::archviz::surfaceswitch::BeforeViewerOpens ();
     OpenDiligentViewport ();
 }
 

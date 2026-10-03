@@ -177,3 +177,82 @@ TEST (OverlayHudOwn, ThePagesShowWhatTheOwnerSaid)
     const float listed = hud.Lay ({}, At (600.0f, 600.0f)).host.height;
     EXPECT_GT (listed, empty) << "a row per element, and a line for the rest";
 }
+
+namespace {
+
+// The dock's top and bottom circles, in view pixels: the dock is at the view's right edge,
+// half-way down, a circle's square at each end.
+std::pair<float, float> TopCircle (const hud::Built& dock)
+{
+    return { 1200.0f + dock.offset[0] + dock.width * 0.5f, 400.0f + dock.offset[1] + dock.width * 0.5f };
+}
+
+std::pair<float, float> BottomCircle (const hud::Built& dock)
+{
+    return { 1200.0f + dock.offset[0] + dock.width * 0.5f, 400.0f + dock.offset[1] + dock.height - dock.width * 0.5f };
+}
+
+} // namespace
+
+// ⚠️ THE USER: a switch in the HUD's vertical tab between the overlay and the separate viewer --
+// the overlay's circle at the top, the viewer's at the bottom. The bottom one asks the owner to
+// switch (once), the top one shows and hides the overlay as it always has.
+TEST (OverlayHudOwn, TheDockIsASwitchBetweenTheOverlayAndTheViewer)
+{
+    Watched hud;
+    hud::OwnPages pages = Standalone ();
+    pages.overlay.phase = shell::Phase::Ready;
+    pages.viewer.phase = shell::Phase::Off;
+    hud.engine.SetOwnPages (pages);
+    const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
+    ASSERT_GT (out.dock.height, 2.0f * out.dock.width);
+    const auto bottom = BottomCircle (out.dock);
+    EXPECT_TRUE (hud.Lay ({}, At (bottom.first, bottom.second)).hand);
+    hud.Click ({}, bottom.first, bottom.second);
+    EXPECT_TRUE (hud::TakeViewerRequest (*hud.state));
+    EXPECT_FALSE (hud::TakeViewerRequest (*hud.state)) << "taken once";
+    ASSERT_FALSE (hud.heard.empty ());
+    EXPECT_EQ (hud.heard.back ().kind, "surface");
+    EXPECT_EQ (hud.heard.back ().text, "viewer");
+    EXPECT_TRUE (hud::ContentShown (*hud.state)) << "the viewer's circle hides nothing";
+
+    const auto top = TopCircle (hud.Lay ({}, At (600.0f, 600.0f)).dock);
+    hud.Click ({}, top.first, top.second);
+    EXPECT_FALSE (hud::ContentShown (*hud.state));
+    EXPECT_FALSE (hud::TakeViewerRequest (*hud.state));
+}
+
+// A circle's colour is its surface's state: red for an error, amber while busy, neutral and
+// blinking once a second when the user must act, faint while off.
+TEST (OverlayHudOwn, ACirclesColourIsItsSurfacesState)
+{
+    const uint32_t ink = 0x1F2328FFu;
+    shell::Circle circle;
+    circle.phase = shell::Phase::Ready;
+    EXPECT_EQ (shell::CircleColour (circle, ink, 0.0), ink);
+    circle.phase = shell::Phase::Error;
+    EXPECT_EQ (shell::CircleColour (circle, ink, 0.0), shell::kErrorRgba);
+    circle.phase = shell::Phase::Busy;
+    circle.progress = 0.0f;
+    EXPECT_EQ (shell::CircleColour (circle, ink, 0.0), shell::kBusyRgba);
+    circle.progress = 1.0f;
+    EXPECT_EQ (shell::CircleColour (circle, ink, 0.0), ink) << "done is neutral";
+    circle.phase = shell::Phase::Attention;
+    EXPECT_EQ (shell::CircleColour (circle, ink, 10.25), ink);
+    EXPECT_NE (shell::CircleColour (circle, ink, 10.75), ink) << "half of each second faint";
+    circle.phase = shell::Phase::Off;
+    EXPECT_LT (shell::CircleColour (circle, ink, 0.0) & 0xFFu, ink & 0xFFu);
+
+    Watched hud;
+    hud::OwnPages pages = Standalone ();
+    pages.overlay.phase = shell::Phase::Error;
+    pages.viewer.phase = shell::Phase::Busy;
+    pages.viewer.progress = 0.0f;
+    hud.engine.SetOwnPages (pages);
+    const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
+    float box[4] = {};
+    ASSERT_TRUE (Box (out.dock, shell::kErrorRgba, box)) << "the overlay's circle, red";
+    EXPECT_LT (box[3], out.dock.width + 1.0f) << "at the top";
+    ASSERT_TRUE (Box (out.dock, shell::kBusyRgba, box)) << "the viewer's circle, amber";
+    EXPECT_GT (box[1], out.dock.height - out.dock.width - 1.0f) << "at the bottom";
+}

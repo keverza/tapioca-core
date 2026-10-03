@@ -75,14 +75,41 @@ constexpr float kDockFontPixels = 12.0f;
 constexpr float kDockPadding[2] = { 5.0f, 12.0f };
 constexpr float kDockGap = 6.0f;
 
-// The dock's tab: a circle at its top -- filled while `shown` -- then `label` turned a
-// quarter clockwise -- it reads top to bottom, as a tab on the right edge does -- `padding`
-// round it across and along, rounded on the left where it comes out of the view's edge.
-// Filled with `look`'s accent while `open`, in its card's colours otherwise; each part
-// tinted when pointed at and pressed. True when the label is pressed; `toggled` when the
-// circle is.
-bool DockTab (const char* id, const std::string& label, const overlaylayers::Panel& look, bool open, bool shown,
-              ImVec2 padding, float scale, bool& toggled);
+// ⚠️ A CIRCLE IS A SURFACE'S STATE (the user, 2026-10-03): the overlay's at the top of the dock,
+// the separate viewer's at its bottom. Off -- a faint ring; Ready -- neutral; Busy -- composing,
+// from amber to neutral as `progress` goes from 0 to 1, an arc round it saying how far (a
+// turning one when it cannot say); Attention -- neutral and blinking: the user must do
+// something (orbit the view, say); Error -- red. Filled while its surface is the one shown,
+// a ring otherwise.
+enum class Phase : uint8_t { Off = 0, Ready, Busy, Attention, Error };
+
+struct Circle {
+    Phase phase = Phase::Off;
+    bool active = false;    // its surface is the one shown: filled
+    float progress = -1.0f; // Busy: 0 to 1; negative: it cannot say
+    std::string tip;        // what it says when pointed at
+};
+
+// The colours a circle is drawn in over a ground whose text colour is `ink`, `seconds` into
+// ImGui's clock (Attention blinks once a second).
+constexpr uint32_t kBusyRgba = 0xE8A33DFFu;
+constexpr uint32_t kErrorRgba = 0xE5484DFFu;
+uint32_t CircleColour (const Circle& circle, uint32_t ink, double seconds);
+
+// What the user pressed on the dock: its title, its top circle, its bottom circle.
+struct DockPress {
+    bool title = false;
+    bool top = false;
+    bool bottom = false;
+};
+
+// The dock's tab: `top` at its top, then `label` turned a quarter clockwise -- it reads top to
+// bottom, as a tab on the right edge does -- then `bottom` when given; `padding` round it
+// across and along, rounded on the left where it comes out of the view's edge. Filled with
+// `look`'s accent while `open`, in its card's colours otherwise; each part tinted when pointed
+// at and pressed, a circle's `tip` said by it.
+DockPress DockTab (const char* id, const std::string& label, const overlaylayers::Panel& look, bool open,
+                   const Circle& top, const Circle* bottom, ImVec2 padding, float scale);
 
 // ---- the floating panel ---------------------------------------------------------------
 

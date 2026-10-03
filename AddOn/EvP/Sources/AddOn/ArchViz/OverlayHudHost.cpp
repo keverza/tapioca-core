@@ -215,11 +215,21 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
     windows[windows.size () - 2] = window;
     if (drawn) {
         const bool open = HudOpen (*store) && store->shown;
-        bool toggled = false;
-        const bool pressed =
-            hudshell::DockTab ("##hud", showing, colours, open, store->shown,
-                               ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale, toggled);
-        if (toggled) {
+        // The overlay's circle says its state and whether it is shown; the viewer's, where the
+        // HUD is the overlay's own, is the switch to it. Without own pages: the one circle.
+        hudshell::Circle top = own.standalone ? own.overlay : hudshell::Circle ();
+        if (!own.standalone)
+            top.phase = hudshell::Phase::Ready;
+        top.active = store->shown;
+        const hudshell::DockPress press =
+            hudshell::DockTab ("##hud", showing, colours, open, top, own.standalone ? &own.viewer : nullptr,
+                               ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale);
+        const bool pressed = press.title;
+        if (press.bottom) {
+            store->viewerRequested = true;
+            changes.push_back ({ "surface", std::string (), std::string (), std::string (), -1, 1.0, "viewer", true });
+        }
+        else if (press.top) {
             ShowOverlay (!store->shown);
         }
         else if (pressed) {

@@ -16,6 +16,7 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
+#include "ArchViz/SurfaceSwitch.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -71,6 +72,10 @@ std::vector<std::string> g_followedHidden;
 void FollowHudState ()
 {
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
+    // The dock's viewer circle pressed: the switch, from the message loop's top -- not inside the
+    // layout that took the press (SurfaceSwitch.hpp).
+    if (overlayhud::TakeViewerRequest (*state))
+        surfaceswitch::Request (surfaceswitch::Surface::Viewer);
     const uint64_t revision = overlayhud::Revision (*state);
     if (revision == g_followedRevision)
         return;

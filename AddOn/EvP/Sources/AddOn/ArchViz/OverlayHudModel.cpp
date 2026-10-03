@@ -12,6 +12,7 @@
 #include "ArchViz/Dxgi/SceneGuest.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -131,19 +132,106 @@ std::string LayersText ()
     return std::to_string (layers.size ()) + (hidden > 0 ? " (" + std::to_string (hidden) + " hidden)" : "");
 }
 
-// The host extraction's progress, as a card, while it reads the model.
+// ---- the dock's circles (HudShell.hpp `Circle`) ---------------------------------------------
+// ⚠️ ATTENTION IS MEASURED, NOT ASSUMED: the camera is found in the frames Archicad draws, and a
+// still 3D window draws none -- the cold start's redraws are spent by then (OverlayRedrawBudget)
+// -- so the circle blinks only once the model frames have not moved for a while.
+constexpr double kAttentionSeconds = 4.0;
+uint64_t g_framesSeen = 0;
+std::chrono::steady_clock::time_point g_framesMovedAt {};
+
+// The model read for the overlay: how far, 0 to 1, and in words; false while nothing is read.
+bool Reading (float& progress, std::string& words)
+{
+    const ExtractionWorker::Progress p = ExtractionWorker::Get ().Snapshot ();
+    if (!p.running || p.total == 0 || p.done)
+        return false;
+    const uint32_t read = (std::min) (p.extracted + p.empty, p.total);
+    progress = float (read) / float (p.total);
+    words = "Reading the model: " + std::to_string (read) + " of " + std::to_string (p.total) + " elements";
+    return true;
+}
+
+// The model being read for the overlay, as a card.
 void Extraction (std::vector<Card>& cards)
 {
-    const ExtractionWorker::Progress progress = ExtractionWorker::Get ().Snapshot ();
-    if (!progress.running || progress.total == 0 || progress.done)
-        return;
     Card card;
+    float progress = 0.0f;
+    if (!Reading (progress, card.progressText))
+        return;
     card.title = "Reading the model";
-    const uint32_t read = (std::min) (progress.extracted + progress.empty, progress.total);
-    card.progress = double (read) / double (progress.total);
-    card.progressText = std::to_string (read) + " / " + std::to_string (progress.total);
-    card.note = progress.phase;
+    card.progress = progress;
     cards.push_back (std::move (card));
+}
+
+hudshell::Circle ViewerCircle ()
+{
+    hudshell::Circle circle; // Off: the viewer is closed while an overlay runs
+    circle.tip = "The separate viewer: press to switch to it (the overlay closes)";
+    return circle;
+}
+
+hudshell::Circle OverlayCircle3D (const overlayruntime::Health& health)
+{
+    hudshell::Circle circle;
+    const overlaycontrol::Outcome intent = overlaycontrol::Describe (overlaycontrol::Overlay::ThreeD);
+    const auto now = std::chrono::steady_clock::now ();
+    if (health.modelFramesSeen != g_framesSeen || g_framesMovedAt == std::chrono::steady_clock::time_point {}) {
+        g_framesSeen = health.modelFramesSeen;
+        g_framesMovedAt = now;
+    }
+    if (!intent.ok && !intent.retryable) {
+        circle.phase = hudshell::Phase::Error;
+        circle.tip = "The 3D overlay did not start (" + intent.code + "): " + intent.message;
+        return circle;
+    }
+    if (!health.running) {
+        circle.phase = hudshell::Phase::Busy;
+        circle.tip = intent.message;
+        return circle;
+    }
+    if (health.camera != overlayruntime::CameraState::Locked) {
+        const double still = std::chrono::duration<double> (now - g_framesMovedAt).count ();
+        circle.phase = still > kAttentionSeconds ? hudshell::Phase::Attention : hudshell::Phase::Busy;
+        circle.tip =
+            still > kAttentionSeconds
+                ? "Orbit, pan or zoom the 3D window: the overlay finds Archicad's camera in the frames it draws"
+                : "Finding Archicad's camera";
+        return circle;
+    }
+    std::string words;
+    if (Reading (circle.progress, words)) {
+        circle.phase = hudshell::Phase::Busy;
+        circle.tip = words;
+        return circle;
+    }
+    if (health.host == overlayruntime::HostState::Dirty || health.host == overlayruntime::HostState::Extracting) {
+        circle.phase = hudshell::Phase::Busy;
+        circle.tip = "The model changed: reading it again";
+        return circle;
+    }
+    circle.phase = hudshell::Phase::Ready;
+    circle.tip = "The 3D overlay: press to hide or show it";
+    return circle;
+}
+
+hudshell::Circle OverlayCirclePlan (const planruntime::Status& status)
+{
+    hudshell::Circle circle;
+    const overlaycontrol::Outcome intent = overlaycontrol::Describe (overlaycontrol::Overlay::TwoD);
+    if (!intent.ok && !intent.retryable) {
+        circle.phase = hudshell::Phase::Error;
+        circle.tip = "The 2D overlay did not start (" + intent.code + "): " + intent.message;
+    }
+    else if (!status.running) {
+        circle.phase = hudshell::Phase::Busy;
+        circle.tip = intent.message;
+    }
+    else {
+        circle.phase = hudshell::Phase::Ready;
+        circle.tip = "The 2D overlay: press to hide or show it";
+    }
+    return circle;
 }
 
 overlayhud::OwnPages ThreeD ()
@@ -153,6 +241,8 @@ overlayhud::OwnPages ThreeD ()
     const overlayruntime::Health health = overlayruntime::GetHealth ();
     g_composes3D.Note (health.overlayDraws);
     const bool locked = health.camera == overlayruntime::CameraState::Locked;
+    pages.overlay = OverlayCircle3D (health);
+    pages.viewer = ViewerCircle ();
 
     Card overlay;
     overlay.title = "Overlay - 3D";
@@ -225,6 +315,8 @@ overlayhud::OwnPages Plan ()
     const planruntime::Status status = planruntime::GetStatus ();
     g_presentsPlan.Note (status.canvasPresents);
     g_drawnPlan.Note (status.drawn);
+    pages.overlay = OverlayCirclePlan (status);
+    pages.viewer = ViewerCircle ();
 
     Card overlay;
     overlay.title = "Overlay - floor plan";
@@ -285,6 +377,8 @@ void SelectionChanged ()
 
 void Forget ()
 {
+    g_framesSeen = 0;
+    g_framesMovedAt = std::chrono::steady_clock::time_point {};
     g_selectionDirty = true;
     g_selection = hudshell::SelectionPage {};
     g_composes3D = Rate {};
