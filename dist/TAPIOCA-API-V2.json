@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 235,
+      "nativeRegistry": 240,
       "dispatcherLocal": 19,
-      "total": 254
+      "total": 259
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -7429,6 +7429,93 @@
       }
     },
     {
+      "name": "Tapioca.GetElementMetadata",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "found": {
+                  "type": "boolean"
+                },
+                "metadata": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "found",
+                "metadata"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "count"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GetElementProperties",
       "implementation": "native-registry",
       "inputScheme": {
@@ -8131,6 +8218,36 @@
           "previewMime",
           "previewBytes",
           "decodable"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetMetadataSchema",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string"
+          },
+          "stored": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "stored",
+          "revision"
         ]
       }
     },
@@ -20826,6 +20943,27 @@
       }
     },
     {
+      "name": "Tapioca.PauseSunStudyFollowing",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "autoFollow": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "autoFollow"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "Tapioca.PlaceDrawingFromView",
       "implementation": "native-registry",
       "inputScheme": {
@@ -24799,6 +24937,112 @@
       }
     },
     {
+      "name": "Tapioca.SetElementMetadata",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "metadata": {
+                  "type": "string",
+                  "minLength": 2
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "metadata"
+              ]
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "replace"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "succeeded": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "problems": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "succeeded"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "results",
+          "count",
+          "changed"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.SetElementSurface",
       "implementation": "native-registry",
       "inputScheme": {
@@ -24981,6 +25225,48 @@
               "error"
             ]
           }
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SetMetadataSchema",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "minLength": 2
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "extend",
+              "replace"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "added": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "added"
         ]
       }
     },
@@ -25926,6 +26212,13 @@
                     "light"
                   ],
                   "description": "The colours, rounding and padding the panel does not give: dark glass, or the light card."
+                },
+                "tab": {
+                  "type": "string",
+                  "enum": [
+                    "stats"
+                  ],
+                  "description": "A card on the HUD's own Stats page, under the panel's title, instead of a tab of its own."
                 },
                 "items": {
                   "type": "array",
@@ -27394,6 +27687,14 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "contextSelectionSet": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ignoredSelectionSet": {
+            "type": "string",
+            "minLength": 1
           },
           "positions": {
             "type": "array",

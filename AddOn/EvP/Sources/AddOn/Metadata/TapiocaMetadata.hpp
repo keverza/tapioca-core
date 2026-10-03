@@ -218,9 +218,9 @@ void Merge (EntityMetadata& into, const EntityMetadata& from);
 // goes, and those of the ranges too. Returns how many went.
 size_t InvalidateComputed (EntityMetadata& meta, const std::string& generator = std::string ());
 
-// ⚠️ A COPIED ELEMENT CARRIES ITS ORIGINAL'S METADATA (the user data travels with a copy). Read
-// on an element whose GUID differs from the one it was written on, the metadata is the copy's
-// from now on: its GUID, and a new entity id. Returns whether it was a copy.
+// ⚠️ A COPY THAT CARRIES ITS ORIGINAL'S METADATA MAKES IT ITS OWN. Read on an element whose GUID
+// differs from the one it was written on, the metadata is the copy's from now on: its GUID,
+// and a new entity id. Returns whether it was a copy.
 bool AdoptElement (EntityMetadata& meta, const std::string& elementGuid);
 // A new entity id: a random version-4 UUID, upper case and dashed as Archicad writes GUIDs.
 std::string NewEntityId ();

@@ -42,6 +42,7 @@
 #include "NativeCommands/IssueCommands.hpp"
 #include "NativeCommands/LayoutCommands.hpp"
 #include "NativeCommands/LibraryObjectCommands.hpp"
+#include "NativeCommands/MetadataCommands.hpp"
 #include "NativeCommands/ModelAppearanceCommands.hpp"
 #include "NativeCommands/ModelGeometryCommands.hpp"
 #include "NativeCommands/NotifyCommands.hpp"
@@ -105,6 +106,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetElementPropertyCommandRegistrations,
     &GetElementModifyCommandRegistrations,
     &GetIdentityCommandRegistrations,
+    &GetMetadataCommandRegistrations,
     &GetAttributeCommandRegistrations,
     &GetProjectCommandRegistrations,
     &GetGhElementQueryCommandRegistrations,
