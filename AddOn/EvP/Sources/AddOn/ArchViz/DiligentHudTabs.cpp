@@ -9,6 +9,7 @@
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/HudMetadata.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
+#include "ArchViz/SectionModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
 
 #include <imgui.h>
@@ -93,9 +94,16 @@ void StatsPage (HudState& state, const DiligentSceneStats& scene, float ui)
     hudshell::Cards (cards, look, ui);
 }
 
-void SelectionPage (const HudState& state, float ui)
+void SelectionPage (Shell& shell, const HudState& state, float ui)
 {
     const overlaylayers::Panel& look = hudshell::PlainLook ();
+    // ⚠️ THE SECTION IS ARCHICAD'S SELECTION'S, AS ON THE OVERLAYS, read on the main thread
+    // (SectionModel.hpp `Published`); a value given to its floors is written to its slabs the
+    // same way, and the section read again after. The picked floors are not drawn in the
+    // viewer's scene.
+    std::vector<hudmeta::Edit> assigned = hudsection::Diagram (sectionmodel::Published (), shell.floors, look, ui);
+    if (!assigned.empty ())
+        selectionmetadata::Request (std::move (assigned), {}, [] () { sectionmodel::Publish (); });
     const DiligentScene::ElementInfo& picked = state.selected;
     if (!picked.valid) {
         ImGui::TextDisabled ("Nothing picked: click an element in the viewer");

@@ -17,6 +17,7 @@
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayHudModel.hpp" // the HUD's Selection page, told when the selection changes
 #include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/SectionModel.hpp"      // the viewer's building section, read for its render thread
 #include "ArchViz/SelectionMetadata.hpp" // the HUD's metadata edits -- its window must not outlive the DLL
 #include "ArchViz/SurfaceSwitch.hpp"     // the overlay or the viewer -- its window must not outlive the DLL
 #include "ArchViz/ArchVizLog.hpp"
@@ -240,6 +241,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
 static GSErrCode SelectionChangeHandler (const API_Neig* /*selElemNeig*/)
 {
     geomsrv::archviz::overlayhudmodel::SelectionChanged ();
+    // The viewer's HUD shows the selection's building section too: read from the message loop.
+    geomsrv::archviz::sectionmodel::SelectionChanged ();
     return NoError;
 }
 

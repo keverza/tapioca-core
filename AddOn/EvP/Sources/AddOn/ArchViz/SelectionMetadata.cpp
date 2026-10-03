@@ -27,6 +27,7 @@ namespace meta = metadata;
 
 constexpr UINT kEditMessage = WM_APP + 0x52;
 constexpr UINT kReadMessage = WM_APP + 0x53;
+constexpr UINT kLaterMessage = WM_APP + 0x54;
 constexpr wchar_t kClassName[] = L"TapiocaSelectionMetadata";
 
 struct Pending {
@@ -47,6 +48,7 @@ struct Slot {
     hudmeta::Page page;
 };
 Slot g_slot;
+std::deque<std::function<void ()>> g_later;
 // ⚠️ A DIALOG RUNS ITS OWN MESSAGE LOOP, which delivers the next request's message while the
 // first is still asking: that one is left queued, and the write in progress drains it after.
 bool g_writing = false;
@@ -217,6 +219,16 @@ LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
         ReadAsked ();
         return 0;
     }
+    if (message == kLaterMessage) {
+        std::deque<std::function<void ()>> work;
+        {
+            std::lock_guard<std::mutex> lock (g_mutex);
+            work.swap (g_later);
+        }
+        for (const std::function<void ()>& job : work)
+            job ();
+        return 0;
+    }
     return ::DefWindowProcW (window, message, wParam, lParam);
 }
 
@@ -302,6 +314,18 @@ hudmeta::Page PageOf (const std::string& guid)
     return hudmeta::Page {};
 }
 
+void Later (std::function<void ()> work)
+{
+    const HWND window = g_window.load (std::memory_order_acquire);
+    if (window == nullptr || !work)
+        return;
+    {
+        std::lock_guard<std::mutex> lock (g_mutex);
+        g_later.push_back (std::move (work));
+    }
+    ::PostMessageW (window, kLaterMessage, 0, 0);
+}
+
 void Arm ()
 {
     if (g_window.load (std::memory_order_acquire) != nullptr)
@@ -335,6 +359,7 @@ void Shutdown ()
     std::lock_guard<std::mutex> lock (g_mutex);
     g_queue.clear ();
     g_slot = Slot {};
+    g_later.clear ();
 }
 
 Stats GetStats ()

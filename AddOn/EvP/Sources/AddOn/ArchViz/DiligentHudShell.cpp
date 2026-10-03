@@ -130,7 +130,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         // is 16 em -- the whole panel -- and every label after a slider was cut off.
         ImGui::PushItemWidth (std::floor (ImGui::GetContentRegionAvail ().x * 0.5f));
         if (key == hudshell::kSelectionKey)
-            SelectionPage (state, ui);
+            SelectionPage (shell, state, ui);
         else if (key == kSunStudyKey)
             SunStudyPage (state, scene);
         else if (key == hudshell::kSettingsKey)

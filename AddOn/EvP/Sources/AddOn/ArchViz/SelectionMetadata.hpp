@@ -13,7 +13,7 @@
 // element in ONE undo step, each element read, laid over, validated against the project's
 // schema and written. An element the schema refuses is left as it was and said.
 //
-// MAIN THREAD: Read, Arm, Shutdown, SelectedGuids. Request, PageOf and GetStats: any thread.
+// MAIN THREAD: Read, Arm, Shutdown, SelectedGuids. Request, PageOf, Later and GetStats: any thread.
 
 #include "ArchViz/HudMetadata.hpp"
 
@@ -44,6 +44,10 @@ void Request (std::vector<hudmeta::Edit> edits, std::vector<std::string> guids =
 // and it is read on the main thread. Read again after every write that names it. Empty
 // `guid`: nothing picked, nothing read.
 hudmeta::Page PageOf (const std::string& guid);
+
+// `work` on the main thread, from the same window's message loop: what a render thread's HUD
+// needs read (SectionModel.hpp `Published`). Dropped when there is no window.
+void Later (std::function<void ()> work);
 
 // The message-only window the requests are posted to: made at load, gone at unload.
 void Arm ();

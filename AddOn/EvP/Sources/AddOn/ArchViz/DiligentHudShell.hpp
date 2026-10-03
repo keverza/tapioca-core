@@ -9,7 +9,8 @@
 // viewer's are its scene's.
 //
 //   Stats      the model the viewer holds, what it is still reading, the slices and previews
-//   Selection  the element picked in the viewer, and its Tapioca metadata to edit
+//   Selection  Archicad's selection's building section, then the element picked in the
+//              viewer and its Tapioca metadata to edit
 //   Sun study  while a study is on screen: its view, its range, its legend (a command's tab)
 //   Settings   the HUD's own, then HANDOFF-HudTabs.md's Render/Display sections: the preview
 //              presets, surfaces, environment, sun and shadows, colour and post, camera,
@@ -25,6 +26,7 @@
 // handoff's caveat 4).
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
 
 #include <cstdint>
@@ -46,6 +48,7 @@ struct Shell {
     std::string shownLast;
     hudshell::Placement placement;
     uint32_t fontStep = hudshell::kFontStepDefault;
+    hudsection::Run floors; // the building section's floors picked on the Selection tab
 };
 
 // What one frame of the viewer costs, measured by DiligentHud.
@@ -65,7 +68,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
 
 // ---- the pages (DiligentHudTabs.cpp, DiligentHudRenderTab.cpp) --------------------------------
 void StatsPage (HudState& state, const DiligentSceneStats& scene, float ui);
-void SelectionPage (const HudState& state, float ui);
+void SelectionPage (Shell& shell, const HudState& state, float ui);
 void SunStudyPage (HudState& state, const DiligentSceneStats& scene);
 void DebugPage (HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width, uint32_t height,
                 float ui);

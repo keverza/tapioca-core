@@ -414,6 +414,7 @@ void Forget ()
     g_metadata = hudmeta::Page {};
     g_section = sectionmodel::Reading {};
     g_shownRun = hudsection::Run {};
+    sectionmodel::Forget ();
     g_composes3D = Rate {};
     g_presentsPlan = Rate {};
     g_drawnPlan = Rate {};

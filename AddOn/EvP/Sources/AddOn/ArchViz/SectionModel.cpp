@@ -9,10 +9,14 @@
 #include "ArchViz/ExtractionStorySlices.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/SlabSliceSource.hpp"
+#include "ArchViz/SurfaceSwitch.hpp"
 #include "Metadata/MetadataStorage.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <mutex>
 #include <utility>
 
 namespace geomsrv {
@@ -20,6 +24,15 @@ namespace archviz {
 namespace sectionmodel {
 
 namespace meta = metadata;
+
+namespace {
+
+std::mutex g_mutex; // the published section
+hudsection::Section g_published;
+bool g_asked = false;
+std::atomic<bool> g_pending { false }; // a publish posted and not yet run
+
+} // namespace
 
 Reading Read (const std::vector<std::string>& guids)
 {
@@ -98,6 +111,46 @@ void Hide ()
 {
     if (overlaylayers::Clear (kLayerName))
         overlaycontrol::PublishLayers ();
+}
+
+hudsection::Section Published ()
+{
+    bool ask = false;
+    hudsection::Section section;
+    {
+        std::lock_guard<std::mutex> lock (g_mutex);
+        ask = !g_asked;
+        g_asked = true;
+        section = g_published;
+    }
+    if (ask)
+        selectionmetadata::Later (&Publish);
+    return section;
+}
+
+void Publish ()
+{
+    Reading reading = Read (selectionmetadata::SelectedGuids ());
+    std::lock_guard<std::mutex> lock (g_mutex);
+    g_published = std::move (reading.section);
+    g_asked = true;
+}
+
+void SelectionChanged ()
+{
+    if (!surfaceswitch::ViewerOpen () || g_pending.exchange (true))
+        return;
+    selectionmetadata::Later ([] () {
+        g_pending = false;
+        Publish ();
+    });
+}
+
+void Forget ()
+{
+    std::lock_guard<std::mutex> lock (g_mutex);
+    g_published = hudsection::Section {};
+    g_asked = false;
 }
 
 bool Shown ()

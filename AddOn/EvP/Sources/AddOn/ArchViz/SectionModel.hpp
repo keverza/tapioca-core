@@ -44,6 +44,20 @@ void Hide ();
 // Whether the layer is in the store: the overlays' release clears every layer.
 bool Shown ();
 
+// ⚠️ ARCHICAD'S SELECTION'S SECTION FOR A HUD THAT CANNOT READ THE PROJECT -- the viewer's, on
+// its render thread (the user: one HUD for the overlays and the viewer). What was last read;
+// asked for before any read, it asks for one. Read again on the main thread when Archicad's
+// selection changes while the viewer is open (`SelectionChanged`) and after the viewer's own
+// writes (`Publish`). Any thread.
+hudsection::Section Published ();
+// MAIN THREAD: Archicad's selection's section read now, and published.
+void Publish ();
+// From Archicad's selection notification: published again from the message loop, once for a
+// burst, while the viewer is open.
+void SelectionChanged ();
+// The project closed: nothing published is that project's.
+void Forget ();
+
 } // namespace sectionmodel
 } // namespace archviz
 } // namespace geomsrv
