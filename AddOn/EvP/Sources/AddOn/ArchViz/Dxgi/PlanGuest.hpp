@@ -91,6 +91,7 @@ struct Stats {
     uint32_t dimensionsNotResolved = 0;
     uint32_t truncated = 0;
     std::string lastError;
+    std::string adapter; // the GPU Archicad's device is on, once the guest has attached
     // What the content costs: preparing it on the main thread (layers built and reused,
     // OverlayScene.hpp), the bytes it holds on the GPU, and drawing it at Present on the
     // render thread -- the last draw, and a running mean over about the last sixteen.

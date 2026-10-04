@@ -7,6 +7,7 @@
 // shadowed.
 
 #include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/CpuTraversalWork.hpp"
 
 #include <gtest/gtest.h>
 
@@ -319,4 +320,38 @@ TEST (CpuTraversal, AnExplicitThreadCountIsNotSecondGuessedByTheWorkHeuristic)
 {
     EXPECT_EQ (ChooseThreadCount (4700, 8), 8u);
     EXPECT_EQ (ChooseThreadCount (4700, 1), 1u);
+}
+
+TEST (CpuTraversal, DynamicBatchesCoverEveryIndexExactlyOnce)
+{
+    std::vector<std::atomic<unsigned>> visits (131101);
+    for (auto& value : visits)
+        value.store (0);
+    ASSERT_TRUE (RunCpuTraversal (visits.size (), 8, {}, [&] (size_t first, size_t last) {
+        EXPECT_LE (last - first, 256u);
+        for (size_t i = first; i < last; ++i)
+            ++visits[i];
+    }));
+    for (const auto& value : visits)
+        EXPECT_EQ (value.load (), 1u);
+}
+
+TEST (CpuTraversal, CancellationPollsOnlyTheSubmittingThreadAndStopsBeforeTheTail)
+{
+    CpuTraversal cpu (std::make_shared<QueryEngine> (MakeCombSnapshot (11)));
+    const auto origins = CombOrigins (131101);
+    std::vector<uint8_t> out (origins.size () / 3, 0xff);
+    const auto submitting = std::this_thread::get_id ();
+    unsigned polls = 0;
+    ASSERT_FALSE (
+        cpu.OccludeDirectionalCancellable (origins.data (), out.size (), kUp, 0.001, 0.0, out.data (), 4, [&] {
+            EXPECT_EQ (std::this_thread::get_id (), submitting);
+            return ++polls >= 5;
+        }));
+    EXPECT_EQ (out.back (), 0xff);
+    std::vector<uint8_t> expected (out.size ());
+    cpu.OccludeDirectional (origins.data (), out.size (), kUp, 0.001, 0.0, expected.data (), 1);
+    ASSERT_TRUE (cpu.OccludeDirectionalCancellable (origins.data (), out.size (), kUp, 0.001, 0.0, out.data (), 4,
+                                                    [] { return false; }));
+    EXPECT_EQ (out, expected);
 }

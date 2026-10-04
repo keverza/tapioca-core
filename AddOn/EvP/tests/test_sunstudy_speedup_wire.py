@@ -108,3 +108,25 @@ def test_manual_smoke_selects_backend_and_waits_for_worker_display(wire, monkeyp
     assert bool(results.get("includePositions")) == detailed
     assert bool(results.get("includeAtlas")) == detailed
     assert sum(c == "Tapioca.SunStudyOverlayState" for c, _ in calls) >= 2
+
+
+def test_smoke_sends_civil_date_and_hour_interval_without_epoch_conversion(wire, monkeypatch):
+    folder = Path(__file__).parents[4] / "private" / "Diagnostics" / "Commands" / "SunStudyNativeSmoke"
+    if not (folder / "command.py").is_file():
+        pytest.skip("the private diagnostic command is not present in this clone")
+    smoke = wire.load(str(folder))
+    calls = []
+
+    def transport(command, params_json):
+        calls.append((command, json.loads(params_json)))
+        return wire.transport(command, params_json)
+
+    monkeypatch.setattr(wire.evp_api, "_transport", lambda: transport)
+    monkeypatch.setattr(smoke, "_flush", lambda: None)
+    smoke.run(date="2028-02-29", hour_from=8, hour_to=17, display="am pm")
+    start = next(p for c, p in calls if c == "Tapioca.StartSunStudy")
+    assert (start["year"], start["month"], start["day"]) == (2028, 2, 29)
+    assert (start["hourFrom"], start["hourTo"]) == (8, 17)
+    shown = next(p for c, p in calls if c == "Tapioca.ShowSunStudy")
+    assert shown["debug"] == 6
+    assert "NO PASS" not in "\n".join(smoke._lines)

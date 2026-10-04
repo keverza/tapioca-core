@@ -3,6 +3,7 @@
 #include "NativeCommands/CommandSchemas.hpp"
 #include "ObjectStateJSONConversion.hpp"
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -32,44 +33,75 @@ struct JsonValue {
 };
 
 class TreeBuilder final : public GS::ObjectState::Processor {
-public:
+  public:
     JsonValue root;
 
-    TreeBuilder () { stack.push_back (&root); }
+    TreeBuilder ()
+    {
+        stack.push_back (&root);
+    }
 
     void BoolFound (const GS::String& name, bool value) override
     {
-        JsonValue node; node.kind = JsonValue::Kind::Bool; node.boolValue = value;
+        JsonValue node;
+        node.kind = JsonValue::Kind::Bool;
+        node.boolValue = value;
         Add (name, std::move (node));
     }
     void IntFound (const GS::String& name, Int64 value) override
     {
-        JsonValue node; node.kind = JsonValue::Kind::Int; node.intValue = value;
+        JsonValue node;
+        node.kind = JsonValue::Kind::Int;
+        node.intValue = value;
         Add (name, std::move (node));
     }
     void UIntFound (const GS::String& name, UInt64 value) override
     {
-        JsonValue node; node.kind = JsonValue::Kind::UInt; node.uintValue = value;
+        JsonValue node;
+        node.kind = JsonValue::Kind::UInt;
+        node.uintValue = value;
         Add (name, std::move (node));
     }
     void RealFound (const GS::String& name, double value) override
     {
-        JsonValue node; node.kind = JsonValue::Kind::Real; node.realValue = value;
+        JsonValue node;
+        node.kind = JsonValue::Kind::Real;
+        node.realValue = value;
         Add (name, std::move (node));
     }
     void StringFound (const GS::String& name, const GS::UniString& value) override
     {
-        JsonValue node; node.kind = JsonValue::Kind::String; node.stringValue = value;
+        JsonValue node;
+        node.kind = JsonValue::Kind::String;
+        node.stringValue = value;
         Add (name, std::move (node));
     }
-    bool ObjectFound (const GS::String&, const GS::ObjectState&) override { return true; }
-    void ObjectEntered (const GS::String& name) override { Enter (name, JsonValue::Kind::Object); }
-    void ObjectExited (const GS::String&) override { stack.pop_back (); }
-    bool ListFound (const GS::String&) override { return true; }
-    void ListEntered (const GS::String& name) override { Enter (name, JsonValue::Kind::List); }
-    void ListExited (const GS::String&) override { stack.pop_back (); }
+    bool ObjectFound (const GS::String&, const GS::ObjectState&) override
+    {
+        return true;
+    }
+    void ObjectEntered (const GS::String& name) override
+    {
+        Enter (name, JsonValue::Kind::Object);
+    }
+    void ObjectExited (const GS::String&) override
+    {
+        stack.pop_back ();
+    }
+    bool ListFound (const GS::String&) override
+    {
+        return true;
+    }
+    void ListEntered (const GS::String& name) override
+    {
+        Enter (name, JsonValue::Kind::List);
+    }
+    void ListExited (const GS::String&) override
+    {
+        stack.pop_back ();
+    }
 
-private:
+  private:
     std::vector<JsonValue*> stack;
 
     JsonValue* Add (const GS::String& name, JsonValue&& node)
@@ -83,7 +115,8 @@ private:
 
     void Enter (const GS::String& name, JsonValue::Kind kind)
     {
-        JsonValue node; node.kind = kind;
+        JsonValue node;
+        node.kind = kind;
         stack.push_back (Add (name, std::move (node)));
     }
 };
@@ -103,19 +136,24 @@ GS::UniString ChildPath (const GS::UniString& path, const GS::String& name)
 const char* KindName (JsonValue::Kind kind)
 {
     switch (kind) {
-        case JsonValue::Kind::Object: return "object";
-        case JsonValue::Kind::List:   return "array";
-        case JsonValue::Kind::Bool:   return "boolean";
+        case JsonValue::Kind::Object:
+            return "object";
+        case JsonValue::Kind::List:
+            return "array";
+        case JsonValue::Kind::Bool:
+            return "boolean";
         case JsonValue::Kind::Int:
-        case JsonValue::Kind::UInt:   return "integer";
-        case JsonValue::Kind::Real:   return "number";
-        case JsonValue::Kind::String: return "string";
+        case JsonValue::Kind::UInt:
+            return "integer";
+        case JsonValue::Kind::Real:
+            return "number";
+        case JsonValue::Kind::String:
+            return "string";
     }
     return "unknown";
 }
 
-const JsonValue* ResolveRef (const GS::UniString& ref, const JsonValue& root,
-                             const JsonValue& definitions)
+const JsonValue* ResolveRef (const GS::UniString& ref, const JsonValue& root, const JsonValue& definitions)
 {
     const char* text = ref.ToCStr ().Get ();
     if (text[0] != '#')
@@ -140,18 +178,21 @@ const JsonValue* ResolveRef (const GS::UniString& ref, const JsonValue& root,
 
 bool IsNumeric (const JsonValue& value)
 {
-    return value.kind == JsonValue::Kind::Int ||
-           value.kind == JsonValue::Kind::UInt ||
+    return value.kind == JsonValue::Kind::Int || value.kind == JsonValue::Kind::UInt ||
            value.kind == JsonValue::Kind::Real;
 }
 
 long double NumericValue (const JsonValue& value)
 {
     switch (value.kind) {
-        case JsonValue::Kind::Int:  return static_cast<long double> (value.intValue);
-        case JsonValue::Kind::UInt: return static_cast<long double> (value.uintValue);
-        case JsonValue::Kind::Real: return static_cast<long double> (value.realValue);
-        default:                    return 0.0L;
+        case JsonValue::Kind::Int:
+            return static_cast<long double> (value.intValue);
+        case JsonValue::Kind::UInt:
+            return static_cast<long double> (value.uintValue);
+        case JsonValue::Kind::Real:
+            return static_cast<long double> (value.realValue);
+        default:
+            return 0.0L;
     }
 }
 
@@ -192,8 +233,7 @@ bool JsonValuesEqual (const JsonValue& lhs, const JsonValue& rhs)
     return false;
 }
 
-bool ReadSizeConstraint (const JsonValue& schema, const char* keyword,
-                         const GS::UniString& path, UInt64& result,
+bool ReadSizeConstraint (const JsonValue& schema, const char* keyword, const GS::UniString& path, UInt64& result,
                          bool& present, GS::UniString& error)
 {
     present = false;
@@ -213,16 +253,18 @@ bool ReadSizeConstraint (const JsonValue& schema, const char* keyword,
     return false;
 }
 
-bool ValidateNumericBounds (const JsonValue& value, const JsonValue& schema,
-                            const GS::UniString& path, GS::UniString& error)
+bool ValidateNumericBounds (const JsonValue& value, const JsonValue& schema, const GS::UniString& path,
+                            GS::UniString& error)
 {
-    struct Bound { const char* keyword; bool lower; bool exclusive; };
-    constexpr Bound bounds[] = {
-        { "minimum", true, false },
-        { "maximum", false, false },
-        { "exclusiveMinimum", true, true },
-        { "exclusiveMaximum", false, true }
+    struct Bound {
+        const char* keyword;
+        bool lower;
+        bool exclusive;
     };
+    constexpr Bound bounds[] = { { "minimum", true, false },
+                                 { "maximum", false, false },
+                                 { "exclusiveMinimum", true, true },
+                                 { "exclusiveMaximum", false, true } };
     const long double actual = NumericValue (value);
     for (const Bound& bound : bounds) {
         const JsonValue* constraint = schema.Find (bound.keyword);
@@ -233,9 +275,8 @@ bool ValidateNumericBounds (const JsonValue& value, const JsonValue& schema,
             return false;
         }
         const long double limit = NumericValue (*constraint);
-        const bool accepted = bound.lower
-            ? (bound.exclusive ? actual > limit : actual >= limit)
-            : (bound.exclusive ? actual < limit : actual <= limit);
+        const bool accepted = bound.lower ? (bound.exclusive ? actual > limit : actual >= limit)
+                                          : (bound.exclusive ? actual < limit : actual <= limit);
         if (!accepted) {
             error = path + ": value violates " + GS::UniString (bound.keyword);
             return false;
@@ -244,12 +285,12 @@ bool ValidateNumericBounds (const JsonValue& value, const JsonValue& schema,
     return true;
 }
 
-bool Validate (const JsonValue& value, const JsonValue& schema, const JsonValue& root,
-               const JsonValue& definitions, const GS::UniString& path, GS::UniString& error);
+bool Validate (const JsonValue& value, const JsonValue& schema, const JsonValue& root, const JsonValue& definitions,
+               const GS::UniString& path, GS::UniString& error);
 
-bool ValidateAlternatives (const JsonValue& value, const JsonValue& alternatives,
-                           const JsonValue& root, const JsonValue& definitions,
-                           const GS::UniString& path, bool exactlyOne, GS::UniString& error)
+bool ValidateAlternatives (const JsonValue& value, const JsonValue& alternatives, const JsonValue& root,
+                           const JsonValue& definitions, const GS::UniString& path, bool exactlyOne,
+                           GS::UniString& error)
 {
     if (alternatives.kind != JsonValue::Kind::List) {
         error = path + ": schema alternatives must be an array";
@@ -309,16 +350,16 @@ bool ValidateObject (const JsonValue& value, const JsonValue& schema, const Json
     return true;
 }
 
-bool Validate (const JsonValue& value, const JsonValue& schema, const JsonValue& root,
-               const JsonValue& definitions, const GS::UniString& path, GS::UniString& error)
+bool Validate (const JsonValue& value, const JsonValue& schema, const JsonValue& root, const JsonValue& definitions,
+               const GS::UniString& path, GS::UniString& error)
 {
     if (schema.kind != JsonValue::Kind::Object) {
         error = path + ": schema node is not an object";
         return false;
     }
     if (const JsonValue* ref = schema.Find ("$ref")) {
-        const JsonValue* target = ref->kind == JsonValue::Kind::String
-            ? ResolveRef (ref->stringValue, root, definitions) : nullptr;
+        const JsonValue* target =
+            ref->kind == JsonValue::Kind::String ? ResolveRef (ref->stringValue, root, definitions) : nullptr;
         if (target == nullptr) {
             error = path + ": unresolved local schema ref '" + ref->stringValue + "'";
             return false;
@@ -358,21 +399,25 @@ bool Validate (const JsonValue& value, const JsonValue& schema, const JsonValue&
     }
 
     const JsonValue* type = schema.Find ("type");
-    const bool inferredObject = type == nullptr &&
-        (schema.Find ("properties") != nullptr || schema.Find ("required") != nullptr ||
-         schema.Find ("additionalProperties") != nullptr);
+    const bool inferredObject =
+        type == nullptr && (schema.Find ("properties") != nullptr || schema.Find ("required") != nullptr ||
+                            schema.Find ("additionalProperties") != nullptr);
     if (type == nullptr && !inferredObject)
         return true;
 
     const GS::UniString expected = inferredObject ? GS::UniString ("object") : type->stringValue;
     const bool typeOk =
-        (expected == "object"  && value.kind == JsonValue::Kind::Object) ||
-        (expected == "array"   && value.kind == JsonValue::Kind::List) ||
+        (expected == "object" && value.kind == JsonValue::Kind::Object) ||
+        (expected == "array" && value.kind == JsonValue::Kind::List) ||
         (expected == "boolean" && value.kind == JsonValue::Kind::Bool) ||
-        (expected == "string"  && value.kind == JsonValue::Kind::String) ||
-        (expected == "integer" && (value.kind == JsonValue::Kind::Int || value.kind == JsonValue::Kind::UInt)) ||
-        (expected == "number"  && (value.kind == JsonValue::Kind::Int || value.kind == JsonValue::Kind::UInt ||
-                                    value.kind == JsonValue::Kind::Real));
+        (expected == "string" && value.kind == JsonValue::Kind::String) ||
+        // JSON Schema integers are mathematical integers, not a parser storage kind.
+        // The SDK decodes numeric list entries as Real even for JSON tokens 0, 1, 2.
+        (expected == "integer" && (value.kind == JsonValue::Kind::Int || value.kind == JsonValue::Kind::UInt ||
+                                   (value.kind == JsonValue::Kind::Real && std::isfinite (value.realValue) &&
+                                    std::trunc (value.realValue) == value.realValue))) ||
+        (expected == "number" && (value.kind == JsonValue::Kind::Int || value.kind == JsonValue::Kind::UInt ||
+                                  value.kind == JsonValue::Kind::Real));
     if (!typeOk) {
         error = path + ": expected " + expected + ", got " + GS::UniString (KindName (value.kind));
         return false;
@@ -454,8 +499,7 @@ bool Parse (const GS::UniString& json, JsonValue& value)
 
 } // namespace
 
-bool ValidateObjectStateSchema (const GS::ObjectState& value,
-                                const GS::Optional<GS::UniString>& schemaJson,
+bool ValidateObjectStateSchema (const GS::ObjectState& value, const GS::Optional<GS::UniString>& schemaJson,
                                 GS::UniString& error)
 {
     if (!schemaJson.HasValue ()) {
@@ -487,15 +531,26 @@ bool RunSchemaValidatorSelfCheck (GS::UniString& error)
             "choice":{"type":"string","enum":["a","b"]},
             "number":{"type":"number","minimum":1,"maximum":2,"exclusiveMinimum":0,"exclusiveMaximum":3},
             "text":{"type":"string","minLength":1,"maxLength":2},
-            "items":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"type":"number"}}
+            "items":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"type":"number"}},
+            "modes":{"type":"array","items":{"type":"integer","minimum":0,"maximum":2}}
         },
         "additionalProperties":false,
         "required":["choice","number","text","items"]
     })json";
 
-    struct Case { const char* name; const char* json; bool expected; };
+    struct Case {
+        const char* name;
+        const char* json;
+        bool expected;
+    };
     constexpr Case cases[] = {
         { "accepted boundaries", R"json({"choice":"a","number":1,"text":"ab","items":[1,2]})json", true },
+        { "SDK integer array", R"json({"choice":"a","number":1,"text":"a","items":[1],"modes":[0,1,2]})json", true },
+        { "integral real array", R"json({"choice":"a","number":1,"text":"a","items":[1],"modes":[0.0,1.0,2.0]})json",
+          true },
+        { "fractional mode", R"json({"choice":"a","number":1,"text":"a","items":[1],"modes":[0.5]})json", false },
+        { "negative mode", R"json({"choice":"a","number":1,"text":"a","items":[1],"modes":[-1]})json", false },
+        { "mode bound", R"json({"choice":"a","number":1,"text":"a","items":[1],"modes":[3]})json", false },
         { "enum", R"json({"choice":"c","number":1,"text":"a","items":[1]})json", false },
         { "minimum", R"json({"choice":"a","number":0.5,"text":"a","items":[1]})json", false },
         { "maximum", R"json({"choice":"a","number":2.5,"text":"a","items":[1]})json", false },

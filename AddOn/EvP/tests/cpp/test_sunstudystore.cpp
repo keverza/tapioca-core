@@ -116,6 +116,23 @@ TEST (SunStudyStore, AStudySurvivesTheCallThatStartedIt)
     EXPECT_EQ (positions.size (), 6u);
 }
 
+TEST (SunStudyStore, PartlyReusedDaysRequireTheOriginalRayBounds)
+{
+    StoreFixture fixture;
+    auto record = MakeRecord ();
+    record->reusedSampleSteps = 1;
+    ASSERT_EQ (record->reusedSamples, 0u);
+    const std::string id = SunStudyStore::Get ().Insert (std::move (record));
+    size_t advanced = 0;
+    std::string error;
+    EXPECT_FALSE (SunStudyStore::Get ().Advance (id, 1, 1, 0.1, 0.0, advanced, error));
+    EXPECT_EQ (error, "incremental sun study requires its original ray bounds");
+    EXPECT_EQ (advanced, 0u);
+    EXPECT_FALSE (SunStudyStore::Get ().Advance (id, 1, 1, 0.001, 10.0, advanced, error));
+    EXPECT_TRUE (SunStudyStore::Get ().Advance (id, 1, 1, 0.001, 0.0, advanced, error));
+    EXPECT_EQ (advanced, 1u);
+}
+
 TEST (SunStudyStore, AdvancingInSlicesReachesTheSameAnswer)
 {
     StoreFixture fixture;

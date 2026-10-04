@@ -208,4 +208,12 @@ constexpr short WebUIHtmlResId = 32561; // 'DATA', embedded WebUI/index.html
 constexpr short GraphEditorPaletteResId = 32570;
 constexpr short GraphEditorHtmlResId = 32571; // 'DATA', generated GraphUI/dist/index.html
 
+// A line of text the HUD asks for ('GDLG' 32580): the metadata editor's free-text value
+// (ArchViz/TextPrompt.hpp). Item order is the .grc's; OK and Cancel are 1 and 2.
+constexpr short TextPromptResId = 32580;
+constexpr short TextPromptOkButtonId = 1;
+constexpr short TextPromptCancelButtonId = 2;
+constexpr short TextPromptLabelId = 3;
+constexpr short TextPromptEditId = 4;
+
 #endif

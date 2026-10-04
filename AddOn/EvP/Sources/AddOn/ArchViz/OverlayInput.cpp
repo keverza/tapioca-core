@@ -6,6 +6,7 @@
 #include "ArchViz/OverlayInput.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 
 #include <commctrl.h>
 
@@ -36,6 +37,7 @@ struct Target {
     float y = 0.0f;
     bool wasOver = false; // over the HUD at the last message: leaving it redraws the hover
     std::vector<overlayhud::Input::Button> buttons;
+    float wheel = 0.0f; // notches turned over a page that scrolls, since the last layout took them
     bool refreshPending = false;
     bool timerArmed = false;
     uint64_t lastRedrawMs = 0;
@@ -180,8 +182,11 @@ bool EventOf (const MSG& message, Event& event)
             event.button = x;
             return true;
         case WM_MOUSEWHEEL:
-        case WM_MOUSEHWHEEL:
             event.kind = EventKind::Wheel;
+            event.wheel = float (GET_WHEEL_DELTA_WPARAM (message.wParam)) / float (WHEEL_DELTA);
+            return true;
+        case WM_MOUSEHWHEEL:
+            event.kind = EventKind::Wheel; // sideways: no page scrolls that way, the view's
             return true;
         default:
             return false;
@@ -335,8 +340,10 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     if (!::ScreenToClient (target.canvas, &point) || !::GetClientRect (target.canvas, &client))
         return Route::Pass;
     Target* const self = &target;
-    const bool over = self->map.Hit (float (point.x), float (point.y), float (client.right - client.left),
-                                     float (client.bottom - client.top)) >= 0;
+    const int hit = self->map.Hit (float (point.x), float (point.y), float (client.right - client.left),
+                                   float (client.bottom - client.top));
+    const bool over = hit >= 0;
+    const bool overScroll = over && self->map.regions[size_t (hit)].scrolls;
     const bool shown = self->owner.shown != nullptr && self->owner.shown ();
     if (removing)
         ++g_stats.seen;
@@ -346,13 +353,15 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         if (removing) {
             g_router.Reset ();
             self->buttons.clear ();
+            self->wheel = 0.0f;
             self->wasOver = false;
             if (over)
                 ++g_stats.declinedHidden;
         }
         return Route::Pass;
     }
-    const Route route = removing ? g_router.Decide (event, over) : g_router.Preview (event, over);
+    const Route route =
+        removing ? g_router.Decide (event, over, overScroll) : g_router.Preview (event, over, overScroll);
     if (route == Route::Take) {
         if (removing) {
             ++g_stats.taken;
@@ -374,6 +383,9 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     const bool button = route == Route::Take && (event.kind == EventKind::Press || event.kind == EventKind::Release);
     if (button && self->buttons.size () < 32)
         self->buttons.push_back ({ int (event.button), event.kind == EventKind::Press });
+    // The wheel the HUD took: its page scrolls by it at the next layout.
+    if (route == Route::Take && event.kind == EventKind::Wheel)
+        self->wheel += event.wheel;
     // ⚠️ NOTHING WHILE ARCHICAD OWNS THE GESTURE: a wall drawn across a panel is not the
     // HUD's to redraw under.
     const bool hudsTurn = g_router.GetOwner () != Owner::Host;
@@ -685,9 +697,13 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.pointer = target.inside;
     input.x = target.x;
     input.y = target.y;
+    // Read as the layout is: it follows the press that asked for it, the key held through both.
+    input.shift = ::GetKeyState (VK_SHIFT) < 0;
     if (take) {
         input.buttons = std::move (target.buttons);
         target.buttons.clear ();
+        input.wheel = target.wheel;
+        target.wheel = 0.0f;
     }
     return input;
 }
@@ -734,10 +750,13 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
     if (g_mouseHook == nullptr) {
         g_mouseHook = ::SetWindowsHookExW (WH_MOUSE, &MouseProc, nullptr, ::GetCurrentThreadId ());
         g_passed = Passed ();
-        if (g_mouseHook == nullptr)
-            ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_MOUSE) failed with GetLastError " +
-                        std::to_string (::GetLastError ()) +
+        if (g_mouseHook == nullptr) {
+            const DWORD code = ::GetLastError ();
+            ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_MOUSE) failed with GetLastError " + std::to_string (code) +
                         ": the message hook decides the buttons, after Windows has told the canvas's parent");
+            hudconsole::Warning ("HUD", "a click on the HUD may reach Archicad too: its mouse hook was refused (" +
+                                            std::to_string (code) + ")");
+        }
     }
     if (moved) {
         g_router.Reset ();

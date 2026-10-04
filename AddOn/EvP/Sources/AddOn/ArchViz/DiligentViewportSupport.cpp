@@ -11,6 +11,7 @@
 #include "ArchViz/NavLog.hpp" // the presented-frame half of the desync measurement
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
+#include "ArchViz/HudConsole.hpp" // ViewerWarning, ViewerFailed
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/DiligentScene.hpp"
@@ -24,6 +25,7 @@
 #include "ArchViz/SceneTextLiveCheck.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/ViewerPlanMode.hpp" // DrawPlanCut, with the storey slices' step
 
 #include <algorithm>
 #include <atomic>
@@ -170,6 +172,29 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
     scene.AdvanceFrame (request.motionViewProj);
 }
 
+namespace {
+
+// The log line without its "Diligent viewport: " prefix, for the console's reader.
+std::string Plain (const std::string& line)
+{
+    const std::string::size_type colon = line.find (": ");
+    return colon != std::string::npos && colon < 40 ? line.substr (colon + 2) : line;
+}
+
+} // namespace
+
+void ViewerWarning (const std::string& line)
+{
+    ArchVizLog (line);
+    hudconsole::Warning ("Viewer", Plain (line));
+}
+
+void ViewerFailed (const std::string& line)
+{
+    ArchVizLog (line);
+    hudconsole::Error ("Viewer", "stopped: " + Plain (line));
+}
+
 void InstallDiligentDebugCallback ()
 {
     Diligent::SetDebugMessageCallback (&DiligentDebugMessage);
@@ -198,6 +223,7 @@ bool ApplyArchicadCamera (Camera& camera, const CameraStart& start, uint32_t wid
     // its far plane from it.
     if (start.orthographic) {
         constexpr float kPlanEyeHeightMetres = 5000.0f;
+        // A cut (the viewer opened in the plan's place) moves the eye onto it: ViewerPlanMode.cpp.
         camera.SetTarget (start.target[0], start.target[1], start.target[2]);
         camera.SetDistance (kPlanEyeHeightMetres);
         camera.SetTopDown (start.planRotationRadians);
@@ -413,6 +439,8 @@ void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* c
         params.occluded = OccludedStyle (hudState.storySliceOccluded);
         scene.DrawStorySlices (context, viewProj, width, height, colorFormat, depthFormat, params);
     }
+    // The plan view's cut, its walls' outline: plan mode's own (ViewerPlanMode.hpp).
+    DrawPlanCut (scene, context, hudState, blanked, viewProj, width, height, colorFormat, depthFormat);
 
     // ⚠️ THE ONE-SHOT IS CONSUMED HERE, and it asks the EXTRACTION worker for a
     // pass rather than doing anything itself -- the cut runs during a full pass

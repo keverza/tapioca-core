@@ -5,6 +5,7 @@
 #include "ArchViz/OverlayInput.hpp" // ViewName
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/OverlayFonts.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEvents.hpp"
@@ -97,6 +98,7 @@ overlayhud::Engine* Hud (overlayinput::View view)
     if (!LoadBundledSceneTextFont (font, error) || !hud->Init (std::move (font), error)) {
         g_hudFailed[at] = true;
         ArchVizLog ("OVERLAY HUD  NOT AVAILABLE: " + error + " -- HUD panels are not drawn; everything else is");
+        hudconsole::Error ("HUD", "the overlay's panels cannot be drawn: " + error);
         return nullptr;
     }
     ArchVizLog (std::string ("OVERLAY HUD  the ") + overlayinput::ViewName (view) +
@@ -124,6 +126,12 @@ overlayhud::Engine* Hud (overlayinput::View view)
     });
     g_hud[at] = std::move (hud);
     return g_hud[at].get ();
+}
+
+bool HudStandalone (overlayinput::View view)
+{
+    const overlayhud::Engine* hud = g_hud[view == overlayinput::View::ThreeD ? 0 : 1].get ();
+    return hud != nullptr && hud->Standalone ();
 }
 
 std::shared_ptr<overlayhud::State> HudState ()

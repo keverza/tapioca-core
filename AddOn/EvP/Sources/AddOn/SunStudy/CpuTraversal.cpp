@@ -1,4 +1,5 @@
 #include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/CpuTraversalWork.hpp"
 
 #include <algorithm>
 #include <thread>
@@ -15,36 +16,6 @@ constexpr size_t kInlineThreshold = 4096;
 // The least work that justifies a thread. Measured, not guessed: see the note in
 // ChooseThreadCount.
 constexpr size_t kMinRaysPerThread = 2048;
-
-// Shard [0, count) across `threads` workers and join. `threads <= 1` runs inline
-// on the caller.
-//
-// ⚠️ THE CALLER RUNS THE LAST SHARD RATHER THAN WAITING FOR IT. One fewer thread
-// is created and the submitting thread is not idle while the pool works, which
-// matters because this is called once per timestep in a loop.
-template <typename Body> void ShardAndJoin (size_t count, size_t threads, const Body& body)
-{
-    if (threads <= 1) {
-        body (size_t { 0 }, count);
-        return;
-    }
-
-    const size_t chunk = (count + threads - 1) / threads;
-    std::vector<std::thread> pool;
-    pool.reserve (threads - 1);
-
-    size_t begin = chunk; // shard 0 is the caller's, run last
-    for (size_t t = 1; t < threads && begin < count; ++t) {
-        const size_t end = std::min (count, begin + chunk);
-        pool.emplace_back (body, begin, end);
-        begin = end;
-    }
-
-    body (size_t { 0 }, std::min (chunk, count));
-
-    for (std::thread& worker : pool)
-        worker.join ();
-}
 
 } // namespace
 
@@ -91,15 +62,24 @@ CpuTraversal::CpuTraversal (std::shared_ptr<const geomsrv::QueryEngine> engine) 
 void CpuTraversal::OccludeDirectional (const double* origins, size_t count, const double dir[3], double tmin,
                                        double tmax, uint8_t* out, size_t maxParallel) const
 {
+    OccludeDirectionalCancellable (origins, count, dir, tmin, tmax, out, maxParallel, {});
+}
+
+bool CpuTraversal::OccludeDirectionalCancellable (const double* origins, size_t count, const double dir[3], double tmin,
+                                                  double tmax, uint8_t* out, size_t maxParallel,
+                                                  const std::function<bool ()>& isCancelled) const
+{
+    if (isCancelled && isCancelled ())
+        return false;
     if (out == nullptr || count == 0)
-        return;
+        return true;
 
     // ⚠️ CLEAR RATHER THAN SHADOWED IS THE SAFE DEFAULT for a missing scene or a
     // null input. "Lit" is visible in a result and invites a look; "shadowed"
     // reads exactly like a real occluder and hides the fault.
     if (origins == nullptr || dir == nullptr || engine_ == nullptr) {
         std::fill (out, out + count, uint8_t { 0 });
-        return;
+        return !isCancelled || !isCancelled ();
     }
 
     const geomsrv::QueryEngine& engine = *engine_;
@@ -110,7 +90,7 @@ void CpuTraversal::OccludeDirectional (const double* origins, size_t count, cons
             out[i] = engine.Occluded (&origins[i * 3], direction, tmin, tmax) ? uint8_t { 1 } : uint8_t { 0 };
     };
 
-    ShardAndJoin (count, ChooseThreadCount (count, maxParallel), body);
+    return RunCpuTraversal (count, maxParallel, isCancelled, body);
 }
 
 void CpuTraversal::OccludeRays (const OcclusionRay* rays, size_t count, uint8_t* out, size_t maxParallel) const
@@ -132,7 +112,7 @@ void CpuTraversal::OccludeRays (const OcclusionRay* rays, size_t count, uint8_t*
         }
     };
 
-    ShardAndJoin (count, ChooseThreadCount (count, maxParallel), body);
+    RunCpuTraversal (count, maxParallel, {}, body);
 }
 
 uint64_t CpuTraversal::SceneVersion () const

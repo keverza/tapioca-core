@@ -83,8 +83,11 @@ bool NeedsText (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& 
 }
 
 // Any layer drawn in the plan: its dock shows and hides the overlay, its Settings the layers.
+// Or none: the plan overlay runs, and its HUD is there with its own pages (OverlayHud.hpp).
 bool NeedsHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
 {
+    if (guesttext::HudStandalone (overlayinput::View::Plan))
+        return true;
     for (const auto& layer : layers)
         if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD))
             return true;
@@ -189,6 +192,7 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
         }
         g_stats.attached = true;
         g_stats.attachMilliseconds = g_guest.GetStats ().attachMilliseconds;
+        g_stats.adapter = g_guest.GetStats ().adapter;
     }
     if (!g_pipelines.ready) {
         if (g_buildFailed) {

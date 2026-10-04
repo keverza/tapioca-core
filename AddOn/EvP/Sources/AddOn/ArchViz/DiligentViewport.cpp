@@ -31,6 +31,7 @@
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/Uniforms.hpp"
+#include "ArchViz/ViewerPlanMode.hpp"
 #include "Screenshot/ScreenshotStore.hpp"
 
 #include <windows.h>
@@ -214,7 +215,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             // ---- where the camera starts ------------------------------------
             float distance = 0.0f;
-            if (ApplyArchicadCamera (camera, cameraStart, surface.width, surface.height, &distance)) {
+            if (StartViewerCamera (camera, hudState, cameraStart, surface.width, surface.height, &distance)) {
                 ArchVizLog ("Diligent viewport camera from Archicad (" + cameraStart.source + "): target " +
                             std::to_string (cameraStart.target[0]) + "," + std::to_string (cameraStart.target[1]) +
                             "," + std::to_string (cameraStart.target[2]) + " distance " + std::to_string (distance) +
@@ -250,8 +251,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // does nothing" looks identical either way.
             std::string pickError;
             if (!offscreen && !pick.Init (device, pickError))
-                ArchVizLog ("Diligent viewport: picking is unavailable (" + pickError +
-                            "); the viewport runs without it");
+                ViewerWarning ("Diligent viewport: picking is unavailable (" + pickError +
+                               "); the viewport runs without it");
             {
                 std::lock_guard<std::mutex> lock (mutex_);
                 stats_.pickAvailable = pick.IsReady ();
@@ -269,12 +270,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             std::string hudError;
             if (!offscreen && !hud.Init (device, target.ColorFormat (), target.DepthFormat (), hudError))
-                ArchVizLog ("Diligent viewport: the ImGui HUD did not start (" + hudError +
-                            "); the viewport runs without it");
+                ViewerWarning ("Diligent viewport: the ImGui HUD did not start (" + hudError +
+                               "); the viewport runs without it");
             std::string textError;
             if (!textLayer.Init (device, target.ColorFormat (), textError))
-                ArchVizLog ("Diligent viewport: the scene-text layer did not start (" + textError +
-                            "); the viewport runs without retained labels");
+                ViewerWarning ("Diligent viewport: the scene-text layer did not start (" + textError +
+                               "); the viewport runs without retained labels");
             hudState.debugView = debugView_.load ();
             hudState.renderMode = renderMode_.load ();
             hudState.showCallout = showCallout_.load ();
@@ -313,8 +314,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         uint32_t lastEnvironmentSettingsSeq = environmentSettingsSeq_.load ();
         bool lastCommandedCallout = showCallout_.load ();
         // ⚠️ THE EDGE, NOT THE STATE. The projection is re-derived only on the
-        // frame the toggle CHANGES -- see the block that reads this for why a
-        // per-frame recompute would make a parallel view refuse to zoom.
+        // frame the toggle CHANGES (ViewerPlanMode.cpp, Camera::SwitchProjection):
+        // a per-frame recompute would undo every zoom of a parallel view.
         bool lastOrthographic = hudState.orthographic;
         uint64_t lastCommandedSunSeq = sunOverrideSeq_.load ();
         uint64_t lastPlanAnchorSeq = 0; // 0 so the FIRST set is always adopted
@@ -542,7 +543,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // scene, which puts the panel underneath the building. One frame of
             // latency on "was that click for the combo box" is invisible; the
             // alternative is an orbit every time the user opens the dropdown.
-            if (!offscreen && camera.ApplyInput (input, hudState.wantsMouse, width, height))
+            if (!offscreen && NavigateViewer (camera, hudState, input, width, height))
                 userHasNavigated = true;
 
             // ---- the overlay path: Archicad drives ----------------------------
@@ -595,19 +596,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // Apply the projection mode before deriving either stable or
             // jittered matrices. Doing it later records one frame in the wrong
             // projection and contaminates temporal history.
-            if (hudState.orthographic != lastOrthographic) {
-                if (hudState.orthographic) {
-                    constexpr float kPi = 3.14159265358979323846f;
-                    const float halfHeight =
-                        camera.Distance () * std::tan (camera.FovDegreesVertical () * 0.5f * (kPi / 180.0f));
-                    camera.SetOrthographic (true, halfHeight > 1e-3f ? halfHeight : 1.0f);
-                }
-                else {
-                    camera.SetOrthographic (false, 0.0f);
-                }
+            if (FollowProjectionToggle (camera, hudState, lastOrthographic))
                 scene.ResetTemporalAntiAliasingHistory ();
-                lastOrthographic = hudState.orthographic;
-            }
 
             const bool blanked = blanked_.load ();
             scene.SetViewportSize (width, height);
@@ -661,11 +651,11 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // looking at; a frame that picks against geometry it did not draw
             // resolves clicks to elements that are not on screen, which is the
             // hardest possible version of "picking selects the wrong thing".
-            // ⚠️ THE ORTHOGRAPHIC CAMERA IS THE TEST because it is what the plan
-            // path fits (PlanViewCamera -> FitPlanCamera). ⚠️ AND THAT TEST IS
-            // TOO BROAD NOW -- the HUD's axonometric toggle also makes the camera
-            // orthographic without making it a plan; see PLAT-RE142.
-            const bool drawingOverThePlan = camera.IsOrthographic ();
+            // ⚠️ OVER THE PLAN, NOT MERELY PARALLEL (PLAT-RE142): only the overlay
+            // surface ever lies over Archicad's plan. The palette's parallel camera --
+            // the axonometric toggle, the viewer opened in the plan's place -- is the
+            // viewer's own picture, and drew nothing (the user, 2026-10-03: empty).
+            const bool drawingOverThePlan = camera.IsOrthographic () && surface.mode == SurfaceMode::Overlay;
             const bool modelIsDrawn =
                 !drawingOverThePlan && !blanked && !ShouldIsolateGraphInteraction (hudState, input);
             ApplyShadowSettings (scene, hudState);
@@ -1055,7 +1045,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         }
         if (activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ())
             activeCaptureId_.store (0);
-        ArchVizLog ("Diligent viewport FAILED: " + stats_.error);
+        ViewerFailed ("Diligent viewport FAILED: " + stats_.error);
     }
     catch (...) {
         releaseEverything ();
@@ -1068,7 +1058,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         }
         if (activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ())
             activeCaptureId_.store (0);
-        ArchVizLog ("Diligent viewport FAILED: " + stats_.error);
+        ViewerFailed ("Diligent viewport FAILED: " + stats_.error);
     }
 
     if (offscreen)

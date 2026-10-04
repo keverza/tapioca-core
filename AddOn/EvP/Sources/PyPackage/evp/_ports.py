@@ -208,10 +208,24 @@ def ports_from_schema(schema, labels=None, explicit_titles=None):
         _bounds(node, entry)
         if entry["type"] == "Hour":
             value = entry.get("default", 0)
-            if type(value) is not int or not 0 <= value <= 23:
-                raise PortError("Hour field %r needs an integer default from 0 to 23." % name)
+            maximum = entry.get("maximum", 23)
+            if type(maximum) is not int or maximum not in (23, 24):
+                raise PortError("Hour field %r maximum must be 23 or 24." % name)
+            if type(value) is not int or not 0 <= value <= maximum:
+                raise PortError("Hour field %r needs an integer default from 0 to %d." % (name, maximum))
             entry["minimum"] = 0
-            entry["maximum"] = 23
+            entry["maximum"] = maximum
+        if entry["type"] == "Calendar" and "default" in entry:
+            from datetime import date
+
+            value = entry["default"]
+            try:
+                parsed = date.fromisoformat(value)
+                valid = value == parsed.isoformat() and 1902 <= parsed.year <= 2037
+            except (ValueError, TypeError):
+                valid = False
+            if not valid:
+                raise PortError("Calendar field %r needs a YYYY-MM-DD default in 1902..2037." % name)
 
         # UI metadata that JSON Schema has no vocabulary for. `readonly` and
         # `numeric` stay booleans; the C++ side reads them with os.Get(bool).

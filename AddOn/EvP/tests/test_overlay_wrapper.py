@@ -76,6 +76,13 @@ def test_a_panel_folds_and_its_sections_fold_what_follows():
     assert "collapsed" not in overlay.Panel(title="Plain").to_dict()
 
 
+def test_a_panel_asks_for_the_stats_page_by_its_tab():
+    assert overlay.Panel(title="Massing", tab="stats").to_dict()["tab"] == "stats"
+    assert "tab" not in overlay.Panel(title="Massing").to_dict()
+    with pytest.raises(ValueError):
+        overlay.Panel(title="Massing", tab="settings")
+
+
 def test_the_design_card_is_the_wire_names():
     panel = (
         overlay.Panel(title="AREA METRICS", theme="light")

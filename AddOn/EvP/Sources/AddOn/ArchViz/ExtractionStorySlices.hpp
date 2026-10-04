@@ -73,12 +73,14 @@ class StorySliceAccumulator final {
     // Arms the accumulator for a pass. `Active` stays false — and every other
     // call becomes a no-op — when there are no storeys or slices were not asked
     // for and no slab's body is wanted, so the caller needs no second flag of its own.
-    void Begin (const ProjectStoreys& storeys, bool wanted);
+    // `planCut`: the plan view's cut too, at `planZ` world metres (ExtractionWorker::SetPlanCut).
+    void Begin (const ProjectStoreys& storeys, bool wanted, bool planCut = false, double planZ = 0.0);
     // ⚠️ ALSO ACTIVE FOR THE SLABS SLICED FROM THEIR BODY (SlabBodies.hpp): every pass
-    // hands over the meshes of the slabs wanted at its start, storeys or not.
+    // hands over the meshes of the slabs wanted at its start, storeys or not. And for the
+    // plan view's cut.
     bool Active () const
     {
-        return !planes_.empty () || !capture_.empty ();
+        return !planes_.empty () || !capture_.empty () || planCut_;
     }
 
     // Cut one element against every storey plane and keep the loops; and keep its
@@ -109,6 +111,12 @@ class StorySliceAccumulator final {
     // Carried for the overlays' per-storey snapshot (StorySliceSnapshot.hpp).
     std::vector<std::string> names_;
     std::vector<int> indices_;
+    // ⚠️ THE PLAN VIEW'S CUT IS ITS OWN SET, NOT ONE MORE STOREY: the overlays' per-storey
+    // snapshot and the viewer's storey slices never see it; it is pushed alone
+    // (SceneCmdQueue::PushPlanCut) and drawn only in the viewer's plan mode.
+    bool planCut_ = false;
+    double planZ_ = 0.0;
+    std::vector<Polyline> planLoops_;
 };
 
 } // namespace archviz

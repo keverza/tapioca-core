@@ -260,7 +260,10 @@ def test_gpu_backend_owns_context_and_has_bounded_cancellable_packets_and_explic
 def test_gpu_pipeline_keeps_exact_cpu_guards_and_avoids_duplicate_serial_checks():
     source = (_ADDON / "ArchViz" / "SunStudyGpuTraversal.cpp").read_text(encoding="utf-8")
     assert "cpu.Occluded (" not in source
-    assert "cpu.OccludeDirectional (&checkPositions" in source
+    assert "cpu.OccludeDirectionalCancellable (wave.positions.data ()" in source
+    assert "kCpuCheckWaveRays = 65536" in source
+    assert "wave.indices.push_back (first + i)" in source
+    assert "wave.expected[j] < 2 && wave.expected[j] != checks[j]" in source
     assert "answers[i] >= 2 || validate" in source
     assert "CopySubresourceRegion (packet.staging" in source
     assert "ReadPacket (packet" in source and "SubmitPacket (packet" in source

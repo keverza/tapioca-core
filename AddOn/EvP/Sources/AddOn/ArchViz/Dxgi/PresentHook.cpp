@@ -2,6 +2,7 @@
 // that header's comments; this is the mechanism.
 
 #include "ArchViz/Dxgi/PresentHook.hpp"
+#include "ArchViz/Dxgi/PrelockHud.hpp"
 
 #include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
 
@@ -251,6 +252,10 @@ void CaptureGpuStateIfTarget (IDXGISwapChain* swapChain)
             device->GetImmediateContext (&context);
             if (context != nullptr) {
                 injection::InjectAtPresent (context, swapChain, renderstate::ModelSceneGeneration ());
+                // ⚠️ THE HUD BEFORE THE CAMERA (PrelockHud.hpp): while no camera is chosen
+                // nothing above draws, and the HUD alone -- fixed to the view, reading no
+                // camera -- says what the overlay waits for. Active or disabled: nothing.
+                prelockhud::DrawAtPresent (context, swapChain);
                 context->Release ();
             }
             device->Release ();

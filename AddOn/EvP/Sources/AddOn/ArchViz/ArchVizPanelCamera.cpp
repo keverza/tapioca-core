@@ -145,6 +145,34 @@ geomsrv::archviz::CameraStart ArchVizPanel::ReadArchicadOverlayCamera ()
     return ReadArchicadCamera ();
 }
 
+geomsrv::archviz::CameraStart ArchVizPanel::ReadPlanViewerCamera (uint32_t width, uint32_t height)
+{
+    if (!geomsrv::archviz::CurrentWindowIsFloorPlan ()) {
+        geomsrv::archviz::CameraStart none;
+        none.source = "the floor plan is not in front";
+        return none;
+    }
+    geomsrv::archviz::CameraStart plan = geomsrv::archviz::ReadPlanViewCamera (width, height);
+    if (!plan.valid)
+        return plan;
+    // The current storey's level, and the floor plan's cut plane above it (1.1 m unless read).
+    double level = 0.0, cutAbove = 1.1;
+    API_StoryInfo storeys = {};
+    if (ACAPI_ProjectSetting_GetStorySettings (&storeys) == NoError && storeys.data != nullptr) {
+        const Int32 at = storeys.actStory - storeys.firstStory;
+        if (at >= 0 && at <= storeys.lastStory - storeys.firstStory)
+            level = (*storeys.data)[at].level;
+        BMKillHandle (reinterpret_cast<GSHandle*> (&storeys.data));
+    }
+    API_FloorPlanCutDefinition cut = {};
+    if (ACAPI_ProjectSetting_GetPreferences (&cut, APIPrefs_FloorPlanCutPlaneDef) == NoError)
+        cutAbove = cut.currCutLevel;
+    plan.cut = true;
+    plan.cutZ = float (level + cutAbove);
+    plan.source += ", cut at " + std::to_string (level + cutAbove) + " m";
+    return plan;
+}
+
 // ---------------------------------------------------------------------------
 // The navigation comparison log, Archicad's half. See the declaration in the
 // header for why this is a Win32 timer and not DG's idle event, and for the

@@ -29,6 +29,7 @@ constexpr uint32_t kPacketRays = 16384;
 constexpr size_t kInFlightPackets = 3;
 constexpr uint32_t kGroupRays = 64;
 constexpr uint32_t kRayWorkLimit = 4096;
+constexpr size_t kCpuCheckWaveRays = 65536;
 constexpr size_t kSceneBudgetBytes = 512ull * 1024 * 1024;
 
 struct Parameters {
@@ -99,6 +100,11 @@ struct SunStudyGpuTraversal::Impl {
         size_t first = 0;
         uint32_t count = 0;
         Clock::time_point submitted;
+    };
+    struct CheckWave {
+        std::vector<double> positions;
+        std::vector<size_t> indices;
+        std::vector<uint32_t> expected;
     };
     std::shared_ptr<const QueryEngine> engine, contextEngine;
     evp::sunstudy::SunStudyPartitionTraversal cpu;
@@ -258,19 +264,10 @@ struct SunStudyGpuTraversal::Impl {
     bool CpuDirectional (const double* positions, size_t count, const double dir[3], double tmin, double tmax,
                          uint8_t* answers, size_t maxParallel, const std::function<bool ()>& isCancelled)
     {
-        if (!isCancelled || positions == nullptr || answers == nullptr || dir == nullptr) {
-            cpu.OccludeDirectional (positions, count, dir, tmin, tmax, answers, maxParallel);
-            stats.cpuFallbackRays += count;
-            return !isCancelled || !isCancelled ();
-        }
-        for (size_t first = 0; first < count; first += kMinGpuRays) {
-            if (isCancelled ())
-                return false;
-            const size_t size = std::min<size_t> (kMinGpuRays, count - first);
-            cpu.OccludeDirectional (&positions[first * 3], size, dir, tmin, tmax, &answers[first], maxParallel);
-            stats.cpuFallbackRays += size;
-        }
-        return !isCancelled ();
+        const bool complete =
+            cpu.OccludeDirectionalCancellable (positions, count, dir, tmin, tmax, answers, maxParallel, isCancelled);
+        stats.cpuFallbackRays += count;
+        return complete;
     }
 
     bool Initialise (const std::function<bool ()>& isCancelled)
@@ -464,13 +461,9 @@ struct SunStudyGpuTraversal::Impl {
         return true;
     }
 
-    bool CheckPacket (const double* positions, size_t first, uint32_t count, const double dir[3], double tmin,
-                      double tmax, const uint32_t* answers, uint8_t* out, size_t maxParallel,
-                      const std::function<bool ()>& isCancelled)
+    bool CollectChecks (const double* positions, size_t first, uint32_t count, const uint32_t* answers, uint8_t* out,
+                        CheckWave& wave, const std::function<bool ()>& isCancelled)
     {
-        const auto checking = Clock::now ();
-        std::vector<double> checkPositions;
-        std::vector<uint32_t> indices;
         for (uint32_t i = 0; i < count; ++i) {
             if (i % 256 == 0 && isCancelled && isCancelled ())
                 return false;
@@ -490,30 +483,38 @@ struct SunStudyGpuTraversal::Impl {
                 stats.workLimitRays += answers[i] == 3 ? 1 : 0;
             }
             if (answers[i] >= 2 || validate) {
-                indices.push_back (i);
-                checkPositions.insert (checkPositions.end (), origin, origin + 3);
+                wave.indices.push_back (first + i);
+                wave.expected.push_back (answers[i]);
+                wave.positions.insert (wave.positions.end (), origin, origin + 3);
             }
             else
                 out[first + i] = static_cast<uint8_t> (answers[i]);
         }
-        std::vector<uint8_t> checks (indices.size ());
-        // Chunking bounds cancellation latency; the CPU baseline's parallel
-        // packet tracer replaces thousands of serial single-ray calls.
-        for (size_t offset = 0; offset < indices.size (); offset += kMinGpuRays) {
-            if (isCancelled && isCancelled ())
-                return false;
-            const size_t size = std::min<size_t> (kMinGpuRays, indices.size () - offset);
-            cpu.OccludeDirectional (&checkPositions[offset * 3], size, dir, tmin, tmax, &checks[offset], maxParallel);
-            stats.cpuCheckRays += size;
-        }
-        for (size_t j = 0; j < indices.size (); ++j) {
-            const uint32_t i = indices[j];
-            if (answers[i] < 2 && answers[i] != checks[j]) {
+        return true;
+    }
+
+    bool ResolveChecks (CheckWave& wave, const double dir[3], double tmin, double tmax, uint8_t* out,
+                        size_t maxParallel, const std::function<bool ()>& isCancelled)
+    {
+        const auto checking = Clock::now ();
+        std::vector<uint8_t> checks (wave.indices.size ());
+        // Packet-sized checks limited automatic CPU fan-out to 2-8 threads.
+        // A bounded wave fills the machine; dynamic CPU batches still cancel
+        // promptly, and the three GPU slots stay independent of this scratch.
+        if (!cpu.OccludeDirectionalCancellable (wave.positions.data (), wave.indices.size (), dir, tmin, tmax,
+                                                checks.data (), maxParallel, isCancelled))
+            return false;
+        stats.cpuCheckRays += wave.indices.size ();
+        for (size_t j = 0; j < wave.indices.size (); ++j) {
+            if (wave.expected[j] < 2 && wave.expected[j] != checks[j]) {
                 Disable ("CPU/GPU parity mismatch");
                 return false;
             }
-            out[first + i] = checks[j];
+            out[wave.indices[j]] = checks[j];
         }
+        wave.positions.clear ();
+        wave.indices.clear ();
+        wave.expected.clear ();
         stats.cpuCheckMilliseconds += Milliseconds (checking);
         return !isCancelled || !isCancelled ();
     }
@@ -552,6 +553,10 @@ bool SunStudyGpuTraversal::OccludeDirectionalCancellable (const double* origins,
     const auto started = Clock::now ();
     const auto previous = impl_->stats;
     std::vector<uint32_t> answers (kPacketRays);
+    Impl::CheckWave wave;
+    wave.positions.reserve ((kCpuCheckWaveRays + kPacketRays) * 3);
+    wave.indices.reserve (kCpuCheckWaveRays + kPacketRays);
+    wave.expected.reserve (kCpuCheckWaveRays + kPacketRays);
     size_t next = 0;
     const auto submit = [&] (Impl::PacketBuffers& packet) {
         const uint32_t size = static_cast<uint32_t> (std::min<size_t> (kPacketRays, count - next));
@@ -580,8 +585,9 @@ bool SunStudyGpuTraversal::OccludeDirectionalCancellable (const double* origins,
             submit (packet);
             impl_->context->Flush ();
         }
-        if (!impl_->CheckPacket (origins, first, size, dir, tmin, tmax, answers.data (), out, maxParallel,
-                                 isCancelled)) {
+        if (!impl_->CollectChecks (origins, first, size, answers.data (), out, wave, isCancelled) ||
+            ((wave.indices.size () >= kCpuCheckWaveRays || resolved + size == count) &&
+             !impl_->ResolveChecks (wave, dir, tmin, tmax, out, maxParallel, isCancelled))) {
             if (isCancelled && isCancelled ())
                 return false;
             return impl_->CpuDirectional (origins, count, dir, tmin, tmax, out, maxParallel, isCancelled);

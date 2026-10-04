@@ -12,6 +12,7 @@
 
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- a failed bind must say so, not crash
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
@@ -141,55 +142,83 @@ void DiligentScene::DrawIds (Diligent::IDeviceContext* context, const float view
     }
 }
 
-void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
-                                     uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
-                                     const StorySliceLayer::DrawParams& params)
-{
-    if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
-        return;
+namespace {
 
-    if (!impl_->storySlices.IsReady ()) {
+// One set of slice contours on the GPU (StorySliceLayer): its layer built on the first frame,
+// its pending set uploaded on the first frame with a context, then drawn. `layerName` and
+// `setName` say which in archviz.log.
+void DrawSliceSet (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, StorySliceLayer& layer,
+                   std::unique_ptr<StorySliceUpload>& pending, bool& dirty, bool& initFailed, const char* layerName,
+                   const char* setName, const float viewProj[16], uint32_t surfaceWidth, uint32_t surfaceHeight,
+                   uint32_t colorBufferFormat, uint32_t depthBufferFormat, const StorySliceLayer::DrawParams& params)
+{
+    if (!layer.IsReady ()) {
         // ⚠️ ONCE. A layer whose shaders will not compile will not compile on the
         // next frame either, and retrying puts the HLSL compiler in the frame loop
         // and its error in the log sixty times a second.
-        if (impl_->storySliceInitFailed) {
+        if (initFailed) {
             // ⚠️ AND DROP THE PENDING SET. Without this the storey contours and
             // their fill -- the largest thing this feature allocates -- are held
             // for the life of the viewer waiting for an upload that can never
             // happen, on exactly the machine whose GPU already could not build the
             // layer.
-            impl_->pendingStorySlices.reset ();
-            impl_->storySlicesDirty = false;
+            pending.reset ();
+            dirty = false;
             return;
         }
         std::string initError;
-        if (!impl_->storySlices.Init (impl_->device, colorBufferFormat, depthBufferFormat, initError)) {
-            impl_->storySliceInitFailed = true;
-            ArchVizLog ("Diligent scene: story slice layer unavailable (" + initError + ")");
+        if (!layer.Init (device, colorBufferFormat, depthBufferFormat, initError)) {
+            initFailed = true;
+            ArchVizLog (std::string ("Diligent scene: ") + layerName + " unavailable (" + initError + ")");
+            hudconsole::Warning ("Viewer", std::string ("the ") + layerName + " is unavailable: " + initError);
             return;
         }
     }
 
     // The deferred upload. See the header: Consume has no context, so the set
     // waits here until the first frame that can actually fill a buffer.
-    if (impl_->storySlicesDirty) {
-        impl_->storySlicesDirty = false;
+    if (dirty) {
+        dirty = false;
         static const std::vector<StorySliceVertex> kNoOutline;
         static const std::vector<StorySliceFillVertex> kNoFill;
-        const std::vector<StorySliceVertex>& outline =
-            impl_->pendingStorySlices != nullptr ? impl_->pendingStorySlices->outline : kNoOutline;
-        const std::vector<StorySliceFillVertex>& fill =
-            impl_->pendingStorySlices != nullptr ? impl_->pendingStorySlices->fill : kNoFill;
+        const std::vector<StorySliceVertex>& outline = pending != nullptr ? pending->outline : kNoOutline;
+        const std::vector<StorySliceFillVertex>& fill = pending != nullptr ? pending->fill : kNoFill;
         std::string uploadError;
-        if (!impl_->storySlices.Upload (impl_->device, context, outline, fill, uploadError))
-            ArchVizLog ("Diligent scene: story slices not uploaded (" + uploadError + ")");
+        if (!layer.Upload (device, context, outline, fill, uploadError)) {
+            ArchVizLog (std::string ("Diligent scene: ") + setName + " not uploaded (" + uploadError + ")");
+            hudconsole::Warning ("Viewer", std::string ("the ") + setName + " was not uploaded: " + uploadError);
+        }
         // ⚠️ FREED ONCE UPLOADED. The set is a copy of every storey's contour and
         // its fill; holding it after the GPU has it is the whole overlay's memory
         // charged twice, for nothing.
-        impl_->pendingStorySlices.reset ();
+        pending.reset ();
     }
 
-    impl_->storySlices.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
+    layer.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
+}
+
+} // namespace
+
+void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                     uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                     const StorySliceLayer::DrawParams& params)
+{
+    if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
+        return;
+    DrawSliceSet (impl_->device, context, impl_->storySlices, impl_->pendingStorySlices, impl_->storySlicesDirty,
+                  impl_->storySliceInitFailed, "story slice layer", "story slices", viewProj, surfaceWidth,
+                  surfaceHeight, colorBufferFormat, depthBufferFormat, params);
+}
+
+void DiligentScene::DrawPlanCut (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                 uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                 const StorySliceLayer::DrawParams& params)
+{
+    if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
+        return;
+    DrawSliceSet (impl_->device, context, impl_->planCut, impl_->pendingPlanCut, impl_->planCutDirty,
+                  impl_->planCutInitFailed, "plan cut layer", "plan cut", viewProj, surfaceWidth, surfaceHeight,
+                  colorBufferFormat, depthBufferFormat, params);
 }
 
 void DiligentScene::DrawGhPreview (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
@@ -699,7 +728,13 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // valid, not so the shader reads it.
     constants.gradeParams[3] = impl_->aoView != nullptr ? impl_->aoIntensity : 0.0f;
 
-    const bool drawSurfaces = impl_->renderMode != SceneRenderMode::Wireframe;
+    const uint32_t studyMode = impl_->sunViewOverride >= 0 ? uint32_t (impl_->sunViewOverride) : impl_->sunDebugMode;
+    const bool studyModel = debugView == 0 && impl_->sunAtlasSRV != nullptr && impl_->sunElementsAttached > 0 &&
+                            !impl_->sunTintInitFailed && (studyMode == 0 || studyMode >= 5);
+    // A display-only matte-white override; original materials/render preferences
+    // return when the study is hidden. Opaque glass writes the same nearest depth
+    // as other receivers, preventing translucent study colours stacking by draw order.
+    const bool drawSurfaces = studyModel || impl_->renderMode != SceneRenderMode::Wireframe;
     // ⚠️ THE SUPPRESSION THAT WAS HERE WAS GLOBAL, AND IT SWITCHED
     // OFF THE FLOOR PLAN. It read "if the injected overlay is Active, do not draw
     // the portable wireframe" -- true of the 3D window and meaningless for a
@@ -754,8 +789,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // drawn before it and hide the ones drawn after -- an
                 // arbitrary-looking half of the room, changing with the
                 // extraction order.
-                const bool selectedBlend = e.selected && kSelectionAlpha < kOpaqueAlpha;
-                const bool blended = mat.alpha < kOpaqueAlpha || selectedBlend;
+                const bool selectedBlend = !studyModel && e.selected && kSelectionAlpha < kOpaqueAlpha;
+                const bool blended = !studyModel && (mat.alpha < kOpaqueAlpha || selectedBlend);
                 if (blended != transparentPass)
                     continue;
                 // ⚠️ THE HIGHLIGHT IS A TINT, NOT A REPLACEMENT. Painting a
@@ -774,11 +809,11 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // colour is already uploaded per range.
                 // ⚠️ NOT NAMED r/g/b -- `r` is the MaterialRange this loop is
                 // over, and shadowing it hands the range's colour to the draw.
-                float tintR = mat.r;
-                float tintG = mat.g;
-                float tintB = mat.b;
-                float alpha = mat.alpha;
-                if (e.selected) {
+                float tintR = studyModel ? 1.0f : mat.r;
+                float tintG = studyModel ? 1.0f : mat.g;
+                float tintB = studyModel ? 1.0f : mat.b;
+                float alpha = studyModel ? 1.0f : mat.alpha;
+                if (e.selected && !studyModel) {
                     tintR = mat.r * kSelectionTintMix + kSelectionTintR;
                     tintG = mat.g * kSelectionTintMix + kSelectionTintG;
                     tintB = mat.b * kSelectionTintMix + kSelectionTintB;
@@ -799,7 +834,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
-                uploadConstants (tintR, tintG, tintB, alpha, preset.roughness, preset.reflectance, preset.metallic);
+                uploadConstants (tintR, tintG, tintB, alpha, studyModel ? 1.0f : preset.roughness,
+                                 studyModel ? 0.5f : preset.reflectance, studyModel ? 0.0f : preset.metallic);
                 drawRange (e, r, blended);
             }
         }

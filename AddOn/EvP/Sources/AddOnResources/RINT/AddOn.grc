@@ -348,3 +348,22 @@
 
 'DLGH' 32570  DLG_32570_GraphEditorPalette {
 }
+
+/* --- A line of text the HUD asks for ('GDLG' 32580) ----------------------- */
+/* The one native piece of the HUD's metadata editor: a free-text value, which
+   ImGui is not asked to edit (the user, 2026-10-03: "small native dialog if
+   needed"). OK is item 1 and Cancel item 2, so Enter and Esc answer it; the
+   prompt line and the title are set at runtime. Codepage 1252 strings only. */
+'GDLG'  32580  Modal | noGrow   40   40  360  112  "Tapioca" {
+/* [  1] */ Button        248   80  100   24   LargePlain  "OK"
+/* [  2] */ Button        140   80  100   24   LargePlain  "Cancel"
+/* [  3] */ LeftText       12   12  336   16   SmallPlain  vCenter  ""
+/* [  4] */ TextEdit       12   36  336   23   LargePlain  1024
+}
+
+'DLGH'  32580  DLG_32580_TextPrompt {
+1	"Use the text"									OkButton
+2	"Close without changing it"						CancelButton
+3	"What the text is for"							LeftText_0
+4	"The text"										TextEdit_0
+}

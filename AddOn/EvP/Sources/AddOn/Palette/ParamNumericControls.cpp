@@ -15,6 +15,9 @@ GS::UniString BuildIntegerControl (ParamControl& pc, const GS::ObjectState& meta
     if (pc.type == "Hour") {
         minimum = 0;
         maximum = 23;
+        GS::Int32 requestedMaximum = 23;
+        if (metadata.Get ("maximum", requestedMaximum) && requestedMaximum == 24)
+            maximum = 24;
     }
     if (haveMin)
         edit->SetMin (minimum);
@@ -25,7 +28,7 @@ GS::UniString BuildIntegerControl (ParamControl& pc, const GS::ObjectState& meta
     if (pc.type == "Hour") {
         pc.hourSpin = std::make_unique<DG::EditSpin> (panel, seed, *edit);
         pc.hourSpin->SetMin (0);
-        pc.hourSpin->SetMax (23);
+        pc.hourSpin->SetMax (maximum);
         pc.hourSpin->SetValue (edit->GetValue ());
     }
     pc.control = std::move (edit);

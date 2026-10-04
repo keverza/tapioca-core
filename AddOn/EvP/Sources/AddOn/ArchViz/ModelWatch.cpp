@@ -4,6 +4,7 @@
 #include "ArchViz/ModelWatch.hpp"
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- one log for the whole viewer
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadEnvironment, ForgetEnvironmentLog
 #include "ArchViz/ExtractionThread.hpp"
@@ -143,6 +144,7 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
         if (gStats.lastError != diff.error) {
             gStats.lastError = diff.error;
             ArchVizLog ("model watch: the difference generator failed -- " + diff.error);
+            hudconsole::Warning ("Model", "edits are not followed: " + diff.error);
         }
         return;
     }
@@ -291,6 +293,7 @@ void Rearm (uint32_t intervalMs)
     if (gTimer == 0) {
         ArchVizLog ("model watch: SetTimer failed; the viewer will not follow edits. "
                     "Use Refresh to rebuild it by hand.");
+        hudconsole::Error ("Model", "edits will not be followed (no timer): refresh by hand");
         gStats.running = false;
         return;
     }
@@ -329,6 +332,7 @@ bool Start (uint32_t floorMs)
     if (!first.ok) {
         gStats.lastError = first.error;
         ArchVizLog ("model watch: could not establish a baseline -- " + first.error);
+        hudconsole::Warning ("Model", "edits may not be followed: " + first.error);
     }
     else {
         gStats.lastDiffMs = first.elapsedMs;

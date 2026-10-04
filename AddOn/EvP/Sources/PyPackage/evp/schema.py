@@ -120,6 +120,7 @@ PORT_CONTROLS = {
     "text": "Text",
     "color": "Color",
     "hour": "Hour",
+    "calendar": "Calendar",
     "enum": "Enum",
     "action": "Action",
     "layer": "Layer",

@@ -2,6 +2,7 @@
 
 #include "ArchViz/OverlayHud.hpp"
 
+#include "ArchViz/HudClip.hpp"
 #include "ArchViz/ImGuiContextLock.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
@@ -17,9 +18,7 @@ namespace geomsrv {
 namespace archviz {
 namespace overlayhud {
 
-using items::Colour;
 using items::Unpacked;
-using items::WithAlpha;
 
 namespace {
 
@@ -32,77 +31,6 @@ constexpr int kAttempts = 3;
 // The frames after the first advance ImGui's clock by almost nothing: the first carries
 // the time since the last layout, so a double click is timed as the user made it.
 constexpr float kSettleSeconds = 1.0e-4f;
-
-// The style every panel starts from; each pushes its own colours and spacing over it.
-void BaseStyle (float scale)
-{
-    ImGuiStyle& style = ImGui::GetStyle ();
-    style = ImGuiStyle ();
-    ImGui::StyleColorsDark (&style);
-    // ⚠️ DENSE (the user, 2026-09-30: a small, content-dense inspection panel, not unused
-    // space): a pixel less round every frame and between items than ImGui's own.
-    style.FramePadding = ImVec2 (4.0f, 2.0f);
-    style.ItemSpacing = ImVec2 (6.0f, 3.0f);
-    style.ItemInnerSpacing = ImVec2 (4.0f, 3.0f);
-    style.CellPadding = ImVec2 (4.0f, 1.0f);
-    style.ScaleAllSizes (scale);
-    style.WindowMinSize = ImVec2 (1.0f, 1.0f);
-    style.FrameRounding = 2.0f * scale;
-}
-
-} // namespace
-
-int PushPanelStyle (const layers::Panel& panel, float scale)
-{
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding,
-                         ImVec2 (panel.paddingPixels * scale, panel.paddingPixels * scale));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding, panel.roundingPixels * scale);
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize,
-                         (panel.borderRgba & 0xFFu) != 0 ? (std::max) (1.0f, scale) : 0.0f);
-    const uint32_t text = panel.textRgba;
-    const uint32_t accent = panel.accentRgba;
-    const std::pair<ImGuiCol, uint32_t> colours[] = {
-        { ImGuiCol_WindowBg, panel.backgroundRgba },
-        { ImGuiCol_Border, panel.borderRgba },
-        { ImGuiCol_Text, text },
-        { ImGuiCol_Separator, WithAlpha (text, 0.3f) },
-        { ImGuiCol_FrameBg, WithAlpha (text, 0.12f) },
-        { ImGuiCol_TableHeaderBg, WithAlpha (text, 0.12f) },
-        { ImGuiCol_TableBorderLight, WithAlpha (text, 0.2f) },
-        { ImGuiCol_TableBorderStrong, WithAlpha (text, 0.3f) },
-        { ImGuiCol_TableRowBgAlt, WithAlpha (text, 0.05f) },
-        // ⚠️ WHAT THE POINTER CAN PRESS IS TINTED WITH THE ACCENT (the user, 2026-09-29): a
-        // button reads as one at rest -- a faint fill -- and plainly when pointed at and
-        // pressed, as a section's row does.
-        { ImGuiCol_Header, WithAlpha (accent, 0.14f) }, // a dropdown's chosen option
-        { ImGuiCol_HeaderHovered, WithAlpha (accent, 0.16f) },
-        { ImGuiCol_HeaderActive, WithAlpha (accent, 0.28f) },
-        { ImGuiCol_Button, WithAlpha (text, 0.07f) },
-        { ImGuiCol_ButtonHovered, WithAlpha (accent, 0.30f) },
-        { ImGuiCol_ButtonActive, WithAlpha (accent, 0.48f) },
-        { ImGuiCol_FrameBgHovered, WithAlpha (accent, 0.20f) },
-        { ImGuiCol_FrameBgActive, WithAlpha (accent, 0.32f) },
-        { ImGuiCol_CheckMark, accent },
-        { ImGuiCol_SliderGrab, accent },
-        { ImGuiCol_SliderGrabActive, accent },
-        // A tab bar: the tab shown tinted, a line of the accent over it. The same whether
-        // ImGui thinks the panel focused or not -- the HUD takes no focus the user sees.
-        { ImGuiCol_Tab, WithAlpha (text, 0.06f) },
-        { ImGuiCol_TabHovered, WithAlpha (accent, 0.30f) },
-        { ImGuiCol_TabSelected, WithAlpha (accent, 0.20f) },
-        { ImGuiCol_TabSelectedOverline, accent },
-        { ImGuiCol_TabDimmed, WithAlpha (text, 0.06f) },
-        { ImGuiCol_TabDimmedSelected, WithAlpha (accent, 0.20f) },
-        { ImGuiCol_TabDimmedSelectedOverline, accent },
-        // Its tooltips in its own colours, nearly opaque over the model.
-        { ImGuiCol_PopupBg, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u },
-    };
-    for (const auto& colour : colours)
-        ImGui::PushStyleColor (colour.first, Colour (colour.second));
-    return int (sizeof (colours) / sizeof (colours[0]));
-}
-
-namespace {
 
 // ⚠️ PIXEL-SNAPPED, NOT OVERSAMPLED (the user, 2026-09-30: the light panel's text slightly
 // blurry). ImGui's default rasterises glyphs twice as wide for sub-pixel placement and lets
@@ -147,15 +75,20 @@ std::shared_ptr<State> NewState ()
 
 void ClearState (State& state)
 {
-    // The revision goes on: a renderer following it sees the reset as a change.
+    // The revision goes on: a renderer following it sees the reset as a change. The console's
+    // marks too: its entries are the process's, not the project's (HudConsole.hpp), and what
+    // was shown or cleared before stays so.
     const uint64_t revision = state.revision + 1;
+    const uint64_t consoleSeen = state.consoleSeen, consoleCleared = state.consoleCleared;
     state = State {};
     state.revision = revision;
+    state.consoleSeen = consoleSeen;
+    state.consoleCleared = consoleCleared;
 }
 
 float FontScaleOf (const State& state)
 {
-    return kFontSteps[(std::min) (state.fontStep, kFontStepCount - 1)];
+    return hudshell::FontScaleOfStep (state.fontStep);
 }
 
 void SetFontScale (State& state, float scale)
@@ -221,6 +154,51 @@ void SetLayerShown (State& state, const std::string& layer, bool shown)
 uint64_t Revision (const State& state)
 {
     return state.revision;
+}
+
+bool TakeViewerRequest (State& state)
+{
+    const bool requested = state.viewerRequested;
+    state.viewerRequested = false;
+    return requested;
+}
+
+std::vector<hudmeta::Edit> TakeMetadataEdits (State& state)
+{
+    std::vector<hudmeta::Edit> edits;
+    edits.swap (state.metadataEdits);
+    return edits;
+}
+
+std::vector<hudmassing::Request> TakeMassingRequests (State& state)
+{
+    std::vector<hudmassing::Request> requests;
+    requests.swap (state.massingRequests);
+    return requests;
+}
+
+std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state)
+{
+    std::vector<massingrules::Edit> edits;
+    edits.swap (state.massingRuleEdits);
+    return edits;
+}
+
+std::vector<massingcalculation::Request> TakeMassingCalculations (State& state)
+{
+    std::vector<massingcalculation::Request> requests;
+    requests.swap (state.massingCalculations);
+    return requests;
+}
+
+hudsection::Run PickedFloors (const State& state)
+{
+    return state.floors;
+}
+
+void SetPickedFloors (State& state, const hudsection::Run& run)
+{
+    state.floors = run;
 }
 
 bool HoverMode (const State& state)
@@ -433,6 +411,9 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
             case layers::ItemKind::Button:
                 Control (panel, item, i, state, width, scale);
                 break;
+            case layers::ItemKind::SitePlan:
+                SitePlan (panel, item, i, state, width, scale);
+                break;
             case layers::ItemKind::Tab:
                 break; // above
         }
@@ -454,9 +435,11 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
 void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, float ui,
                            ImVec2 view)
 {
-    // A titled panel is a tab of the host (OverlayHudHost.cpp), not a window of its own; a
-    // hidden layer's panel is not drawn.
-    if (!panel.title.empty () || !LayerShown (*store, key.substr (0, key.rfind ('#'))))
+    // A titled panel is a tab of the host (OverlayHudHost.cpp), not a window of its own, and
+    // one that asked to be a Stats card is that wherever the HUD has a Stats page; a hidden
+    // layer's panel is not drawn.
+    if (!panel.title.empty () || (own.standalone && panel.tab == hudshell::kStatsTab) ||
+        !LayerShown (*store, key.substr (0, key.rfind ('#'))))
         return;
     PanelState& state = StateOf (key, panel);
     this->key = key;
@@ -476,7 +459,7 @@ void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, s
     }
     // ### keeps the window's identity -- and so its state.
     const std::string name = "###tapioca.panel." + key;
-    const int colours = PushPanelStyle (panel, ui);
+    const int colours = hudshell::PushLook (panel, ui);
     ImGui::PushFont (FontFor (panel.font), panel.sizePixels * ui);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
@@ -489,7 +472,7 @@ void Engine::Impl::Window (const layers::Panel& panel, const std::string& key, s
     ImGui::PopFont ();
     ImGui::End ();
     ImGui::PopStyleColor (colours);
-    ImGui::PopStyleVar (kStyleVars);
+    ImGui::PopStyleVar (hudshell::kLookVars);
 }
 
 // A legend's bar pointed at: the value there, beside the bar at the pointer.
@@ -506,8 +489,8 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
         double band[2] = {};
         if (legend.horizontal) {
             items::ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min, legend.colormap.max,
-                             legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f),
-                             scale, band);
+                             legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale),
+                             hudshell::TipSide::Above, band);
         }
         else {
             // Towards the middle of the view, away from the edge the legend sits at.
@@ -515,7 +498,7 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
             items::ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min, legend.colormap.max,
                              legend.decimals, legend.unit,
                              ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
-                             ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale, band);
+                             left ? hudshell::TipSide::Left : hudshell::TipSide::Right, band);
         }
         highlight = { true, bar.layer, band[0], band[1] };
         return;
@@ -543,8 +526,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     const ImVec2 view = known ? ImVec2 (input.width, input.height) : ImVec2 (16384.0f, 16384.0f);
     io.DisplaySize = view;
     io.DeltaTime = delta;
-    const float ui = scale * kFontSteps[(std::min) (store->fontStep, kFontStepCount - 1)];
-    BaseStyle (ui);
+    const float ui = scale * hudshell::FontScaleOfStep (store->fontStep);
+    hudshell::BaseStyle (ui);
     ImGui::NewFrame ();
     windows.assign (panels.size () + 2, nullptr);
     highlight = Layout::Highlight {};
@@ -611,6 +594,7 @@ void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
     const ImDrawData* data = ImGui::GetDrawData ();
     if (data == nullptr)
         return;
+    std::vector<hudclip::Corner> cut;
     for (const ImDrawList* list : data->CmdLists) {
         const int panel = PanelOf (list);
         Built& into = panel < 0                              ? out.overlay
@@ -627,11 +611,20 @@ void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
                 ++unsampled;
                 continue;
             }
-            for (unsigned int e = 0; e < command.ElemCount; ++e) {
+            // ⚠️ CUT TO THE COMMAND'S RECTANGLE, as the scissor a renderer of ImGui's would set
+            // (HudClip.hpp): a scrolled page's rows past its edges are not drawn.
+            const hudclip::Rect clip { command.ClipRect.x, command.ClipRect.y, command.ClipRect.z, command.ClipRect.w };
+            const auto corner = [&] (unsigned int e) {
                 const ImDrawVert& v =
                     list->VtxBuffer[int (command.VtxOffset + list->IdxBuffer[int (command.IdxOffset + e)])];
-                into.vertices.push_back (
-                    { v.pos.x - origin.x, v.pos.y - origin.y, v.uv.x, v.uv.y, Unpacked (v.col), uint32_t (slot) });
+                return hudclip::Corner { v.pos.x, v.pos.y, v.uv.x, v.uv.y, v.col };
+            };
+            for (unsigned int e = 0; e + 2 < command.ElemCount; e += 3) {
+                cut.clear ();
+                hudclip::Clip (corner (e), corner (e + 1), corner (e + 2), clip, cut);
+                for (const hudclip::Corner& c : cut)
+                    into.vertices.push_back (
+                        { c.x - origin.x, c.y - origin.y, c.u, c.v, Unpacked (c.col), uint32_t (slot) });
             }
         }
     }
@@ -738,8 +731,13 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     // frame apart, and a press after a move a frame after the move.
     ImGuiIO& io = ImGui::GetIO ();
     io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
+    io.AddKeyEvent (ImGuiMod_Shift, input.shift);
     for (const Input::Button& button : input.buttons)
         io.AddMouseButtonEvent (button.button, button.down);
+    // The wheel the input layer took over a page that scrolls: ImGui scrolls the page under the
+    // pointer by it.
+    if (input.wheel != 0.0f)
+        io.AddMouseWheelEvent (0.0f, input.wheel);
     int frames = kFrames + int (input.buttons.size ()) + (input.buttons.empty () ? 0 : 1);
     const bool known = input.width >= 1.0f && input.height >= 1.0f;
     for (int attempt = 0; attempt < kAttempts; ++attempt) {
@@ -780,10 +778,11 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
             Built& built = out.host;
             built.width = host->Size.x;
             built.height = host->Size.y;
+            built.scrolls = impl_->hostScrolls;
             const State::Host& state = impl_->store->host;
-            if (state.placed) {
-                built.fraction[0] = (state.corner & 1u) != 0 ? 1.0f : 0.0f;
-                built.fraction[1] = (state.corner & 2u) != 0 ? 1.0f : 0.0f;
+            if (state.placement.placed) {
+                built.fraction[0] = (state.placement.corner & 1u) != 0 ? 1.0f : 0.0f;
+                built.fraction[1] = (state.placement.corner & 2u) != 0 ? 1.0f : 0.0f;
             }
             else {
                 Place (*impl_->look, built.width, built.height, at, built.fraction, built.offset, impl_->inset);

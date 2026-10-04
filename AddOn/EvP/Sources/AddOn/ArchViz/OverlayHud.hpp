@@ -40,6 +40,12 @@
 // without a title stands alone at its anchor, as before; one on the view's right column
 // moves in beside the dock.
 //
+// ⚠️ THE HUD STARTS WITH THE OVERLAY (the user, 2026-10-03). Where the overlay runs, its owner
+// says so (`OwnPages::standalone`) and the HUD is there with no layer at all: its own tabs --
+// Stats, Selection, Settings, Debug -- around the callers' titled panels, a panel that just
+// arrived shown once, and a panel that asks for Stats a card on that page. Its look, dock and
+// floating panel are every HUD's (HudShell.hpp).
+//
 // ⚠️ THE TEXT SIZE IS THE USER'S: chosen in Settings or the HUD's menu, it scales the whole
 // HUD -- text, padding, widths and the dock -- by a few steps, in both views; the
 // distances from the view's edges stay.
@@ -55,8 +61,14 @@
 //
 // MAIN THREAD. Pure apart from ImGui, so tests/cpp builds it with the vendored imgui.
 
+#include "ArchViz/HudConsole.hpp"
+#include "ArchViz/HudMetadata.hpp"
+#include "ArchViz/HudMassing.hpp"
+#include "ArchViz/HudSection.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
+#include "ArchViz/StorySliceOverlayContent.hpp" // the storey slices' controls, on Settings
 
 #include <cstdint>
 #include <functional>
@@ -85,6 +97,9 @@ struct Built {
     // Where it goes: its top-left `offset` pixels from `fraction` of the view (Place).
     float fraction[2] = { 0.0f, 0.0f };
     float offset[2] = { 0.0f, 0.0f };
+    // Its page is taller than it and scrolls (the host's, hudshell::Host): the wheel over it is
+    // the HUD's (OverlayHitMap.hpp `Region::scrolls`).
+    bool scrolls = false;
 };
 
 // Where a panel's top-left goes: a fraction of the view, and view pixels from it -- the
@@ -126,6 +141,8 @@ struct Input {
         bool down = false;
     };
     std::vector<Button> buttons; // since the last layout, in order
+    bool shift = false;          // held now: a shift-press extends a pick (the building section's)
+    float wheel = 0.0f;          // notches turned over a page that scrolls since the last layout
     Hover hover;
 };
 
@@ -142,8 +159,11 @@ struct LegendBar {
 // hidden, a control's value. For Python (OverlayHudEvents.hpp); `key` splits into the
 // panel's layer and place.
 struct Change {
-    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; or a control's:
-    // "checkbox", "slider", "combo", "tab", "button"
+    // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; "metadata" (a
+    // field of the Selection page: `id` its key, `value` and `text` what it was set to); "floors"
+    // (the building section's run: `text` its storeys, "" for none); "display" (Settings' Displays:
+    // `id` and `text` what changed, "slices on", "slices line"); or a control's: "checkbox",
+    // "slider", "combo", "tab", "button"
     std::string kind;
     std::string key;   // the panel's; empty for the HUD's own (the text size, Settings)
     std::string title; // the panel's
@@ -193,6 +213,48 @@ struct Layout {
 // Where each change goes: the views' engines hand them to the event ring with their view.
 using ChangeSink = std::function<void (const Change&)>;
 
+// ⚠️ THE ADD-ON'S OWN DISPLAYS, SWITCHED AND STYLED FROM SETTINGS (the user, 2026-10-03: Settings
+// should have options for the additional information displays there are -- the storey slices
+// on and off, and their style). What they are now, from the view's owner; what the user makes
+// them, `TakeDisplays`' -- the owner applies it after the layout (StorySliceOverlay.hpp: a new
+// look is `Restyle`, nothing read again).
+struct Displays {
+    bool slicesOn = false;
+    bool slicesFromModel = false;       // the whole model cut at each storey; else the selected massing slabs
+    storysliceoverlay::Controls slices; // their look: line, fill, labels
+    std::string slicesSaid;             // what they said last: what was cut, or why nothing was
+    bool annotationsOn = false;         // the Watch trace's annotations
+};
+
+// ⚠️ THE HUD'S OWN PAGES (the user, 2026-10-03: the HUD always starts with the overlay; Stats,
+// Selection, Settings and Debug are its own). What they show, from the view's owner before
+// each layout -- the engine reads nothing of the runtimes. `standalone`: the overlay runs in
+// this view, so the dock, the floating panel and the own tabs are there whether or not a
+// caller set a layer; false, the HUD is the caller's panels and Settings, as it was.
+struct OwnPages {
+    bool standalone = false;
+    std::vector<hudshell::Card> stats;
+    hudshell::SelectionPage selection;
+    // The selection's Tapioca metadata, under its list: what the user changes there is
+    // `TakeMetadataEdits`'. Above it, the selected massing slabs' building section, its floors
+    // picked into `PickedFloors`.
+    hudmeta::Page metadata;
+    hudsection::Section section;
+    hudmassing::Page massing;
+    std::vector<hudshell::Card> debug;
+    // What the Debug tab's console says (HudConsole.hpp), oldest first: the tab's title counts the
+    // errors and warnings the HUD has not shown yet.
+    std::vector<hudconsole::Entry> console;
+    // The add-on's own displays, as they are: Settings switches and styles them.
+    Displays displays;
+    // ⚠️ THE DOCK IS A SWITCH BETWEEN THE OVERLAY AND THE SEPARATE VIEWER (the user, 2026-10-03):
+    // the overlay's circle at its top -- its state; filled while the overlay is shown, and
+    // pressed it shows or hides it -- and the viewer's at its bottom, pressed to switch to it
+    // (`TakeViewerRequest`). Their states are the owner's to say.
+    hudshell::Circle overlay;
+    hudshell::Circle viewer;
+};
+
 struct Stats {
     uint32_t builds = 0;        // sets of panels laid out
     uint32_t frames = 0;        // ImGui frames they took
@@ -223,6 +285,22 @@ bool LayerShown (const State& state, const std::string& layer);
 std::vector<std::string> HiddenLayers (const State& state);
 void SetContentShown (State& state, bool shown);
 void SetLayerShown (State& state, const std::string& layer, bool shown);
+// The viewer's circle pressed since the last call: the owner switches to the viewer -- after
+// the layout, never inside it -- and the request is gone.
+bool TakeViewerRequest (State& state);
+// What the user changed in the Selection page's metadata since the last call, in order: the
+// owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
+std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
+std::vector<hudmassing::Request> TakeMassingRequests (State& state);
+std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);
+std::vector<massingcalculation::Request> TakeMassingCalculations (State& state);
+// What the user set the displays to on Settings since the last call: true, and `displays` the
+// whole of it -- the owner applies it, after the layout, never inside it.
+bool TakeDisplays (State& state, Displays& displays);
+// The floors picked on the building section (HudSection.hpp): the owner draws their slices on
+// the 3D overlay, and clears them when the section is another building's.
+hudsection::Run PickedFloors (const State& state);
+void SetPickedFloors (State& state, const hudsection::Run& run);
 // Hover mode: off until the user turns it on in Settings or the HUD's menu, or Python does;
 // both views. `Revision` moves with it.
 bool HoverMode (const State& state);
@@ -254,6 +332,10 @@ class Engine final {
     // The layers drawn in the view the next `Build` is for, shown or hidden: what Settings
     // lists for the user to show and hide.
     void SetLayers (std::vector<std::string> names);
+    // What the HUD's own pages show in the next `Build`s, and whether it is there without a
+    // layer (`OwnPages::standalone`).
+    void SetOwnPages (OwnPages pages);
+    bool Standalone () const;
 
     // The HUD's text size, a factor on every size but the distances from the view's edges:
     // one of a few steps (0.8 to 2), chosen in Settings or the HUD's menu. Set, the step

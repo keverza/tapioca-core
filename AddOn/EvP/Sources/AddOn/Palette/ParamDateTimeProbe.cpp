@@ -31,6 +31,10 @@ void LogDateTimeProbe (const GS::UniString& name, const char* stage, DG::DateTim
 bool ParamPanel::HandleDateTimeChanged (const DG::DateTimeChangeEvent& ev, bool& reflow)
 {
     for (ParamControl& pc : paramControls) {
+        if (pc.kind == ParamControl::Kind::Calendar && ev.GetSource () == pc.control.get ()) {
+            reflow = ApplyVisibility ();
+            return true;
+        }
         if (pc.kind != ParamControl::Kind::DateTimeProbe || ev.GetSource () != pc.control.get ())
             continue;
         LogDateTimeProbe (pc.name, "user changed", *static_cast<DG::DateTime*> (pc.control.get ()));

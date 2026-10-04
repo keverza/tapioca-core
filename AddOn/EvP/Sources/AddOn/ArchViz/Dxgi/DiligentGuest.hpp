@@ -56,6 +56,7 @@ class DiligentGuest final {
         uint32_t attachFailures = 0;
         uint32_t attachMilliseconds = 0; // the one frame the attach cost
         char lastError[192] = {};
+        char adapter[128] = {}; // the GPU Archicad's device is on, as the attach found it
     };
 
     DiligentGuest ();

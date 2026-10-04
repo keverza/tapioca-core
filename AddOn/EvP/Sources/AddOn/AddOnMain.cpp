@@ -15,7 +15,13 @@
 #include "Palette/ControlPalette.hpp"
 #include "ArchViz/ArchVizPanel.hpp" // the Diligent 3D viewer palette
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/OverlayHudModel.hpp" // the HUD's Selection page, told when the selection changes
 #include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/SectionModel.hpp"      // the viewer's building section, read for its render thread
+#include "ArchViz/SelectionMetadata.hpp" // the HUD's metadata edits -- its window must not outlive the DLL
+#include "ArchViz/MassingHybrid.hpp"
+#include "ArchViz/MassingSlicesModel.hpp"
+#include "ArchViz/SurfaceSwitch.hpp" // the overlay or the viewer -- its window must not outlive the DLL
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp" // its geometry producer, joined on teardown
 #include "ArchViz/CameraSyncMode.hpp"   // camera-sync mechanism switch — torn down on exit
@@ -224,10 +230,23 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             evp::nodegraph::ShutDownWorkerPool ();
             evp::MainThreadGate::Get ().BeginShutdown ();
             evp::dynamo::Release ();
+            geomsrv::archviz::massinghybrid::Shutdown ();
+            geomsrv::archviz::massingslicesmodel::Shutdown ();
             break;
         default:
             break;
     }
+    return NoError;
+}
+
+// ---- Archicad's selection, for the HUD's Selection page --------------------
+// ⚠️ A NOTIFICATION, NOT AN ELEMENT OBSERVER: it writes nothing to the project (an observer
+// does -- OVERLAY-INVARIANTS.md §5). It only says the page must read the selection again.
+static GSErrCode SelectionChangeHandler (const API_Neig* /*selElemNeig*/)
+{
+    geomsrv::archviz::overlayhudmodel::SelectionChanged ();
+    // The viewer's HUD shows the selection's building section too: read from the message loop.
+    geomsrv::archviz::sectionmodel::SelectionChanged ();
     return NoError;
 }
 
@@ -600,6 +619,12 @@ GSErrCode Initialize (void)
     // Track model open/close on the main thread for /health.
     ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, ProjectEventHandler);
     RefreshModelOpen (); // seed current state
+    ACAPI_Notification_CatchSelectionChange (SelectionChangeHandler);
+    // The overlay or the viewer, never both: the HUD's switch posts to a window of this thread.
+    geomsrv::archviz::surfaceswitch::Arm ();
+    geomsrv::archviz::selectionmetadata::Arm ();
+    // The Debug tab's console: an entry wakes the overlays' HUDs through that window's loop.
+    geomsrv::archviz::overlayhudmodel::WakeOnConsole (true);
 
     return NoError;
 }
@@ -657,6 +682,8 @@ GSErrCode FreeData (void)
     evp::nodegraph::ShutDownWorkerPool ();
     evp::MainThreadGate::Get ().BeginShutdown ();
     evp::dynamo::Release ();
+    geomsrv::archviz::massinghybrid::Shutdown ();
+    geomsrv::archviz::massingslicesmodel::Shutdown ();
     // The plan frame record's subclass, message hook and timer call into this
     // module; they go before the Present hook, which it may also hold.
     geomsrv::archviz::planframes::Shutdown ();
@@ -711,6 +738,10 @@ GSErrCode FreeData (void)
     geomsrv::archviz::overlaycontrol::StopAll ();
     // The HUD's message hook, whatever StopAll found: its procedure lives in this DLL.
     geomsrv::archviz::overlayinput::Shutdown ();
+    // The surface switch's window, on the same terms.
+    geomsrv::archviz::surfaceswitch::Shutdown ();
+    geomsrv::archviz::overlayhudmodel::WakeOnConsole (false); // before the window it posts to goes
+    geomsrv::archviz::selectionmetadata::Shutdown ();
     geomsrv::ShutdownPlanOverlay ();
     // The 3D overlay's window and class, on exactly the same terms -- its
     // WndProc lives in this DLL too, and PlanOverlay's crashed Archicad on close
@@ -718,6 +749,7 @@ GSErrCode FreeData (void)
     geomsrv::archviz::viewportoverlay::Shutdown ();
     // Detach the project-event handler so the add-on can unload cleanly.
     ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, nullptr);
+    ACAPI_Notification_CatchSelectionChange (nullptr);
     // LAST, because everything above it may still narrate its own teardown. The
     // viewer log holds one handle for the session; this is where it goes back.
     // Reopening is lazy, so a line after this point is still written.

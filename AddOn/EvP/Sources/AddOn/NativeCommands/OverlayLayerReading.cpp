@@ -11,6 +11,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 
 #include <string>
+#include <cmath>
 #include <vector>
 
 namespace geomsrv {
@@ -397,6 +398,7 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
                : kind == "combo"     ? layers::ItemKind::Combo
                : kind == "tab"       ? layers::ItemKind::Tab
                : kind == "button"    ? layers::ItemKind::Button
+               : kind == "sitePlan"  ? layers::ItemKind::SitePlan
                                      : layers::ItemKind::Text;
     if (item.Contains ("text"))
         out.text = StringValue (item, "text");
@@ -422,6 +424,25 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
     ReadDouble (item, "number", out.number);
     ReadDouble (item, "step", out.step);
     ReadCount (item, "selected", out.selected);
+    ReadNumbers (item, "outlineXY", out.outlineXY);
+    ReadNumbers (item, "offsetXY", out.offsetXY);
+    ReadNumbers (item, "setbackDistances", out.setbackDistances);
+    for (const char* name : { "setbackModes", "referenceVertices" }) {
+        std::vector<double> numbers;
+        ReadNumbers (item, name, numbers);
+        if (item.Contains (name)) {
+            auto& target = std::string (name) == "setbackModes" ? out.setbackModes : out.referenceVertices;
+            for (double value : numbers) {
+                if (!std::isfinite (value) || value < 0 || value > 0xFFFFFFFFu || std::trunc (value) != value) {
+                    error = std::string (name) + ": expected non-negative whole numbers";
+                    return false;
+                }
+                target.push_back (uint32_t (value));
+            }
+        }
+    }
+    if (item.Contains ("editable"))
+        item.Get ("editable", out.editable);
     GS::Array<GS::UniString> colors;
     if (item.Get ("colors", colors)) {
         for (const GS::UniString& text : colors) {
@@ -497,6 +518,8 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
     ReadFloat (item, "paddingPixels", panel.paddingPixels);
     if (item.Contains ("collapsed"))
         item.Get ("collapsed", panel.collapsed);
+    if (item.Contains ("tab"))
+        panel.tab = StringValue (item, "tab");
     if (!ReadFont (item, "font", panel.font, error))
         return false;
     if (!ReadColour (item, "color", panel.textRgba, error) ||

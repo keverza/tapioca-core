@@ -4,6 +4,7 @@
 #include "ArchViz/ExtractionStorySlices.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/SlabBodies.hpp"         // the slabs sliced from their body
 #include "ArchViz/StorySliceGeometry.hpp" // ChainUnionSegments, BuildSliceRibbon/Fill
@@ -13,6 +14,7 @@
 #include "Geometry/SliceEngine.hpp"       // SliceMesh, IsTangentToPlane
 
 #include <cmath>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +31,8 @@ ProjectStoreys ReadStoreys ()
         ArchVizLog (std::string ("extraction: storey read failed, story slices will be empty ") +
                     "(ACAPI_ProjectSetting_GetStorySettings: " + std::string (evp::DescribeErr (err).ToCStr ().Get ()) +
                     ")");
+        hudconsole::Warning ("Model", std::string ("the storeys were not read: no storey slices (") +
+                                          evp::DescribeErr (err).ToCStr ().Get () + ")");
         return out;
     }
     if (info.data != nullptr) {
@@ -45,7 +49,7 @@ ProjectStoreys ReadStoreys ()
     return out;
 }
 
-void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted)
+void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted, bool planCut, double planZ)
 {
     loops_.clear ();
     planes_.clear ();
@@ -54,6 +58,9 @@ void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted)
     // Whatever the storeys: the slabs sliced from their body want them from every pass.
     capture_ = slabbodies::Wanted ();
     captured_.clear ();
+    planCut_ = planCut;
+    planZ_ = planZ;
+    planLoops_.clear ();
     if (!wanted || storeys.Empty ())
         return;
     planes_ = storeys.levels;
@@ -66,7 +73,18 @@ void StorySliceAccumulator::Cut (const Mesh& mesh)
 {
     if (!capture_.empty () && capture_.count (mesh.guid) != 0)
         captured_.push_back (mesh);
-    if (planes_.empty () || mesh.vertices.empty () || mesh.triangles.empty ())
+    if (mesh.vertices.empty () || mesh.triangles.empty ())
+        return;
+    // The plan view's cut: one plane at the storey's cut height, where a wall standing on the
+    // storey is cut through -- its outline as the plan draws it, with its openings' gaps.
+    if (planCut_ && !(mesh.bounds.Valid () && (mesh.bounds.mn[2] > planZ_ || mesh.bounds.mx[2] < planZ_))) {
+        const double z = IsTangentToPlane (mesh.vertices.data (), mesh.VertexCount (), planZ_) ? planZ_ + 1e-6 : planZ_;
+        std::vector<Polyline> loops =
+            SliceMesh (mesh.vertices.data (), mesh.VertexCount (), mesh.triangles.data (), mesh.TriangleCount (), z);
+        for (Polyline& loop : loops)
+            planLoops_.push_back (std::move (loop));
+    }
+    if (planes_.empty ())
         return;
 
     for (size_t si = 0; si < planes_.size (); ++si) {
@@ -114,6 +132,33 @@ void StorySliceAccumulator::FinishAndPush ()
     if (!capture_.empty ()) {
         slabbodies::Publish (std::move (captured_));
         captured_.clear ();
+    }
+    if (planCut_) {
+        // Unioned as a storey is, built as one -- an outline ribbon and a fill -- and pushed
+        // alone: an empty set is an answer too (the cut misses the model), and replaces the last.
+        auto plan = std::make_unique<StorySliceUpload> ();
+        const std::vector<UnionSegment> unioned =
+            planLoops_.empty () ? std::vector<UnionSegment> {} : UnionLoops (planLoops_);
+        if (!unioned.empty ()) {
+            const std::vector<SliceChain> chains = ChainUnionSegments (unioned);
+            BuildSliceRibbon (chains, float (planZ_), plan->outline);
+            BuildSliceFill (chains, float (planZ_), plan->fill);
+            plan->areaM2 = TriangleFanArea (plan->fill, 0);
+            plan->storeys = 1;
+        }
+        ArchVizLog ("extraction: plan cut at " + std::to_string (planZ_) + " m - " +
+                    std::to_string (planLoops_.size ()) + " loops, " + std::to_string (unioned.size ()) +
+                    " union segments, " + std::to_string (int64_t (plan->areaM2)) + " m2 cut");
+        // The plan view's one sign that it works: the walls it found, or that it found none.
+        char height[32] = {};
+        std::snprintf (height, sizeof (height), "%.2f m", planZ_);
+        if (unioned.empty ())
+            hudconsole::Warning ("Viewer", std::string ("the plan's cut at ") + height + " meets nothing");
+        else
+            hudconsole::Note ("Viewer", std::string ("the plan's cut at ") + height + ": " +
+                                            std::to_string (int64_t (plan->areaM2)) + " m2 of walls");
+        SceneCmdQueue::Get ().PushPlanCut (std::move (plan));
+        planLoops_.clear ();
     }
     if (planes_.empty ())
         return;

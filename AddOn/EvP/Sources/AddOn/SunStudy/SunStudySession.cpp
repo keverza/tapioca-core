@@ -40,9 +40,10 @@ void SunStudySession::Sync (const StudyInputs& inputs, const SunSeries& series, 
     samples_ = samples;
 }
 
-bool SunStudySession::SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples)
+bool SunStudySession::SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples,
+                                    const std::vector<uint64_t>& dirtySteps)
 {
-    if (!initialised_ || nextStep_ != 0 || !accumulator_.SeedReusable (source, sourceSamples))
+    if (!initialised_ || nextStep_ != 0 || !accumulator_.SeedReusable (source, sourceSamples, dirtySteps))
         return false;
     if (accumulator_.Complete ())
         nextStep_ = series_.StepCount ();

@@ -7,6 +7,7 @@
 
 #include "Annotation/RetainedTraceSelection.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/OverlayAnnotationContent.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -56,6 +57,7 @@ void Show (const std::optional<annotation::RetainedFrameSnapshot>& selected)
     const std::string refused = overlaylayers::Validate (built.layer);
     if (!refused.empty ()) {
         ArchVizLog ("OVERLAY ANNOTATIONS  NOT DRAWN (" + g_state.frame + "): " + refused);
+        hudconsole::Warning ("Annotations", "not drawn: " + refused);
         return;
     }
     overlaylayers::Set (std::move (built.layer));

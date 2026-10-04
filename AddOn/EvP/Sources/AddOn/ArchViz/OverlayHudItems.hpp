@@ -8,6 +8,7 @@
 //
 // MAIN THREAD, inside an ImGui frame the engine began, the panel's window current.
 
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 
 #include <imgui.h>
@@ -21,21 +22,21 @@ namespace archviz {
 namespace overlayhud {
 namespace items {
 
-// 0xRRGGBBAA as ImGui wants it, and back.
-ImVec4 Colour (uint32_t rgba);
-ImU32 Packed (uint32_t rgba);
-uint32_t Unpacked (ImU32 col);
-// `rgba` with its alpha multiplied by `factor`.
-uint32_t WithAlpha (uint32_t rgba, float factor);
-// Text that reads on `rgba`: dark on a light colour, white on a dark one.
-uint32_t Contrast (uint32_t rgba);
+// Every HUD's colours (HudShell.hpp).
+using hudshell::Colour;
+using hudshell::Contrast;
+using hudshell::Packed;
+using hudshell::Unpacked;
+using hudshell::WithAlpha;
+
 std::string Number (double value, uint32_t decimals);
 
 // What a ramp says at `t` along it -- the value, or the band it falls in, and its colour
-// -- in a tooltip at `at` (its `pivot` there). `band` is what its heatmap shows while
-// the ramp is pointed at: the colormap's band, or a twentieth of the range either side.
+// -- in the HUD's tip (HudShell.hpp), its arrow at `at`, on `side` of it. `band` is what its
+// heatmap shows while the ramp is pointed at: the colormap's band, or a twentieth of the
+// range either side.
 void ValueTip (const overlaylayers::Colormap& colormap, float t, double low, double high, uint32_t decimals,
-               const std::string& unit, ImVec2 at, ImVec2 pivot, float scale, double band[2]);
+               const std::string& unit, ImVec2 at, hudshell::TipSide side, double band[2]);
 
 // `panel.items[begin, end)`, rows, in two aligned columns.
 void Rows (const overlaylayers::Panel& panel, size_t begin, size_t end, float scale);
@@ -83,17 +84,6 @@ std::string SliderText (const overlaylayers::PanelItem& item, double value);
 bool Combo (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, uint32_t& chosen, float width);
 // A button saying `item.text`, `width` wide when the item gives one; true when pressed.
 bool Button (const overlaylayers::PanelItem& item, float width);
-
-// ---- the dock ------------------------------------------------------------------------------
-
-// The dock's tab: a circle at its top -- filled while `shown` -- then `label` turned a
-// quarter clockwise -- it reads top to bottom, as a tab on the right edge does -- `padding`
-// round it across and along, rounded on the left where it comes out of the view's edge.
-// Filled with `colours`' accent while `open`, in its card's colours otherwise; each part
-// tinted when pointed at and pressed. True when the label is pressed; `toggled` when the
-// circle is.
-bool VerticalTab (const char* id, const std::string& label, const overlaylayers::Panel& colours, bool open, bool shown,
-                  ImVec2 padding, float scale, bool& toggled);
 
 // The colour of an item's `index`th segment or bar of `count`: its own `colors`, else
 // its colormap's at its place, else a palette of ten.

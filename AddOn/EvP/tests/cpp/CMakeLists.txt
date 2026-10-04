@@ -258,6 +258,11 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphRuntimeState.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphSerializer.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphStore.cpp"
+    # Metadata/TapiocaMetadata.cpp is the typed property graph Tapioca keeps on an element and
+    # the project's schema: pure, over the graph runtime's JSON beside it.
+    "${EVP_ROOT}/Sources/AddOn/Metadata/TapiocaMetadata.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Metadata/TapiocaMetadataJson.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Metadata/TapiocaSchema.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Json.cpp"
     # The rhino.compute wire. DevKit-free and socket-free by construction, so the
     # half that fails silently - request shaping and response parsing - is proved
@@ -479,9 +484,27 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneScreen.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneMath.cpp"
     # The HUD panels: laid out by the vendored Dear ImGui into triangles over its own
-    # font atlas, the same library the add-on links (TapiocaImGui below).
+    # font atlas, the same library the add-on links (TapiocaImGui below). Every HUD's
+    # look, dock and floating panel are HudShell's.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunControls.cpp"
+    # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
+    # The Debug tab's console: what to check when something fails, said from any thread.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudConsole.cpp"
+    # The Selection page's Tapioca metadata: the schema's fields, their controls, an edit.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMetadata.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingRules.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSlices.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingRules.cpp"
+    # The building section: the massing slabs' floors picked and given their usage.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudSection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudDisplays.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudEvents.cpp"
@@ -671,6 +694,17 @@ set (EVP_TEST_SOURCES
     test_overlayhudcontrols.cpp
     test_overlayhudevents.cpp
     test_overlayhudwidgets.cpp
+    test_overlayhudown.cpp
+    test_overlayhuddisplays.cpp
+    test_hudshell.cpp
+    test_hudclip.cpp
+    test_hudconsole.cpp
+    test_hudmetadata.cpp
+    test_hudmassing.cpp
+    test_massingrules.cpp
+    test_massingslices.cpp
+    test_hudsection.cpp
+    test_tapiocametadata.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
     test_overlayinput.cpp
@@ -716,6 +750,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyoccluders.cpp
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp
+    test_sunstudypreview.cpp
     test_sunstudysession.cpp
     test_sunstudystore.cpp
     test_sunstudytextureupdates.cpp
@@ -742,6 +777,7 @@ set (EVP_TEST_SOURCES
     test_sunstudylimits.cpp
     test_cursortotarget.cpp
     test_camera_cursorray.cpp
+    test_camera_plan.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp

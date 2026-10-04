@@ -10,7 +10,10 @@
 // range to DiligentScene::SetSunStudyFilter.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/SunStudyPreview.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/HudShell.hpp" // the tips
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "Geometry/MeshStore.hpp"
@@ -32,32 +35,18 @@ namespace archviz {
 
 namespace {
 
-// The web study's SUN_COLORS (Commands/SunStudy/sunpalette.py), sRGB, as the
-// tint shader's kSunBins. âš ï¸ THE SAME TEN, OR THE LEGEND LIES ABOUT THE MODEL.
-constexpr unsigned kSunBinColours[10] = { 0x6b3d18, 0x8a4f1f, 0x9c5a23, 0xb06a28, 0xc07d33,
-                                          0xcf8f44, 0xdca157, 0xe7b674, 0xf0cb96, 0xf7e3c2 };
-constexpr const char* kSunBinLabels[10] = { "0 - 1 h", "1 - 2 h", "2 - 3 h", "3 - 4 h", "4 - 5 h",
-                                            "5 - 6 h", "6 - 7 h", "7 - 8 h", "8 - 9 h", "9+ h" };
-
 ImVec4 Rgb (unsigned hex)
 {
     return ImVec4 (float ((hex >> 16) & 0xff) / 255.0f, float ((hex >> 8) & 0xff) / 255.0f, float (hex & 0xff) / 255.0f,
                    1.0f);
 }
 
-// The web slider's step. Finer than any timestep a study is run at, so a range
-// edge can sit exactly on a value the study can report.
-float Snap (float hours)
-{
-    return std::round (hours * 4.0f) / 4.0f;
-}
-
 void Swatch (const char* id, const ImVec4& colour, const char* tooltip)
 {
     ImGui::ColorButton (id, colour, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
                         ImVec2 (16.0f, 16.0f));
-    if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("%s", tooltip);
+    // Above it: the swatches stand in rows, and a tip beside one would cover its neighbours.
+    hudshell::Tip (tooltip, hudshell::TipSide::Above);
 }
 
 // The inspector's reading as text, shared by the tooltip and the panel line so
@@ -94,7 +83,6 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
 
 // The section's view list and the tint mode each one selects. Index 0 follows
 // whatever ShowSunStudy asked for. âš ï¸ AN ABI with SunStudyDebugMode.
-constexpr const char* kViewNames[] = { "as shown", "direct sun hours", "single shadow", "multiple shadows", "roles" };
 constexpr int kViewModes[] = { -1, 0, 5, 7, 4 };
 constexpr int kViewCount = 5;
 constexpr int kMultipleView = 3;
@@ -172,9 +160,12 @@ void DrawMachineLimits (const SunStudyOverlayStatus& study)
     ImGui::TextDisabled ("free memory %.1f GB", double (freeRam) / 1.0e9);
     ImGui::Text ("max %.2f M samples, set by %s", Mega (double (limits.maxSamples)),
                  evp::sunstudy::LimitBindingName (limits.binding));
-    ImGui::TextDisabled ("  sampler %.1f M | memory %.1f M | GPU %.1f M | texture %.1f M",
+    // Indented, not led by spaces: a wrapped line keeps the indent.
+    ImGui::Indent ();
+    ImGui::TextDisabled ("sampler %.1f M | memory %.1f M | GPU %.1f M | texture %.1f M",
                          Mega (double (limits.samplerCap)), Mega (double (limits.ramCap)),
                          Mega (double (limits.gpuCap)), Mega (double (limits.textureCap)));
+    ImGui::Unindent ();
     ImGui::Text ("max %.0f M rays per study (%u steps, %s domain)", Mega (double (limits.maxRays)), unsigned (steps),
                  patch ? "patch" : "triangle");
     if (study.analysedArea > 0.0) {
@@ -196,7 +187,12 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     SunStudyViewSettings view;
     view.lo = state.sunFilterLo;
     view.hi = state.sunFilterHi;
-    view.hide = state.sunFilterHide;
+    view.blueThreshold = state.sunLowBlue ? state.sunBlueThreshold : -1.0f;
+    const auto interval = state.sunStepMinutes.empty ()
+                              ? std::make_pair (0u, 0xffffffffu)
+                              : SunStudyPreviewSteps (state.sunStepMinutes, state.sunTimeFrom, state.sunTimeTo);
+    view.firstShadowStep = interval.first;
+    view.endShadowStep = interval.second;
     view.viewOverride = ChosenMode (state);
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
     const int effective = view.viewOverride >= 0 ? view.viewOverride : CommandedMode (state);
@@ -206,6 +202,8 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
         for (const uint32_t step : evp::sunstudy::FanSteps (state.sunStepMinutes, kFanMinutes[state.sunFanInterval])) {
             if (step >= evp::sunstudy::kFanMaxSteps)
                 break;
+            if (step < interval.first || step >= interval.second)
+                continue;
             view.fanMask[step >> 5] |= 1u << (step & 31u);
             ++view.fanCount;
         }
@@ -292,25 +290,21 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
 
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height)
 {
-    char first[96];
-    char second[96];
-    if (state.sunInspect != 1 || !input.inside || !ReadingLines (state, first, second, sizeof (first)))
+    (void) width;
+    (void) height;
+    if (state.sunInspect != 1 || !input.inside || state.sunReadingState != 1)
         return;
-    // A plain tooltip: it follows the cursor and never takes the mouse, so the
-    // camera and the pick keep working under it.
+    const std::string text = SunStudyClock (state.sunReadingHours, true);
+    ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.0f, 0.0f, 0.0f, 1.0f));
+    ImGui::PushStyleColor (ImGuiCol_PopupBg, ImVec4 (0.78f, 0.78f, 0.78f, 0.70f));
+    ImGui::PushStyleVar (ImGuiStyleVar_PopupRounding, 4.0f);
+    ImGui::PushStyleVar (ImGuiStyleVar_PopupBorderSize, 0.0f);
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (4.0f, 2.0f));
     ImGui::BeginTooltip ();
-    ImGui::TextUnformatted (first);
-    if (second[0] != 0)
-        ImGui::TextDisabled ("%s", second);
-    // âš ï¸ SAID WHEN THE CURSOR'S PIXELS ARE NOT THE RENDER TARGET'S. Windows
-    // display scaling can hand this thread LOGICAL cursor coordinates over a
-    // PHYSICAL swap chain; the ray and the pick are mapped through
-    // CursorToTarget either way, and this line is the evidence that it was
-    // needed on this machine.
-    if (input.clientWidth > 0 && (uint32_t (input.clientWidth) != width || uint32_t (input.clientHeight) != height))
-        ImGui::TextDisabled ("scaling corrected: cursor %dx%d -> render %ux%u, %u dpi", input.clientWidth,
-                             input.clientHeight, width, height, input.dpi);
+    ImGui::TextUnformatted (text.c_str ());
     ImGui::EndTooltip ();
+    ImGui::PopStyleVar (3);
+    ImGui::PopStyleColor (2);
 }
 
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
@@ -320,13 +314,11 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     // reads as a control that does nothing -- but the machine's LIMITS are worth
     // reading before the first study, so they alone stay reachable.
     if (!study.drawing) {
-        if (ImGui::CollapsingHeader ("sun study limits"))
+        ImGui::TextWrapped ("Run Native sun study in the Tapioca panel, then set the preview here.");
+        if (ImGui::CollapsingHeader ("Machine limits"))
             DrawMachineLimits (study);
         return;
     }
-    if (!ImGui::CollapsingHeader ("sun study", ImGuiTreeNodeFlags_DefaultOpen))
-        return;
-
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
     if (study.preview)
         ImGui::TextUnformatted ("Coarse preview: complete day, not final grid");
@@ -342,43 +334,96 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     }
     state.sunStepCount = study.stepCount;
     state.sunStepMinutes = study.stepMinutes;
-    ImGui::SetNextItemWidth (-60.0f);
-    ImGui::Combo ("view##sunview", &state.sunView, kViewNames, kViewCount);
-    if (FanOnScreen (state)) {
+    const int current = ChosenMode (state) >= 0 ? ChosenMode (state) : int (study.debugMode);
+    const bool shadows = current == 5 || current == 6 || current == 7;
+    const bool roles = current == 4;
+    const float buttonWidth = (ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetStyle ().ItemSpacing.x) / 3.0f;
+    ImGui::PushStyleColor (ImGuiCol_Button,
+                           ImGui::GetStyleColorVec4 (shadows || roles ? ImGuiCol_FrameBg : ImGuiCol_ButtonActive));
+    if (ImGui::Button ("Sunstudy", ImVec2 (buttonWidth, 0)))
+        state.sunView = 1;
+    ImGui::PopStyleColor ();
+    ImGui::SameLine ();
+    ImGui::PushStyleColor (ImGuiCol_Button,
+                           ImGui::GetStyleColorVec4 (shadows ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+    if (ImGui::Button ("Shadows", ImVec2 (buttonWidth, 0))) {
+        state.sunView = kMultipleView;
+        state.sunFanInterval = kFanAmPm;
+    }
+    ImGui::PopStyleColor ();
+    ImGui::SameLine ();
+    ImGui::PushStyleColor (ImGuiCol_Button,
+                           ImGui::GetStyleColorVec4 (roles ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+    if (ImGui::Button ("Roles", ImVec2 (buttonWidth, 0)))
+        state.sunView = 4;
+    ImGui::PopStyleColor ();
+
+    char first[96] = {}, second[96] = {};
+    ReadingLines (state, first, second, sizeof (first));
+    DrawSunStudyInspectControl (state.sunInspect, first, second);
+    if (ChosenMode (state) == 4 || (ChosenMode (state) < 0 && study.debugMode == 4)) {
+        Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("Analysis");
+        Swatch ("##roleC", Rgb (0x8599b3), "context: casts shadow, not measured");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("Context");
+        Swatch ("##roleI", Rgb (0xd65cb8), "ignored: absent from the study");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("Ignored");
+        return;
+    }
+    if (shadows) {
+        const char* styles[] = { "Single", "Morning / evening", "Time fan (diagnostic)" };
+        int style = current == 5 ? 0 : current == 6 ? 1 : 2;
         ImGui::SetNextItemWidth (-60.0f);
-        ImGui::Combo ("every##sunfan", &state.sunFanInterval, kFanNames, kFanCount);
-        if (study.stepCount > evp::sunstudy::kFanMaxSteps && state.sunFanInterval == 0)
-            ImGui::TextColored (ImVec4 (1.0f, 0.6f, 0.4f, 1.0f), "only the first %u steps are shown",
-                                evp::sunstudy::kFanMaxSteps);
+        if (ImGui::Combo ("view##shadowstyle", &style, styles, 3)) {
+            state.sunView = style == 0 ? 2 : kMultipleView;
+            state.sunFanInterval = style == 1 ? kFanAmPm : 2;
+        }
+        if (style == 2) {
+            ImGui::SetNextItemWidth (-60.0f);
+            ImGui::Combo ("every##sunfan", &state.sunFanInterval, kFanNames, kFanCount);
+        }
     }
     const int chosen = ChosenMode (state);
     const int mode = chosen >= 0 ? chosen : int (study.debugMode);
     const bool shadowView = mode == 5 || mode == 6 || mode == 7;
+    if (shadowView && study.stepCount > 0 && !study.stepMinutes.empty ()) {
+        ImGui::TextUnformatted ("Hours");
+        DrawSunStudyRange ("##shadow-hours", state.sunTimeFrom, state.sunTimeTo,
+                           float (study.stepMinutes.front ()) / 60.0f,
+                           (std::min) (24.0f, float (study.stepMinutes.back ()) / 60.0f + study.quantumHours), false);
+        if (SunStudyViewOf (state).firstShadowStep == SunStudyViewOf (state).endShadowStep)
+            ImGui::TextDisabled ("No measured step in this interval");
+    }
     if (shadowView && study.stepCount == 0)
         ImGui::TextColored (ImVec4 (1.0f, 0.6f, 0.4f, 1.0f), "this study carries no per-step bits");
 
     // ---- the time of day, for the single shadow -----------------------------
-    if (mode == 5 && study.stepCount > 0) {
-        const int last = int (study.stepCount) - 1;
-        if (state.sunStep < 0 || state.sunStep > last)
-            state.sunStep = (std::min) (int (study.noonStep), last);
+    const SunStudyViewSettings preview = SunStudyViewOf (state);
+    if (mode == 5 && study.stepCount > 0 && preview.firstShadowStep < preview.endShadowStep) {
+        const int first = int (preview.firstShadowStep);
+        const int last = int ((std::min) (preview.endShadowStep, study.stepCount)) - 1;
+        if (state.sunStep < first || state.sunStep > last)
+            state.sunStep = std::clamp (int (study.noonStep), first, last);
         // Play the day: one step every 0.4 s, wrapping -- the web page's button.
         if (state.sunPlaying && ImGui::GetTime () - state.sunPlayedAt > 0.4) {
-            state.sunStep = state.sunStep >= last ? 0 : state.sunStep + 1;
+            state.sunStep = state.sunStep >= last ? first : state.sunStep + 1;
             state.sunPlayedAt = ImGui::GetTime ();
         }
         char clock[16] = "--:--";
         if (size_t (state.sunStep) < study.stepMinutes.size ())
             Clock (study.stepMinutes[size_t (state.sunStep)], clock, sizeof (clock));
         ImGui::SetNextItemWidth (-60.0f);
-        ImGui::SliderInt ("time##sunstep", &state.sunStep, 0, last, clock);
+        ImGui::SliderInt ("time##sunstep", &state.sunStep, first, last, clock);
         if (ImGui::SmallButton (state.sunPlaying ? "pause" : "play the day")) {
             state.sunPlaying = !state.sunPlaying;
             state.sunPlayedAt = ImGui::GetTime ();
         }
         ImGui::SameLine ();
         if (ImGui::SmallButton ("noon"))
-            state.sunStep = (std::min) (int (study.noonStep), last);
+            state.sunStep = std::clamp (int (study.noonStep), first, last);
         Swatch ("##lit", Rgb (0xede8db), "sunlit at this time");
         ImGui::SameLine ();
         ImGui::TextUnformatted ("sunlit");
@@ -391,6 +436,8 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         state.sunPlaying = false;
     }
     if (mode == 7 && study.stepCount > 0) {
+        if (study.stepCount > evp::sunstudy::kFanMaxSteps)
+            ImGui::TextDisabled ("Time fan shows only the first %u measured steps", evp::sunstudy::kFanMaxSteps);
         // The fan's legend: the first and last chosen times at the ramp's ends,
         // and the never-shadowed swatch. Every-step fans have dozens of steps,
         // so the ramp is drawn as swatches without a label each.
@@ -434,9 +481,9 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         char noon[16] = "--:--";
         if (study.noonStep < study.stepMinutes.size ())
             Clock (study.stepMinutes[study.noonStep], noon, sizeof (noon));
-        ImGui::TextDisabled ("split at solar noon, %s", noon);
-        const unsigned colours[4] = { 0xd4d6d8, 0x796ab1, 0xdf9792, 0xbba0b2 };
-        const char* labels[4] = { "never shadowed", "AM only", "PM only", "AM + PM" };
+        ImGui::TextDisabled ("Solar noon %s; colour intensity = shadow duration", noon);
+        const unsigned colours[4] = { 0xe8e8e6, 0x796ab1, 0xdf9792, 0xac80a2 };
+        const char* labels[4] = { "sunlit", "morning", "evening", "overlap" };
         for (int i = 0; i < 4; ++i) {
             ImGui::PushID (100 + i);
             Swatch ("##ampm", Rgb (colours[i]), labels[i]);
@@ -448,78 +495,24 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         }
     }
 
-    // ---- the hover inspector ----------------------------------------------------
-    static const char* const kInspectModes[] = { "off", "tooltip at cursor", "in this panel" };
-    ImGui::SetNextItemWidth (-60.0f);
-    ImGui::Combo ("inspect##suninspect", &state.sunInspect, kInspectModes, 3);
-    if (state.sunInspect == 2) {
-        char first[96];
-        char second[96];
-        if (ReadingLines (state, first, second, sizeof (first))) {
-            ImGui::TextUnformatted (first);
-            if (second[0] != 0)
-                ImGui::TextDisabled ("%s", second);
-        }
-        else {
-            ImGui::TextDisabled ("hover the model");
-        }
-    }
-
-    // ---- the hours range ------------------------------------------------------
-    //
-    // The compliance question -- "which surfaces get more than 2.5 h" -- is a
-    // RANGE on the value, not a bin of the colour scale, so the two ends move
-    // independently and in quarter hours. The colours stay binned; the
-    // selection does not.
-    const float top = kSunHoursFilterOpenTop;
-    ImGui::SetNextItemWidth (-60.0f);
-    ImGui::SliderFloat ("from##sunlo", &state.sunFilterLo, 0.0f, top, "%.2f h");
-    ImGui::SetNextItemWidth (-60.0f);
-    ImGui::SliderFloat ("to##sunhi", &state.sunFilterHi, 0.0f, top, state.sunFilterHi >= top ? "9+ h" : "%.2f h");
-    state.sunFilterLo = Snap (std::clamp (state.sunFilterLo, 0.0f, top));
-    state.sunFilterHi = Snap (std::clamp (state.sunFilterHi, 0.0f, top));
-    // Crossing ends is a person dragging one past the other; the one that
-    // moved pushes, the way the web page's pair behaves.
-    if (state.sunFilterLo > state.sunFilterHi)
-        state.sunFilterHi = state.sunFilterLo;
-    ImGui::Checkbox ("hide the rest", &state.sunFilterHide);
-    if (state.sunFilterLo > 0.0f || state.sunFilterHi < top) {
-        ImGui::SameLine ();
-        if (ImGui::SmallButton ("all")) {
+    if (!shadowView) {
+        ImGui::TextUnformatted ("Direct sunlight range");
+        // Full daylight range, rather than a 9+ endpoint pretending to be a clock.
+        DrawSunStudyRange ("##sun-hours", state.sunFilterLo, state.sunFilterHi, 0.0f, kSunHoursFilterOpenTop, true);
+        if (ImGui::SmallButton ("All hours")) {
             state.sunFilterLo = 0.0f;
-            state.sunFilterHi = top;
+            state.sunFilterHi = kSunHoursFilterOpenTop;
         }
+        ImGui::Checkbox ("Low-sun blue", &state.sunLowBlue);
+        if (state.sunLowBlue)
+            ImGui::TextDisabled ("Below %s", SunStudyClock (state.sunBlueThreshold, true).c_str ());
+        DrawSunStudyGradient (state.sunLowBlue, state.sunBlueThreshold);
     }
-
-    // ---- the legend -----------------------------------------------------------
-    ImGui::TextDisabled ("direct sun hours");
-    for (int bin = 0; bin < 10; ++bin) {
-        if (bin > 0)
-            ImGui::SameLine (0.0f, 2.0f);
-        ImGui::PushID (bin);
-        Swatch ("##sunbin", Rgb (kSunBinColours[bin]), kSunBinLabels[bin]);
-        ImGui::PopID ();
-    }
-    ImGui::TextDisabled ("0 h %*s 9+ h", 22, "");
 
     if (ImGui::TreeNode ("machine limits")) {
         DrawMachineLimits (study);
         ImGui::TreePop ();
     }
-
-    // The role view's three colours -- the tint shader's RoleColor.
-    ImGui::TextDisabled ("roles view");
-    Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
-    ImGui::SameLine ();
-    ImGui::TextUnformatted ("analysis");
-    ImGui::SameLine ();
-    Swatch ("##roleC", Rgb (0x8599b3), "context: casts shadow, not measured");
-    ImGui::SameLine ();
-    ImGui::TextUnformatted ("context");
-    ImGui::SameLine ();
-    Swatch ("##roleI", Rgb (0xd65cb8), "ignored: absent from the study");
-    ImGui::SameLine ();
-    ImGui::TextUnformatted ("ignored");
 }
 
 } // namespace archviz

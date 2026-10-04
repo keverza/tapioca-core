@@ -65,6 +65,15 @@ struct State {
 State Apply (bool enabled, const Request& request, const Controls& controls, bool refresh);
 State Describe ();
 
+// ⚠️ A NEW LOOK, NOTHING READ AGAIN (the user, 2026-10-03: the slices' style from the HUD's
+// Settings). The slices last cut -- the slabs', or the model's last snapshot -- drawn again
+// under these controls: no ACAPI read, no extraction pass, so a slider can be dragged. Off,
+// they are only kept for the next `Apply`.
+State Restyle (const Controls& controls);
+// What the slices were last applied with (their defaults before the first `Apply`).
+Request LastRequest ();
+Controls LastControls ();
+
 // The project closed: off, its slabs and cuts forgotten (§8).
 void OnProjectClosed ();
 // The add-on unloads: the timer goes, nothing else is called.

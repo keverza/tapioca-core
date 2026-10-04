@@ -37,14 +37,6 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
-    "ArchViz/DiligentHud.cpp": (
-        1004,
-        "the viewer's Dear ImGui HUD, at 1000 when the overlays' HUD panels arrived: those "
-        "lay out on the main thread and ImGui's current context is one process-wide global, "
-        "so this file's Init, Draw and Shutdown now take ImGuiContextLock -- four lines that "
-        "cannot live anywhere else. Not split in that commit because the HUD's own tabs "
-        "rework is in progress in this file; the split belongs to that work",
-    ),
     "ArchViz/Dxgi/InjectionRenderer.cpp": (
         1030,
         "THE SEAM IS NAMED AND THIS IS A DEBT, NOT A LICENCE. The ~22 session counters, "
@@ -71,7 +63,7 @@ OVERSIZED = {
         "area, and the next feature extracts a seam rather than adding to it",
     ),
     "ArchViz/DiligentViewport.cpp": (
-        1093,
+        1083,
         "the single render-thread lifecycle and frame-order authority. Device and "
         "target control, support algorithms, scene storage/draw passes, and offscreen "
         "target ownership already live in separate translation units; splitting the "
@@ -79,7 +71,9 @@ OVERSIZED = {
         "entry freezes its current size, so future work must extract rather than grow it. "
         "+3 for the storey section overlay (2026-08-24): its 48-line frame-loop body was "
         "extracted to DiligentViewportSupport.cpp::UpdateAndDrawStorySlices, leaving only "
-        "the ordered call site, which is irreducible for anything that draws in the frame",
+        "the ordered call site, which is irreducible for anything that draws in the frame. "
+        "-10 for the viewer's plan mode (2026-10-03): the projection toggle's body moved to "
+        "ViewerPlanMode.cpp with the camera's start and navigation, three call sites left",
     ),
     "Palette/ControlPalette.cpp": (
         626,
@@ -380,6 +374,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # state verb asks the controller, which owns both views' HUDs.
     ("NativeCommands/OverlayHudCommands.cpp", "ArchViz/OverlayHudEvents.hpp"),
     ("NativeCommands/OverlayHudCommands.cpp", "ArchViz/OverlayController.hpp"),
+    # The metadata verbs (2026-10-03): a script's write is shown by the HUDs' Selection pages
+    # and building sections, which read the project only when told -- the one entry point
+    # that tells them, deferred past the verb's undo scope.
+    ("NativeCommands/MetadataCommands.cpp", "ArchViz/SelectionMetadata.hpp"),
     # The massing slabs' floor slices read each slab's polygon through the one walk of
     # a polygon memo. Its indexing -- 1-based coords, the closing repeat, the arc
     # lookup by begIndex -- must not exist twice, and it lives with the element reads.
@@ -387,6 +385,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Its three ACAPI reads fail in the add-on's one vocabulary for a failed call;
     # CLAUDE.md forbids reporting a bare GSErrCode.
     ("ArchViz/SlabSliceSource.cpp", "Diagnostics/ApiError.hpp"),
+    # Massing's main-thread database adapter describes ACAPI failures in the HUD;
+    # the pure Define widgets/model include neither Diagnostics nor the DevKit.
+    ("ArchViz/MassingModel.cpp", "Diagnostics/ApiError.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the
@@ -1223,10 +1224,14 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/PassProvenanceFirstTransition.cpp",
     "ArchViz/Dxgi/PlanFrameRecord.cpp",
     "ArchViz/Dxgi/PlanOverlayLayer.cpp",
+    "ArchViz/Dxgi/PrelockHud.cpp",
     "ArchViz/Dxgi/PresentProfile.cpp",
     "ArchViz/Dxgi/SceneGuest.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
+    "ArchViz/OverlayControllerHud.cpp",
+    "ArchViz/OverlayHudModel.cpp",
+    "ArchViz/SurfaceSwitch.cpp",
     "ArchViz/OverlayInput.cpp",
     "ArchViz/OverlayRelease.cpp",
     "ArchViz/OverlayCameraKeep.cpp",

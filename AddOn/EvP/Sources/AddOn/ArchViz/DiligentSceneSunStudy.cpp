@@ -178,12 +178,16 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
             gp.DepthStencilDesc.DepthWriteEnable = frontmost ? Diligent::True : Diligent::False;
             gp.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
 
-            // ⚠️ OPAQUE REPLACEMENT, NOT A BLEND. The first tint has one job: to
-            // prove that a texel lands on the surface it was measured on. Blending
-            // it with the shading underneath makes a mapping error look like a
-            // lighting variation, which is the one thing this pass must not do.
+            // Analysis colours preserve the shaded model underneath. Diagnostic
+            // tile/cell/role outputs still have alpha 1, so mapping tests stay exact.
             Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
-            rt.BlendEnable = Diligent::False;
+            rt.BlendEnable = Diligent::True;
+            rt.SrcBlend = Diligent::BLEND_FACTOR_SRC_ALPHA;
+            rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+            rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
+            rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
+            rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+            rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
 
             gp.InputLayout.LayoutElements = layout;
             gp.InputLayout.NumElements = _countof (layout);
@@ -614,6 +618,9 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyFilter[1] = impl_->sunFilterHi;
     constants.sunStudyFilter[2] = impl_->sunQuantumHours;
     constants.sunStudyFilter[3] = impl_->sunFilterHide ? 1.0f : 0.0f;
+    constants.sunStudyPreview[0] = impl_->sunBlueThreshold;
+    constants.sunStudyPreview[1] = float ((std::min) (impl_->sunFirstShadowStep, impl_->sunStepCount));
+    constants.sunStudyPreview[2] = float ((std::min) (impl_->sunEndShadowStep, impl_->sunStepCount));
     UploadConstants (context, impl_->constants, constants);
 
     if (Diligent::IShaderResourceVariable* atlas = srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas"))
@@ -681,6 +688,9 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     // The slider's top is "9+": at it, no surface is cut off for having MORE.
     impl_->sunFilterHi = view.hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, view.hi);
     impl_->sunFilterHide = view.hide;
+    impl_->sunBlueThreshold = view.blueThreshold;
+    impl_->sunFirstShadowStep = view.firstShadowStep;
+    impl_->sunEndShadowStep = view.endShadowStep;
     impl_->sunViewOverride = view.viewOverride;
     impl_->sunViewStep = view.step;
     for (int word = 0; word < 3; ++word)

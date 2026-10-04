@@ -98,6 +98,7 @@ struct SunStudyOverlayStatus {
     uint32_t stepCount = 0;
     uint32_t noonStep = 0;
     std::vector<uint16_t> stepMinutes;
+    float quantumHours = 0.25f;
     // The study's size, for the machine-limits readout.
     uint64_t sampleCount = 0;
     double analysedArea = 0.0;
@@ -164,6 +165,11 @@ struct DiligentSceneStats {
     size_t storeySliceFillVertices = 0;
     double storeySliceAreaM2 = 0.0;
     bool storeySliceLayerReady = false;
+    // The plan view's cut (ExtractionWorker::SetPlanCut): whether a pass has cut it -- false is
+    // "not yet", not "nothing there" -- its outline's vertices and the area it encloses.
+    bool planCutReceived = false;
+    size_t planCutVertices = 0;
+    double planCutAreaM2 = 0.0;
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
@@ -529,6 +535,10 @@ class DiligentScene final {
     void DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                           uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                           const StorySliceLayer::DrawParams& params);
+    // The plan view's cut, the same way: its own layer, its own pending set (SetPlanCut).
+    void DrawPlanCut (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                      uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                      const StorySliceLayer::DrawParams& params);
 
     // ---- PLAT-RE151: occlusion for overlay content -------------------------
     // Rasterises the extracted model into the bound DEPTH buffer and writes no

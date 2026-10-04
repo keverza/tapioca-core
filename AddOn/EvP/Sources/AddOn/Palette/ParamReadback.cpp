@@ -2,7 +2,8 @@
 #include "ACAPinc.h"
 
 #include "Palette/ParamPanel.hpp"
-#include "Palette/ParamValues.hpp"         // EscapeJson / JsonReal — how a value is spelled
+#include "Palette/ParamValues.hpp" // EscapeJson / JsonReal — how a value is spelled
+#include "Palette/ParamCalendarControls.hpp"
 #include "NativeCommands/CommandUtils.hpp" // geomsrv::AttributeIndexToName
 
 // READING THE GENERATED CONTROLS BACK — the other half of ParamPanel.
@@ -72,6 +73,8 @@ bool ParamControl::HasValue () const
             return !colorHex.IsEmpty ();
         case Kind::DateTimeProbe:
             return true;
+        case Kind::Calendar:
+            return !CalendarValueText (*static_cast<DG::DateTime*> (control.get ())).IsEmpty ();
         case Kind::Text:
         case Kind::FilePath:
             return !static_cast<DG::TextEdit*> (control.get ())->GetText ().IsEmpty ();
@@ -108,6 +111,8 @@ GS::UniString ParamControl::CurrentValueText () const
             return colorHex;
         case Kind::DateTimeProbe:
             return GS::UniString::Printf ("%d", (int) static_cast<DG::DateTime*> (control.get ())->GetValue ());
+        case Kind::Calendar:
+            return CalendarValueText (*static_cast<DG::DateTime*> (control.get ()));
         case Kind::NavItem: {
             // What a show_when compares against is the value the parameter SENDS —
             // the guid, not the row text — so the two can never disagree. In
@@ -198,6 +203,9 @@ GS::UniString ParamPanel::CollectJson () const
                 break;
             case ParamControl::Kind::DateTimeProbe:
                 json += GS::UniString::Printf ("%d", (int) static_cast<DG::DateTime*> (pc.control.get ())->GetValue ());
+                break;
+            case ParamControl::Kind::Calendar:
+                json += "\"" + EscapeJson (CalendarValueText (*static_cast<DG::DateTime*> (pc.control.get ()))) + "\"";
                 break;
             case ParamControl::Kind::Catalog:
                 // ⚠️ THE ONE KIND THAT EMITS AN OBJECT, NOT A SCALAR — already

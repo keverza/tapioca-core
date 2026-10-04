@@ -9,7 +9,9 @@
 //
 // MAIN THREAD, inside ImGui's lock (ImGuiContextLock.hpp) wherever a frame is laid out.
 
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/HudMassingRules.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: which draw list is whose
@@ -28,20 +30,20 @@ namespace overlayhud {
 
 namespace layers = overlaylayers;
 
-// The host's own tab, after the panels': the HUD's settings.
-constexpr char kSettingsKey[] = "tapioca.settings";
+// The host's own tabs (HudShell.hpp): Stats and Selection before the panels', Settings and
+// Debug after them; without `OwnPages::standalone`, Settings alone.
+using hudshell::kDebugKey;
+using hudshell::kSelectionKey;
+using hudshell::kSettingsKey;
+using hudshell::kStatsKey;
 
-// The dock's one tab: its font, its padding across and along its turned title, and the gap
-// between it and a panel on the view's right column.
-constexpr float kDockFontPixels = 12.0f;
-constexpr float kDockPadding[2] = { 5.0f, 12.0f };
-constexpr float kDockGap = 6.0f;
-// ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
-// HUD's font size). Settings and the HUD's menu choose one; every size of the HUD -- text,
-// padding, widths, the dock itself -- follows, the distances from the view's edges do not.
-constexpr float kFontSteps[] = { 0.8f, 0.9f, 1.0f, 1.1f, 1.25f, 1.4f, 1.6f, 1.8f, 2.0f };
-constexpr uint32_t kFontStepCount = uint32_t (sizeof (kFontSteps) / sizeof (kFontSteps[0]));
-constexpr uint32_t kFontStepDefault = 2;
+// The dock and the text size are every HUD's (HudShell.hpp).
+using hudshell::kDockFontPixels;
+using hudshell::kDockGap;
+using hudshell::kDockPadding;
+using hudshell::kFontStepCount;
+using hudshell::kFontStepDefault;
+using hudshell::kFontSteps;
 
 // What the user did to each panel, by its key (OverlayHud.hpp's third note).
 struct State {
@@ -66,23 +68,37 @@ struct State {
     bool hover = false;           // hover mode (OverlayHud.hpp `Hover`)
     uint64_t revision = 0;
     // The floating panel the titled panels are tabs of: open or closed to the dock, the tab
-    // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where: `offset` logical pixels
-    // in from the edges of the view's `corner` nearest it (1 right, 2 bottom), so a view
-    // resized keeps it that far from them.
+    // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where
+    // (hudshell::Placement), so a view resized keeps it that far from its nearest corner.
     struct Host {
         bool known = false; // set from the panels the first time there were any
         bool open = true;
         std::string selected;
-        bool placed = false;
-        uint8_t corner = 0;
-        float offset[2] = { 0.0f, 0.0f };
+        hudshell::Placement placement;
     };
     Host host;
+    // The titled panels' keys the HUD has shown a tab for: a key not among them is a panel
+    // that just arrived, and a standalone HUD turns to it -- the user ran what made it.
+    std::set<std::string> seenPanels;
+    // The viewer's circle pressed, and not yet taken by the owner (TakeViewerRequest).
+    bool viewerRequested = false;
+    // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
+    std::vector<hudmeta::Edit> metadataEdits;
+    std::vector<hudmassing::Request> massingRequests;
+    hudmassingrules::Draft massingRules;
+    std::vector<massingrules::Edit> massingRuleEdits;
+    std::vector<massingcalculation::Request> massingCalculations;
+    // The building section's floors picked (PickedFloors), both views'.
+    hudsection::Run floors;
+    // The console's marks (HudConsole.hpp `Draw`): the newest entry the Debug tab has shown, and
+    // the newest its Clear hid. Both views'.
+    uint64_t consoleSeen = 0;
+    uint64_t consoleCleared = 0;
+    // The displays as the user set them on Settings, not yet taken by the owner (TakeDisplays):
+    // while pending, Settings shows them rather than what the owner said before.
+    Displays displays;
+    bool displaysPending = false;
 };
-
-// A panel's own look over the base; the number of colours pushed, and of style vars.
-int PushPanelStyle (const layers::Panel& panel, float scale);
-constexpr int kStyleVars = 3;
 
 struct Engine::Impl {
     ImGuiContext* context = nullptr;
@@ -116,10 +132,13 @@ struct Engine::Impl {
     // (a titled one's is none: it is a tab of the host), then the dock's, then the host's.
     std::vector<ImGuiWindow*> windows;
     // The layers drawn in this view, for Settings; the titled panels of the shown ones by
-    // their place in the set; which the host shows (none: Settings, or no titled panel);
-    // the look it takes; whether there is any HUD here at all -- a layer to show or hide.
+    // their place in the set, and those that are cards on the Stats page; which the host shows
+    // (none: an own page, or no titled panel); the look it takes; whether there is any HUD
+    // here at all -- the overlay running, or a layer to show or hide.
     std::vector<std::string> layerNames;
+    OwnPages own;
     std::vector<size_t> titled;
+    std::vector<size_t> statsCards;
     size_t shown = 0;
     bool showsPanel = false;
     const layers::Panel* look = nullptr;
@@ -129,6 +148,8 @@ struct Engine::Impl {
     std::string showing;
     // The tab the host's tab bar showed in this context's last frame: a panel key.
     std::string shownHost;
+    // The page the host shows scrolls (hudshell::HostResult::scrolls): the wheel over it is the HUD's.
+    bool hostScrolls = false;
     // The dock's width this frame: how far the view's right column moves in.
     float inset = 0.0f;
     // Which tab each tab bar showed in this context's last frame, by panel key and bar id,
@@ -139,6 +160,8 @@ struct Engine::Impl {
     std::chrono::steady_clock::time_point lastBuild {};
 
     PanelState& StateOf (const std::string& key, const layers::Panel& panel);
+    void SitePlan (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
+                   float width, float scale);
 
     // Between frames, the context current and locked: ImGui adds a font to the atlas
     // only then.
@@ -184,8 +207,19 @@ struct Engine::Impl {
     // The host opened or closed: said, with the tab it shows.
     void Opening (bool open, const std::string& title);
 
-    // The Settings page: the HUD's style, the overlay's display (OverlayHudHost.cpp).
+    // The Settings page: the HUD's style, the overlay's display (OverlayHudHost.cpp), and the
+    // add-on's own displays switched and styled (OverlayHudDisplays.cpp).
     void Settings ();
+    void DisplaySettings ();
+
+    // The own pages (OverlayHudOwn.cpp): Stats -- the owner's cards, then each panel that asked
+    // to be one; Selection; Debug. And the title on a tab, by its key.
+    void StatsPage (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float ui);
+    void SelectionPage (float ui);
+    void MassingPage ();
+    void DebugPage (float ui);
+    std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,
+                         const std::vector<std::string>& keys) const;
 
     // The HUD's menu at the pointer, on a right click anywhere on it (OverlayHudHost.cpp).
     void Menu (float ui);

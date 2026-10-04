@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 
 namespace geomsrv {
 namespace archviz {
@@ -90,6 +91,8 @@ bool DiligentGuest::Attach (ID3D11Device* device, ID3D11DeviceContext* context, 
     s.stats.attached = true;
     ++s.stats.attaches;
     s.stats.lastError[0] = 0;
+    // The adapter's name, once per attach and off the hot path: the HUD's Debug page says it.
+    strncpy_s (s.stats.adapter, sizeof (s.stats.adapter), s.device->GetAdapterInfo ().Description, _TRUNCATE);
     s.stats.attachMilliseconds = uint32_t (
         std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now () - started).count ());
     return true;

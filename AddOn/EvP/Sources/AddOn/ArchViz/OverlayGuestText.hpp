@@ -50,6 +50,10 @@ overlayhud::Engine* Hud (overlayinput::View view);
 // What the user did to the panels, both views' (OverlayHud.hpp `State`); made on first use.
 std::shared_ptr<overlayhud::State> HudState ();
 
+// Whether the view's HUD is there without a layer: made, and its owner said the overlay runs
+// there (OverlayHud.hpp `OwnPages::standalone`). Makes nothing.
+bool HudStandalone (overlayinput::View view);
+
 // What the user did to the panels forgotten, and the events that said so: the project
 // whose layers they were closed (§8).
 void ForgetHudState ();

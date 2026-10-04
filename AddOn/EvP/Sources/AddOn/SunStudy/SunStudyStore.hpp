@@ -102,6 +102,7 @@ struct StudyRecord {
     // Owning mesh index per sample; never treated as identity across snapshots.
     std::vector<uint32_t> sampleMeshes;
     size_t reusedSamples = 0;
+    size_t reusedSampleSteps = 0;
     bool defaultRayBounds = true;
     size_t sourceStepCount = 0;
     uint64_t placeInputHash = 0; // zero only for independent/legacy producers

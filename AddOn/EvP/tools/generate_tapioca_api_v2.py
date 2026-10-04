@@ -251,9 +251,11 @@ from typing import Any
 # 230 -> 233 with static dimension create, typed read and sparse style edits.
 # 233 -> 235 with OverlayHudEvents and OverlayHud, what the user does on the overlays'
 # HUD for Python (2026-09-30), in OverlayHudCommands.cpp.
-# 235 -> 236 with PauseSunStudyFollowing, the manual-rerun isolation command
-# already registered by the sun-study repairs (2026-10-02).
-EXPECTED_REGISTRY_COMMANDS = 236
+# 235 -> 236 with PauseSunStudyFollowing (SunStudyDisplayCommands.cpp), registered
+# on 2026-10-02 without this bump; 236 -> 240 with GetElementMetadata,
+# SetElementMetadata, GetMetadataSchema and SetMetadataSchema, Tapioca's own
+# metadata on elements and its project schema (2026-10-03), in MetadataCommands.cpp.
+EXPECTED_REGISTRY_COMMANDS = 240
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -268,8 +270,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 248 -> 249 with CreateFills.
 # 249 -> 252 with static dimension create, read and style edit.
 # 252 -> 254 with the HUD's events and state.
-# 254 -> 255 with that same pause command.
-EXPECTED_TOTAL_COMMANDS = 255
+# 254 -> 255 with the sun study's pause, 255 -> 259 with the four metadata verbs.
+EXPECTED_TOTAL_COMMANDS = 259
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

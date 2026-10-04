@@ -5,6 +5,7 @@
 #include "ArchViz/ExtractionReport.hpp"
 #include "ArchViz/ExtractionSlice.hpp"       // SliceState, Run -- one slice's work
 #include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
+#include "ArchViz/HudConsole.hpp"            // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadMaterials, ReadEnvironment
 #include "ArchViz/ExtractionSubstance.hpp"   // ReadProjectSubstances, ObserveElementSubstances
 #include "ArchViz/MaterialTable.hpp"
@@ -251,10 +252,13 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     auto baseSnapshot = MeshStore::Get ().Shared ();
 
     const auto fail = [this, started] (const std::string& why) {
-        std::lock_guard<std::mutex> lock (mutex_);
-        progress_.phase = why;
-        progress_.elapsedMs = NowMs () - started;
+        {
+            std::lock_guard<std::mutex> lock (mutex_);
+            progress_.phase = why;
+            progress_.elapsedMs = NowMs () - started;
+        }
         ArchVizLog ("extraction: " + why);
+        hudconsole::Error ("Model", "not read: " + why);
     };
 
     {
@@ -291,8 +295,11 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     // and a second gate hop would cost a round trip to save nothing.
     auto storeys = std::make_shared<ProjectStoreys> ();
     // ⚠️ READ ONCE, HERE. Re-reading per element would let a mid-pass toggle
-    // union a storey against only the elements reached so far.
+    // union a storey against only the elements reached so far. The plan view's
+    // cut likewise (SetPlanCut).
     const bool wantStorySlices = storySlicesWanted_.load ();
+    double planCutZ = 0.0;
+    const bool wantPlanCut = PlanCut (planCutZ);
 
     const int64_t acquireStart = NowMs ();
     GS::UniString gateErr;
@@ -365,7 +372,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                                partial ? baseSnapshot : nullptr, effectiveFilter);
 
     StorySliceAccumulator storeySlices;
-    storeySlices.Begin (*storeys, wantStorySlices && full);
+    storeySlices.Begin (*storeys, wantStorySlices && full, wantPlanCut && full, planCutZ);
 
     // From here on the model MUST be released through the gate, on every exit
     // path. One lambda, called from each of them.

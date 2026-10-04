@@ -65,7 +65,10 @@ class OcclusionAccumulator final {
     // Copy complete-day bits for proven unaffected samples. Unmapped samples
     // alone are traced on later steps; zero sunlight is a reusable result too.
     static constexpr size_t kNoReuse = static_cast<size_t> (-1);
-    bool SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples);
+    // Optional sample-major dirty-step words permit exact reuse at unaffected
+    // times on a receiver that is affected elsewhere in the day.
+    bool SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples,
+                       const std::vector<uint64_t>& dirtySteps = {});
     size_t ActiveSampleCount () const
     {
         return selective_ ? activeSamples_.size () : sampleCount_;
@@ -146,6 +149,7 @@ class OcclusionAccumulator final {
     std::vector<uint8_t> stepResolved_;
     bool selective_ = false;
     std::vector<uint32_t> activeSamples_;
+    std::vector<uint64_t> dirtySteps_;
     double compactMilliseconds_ = 0.0;
     double traceMilliseconds_ = 0.0;
 

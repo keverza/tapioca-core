@@ -6,6 +6,7 @@
 #include "ArchViz/StorySliceOverlay.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/SlabBodies.hpp"
@@ -41,6 +42,7 @@ bool g_awaitingPass = false; // a pass we asked for has not been seen idle since
 
 // The slab sources.
 std::vector<std::string> g_targets;
+std::vector<Slice> g_slices;    // as last cut, for a new look without a new cut (Restyle)
 std::vector<uint64_t> g_stamps; // the slabs' and their operators'
 std::vector<double> g_levels;
 uint32_t g_ticks = 0;
@@ -57,6 +59,9 @@ void Say (const std::string& message)
 {
     g_state.message = message;
     ArchVizLog ("STOREY SLICES  " + message);
+    // What did not happen is the console's ("NOT CUT", "NOT DRAWN"); what did is the log's.
+    if (message.rfind ("NOT ", 0) == 0)
+        hudconsole::Warning ("Storey slices", message);
 }
 
 // The layer on the overlays, or gone when it has nothing in it. False with the
@@ -171,6 +176,7 @@ void CutSlabs (const char* why)
                     "model's body arrives (it must be in the 3D window: shown, on a visible layer)";
     }
     ++g_state.cuts;
+    g_slices = slices;
     if (!Show (BuildLayer (slices, g_controls)))
         return;
 
@@ -307,6 +313,7 @@ void Forget ()
     g_requests = 0;
     g_awaitingPass = false;
     g_targets.clear ();
+    g_slices.clear ();
     g_stamps.clear ();
     g_levels.clear ();
     g_ticks = 0;
@@ -391,6 +398,31 @@ State Apply (bool enabled, const Request& request, const Controls& controls, boo
 State Describe ()
 {
     return g_state;
+}
+
+State Restyle (const Controls& controls)
+{
+    g_controls = controls;
+    if (!g_enabled)
+        return g_state;
+    if (g_request.source == Source::Model) {
+        if (const std::shared_ptr<const storeyslices::Snapshot> latest = storeyslices::Latest ())
+            Show (BuildLayer (FromStoreys (*latest), g_controls));
+    }
+    else {
+        Show (BuildLayer (g_slices, g_controls));
+    }
+    return g_state;
+}
+
+Request LastRequest ()
+{
+    return g_request;
+}
+
+Controls LastControls ()
+{
+    return g_controls;
 }
 
 void OnProjectClosed ()

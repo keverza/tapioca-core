@@ -220,23 +220,51 @@ class _Hour:
     """A 24-hour clock hour (integer 0..23) with native up/down digit arrows.
 
     ``hour: evp.Hour = 9`` is independent of date/time epoch and timezone.
+    ``Hour(maximum=24)`` additionally allows an end-of-day range endpoint.
     """
 
-    __slots__ = ("kind", "readonly", "show_when")
+    __slots__ = ("kind", "readonly", "show_when", "maximum")
 
-    def __init__(self, readonly=False, show_when=None):
+    def __init__(self, readonly=False, show_when=None, maximum=23):
+        if type(maximum) is not int or maximum not in (23, 24):
+            raise ValueError("Hour maximum must be 23 or 24 (end of day).")
         self.kind = "Hour"
         self.readonly = readonly
         self.show_when = show_when
+        self.maximum = maximum
 
-    def __call__(self, readonly=False, show_when=None):
-        return _Hour(readonly=readonly, show_when=show_when)
+    def __call__(self, readonly=False, show_when=None, maximum=23):
+        return _Hour(readonly=readonly, show_when=show_when, maximum=maximum)
 
     def __repr__(self):
         return "evp.Hour"
 
 
 Hour = _Hour()
+
+
+class _Calendar:
+    """Native calendar returning a local civil date as YYYY-MM-DD, not GSTime.
+
+    The DG Int32 date control supports full calendar years 1902 through 2037.
+    No timezone or UTC conversion is applied to the date sent to the command.
+    """
+
+    __slots__ = ("kind", "readonly", "show_when")
+
+    def __init__(self, readonly=False, show_when=None):
+        self.kind = "Calendar"
+        self.readonly = readonly
+        self.show_when = show_when
+
+    def __call__(self, readonly=False, show_when=None):
+        return _Calendar(readonly=readonly, show_when=show_when)
+
+    def __repr__(self):
+        return "evp.Calendar"
+
+
+Calendar = _Calendar()
 
 
 class _FilePath:

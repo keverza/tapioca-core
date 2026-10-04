@@ -311,3 +311,139 @@ TEST (OverlayHudWidgets, TheControlsSayWhatTheyGotWrong)
     layer.panels[0].items.push_back (Item (layers::ItemKind::Tab));
     EXPECT_NE (layers::Validate (layer).find ("need their text"), std::string::npos);
 }
+
+namespace {
+
+layers::Panel ParcelPlan ()
+{
+    layers::Panel panel;
+    panel.widthPixels = 260;
+    layers::PanelItem plan = Control (layers::ItemKind::SitePlan, "site", "");
+    plan.outlineXY = { 0, 0, 10, 0, 10, 10, 0, 10 };
+    plan.offsetXY = { 3, 3, 7, 3, 7, 7, 3, 7 };
+    plan.setbackDistances = { 3, 3, 3, 3 };
+    plan.setbackModes = { 0, 0, 0, 0 };
+    plan.referenceVertices = { 0, 2 };
+    plan.heightPixels = 240;
+    panel.items = { plan };
+    return panel;
+}
+
+hud::Layout RightClick (Watched& hud, const layers::Panel& panel, float x, float y)
+{
+    hud.Lay ({ &panel }, At (x, y));
+    hud.Lay ({ &panel }, At (x, y, { { 1, true } }));
+    hud.Lay ({ &panel }, At (x, y, { { 1, false } }));
+    return hud.Lay ({ &panel }, At (x, y)); // popup dimensions settle on their next frame
+}
+
+} // namespace
+
+TEST (OverlayHudWidgets, SitePlanFitsBothRingsAndKeepsIndependentHeldValues)
+{
+    Watched hud;
+    layers::Panel panel = ParcelPlan ();
+    layers::Layer layer;
+    layer.name = "parcel";
+    layer.panels = { panel };
+    ASSERT_EQ (layers::Validate (layer), "");
+    const hud::Layout out = hud.Lay ({ &panel }, At (600, 600));
+    EXPECT_TRUE (Drawn (out, 0xAA4465FFu));
+    EXPECT_TRUE (Drawn (out, 0xA66226FFu));
+    EXPECT_TRUE (Drawn (out, 0xDCF3FAB4u));
+    EXPECT_DOUBLE_EQ (hud.Value ("site:point:0"), 1);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:point:1"), 0);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:mode:0"), 0);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:offset:0"), 3);
+    panel.items[0].setbackModes[0] = 1;
+    panel.items[0].setbackDistances[0] = 4.25;
+    hud.Lay ({ &panel }, At (600, 600));
+    EXPECT_DOUBLE_EQ (hud.Value ("site:mode:0"), 1);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:offset:0"), 4.25);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:offset:1"), 3);
+    EXPECT_TRUE (hud.heard.empty ());
+}
+
+TEST (OverlayHudWidgets, SitePlanRightClickEdgeClaimsMenuAndReportsSelection)
+{
+    Watched hud;
+    const layers::Panel panel = ParcelPlan ();
+    // Content 240x240; square is 200x200 with 20 px padding. S02 is right.
+    const float x = kLeft + 220, y = kTop + 120;
+    EXPECT_TRUE (hud.Lay ({ &panel }, At (x, y)).hand);
+    const hud::Layout opened = RightClick (hud, panel, x, y);
+    ASSERT_TRUE (opened.popup);
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].id, "site:selected");
+    EXPECT_DOUBLE_EQ (hud.heard[0].value, 1);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:targetPoint"), -1);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:targetEdge"), 1);
+    EXPECT_FALSE (hud.Click ({ &panel }, 800, 600).popup);
+}
+
+TEST (OverlayHudWidgets, SitePlanEndpointWinsOverAdjacentEdgeAndReadOnlyHasNoEditor)
+{
+    Watched hud;
+    layers::Panel panel = ParcelPlan ();
+    const float x = kLeft + 20, y = kTop + 220;
+    EXPECT_TRUE (RightClick (hud, panel, x, y).popup);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:targetPoint"), 0);
+    EXPECT_TRUE (hud.heard.empty ()) << "endpoint does not select a segment";
+    hud.Click ({ &panel }, 800, 600);
+    panel.items[0].editable = false;
+    RightClick (hud, panel, kLeft + 220, kTop + 20);
+    // Read-only canvas may open the HUD's generic menu, but no site editor state/event.
+    EXPECT_TRUE (hud.heard.empty ());
+    EXPECT_DOUBLE_EQ (hud.Value ("site:targetPoint"), 0) << "read-only click did not open endpoint 2";
+}
+
+TEST (OverlayHudWidgets, SitePlanRejectsMalformedPayloads)
+{
+    layers::Layer layer;
+    layer.name = "parcel";
+    layer.panels = { ParcelPlan () };
+    auto& plan = layer.panels[0].items[0];
+    plan.setbackDistances.pop_back ();
+    EXPECT_NE (layers::Validate (layer).find ("sitePlan"), std::string::npos);
+    plan.setbackDistances.push_back (3);
+    plan.referenceVertices.push_back (4);
+    EXPECT_NE (layers::Validate (layer).find ("out of range"), std::string::npos);
+    plan.referenceVertices.pop_back ();
+    plan.outlineXY.push_back (1);
+    EXPECT_NE (layers::Validate (layer).find ("sitePlan"), std::string::npos);
+}
+
+TEST (OverlayHudWidgets, SitePlanEndpointCheckboxReportsMembership)
+{
+    Watched hud;
+    const layers::Panel panel = ParcelPlan ();
+    const hud::Layout opened = RightClick (hud, panel, kLeft + 20, kTop + 220);
+    float popup[4] = {};
+    ASSERT_TRUE (Box (opened.overlay, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u, popup));
+    hud.Click ({ &panel }, popup[0] + 16, popup[1] + 36);
+    ASSERT_EQ (hud.heard.size (), 1u);
+    EXPECT_EQ (hud.heard[0].kind, "checkbox");
+    EXPECT_EQ (hud.heard[0].id, "site:point:0");
+    EXPECT_DOUBLE_EQ (hud.Value ("site:point:0"), 0);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:point:2"), 1);
+}
+
+TEST (OverlayHudWidgets, SitePlanCustomDistanceIsMouseEditableWithoutKeyboardBackend)
+{
+    Watched hud;
+    const layers::Panel panel = ParcelPlan ();
+    const hud::Layout opened = RightClick (hud, panel, kLeft + 220, kTop + 120);
+    float popup[4] = {};
+    ASSERT_TRUE (Box (opened.overlay, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u, popup));
+    // Header, then three radio rows. Custom is the second radio.
+    hud.Click ({ &panel }, popup[0] + 16, popup[1] + 58);
+    ASSERT_DOUBLE_EQ (hud.Value ("site:mode:1"), 1);
+    const float x = popup[0] + 40, y = popup[1] + 100;
+    hud.Lay ({ &panel }, At (x, y, { { 0, true } }));
+    hud.Lay ({ &panel }, At (x + 50, y));
+    hud.Lay ({ &panel }, At (x + 50, y, { { 0, false } }));
+    EXPECT_GT (hud.Value ("site:offset:1"), 3);
+    EXPECT_DOUBLE_EQ (hud.Value ("site:offset:0"), 3);
+    EXPECT_EQ (hud.heard.back ().kind, "slider");
+    EXPECT_EQ (hud.heard.back ().id, "site:offset:1");
+}

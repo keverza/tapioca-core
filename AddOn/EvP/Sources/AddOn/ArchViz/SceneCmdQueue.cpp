@@ -225,6 +225,20 @@ void SceneCmdQueue::PushStorySlices (std::unique_ptr<StorySliceUpload> slices)
     queue_.push_back (std::move (cmd));
 }
 
+void SceneCmdQueue::PushPlanCut (std::unique_ptr<StorySliceUpload> cut)
+{
+    if (cut == nullptr)
+        return;
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_)
+        return;
+    pendingBytes_ += cut->Bytes ();
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::SetPlanCut;
+    cmd.storySlices = std::move (cut);
+    queue_.push_back (std::move (cmd));
+}
+
 void SceneCmdQueue::PushBeginPointLayer (std::unique_ptr<PointLayerUpload> layer)
 {
     if (layer == nullptr)

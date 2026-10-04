@@ -24,6 +24,7 @@
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHover3D.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayRelease.hpp"
@@ -31,10 +32,12 @@
 #include "ArchViz/OverlayVisibility.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 #include "ArchViz/PlanOverlayRuntime.hpp"
+#include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 
 #include <windows.h>
@@ -105,12 +108,20 @@ bool PortableRunning ()
 UINT_PTR g_timer = 0;
 constexpr UINT kTickMs = 500;
 
-// Whether the 3D HUD is on screen: the overlay shown and composing with a camera.
-// Called from the HUD's message hook, on this thread: plain reads and atomics.
-bool HudShown3D ()
+// Whether the 3D overlay composes with a camera: the HUD is drawn with it at every Present.
+bool ComposingWithCamera ()
 {
     return runtime::Running () && runtime::Visible () &&
            dxgi::injection::GetArmState () == dxgi::injection::ArmState::Active && dxgi::injection::SnapshotValid ();
+}
+
+// Whether the 3D HUD is on screen: composed with the camera, or drawn alone before one was
+// chosen in the last second (Dxgi/PrelockHud.hpp). Called from the HUD's message hook, on this
+// thread: plain reads and atomics.
+bool HudShown3D ()
+{
+    return ComposingWithCamera () ||
+           (runtime::Running () && runtime::Visible () && dxgi::sceneguest::HudOnlyRecently (1000));
 }
 
 // ---- the 3D HUD ------------------------------------------------------------------
@@ -119,16 +130,6 @@ bool HudShown3D ()
 std::vector<overlayinput::Region> g_legends3D;
 float g_scale3D = 1.0f;
 uint64_t g_hudPrint3D = 0;
-
-// Whether the view's HUD has anything to lay out: panels, or legends to hover.
-// Any layer drawn in 3D: its dock shows and hides the overlay, its Settings the layers.
-bool HudIn3D (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
-{
-    for (const auto& layer : layers)
-        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD))
-            return true;
-    return false;
-}
 
 // The HUD handed to the guest, and where it now is to the input; true when what it
 // draws changed.
@@ -165,9 +166,9 @@ bool RefreshHud3D ()
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
     overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::ThreeD);
     overlayhover3d::Fill (input); // hover mode: what the pointer is on (D19)
-    overlayscene::Scene hud =
-        overlayscene::PrepareSceneHud (layers, HudIn3D (layers) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
-                                       g_scale3D, input, &g_legends3D);
+    // ⚠️ THE HUD IS THERE WITH OR WITHOUT A LAYER: the overlay runs, its own pages say what.
+    overlayscene::Scene hud = overlayscene::PrepareSceneHud (
+        layers, overlayhudmodel::Prepare (overlayinput::View::ThreeD), g_scale3D, input, &g_legends3D);
     const bool changed = PublishHud3D (std::move (hud));
     // What the user did there may be the dock's circle or a layer hidden.
     FollowHudState ();
@@ -181,16 +182,42 @@ void RedrawHud3D ()
         ACAPI_View_Redraw ();
 }
 
+// ⚠️ THE OWN PAGES MOVE WITHOUT THE POINTER -- the camera locks, the model is read, the
+// selection changes -- so once a heartbeat the HUD is laid out again where the pointer is, no
+// press replayed. A still view presents nothing, so a change asks for a frame -- except on
+// Debug, whose figures move every time and whose redraw would be its own measurement: it is
+// drawn with Archicad's next frame.
+void HeartbeatHud3D ()
+{
+    if (!runtime::Running () || !overlayhud::HudOpen (*guesttext::HudState ()))
+        return;
+    overlayhud::Input input = overlayinput::CurrentInput (overlayinput::View::ThreeD);
+    input.buttons.clear ();
+    overlayhover3d::Fill (input);
+    const bool changed = PublishHud3D (
+        overlayscene::PrepareSceneHud (overlaylayers::Layers (), overlayhudmodel::Prepare (overlayinput::View::ThreeD),
+                                       g_scale3D, input, &g_legends3D));
+    // ⚠️ AND ONLY ONCE THE CAMERA IS LOCKED: before, a redraw is the cold start's budget's to
+    // spend (OverlayRedrawBudget.hpp), never the HUD's -- the HUD drawn alone shows with the
+    // frames Archicad presents anyway (Dxgi/PrelockHud.hpp).
+    if (changed && ComposingWithCamera () && overlayhud::SelectedKey (*guesttext::HudState ()) != hudshell::kDebugKey)
+        RedrawHud3D ();
+}
+
 // ⚠️ THE 3D HUD'S INPUT FOLLOWS THE CANVAS THE OVERLAY COMPOSES INTO -- the nominated
 // swap chain's window, known once Archicad has presented through it, and a new one when
 // the 3D window is closed and reopened. On this heartbeat rather than the runtime's
 // tick; without a running 3D overlay it takes nothing (§8).
 std::string g_inputError;
+// The 3D guest drew less than it was given at the last publish (PublishLayers): said to the HUD's
+// console when it starts, not at every publish -- and forgotten with the session (§8).
+bool g_notDrawing3D = false;
 void FollowHudInput ()
 {
     if (!runtime::Running ()) {
         overlayinput::Detach (overlayinput::View::ThreeD);
         g_inputError.clear ();
+        g_notDrawing3D = false;
         return;
     }
     const uint64_t chain = dxgi::MarkerTarget ();
@@ -208,8 +235,10 @@ void FollowHudInput ()
         owner.redraw = &RedrawHud3D;
         owner.hovering = &overlayhover3d::Hovering;
         if (!overlayinput::Attach (overlayinput::View::ThreeD, HWND (uintptr_t (chains[i].window)), owner, error) &&
-            error != g_inputError)
+            error != g_inputError) {
             Narrate ("OVERLAY", "the 3D HUD takes no input: " + error);
+            hudconsole::Warning ("Overlay", "the 3D HUD takes no input: " + error);
+        }
         g_inputError = error;
         return;
     }
@@ -219,6 +248,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
     overlaycontrol::FollowView ();
     FollowHudInput ();
+    HeartbeatHud3D ();
 }
 
 void StartHeartbeat ()
@@ -326,6 +356,8 @@ void StartRenderer (Overlay which)
             return;
         }
         Narrate ("OVERLAY", std::string ("3D NOT STARTED (") + intent.code + ") - " + intent.message);
+        hudconsole::Error ("Overlay",
+                           std::string ("the 3D overlay did not start (") + intent.code + "): " + intent.message);
         if (!started.retryable)
             Narrate ("OVERLAY", "this will not become true by waiting; the 3D overlay is unavailable here");
         return;
@@ -352,8 +384,11 @@ void StartRenderer (Overlay which)
     intent.retryable = !started.ok && code != planruntime::StartError::NoContentReader &&
                        code != planruntime::StartError::AlreadyRunning && code != planruntime::StartError::Blocked &&
                        code != planruntime::StartError::PresentHook;
-    if (!started.ok)
+    if (!started.ok) {
         Narrate ("OVERLAY", std::string ("2D NOT STARTED (") + intent.code + ") - " + intent.message);
+        hudconsole::Error ("Overlay", std::string ("the floor plan's overlay did not start (") + intent.code +
+                                          "): " + intent.message);
+    }
 }
 
 ViewKind KindOf (API_WindowTypeID type)
@@ -519,6 +554,7 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
     const ViewKind front = CurrentView ();
     Narrate ("OVERLAY", std::string (OverlayName (which)) + (wanted ? " on" : " off") + " (" + how + "), " +
                             ViewKindName (front) + " in front");
+    hudconsole::Note ("Overlay", std::string (OverlayName (which)) + (wanted ? " on" : " off"));
     if (!wanted) {
         intent.wanted = false;
         if (which == Overlay::ThreeD) {
@@ -553,6 +589,12 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
     }
     else {
         intent.wanted = true;
+        // ⚠️ THE OVERLAY OR THE VIEWER, NEVER BOTH (the user, 2026-10-03; SurfaceSwitch.hpp).
+        surfaceswitch::BeforeOverlayStarts ();
+        // ⚠️ THE MENU AND THE HUD'S SWITCH OPEN THE HUD (the user, 2026-10-03: it always starts
+        // with the overlay).
+        if (std::string (how) == "menu" || std::string (how) == "hud")
+            overlayhud::SetHudOpen (*guesttext::HudState (), true);
         // The Watch trace's annotations follow wherever an overlay is (OverlayAnnotations.hpp).
         overlayannotations::EnsureStarted ();
         // Laid out for 3D only while it is wanted (PublishLayers): now, before it draws.
@@ -625,9 +667,12 @@ void OnProjectClosed ()
     Forget3D ();
     overlayrelease::Plan ();
     overlayrelease::Shared ();
+    overlayhudmodel::Forget ();
     FollowHudState ();
-    if (active)
+    if (active) {
         Narrate ("OVERLAY", "the project closed; both overlays are off -- start them again from the menu");
+        hudconsole::Note ("Overlay", "the project closed: both overlays are off");
+    }
 }
 
 void Mark (const std::string& note)
@@ -763,151 +808,6 @@ InputCounts Input ()
     return out;
 }
 
-HudReport Hud ()
-{
-    HudReport out;
-    const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
-    out.fontScale = overlayhud::FontScaleOf (*state);
-    out.open = overlayhud::HudOpen (*state);
-    out.visible = overlayhud::ContentShown (*state);
-    out.hover = overlayhud::HoverMode (*state);
-    out.hiddenLayers = overlayhud::HiddenLayers (*state);
-    const std::string selected = overlayhud::SelectedKey (*state);
-    for (const auto& layer : overlaylayers::Layers ())
-        for (size_t i = 0; i < layer->panels.size (); ++i) {
-            const overlaylayers::Panel& panel = layer->panels[i];
-            const std::string key = layer->name + "#" + std::to_string (i);
-            HudPanel record { layer->name, uint32_t (i), panel.title, !panel.title.empty () && key == selected,
-                              overlayhud::Values (*state, key) };
-            if (!panel.title.empty () || !record.values.empty ())
-                out.panels.push_back (std::move (record));
-        }
-    return out;
-}
-
-std::vector<std::shared_ptr<const overlaylayers::Layer>> ShownLayers ()
-{
-    std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
-    const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
-    layers.erase (std::remove_if (layers.begin (), layers.end (),
-                                  [&] (const std::shared_ptr<const overlaylayers::Layer>& layer) {
-                                      return !overlayhud::LayerShown (*state, layer->name);
-                                  }),
-                  layers.end ());
-    return layers;
-}
-
-namespace {
-
-// What the renderers last followed of the HUD's state.
-uint64_t g_followedRevision = 0;
-std::vector<std::string> g_followedHidden;
-
-} // namespace
-
-void FollowHudState ()
-{
-    const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
-    const uint64_t revision = overlayhud::Revision (*state);
-    if (revision == g_followedRevision)
-        return;
-    g_followedRevision = revision;
-    // Shown or hidden as a whole: read at Present, nothing rebuilt.
-    overlayvisibility::SetContentShown (overlayhud::ContentShown (*state));
-    // Hover mode: read by the input hook, which then follows the pointer over the whole view.
-    overlayvisibility::SetHovering (overlayhud::HoverMode (*state));
-    // A layer hidden or shown again: the content is rebuilt without it -- the 3D view's now,
-    // the plan's at its next tick, as the store moved.
-    std::vector<std::string> hidden = overlayhud::HiddenLayers (*state);
-    if (hidden != g_followedHidden) {
-        g_followedHidden = std::move (hidden);
-        overlaylayers::Touch ();
-        PublishLayers ();
-    }
-    // Both views' HUDs follow -- the dock's circle, the tabs of a hidden layer -- and draw.
-    overlayinput::RequestLayout (overlayinput::View::ThreeD);
-    overlayinput::RequestLayout (overlayinput::View::Plan);
-}
-
-void SetOverlayVisible (bool visible)
-{
-    overlayhud::SetContentShown (*guesttext::HudState (), visible);
-    FollowHudState ();
-}
-
-void SetLayerVisible (const std::string& layer, bool visible)
-{
-    overlayhud::SetLayerShown (*guesttext::HudState (), layer, visible);
-    FollowHudState ();
-}
-
-void SetHudOpen (bool open)
-{
-    overlayhud::SetHudOpen (*guesttext::HudState (), open);
-    overlayinput::RequestLayout (overlayinput::View::ThreeD);
-    overlayinput::RequestLayout (overlayinput::View::Plan);
-}
-
-bool SelectHudPanel (const std::string& layer, uint32_t panel)
-{
-    for (const auto& set : overlaylayers::Layers ())
-        if (set->name == layer && panel < set->panels.size () && !set->panels[panel].title.empty ()) {
-            overlayhud::SelectKey (*guesttext::HudState (), layer + "#" + std::to_string (panel));
-            overlayinput::RequestLayout (overlayinput::View::ThreeD);
-            overlayinput::RequestLayout (overlayinput::View::Plan);
-            return true;
-        }
-    return false;
-}
-
-void TimeHudClicks (bool on)
-{
-    overlayinput::TimeClicks (on);
-}
-
-ClickReport HudClicks ()
-{
-    ClickReport out;
-    out.armed = overlayinput::TimingClicks ();
-    out.idles = overlayinput::ClickIdles ();
-    const std::vector<overlayclicks::Sample> samples = overlayinput::ClickSamples ();
-    uint64_t newest = 0;
-    for (const overlayclicks::Sample& sample : samples)
-        newest = (std::max) (newest, sample.at);
-    for (const overlayclicks::Sample& sample : samples) {
-        ClickRecord record;
-        record.target = overlayclicks::TargetName (sample.target);
-        record.windowClass = sample.windowClass;
-        record.complete = sample.complete;
-        record.ageMilliseconds = uint32_t ((newest - sample.at) / 1000u);
-        record.busyMicroseconds = sample.busyMicroseconds;
-        record.firstIdleMicroseconds = sample.firstIdleMicroseconds;
-        record.bursts = sample.bursts;
-        record.layoutMicroseconds = sample.layoutMicroseconds;
-        record.layouts = sample.layouts;
-        record.redrawMicroseconds = sample.redrawMicroseconds;
-        record.redraws = sample.redraws;
-        out.clicks.push_back (std::move (record));
-    }
-    return out;
-}
-
-void SetHoverMode (bool on)
-{
-    // The readout is in the HUD's floating panel: on, the panel opens to show it.
-    if (on)
-        overlayhud::SetHudOpen (*guesttext::HudState (), true);
-    overlayhud::SetHoverMode (*guesttext::HudState (), on);
-    FollowHudState ();
-}
-
-void SetHudFontScale (float scale)
-{
-    overlayhud::SetFontScale (*guesttext::HudState (), scale);
-    overlayinput::RequestLayout (overlayinput::View::ThreeD);
-    overlayinput::RequestLayout (overlayinput::View::Plan);
-}
-
 void StopAll ()
 {
     // Intent as well as renderers: this is the teardown entry point, and a timer
@@ -955,17 +855,26 @@ void PublishLayers ()
     // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud), laid
     // out for where the pointer is now.
     overlayscene::Scene hud =
-        overlayscene::PrepareSceneHud (all, HudIn3D (all) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
-                                       scale, overlayinput::CurrentInput (overlayinput::View::ThreeD), &g_legends3D);
+        overlayscene::PrepareSceneHud (all, overlayhudmodel::Prepare (overlayinput::View::ThreeD), scale,
+                                       overlayinput::CurrentInput (overlayinput::View::ThreeD), &g_legends3D);
     hud.generation = scene.generation;
     const overlayscene::Problems& problems = scene.problems;
     const uint32_t panelsNotDrawn = hud.problems.textsNotLaidOut;
-    if (problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated + panelsNotDrawn > 0)
+    const bool notDrawing =
+        problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated + panelsNotDrawn > 0;
+    // To the console when it starts: a publish follows every layout, and its counts move.
+    if (notDrawing && !g_notDrawing3D)
+        hudconsole::Warning ("Overlay",
+                             "not everything is drawn in 3D: " +
+                                 (hud.problems.lastError.empty () ? problems.lastError : hud.problems.lastError));
+    g_notDrawing3D = notDrawing;
+    if (notDrawing) {
         Narrate ("OVERLAY", "3D guest NOT DRAWING " + std::to_string (problems.textsNotLaidOut) + " texts, " +
                                 std::to_string (problems.dimensionsNotResolved) + " dimensions, " +
                                 std::to_string (panelsNotDrawn) + " panels, " + std::to_string (problems.truncated) +
                                 " past the budget: " +
                                 (hud.problems.lastError.empty () ? problems.lastError : hud.problems.lastError));
+    }
     dxgi::sceneguest::Publish (std::move (scene), scale);
     PublishHud3D (std::move (hud));
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)

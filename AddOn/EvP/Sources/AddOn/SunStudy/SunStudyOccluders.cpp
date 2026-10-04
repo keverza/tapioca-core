@@ -1,4 +1,5 @@
 #include "SunStudy/SunStudyOccluders.hpp"
+#include "SunStudy/CpuTraversalWork.hpp"
 
 #include <algorithm>
 #include <map>
@@ -88,7 +89,7 @@ std::shared_ptr<const SunStudyOccluders> BuildSunStudyOccluders (const geomsrv::
 
 SunStudyPartitionTraversal::SunStudyPartitionTraversal (std::shared_ptr<const geomsrv::QueryEngine> analysis,
                                                         std::shared_ptr<const geomsrv::QueryEngine> context)
-    : analysis_ (std::move (analysis)), context_ (std::move (context)), analysisCpu_ (analysis_), contextCpu_ (context_)
+    : analysis_ (std::move (analysis)), context_ (std::move (context))
 {
 }
 
@@ -101,29 +102,45 @@ bool SunStudyPartitionTraversal::Occluded (const double origin[3], const double 
 void SunStudyPartitionTraversal::OccludeDirectional (const double* origins, size_t count, const double dir[3],
                                                      double tmin, double tmax, uint8_t* out, size_t maxParallel) const
 {
-    analysisCpu_.OccludeDirectional (origins, count, dir, tmin, tmax, out, maxParallel);
-    if (context_ == nullptr || out == nullptr || count == 0)
-        return;
-    std::vector<uint8_t> context (count);
-    contextCpu_.OccludeDirectional (origins, count, dir, tmin, tmax, context.data (), maxParallel);
-    for (size_t i = 0; i < count; ++i)
-        out[i] = static_cast<uint8_t> (out[i] | context[i]);
+    OccludeDirectionalCancellable (origins, count, dir, tmin, tmax, out, maxParallel, {});
+}
+
+bool SunStudyPartitionTraversal::OccludeDirectionalCancellable (const double* origins, size_t count,
+                                                                const double dir[3], double tmin, double tmax,
+                                                                uint8_t* out, size_t maxParallel,
+                                                                const std::function<bool ()>& isCancelled) const
+{
+    if (isCancelled && isCancelled ())
+        return false;
+    if (out == nullptr || count == 0)
+        return true;
+    if (origins == nullptr || dir == nullptr) {
+        std::fill_n (out, count, uint8_t { 0 });
+        return !isCancelled || !isCancelled ();
+    }
+    return RunCpuTraversal (count, maxParallel, isCancelled, [&] (size_t first, size_t last) {
+        for (size_t i = first; i < last; ++i)
+            out[i] = Occluded (&origins[i * 3], dir, tmin, tmax) ? 1u : 0u;
+    });
 }
 
 void SunStudyPartitionTraversal::OccludeRays (const OcclusionRay* rays, size_t count, uint8_t* out,
                                               size_t maxParallel) const
 {
-    analysisCpu_.OccludeRays (rays, count, out, maxParallel);
-    if (context_ == nullptr || out == nullptr || count == 0)
+    if (out == nullptr || count == 0)
         return;
-    std::vector<uint8_t> context (count);
-    contextCpu_.OccludeRays (rays, count, context.data (), maxParallel);
-    for (size_t i = 0; i < count; ++i)
-        out[i] = static_cast<uint8_t> (out[i] | context[i]);
+    if (rays == nullptr) {
+        std::fill_n (out, count, uint8_t { 0 });
+        return;
+    }
+    RunCpuTraversal (count, maxParallel, {}, [&] (size_t first, size_t last) {
+        for (size_t i = first; i < last; ++i)
+            out[i] = Occluded (rays[i].origin, rays[i].dir, rays[i].tmin, rays[i].tmax) ? 1u : 0u;
+    });
 }
 
 uint64_t SunStudyPartitionTraversal::SceneVersion () const
 {
-    return analysisCpu_.SceneVersion ();
+    return analysis_ != nullptr ? analysis_->SnapshotId () : 0u;
 }
 } // namespace evp::sunstudy

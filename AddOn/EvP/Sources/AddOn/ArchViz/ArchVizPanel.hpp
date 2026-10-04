@@ -59,11 +59,13 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
     // 0x80070005 (E_ACCESSDENIED). There is no `hwndSource` knob any more,
     // because there is no longer a question — and because ASKING it is
     // destructive, see ViewportWindow.
-    static void OpenViewer ();
+    // `planMode`: opened in the floor plan's place -- its own top-down view, cut at the current
+    // storey's plane (ReadPlanViewerCamera) -- instead of from the 3D window's camera.
+    static void OpenViewer (bool planMode = false);
     static void OpenDiligentProbe ();
     static bool OpenD3D12FeasibilityProbe (std::string& error);
     static void CloseD3D12FeasibilityProbe ();
-    static void OpenDiligentViewport ();
+    static void OpenDiligentViewport (bool planMode = false);
 
     // The OVERLAY (PLAT-RE37): the same Diligent viewport, drawing into a
     // transparent click-through window pinned over Archicad's own 3D view
@@ -126,6 +128,13 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
     // camera is measured against the rectangle the picture goes into. See
     // ArchViz/PlanCameraMath.hpp.
     static geomsrv::archviz::CameraStart ReadArchicadOverlayCamera ();
+
+    // ⚠️ THE VIEWER IN THE FLOOR PLAN'S PLACE (the user, 2026-10-03: from the 2D overlay the viewer
+    // opens in plan mode -- the same palette, top-down and orthographic on the current storey).
+    // The plan window's own pose measured for a surface `width` x `height` (ReadPlanViewCamera),
+    // its eye on the current storey's level plus the floor plan's cut plane height, or `valid`
+    // false with why. MAIN THREAD ONLY, the floor plan in front.
+    static geomsrv::archviz::CameraStart ReadPlanViewerCamera (uint32_t width, uint32_t height);
 
     // Make the Diligent viewport FOLLOW Archicad's 3D window, continuously.
     //

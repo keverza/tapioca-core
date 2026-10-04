@@ -11,6 +11,7 @@
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/ViewportCursor.hpp"
 #include "ArchViz/SelectionBridge.hpp"
+#include "ArchViz/SurfaceSwitch.hpp" // the viewer or the overlay, never both
 #include "ArchViz/ViewportOverlayWindow.hpp"
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SceneRenderMode -- the overlay starts in wireframe
@@ -168,9 +169,11 @@ void ArchVizPanel::Hide ()
 // deleting it matters -- it is the menu item and the palette callback, so it is
 // how a user opens a viewer without running a probe, and with the overlay's
 // close box unreachable (PLAT-RE56) it is the only such route left.
-void ArchVizPanel::OpenViewer ()
+void ArchVizPanel::OpenViewer (bool planMode)
 {
-    OpenDiligentViewport ();
+    // The viewer or the overlay, never both (SurfaceSwitch.hpp).
+    geomsrv::archviz::surfaceswitch::BeforeViewerOpens ();
+    OpenDiligentViewport (planMode);
 }
 
 void ArchVizPanel::OpenDiligentProbe ()
@@ -274,7 +277,7 @@ void ArchVizPanel::CloseD3D12FeasibilityProbe ()
     }
 }
 
-void ArchVizPanel::OpenDiligentViewport ()
+void ArchVizPanel::OpenDiligentViewport (bool planMode)
 {
     if (!HasInstance ())
         CreateInstance ();
@@ -311,7 +314,11 @@ void ArchVizPanel::OpenDiligentViewport ()
     // ⚠️ ACAPI ON THE MAIN THREAD, WHICH IS WHERE WE ALREADY ARE. This handler
     // runs through MainThreadGate::Post, so the 3D window's projection can be
     // read here directly; the render thread may never ask for it.
-    const geomsrv::archviz::CameraStart cameraStart = ReadArchicadCamera ();
+    // In the floor plan's place: its own view, cut at the storey; the 3D window's otherwise.
+    geomsrv::archviz::CameraStart cameraStart =
+        planMode ? ReadPlanViewerCamera (surface.width, surface.height) : geomsrv::archviz::CameraStart {};
+    if (!cameraStart.valid)
+        cameraStart = ReadArchicadCamera ();
 
     if (geomsrv::archviz::DiligentViewport::Get ().Start (surface, cameraStart)) {
         panel.statusText.SetText ("Starting Diligent D3D11 viewport...");

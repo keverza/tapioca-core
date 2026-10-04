@@ -54,15 +54,6 @@ struct HudState {
     uint32_t width = 0;
     uint32_t height = 0;
     std::string adapter;
-    // ⚠️ THE FPS READOUT IS A REQUIREMENT, NOT A DECORATION, and it is drawn in
-    // its own always-visible window rather than inside the main panel. The
-    // add-on renders on top of Archicad and must never slow it down; the only
-    // way to notice that it has started to is to be able to see the frame cost
-    // at every moment, including while the main panel is collapsed, scrolled
-    // away, or -- on the overlay, which is click-through -- impossible to
-    // uncollapse at all.
-    bool showFpsBadge = true;
-
     // OFF by default.
     //
     // ⚠️ THIS IS AN EXPERIMENT, NOT A FEATURE, AND THE OVERLAY IS NOT THE PLACE
@@ -137,16 +128,18 @@ struct HudState {
     int wireTessellation = 1;
     float wireLineWidth = 1.25f;
     // The sun study's hours range -- the web study's "direct sun hours shown"
-    // slider pair. Surfaces outside it are drawn neutral, or hidden. The top
-    // of the slider, kSunHoursFilterOpenTop, is "9+": nothing above is cut.
+    // range. Surfaces outside it are drawn neutral. 24 hours is the open top.
     // ⚠️ HUD-ONLY: no command sets it, so nothing is reconciled per frame.
     float sunFilterLo = 0.0f;
-    float sunFilterHi = 10.0f;
-    bool sunFilterHide = false;
+    float sunFilterHi = 24.0f;
+    bool sunLowBlue = false;
+    float sunBlueThreshold = 2.5f;
+    float sunTimeFrom = 0.0f;
+    float sunTimeTo = 24.0f;
     // The hover INSPECTOR: 0 off, 1 a tooltip at the cursor, 2 a line in the
     // panel. It reports the study's value under the cursor -- the same cell the
     // tint drew there (SunStudy/SunStudyReading.hpp).
-    int sunInspect = 0;
+    int sunInspect = 1;
     // What it found, written by ServiceSunStudyInspector each frame.
     // readingState: 0 nothing under the cursor, 1 measured, 2 not measured
     // (context, ignored, below the grid), 3 the study is computing, 4 the
@@ -169,7 +162,7 @@ struct HudState {
     // The multiple-shadows interval: an index into the section's list, 0 = every
     // step (the study's own timestep), the last = AM / PM. 1 hour by default, as
     // on the web page.
-    int sunFanInterval = 2;
+    int sunFanInterval = 5; // duration-weighted morning / evening by default
     int sunStudyTimestepMinutes = 0;
     std::vector<uint16_t> sunStepMinutes; // mirrored from the scene
     float annotationTextHeightMetres = 0.18f;
@@ -369,6 +362,26 @@ struct HudState {
     // projection needs a parallel PICK, and before this toggle the only
     // orthographic camera was the plan overlay's.
     bool orthographic = false;
+
+    // ---- plan mode: the viewer opened in the floor plan's place --------------
+    // ⚠️ THE PLAN VIEW STAYS A PLAN UNLESS THE USER SAYS OTHERWISE (the user, 2026-10-03: a way
+    // to restore the top view once rotated, or orbit locked out in the plan view). Set at the
+    // start from the camera (DiligentViewportSupport.cpp `StartViewerCamera`), never by the HUD;
+    // while it holds, the orbit is a pan unless `planOrbit` is on, and `planTopView` -- a
+    // one-shot, cleared by the frame loop -- puts the camera back on the plan.
+    bool planMode = false;
+    bool planOrbit = false;
+    bool planTopView = false;
+    // ⚠️ THE PLAN'S CUT, ITS WALLS' OUTLINE AT LEAST (the user, 2026-10-03: the plan view should
+    // have wall outlines at least, to see that it works). The model cut at the storey's cut
+    // height by the extraction (ExtractionWorker::SetPlanCut), its outline drawn over the plan
+    // and its inside filled -- the poche a plan draws a cut wall with. Drawn whatever is in
+    // front of it: nothing is, above the cut.
+    bool planCutShown = true;
+    bool planCutFill = true;
+    float planCutWidthPixels = 2.0f;
+    uint32_t planCutRgba = 0x1E1E1EFFu;     // near black, as a plan's cut line
+    uint32_t planCutFillRgba = 0x3C3C3CA0u; // dark grey, most of the way opaque
 
     // ---- story slices ------------------------------------------------------
     // Every storey's horizontal cut through the model, boolean-unioned into one

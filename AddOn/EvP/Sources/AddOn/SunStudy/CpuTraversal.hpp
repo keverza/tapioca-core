@@ -35,6 +35,10 @@ class CpuTraversal final : public ITraversal {
     void OccludeDirectional (const double* origins, size_t count, const double dir[3], double tmin, double tmax,
                              uint8_t* out, size_t maxParallel = 0) const override;
 
+    bool OccludeDirectionalCancellable (const double* origins, size_t count, const double dir[3], double tmin,
+                                        double tmax, uint8_t* out, size_t maxParallel,
+                                        const std::function<bool ()>& isCancelled) const override;
+
     void OccludeRays (const OcclusionRay* rays, size_t count, uint8_t* out, size_t maxParallel = 0) const override;
 
     uint64_t SceneVersion () const override;
