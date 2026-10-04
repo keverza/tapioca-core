@@ -343,15 +343,15 @@ TEST (CpuTraversal, CancellationPollsOnlyTheSubmittingThreadAndStopsBeforeTheTai
     std::vector<uint8_t> out (origins.size () / 3, 0xff);
     const auto submitting = std::this_thread::get_id ();
     unsigned polls = 0;
-    ASSERT_FALSE (cpu.OccludeDirectionalCancellable (origins.data (), out.size (), kUp, 0.001, 0.0, out.data (), 4,
-                                                      [&] {
-                                                          EXPECT_EQ (std::this_thread::get_id (), submitting);
-                                                          return ++polls >= 5;
-                                                      }));
+    ASSERT_FALSE (
+        cpu.OccludeDirectionalCancellable (origins.data (), out.size (), kUp, 0.001, 0.0, out.data (), 4, [&] {
+            EXPECT_EQ (std::this_thread::get_id (), submitting);
+            return ++polls >= 5;
+        }));
     EXPECT_EQ (out.back (), 0xff);
     std::vector<uint8_t> expected (out.size ());
     cpu.OccludeDirectional (origins.data (), out.size (), kUp, 0.001, 0.0, expected.data (), 1);
     ASSERT_TRUE (cpu.OccludeDirectionalCancellable (origins.data (), out.size (), kUp, 0.001, 0.0, out.data (), 4,
-                                                     [] { return false; }));
+                                                    [] { return false; }));
     EXPECT_EQ (out, expected);
 }

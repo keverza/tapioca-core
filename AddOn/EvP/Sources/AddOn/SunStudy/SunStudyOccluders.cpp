@@ -105,9 +105,10 @@ void SunStudyPartitionTraversal::OccludeDirectional (const double* origins, size
     OccludeDirectionalCancellable (origins, count, dir, tmin, tmax, out, maxParallel, {});
 }
 
-bool SunStudyPartitionTraversal::OccludeDirectionalCancellable (
-    const double* origins, size_t count, const double dir[3], double tmin, double tmax, uint8_t* out,
-    size_t maxParallel, const std::function<bool ()>& isCancelled) const
+bool SunStudyPartitionTraversal::OccludeDirectionalCancellable (const double* origins, size_t count,
+                                                                const double dir[3], double tmin, double tmax,
+                                                                uint8_t* out, size_t maxParallel,
+                                                                const std::function<bool ()>& isCancelled) const
 {
     if (isCancelled && isCancelled ())
         return false;

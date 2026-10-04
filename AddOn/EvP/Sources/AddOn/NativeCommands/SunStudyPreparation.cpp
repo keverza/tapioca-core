@@ -88,14 +88,13 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
     if (reuseSource != nullptr && cancelled != nullptr)
         evp::sunstudy::ReuseUnaffectedSamples (*reuseSource, record, cancelled != nullptr ? *cancelled : notCancelled);
     const uint64_t snapshotId = record.snapshotId;
-    archviz::ArchVizLog ("pipeline: stage=sun-reuse snapshot=" + std::to_string (snapshotId) +
-                         " samples=" + std::to_string (record.positions.size () / 3) +
-                         " reused=" + std::to_string (record.reusedSamples) +
-                         " dirty=" + std::to_string (record.positions.size () / 3 - record.reusedSamples) +
-                         " reusedSampleSteps=" + std::to_string (record.reusedSampleSteps) +
-                         " dirtySampleSteps=" + std::to_string (record.positions.size () / 3 * record.series.StepCount () -
-                                                               record.reusedSampleSteps) +
-                         " gridM=" + std::to_string (record.gridSpacing));
+    archviz::ArchVizLog (
+        "pipeline: stage=sun-reuse snapshot=" + std::to_string (snapshotId) + " samples=" +
+        std::to_string (record.positions.size () / 3) + " reused=" + std::to_string (record.reusedSamples) +
+        " dirty=" + std::to_string (record.positions.size () / 3 - record.reusedSamples) +
+        " reusedSampleSteps=" + std::to_string (record.reusedSampleSteps) + " dirtySampleSteps=" +
+        std::to_string (record.positions.size () / 3 * record.series.StepCount () - record.reusedSampleSteps) +
+        " gridM=" + std::to_string (record.gridSpacing));
     record.session.SetStepObserver ([snapshotId] (size_t step, const evp::sunstudy::OcclusionAccumulator& accumulator,
                                                   double wallMs) {
         const size_t rays = accumulator.LastRayCount ();

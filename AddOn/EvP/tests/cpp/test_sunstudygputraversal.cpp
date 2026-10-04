@@ -338,7 +338,7 @@ TEST (SunStudyGpuTraversal, ExactFallbackWavesPreserveEveryAnswerAcrossPacketsAn
     const double up[] = { 0, 0, 1 };
     std::vector<uint8_t> actual (count, 0xff), expected (count);
     ASSERT_TRUE (gpu.OccludeDirectionalCancellable (origins.data (), count, up, 0.001, 0.0, actual.data (), 0,
-                                                     [] { return false; }));
+                                                    [] { return false; }));
     if (Unavailable (gpu.Stats ()))
         GTEST_SKIP () << gpu.Stats ().error;
     ASSERT_TRUE (gpu.Stats ().available) << gpu.Stats ().error;

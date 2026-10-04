@@ -461,9 +461,8 @@ struct SunStudyGpuTraversal::Impl {
         return true;
     }
 
-    bool CollectChecks (const double* positions, size_t first, uint32_t count, const uint32_t* answers,
-                        uint8_t* out, CheckWave& wave,
-                      const std::function<bool ()>& isCancelled)
+    bool CollectChecks (const double* positions, size_t first, uint32_t count, const uint32_t* answers, uint8_t* out,
+                        CheckWave& wave, const std::function<bool ()>& isCancelled)
     {
         for (uint32_t i = 0; i < count; ++i) {
             if (i % 256 == 0 && isCancelled && isCancelled ())

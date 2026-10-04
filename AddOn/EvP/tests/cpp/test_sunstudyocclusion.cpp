@@ -326,7 +326,7 @@ TEST (SunStudyOcclusion, SelectiveTimesPreserveCleanBitsAcrossWordBoundariesAndC
     ASSERT_TRUE (incremental.SeedReusable (source, mapping, dirty));
     const auto seeded = incremental.Bits ();
     ASSERT_FALSE (incremental.AccumulateStep (*scene.traversal, scene.Samples (), 63, kSunUp, 0.001, 0.0, 1,
-                                               [] { return true; }));
+                                              [] { return true; }));
     EXPECT_EQ (incremental.Bits (), seeded);
     for (size_t step = 0; step < 70; ++step)
         ASSERT_TRUE (incremental.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));

@@ -83,7 +83,7 @@ bool RayHitsBounds (const double* point, const double* direction, const ChangedB
 }
 
 size_t DirtyShadowSteps (const double* point, const double* normal, const std::vector<ShadowZone>& zones,
-                        const SunSeries& sun, uint64_t* dirty)
+                         const SunSeries& sun, uint64_t* dirty)
 {
     std::fill_n (dirty, (sun.StepCount () + 63) / 64, 0ull);
     size_t count = 0;

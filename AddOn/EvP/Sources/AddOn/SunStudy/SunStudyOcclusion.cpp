@@ -58,7 +58,7 @@ bool OcclusionAccumulator::SeedReusable (const OcclusionAccumulator& source, con
         const size_t from = sourceSamples[sample];
         if (from != kNoReuse)
             std::copy_n (source.bits_.begin () + from * wordsPerSample_, wordsPerSample_,
-                          bits_.begin () + sample * wordsPerSample_);
+                         bits_.begin () + sample * wordsPerSample_);
         bool active = from == kNoReuse;
         for (size_t word = 0; !dirtySteps_.empty () && word < wordsPerSample_; ++word) {
             const uint64_t dirty = dirtySteps_[sample * wordsPerSample_ + word];
