@@ -324,6 +324,30 @@ TEST (SunStudyGpuTraversal, PacketRingRefillsWithoutLosingTailOrReorderingAnswer
     EXPECT_EQ (gpu.Stats ().gpuRays, actual.size () * 2);
 }
 
+TEST (SunStudyGpuTraversal, ExactFallbackWavesPreserveEveryAnswerAcrossPacketsAndTheShortTail)
+{
+    auto engine = std::make_shared<geomsrv::QueryEngine> (MakeScene ());
+    SunStudyGpuTraversal gpu (engine);
+    evp::sunstudy::CpuTraversal cpu (engine);
+    const size_t count = 16384 * 7 + 37;
+    std::vector<double> origins (count * 3, 0.0);
+    for (size_t i = 0; i < count; ++i) {
+        origins[i * 3] = double ((i / 3) % 128) * 2.0 + (i % 3 == 1 ? 1.25 : 0.0);
+        origins[i * 3 + 1] = i % 3 == 2 ? 0.5 : 0.0;
+    }
+    const double up[] = { 0, 0, 1 };
+    std::vector<uint8_t> actual (count, 0xff), expected (count);
+    ASSERT_TRUE (gpu.OccludeDirectionalCancellable (origins.data (), count, up, 0.001, 0.0, actual.data (), 0,
+                                                     [] { return false; }));
+    if (Unavailable (gpu.Stats ()))
+        GTEST_SKIP () << gpu.Stats ().error;
+    ASSERT_TRUE (gpu.Stats ().available) << gpu.Stats ().error;
+    cpu.OccludeDirectional (origins.data (), count, up, 0.001, 0.0, expected.data (), 1);
+    EXPECT_EQ (actual, expected);
+    EXPECT_GT (gpu.Stats ().cpuFallbackRays, 65536u);
+    EXPECT_EQ (gpu.Stats ().dispatches, 8u);
+}
+
 TEST (SunStudyGpuTraversal, ClosedAndSlopedSolidsAndThinOccludersMatchCpu)
 {
     auto snapshot = std::make_shared<geomsrv::Snapshot> ();

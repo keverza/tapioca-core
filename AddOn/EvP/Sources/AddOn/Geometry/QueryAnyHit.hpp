@@ -17,7 +17,8 @@ inline bool QueryAnyHit (const nanort::BVHAccel<double>& accel, const nanort::Ra
     nanort::real3<double> origin (ray.org), direction (ray.dir);
     const auto inverse = nanort::vsafe_inverse (direction);
     int signs[3] = { ray.dir[0] < 0.0 ? 1 : 0, ray.dir[1] < 0.0 ? 1 : 0, ray.dir[2] < 0.0 ? 1 : 0 };
-    uint32_t stack[512] = { 0 };
+    uint32_t stack[512];
+    stack[0] = 0;
     size_t pending = 1;
     while (pending != 0) {
         const auto& node = nodes[stack[--pending]];
