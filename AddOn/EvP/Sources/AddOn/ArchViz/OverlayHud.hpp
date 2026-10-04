@@ -63,6 +63,7 @@
 
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/HudMetadata.hpp"
+#include "ArchViz/HudMassing.hpp"
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -239,6 +240,7 @@ struct OwnPages {
     // picked into `PickedFloors`.
     hudmeta::Page metadata;
     hudsection::Section section;
+    hudmassing::Page massing;
     std::vector<hudshell::Card> debug;
     // What the Debug tab's console says (HudConsole.hpp), oldest first: the tab's title counts the
     // errors and warnings the HUD has not shown yet.
@@ -289,6 +291,7 @@ bool TakeViewerRequest (State& state);
 // What the user changed in the Selection page's metadata since the last call, in order: the
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
+std::vector<hudmassing::Request> TakeMassingRequests (State& state);
 // What the user set the displays to on Settings since the last call: true, and `displays` the
 // whole of it -- the owner applies it, after the layout, never inside it.
 bool TakeDisplays (State& state, Displays& displays);

@@ -114,7 +114,7 @@ TEST (OverlayHudOwn, TheOwnTabsSurroundTheCallersPanelsAndANewPanelIsShownOnce)
     const float y = RowY (hud, { &sun }, arrived.host);
     ASSERT_GT (y, 0.0f);
     const std::vector<std::pair<float, float>> runs = Presses (hud, { &sun }, arrived.host, y);
-    ASSERT_EQ (runs.size (), 6u) << "Stats, Selection, the panel, Settings, Debug, close";
+    ASSERT_EQ (runs.size (), 7u) << "Stats, Selection, Massing, the panel, Settings, Debug, close";
     hud.Click ({ &sun }, Middle (runs[0]), y);
     EXPECT_EQ (hud.engine.Selected (), shell::kStatsKey);
     ASSERT_FALSE (hud.heard.empty ());
@@ -143,7 +143,7 @@ TEST (OverlayHudOwn, APanelThatAsksForStatsIsACardThere)
     float box[4] = {};
     EXPECT_TRUE (Box (out.host, 0x8E44ADFFu, box)) << "its items on the Stats page";
     const float y = RowY (hud, { &massing }, out.host);
-    EXPECT_EQ (Presses (hud, { &massing }, out.host, y).size (), 5u) << "the own tabs and close only";
+    EXPECT_EQ (Presses (hud, { &massing }, out.host, y).size (), 6u) << "the own tabs and close only";
 
     Fresh before;
     const hud::Layout legacy = before.Lay ({ &massing }, At (600.0f, 600.0f));
@@ -160,8 +160,8 @@ TEST (OverlayHudOwn, ThePagesShowWhatTheOwnerSaid)
     const hud::Layout stats = hud.Lay ({}, At (600.0f, 600.0f));
     const float y = RowY (hud, {}, stats.host);
     std::vector<std::pair<float, float>> runs = Presses (hud, {}, stats.host, y);
-    ASSERT_EQ (runs.size (), 5u) << "Stats, Selection, Settings, Debug, close";
-    hud.Click ({}, Middle (runs[3]), y);
+    ASSERT_EQ (runs.size (), 6u) << "Stats, Selection, Massing, Settings, Debug, close";
+    hud.Click ({}, Middle (runs[4]), y);
     EXPECT_EQ (hud.engine.Selected (), shell::kDebugKey);
     float box[4] = {};
     EXPECT_TRUE (Box (hud.Lay ({}, At (600.0f, 600.0f)).host, 0xC0392BFFu, box)) << "the figure's own colour";

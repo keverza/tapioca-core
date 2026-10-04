@@ -170,6 +170,13 @@ std::vector<hudmeta::Edit> TakeMetadataEdits (State& state)
     return edits;
 }
 
+std::vector<hudmassing::Request> TakeMassingRequests (State& state)
+{
+    std::vector<hudmassing::Request> requests;
+    requests.swap (state.massingRequests);
+    return requests;
+}
+
 hudsection::Run PickedFloors (const State& state)
 {
     return state.floors;

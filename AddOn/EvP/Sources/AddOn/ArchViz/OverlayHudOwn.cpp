@@ -28,6 +28,8 @@ std::string Engine::Impl::TitleOf (const std::string& tabKey, const std::vector<
         return "Stats";
     if (tabKey == kSelectionKey)
         return "Selection";
+    if (tabKey == hudmassing::kTabKey)
+        return "Massing";
     if (tabKey == kDebugKey)
         return "Debug";
     for (size_t i = 0; i < panels.size () && i < keys.size (); ++i)
@@ -79,6 +81,15 @@ void Engine::Impl::SelectionPage (float ui)
                              edit.kind == hudmeta::FieldKind::Toggle ? (edit.on ? 1.0 : 0.0) : edit.number, edit.text,
                              true });
         store->metadataEdits.push_back (std::move (edit));
+    }
+}
+
+void Engine::Impl::MassingPage ()
+{
+    for (const auto& request : hudmassing::Draw (own.massing)) {
+        store->massingRequests.push_back (request);
+        changes.push_back ({ "massing", std::string (), "Massing", hudmassing::Role (request.group), -1,
+                             double (request.action), hudmassing::Label (request.group), true });
     }
 }
 

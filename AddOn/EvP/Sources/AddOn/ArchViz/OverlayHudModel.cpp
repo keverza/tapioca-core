@@ -22,6 +22,7 @@
 #include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/SectionModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
+#include "ArchViz/MassingModel.hpp"
 #include "ArchViz/StorySliceOverlay.hpp" // Settings' displays: the storey slices
 #include "Metadata/MetadataExtractor.hpp"
 
@@ -377,6 +378,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     overlayhud::OwnPages pages = view == overlayinput::View::ThreeD ? ThreeD () : Plan ();
     pages.selection = Selection ();
     pages.metadata = g_metadata;
+    pages.massing = massingmodel::Read ();
     pages.section = g_section.section;
     pages.console = hudconsole::Entries (); // the Debug tab's console: what to check when something fails
     // The add-on's own displays as they are: Settings switches and styles them (ApplyDisplays).
@@ -424,6 +426,7 @@ overlayhud::Engine* Prepare (overlayinput::View view)
 
 void SelectionChanged ()
 {
+    massingmodel::Changed ();
     g_selectionDirty = true;
     overlayinput::RequestLayout (overlayinput::View::ThreeD);
     overlayinput::RequestLayout (overlayinput::View::Plan);
@@ -443,6 +446,7 @@ void FollowFloors (const hudsection::Run& run)
 
 void Forget ()
 {
+    massingmodel::Forget ();
     g_framesSeen = 0;
     g_framesMovedAt = std::chrono::steady_clock::time_point {};
     g_selectionDirty = true;

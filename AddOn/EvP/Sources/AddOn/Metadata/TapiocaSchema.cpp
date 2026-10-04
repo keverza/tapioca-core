@@ -116,6 +116,21 @@ ProjectSchema DefaultSchema ()
                       { "temporary", "Temporary", 0xF29E4CFFu } };
     schema.enumerations.push_back (phase);
 
+    schema.properties.push_back (Definition ("tapioca.role", "Role", ValueType::String, "Common"));
+    schema.properties.push_back (Definition ("massing.buildingId", "Building ID", ValueType::String, "Building slab"));
+    PropertyDefinition story = Definition ("massing.story", "Story", ValueType::Int, "Building slab");
+    story.min = -100;
+    story.max = 1000;
+    story.step = 1;
+    schema.properties.push_back (story);
+    schema.properties.push_back (Definition ("massing.function", "Function", ValueType::String, "Building slab"));
+    PropertyDefinition height = Definition ("massing.height", "Height", ValueType::Length, "Building slab", "m");
+    height.min = 0.01;
+    height.max = 1000;
+    height.step = 0.01;
+    height.description = "Floor-to-floor slice interval in metres; the slab's thickness is the building mass height.";
+    schema.properties.push_back (height);
+
     PropertyDefinition usageKey = Definition ("program.usage", "Usage", ValueType::Enum, "Program");
     usageKey.enumId = "building-usage";
     usageKey.domains = { kFloorDomain };
@@ -189,6 +204,8 @@ ProjectSchema DefaultSchema ()
                      { "h", "h", "time", 1.0 },           { "people", "people", "count", 1.0 } };
     schema.tags = { "existing", "demolish", "temporary", "locked", "review", "exclude-analysis", "reference-only" };
     schema.ui = {
+        { "common", "Common", { "tapioca.role" } },
+        { "massing", "Building slab", { "massing.buildingId", "massing.story", "massing.function", "massing.height" } },
         { "program", "Program", { "program.usage", "program.occupancy", "program.units", "program.gfaTarget" } },
         { "structure", "Structure", { "structure.system" } },
         { "planning", "Planning", { "planning.phase", "cost.rate" } },

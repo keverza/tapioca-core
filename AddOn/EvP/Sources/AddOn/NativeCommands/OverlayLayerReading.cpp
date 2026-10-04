@@ -11,6 +11,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 
 #include <string>
+#include <cmath>
 #include <vector>
 
 namespace geomsrv {
@@ -427,11 +428,17 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
     ReadNumbers (item, "offsetXY", out.offsetXY);
     ReadNumbers (item, "setbackDistances", out.setbackDistances);
     for (const char* name : { "setbackModes", "referenceVertices" }) {
-        GS::Array<GS::Int32> numbers;
-        if (item.Get (name, numbers)) {
+        std::vector<double> numbers;
+        ReadNumbers (item, name, numbers);
+        if (item.Contains (name)) {
             auto& target = std::string (name) == "setbackModes" ? out.setbackModes : out.referenceVertices;
-            for (GS::Int32 value : numbers)
+            for (double value : numbers) {
+                if (!std::isfinite (value) || value < 0 || value > 0xFFFFFFFFu || std::trunc (value) != value) {
+                    error = std::string (name) + ": expected non-negative whole numbers";
+                    return false;
+                }
                 target.push_back (uint32_t (value));
+            }
         }
     }
     if (item.Contains ("editable"))

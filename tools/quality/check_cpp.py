@@ -385,6 +385,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Its three ACAPI reads fail in the add-on's one vocabulary for a failed call;
     # CLAUDE.md forbids reporting a bare GSErrCode.
     ("ArchViz/SlabSliceSource.cpp", "Diagnostics/ApiError.hpp"),
+    # Massing's main-thread database adapter describes ACAPI failures in the HUD;
+    # the pure Define widgets/model include neither Diagnostics nor the DevKit.
+    ("ArchViz/MassingModel.cpp", "Diagnostics/ApiError.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the

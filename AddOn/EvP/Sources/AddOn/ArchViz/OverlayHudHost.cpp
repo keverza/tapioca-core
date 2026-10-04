@@ -95,9 +95,9 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
     }
     // The tab held is one of them or an own page: otherwise Stats, or -- without own pages --
     // the first panel, when the one held is gone.
-    bool held =
-        host.selected == kSettingsKey ||
-        (standalone && (host.selected == kStatsKey || host.selected == kSelectionKey || host.selected == kDebugKey));
+    bool held = host.selected == kSettingsKey ||
+                (standalone && (host.selected == kStatsKey || host.selected == kSelectionKey ||
+                                host.selected == kDebugKey || host.selected == hudmassing::kTabKey));
     for (const size_t i : titled)
         held = held || keys[i] == host.selected;
     if (!held)
@@ -338,6 +338,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     if (own.standalone) {
         spec.tabs.push_back ({ kStatsKey, "Stats" });
         spec.tabs.push_back ({ kSelectionKey, "Selection" });
+        spec.tabs.push_back ({ hudmassing::kTabKey, "Massing" });
     }
     for (const size_t i : titled)
         spec.tabs.push_back ({ keys[i], panels[i]->title });
@@ -348,6 +349,10 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
         spec.tabs.push_back ({ kDebugKey, unseen > 0 ? "Debug (" + std::to_string (unseen) + ")" : "Debug" });
     }
     const auto page = [&] (const std::string& k) {
+        if (k == hudmassing::kTabKey) {
+            MassingPage ();
+            return;
+        }
         if (k == kSettingsKey) {
             Settings ();
             return;

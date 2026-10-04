@@ -83,6 +83,7 @@ struct State {
     bool viewerRequested = false;
     // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
     std::vector<hudmeta::Edit> metadataEdits;
+    std::vector<hudmassing::Request> massingRequests;
     // The building section's floors picked (PickedFloors), both views'.
     hudsection::Run floors;
     // The console's marks (HudConsole.hpp `Draw`): the newest entry the Debug tab has shown, and
@@ -211,6 +212,7 @@ struct Engine::Impl {
     // to be one; Selection; Debug. And the title on a tab, by its key.
     void StatsPage (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float ui);
     void SelectionPage (float ui);
+    void MassingPage ();
     void DebugPage (float ui);
     std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,
                          const std::vector<std::string>& keys) const;

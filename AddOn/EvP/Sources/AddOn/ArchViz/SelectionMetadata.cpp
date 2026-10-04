@@ -15,6 +15,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <mutex>
@@ -267,8 +268,13 @@ hudmeta::Page Read (const std::vector<std::string>& listed, uint32_t selected)
         return page;
     }
     std::vector<meta::EntityMetadata> entities;
+    // A truncated preview must not enable slab-only edits for uninspected elements.
+    bool allSlabs = !listed.empty () && listed.size () == selected;
     std::string first;
     for (const std::string& guid : listed) {
+        API_Element element {};
+        element.header.guid = APIGuidFromString (guid.c_str ());
+        allSlabs = allSlabs && ACAPI_Element_Get (&element) == NoError && element.header.type.typeID == API_SlabID;
         meta::EntityMetadata entity;
         bool present = false;
         if (meta::storage::Read (guid, entity, present, error))
@@ -277,6 +283,11 @@ hudmeta::Page Read (const std::vector<std::string>& listed, uint32_t selected)
             first = error;
     }
     hudmeta::Page page = hudmeta::Fields (schema, entities, selected);
+    if (!allSlabs)
+        page.fields.erase (
+            std::remove_if (page.fields.begin (), page.fields.end (),
+                            [] (const hudmeta::Field& field) { return field.id.compare (0, 8, "massing.") == 0; }),
+            page.fields.end ());
     page.note = first;
     return page;
 }
