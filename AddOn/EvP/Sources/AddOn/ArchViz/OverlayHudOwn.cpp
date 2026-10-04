@@ -65,15 +65,7 @@ void Engine::Impl::SelectionPage (float ui)
     // and lays the HUD out again with what the elements then hold (SelectionMetadata.hpp).
     if (own.selection.count == 0)
         return;
-    // The massing slabs' building section first: its floors picked, a value given to them.
-    const hudsection::Run before = store->floors;
-    std::vector<hudmeta::Edit> edits = hudsection::Diagram (own.section, store->floors, *look, ui);
-    if (store->floors != before) {
-        const hudsection::Run& run = store->floors;
-        changes.push_back (
-            { "floors", std::string (), "Selection", own.section.key, -1, double (run.first),
-              run.Empty () ? std::string () : std::to_string (run.first) + "-" + std::to_string (run.last), true });
-    }
+    std::vector<hudmeta::Edit> edits;
     for (hudmeta::Edit& edit : hudmeta::Editor (own.metadata, *look, ui))
         edits.push_back (std::move (edit));
     for (hudmeta::Edit& edit : edits) {
@@ -90,6 +82,38 @@ void Engine::Impl::MassingPage ()
         store->massingRequests.push_back (request);
         changes.push_back ({ "massing", std::string (), "Massing", hudmassing::Role (request.group), -1,
                              double (request.action), hudmassing::Label (request.group), true });
+    }
+    for (auto& edit : hudmassingrules::Draw (own.massing.rules, store->massingRules, own.massing.calculationBusy,
+                                             own.massing.calculationNote, own.massing.preview)) {
+        changes.push_back (
+            { "massingRules", std::string (), "Massing", edit.before.guid, -1, 1.0, "Save assignments", true });
+        store->massingRuleEdits.push_back (std::move (edit));
+    }
+    for (auto& request : store->massingRules.calculations) {
+        changes.push_back ({ "massingCalculation", {}, "Massing", "calculate", -1, double (request.action), {}, true });
+        store->massingCalculations.push_back (std::move (request));
+    }
+    store->massingRules.calculations.clear ();
+    if (ImGui::CollapsingHeader ("Story slice heights", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextDisabled ("Set floor-to-floor height and first story in Selection.");
+        ImGui::TextDisabled ("Pick floors; right-click to set their function.");
+        const hudsection::Run before = store->floors;
+        for (auto& edit : hudsection::Diagram (own.section, store->floors, *look, overlayhud::FontScaleOf (*store))) {
+            changes.push_back ({ "metadata", {}, "Massing", edit.id, -1, edit.number, edit.text, true });
+            store->metadataEdits.push_back (std::move (edit));
+        }
+        if (store->floors != before) {
+            const auto& run = store->floors;
+            changes.push_back (
+                { "floors",
+                  {},
+                  "Massing",
+                  own.section.key,
+                  -1,
+                  double (run.first),
+                  run.Empty () ? std::string () : std::to_string (run.first) + "-" + std::to_string (run.last),
+                  true });
+        }
     }
 }
 

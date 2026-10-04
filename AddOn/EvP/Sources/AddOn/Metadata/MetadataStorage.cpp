@@ -151,6 +151,14 @@ bool ReadSchema (ProjectSchema& schema, bool& stored, std::string& error)
     }
     // What a newer default offers that this project's schema lacks, in memory only.
     Extend (read, DefaultSchema ());
+    // Upgrade only our original String function definition's presentation/domain
+    // in memory. Existing values and the stored project schema are not rewritten.
+    for (auto& definition : read.properties)
+        if (definition.key == "massing.function" && definition.type == ValueType::String &&
+            definition.enumId.empty () && definition.domains.empty ()) {
+            definition.enumId = "building-usage";
+            definition.domains = { kFloorDomain };
+        }
     schema = std::move (read);
     stored = true;
     return true;

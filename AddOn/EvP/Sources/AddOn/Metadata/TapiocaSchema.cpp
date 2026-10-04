@@ -123,13 +123,20 @@ ProjectSchema DefaultSchema ()
     story.max = 1000;
     story.step = 1;
     schema.properties.push_back (story);
-    schema.properties.push_back (Definition ("massing.function", "Function", ValueType::String, "Building slab"));
+    PropertyDefinition function = Definition ("massing.function", "Function", ValueType::String, "Building slab");
+    function.enumId = "building-usage"; // choice presentation; preserve existing String storage
+    function.domains = { kFloorDomain };
+    schema.properties.push_back (function);
     PropertyDefinition height = Definition ("massing.height", "Height", ValueType::Length, "Building slab", "m");
     height.min = 0.01;
     height.max = 1000;
     height.step = 0.01;
     height.description = "Floor-to-floor slice interval in metres; the slab's thickness is the building mass height.";
     schema.properties.push_back (height);
+    PropertyDefinition floorHeight = height;
+    floorHeight.key = "massing.floorHeight";
+    floorHeight.label = "Floor height";
+    schema.properties.push_back (floorHeight);
 
     PropertyDefinition usageKey = Definition ("program.usage", "Usage", ValueType::Enum, "Program");
     usageKey.enumId = "building-usage";
@@ -205,7 +212,9 @@ ProjectSchema DefaultSchema ()
     schema.tags = { "existing", "demolish", "temporary", "locked", "review", "exclude-analysis", "reference-only" };
     schema.ui = {
         { "common", "Common", { "tapioca.role" } },
-        { "massing", "Building slab", { "massing.buildingId", "massing.story", "massing.function", "massing.height" } },
+        { "massing",
+          "BUILDING SLAB",
+          { "massing.buildingId", "massing.story", "massing.function", "massing.floorHeight" } },
         { "program", "Program", { "program.usage", "program.occupancy", "program.units", "program.gfaTarget" } },
         { "structure", "Structure", { "structure.system" } },
         { "planning", "Planning", { "planning.phase", "cost.rate" } },

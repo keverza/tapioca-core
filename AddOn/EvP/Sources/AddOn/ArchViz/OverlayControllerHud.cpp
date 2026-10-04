@@ -19,6 +19,8 @@
 #include "ArchViz/OverlayVisibility.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/MassingModel.hpp"
+#include "ArchViz/MassingHybrid.hpp"
+#include "ArchViz/MassingSlicesModel.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 
 #include <algorithm>
@@ -74,6 +76,8 @@ std::vector<std::string> g_followedHidden;
 
 void FollowHudState ()
 {
+    massinghybrid::Poll ();
+    massingslicesmodel::Poll ();
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
     // The dock's viewer circle pressed: the switch, from the message loop's top -- not inside the
     // layout that took the press (SurfaceSwitch.hpp).
@@ -81,13 +85,32 @@ void FollowHudState ()
         surfaceswitch::Request (surfaceswitch::Surface::Viewer);
     for (const auto& request : overlayhud::TakeMassingRequests (*state))
         massingmodel::Request (request);
+    for (auto& edit : overlayhud::TakeMassingRuleEdits (*state))
+        massingmodel::RequestRules (std::move (edit));
+    for (auto& request : overlayhud::TakeMassingCalculations (*state))
+        massinghybrid::Request (std::move (request));
     // The Selection page's metadata edits: written from the message loop too, in one undo step,
     // to every element selected then; the page is read again after (SelectionMetadata.hpp).
     std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);
-    if (!edits.empty ())
-        selectionmetadata::Request (std::move (edits), {}, [] () { overlayhudmodel::SelectionChanged (); });
-    // The building section's floors picked: their slices on the 3D overlay.
-    overlayhudmodel::FollowFloors (overlayhud::PickedFloors (*state));
+    std::vector<hudmeta::Edit> targeted, selected;
+    std::vector<std::string> targets;
+    for (auto& edit : edits)
+        if (edit.element.empty ())
+            selected.push_back (std::move (edit));
+        else {
+            targets.push_back (edit.element);
+            targeted.push_back (std::move (edit));
+        }
+    if (!selected.empty ())
+        selectionmetadata::Request (std::move (selected), selectionmetadata::SelectedGuids (),
+                                    [] () { overlayhudmodel::SelectionChanged (); });
+    if (!targeted.empty ()) {
+        std::sort (targets.begin (), targets.end ());
+        targets.erase (std::unique (targets.begin (), targets.end ()), targets.end ());
+        selectionmetadata::Request (std::move (targeted), std::move (targets),
+                                    [] () { overlayhudmodel::SelectionChanged (); });
+    }
+    // Automatic function-coloured massing slices replace the legacy accent-only highlight.
     // Settings' displays, as the user set them: switched, or a new look on what was cut.
     overlayhud::Displays displays;
     if (overlayhud::TakeDisplays (*state, displays))

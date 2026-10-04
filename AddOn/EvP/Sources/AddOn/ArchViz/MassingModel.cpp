@@ -2,6 +2,9 @@
 #include "ACAPinc.h"
 
 #include "ArchViz/MassingModel.hpp"
+#include "ArchViz/MassingRulesModel.hpp"
+#include "ArchViz/MassingHybrid.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
@@ -205,6 +208,8 @@ void Apply (hudmassing::Request request, const std::vector<std::string>& selecte
     }
     s_dirty = true;
     s_notice = error;
+    ArchVizLog (std::string ("MASSING DEFINE  ") + hudmassing::Label (request.group) + " action=" +
+                std::to_string (int (request.action)) + (error.empty () ? " completed" : " refused: " + error));
     if (!error.empty ())
         hudconsole::Say (hudconsole::Level::Error, "Massing Define", error);
     selectionmetadata::Changed ();
@@ -218,6 +223,8 @@ hudmassing::Page Read ()
         s_dirty = false;
         hudmassing::Page page;
         Scan (page);
+        if (page.known)
+            page.rules = massingrulesmodel::Read (page.guids[0]);
         if (page.note.empty ())
             page.note = s_notice;
         s_page = std::move (page);
@@ -240,12 +247,41 @@ void Request (hudmassing::Request request)
     }
 }
 
+void RequestRules (massingrules::Edit edit)
+{
+    const uint64_t epoch = s_projectEpoch;
+    if (!selectionmetadata::Later ([edit = std::move (edit), epoch] () {
+            if (epoch != s_projectEpoch)
+                return;
+            std::string error;
+            hudmassing::Page current;
+            if (!Scan (current))
+                error = current.note;
+            else if (current.guids[0] != std::vector<std::string> { edit.before.guid })
+                error = "Defined property line changed before Save; reread before editing.";
+            else
+                massingrulesmodel::Apply (edit, error);
+            s_notice = error;
+            s_dirty = true;
+            ArchVizLog ("MASSING RULES  " + edit.before.guid + (error.empty () ? " saved" : " refused: " + error));
+            if (!error.empty ())
+                hudconsole::Say (hudconsole::Level::Error, "Property line rules", error);
+            selectionmetadata::Changed ();
+            overlayhudmodel::SelectionChanged ();
+        })) {
+        s_notice = "Property-line save was not queued: the project message loop is unavailable.";
+        s_dirty = true;
+        hudconsole::Say (hudconsole::Level::Error, "Property line rules", s_notice);
+    }
+}
+
 void Changed ()
 {
     s_dirty = true;
 }
 void Forget ()
 {
+    massinghybrid::Forget ();
     ++s_projectEpoch;
     s_page = {};
     s_notice.clear ();

@@ -6,6 +6,8 @@
 #include <array>
 #include <string>
 #include <vector>
+#include "ArchViz/MassingRules.hpp"
+#include "ArchViz/MassingCalculation.hpp"
 
 namespace geomsrv::archviz::hudmassing {
 
@@ -20,6 +22,10 @@ struct Page {
     bool known = false;
     std::array<std::vector<std::string>, 4> guids;
     std::string note;
+    massingrules::Page rules;
+    bool calculationBusy = false;
+    std::string calculationNote;
+    std::shared_ptr<const massingcalculation::Preview> preview;
 };
 struct Assignment {
     std::string guid;

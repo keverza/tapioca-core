@@ -177,6 +177,20 @@ std::vector<hudmassing::Request> TakeMassingRequests (State& state)
     return requests;
 }
 
+std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state)
+{
+    std::vector<massingrules::Edit> edits;
+    edits.swap (state.massingRuleEdits);
+    return edits;
+}
+
+std::vector<massingcalculation::Request> TakeMassingCalculations (State& state)
+{
+    std::vector<massingcalculation::Request> requests;
+    requests.swap (state.massingCalculations);
+    return requests;
+}
+
 hudsection::Run PickedFloors (const State& state)
 {
     return state.floors;

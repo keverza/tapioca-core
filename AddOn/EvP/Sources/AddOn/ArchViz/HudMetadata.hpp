@@ -97,6 +97,10 @@ struct Edit {
 // system; one per tag it offers. `selected` is how many an edit goes to.
 Page Fields (const metadata::ProjectSchema& schema, const std::vector<metadata::EntityMetadata>& entities,
              uint32_t selected);
+// Selection's deliberately small slab editor; legacy massing.height is read-only
+// fallback until the user authors floorHeight. Unrelated metadata is never erased.
+Page BuildingSlabFields (const metadata::ProjectSchema& schema, std::vector<metadata::EntityMetadata> entities,
+                         uint32_t selected);
 
 // An option of a dropdown or a menu: its colour's swatch, its label. True when chosen.
 bool OptionRow (const Option& option, bool chosen);

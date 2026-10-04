@@ -75,14 +75,15 @@ bool operator== (const Run& a, const Run& b)
     return (a.Empty () && b.Empty ()) || (a.first == b.first && a.last == b.last);
 }
 
-Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, const meta::ProjectSchema& schema)
+Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, const meta::ProjectSchema& schema,
+               const std::string& property)
 {
     Section section;
     section.known = true;
     // The first enumeration that may be assigned over floors: what a floor is coloured by.
     const meta::PropertyDefinition* key = nullptr;
     for (const meta::PropertyDefinition& definition : schema.properties)
-        if (definition.type == meta::ValueType::Enum &&
+        if ((property.empty () ? definition.type == meta::ValueType::Enum : definition.key == property) &&
             std::find (definition.domains.begin (), definition.domains.end (), meta::kFloorDomain) !=
                 definition.domains.end ()) {
             key = &definition;
@@ -91,6 +92,7 @@ Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, co
     if (key != nullptr) {
         section.key = key->key;
         section.keyLabel = key->label.empty () ? key->key : key->label;
+        section.valueType = key->type;
         if (const meta::Enumeration* options = schema.FindEnumeration (key->enumId))
             for (const meta::EnumOption& option : options->options)
                 section.options.push_back (
@@ -150,7 +152,7 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
         edit.id = section.key;
         edit.action = clear ? hudmeta::Edit::Action::Clear : hudmeta::Edit::Action::Set;
         edit.kind = hudmeta::FieldKind::Choice;
-        edit.type = meta::ValueType::Enum;
+        edit.type = section.valueType;
         edit.text = value;
         edit.label = section.keyLabel + ", " + RunText (run);
         edit.domain = meta::kFloorDomain;

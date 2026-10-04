@@ -19,6 +19,41 @@ namespace meta = geomsrv::metadata;
 namespace hm = geomsrv::archviz::hudmeta;
 namespace shell = geomsrv::archviz::hudshell;
 
+TEST (HudMetadata, SelectionOffersOnlyTheFourBuildingSlabFieldsAndPreservesLegacyData)
+{
+    meta::EntityMetadata entity;
+    meta::Property legacy;
+    legacy.key = "massing.height";
+    legacy.value = meta::Value::Number (4, meta::ValueType::Length);
+    meta::SetProperty (entity, legacy);
+    const auto before = meta::ToJson (entity);
+    const auto schema = meta::DefaultSchema ();
+    const auto page = hm::BuildingSlabFields (schema, { entity }, 1);
+    ASSERT_EQ (page.fields.size (), 4u);
+    EXPECT_EQ (page.fields[0].id, "massing.buildingId");
+    EXPECT_EQ (page.fields[1].id, "massing.story");
+    EXPECT_EQ (page.fields[2].id, "massing.function");
+    EXPECT_EQ (page.fields[3].id, "massing.floorHeight");
+    EXPECT_EQ (page.fields[3].number, 4);
+    for (const auto& field : page.fields) {
+        EXPECT_EQ (field.group, "BUILDING SLAB");
+        EXPECT_EQ (field.label, field.id);
+    }
+    EXPECT_EQ (page.fields[2].kind, hm::FieldKind::Choice);
+    EXPECT_EQ (page.fields[2].type, meta::ValueType::String);
+    EXPECT_FALSE (page.fields[2].options.empty ());
+    EXPECT_EQ (meta::ToJson (entity), before);
+    hm::Edit edit;
+    edit.id = "massing.function";
+    edit.kind = hm::FieldKind::Choice;
+    edit.type = meta::ValueType::String;
+    edit.text = "commercial";
+    std::string error;
+    ASSERT_TRUE (hm::Apply (entity, edit, schema, 0, error)) << error;
+    EXPECT_TRUE (meta::Validate (entity, schema).empty ());
+    EXPECT_EQ (meta::FindProperty (entity, "massing.function")->value.s, "commercial");
+}
+
 namespace {
 
 const hm::Field* FieldOf (const hm::Page& page, const std::string& id)

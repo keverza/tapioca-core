@@ -495,6 +495,10 @@ set (EVP_ARCHVIZ_SOURCES
     # The Selection page's Tapioca metadata: the schema's fields, their controls, an edit.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMetadata.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingRules.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSlices.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingRules.cpp"
     # The building section: the massing slabs' floors picked and given their usage.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudSection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
@@ -697,6 +701,8 @@ set (EVP_TEST_SOURCES
     test_hudconsole.cpp
     test_hudmetadata.cpp
     test_hudmassing.cpp
+    test_massingrules.cpp
+    test_massingslices.cpp
     test_hudsection.cpp
     test_tapiocametadata.cpp
     test_overlayclicktiming.cpp

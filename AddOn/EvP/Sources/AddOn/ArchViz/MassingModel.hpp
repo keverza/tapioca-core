@@ -8,6 +8,7 @@ namespace geomsrv::archviz::massingmodel {
 // worksheet. User edits are posted to the message loop, outside ImGui's lock.
 hudmassing::Page Read ();
 void Request (hudmassing::Request request);
+void RequestRules (massingrules::Edit edit);
 void Changed ();
 void Forget ();
 } // namespace geomsrv::archviz::massingmodel

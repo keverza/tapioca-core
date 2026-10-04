@@ -81,6 +81,26 @@ const hs::Floor* FloorAt (const hs::Section& section, int storey)
     return nullptr;
 }
 
+float SectionTop (Watched& hud, float x, float bottom)
+{
+    // Massing now has collapsible headers before the section. Its floor bars are
+    // the longest continuous hand target, not the first hand below the tab row.
+    float start = 0, longest = 0, top = 0;
+    for (float y = 52; y < bottom; ++y) {
+        if (hud.Lay ({}, At (x, y)).hand) {
+            if (start == 0)
+                start = y;
+            if (y - start + 1 > longest) {
+                longest = y - start + 1;
+                top = start;
+            }
+        }
+        else
+            start = 0;
+    }
+    return top;
+}
+
 } // namespace
 
 // ⚠️ THE USER: floors stacked, the podium's and the tower's widths, coloured by usage.
@@ -138,6 +158,23 @@ TEST (HudSection, ARunIsAssignedToEachSlabOverItsOwnFloors)
     EXPECT_EQ (meta::RangeValue (building[1].meta, meta::kFloorDomain, 3.0, "program.usage"), nullptr);
 }
 
+TEST (HudSection, SelectionNoLongerContainsTheFloorEditor)
+{
+    Watched hud;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    pages.selection.known = true;
+    pages.selection.count = 1;
+    pages.section = hs::Build (Building (), Storeys (10), meta::DefaultSchema ());
+    hud.engine.SetOwnPages (pages);
+    hud::SelectKey (*hud.state, shell::kSelectionKey);
+    hud.Lay ({}, At (600, 600));
+    const auto layout = hud.Lay ({}, At (600, 600));
+    EXPECT_FALSE (std::any_of (layout.host.vertices.begin (), layout.host.vertices.end (),
+                               [] (const hud::Vertex& v) { return v.rgba == 0xE4572EFFu; }));
+    EXPECT_TRUE (hud::PickedFloors (*hud.state).Empty ());
+}
+
 // Through the HUD: a press picks a floor, a shift-press runs to another, a drag picks the
 // floors it crosses.
 TEST (HudSection, FloorsArePickedByAPressAShiftPressAndADrag)
@@ -149,18 +186,13 @@ TEST (HudSection, FloorsArePickedByAPressAShiftPressAndADrag)
     pages.selection.count = 1;
     pages.section = hs::Build ({ SlabOf ("A", 0, 3, 500.0) }, Storeys (3), meta::DefaultSchema ());
     hud.engine.SetOwnPages (pages);
-    hud::SelectKey (*hud.state, shell::kSelectionKey);
+    hud::SelectKey (*hud.state, geomsrv::archviz::hudmassing::kTabKey);
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
     ASSERT_GT (out.host.height, 0.0f);
 
     // The section's top edge: the first hand down the host's middle, below the tab row.
     const float x = 16.0f + out.host.width * 0.5f;
-    float top = 0.0f;
-    for (float y = 52.0f; y < 16.0f + out.host.height; y += 1.0f)
-        if (hud.Lay ({}, At (x, y)).hand) {
-            top = y;
-            break;
-        }
+    const float top = SectionTop (hud, x, 16.0f + out.host.height);
     ASSERT_GT (top, 0.0f) << "the section is on the page";
     // Three rows of floor (13 x 1.2) px and a pixel apart; the highest floor on top.
     const float pitch = std::floor (13.0f * 1.2f) + 1.0f;
@@ -200,15 +232,10 @@ TEST (HudSection, ARightClickAssignsAValueToThePickedFloors)
     pages.section =
         hs::Build ({ SlabOf ("A", 0, 2, 800.0), SlabOf ("B", 2, 2, 300.0) }, Storeys (4), meta::DefaultSchema ());
     hud.engine.SetOwnPages (pages);
-    hud::SelectKey (*hud.state, shell::kSelectionKey);
+    hud::SelectKey (*hud.state, geomsrv::archviz::hudmassing::kTabKey);
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
     const float x = 16.0f + out.host.width * 0.5f;
-    float top = 0.0f;
-    for (float y = 52.0f; y < 16.0f + out.host.height; y += 1.0f)
-        if (hud.Lay ({}, At (x, y)).hand) {
-            top = y;
-            break;
-        }
+    const float top = SectionTop (hud, x, 16.0f + out.host.height);
     ASSERT_GT (top, 0.0f);
     const float pitch = std::floor (13.0f * 1.2f) + 1.0f;
     // Floors 3 down to 0, top first: pick floors 1-2 by a drag, then right-click on floor 2.

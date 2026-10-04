@@ -11,6 +11,7 @@
 
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/HudMassingRules.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: which draw list is whose
@@ -84,6 +85,9 @@ struct State {
     // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
     std::vector<hudmeta::Edit> metadataEdits;
     std::vector<hudmassing::Request> massingRequests;
+    hudmassingrules::Draft massingRules;
+    std::vector<massingrules::Edit> massingRuleEdits;
+    std::vector<massingcalculation::Request> massingCalculations;
     // The building section's floors picked (PickedFloors), both views'.
     hudsection::Run floors;
     // The console's marks (HudConsole.hpp `Draw`): the newest entry the Debug tab has shown, and

@@ -438,6 +438,39 @@ std::vector<Edit> Editor (const Page& page, const layers::Panel& look, float sca
     return edits;
 }
 
+Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::EntityMetadata> entities,
+                         uint32_t selected)
+{
+    for (auto& entity : entities)
+        if (!meta::FindProperty (entity, "massing.floorHeight"))
+            if (const auto* legacy = meta::FindProperty (entity, "massing.height")) {
+                auto property = *legacy;
+                property.key = "massing.floorHeight";
+                entity.properties.push_back (std::move (property));
+            }
+    const auto fields = Fields (schema, entities, selected);
+    Page page = fields;
+    page.fields.clear ();
+    for (const char* key : { "massing.buildingId", "massing.story", "massing.function", "massing.floorHeight" })
+        for (const auto& candidate : fields.fields)
+            if (candidate.id == key) {
+                Field field = candidate;
+                field.group = "BUILDING SLAB";
+                field.label = key;
+                if (field.id == "massing.floorHeight" && !field.set)
+                    field.number = 3;
+                if (field.id == "massing.function") {
+                    field.kind = FieldKind::Choice; // storage stays String for existing projects
+                    if (const auto* choices = schema.FindEnumeration ("building-usage"))
+                        for (const auto& option : choices->options)
+                            field.options.push_back ({ option.value, option.label, option.rgba });
+                }
+                page.fields.push_back (std::move (field));
+                break;
+            }
+    return page;
+}
+
 bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectSchema& schema, int64_t nowMs,
             std::string& error)
 {

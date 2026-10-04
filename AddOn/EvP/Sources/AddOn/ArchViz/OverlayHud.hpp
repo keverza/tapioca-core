@@ -292,6 +292,8 @@ bool TakeViewerRequest (State& state);
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
 std::vector<hudmassing::Request> TakeMassingRequests (State& state);
+std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);
+std::vector<massingcalculation::Request> TakeMassingCalculations (State& state);
 // What the user set the displays to on Settings since the last call: true, and `displays` the
 // whole of it -- the owner applies it, after the layout, never inside it.
 bool TakeDisplays (State& state, Displays& displays);

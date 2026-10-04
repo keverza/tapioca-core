@@ -64,6 +64,7 @@ struct Section {
     bool known = false;
     std::string key; // the definition it colours by and assigns: "program.usage"
     std::string keyLabel;
+    metadata::ValueType valueType = metadata::ValueType::Enum;
     std::vector<hudmeta::Option> options;
     std::vector<Floor> floors; // the lowest first
     std::vector<Span> spans;
@@ -99,7 +100,8 @@ struct Slab {
 };
 
 // The section of `slabs` under `schema`, its rows named from `storeys`.
-Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, const metadata::ProjectSchema& schema);
+Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, const metadata::ProjectSchema& schema,
+               const std::string& property = {});
 
 // The edits that assign `value` (or clear the key, `clear`) over `run`, one per slab that has a
 // floor in it, clipped to that slab's own floors.

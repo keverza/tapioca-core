@@ -282,12 +282,9 @@ hudmeta::Page Read (const std::vector<std::string>& listed, uint32_t selected)
         else if (first.empty ())
             first = error;
     }
-    hudmeta::Page page = hudmeta::Fields (schema, entities, selected);
+    hudmeta::Page page = hudmeta::BuildingSlabFields (schema, entities, selected);
     if (!allSlabs)
-        page.fields.erase (
-            std::remove_if (page.fields.begin (), page.fields.end (),
-                            [] (const hudmeta::Field& field) { return field.id.compare (0, 8, "massing.") == 0; }),
-            page.fields.end ());
+        page.fields.clear ();
     page.note = first;
     return page;
 }

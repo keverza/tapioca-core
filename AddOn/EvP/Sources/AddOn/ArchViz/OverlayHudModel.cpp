@@ -23,6 +23,8 @@
 #include "ArchViz/SectionModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/MassingModel.hpp"
+#include "ArchViz/MassingHybrid.hpp"
+#include "ArchViz/MassingSlicesModel.hpp"
 #include "ArchViz/StorySliceOverlay.hpp" // Settings' displays: the storey slices
 #include "Metadata/MetadataExtractor.hpp"
 
@@ -379,7 +381,40 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.selection = Selection ();
     pages.metadata = g_metadata;
     pages.massing = massingmodel::Read ();
+    const auto calculation = massinghybrid::Read ();
+    pages.massing.calculationBusy = calculation.busy;
+    pages.massing.calculationNote = calculation.note;
+    pages.massing.preview = calculation.preview;
+    if (calculation.preview) {
+        const auto& result = calculation.preview->result;
+        Card card;
+        card.title = "Massing envelope";
+        card.figures.push_back ({ "Parcel area", Format ("%.2f m2", result.parcelArea) });
+        card.figures.push_back ({ "Allowed footprint", Format ("%.2f m2", result.allowedArea) });
+        if (result.hasMeanASL)
+            card.figures.push_back ({ "Mean elevation ASL", Format ("%.2f m", result.meanASL) });
+        else if (result.hasMeanZ)
+            card.figures.push_back ({ "Mean elevation (project Z)", Format ("%.2f m", result.meanZ) });
+        card.note = result.hasEnvelope ? "Shared Python envelope; allowed story areas are below." : result.note;
+        pages.stats.push_back (std::move (card));
+    }
     pages.section = g_section.section;
+    if (const auto slices = massingslicesmodel::Read (); slices && (!slices->rows.empty () || !slices->note.empty ())) {
+        pages.section = slices->section;
+        Card card;
+        card.title = "Massing story slices";
+        card.figures.push_back ({ "Slices", std::to_string (slices->rows.size ()) });
+        card.figures.push_back ({ "Slab slice area sum", Format ("%.2f m2", slices->rawArea) });
+        if (slices->clipped) {
+            card.figures.push_back ({ "Allowed slice area sum", Format ("%.2f m2", slices->allowedArea) });
+            if (calculation.preview && calculation.preview->result.parcelArea > 0)
+                card.figures.push_back (
+                    { "Allowed floor-area / parcel ratio",
+                      Format ("%.3f", slices->allowedArea / calculation.preview->result.parcelArea) });
+        }
+        card.note = slices->note;
+        pages.stats.push_back (std::move (card));
+    }
     pages.console = hudconsole::Entries (); // the Debug tab's console: what to check when something fails
     // The add-on's own displays as they are: Settings switches and styles them (ApplyDisplays).
     const storysliceoverlay::State slices = storysliceoverlay::Describe ();
@@ -426,6 +461,7 @@ overlayhud::Engine* Prepare (overlayinput::View view)
 
 void SelectionChanged ()
 {
+    massingslicesmodel::Changed ();
     massingmodel::Changed ();
     g_selectionDirty = true;
     overlayinput::RequestLayout (overlayinput::View::ThreeD);
@@ -446,6 +482,7 @@ void FollowFloors (const hudsection::Run& run)
 
 void Forget ()
 {
+    massingslicesmodel::Forget ();
     massingmodel::Forget ();
     g_framesSeen = 0;
     g_framesMovedAt = std::chrono::steady_clock::time_point {};

@@ -19,7 +19,9 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/SectionModel.hpp"      // the viewer's building section, read for its render thread
 #include "ArchViz/SelectionMetadata.hpp" // the HUD's metadata edits -- its window must not outlive the DLL
-#include "ArchViz/SurfaceSwitch.hpp"     // the overlay or the viewer -- its window must not outlive the DLL
+#include "ArchViz/MassingHybrid.hpp"
+#include "ArchViz/MassingSlicesModel.hpp"
+#include "ArchViz/SurfaceSwitch.hpp" // the overlay or the viewer -- its window must not outlive the DLL
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp" // its geometry producer, joined on teardown
 #include "ArchViz/CameraSyncMode.hpp"   // camera-sync mechanism switch — torn down on exit
@@ -228,6 +230,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             evp::nodegraph::ShutDownWorkerPool ();
             evp::MainThreadGate::Get ().BeginShutdown ();
             evp::dynamo::Release ();
+            geomsrv::archviz::massinghybrid::Shutdown ();
+            geomsrv::archviz::massingslicesmodel::Shutdown ();
             break;
         default:
             break;
@@ -678,6 +682,8 @@ GSErrCode FreeData (void)
     evp::nodegraph::ShutDownWorkerPool ();
     evp::MainThreadGate::Get ().BeginShutdown ();
     evp::dynamo::Release ();
+    geomsrv::archviz::massinghybrid::Shutdown ();
+    geomsrv::archviz::massingslicesmodel::Shutdown ();
     // The plan frame record's subclass, message hook and timer call into this
     // module; they go before the Present hook, which it may also hold.
     geomsrv::archviz::planframes::Shutdown ();
