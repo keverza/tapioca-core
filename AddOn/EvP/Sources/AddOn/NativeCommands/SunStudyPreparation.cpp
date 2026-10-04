@@ -92,6 +92,9 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
                          " samples=" + std::to_string (record.positions.size () / 3) +
                          " reused=" + std::to_string (record.reusedSamples) +
                          " dirty=" + std::to_string (record.positions.size () / 3 - record.reusedSamples) +
+                         " reusedSampleSteps=" + std::to_string (record.reusedSampleSteps) +
+                         " dirtySampleSteps=" + std::to_string (record.positions.size () / 3 * record.series.StepCount () -
+                                                               record.reusedSampleSteps) +
                          " gridM=" + std::to_string (record.gridSpacing));
     record.session.SetStepObserver ([snapshotId] (size_t step, const evp::sunstudy::OcclusionAccumulator& accumulator,
                                                   double wallMs) {

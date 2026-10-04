@@ -170,7 +170,8 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         }
         if (progress_.at (id).converged)
             return true; // completed accumulator is an immutable reuse source
-        if (found->second->reusedSamples != 0 && (tmin != 0.001 || tmax != 0.0)) {
+        if ((found->second->reusedSamples != 0 || found->second->reusedSampleSteps != 0) &&
+            (tmin != 0.001 || tmax != 0.0)) {
             error = "incremental sun study requires its original ray bounds";
             return false;
         }
@@ -652,6 +653,7 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.id = source.id;
     copyOfMetadata.snapshotId = source.snapshotId;
     copyOfMetadata.reusedSamples = source.reusedSamples;
+    copyOfMetadata.reusedSampleSteps = source.reusedSampleSteps;
     copyOfMetadata.defaultRayBounds = source.defaultRayBounds;
     copyOfMetadata.timestepMinutes = source.timestepMinutes;
     copyOfMetadata.year = source.year;

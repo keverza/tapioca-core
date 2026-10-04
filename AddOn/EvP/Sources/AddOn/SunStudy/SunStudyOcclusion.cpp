@@ -30,26 +30,43 @@ void OcclusionAccumulator::Reset ()
     resolvedCount_ = 0;
     selective_ = false;
     activeSamples_.clear ();
+    dirtySteps_.clear ();
 }
 
-bool OcclusionAccumulator::SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples)
+bool OcclusionAccumulator::SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples,
+                                         const std::vector<uint64_t>& dirtySteps)
 {
     if (&source == this || !source.Complete () || source.stepCount_ != stepCount_ ||
-        sourceSamples.size () != sampleCount_ || resolvedCount_ != 0)
+        sourceSamples.size () != sampleCount_ || resolvedCount_ != 0 ||
+        (!dirtySteps.empty () && dirtySteps.size () != bits_.size ()))
         return false;
-    for (const size_t sample : sourceSamples) {
-        if (sample != kNoReuse && sample >= source.sampleCount_)
+    for (size_t sample = 0; sample < sampleCount_; ++sample) {
+        if (sourceSamples[sample] != kNoReuse && sourceSamples[sample] >= source.sampleCount_)
             return false;
+        for (size_t word = 0; !dirtySteps.empty () && word < wordsPerSample_; ++word) {
+            const size_t remaining = stepCount_ - word * kBitsPerWord;
+            const uint64_t valid = remaining >= kBitsPerWord ? ~0ull : (1ull << remaining) - 1ull;
+            const uint64_t dirty = dirtySteps[sample * wordsPerSample_ + word];
+            if ((dirty & ~valid) != 0 || (sourceSamples[sample] == kNoReuse && dirty != valid))
+                return false; // missing identity cannot seed even one timestep
+        }
     }
+    dirtySteps_ = dirtySteps;
     activeSamples_.clear ();
     std::fill (bits_.begin (), bits_.end (), 0ull);
     for (size_t sample = 0; sample < sampleCount_; ++sample) {
         const size_t from = sourceSamples[sample];
-        if (from == kNoReuse)
-            activeSamples_.push_back (static_cast<uint32_t> (sample));
-        else
+        if (from != kNoReuse)
             std::copy_n (source.bits_.begin () + from * wordsPerSample_, wordsPerSample_,
-                         bits_.begin () + sample * wordsPerSample_);
+                          bits_.begin () + sample * wordsPerSample_);
+        bool active = from == kNoReuse;
+        for (size_t word = 0; !dirtySteps_.empty () && word < wordsPerSample_; ++word) {
+            const uint64_t dirty = dirtySteps_[sample * wordsPerSample_ + word];
+            bits_[sample * wordsPerSample_ + word] &= ~dirty;
+            active = active || dirty != 0;
+        }
+        if (active)
+            activeSamples_.push_back (static_cast<uint32_t> (sample));
     }
     selective_ = true;
     if (activeSamples_.empty ()) {
@@ -99,6 +116,8 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
         if (i % 4096 == 0 && isCancelled && isCancelled ())
             return false;
         const size_t s = selective_ ? activeSamples_[i] : i;
+        if (!dirtySteps_.empty () && (dirtySteps_[s * wordsPerSample_ + word] & bit) == 0)
+            continue;
         if (samples.normals != nullptr) {
             const double* n = &samples.normals[s * 3];
             const double incidence = n[0] * sunDirection[0] + n[1] * sunDirection[1] + n[2] * sunDirection[2];
@@ -129,6 +148,8 @@ bool OcclusionAccumulator::AccumulateStep (const ITraversal& traversal, const Sa
     // not clear an existing step or corrupt any reused complete-day samples.
     for (size_t i = 0; i < ActiveSampleCount (); ++i) {
         const size_t s = selective_ ? activeSamples_[i] : i;
+        if (!dirtySteps_.empty () && (dirtySteps_[s * wordsPerSample_ + word] & bit) == 0)
+            continue;
         bits_[s * wordsPerSample_ + word] &= ~bit;
     }
     if (traced > 0) {

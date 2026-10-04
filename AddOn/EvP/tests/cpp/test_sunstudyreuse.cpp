@@ -230,6 +230,25 @@ TEST_P (SunStudyReuse, RemovingContextOrIgnoredRestoresSamplesWithoutAGeometryEd
     }
 }
 
+TEST_P (SunStudyReuse, LocalEditReusesUnaffectedTimesOnPartlyAffectedReceivers)
+{
+    auto source = Prepared (Scene (), GetParam (), 70, {}, {}, nullptr, true);
+    Complete (*source);
+    auto edited = Scene (9);
+    edited->id = 2;
+    auto incremental = Prepared (edited, GetParam (), 70, {}, {}, source.get (), true);
+    auto oracle = Prepared (edited, GetParam (), 70, {}, {}, nullptr, true);
+    const std::atomic<bool> cancelled { false };
+    ReuseUnaffectedSamples (*source, *incremental, cancelled);
+    EXPECT_GT (incremental->reusedSampleSteps, incremental->reusedSamples * 70);
+    const size_t wholeDayRays = incremental->session.Accumulator ().ActiveSampleCount () * 70;
+    Complete (*incremental);
+    Complete (*oracle);
+    EXPECT_EQ (incremental->session.Accumulator ().Bits (), oracle->session.Accumulator ().Bits ());
+    const auto* traced = dynamic_cast<const CountTraversal*> (incremental->traversal.get ());
+    EXPECT_LT (traced->rays, wholeDayRays);
+}
+
 TEST_P (SunStudyReuse, CachedGridsAndSelectiveResultsMatchFreshCpuForEditsAndRoles)
 {
     auto source = Prepared (Scene (), GetParam (), 70, {}, {}, nullptr, true);

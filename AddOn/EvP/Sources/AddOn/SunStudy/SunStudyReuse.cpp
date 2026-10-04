@@ -82,20 +82,30 @@ bool RayHitsBounds (const double* point, const double* direction, const ChangedB
     return true;
 }
 
-bool InShadowZone (const double* point, const std::vector<ShadowZone>& zones, const SunSeries& sun)
+size_t DirtyShadowSteps (const double* point, const double* normal, const std::vector<ShadowZone>& zones,
+                        const SunSeries& sun, uint64_t* dirty)
 {
+    std::fill_n (dirty, (sun.StepCount () + 63) / 64, 0ull);
+    size_t count = 0;
     for (const auto& zone : zones) {
         if (!zone.envelope.Intersects (point, point))
             continue;
-        // The day's union AABB is only a broad-phase filter. A receiver must
-        // actually cast a sunward ray through an old/new changed box to be dirty;
-        // otherwise east+west suns would invalidate almost the entire site.
-        for (const auto& step : sun.Steps ()) {
-            if (RayHitsBounds (point, step.direction, zone.bounds))
-                return true;
+        // Invalidate only the times whose sunward ray can meet an old/new
+        // changed box. A brief morning edit must not retrace this whole day.
+        for (size_t step = 0; step < sun.StepCount (); ++step) {
+            const uint64_t bit = 1ull << (step % 64);
+            if ((dirty[step / 64] & bit) != 0)
+                continue;
+            const double* direction = sun.Step (step).direction;
+            if (normal[0] * direction[0] + normal[1] * direction[1] + normal[2] * direction[2] <= 0.0)
+                continue; // unchanged normal still proves self-shadowing
+            if (RayHitsBounds (point, direction, zone.bounds)) {
+                dirty[step / 64] |= bit;
+                ++count;
+            }
         }
     }
-    return false;
+    return count;
 }
 
 } // namespace
@@ -215,7 +225,16 @@ size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, c
     }
     std::vector<size_t> cursors (oldMesh.size (), 0);
     std::vector<size_t> reuse (target.sampleMeshes.size (), OcclusionAccumulator::kNoReuse);
+    const size_t steps = target.series.StepCount ();
+    const size_t words = (steps + 63) / 64;
+    if (words == 0)
+        return 0;
+    std::vector<uint64_t> dirtySteps (target.sampleMeshes.size () * words, ~0ull);
+    if (steps % 64 != 0)
+        for (size_t sample = 0; sample < target.sampleMeshes.size (); ++sample)
+            dirtySteps[sample * words + words - 1] = (1ull << (steps % 64)) - 1ull;
     size_t reused = 0;
+    size_t reusedSteps = 0;
     for (size_t sample = 0; sample < target.sampleMeshes.size (); ++sample) {
         if (cancelled.load ())
             return 0;
@@ -230,14 +249,18 @@ size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, c
         const double* point = &target.positions[sample * 3];
         const double* normal = target.normals.data () + sample * 3;
         if (!std::equal (point, point + 3, &source.positions[from * 3]) ||
-            !std::equal (normal, normal + 3, &source.normals[from * 3]) || InShadowZone (point, zones, target.series))
+            !std::equal (normal, normal + 3, &source.normals[from * 3]))
             continue;
+        const size_t dirty = DirtyShadowSteps (point, normal, zones, target.series, &dirtySteps[sample * words]);
         reuse[sample] = from;
-        ++reused;
+        reused += dirty == 0 ? 1 : 0;
+        reusedSteps += steps - dirty;
     }
-    if (reused == 0 || cancelled.load () || !target.session.SeedReusable (source.session.Accumulator (), reuse))
+    if (reusedSteps == 0 || cancelled.load () ||
+        !target.session.SeedReusable (source.session.Accumulator (), reuse, dirtySteps))
         return 0;
     target.reusedSamples = reused;
+    target.reusedSampleSteps = reusedSteps;
     return reused;
 }
 

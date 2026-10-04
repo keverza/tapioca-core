@@ -78,7 +78,8 @@ class SunStudySession final {
     // as long as it keeps advancing.
     void Sync (const StudyInputs& inputs, const SunSeries& series, const SampleSet& samples);
 
-    bool SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples);
+    bool SeedReusable (const OcclusionAccumulator& source, const std::vector<size_t>& sourceSamples,
+                       const std::vector<uint64_t>& dirtySteps = {});
     // Called on the analysis worker after each complete timestep; never ACAPI.
     using StepObserver = std::function<void (size_t, const OcclusionAccumulator&, double)>;
     void SetStepObserver (StepObserver observer)

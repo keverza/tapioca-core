@@ -313,3 +313,44 @@ TEST (SunStudyOcclusion, ThreadedAndInlineAccumulationAgree)
 
     EXPECT_EQ (inlineRun.Bits (), threadedRun.Bits ());
 }
+
+TEST (SunStudyOcclusion, SelectiveTimesPreserveCleanBitsAcrossWordBoundariesAndCancellation)
+{
+    Scene scene;
+    OcclusionAccumulator source (2, 70), incremental (2, 70);
+    for (size_t step = 0; step < 70; ++step)
+        ASSERT_TRUE (source.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));
+    // Reverse the identity mapping: sample 0 inherits lit bits, sample 1 shade.
+    const std::vector<size_t> mapping { 1, 0 };
+    const std::vector<uint64_t> dirty { 1ull << 63, 1ull, 1ull << 4, 1ull << 5 };
+    ASSERT_TRUE (incremental.SeedReusable (source, mapping, dirty));
+    const auto seeded = incremental.Bits ();
+    ASSERT_FALSE (incremental.AccumulateStep (*scene.traversal, scene.Samples (), 63, kSunUp, 0.001, 0.0, 1,
+                                               [] { return true; }));
+    EXPECT_EQ (incremental.Bits (), seeded);
+    for (size_t step = 0; step < 70; ++step)
+        ASSERT_TRUE (incremental.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));
+    for (size_t step = 0; step < 70; ++step) {
+        EXPECT_EQ (incremental.Lit (0, step), step != 63 && step != 64);
+        EXPECT_EQ (incremental.Lit (1, step), step == 4 || step == 69);
+    }
+    incremental.Reset ();
+    ASSERT_TRUE (incremental.AccumulateStep (*scene.traversal, scene.Samples (), 0, kSunUp, 0.001, 0.0, 1));
+    EXPECT_FALSE (incremental.Lit (0, 0));
+    EXPECT_TRUE (incremental.Lit (1, 0));
+}
+
+TEST (SunStudyOcclusion, SelectiveTimesRejectMissingIdentityAndInvalidMasksWithoutChangingBits)
+{
+    Scene scene;
+    OcclusionAccumulator source (2, 70), target (2, 70);
+    for (size_t step = 0; step < 70; ++step)
+        ASSERT_TRUE (source.AccumulateStep (*scene.traversal, scene.Samples (), step, kSunUp, 0.001, 0.0, 1));
+    EXPECT_FALSE (target.SeedReusable (source, { 0, 1 }, { 0, 0, 0 }));
+    EXPECT_FALSE (target.SeedReusable (source, { 0, 1 }, { 0, 1ull << 6, 0, 0 }));
+    EXPECT_FALSE (target.SeedReusable (source, { OcclusionAccumulator::kNoReuse, 1 }, { 0, 0, 0, 0 }));
+    EXPECT_EQ (target.Bits (), (std::vector<uint64_t> { 0, 0, 0, 0 }));
+    ASSERT_TRUE (target.SeedReusable (source, { 0, 1 }, { 0, 0, 0, 0 }));
+    EXPECT_TRUE (target.Complete ());
+    EXPECT_EQ (target.Bits (), source.Bits ());
+}
