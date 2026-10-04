@@ -61,8 +61,8 @@ TEST (SunStudyPreview, RealShaderReadsBlueCutoffAndShadowDurationOnD3D)
     const std::string source = std::string (kArchVizCBuffer) + kArchVizSunTintPS + R"hlsl(
 RWStructuredBuffer<float4> result : register(u0);
 [numthreads(1,1,1)] void PreviewTest(uint3 id : SV_DispatchThreadID) {
-    result[0] = float4(SunRamp(2.0, 0.25), 1.0);
-    result[1] = float4(SunRamp(2.5, 0.25), 1.0);
+    result[0] = StudyOverlayColor(SunRamp(2.0, 0.25));
+    result[1] = StudyOverlayColor(SunRamp(2.5, 0.25));
     result[2] = float4(ShadowFraction(int2(0,0),0,8), ShadowFraction(int2(0,0),8,16), ShadowFraction(int2(0,0),30,34), 1.0);
     result[3] = float4(AmPmDurationColor(1.0,0.0), 1.0);
     result[4] = float4(AmPmDurationColor(0.0,1.0), 1.0);
@@ -124,9 +124,11 @@ RWStructuredBuffer<float4> result : register(u0);
     ASSERT_TRUE (SUCCEEDED (context->Map (staging.Get (), 0, D3D11_MAP_READ, 0, &mapped)));
     const float* rgba = static_cast<const float*> (mapped.pData);
     const auto linear = [] (float value) { return std::pow ((value + 0.055f) / 1.055f, 2.4f); };
-    EXPECT_NEAR (rgba[0], linear (40.0f / 255.0f), 1e-6);
-    EXPECT_NEAR (rgba[1], linear (83.0f / 255.0f), 1e-6);
-    EXPECT_NEAR (rgba[2], linear (107.0f / 255.0f), 1e-6);
+    EXPECT_NEAR (rgba[0], 0.4f * linear ((0.541f + 0.612f) * 0.5f) + 0.6f * linear (40.0f / 255.0f), 1e-6);
+    EXPECT_NEAR (rgba[1], 0.4f * linear ((0.310f + 0.353f) * 0.5f) + 0.6f * linear (83.0f / 255.0f), 1e-6);
+    EXPECT_NEAR (rgba[2], 0.4f * linear ((0.122f + 0.137f) * 0.5f) + 0.6f * linear (107.0f / 255.0f), 1e-6);
+    EXPECT_FLOAT_EQ (rgba[3], 0.90f);
+    EXPECT_FLOAT_EQ (rgba[7], 0.90f);
     EXPECT_NEAR (rgba[4], linear (0.612f), 1e-6) << "cutoff equality stays warm";
     EXPECT_FLOAT_EQ (rgba[8], SunStudyShadowFraction (lit, 0, 8));
     EXPECT_FLOAT_EQ (rgba[9], SunStudyShadowFraction (lit, 8, 16));
@@ -155,6 +157,8 @@ class SunStudyControls : public testing::Test {
     ImGuiContext* context = nullptr;
     float from = 8.0f, to = 17.0f, threshold = 2.5f;
     ImVec2 start, size;
+    int inspect = 2;
+    float inspectBottom = 0.0f;
     void SetUp () override
     {
         context = ImGui::CreateContext ();
@@ -188,6 +192,23 @@ class SunStudyControls : public testing::Test {
         ImGui::End ();
         ImGui::Render ();
     }
+    void InspectFrame (float x, bool down, const char* first = "", const char* second = "")
+    {
+        auto& io = ImGui::GetIO ();
+        io.AddMousePosEvent (x, 48.0f);
+        io.AddMouseButtonEvent (0, down);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos (ImVec2 (0, 0));
+        ImGui::SetNextWindowSize (ImVec2 (320, 250));
+        ImGui::Begin ("controls", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::SetCursorPosY (20);
+        start = ImGui::GetCursorScreenPos ();
+        size = ImVec2 (ImGui::GetContentRegionAvail ().x, ImGui::GetFrameHeight ());
+        DrawSunStudyInspectControl (inspect, first, second);
+        inspectBottom = ImGui::GetCursorPosY ();
+        ImGui::End ();
+        ImGui::Render ();
+    }
 };
 } // namespace
 
@@ -218,4 +239,40 @@ TEST_F (SunStudyControls, BlueBoxDragsOnTheGradientInQuarterHours)
     Frame (x (2.5f), true, true);
     Frame (x (2.0f), true, true);
     EXPECT_FLOAT_EQ (threshold, 2.0f);
+}
+
+TEST_F (SunStudyControls, PanelReadingKeepsTheSameSpaceForEveryHoverState)
+{
+    InspectFrame (-1, false);
+    const float empty = inspectBottom;
+    InspectFrame (-1, false, "5.00 h direct sun", "5.75 h shadow of 10.75 h daylight");
+    EXPECT_FLOAT_EQ (inspectBottom, empty);
+    InspectFrame (-1, false, "cursor ray missed the hovered element");
+    EXPECT_FLOAT_EQ (inspectBottom, empty);
+    InspectFrame (-1, false, "context: casts shadow, not measured");
+    EXPECT_FLOAT_EQ (inspectBottom, empty);
+}
+
+TEST_F (SunStudyControls, ThreePositionHoverButtonsSelectOffCursorAndPanelDirectly)
+{
+    InspectFrame (-1, false);
+    for (const int wanted : { 0, 1, 2 }) {
+        const float x = start.x + size.x * (float (wanted) + 0.5f) / 3.0f;
+        InspectFrame (x, false);
+        InspectFrame (x, true);
+        InspectFrame (x, false);
+        EXPECT_EQ (inspect, wanted);
+    }
+}
+
+TEST_F (SunStudyControls, BlueGradientOverlayRetainsTheWarmRampBelowAtSixtyPercent)
+{
+    Frame (-1, false, true);
+    Frame (-1, false, true);
+    bool translucentBlue = false;
+    const auto* data = ImGui::GetDrawData ();
+    for (int list = 0; list < data->CmdListsCount; ++list)
+        for (const auto& vertex : data->CmdLists[list]->VtxBuffer)
+            translucentBlue = translucentBlue || vertex.col == IM_COL32 (40, 83, 107, 153);
+    EXPECT_TRUE (translucentBlue);
 }

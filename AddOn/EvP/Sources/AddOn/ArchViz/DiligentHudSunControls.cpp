@@ -92,7 +92,7 @@ void DrawSunStudyGradient (bool blue, float& threshold)
     }
     if (blue) {
         const float edge = start.x + width * threshold / top;
-        draw->AddRectFilled (start, ImVec2 (edge, start.y + height), Colour (0x28536B));
+        draw->AddRectFilled (start, ImVec2 (edge, start.y + height), IM_COL32 (40, 83, 107, 153));
         draw->AddRectFilled (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9),
                              Colour (0x28536B), 2.0f);
         draw->AddRect (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9), IM_COL32_WHITE,
@@ -101,5 +101,33 @@ void DrawSunStudyGradient (bool blue, float& threshold)
             ImGui::SetTooltip ("Drag the blue box: direct sun below %s", SunStudyClock (threshold, true).c_str ());
     }
     ImGui::TextDisabled ("0:00h                            9:00h+");
+}
+
+void DrawSunStudyInspectControl (int& mode, const char* first, const char* second)
+{
+    ImGui::TextUnformatted ("Mouse hover");
+    const char* labels[] = { "Off##suninspect", "Cursor##suninspect", "Panel##suninspect" };
+    const float width = (ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetStyle ().ItemSpacing.x) / 3.0f;
+    for (int i = 0; i < 3; ++i) {
+        if (i != 0)
+            ImGui::SameLine ();
+        ImGui::PushStyleColor (ImGuiCol_Button,
+                               ImGui::GetStyleColorVec4 (mode == i ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+        if (ImGui::Button (labels[i], ImVec2 (width, 0)))
+            mode = i;
+        ImGui::PopStyleColor ();
+    }
+    if (mode != 2)
+        return;
+    // Fixed viewport prevents both height and width from following hover text.
+    ImGui::BeginChild ("##sun-reading", ImVec2 (0, 3.0f * ImGui::GetTextLineHeightWithSpacing ()), ImGuiChildFlags_None,
+                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::TextWrapped ("%s", first != nullptr && first[0] != 0 ? first : "hover the model");
+    if (second != nullptr && second[0] != 0) {
+        ImGui::PushStyleColor (ImGuiCol_Text, ImGui::GetStyleColorVec4 (ImGuiCol_TextDisabled));
+        ImGui::TextWrapped ("%s", second);
+        ImGui::PopStyleColor ();
+    }
+    ImGui::EndChild ();
 }
 } // namespace geomsrv::archviz

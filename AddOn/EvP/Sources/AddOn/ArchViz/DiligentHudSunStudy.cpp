@@ -83,7 +83,6 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
 
 // The section's view list and the tint mode each one selects. Index 0 follows
 // whatever ShowSunStudy asked for. âš ï¸ AN ABI with SunStudyDebugMode.
-constexpr const char* kViewNames[] = { "as shown", "direct sun hours", "single shadow", "multiple shadows", "roles" };
 constexpr int kViewModes[] = { -1, 0, 5, 7, 4 };
 constexpr int kViewCount = 5;
 constexpr int kMultipleView = 3;
@@ -297,13 +296,14 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
         return;
     const std::string text = SunStudyClock (state.sunReadingHours, true);
     ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.0f, 0.0f, 0.0f, 1.0f));
-    ImGui::PushStyleColor (ImGuiCol_PopupBg, ImVec4 (0.78f, 0.78f, 0.78f, 1.0f));
+    ImGui::PushStyleColor (ImGuiCol_PopupBg, ImVec4 (0.78f, 0.78f, 0.78f, 0.70f));
     ImGui::PushStyleVar (ImGuiStyleVar_PopupRounding, 4.0f);
     ImGui::PushStyleVar (ImGuiStyleVar_PopupBorderSize, 0.0f);
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (4.0f, 2.0f));
     ImGui::BeginTooltip ();
     ImGui::TextUnformatted (text.c_str ());
     ImGui::EndTooltip ();
-    ImGui::PopStyleVar (2);
+    ImGui::PopStyleVar (3);
     ImGui::PopStyleColor (2);
 }
 
@@ -336,10 +336,11 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     state.sunStepMinutes = study.stepMinutes;
     const int current = ChosenMode (state) >= 0 ? ChosenMode (state) : int (study.debugMode);
     const bool shadows = current == 5 || current == 6 || current == 7;
-    const float buttonWidth = (ImGui::GetContentRegionAvail ().x - ImGui::GetStyle ().ItemSpacing.x) * 0.5f;
+    const bool roles = current == 4;
+    const float buttonWidth = (ImGui::GetContentRegionAvail ().x - 2.0f * ImGui::GetStyle ().ItemSpacing.x) / 3.0f;
     ImGui::PushStyleColor (ImGuiCol_Button,
-                           ImGui::GetStyleColorVec4 (shadows ? ImGuiCol_FrameBg : ImGuiCol_ButtonActive));
-    if (ImGui::Button ("Sun hours", ImVec2 (buttonWidth, 0)))
+                           ImGui::GetStyleColorVec4 (shadows || roles ? ImGuiCol_FrameBg : ImGuiCol_ButtonActive));
+    if (ImGui::Button ("Sunstudy", ImVec2 (buttonWidth, 0)))
         state.sunView = 1;
     ImGui::PopStyleColor ();
     ImGui::SameLine ();
@@ -350,6 +351,28 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         state.sunFanInterval = kFanAmPm;
     }
     ImGui::PopStyleColor ();
+    ImGui::SameLine ();
+    ImGui::PushStyleColor (ImGuiCol_Button,
+                           ImGui::GetStyleColorVec4 (roles ? ImGuiCol_ButtonActive : ImGuiCol_FrameBg));
+    if (ImGui::Button ("Roles", ImVec2 (buttonWidth, 0)))
+        state.sunView = 4;
+    ImGui::PopStyleColor ();
+
+    char first[96] = {}, second[96] = {};
+    ReadingLines (state, first, second, sizeof (first));
+    DrawSunStudyInspectControl (state.sunInspect, first, second);
+    if (ChosenMode (state) == 4 || (ChosenMode (state) < 0 && study.debugMode == 4)) {
+        Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("Analysis");
+        Swatch ("##roleC", Rgb (0x8599b3), "context: casts shadow, not measured");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("Context");
+        Swatch ("##roleI", Rgb (0xd65cb8), "ignored: absent from the study");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("Ignored");
+        return;
+    }
     if (shadows) {
         const char* styles[] = { "Single", "Morning / evening", "Time fan (diagnostic)" };
         int style = current == 5 ? 0 : current == 6 ? 1 : 2;
@@ -472,23 +495,6 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         }
     }
 
-    // ---- the hover inspector ----------------------------------------------------
-    static const char* const kInspectModes[] = { "off", "tooltip at cursor", "in this panel" };
-    ImGui::SetNextItemWidth (-60.0f);
-    ImGui::Combo ("inspect##suninspect", &state.sunInspect, kInspectModes, 3);
-    if (state.sunInspect == 2) {
-        char first[96];
-        char second[96];
-        if (ReadingLines (state, first, second, sizeof (first))) {
-            ImGui::TextUnformatted (first);
-            if (second[0] != 0)
-                ImGui::TextDisabled ("%s", second);
-        }
-        else {
-            ImGui::TextDisabled ("hover the model");
-        }
-    }
-
     if (!shadowView) {
         ImGui::TextUnformatted ("Direct sunlight range");
         // Full daylight range, rather than a 9+ endpoint pretending to be a clock.
@@ -507,25 +513,6 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         DrawMachineLimits (study);
         ImGui::TreePop ();
     }
-
-    if (!ImGui::TreeNode ("Diagnostic views"))
-        return;
-    ImGui::SetNextItemWidth (-60.0f);
-    ImGui::Combo ("view##sunview", &state.sunView, kViewNames, kViewCount);
-    // The role view's three colours -- the tint shader's RoleColor.
-    ImGui::TextDisabled ("roles view");
-    Swatch ("##roleA", Rgb (0xf59e24), "analysis: measured");
-    ImGui::SameLine ();
-    ImGui::TextUnformatted ("analysis");
-    ImGui::SameLine ();
-    Swatch ("##roleC", Rgb (0x8599b3), "context: casts shadow, not measured");
-    ImGui::SameLine ();
-    ImGui::TextUnformatted ("context");
-    ImGui::SameLine ();
-    Swatch ("##roleI", Rgb (0xd65cb8), "ignored: absent from the study");
-    ImGui::SameLine ();
-    ImGui::TextUnformatted ("ignored");
-    ImGui::TreePop ();
 }
 
 } // namespace archviz

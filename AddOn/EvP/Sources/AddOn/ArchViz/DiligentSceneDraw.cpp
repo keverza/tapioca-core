@@ -728,7 +728,13 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // valid, not so the shader reads it.
     constants.gradeParams[3] = impl_->aoView != nullptr ? impl_->aoIntensity : 0.0f;
 
-    const bool drawSurfaces = impl_->renderMode != SceneRenderMode::Wireframe;
+    const uint32_t studyMode = impl_->sunViewOverride >= 0 ? uint32_t (impl_->sunViewOverride) : impl_->sunDebugMode;
+    const bool studyModel = debugView == 0 && impl_->sunAtlasSRV != nullptr && impl_->sunElementsAttached > 0 &&
+                            !impl_->sunTintInitFailed && (studyMode == 0 || studyMode >= 5);
+    // A display-only matte-white override; original materials/render preferences
+    // return when the study is hidden. Opaque glass writes the same nearest depth
+    // as other receivers, preventing translucent study colours stacking by draw order.
+    const bool drawSurfaces = studyModel || impl_->renderMode != SceneRenderMode::Wireframe;
     // ⚠️ THE SUPPRESSION THAT WAS HERE WAS GLOBAL, AND IT SWITCHED
     // OFF THE FLOOR PLAN. It read "if the injected overlay is Active, do not draw
     // the portable wireframe" -- true of the 3D window and meaningless for a
@@ -783,8 +789,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // drawn before it and hide the ones drawn after -- an
                 // arbitrary-looking half of the room, changing with the
                 // extraction order.
-                const bool selectedBlend = e.selected && kSelectionAlpha < kOpaqueAlpha;
-                const bool blended = mat.alpha < kOpaqueAlpha || selectedBlend;
+                const bool selectedBlend = !studyModel && e.selected && kSelectionAlpha < kOpaqueAlpha;
+                const bool blended = !studyModel && (mat.alpha < kOpaqueAlpha || selectedBlend);
                 if (blended != transparentPass)
                     continue;
                 // ⚠️ THE HIGHLIGHT IS A TINT, NOT A REPLACEMENT. Painting a
@@ -803,11 +809,11 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // colour is already uploaded per range.
                 // ⚠️ NOT NAMED r/g/b -- `r` is the MaterialRange this loop is
                 // over, and shadowing it hands the range's colour to the draw.
-                float tintR = mat.r;
-                float tintG = mat.g;
-                float tintB = mat.b;
-                float alpha = mat.alpha;
-                if (e.selected) {
+                float tintR = studyModel ? 1.0f : mat.r;
+                float tintG = studyModel ? 1.0f : mat.g;
+                float tintB = studyModel ? 1.0f : mat.b;
+                float alpha = studyModel ? 1.0f : mat.alpha;
+                if (e.selected && !studyModel) {
                     tintR = mat.r * kSelectionTintMix + kSelectionTintR;
                     tintG = mat.g * kSelectionTintMix + kSelectionTintG;
                     tintB = mat.b * kSelectionTintMix + kSelectionTintB;
@@ -828,7 +834,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
-                uploadConstants (tintR, tintG, tintB, alpha, preset.roughness, preset.reflectance, preset.metallic);
+                uploadConstants (tintR, tintG, tintB, alpha, studyModel ? 1.0f : preset.roughness,
+                                 studyModel ? 0.5f : preset.reflectance, studyModel ? 0.0f : preset.metallic);
                 drawRange (e, r, blended);
             }
         }

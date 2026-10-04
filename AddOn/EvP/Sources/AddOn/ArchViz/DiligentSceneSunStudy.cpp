@@ -178,12 +178,16 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
             gp.DepthStencilDesc.DepthWriteEnable = frontmost ? Diligent::True : Diligent::False;
             gp.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
 
-            // ⚠️ OPAQUE REPLACEMENT, NOT A BLEND. The first tint has one job: to
-            // prove that a texel lands on the surface it was measured on. Blending
-            // it with the shading underneath makes a mapping error look like a
-            // lighting variation, which is the one thing this pass must not do.
+            // Analysis colours preserve the shaded model underneath. Diagnostic
+            // tile/cell/role outputs still have alpha 1, so mapping tests stay exact.
             Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
-            rt.BlendEnable = Diligent::False;
+            rt.BlendEnable = Diligent::True;
+            rt.SrcBlend = Diligent::BLEND_FACTOR_SRC_ALPHA;
+            rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+            rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
+            rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
+            rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+            rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
 
             gp.InputLayout.LayoutElements = layout;
             gp.InputLayout.NumElements = _countof (layout);

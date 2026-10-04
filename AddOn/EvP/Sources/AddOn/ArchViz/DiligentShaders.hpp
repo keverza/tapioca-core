@@ -646,14 +646,20 @@ static const float3 kSunBins[10] = {
 
 float3 SunRamp (float hours, float quantum)
 {
-    if (g_sunStudyPreview.x >= 0.0 && hours < g_sunStudyPreview.x)
-        return SrgbToLinear (float3 (40.0, 83.0, 107.0) / 255.0); // #28536B
     float q = max (quantum, 1e-4);
     float snapped = floor (hours / q + 0.5) * q;
     float t = clamp (snapped - 0.5, 0.0, 9.0);
     int lo = int (floor (t));
     int hi = min (lo + 1, 9);
-    return SrgbToLinear (lerp (kSunBins[lo], kSunBins[hi], t - float (lo)));
+    float3 warm = SrgbToLinear (lerp (kSunBins[lo], kSunBins[hi], t - float (lo)));
+    if (g_sunStudyPreview.x >= 0.0 && hours < g_sunStudyPreview.x)
+        return lerp (warm, SrgbToLinear (float3 (40.0, 83.0, 107.0) / 255.0), 0.60); // #28536B overlay
+    return warm;
+}
+
+float4 StudyOverlayColor (float3 colour)
+{
+    return float4 (colour, 0.90); // straight alpha over the actual shaded white model
 }
 
 // Three decorrelated channels from one integer, so adjacent tiles are different
@@ -831,7 +837,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     if (mode == 0 && (hours < g_sunStudyFilter.x || hours > g_sunStudyFilter.y)) {
         if (g_sunStudyFilter.w > 0.5)
             discard;
-        psOut.color = float4 (SrgbToLinear (float3 (0.80, 0.80, 0.80)), 1.0);
+        psOut.color = StudyOverlayColor (SrgbToLinear (float3 (0.80, 0.80, 0.80)));
         return;
     }
 
@@ -843,7 +849,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         if (g_sunStudyShadow.x < g_sunStudyPreview.y || g_sunStudyShadow.x >= g_sunStudyPreview.z)
             discard;
         psOut.color =
-            float4 (SingleShadowColor (LitAtStep (texel, uint (g_sunStudyShadow.x + 0.5)), psIn.normal), 1.0);
+            StudyOverlayColor (SingleShadowColor (LitAtStep (texel, uint (g_sunStudyShadow.x + 0.5)), psIn.normal));
         return;
     }
     if (mode == 7) {
@@ -852,7 +858,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         float shade = lerp (1.0, ShapeShade (psIn.normal), 0.5);
         float3 fan = rank < 0 ? SrgbToLinear (float3 (0.831, 0.839, 0.847))
                               : FanColor (count > 1.0 ? float (rank) / (count - 1.0) : 0.0);
-        psOut.color = float4 (fan * shade, 1.0);
+        psOut.color = StudyOverlayColor (fan * shade);
         return;
     }
     if (mode == 6) {
@@ -864,10 +870,10 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         float am = ShadowFraction (texel, first, split);
         float pm = ShadowFraction (texel, split, last);
         float shade = lerp (1.0, ShapeShade (psIn.normal), 0.5);
-        psOut.color = float4 (AmPmDurationColor (am, pm) * shade, 1.0);
+        psOut.color = StudyOverlayColor (AmPmDurationColor (am, pm) * shade);
         return;
     }
-    psOut.color = float4 (SunRamp (hours, g_sunStudyFilter.z), 1.0);
+    psOut.color = StudyOverlayColor (SunRamp (hours, g_sunStudyFilter.z));
 }
 )hlsl";
 

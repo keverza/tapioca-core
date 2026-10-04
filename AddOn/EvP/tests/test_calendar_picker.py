@@ -82,9 +82,33 @@ def test_analysis_controls_and_minimal_tooltip_are_wired():
     shell = (root / "ArchViz/DiligentHudShell.cpp").read_text(encoding="utf-8")
     assert 'tabs.push_back ({ kSunStudyKey, "Analysis" })' in shell
     hud = (root / "ArchViz/DiligentHudSunStudy.cpp").read_text(encoding="utf-8")
-    assert 'ImGui::Button ("Sun hours"' in hud and 'ImGui::Button ("Shadows"' in hud
+    for label in ("Sunstudy", "Shadows", "Roles"):
+        assert f'ImGui::Button ("{label}"' in hud
     assert "hide the rest" not in hud
+    assert "Diagnostic views" not in hud and "kInspectModes" not in hud
+    assert hud.index("DrawSunStudyInspectControl (state.sunInspect") < hud.index("if (shadows)")
+    controls = (root / "ArchViz/DiligentHudSunControls.cpp").read_text(encoding="utf-8")
+    assert "Off##suninspect" in controls and "Cursor##suninspect" in controls and "Panel##suninspect" in controls
+    assert 'ImGui::BeginChild ("##sun-reading"' in controls
     tooltip = hud.split("void DrawSunStudyInspectorTooltip", 1)[1].split("void DrawSunStudyHudSection", 1)[0]
     assert "SunStudyClock (state.sunReadingHours, true)" in tooltip
     assert "ReadingLines" not in tooltip and "scaling corrected" not in tooltip
     assert "ImGuiStyleVar_PopupRounding, 4.0f" in tooltip
+    assert "0.78f, 0.78f, 0.78f, 0.70f" in tooltip
+    assert "ImGuiStyleVar_WindowPadding, ImVec2 (4.0f, 2.0f)" in tooltip
+
+
+def test_study_display_blends_over_white_shaded_geometry_without_changing_materials():
+    root = Path(__file__).parents[1] / "Sources/AddOn/ArchViz"
+    draw = (root / "DiligentSceneDraw.cpp").read_text(encoding="utf-8")
+    assert "studyModel ? 1.0f : mat.r" in draw
+    assert "studyModel ? 1.0f : mat.alpha" in draw
+    assert "const bool blended = !studyModel" in draw
+    assert "studyMode == 0 || studyMode >= 5" in draw
+    assert "impl_->renderMode =" not in draw
+    pipeline = (root / "DiligentSceneSunStudy.cpp").read_text(encoding="utf-8")
+    assert "rt.SrcBlend = Diligent::BLEND_FACTOR_SRC_ALPHA" in pipeline
+    assert "rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA" in pipeline
+    shader = (root / "DiligentShaders.hpp").read_text(encoding="utf-8")
+    assert "float4 (colour, 0.90)" in shader
+    assert "255.0), 0.60)" in shader
