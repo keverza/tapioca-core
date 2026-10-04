@@ -1,4 +1,5 @@
 #include "QueryEngine.hpp"
+#include "Geometry/QueryAnyHit.hpp"
 
 #include <nanort.h>
 
@@ -115,7 +116,9 @@ TraversalScene QueryEngine::ExportTraversalScene (const std::function<bool ()>& 
         node.count = source.flag == 0 ? 0 : source.data[0];
         scene.nodes.push_back (node);
         if (source.flag == 0) {
+            scene.nodes[target].padding = source.axis;
             append (source.data[0]);
+            scene.nodes[target].first = static_cast<uint32_t> (scene.nodes.size ()); // right child
             append (source.data[1]);
         }
         else {
@@ -212,15 +215,11 @@ bool QueryEngine::Occluded (const double org[3], const double dir[3], double tmi
     if (ray.max_t <= ray.min_t)
         return false;
 
-    nanort::TriangleIntersector<double, nanort::TriangleIntersection<double>> isector (verts.data (), faces.data (),
-                                                                                       sizeof (double) * 3);
-    nanort::TriangleIntersection<double> isect;
-
     // ⚠️ BACK FACES ARE NOT CULLED, deliberately, matching RaycastAll. An
     // Archicad element whose triangles wind inward is an ordinary condition
     // (sunmesh.orient_outward exists because of it), and a shadow ray that
     // ignored its back faces would report the inside of a building as sunlit.
-    return impl->accel.Traverse (ray, isector, &isect);
+    return QueryAnyHit (impl->accel, ray, verts.data (), faces.data ());
 }
 
 void QueryEngine::SurfaceNormal (uint32_t globalTri, double u, double v, double out[3]) const

@@ -20,8 +20,9 @@
 // engine in parallel.
 namespace geomsrv {
 
-// Stackless, depth-first traversal packet. Branches continue at the next node;
-// a miss skips to `escape`. Leaves address a contiguous triangle range. Doubles
+// Depth-first traversal packet. Branches carry right child in `first` and split
+// axis in `padding`; left child is the next node, and `escape` skips a subtree.
+// Leaves address a contiguous triangle range. Doubles
 // preserve the CPU scene, including georeferenced and sub-millimetre geometry.
 struct TraversalNode {
     double min[3];
@@ -96,10 +97,8 @@ class QueryEngine {
     // reaches the answer. Raycast is closer but still interpolates a smooth
     // normal for a caller that discards it.
     //
-    // ⚠️ IT IS NOT AN ANY-HIT TRAVERSAL, and the name must not be read as one.
-    // nanort exposes closest-hit `Traverse` only -- there is no TraverseAny --
-    // so this still descends to the nearest intersection within [tmin, tmax].
-    // A tight `tmax` is therefore a real optimisation and not merely a filter.
+    // Uses the existing BVH with nanort's exact triangle/slab predicates, but
+    // returns at the first blocker. Closest-hit Raycast remains the reference.
     //
     // `tmin` skips the surface the ray starts on (the self-hit threshold,
     // typically 0.001 m); `tmax <= 0` means unbounded. `dir` need not be

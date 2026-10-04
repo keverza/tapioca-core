@@ -92,13 +92,26 @@ uint TriangleHit(Triangle tri, double3 origin) {
     return 1;
 }
 uint TraceTree(double3 origin, bool context, inout uint work) {
-    uint index = 0, result = 0;
+    uint result = 0;
     uint count = context ? partitions.x : sceneAndFlags.x;
-    [loop] while (index < count) {
+    if (count == 0) return 0;
+    uint stack[64];
+    uint pending = 1;
+    stack[0] = 0;
+    [loop] while (pending > 0) {
         if (++work > sceneAndFlags.w) return 3;
+        uint index = stack[--pending];
         Node node;
         if (context) node = contextNodes[index]; else node = nodes[index];
-        if (!BoxHit(node, origin)) { index = node.escape; continue; }
+        if (!BoxHit(node, origin)) continue;
+        if (node.count == 0) {
+            if (pending + 2 > 64) return 3; // exact CPU fallback, never omit a subtree
+            uint left = index + 1, right = node.first;
+            bool negative = Component(inverseAndMin.xyz, node.pad) < 0.0;
+            stack[pending++] = negative ? left : right;
+            stack[pending++] = negative ? right : left;
+            continue;
+        }
         [loop] for (uint i = 0; i < node.count; ++i) {
             if (++work > sceneAndFlags.w) return 3;
             Triangle tri;
@@ -107,7 +120,6 @@ uint TraceTree(double3 origin, bool context, inout uint work) {
             if (hit == 1) return 1;
             if (hit == 2) result = 2;
         }
-        ++index;
     }
     return result;
 }

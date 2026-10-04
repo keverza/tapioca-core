@@ -156,6 +156,8 @@ TEST (SunStudyGpuTraversal, ExportPreservesGeometryAndSubtrees)
         if (node.count == 0) {
             ASSERT_LT (i + 1, scene.nodes.size ());
             const auto right = scene.nodes[i + 1].escape;
+            EXPECT_EQ (node.first, right);
+            EXPECT_LT (node.padding, 3u);
             ASSERT_LT (right, node.escape);
             EXPECT_EQ (scene.nodes[right].escape, node.escape);
         }

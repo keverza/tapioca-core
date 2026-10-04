@@ -14,6 +14,8 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <random>
+#include <cmath>
 
 using namespace geomsrv;
 
@@ -142,4 +144,55 @@ TEST (QueryOccluded, EmptySnapshotOccludesNothing)
     QueryEngine engine (snap);
     const double origin[3] = { 0.0, 0.0, 0.0 };
     EXPECT_FALSE (engine.Occluded (origin, kUp, 0.001, 0.0));
+}
+
+TEST (QueryOccluded, AnyHitPreservesExactIntervalBoundaries)
+{
+    QueryEngine engine (MakeCeilingSnapshot ());
+    const double origin[3] = { 0.0, 0.0, 0.0 };
+    EXPECT_FALSE (engine.Occluded (origin, kUp, 0.001, 5.0));
+    EXPECT_TRUE (engine.Occluded (origin, kUp, 5.0, 6.0));
+    EXPECT_FALSE (engine.Occluded (origin, kUp, std::nextafter (5.0, 6.0), 6.0));
+    EXPECT_TRUE (engine.Occluded (origin, kUp, 0.001, std::nextafter (5.0, 6.0)));
+}
+
+TEST (QueryOccluded, AnyHitAgreesWithClosestReferenceAcrossManyBranches)
+{
+    auto snapshot = std::make_shared<Snapshot> ();
+    Mesh mesh;
+    mesh.guid = "layered-planes";
+    // Overlapping blockers on all three axes, including georeferenced coordinates.
+    constexpr double offset = 1.0e6;
+    for (int axis = 0; axis < 3; ++axis) {
+        for (int layer = -20; layer <= 20; ++layer) {
+            const uint32_t base = uint32_t (mesh.vertices.size () / 3);
+            for (int vertex = 0; vertex < 4; ++vertex) {
+                double p[3] = {};
+                p[axis] = layer * 0.25;
+                p[(axis + 1) % 3] = (vertex == 1 || vertex == 2) ? 8.0 : -8.0;
+                p[(axis + 2) % 3] = vertex >= 2 ? 8.0 : -8.0;
+                for (double value : p)
+                    mesh.vertices.push_back (offset + value);
+            }
+            mesh.triangles.insert (mesh.triangles.end (), { base, base + 1, base + 2, base, base + 2, base + 3 });
+        }
+    }
+    snapshot->meshes.push_back (std::move (mesh));
+    QueryEngine engine (snapshot);
+    std::mt19937 random (71029);
+    std::uniform_real_distribution<double> coordinate (-10.0, 10.0);
+    for (int ray = 0; ray < 2000; ++ray) {
+        const double origin[3] = { offset + coordinate (random), offset + coordinate (random),
+                                   offset + coordinate (random) };
+        double direction[3] = { coordinate (random), coordinate (random), coordinate (random) };
+        if (ray % 3 == 0)
+            direction[ray % 3] = 0.0;
+        const double minimum = ray % 2 == 0 ? 0.001 : 0.5;
+        const double maximum = ray % 5 == 0 ? 1.0 : 25.0;
+        const auto hits = engine.RaycastAll (origin, direction, maximum, 0);
+        bool expected = false;
+        for (const auto& hit : hits.hits)
+            expected = expected || (hit.t >= minimum && hit.t < maximum);
+        EXPECT_EQ (engine.Occluded (origin, direction, minimum, maximum), expected) << "ray " << ray;
+    }
 }
