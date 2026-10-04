@@ -274,10 +274,25 @@ def _parse_run_signature(fn):
 
 
 def _validate_color_default(entry, line):
-    if entry["type"] == "Hour" and "default" in entry:
+    if entry["type"] == "Calendar" and "default" in entry:
+        from datetime import date
+
         value = entry["default"]
-        if type(value) is not int or not 0 <= value <= 23:
-            raise ScanError("Hour default must be an integer from 0 to 23 (line %d)" % line, line)
+        try:
+            parsed = date.fromisoformat(value)
+            valid = value == parsed.isoformat() and 1902 <= parsed.year <= 2037
+        except (ValueError, TypeError):
+            valid = False
+        if not valid:
+            raise ScanError("Calendar default must be YYYY-MM-DD in 1902..2037 (line %d)" % line, line)
+    if entry["type"] == "Hour":
+        maximum = entry.get("maximum", 23)
+        if type(maximum) is not int or maximum not in (23, 24):
+            raise ScanError("Hour maximum must be 23 or 24 (line %d)" % line, line)
+        if "default" in entry:
+            value = entry["default"]
+            if type(value) is not int or not 0 <= value <= maximum:
+                raise ScanError("Hour default must be an integer from 0 to %d (line %d)" % (maximum, line), line)
     if entry["type"] != "Color" or "default" not in entry:
         return
     value = entry["default"]

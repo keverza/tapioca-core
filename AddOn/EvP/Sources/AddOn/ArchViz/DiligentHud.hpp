@@ -128,16 +128,18 @@ struct HudState {
     int wireTessellation = 1;
     float wireLineWidth = 1.25f;
     // The sun study's hours range -- the web study's "direct sun hours shown"
-    // slider pair. Surfaces outside it are drawn neutral, or hidden. The top
-    // of the slider, kSunHoursFilterOpenTop, is "9+": nothing above is cut.
+    // range. Surfaces outside it are drawn neutral. 24 hours is the open top.
     // ⚠️ HUD-ONLY: no command sets it, so nothing is reconciled per frame.
     float sunFilterLo = 0.0f;
-    float sunFilterHi = 10.0f;
-    bool sunFilterHide = false;
+    float sunFilterHi = 24.0f;
+    bool sunLowBlue = false;
+    float sunBlueThreshold = 2.5f;
+    float sunTimeFrom = 0.0f;
+    float sunTimeTo = 24.0f;
     // The hover INSPECTOR: 0 off, 1 a tooltip at the cursor, 2 a line in the
     // panel. It reports the study's value under the cursor -- the same cell the
     // tint drew there (SunStudy/SunStudyReading.hpp).
-    int sunInspect = 0;
+    int sunInspect = 1;
     // What it found, written by ServiceSunStudyInspector each frame.
     // readingState: 0 nothing under the cursor, 1 measured, 2 not measured
     // (context, ignored, below the grid), 3 the study is computing, 4 the
@@ -160,7 +162,7 @@ struct HudState {
     // The multiple-shadows interval: an index into the section's list, 0 = every
     // step (the study's own timestep), the last = AM / PM. 1 hour by default, as
     // on the web page.
-    int sunFanInterval = 2;
+    int sunFanInterval = 5; // duration-weighted morning / evening by default
     int sunStudyTimestepMinutes = 0;
     std::vector<uint16_t> sunStepMinutes; // mirrored from the scene
     float annotationTextHeightMetres = 0.18f;

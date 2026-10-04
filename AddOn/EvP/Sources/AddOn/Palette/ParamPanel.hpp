@@ -69,6 +69,7 @@ struct ParamControl {
         Catalog,
         ProjectField,
         Color,
+        Calendar,
         DateTimeProbe
     } kind = Kind::Text;
 

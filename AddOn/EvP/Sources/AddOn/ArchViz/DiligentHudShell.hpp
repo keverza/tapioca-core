@@ -11,7 +11,7 @@
 //   Stats      the model the viewer holds, what it is still reading, the slices and previews
 //   Selection  Archicad's selection's building section, then the element picked in the
 //              viewer and its Tapioca metadata to edit
-//   Sun study  while a study is on screen: its view, its range, its legend (a command's tab)
+//   Analysis   sun/shadow preview, ranges, gradient and machine limits
 //   Settings   the HUD's own, then HANDOFF-HudTabs.md's Render/Display sections: the preview
 //              presets, surfaces, environment, sun and shadows, colour and post, camera,
 //              visibility, annotation

@@ -98,6 +98,7 @@ struct SunStudyOverlayStatus {
     uint32_t stepCount = 0;
     uint32_t noonStep = 0;
     std::vector<uint16_t> stepMinutes;
+    float quantumHours = 0.25f;
     // The study's size, for the machine-limits readout.
     uint64_t sampleCount = 0;
     double analysedArea = 0.0;

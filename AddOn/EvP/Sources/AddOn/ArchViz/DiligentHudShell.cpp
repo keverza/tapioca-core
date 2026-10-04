@@ -29,7 +29,7 @@ std::string TitleOf (const std::string& key)
     if (key == hudshell::kDebugKey)
         return "Debug";
     if (key == kSunStudyKey)
-        return "Sun study";
+        return "Analysis";
     return "Stats";
 }
 
@@ -70,12 +70,18 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     const float scale = frame.dpiScale;
     const float ui = scale * hudshell::FontScaleOfStep (shell.fontStep);
     const layers::Panel& look = ViewerLook ();
+    // Keep command/step metadata current even with the Analysis page closed.
+    state.sunStepCount = scene.sunStudy.stepCount;
+    state.sunStepMinutes = scene.sunStudy.stepMinutes;
+    if (scene.sunStudy.debugMode != state.sunSeenCommandedMode) {
+        state.sunSeenCommandedMode = scene.sunStudy.debugMode;
+        state.sunView = 0;
+    }
 
-    // The tabs: the own ones, and the sun study's while one is on screen.
+    // Analysis stays discoverable before the first run.
     std::vector<hudshell::HostTab> tabs = { { hudshell::kStatsKey, "Stats" },
                                             { hudshell::kSelectionKey, "Selection" } };
-    if (scene.sunStudy.drawing)
-        tabs.push_back ({ kSunStudyKey, "Sun study" });
+    tabs.push_back ({ kSunStudyKey, "Analysis" });
     tabs.push_back ({ hudshell::kSettingsKey, "Settings" });
     // The console's errors and warnings not shown yet, counted on the tab (HudConsole.hpp).
     const uint32_t unseen = hudconsole::Unseen (hudconsole::Entries (), shell.consoleSeen, shell.consoleCleared);

@@ -10,6 +10,7 @@
 #include "Palette/ParamValues.hpp"     // a control's value <-> its text, both ways
 #include "Palette/ParamColorControls.hpp"
 #include "Palette/ParamNumericControls.hpp"
+#include "Palette/ParamCalendarControls.hpp"
 #include "Palette/ParamDateTimeProbe.hpp"   // diagnostic logging only
 #include "Palette/NavItemChoices.hpp"       // evp.View / evp.Database — the rows and their guids
 #include "Palette/NavigatorBrowser.hpp"     // evp.View — the modal Navigator tree
@@ -238,6 +239,9 @@ void ParamPanel::Rebuild (const CommandInfo& info)
         }
         else if (pc.type == "Color") {
             BuildColorControl (pc, os, panel, seed, observer, observer);
+        }
+        else if (pc.type == "Calendar") {
+            BuildCalendarControl (pc, os, panel, seed, observer);
         }
         else if (pc.type == "DateProbe" || pc.type == "TimeProbe" || pc.type == "CalendarProbe") {
             // Diagnostic only. Do not infer a public Date/Time wire format from
@@ -678,7 +682,7 @@ void ParamPanel::ShowControls ()
         if (on) {
             pc.label->Show ();
             pc.Widget ()->Show ();
-            if (pc.kind == ParamControl::Kind::DateTimeProbe)
+            if (pc.kind == ParamControl::Kind::DateTimeProbe || pc.kind == ParamControl::Kind::Calendar)
                 pc.Widget ()->Redraw ();
         }
         else {
@@ -763,7 +767,8 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
         // Repaint only visible steppers, after their final geometry is assigned.
         if (pc.hourSpin && pc.hourSpin->IsVisible ())
             pc.hourSpin->Invalidate ();
-        if (pc.kind == ParamControl::Kind::DateTimeProbe && pc.Widget ()->IsVisible ())
+        if ((pc.kind == ParamControl::Kind::DateTimeProbe || pc.kind == ParamControl::Kind::Calendar) &&
+            pc.Widget ()->IsVisible ())
             pc.Widget ()->Invalidate ();
         clip.Place (pc.browseButton.get (),
                     DG::Rect (assemblyLeft, y, (short) (assemblyLeft + BrowseButtonWidth), y + RowHeight));

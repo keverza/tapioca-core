@@ -614,6 +614,9 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyFilter[1] = impl_->sunFilterHi;
     constants.sunStudyFilter[2] = impl_->sunQuantumHours;
     constants.sunStudyFilter[3] = impl_->sunFilterHide ? 1.0f : 0.0f;
+    constants.sunStudyPreview[0] = impl_->sunBlueThreshold;
+    constants.sunStudyPreview[1] = float ((std::min) (impl_->sunFirstShadowStep, impl_->sunStepCount));
+    constants.sunStudyPreview[2] = float ((std::min) (impl_->sunEndShadowStep, impl_->sunStepCount));
     UploadConstants (context, impl_->constants, constants);
 
     if (Diligent::IShaderResourceVariable* atlas = srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas"))
@@ -681,6 +684,9 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     // The slider's top is "9+": at it, no surface is cut off for having MORE.
     impl_->sunFilterHi = view.hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, view.hi);
     impl_->sunFilterHide = view.hide;
+    impl_->sunBlueThreshold = view.blueThreshold;
+    impl_->sunFirstShadowStep = view.firstShadowStep;
+    impl_->sunEndShadowStep = view.endShadowStep;
     impl_->sunViewOverride = view.viewOverride;
     impl_->sunViewStep = view.step;
     for (int word = 0; word < 3; ++word)

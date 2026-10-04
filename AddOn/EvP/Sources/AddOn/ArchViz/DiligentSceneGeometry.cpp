@@ -550,6 +550,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.sunStudy.stepCount = impl_->sunStepCount;
     s.sunStudy.noonStep = impl_->sunNoonStep;
     s.sunStudy.stepMinutes = impl_->sunStepMinutes;
+    s.sunStudy.quantumHours = impl_->sunQuantumHours;
     s.sunStudy.sampleCount = impl_->sunSampleCount;
     s.sunStudy.analysedArea = impl_->sunAnalysedArea;
     s.sunStudy.patchDomain = impl_->sunPatchDomain;

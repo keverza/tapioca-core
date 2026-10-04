@@ -398,6 +398,9 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float sunFilterLo = 0.0f;
     float sunFilterHi = 24.0f;
     bool sunFilterHide = false;
+    float sunBlueThreshold = -1.0f;
+    uint32_t sunFirstShadowStep = 0;
+    uint32_t sunEndShadowStep = 0xffffffffu;
     // The shadow views' per-step bits: a Texture2DArray<uint>, one slice per 32
     // steps, the hours atlas's texels.
     RefCntAutoPtr<Diligent::ITexture> sunStepTexture;

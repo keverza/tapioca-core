@@ -179,10 +179,6 @@ void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, 
 
     ImGui::Checkbox ("graph interaction lab", &state.showGraphInteractionLab);
     DrawSceneTextLiveCheckControls (state);
-    // The study's machine limits are worth reading before the first study; while one is on
-    // screen its whole section is the Sun study tab.
-    if (!scene.sunStudy.drawing)
-        DrawSunStudyHudSection (state, scene);
 }
 
 } // namespace viewerhud

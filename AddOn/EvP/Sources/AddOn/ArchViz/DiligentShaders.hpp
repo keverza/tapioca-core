@@ -298,6 +298,8 @@ struct DiligentSceneConstants {
     // ---- appended for the SHADOW FAN -----------------------------------------
     // xyz = the chosen steps as BIT PATTERNS (asuint in HLSL), w = how many.
     float sunStudyFan[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // x = blue cutoff hours (-1 disabled), yz = preview step interval [first,end).
+    float sunStudyPreview[4] = { -1.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -338,7 +340,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
-                                                      16 + 64 + 16 + 16 + 16 + 16 + 16,
+                                                      16 + 64 + 16 + 16 + 16 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -394,6 +396,7 @@ cbuffer ArchVizConstants
     float4   g_sunStudyShadow;  // x = single-shadow step, y = solar-noon step,
                                 // z = step count
     float4   g_sunStudyFan;     // xyz = chosen steps as bits (asuint), w = count
+    float4   g_sunStudyPreview; // x = blue cutoff, yz = shadow preview interval
 };
 )hlsl";
 
@@ -631,7 +634,7 @@ struct PSOutput
 // next to the page it is meant to match.
 float3 SrgbToLinear (float3 c)
 {
-    return c <= 0.04045 ? c / 12.92 : pow ((c + 0.055) / 1.055, 2.4);
+    return c <= 0.04045 ? c / 12.92 : pow (max ((c + 0.055) / 1.055, 0.0), 2.4);
 }
 
 static const float3 kSunBins[10] = {
@@ -643,6 +646,8 @@ static const float3 kSunBins[10] = {
 
 float3 SunRamp (float hours, float quantum)
 {
+    if (g_sunStudyPreview.x >= 0.0 && hours < g_sunStudyPreview.x)
+        return SrgbToLinear (float3 (40.0, 83.0, 107.0) / 255.0); // #28536B
     float q = max (quantum, 1e-4);
     float snapped = floor (hours / q + 0.5) * q;
     float t = clamp (snapped - 0.5, 0.0, 9.0);
@@ -668,12 +673,13 @@ bool LitAtStep (int2 texel, uint step)
     return ((word >> (step & 31u)) & 1u) != 0u;
 }
 
-// Whether the sample was SHADOWED at any step in [first, last), a word at a
+// Fraction of measured time SHADOWED in [first, last), a word at a
 // time rather than a step at a time.
-bool ShadowedIn (int2 texel, uint first, uint last)
+float ShadowFraction (int2 texel, uint first, uint last)
 {
     if (first >= last)
-        return false;
+        return 0.0;
+    uint shadowed = 0;
     uint lastWord = (last - 1u) >> 5;
     [loop] for (uint word = first >> 5; word <= lastWord; ++word) {
         uint bits = g_sunSteps.Load (int4 (texel, int (word), 0));
@@ -681,10 +687,9 @@ bool ShadowedIn (int2 texel, uint first, uint last)
         uint hi = min (last, word * 32u + 32u) - word * 32u;
         uint below = hi >= 32u ? 0xffffffffu : ((1u << hi) - 1u);
         uint range = below & ~((1u << lo) - 1u);
-        if (((~bits) & range) != 0u)
-            return true;
+        shadowed += countbits ((~bits) & range);
     }
-    return false;
+    return float (shadowed) / float (last - first);
 }
 
 // SHAPE SHADING for the single shadow: a fixed key light from the south-west
@@ -705,6 +710,14 @@ float3 SingleShadowColor (bool lit, float3 normal)
 {
     float3 base = lit ? float3 (0.93, 0.91, 0.86) : float3 (0.28, 0.44, 0.80);
     return SrgbToLinear (base) * ShapeShade (normal);
+}
+
+float3 AmPmDurationColor (float am, float pm)
+{
+    float total = am + pm;
+    float3 neutral = float3 (0.91, 0.91, 0.90);
+    float3 tint = total > 0.0 ? (am * float3 (0.475, 0.416, 0.694) + pm * float3 (0.875, 0.592, 0.573)) / total : neutral;
+    return SrgbToLinear (lerp (neutral, tint, saturate (max (am, pm))));
 }
 
 // The fan's ramp, morning -> evening: AM purple through the AM+PM blend to PM
@@ -734,24 +747,11 @@ int FanRank (int2 texel)
         uint bit = firstbithigh (shadowed);
         uint below = bit == 0u ? 0u : (pick & ((1u << bit) - 1u));
         uint rank = countbits (below);
-        [loop] for (int lower = 0; lower < word; ++lower)
-            rank += countbits (chosen[lower]);
+        rank += word > 0 ? countbits (chosen[0]) : 0u;
+        rank += word > 1 ? countbits (chosen[1]) : 0u;
         return int (rank);
     }
     return -1;
-}
-
-// MULTI_COLORS: never shadowed, AM only, PM only, AM + PM. Nominal categories
-// -- picked, never interpolated.
-float3 AmPmColor (bool am, bool pm)
-{
-    if (am && pm)
-        return SrgbToLinear (float3 (0.733, 0.627, 0.698));
-    if (am)
-        return SrgbToLinear (float3 (0.475, 0.416, 0.694));
-    if (pm)
-        return SrgbToLinear (float3 (0.875, 0.592, 0.573));
-    return SrgbToLinear (float3 (0.831, 0.839, 0.847));
 }
 
 // The ROLE view's three colours. ⚠️ AN ABI with SunStudyOverlay.hpp's
@@ -828,7 +828,7 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
 
     // The HUD's hours range: outside it, neutral trim -- or nothing, so the
     // model's own shading shows through -- exactly as the web page's filter.
-    if (hours < g_sunStudyFilter.x || hours > g_sunStudyFilter.y) {
+    if (mode == 0 && (hours < g_sunStudyFilter.x || hours > g_sunStudyFilter.y)) {
         if (g_sunStudyFilter.w > 0.5)
             discard;
         psOut.color = float4 (SrgbToLinear (float3 (0.80, 0.80, 0.80)), 1.0);
@@ -837,7 +837,11 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
 
     // ---- the shadow views: the SAME texel, read in the per-step bits ----------
     int2 texel = int2 (face.tile.xy + float2 (column, row));
+    if (mode >= 5 && (g_sunStudyShadow.z < 1.0 || g_sunStudyPreview.y >= g_sunStudyPreview.z))
+        discard; // no measured time is not a sunlit or shadowed result
     if (mode == 5) {
+        if (g_sunStudyShadow.x < g_sunStudyPreview.y || g_sunStudyShadow.x >= g_sunStudyPreview.z)
+            discard;
         psOut.color =
             float4 (SingleShadowColor (LitAtStep (texel, uint (g_sunStudyShadow.x + 0.5)), psIn.normal), 1.0);
         return;
@@ -852,15 +856,15 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         return;
     }
     if (mode == 6) {
-        // Split AT the solar-noon step, which counts as PM -- the web page's
-        // split, so the two agree on which half a noon shadow belongs to.
+        // Separate duration-weighted morning/evening, not ANY-shadow categories.
         uint steps = uint (g_sunStudyShadow.z + 0.5);
-        uint split = clamp (uint (g_sunStudyShadow.y + 0.5), 1u, max (steps, 1u));
-        // Half-strength shape shading: the categories stay readable, the form
-        // of the building does not vanish under four flat colours.
+        uint first = min (uint (g_sunStudyPreview.y + 0.5), steps);
+        uint last = min (uint (g_sunStudyPreview.z + 0.5), steps);
+        uint split = clamp (uint (g_sunStudyShadow.y + 0.5), first, max (first, last));
+        float am = ShadowFraction (texel, first, split);
+        float pm = ShadowFraction (texel, split, last);
         float shade = lerp (1.0, ShapeShade (psIn.normal), 0.5);
-        psOut.color =
-            float4 (AmPmColor (ShadowedIn (texel, 0u, split), ShadowedIn (texel, split, steps)) * shade, 1.0);
+        psOut.color = float4 (AmPmDurationColor (am, pm) * shade, 1.0);
         return;
     }
     psOut.color = float4 (SunRamp (hours, g_sunStudyFilter.z), 1.0);
