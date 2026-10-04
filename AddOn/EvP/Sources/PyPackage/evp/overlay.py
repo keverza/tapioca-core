@@ -439,6 +439,43 @@ class Panel:
             rows=[[str(cell) for cell in row] for row in rows],
         )
 
+    def site_plan(
+        self,
+        id,
+        outline,
+        offset_outline=(),
+        distances=(),
+        modes=(),
+        reference_vertices=(),
+        default_setback=3.0,
+        selected=0,
+        editable=True,
+        height=240,
+    ):
+        """Native fitted XY diagram. Right-click edges for Default/Custom/None metres;
+        endpoints toggle average-elevation membership. A rebuilt add-on is required.
+
+        Held values/events use `id:selected`, `id:mode:N`, `id:offset:N`, `id:point:N`.
+        No world camera or Archicad selection is changed by this control.
+        """
+
+        def xy(points):
+            return [float(value) for point in points for value in point[:2]]
+
+        return self._add(
+            "sitePlan",
+            id=str(id),
+            outlineXY=xy(outline),
+            offsetXY=xy(offset_outline),
+            setbackDistances=[float(v) for v in distances],
+            setbackModes=[int(v) for v in modes],
+            referenceVertices=[int(v) for v in reference_vertices],
+            number=float(default_setback),
+            selected=int(selected),
+            editable=bool(editable),
+            heightPixels=float(height),
+        )
+
     # ---- controls: the add-on holds their values; each change is an event (`events`) ----
 
     def checkbox(self, id, label, checked=False):
@@ -481,7 +518,10 @@ class Panel:
         after it, up to the next tab, are its page. The first tab's `id` (default "tabs")
         names the bar's value and events, its `selected` the tab it starts on."""
         return self._add(
-            "tab", text=str(title), id=None if id is None else str(id), selected=None if selected is None else int(selected)
+            "tab",
+            text=str(title),
+            id=None if id is None else str(id),
+            selected=None if selected is None else int(selected),
         )
 
     def button(self, id, label, width=None):

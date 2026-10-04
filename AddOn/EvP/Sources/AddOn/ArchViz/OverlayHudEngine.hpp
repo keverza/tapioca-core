@@ -155,6 +155,8 @@ struct Engine::Impl {
     std::chrono::steady_clock::time_point lastBuild {};
 
     PanelState& StateOf (const std::string& key, const layers::Panel& panel);
+    void SitePlan (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
+                   float width, float scale);
 
     // Between frames, the context current and locked: ImGui adds a font to the atlas
     // only then.

@@ -134,7 +134,8 @@ std::string ValidatePanel (const Panel& panel)
         const PanelItem& item = panel.items[k];
         const std::string at = "item " + std::to_string (k) + ": ";
         const bool control = item.kind == ItemKind::Checkbox || item.kind == ItemKind::Slider ||
-                             item.kind == ItemKind::Combo || item.kind == ItemKind::Button;
+                             item.kind == ItemKind::Combo || item.kind == ItemKind::Button ||
+                             item.kind == ItemKind::SitePlan;
         if (control && (item.id.empty () || item.id.size () > kMaxControlId))
             return at + "a checkbox, slider, dropdown or button needs its id, at most 64 bytes: its value and "
                         "its events are named by it";
@@ -142,6 +143,31 @@ std::string ValidatePanel (const Panel& panel)
             return at + "the tab bar's id is at most 64 bytes";
         if (control && !ids.insert (item.id).second)
             return at + "two controls of one panel share the id \"" + item.id + "\"";
+        if (item.kind == ItemKind::SitePlan) {
+            const size_t count = item.outlineXY.size () / 2;
+            if (item.id.size () > 44 || count < 3 || count > 256 || item.outlineXY.size () % 2 != 0 ||
+                item.offsetXY.size () % 2 != 0 || item.offsetXY.size () > 512 ||
+                (!item.offsetXY.empty () && item.offsetXY.size () < 6) || item.selected >= count ||
+                item.setbackDistances.size () != count || item.setbackModes.size () != count ||
+                !std::isfinite (item.number) || item.number < 0 || item.number > 1000)
+                return at + "sitePlan needs a 3..256 vertex XY ring, matching setbacks/modes, selected vertex and id "
+                            "<=44 bytes";
+            for (double value : item.outlineXY)
+                if (!std::isfinite (value))
+                    return at + "sitePlan coordinates must be finite";
+            for (double value : item.offsetXY)
+                if (!std::isfinite (value))
+                    return at + "sitePlan coordinates must be finite";
+            for (double value : item.setbackDistances)
+                if (!std::isfinite (value) || value < 0 || value > 1000)
+                    return at + "sitePlan setbacks are 0..1000 m";
+            for (uint32_t mode : item.setbackModes)
+                if (mode > 2)
+                    return at + "sitePlan modes are Default, Custom or None";
+            for (uint32_t vertex : item.referenceVertices)
+                if (vertex >= count)
+                    return at + "sitePlan reference vertex out of range";
+        }
         if (item.kind == ItemKind::Slider &&
             (item.autoRange || !std::isfinite (item.number) || !std::isfinite (item.step) || item.step < 0.0))
             return at + "a slider needs its min and max, min below max, a finite number and a step of 0 or more";

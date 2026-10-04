@@ -390,6 +390,9 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
             case layers::ItemKind::Button:
                 Control (panel, item, i, state, width, scale);
                 break;
+            case layers::ItemKind::SitePlan:
+                SitePlan (panel, item, i, state, width, scale);
+                break;
             case layers::ItemKind::Tab:
                 break; // above
         }

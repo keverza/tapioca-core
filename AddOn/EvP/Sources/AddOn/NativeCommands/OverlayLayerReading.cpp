@@ -397,6 +397,7 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
                : kind == "combo"     ? layers::ItemKind::Combo
                : kind == "tab"       ? layers::ItemKind::Tab
                : kind == "button"    ? layers::ItemKind::Button
+               : kind == "sitePlan"  ? layers::ItemKind::SitePlan
                                      : layers::ItemKind::Text;
     if (item.Contains ("text"))
         out.text = StringValue (item, "text");
@@ -422,6 +423,19 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
     ReadDouble (item, "number", out.number);
     ReadDouble (item, "step", out.step);
     ReadCount (item, "selected", out.selected);
+    ReadNumbers (item, "outlineXY", out.outlineXY);
+    ReadNumbers (item, "offsetXY", out.offsetXY);
+    ReadNumbers (item, "setbackDistances", out.setbackDistances);
+    for (const char* name : { "setbackModes", "referenceVertices" }) {
+        GS::Array<GS::Int32> numbers;
+        if (item.Get (name, numbers)) {
+            auto& target = std::string (name) == "setbackModes" ? out.setbackModes : out.referenceVertices;
+            for (GS::Int32 value : numbers)
+                target.push_back (uint32_t (value));
+        }
+    }
+    if (item.Contains ("editable"))
+        item.Get ("editable", out.editable);
     GS::Array<GS::UniString> colors;
     if (item.Get ("colors", colors)) {
         for (const GS::UniString& text : colors) {

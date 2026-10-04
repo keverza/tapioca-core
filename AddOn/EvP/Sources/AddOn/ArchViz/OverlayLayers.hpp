@@ -307,6 +307,7 @@ enum class ItemKind : uint8_t {
     Tab = 16,      // a tab of the panel's one tab bar, `text` its title: the items after it, up to
                    // the next tab, are its page; the first tab's `id` and `selected` are the bar's
     Button = 17,   // `text` on it; each press is reported
+    SitePlan = 18, // fitted XY parcel/inset diagram with endpoint/edge context menus
 };
 
 // A control's `id` names its value and its events: at most this long, one per panel.
@@ -351,6 +352,12 @@ struct PanelItem {
     double number = 0.0;
     double step = 0.0;
     uint32_t selected = 0;
+    std::vector<double> outlineXY;
+    std::vector<double> offsetXY;
+    std::vector<double> setbackDistances;
+    std::vector<uint32_t> setbackModes; // Default, Custom, None
+    std::vector<uint32_t> referenceVertices;
+    bool editable = true;
 };
 
 // A panel's look: the dark glass the HUD began with, or the light card of the design.

@@ -11,60 +11,158 @@ convenience, never private channels, so a Layer 1 trace always tells the whole
 truth and any wrapper bug reduces to a single reproducible `evp.api.call` line.
 """
 
-from . import changes
-from . import cameras
-from . import context
-from . import drafting
-from . import diligent
-from . import drawings
-from . import elements
-from . import errors
-from . import geometry
-from . import issues
-from . import layouts
-from . import model
-from . import outputs
-from . import overlay
-from . import paths
-from . import plan
-from . import preview
-from . import properties
-from . import runtime
-from . import selection
-from . import topology
-from . import ui
-from . import webui
+from . import (
+    cameras,
+    changes,
+    context,
+    diligent,
+    drafting,
+    drawings,
+    elements,
+    errors,
+    geometry,
+    issues,
+    layouts,
+    metadata,
+    model,
+    outputs,
+    overlay,
+    paths,
+    plan,
+    preview,
+    properties,
+    runtime,
+    selection,
+    topology,
+    ui,
+    webui,
+)
+
 # NOT imported here: evp.schema. It needs pydantic, and `import evp` must keep
 # working in the scanner's transport-less process and on a machine whose runtime
 # baseline has not been provisioned yet. A command imports tapioca.schema itself
 # and gets a clear ImportError if it is missing.
-from .api import Result, EvpError, Cancelled, call, debug, API_VERSION
+from .api import API_VERSION, Cancelled, EvpError, Result, call, debug
 from .command import (
-    command, action, menu, Float, Int, Enum, Bool, Text, Action,
-    Layer, Pen, Fill, LineType, Surface, Story, Color, Hour, Calendar, FilePath, ProjectField, View, Database,
-    LibraryPart, Favourite,
-    BuildingMaterial, WallComposite, SlabComposite, RoofComposite, ShellComposite,
-    WallProfile, BeamProfile, ColumnProfile, HandrailProfile, AllProfile,
+    Action,
+    AllProfile,
+    BeamProfile,
+    Bool,
+    BuildingMaterial,
+    Calendar,
+    Color,
+    ColumnProfile,
+    Database,
+    Enum,
+    Favourite,
+    FilePath,
+    Fill,
+    Float,
+    HandrailProfile,
+    Hour,
+    Int,
+    Layer,
+    LibraryPart,
+    LineType,
+    Pen,
+    ProjectField,
+    RoofComposite,
+    ShellComposite,
+    SlabComposite,
+    Story,
+    Surface,
+    Text,
+    View,
+    WallComposite,
+    WallProfile,
+    action,
+    command,
+    menu,
 )
 from .context import Context
 from .plan import ElementSpec, FromStep, Plan, PlanDiff, PlanError
 from .preview import PreviewBudgetError, PreviewScene
+from .transaction import Handle, Transaction, TransactionError, transaction
 from .watch import WatchBudgetError, watch
-from .transaction import Transaction, TransactionError, Handle, transaction
 
 __all__ = [
-    "Result", "EvpError", "Cancelled", "call", "debug", "API_VERSION", "api",
-    "Transaction", "TransactionError", "Handle", "transaction",
-    "Context", "ElementSpec", "FromStep", "Plan", "PlanDiff", "PlanError",
-    "PreviewScene", "PreviewBudgetError", "WatchBudgetError", "watch",
-    "cameras", "changes", "context", "drafting", "diligent", "drawings", "elements", "errors", "geometry",
+    "Result",
+    "EvpError",
+    "Cancelled",
+    "call",
+    "debug",
+    "API_VERSION",
+    "api",
+    "Transaction",
+    "TransactionError",
+    "Handle",
+    "transaction",
+    "Context",
+    "ElementSpec",
+    "FromStep",
+    "Plan",
+    "PlanDiff",
+    "PlanError",
+    "PreviewScene",
+    "PreviewBudgetError",
+    "WatchBudgetError",
+    "watch",
+    "cameras",
+    "changes",
+    "context",
+    "drafting",
+    "diligent",
+    "drawings",
+    "elements",
+    "errors",
+    "geometry",
     "issues",
-    "layouts", "outputs", "overlay", "paths", "plan", "preview", "properties", "runtime", "selection",
-    "model", "topology", "ui", "webui",
-    "command", "action", "menu", "Float", "Int", "Enum", "Bool", "Text", "Action",
-    "Layer", "Pen", "Fill", "LineType", "Surface", "Story", "Color", "Hour", "Calendar",
-    "FilePath", "ProjectField", "View", "Database",
-    "LibraryPart", "Favourite",
-    "BuildingMaterial", "WallComposite", "SlabComposite", "RoofComposite", "ShellComposite",
-    "WallProfile", "BeamProfile", "ColumnProfile", "HandrailProfile", "AllProfile",
+    "layouts",
+    "outputs",
+    "overlay",
+    "paths",
+    "plan",
+    "preview",
+    "properties",
+    "runtime",
+    "selection",
+    "metadata",
+    "model",
+    "topology",
+    "ui",
+    "webui",
+    "command",
+    "action",
+    "menu",
+    "Float",
+    "Int",
+    "Enum",
+    "Bool",
+    "Text",
+    "Action",
+    "Layer",
+    "Pen",
+    "Fill",
+    "LineType",
+    "Surface",
+    "Story",
+    "Color",
+    "Hour",
+    "Calendar",
+    "FilePath",
+    "ProjectField",
+    "View",
+    "Database",
+    "LibraryPart",
+    "Favourite",
+    "BuildingMaterial",
+    "WallComposite",
+    "SlabComposite",
+    "RoofComposite",
+    "ShellComposite",
+    "WallProfile",
+    "BeamProfile",
+    "ColumnProfile",
+    "HandrailProfile",
+    "AllProfile",
 ]
