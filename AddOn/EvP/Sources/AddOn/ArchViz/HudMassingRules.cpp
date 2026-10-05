@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace geomsrv::archviz::hudmassingrules {
 namespace {
@@ -38,27 +39,36 @@ void SetMode (Draft& draft, int mode)
     draft.dirty = true;
 }
 
-bool Distance (const char* label, double& distance)
+massingcalculation::Request Inputs (const rules::Page& page, const Draft& draft);
+
+bool Distance (const char* label, double& distance, Draft& draft, double low = 0, double high = 1000)
 {
-    const double low = 0, high = 1000;
+    ImGui::PushID (label);
     ImGui::SetNextItemWidth (140);
-    if (!ImGui::DragScalar (label, ImGuiDataType_Double, &distance, 0.01f, &low, &high, "%.2f m",
-                            ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp))
-        return false;
-    distance = std::round (distance * 100) / 100;
-    return true;
+    const bool changed = std::string (label) == "Cap Project Z"
+                             ? ImGui::SliderScalar (label, ImGuiDataType_Double, &distance, &low, &high, "%.2f m",
+                                                    ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp)
+                             : ImGui::DragScalar (label, ImGuiDataType_Double, &distance, 0.01f, &low, &high, "%.2f m",
+                                                  ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
+    if (changed)
+        distance = std::round (distance * 100) / 100;
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("Set"))
+        draft.numbers.push_back ({ Inputs (draft.source, draft), label, distance, low, high, draft.selected });
+    ImGui::PopID ();
+    return changed;
 }
 
 void EdgeControls (Draft& draft)
 {
     auto& assignment = draft.assignments[size_t (draft.selected)];
     int mode = int (assignment.mode);
-    const char* names[] = { "Default", "Custom", "None (0 m)" };
+    const char* names[] = { "Default", "Custom", "Road / None (vertical)" };
     ImGui::SetNextItemWidth (140);
     if (ImGui::Combo ("Offset mode", &mode, names, 3))
         SetMode (draft, mode);
     if (assignment.mode == rules::Mode::Custom) {
-        if (Distance ("Offset", assignment.distance)) {
+        if (Distance ("Offset", assignment.distance, draft)) {
             assignment.review = false;
             draft.dirty = true;
         }
@@ -167,7 +177,19 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
                                                                   (page.edges[i].ay + page.edges[i].by) * 0.5 }
                                                         : paths[i][middle]);
         const std::string label = "S" + std::to_string (i + 1) + (draft.assignments[i].review ? " !" : "");
-        draw->AddText ({ mid.x + 3, mid.y }, ImGui::GetColorU32 (ImGuiCol_Text), label.c_str ());
+        if (draft.labels) {
+            draw->AddText ({ mid.x + 3, mid.y }, ImGui::GetColorU32 (ImGuiCol_Text), label.c_str ());
+            const std::string point = "P" + std::to_string (i + 1);
+            draw->AddText ({ a.x + 5, a.y + 4 }, ImGui::GetColorU32 (ImGuiCol_TextDisabled), point.c_str ());
+            double length = 0;
+            for (size_t j = 1; j < paths[i].size (); ++j)
+                length +=
+                    std::hypot (paths[i][j].first - paths[i][j - 1].first, paths[i][j].second - paths[i][j - 1].second);
+            char dimension[48];
+            std::snprintf (dimension, sizeof (dimension), "%.2f m", length);
+            draw->AddText ({ mid.x + 3, mid.y + ImGui::GetTextLineHeight () },
+                           ImGui::GetColorU32 (ImGuiCol_TextDisabled), dimension);
+        }
     }
     draw->PopClipRect ();
     if (hovered) {
@@ -195,7 +217,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         else if (draft.targetEdge >= 0) {
             ImGui::Text ("Segment %d", draft.selected + 1);
             EdgeControls (draft);
-            ImGui::TextDisabled ("None removes the offset, not height regulation.");
+            ImGui::TextDisabled ("Road / None: vertical edge, no height slope.");
             bool regulated = draft.regulated[size_t (draft.selected)];
             if (ImGui::Checkbox ("STR height regulation", &regulated))
                 draft.regulated[size_t (draft.selected)] = regulated;
@@ -203,7 +225,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         }
         ImGui::Separator ();
         if (ImGui::BeginMenu ("Parcel settings")) {
-            if (Distance ("Default setback", draft.defaultDistance)) {
+            if (Distance ("Default setback", draft.defaultDistance, draft)) {
                 for (auto& assignment : draft.assignments)
                     if (assignment.mode == rules::Mode::Default)
                         assignment.distance = draft.defaultDistance;
@@ -214,12 +236,9 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
             const char* terrains[] = { "Existing terrain", "New terrain" };
             if (ImGui::Combo ("Landscape", &landscape, terrains, 2))
                 calculation.landscape = landscape;
-            Distance ("STR base height", calculation.baseHeight);
-            Distance ("Run per 1 m rise", calculation.runPerRise);
-            ImGui::Checkbox ("Project height cap", &calculation.capped);
-            if (calculation.capped)
-                Distance ("Cap (project Z)", calculation.capZ);
-            Distance ("Flat base depth", calculation.baseDepth);
+            Distance ("STR base height", calculation.baseHeight, draft);
+            Distance ("Run per 1 m rise", calculation.runPerRise, draft, 0.01);
+            Distance ("Flat base depth", calculation.baseDepth, draft, 0.01, 100);
             ImGui::EndMenu ();
         }
         if (ImGui::MenuItem ("Save assignments", nullptr, false, draft.dirty)) {
@@ -264,9 +283,11 @@ void Sync (const rules::Page& page, Draft& draft)
     const auto endpoints = draft.endpoints;
     const auto regulated = draft.regulated;
     const auto calculation = draft.calculation;
+    const bool labels = draft.labels;
     const bool discarded = draft.dirty && !saved;
     draft = {};
     draft.source = page;
+    draft.labels = labels;
     draft.assignments = page.assignments;
     draft.endpoints.resize (page.edges.size (), true);
     draft.regulated.resize (page.edges.size (), true);
@@ -310,9 +331,42 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
     draft.selected = (std::clamp) (draft.selected, 0, int (page.edges.size ()) - 1);
     if (!draft.note.empty ())
         ImGui::TextWrapped ("%s", draft.note.c_str ());
+    ImGui::Checkbox ("Show segment, point and dimension text", &draft.labels);
+    ImGui::Checkbox ("Project height cap", &draft.calculation.capped);
+    if (draft.calculation.capped)
+        Distance ("Cap Project Z", draft.calculation.capZ, draft, 5, 50);
     edits = Diagram (page, draft, preview);
     ImGui::PopID ();
     Follow (page, draft);
     return edits;
+}
+
+bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number)
+{
+    if (!std::isfinite (number) || number < edit.min || number > edit.max ||
+        !massingcalculation::SameRequest (edit.before, Inputs (draft.source, draft)))
+        return false;
+    if (edit.key == "Cap Project Z")
+        draft.calculation.capZ = number;
+    else if (edit.key == "STR base height")
+        draft.calculation.baseHeight = number;
+    else if (edit.key == "Run per 1 m rise")
+        draft.calculation.runPerRise = number;
+    else if (edit.key == "Flat base depth")
+        draft.calculation.baseDepth = number;
+    else if (edit.key == "Default setback") {
+        draft.defaultDistance = number;
+        for (auto& assignment : draft.assignments)
+            if (assignment.mode == rules::Mode::Default)
+                assignment.distance = number;
+        draft.dirty = true;
+    }
+    else if (edit.key == "Offset" && edit.edge >= 0 && size_t (edit.edge) < draft.assignments.size ()) {
+        draft.assignments[size_t (edit.edge)].distance = number;
+        draft.dirty = true;
+    }
+    else
+        return false;
+    return true;
 }
 } // namespace geomsrv::archviz::hudmassingrules

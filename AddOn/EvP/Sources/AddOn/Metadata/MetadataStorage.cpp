@@ -151,6 +151,13 @@ bool ReadSchema (ProjectSchema& schema, bool& stored, std::string& error)
     }
     // What a newer default offers that this project's schema lacks, in memory only.
     Extend (read, DefaultSchema ());
+    for (auto& definition : read.properties)
+        if (definition.key == "massing.floorHeight") {
+            definition.type = ValueType::List;
+            definition.min = 2.2;
+            definition.max = 6;
+            definition.step = 0.01;
+        }
     // Upgrade only our original String function definition's presentation/domain
     // in memory. Existing values and the stored project schema are not rewritten.
     for (auto& definition : read.properties)

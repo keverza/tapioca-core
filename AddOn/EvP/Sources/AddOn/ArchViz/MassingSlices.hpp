@@ -22,6 +22,9 @@ struct Result {
     hudsection::Section section;
     std::vector<Row> rows;
     double rawArea = 0, allowedArea = 0;
+    double firstFloorArea = 0, rawFirstFloorArea = 0, facadeArea = 0;
+    bool hasFacade = false;
+    std::vector<hudmeta::Page> heightControls;
     bool clipped = false;
     std::string note;
 };

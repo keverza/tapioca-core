@@ -33,6 +33,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -401,10 +402,47 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.section = g_section.section;
     if (const auto slices = massingslicesmodel::Read (); slices && (!slices->rows.empty () || !slices->note.empty ())) {
         pages.section = slices->section;
+        pages.storyHeights = slices->heightControls;
+        for (auto& field : pages.metadata.fields)
+            if (field.id == "massing.story") {
+                std::map<std::string, size_t> counts;
+                for (const auto& row : slices->rows)
+                    ++counts[row.guid];
+                field.set = !g_selection.elements.empty ();
+                field.text.clear ();
+                for (const auto& element : g_selection.elements) {
+                    const auto count = counts.find (element.guid);
+                    if (count == counts.end ()) {
+                        field.set = false;
+                        field.text.clear ();
+                        break;
+                    }
+                    const auto text = std::to_string (count->second);
+                    if (!field.text.empty () && field.text != text) {
+                        field.text = "mixed";
+                        break;
+                    }
+                    field.text = text;
+                }
+            }
         Card card;
         card.title = "Massing story slices";
         card.figures.push_back ({ "Slices", std::to_string (slices->rows.size ()) });
         card.figures.push_back ({ "Slab slice area sum", Format ("%.2f m2", slices->rawArea) });
+        const double total = slices->clipped ? slices->allowedArea : slices->rawArea;
+        const double first = slices->clipped ? slices->firstFloorArea : slices->rawFirstFloorArea;
+        card.figures.push_back ({ "1st floor area", Format ("%.2f m2", first) });
+        card.figures.push_back ({ "Total floor area", Format ("%.2f m2", total) });
+        card.figures.push_back ({ "Gross area (total x 0.78)", Format ("%.2f m2", total * 0.78) });
+        card.figures.push_back ({ "Sellable area (total x 0.71)", Format ("%.2f m2", total * 0.71) });
+        if (calculation.preview) {
+            const double parcel = calculation.preview->result.parcelArea;
+            card.figures.push_back ({ "Parcel / 1st floor area", first > 0 ? Format ("%.3f", parcel / first) : "n/a" });
+            card.figures.push_back (
+                { "Parcel / (total x 0.78)", total > 0 ? Format ("%.3f", parcel / (total * 0.78)) : "n/a" });
+        }
+        card.figures.push_back (
+            { "Facade area (exposed slab walls)", slices->hasFacade ? Format ("%.2f m2", slices->facadeArea) : "n/a" });
         if (slices->clipped) {
             card.figures.push_back ({ "Allowed slice area sum", Format ("%.2f m2", slices->allowedArea) });
             if (calculation.preview && calculation.preview->result.parcelArea > 0)

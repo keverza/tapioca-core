@@ -94,8 +94,18 @@ void Engine::Impl::MassingPage ()
         store->massingCalculations.push_back (std::move (request));
     }
     store->massingRules.calculations.clear ();
+    if (!store->massingRules.numbers.empty ())
+        changes.push_back ({ "massingNumber", {}, "Massing", "set", -1, 0, {}, true });
     if (ImGui::CollapsingHeader ("Story slice heights", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::TextDisabled ("Set floor-to-floor height and first story in Selection.");
+        ImGui::TextDisabled ("Story count is calculated from the slices.");
+        for (const auto& page : own.storyHeights) {
+            ImGui::PushID (page.element.c_str ());
+            for (auto& edit : hudmeta::Editor (page, *look, overlayhud::FontScaleOf (*store))) {
+                changes.push_back ({ "metadata", {}, "Massing", edit.id, -1, edit.number, edit.text, true });
+                store->metadataEdits.push_back (std::move (edit));
+            }
+            ImGui::PopID ();
+        }
         ImGui::TextDisabled ("Pick floors; right-click to set their function.");
         const hudsection::Run before = store->floors;
         for (auto& edit : hudsection::Diagram (own.section, store->floors, *look, overlayhud::FontScaleOf (*store))) {

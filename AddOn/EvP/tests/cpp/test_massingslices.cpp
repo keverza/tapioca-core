@@ -69,7 +69,7 @@ TEST (MassingSlices, ThinSelectedSlabIsOneFloorWithoutAnEnvelope)
     EXPECT_FALSE (result.layer.polylines.empty ());
 }
 
-TEST (MassingSlices, FloorHeightIsFloorToFloorAndStoryNumbersIncrement)
+TEST (MassingSlices, FloorHeightIsFloorToFloorAndLegacyStoryIndexDoesNotControlTheSlices)
 {
     auto input = Slab (12);
     Set (input, "massing.floorHeight", meta::Value::Number (4, meta::ValueType::Length));
@@ -80,7 +80,7 @@ TEST (MassingSlices, FloorHeightIsFloorToFloorAndStoryNumbersIncrement)
     ASSERT_EQ (result.rows.size (), 3u);
     for (size_t i = 0; i < 3; ++i) {
         EXPECT_DOUBLE_EQ (result.rows[i].z, double (i) * 4);
-        EXPECT_EQ (result.rows[i].story, int (i) - 1);
+        EXPECT_EQ (result.rows[i].story, int (i));
     }
 }
 
@@ -278,4 +278,97 @@ TEST (MassingSlices, SharedPythonConvexAndConcaveShellsCutAndIntersectAtEveryFlo
             EXPECT_LE (result.rows[i].allowedArea, result.rows[i - 1].allowedArea + 1e-4);
         EXPECT_DOUBLE_EQ (result.rows.back ().allowedArea, 0);
     }
+}
+
+TEST (MassingSlices, OrderedHeightsAllowATallerFirstFloorAndRepeatTheLastEntry)
+{
+    auto input = Slab (16);
+    meta::Value heights;
+    ASSERT_TRUE (geomsrv::archviz::hudmeta::ParseHeights ("4, 3", heights));
+    Set (input, "massing.floorHeight", heights);
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ input }, {}, nullptr, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 5u);
+    EXPECT_EQ (result.rows[0].floorHeight, 4);
+    EXPECT_EQ (result.rows[1].z, 4);
+    EXPECT_EQ (result.rows[4].z, 13);
+    EXPECT_EQ (result.rows[4].floorHeight, 3);
+    EXPECT_EQ (result.rawFirstFloorArea, 100);
+    EXPECT_EQ (result.rawArea, 500);
+    ASSERT_EQ (result.heightControls.size (), 1u);
+    EXPECT_EQ (result.heightControls[0].element, "slab");
+    EXPECT_EQ (result.heightControls[0].fields[1].numbers, std::vector<double> ({ 4, 3 }));
+}
+
+TEST (MassingSlices, ArchicadModeUsesActualStoryElevationsRatherThanARepeatedGap)
+{
+    auto input = Slab (16);
+    Set (input, "massing.heightMode", meta::Value::Option ("archicad"));
+    geomsrv::archviz::ProjectStoreys storeys;
+    storeys.levels = { -3, 0, 4.5, 7.5, 10.7, 14, 17 };
+    storeys.indices = { -1, 0, 1, 2, 3, 4, 5 };
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ input }, storeys, nullptr, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 5u);
+    EXPECT_EQ (result.rows[0].floorHeight, 4.5);
+    EXPECT_EQ (result.rows[2].z, 7.5);
+    EXPECT_EQ (result.rows[3].z, 10.7);
+    EXPECT_EQ (result.heightControls[0].fields.size (), 1u);
+    EXPECT_FALSE (ms::Build ({ input }, {}, nullptr, result, error));
+    Set (input, "massing.heightMode", meta::Value::Option ("override"));
+    ASSERT_TRUE (ms::Build ({ input }, storeys, nullptr, result, error)) << error;
+    EXPECT_EQ (result.rows[1].z, 3);
+}
+
+TEST (MassingSlices, FacadeExcludesTopBottomSharedAndIntersectingWalls)
+{
+    auto a = Slab (9), b = Slab (9);
+    b.slab.guid = "other";
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ a }, {}, nullptr, result, error)) << error;
+    ASSERT_TRUE (result.hasFacade);
+    EXPECT_NEAR (result.facadeArea, 360, 1e-6);
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    EXPECT_NEAR (result.facadeArea, 360, 1e-6); // identical volumes, not twice the facade
+    b.slab.outer.xy = Ring (10, 0, 20, 10).xy;
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    EXPECT_NEAR (result.facadeArea, 540, 1e-6); // adjacent shared face removed
+    b.slab.outer.xy = Ring (5, 0, 15, 10).xy;
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    EXPECT_NEAR (result.facadeArea, 450, 1e-6); // intersecting parts removed
+    b.slab.bottom = 3;
+    b.slab.top = 6;
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    EXPECT_NEAR (result.facadeArea, 390, 1e-6); // 40*6 + 50*3
+}
+
+TEST (MassingSlices, FacadeIncludesCourtyardWallsOnlyWhileTheyFaceAir)
+{
+    auto a = Slab (9), b = Slab (9);
+    a.slab.holes.push_back ({ Ring (4, 4, 6, 6).xy, {} });
+    b.slab.outer.xy = Ring (4, 4, 6, 6).xy;
+    b.slab.guid = "infill";
+    b.slab.bottom = 3;
+    b.slab.top = 6;
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ a }, {}, nullptr, result, error)) << error;
+    EXPECT_NEAR (result.facadeArea, 432, 1e-6);
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    EXPECT_NEAR (result.facadeArea, 408, 1e-6); // courtyard is filled for three metres
+}
+
+TEST (MassingSlices, FirstFloorUsesTheSameIntersectionAsTheDisplayedFloor)
+{
+    const auto envelope = Envelope (Box (2, 2, 8, 8));
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab () }, {}, &envelope, result, error)) << error;
+    EXPECT_NEAR (result.firstFloorArea, 36, 1e-6);
+    EXPECT_NEAR (result.allowedArea, 108, 1e-6);
+    EXPECT_NEAR (result.rawFirstFloorArea, 100, 1e-6);
+    EXPECT_NEAR (result.facadeArea, 360, 1e-6); // actual slabs, not fictional envelope-cut walls
 }

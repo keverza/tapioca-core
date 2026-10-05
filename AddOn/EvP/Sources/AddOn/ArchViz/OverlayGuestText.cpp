@@ -10,6 +10,8 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEvents.hpp"
 #include "ArchViz/OverlayText.hpp"
+#include "ArchViz/OverlayController.hpp"
+#include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/SceneTextFont.hpp"
 
 #include <map>
@@ -123,6 +125,11 @@ overlayhud::Engine* Hud (overlayinput::View view)
         event.text = change.text;
         event.final = change.final;
         overlayhudevents::Push (std::move (event));
+        // Automatic requests can originate in a heartbeat/initial layout, not a
+        // pointer refresh. Always drain them later, outside layout and ImGui's lock.
+        if (change.kind == "metadata" || change.kind.rfind ("massing", 0) == 0) {
+            selectionmetadata::Later ([] () { overlaycontrol::FollowHudState (); });
+        }
     });
     g_hud[at] = std::move (hud);
     return g_hud[at].get ();

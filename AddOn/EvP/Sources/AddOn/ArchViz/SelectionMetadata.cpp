@@ -84,11 +84,16 @@ void Fail (const std::string& error)
 bool AskTexts (std::vector<hudmeta::Edit>& edits)
 {
     for (hudmeta::Edit& edit : edits) {
-        if (edit.action != hudmeta::Edit::Action::AskText)
+        if (edit.action != hudmeta::Edit::Action::AskText && edit.action != hudmeta::Edit::Action::AskNumber)
             continue;
         std::string answer;
         if (!textprompt::Ask (edit.label.empty () ? edit.id : edit.label, edit.text, answer))
             return false;
+        if (edit.action == hudmeta::Edit::Action::AskNumber &&
+            !hudmeta::ParseNumber (answer, edit.min, edit.max, edit.number)) {
+            Fail ("Enter a finite number within the input's bounds.");
+            return false;
+        }
         edit.action = hudmeta::Edit::Action::Set;
         edit.text = answer;
     }

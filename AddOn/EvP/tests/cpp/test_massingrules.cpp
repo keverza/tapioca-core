@@ -535,6 +535,43 @@ TEST (MassingRules, ContourAutomaticallyCapturesChangesWithoutCalculateOrSave)
     EXPECT_FALSE (widget.draft.dirty); // calculating never saves metadata
 }
 
+TEST (MassingRules, CapKeyboardAnswerIsBoundedCapturedAndAutomaticallyRecalculated)
+{
+    RulesWidget widget;
+    widgets::NumberEdit edit;
+    edit.before = widget.draft.calculations.front ();
+    edit.key = "Cap Project Z";
+    edit.min = 5;
+    edit.max = 50;
+    EXPECT_FALSE (widgets::AnswerNumber (widget.draft, edit, 51));
+    EXPECT_FALSE (widgets::AnswerNumber (widget.draft, edit, 4.9));
+    ASSERT_TRUE (widgets::AnswerNumber (widget.draft, edit, 30));
+    widget.Frame ({ 850, 850 });
+    ASSERT_EQ (widget.draft.calculations.size (), 2u);
+    EXPECT_EQ (widget.draft.calculations.back ().capZ, 30);
+    EXPECT_FALSE (widgets::AnswerNumber (widget.draft, edit, 25)); // inputs changed during prompt
+    EXPECT_FALSE (widget.draft.dirty);                             // run-local cap, no metadata saved
+}
+
+TEST (MassingRules, RoadNoneAssignmentTransportsVerticalFlag)
+{
+    namespace calc = geomsrv::archviz::massingcalculation;
+    calc::Request request;
+    request.before = Page (Saved ());
+    request.assignments = request.before.assignments;
+    request.assignments[0].mode = rules::Mode::None;
+    request.assignments[0].distance = 0;
+    request.endpoints.assign (4, true);
+    request.regulated.assign (4, true);
+    std::string json, error;
+    ASSERT_TRUE (calc::Encode (request, {}, false, 0, json, error)) << error;
+    const auto parsed = evp::nodegraph::json::Parse (json);
+    bool vertical = false;
+    ASSERT_TRUE (
+        parsed.value.Find ("request")->Find ("edges")->AsArray ()->at (0).Find ("vertical")->AsBool (vertical));
+    EXPECT_TRUE (vertical);
+}
+
 TEST (MassingRules, HybridAdapterEncodesFiniteCapturedGeometryWithRunLocalFlags)
 {
     namespace calc = geomsrv::archviz::massingcalculation;

@@ -111,6 +111,28 @@ def test_none_height_rule_is_distinct_from_zero_offset_and_cap_can_bound_it():
         calculate(data)
 
 
+@pytest.mark.parametrize("concave", [False, True])
+def test_road_none_edges_are_vertical_without_height_slopes(concave):
+    data = request(concave)
+    for edge in data["edges"]:
+        edge["vertical"] = True
+        edge["distance"] = 0
+    result = calculate(data)
+    assert result["allowedArea"] == pytest.approx(result["parcelArea"])
+    assert max(result["vertices"][2::3]) == 25
+    # No sloping roof planes: horizontal caps or vertical walls only.
+    assert all(abs(z) < 1e-8 or abs(abs(z) - 1) < 1e-8 for z in result["normals"][2::3])
+    data["capped"] = False
+    assert "unbounded" in preview(data)["note"]
+
+
+def test_vertical_road_flag_is_not_a_truthy_string():
+    data = request()
+    data["edges"][0]["vertical"] = "false"
+    with pytest.raises(ValueError, match="boolean"):
+        preview(data)
+
+
 @pytest.mark.parametrize("mutation", ["review", "arc", "index", "nan", "gap", "collapse"])
 def test_invalid_or_unsupported_snapshot_refuses_instead_of_falling_back(mutation):
     data = request()

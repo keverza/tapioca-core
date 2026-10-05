@@ -31,7 +31,7 @@ namespace geomsrv {
 namespace archviz {
 namespace hudmeta {
 
-enum class FieldKind : uint8_t { Choice, Toggle, Number, Text, Fixed };
+enum class FieldKind : uint8_t { Choice, Toggle, Number, Text, Fixed, Heights };
 
 struct Option {
     std::string value;
@@ -63,6 +63,7 @@ struct Field {
     bool set = false; // a selected element holds a value
     bool mixed = false;
     std::string note; // the definition's description: its tip
+    std::vector<double> numbers;
 };
 
 struct Page {
@@ -70,11 +71,12 @@ struct Page {
     uint32_t elements = 0; // how many the fields were read from
     uint32_t selected = 0; // how many an edit is written to
     std::vector<Field> fields;
-    std::string note; // what could not be read
+    std::string note;    // what could not be read
+    std::string element; // captured target, for defined slabs even when unselected
 };
 
 struct Edit {
-    enum class Action : uint8_t { Set, Clear, AskText };
+    enum class Action : uint8_t { Set, Clear, AskText, AskNumber };
     std::string id;
     Action action = Action::Set;
     FieldKind kind = FieldKind::Fixed;
@@ -90,6 +92,8 @@ struct Edit {
     double to = 0.0;
     // Only this element's, when given: a range clipped to one element's own floors.
     std::string element;
+    int listIndex = -1; // one floorHeight array entry; -1 replaces the complete array
+    double min = 0, max = 0;
 };
 
 // The fields of `entities` -- the selected elements read -- under `schema`: its definitions that
@@ -112,6 +116,8 @@ std::vector<Edit> Editor (const Page& page, const overlaylayers::Panel& look, fl
 // edit is not one the schema can take.
 bool Apply (metadata::EntityMetadata& entity, const Edit& edit, const metadata::ProjectSchema& schema, int64_t nowMs,
             std::string& error);
+bool ParseNumber (const std::string& text, double minimum, double maximum, double& value);
+bool ParseHeights (const std::string& text, metadata::Value& value);
 
 } // namespace hudmeta
 } // namespace archviz

@@ -22,6 +22,8 @@
 #include "ArchViz/MassingHybrid.hpp"
 #include "ArchViz/MassingSlicesModel.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
+#include "ArchViz/TextPrompt.hpp"
+#include "ArchViz/HudConsole.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -89,6 +91,19 @@ void FollowHudState ()
         massingmodel::RequestRules (std::move (edit));
     for (auto& request : overlayhud::TakeMassingCalculations (*state))
         massinghybrid::Request (std::move (request));
+    for (const auto& edit : overlayhud::TakeMassingNumbers (*state)) {
+        std::string answer;
+        double number = 0;
+        if (textprompt::Ask (edit.key + " (" + std::to_string (edit.min) + " - " + std::to_string (edit.max) + ")",
+                             std::to_string (edit.number), answer)) {
+            if (!hudmeta::ParseNumber (answer, edit.min, edit.max, number))
+                hudconsole::Warning ("Massing input", "Enter a finite number within the displayed bounds.");
+            else if (!overlayhud::AnswerMassingNumber (*state, edit, number))
+                hudconsole::Warning ("Massing input", "Inputs changed while the panel was open; value not applied.");
+        }
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     // The Selection page's metadata edits: written from the message loop too, in one undo step,
     // to every element selected then; the page is read again after (SelectionMetadata.hpp).
     std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);

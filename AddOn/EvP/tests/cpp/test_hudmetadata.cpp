@@ -39,19 +39,23 @@ TEST (HudMetadata, SelectionOffersOnlyTheFourBuildingSlabFieldsAndPreservesLegac
         EXPECT_EQ (field.group, "BUILDING SLAB");
         EXPECT_EQ (field.label, field.id);
     }
-    EXPECT_EQ (page.fields[2].kind, hm::FieldKind::Choice);
+    EXPECT_EQ (page.fields[1].kind, hm::FieldKind::Fixed);
+    EXPECT_EQ (page.fields[2].kind, hm::FieldKind::Fixed);
     EXPECT_EQ (page.fields[2].type, meta::ValueType::String);
-    EXPECT_FALSE (page.fields[2].options.empty ());
+    EXPECT_EQ (page.fields[3].kind, hm::FieldKind::Heights);
+    EXPECT_EQ (page.fields[3].numbers, std::vector<double> ({ 4 }));
     EXPECT_EQ (meta::ToJson (entity), before);
     hm::Edit edit;
     edit.id = "massing.function";
     edit.kind = hm::FieldKind::Choice;
     edit.type = meta::ValueType::String;
     edit.text = "commercial";
+    edit.domain = meta::kFloorDomain;
+    edit.from = edit.to = 0;
     std::string error;
     ASSERT_TRUE (hm::Apply (entity, edit, schema, 0, error)) << error;
     EXPECT_TRUE (meta::Validate (entity, schema).empty ());
-    EXPECT_EQ (meta::FindProperty (entity, "massing.function")->value.s, "commercial");
+    EXPECT_EQ (meta::RangeValue (entity, meta::kFloorDomain, 0, "massing.function")->value.s, "commercial");
 }
 
 namespace {
@@ -270,4 +274,53 @@ TEST (HudMetadata, ATogglePressedOnTheSelectionPageIsAnEdit)
     ASSERT_FALSE (hud.heard.empty ());
     EXPECT_EQ (hud.heard.back ().kind, "metadata");
     EXPECT_EQ (hud.heard.back ().id, "tag:review");
+}
+
+TEST (HudMetadata, KeyboardNumbersAndHeightArraysAreStrictAndBounded)
+{
+    double value = -1;
+    EXPECT_TRUE (hm::ParseNumber (" 2.2 ", 2.2, 6, value));
+    EXPECT_EQ (value, 2.2);
+    EXPECT_FALSE (hm::ParseNumber ("6.01", 2.2, 6, value));
+    EXPECT_FALSE (hm::ParseNumber ("3 m", 2.2, 6, value));
+    EXPECT_FALSE (hm::ParseNumber ("nan", 2.2, 6, value));
+    EXPECT_FALSE (hm::ParseNumber ("inf", 2.2, 6, value));
+    EXPECT_FALSE (hm::ParseNumber ("", 2.2, 6, value));
+    meta::Value heights;
+    EXPECT_TRUE (hm::ParseHeights ("4.5, 3, 2.2, 6", heights));
+    ASSERT_EQ (heights.list.size (), 4u);
+    EXPECT_EQ (heights.elementType, meta::ValueType::Length);
+    EXPECT_FALSE (hm::ParseHeights ("4,", heights));
+    EXPECT_FALSE (hm::ParseHeights ("4, 1.9", heights));
+    EXPECT_FALSE (hm::ParseHeights ("4; 3", heights));
+}
+
+TEST (HudMetadata, HeightArrayEditsPreserveOtherEntriesAndLegacyValuesUntilAuthored)
+{
+    meta::EntityMetadata entity;
+    std::string error;
+    hm::Edit edit;
+    edit.id = "massing.floorHeight";
+    edit.text = "4.5, 3";
+    ASSERT_TRUE (hm::Apply (entity, edit, meta::DefaultSchema (), 0, error)) << error;
+    edit.listIndex = 1;
+    edit.number = 3.2;
+    ASSERT_TRUE (hm::Apply (entity, edit, meta::DefaultSchema (), 0, error)) << error;
+    const auto* property = meta::FindProperty (entity, edit.id);
+    ASSERT_NE (property, nullptr);
+    EXPECT_EQ (property->value.list[0].d, 4.5);
+    EXPECT_EQ (property->value.list[1].d, 3.2);
+    EXPECT_TRUE (meta::Validate (entity, meta::DefaultSchema ()).empty ());
+    meta::EntityMetadata roundtrip;
+    ASSERT_TRUE (meta::FromJson (meta::ToJson (entity), roundtrip, error)) << error;
+    EXPECT_EQ (meta::FindProperty (roundtrip, edit.id)->value, property->value);
+    edit.listIndex = 2;
+    EXPECT_FALSE (hm::Apply (entity, edit, meta::DefaultSchema (), 0, error));
+    edit.listIndex = 0;
+    edit.number = 8;
+    EXPECT_FALSE (hm::Apply (entity, edit, meta::DefaultSchema (), 0, error));
+    edit.id = "massing.story";
+    EXPECT_FALSE (hm::Apply (entity, edit, meta::DefaultSchema (), 0, error));
+    edit.id = "massing.function";
+    EXPECT_FALSE (hm::Apply (entity, edit, meta::DefaultSchema (), 0, error));
 }

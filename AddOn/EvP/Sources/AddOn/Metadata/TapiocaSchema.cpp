@@ -5,6 +5,7 @@
 #include "Metadata/TapiocaMetadataDetail.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <string>
 #include <vector>
@@ -119,7 +120,7 @@ ProjectSchema DefaultSchema ()
     schema.properties.push_back (Definition ("tapioca.role", "Role", ValueType::String, "Common"));
     schema.properties.push_back (Definition ("massing.buildingId", "Building ID", ValueType::String, "Building slab"));
     PropertyDefinition story = Definition ("massing.story", "Story", ValueType::Int, "Building slab");
-    story.min = -100;
+    story.min = -100; // retained legacy indices are readable; HUD now derives the count
     story.max = 1000;
     story.step = 1;
     schema.properties.push_back (story);
@@ -135,8 +136,19 @@ ProjectSchema DefaultSchema ()
     schema.properties.push_back (height);
     PropertyDefinition floorHeight = height;
     floorHeight.key = "massing.floorHeight";
-    floorHeight.label = "Floor height";
+    floorHeight.label = "Floor heights";
+    floorHeight.type = ValueType::List;
+    floorHeight.min = 2.2;
+    floorHeight.max = 6;
+    floorHeight.description = "Ordered floor-to-floor heights in metres; the final entry repeats for higher floors.";
     schema.properties.push_back (floorHeight);
+    Enumeration heightMode;
+    heightMode.id = "massing-height-mode";
+    heightMode.options = { { "override", "Override heights" }, { "archicad", "Match Archicad stories" } };
+    schema.enumerations.push_back (heightMode);
+    auto mode = Definition ("massing.heightMode", "Height source", ValueType::Enum, "Building slab");
+    mode.enumId = heightMode.id;
+    schema.properties.push_back (mode);
 
     PropertyDefinition usageKey = Definition ("program.usage", "Usage", ValueType::Enum, "Program");
     usageKey.enumId = "building-usage";
@@ -274,6 +286,20 @@ void CheckValue (const Property& property, const ProjectSchema& schema, const st
     if (definition == nullptr)
         return;
     const std::string at = where + property.key;
+    if (property.key == "massing.floorHeight") {
+        // Scalar floorHeight from older packages remains readable until explicitly edited.
+        if (IsNumber (property.value.type))
+            return;
+        if (property.value.type != ValueType::List || property.value.elementType != ValueType::Length ||
+            property.value.list.empty () || property.value.list.size () > 512) {
+            problems.push_back (at + " needs 1..512 floor heights in metres");
+            return;
+        }
+        for (const auto& height : property.value.list)
+            if (height.type != ValueType::Length || !std::isfinite (height.d) || height.d < 2.2 || height.d > 6)
+                problems.push_back (at + " heights must be 2.2 to 6.0 m");
+        return;
+    }
     if (property.value.type != definition->type) {
         problems.push_back (at + " holds a " + TypeName (property.value.type) + "; its definition says " +
                             TypeName (definition->type));

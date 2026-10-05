@@ -125,13 +125,15 @@ bool Encode (const Request& request, const geomsrv::Mesh& terrain, bool hasAltit
     }
     for (size_t i = 0; i < count; ++i) {
         const auto& edge = request.before.edges[i];
-        edges.push_back (Value::Object ({ { "a", Numbers ({ edge.ax, edge.ay }) },
-                                          { "b", Numbers ({ edge.bx, edge.by }) },
-                                          { "arc", Value::Double (edge.arcAngle) },
-                                          { "distance", Value::Double (request.assignments[i].distance) },
-                                          { "review", Value::Bool (request.assignments[i].review) },
-                                          { "regulated", Value::Bool (request.regulated[i]) },
-                                          { "reference", Value::Bool (request.endpoints[i]) } }));
+        edges.push_back (
+            Value::Object ({ { "a", Numbers ({ edge.ax, edge.ay }) },
+                             { "b", Numbers ({ edge.bx, edge.by }) },
+                             { "arc", Value::Double (edge.arcAngle) },
+                             { "distance", Value::Double (request.assignments[i].distance) },
+                             { "vertical", Value::Bool (request.assignments[i].mode == massingrules::Mode::None) },
+                             { "review", Value::Bool (request.assignments[i].review) },
+                             { "regulated", Value::Bool (request.regulated[i]) },
+                             { "reference", Value::Bool (request.endpoints[i]) } }));
     }
     const Value input = Value::Object (
         { { "version", Value::Integer (1) },

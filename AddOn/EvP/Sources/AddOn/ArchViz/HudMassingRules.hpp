@@ -5,6 +5,12 @@
 #include "ArchViz/MassingCalculation.hpp"
 
 namespace geomsrv::archviz::hudmassingrules {
+struct NumberEdit {
+    massingcalculation::Request before;
+    std::string key;
+    double number = 0, min = 0, max = 1000;
+    int edge = -1;
+};
 struct Draft {
     massingrules::Page source;
     std::vector<massingrules::Assignment> assignments;
@@ -18,9 +24,12 @@ struct Draft {
     int targetEdge = -1;
     double defaultDistance = 3;
     bool dirty = false;
+    bool labels = true;
+    std::vector<NumberEdit> numbers;
     std::string note;
 };
 void Sync (const massingrules::Page& page, Draft& draft);
+bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number);
 // Returns explicit Save requests only. Layout does not touch ACAPI or storage.
 std::vector<massingrules::Edit> Draw (const massingrules::Page& page, Draft& draft, bool busy = false,
                                       const std::string& calculationNote = {},

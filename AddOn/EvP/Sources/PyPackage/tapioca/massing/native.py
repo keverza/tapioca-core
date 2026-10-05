@@ -48,10 +48,13 @@ def _definition(request):
         if not isinstance(edge["regulated"], bool) or not isinstance(edge["reference"], bool):
             raise ValueError("height and endpoint flags must be booleans")
         setback = _number(edge["distance"], "setback", 0, 1000)
+        vertical = edge.get("vertical", False)
+        if not isinstance(vertical, bool):
+            raise ValueError("vertical road flag must be a boolean")
         rule_id = f"edge-{i}"
         rules[rule_id] = (
             replace(sg.STR_193, id=rule_id, base_setback=setback, base_height=base, run_per_rise=run)
-            if edge["regulated"]
+            if edge["regulated"] and not vertical
             else sg.NONE
         )
         ring.append(a)

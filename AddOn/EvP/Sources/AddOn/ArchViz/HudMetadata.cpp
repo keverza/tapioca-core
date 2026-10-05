@@ -266,20 +266,81 @@ void NumberControl (const Field& field, std::vector<Edit>& edits)
     const std::string format = field.mixed && !active ? std::string (kMixed) : NumberFormat (field);
     if (field.max > field.min)
         ImGui::SliderFloat ("##value", held, float (field.min), float (field.max), format.c_str (),
-                            ImGuiSliderFlags_AlwaysClamp);
+                            ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
     else
-        ImGui::DragFloat ("##value", held, field.step > 0.0 ? float (field.step) : 0.1f, 0.0f, 0.0f, format.c_str ());
+        ImGui::DragFloat ("##value", held, field.step > 0.0 ? float (field.step) : 0.1f, 0.0f, 0.0f, format.c_str (),
+                          ImGuiSliderFlags_NoInput);
     storage->SetBool (activeId, ImGui::IsItemActive ());
     *held = float (Snapped (field, *held));
-    if (!ImGui::IsItemDeactivatedAfterEdit ())
-        return;
-    Edit edit;
-    edit.id = field.id;
-    edit.kind = field.kind;
-    edit.type = field.type;
-    edit.number = double (*held) / (field.scale != 0.0 ? field.scale : 1.0);
-    edit.label = field.label;
-    edits.push_back (std::move (edit));
+    const bool changed = ImGui::IsItemDeactivatedAfterEdit ();
+    ImGui::SameLine ();
+    const bool ask = ImGui::SmallButton ("Set");
+    if (changed || ask) {
+        Edit edit;
+        edit.id = field.id;
+        edit.kind = field.kind;
+        edit.type = field.type;
+        const double scale = field.scale != 0.0 ? field.scale : 1.0;
+        edit.number = double (*held) / scale;
+        edit.label = field.label;
+        edit.min = field.min / scale;
+        edit.max = field.max / scale;
+        if (ask) {
+            edit.action = Edit::Action::AskNumber;
+            edit.text = std::to_string (edit.number);
+        }
+        edits.push_back (std::move (edit));
+    }
+}
+
+void HeightsControl (const Field& field, std::vector<Edit>& edits)
+{
+    for (size_t i = 0; i < field.numbers.size (); ++i) {
+        ImGui::PushID (int (i));
+        ImGui::Text ("Floor %d", int (i + 1));
+        Field entry = field;
+        entry.kind = FieldKind::Number;
+        entry.number = field.numbers[i];
+        entry.min = 2.2;
+        entry.max = 6;
+        entry.step = 0.01;
+        entry.unit = "m";
+        entry.label = "Floor " + std::to_string (i + 1) + " height (2.2 - 6.0 m)";
+        ImGui::SetNextItemWidth ((std::max) (40.0f, ImGui::GetContentRegionAvail ().x - 45));
+        const auto first = edits.size ();
+        NumberControl (entry, edits);
+        for (size_t j = first; j < edits.size (); ++j)
+            edits[j].listIndex = int (i);
+        ImGui::PopID ();
+    }
+    ImGui::TextDisabled ("Last height repeats for higher floors.");
+    auto numbers = field.numbers;
+    bool changed = false;
+    if (numbers.size () < 512 && ImGui::SmallButton ("Add height")) {
+        numbers.push_back (numbers.empty () ? 3 : numbers.back ());
+        changed = true;
+    }
+    ImGui::SameLine ();
+    if (numbers.size () > 1 && ImGui::SmallButton ("Remove last")) {
+        numbers.pop_back ();
+        changed = true;
+    }
+    ImGui::SameLine ();
+    const bool ask = ImGui::SmallButton ("Set array");
+    if (changed || ask) {
+        Edit edit;
+        edit.id = field.id;
+        edit.type = meta::ValueType::List;
+        edit.kind = FieldKind::Heights;
+        edit.label = "Floor heights, comma separated (2.2 - 6.0 m)";
+        for (double value : numbers) {
+            if (!edit.text.empty ())
+                edit.text += ", ";
+            edit.text += std::to_string (value);
+        }
+        edit.action = ask ? Edit::Action::AskText : Edit::Action::Set;
+        edits.push_back (std::move (edit));
+    }
 }
 
 void TextControl (const Field& field, std::vector<Edit>& edits)
@@ -418,7 +479,11 @@ std::vector<Edit> Editor (const Page& page, const layers::Panel& look, float sca
                 ToggleControl (field, edits);
                 break;
             case FieldKind::Number:
+                ImGui::SetNextItemWidth ((std::max) (40.0f, ImGui::GetContentRegionAvail ().x - 45));
                 NumberControl (field, edits);
+                break;
+            case FieldKind::Heights:
+                HeightsControl (field, edits);
                 break;
             case FieldKind::Text:
                 TextControl (field, edits);
@@ -435,6 +500,8 @@ std::vector<Edit> Editor (const Page& page, const layers::Panel& look, float sca
         Note ("Read from the first " + std::to_string (page.elements) + "; a change is written to all " +
                   std::to_string (page.selected) + " selected",
               look);
+    for (auto& edit : edits)
+        edit.element = page.element;
     return edits;
 }
 
@@ -459,11 +526,44 @@ Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::En
                 field.label = key;
                 if (field.id == "massing.floorHeight" && !field.set)
                     field.number = 3;
+                if (field.id == "massing.floorHeight") {
+                    field.kind = FieldKind::Heights;
+                    field.type = meta::ValueType::List;
+                    field.numbers = { field.number > 0 ? field.number : 3 };
+                    if (!entities.empty ())
+                        if (const auto* value = meta::FindProperty (entities.front (), field.id.c_str ()); value) {
+                            if (value->value.type == meta::ValueType::List) {
+                                field.numbers.clear ();
+                                for (const auto& height : value->value.list)
+                                    field.numbers.push_back (height.AsNumber ());
+                            }
+                            else if (meta::IsNumber (value->value.type)) {
+                                field.number = value->value.AsNumber ();
+                                field.numbers = { field.number };
+                            }
+                        }
+                    if (field.mixed) {
+                        field.kind = FieldKind::Text;
+                        field.text.clear ();
+                    }
+                    const bool archicad = std::all_of (entities.begin (), entities.end (), [] (const auto& entity) {
+                        const auto* mode = meta::FindProperty (entity, "massing.heightMode");
+                        return mode && mode->value.s == "archicad";
+                    });
+                    if (archicad) {
+                        field.kind = FieldKind::Fixed;
+                        field.set = true;
+                        field.text = "Archicad stories (Massing)";
+                    }
+                }
+                if (field.id == "massing.story") {
+                    field.kind = FieldKind::Fixed;
+                    field.note = "Automatically counted from story slices.";
+                }
                 if (field.id == "massing.function") {
-                    field.kind = FieldKind::Choice; // storage stays String for existing projects
-                    if (const auto* choices = schema.FindEnumeration ("building-usage"))
-                        for (const auto& option : choices->options)
-                            field.options.push_back ({ option.value, option.label, option.rgba });
+                    field.kind = FieldKind::Fixed;
+                    field.set = true;
+                    field.text = "Per story (Massing)";
                 }
                 page.fields.push_back (std::move (field));
                 break;
@@ -474,6 +574,11 @@ Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::En
 bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectSchema& schema, int64_t nowMs,
             std::string& error)
 {
+    if (edit.id == "massing.story" || (edit.id == "massing.function" && edit.domain.empty ())) {
+        error = edit.id == "massing.story" ? "Story count is calculated from slices."
+                                           : "Assign function to picked stories in Massing.";
+        return false;
+    }
     meta::Provenance provenance;
     provenance.source = meta::Source::User;
     provenance.sourceId = "hud";
@@ -506,7 +611,7 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
             meta::ClearRange (entity, edit.domain, edit.from, edit.to, edit.id);
         return true;
     }
-    if (edit.action == Edit::Action::AskText) {
+    if (edit.action == Edit::Action::AskText || edit.action == Edit::Action::AskNumber) {
         error = edit.id + ": the text is the dialog's to answer first";
         return false;
     }
@@ -514,7 +619,31 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
     const meta::ValueType type = definition != nullptr ? definition->type : edit.type;
     meta::Property property;
     property.key = edit.id;
-    if (type == meta::ValueType::Bool)
+    if (edit.id == "massing.floorHeight") {
+        if (edit.listIndex >= 0) {
+            const auto* held = meta::FindProperty (entity, edit.id);
+            property.value.type = meta::ValueType::List;
+            property.value.elementType = meta::ValueType::Length;
+            if (held && held->value.type == meta::ValueType::List)
+                property.value = held->value;
+            else {
+                const auto* legacy = held ? held : meta::FindProperty (entity, "massing.height");
+                property.value.list = { meta::Value::Number (legacy ? legacy->value.AsNumber () : 3,
+                                                             meta::ValueType::Length) };
+            }
+            if (size_t (edit.listIndex) >= property.value.list.size () || !std::isfinite (edit.number) ||
+                edit.number < 2.2 || edit.number > 6) {
+                error = "Floor height entry changed or is outside 2.2 - 6.0 m.";
+                return false;
+            }
+            property.value.list[size_t (edit.listIndex)] = meta::Value::Number (edit.number, meta::ValueType::Length);
+        }
+        else if (!ParseHeights (edit.text, property.value)) {
+            error = "Use comma-separated floor heights from 2.2 to 6.0 m.";
+            return false;
+        }
+    }
+    else if (type == meta::ValueType::Bool)
         property.value = meta::Value::Boolean (edit.on);
     else if (type == meta::ValueType::Int)
         property.value = meta::Value::Integer (int64_t (std::llround (edit.number)));
@@ -545,6 +674,42 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
         return true;
     }
     meta::SetProperty (entity, std::move (property));
+    return true;
+}
+
+bool ParseNumber (const std::string& text, double minimum, double maximum, double& value)
+{
+    try {
+        size_t end = 0;
+        const double number = std::stod (text, &end);
+        if (text.find_first_not_of (" \t\r\n", end) != std::string::npos || !std::isfinite (number) ||
+            (maximum > minimum && (number < minimum || number > maximum)))
+            return false;
+        value = number;
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
+}
+
+bool ParseHeights (const std::string& text, meta::Value& value)
+{
+    meta::Value parsed;
+    parsed.type = meta::ValueType::List;
+    parsed.elementType = meta::ValueType::Length;
+    size_t start = 0;
+    for (;;) {
+        const size_t end = text.find (',', start);
+        double height = 0;
+        if (parsed.list.size () >= 512 || !ParseNumber (text.substr (start, end - start), 2.2, 6, height))
+            return false;
+        parsed.list.push_back (meta::Value::Number (height, meta::ValueType::Length));
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    }
+    value = std::move (parsed);
     return true;
 }
 

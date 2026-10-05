@@ -43,6 +43,8 @@ std::string s_observed;
 bool s_polling = false;
 std::shared_ptr<const geomsrv::Mesh> s_terrain;
 uint64_t s_terrainStamp = 0;
+uint64_t s_terrainRetryAt = 0;
+unsigned s_terrainRetries = 0;
 std::thread s_worker;
 std::atomic<bool> s_running { false };
 std::mutex s_mutex;
@@ -131,6 +133,11 @@ void Start (Source source)
         }
         if (s_terrain)
             terrain = *s_terrain;
+        else if (s_terrainRetries < 5) {
+            ++s_terrainRetries;
+            s_terrainRetryAt = ::GetTickCount64 () + 500;
+            ArchVizLog ("MASSING PYTHON  terrain conversion not ready; retry " + std::to_string (s_terrainRetries));
+        }
     }
     API_PlaceInfo place {};
     const bool hasAltitude = ACAPI_GeoLocation_GetPlaceSets (&place) == NoError;
@@ -144,7 +151,8 @@ void Start (Source source)
     s_running.store (true);
     s_page.note = "Calculating with shared Python solver...";
     ArchVizLog ("MASSING PYTHON  started " + source.request.before.guid + " terrain=" + source.terrain);
-    s_worker = std::thread ([source = std::move (source), input = std::move (input)] () {
+    const bool missingTerrain = !source.terrain.empty () && terrain.vertices.empty ();
+    s_worker = std::thread ([source = std::move (source), input = std::move (input), missingTerrain] () {
         Completion completion;
         completion.source = source;
         try {
@@ -160,6 +168,9 @@ void Start (Source source)
                 completion.error = bridgeError.ToCStr (0, MaxUSize, CC_UTF8).Get ();
             else
                 calc::Decode (result.ToCStr (0, MaxUSize, CC_UTF8).Get (), completion.result, completion.error);
+            if (missingTerrain && completion.error.empty ())
+                completion.result.note =
+                    "Defined terrain has no current 3D surface; check its visibility/3D availability.";
         }
         catch (const std::exception& exception) {
             completion.error = exception.what ();
@@ -182,6 +193,8 @@ void Request (calc::Request request)
 {
     if (!s_queue.Follow (std::move (request), ::GetTickCount64 ()))
         return;
+    s_terrainRetryAt = 0;
+    s_terrainRetries = 0;
     ClearPublished ();
     const auto& desired = *s_queue.Desired ();
     if (desired.action != calc::Action::Calculate) {
@@ -205,6 +218,8 @@ void Observe ()
     if (signature == s_observed)
         return;
     s_observed = std::move (signature);
+    s_terrainRetryAt = 0;
+    s_terrainRetries = 0;
     massingmodel::Changed ();
     const auto current = massingmodel::Read ();
     auto desired = *s_queue.Desired ();
@@ -280,6 +295,12 @@ void Poll ()
             }
         }
     }
+    if (s_terrainRetryAt && ::GetTickCount64 () >= s_terrainRetryAt && !s_running.load () && !s_queue.Pending ()) {
+        s_terrainRetryAt = 0;
+        s_queue.Refresh (::GetTickCount64 ());
+        // A cold conversion can become available without an element modification.
+        // Retry it explicitly; never require the user to move the parcel's Z.
+    }
     BeginReady ();
     s_polling = false;
 }
@@ -302,6 +323,8 @@ void Forget ()
     overlaylayers::Clear (kSite);
     s_observed.clear ();
     s_terrain.reset ();
+    s_terrainRetryAt = 0;
+    s_terrainRetries = 0;
     s_source.reset ();
     s_page = {};
 }

@@ -196,6 +196,18 @@ hudsection::Run PickedFloors (const State& state)
     return state.floors;
 }
 
+std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state)
+{
+    std::vector<hudmassingrules::NumberEdit> edits;
+    edits.swap (state.massingRules.numbers);
+    return edits;
+}
+
+bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit, double number)
+{
+    return hudmassingrules::AnswerNumber (state.massingRules, edit, number);
+}
+
 void SetPickedFloors (State& state, const hudsection::Run& run)
 {
     state.floors = run;
