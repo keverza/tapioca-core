@@ -192,6 +192,7 @@ bool Build (const std::vector<massingslices::Input>& inputs, double drawingZ, Re
             return Fail (error, "Collapse-zone surface partition exceeds its facet budget.");
     }
     cp::PathsD regions;
+    out.hatchOriginSum = ox + oy;
     size_t visits = 0, points = 0;
     const auto began = std::chrono::steady_clock::now ();
     for (auto& building : buildings) {
@@ -271,6 +272,7 @@ bool Build (const std::vector<massingslices::Input>& inputs, double drawingZ, Re
     for (const auto& path : clippedHatch) {
         overlaylayers::Polyline line;
         line.rgba = 0xAA4465C0;
+        line.widthPixels = 0.7f;
         line.behind = overlaylayers::Behind::Show;
         for (const auto& p : path)
             line.points.insert (line.points.end (), { p.x + ox, p.y + oy, drawingZ + 0.012 });

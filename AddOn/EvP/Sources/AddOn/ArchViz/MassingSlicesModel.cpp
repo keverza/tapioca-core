@@ -24,6 +24,7 @@ bool s_dirty = true, s_polling = false;
 std::vector<std::string> s_selected;
 std::string s_signature;
 std::shared_ptr<const massingcalculation::Preview> s_envelope;
+std::shared_ptr<const Mesh> s_projectionTerrain;
 std::shared_ptr<const massingslices::Result> s_result;
 storysliceoverlay::Controls s_display;
 bool s_shown = true, s_styleDirty = false, s_bodyPass = false;
@@ -116,13 +117,16 @@ void Update ()
     const auto bodies = slabbodies::Latest ();
     const uint64_t bodyGeneration = bodies && !bodyTargets.empty () ? bodies->generation : 0;
     signature += bodySignature;
-    const auto envelope = massinghybrid::Read ().preview;
-    if (signature == s_signature && envelope == s_envelope && s_result && bodyGeneration == s_bodies && !s_styleDirty)
+    const auto calculation = massinghybrid::Read ();
+    const auto envelope = calculation.preview;
+    if (signature == s_signature && envelope == s_envelope && calculation.terrain == s_projectionTerrain && s_result &&
+        bodyGeneration == s_bodies && !s_styleDirty)
         return;
     s_styleDirty = false;
     s_bodies = bodyGeneration;
     s_signature = std::move (signature);
     s_envelope = envelope;
+    s_projectionTerrain = calculation.terrain;
     massingslices::Result result;
     result.layer.name = massingslices::kLayer;
     std::string error;
@@ -175,6 +179,7 @@ void Update ()
         }
     }
     overlaylayers::Clear (massingcollapse::kLayer);
+    overlaylayers::Clear (massingcollapse::kProjectedLayer);
     s_collapseNote.clear ();
     if (s_collapseShown) {
         if (zoneMissing || !error.empty ())
@@ -183,12 +188,26 @@ void Update ()
             massingcollapse::Result zone;
             const double drawingZ = envelope && envelope->result.hasMeanZ ? envelope->result.meanZ : 0;
             if (massingcollapse::Build (zoneInputs, drawingZ, zone, s_collapseNote)) {
+                zone.layer.views = overlaylayers::Views::TwoD;
                 if (!zone.layer.meshes.empty ())
                     overlaylayers::Set (std::move (zone.layer));
                 s_collapseNote =
                     zoneInputs.empty ()
                         ? "No massing slabs defined/selected."
                         : "Current operated surfaces; local top minus local base height, merged into one fill.";
+                if (!zoneInputs.empty ()) {
+                    overlaylayers::Layer projected;
+                    std::string projectionError;
+                    if (!s_projectionTerrain)
+                        s_collapseNote += " 3D projection awaits the selected current topography mesh.";
+                    else if (massingcollapse::Project (zone, *s_projectionTerrain, projected, projectionError)) {
+                        if (!projected.meshes.empty ())
+                            overlaylayers::Set (std::move (projected));
+                        s_collapseNote += " 3D zone projected onto topography; outside its mesh extent is undrawn.";
+                    }
+                    else
+                        s_collapseNote += " " + projectionError;
+                }
             }
         }
     }
@@ -289,6 +308,7 @@ void CollapseZone (bool shown)
     s_collapseShown = shown;
     s_signature.clear ();
     overlaylayers::Clear (massingcollapse::kLayer);
+    overlaylayers::Clear (massingcollapse::kProjectedLayer);
     s_collapseNote.clear ();
     Changed ();
     Publish ();
@@ -314,6 +334,8 @@ void Forget ()
     s_collapseShown = false;
     s_collapseNote.clear ();
     overlaylayers::Clear (massingcollapse::kLayer);
+    overlaylayers::Clear (massingcollapse::kProjectedLayer);
+    s_projectionTerrain.reset ();
     overlaylayers::Clear (massingslices::kHighlightLayer);
     slabbodies::Want ({}, "massing");
     s_bodies = 0;

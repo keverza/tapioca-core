@@ -258,3 +258,58 @@ TEST (MassingCollapse, MassingToggleDefaultsOffAndIsResetWithSharedHudState)
     geomsrv::archviz::overlayhud::ClearState (*state);
     EXPECT_FALSE (geomsrv::archviz::overlayhud::MassingCollapseZone (*state));
 }
+
+TEST (MassingCollapse, ThreeDProjectionFollowsTopographyForFillAndThinHatchesNotMeanZ)
+{
+    zone::Result result;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, 120, result, error)) << error;
+    geomsrv::Mesh terrain;
+    terrain.vertices = { -5, -5, 0, 15, -5, 0, 15, 15, 0, -5, 15, 0 };
+    for (size_t i = 0; i < terrain.vertices.size (); i += 3)
+        terrain.vertices[i + 2] = 0.5 * terrain.vertices[i] + 0.2 * terrain.vertices[i + 1];
+    terrain.triangles = { 0, 1, 2, 0, 2, 3 };
+    geomsrv::archviz::overlaylayers::Layer projected;
+    ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
+    EXPECT_EQ (projected.views, geomsrv::archviz::overlaylayers::Views::ThreeD);
+    ASSERT_EQ (projected.meshes.size (), 1u);
+    EXPECT_FALSE (projected.polylines.empty ());
+    const auto& points = projected.meshes[0].points;
+    for (size_t i = 0; i < points.size (); i += 3)
+        EXPECT_NEAR (points[i + 2], 0.5 * points[i] + 0.2 * points[i + 1] + 0.012, 1e-7);
+    for (const auto& line : projected.polylines) {
+        EXPECT_FLOAT_EQ (line.widthPixels, 0.7f);
+        for (size_t i = 0; i < line.points.size (); i += 3)
+            EXPECT_NEAR (line.points[i + 2], 0.5 * line.points[i] + 0.2 * line.points[i + 1] + 0.014, 1e-7);
+    }
+    for (const auto& line : result.layer.polylines)
+        EXPECT_FLOAT_EQ (line.widthPixels, 0.7f);
+}
+
+TEST (MassingCollapse, ProjectionKeepsCourtyardClipsToTerrainExtentAndIgnoresUnderside)
+{
+    zone::Result result;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ Input (Courtyard ()) }, 0, result, error)) << error;
+    auto terrain = Box (0, 0, 10, 10, -50, 50);
+    geomsrv::archviz::overlaylayers::Layer projected;
+    ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
+    ASSERT_EQ (projected.meshes.size (), 1u);
+    const auto& points = projected.meshes[0].points;
+    for (size_t i = 0; i < points.size (); i += 3) {
+        EXPECT_GE (points[i], 0);
+        EXPECT_LE (points[i], 10);
+        EXPECT_GE (points[i + 1], 0);
+        EXPECT_LE (points[i + 1], 10);
+        EXPECT_NEAR (points[i + 2], 0.012, 1e-8);
+    }
+    for (const auto& line : projected.polylines) {
+        const double x = (line.points[0] + line.points[3]) / 2, y = (line.points[1] + line.points[4]) / 2;
+        EXPECT_FALSE (x > 3.51 && x < 6.49 && y > 3.51 && y < 6.49);
+    }
+    projected.name = "unchanged";
+    terrain.triangles[0] = 999999;
+    EXPECT_FALSE (zone::Project (result, terrain, projected, error));
+    EXPECT_EQ (projected.name, "unchanged");
+    EXPECT_FALSE (zone::Project (result, {}, projected, error));
+}

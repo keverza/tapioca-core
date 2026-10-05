@@ -352,6 +352,8 @@ void Poll ()
         }
     }
     if (s_terrainRetryAt && ::GetTickCount64 () >= s_terrainRetryAt && !s_running.load () && !s_queue.Pending ()) {
+                if (s_terrain && s_terrain->guid == s_source->terrain && s_terrainStamp == s_source->terrainStamp)
+                    s_page.terrain = s_terrain;
         s_terrainRetryAt = 0;
         s_queue.Refresh (::GetTickCount64 ());
         s_revision.store (s_queue.Revision ());

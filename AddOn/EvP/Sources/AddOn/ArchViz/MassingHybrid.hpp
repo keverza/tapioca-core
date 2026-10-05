@@ -8,6 +8,7 @@ struct Page {
     bool busy = false, calculated = false;
     std::string note;
     std::shared_ptr<const massingcalculation::Preview> preview;
+    std::shared_ptr<const geomsrv::Mesh> terrain; // Same current source/stamp as this adopted preview.
 };
 // MAIN THREAD facade. Requests are posted out of layout; immutable geometry is
 // passed to Python on one owned worker. Poll adopts only current completions
