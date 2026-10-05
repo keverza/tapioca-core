@@ -120,7 +120,9 @@ overlaylayers::Layer OffsetDimensions (const Preview& preview)
         dimension.offsetMetres = 0;
         dimension.rgba = 0xA66226FF;
         dimension.showUnit = true;
-        dimension.textSizePixels = 11;
+        dimension.textSizePixels = 32; // glyph resolution, not its model height
+        dimension.textSizeMetres = 0.20;
+        dimension.textMinProjectedPixels = 9;
         layer.dimensions.push_back (std::move (dimension));
     }
     return layer;

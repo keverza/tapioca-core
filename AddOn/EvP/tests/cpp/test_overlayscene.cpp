@@ -545,6 +545,30 @@ TEST (OverlayScene, APlanarTextLiesOnItsPlaneAtItsSize)
     EXPECT_NE (layers::Validate (layer).find ("across its normal"), std::string::npos);
 }
 
+TEST (OverlayScene, ModelDimensionTextIsNotScreenSizedOrPixelCappedInEitherView)
+{
+    layers::Layer layer;
+    layer.name = "model-dimension";
+    layers::Dimension dimension;
+    dimension.to[0] = 3;
+    dimension.textSizeMetres = 0.20;
+    dimension.textSizePixels = 32;
+    dimension.textMinProjectedPixels = 9;
+    dimension.terminator = layers::Terminator::None;
+    layer.dimensions.push_back (dimension);
+    const auto check = [] (const auto& glyphs) {
+        ASSERT_FALSE (glyphs.empty ());
+        for (const auto& glyph : glyphs) {
+            EXPECT_NE (glyph.flags & scene::kModelQuad, 0u);
+            EXPECT_EQ (glyph.flags & scene::kScreenAnchored, 0u);
+        }
+    };
+    check (scene::PreparePlan (One (layer), &Engine ()).glyphs);
+    check (scene::PrepareScene (One (layer), &Engine ()).glyphs);
+    layer.dimensions[0].textSizeMetres = -1;
+    EXPECT_FALSE (layers::Validate (layer).empty ());
+}
+
 TEST (OverlayScene, AHorizontalLegendPlacedAnywhereSaysItsOwnTicks)
 {
     layers::Layer layer;

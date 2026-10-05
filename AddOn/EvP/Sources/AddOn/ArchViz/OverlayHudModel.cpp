@@ -410,6 +410,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     }
     pages.section = g_section.section;
     if (const auto slices = massingslicesmodel::Read (); slices && (!slices->rows.empty () || !slices->note.empty ())) {
+        pages.massingStats = slices;
         std::vector<std::string> selected;
         for (const auto& element : g_selection.elements)
             selected.push_back (element.guid);
@@ -449,6 +450,17 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         card.figures.push_back ({ "Total floor area", Format ("%.2f m2", total) });
         card.figures.push_back ({ "Gross area (total x 0.78)", Format ("%.2f m2", total * 0.78) });
         card.figures.push_back ({ "Sellable area (total x 0.71)", Format ("%.2f m2", total * 0.71) });
+        card.figures.push_back ({ "Slab volume (slice estimate)", Format ("%.2f m3", slices->rawVolume) });
+        if (slices->clipped)
+            card.figures.push_back ({ "Allowed volume (slice estimate)", Format ("%.2f m3", slices->allowedVolume) });
+        if (slices->hasCoverage) {
+            card.figures.push_back ({ "Built footprint in parcels", Format ("%.2f m2", slices->builtArea) });
+            card.figures.push_back ({ "Unbuilt parcel area", Format ("%.2f m2", slices->unbuiltArea) });
+            card.figures.push_back (
+                { "Built / unbuilt ratio", slices->unbuiltArea > 1e-9
+                                               ? Format ("%.3f", slices->builtArea / slices->unbuiltArea)
+                                               : "n/a (fully built)" });
+        }
         if (calculation.preview) {
             const double parcel = calculation.preview->result.parcelArea;
             card.figures.push_back ({ "Parcel / 1st floor area", first > 0 ? Format ("%.3f", parcel / first) : "n/a" });
@@ -465,6 +477,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
                       Format ("%.3f", slices->allowedArea / calculation.preview->result.parcelArea) });
         }
         card.note = slices->note;
+        card.note += " Volume estimates sum slice area x height to the next floor/slab top; not exact SEO body volume.";
         pages.stats.push_back (std::move (card));
     }
     pages.console = hudconsole::Entries (); // the Debug tab's console: what to check when something fails

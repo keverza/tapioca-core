@@ -196,6 +196,8 @@ class Builder {
     void AddHoverTint (const std::vector<double>& corners);
     void AddPolyline (const layers::Layer& layer, const layers::Polyline& polyline);
     void AddDimension (const layers::Layer& layer, const layers::Dimension& dimension);
+    void AddDimensionText (const layers::Layer& layer, const layers::Dimension& dimension, double measurement,
+                           const Vec3& middle, const Vec3& span, const Vec3& normal);
     // A tick, an arrowhead or a dot `size` pixels long at one end of a line, in the
     // local frame whose +x is the line's direction on screen; `first` is its start.
     void AddTerminator (const Vec3& at, const Vec3& span, layers::Terminator terminator, bool first, float width,

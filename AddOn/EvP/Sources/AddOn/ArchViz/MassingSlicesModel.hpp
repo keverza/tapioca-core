@@ -9,6 +9,7 @@ void Changed ();
 void Poll ();
 std::shared_ptr<const massingslices::Result> Read ();
 void Display (bool shown, const storysliceoverlay::Controls& controls);
+void HoverFunction (const std::string& function);
 bool Shown ();
 storysliceoverlay::Controls Controls ();
 void Forget ();

@@ -431,6 +431,7 @@ bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number)
     }
     else if (edit.key == "Offset" && edit.edge >= 0 && size_t (edit.edge) < draft.assignments.size ()) {
         draft.assignments[size_t (edit.edge)].distance = number;
+        draft.assignments[size_t (edit.edge)].review = false;
         draft.dirty = true;
     }
     else

@@ -1,0 +1,184 @@
+#include "ArchViz/MassingSlices.hpp"
+#include <clipper2/clipper.h>
+
+#include <algorithm>
+#include <cmath>
+#include <map>
+
+namespace geomsrv::archviz::massingslices {
+namespace {
+namespace cp = Clipper2Lib;
+cp::PathsD Paths (const std::vector<SliceChain>& chains, double ox, double oy)
+{
+    cp::PathsD paths;
+    for (const auto& chain : chains) {
+        cp::PathD path;
+        for (size_t i = 0; i < chain.Count (); ++i)
+            path.emplace_back (chain.xy[i * 2] - ox, chain.xy[i * 2 + 1] - oy);
+        if (path.size () >= 3 && chain.closed)
+            paths.push_back (std::move (path));
+    }
+    return cp::Union (paths, cp::FillRule::EvenOdd, 6);
+}
+bool Extrude (const Row& floor, overlaylayers::Mesh& mesh, std::string& error)
+{
+    if (floor.chains.empty ())
+        return true;
+    const double ox = floor.chains.front ().xy[0], oy = floor.chains.front ().xy[1];
+    const auto paths = Paths (floor.chains, ox, oy);
+    std::vector<SliceChain> local;
+    for (const auto& path : paths) {
+        SliceChain chain;
+        chain.closed = true;
+        for (const auto& p : path)
+            chain.xy.insert (chain.xy.end (), { p.x, p.y });
+        local.push_back (std::move (chain));
+    }
+    std::vector<StorySliceFillVertex> triangles;
+    BuildSliceFill (local, 0, triangles);
+    if (triangles.empty ()) {
+        error = "Could not triangulate floor volume; no partial highlight published.";
+        return false;
+    }
+    const auto vertex = [&] (double x, double y, double z) {
+        mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
+        mesh.points.insert (mesh.points.end (), { x + ox, y + oy, z });
+    };
+    const double bottom = floor.z, top = floor.z + floor.floorHeight;
+    for (size_t i = 0; i + 2 < triangles.size (); i += 3) {
+        auto a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+        if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0)
+            std::swap (b, c);
+        vertex (a.x, a.y, top);
+        vertex (b.x, b.y, top);
+        vertex (c.x, c.y, top);
+        vertex (c.x, c.y, bottom);
+        vertex (b.x, b.y, bottom);
+        vertex (a.x, a.y, bottom);
+    }
+    for (const auto& path : paths)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const auto& a = path[i];
+            const auto& b = path[(i + 1) % path.size ()];
+            vertex (a.x, a.y, bottom);
+            vertex (b.x, b.y, bottom);
+            vertex (b.x, b.y, top);
+            vertex (a.x, a.y, bottom);
+            vertex (b.x, b.y, top);
+            vertex (a.x, a.y, top);
+        }
+    mesh.rgba = floor.rgba | 0xFFu;
+    mesh.styled = true;
+    mesh.style.opacity = 1;
+    mesh.style.behind = overlaylayers::Behind::Show;
+    mesh.style.cullBack = false;
+    mesh.hoverTitle = floor.function + " floor " + std::to_string (floor.story);
+    return true;
+}
+} // namespace
+
+std::vector<Usage> UsageMix (const Result& result)
+{
+    std::map<std::string, Usage> uses;
+    double total = 0;
+    const auto schema = metadata::DefaultSchema ();
+    const auto* palette = schema.FindEnumeration ("building-usage");
+    for (const auto& row : result.rows) {
+        const double area = result.clipped ? row.allowedArea : row.rawArea;
+        if (area <= 0)
+            continue;
+        auto& use = uses[row.function];
+        use.function = use.label = row.function;
+        use.rgba = row.rgba;
+        if (palette)
+            for (const auto& option : palette->options)
+                if (option.value == row.function)
+                    use.label = option.label;
+        use.area += area;
+        use.volume += area * row.floorHeight;
+        total += area;
+    }
+    std::vector<Usage> out;
+    for (auto& item : uses) {
+        item.second.percent = total > 0 ? 100 * item.second.area / total : 0;
+        out.push_back (std::move (item.second));
+    }
+    return out;
+}
+
+bool Coverage (Result& result, const massingcalculation::Preview& preview, std::string& error)
+{
+    error.clear ();
+    const auto parcels = massingcalculation::Expand (preview.inputs);
+    if (parcels.empty () || parcels.size () > massingcalculation::kMaxParcels)
+        return false;
+    double built = 0, total = 0;
+    // Calculate independently in each parcel's local frame. This matches the
+    // requested parcel SUM even for overlapping parcels, without counting stacked floors.
+    size_t work = 0;
+    for (const auto& parcel : parcels) {
+        if (!parcel.before.known || parcel.before.edges.empty ())
+            return false;
+        const double ox = parcel.before.edges.front ().ax, oy = parcel.before.edges.front ().ay;
+        cp::PathD boundary;
+        for (const auto& edge : parcel.before.edges) {
+            if (std::abs (edge.arcAngle) > 1e-8)
+                return false; // no chord substitute for unsupported curved parcels
+            boundary.emplace_back (edge.ax - ox, edge.ay - oy);
+        }
+        cp::PathsD all;
+        for (const auto& row : result.rows) {
+            for (const auto& chain : row.rawChains)
+                work += chain.Count ();
+            if (work > 2000000) {
+                error = "Parcel footprint union exceeds its work budget.";
+                return false;
+            }
+            const auto paths = Paths (row.rawChains, ox, oy);
+            all.insert (all.end (), paths.begin (), paths.end ());
+        }
+        const auto footprint = cp::Union (all, cp::FillRule::NonZero, 6);
+        const auto inside = cp::Intersect (footprint, { boundary }, cp::FillRule::NonZero, 6);
+        const double parcelArea = std::abs (cp::Area (boundary));
+        const double occupied = std::abs (cp::Area (inside));
+        if (!std::isfinite (parcelArea) || parcelArea <= 0 || !std::isfinite (occupied) || occupied > parcelArea + 1e-5)
+            return false;
+        total += parcelArea;
+        built += (std::min) (occupied, parcelArea);
+    }
+    result.hasCoverage = true;
+    result.parcelArea = total;
+    result.builtArea = built;
+    result.unbuiltArea = total - built;
+    return true;
+}
+
+bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error)
+{
+    error.clear ();
+    overlaylayers::Layer out;
+    out.name = kHighlightLayer;
+    out.views = overlaylayers::Views::Both;
+    out.occlusion = overlaylayers::Behind::Show;
+    size_t points = 0;
+    if (!function.empty ())
+        for (const auto& floor : result.rows) {
+            if (floor.function != function || floor.chains.empty ())
+                continue;
+            overlaylayers::Mesh mesh;
+            if (!Extrude (floor, mesh, error))
+                return false;
+            points += mesh.points.size () / 3;
+            if (points > 600000) {
+                error = "Floor-volume highlight exceeds its geometry budget.";
+                return false;
+            }
+            out.meshes.push_back (std::move (mesh));
+        }
+    error = overlaylayers::Validate (out);
+    if (!error.empty ())
+        return false;
+    layer = std::move (out);
+    return true;
+}
+} // namespace geomsrv::archviz::massingslices

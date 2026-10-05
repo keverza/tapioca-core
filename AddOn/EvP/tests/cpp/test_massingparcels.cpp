@@ -2,6 +2,7 @@
 #include "ArchViz/HudMassing.hpp"
 #include "ArchViz/MassingSlices.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/HudMassingStats.hpp"
 #include "Geometry/Primitives.hpp"
 #include "hud_fixture.hpp"
 
@@ -256,6 +257,110 @@ TEST (MassingParcels, NativeHudRequestsBothParcelsAndClearDropsEveryDraft)
     hud::ClearState (*hud.state);
     EXPECT_TRUE (hud.state->massingSite.parcels.empty ());
     EXPECT_FALSE (hud.state->massingSite.lastRequested);
+}
+
+TEST (MassingParcels, EverySetAnswerQueuesACompleteSiteWithoutNeedingAnotherFrame)
+{
+    using namespace hudtest;
+    auto state = hud::NewState ();
+    const std::vector<rules::Page> pages { Parcel ("first"), Parcel ("second", 20) };
+    widgets::SyncSite (pages, state->massingRules, state->massingSite);
+    for (const auto& key :
+         { "Cap Project Z", "STR base height", "Run per 1 m rise", "Flat base depth", "Default setback", "Offset" }) {
+        const auto before = calc::Expand (widgets::SiteInputs (pages, state->massingRules, state->massingSite))[0];
+        widgets::NumberEdit edit { before, key, 0, 0, 100, 0 };
+        ASSERT_TRUE (hud::AnswerMassingNumber (*state, edit, 4.25)) << key;
+        const auto queued = hud::TakeMassingCalculations (*state);
+        ASSERT_EQ (queued.size (), 1u) << key;
+        EXPECT_EQ (queued[0].parcels.size (), 2u);
+        EXPECT_TRUE (
+            calc::SameRequest (queued[0], widgets::SiteInputs (pages, state->massingRules, state->massingSite)));
+        EXPECT_FALSE (hud::AnswerMassingNumber (*state, edit, 999));
+        EXPECT_TRUE (hud::TakeMassingCalculations (*state).empty ());
+    }
+}
+
+TEST (MassingParcels, StatsMixVolumeAndCoverageUseRealContoursAndCapTheLastFloorAtSlabTop)
+{
+    auto input = Slab ();
+    input.slab.top = 8;
+    input.slab.holes.push_back ({ { 4, 4, 6, 4, 6, 6, 4, 6 }, {} });
+    slices::Result result;
+    std::string error;
+    ASSERT_TRUE (slices::Build ({ input }, {}, nullptr, result, error)) << error;
+    EXPECT_EQ (result.rawVolume, 96 * 8);
+    ASSERT_EQ (result.rows.size (), 2u); // short top remainder belongs to the last floor
+    EXPECT_EQ (result.rows.back ().floorHeight, 5);
+    result.rows[0].function = "commercial";
+    const auto mix = slices::UsageMix (result);
+    ASSERT_EQ (mix.size (), 2u);
+    EXPECT_EQ (mix[0].function, "commercial");
+    EXPECT_EQ (mix[0].percent, 50);
+    EXPECT_EQ (mix[0].volume, 96 * 3);
+    EXPECT_EQ (mix[1].volume, 96 * 5);
+    calc::Preview preview;
+    preview.inputs = Site ({ Parcel ("first"), Parcel ("second", 5) });
+    ASSERT_TRUE (slices::Coverage (result, preview, error)) << error;
+    EXPECT_EQ (result.parcelArea, 200);
+    EXPECT_EQ (result.builtArea, 96 + 48); // hole + overlapping parcels, not two stacked floors
+    EXPECT_EQ (result.unbuiltArea, 56);
+    layers::Layer highlight;
+    ASSERT_TRUE (slices::Highlight (result, "commercial", highlight, error)) << error;
+    ASSERT_EQ (highlight.meshes.size (), 1u);
+    EXPECT_FLOAT_EQ (highlight.meshes[0].style.opacity, 1);
+    double low = 100, high = -100;
+    for (size_t i = 2; i < highlight.meshes[0].points.size (); i += 3) {
+        low = (std::min) (low, highlight.meshes[0].points[i]);
+        high = (std::max) (high, highlight.meshes[0].points[i]);
+    }
+    EXPECT_EQ (low, 0);
+    EXPECT_EQ (high, 3);
+    double signedVolume = 0;
+    const auto& mesh = highlight.meshes[0];
+    for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+        const size_t a = mesh.indices[i] * 3, b = mesh.indices[i + 1] * 3, c = mesh.indices[i + 2] * 3;
+        signedVolume +=
+            (mesh.points[a] * (mesh.points[b + 1] * mesh.points[c + 2] - mesh.points[b + 2] * mesh.points[c + 1]) +
+             mesh.points[a + 1] * (mesh.points[b + 2] * mesh.points[c] - mesh.points[b] * mesh.points[c + 2]) +
+             mesh.points[a + 2] * (mesh.points[b] * mesh.points[c + 1] - mesh.points[b + 1] * mesh.points[c])) /
+            6;
+    }
+    EXPECT_NEAR (signedVolume, 96 * 3, 1e-6) << "courtyard remains a hole with inward-facing walls";
+    ASSERT_TRUE (slices::Highlight (result, "", highlight, error));
+    EXPECT_TRUE (highlight.meshes.empty ());
+}
+
+TEST (MassingParcels, StatsPercentageDiagramHoverReturnsItsFunctionAndClearsOnLeave)
+{
+    ImGuiContext* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+    io.DisplaySize = { 1000, 1000 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int w = 0, h = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &w, &h);
+    slices::Result result;
+    std::string error;
+    ASSERT_TRUE (slices::Build ({ Slab () }, {}, nullptr, result, error));
+    ImRect lastRow;
+    const auto frame = [&] (ImVec2 mouse) {
+        io.AddMousePosEvent (mouse.x, mouse.y);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 500, 600 });
+        ImGui::Begin ("stats-test");
+        const auto function = geomsrv::archviz::hudmassingstats::Draw (result);
+        lastRow = context->LastItemData.Rect;
+        ImGui::End ();
+        ImGui::Render ();
+        return function;
+    };
+    EXPECT_TRUE (frame ({ 800, 800 }).empty ());
+    EXPECT_EQ (frame (lastRow.GetCenter ()), "residential");
+    EXPECT_TRUE (frame ({ 800, 800 }).empty ());
+    ImGui::DestroyContext (context);
 }
 
 TEST (MassingParcels, SharedPlanCanvasKeepsRelativePositionAndClickSwitchesWithoutLosingDrafts)

@@ -80,6 +80,9 @@
 
 namespace geomsrv {
 namespace archviz {
+namespace massingslices {
+struct Result;
+}
 namespace overlayhud {
 
 // One corner of a panel's triangles: view pixels from the panel's top-left, the atlas
@@ -237,6 +240,7 @@ struct Displays {
 struct OwnPages {
     bool standalone = false;
     std::vector<hudshell::Card> stats;
+    std::shared_ptr<const massingslices::Result> massingStats;
     hudshell::SelectionPage selection;
     // The selection's Tapioca metadata, under its list: what the user changes there is
     // `TakeMetadataEdits`'. Above it, the selected massing slabs' building section, its floors
@@ -301,6 +305,7 @@ std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);
 std::vector<massingcalculation::Request> TakeMassingCalculations (State& state);
 std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state);
 bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit, double number);
+std::string MassingStatsFunction (const State& state);
 // What the user set the displays to on Settings since the last call: true, and `displays` the
 // whole of it -- the owner applies it, after the layout, never inside it.
 bool TakeDisplays (State& state, Displays& displays);

@@ -87,6 +87,7 @@ struct State {
     std::vector<hudmassing::Request> massingRequests;
     hudmassingrules::Draft massingRules;
     hudmassingrules::SiteDraft massingSite;
+    std::string massingStatsFunction;
     std::vector<massingrules::Edit> massingRuleEdits;
     std::vector<massingcalculation::Request> massingCalculations;
     // The building section's floors picked (PickedFloors), both views'.
@@ -126,6 +127,7 @@ struct Engine::Impl {
     std::string key;
     std::string layer;
     std::vector<Change> changes;
+    std::string statsHover, nextStatsHover;
     ChangeSink sink;
     Layout::Highlight highlight;
     bool hand = false;

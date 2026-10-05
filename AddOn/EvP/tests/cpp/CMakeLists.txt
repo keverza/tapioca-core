@@ -481,6 +481,7 @@ set (EVP_ARCHVIZ_SOURCES
     # against the real font and the real dimension geometry.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayText.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayScene.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneDimensions.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneScreen.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneMath.cpp"
     # The HUD panels: laid out by the vendored Dear ImGui into triangles over its own
@@ -497,6 +498,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassing.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingRules.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingMetrics.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingStats.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingParcelCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSlices.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingRules.cpp"

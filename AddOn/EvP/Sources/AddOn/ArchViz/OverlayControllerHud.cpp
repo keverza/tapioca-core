@@ -92,6 +92,7 @@ void FollowHudState ()
     for (auto& request : overlayhud::TakeMassingCalculations (*state))
         massinghybrid::Request (std::move (request));
     massinghybrid::Dimensions (overlayhud::MassingDimensions (*state));
+    massingslicesmodel::HoverFunction (overlayhud::MassingStatsFunction (*state));
     for (const auto& edit : overlayhud::TakeMassingNumbers (*state)) {
         std::string answer;
         double number = 0;
@@ -106,6 +107,8 @@ void FollowHudState ()
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
     }
+    for (auto& request : overlayhud::TakeMassingCalculations (*state))
+        massinghybrid::Request (std::move (request));
     // The Selection page's metadata edits: written from the message loop too, in one undo step,
     // to every element selected then; the page is read again after (SelectionMetadata.hpp).
     std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);

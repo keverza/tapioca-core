@@ -17,6 +17,8 @@ struct Row {
     int story = 0;
     double z = 0, floorHeight = 3, rawArea = 0, allowedArea = 0;
     bool clipped = false;
+    uint32_t rgba = 0x9AA0A6FF;
+    std::vector<SliceChain> rawChains, chains;
 };
 struct Result {
     overlaylayers::Layer layer;
@@ -27,8 +29,20 @@ struct Result {
     bool hasFacade = false;
     std::vector<hudmeta::Page> heightControls;
     bool clipped = false;
+    double rawVolume = 0, allowedVolume = 0;
+    double builtArea = 0, unbuiltArea = 0, parcelArea = 0;
+    bool hasCoverage = false;
     std::string note;
 };
+constexpr char kHighlightLayer[] = "tapioca.massing.functionVolumes";
+struct Usage {
+    std::string function, label;
+    uint32_t rgba = 0;
+    double area = 0, percent = 0, volume = 0;
+};
+std::vector<Usage> UsageMix (const Result& result);
+bool Coverage (Result& result, const massingcalculation::Preview& parcels, std::string& error);
+bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error);
 // Allowed chains/areas come from intersection with the union of current parcel
 // shell cuts. Their complement is a red warning display, never an allowed area.
 // Slice shared Python shells with the existing mesh slicer; never solve setbacks here.

@@ -249,6 +249,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     std::vector<hudsection::Slab> masses;
     size_t bodyWork = 0;
     size_t envelopeWork = 0;
+    size_t retainedPoints = 0;
     for (const auto& input : slabs) {
         if (!std::isfinite (input.slab.bottom) || !std::isfinite (input.slab.top) ||
             std::abs (input.slab.bottom) > 1e9 || std::abs (input.slab.top) > 1e9 ||
@@ -371,8 +372,10 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
                     if (option.value == row.function)
                         colour = option.rgba;
             row.z = slice.z;
-            row.floorHeight = archicad ? summary.floors[i].height : heights[(std::min) (i, heights.size () - 1)];
+            row.floorHeight = (i + 1 < slices.size () ? slices[i + 1].z : input.slab.top) - row.z;
+            row.rgba = colour;
             row.rawArea = slice.areaM2;
+            row.rawChains = slice.chains;
             for (const auto& chain : slice.chains)
                 if (!chain.closed)
                     return Fail (error, "Operated slab cut is open; no partial area published.");
@@ -398,6 +401,15 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             }
             out.rawArea += row.rawArea;
             out.allowedArea += row.allowedArea;
+            row.chains = slice.chains;
+            for (const auto& chain : row.rawChains)
+                retainedPoints += chain.Count ();
+            for (const auto& chain : row.chains)
+                retainedPoints += chain.Count ();
+            if (retainedPoints > 400000)
+                return Fail (error, "Retained floor contour budget exceeded.");
+            out.rawVolume += row.rawArea * row.floorHeight;
+            out.allowedVolume += row.allowedArea * row.floorHeight;
             if (i == 0) {
                 out.rawFirstFloorArea += row.rawArea;
                 out.firstFloorArea += row.allowedArea;

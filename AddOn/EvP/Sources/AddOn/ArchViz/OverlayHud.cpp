@@ -163,6 +163,11 @@ bool TakeViewerRequest (State& state)
     return requested;
 }
 
+std::string MassingStatsFunction (const State& state)
+{
+    return state.massingStatsFunction;
+}
+
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state)
 {
     std::vector<hudmeta::Edit> edits;
@@ -205,7 +210,28 @@ std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state)
 
 bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit, double number)
 {
-    return hudmassingrules::AnswerNumber (state.massingRules, edit, number);
+    if (!hudmassingrules::AnswerNumber (state.massingRules, edit, number))
+        return false;
+    // Modal answers queue a complete preview now, without waiting for a slider redraw.
+    std::vector<massingrules::Page> pages;
+    for (const auto& parcel : state.massingSite.parcels)
+        pages.push_back (parcel.second.source);
+    if (!pages.empty ()) {
+        auto request = hudmassingrules::SiteInputs (pages, state.massingRules, state.massingSite);
+        state.massingSite.lastRequested = request;
+        state.massingCalculations.push_back (std::move (request));
+    }
+    else {
+        auto request = edit.before;
+        request.baseHeight = state.massingRules.calculation.baseHeight;
+        request.runPerRise = state.massingRules.calculation.runPerRise;
+        request.capZ = state.massingRules.calculation.capZ;
+        request.baseDepth = state.massingRules.calculation.baseDepth;
+        request.assignments = state.massingRules.assignments;
+        state.massingRules.lastRequested = request;
+        state.massingCalculations.push_back (std::move (request));
+    }
+    return true;
 }
 
 void SetPickedFloors (State& state, const hudsection::Run& run)
@@ -729,6 +755,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
                         1.0f);
     impl_->lastBuild = started;
     impl_->changes.clear ();
+    impl_->nextStatsHover.clear ();
     std::unique_lock<std::mutex> lock (ImGuiContextMutex ());
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
@@ -811,6 +838,11 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     ImGui::SetCurrentContext (previous);
     lock.unlock ();
     // ⚠️ SAID OUTSIDE IMGUI'S LOCK: the sink takes the event ring's.
+    if (impl_->statsHover != impl_->nextStatsHover) {
+        impl_->statsHover = impl_->nextStatsHover;
+        impl_->store->massingStatsFunction = impl_->statsHover;
+        impl_->changes.push_back ({ "massingStatsHover", {}, "Stats", impl_->statsHover, -1, 0, {}, true });
+    }
     out.changes = impl_->changes;
     if (impl_->sink)
         for (const Change& change : out.changes)

@@ -28,6 +28,20 @@ storysliceoverlay::Controls s_display;
 bool s_shown = true, s_styleDirty = false, s_bodyPass = false;
 uint64_t s_bodies = 0;
 std::string s_bodySignature;
+std::string s_hoverFunction;
+
+void Highlight ()
+{
+    overlaylayers::Clear (massingslices::kHighlightLayer);
+    if (!s_shown || !s_result || s_hoverFunction.empty ())
+        return;
+    overlaylayers::Layer layer;
+    std::string error;
+    if (massingslices::Highlight (*s_result, s_hoverFunction, layer, error))
+        overlaylayers::Set (std::move (layer));
+    else
+        ArchVizLog ("MASSING HIGHLIGHT refused: " + error);
+}
 
 void Publish ()
 {
@@ -137,6 +151,12 @@ void Update ()
     const auto skipped = result.note;
     if (error.empty ())
         massingslices::Build (inputs, storeys, envelope ? &envelope->result : nullptr, result, error, s_display);
+    if (error.empty () && envelope) {
+        std::string coverageError;
+        massingslices::Coverage (result, *envelope, coverageError);
+        if (!coverageError.empty ())
+            result.note += " " + coverageError;
+    }
     if (!skipped.empty ())
         result.note += " " + skipped;
     if (!error.empty ()) {
@@ -149,6 +169,7 @@ void Update ()
     if (s_shown && !result.rows.empty ())
         overlaylayers::Set (result.layer);
     s_result = std::make_shared<const massingslices::Result> (std::move (result));
+    Highlight ();
     Publish (); // Errors and empty sets also change Stats; wake an idle HUD once.
 }
 } // namespace
@@ -183,6 +204,8 @@ std::shared_ptr<const massingslices::Result> Read ()
 void Display (bool shown, const storysliceoverlay::Controls& controls)
 {
     s_shown = shown;
+    if (!shown)
+        overlaylayers::Clear (massingslices::kHighlightLayer);
     s_display = controls;
     s_styleDirty = true;
     Poll ();
@@ -198,6 +221,15 @@ storysliceoverlay::Controls Controls ()
     return s_display;
 }
 
+void HoverFunction (const std::string& function)
+{
+    if (s_hoverFunction == function)
+        return;
+    s_hoverFunction = function;
+    Highlight ();
+    Publish ();
+}
+
 void Forget ()
 {
     if (s_timer != 0) {
@@ -209,6 +241,8 @@ void Forget ()
     s_signature.clear ();
     s_envelope.reset ();
     s_result.reset ();
+    s_hoverFunction.clear ();
+    overlaylayers::Clear (massingslices::kHighlightLayer);
     slabbodies::Want ({}, "massing");
     s_bodies = 0;
     s_bodySignature.clear ();

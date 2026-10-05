@@ -227,6 +227,9 @@ struct Dimension {
     uint32_t rgba = 0xFFFFFFFFu;
     float widthPixels = 1.25f;
     float textSizePixels = 12.0f;
+    // Zero retains screen-sized annotations; positive draws planar model text.
+    double textSizeMetres = 0;
+    float textMinProjectedPixels = 0;
     uint32_t textRgba = 0; // alpha 0: the line's colour
     uint32_t haloRgba = 0x000000A0u;
     float haloPixels = kAutoHalo; // as a text's

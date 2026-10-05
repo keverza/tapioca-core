@@ -451,6 +451,9 @@ std::string Validate (const Layer& layer)
             return Numbered ("dimension", i, "decimals is 0 to 6 and text at most 512 bytes");
         if (!Positive (dimension.widthPixels, 16.0f) || !InRange (dimension.textSizePixels, 4.0f, 128.0f))
             return Numbered ("dimension", i, "widthPixels is above 0 to 16 and textSizePixels 4 to 128");
+        if (!std::isfinite (dimension.textSizeMetres) || dimension.textSizeMetres < 0 ||
+            dimension.textSizeMetres > 1000 || !InRange (dimension.textMinProjectedPixels, 0.0f, 256.0f))
+            return Numbered ("dimension", i, "model text height is 0 to 1000 m and projection threshold 0 to 256 px");
         if (!InRange (dimension.terminatorSizePixels, 1.0f, 64.0f) ||
             (dimension.haloPixels != kAutoHalo && !InRange (dimension.haloPixels, 0.0f, 8.0f)))
             return Numbered ("dimension", i, "terminatorSizePixels is 1 to 64 and haloPixels 0 to 8");

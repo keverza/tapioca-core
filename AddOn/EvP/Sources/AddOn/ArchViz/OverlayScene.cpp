@@ -250,28 +250,9 @@ void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension&
                        behind);
     }
 
-    const std::string text = !dimension.text.empty () ? dimension.text
-                                                      : FormatLength (resolved->measurement, dimension.decimals,
-                                                                      dimension.unit, dimension.showUnit);
     const Vec3 middle = { (first.x + second.x) * 0.5, (first.y + second.y) * 0.5, (first.z + second.z) * 0.5 };
-    overlaytext::Label label;
-    if (!LayOut (text, dimension.textSizePixels, layers::Align::Center, layers::Baseline::Bottom, label,
-                 dimension.font))
-        return;
-    const float gap = 3.0f;
-    const float minSpan = (label.right - label.left) + 2.0f * 10.0f;
-    for (const overlaytext::Quad& quad : label.quads) {
-        DraftGlyph glyph;
-        Assign (glyph.anchor, middle);
-        Assign (glyph.dir, span);
-        glyph.rgba = (dimension.textRgba & 0xFFu) != 0 ? dimension.textRgba : dimension.rgba;
-        glyph.halo = dimension.haloRgba;
-        glyph.haloPixels = HaloOf (dimension.haloPixels, 1.0f);
-        glyph.flags = kAlongDirection | kKeepUpright | kHideShortSpan;
-        glyph.minSpan = minSpan;
-        glyph.behind = behind;
-        PushQuad (glyph, quad, 0.0f, -gap);
-    }
+    AddDimensionText (layer, dimension, resolved->measurement, middle, span,
+                      { resolved->planeNormal.x, resolved->planeNormal.y, resolved->planeNormal.z });
 }
 
 // A tick, an arrowhead or a dot `size` pixels long at one end of a line, in the
