@@ -154,6 +154,15 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     draw->AddRectFilled (origin, { origin.x + extent.x, origin.y + extent.y }, ImGui::GetColorU32 (ImGuiCol_FrameBg),
                          4);
     draw->PushClipRect (origin, { origin.x + extent.x, origin.y + extent.y }, true);
+    std::vector<ScreenPoint> gradientPoints;
+    std::vector<bool> zeroOffsets;
+    for (size_t i = 0; i < paths.size (); ++i)
+        for (size_t p = 0; p + 1 < paths[i].size (); ++p) {
+            const auto at = project (paths[i][p]);
+            gradientPoints.push_back ({ at.x, at.y });
+            zeroOffsets.push_back (draft.assignments[i].distance == 0);
+        }
+    DrawDiagramZeroOffset (*draw, gradientPoints, zeroOffsets, ImGui::GetFontSize ());
     std::string otherHit;
     float nearestOther = 100;
     const ImVec2 pointer = ImGui::GetIO ().MousePos;
@@ -460,7 +469,7 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
     draft.selected = (std::clamp) (draft.selected, 0, int (page.edges.size ()) - 1);
     if (!draft.note.empty ())
         ImGui::TextWrapped ("%s", draft.note.c_str ());
-    ImGui::Checkbox ("Show segment, point and dimension text", &draft.labels);
+    ImGui::Checkbox ("Show segment and endpoint labels", &draft.labels);
     ImGui::Checkbox ("Show offset dimensions in overlay", &draft.offsetDimensions);
     ImGui::Checkbox ("Project height cap", &draft.calculation.capped);
     if (draft.calculation.capped)

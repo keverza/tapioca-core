@@ -87,3 +87,60 @@ TEST (HudMassingDiagram, OffsetDashesScaleWithFontAndInvalidPathsPublishNoGeomet
     diagram::DrawDiagramOffset (*widget.draw, { { 30, 40 }, { 230, 40 }, { 230, 240 } }, 0);
     EXPECT_EQ (widget.draw->VtxBuffer.Size, before);
 }
+
+TEST (HudMassingDiagram, ZeroOffsetWarmYellowFadesOutwardInBothWindingsAndKeepsTheRedSegment)
+{
+    for (bool reverse : { false, true }) {
+        DiagramWidget widget;
+        std::vector<av::ScreenPoint> points { { 50, 50 }, { 150, 50 }, { 150, 150 }, { 50, 150 } };
+        std::vector<bool> zero (4, false);
+        if (reverse)
+            std::reverse (points.begin (), points.end ());
+        zero[reverse ? 2 : 0] = true;
+        diagram::DrawDiagramZeroOffset (*widget.draw, points, zero, 13);
+        constexpr ImU32 yellow = IM_COL32 (255, 193, 70, 170);
+        const auto near = widget.AlphaAt (yellow, { 100, 46 });
+        const auto far = widget.AlphaAt (yellow, { 100, 34 });
+        EXPECT_GT (near, 100);
+        EXPECT_GT (far, 0);
+        EXPECT_LT (far, near);
+        EXPECT_EQ (widget.AlphaAt (yellow, { 100, 30 }), 0);
+        EXPECT_EQ (widget.AlphaAt (yellow, { 100, 60 }), 0);
+        EXPECT_EQ (widget.AlphaAt (yellow, { 160, 100 }), 0) << "nonzero neighbor has no yellow band";
+        constexpr ImU32 red = IM_COL32 (170, 68, 101, 255);
+        widget.draw->AddLine ({ 50, 50 }, { 150, 50 }, red, 3);
+        EXPECT_GT (widget.AlphaAt (red, { 100, 50 }), 200);
+    }
+}
+
+TEST (HudMassingDiagram, ZeroOffsetBandNeverPaintsInsideTheOppositeWallOfANarrowConcavity)
+{
+    DiagramWidget widget;
+    const std::vector<av::ScreenPoint> points { { 50, 50 },  { 170, 50 }, { 170, 170 }, { 150, 170 },
+                                                { 150, 70 }, { 140, 70 }, { 140, 170 }, { 50, 170 } };
+    std::vector<bool> zero (points.size (), false);
+    zero[3] = true;
+    diagram::DrawDiagramZeroOffset (*widget.draw, points, zero, 13);
+    constexpr ImU32 yellow = IM_COL32 (255, 193, 70, 170);
+    EXPECT_GT (widget.AlphaAt (yellow, { 145, 120 }), 0);
+    EXPECT_EQ (widget.AlphaAt (yellow, { 135, 120 }), 0);
+    EXPECT_EQ (widget.AlphaAt (yellow, { 155, 120 }), 0);
+}
+
+TEST (HudMassingDiagram, ZeroOffsetCornerJoinsRemainOutsideAndNonzeroAssignmentsEmitNoHighlight)
+{
+    DiagramWidget widget;
+    const std::vector<av::ScreenPoint> points { { 50, 50 }, { 150, 50 }, { 150, 150 }, { 50, 150 } };
+    const int before = widget.draw->VtxBuffer.Size;
+    diagram::DrawDiagramZeroOffset (*widget.draw, points, { false, false, false, false }, 13);
+    EXPECT_EQ (widget.draw->VtxBuffer.Size, before);
+    diagram::DrawDiagramZeroOffset (*widget.draw, points, { true, true, false, false }, 13);
+    constexpr ImU32 yellow = IM_COL32 (255, 193, 70, 170);
+    EXPECT_GT (widget.AlphaAt (yellow, { 156, 44 }), 0);
+    EXPECT_EQ (widget.AlphaAt (yellow, { 144, 56 }), 0);
+    bool transparentOuterVertex = false;
+    for (int i = before; i < widget.draw->VtxBuffer.Size; ++i)
+        if (widget.draw->VtxBuffer[i].col == IM_COL32 (255, 193, 70, 0))
+            transparentOuterVertex = true;
+    EXPECT_TRUE (transparentOuterVertex);
+}
