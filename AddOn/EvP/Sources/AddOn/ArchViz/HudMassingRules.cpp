@@ -123,8 +123,10 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
             }
     const ImVec2 origin = ImGui::GetCursorScreenPos ();
     const ImVec2 extent ((std::max) (80.0f, ImGui::GetContentRegionAvail ().x), 200);
-    const double factor =
-        (std::min) ((extent.x - 32) / (std::max) (maxX - minX, 1e-9), (extent.y - 32) / (std::max) (maxY - minY, 1e-9));
+    const float margin =
+        (std::min) ({ (std::max) (32.0f, (std::min) (48.0f, 2 * ImGui::GetFontSize ())), extent.x / 4, extent.y / 4 });
+    const double factor = (std::min) ((extent.x - 2 * margin) / (std::max) (maxX - minX, 1e-9),
+                                      (extent.y - 2 * margin) / (std::max) (maxY - minY, 1e-9));
     const auto project = [&] (Point p) {
         return ImVec2 (origin.x + extent.x * 0.5f + float ((p.first - (minX + maxX) * 0.5) * factor),
                        origin.y + extent.y * 0.5f - float ((p.second - (minY + maxY) * 0.5) * factor));
@@ -232,13 +234,9 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         if (draft.labels) {
             const std::string point = "P" + std::to_string (i + 1);
             otherLabels.push_back ({ { a.x, a.y }, { 1, 0 }, point, ImGui::GetColorU32 (ImGuiCol_TextDisabled) });
-            double length = 0;
-            for (size_t j = 1; j < paths[i].size (); ++j)
-                length +=
-                    std::hypot (paths[i][j].first - paths[i][j - 1].first, paths[i][j].second - paths[i][j - 1].second);
             char caption[128];
-            std::snprintf (caption, sizeof (caption), "S%zu%s  %.2f m\nL %.2f m", i + 1,
-                           draft.assignments[i].review ? " !" : "", draft.assignments[i].distance, length);
+            std::snprintf (caption, sizeof (caption), "S%zu%s  %.2f m", i + 1, draft.assignments[i].review ? " !" : "",
+                           draft.assignments[i].distance);
             const auto before = project (paths[i][middle - 1]);
             const auto after = project (paths[i][(std::min) (middle + 1, paths[i].size () - 1)]);
             segmentLabels.push_back ({ { mid.x, mid.y },
@@ -274,13 +272,9 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     }
     draw->PopClipRect ();
     if (hovered) {
-        if (edgeHit >= 0 && pointHit < 0 && !ImGui::IsPopupOpen ("##massing.site.context")) {
-            double length = 0;
-            for (size_t i = 1; i < paths[size_t (edgeHit)].size (); ++i)
-                length += std::hypot (paths[size_t (edgeHit)][i].first - paths[size_t (edgeHit)][i - 1].first,
-                                      paths[size_t (edgeHit)][i].second - paths[size_t (edgeHit)][i - 1].second);
-            ImGui::SetTooltip ("Segment S%d\nOffset: %.2f m\nLength: %.2f m", edgeHit + 1,
-                               draft.assignments[size_t (edgeHit)].distance, length);
+        if (edgeHit >= 0 && !ImGui::IsPopupOpen ("##massing.site.context")) {
+            ImGui::SetTooltip ("Segment S%d\nOffset: %.2f m", edgeHit + 1,
+                               draft.assignments[size_t (edgeHit)].distance);
         }
         if (pointHit >= 0 || edgeHit >= 0 || !otherHit.empty ())
             ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);

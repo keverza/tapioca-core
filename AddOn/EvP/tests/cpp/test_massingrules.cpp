@@ -506,10 +506,10 @@ TEST (MassingRules, MiniGuiRotatesSelectedVerticalEdgeTextAndKeepsGlyphsClearOfP
     const auto center = widget.canvas.GetCenter ();
     namespace av = geomsrv::archviz;
     av::ProjectedDrawList parcel;
-    const av::ScreenPoint corners[] = { { center.x - 84, center.y + 84 },
-                                        { center.x + 84, center.y + 84 },
-                                        { center.x + 84, center.y - 84 },
-                                        { center.x - 84, center.y - 84 } };
+    const av::ScreenPoint corners[] = { { center.x - 68, center.y + 68 },
+                                        { center.x + 68, center.y + 68 },
+                                        { center.x + 68, center.y - 68 },
+                                        { center.x - 68, center.y - 68 } };
     for (int i = 0; i < 4; ++i)
         parcel.lines.push_back ({ corners[i], corners[(i + 1) % 4] });
     const auto& vertices = ImGui::FindWindowByName ("rules-test")->DrawList->VtxBuffer;
@@ -544,7 +544,7 @@ TEST (MassingRules, MiniGuiRotatesSelectedVerticalEdgeTextAndKeepsGlyphsClearOfP
 TEST (MassingRules, SegmentPopupShowsFourButtonsAndColoursTheSelectedOffset)
 {
     RulesWidget widget;
-    widget.Open ({ widget.canvas.GetCenter ().x, widget.canvas.Max.y - 16 });
+    widget.Open ({ widget.canvas.GetCenter ().x, widget.canvas.Max.y - 32 });
     ASSERT_EQ (widget.draft.targetEdge, 0);
     const char* labels[] = { "0m", "1m", "3m", "Custom" };
     for (int selected = 0; selected < 4; ++selected) {
@@ -669,7 +669,7 @@ TEST (MassingRules, ContourRightClickSavesCapturedGuidAndNeverWritesDuringLayout
     widget.draft.assignments[0].distance = 2;
     widget.draft.dirty = true;
     const auto center = widget.canvas.GetCenter ();
-    widget.Open ({ center.x, widget.canvas.Max.y - 16 });
+    widget.Open ({ center.x, widget.canvas.Max.y - 32 });
     EXPECT_EQ (widget.draft.targetEdge, 0);
     EXPECT_EQ (widget.draft.targetPoint, -1);
     const auto pointer = widget.Find ("Save assignments");
@@ -705,7 +705,7 @@ TEST (MassingRules, ContourEndpointMenuTogglesRunLocalElevationMembershipOnly)
 {
     RulesWidget widget;
     const auto center = widget.canvas.GetCenter ();
-    widget.Open ({ center.x - 84, widget.canvas.Max.y - 16 });
+    widget.Open ({ center.x - 68, widget.canvas.Max.y - 32 });
     EXPECT_EQ (widget.draft.targetPoint, 0);
     EXPECT_EQ (widget.draft.targetEdge, -1);
     const auto pointer = widget.Find ("Use for average elevation");

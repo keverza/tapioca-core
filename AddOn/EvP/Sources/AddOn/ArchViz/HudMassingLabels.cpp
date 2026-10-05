@@ -32,7 +32,7 @@ std::optional<ScreenLabel> PlaceDiagramLabel (ProjectedDrawList& occupied, const
     const float halfX = (std::abs (along.x) * extent.width + std::abs (along.y) * extent.height) / 2;
     const float halfY = (std::abs (along.y) * extent.width + std::abs (along.x) * extent.height) / 2;
     for (int lane = 0; lane < 4; ++lane)
-        for (float shift : { 0.0f, -0.6f, 0.6f })
+        for (float shift : { 0.0f, -1.0f, 1.0f })
             for (int side : { -1, 1 }) {
                 const float offset = side * (extent.height / 2 + gap + 2 * scale + lane * (extent.height + gap));
                 const ScreenPoint center { input.anchor.x + across.x * offset + along.x * shift * extent.width,

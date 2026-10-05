@@ -423,10 +423,10 @@ TEST (MassingParcels, SharedPlanCanvasKeepsRelativePositionAndClickSwitchesWitho
     frame ({ 850, 850 });
     active.calculations.clear ();
     const auto before = widgets::SiteInputs (pages, active, site);
-    // Site bounds 0..30, 0..20 fit at 8.4 px/m. The second parcel's
+    // Site bounds 0..30, 0..20 fit at 6.8 px/m. The second parcel's
     // bottom edge midpoint (25,10) is east of the first, not re-centred over it.
     const auto center = canvas.GetCenter ();
-    const ImVec2 secondMidpoint { center.x + 84, center.y };
+    const ImVec2 secondMidpoint { center.x + 68, center.y };
     frame (secondMidpoint, true);
     frame (secondMidpoint);
     EXPECT_EQ (active.source.guid, "second");

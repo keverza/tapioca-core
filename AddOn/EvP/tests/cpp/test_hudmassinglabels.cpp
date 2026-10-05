@@ -89,6 +89,41 @@ TEST (HudMassingLabels, DenseOrShortCanvasOmitsLabelsInsteadOfCoveringLineworkOr
     EXPECT_TRUE (occupied.labels.empty ());
 }
 
+TEST (HudMassingLabels, ReportedRectangleKeepsAllFourSegmentOffsetsAndEndpointIdsOutsideCloseInsetLines)
+{
+    av::ProjectedDrawList occupied;
+    constexpr float halfWidth = 85.34f * 136 / 93.82f / 2;
+    constexpr float inset = 3 * 136 / 93.82f;
+    const av::ScreenPoint corners[] = {
+        { 130 - halfWidth, 168 }, { 130 + halfWidth, 168 }, { 130 + halfWidth, 32 }, { 130 - halfWidth, 32 }
+    };
+    const av::ScreenPoint insetCorners[] = { { corners[0].x + inset, 168 - inset },
+                                             { corners[1].x - inset, 168 - inset },
+                                             { corners[2].x - inset, 32 + inset },
+                                             { corners[3].x + inset, 32 + inset } };
+    for (int i = 0; i < 4; ++i) {
+        occupied.lines.push_back ({ corners[i], corners[(i + 1) % 4] });
+        occupied.lines.push_back ({ insetCorners[i], insetCorners[(i + 1) % 4] });
+        occupied.lines.push_back ({ corners[i], corners[i] });
+    }
+    for (int i = 0; i < 4; ++i) {
+        const auto a = corners[i], b = corners[(i + 1) % 4];
+        const auto label = labels::PlaceDiagramLabel (occupied,
+                                                      { { (a.x + b.x) / 2, (a.y + b.y) / 2 },
+                                                        { b.x - a.x, b.y - a.y },
+                                                        "S" + std::to_string (i + 1) + "  3.00 m" },
+                                                      { 0, 0 }, { 260, 200 }, 13, kMeasure);
+        ASSERT_TRUE (label) << "Segment " << i + 1;
+        EXPECT_EQ (label->text.find ('\n'), std::string::npos);
+    }
+    for (int i = 0; i < 4; ++i) {
+        const auto label = labels::PlaceDiagramLabel (occupied, { corners[i], { 1, 0 }, "P" + std::to_string (i + 1) },
+                                                      { 0, 0 }, { 260, 200 }, 13, kMeasure);
+        ASSERT_TRUE (label) << "Endpoint " << i + 1;
+    }
+    EXPECT_EQ (occupied.labels.size (), 8u);
+}
+
 TEST (HudMassingLabels, DiagonalLabelsAvoidSampledCurvesAndPlacementScalesWithTheHudFont)
 {
     av::ProjectedDrawList occupied;
