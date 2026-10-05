@@ -313,3 +313,65 @@ TEST (MassingCollapse, ProjectionKeepsCourtyardClipsToTerrainExtentAndIgnoresUnd
     EXPECT_EQ (projected.name, "unchanged");
     EXPECT_FALSE (zone::Project (result, {}, projected, error));
 }
+
+TEST (MassingCollapse, ProjectionAcrossTerrainCreasesPreservesUnionAreaAndHatchPhaseAtSurveyCoordinates)
+{
+    constexpr double ox = 700000, oy = 6000000;
+    zone::Result result;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ Input (Box (ox, oy, 10, 10, 100, 3)) }, 100, result, error)) << error;
+    geomsrv::Mesh terrain;
+    terrain.vertices = { ox - 5, oy - 5, 100, ox + 15, oy - 5, 120, ox + 15, oy + 15, 100, ox - 5, oy + 15, 130 };
+    terrain.triangles = { 0, 1, 2, 0, 2, 3 };
+    geomsrv::archviz::overlaylayers::Layer projected;
+    ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
+    ASSERT_EQ (projected.meshes.size (), 1u);
+    const auto& points = projected.meshes[0].points;
+    double area = 0;
+    const auto elevation = [&] (double x, double y) {
+        x -= ox;
+        y -= oy;
+        return 100 + (x >= y ? x - y : 1.5 * (y - x));
+    };
+    for (size_t i = 0; i < points.size (); i += 9) {
+        area += std::abs ((points[i + 3] - points[i]) * (points[i + 7] - points[i + 1]) -
+                          (points[i + 4] - points[i + 1]) * (points[i + 6] - points[i])) /
+                2;
+        for (size_t j = i; j < i + 9; j += 3)
+            EXPECT_NEAR (points[j + 2], elevation (points[j], points[j + 1]) + 0.012, 2e-6);
+    }
+    EXPECT_NEAR (area, result.area, 1e-5) << "no lost or double-filled area at triangle boundaries";
+    ASSERT_FALSE (projected.polylines.empty ());
+    for (const auto& line : projected.polylines) {
+        for (size_t i = 0; i < line.points.size (); i += 3) {
+            EXPECT_NEAR (line.points[i + 2], elevation (line.points[i], line.points[i + 1]) + 0.014, 2e-6);
+            const double phase = (line.points[i] + line.points[i + 1] - result.hatchOriginSum) / 0.7;
+            EXPECT_NEAR (phase, std::round (phase), 2e-8);
+        }
+    }
+}
+
+TEST (MassingCollapse, TopographyHolesAndAbsentMeshCoverageAreNotFilledWithInventedElevation)
+{
+    zone::Result result;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, 120, result, error)) << error;
+    const auto terrain = Courtyard ();
+    geomsrv::archviz::overlaylayers::Layer projected;
+    ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
+    ASSERT_EQ (projected.meshes.size (), 1u);
+    const auto& points = projected.meshes[0].points;
+    double area = 0;
+    for (size_t i = 0; i < points.size (); i += 9) {
+        const double x = (points[i] + points[i + 3] + points[i + 6]) / 3;
+        const double y = (points[i + 1] + points[i + 4] + points[i + 7]) / 3;
+        EXPECT_FALSE (x > 3 && x < 7 && y > 3 && y < 7);
+        area += std::abs ((points[i + 3] - points[i]) * (points[i + 7] - points[i + 1]) -
+                          (points[i + 4] - points[i + 1]) * (points[i + 6] - points[i])) /
+                2;
+    }
+    EXPECT_NEAR (area, 84, 1e-6);
+    ASSERT_TRUE (zone::Project (result, Box (100, 100), projected, error)) << error;
+    EXPECT_TRUE (projected.meshes.empty ());
+    EXPECT_TRUE (projected.polylines.empty ());
+}
