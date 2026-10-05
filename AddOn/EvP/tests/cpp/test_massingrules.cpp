@@ -294,6 +294,26 @@ TEST (MassingRules, GeometryRebaseClearsOldPromptsAndNewEdgesInheritTheirNearest
         EXPECT_FALSE (assignment.review);
 }
 
+TEST (MassingRules, FourOffsetButtonsSetPresetsAndCustomPromptIsCancellableAndStaleSafe)
+{
+    widgets::Draft draft;
+    widgets::Sync (Page (Saved ()), draft);
+    for (int preset : { 0, 1, 3 }) {
+        widgets::SelectOffset (draft, preset);
+        EXPECT_EQ (draft.assignments[0].distance, preset);
+        EXPECT_EQ (draft.assignments[0].mode, preset == 0 ? rules::Mode::None : rules::Mode::Custom);
+        EXPECT_FALSE (draft.assignments[0].review);
+    }
+    widgets::SelectOffset (draft, -1);
+    ASSERT_EQ (draft.numbers.size (), 1u);
+    EXPECT_EQ (draft.assignments[0].distance, 3); // cancel has made no mutation
+    const auto edit = draft.numbers[0];
+    ASSERT_TRUE (widgets::AnswerNumber (draft, edit, 4.75));
+    EXPECT_EQ (draft.assignments[0].distance, 4.75);
+    EXPECT_EQ (draft.assignments[0].mode, rules::Mode::Custom);
+    EXPECT_FALSE (widgets::AnswerNumber (draft, edit, 7));
+}
+
 TEST (MassingRules, QueuedSaveRefusesChangedGeometryRoleOrSavedAssignments)
 {
     auto entity = Saved ();
@@ -475,6 +495,43 @@ TEST (MassingRules, OnlyContourRemainsInTheExpandedRulesSection)
     const ImGuiID parcel = ImHashStr (widget.page.guid.c_str (), 0, section);
     EXPECT_EQ (widget.lastItem, ImHashStr ("##massing.site", 0, parcel));
     EXPECT_NEAR (widget.canvas.GetHeight (), 200, 0.01);
+}
+
+TEST (MassingRules, SegmentPopupShowsFourButtonsAndColoursTheSelectedOffset)
+{
+    RulesWidget widget;
+    widget.Open ({ widget.canvas.GetCenter ().x, widget.canvas.Max.y - 16 });
+    ASSERT_EQ (widget.draft.targetEdge, 0);
+    const char* labels[] = { "0m", "1m", "3m", "Custom" };
+    for (int selected = 0; selected < 4; ++selected) {
+        widget.draft.assignments[0].distance = selected == 3 ? 4.75 : selected == 2 ? 3 : selected;
+        widget.Frame ({ 850, 850 });
+        auto* popup = widget.context->OpenPopupStack[0].Window;
+        ASSERT_NE (popup, nullptr);
+        const auto& style = ImGui::GetStyle ();
+        float left = popup->Pos.x + style.WindowPadding.x;
+        for (int i = 0; i < selected; ++i)
+            left += ImGui::CalcTextSize (labels[i]).x + 2 * style.FramePadding.x + style.ItemSpacing.x;
+        const float right = left + ImGui::CalcTextSize (labels[selected]).x + 2 * style.FramePadding.x;
+        const ImU32 active = ImGui::GetColorU32 (ImGuiCol_ButtonActive);
+        int coloured = 0;
+        for (const auto& vertex : popup->DrawList->VtxBuffer)
+            if (vertex.col == active && vertex.pos.x >= left - 0.1f && vertex.pos.x <= right + 0.1f)
+                ++coloured;
+        EXPECT_GE (coloured, 4) << labels[selected];
+        const float y = popup->Pos.y + style.WindowPadding.y + ImGui::GetTextLineHeight () + style.ItemSpacing.y +
+                        ImGui::GetFrameHeight () / 2;
+        const ImVec2 pointer { (left + right) / 2, y };
+        widget.Frame (pointer);
+        EXPECT_EQ (widget.context->HoveredId, popup->GetID (labels[selected]));
+        widget.Frame (pointer, true);
+        widget.Frame (pointer);
+        if (selected == 3) {
+            ASSERT_FALSE (widget.draft.numbers.empty ());
+            EXPECT_EQ (widget.draft.numbers.back ().key, "Offset");
+            EXPECT_EQ (widget.draft.assignments[0].distance, 4.75);
+        }
+    }
 }
 
 TEST (MassingRules, OffsetContourDrawsAlongsideParcelOnlyForMatchingDraftInputs)

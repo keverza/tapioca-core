@@ -29,16 +29,6 @@ std::vector<Point> Points (const rules::Edge& edge)
     return points;
 }
 
-void SetMode (Draft& draft, int mode)
-{
-    auto& assignment = draft.assignments[size_t (draft.selected)];
-    assignment.mode = rules::Mode (mode);
-    if (mode != 1)
-        assignment.distance = mode == 2 ? 0 : draft.defaultDistance;
-    assignment.review = false;
-    draft.dirty = true;
-}
-
 massingcalculation::Request Inputs (const rules::Page& page, const Draft& draft);
 
 bool Distance (const char* label, double& distance, Draft& draft, double low = 0, double high = 1000)
@@ -62,26 +52,21 @@ bool Distance (const char* label, double& distance, Draft& draft, double low = 0
 void EdgeControls (Draft& draft)
 {
     auto& assignment = draft.assignments[size_t (draft.selected)];
-    int mode = int (assignment.mode);
-    const char* names[] = { "Default", "Custom", "Road / None (vertical)" };
-    ImGui::SetNextItemWidth (140);
-    if (ImGui::Combo ("Offset mode", &mode, names, 3))
-        SetMode (draft, mode);
-    if (assignment.mode == rules::Mode::Custom) {
-        if (Distance ("Offset", assignment.distance, draft)) {
-            assignment.review = false;
-            draft.dirty = true;
-        }
+    const char* labels[] = { "0m", "1m", "3m", "Custom" };
+    const int presets[] = { 0, 1, 3, -1 };
+    const double distance = assignment.distance;
+    for (int i = 0; i < 4; ++i) {
+        if (i)
+            ImGui::SameLine ();
+        const bool selected = presets[i] < 0 ? distance != 0 && distance != 1 && distance != 3 : distance == presets[i];
+        if (selected)
+            ImGui::PushStyleColor (ImGuiCol_Button, ImGui::GetStyleColorVec4 (ImGuiCol_ButtonActive));
+        if (ImGui::Button (labels[i]))
+            SelectOffset (draft, presets[i]);
+        if (selected)
+            ImGui::PopStyleColor ();
     }
-    else
-        ImGui::Text ("Offset: %.2f m", assignment.distance);
-    if (ImGui::SmallButton ("Road: 1 m")) {
-        SetMode (draft, 1);
-        assignment.distance = 1;
-    }
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Road: no setback"))
-        SetMode (draft, 2);
+    ImGui::Text ("Offset: %.2f m", assignment.distance);
     if (assignment.review) {
         ImGui::TextWrapped ("This segment needs assignment review.");
         if (ImGui::SmallButton ("Confirm this assignment")) {
@@ -278,7 +263,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         else if (draft.targetEdge >= 0) {
             ImGui::Text ("Segment %d", draft.selected + 1);
             EdgeControls (draft);
-            ImGui::TextDisabled ("Road / None: vertical edge, no height slope.");
+            ImGui::TextDisabled ("0m: vertical edge, no height slope.");
             bool regulated = draft.regulated[size_t (draft.selected)];
             if (ImGui::Checkbox ("STR height regulation", &regulated))
                 draft.regulated[size_t (draft.selected)] = regulated;
@@ -470,6 +455,7 @@ bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number)
         draft.dirty = true;
     }
     else if (edit.key == "Offset" && edit.edge >= 0 && size_t (edit.edge) < draft.assignments.size ()) {
+        draft.assignments[size_t (edit.edge)].mode = rules::Mode::Custom;
         draft.assignments[size_t (edit.edge)].distance = number;
         draft.assignments[size_t (edit.edge)].review = false;
         draft.dirty = true;
@@ -477,5 +463,23 @@ bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number)
     else
         return false;
     return true;
+}
+
+void SelectOffset (Draft& draft, int preset)
+{
+    if (draft.selected < 0 || size_t (draft.selected) >= draft.assignments.size ())
+        return;
+    auto& assignment = draft.assignments[size_t (draft.selected)];
+    if (preset == -1) {
+        draft.numbers.push_back (
+            { Inputs (draft.source, draft), "Offset", assignment.distance, 0, 1000, draft.selected });
+        return; // Cancel leaves both the value and mode unchanged.
+    }
+    if (preset != 0 && preset != 1 && preset != 3)
+        return;
+    assignment.mode = preset == 0 ? rules::Mode::None : rules::Mode::Custom;
+    assignment.distance = preset;
+    assignment.review = false;
+    draft.dirty = true;
 }
 } // namespace geomsrv::archviz::hudmassingrules

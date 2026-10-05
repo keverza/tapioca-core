@@ -43,6 +43,8 @@ std::vector<massingrules::Edit> DrawSite (const std::vector<massingrules::Page>&
                                           const std::shared_ptr<const massingcalculation::Preview>& preview);
 void Sync (const massingrules::Page& page, Draft& draft);
 bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number);
+// 0/1/3 set a fixed offset; -1 opens a cancellable Custom number panel.
+void SelectOffset (Draft& draft, int preset);
 // Returns explicit Save requests only. Layout does not touch ACAPI or storage.
 std::vector<massingrules::Edit> Draw (const massingrules::Page& page, Draft& draft, bool busy = false,
                                       const std::string& calculationNote = {},
