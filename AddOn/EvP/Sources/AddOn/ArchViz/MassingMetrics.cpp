@@ -67,9 +67,11 @@ bool Extrude (const Row& floor, overlaylayers::Mesh& mesh, std::string& error)
             vertex (b.x, b.y, top);
             vertex (a.x, a.y, top);
         }
-    mesh.rgba = floor.rgba | 0xFFu;
+    mesh.rgba = floor.fillRgba;
     mesh.styled = true;
-    mesh.style.opacity = 1;
+    mesh.style.opacity = floor.fillOpacity;
+    mesh.style.edgeRgba = floor.rgba | 0xFFu;
+    mesh.style.edgeWidthPixels = floor.wireWidthPixels;
     mesh.style.behind = overlaylayers::Behind::Show;
     mesh.style.cullBack = false;
     mesh.hoverTitle = floor.function + " floor " + std::to_string (floor.story);

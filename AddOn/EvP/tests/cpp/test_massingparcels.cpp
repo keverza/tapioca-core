@@ -330,6 +330,30 @@ TEST (MassingParcels, StatsMixVolumeAndCoverageUseRealContoursAndCapTheLastFloor
     EXPECT_TRUE (highlight.meshes.empty ());
 }
 
+TEST (MassingParcels, ExtrudedHighlightsUseSliceFillOpacityAndAFunctionColouredWireframe)
+{
+    slices::Result result;
+    std::string error;
+    geomsrv::archviz::storysliceoverlay::Controls display;
+    display.fillOpacity = 0.4f;
+    display.outlineWidthPixels = 1.25f;
+    ASSERT_TRUE (slices::Build ({ Slab () }, {}, nullptr, result, error, display)) << error;
+    layers::Layer highlight;
+    ASSERT_TRUE (slices::Highlight (result, "residential", highlight, error)) << error;
+    ASSERT_FALSE (highlight.meshes.empty ());
+    for (const auto& mesh : highlight.meshes) {
+        EXPECT_EQ (mesh.rgba & 0xFF, 0x59u);
+        EXPECT_FLOAT_EQ (mesh.style.opacity, 0.4f);
+        EXPECT_EQ (mesh.style.edgeRgba, result.rows[0].rgba | 0xFFu);
+        EXPECT_FLOAT_EQ (mesh.style.edgeWidthPixels, 1.25f);
+    }
+    display.fillRgba &= 0xFFFFFF00;
+    ASSERT_TRUE (slices::Build ({ Slab () }, {}, nullptr, result, error, display));
+    ASSERT_TRUE (slices::Highlight (result, "residential", highlight, error));
+    EXPECT_EQ (highlight.meshes[0].rgba & 0xFF, 0u);
+    EXPECT_NE (highlight.meshes[0].style.edgeRgba & 0xFF, 0u);
+}
+
 TEST (MassingParcels, StatsPercentageDiagramHoverReturnsItsFunctionAndClearsOnLeave)
 {
     ImGuiContext* context = ImGui::CreateContext ();

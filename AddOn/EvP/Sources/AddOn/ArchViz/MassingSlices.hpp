@@ -20,6 +20,8 @@ struct Row {
     double z = 0, floorHeight = 3, rawArea = 0, allowedArea = 0;
     bool clipped = false;
     uint32_t rgba = 0x9AA0A6FF;
+    uint32_t fillRgba = 0x9AA0A659;
+    float fillOpacity = 1, wireWidthPixels = 2;
     std::vector<SliceChain> rawChains, chains;
 };
 struct Result {
@@ -45,10 +47,10 @@ struct Usage {
 std::vector<Usage> UsageMix (const Result& result);
 bool Coverage (Result& result, const massingcalculation::Preview& parcels, std::string& error);
 bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error);
-// Allowed chains/areas come from intersection with the union of current parcel
-// shell cuts. Their complement is a red warning display, never an allowed area.
 // Exposed union surface area, with 70-90 degree inclination from horizontal.
 bool Facade (const std::vector<Input>& inputs, double& area, std::string& error);
+// Allowed chains/areas come from intersection with the union of current parcel
+// shell cuts. Their complement is a red warning display, never an allowed area.
 // Slice shared Python shells with the existing mesh slicer; never solve setbacks here.
 bool Intersect (const std::vector<SliceChain>& slab, const overlaylayers::Mesh& envelope, double z,
                 std::vector<SliceChain>& outlines, double& area, std::string& error);

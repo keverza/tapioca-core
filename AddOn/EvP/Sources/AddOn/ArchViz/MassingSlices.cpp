@@ -312,6 +312,9 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             row.z = slice.z;
             row.floorHeight = (i + 1 < slices.size () ? slices[i + 1].z : input.slab.top) - row.z;
             row.rgba = colour;
+            row.fillRgba = (colour & 0xFFFFFF00) | ((display.fillRgba & 0xFF) ? 0x59 : 0);
+            row.fillOpacity = display.fillOpacity;
+            row.wireWidthPixels = display.outlineWidthPixels;
             row.rawArea = slice.areaM2;
             row.rawChains = slice.chains;
             for (const auto& chain : slice.chains)
