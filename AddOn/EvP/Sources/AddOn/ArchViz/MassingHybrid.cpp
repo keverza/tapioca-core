@@ -341,6 +341,8 @@ void Poll ()
                 overlaylayers::Set (result.site);
                 s_source = completion->source;
                 s_page.preview = std::make_shared<const calc::Preview> (std::move (completion->preview));
+                if (s_terrain && s_terrain->guid == s_source->terrain && s_terrainStamp == s_source->terrainStamp)
+                    s_page.terrain = s_terrain;
                 s_page.calculated = s_page.preview->result.hasEnvelope;
                 if (s_dimensions)
                     overlaylayers::Set (calc::OffsetDimensions (*s_page.preview));
@@ -352,8 +354,6 @@ void Poll ()
         }
     }
     if (s_terrainRetryAt && ::GetTickCount64 () >= s_terrainRetryAt && !s_running.load () && !s_queue.Pending ()) {
-                if (s_terrain && s_terrain->guid == s_source->terrain && s_terrainStamp == s_source->terrainStamp)
-                    s_page.terrain = s_terrain;
         s_terrainRetryAt = 0;
         s_queue.Refresh (::GetTickCount64 ());
         s_revision.store (s_queue.Revision ());
