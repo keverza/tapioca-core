@@ -1,5 +1,6 @@
 #include "ArchViz/HudMassingRules.hpp"
 #include "ArchViz/HudMassingLabels.hpp"
+#include "ArchViz/HudMassingDiagram.hpp"
 #include "ArchViz/HudShell.hpp"
 
 #include <imgui.h>
@@ -142,6 +143,14 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         if (draft.labels)
             occupied.lines.push_back ({ { from.x, from.y }, { to.x, to.y }, rgba, width });
     };
+    const auto addOffset = [&] (const std::vector<double>& xy) {
+        std::vector<ScreenPoint> points;
+        for (size_t i = 0; i + 1 < xy.size (); i += 2) {
+            const auto at = project ({ xy[i], xy[i + 1] });
+            points.push_back ({ at.x, at.y });
+        }
+        DrawDiagramOffset (*draw, points, ImGui::GetFontSize (), draft.labels ? &occupied : nullptr);
+    };
     draw->AddRectFilled (origin, { origin.x + extent.x, origin.y + extent.y }, ImGui::GetColorU32 (ImGuiCol_FrameBg),
                          4);
     draw->PushClipRect (origin, { origin.x + extent.x, origin.y + extent.y }, true);
@@ -178,12 +187,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         for (const auto& parcel : sitePreview->parcels) {
             if (parcel.inputs.before.guid == page.guid)
                 continue;
-            const auto& xy = parcel.result.offsetXY;
-            for (size_t i = 0; i + 1 < xy.size (); i += 2) {
-                const size_t next = (i + 2) % xy.size ();
-                addLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }),
-                         IM_COL32 (166, 98, 38, 255), 2);
-            }
+            addOffset (parcel.result.offsetXY);
         }
     const auto* inputs = preview ? &preview->inputs : nullptr;
     const auto* result = preview ? &preview->result : nullptr;
@@ -195,12 +199,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
                 break;
             }
     if (inputs && massingcalculation::SameRequest (*inputs, Inputs (page, draft))) {
-        const auto& xy = result->offsetXY;
-        for (size_t i = 0; i + 1 < xy.size (); i += 2) {
-            const size_t next = (i + 2) % xy.size ();
-            addLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }), IM_COL32 (166, 98, 38, 255),
-                     2);
-        }
+        addOffset (result->offsetXY);
     }
     int pointHit = -1, edgeHit = -1;
     float nearestPoint = 81, nearestEdge = 100;

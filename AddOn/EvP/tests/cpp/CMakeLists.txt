@@ -508,6 +508,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSlices.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingRules.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingLabels.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingDiagram.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingParcels.cpp"
     # The building section: the massing slabs' floors picked and given their usage.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudSection.cpp"
@@ -714,6 +715,7 @@ set (EVP_TEST_SOURCES
     test_hudmassing.cpp
     test_massingrules.cpp
     test_hudmassinglabels.cpp
+    test_hudmassingdiagram.cpp
     test_massingparcels.cpp
     test_massingstats.cpp
     test_massingcollapse.cpp
