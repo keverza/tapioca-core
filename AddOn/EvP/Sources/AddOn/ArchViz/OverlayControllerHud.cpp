@@ -93,6 +93,7 @@ void FollowHudState ()
         massinghybrid::Request (std::move (request));
     massinghybrid::Dimensions (overlayhud::MassingDimensions (*state));
     massingslicesmodel::HoverFunction (overlayhud::MassingStatsFunction (*state));
+    massingslicesmodel::CollapseZone (overlayhud::MassingCollapseZone (*state));
     for (const auto& edit : overlayhud::TakeMassingNumbers (*state)) {
         std::string answer;
         double number = 0;

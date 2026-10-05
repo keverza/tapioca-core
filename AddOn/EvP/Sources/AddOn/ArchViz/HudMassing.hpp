@@ -26,6 +26,7 @@ struct Page {
     std::vector<massingrules::Page> parcels;
     bool calculationBusy = false;
     std::string calculationNote;
+    std::string collapseNote;
     std::shared_ptr<const massingcalculation::Preview> preview;
 };
 struct Assignment {

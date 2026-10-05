@@ -154,6 +154,20 @@ void Engine::Impl::MassingPage ()
         store->displaysPending = true;
         changes.push_back ({ "display", {}, "Massing", "slice area text", -1, 1, {}, true });
     }
+    if (ImGui::Checkbox ("Show building collapse zone", &store->massingCollapseZone))
+        changes.push_back ({ "massingCollapseZone",
+                             {},
+                             "Massing",
+                             "collapse zone",
+                             -1,
+                             store->massingCollapseZone ? 1.0 : 0.0,
+                             {},
+                             true });
+    if (store->massingCollapseZone) {
+        ImGui::TextDisabled ("Red hatches: 0.3333 x local vertical building height, unioned.");
+        if (!own.massing.collapseNote.empty ())
+            ImGui::TextWrapped ("%s", own.massing.collapseNote.c_str ());
+    }
 }
 
 void Engine::Impl::DebugPage (float ui)

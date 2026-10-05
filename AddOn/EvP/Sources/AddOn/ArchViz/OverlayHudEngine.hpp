@@ -88,6 +88,7 @@ struct State {
     hudmassingrules::Draft massingRules;
     hudmassingrules::SiteDraft massingSite;
     std::string massingStatsFunction;
+    bool massingCollapseZone = false;
     std::vector<massingrules::Edit> massingRuleEdits;
     std::vector<massingcalculation::Request> massingCalculations;
     // The building section's floors picked (PickedFloors), both views'.

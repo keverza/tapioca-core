@@ -306,6 +306,7 @@ std::vector<massingcalculation::Request> TakeMassingCalculations (State& state);
 std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state);
 bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit, double number);
 std::string MassingStatsFunction (const State& state);
+bool MassingCollapseZone (const State& state);
 // What the user set the displays to on Settings since the last call: true, and `displays` the
 // whole of it -- the owner applies it, after the layout, never inside it.
 bool TakeDisplays (State& state, Displays& displays);

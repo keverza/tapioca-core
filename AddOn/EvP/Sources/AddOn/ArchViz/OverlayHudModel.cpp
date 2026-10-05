@@ -387,6 +387,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.massing.calculationBusy = calculation.busy;
     pages.massing.calculationNote = calculation.note;
     pages.massing.preview = calculation.preview;
+    pages.massing.collapseNote = massingslicesmodel::CollapseNote ();
     if (calculation.preview) {
         const auto& result = calculation.preview->result;
         Card card;

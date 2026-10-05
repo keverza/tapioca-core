@@ -1,6 +1,7 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
 #include "ArchViz/MassingSlicesModel.hpp"
+#include "ArchViz/MassingCollapseZone.hpp"
 #include "ArchViz/MassingHybrid.hpp"
 #include "ArchViz/MassingModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
@@ -29,6 +30,8 @@ bool s_shown = true, s_styleDirty = false, s_bodyPass = false;
 uint64_t s_bodies = 0;
 std::string s_bodySignature;
 std::string s_hoverFunction;
+bool s_collapseShown = false;
+std::string s_collapseNote;
 
 void Highlight ()
 {
@@ -77,7 +80,7 @@ void Update ()
         signature += guids[i] + ":" + std::to_string (stamps[i]) + ";";
         for (const auto& guid : operators[i])
             signature += "SEO:" + guid + ";";
-        if (!operators[i].empty ()) {
+        if (s_collapseShown || !operators[i].empty ()) {
             bodyTargets.push_back (guids[i]);
             bodySignature += guids[i] + ":" + std::to_string (stamps[i]) + ";";
             for (const auto& guid : operators[i])
@@ -122,13 +125,17 @@ void Update ()
     result.layer.name = massingslices::kLayer;
     std::string error;
     std::vector<massingslices::Input> inputs;
+    std::vector<massingslices::Input> zoneInputs;
+    bool zoneMissing = overBudget;
     if (overBudget)
         error = "Automatic preview accepts at most 128 selected/defined elements.";
     if (error.empty ()) {
         const auto reading = slabsource::Read (guids, storeys);
         for (const auto& skip : reading.skipped)
-            if (skip.reason.find ("not a slab") == std::string::npos)
+            if (skip.reason.find ("not a slab") == std::string::npos) {
                 result.note += skip.guid + ": " + skip.reason + ". ";
+                zoneMissing = true;
+            }
         for (const auto& slab : reading.slabs) {
             const auto index = size_t (std::lower_bound (guids.begin (), guids.end (), slab.guid) - guids.begin ());
             massingslices::Input input;
@@ -138,6 +145,7 @@ void Update ()
                     bodies ? bodies->meshes.find (slab.guid) : std::map<std::string, Mesh>::const_iterator {};
                 if (bodySignature == "operator-budget" || !bodies || found == bodies->meshes.end ()) {
                     result.note += "SEO slab awaiting a current 3D body (must be visible in the 3D model). ";
+                    zoneMissing = true;
                     continue;
                 }
                 input.body = std::shared_ptr<const Mesh> (bodies, &found->second);
@@ -145,18 +153,49 @@ void Update ()
             bool present = false;
             if (!metadata::storage::Read (slab.guid, input.metadata, present, error))
                 break;
+            if (s_collapseShown) {
+                auto zone = input;
+                const auto found =
+                    bodies ? bodies->meshes.find (slab.guid) : std::map<std::string, Mesh>::const_iterator {};
+                if (!bodies || found == bodies->meshes.end () || bodySignature == "operator-budget")
+                    zoneMissing = true;
+                else {
+                    zone.body = std::shared_ptr<const Mesh> (bodies, &found->second);
+                    zoneInputs.push_back (std::move (zone));
+                }
+            }
             inputs.push_back (std::move (input));
+        }
+    }
+    overlaylayers::Clear (massingcollapse::kLayer);
+    s_collapseNote.clear ();
+    if (s_collapseShown) {
+        if (zoneMissing || !error.empty ())
+            s_collapseNote = "Collapse zone awaiting complete current 3D slab bodies; no partial zone displayed.";
+        else {
+            massingcollapse::Result zone;
+            const double drawingZ = envelope && envelope->result.hasMeanZ ? envelope->result.meanZ : 0;
+            if (massingcollapse::Build (zoneInputs, drawingZ, zone, s_collapseNote)) {
+                if (!zone.layer.meshes.empty ())
+                    overlaylayers::Set (std::move (zone.layer));
+                s_collapseNote =
+                    zoneInputs.empty ()
+                        ? "No massing slabs defined/selected."
+                        : "Current operated surfaces; local top minus local base height, merged into one fill.";
+            }
         }
     }
     const auto skipped = result.note;
     if (error.empty ())
         massingslices::Build (inputs, storeys, envelope ? &envelope->result : nullptr, result, error, s_display);
-    if (error.empty () && envelope) {
+    if (error.empty () && envelope && skipped.empty ()) {
         std::string coverageError;
         massingslices::Coverage (result, *envelope, coverageError);
         if (!coverageError.empty ())
             result.note += " " + coverageError;
     }
+    else if (!skipped.empty ())
+        result.note += " Parcel coverage unavailable while slab sources are incomplete.";
     if (!skipped.empty ())
         result.note += " " + skipped;
     if (!error.empty ()) {
@@ -230,6 +269,23 @@ void HoverFunction (const std::string& function)
     Publish ();
 }
 
+void CollapseZone (bool shown)
+{
+    if (shown == s_collapseShown)
+        return;
+    s_collapseShown = shown;
+    s_signature.clear ();
+    overlaylayers::Clear (massingcollapse::kLayer);
+    s_collapseNote.clear ();
+    Changed ();
+    Publish ();
+}
+
+std::string CollapseNote ()
+{
+    return s_collapseNote;
+}
+
 void Forget ()
 {
     if (s_timer != 0) {
@@ -242,6 +298,9 @@ void Forget ()
     s_envelope.reset ();
     s_result.reset ();
     s_hoverFunction.clear ();
+    s_collapseShown = false;
+    s_collapseNote.clear ();
+    overlaylayers::Clear (massingcollapse::kLayer);
     overlaylayers::Clear (massingslices::kHighlightLayer);
     slabbodies::Want ({}, "massing");
     s_bodies = 0;

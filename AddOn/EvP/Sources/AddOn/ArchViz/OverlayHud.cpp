@@ -168,6 +168,11 @@ std::string MassingStatsFunction (const State& state)
     return state.massingStatsFunction;
 }
 
+bool MassingCollapseZone (const State& state)
+{
+    return state.massingCollapseZone;
+}
+
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state)
 {
     std::vector<hudmeta::Edit> edits;
@@ -838,7 +843,8 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     ImGui::SetCurrentContext (previous);
     lock.unlock ();
     // ⚠️ SAID OUTSIDE IMGUI'S LOCK: the sink takes the event ring's.
-    if (impl_->statsHover != impl_->nextStatsHover) {
+    if (impl_->statsHover != impl_->nextStatsHover ||
+        (!impl_->nextStatsHover.empty () && impl_->store->massingStatsFunction.empty ())) {
         impl_->statsHover = impl_->nextStatsHover;
         impl_->store->massingStatsFunction = impl_->statsHover;
         impl_->changes.push_back ({ "massingStatsHover", {}, "Stats", impl_->statsHover, -1, 0, {}, true });
