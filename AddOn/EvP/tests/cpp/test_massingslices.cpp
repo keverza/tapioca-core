@@ -466,7 +466,8 @@ TEST (MassingSlices, OperatedBodyCutsReplaceThePolygonAndKeepRemovedFloorsIdenti
     EXPECT_EQ (result.rows[2].z, 6);
     EXPECT_EQ (result.rows[2].allowedArea, 4);
     EXPECT_EQ (result.rawFirstFloorArea, 0);
-    EXPECT_FALSE (result.hasFacade); // do not substitute the unoperated prism's walls
+    EXPECT_TRUE (result.hasFacade);
+    EXPECT_NEAR (result.facadeArea, 16 * 5, 1e-5); // measured final body walls, not record prism
     ASSERT_EQ (result.layer.texts.size (), 1u);
     EXPECT_EQ (result.layer.texts[0].text, "4.0 m\xC2\xB2");
     EXPECT_EQ (result.section.floors.size (), 3u);

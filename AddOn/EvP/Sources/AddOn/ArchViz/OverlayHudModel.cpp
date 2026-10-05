@@ -468,8 +468,8 @@ overlayhud::OwnPages Pages (overlayinput::View view)
             card.figures.push_back (
                 { "Parcel / (total x 0.78)", total > 0 ? Format ("%.3f", parcel / (total * 0.78)) : "n/a" });
         }
-        card.figures.push_back (
-            { "Facade area (exposed slab walls)", slices->hasFacade ? Format ("%.2f m2", slices->facadeArea) : "n/a" });
+        card.figures.push_back ({ "Facade area (exposed surfaces 70-90 deg)",
+                                  slices->hasFacade ? Format ("%.2f m2", slices->facadeArea) : "n/a" });
         if (slices->clipped) {
             card.figures.push_back ({ "Allowed slice area sum", Format ("%.2f m2", slices->allowedArea) });
             if (calculation.preview && calculation.preview->result.parcelArea > 0)

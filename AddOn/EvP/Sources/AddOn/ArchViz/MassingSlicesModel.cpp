@@ -80,7 +80,9 @@ void Update ()
         signature += guids[i] + ":" + std::to_string (stamps[i]) + ";";
         for (const auto& guid : operators[i])
             signature += "SEO:" + guid + ";";
-        if (s_collapseShown || !operators[i].empty ()) {
+        // Facade slope classification requires the completed model surfaces even
+        // without SEO. Keep this demand independent of the collapse-zone toggle.
+        {
             bodyTargets.push_back (guids[i]);
             bodySignature += guids[i] + ":" + std::to_string (stamps[i]) + ";";
             for (const auto& guid : operators[i])
@@ -127,6 +129,7 @@ void Update ()
     std::vector<massingslices::Input> inputs;
     std::vector<massingslices::Input> zoneInputs;
     bool zoneMissing = overBudget;
+    bool facadeMissing = overBudget;
     if (overBudget)
         error = "Automatic preview accepts at most 128 selected/defined elements.";
     if (error.empty ()) {
@@ -135,29 +138,33 @@ void Update ()
             if (skip.reason.find ("not a slab") == std::string::npos) {
                 result.note += skip.guid + ": " + skip.reason + ". ";
                 zoneMissing = true;
+                facadeMissing = true;
             }
         for (const auto& slab : reading.slabs) {
             const auto index = size_t (std::lower_bound (guids.begin (), guids.end (), slab.guid) - guids.begin ());
             massingslices::Input input;
             input.slab = slab;
-            if (index < operators.size () && !operators[index].empty ()) {
-                const auto found =
-                    bodies ? bodies->meshes.find (slab.guid) : std::map<std::string, Mesh>::const_iterator {};
-                if (bodySignature == "operator-budget" || !bodies || found == bodies->meshes.end ()) {
-                    result.note += "SEO slab awaiting a current 3D body (must be visible in the 3D model). ";
+            const auto found =
+                bodies ? bodies->meshes.find (slab.guid) : std::map<std::string, Mesh>::const_iterator {};
+            const bool hasBody = bodySignature != "operator-budget" && bodies && found != bodies->meshes.end ();
+            if (hasBody)
+                input.facadeBody = std::shared_ptr<const Mesh> (bodies, &found->second);
+            else
+                facadeMissing = true;
+            if (slab.slopedEdges || (index < operators.size () && !operators[index].empty ())) {
+                if (!hasBody) {
+                    result.note += "SEO/sloped slab awaiting a current 3D body (must be visible in the 3D model). ";
                     zoneMissing = true;
                     continue;
                 }
-                input.body = std::shared_ptr<const Mesh> (bodies, &found->second);
+                input.body = input.facadeBody;
             }
             bool present = false;
             if (!metadata::storage::Read (slab.guid, input.metadata, present, error))
                 break;
             if (s_collapseShown) {
                 auto zone = input;
-                const auto found =
-                    bodies ? bodies->meshes.find (slab.guid) : std::map<std::string, Mesh>::const_iterator {};
-                if (!bodies || found == bodies->meshes.end () || bodySignature == "operator-budget")
+                if (!hasBody)
                     zoneMissing = true;
                 else {
                     zone.body = std::shared_ptr<const Mesh> (bodies, &found->second);
@@ -188,6 +195,12 @@ void Update ()
     const auto skipped = result.note;
     if (error.empty ())
         massingslices::Build (inputs, storeys, envelope ? &envelope->result : nullptr, result, error, s_display);
+    if (facadeMissing && error.empty ()) {
+        result.hasFacade = false;
+        result.facadeArea = 0;
+        result.note +=
+            " Facade awaiting all current 3D slab bodies; no partial area or unoperated substitute reported.";
+    }
     if (error.empty () && envelope && skipped.empty ()) {
         std::string coverageError;
         massingslices::Coverage (result, *envelope, coverageError);

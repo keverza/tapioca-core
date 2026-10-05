@@ -11,6 +11,8 @@ struct Input {
     slabslices::Slab slab;
     metadata::EntityMetadata metadata;
     std::shared_ptr<const geomsrv::Mesh> body;
+    // Current extracted surface for facade measurement without changing prism slice previews.
+    std::shared_ptr<const geomsrv::Mesh> facadeBody;
 };
 struct Row {
     std::string guid, function;
@@ -45,6 +47,8 @@ bool Coverage (Result& result, const massingcalculation::Preview& parcels, std::
 bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error);
 // Allowed chains/areas come from intersection with the union of current parcel
 // shell cuts. Their complement is a red warning display, never an allowed area.
+// Exposed union surface area, with 70-90 degree inclination from horizontal.
+bool Facade (const std::vector<Input>& inputs, double& area, std::string& error);
 // Slice shared Python shells with the existing mesh slicer; never solve setbacks here.
 bool Intersect (const std::vector<SliceChain>& slab, const overlaylayers::Mesh& envelope, double z,
                 std::vector<SliceChain>& outlines, double& area, std::string& error);

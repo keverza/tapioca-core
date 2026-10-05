@@ -40,68 +40,6 @@ bool FloorHeights (const meta::EntityMetadata& entity, std::vector<double>& heig
     return true;
 }
 
-// For vertical prisms the boundary of the XY union in each Z band is exactly
-// the exposed wall: coincident/internal faces disappear before perimeter is measured.
-bool Facade (const std::vector<Input>& inputs, double& area)
-{
-    // A prism union cannot measure the operated/sloping body's exposed walls honestly.
-    for (const auto& input : inputs)
-        if (input.body)
-            return false;
-    if (inputs.empty ()) {
-        area = 0;
-        return true;
-    }
-    std::vector<double> levels;
-    std::vector<cp::PathsD> footprints;
-    const double ox = inputs.front ().slab.outer.xy[0], oy = inputs.front ().slab.outer.xy[1];
-    size_t points = 0;
-    for (const auto& input : inputs) {
-        levels.insert (levels.end (), { input.slab.bottom, input.slab.top });
-        cp::PathsD rings;
-        auto add = [&] (const slabslices::Ring& ring) {
-            const auto contour = slabslices::Contour (ring, 0.05);
-            cp::PathD path;
-            for (size_t i = 0; i + 1 < contour.xy.size (); i += 2)
-                path.emplace_back (contour.xy[i] - ox, contour.xy[i + 1] - oy);
-            points += path.size ();
-            rings.push_back (std::move (path));
-        };
-        add (input.slab.outer);
-        for (const auto& hole : input.slab.holes)
-            add (hole);
-        if (points > 20000)
-            return false;
-        footprints.push_back (cp::Union (rings, cp::FillRule::EvenOdd, 6));
-    }
-    std::sort (levels.begin (), levels.end ());
-    levels.erase (std::unique (levels.begin (), levels.end ()), levels.end ());
-    double total = 0;
-    size_t work = 0;
-    for (size_t k = 1; k < levels.size (); ++k) {
-        const double z = (levels[k - 1] + levels[k]) * 0.5;
-        cp::PathsD active;
-        for (size_t i = 0; i < inputs.size (); ++i)
-            if (inputs[i].slab.bottom < z && inputs[i].slab.top > z)
-                for (const auto& ring : footprints[i]) {
-                    work += ring.size ();
-                    if (work > 1000000)
-                        return false;
-                    active.push_back (ring);
-                }
-        double perimeter = 0;
-        for (const auto& ring : cp::Union (active, cp::FillRule::NonZero, 6))
-            for (size_t i = 0; i < ring.size (); ++i) {
-                const auto& a = ring[i];
-                const auto& b = ring[(i + 1) % ring.size ()];
-                perimeter += std::hypot (b.x - a.x, b.y - a.y);
-            }
-        total += perimeter * (levels[k] - levels[k - 1]);
-    }
-    area = total;
-    return std::isfinite (total);
-}
-
 void Append (overlaylayers::Layer& into, overlaylayers::Layer from)
 {
     into.texts.insert (into.texts.end (), std::make_move_iterator (from.texts.begin ()),
@@ -451,15 +389,15 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     for (auto& label : out.layer.texts)
         if (label.planar)
             label.sizeMetres = uniformLabel;
-    out.hasFacade = Facade (slabs, out.facadeArea);
+    std::string facadeError;
+    out.hasFacade = Facade (slabs, out.facadeArea, facadeError);
     if (!slabs.empty ())
         out.note =
             out.clipped
                 ? "Story slices intersected with the allowed envelope; areas sum per slab (overlaps count twice)."
                 : "Showing slab story slices; allowed areas wait for the envelope.";
     if (!out.hasFacade)
-        out.note +=
-            " Facade area unavailable for operated bodies or exceeded union budget; no prism substitute reported.";
+        out.note += " Facade area unavailable: " + facadeError;
     if (out.clipped)
         out.note += " Red regions are outside the allowed envelope union and excluded from allowed areas.";
     error = overlaylayers::Validate (out.layer);
