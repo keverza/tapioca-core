@@ -137,13 +137,15 @@ TEST (MassingRules, UniqueAssignmentsSurviveReorderingAndReversal)
         EXPECT_FALSE (assignment.review);
 }
 
-TEST (MassingRules, ActualGeometryChangesAndDuplicateHashesNeedReview)
+TEST (MassingRules, MovedVerticesKeepSavedOffsetsButAmbiguousDuplicateRecordsNeedReview)
 {
     auto page = Page ();
     page.edges[0].ax = page.edges[3].bx = 0.01;
     ASSERT_TRUE (rules::Restore (page, Saved ()));
     for (const auto& assignment : page.assignments)
-        EXPECT_TRUE (assignment.review); // unmatched saved edges demand review of the whole set
+        EXPECT_FALSE (assignment.review);
+    EXPECT_EQ (page.assignments[0].distance, 1);
+    EXPECT_EQ (page.assignments[3].distance, 5);
     auto entity = Saved ();
     entity.properties[0].value.list.push_back (entity.properties[0].value.list[0]);
     page.edges = Square ();
@@ -205,7 +207,7 @@ TEST (MassingRules, GeometryGuardsRejectInvalidOrRetargetedSnapshots)
     EXPECT_FALSE (rules::ValidEdges (edges));
 }
 
-TEST (MassingRules, DraftSurvivesUnrelatedSelectionAndDiscardsStaleGeometry)
+TEST (MassingRules, DraftSurvivesUnrelatedSelectionAndRetainsOffsetsAcrossVertexEdits)
 {
     widgets::Draft draft;
     auto page = Page (Saved ());
@@ -219,9 +221,77 @@ TEST (MassingRules, DraftSurvivesUnrelatedSelectionAndDiscardsStaleGeometry)
     page.edges[0].ax = page.edges[3].bx = 0.01;
     ASSERT_TRUE (rules::Restore (page, Saved ()));
     widgets::Sync (page, draft);
-    EXPECT_FALSE (draft.dirty);
+    EXPECT_TRUE (draft.dirty);
     EXPECT_FALSE (draft.note.empty ());
-    EXPECT_TRUE (draft.assignments[0].review);
+    EXPECT_FALSE (draft.assignments[0].review);
+    EXPECT_EQ (draft.assignments[0].distance, 2);
+    EXPECT_FALSE (draft.endpoints[0]);
+}
+
+TEST (MassingRules, DraftSplitsAndReordersKeepOffsetsAndRunLocalRegulation)
+{
+    auto page = Page (Saved ());
+    widgets::Draft draft;
+    widgets::Sync (page, draft);
+    draft.assignments[0] = { rules::Mode::Custom, 2.75, false };
+    draft.regulated[0] = false;
+    draft.calculation.capZ = 22;
+    draft.dirty = true;
+    auto split = page;
+    split.edges[0].bx = 5;
+    split.edges.insert (split.edges.begin () + 1, { 5, 0, 10, 0, 0 });
+    ASSERT_TRUE (rules::Restore (split, Saved ()));
+    widgets::Sync (split, draft);
+    ASSERT_EQ (draft.assignments.size (), 5u);
+    EXPECT_EQ (draft.assignments[0].distance, 2.75);
+    EXPECT_EQ (draft.assignments[1].distance, 2.75);
+    EXPECT_FALSE (draft.regulated[0]);
+    EXPECT_FALSE (draft.regulated[1]);
+    EXPECT_EQ (draft.calculation.capZ, 22);
+    for (const auto& a : draft.assignments)
+        EXPECT_FALSE (a.review);
+    draft.endpoints[1] = false;
+    auto reversed = split;
+    std::reverse (reversed.edges.begin (), reversed.edges.end ());
+    for (auto& edge : reversed.edges) {
+        std::swap (edge.ax, edge.bx);
+        std::swap (edge.ay, edge.by);
+        edge.arcAngle = -edge.arcAngle;
+    }
+    ASSERT_TRUE (rules::Restore (reversed, Saved ()));
+    widgets::Sync (reversed, draft);
+    EXPECT_EQ (draft.assignments[3].distance, 2.75);
+    EXPECT_EQ (draft.assignments[4].distance, 2.75);
+    EXPECT_FALSE (draft.endpoints[4]); // Reversed child starts at the old child's end.
+    std::string error;
+    meta::Property saved;
+    ASSERT_TRUE (rules::Encode (draft.source.edges, draft.assignments, saved, error)) << error;
+}
+
+TEST (MassingRules, GeometryRebaseClearsOldPromptsAndNewEdgesInheritTheirNearestOffset)
+{
+    auto page = Page (Saved ());
+    widgets::Draft draft;
+    widgets::Sync (page, draft);
+    geomsrv::archviz::massingcalculation::Request before;
+    before.before = page;
+    before.assignments = draft.assignments;
+    before.endpoints = draft.endpoints;
+    before.regulated = draft.regulated;
+    const widgets::NumberEdit prompt { before, "Offset", 1, 0, 1000, 0 };
+    draft.numbers.push_back (prompt);
+    auto edited = page;
+    edited.edges[0].bx = 5;
+    edited.edges[0].by = -2;
+    edited.edges.insert (edited.edges.begin () + 1, { 5, -2, 10, 0 });
+    ASSERT_TRUE (rules::Restore (edited, Saved ()));
+    widgets::Sync (edited, draft);
+    EXPECT_TRUE (draft.numbers.empty ());
+    EXPECT_FALSE (widgets::AnswerNumber (draft, prompt, 8));
+    EXPECT_EQ (draft.assignments[0].distance, 1);
+    EXPECT_EQ (draft.assignments[1].distance, 1);
+    for (const auto& assignment : draft.assignments)
+        EXPECT_FALSE (assignment.review);
 }
 
 TEST (MassingRules, QueuedSaveRefusesChangedGeometryRoleOrSavedAssignments)

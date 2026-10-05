@@ -122,7 +122,7 @@ TEST (MassingParcels, DraftsKeepIndependentOffsetsAndEveryParcelIsIncludedInPrev
     EXPECT_TRUE (calc::Encode (expanded[1], {}, false, 0, encoded, error));
 }
 
-TEST (MassingParcels, SourceChangesDiscardOnlyTheirParcelDraftAndRemovedParcelsArePruned)
+TEST (MassingParcels, SourceChangesKeepEachParcelsOffsetsAndRemovedParcelsArePruned)
 {
     std::vector<rules::Page> pages { Parcel ("first"), Parcel ("second", 20) };
     widgets::Draft active;
@@ -136,8 +136,8 @@ TEST (MassingParcels, SourceChangesDiscardOnlyTheirParcelDraftAndRemovedParcelsA
     widgets::SyncSite (pages, active, site);
     EXPECT_TRUE (active.dirty);
     EXPECT_EQ (active.assignments[0].distance, 1);
-    EXPECT_FALSE (site.parcels["second"].dirty);
-    EXPECT_EQ (site.parcels["second"].assignments[0].distance, 3);
+    EXPECT_TRUE (site.parcels["second"].dirty);
+    EXPECT_EQ (site.parcels["second"].assignments[0].distance, 2);
     EXPECT_FALSE (site.parcels["second"].note.empty ());
     widgets::SyncSite ({ pages[1] }, active, site);
     EXPECT_EQ (active.source.guid, "second");

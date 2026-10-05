@@ -335,6 +335,44 @@ void Sync (const rules::Page& page, Draft& draft)
         rules::SameGeometry (draft.source.edges, page.edges) && draft.source.hasStored == page.hasStored &&
         draft.source.stored == page.stored)
         return;
+    const bool sameParcel = draft.source.guid == page.guid;
+    const bool sameStored = draft.source.hasStored == page.hasStored && draft.source.stored == page.stored;
+    if (sameParcel && sameStored && draft.source.known && page.known &&
+        !rules::SameGeometry (draft.source.edges, page.edges) &&
+        draft.assignments.size () == draft.source.edges.size ()) {
+        const auto mapping = rules::SegmentMap (draft.source.edges, page.edges);
+        const auto previous = draft;
+        draft.source = page;
+        draft.assignments = page.assignments;
+        draft.endpoints.assign (page.edges.size (), true);
+        draft.regulated.assign (page.edges.size (), true);
+        draft.lastRequested.reset ();
+        draft.numbers.clear (); // Old geometry prompts must never target a remapped segment.
+        draft.calculations.clear ();
+        draft.targetEdge = draft.targetPoint = -1;
+        draft.selected = 0;
+        for (size_t i = 0; i < mapping.size (); ++i) {
+            if (mapping[i] < 0)
+                continue;
+            const size_t j = size_t (mapping[i]);
+            draft.assignments[i] = previous.assignments[j];
+            if (j < previous.regulated.size ())
+                draft.regulated[i] = previous.regulated[j];
+            const auto& old = previous.source.edges[j];
+            const auto& now = page.edges[i];
+            const size_t endpoint =
+                std::hypot (now.ax - old.ax, now.ay - old.ay) <= std::hypot (now.ax - old.bx, now.ay - old.by)
+                    ? j
+                    : (j + 1) % previous.source.edges.size ();
+            if (endpoint < previous.endpoints.size ())
+                draft.endpoints[i] = previous.endpoints[endpoint];
+            if (mapping[i] == previous.selected)
+                draft.selected = int (i);
+        }
+        draft.dirty = true; // Save will persist new fingerprints; preview is valid immediately.
+        draft.note = "Property line changed; existing segment offsets retained.";
+        return;
+    }
     metadata::Property authored;
     std::string error;
     const bool sameGeometry = draft.source.guid == page.guid && rules::SameGeometry (draft.source.edges, page.edges);
@@ -358,8 +396,9 @@ void Sync (const rules::Page& page, Draft& draft)
         draft.endpoints = endpoints;
     if (sameGeometry && regulated.size () == page.edges.size ()) {
         draft.regulated = regulated;
-        draft.calculation = calculation;
     }
+    if (sameParcel)
+        draft.calculation = calculation;
     for (const auto& assignment : page.assignments)
         if (assignment.mode == rules::Mode::Default) {
             draft.defaultDistance = assignment.distance;
@@ -380,7 +419,8 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
         Follow (page, draft);
         return edits;
     }
-    if (!page.note.empty ())
+    if (!page.note.empty () && (!page.known || std::any_of (draft.assignments.begin (), draft.assignments.end (),
+                                                            [] (const auto& a) { return a.review; })))
         ImGui::TextWrapped ("%s", page.note.c_str ());
     if (!calculationNote.empty ())
         ImGui::TextWrapped ("%s", calculationNote.c_str ());

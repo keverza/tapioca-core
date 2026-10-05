@@ -75,6 +75,7 @@ std::string Hash (const std::string& key)
 struct Record {
     std::string fingerprint;
     Assignment assignment;
+    int index = -1;
 };
 bool Records (const meta::Value& value, std::vector<Record>& records)
 {
@@ -91,9 +92,10 @@ bool Records (const meta::Value& value, std::vector<Record>& records)
         const auto& mode = fields.at ("mode");
         const auto& distance = fields.at ("distance");
         const auto& fingerprint = fields.at ("geometryFingerprint");
-        if (index.type != meta::ValueType::Int || index.i < 0 || mode.type != meta::ValueType::String ||
-            distance.type != meta::ValueType::Length || !std::isfinite (distance.d) || distance.d < 0 ||
-            distance.d > 1000 || fingerprint.type != meta::ValueType::String || fingerprint.s.empty ())
+        if (index.type != meta::ValueType::Int || index.i < 0 || index.i >= 256 ||
+            mode.type != meta::ValueType::String || distance.type != meta::ValueType::Length ||
+            !std::isfinite (distance.d) || distance.d < 0 || distance.d > 1000 ||
+            fingerprint.type != meta::ValueType::String || fingerprint.s.empty ())
             return false;
         int choice = -1;
         for (int m = 0; m < 3; ++m)
@@ -101,7 +103,7 @@ bool Records (const meta::Value& value, std::vector<Record>& records)
                 choice = m;
         if (choice < 0 || (choice == 2 && distance.d != 0))
             return false;
-        records.push_back ({ fingerprint.s, { Mode (choice), distance.d, false } });
+        records.push_back ({ fingerprint.s, { Mode (choice), distance.d, false }, int (index.i) });
     }
     return true;
 }
@@ -183,23 +185,43 @@ bool Restore (Page& page, const meta::EntityMetadata& entity)
         ++currentCounts[Fingerprint (edge)];
     for (const auto& record : records)
         ++savedCounts[record.fingerprint];
-    size_t matched = 0;
-    for (const auto& edge : page.edges) {
+    std::vector<int> mapping (page.edges.size (), -1);
+    std::vector<bool> used (records.size (), false);
+    for (size_t i = 0; i < page.edges.size (); ++i) {
+        const auto& edge = page.edges[i];
         const auto fingerprint = Fingerprint (edge);
-        Assignment assignment;
-        if (property != nullptr) {
-            assignment.review = true;
-            if (currentCounts[fingerprint] == 1 && savedCounts[fingerprint] == 1)
-                for (const auto& record : records)
-                    if (record.fingerprint == fingerprint) {
-                        assignment = record.assignment;
-                        ++matched;
+        if (currentCounts[fingerprint] == 1 && savedCounts[fingerprint] == 1)
+            for (size_t j = 0; j < records.size (); ++j)
+                if (records[j].fingerprint == fingerprint) {
+                    mapping[i] = int (j);
+                    used[j] = true;
+                    break;
+                }
+    }
+    // The persisted segmentIndex retains moved vertices when topology is unchanged.
+    // Exact fingerprints above still win over index on winding/order changes.
+    if (records.size () == page.edges.size ())
+        for (size_t i = 0; i < mapping.size (); ++i) {
+            if (mapping[i] >= 0 || currentCounts[Fingerprint (page.edges[i])] != 1)
+                continue;
+            int match = -1;
+            for (size_t j = 0; j < records.size (); ++j)
+                if (!used[j] && records[j].index == int (i)) {
+                    if (match >= 0) {
+                        match = -1;
                         break;
                     }
+                    match = int (j);
+                }
+            if (match >= 0) {
+                mapping[i] = match;
+                used[size_t (match)] = true;
+            }
         }
-        page.assignments.push_back (assignment);
-    }
-    if (matched != records.size ())
+    for (int index : mapping)
+        page.assignments.push_back (index >= 0 ? records[size_t (index)].assignment
+                                               : Assignment { Mode::Default, 3, property != nullptr });
+    if (std::any_of (savedCounts.begin (), savedCounts.end (), [] (const auto& item) { return item.second > 1; }))
         for (auto& assignment : page.assignments)
             assignment.review = true;
     if (std::any_of (page.assignments.begin (), page.assignments.end (), [] (const Assignment& a) { return a.review; }))

@@ -36,10 +36,15 @@ const char* ModeName (Mode mode);
 std::string Fingerprint (const Edge& edge);
 bool ValidEdges (const std::vector<Edge>& edges);
 bool SameGeometry (const std::vector<Edge>& a, const std::vector<Edge>& b);
+// New edge -> previous edge, preserving exact/reordered edges, straight splits,
+// cyclic correspondence for vertex moves, then nearest-edge inheritance for
+// merged/new segments. Invalid rings produce -1 entries.
+std::vector<int> SegmentMap (const std::vector<Edge>& before, const std::vector<Edge>& after);
 bool CheckSource (const Edit& edit, const std::vector<Edge>& current, const metadata::EntityMetadata& entity,
                   std::string& error);
 // Invalid records refuse atomically. Unique unchanged hashes remap across winding
-// and ordering; changed or ambiguous geometry must be explicitly reviewed.
+// and ordering; same-count vertex edits retain segmentIndex values. Genuinely
+// unmatched topology remains marked, while live drafts also remap straight splits.
 bool Restore (Page& page, const metadata::EntityMetadata& entity);
 bool Encode (const std::vector<Edge>& edges, const std::vector<Assignment>& assignments, metadata::Property& property,
              std::string& error);

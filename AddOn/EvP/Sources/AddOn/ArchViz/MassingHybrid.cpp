@@ -3,6 +3,7 @@
 #include "Model.hpp"
 
 #include "ArchViz/MassingHybrid.hpp"
+#include <cmath>
 #include "ArchViz/MassingModel.hpp"
 #include "ArchViz/MassingRulesModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
@@ -274,10 +275,27 @@ void Observe ()
                               std::vector<bool> (page.edges.size (), true) };
         const auto old = std::find_if (previous.begin (), previous.end (),
                                        [&] (const auto& request) { return request.before.guid == page.guid; });
-        if (old != previous.end () && old->before.known == page.known &&
-            massingrules::SameGeometry (old->before.edges, page.edges) && old->before.hasStored == page.hasStored &&
-            old->before.stored == page.stored)
-            parcel = { page, old->assignments, old->regulated, old->endpoints };
+        if (old != previous.end () && old->before.known && page.known && old->before.hasStored == page.hasStored &&
+            old->before.stored == page.stored) {
+            const auto mapping = massingrules::SegmentMap (old->before.edges, page.edges);
+            for (size_t i = 0; i < mapping.size (); ++i) {
+                if (mapping[i] < 0)
+                    continue;
+                const size_t j = size_t (mapping[i]);
+                if (j < old->assignments.size ())
+                    parcel.assignments[i] = old->assignments[j];
+                if (j < old->regulated.size ())
+                    parcel.regulated[i] = old->regulated[j];
+                const auto& previousEdge = old->before.edges[j];
+                const auto& edge = page.edges[i];
+                const size_t endpoint = std::hypot (edge.ax - previousEdge.ax, edge.ay - previousEdge.ay) <=
+                                                std::hypot (edge.ax - previousEdge.bx, edge.ay - previousEdge.by)
+                                            ? j
+                                            : (j + 1) % old->before.edges.size ();
+                if (endpoint < old->endpoints.size ())
+                    parcel.endpoints[i] = old->endpoints[endpoint];
+            }
+        }
         desired.parcels.push_back (std::move (parcel));
     }
     desired.before = current.rules;

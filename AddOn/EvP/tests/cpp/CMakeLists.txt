@@ -497,6 +497,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMetadata.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassing.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingRules.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSegmentMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingMetrics.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
@@ -713,9 +714,9 @@ set (EVP_TEST_SOURCES
     test_massingrules.cpp
     test_massingparcels.cpp
     test_massingcollapse.cpp
+    test_massingfacade.cpp
     test_massingslices.cpp
     test_hudsection.cpp
-    test_massingfacade.cpp
     test_tapiocametadata.cpp
     test_overlayclicktiming.cpp
     test_overlayhitmap.cpp
