@@ -79,3 +79,37 @@ TEST (MassingStats, AllowedFunctionsShareOneRedAndYellowGraphWithNoSeparateFunct
     EXPECT_EQ (widget.Frame (yellow.GetCenter ()), "residential");
     EXPECT_TRUE (widget.Frame ().empty ());
 }
+
+TEST (MassingStats, ParcelCoverageUsesGreyBuiltAndGreenUnbuiltAndRestoresTheTheme)
+{
+    StatsWidget widget;
+    const auto histogram = ImGui::GetStyleColorVec4 (ImGuiCol_PlotHistogram);
+    const auto frame = ImGui::GetStyleColorVec4 (ImGuiCol_FrameBg);
+    widget.result.hasCoverage = true;
+    widget.result.parcelArea = 200;
+    widget.result.builtArea = 80;
+    widget.result.unbuiltArea = 120;
+    widget.Frame ();
+    size_t greyCount = 0, greenCount = 0;
+    const auto grey = widget.Rectangle (IM_COL32 (154, 160, 166, 255), greyCount);
+    const auto green = widget.Rectangle (IM_COL32 (102, 187, 106, 255), greenCount);
+    EXPECT_GE (greyCount, 4u);
+    EXPECT_GE (greenCount, 4u);
+    EXPECT_NEAR (grey.GetWidth () / green.GetWidth (), 0.4, 1e-6);
+    EXPECT_FLOAT_EQ (grey.Min.x, green.Min.x);
+    EXPECT_FLOAT_EQ (grey.Min.y, green.Min.y);
+    EXPECT_FLOAT_EQ (grey.Max.y, green.Max.y);
+    EXPECT_GT (green.Max.x, grey.Max.x);
+    EXPECT_EQ (ImGui::ColorConvertFloat4ToU32 (ImGui::GetStyleColorVec4 (ImGuiCol_PlotHistogram)),
+               ImGui::ColorConvertFloat4ToU32 (histogram));
+    EXPECT_EQ (ImGui::ColorConvertFloat4ToU32 (ImGui::GetStyleColorVec4 (ImGuiCol_FrameBg)),
+               ImGui::ColorConvertFloat4ToU32 (frame));
+    widget.result.builtArea = 0;
+    widget.Frame ();
+    widget.Rectangle (IM_COL32 (154, 160, 166, 255), greyCount);
+    EXPECT_EQ (greyCount, 0u);
+    widget.result.builtArea = 200;
+    widget.Frame ();
+    const auto fullGrey = widget.Rectangle (IM_COL32 (154, 160, 166, 255), greyCount);
+    EXPECT_FLOAT_EQ (fullGrey.GetWidth (), green.GetWidth ());
+}

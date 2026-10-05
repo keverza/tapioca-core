@@ -78,11 +78,14 @@ std::string Draw (const massingslices::Result& result, const overlaylayers::Pane
         ImGui::TextDisabled ("No floor area to distribute.");
     if (result.hasCoverage && result.parcelArea > 0) {
         ImGui::SeparatorText ("Parcel coverage");
-        const float coverage = float (result.builtArea / result.parcelArea);
+        const float coverage = float (std::clamp (result.builtArea / result.parcelArea, 0.0, 1.0));
         char caption[160];
         std::snprintf (caption, sizeof (caption), "Built %.2f%% / Unbuilt %.2f%%", 100 * coverage,
                        100 * (1 - coverage));
+        ImGui::PushStyleColor (ImGuiCol_PlotHistogram, ImGui::ColorConvertU32ToFloat4 (Colour (0x9AA0A6FF)));
+        ImGui::PushStyleColor (ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4 (Colour (0x66BB6AFF)));
         ImGui::ProgressBar (coverage, { -1, 0 }, caption);
+        ImGui::PopStyleColor (2);
         ImGui::TextDisabled ("Projected slab union within each parcel; not summed floor areas.");
     }
     ImGui::PopID ();
