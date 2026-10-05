@@ -58,8 +58,9 @@ struct Controls {
     // and a label facing the camera floats in front of it (the user, 2026-09-29).
     // False puts it back on the screen, `labelSizePixels` high.
     bool labelOnSlice = true;
-    double labelSizeMetres = 0.0; // 0: fitted to the slice
-    double liftMetres = 0.0;      // each slice drawn this far above its cut
+    double labelSizeMetres = 0.0;      // 0: fitted to the slice
+    float labelMinProjectedPixels = 0; // hide until its world-size em is readable at this zoom
+    double liftMetres = 0.0;           // each slice drawn this far above its cut
 };
 
 // One slice to draw: a cut's contours at its height, its area and the name its label

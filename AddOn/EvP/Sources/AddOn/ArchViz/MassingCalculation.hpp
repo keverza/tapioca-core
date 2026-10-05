@@ -63,5 +63,7 @@ class PreviewQueue {
 bool Encode (const Request& request, const geomsrv::Mesh& terrain, bool hasAltitude, double altitude, std::string& json,
              std::string& error);
 bool Decode (const std::string& bridgeJson, Result& result, std::string& error);
+constexpr char kDimensions[] = "tapioca.massing.offsetDimensions";
+overlaylayers::Layer OffsetDimensions (const Preview& preview);
 } // namespace geomsrv::archviz::massingcalculation
 #endif

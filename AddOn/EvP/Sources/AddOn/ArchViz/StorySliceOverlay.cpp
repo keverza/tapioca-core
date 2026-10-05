@@ -320,7 +320,7 @@ void Forget ()
     g_operators.clear ();
     g_bodies = 0;
     g_bodyPass = false;
-    slabbodies::Clear ();
+    slabbodies::Want ({});
     g_state = State {};
 }
 
@@ -367,7 +367,7 @@ State Apply (bool enabled, const Request& request, const Controls& controls, boo
         case Source::Model:
             g_targets.clear ();
             g_operators.clear ();
-            slabbodies::Clear ();
+            slabbodies::Want ({});
             g_state.slabs.clear ();
             g_state.skipped.clear ();
             ApplyModel (refresh);

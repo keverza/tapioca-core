@@ -266,7 +266,7 @@ overlayhud::OwnPages ThreeD ()
     overlay.figures.push_back ({ "Layers", LayersText () });
     if (!locked && !health.blockedAt.empty ())
         overlay.note = "Waiting at " + health.blockedAt;
-    pages.stats.push_back (std::move (overlay));
+    pages.debug.push_back (std::move (overlay));
     Extraction (pages.stats);
 
     // ---- Debug: what one Archicad frame costs, ours and Archicad's own --------------------
@@ -401,8 +401,13 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     }
     pages.section = g_section.section;
     if (const auto slices = massingslicesmodel::Read (); slices && (!slices->rows.empty () || !slices->note.empty ())) {
-        pages.section = slices->section;
-        pages.storyHeights = slices->heightControls;
+        std::vector<std::string> selected;
+        for (const auto& element : g_selection.elements)
+            selected.push_back (element.guid);
+        pages.section = hudsection::Filter (slices->section, selected);
+        for (const auto& page : slices->heightControls)
+            if (std::find (selected.begin (), selected.end (), page.element) != selected.end ())
+                pages.storyHeights.push_back (page);
         for (auto& field : pages.metadata.fields)
             if (field.id == "massing.story") {
                 std::map<std::string, size_t> counts;
@@ -457,8 +462,9 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     // The add-on's own displays as they are: Settings switches and styles them (ApplyDisplays).
     const storysliceoverlay::State slices = storysliceoverlay::Describe ();
     pages.displays.slicesOn = slices.enabled;
+    pages.displays.massingSlicesOn = massingslicesmodel::Shown ();
     pages.displays.slicesFromModel = storysliceoverlay::LastRequest ().source == storysliceoverlay::Source::Model;
-    pages.displays.slices = storysliceoverlay::LastControls ();
+    pages.displays.slices = massingslicesmodel::Controls ();
     pages.displays.slicesSaid = slices.message;
     pages.displays.annotationsOn = overlayannotations::Describe ().enabled;
     return pages;
@@ -466,6 +472,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
 
 void ApplyDisplays (const overlayhud::Displays& displays)
 {
+    massingslicesmodel::Display (displays.massingSlicesOn, displays.slices);
     namespace slices = storysliceoverlay;
     const slices::State now = slices::Describe ();
     slices::Request request = slices::LastRequest ();

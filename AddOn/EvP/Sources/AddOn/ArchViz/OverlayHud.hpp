@@ -221,6 +221,7 @@ using ChangeSink = std::function<void (const Change&)>;
 // look is `Restyle`, nothing read again).
 struct Displays {
     bool slicesOn = false;
+    bool massingSlicesOn = true;
     bool slicesFromModel = false;       // the whole model cut at each storey; else the selected massing slabs
     storysliceoverlay::Controls slices; // their look: line, fill, labels
     std::string slicesSaid;             // what they said last: what was cut, or why nothing was
@@ -267,6 +268,7 @@ struct Stats {
 
 // What the user did to the panels, by key: shared by the views' engines (`UseState`).
 struct State;
+bool MassingDimensions (const State& state);
 std::shared_ptr<State> NewState ();
 // Forgets it all: the project whose layers it named closed (§8).
 void ClearState (State& state);

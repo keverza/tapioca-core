@@ -345,6 +345,11 @@ void Builder::AddText (const layers::Layer& layer, const layers::Text& text)
         glyph.behind = BehindOf (text.behind, layer);
     }
     glyph.halo = text.haloRgba;
+    if (!text.screen && text.minProjectedPixels > 0) {
+        glyph.flags |= kZoomLabel;
+        glyph.dir[0] = text.sizeMetres;
+        glyph.minSpan = text.minProjectedPixels;
+    }
     glyph.haloPixels = HaloOf (text.haloPixels, text.haloScale);
     const double radians = double (text.rotationDegrees) * kPi / 180.0;
     const float c = float (std::cos (radians)), s = float (std::sin (radians));
@@ -403,6 +408,11 @@ void Builder::AddPlanarText (const layers::Layer& layer, const layers::Text& tex
     };
     DraftGlyph glyph;
     glyph.flags = kModelQuad;
+    if (text.minProjectedPixels > 0) {
+        glyph.flags |= kZoomLabel;
+        Assign (glyph.dir, Scaled (along, text.sizeMetres));
+        glyph.minSpan = text.minProjectedPixels;
+    }
     glyph.behind = BehindOf (text.behind, layer);
     glyph.halo = text.haloRgba;
     glyph.haloPixels = HaloOf (text.haloPixels, text.haloScale);

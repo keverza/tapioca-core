@@ -30,6 +30,7 @@
 namespace geomsrv {
 namespace archviz {
 namespace hudmeta {
+std::string NumberText (double number);
 
 enum class FieldKind : uint8_t { Choice, Toggle, Number, Text, Fixed, Heights };
 

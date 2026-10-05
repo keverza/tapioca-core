@@ -8,6 +8,9 @@ namespace geomsrv::archviz::massingslicesmodel {
 void Changed ();
 void Poll ();
 std::shared_ptr<const massingslices::Result> Read ();
+void Display (bool shown, const storysliceoverlay::Controls& controls);
+bool Shown ();
+storysliceoverlay::Controls Controls ();
 void Forget ();
 void Shutdown ();
 } // namespace geomsrv::archviz::massingslicesmodel

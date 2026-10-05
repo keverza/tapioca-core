@@ -44,6 +44,10 @@ bool FloorHeights (const meta::EntityMetadata& entity, std::vector<double>& heig
 // the exposed wall: coincident/internal faces disappear before perimeter is measured.
 bool Facade (const std::vector<Input>& inputs, double& area)
 {
+    // A prism union cannot measure the operated/sloping body's exposed walls honestly.
+    for (const auto& input : inputs)
+        if (input.body)
+            return false;
     if (inputs.empty ()) {
         area = 0;
         return true;
@@ -100,6 +104,8 @@ bool Facade (const std::vector<Input>& inputs, double& area)
 
 void Append (overlaylayers::Layer& into, overlaylayers::Layer from)
 {
+    into.texts.insert (into.texts.end (), std::make_move_iterator (from.texts.begin ()),
+                       std::make_move_iterator (from.texts.end ()));
     into.polylines.insert (into.polylines.end (), std::make_move_iterator (from.polylines.begin ()),
                            std::make_move_iterator (from.polylines.end ()));
     into.meshes.insert (into.meshes.end (), std::make_move_iterator (from.meshes.begin ()),
@@ -184,7 +190,7 @@ bool Intersect (const std::vector<SliceChain>& slab, const overlaylayers::Mesh& 
 }
 
 bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, const massingcalculation::Result* envelope,
-            Result& result, std::string& error)
+            Result& result, std::string& error, const storysliceoverlay::Controls& display)
 {
     error.clear ();
     if (slabs.size () > 128)
@@ -197,6 +203,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     const auto* palette = schema.FindEnumeration ("building-usage");
     std::map<double, std::vector<SliceChain>> cuts;
     std::vector<hudsection::Slab> masses;
+    size_t bodyWork = 0;
     for (const auto& input : slabs) {
         if (!std::isfinite (input.slab.bottom) || !std::isfinite (input.slab.top) ||
             std::abs (input.slab.bottom) > 1e9 || std::abs (input.slab.top) > 1e9 ||
@@ -220,7 +227,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             return false;
         if (archicad && storeys.levels.size () < 2)
             return Fail (error, "Match Archicad stories needs at least two project story levels.");
-        if (input.slab.slopedEdges)
+        if (input.slab.slopedEdges && !input.body)
             return Fail (error, "A sloped slab edge needs a body cut, not a prism story preview.");
         slabslices::Rule rule;
         rule.cut = slabslices::Cut::Levels;
@@ -244,7 +251,23 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             }
         }
         std::vector<storysliceoverlay::Slice> slices;
-        const auto summary = slabslices::SliceSlab (input.slab, rule, storeys, slices);
+        if (input.body) {
+            const auto& body = *input.body;
+            bodyWork += body.TriangleCount () * rule.levels.size ();
+            if (bodyWork > 2000000)
+                return Fail (error, "Operated slab cuts exceed their work budget.");
+            if (body.vertices.size () % 3 || body.triangles.size () % 3 || body.vertices.size () > 600000 ||
+                body.triangles.size () > 600000)
+                return Fail (error, "Operated slab body exceeds its geometry budget.");
+            for (double coordinate : body.vertices)
+                if (!std::isfinite (coordinate) || std::abs (coordinate) > 1e9)
+                    return Fail (error, "Invalid operated slab body coordinate.");
+            for (uint32_t index : body.triangles)
+                if (index >= body.VertexCount ())
+                    return Fail (error, "Invalid operated slab body index.");
+        }
+        const auto summary = input.body ? slabslices::SliceBody (input.slab, *input.body, rule, storeys, slices, true)
+                                        : slabslices::SliceSlab (input.slab, rule, storeys, slices);
         if (!summary.problem.empty ())
             return Fail (error, summary.problem.c_str ());
         const auto* use = meta::FindProperty (input.metadata, "massing.function");
@@ -305,8 +328,11 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             row.z = slice.z;
             row.floorHeight = archicad ? summary.floors[i].height : heights[(std::min) (i, heights.size () - 1)];
             row.rawArea = slice.areaM2;
+            for (const auto& chain : slice.chains)
+                if (!chain.closed)
+                    return Fail (error, "Operated slab cut is open; no partial area published.");
             row.clipped = out.clipped;
-            if (out.clipped) {
+            if (out.clipped && !slice.chains.empty ()) {
                 const auto cut = cuts.try_emplace (slice.z);
                 if (cut.second && !CutEnvelope (envelope->layer.meshes[0], slice.z, cut.first->second, error))
                     return false;
@@ -326,11 +352,14 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             slice.name = (building ? building->value.s : input.slab.id) + " S" + std::to_string (row.story);
             if (slice.chains.empty ())
                 continue; // a level outside the shell counts zero and draws nothing
-            storysliceoverlay::Controls controls;
+            storysliceoverlay::Controls controls = display;
             controls.views = overlaylayers::Views::Both;
-            controls.fillRgba = (colour & 0xFFFFFF00) | 0x59;
+            controls.fillColors.clear ();
+            controls.fillColormap.stops.clear ();
+            controls.fillRgba = (colour & 0xFFFFFF00) | ((display.fillRgba & 0xFF) ? 0x59 : 0);
             controls.outlineRgba = colour;
-            controls.label = false;
+            controls.labelSizeMetres = 0.2;
+            controls.labelMinProjectedPixels = 9;
             controls.liftMetres = 0.015;
             Append (out.layer, storysliceoverlay::BuildLayer ({ slice }, controls).layer);
         }
@@ -346,7 +375,8 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
                 ? "Story slices intersected with the allowed envelope; areas sum per slab (overlaps count twice)."
                 : "Showing slab story slices; allowed areas wait for the envelope.";
     if (!out.hasFacade)
-        out.note += " Facade union exceeded its geometry budget; no partial wall area reported.";
+        out.note +=
+            " Facade area unavailable for operated bodies or exceeded union budget; no prism substitute reported.";
     error = overlaylayers::Validate (out.layer);
     if (!error.empty ())
         return false;

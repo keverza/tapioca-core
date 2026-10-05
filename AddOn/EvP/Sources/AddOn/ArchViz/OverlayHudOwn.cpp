@@ -74,6 +74,40 @@ void Engine::Impl::SelectionPage (float ui)
                              true });
         store->metadataEdits.push_back (std::move (edit));
     }
+    if (ImGui::CollapsingHeader ("Story slice editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextDisabled ("Story count is calculated from the slices.");
+        for (const auto& page : own.storyHeights) {
+            ImGui::PushID (page.element.c_str ());
+            for (auto& edit : hudmeta::Editor (page, *look, ui)) {
+                changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, edit.number, edit.text, true });
+                store->metadataEdits.push_back (std::move (edit));
+            }
+            ImGui::PopID ();
+        }
+        ImGui::TextDisabled ("Pick floors; right-click to set their function.");
+        const hudsection::Run before = store->floors;
+        for (auto& edit : hudsection::Diagram (own.section, store->floors, *look, ui)) {
+            changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, edit.number, edit.text, true });
+            store->metadataEdits.push_back (std::move (edit));
+        }
+        if (store->floors != before) {
+            const auto& run = store->floors;
+            changes.push_back (
+                { "floors",
+                  {},
+                  "Selection",
+                  own.section.key,
+                  -1,
+                  double (run.first),
+                  run.Empty () ? std::string () : std::to_string (run.first) + "-" + std::to_string (run.last),
+                  true });
+        }
+    }
+}
+
+bool MassingDimensions (const State& state)
+{
+    return state.massingRules.offsetDimensions;
 }
 
 void Engine::Impl::MassingPage ()
@@ -83,12 +117,22 @@ void Engine::Impl::MassingPage ()
         changes.push_back ({ "massing", std::string (), "Massing", hudmassing::Role (request.group), -1,
                              double (request.action), hudmassing::Label (request.group), true });
     }
+    const bool dimensions = store->massingRules.offsetDimensions;
     for (auto& edit : hudmassingrules::Draw (own.massing.rules, store->massingRules, own.massing.calculationBusy,
                                              own.massing.calculationNote, own.massing.preview)) {
         changes.push_back (
             { "massingRules", std::string (), "Massing", edit.before.guid, -1, 1.0, "Save assignments", true });
         store->massingRuleEdits.push_back (std::move (edit));
     }
+    if (dimensions != store->massingRules.offsetDimensions)
+        changes.push_back ({ "massingDimensions",
+                             {},
+                             "Massing",
+                             "offset dimensions",
+                             -1,
+                             store->massingRules.offsetDimensions ? 1.0 : 0.0,
+                             {},
+                             true });
     for (auto& request : store->massingRules.calculations) {
         changes.push_back ({ "massingCalculation", {}, "Massing", "calculate", -1, double (request.action), {}, true });
         store->massingCalculations.push_back (std::move (request));
@@ -96,34 +140,12 @@ void Engine::Impl::MassingPage ()
     store->massingRules.calculations.clear ();
     if (!store->massingRules.numbers.empty ())
         changes.push_back ({ "massingNumber", {}, "Massing", "set", -1, 0, {}, true });
-    if (ImGui::CollapsingHeader ("Story slice heights", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::TextDisabled ("Story count is calculated from the slices.");
-        for (const auto& page : own.storyHeights) {
-            ImGui::PushID (page.element.c_str ());
-            for (auto& edit : hudmeta::Editor (page, *look, overlayhud::FontScaleOf (*store))) {
-                changes.push_back ({ "metadata", {}, "Massing", edit.id, -1, edit.number, edit.text, true });
-                store->metadataEdits.push_back (std::move (edit));
-            }
-            ImGui::PopID ();
-        }
-        ImGui::TextDisabled ("Pick floors; right-click to set their function.");
-        const hudsection::Run before = store->floors;
-        for (auto& edit : hudsection::Diagram (own.section, store->floors, *look, overlayhud::FontScaleOf (*store))) {
-            changes.push_back ({ "metadata", {}, "Massing", edit.id, -1, edit.number, edit.text, true });
-            store->metadataEdits.push_back (std::move (edit));
-        }
-        if (store->floors != before) {
-            const auto& run = store->floors;
-            changes.push_back (
-                { "floors",
-                  {},
-                  "Massing",
-                  own.section.key,
-                  -1,
-                  double (run.first),
-                  run.Empty () ? std::string () : std::to_string (run.first) + "-" + std::to_string (run.last),
-                  true });
-        }
+    const Displays& shown = store->displaysPending ? store->displays : own.displays;
+    Displays wanted = shown;
+    if (ImGui::Checkbox ("Show slice area text when zoomed in", &wanted.slices.label)) {
+        store->displays = wanted;
+        store->displaysPending = true;
+        changes.push_back ({ "display", {}, "Massing", "slice area text", -1, 1, {}, true });
     }
 }
 

@@ -83,7 +83,7 @@ const hs::Floor* FloorAt (const hs::Section& section, int storey)
 
 float SectionTop (Watched& hud, float x, float bottom)
 {
-    // Massing now has collapsible headers before the section. Its floor bars are
+    // Selection has collapsible headers before the section. Its floor bars are
     // the longest continuous hand target, not the first hand below the tab row.
     float start = 0, longest = 0, top = 0;
     for (float y = 52; y < bottom; ++y) {
@@ -158,7 +158,21 @@ TEST (HudSection, ARunIsAssignedToEachSlabOverItsOwnFloors)
     EXPECT_EQ (meta::RangeValue (building[1].meta, meta::kFloorDomain, 3.0, "program.usage"), nullptr);
 }
 
-TEST (HudSection, SelectionNoLongerContainsTheFloorEditor)
+TEST (HudSection, SelectionFiltersOutUnselectedDefinedSlabsBeforeFloorEdits)
+{
+    const auto all = hs::Build (Building (), Storeys (10), meta::DefaultSchema ());
+    const auto selected = hs::Filter (all, { "TOWER" });
+    ASSERT_EQ (selected.spans.size (), 1u);
+    EXPECT_EQ (selected.spans[0].guid, "TOWER");
+    EXPECT_EQ (selected.floors.size (), 7u);
+    EXPECT_EQ (selected.widestM2, 400);
+    const auto edits = hs::RunEdits (selected, { 0, 9 }, "commercial", false);
+    ASSERT_EQ (edits.size (), 1u);
+    EXPECT_EQ (edits[0].element, "TOWER");
+    EXPECT_TRUE (hs::Filter (all, {}).floors.empty ());
+}
+
+TEST (HudSection, FloorEditorLivesOnSelectionAndNotMassing)
 {
     Watched hud;
     hud::OwnPages pages;
@@ -170,7 +184,12 @@ TEST (HudSection, SelectionNoLongerContainsTheFloorEditor)
     hud::SelectKey (*hud.state, shell::kSelectionKey);
     hud.Lay ({}, At (600, 600));
     const auto layout = hud.Lay ({}, At (600, 600));
-    EXPECT_FALSE (std::any_of (layout.host.vertices.begin (), layout.host.vertices.end (),
+    EXPECT_TRUE (std::any_of (layout.host.vertices.begin (), layout.host.vertices.end (),
+                              [] (const hud::Vertex& v) { return v.rgba == 0xE4572EFFu; }));
+    hud::SelectKey (*hud.state, geomsrv::archviz::hudmassing::kTabKey);
+    hud.Lay ({}, At (600, 600));
+    const auto massing = hud.Lay ({}, At (600, 600));
+    EXPECT_FALSE (std::any_of (massing.host.vertices.begin (), massing.host.vertices.end (),
                                [] (const hud::Vertex& v) { return v.rgba == 0xE4572EFFu; }));
     EXPECT_TRUE (hud::PickedFloors (*hud.state).Empty ());
 }
@@ -186,7 +205,7 @@ TEST (HudSection, FloorsArePickedByAPressAShiftPressAndADrag)
     pages.selection.count = 1;
     pages.section = hs::Build ({ SlabOf ("A", 0, 3, 500.0) }, Storeys (3), meta::DefaultSchema ());
     hud.engine.SetOwnPages (pages);
-    hud::SelectKey (*hud.state, geomsrv::archviz::hudmassing::kTabKey);
+    hud::SelectKey (*hud.state, shell::kSelectionKey);
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
     ASSERT_GT (out.host.height, 0.0f);
 
@@ -232,7 +251,7 @@ TEST (HudSection, ARightClickAssignsAValueToThePickedFloors)
     pages.section =
         hs::Build ({ SlabOf ("A", 0, 2, 800.0), SlabOf ("B", 2, 2, 300.0) }, Storeys (4), meta::DefaultSchema ());
     hud.engine.SetOwnPages (pages);
-    hud::SelectKey (*hud.state, geomsrv::archviz::hudmassing::kTabKey);
+    hud::SelectKey (*hud.state, shell::kSelectionKey);
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
     const float x = 16.0f + out.host.width * 0.5f;
     const float top = SectionTop (hud, x, 16.0f + out.host.height);

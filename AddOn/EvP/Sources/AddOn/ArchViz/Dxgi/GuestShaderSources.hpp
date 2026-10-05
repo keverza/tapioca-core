@@ -353,6 +353,8 @@ GlyphOut VSGlyph (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTR
     // 128: laid out at the view's DPI already (a HUD panel); otherwise logical pixels.
     float2 local = offset * ((flags & 128u) != 0u ? 1.0 : Surface.z);
     bool visible = true;
+    if ((flags & 256u) != 0u && length (Turned (dir)) < minSpan * Surface.z)
+        visible = false;
     if ((flags & 2u) != 0u)
     {
         float2 d = Turned (dir);
@@ -520,6 +522,14 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
     o.solid = (flags & 64u) != 0u ? 2.0 : ((flags & 8u) != 0u ? 1.0 : 0.0);
     // 32: every corner is its own model point -- text lying on a plane in the model.
     // Projected whole, so the glyph is perspective-correct and occluded by depth.
+    if ((flags & 256u) != 0u) {
+        float4 a = ArchicadClip (float4 (position, 1.0));
+        float4 b = ArchicadClip (float4 (position + dir, 1.0));
+        if (a.w <= kNearW || b.w <= kNearW || length (ToPixels (b) - ToPixels (a)) < minSpan * Surface.z) {
+            o.position = kCulled;
+            return o;
+        }
+    }
     if ((flags & 32u) != 0u)
     {
         float4 m = TowardEye (ArchicadClip (float4 (position, 1.0)), position);

@@ -545,6 +545,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayAnnotationContent.cpp"
     # The massing slabs' floors: the floor rules and each slice's outline and area.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SlabSlices.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SlabBodies.cpp"
     # ArchViz/PlanAnchorRibbon.cpp turns a wall's 2D plan outline into the
     # triangles that draw it over the floor plan (PLAT-RE65). Same reason again
     # -- a wrong ribbon is a picture, not an error -- plus the arc half, which

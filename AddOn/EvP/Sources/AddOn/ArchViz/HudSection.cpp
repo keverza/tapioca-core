@@ -15,6 +15,30 @@
 namespace geomsrv {
 namespace archviz {
 namespace hudsection {
+Section Filter (const Section& section, const std::vector<std::string>& guids)
+{
+    Section out = section;
+    auto selected = [&] (const std::string& guid) {
+        return std::find (guids.begin (), guids.end (), guid) != guids.end ();
+    };
+    out.spans.erase (
+        std::remove_if (out.spans.begin (), out.spans.end (), [&] (const Span& span) { return !selected (span.guid); }),
+        out.spans.end ());
+    out.widestM2 = 0;
+    for (auto& floor : out.floors) {
+        floor.parts.erase (std::remove_if (floor.parts.begin (), floor.parts.end (),
+                                           [&] (const Part& part) { return !selected (part.guid); }),
+                           floor.parts.end ());
+        floor.areaM2 = 0;
+        for (const auto& part : floor.parts)
+            floor.areaM2 += part.areaM2;
+        out.widestM2 = (std::max) (out.widestM2, floor.areaM2);
+    }
+    out.floors.erase (std::remove_if (out.floors.begin (), out.floors.end (),
+                                      [] (const Floor& floor) { return floor.parts.empty (); }),
+                      out.floors.end ());
+    return out;
+}
 
 namespace meta = metadata;
 namespace layers = overlaylayers;

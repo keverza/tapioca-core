@@ -68,22 +68,26 @@ void Engine::Impl::DisplaySettings ()
         what = wanted.slicesOn ? "slices on" : "slices off";
     hudshell::Tip ("Each storey's floor outlined on the model, with its area: the selected massing slabs' floors, "
                    "or the whole model cut at every storey");
-    if (wanted.slicesOn && ImGui::BeginTable ("##tapioca.display.slices", 2,
-                                              ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+    if (ImGui::Checkbox ("Massing story slices##tapioca.display.massing", &wanted.massingSlicesOn))
+        what = wanted.massingSlicesOn ? "massing slices on" : "massing slices off";
+    hudshell::Tip (
+        "Display settings below apply to standalone and massing slices; massing colours follow floor function.");
+    if ((wanted.slicesOn || wanted.massingSlicesOn) &&
+        ImGui::BeginTable ("##tapioca.display.slices", 2,
+                           ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::TableSetupColumn ("##label", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn ("##value", ImGuiTableColumnFlags_WidthStretch);
         storysliceoverlay::Controls& look = wanted.slices;
 
-        Row ("From");
-        int source = wanted.slicesFromModel ? 1 : 0;
-        const char* const sources[] = { "selected slabs", "whole model" };
-        if (ImGui::Combo ("##from", &source, sources, 2)) {
-            wanted.slicesFromModel = source == 1;
-            what = "slices source";
+        if (wanted.slicesOn) {
+            Row ("From");
+            int source = wanted.slicesFromModel ? 1 : 0;
+            const char* const sources[] = { "selected slabs", "whole model" };
+            if (ImGui::Combo ("##from", &source, sources, 2)) {
+                wanted.slicesFromModel = source == 1;
+                what = "slices source";
+            }
         }
-        Row ("Line");
-        if (hudshell::ColourChoice ("##line", look.outlineRgba))
-            what = "slices line";
         Row ("Width");
         if (ImGui::SliderFloat ("##width", &look.outlineWidthPixels, 1.0f, 6.0f, "%.1f px"))
             what = "slices width";
@@ -101,9 +105,6 @@ void Engine::Impl::DisplaySettings ()
             what = fill ? "slices fill on" : "slices fill off";
         }
         if (fill) {
-            Row ("Colour");
-            if (hudshell::ColourChoice ("##fillcolour", look.fillRgba, true))
-                what = "slices fill colour";
             Row ("Opacity");
             if (ImGui::SliderFloat ("##opacity", &look.fillOpacity, 0.1f, 1.0f, "%.2f"))
                 what = "slices fill opacity";

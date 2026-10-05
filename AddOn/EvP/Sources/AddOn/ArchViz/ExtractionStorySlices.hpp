@@ -19,6 +19,7 @@
 #include "Geometry/Mesh.hpp"
 
 #include <cstddef>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -74,7 +75,8 @@ class StorySliceAccumulator final {
     // call becomes a no-op — when there are no storeys or slices were not asked
     // for and no slab's body is wanted, so the caller needs no second flag of its own.
     // `planCut`: the plan view's cut too, at `planZ` world metres (ExtractionWorker::SetPlanCut).
-    void Begin (const ProjectStoreys& storeys, bool wanted, bool planCut = false, double planZ = 0.0);
+    void Begin (const ProjectStoreys& storeys, bool wanted, bool planCut = false, double planZ = 0.0,
+                bool fullBodyCapture = true);
     // ⚠️ ALSO ACTIVE FOR THE SLABS SLICED FROM THEIR BODY (SlabBodies.hpp): every pass
     // hands over the meshes of the slabs wanted at its start, storeys or not. And for the
     // plan view's cut.
@@ -106,7 +108,7 @@ class StorySliceAccumulator final {
   private:
     std::vector<std::vector<Polyline>> loops_; // one bucket per storey
     std::vector<double> planes_;
-    std::set<std::string> capture_; // the slabs whose bodies this pass hands over
+    std::map<std::string, uint64_t> capture_; // slab request tickets at this pass's start
     std::vector<Mesh> captured_;
     // Carried for the overlays' per-storey snapshot (StorySliceSnapshot.hpp).
     std::vector<std::string> names_;

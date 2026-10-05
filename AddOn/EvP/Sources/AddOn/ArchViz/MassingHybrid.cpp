@@ -41,6 +41,7 @@ calc::PreviewQueue s_queue;
 UINT_PTR s_timer = 0;
 std::string s_observed;
 bool s_polling = false;
+bool s_dimensions = false;
 std::shared_ptr<const geomsrv::Mesh> s_terrain;
 uint64_t s_terrainStamp = 0;
 uint64_t s_terrainRetryAt = 0;
@@ -82,9 +83,10 @@ void ClearPublished ()
 {
     const bool envelope = overlaylayers::Clear (kLayer);
     const bool site = overlaylayers::Clear (kSite);
+    const bool dimensions = overlaylayers::Clear (calc::kDimensions);
     s_source.reset ();
     s_page = {};
-    if (envelope || site)
+    if (envelope || site || dimensions)
         Publish ();
 }
 
@@ -288,6 +290,8 @@ void Poll ()
                 s_page.preview = std::make_shared<const calc::Preview> (
                     calc::Preview { completion->source.request, std::move (completion->result) });
                 s_page.calculated = s_page.preview->result.hasEnvelope;
+                if (s_dimensions)
+                    overlaylayers::Set (calc::OffsetDimensions (*s_page.preview));
                 s_page.note = s_page.preview->result.note;
                 ArchVizLog ("MASSING PYTHON  published " + std::to_string (s_page.preview->result.faces) +
                             " planar faces");
@@ -312,6 +316,17 @@ Page Read ()
     return page;
 }
 
+void Dimensions (bool shown)
+{
+    if (shown == s_dimensions)
+        return;
+    s_dimensions = shown;
+    overlaylayers::Clear (calc::kDimensions);
+    if (shown && s_page.preview)
+        overlaylayers::Set (calc::OffsetDimensions (*s_page.preview));
+    Publish ();
+}
+
 void Forget ()
 {
     s_queue.Reset ();
@@ -321,6 +336,8 @@ void Forget ()
     }
     overlaylayers::Clear (kLayer);
     overlaylayers::Clear (kSite);
+    overlaylayers::Clear (calc::kDimensions);
+    s_dimensions = false;
     s_observed.clear ();
     s_terrain.reset ();
     s_terrainRetryAt = 0;

@@ -25,6 +25,7 @@ struct Draft {
     double defaultDistance = 3;
     bool dirty = false;
     bool labels = true;
+    bool offsetDimensions = false;
     std::vector<NumberEdit> numbers;
     std::string note;
 };

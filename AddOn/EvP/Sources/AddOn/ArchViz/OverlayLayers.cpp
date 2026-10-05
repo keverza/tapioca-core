@@ -408,6 +408,10 @@ std::string Validate (const Layer& layer)
     }
     for (size_t i = 0; i < layer.texts.size (); ++i) {
         const Text& text = layer.texts[i];
+        if (!InRange (text.minProjectedPixels, 0.0f, 256.0f) ||
+            (text.minProjectedPixels > 0 &&
+             (!std::isfinite (text.sizeMetres) || text.sizeMetres < 0.001 || text.sizeMetres > 1000)))
+            return Numbered ("text", i, "zoom threshold is 0 to 256 pixels with a finite world-size em");
         if (text.text.empty () || text.text.size () > kMaxTextBytes)
             return Numbered ("text", i, "text is 1 to 512 bytes of UTF-8");
         if (!Finite3 (text.at) || !std::isfinite (text.offsetPixels[0]) || !std::isfinite (text.offsetPixels[1]))

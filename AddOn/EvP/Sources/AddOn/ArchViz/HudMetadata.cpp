@@ -18,6 +18,12 @@
 namespace geomsrv {
 namespace archviz {
 namespace hudmeta {
+std::string NumberText (double number)
+{
+    char text[64] = {};
+    std::snprintf (text, sizeof (text), "%.2f", number);
+    return text;
+}
 
 namespace meta = metadata;
 namespace layers = overlaylayers;
@@ -287,7 +293,7 @@ void NumberControl (const Field& field, std::vector<Edit>& edits)
         edit.max = field.max / scale;
         if (ask) {
             edit.action = Edit::Action::AskNumber;
-            edit.text = std::to_string (edit.number);
+            edit.text = NumberText (edit.number);
         }
         edits.push_back (std::move (edit));
     }
@@ -336,7 +342,14 @@ void HeightsControl (const Field& field, std::vector<Edit>& edits)
         for (double value : numbers) {
             if (!edit.text.empty ())
                 edit.text += ", ";
-            edit.text += std::to_string (value);
+            if (ask)
+                edit.text += NumberText (value);
+            else {
+                // Adding/removing a height must not round untouched stored entries.
+                char text[64] = {};
+                std::snprintf (text, sizeof (text), "%.17g", value);
+                edit.text += text;
+            }
         }
         edit.action = ask ? Edit::Action::AskText : Edit::Action::Set;
         edits.push_back (std::move (edit));

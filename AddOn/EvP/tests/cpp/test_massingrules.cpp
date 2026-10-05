@@ -52,6 +52,36 @@ TEST (MassingRules, FingerprintsMatchPythonAndCanonicalSignedArcs)
     EXPECT_NE (rules::Fingerprint ({ 0, 0, 10, 0, 0.1 }), rules::Fingerprint ({ 0, 0, 10, 0, -0.1 }));
 }
 
+TEST (MassingCalculation, OffsetDimensionsMeasureSurvivingInsetEdgesInEitherWinding)
+{
+    namespace calc = geomsrv::archviz::massingcalculation;
+    calc::Preview preview;
+    preview.inputs.before.edges = Square ();
+    preview.inputs.assignments.assign (4, { rules::Mode::Custom, 2 });
+    preview.result.offsetXY = { 2, 2, 8, 2, 8, 8, 2, 8 };
+    preview.result.hasMeanZ = true;
+    preview.result.meanZ = 7;
+    auto layer = calc::OffsetDimensions (preview);
+    EXPECT_TRUE (geomsrv::archviz::overlaylayers::Validate (layer).empty ());
+    ASSERT_EQ (layer.dimensions.size (), 4u);
+    for (const auto& dimension : layer.dimensions) {
+        EXPECT_NEAR (std::hypot (dimension.to[0] - dimension.from[0], dimension.to[1] - dimension.from[1]), 2, 1e-9);
+        EXPECT_EQ (dimension.from[2], 7);
+        EXPECT_TRUE (dimension.showUnit);
+        EXPECT_EQ (dimension.decimals, 2u);
+    }
+    std::reverse (preview.inputs.before.edges.begin (), preview.inputs.before.edges.end ());
+    for (auto& edge : preview.inputs.before.edges) {
+        std::swap (edge.ax, edge.bx);
+        std::swap (edge.ay, edge.by);
+    }
+    EXPECT_EQ (calc::OffsetDimensions (preview).dimensions.size (), 4u);
+    preview.result.offsetXY = { 6, 2, 8, 2, 8, 4, 6, 4 };
+    EXPECT_TRUE (calc::OffsetDimensions (preview).dimensions.empty ()) << "do not label a removed midpoint";
+    preview.result.offsetXY.clear ();
+    EXPECT_TRUE (calc::OffsetDimensions (preview).dimensions.empty ());
+}
+
 TEST (MassingRules, FreshGeometryStartsDefaultWithoutWriting)
 {
     const auto page = Page ();

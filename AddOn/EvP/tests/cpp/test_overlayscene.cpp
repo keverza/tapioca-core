@@ -97,6 +97,32 @@ TEST (OverlayScene, APlainPolylineStaysRawAndADashedOneGoesToTheGuest)
     EXPECT_TRUE (layers::NeedsGuest (layer));
 }
 
+TEST (OverlayScene, SliceTextCarriesZoomThresholdIntoBothRetainedRenderers)
+{
+    layers::Layer layer;
+    layer.name = "zoom-label";
+    layers::Text label;
+    label.text = "25.0 m2";
+    label.planar = true;
+    label.sizeMetres = 0.2;
+    label.minProjectedPixels = 9;
+    layer.texts.push_back (label);
+    const auto plan = scene::PreparePlan (One (layer), &Engine ());
+    const auto threeD = scene::PrepareScene (One (layer), &Engine ());
+    ASSERT_FALSE (plan.glyphs.empty ());
+    ASSERT_FALSE (threeD.glyphs.empty ());
+    for (const auto& glyph : plan.glyphs) {
+        EXPECT_NE (glyph.flags & scene::kZoomLabel, 0u);
+        EXPECT_EQ (glyph.minSpan, 9);
+        EXPECT_NEAR (glyph.dir[0], 0.2, 1e-6);
+    }
+    for (const auto& glyph : threeD.glyphs) {
+        EXPECT_NE (glyph.flags & scene::kZoomLabel, 0u);
+        EXPECT_EQ (glyph.minSpan, 9);
+        EXPECT_NEAR (glyph.dir[0], 0.2, 1e-6);
+    }
+}
+
 // ⚠️ THE PLAN'S HALVES REJOIN TO THE MODEL COORDINATE -- the walls' precision, which
 // is what keeps a georeferenced project's millimetres.
 TEST (OverlayScene, PlanLinesRejoinToTheirModelCoordinatesFarFromTheOrigin)

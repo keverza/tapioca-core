@@ -126,8 +126,10 @@ Summary SliceSlab (const Slab& slab, const Rule& rule, const ProjectStoreys& sto
 // hole, not filled by a union), and a floor the operations emptied has no slice. The
 // footprint stays the polygon's: what the feasibility figures call it; `sliceAreaM2` is
 // the largest slice.
+// `keepEmptyFloors`: feasibility keeps emptied levels as zero-area rows, preserving
+// floor identity and editor ranges; standalone rendering continues to omit them.
 Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const ProjectStoreys& storeys,
-                   std::vector<storysliceoverlay::Slice>& out);
+                   std::vector<storysliceoverlay::Slice>& out, bool keepEmptyFloors = false);
 
 } // namespace slabslices
 } // namespace archviz

@@ -2,6 +2,7 @@
 #include "NodeGraph/Json.hpp"
 
 #include <cmath>
+#include <algorithm>
 
 namespace geomsrv::archviz::massingcalculation {
 namespace {
@@ -59,6 +60,57 @@ bool SameRequest (const Request& a, const Request& b)
             a.assignments[i].review != b.assignments[i].review)
             return false;
     return true;
+}
+
+overlaylayers::Layer OffsetDimensions (const Preview& preview)
+{
+    overlaylayers::Layer layer;
+    layer.name = kDimensions;
+    layer.occlusion = overlaylayers::Behind::Fade;
+    const auto& edges = preview.inputs.before.edges;
+    const auto& xy = preview.result.offsetXY;
+    if (xy.size () < 6 || preview.inputs.assignments.size () != edges.size ())
+        return layer;
+    double winding = 0;
+    for (const auto& edge : edges)
+        winding += edge.ax * edge.by - edge.bx * edge.ay;
+    for (size_t i = 0; i < edges.size (); ++i) {
+        const auto& edge = edges[i];
+        const double distance = preview.inputs.assignments[i].distance;
+        const double dx = edge.bx - edge.ax, dy = edge.by - edge.ay, length = std::hypot (dx, dy);
+        if (length < 1e-6 || distance <= 1e-6 || std::abs (edge.arcAngle) > 1e-8)
+            continue;
+        const double sign = winding > 0 ? 1 : -1;
+        const double nx = -dy / length * sign, ny = dx / length * sign;
+        const double x = (edge.ax + edge.bx) * 0.5, y = (edge.ay + edge.by) * 0.5;
+        const double tx = x + nx * distance, ty = y + ny * distance;
+        // Only dimension a surviving inset edge, not a collapsed/trimmed midpoint.
+        bool onInset = false;
+        for (size_t j = 0; j < xy.size (); j += 2) {
+            const size_t k = (j + 2) % xy.size ();
+            const double ex = xy[k] - xy[j], ey = xy[k + 1] - xy[j + 1];
+            const double squared = ex * ex + ey * ey;
+            if (squared < 1e-12)
+                continue;
+            const double t = (std::clamp) (((tx - xy[j]) * ex + (ty - xy[j + 1]) * ey) / squared, 0.0, 1.0);
+            if (std::hypot (tx - xy[j] - t * ex, ty - xy[j + 1] - t * ey) < 1e-4)
+                onInset = true;
+        }
+        if (!onInset)
+            continue;
+        overlaylayers::Dimension dimension;
+        dimension.from[0] = x;
+        dimension.from[1] = y;
+        dimension.to[0] = tx;
+        dimension.to[1] = ty;
+        dimension.from[2] = dimension.to[2] = preview.result.hasMeanZ ? preview.result.meanZ : 0;
+        dimension.offsetMetres = 0;
+        dimension.rgba = 0xA66226FF;
+        dimension.showUnit = true;
+        dimension.textSizePixels = 11;
+        layer.dimensions.push_back (std::move (dimension));
+    }
+    return layer;
 }
 
 bool PreviewQueue::Follow (Request request, uint64_t now)

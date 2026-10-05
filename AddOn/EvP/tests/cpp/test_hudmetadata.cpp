@@ -58,6 +58,13 @@ TEST (HudMetadata, SelectionOffersOnlyTheFourBuildingSlabFieldsAndPreservesLegac
     EXPECT_EQ (meta::RangeValue (entity, meta::kFloorDomain, 0, "massing.function")->value.s, "commercial");
 }
 
+TEST (HudMetadata, NumericPromptTextHasExactlyTwoDecimalPlaces)
+{
+    EXPECT_EQ (hm::NumberText (25), "25.00");
+    EXPECT_EQ (hm::NumberText (3.2), "3.20");
+    EXPECT_EQ (hm::NumberText (-4.567), "-4.57");
+}
+
 namespace {
 
 const hm::Field* FieldOf (const hm::Page& page, const std::string& id)

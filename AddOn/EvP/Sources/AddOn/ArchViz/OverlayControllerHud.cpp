@@ -91,11 +91,13 @@ void FollowHudState ()
         massingmodel::RequestRules (std::move (edit));
     for (auto& request : overlayhud::TakeMassingCalculations (*state))
         massinghybrid::Request (std::move (request));
+    massinghybrid::Dimensions (overlayhud::MassingDimensions (*state));
     for (const auto& edit : overlayhud::TakeMassingNumbers (*state)) {
         std::string answer;
         double number = 0;
-        if (textprompt::Ask (edit.key + " (" + std::to_string (edit.min) + " - " + std::to_string (edit.max) + ")",
-                             std::to_string (edit.number), answer)) {
+        if (textprompt::Ask (edit.key + " (" + hudmeta::NumberText (edit.min) + " - " + hudmeta::NumberText (edit.max) +
+                                 ")",
+                             hudmeta::NumberText (edit.number), answer)) {
             if (!hudmeta::ParseNumber (answer, edit.min, edit.max, number))
                 hudconsole::Warning ("Massing input", "Enter a finite number within the displayed bounds.");
             else if (!overlayhud::AnswerMassingNumber (*state, edit, number))

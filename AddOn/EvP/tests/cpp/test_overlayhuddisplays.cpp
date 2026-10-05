@@ -23,6 +23,7 @@ hud::OwnPages Own (bool slicesOn)
     hud::OwnPages pages;
     pages.standalone = true;
     pages.displays.slicesOn = slicesOn;
+    pages.displays.massingSlicesOn = false;
     pages.displays.slicesSaid = "on: 2 slab(s) cut by storeys into 7 slice(s), 4120.0 m2";
     return pages;
 }
@@ -55,10 +56,10 @@ TEST (OverlayHudDisplays, SettingsSwitchesTheStoreySlicesOnAndShowsTheirStyle)
     ASSERT_GT (off.host.height, 0.0f);
     const float left = off.host.fraction[0] * 1200.0f + off.host.offset[0];
     const float top = off.host.fraction[1] * 800.0f + off.host.offset[1];
-    // Down the checkboxes' column: Show overlay, Hover readout, Storey slices, Watch annotations.
+    // Show overlay, Hover readout, Storey slices, Massing slices, Watch annotations.
     const std::vector<std::pair<float, float>> boxes = Presses (hud, left + 14.0f, top + off.host.height);
     ASSERT_GE (boxes.size (), 4u);
-    const float slices = (boxes[boxes.size () - 2].first + boxes[boxes.size () - 2].second) * 0.5f;
+    const float slices = (boxes[boxes.size () - 3].first + boxes[boxes.size () - 3].second) * 0.5f;
     hud.Click ({}, left + 14.0f, slices);
 
     hud::Displays wanted;
@@ -74,4 +75,27 @@ TEST (OverlayHudDisplays, SettingsSwitchesTheStoreySlicesOnAndShowsTheirStyle)
     hud.engine.SetOwnPages (Own (true));
     const hud::Layout on = hud.Lay ({}, At (600.0f, 600.0f));
     EXPECT_GT (on.host.height, off.host.height + 5.0f * 13.0f) << "the slices' style is on the page";
+}
+
+TEST (OverlayHudDisplays, MassingSlicesExposeSharedStyleWithoutStandaloneSlices)
+{
+    Watched hud;
+    hud.engine.SetOwnPages (Own (false));
+    hud::SelectKey (*hud.state, shell::kSettingsKey);
+    const auto off = hud.Lay ({}, At (600, 600));
+    const float left = off.host.fraction[0] * 1200 + off.host.offset[0];
+    const float top = off.host.fraction[1] * 800 + off.host.offset[1];
+    const auto boxes = Presses (hud, left + 14, top + off.host.height);
+    ASSERT_GE (boxes.size (), 5u);
+    const auto& massing = boxes[boxes.size () - 2];
+    hud.Click ({}, left + 14, (massing.first + massing.second) * 0.5f);
+    hud::Displays wanted;
+    ASSERT_TRUE (hud::TakeDisplays (*hud.state, wanted));
+    EXPECT_TRUE (wanted.massingSlicesOn);
+    EXPECT_FALSE (wanted.slicesOn);
+    auto pages = Own (false);
+    pages.displays.massingSlicesOn = true;
+    hud.engine.SetOwnPages (pages);
+    const auto on = hud.Lay ({}, At (600, 600));
+    EXPECT_GT (on.host.height, off.host.height + 5 * 13);
 }

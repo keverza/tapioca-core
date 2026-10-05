@@ -8,6 +8,9 @@
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/SlabBodies.hpp"
+#include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/ModelWatch.hpp"
 #include "Metadata/MetadataStorage.hpp"
 
 #include <algorithm>
@@ -21,6 +24,10 @@ std::vector<std::string> s_selected;
 std::string s_signature;
 std::shared_ptr<const massingcalculation::Preview> s_envelope;
 std::shared_ptr<const massingslices::Result> s_result;
+storysliceoverlay::Controls s_display;
+bool s_shown = true, s_styleDirty = false, s_bodyPass = false;
+uint64_t s_bodies = 0;
+std::string s_bodySignature;
 
 void Publish ()
 {
@@ -50,14 +57,51 @@ void Update ()
     // not turn the idle timer into thousands of header/SEO reads each tick.
     const auto stamps = overBudget ? std::vector<uint64_t> {} : slabsource::Stamps (guids);
     const auto operators = overBudget ? std::vector<std::vector<std::string>> {} : slabsource::Operators (guids);
+    std::vector<std::string> bodyTargets, watchedOperators;
+    std::string bodySignature;
     for (size_t i = 0; i < stamps.size (); ++i) {
         signature += guids[i] + ":" + std::to_string (stamps[i]) + ";";
         for (const auto& guid : operators[i])
             signature += "SEO:" + guid + ";";
+        if (!operators[i].empty ()) {
+            bodyTargets.push_back (guids[i]);
+            bodySignature += guids[i] + ":" + std::to_string (stamps[i]) + ";";
+            for (const auto& guid : operators[i])
+                bodySignature += "SEO:" + guid + ";";
+            watchedOperators.insert (watchedOperators.end (), operators[i].begin (), operators[i].end ());
+        }
     }
+    if (watchedOperators.size () > 1024) {
+        bodyTargets.clear ();
+        bodySignature = "operator-budget";
+    }
+    else {
+        const auto operatorStamps = slabsource::Stamps (watchedOperators);
+        for (size_t i = 0; i < watchedOperators.size (); ++i)
+            bodySignature += watchedOperators[i] + ":" + std::to_string (operatorStamps[i]) + ";";
+        // SEO operation/link edits may leave the participating element records
+        // unchanged. The extraction's model revision also invalidates held bodies.
+        if (!bodyTargets.empty ())
+            bodySignature += "model:" + std::to_string (modelwatch::CaptureStamp ());
+    }
+    slabbodies::Want (bodyTargets, "massing");
+    if (bodySignature != s_bodySignature) {
+        s_bodySignature = bodySignature;
+        slabbodies::Invalidate (bodyTargets);
+        s_bodyPass = !bodyTargets.empty ();
+    }
+    if (s_bodyPass && !ExtractionWorker::Get ().IsRunning ()) {
+        s_bodyPass = false;
+        ExtractionWorker::Get ().Start (true);
+    }
+    const auto bodies = slabbodies::Latest ();
+    const uint64_t bodyGeneration = bodies && !bodyTargets.empty () ? bodies->generation : 0;
+    signature += bodySignature;
     const auto envelope = massinghybrid::Read ().preview;
-    if (signature == s_signature && envelope == s_envelope && s_result)
+    if (signature == s_signature && envelope == s_envelope && s_result && bodyGeneration == s_bodies && !s_styleDirty)
         return;
+    s_styleDirty = false;
+    s_bodies = bodyGeneration;
     s_signature = std::move (signature);
     s_envelope = envelope;
     massingslices::Result result;
@@ -73,12 +117,17 @@ void Update ()
                 result.note += skip.guid + ": " + skip.reason + ". ";
         for (const auto& slab : reading.slabs) {
             const auto index = size_t (std::lower_bound (guids.begin (), guids.end (), slab.guid) - guids.begin ());
-            if (index < operators.size () && !operators[index].empty ()) {
-                result.note += "SEO slab omitted: a current operated body is required for an honest slice. ";
-                continue;
-            }
             massingslices::Input input;
             input.slab = slab;
+            if (index < operators.size () && !operators[index].empty ()) {
+                const auto found =
+                    bodies ? bodies->meshes.find (slab.guid) : std::map<std::string, Mesh>::const_iterator {};
+                if (bodySignature == "operator-budget" || !bodies || found == bodies->meshes.end ()) {
+                    result.note += "SEO slab awaiting a current 3D body (must be visible in the 3D model). ";
+                    continue;
+                }
+                input.body = std::shared_ptr<const Mesh> (bodies, &found->second);
+            }
             bool present = false;
             if (!metadata::storage::Read (slab.guid, input.metadata, present, error))
                 break;
@@ -87,7 +136,7 @@ void Update ()
     }
     const auto skipped = result.note;
     if (error.empty ())
-        massingslices::Build (inputs, storeys, envelope ? &envelope->result : nullptr, result, error);
+        massingslices::Build (inputs, storeys, envelope ? &envelope->result : nullptr, result, error, s_display);
     if (!skipped.empty ())
         result.note += " " + skipped;
     if (!error.empty ()) {
@@ -97,7 +146,7 @@ void Update ()
         ArchVizLog ("MASSING SLICES  refused: " + error);
     }
     overlaylayers::Clear (massingslices::kLayer);
-    if (!result.rows.empty ())
+    if (s_shown && !result.rows.empty ())
         overlaylayers::Set (result.layer);
     s_result = std::make_shared<const massingslices::Result> (std::move (result));
     Publish (); // Errors and empty sets also change Stats; wake an idle HUD once.
@@ -116,7 +165,7 @@ void Poll ()
     if (s_polling)
         return;
     const uint64_t now = ::GetTickCount64 ();
-    if (!s_dirty && now - s_lastPoll < 250 && massinghybrid::Read ().preview == s_envelope)
+    if (!s_dirty && !s_styleDirty && now - s_lastPoll < 250 && massinghybrid::Read ().preview == s_envelope)
         return;
     s_lastPoll = now;
     s_polling = true;
@@ -131,6 +180,24 @@ std::shared_ptr<const massingslices::Result> Read ()
     return s_result;
 }
 
+void Display (bool shown, const storysliceoverlay::Controls& controls)
+{
+    s_shown = shown;
+    s_display = controls;
+    s_styleDirty = true;
+    Poll ();
+}
+
+bool Shown ()
+{
+    return s_shown;
+}
+
+storysliceoverlay::Controls Controls ()
+{
+    return s_display;
+}
+
 void Forget ()
 {
     if (s_timer != 0) {
@@ -142,6 +209,12 @@ void Forget ()
     s_signature.clear ();
     s_envelope.reset ();
     s_result.reset ();
+    slabbodies::Want ({}, "massing");
+    s_bodies = 0;
+    s_bodySignature.clear ();
+    s_bodyPass = false;
+    s_display = {};
+    s_shown = true;
     s_dirty = true;
     s_lastPoll = 0;
 }

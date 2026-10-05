@@ -372,7 +372,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                                partial ? baseSnapshot : nullptr, effectiveFilter);
 
     StorySliceAccumulator storeySlices;
-    storeySlices.Begin (*storeys, wantStorySlices && full, wantPlanCut && full, planCutZ);
+    storeySlices.Begin (*storeys, wantStorySlices && full, wantPlanCut && full, planCutZ, full);
 
     // From here on the model MUST be released through the gate, on every exit
     // path. One lambda, called from each of them.
@@ -627,7 +627,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
     // ---- the storey slices --------------------------------------------------
     // ⚠️ ONLY ON A PASS THAT FINISHED -- the substance vote's rule, sharper; see
     // StorySliceAccumulator::FinishAndPush.
-    if (storeySlices.Active () && !gaveUp && cursor > handle->count)
+    const bool complete = cursor > handle->count && !gaveUp && !stopFlag_.load () && changedTo < 0 &&
+                          modelwatch::CaptureStamp () == handle->captureStamp;
+    if (storeySlices.Active () && complete)
         storeySlices.FinishAndPush ();
 
     // ---- close the batch ----------------------------------------------------
@@ -639,8 +641,6 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
 
     releaseModel ();
 
-    const bool complete = cursor > handle->count && !gaveUp && !stopFlag_.load () && changedTo < 0 &&
-                          modelwatch::CaptureStamp () == handle->captureStamp;
     if (auto snapshot = assembly.Finish (complete)) {
         MeshStore::Get ().PublishShared (snapshot);
         ArchVizLog ("pipeline: stage=geometry-shared-snapshot snapshot=" + std::to_string (snapshot->id) +

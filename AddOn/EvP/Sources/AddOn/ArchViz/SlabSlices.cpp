@@ -326,7 +326,7 @@ Summary SliceSlab (const Slab& slab, const Rule& rule, const ProjectStoreys& sto
 }
 
 Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const ProjectStoreys& storeys,
-                   std::vector<storysliceoverlay::Slice>& out)
+                   std::vector<storysliceoverlay::Slice>& out, bool keepEmptyFloors)
 {
     Summary summary;
     summary.guid = slab.guid;
@@ -350,7 +350,8 @@ Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const P
         summary.floors[k].areaM2 = slice.areaM2;
         if (slice.chains.empty ()) {
             ++emptied;
-            continue;
+            if (!keepEmptyFloors)
+                continue;
         }
         slice.name = owner + " F" + std::to_string (k + 1);
         slice.storey = storeyOf[k];
@@ -358,7 +359,7 @@ Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const P
         summary.sliceAreaM2 = (std::max) (summary.sliceAreaM2, slice.areaM2);
         out.push_back (std::move (slice));
     }
-    if (emptied != 0 && summary.problem.empty ())
+    if (emptied != 0 && !keepEmptyFloors && summary.problem.empty ())
         summary.problem = std::to_string (emptied) + " floor(s) with no cross-section: the operations removed them";
     return summary;
 }

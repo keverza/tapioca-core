@@ -284,10 +284,12 @@ void Sync (const rules::Page& page, Draft& draft)
     const auto regulated = draft.regulated;
     const auto calculation = draft.calculation;
     const bool labels = draft.labels;
+    const bool dimensions = draft.offsetDimensions;
     const bool discarded = draft.dirty && !saved;
     draft = {};
     draft.source = page;
     draft.labels = labels;
+    draft.offsetDimensions = dimensions;
     draft.assignments = page.assignments;
     draft.endpoints.resize (page.edges.size (), true);
     draft.regulated.resize (page.edges.size (), true);
@@ -332,6 +334,7 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
     if (!draft.note.empty ())
         ImGui::TextWrapped ("%s", draft.note.c_str ());
     ImGui::Checkbox ("Show segment, point and dimension text", &draft.labels);
+    ImGui::Checkbox ("Show offset dimensions in overlay", &draft.offsetDimensions);
     ImGui::Checkbox ("Project height cap", &draft.calculation.capped);
     if (draft.calculation.capped)
         Distance ("Cap Project Z", draft.calculation.capZ, draft, 5, 50);

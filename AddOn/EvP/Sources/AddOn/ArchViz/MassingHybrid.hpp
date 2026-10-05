@@ -15,6 +15,7 @@ struct Page {
 void Request (massingcalculation::Request request);
 void Poll ();
 Page Read ();
+void Dimensions (bool shown);
 void Forget ();
 void Shutdown ();
 } // namespace geomsrv::archviz::massinghybrid

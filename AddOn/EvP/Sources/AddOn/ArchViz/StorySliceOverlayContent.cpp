@@ -317,6 +317,7 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
             label.font = controls.labelFont;
             label.behind = layers::Behind::Show;
             label.at[2] = z;
+            label.minProjectedPixels = controls.labelMinProjectedPixels;
             if (controls.labelOnSlice) {
                 // Lying on the slice, along an edge, from just inside a corner.
                 const double guess = LabelSizeMetres (controls.labelSizeMetres, largestArea, 0.0, label.text);
@@ -345,6 +346,7 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
                     label.at[0] = x;
                     label.at[1] = y;
                     label.sizePixels = controls.labelSizePixels;
+                    label.sizeMetres = controls.labelSizeMetres > 0 ? controls.labelSizeMetres : 0.2;
                     out.layer.texts.push_back (std::move (label));
                 }
             }

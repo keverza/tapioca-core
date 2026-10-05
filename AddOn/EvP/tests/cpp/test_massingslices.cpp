@@ -1,4 +1,5 @@
 #include "ArchViz/MassingSlices.hpp"
+#include "ArchViz/SlabBodies.hpp"
 #include "Geometry/Primitives.hpp"
 #include "NodeGraph/Json.hpp"
 
@@ -371,4 +372,110 @@ TEST (MassingSlices, FirstFloorUsesTheSameIntersectionAsTheDisplayedFloor)
     EXPECT_NEAR (result.allowedArea, 108, 1e-6);
     EXPECT_NEAR (result.rawFirstFloorArea, 100, 1e-6);
     EXPECT_NEAR (result.facadeArea, 360, 1e-6); // actual slabs, not fictional envelope-cut walls
+}
+
+TEST (MassingSlices, DisplayControlsPreserveFunctionColoursAndLabelTheFinalArea)
+{
+    const auto envelope = Envelope (Box (2, 2, 8, 8));
+    geomsrv::archviz::storysliceoverlay::Controls display;
+    display.outlineWidthPixels = 4;
+    display.outlineBehind = layers::Behind::Hide;
+    display.fillOpacity = 0.3f;
+    display.outlineRgba = 0xFF00FFFF;
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab () }, {}, &envelope, result, error, display)) << error;
+    ASSERT_EQ (result.layer.texts.size (), 3u);
+    EXPECT_EQ (result.layer.texts[0].text, "36.0 m\xC2\xB2");
+    EXPECT_TRUE (result.layer.texts[0].planar);
+    EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres, 0.2);
+    EXPECT_EQ (result.layer.texts[0].minProjectedPixels, 9);
+    EXPECT_EQ (result.layer.polylines[0].rgba, 0xF2C14EFF);
+    EXPECT_EQ (result.layer.polylines[0].widthPixels, 4);
+    EXPECT_EQ (result.layer.polylines[0].behind, layers::Behind::Hide);
+    EXPECT_FLOAT_EQ (result.layer.meshes[0].style.opacity, 0.3f);
+    display.label = false;
+    display.fillRgba &= 0xFFFFFF00;
+    ASSERT_TRUE (ms::Build ({ Slab () }, {}, &envelope, result, error, display)) << error;
+    EXPECT_TRUE (result.layer.texts.empty ());
+    EXPECT_TRUE (result.layer.meshes.empty ());
+    EXPECT_EQ (result.allowedArea, 108);
+}
+
+TEST (MassingSlices, OperatedBodyCutsReplaceThePolygonAndKeepRemovedFloorsIdentities)
+{
+    auto input = Slab (9);
+    auto body = std::make_shared<geomsrv::Mesh> ();
+    std::string error;
+    ASSERT_TRUE (geomsrv::engine::MakeBox ({ 5, 5, 6.5 }, 4, 4, 5, *body, error)); // z 4..9
+    input.body = body;
+    const auto envelope = Envelope (Box (4, 4, 6, 6));
+    ms::Result result;
+    ASSERT_TRUE (ms::Build ({ input }, {}, &envelope, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 3u);
+    EXPECT_EQ (result.rows[0].rawArea, 0);
+    EXPECT_EQ (result.rows[1].rawArea, 0);
+    EXPECT_EQ (result.rows[2].rawArea, 16);
+    EXPECT_EQ (result.rows[2].story, 2);
+    EXPECT_EQ (result.rows[2].z, 6);
+    EXPECT_EQ (result.rows[2].allowedArea, 4);
+    EXPECT_EQ (result.rawFirstFloorArea, 0);
+    EXPECT_FALSE (result.hasFacade); // do not substitute the unoperated prism's walls
+    ASSERT_EQ (result.layer.texts.size (), 1u);
+    EXPECT_EQ (result.layer.texts[0].text, "4.0 m\xC2\xB2");
+    EXPECT_EQ (result.section.floors.size (), 3u);
+}
+
+TEST (MassingSlices, OperatedCourtyardAndDisconnectedSolidsSurviveEnvelopeIntersection)
+{
+    auto input = Slab (9);
+    const auto outer = Box (), hole = Box (4, 4, 6, 6), separate = Box (12, 0, 14, 2);
+    auto body = std::make_shared<geomsrv::Mesh> ();
+    for (const auto* mesh : { &outer, &hole, &separate }) {
+        const auto base = uint32_t (body->VertexCount ());
+        body->vertices.insert (body->vertices.end (), mesh->points.begin (), mesh->points.end ());
+        for (uint32_t index : mesh->indices)
+            body->triangles.push_back (base + index);
+    }
+    input.body = body;
+    const auto envelope = Envelope (Box (-1, -1, 15, 11));
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ input }, {}, &envelope, result, error)) << error;
+    EXPECT_NEAR (result.rawArea, 300, 1e-6); // 100 - 4 + 4, three floors
+    EXPECT_NEAR (result.allowedArea, 300, 1e-6);
+    EXPECT_EQ (result.layer.polylines.size (), 9u);
+    body->triangles[0] = 999999;
+    EXPECT_FALSE (ms::Build ({ input }, {}, &envelope, result, error));
+}
+
+TEST (SlabBodies, IndependentConsumersAndTicketsPreventStaleOrMissingBodies)
+{
+    namespace bodies = geomsrv::archviz::slabbodies;
+    bodies::Clear ();
+    bodies::Want ({ "standalone" });
+    bodies::Want ({ "massing" }, "massing");
+    const auto capture = bodies::Capture ();
+    ASSERT_EQ (capture.size (), 2u);
+    geomsrv::Mesh a, b;
+    a.guid = "standalone";
+    b.guid = "massing";
+    bodies::Publish ({ a, b }, capture);
+    ASSERT_EQ (bodies::Latest ()->meshes.size (), 2u);
+    bodies::Invalidate ({ "massing" });
+    EXPECT_EQ (bodies::Latest ()->meshes.count ("massing"), 0u);
+    bodies::Publish ({ a, b }, capture);
+    EXPECT_EQ (bodies::Latest ()->meshes.count ("massing"), 0u) << "an old in-flight pass is refused";
+    const auto fresh = bodies::Capture ();
+    bodies::Publish ({ a, b }, fresh);
+    EXPECT_EQ (bodies::Latest ()->meshes.count ("massing"), 1u);
+    bodies::Want ({}); // turning standalone slices off does not cancel massing
+    EXPECT_EQ (bodies::Wanted (), (std::set<std::string> { "massing" }));
+    bodies::Publish ({}, bodies::Capture ());
+    EXPECT_TRUE (bodies::Latest ()->meshes.empty ()) << "a hidden/deleted body cannot reuse a previous pass";
+    bodies::Clear ();
+    bodies::Want ({ "massing" }, "massing");
+    bodies::Publish ({ b }, fresh);
+    EXPECT_TRUE (bodies::Latest ()->meshes.empty ()) << "project reset never reuses request tickets";
+    bodies::Clear ();
 }

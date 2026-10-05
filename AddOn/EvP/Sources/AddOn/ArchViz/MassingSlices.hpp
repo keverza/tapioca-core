@@ -10,6 +10,7 @@ constexpr char kLayer[] = "tapioca.massing.storySlices";
 struct Input {
     slabslices::Slab slab;
     metadata::EntityMetadata metadata;
+    std::shared_ptr<const geomsrv::Mesh> body;
 };
 struct Row {
     std::string guid, function;
@@ -33,6 +34,6 @@ struct Result {
 bool Intersect (const std::vector<SliceChain>& slab, const overlaylayers::Mesh& envelope, double z,
                 std::vector<SliceChain>& outlines, double& area, std::string& error);
 bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, const massingcalculation::Result* envelope,
-            Result& result, std::string& error);
+            Result& result, std::string& error, const storysliceoverlay::Controls& display = {});
 } // namespace geomsrv::archviz::massingslices
 #endif

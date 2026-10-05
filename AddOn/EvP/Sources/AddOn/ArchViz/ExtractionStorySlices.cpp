@@ -49,14 +49,15 @@ ProjectStoreys ReadStoreys ()
     return out;
 }
 
-void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted, bool planCut, double planZ)
+void StorySliceAccumulator::Begin (const ProjectStoreys& storeys, bool wanted, bool planCut, double planZ,
+                                   bool fullBodyCapture)
 {
     loops_.clear ();
     planes_.clear ();
     names_.clear ();
     indices_.clear ();
     // Whatever the storeys: the slabs sliced from their body want them from every pass.
-    capture_ = slabbodies::Wanted ();
+    capture_ = fullBodyCapture ? slabbodies::Capture () : std::map<std::string, uint64_t> {};
     captured_.clear ();
     planCut_ = planCut;
     planZ_ = planZ;
@@ -130,7 +131,7 @@ double TriangleFanArea (const std::vector<StorySliceFillVertex>& tris, size_t be
 void StorySliceAccumulator::FinishAndPush ()
 {
     if (!capture_.empty ()) {
-        slabbodies::Publish (std::move (captured_));
+        slabbodies::Publish (std::move (captured_), capture_);
         captured_.clear ();
     }
     if (planCut_) {

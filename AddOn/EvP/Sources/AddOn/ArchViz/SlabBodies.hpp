@@ -10,7 +10,8 @@
 // wireframe drawn from it showed the user's subtraction while the slices did not (the
 // user, 2026-10-01). The pass hands over the wanted slabs' meshes as it walks them
 // (StorySliceAccumulator) and publishes them only when it finished: a pass stopped half
-// way may not have reached a slab, and a slab it did not reach keeps its last body.
+// way may not have reached a slab and publishes nothing. A completed full pass that
+// did not encounter a requested slab removes its previous body.
 //
 // THREADS. `Want`, `Latest` and `Clear` on the main thread; `Wanted` and `Publish` on the
 // extraction worker, between gate slices. One mutex; nothing here on a render thread.
@@ -28,8 +29,13 @@ namespace geomsrv {
 namespace archviz {
 namespace slabbodies {
 
-// The slabs whose bodies the next pass should hand over; empty wants none.
-void Want (const std::vector<std::string>& guids);
+// Each consumer's wanted slabs; empty releases only that consumer. Extraction
+// captures their union, so standalone and feasibility cannot cancel one another.
+void Want (const std::vector<std::string>& guids, const std::string& owner = "storySlices");
+// Invalidate edited sources before asking for another pass. Tickets reject a pass
+// that started before the edit, even if it completes afterwards.
+void Invalidate (const std::vector<std::string>& guids);
+std::map<std::string, uint64_t> Capture ();
 // What a pass reads at its start.
 std::set<std::string> Wanted ();
 
@@ -38,11 +44,12 @@ struct Bodies {
     std::map<std::string, Mesh> meshes;
 };
 
-// A finished pass's bodies of the wanted slabs, merged over the last.
+// A finished full pass's bodies, accepted only for still-current capture tickets.
 void Publish (std::vector<Mesh> meshes);
+void Publish (std::vector<Mesh> meshes, const std::map<std::string, uint64_t>& captured);
 std::shared_ptr<const Bodies> Latest ();
 
-// The slices are off, or the project closed (§8): nothing wanted, nothing held.
+// Project closed (§8): release every consumer and every cached body.
 void Clear ();
 
 } // namespace slabbodies

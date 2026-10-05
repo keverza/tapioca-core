@@ -206,6 +206,7 @@ struct Text {
     double direction[3] = { 1.0, 0.0, 0.0 };
     double normal[3] = { 0.0, 0.0, 1.0 };
     double sizeMetres = 0.5;
+    float minProjectedPixels = 0; // 0: always; otherwise hide until sizeMetres projects this large
 };
 
 enum class LengthUnit : uint8_t { Metres = 0, Centimetres = 1, Millimetres = 2 };
