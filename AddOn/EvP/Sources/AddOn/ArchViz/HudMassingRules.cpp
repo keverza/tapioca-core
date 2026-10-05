@@ -1,4 +1,5 @@
 #include "ArchViz/HudMassingRules.hpp"
+#include "ArchViz/HudMassingLabels.hpp"
 #include "ArchViz/HudShell.hpp"
 
 #include <imgui.h>
@@ -132,6 +133,13 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
                             ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     const bool hovered = ImGui::IsItemHovered ();
     auto* draw = ImGui::GetWindowDrawList ();
+    ProjectedDrawList occupied;
+    std::vector<DiagramLabel> segmentLabels, otherLabels;
+    const auto addLine = [&] (ImVec2 from, ImVec2 to, ImU32 rgba, float width) {
+        draw->AddLine (from, to, rgba, width);
+        if (draft.labels)
+            occupied.lines.push_back ({ { from.x, from.y }, { to.x, to.y }, rgba, width });
+    };
     draw->AddRectFilled (origin, { origin.x + extent.x, origin.y + extent.y }, ImGui::GetColorU32 (ImGuiCol_FrameBg),
                          4);
     draw->PushClipRect (origin, { origin.x + extent.x, origin.y + extent.y }, true);
@@ -146,7 +154,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
             const auto path = Points (edge);
             for (size_t i = 1; i < path.size (); ++i) {
                 const auto from = project (path[i - 1]), to = project (path[i]);
-                draw->AddLine (from, to, IM_COL32 (170, 68, 101, 255), 1.5f);
+                addLine (from, to, IM_COL32 (170, 68, 101, 255), 1.5f);
                 const float dx = to.x - from.x, dy = to.y - from.y;
                 const float px = pointer.x - from.x, py = pointer.y - from.y;
                 const float squared = dx * dx + dy * dy;
@@ -161,8 +169,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         if (draft.labels) {
             const auto at = project ({ parcel.edges[0].ax, parcel.edges[0].ay });
             const auto label = "Parcel " + std::to_string (k + 1);
-            draw->AddText ({ at.x + 5, at.y - ImGui::GetTextLineHeight () }, ImGui::GetColorU32 (ImGuiCol_Text),
-                           label.c_str ());
+            otherLabels.push_back ({ { at.x, at.y }, { 1, 0 }, label, ImGui::GetColorU32 (ImGuiCol_Text) });
         }
     }
     if (sitePreview)
@@ -172,8 +179,8 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
             const auto& xy = parcel.result.offsetXY;
             for (size_t i = 0; i + 1 < xy.size (); i += 2) {
                 const size_t next = (i + 2) % xy.size ();
-                draw->AddLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }),
-                               IM_COL32 (166, 98, 38, 255), 2);
+                addLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }),
+                         IM_COL32 (166, 98, 38, 255), 2);
             }
         }
     const auto* inputs = preview ? &preview->inputs : nullptr;
@@ -189,8 +196,8 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         const auto& xy = result->offsetXY;
         for (size_t i = 0; i + 1 < xy.size (); i += 2) {
             const size_t next = (i + 2) % xy.size ();
-            draw->AddLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }),
-                           IM_COL32 (166, 98, 38, 255), 2);
+            addLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }), IM_COL32 (166, 98, 38, 255),
+                     2);
         }
     }
     int pointHit = -1, edgeHit = -1;
@@ -204,7 +211,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         }
         for (size_t p = 1; p < paths[i].size (); ++p) {
             const ImVec2 from = project (paths[i][p - 1]), to = project (paths[i][p]);
-            draw->AddLine (from, to, IM_COL32 (170, 68, 101, 255), int (i) == draft.selected ? 3.0f : 1.5f);
+            addLine (from, to, IM_COL32 (170, 68, 101, 255), int (i) == draft.selected ? 3.0f : 1.5f);
             const float ex = to.x - from.x, ey = to.y - from.y;
             const float px = pointer.x - from.x, py = pointer.y - from.y;
             const float length = ex * ex + ey * ey;
@@ -216,27 +223,65 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
             }
         }
         draw->AddCircleFilled (a, 4, draft.endpoints[i] ? IM_COL32 (47, 111, 235, 255) : IM_COL32 (170, 180, 185, 255));
+        if (draft.labels)
+            occupied.lines.push_back ({ { a.x, a.y }, { a.x, a.y } }); // Five-pixel clearance covers the point marker.
         const size_t middle = paths[i].size () / 2;
         const auto mid = project (paths[i].size () == 2 ? Point { (page.edges[i].ax + page.edges[i].bx) * 0.5,
                                                                   (page.edges[i].ay + page.edges[i].by) * 0.5 }
                                                         : paths[i][middle]);
-        const std::string label = "S" + std::to_string (i + 1) + (draft.assignments[i].review ? " !" : "");
         if (draft.labels) {
-            draw->AddText ({ mid.x + 3, mid.y }, ImGui::GetColorU32 (ImGuiCol_Text), label.c_str ());
             const std::string point = "P" + std::to_string (i + 1);
-            draw->AddText ({ a.x + 5, a.y + 4 }, ImGui::GetColorU32 (ImGuiCol_TextDisabled), point.c_str ());
+            otherLabels.push_back ({ { a.x, a.y }, { 1, 0 }, point, ImGui::GetColorU32 (ImGuiCol_TextDisabled) });
             double length = 0;
             for (size_t j = 1; j < paths[i].size (); ++j)
                 length +=
                     std::hypot (paths[i][j].first - paths[i][j - 1].first, paths[i][j].second - paths[i][j - 1].second);
-            char dimension[48];
-            std::snprintf (dimension, sizeof (dimension), "%.2f m", length);
-            draw->AddText ({ mid.x + 3, mid.y + ImGui::GetTextLineHeight () },
-                           ImGui::GetColorU32 (ImGuiCol_TextDisabled), dimension);
+            char caption[128];
+            std::snprintf (caption, sizeof (caption), "S%zu%s  %.2f m\nL %.2f m", i + 1,
+                           draft.assignments[i].review ? " !" : "", draft.assignments[i].distance, length);
+            const auto before = project (paths[i][middle - 1]);
+            const auto after = project (paths[i][(std::min) (middle + 1, paths[i].size () - 1)]);
+            segmentLabels.push_back ({ { mid.x, mid.y },
+                                       { after.x - before.x, after.y - before.y },
+                                       caption,
+                                       ImGui::GetColorU32 (ImGuiCol_Text) });
         }
+    }
+    if (draft.labels) {
+        const ScreenTextMeasure measure = [] (std::string_view text, float fontSize, ScreenTextExtent& extent) {
+            const auto size =
+                ImGui::GetFont ()->CalcTextSizeA (fontSize, FLT_MAX, 0, text.data (), text.data () + text.size ());
+            extent = { size.x, size.y };
+            return true;
+        };
+        size_t labelWork = 0;
+        const auto place = [&] (const DiagramLabel& input) {
+            labelWork += 24 * (occupied.lines.size () + occupied.labels.size ());
+            if (labelWork > 1000000)
+                return; // Dense sites keep interactive geometry and full hover values, not a long layout stall.
+            if (const auto label =
+                    PlaceDiagramLabel (occupied, input, { origin.x, origin.y },
+                                       { origin.x + extent.x, origin.y + extent.y }, ImGui::GetFontSize (), measure))
+                DrawDiagramLabel (*draw, *label);
+        };
+        // The selected segment gets first choice, then stable contour order, then point/parcel IDs.
+        place (segmentLabels[size_t (draft.selected)]);
+        for (size_t i = 0; i < segmentLabels.size (); ++i)
+            if (int (i) != draft.selected)
+                place (segmentLabels[i]);
+        for (const auto& label : otherLabels)
+            place (label);
     }
     draw->PopClipRect ();
     if (hovered) {
+        if (edgeHit >= 0 && pointHit < 0 && !ImGui::IsPopupOpen ("##massing.site.context")) {
+            double length = 0;
+            for (size_t i = 1; i < paths[size_t (edgeHit)].size (); ++i)
+                length += std::hypot (paths[size_t (edgeHit)][i].first - paths[size_t (edgeHit)][i - 1].first,
+                                      paths[size_t (edgeHit)][i].second - paths[size_t (edgeHit)][i - 1].second);
+            ImGui::SetTooltip ("Segment S%d\nOffset: %.2f m\nLength: %.2f m", edgeHit + 1,
+                               draft.assignments[size_t (edgeHit)].distance, length);
+        }
         if (pointHit >= 0 || edgeHit >= 0 || !otherHit.empty ())
             ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);
         if (ImGui::IsMouseReleased (ImGuiMouseButton_Left) && edgeHit >= 0)

@@ -3,6 +3,7 @@
 #include "ArchViz/MassingCalculation.hpp"
 #include "NodeGraph/Json.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/AnnotationScreenLayout.hpp"
 #include "hud_fixture.hpp"
 
 #include <gtest/gtest.h>
@@ -495,6 +496,49 @@ TEST (MassingRules, OnlyContourRemainsInTheExpandedRulesSection)
     const ImGuiID parcel = ImHashStr (widget.page.guid.c_str (), 0, section);
     EXPECT_EQ (widget.lastItem, ImHashStr ("##massing.site", 0, parcel));
     EXPECT_NEAR (widget.canvas.GetHeight (), 200, 0.01);
+}
+
+TEST (MassingRules, MiniGuiRotatesSelectedVerticalEdgeTextAndKeepsGlyphsClearOfParcelLines)
+{
+    RulesWidget widget;
+    widget.draft.selected = 1;
+    widget.Frame ({ 850, 850 });
+    const auto center = widget.canvas.GetCenter ();
+    namespace av = geomsrv::archviz;
+    av::ProjectedDrawList parcel;
+    const av::ScreenPoint corners[] = { { center.x - 84, center.y + 84 },
+                                        { center.x + 84, center.y + 84 },
+                                        { center.x + 84, center.y - 84 },
+                                        { center.x - 84, center.y - 84 } };
+    for (int i = 0; i < 4; ++i)
+        parcel.lines.push_back ({ corners[i], corners[(i + 1) % 4] });
+    const auto& vertices = ImGui::FindWindowByName ("rules-test")->DrawList->VtxBuffer;
+    int glyphs = 0, verticalGlyphs = 0;
+    for (int i = 0; i + 3 < vertices.Size; ++i) {
+        const auto& a = vertices[i];
+        const auto& b = vertices[i + 1];
+        const auto& c = vertices[i + 2];
+        const auto& d = vertices[i + 3];
+        if (a.uv.y != b.uv.y || b.uv.x != c.uv.x || c.uv.y != d.uv.y || d.uv.x != a.uv.x || a.uv.x == b.uv.x ||
+            a.uv.y == d.uv.y || !widget.canvas.Contains (a.pos))
+            continue;
+        EXPECT_TRUE (widget.canvas.Contains (b.pos));
+        EXPECT_TRUE (widget.canvas.Contains (c.pos));
+        EXPECT_TRUE (widget.canvas.Contains (d.pos));
+        const float width = std::hypot (b.pos.x - a.pos.x, b.pos.y - a.pos.y);
+        const float height = std::hypot (d.pos.x - a.pos.x, d.pos.y - a.pos.y);
+        const float rotation = std::atan2 (b.pos.y - a.pos.y, b.pos.x - a.pos.x);
+        EXPECT_EQ (av::AnnotationCandidateOccupancyPenalty (parcel,
+                                                            { (a.pos.x + c.pos.x) / 2, (a.pos.y + c.pos.y) / 2 },
+                                                            { width, height }, rotation, 1.5f, {}),
+                   0);
+        ++glyphs;
+        if (std::abs (b.pos.x - a.pos.x) < 1e-4f && b.pos.y < a.pos.y)
+            ++verticalGlyphs;
+        i += 3;
+    }
+    EXPECT_GT (glyphs, 20);
+    EXPECT_GT (verticalGlyphs, 10);
 }
 
 TEST (MassingRules, SegmentPopupShowsFourButtonsAndColoursTheSelectedOffset)
