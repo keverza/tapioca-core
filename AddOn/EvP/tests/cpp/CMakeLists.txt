@@ -713,6 +713,7 @@ set (EVP_TEST_SOURCES
     test_hudmassing.cpp
     test_massingrules.cpp
     test_massingparcels.cpp
+    test_massingstats.cpp
     test_massingcollapse.cpp
     test_massingfacade.cpp
     test_massingslices.cpp

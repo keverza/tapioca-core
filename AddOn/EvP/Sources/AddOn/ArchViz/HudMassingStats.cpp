@@ -11,7 +11,7 @@ ImU32 Colour (uint32_t rgba)
     return IM_COL32 ((rgba >> 24) & 255, (rgba >> 16) & 255, (rgba >> 8) & 255, 255);
 }
 } // namespace
-std::string Draw (const massingslices::Result& result)
+std::string Draw (const massingslices::Result& result, const overlaylayers::Panel& look, float scale)
 {
     std::string hovered;
     if (result.rows.empty ())
@@ -29,6 +29,12 @@ std::string Draw (const massingslices::Result& result)
         const float span = width * float (use.percent / 100);
         const ImVec2 lo { start.x + offset, start.y }, hi { start.x + offset + span, start.y + height };
         draw->AddRectFilled (lo, hi, Colour (use.rgba));
+        char caption[32];
+        std::snprintf (caption, sizeof (caption), "%.2f%%", use.percent);
+        const auto textSize = ImGui::CalcTextSize (caption);
+        if (textSize.x + 8 * scale <= span)
+            draw->AddText ({ lo.x + (span - textSize.x) / 2, lo.y + (height - textSize.y) / 2 },
+                           hudshell::Packed (hudshell::Contrast (use.rgba)), caption);
         offset += span;
     }
     ImGui::InvisibleButton ("##mix", { width, height });
@@ -45,13 +51,16 @@ std::string Draw (const massingslices::Result& result)
     }
     for (const auto& use : mix) {
         ImGui::PushID (use.function.c_str ());
-        char caption[256];
-        std::snprintf (caption, sizeof (caption), "%s  %.2f%%  (%.2f m2)", use.label.c_str (), use.percent, use.area);
-        ImGui::PushStyleColor (ImGuiCol_PlotHistogram, ImGui::ColorConvertU32ToFloat4 (Colour (use.rgba)));
-        ImGui::ProgressBar (float (use.percent / 100), { -1, 0 }, caption);
-        if (ImGui::IsItemHovered ())
+        char caption[96];
+        std::snprintf (caption, sizeof (caption), "%.2f%% (%.2f m2)", use.percent, use.area);
+        hudshell::Card legend;
+        legend.figures.push_back ({ use.label, caption, use.rgba });
+        const auto rowStart = ImGui::GetCursorScreenPos ();
+        hudshell::Cards ({ legend }, look, scale);
+        if (ImGui::IsWindowHovered () &&
+            ImGui::IsMouseHoveringRect (
+                rowStart, { rowStart.x + width, ImGui::GetCursorScreenPos ().y - ImGui::GetStyle ().ItemSpacing.y }))
             hovered = use.function;
-        ImGui::PopStyleColor ();
         ImGui::PopID ();
     }
     if (!hovered.empty ()) {
@@ -62,7 +71,7 @@ std::string Draw (const massingslices::Result& result)
                 ImGui::Text ("Area: %.2f m2", use.area);
                 ImGui::Text ("Slice-estimated volume: %.2f m3", use.volume);
             }
-        ImGui::TextDisabled ("Solid highlight extends each slice to the next floor / slab top.");
+        ImGui::TextDisabled ("Highlight extends each slice to the next floor / slab top.");
         ImGui::EndTooltip ();
     }
     if (mix.empty ())

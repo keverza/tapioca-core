@@ -43,7 +43,7 @@ void Engine::Impl::StatsPage (const std::vector<const layers::Panel*>& panels, c
                               float ui)
 {
     if (own.massingStats)
-        nextStatsHover = hudmassingstats::Draw (*own.massingStats);
+        nextStatsHover = hudmassingstats::Draw (*own.massingStats, *look, ui);
     hudshell::Cards (own.stats, *look, ui);
     // ⚠️ A CALLER'S CARD IS ITS PANEL, UNDER ITS TITLE: its items, its controls and the values
     // the user set in them, kept by its key as on a tab of its own.
