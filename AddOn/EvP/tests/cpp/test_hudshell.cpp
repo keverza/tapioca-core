@@ -9,6 +9,7 @@
 #include "ArchViz/HudShell.hpp"
 
 #include <gtest/gtest.h>
+#include <imgui_internal.h>
 
 #include <utility>
 
@@ -95,8 +96,8 @@ TEST (HudTips, ATipTurnsToTheSideWithRoom)
 }
 
 // ⚠️ THE USER: text in the panel overflowed and was cut off -- it must flow inside the panel.
-// A figure and a note far wider than the plain card wrap inside its padding.
-TEST (HudText, TextFlowsInsideAPanelOfASetWidth)
+// Figures stay on one line; descriptive notes still wrap inside the padding.
+TEST (HudText, FiguresStayOnOneLineAndNotesFlowInsideAPanelOfASetWidth)
 {
     Fresh hud;
     hud::OwnPages pages = Standalone ();
@@ -112,15 +113,69 @@ TEST (HudText, TextFlowsInsideAPanelOfASetWidth)
     ASSERT_GT (out.host.width, 0.0f);
     EXPECT_LT (out.host.width, 2.0f * look.widthPixels) << "the card keeps its width: the lines do not widen it";
     float box[4] = {};
-    // ⚠️ WRAPPED, NOT CLIPPED: a cell clips what overflows it, so the value's glyphs stopping at
-    // the edge prove nothing -- its lines must be more than one.
     ASSERT_TRUE (Box (out.host, kValueRgba, box));
-    EXPECT_LE (box[2], out.host.width - look.paddingPixels + 1.0f) << "the value wraps inside the padding";
-    EXPECT_GT (box[3] - box[1], 1.5f * 13.0f) << "the value on more than one line";
+    EXPECT_LE (box[2], out.host.width - look.paddingPixels + 1.0f) << "the value fits inside the padding";
+    EXPECT_LT (box[3] - box[1], 1.5f * 13.0f) << "the value stays on one line";
     // The note, in the card's muted colour.
     ASSERT_TRUE (Box (out.host, shell::WithAlpha (look.textRgba, 0.6f), box));
     EXPECT_LE (box[2], out.host.width - look.paddingPixels + 1.0f) << "the note wraps inside the padding";
     EXPECT_GT (box[3] - box[1], 1.5f * 13.0f) << "on more than one line";
+}
+
+TEST (HudText, StatsReserveFullNumericValueAndRevealTruncatedNameOnHover)
+{
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+    io.DisplaySize = { 1000, 600 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const std::string name = "Allowed residential floor area with a very long function name";
+    shell::Card card;
+    card.figures.push_back ({ name, "123456789.12 m2", kValueRgba });
+    const auto& look = shell::PlainLook ();
+    ImVec2 labelPoint;
+    const auto frame = [&] (ImVec2 pointer) {
+        io.AddMousePosEvent (pointer.x, pointer.y);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 260, 180 });
+        ImGui::Begin ("single-line-stats");
+        ImGui::PushTextWrapPos (80); // Reproduce the host's inherited wrapping.
+        shell::Cards ({ card }, look, 1);
+        ImGui::PopTextWrapPos ();
+        ImGui::End ();
+        ImGui::Render ();
+    };
+    frame ({ 800, 500 });
+    frame ({ 800, 500 });
+    const auto* window = ImGui::FindWindowByName ("single-line-stats");
+    const auto labelColour = shell::Packed (shell::WithAlpha (look.textRgba, 0.72f));
+    size_t valueVertices = 0;
+    float low = 1000, high = 0;
+    for (const auto& vertex : window->DrawList->VtxBuffer) {
+        if (vertex.col == shell::Packed (kValueRgba)) {
+            ++valueVertices;
+            low = (std::min) (low, vertex.pos.y);
+            high = (std::max) (high, vertex.pos.y);
+        }
+        if (vertex.col == labelColour)
+            labelPoint = { vertex.pos.x - 1, vertex.pos.y - 1 };
+    }
+    EXPECT_EQ (valueVertices, 14u * 4) << "all digits, decimal point and unit glyphs, not an ellipsis";
+    EXPECT_LT (high - low, ImGui::GetTextLineHeight ());
+    EXPECT_GT (labelPoint.x, 0);
+    frame (labelPoint);
+    frame (labelPoint);
+    bool fullNameTooltip = false;
+    for (const auto* candidate : context->Windows)
+        if ((candidate->Flags & ImGuiWindowFlags_Tooltip) && candidate->Active)
+            fullNameTooltip = candidate->Size.x >= ImGui::CalcTextSize (name.c_str ()).x;
+    EXPECT_TRUE (fullNameTooltip);
+    ImGui::DestroyContext (context);
 }
 
 namespace {

@@ -740,6 +740,27 @@ void Muted (const std::string& text, const layers::Panel& look, uint32_t rgba = 
 
 } // namespace
 
+namespace {
+std::string FigureText (const std::string& text, float width)
+{
+    std::string prefix = text;
+    for (char& c : prefix)
+        if (c == '\n' || c == '\r' || c == '\t')
+            c = ' ';
+    if (ImGui::CalcTextSize (prefix.c_str ()).x <= width)
+        return prefix;
+    while (!prefix.empty ()) {
+        size_t end = prefix.size () - 1;
+        while (end > 0 && (static_cast<unsigned char> (prefix[end]) & 0xC0) == 0x80)
+            --end;
+        prefix.resize (end);
+        if (ImGui::CalcTextSize ((prefix + "...").c_str ()).x <= width)
+            return prefix + "...";
+    }
+    return {};
+}
+} // namespace
+
 void Cards (const std::vector<Card>& cards, const layers::Panel& look, float scale)
 {
     for (size_t c = 0; c < cards.size (); ++c) {
@@ -747,20 +768,36 @@ void Cards (const std::vector<Card>& cards, const layers::Panel& look, float sca
         ImGui::PushID (int (c));
         if (!card.title.empty ())
             ImGui::SeparatorText (card.title.c_str ());
+        float valueWidth = 0;
+        for (const auto& figure : card.figures)
+            valueWidth = (std::max) (valueWidth, ImGui::CalcTextSize (figure.value.c_str ()).x);
+        valueWidth = (std::min) (valueWidth, (std::max) (1.0f, ImGui::GetContentRegionAvail ().x -
+                                                                   4 * ImGui::GetStyle ().CellPadding.x -
+                                                                   ImGui::CalcTextSize ("...").x));
         if (!card.figures.empty () &&
-            ImGui::BeginTable ("##figures", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::BeginTable ("##figures", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::TableSetupColumn ("##name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn ("##value", ImGuiTableColumnFlags_WidthFixed, valueWidth);
+            ImGui::PushTextWrapPos (-1); // Values and units stay together regardless of the shell's wrap setting.
             for (const Figure& figure : card.figures) {
                 ImGui::TableNextRow ();
                 ImGui::TableSetColumnIndex (0);
                 ImGui::PushStyleColor (ImGuiCol_Text, Colour (WithAlpha (look.textRgba, 0.72f)));
-                ImGui::TextUnformatted (figure.label.c_str ());
+                const auto label = FigureText (figure.label, ImGui::GetContentRegionAvail ().x);
+                ImGui::TextUnformatted (label.c_str ());
+                if (label != figure.label && ImGui::IsItemHovered ())
+                    ImGui::SetTooltip ("%s", figure.label.c_str ());
                 ImGui::PopStyleColor ();
                 ImGui::TableSetColumnIndex (1);
                 ImGui::PushStyleColor (ImGuiCol_Text,
                                        Colour ((figure.rgba & 0xFFu) != 0 ? figure.rgba : look.textRgba));
-                ImGui::TextUnformatted (figure.value.c_str ());
+                const auto value = FigureText (figure.value, ImGui::GetContentRegionAvail ().x);
+                ImGui::TextUnformatted (value.c_str ());
+                if (value != figure.value && ImGui::IsItemHovered ())
+                    ImGui::SetTooltip ("%s", figure.value.c_str ());
                 ImGui::PopStyleColor ();
             }
+            ImGui::PopTextWrapPos ();
             ImGui::EndTable ();
         }
         if (card.progress >= 0.0) {
