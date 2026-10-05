@@ -111,7 +111,9 @@ void Follow (const rules::Page& page, Draft& draft)
 }
 
 std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
-                                  const std::shared_ptr<const massingcalculation::Preview>& preview)
+                                  const std::shared_ptr<const massingcalculation::Preview>& preview,
+                                  const std::vector<rules::Page>& parcels,
+                                  const std::shared_ptr<const massingcalculation::Preview>& sitePreview)
 {
     std::vector<rules::Edit> edits;
     std::vector<std::vector<Point>> paths;
@@ -125,6 +127,14 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
             maxY = (std::max) (maxY, p.second);
         }
     }
+    for (const auto& parcel : parcels)
+        for (const auto& edge : parcel.edges)
+            for (const auto& p : Points (edge)) {
+                minX = (std::min) (minX, p.first);
+                maxX = (std::max) (maxX, p.first);
+                minY = (std::min) (minY, p.second);
+                maxY = (std::max) (maxY, p.second);
+            }
     const ImVec2 origin = ImGui::GetCursorScreenPos ();
     const ImVec2 extent ((std::max) (80.0f, ImGui::GetContentRegionAvail ().x), 200);
     const double factor =
@@ -140,15 +150,64 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     draw->AddRectFilled (origin, { origin.x + extent.x, origin.y + extent.y }, ImGui::GetColorU32 (ImGuiCol_FrameBg),
                          4);
     draw->PushClipRect (origin, { origin.x + extent.x, origin.y + extent.y }, true);
-    if (preview && massingcalculation::SameRequest (preview->inputs, Inputs (page, draft))) {
-        const auto& xy = preview->result.offsetXY;
+    std::string otherHit;
+    float nearestOther = 100;
+    const ImVec2 pointer = ImGui::GetIO ().MousePos;
+    for (size_t k = 0; k < parcels.size (); ++k) {
+        const auto& parcel = parcels[k];
+        if (parcel.guid == page.guid || parcel.edges.empty ())
+            continue;
+        for (const auto& edge : parcel.edges) {
+            const auto path = Points (edge);
+            for (size_t i = 1; i < path.size (); ++i) {
+                const auto from = project (path[i - 1]), to = project (path[i]);
+                draw->AddLine (from, to, IM_COL32 (170, 68, 101, 255), 1.5f);
+                const float dx = to.x - from.x, dy = to.y - from.y;
+                const float px = pointer.x - from.x, py = pointer.y - from.y;
+                const float squared = dx * dx + dy * dy;
+                const float t = squared > 0 ? (std::clamp) ((px * dx + py * dy) / squared, 0.0f, 1.0f) : 0;
+                const float distance = (px - t * dx) * (px - t * dx) + (py - t * dy) * (py - t * dy);
+                if (distance < nearestOther) {
+                    nearestOther = distance;
+                    otherHit = parcel.guid;
+                }
+            }
+        }
+        if (draft.labels) {
+            const auto at = project ({ parcel.edges[0].ax, parcel.edges[0].ay });
+            const auto label = "Parcel " + std::to_string (k + 1);
+            draw->AddText ({ at.x + 5, at.y - ImGui::GetTextLineHeight () }, ImGui::GetColorU32 (ImGuiCol_Text),
+                           label.c_str ());
+        }
+    }
+    if (sitePreview)
+        for (const auto& parcel : sitePreview->parcels) {
+            if (parcel.inputs.before.guid == page.guid)
+                continue;
+            const auto& xy = parcel.result.offsetXY;
+            for (size_t i = 0; i + 1 < xy.size (); i += 2) {
+                const size_t next = (i + 2) % xy.size ();
+                draw->AddLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }),
+                               IM_COL32 (166, 98, 38, 255), 2);
+            }
+        }
+    const auto* inputs = preview ? &preview->inputs : nullptr;
+    const auto* result = preview ? &preview->result : nullptr;
+    if (preview)
+        for (const auto& parcel : preview->parcels)
+            if (parcel.inputs.before.guid == page.guid) {
+                inputs = &parcel.inputs;
+                result = &parcel.result;
+                break;
+            }
+    if (inputs && massingcalculation::SameRequest (*inputs, Inputs (page, draft))) {
+        const auto& xy = result->offsetXY;
         for (size_t i = 0; i + 1 < xy.size (); i += 2) {
             const size_t next = (i + 2) % xy.size ();
             draw->AddLine (project ({ xy[i], xy[i + 1] }), project ({ xy[next], xy[next + 1] }),
                            IM_COL32 (166, 98, 38, 255), 2);
         }
     }
-    const ImVec2 pointer = ImGui::GetIO ().MousePos;
     int pointHit = -1, edgeHit = -1;
     float nearestPoint = 81, nearestEdge = 100;
     for (size_t i = 0; i < paths.size (); ++i) {
@@ -193,10 +252,12 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     }
     draw->PopClipRect ();
     if (hovered) {
-        if (pointHit >= 0 || edgeHit >= 0)
+        if (pointHit >= 0 || edgeHit >= 0 || !otherHit.empty ())
             ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);
         if (ImGui::IsMouseReleased (ImGuiMouseButton_Left) && edgeHit >= 0)
             draft.selected = edgeHit;
+        else if (ImGui::IsMouseReleased (ImGuiMouseButton_Left) && !otherHit.empty ())
+            draft.pickedParcel = otherHit;
         if (ImGui::IsMouseReleased (ImGuiMouseButton_Right)) {
             hudshell::ClaimRightClick ();
             draft.targetPoint = pointHit;
@@ -309,7 +370,9 @@ void Sync (const rules::Page& page, Draft& draft)
 }
 
 std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy, const std::string& calculationNote,
-                               const std::shared_ptr<const massingcalculation::Preview>& preview)
+                               const std::shared_ptr<const massingcalculation::Preview>& preview,
+                               const std::vector<rules::Page>& parcels,
+                               const std::shared_ptr<const massingcalculation::Preview>& sitePreview)
 {
     Sync (page, draft);
     std::vector<rules::Edit> edits;
@@ -325,11 +388,12 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
         ImGui::TextDisabled ("Updating preview...");
     if (!page.known || page.edges.empty () || draft.assignments.size () != page.edges.size ()) {
         if (page.note.empty ())
-            ImGui::TextDisabled ("Define one property-line Polyline first.");
+            ImGui::TextDisabled ("Define closed property-line Polylines first.");
         Follow (page, draft);
         return edits;
     }
     ImGui::PushID ("massing.rules");
+    ImGui::PushID (page.guid.c_str ());
     draft.selected = (std::clamp) (draft.selected, 0, int (page.edges.size ()) - 1);
     if (!draft.note.empty ())
         ImGui::TextWrapped ("%s", draft.note.c_str ());
@@ -338,7 +402,8 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
     ImGui::Checkbox ("Project height cap", &draft.calculation.capped);
     if (draft.calculation.capped)
         Distance ("Cap Project Z", draft.calculation.capZ, draft, 5, 50);
-    edits = Diagram (page, draft, preview);
+    edits = Diagram (page, draft, preview, parcels, sitePreview);
+    ImGui::PopID ();
     ImGui::PopID ();
     Follow (page, draft);
     return edits;

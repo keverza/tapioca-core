@@ -420,7 +420,7 @@ void Draw (IDXGISwapChain* swapChain)
     // ⚠️ HIDDEN BY THE USER (the dock's circle, OverlayVisibility.hpp): the guest draws its
     // HUD alone -- the dock's tab, the way back -- and nothing else is drawn.
     const bool shown = overlayvisibility::ContentShown ();
-    const bool walls = shown && g_segments != nullptr && g_segmentCount > 0;
+    const bool walls = shown && overlayvisibility::WireframeShown () && g_segments != nullptr && g_segmentCount > 0;
     const bool layers = shown && (g_layerStrokeCount > 0 || g_layerFillCount > 0);
     const bool guest = planguest::HasContent ();
     if (!shown)

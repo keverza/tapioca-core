@@ -6,6 +6,7 @@
 #include "hud_fixture.hpp"
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 
 #include <gtest/gtest.h>
 
@@ -56,7 +57,7 @@ TEST (OverlayHudDisplays, SettingsSwitchesTheStoreySlicesOnAndShowsTheirStyle)
     ASSERT_GT (off.host.height, 0.0f);
     const float left = off.host.fraction[0] * 1200.0f + off.host.offset[0];
     const float top = off.host.fraction[1] * 800.0f + off.host.offset[1];
-    // Show overlay, Hover readout, Storey slices, Massing slices, Watch annotations.
+    // Show overlay, Hover readout, Wireframe, Storey slices, Massing slices, Watch annotations.
     const std::vector<std::pair<float, float>> boxes = Presses (hud, left + 14.0f, top + off.host.height);
     ASSERT_GE (boxes.size (), 4u);
     const float slices = (boxes[boxes.size () - 3].first + boxes[boxes.size () - 3].second) * 0.5f;
@@ -75,6 +76,35 @@ TEST (OverlayHudDisplays, SettingsSwitchesTheStoreySlicesOnAndShowsTheirStyle)
     hud.engine.SetOwnPages (Own (true));
     const hud::Layout on = hud.Lay ({}, At (600.0f, 600.0f));
     EXPECT_GT (on.host.height, off.host.height + 5.0f * 13.0f) << "the slices' style is on the page";
+}
+
+TEST (OverlayHudDisplays, SettingsSwitchesExistingWireframesWithoutHidingAnalysis)
+{
+    Watched hud;
+    auto pages = Own (false);
+    pages.displays.wireframeOn = true;
+    hud.engine.SetOwnPages (pages);
+    hud::SelectKey (*hud.state, shell::kSettingsKey);
+    const auto layout = hud.Lay ({}, At (600, 600));
+    const float left = layout.host.fraction[0] * 1200 + layout.host.offset[0];
+    const float top = layout.host.fraction[1] * 800 + layout.host.offset[1];
+    const auto boxes = Presses (hud, left + 14, top + layout.host.height);
+    ASSERT_GE (boxes.size (), 6u);
+    const auto& wireframe = boxes[boxes.size () - 4];
+    hud.Click ({}, left + 14, (wireframe.first + wireframe.second) * 0.5f);
+    hud::Displays wanted;
+    ASSERT_TRUE (hud::TakeDisplays (*hud.state, wanted));
+    EXPECT_FALSE (wanted.wireframeOn);
+    EXPECT_EQ (wanted.massingSlicesOn, pages.displays.massingSlicesOn);
+    EXPECT_EQ (wanted.slices.label, pages.displays.slices.label);
+    EXPECT_TRUE (hud::ContentShown (*hud.state));
+    EXPECT_EQ (hud.heard.back ().text, "wireframe off");
+    namespace visibility = geomsrv::archviz::overlayvisibility;
+    visibility::SetContentShown (true);
+    visibility::SetWireframeShown (wanted.wireframeOn);
+    EXPECT_FALSE (visibility::WireframeShown ());
+    EXPECT_TRUE (visibility::ContentShown ());
+    visibility::SetWireframeShown (true);
 }
 
 TEST (OverlayHudDisplays, MassingSlicesExposeSharedStyleWithoutStandaloneSlices)

@@ -64,6 +64,10 @@ void Engine::Impl::DisplaySettings ()
     Displays wanted = shown;
     std::string what;
 
+    if (ImGui::Checkbox ("Existing geometry wireframe##tapioca.display.wireframe", &wanted.wireframeOn))
+        what = wanted.wireframeOn ? "wireframe on" : "wireframe off";
+    hudshell::Tip (
+        "Show the existing-model reference wireframe in 3D and outlines in 2D; analysis overlays stay visible.");
     if (ImGui::Checkbox ("Storey slices##tapioca.display.slices", &wanted.slicesOn))
         what = wanted.slicesOn ? "slices on" : "slices off";
     hudshell::Tip ("Each storey's floor outlined on the model, with its area: the selected massing slabs' floors, "

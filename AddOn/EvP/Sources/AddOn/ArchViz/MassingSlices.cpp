@@ -141,7 +141,8 @@ bool CutEnvelope (const overlaylayers::Mesh& envelope, double z, std::vector<Sli
 }
 
 bool ClipContours (const std::vector<SliceChain>& slab, const std::vector<SliceChain>& envelope,
-                   std::vector<SliceChain>& outlines, double& area, std::string& error)
+                   std::vector<SliceChain>& outlines, double& area, std::string& error,
+                   cp::ClipType operation = cp::ClipType::Intersection)
 {
     if (slab.empty ())
         return Fail (error, "Empty slab intersection contour.");
@@ -161,7 +162,7 @@ bool ClipContours (const std::vector<SliceChain>& slab, const std::vector<SliceC
             }
             (rings == &slab ? subject : clip).push_back (std::move (path));
         }
-    const cp::PathsD paths = cp::BooleanOp (cp::ClipType::Intersection, cp::FillRule::EvenOdd, subject, clip, 6);
+    const cp::PathsD paths = cp::BooleanOp (operation, cp::FillRule::EvenOdd, subject, clip, 6);
     std::vector<SliceChain> final;
     for (const auto& path : paths) {
         SliceChain ring;
@@ -177,6 +178,47 @@ bool ClipContours (const std::vector<SliceChain>& slab, const std::vector<SliceC
         return Fail (error, "Non-finite intersection area.");
     outlines = std::move (final);
     area = net;
+    return true;
+}
+
+bool CutEnvelopes (const std::vector<overlaylayers::Mesh>& meshes, double z, std::vector<SliceChain>& outlines,
+                   std::string& error)
+{
+    cp::PathsD all;
+    double ox = 0, oy = 0;
+    bool anchored = false;
+    size_t points = 0;
+    for (const auto& mesh : meshes) {
+        std::vector<SliceChain> cut;
+        if (!CutEnvelope (mesh, z, cut, error))
+            return false;
+        cp::PathsD parcel;
+        for (const auto& ring : cut) {
+            if (!anchored) {
+                ox = ring.xy[0];
+                oy = ring.xy[1];
+                anchored = true;
+            }
+            points += ring.Count ();
+            if (points > 200000)
+                return Fail (error, "Envelope union contour budget exceeded.");
+            cp::PathD path;
+            for (size_t i = 0; i < ring.xy.size (); i += 2)
+                path.emplace_back (ring.xy[i] - ox, ring.xy[i + 1] - oy);
+            parcel.push_back (std::move (path));
+        }
+        // Normalize holes within each parcel before the site union: EvenOdd
+        // across different parcels would incorrectly remove overlapping regions.
+        const auto normalized = cp::Union (parcel, cp::FillRule::EvenOdd, 6);
+        all.insert (all.end (), normalized.begin (), normalized.end ());
+    }
+    for (const auto& path : cp::Union (all, cp::FillRule::NonZero, 6)) {
+        SliceChain ring;
+        ring.closed = true;
+        for (const auto& point : path)
+            ring.xy.insert (ring.xy.end (), { point.x + ox, point.y + oy });
+        outlines.push_back (std::move (ring));
+    }
     return true;
 }
 } // namespace
@@ -198,12 +240,15 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     Result out;
     out.layer.name = kLayer;
     out.layer.occlusion = overlaylayers::Behind::Dash;
-    out.clipped = envelope && envelope->hasEnvelope && envelope->layer.meshes.size () == 1;
+    out.clipped = envelope && envelope->hasEnvelope && !envelope->layer.meshes.empty ();
+    if (out.clipped && envelope->layer.meshes.size () > massingcalculation::kMaxParcels)
+        return Fail (error, "Envelope budget is 32 parcels.");
     const auto schema = meta::DefaultSchema ();
     const auto* palette = schema.FindEnumeration ("building-usage");
     std::map<double, std::vector<SliceChain>> cuts;
     std::vector<hudsection::Slab> masses;
     size_t bodyWork = 0;
+    size_t envelopeWork = 0;
     for (const auto& input : slabs) {
         if (!std::isfinite (input.slab.bottom) || !std::isfinite (input.slab.top) ||
             std::abs (input.slab.bottom) > 1e9 || std::abs (input.slab.top) > 1e9 ||
@@ -315,8 +360,8 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             Row row;
             row.guid = input.slab.guid;
             row.function = function;
-            // Floor identity follows elevation, independent of the derived story count.
-            row.story = archicad ? slice.storey : slices.front ().storey + int (i);
+            // Use the slicer's advancing floor identity for names, hover and range edits.
+            row.story = slice.storey;
             if (const auto* value =
                     meta::RangeValue (input.metadata, meta::kFloorDomain, row.story, "massing.function"))
                 row.function = value->value.s;
@@ -332,9 +377,20 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
                 if (!chain.closed)
                     return Fail (error, "Operated slab cut is open; no partial area published.");
             row.clipped = out.clipped;
+            storysliceoverlay::Slice outside = slice;
+            outside.chains.clear ();
             if (out.clipped && !slice.chains.empty ()) {
                 const auto cut = cuts.try_emplace (slice.z);
-                if (cut.second && !CutEnvelope (envelope->layer.meshes[0], slice.z, cut.first->second, error))
+                if (cut.second) {
+                    for (const auto& mesh : envelope->layer.meshes)
+                        envelopeWork += mesh.indices.size () / 3;
+                    if (envelopeWork > 2000000)
+                        return Fail (error, "Envelope cuts exceed their work budget.");
+                    if (!CutEnvelopes (envelope->layer.meshes, slice.z, cut.first->second, error))
+                        return false;
+                }
+                if (!ClipContours (slice.chains, cut.first->second, outside.chains, outside.areaM2, error,
+                                   cp::ClipType::Difference))
                     return false;
                 if (!ClipContours (slice.chains, cut.first->second, slice.chains, slice.areaM2, error))
                     return false;
@@ -350,24 +406,39 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             mass.floors.push_back ({ row.z, summary.floors[i].height, out.clipped ? row.allowedArea : row.rawArea });
             mass.storeys.push_back (row.story);
             slice.name = (building ? building->value.s : input.slab.id) + " S" + std::to_string (row.story);
-            if (slice.chains.empty ())
-                continue; // a level outside the shell counts zero and draws nothing
             storysliceoverlay::Controls controls = display;
             controls.views = overlaylayers::Views::Both;
             controls.fillColors.clear ();
             controls.fillColormap.stops.clear ();
             controls.fillRgba = (colour & 0xFFFFFF00) | ((display.fillRgba & 0xFF) ? 0x59 : 0);
             controls.outlineRgba = colour;
-            controls.labelSizeMetres = 0.2;
             controls.labelMinProjectedPixels = 9;
             controls.liftMetres = 0.015;
-            Append (out.layer, storysliceoverlay::BuildLayer ({ slice }, controls).layer);
+            if (!slice.chains.empty ())
+                Append (out.layer, storysliceoverlay::BuildLayer ({ slice }, controls).layer);
+            if (!outside.chains.empty ()) {
+                outside.name = slice.name + " (outside envelope)";
+                controls.label = false; // the area label and feasibility use the allowed part only
+                controls.fillRgba = 0xAA446500 | ((display.fillRgba & 0xFF) ? 0xFF : 0);
+                controls.fillOpacity = 0.5f * display.fillOpacity;
+                controls.outlineRgba = 0xAA4465FF;
+                Append (out.layer, storysliceoverlay::BuildLayer ({ outside }, controls).layer);
+            }
         }
         masses.push_back (std::move (mass));
     }
     out.section = hudsection::Build (masses, storeys, schema, "massing.function");
     for (auto& floor : out.section.floors)
-        floor.label = "Floor " + std::to_string (floor.storey + 1);
+        floor.label = "Floor " + std::to_string (floor.storey);
+    // As in standalone mode, every on-slice label shares the smallest fitted
+    // size, even when separate floors have different function colours.
+    double uniformLabel = 0;
+    for (const auto& label : out.layer.texts)
+        if (label.planar)
+            uniformLabel = uniformLabel == 0 ? label.sizeMetres : (std::min) (uniformLabel, label.sizeMetres);
+    for (auto& label : out.layer.texts)
+        if (label.planar)
+            label.sizeMetres = uniformLabel;
     out.hasFacade = Facade (slabs, out.facadeArea);
     if (!slabs.empty ())
         out.note =
@@ -377,6 +448,8 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     if (!out.hasFacade)
         out.note +=
             " Facade area unavailable for operated bodies or exceeded union budget; no prism substitute reported.";
+    if (out.clipped)
+        out.note += " Red regions are outside the allowed envelope union and excluded from allowed areas.";
     error = overlaylayers::Validate (out.layer);
     if (!error.empty ())
         return false;

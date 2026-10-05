@@ -186,6 +186,66 @@ QueryEngine::RayHit QueryEngine::Raycast (const double org[3], const double dir[
     return out;
 }
 
+QueryEngine::RayHit QueryEngine::RaycastMesh (const Snapshot& snapshot, size_t meshIndex, const double org[3],
+                                              const double dir[3], double maxDist)
+{
+    RayHit out;
+    if (meshIndex >= snapshot.meshes.size ())
+        return out;
+    const Mesh& mesh = snapshot.meshes[meshIndex];
+    const double length = std::sqrt (Dot (dir, dir));
+    if (!(length > 0.0) || !std::isfinite (length) || mesh.TriangleCount () == 0)
+        return out;
+
+    nanort::Ray<double> ray;
+    for (int axis = 0; axis < 3; ++axis) {
+        ray.org[axis] = org[axis];
+        ray.dir[axis] = dir[axis] / length;
+    }
+    ray.min_t = 0.0;
+    ray.max_t = maxDist > 0.0 ? maxDist : std::numeric_limits<double>::max ();
+    nanort::TriangleIntersector<double, nanort::TriangleIntersection<double>> intersector (
+        mesh.vertices.data (), mesh.triangles.data (), sizeof (double) * 3);
+    intersector.PrepareTraversal (ray, nanort::BVHTraceOptions {});
+    uint32_t localFace = 0;
+    for (size_t face = 0; face < mesh.TriangleCount (); ++face) {
+        if (mesh.triangles[face * 3] >= mesh.VertexCount () || mesh.triangles[face * 3 + 1] >= mesh.VertexCount () ||
+            mesh.triangles[face * 3 + 2] >= mesh.VertexCount ())
+            continue;
+        double distance = ray.max_t;
+        if (intersector.Intersect (&distance, static_cast<uint32_t> (face)) && distance < ray.max_t) {
+            out.hit = true;
+            out.t = distance;
+            localFace = static_cast<uint32_t> (face);
+            ray.max_t = distance;
+        }
+    }
+    if (!out.hit)
+        return out;
+
+    size_t faceBase = 0;
+    for (size_t meshBefore = 0; meshBefore < meshIndex; ++meshBefore)
+        faceBase += snapshot.meshes[meshBefore].TriangleCount ();
+    out.tri = static_cast<uint32_t> (faceBase + localFace);
+    out.meshIndex = meshIndex;
+    for (int axis = 0; axis < 3; ++axis)
+        out.point[axis] = org[axis] + ray.dir[axis] * out.t;
+
+    // This mesh-only query needs no combined normal/vertex arrays.
+    const double* a = &mesh.vertices[mesh.triangles[localFace * 3] * 3];
+    const double* b = &mesh.vertices[mesh.triangles[localFace * 3 + 1] * 3];
+    const double* c = &mesh.vertices[mesh.triangles[localFace * 3 + 2] * 3];
+    double ab[3], ac[3];
+    Sub (b, a, ab);
+    Sub (c, a, ac);
+    Cross (ab, ac, out.normal);
+    const double normalLength = std::sqrt (Dot (out.normal, out.normal));
+    if (normalLength > 0.0)
+        for (double& value : out.normal)
+            value /= normalLength;
+    return out;
+}
+
 bool QueryEngine::Occluded (const double org[3], const double dir[3], double tmin, double tmax) const
 {
     if (triToMesh.empty ())

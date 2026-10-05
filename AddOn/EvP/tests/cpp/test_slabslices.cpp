@@ -309,17 +309,40 @@ TEST (SlabSlices, EveryFloorCarriesItsArea)
 // ⚠️ THE USER, 2026-10-01: "If Storey has no name do not reuse previous number, increment as
 // it is a new storey" -- every slice above the top storey read the top storey's number. A
 // floor above the project's top storey is a storey of its own, one below its lowest too;
-// within them, two floors in one storey still share its number.
+// within them, each slice floor now advances even inside the same project story.
 TEST (SlabSlices, AFloorAboveTheTopStoreyIsAStoreyOfItsOwn)
 {
     const ProjectStoreys five = Storeys ({ 0.0, 3.0, 6.0, 9.0, 12.1 }); // numbered -1 to 3
     EXPECT_EQ (slab::StoreysAt (five, { 0.0, 3.0, 6.0, 9.0, 12.1, 15.2, 18.3, 21.4 }),
                (std::vector<int> { -1, 0, 1, 2, 3, 4, 5, 6 }));
-    EXPECT_EQ (slab::StoreysAt (five, { 0.0, 1.5 }), (std::vector<int> { -1, -1 })) << "one storey, two floors";
+    EXPECT_EQ (slab::StoreysAt (five, { 0.0, 1.5 }), (std::vector<int> { -1, 0 })) << "one project story, two floors";
     const ProjectStoreys two = Storeys ({ 3.0, 6.0 }); // numbered -1 and 0
     EXPECT_EQ (slab::StoreysAt (two, { 0.0, 1.5, 3.0, 6.0 }), (std::vector<int> { -3, -2, -1, 0 }))
         << "below the lowest, numbered down from it";
-    EXPECT_EQ (slab::StoreysAt (ProjectStoreys (), { 0.0, 3.0 }), (std::vector<int> { 0, 0 }));
+    EXPECT_EQ (slab::StoreysAt (ProjectStoreys (), { 0.0, 3.0 }), (std::vector<int> { 0, 1 }));
+}
+
+TEST (SlabSlices, SliceNumbersAdvanceInsideOneTallProjectStoryAndWithoutProjectLevels)
+{
+    ProjectStoreys storeys;
+    storeys.levels = { 0, 30 };
+    storeys.indices = { 0, 1 };
+    slab::Rule rule = Rule (slab::Cut::Step);
+    rule.stepMetres = 3;
+    const auto block = Block (0, 0, 10, 10, 0, 15);
+    for (const auto& levels : { storeys, ProjectStoreys {} }) {
+        std::vector<so::Slice> slices;
+        const auto summary = slab::SliceSlab (block, rule, levels, slices);
+        ASSERT_EQ (slices.size (), 5u) << summary.problem;
+        for (size_t i = 0; i < slices.size (); ++i)
+            EXPECT_EQ (slices[i].storey, int (i));
+        const auto body = Walls ({ block.outer.xy }, 0, 15);
+        slices.clear ();
+        slab::SliceBody (block, body, rule, levels, slices);
+        ASSERT_EQ (slices.size (), 5u);
+        for (size_t i = 0; i < slices.size (); ++i)
+            EXPECT_EQ (slices[i].storey, int (i));
+    }
 }
 
 // The user's case through the slicing: eight floors over five storeys, the three above the

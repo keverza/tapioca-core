@@ -220,6 +220,7 @@ using ChangeSink = std::function<void (const Change&)>;
 // them, `TakeDisplays`' -- the owner applies it after the layout (StorySliceOverlay.hpp: a new
 // look is `Restyle`, nothing read again).
 struct Displays {
+    bool wireframeOn = true;
     bool slicesOn = false;
     bool massingSlicesOn = true;
     bool slicesFromModel = false;       // the whole model cut at each storey; else the selected massing slabs

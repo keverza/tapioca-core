@@ -86,6 +86,13 @@ class QueryEngine {
     };
     RayHit Raycast (const double org[3], const double dir[3], double maxDist) const;
 
+    // Query only an already-picked mesh, without building/caching a whole-model
+    // BVH. The returned triangle is still GLOBAL in snapshot order, not local
+    // to the mesh or a role-partition BVH. Two-sided, like Raycast; the normal
+    // is the geometric face normal rather than an interpolated smooth normal.
+    static RayHit RaycastMesh (const Snapshot& snapshot, size_t meshIndex, const double org[3], const double dir[3],
+                               double maxDist);
+
     // ---- Occlusion ("is anything in the way") ------------------------------
     // True when any surface lies on the ray between `tmin` and `tmax`. The
     // shadow-ray query: it answers a yes/no question and returns nothing else.

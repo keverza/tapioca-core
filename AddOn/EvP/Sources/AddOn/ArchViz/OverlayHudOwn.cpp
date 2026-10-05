@@ -118,8 +118,12 @@ void Engine::Impl::MassingPage ()
                              double (request.action), hudmassing::Label (request.group), true });
     }
     const bool dimensions = store->massingRules.offsetDimensions;
-    for (auto& edit : hudmassingrules::Draw (own.massing.rules, store->massingRules, own.massing.calculationBusy,
-                                             own.massing.calculationNote, own.massing.preview)) {
+    const auto parcels = own.massing.parcels.empty () && !own.massing.rules.guid.empty ()
+                             ? std::vector<massingrules::Page> { own.massing.rules }
+                             : own.massing.parcels;
+    for (auto& edit :
+         hudmassingrules::DrawSite (parcels, store->massingRules, store->massingSite, own.massing.calculationBusy,
+                                    own.massing.calculationNote, own.massing.preview)) {
         changes.push_back (
             { "massingRules", std::string (), "Massing", edit.before.guid, -1, 1.0, "Save assignments", true });
         store->massingRuleEdits.push_back (std::move (edit));

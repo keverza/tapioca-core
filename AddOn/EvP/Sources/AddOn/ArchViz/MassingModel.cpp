@@ -159,8 +159,9 @@ void Apply (hudmassing::Request request, const std::vector<std::string>& selecte
             std::set<std::string> future (selected.begin (), selected.end ());
             if (request.action == hudmassing::Action::Add)
                 future.insert (current.begin (), current.end ());
-            if (adding && request.group == hudmassing::Group::PropertyLine && future.size () > 1)
-                error = "Define exactly one property-line Polyline.";
+            if (adding && request.group == hudmassing::Group::PropertyLine &&
+                future.size () > massingcalculation::kMaxParcels)
+                error = "Define accepts at most 32 property-line Polylines.";
             const auto plan = hudmassing::Plan (request, current, selected);
             // Read and validate EVERY record before opening the single undo step.
             std::vector<std::pair<std::string, meta::EntityMetadata>> writes;
@@ -223,8 +224,15 @@ hudmassing::Page Read ()
         s_dirty = false;
         hudmassing::Page page;
         Scan (page);
-        if (page.known)
-            page.rules = massingrulesmodel::Read (page.guids[0]);
+        if (page.known) {
+            std::sort (page.guids[0].begin (), page.guids[0].end ());
+            if (page.guids[0].size () > massingcalculation::kMaxParcels)
+                page.note = "At most 32 property lines are supported; use Define to remove excess roles.";
+            else
+                page.parcels = massingrulesmodel::ReadParcels (page.guids[0]);
+            if (!page.parcels.empty ())
+                page.rules = page.parcels.front ();
+        }
         if (page.note.empty ())
             page.note = s_notice;
         s_page = std::move (page);
@@ -257,7 +265,8 @@ void RequestRules (massingrules::Edit edit)
             hudmassing::Page current;
             if (!Scan (current))
                 error = current.note;
-            else if (current.guids[0] != std::vector<std::string> { edit.before.guid })
+            else if (std::find (current.guids[0].begin (), current.guids[0].end (), edit.before.guid) ==
+                     current.guids[0].end ())
                 error = "Defined property line changed before Save; reread before editing.";
             else
                 massingrulesmodel::Apply (edit, error);

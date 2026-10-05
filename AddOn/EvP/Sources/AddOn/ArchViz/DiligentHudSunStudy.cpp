@@ -220,31 +220,32 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     // cursor that is not moving.
     static float lastRay[6] = { 0, 0, 0, 0, 0, 0 };
     static std::string lastStudy;
+    static std::string lastPicked;
+    static uint64_t lastSnapshot = 0;
     static std::chrono::steady_clock::time_point lastAsked;
-    if (state.sunInspect == 0) {
+    if (state.sunInspect == 0 || !state.hover.valid) {
         state.sunReadingState = 0;
         return;
     }
     const std::string id = scene.ShownSunStudyId ();
+    const std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
+    if (id.empty () || snapshot == nullptr) {
+        state.sunReadingState = 0;
+        return;
+    }
+    const std::string picked = evp::sunstudy::CanonicalGuid (state.hover.guid);
     const auto now = std::chrono::steady_clock::now ();
     const float ray[6] = { origin[0], origin[1], origin[2], direction[0], direction[1], direction[2] };
-    if (id == lastStudy && std::equal (ray, ray + 6, lastRay) && now - lastAsked < std::chrono::milliseconds (250))
+    if (id == lastStudy && picked == lastPicked && snapshot->id == lastSnapshot && std::equal (ray, ray + 6, lastRay) &&
+        now - lastAsked < std::chrono::milliseconds (250))
         return;
     std::copy (ray, ray + 6, lastRay);
     lastStudy = id;
+    lastPicked = picked;
+    lastSnapshot = snapshot->id;
     lastAsked = now;
 
     state.sunReadingState = 0;
-    if (id.empty ())
-        return;
-    const std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
-    if (snapshot == nullptr)
-        return;
-    // âš ï¸ PEEK, NEVER For: this is the render thread, and For builds a BVH --
-    // under a lock another thread may be holding for exactly that -- on a miss.
-    const std::shared_ptr<const QueryEngine> engine = QueryIndexCache::Get ().Peek (snapshot->id);
-    if (engine == nullptr)
-        return;
 
     // âš ï¸ THE GPU PICK DECIDES WHICH ELEMENT IS UNDER THE CURSOR, NOT THE RAY.
     // The snapshot's BVH holds elements the viewer never draws (zone volumes,
@@ -252,21 +253,19 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     // the inspector "did not track the model". The pick renders what is ON
     // SCREEN, so the reading is taken from the first hit on the element it
     // names, walking past anything invisible in front.
-    if (!state.hover.valid)
-        return;
-    const std::string picked = evp::sunstudy::CanonicalGuid (state.hover.guid);
     const double org[3] = { origin[0], origin[1], origin[2] };
     const double dir[3] = { direction[0], direction[1], direction[2] };
-    const QueryEngine::PierceResult hits = engine->RaycastAll (org, dir, 1.0e6, 64);
-    const QueryEngine::PierceHit* hit = nullptr;
-    for (const QueryEngine::PierceHit& candidate : hits.hits) {
-        if (candidate.meshIndex < snapshot->meshes.size () &&
-            evp::sunstudy::CanonicalGuid (snapshot->meshes[candidate.meshIndex].guid) == picked) {
-            hit = &candidate;
-            break;
+    // Role-partition preparation may never populate QueryIndexCache. Query the
+    // picked mesh directly: no whole-model BVH build or capped invisible hits.
+    QueryEngine::RayHit hit;
+    for (size_t mesh = 0; mesh < snapshot->meshes.size (); ++mesh) {
+        if (evp::sunstudy::CanonicalGuid (snapshot->meshes[mesh].guid) == picked) {
+            const auto candidate = QueryEngine::RaycastMesh (*snapshot, mesh, org, dir, hit.hit ? hit.t : 1.0e6);
+            if (candidate.hit)
+                hit = candidate;
         }
     }
-    if (hit == nullptr) {
+    if (!hit.hit) {
         // Said, not hidden: the ray and the picture disagree about this pixel.
         state.sunReadingState = 4;
         return;
@@ -276,7 +275,7 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     uint8_t role = 0xff;
     double daylight = 0.0;
     std::string error;
-    if (!evp::sunstudy::SunStudyStore::Get ().ReadAt (id, snapshot->id, hit->tri, hit->meshIndex, hit->point, reading,
+    if (!evp::sunstudy::SunStudyStore::Get ().ReadAt (id, snapshot->id, hit.tri, hit.meshIndex, hit.point, reading,
                                                       role, daylight, error)) {
         state.sunReadingState = error == "computing" ? 3 : 0;
         return;

@@ -115,6 +115,14 @@ rules::Page Read (const std::vector<std::string>& guids)
     return page;
 }
 
+std::vector<rules::Page> ReadParcels (const std::vector<std::string>& guids)
+{
+    std::vector<rules::Page> pages;
+    for (const auto& guid : guids)
+        pages.push_back (Read ({ guid }));
+    return pages;
+}
+
 bool Apply (const rules::Edit& edit, std::string& error)
 {
     ModelDatabase database;

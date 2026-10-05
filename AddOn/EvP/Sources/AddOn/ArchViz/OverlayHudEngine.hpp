@@ -86,6 +86,7 @@ struct State {
     std::vector<hudmeta::Edit> metadataEdits;
     std::vector<hudmassing::Request> massingRequests;
     hudmassingrules::Draft massingRules;
+    hudmassingrules::SiteDraft massingSite;
     std::vector<massingrules::Edit> massingRuleEdits;
     std::vector<massingcalculation::Request> massingCalculations;
     // The building section's floors picked (PickedFloors), both views'.

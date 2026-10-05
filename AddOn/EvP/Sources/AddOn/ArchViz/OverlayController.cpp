@@ -819,6 +819,7 @@ void StopAll ()
     StopRenderers (true);
     overlayinput::Shutdown ();
     overlayvisibility::SetContentShown (true);
+    overlayvisibility::SetWireframeShown (true);
 }
 
 void PublishLayers ()

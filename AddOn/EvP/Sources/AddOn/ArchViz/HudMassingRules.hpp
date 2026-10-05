@@ -3,6 +3,7 @@
 
 #include "ArchViz/MassingRules.hpp"
 #include "ArchViz/MassingCalculation.hpp"
+#include <map>
 
 namespace geomsrv::archviz::hudmassingrules {
 struct NumberEdit {
@@ -28,12 +29,25 @@ struct Draft {
     bool offsetDimensions = false;
     std::vector<NumberEdit> numbers;
     std::string note;
+    std::string pickedParcel;
 };
+struct SiteDraft {
+    std::map<std::string, Draft> parcels;
+    std::optional<massingcalculation::Request> lastRequested;
+};
+void SyncSite (const std::vector<massingrules::Page>& pages, Draft& active, SiteDraft& site);
+massingcalculation::Request SiteInputs (const std::vector<massingrules::Page>& pages, const Draft& active,
+                                        const SiteDraft& site);
+std::vector<massingrules::Edit> DrawSite (const std::vector<massingrules::Page>& pages, Draft& active, SiteDraft& site,
+                                          bool busy, const std::string& note,
+                                          const std::shared_ptr<const massingcalculation::Preview>& preview);
 void Sync (const massingrules::Page& page, Draft& draft);
 bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number);
 // Returns explicit Save requests only. Layout does not touch ACAPI or storage.
 std::vector<massingrules::Edit> Draw (const massingrules::Page& page, Draft& draft, bool busy = false,
                                       const std::string& calculationNote = {},
-                                      const std::shared_ptr<const massingcalculation::Preview>& preview = {});
+                                      const std::shared_ptr<const massingcalculation::Preview>& preview = {},
+                                      const std::vector<massingrules::Page>& parcels = {},
+                                      const std::shared_ptr<const massingcalculation::Preview>& sitePreview = {});
 } // namespace geomsrv::archviz::hudmassingrules
 #endif

@@ -9,6 +9,12 @@
 
 namespace geomsrv::archviz::massingcalculation {
 enum class Action { Calculate, Cancel, Clear };
+constexpr size_t kMaxParcels = 32;
+struct Parcel {
+    massingrules::Page before;
+    std::vector<massingrules::Assignment> assignments;
+    std::vector<bool> regulated, endpoints;
+};
 struct Request {
     Action action = Action::Calculate;
     massingrules::Page before;
@@ -17,6 +23,9 @@ struct Request {
     int landscape = 0; // 0 = Existing, 1 = New; no implicit fallback/terrain fusion
     double baseHeight = 8.5, runPerRise = 0.5, capZ = 25, baseDepth = 1;
     bool capped = true;
+    // Empty retains the single-parcel contract. Site requests carry every parcel;
+    // terrain and height settings are shared, offsets/endpoints are independent.
+    std::vector<Parcel> parcels;
 };
 struct Result {
     overlaylayers::Layer layer;
@@ -28,10 +37,17 @@ struct Result {
     bool hasMeanZ = false, hasMeanASL = false;
     uint32_t faces = 0;
 };
-struct Preview {
+struct ParcelPreview {
     Request inputs;
     Result result;
 };
+struct Preview {
+    Request inputs;
+    Result result;
+    std::vector<ParcelPreview> parcels;
+};
+std::vector<Request> Expand (const Request& request);
+bool Combine (const Request& inputs, std::vector<ParcelPreview> parcels, Preview& preview, std::string& error);
 bool SameRequest (const Request& a, const Request& b);
 // Coalesce slider bursts and edits during a running Python call. Revision changes
 // immediately, so a superseded completion can never publish, even before debounce.

@@ -140,7 +140,7 @@ TEST (MassingSlices, IntersectionKeepsSlabHolesAndReportsTheSameAllowedArea)
     EXPECT_NEAR (result.allowedArea, 32, 1e-6);
     ASSERT_EQ (result.rows.size (), 1u);
     EXPECT_NEAR (result.rows[0].allowedArea, 32, 1e-6);
-    EXPECT_EQ (result.layer.polylines.size (), 2u);
+    EXPECT_EQ (result.layer.polylines.size (), 4u); // allowed outer/hole, excess outer/allowed cutout
 }
 
 TEST (MassingSlices, ShellCutsShrinkAtEachLevelRatherThanReusingItsFootprint)
@@ -162,7 +162,7 @@ TEST (MassingSlices, ShellCutsShrinkAtEachLevelRatherThanReusingItsFootprint)
     EXPECT_NEAR (result.rows[1].allowedArea, 64, 1e-5);
 }
 
-TEST (MassingSlices, EmptyIntersectionIsZeroWithoutDrawingTheUnclippedSlab)
+TEST (MassingSlices, EmptyIntersectionIsZeroAndShowsOnlyTheRedOutsideRegion)
 {
     const auto envelope = Envelope (Box (20, 20, 30, 30));
     ms::Result result;
@@ -171,8 +171,14 @@ TEST (MassingSlices, EmptyIntersectionIsZeroWithoutDrawingTheUnclippedSlab)
     EXPECT_TRUE (result.clipped);
     EXPECT_EQ (result.rows.size (), 3u);
     EXPECT_DOUBLE_EQ (result.allowedArea, 0);
-    EXPECT_TRUE (result.layer.polylines.empty ());
-    EXPECT_TRUE (result.layer.meshes.empty ());
+    EXPECT_EQ (result.layer.polylines.size (), 3u);
+    ASSERT_EQ (result.layer.meshes.size (), 3u);
+    EXPECT_TRUE (result.layer.texts.empty ());
+    for (const auto& mesh : result.layer.meshes) {
+        EXPECT_EQ (mesh.rgba, 0xAA4465FF);
+        EXPECT_FLOAT_EQ (mesh.style.opacity, 0.5f);
+        EXPECT_NE (mesh.hoverTitle.find ("outside envelope"), std::string::npos);
+    }
 }
 
 TEST (MassingSlices, PartialPreviewCannotFabricateAllowedAreas)
@@ -388,7 +394,7 @@ TEST (MassingSlices, DisplayControlsPreserveFunctionColoursAndLabelTheFinalArea)
     ASSERT_EQ (result.layer.texts.size (), 3u);
     EXPECT_EQ (result.layer.texts[0].text, "36.0 m\xC2\xB2");
     EXPECT_TRUE (result.layer.texts[0].planar);
-    EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres, 0.2);
+    EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres, 0.21);
     EXPECT_EQ (result.layer.texts[0].minProjectedPixels, 9);
     EXPECT_EQ (result.layer.polylines[0].rgba, 0xF2C14EFF);
     EXPECT_EQ (result.layer.polylines[0].widthPixels, 4);
@@ -400,6 +406,46 @@ TEST (MassingSlices, DisplayControlsPreserveFunctionColoursAndLabelTheFinalArea)
     EXPECT_TRUE (result.layer.texts.empty ());
     EXPECT_TRUE (result.layer.meshes.empty ());
     EXPECT_EQ (result.allowedArea, 108);
+}
+
+TEST (MassingSlices, AreaLabelsUseStandaloneFittingAndOneSizeAcrossFunctionColours)
+{
+    auto large = Slab (0.3), small = Slab (0.3);
+    small.slab.guid = "small";
+    small.slab.outer.xy = Ring (20, 0, 24, 4).xy;
+    Set (small, "massing.function", meta::Value::Text ("commercial"));
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ large, small }, {}, nullptr, result, error)) << error;
+    ASSERT_EQ (result.layer.texts.size (), 2u);
+    EXPECT_EQ (result.layer.texts[0].text, "100.0 m\xC2\xB2");
+    EXPECT_EQ (result.layer.texts[1].text, "16.0 m\xC2\xB2");
+    EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres, result.layer.texts[1].sizeMetres);
+    EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres,
+                      geomsrv::archviz::storysliceoverlay::LabelSizeMetres (0, 16, 3.5, result.layer.texts[1].text));
+    EXPECT_EQ (result.layer.meshes[0].rgba, 0xF2C14E59);
+    EXPECT_EQ (result.layer.meshes[1].rgba, 0xE4572E59);
+}
+
+TEST (MassingSlices, NamesHoverRowsAndEditorUseTheSameNonRepeatingZeroBasedSequence)
+{
+    geomsrv::archviz::ProjectStoreys storeys;
+    storeys.levels = { 0, 30 };
+    storeys.indices = { 0, 1 };
+    geomsrv::archviz::storysliceoverlay::Controls display;
+    display.labelName = true;
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab (15) }, storeys, nullptr, result, error, display)) << error;
+    ASSERT_EQ (result.rows.size (), 5u);
+    ASSERT_EQ (result.section.floors.size (), 5u);
+    for (size_t i = 0; i < result.rows.size (); ++i) {
+        EXPECT_EQ (result.rows[i].story, int (i));
+        EXPECT_EQ (result.layer.meshes[i].hoverTitle, "A S" + std::to_string (i));
+        EXPECT_EQ (result.layer.meshes[i].hoverRows[1].second, std::to_string (i));
+        EXPECT_EQ (result.section.floors[i].label, "Floor " + std::to_string (i));
+        EXPECT_EQ (result.layer.texts[i].text, "A S" + std::to_string (i) + "  100.0 m\xC2\xB2");
+    }
 }
 
 TEST (MassingSlices, OperatedBodyCutsReplaceThePolygonAndKeepRemovedFloorsIdentities)

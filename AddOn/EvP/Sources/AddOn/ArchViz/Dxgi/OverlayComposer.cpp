@@ -197,7 +197,7 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
             hostoverlay::Draw (context, context1, wanted, hostoverlay::Kind::Heatmap, overlay::HostHeatmapStyle (),
                                overlayView);
         }
-        if (hostoverlay::Enabled (hostoverlay::Kind::Wireframe)) {
+        if (overlayvisibility::WireframeShown () && hostoverlay::Enabled (hostoverlay::Kind::Wireframe)) {
             hostoverlay::Draw (context, context1, wanted, hostoverlay::Kind::Wireframe, overlay::HostWireframeStyle (),
                                overlayView);
         }

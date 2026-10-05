@@ -7,6 +7,7 @@
 #include "ACAPinc.h"
 
 #include "ArchViz/OverlayHudModel.hpp"
+#include "ArchViz/OverlayVisibility.hpp"
 
 #include "ArchViz/Dxgi/PlanGuest.hpp"
 #include "ArchViz/Dxgi/PrelockHud.hpp"
@@ -390,13 +391,21 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         const auto& result = calculation.preview->result;
         Card card;
         card.title = "Massing envelope";
+        if (calculation.preview->parcels.size () > 1) {
+            card.figures.push_back ({ "Parcels", std::to_string (calculation.preview->parcels.size ()) });
+            card.figures.push_back ({ "Envelopes", std::to_string (result.layer.meshes.size ()) });
+        }
         card.figures.push_back ({ "Parcel area", Format ("%.2f m2", result.parcelArea) });
-        card.figures.push_back ({ "Allowed footprint", Format ("%.2f m2", result.allowedArea) });
+        card.figures.push_back (
+            { calculation.preview->parcels.size () > 1 ? "Allowed footprints (parcel sum)" : "Allowed footprint",
+              Format ("%.2f m2", result.allowedArea) });
         if (result.hasMeanASL)
             card.figures.push_back ({ "Mean elevation ASL", Format ("%.2f m", result.meanASL) });
         else if (result.hasMeanZ)
             card.figures.push_back ({ "Mean elevation (project Z)", Format ("%.2f m", result.meanZ) });
         card.note = result.hasEnvelope ? "Shared Python envelope; allowed story areas are below." : result.note;
+        if (calculation.preview->parcels.size () > 1)
+            card.note += " Parcel areas sum; overlapping envelopes count once for allowed story areas.";
         pages.stats.push_back (std::move (card));
     }
     pages.section = g_section.section;
@@ -461,6 +470,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.console = hudconsole::Entries (); // the Debug tab's console: what to check when something fails
     // The add-on's own displays as they are: Settings switches and styles them (ApplyDisplays).
     const storysliceoverlay::State slices = storysliceoverlay::Describe ();
+    pages.displays.wireframeOn = overlayvisibility::WireframeShown ();
     pages.displays.slicesOn = slices.enabled;
     pages.displays.massingSlicesOn = massingslicesmodel::Shown ();
     pages.displays.slicesFromModel = storysliceoverlay::LastRequest ().source == storysliceoverlay::Source::Model;
@@ -472,6 +482,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
 
 void ApplyDisplays (const overlayhud::Displays& displays)
 {
+    overlayvisibility::SetWireframeShown (displays.wireframeOn);
     massingslicesmodel::Display (displays.massingSlicesOn, displays.slices);
     namespace slices = storysliceoverlay;
     const slices::State now = slices::Describe ();

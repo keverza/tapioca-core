@@ -15,6 +15,7 @@
 #include "Python/PythonHost.hpp"
 
 #include <atomic>
+#include <algorithm>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -28,11 +29,12 @@ struct Source {
     calc::Request request;
     std::string terrain;
     std::vector<std::string> terrainSet;
-    uint64_t parcelStamp = 0, terrainStamp = 0, generation = 0;
+    std::vector<uint64_t> parcelStamps;
+    uint64_t terrainStamp = 0, generation = 0;
 };
 struct Completion {
     Source source;
-    calc::Result result;
+    calc::Preview preview;
     std::string error;
 };
 Page s_page;
@@ -48,6 +50,7 @@ uint64_t s_terrainRetryAt = 0;
 unsigned s_terrainRetries = 0;
 std::thread s_worker;
 std::atomic<bool> s_running { false };
+std::atomic<uint64_t> s_revision { 0 };
 std::mutex s_mutex;
 std::optional<Completion> s_completed;
 
@@ -63,13 +66,20 @@ bool Current (const Source& source)
     massingmodel::Changed ();
     const auto current = massingmodel::Read ();
     const size_t terrainGroup = source.request.landscape == 0 ? 1 : 2;
-    return current.known && current.guids[0] == std::vector<std::string> { source.request.before.guid } &&
-           current.guids[terrainGroup] == source.terrainSet && current.rules.known &&
-           massingrules::SameGeometry (current.rules.edges, source.request.before.edges) &&
-           current.rules.hasStored == source.request.before.hasStored &&
-           current.rules.stored == source.request.before.stored &&
-           Stamp (source.request.before.guid) == source.parcelStamp &&
-           (source.terrain.empty () || Stamp (source.terrain) == source.terrainStamp);
+    const auto parcels = calc::Expand (source.request);
+    if (!current.known || current.parcels.size () != parcels.size () ||
+        source.parcelStamps.size () != parcels.size () || current.guids[terrainGroup] != source.terrainSet ||
+        (!source.terrain.empty () && Stamp (source.terrain) != source.terrainStamp))
+        return false;
+    for (size_t i = 0; i < parcels.size (); ++i) {
+        const auto& before = parcels[i].before;
+        const auto& now = current.parcels[i];
+        if (!now.known || now.guid != before.guid || !massingrules::SameGeometry (now.edges, before.edges) ||
+            now.hasStored != before.hasStored || now.stored != before.stored ||
+            Stamp (before.guid) != source.parcelStamps[i])
+            return false;
+    }
+    return true;
 }
 
 void Publish ()
@@ -81,6 +91,7 @@ void Publish ()
 
 void ClearPublished ()
 {
+    s_revision.store (s_queue.Revision ());
     const bool envelope = overlaylayers::Clear (kLayer);
     const bool site = overlaylayers::Clear (kSite);
     const bool dimensions = overlaylayers::Clear (calc::kDimensions);
@@ -101,9 +112,13 @@ void Start (Source source)
 {
     if (source.generation != s_queue.Revision ())
         return;
-    source.parcelStamp = Stamp (source.request.before.guid);
+    const auto parcels = calc::Expand (source.request);
+    for (const auto& parcel : parcels)
+        source.parcelStamps.push_back (Stamp (parcel.before.guid));
     source.terrainStamp = source.terrain.empty () ? 0 : Stamp (source.terrain);
-    if (!source.parcelStamp || !Current (source)) {
+    if (std::find (source.parcelStamps.begin (), source.parcelStamps.end (), uint64_t (0)) !=
+            source.parcelStamps.end () ||
+        !Current (source)) {
         Refuse ("Defined sources changed before preview; waiting for current inputs.");
         return;
     }
@@ -143,10 +158,20 @@ void Start (Source source)
     }
     API_PlaceInfo place {};
     const bool hasAltitude = ACAPI_GeoLocation_GetPlaceSets (&place) == NoError;
-    std::string input, error;
-    if (!calc::Encode (source.request, terrain, hasAltitude, place.altitude, input, error)) {
-        Refuse (error);
-        return;
+    std::vector<std::string> inputs;
+    size_t bytes = 0;
+    for (const auto& parcel : parcels) {
+        std::string input, error;
+        if (!calc::Encode (parcel, terrain, hasAltitude, place.altitude, input, error)) {
+            Refuse (error);
+            return;
+        }
+        bytes += input.size ();
+        if (bytes > 16 * 1024 * 1024) {
+            Refuse ("Combined parcel snapshots exceed the calculation transport budget.");
+            return;
+        }
+        inputs.push_back (std::move (input));
     }
     if (s_worker.joinable ())
         s_worker.join (); // previous worker finished; never join an active calculation here
@@ -154,25 +179,42 @@ void Start (Source source)
     s_page.note = "Calculating with shared Python solver...";
     ArchVizLog ("MASSING PYTHON  started " + source.request.before.guid + " terrain=" + source.terrain);
     const bool missingTerrain = !source.terrain.empty () && terrain.vertices.empty ();
-    s_worker = std::thread ([source = std::move (source), input = std::move (input), missingTerrain] () {
+    s_worker = std::thread ([source = std::move (source), inputs = std::move (inputs), missingTerrain] () {
         Completion completion;
         completion.source = source;
         try {
-            GS::UniString result, bridgeError;
+            std::vector<calc::ParcelPreview> previews;
+            const auto requests = calc::Expand (source.request);
+            const uint64_t began = ::GetTickCount64 ();
             // Reuse the existing bounded input/output bridge. This is a trusted
             // snapshot function, not a command: no UI, ACAPI, global result store
             // or model writes on the Python side, and no new cross-DLL ABI.
-            const bool called = evp::PythonHost::Get ().RunGraphScript (
-                "from tapioca.massing.native import preview\npayload = preview(request)\n",
-                "<native Massing calculation>", GS::UniString (input.c_str (), CC_UTF8), "[{\"portId\":\"payload\"}]",
-                "[]", 15000, result, bridgeError);
-            if (!called)
-                completion.error = bridgeError.ToCStr (0, MaxUSize, CC_UTF8).Get ();
-            else
-                calc::Decode (result.ToCStr (0, MaxUSize, CC_UTF8).Get (), completion.result, completion.error);
-            if (missingTerrain && completion.error.empty ())
-                completion.result.note =
-                    "Defined terrain has no current 3D surface; check its visibility/3D availability.";
+            for (size_t i = 0; i < inputs.size (); ++i) {
+                const uint64_t elapsed = ::GetTickCount64 () - began;
+                if (s_revision.load () != source.generation || elapsed >= 15000) {
+                    completion.error = "Parcel calculation superseded or exceeded the site time budget.";
+                    break;
+                }
+                GS::UniString result, bridgeError;
+                calc::Result decoded;
+                const bool called = evp::PythonHost::Get ().RunGraphScript (
+                    "from tapioca.massing.native import preview\npayload = preview(request)\n",
+                    "<native Massing calculation>", GS::UniString (inputs[i].c_str (), CC_UTF8),
+                    "[{\"portId\":\"payload\"}]", "[]", unsigned (15000 - elapsed), result, bridgeError);
+                if (!called)
+                    completion.error = bridgeError.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+                else
+                    calc::Decode (result.ToCStr (0, MaxUSize, CC_UTF8).Get (), decoded, completion.error);
+                if (!completion.error.empty ()) {
+                    completion.error = "Parcel " + std::to_string (i + 1) + ": " + completion.error;
+                    break;
+                }
+                if (missingTerrain)
+                    decoded.note = "Defined terrain has no current 3D surface; check its visibility/3D availability.";
+                previews.push_back ({ requests[i], std::move (decoded) });
+            }
+            if (completion.error.empty ())
+                calc::Combine (source.request, std::move (previews), completion.preview, completion.error);
         }
         catch (const std::exception& exception) {
             completion.error = exception.what ();
@@ -225,20 +267,28 @@ void Observe ()
     massingmodel::Changed ();
     const auto current = massingmodel::Read ();
     auto desired = *s_queue.Desired ();
-    if (desired.before.guid != current.rules.guid || desired.before.known != current.rules.known ||
-        !massingrules::SameGeometry (desired.before.edges, current.rules.edges) ||
-        desired.before.hasStored != current.rules.hasStored || desired.before.stored != current.rules.stored) {
-        const bool same = desired.before.guid == current.rules.guid &&
-                          massingrules::SameGeometry (desired.before.edges, current.rules.edges);
-        desired.before = current.rules;
-        desired.assignments = current.rules.assignments;
-        if (!same) {
-            desired.endpoints.assign (current.rules.edges.size (), true);
-            desired.regulated.assign (current.rules.edges.size (), true);
-        }
-        s_queue.Follow (std::move (desired), ::GetTickCount64 ());
+    const auto previous = calc::Expand (desired);
+    desired.parcels.clear ();
+    for (const auto& page : current.parcels) {
+        calc::Parcel parcel { page, page.assignments, std::vector<bool> (page.edges.size (), true),
+                              std::vector<bool> (page.edges.size (), true) };
+        const auto old = std::find_if (previous.begin (), previous.end (),
+                                       [&] (const auto& request) { return request.before.guid == page.guid; });
+        if (old != previous.end () && old->before.known == page.known &&
+            massingrules::SameGeometry (old->before.edges, page.edges) && old->before.hasStored == page.hasStored &&
+            old->before.stored == page.stored)
+            parcel = { page, old->assignments, old->regulated, old->endpoints };
+        desired.parcels.push_back (std::move (parcel));
     }
-    else
+    desired.before = current.rules;
+    if (!desired.parcels.empty ()) {
+        desired.assignments = desired.parcels.front ().assignments;
+        desired.regulated = desired.parcels.front ().regulated;
+        desired.endpoints = desired.parcels.front ().endpoints;
+        if (desired.parcels.size () == 1)
+            desired.parcels.clear ();
+    }
+    if (!s_queue.Follow (std::move (desired), ::GetTickCount64 ()))
         s_queue.Refresh (::GetTickCount64 ()); // terrain/roles changed, even if the HUD draft did not
     ClearPublished ();
     Publish (); // synchronize HUD source geometry even when the pointer is idle
@@ -249,7 +299,9 @@ void BeginReady ()
     const auto request = s_queue.TakeReady (::GetTickCount64 (), s_running.load ());
     if (!request)
         return;
-    if (!request->before.known) {
+    const auto parcels = calc::Expand (*request);
+    if (parcels.size () > calc::kMaxParcels ||
+        std::any_of (parcels.begin (), parcels.end (), [] (const auto& parcel) { return !parcel.before.known; })) {
         s_page.note = "Define a property-line Polyline to start the automatic preview.";
         return;
     }
@@ -280,15 +332,15 @@ void Poll ()
         else if (!completion->error.empty ())
             Refuse (completion->error);
         else {
-            std::string error = overlaylayers::Validate (completion->result.layer);
+            auto& result = completion->preview.result;
+            std::string error = overlaylayers::Validate (result.layer);
             if (!error.empty ())
                 Refuse (error);
             else {
-                overlaylayers::Set (completion->result.layer);
-                overlaylayers::Set (completion->result.site);
+                overlaylayers::Set (result.layer);
+                overlaylayers::Set (result.site);
                 s_source = completion->source;
-                s_page.preview = std::make_shared<const calc::Preview> (
-                    calc::Preview { completion->source.request, std::move (completion->result) });
+                s_page.preview = std::make_shared<const calc::Preview> (std::move (completion->preview));
                 s_page.calculated = s_page.preview->result.hasEnvelope;
                 if (s_dimensions)
                     overlaylayers::Set (calc::OffsetDimensions (*s_page.preview));
@@ -302,6 +354,7 @@ void Poll ()
     if (s_terrainRetryAt && ::GetTickCount64 () >= s_terrainRetryAt && !s_running.load () && !s_queue.Pending ()) {
         s_terrainRetryAt = 0;
         s_queue.Refresh (::GetTickCount64 ());
+        s_revision.store (s_queue.Revision ());
         // A cold conversion can become available without an element modification.
         // Retry it explicitly; never require the user to move the parcel's Z.
     }
@@ -330,6 +383,7 @@ void Dimensions (bool shown)
 void Forget ()
 {
     s_queue.Reset ();
+    s_revision.store (s_queue.Revision ());
     if (s_timer != 0) {
         ::KillTimer (nullptr, s_timer);
         s_timer = 0;

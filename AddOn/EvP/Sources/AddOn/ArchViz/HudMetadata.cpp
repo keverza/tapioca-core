@@ -303,7 +303,7 @@ void HeightsControl (const Field& field, std::vector<Edit>& edits)
 {
     for (size_t i = 0; i < field.numbers.size (); ++i) {
         ImGui::PushID (int (i));
-        ImGui::Text ("Floor %d", int (i + 1));
+        ImGui::Text ("Floor %d", int (i));
         Field entry = field;
         entry.kind = FieldKind::Number;
         entry.number = field.numbers[i];
@@ -311,7 +311,7 @@ void HeightsControl (const Field& field, std::vector<Edit>& edits)
         entry.max = 6;
         entry.step = 0.01;
         entry.unit = "m";
-        entry.label = "Floor " + std::to_string (i + 1) + " height (2.2 - 6.0 m)";
+        entry.label = "Floor " + std::to_string (i) + " height (2.2 - 6.0 m)";
         ImGui::SetNextItemWidth ((std::max) (40.0f, ImGui::GetContentRegionAvail ().x - 45));
         const auto first = edits.size ();
         NumberControl (entry, edits);

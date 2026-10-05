@@ -402,7 +402,8 @@ TEST (MassingRules, OnlyContourRemainsInTheExpandedRulesSection)
     RulesWidget widget;
     const auto* window = ImGui::FindWindowByName ("rules-test");
     const ImGuiID section = ImHashStr ("massing.rules", 0, window->IDStack[0]);
-    EXPECT_EQ (widget.lastItem, ImHashStr ("##massing.site", 0, section));
+    const ImGuiID parcel = ImHashStr (widget.page.guid.c_str (), 0, section);
+    EXPECT_EQ (widget.lastItem, ImHashStr ("##massing.site", 0, parcel));
     EXPECT_NEAR (widget.canvas.GetHeight (), 200, 0.01);
 }
 

@@ -35,6 +35,24 @@ inline void SetContentShown (bool shown)
     ContentFlag ().store (shown, std::memory_order_release);
 }
 
+// Existing-model reference edges only. Keep occluder geometry and analysis layers
+// active when the reference is hidden, in both Present paths.
+inline std::atomic<bool>& WireframeFlag ()
+{
+    static std::atomic<bool> shown { true };
+    return shown;
+}
+
+inline bool WireframeShown ()
+{
+    return WireframeFlag ().load (std::memory_order_acquire);
+}
+
+inline void SetWireframeShown (bool shown)
+{
+    WireframeFlag ().store (shown, std::memory_order_release);
+}
+
 // ⚠️ HOVER MODE (OverlayHud.hpp `HoverMode`), READ BY THE INPUT HOOK: on, a move anywhere
 // on the view asks for the HUD's layout -- what is under the pointer -- and is still
 // Archicad's. Off, only moves over the HUD do. Same source, same follower.

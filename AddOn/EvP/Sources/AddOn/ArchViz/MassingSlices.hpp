@@ -29,8 +29,9 @@ struct Result {
     bool clipped = false;
     std::string note;
 };
-// The displayed chains and reported area come from one even-odd boolean result.
-// Slice the shared Python shell with the existing mesh slicer; never solve setbacks here.
+// Allowed chains/areas come from intersection with the union of current parcel
+// shell cuts. Their complement is a red warning display, never an allowed area.
+// Slice shared Python shells with the existing mesh slicer; never solve setbacks here.
 bool Intersect (const std::vector<SliceChain>& slab, const overlaylayers::Mesh& envelope, double z,
                 std::vector<SliceChain>& outlines, double& area, std::string& error);
 bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, const massingcalculation::Result* envelope,

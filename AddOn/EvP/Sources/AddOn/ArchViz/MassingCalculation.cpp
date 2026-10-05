@@ -47,7 +47,7 @@ bool SameRequest (const Request& a, const Request& b)
         a.before.edges.size () != b.before.edges.size () || a.assignments.size () != b.assignments.size () ||
         a.regulated != b.regulated || a.endpoints != b.endpoints || a.landscape != b.landscape ||
         a.baseHeight != b.baseHeight || a.runPerRise != b.runPerRise || a.capZ != b.capZ ||
-        a.baseDepth != b.baseDepth || a.capped != b.capped)
+        a.baseDepth != b.baseDepth || a.capped != b.capped || a.parcels.size () != b.parcels.size ())
         return false;
     for (size_t i = 0; i < a.before.edges.size (); ++i) {
         const auto& x = a.before.edges[i];
@@ -59,6 +59,12 @@ bool SameRequest (const Request& a, const Request& b)
         if (a.assignments[i].mode != b.assignments[i].mode || a.assignments[i].distance != b.assignments[i].distance ||
             a.assignments[i].review != b.assignments[i].review)
             return false;
+    if (!a.parcels.empty ()) {
+        const auto left = Expand (a), right = Expand (b);
+        for (size_t i = 0; i < left.size (); ++i)
+            if (!SameRequest (left[i], right[i]))
+                return false;
+    }
     return true;
 }
 
@@ -67,6 +73,13 @@ overlaylayers::Layer OffsetDimensions (const Preview& preview)
     overlaylayers::Layer layer;
     layer.name = kDimensions;
     layer.occlusion = overlaylayers::Behind::Fade;
+    if (!preview.parcels.empty ()) {
+        for (const auto& parcel : preview.parcels) {
+            const auto part = OffsetDimensions ({ parcel.inputs, parcel.result });
+            layer.dimensions.insert (layer.dimensions.end (), part.dimensions.begin (), part.dimensions.end ());
+        }
+        return layer;
+    }
     const auto& edges = preview.inputs.before.edges;
     const auto& xy = preview.result.offsetXY;
     if (xy.size () < 6 || preview.inputs.assignments.size () != edges.size ())
@@ -149,6 +162,8 @@ bool Encode (const Request& request, const geomsrv::Mesh& terrain, bool hasAltit
 {
     error.clear ();
     metadata::Property property;
+    if (!request.parcels.empty ())
+        return Fail (error, "Expand the site request before encoding each parcel.");
     if (!request.before.known)
         return Fail (error, "Define a readable property-line Polyline before calculating.");
     if (!massingrules::Encode (request.before.edges, request.assignments, property, error))

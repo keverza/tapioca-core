@@ -23,6 +23,7 @@ struct Page {
     std::array<std::vector<std::string>, 4> guids;
     std::string note;
     massingrules::Page rules;
+    std::vector<massingrules::Page> parcels;
     bool calculationBusy = false;
     std::string calculationNote;
     std::shared_ptr<const massingcalculation::Preview> preview;

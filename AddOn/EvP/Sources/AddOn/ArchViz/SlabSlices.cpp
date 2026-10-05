@@ -242,23 +242,26 @@ int StoreyAt (const ProjectStoreys& storeys, double z)
 std::vector<int> StoreysAt (const ProjectStoreys& storeys, const std::vector<double>& heights)
 {
     std::vector<int> out (heights.size (), 0);
-    if (storeys.levels.empty ())
+    if (heights.empty ())
         return out;
-    const double lowest = storeys.levels.front (), highest = storeys.levels.back ();
-    const int bottomIndex = StoreyAt (storeys, lowest), topIndex = StoreyAt (storeys, highest);
-    int below = 0;
-    for (const double z : heights)
-        below += z < lowest - kEpsilon ? 1 : 0;
-    int above = 0;
-    for (size_t k = 0; k < heights.size (); ++k) {
-        const double z = heights[k];
-        if (z > highest + kEpsilon)
-            out[k] = topIndex + ++above;
-        else if (z < lowest - kEpsilon)
-            out[k] = bottomIndex - below--;
+    int first = 0;
+    if (!storeys.levels.empty ()) {
+        const double lowest = storeys.levels.front (), highest = storeys.levels.back ();
+        if (heights.front () < lowest - kEpsilon) {
+            int below = 0;
+            for (double z : heights)
+                below += z < lowest - kEpsilon ? 1 : 0;
+            first = StoreyAt (storeys, lowest) - below;
+        }
+        else if (heights.front () > highest + kEpsilon)
+            first = StoreyAt (storeys, highest) + 1;
         else
-            out[k] = StoreyAt (storeys, z);
+            first = StoreyAt (storeys, heights.front ());
     }
+    // Slice floors, not the project story containing each cut: two different
+    // floors within one tall Archicad story must never reuse its number.
+    for (size_t k = 0; k < heights.size (); ++k)
+        out[k] = first + int (k);
     return out;
 }
 
