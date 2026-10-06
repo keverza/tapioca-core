@@ -354,6 +354,65 @@ TEST (MassingParcels, ExtrudedHighlightsUseSliceFillOpacityAndAFunctionColouredW
     EXPECT_NE (highlight.meshes[0].style.edgeRgba & 0xFF, 0u);
 }
 
+TEST (MassingParcels, CoverageHoverFillsGroundFootprintsOrTheirParcelComplementIncludingCourtyards)
+{
+    auto input = Slab ();
+    input.slab.top = 8;
+    input.slab.holes.push_back ({ { 4, 4, 6, 4, 6, 6, 4, 6 }, {} });
+    slices::Result result;
+    std::string error;
+    ASSERT_TRUE (slices::Build ({ input }, {}, nullptr, result, error));
+    calc::Preview preview;
+    preview.inputs = Site ({ Parcel ("first"), Parcel ("second", 5) });
+    ASSERT_TRUE (slices::Coverage (result, preview, error));
+    for (const auto* key : { slices::kBuiltHover, slices::kUnbuiltHover }) {
+        layers::Layer highlight;
+        ASSERT_TRUE (slices::Highlight (result, key, highlight, error)) << error;
+        ASSERT_EQ (highlight.meshes.size (), 2u);
+        double area = 0;
+        for (const auto& mesh : highlight.meshes) {
+            EXPECT_EQ (mesh.rgba, key == slices::kBuiltHover ? 0x9AA0A6FFu : 0x66BB6AFFu);
+            for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+                const auto a = mesh.indices[i] * 3, b = mesh.indices[i + 1] * 3, c = mesh.indices[i + 2] * 3;
+                area += std::abs ((mesh.points[b] - mesh.points[a]) * (mesh.points[c + 1] - mesh.points[a + 1]) -
+                                  (mesh.points[c] - mesh.points[a]) * (mesh.points[b + 1] - mesh.points[a + 1])) /
+                        2;
+            }
+            for (size_t i = 2; i < mesh.points.size (); i += 3)
+                EXPECT_NEAR (mesh.points[i], 0.012, 1e-7) << "No upper-floor volume on coverage hover";
+        }
+        EXPECT_NEAR (area, key == slices::kBuiltHover ? result.builtArea : result.unbuiltArea, 1e-6);
+    }
+    layers::Layer highlight;
+    ASSERT_TRUE (slices::Highlight (result, "", highlight, error));
+    EXPECT_TRUE (highlight.meshes.empty ());
+    preview.inputs = {};
+    EXPECT_FALSE (slices::Coverage (result, preview, error));
+    EXPECT_FALSE (result.hasCoverage);
+    EXPECT_TRUE (result.coverage.empty ());
+}
+
+TEST (MassingParcels, EmptySiteCoverageHoverUsesKnownParcelGroundOrPlanOnlyWithoutInventedElevation)
+{
+    slices::Result result;
+    calc::Preview preview;
+    preview.inputs = Site ({ Parcel ("first") });
+    std::string error;
+    ASSERT_TRUE (slices::Coverage (result, preview, error));
+    layers::Layer highlight;
+    ASSERT_TRUE (slices::Highlight (result, slices::kUnbuiltHover, highlight, error)) << error;
+    EXPECT_EQ (highlight.views, layers::Views::TwoD);
+    ASSERT_EQ (highlight.meshes.size (), 1u);
+    preview.result.hasMeanZ = true;
+    preview.result.meanZ = 42;
+    ASSERT_TRUE (slices::Coverage (result, preview, error));
+    ASSERT_TRUE (slices::Highlight (result, slices::kUnbuiltHover, highlight, error));
+    EXPECT_EQ (highlight.views, layers::Views::Both);
+    EXPECT_NEAR (highlight.meshes[0].points[2], 42.012, 1e-7);
+    ASSERT_TRUE (slices::Highlight (result, slices::kBuiltHover, highlight, error));
+    EXPECT_TRUE (highlight.meshes.empty ());
+}
+
 TEST (MassingParcels, StatsPercentageDiagramHoverReturnsItsFunctionAndClearsOnLeave)
 {
     ImGuiContext* context = ImGui::CreateContext ();

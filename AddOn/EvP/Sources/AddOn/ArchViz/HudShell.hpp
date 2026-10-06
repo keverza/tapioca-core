@@ -241,6 +241,7 @@ struct Figure {
     std::string label;
     std::string value;
     uint32_t rgba = 0;
+    std::string hoverKey; // Optional domain key returned while the label or value is hovered.
 };
 
 // A card: a heading over figures in two aligned columns, then -- when `progress` is in
@@ -256,7 +257,7 @@ struct Card {
 };
 
 // The cards one after another. `scale` is the look's: what the bar's height and the gaps take.
-void Cards (const std::vector<Card>& cards, const overlaylayers::Panel& look, float scale);
+std::string Cards (const std::vector<Card>& cards, const overlaylayers::Panel& look, float scale);
 
 // One selected element as the HUD lists it.
 struct SelectedElement {

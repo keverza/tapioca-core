@@ -111,10 +111,13 @@ std::vector<Usage> UsageMix (const Result& result)
 bool Coverage (Result& result, const massingcalculation::Preview& preview, std::string& error)
 {
     error.clear ();
+    result.hasCoverage = false;
+    result.coverage.clear ();
     const auto parcels = massingcalculation::Expand (preview.inputs);
     if (parcels.empty () || parcels.size () > massingcalculation::kMaxParcels)
         return false;
     double built = 0, total = 0;
+    std::vector<CoveragePatch> patches;
     // Calculate independently in each parcel's local frame. This matches the
     // requested parcel SUM even for overlapping parcels, without counting stacked floors.
     size_t work = 0;
@@ -141,6 +144,32 @@ bool Coverage (Result& result, const massingcalculation::Preview& preview, std::
         }
         const auto footprint = cp::Union (all, cp::FillRule::NonZero, 6);
         const auto inside = cp::Intersect (footprint, { boundary }, cp::FillRule::NonZero, 6);
+        const auto outside = cp::Difference ({ boundary }, footprint, cp::FillRule::NonZero, 6);
+        CoveragePatch patch;
+        const auto retain = [&] (const cp::PathsD& paths, std::vector<SliceChain>& chains) {
+            for (const auto& path : paths) {
+                SliceChain chain;
+                chain.closed = true;
+                for (const auto& p : path)
+                    chain.xy.insert (chain.xy.end (), { p.x + ox, p.y + oy });
+                chains.push_back (std::move (chain));
+            }
+        };
+        retain (inside, patch.built);
+        retain (outside, patch.unbuilt);
+        for (const auto& row : result.rows)
+            if (!row.rawChains.empty () && std::isfinite (row.z) && (!patch.hasElevation || row.z < patch.z)) {
+                patch.hasElevation = true;
+                patch.z = row.z;
+            }
+        const auto adopted = std::find_if (preview.parcels.begin (), preview.parcels.end (),
+                                           [&] (const auto& p) { return p.inputs.before.guid == parcel.before.guid; });
+        const auto& ground = adopted == preview.parcels.end () ? preview.result : adopted->result;
+        if (ground.hasMeanZ && std::isfinite (ground.meanZ)) {
+            patch.z = ground.meanZ;
+            patch.hasElevation = true;
+        }
+        patches.push_back (std::move (patch));
         const double parcelArea = std::abs (cp::Area (boundary));
         const double occupied = std::abs (cp::Area (inside));
         if (!std::isfinite (parcelArea) || parcelArea <= 0 || !std::isfinite (occupied) || occupied > parcelArea + 1e-5)
@@ -152,6 +181,7 @@ bool Coverage (Result& result, const massingcalculation::Preview& preview, std::
     result.parcelArea = total;
     result.builtArea = built;
     result.unbuiltArea = total - built;
+    result.coverage = std::move (patches);
     return true;
 }
 
@@ -163,7 +193,51 @@ bool Highlight (const Result& result, const std::string& function, overlaylayers
     out.views = overlaylayers::Views::Both;
     out.occlusion = overlaylayers::Behind::Show;
     size_t points = 0;
-    if (!function.empty ())
+    if (function == kBuiltHover || function == kUnbuiltHover) {
+        if (!result.hasCoverage) {
+            error = "Parcel coverage highlight awaits complete current footprint geometry.";
+            return false;
+        }
+        if (std::any_of (result.coverage.begin (), result.coverage.end (),
+                         [] (const auto& p) { return !p.hasElevation; }))
+            out.views = overlaylayers::Views::TwoD; // No invented 3D ground elevation for an empty/no-terrain site.
+        size_t work = 0;
+        for (const auto& patch : result.coverage) {
+            const auto& chains = function == kBuiltHover ? patch.built : patch.unbuilt;
+            if (chains.empty ())
+                continue;
+            const double ox = chains[0].xy[0], oy = chains[0].xy[1];
+            std::vector<SliceChain> local = chains;
+            for (auto& chain : local) {
+                work += chain.Count ();
+                if (work > 200000)
+                    return error = "Coverage highlight contour budget exceeded.", false;
+                for (size_t i = 0; i < chain.Count (); ++i) {
+                    chain.xy[i * 2] -= ox;
+                    chain.xy[i * 2 + 1] -= oy;
+                }
+            }
+            std::vector<StorySliceFillVertex> triangles;
+            BuildSliceFill (local, 0, triangles);
+            if (triangles.empty ())
+                return error = "Could not triangulate the complete coverage highlight.", false;
+            overlaylayers::Mesh mesh;
+            mesh.rgba = function == kBuiltHover ? 0x9AA0A6FF : 0x66BB6AFF;
+            mesh.styled = true;
+            mesh.style.opacity = 0.65f;
+            mesh.style.behind = overlaylayers::Behind::Show;
+            mesh.style.cullBack = false;
+            for (const auto& p : triangles) {
+                mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
+                mesh.points.insert (mesh.points.end (), { p.x + ox, p.y + oy, patch.z + 0.012 });
+            }
+            points += mesh.points.size () / 3;
+            if (points > 600000)
+                return error = "Coverage highlight fill budget exceeded.", false;
+            out.meshes.push_back (std::move (mesh));
+        }
+    }
+    else if (!function.empty ())
         for (const auto& floor : result.rows) {
             if (floor.function != function || floor.chains.empty ())
                 continue;

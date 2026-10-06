@@ -100,6 +100,9 @@ TEST (MassingStats, ParcelCoverageUsesGreyBuiltAndGreenUnbuiltAndRestoresTheThem
     EXPECT_FLOAT_EQ (grey.Min.y, green.Min.y);
     EXPECT_FLOAT_EQ (grey.Max.y, green.Max.y);
     EXPECT_GT (green.Max.x, grey.Max.x);
+    EXPECT_EQ (widget.Frame (grey.GetCenter ()), slices::kBuiltHover);
+    EXPECT_EQ (widget.Frame ({ (grey.Max.x + green.Max.x) / 2, green.GetCenter ().y }), slices::kUnbuiltHover);
+    EXPECT_TRUE (widget.Frame ().empty ());
     EXPECT_EQ (ImGui::ColorConvertFloat4ToU32 (ImGui::GetStyleColorVec4 (ImGuiCol_PlotHistogram)),
                ImGui::ColorConvertFloat4ToU32 (histogram));
     EXPECT_EQ (ImGui::ColorConvertFloat4ToU32 (ImGui::GetStyleColorVec4 (ImGuiCol_FrameBg)),

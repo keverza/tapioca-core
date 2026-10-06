@@ -135,9 +135,10 @@ TEST (HudText, StatsReserveFullNumericValueAndRevealTruncatedNameOnHover)
     io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
     const std::string name = "Allowed residential floor area with a very long function name";
     shell::Card card;
-    card.figures.push_back ({ name, "123456789.12 m2", kValueRgba });
+    card.figures.push_back ({ name, "123456789.12 m2", kValueRgba, "coverage.built" });
     const auto& look = shell::PlainLook ();
     ImVec2 labelPoint;
+    ImVec2 valuePoint;
     const auto frame = [&] (ImVec2 pointer) {
         io.AddMousePosEvent (pointer.x, pointer.y);
         ImGui::NewFrame ();
@@ -145,10 +146,11 @@ TEST (HudText, StatsReserveFullNumericValueAndRevealTruncatedNameOnHover)
         ImGui::SetNextWindowSize ({ 260, 180 });
         ImGui::Begin ("single-line-stats");
         ImGui::PushTextWrapPos (80); // Reproduce the host's inherited wrapping.
-        shell::Cards ({ card }, look, 1);
+        const auto hovered = shell::Cards ({ card }, look, 1);
         ImGui::PopTextWrapPos ();
         ImGui::End ();
         ImGui::Render ();
+        return hovered;
     };
     frame ({ 800, 500 });
     frame ({ 800, 500 });
@@ -161,6 +163,7 @@ TEST (HudText, StatsReserveFullNumericValueAndRevealTruncatedNameOnHover)
             ++valueVertices;
             low = (std::min) (low, vertex.pos.y);
             high = (std::max) (high, vertex.pos.y);
+            valuePoint = { vertex.pos.x - 1, vertex.pos.y - 1 };
         }
         if (vertex.col == labelColour)
             labelPoint = { vertex.pos.x - 1, vertex.pos.y - 1 };
@@ -168,13 +171,15 @@ TEST (HudText, StatsReserveFullNumericValueAndRevealTruncatedNameOnHover)
     EXPECT_EQ (valueVertices, 14u * 4) << "all digits, decimal point and unit glyphs, not an ellipsis";
     EXPECT_LT (high - low, ImGui::GetTextLineHeight ());
     EXPECT_GT (labelPoint.x, 0);
-    frame (labelPoint);
+    EXPECT_EQ (frame (labelPoint), "coverage.built");
     frame (labelPoint);
     bool fullNameTooltip = false;
     for (const auto* candidate : context->Windows)
         if ((candidate->Flags & ImGuiWindowFlags_Tooltip) && candidate->Active)
             fullNameTooltip = candidate->Size.x >= ImGui::CalcTextSize (name.c_str ()).x;
     EXPECT_TRUE (fullNameTooltip);
+    EXPECT_EQ (frame (valuePoint), "coverage.built");
+    EXPECT_TRUE (frame ({ 800, 500 }).empty ());
     ImGui::DestroyContext (context);
 }
 

@@ -37,7 +37,9 @@ std::string s_collapseNote;
 void Highlight ()
 {
     overlaylayers::Clear (massingslices::kHighlightLayer);
-    if (!s_shown || !s_result || s_hoverFunction.empty ())
+    const bool coverage =
+        s_hoverFunction == massingslices::kBuiltHover || s_hoverFunction == massingslices::kUnbuiltHover;
+    if ((!s_shown && !coverage) || !s_result || s_hoverFunction.empty ())
         return;
     overlaylayers::Layer layer;
     std::string error;

@@ -455,8 +455,10 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         if (slices->clipped)
             card.figures.push_back ({ "Allowed volume (slice estimate)", Format ("%.2f m3", slices->allowedVolume) });
         if (slices->hasCoverage) {
-            card.figures.push_back ({ "Built footprint in parcels", Format ("%.2f m2", slices->builtArea) });
-            card.figures.push_back ({ "Unbuilt parcel area", Format ("%.2f m2", slices->unbuiltArea) });
+            card.figures.push_back (
+                { "Built footprint in parcels", Format ("%.2f m2", slices->builtArea), 0, massingslices::kBuiltHover });
+            card.figures.push_back (
+                { "Unbuilt parcel area", Format ("%.2f m2", slices->unbuiltArea), 0, massingslices::kUnbuiltHover });
             card.figures.push_back (
                 { "Built / unbuilt ratio", slices->unbuiltArea > 1e-9
                                                ? Format ("%.3f", slices->builtArea / slices->unbuiltArea)

@@ -24,6 +24,11 @@ struct Row {
     float fillOpacity = 1, wireWidthPixels = 2;
     std::vector<SliceChain> rawChains, chains;
 };
+struct CoveragePatch {
+    std::vector<SliceChain> built, unbuilt;
+    double z = 0;
+    bool hasElevation = false;
+};
 struct Result {
     overlaylayers::Layer layer;
     hudsection::Section section;
@@ -36,9 +41,12 @@ struct Result {
     double rawVolume = 0, allowedVolume = 0;
     double builtArea = 0, unbuiltArea = 0, parcelArea = 0;
     bool hasCoverage = false;
+    std::vector<CoveragePatch> coverage;
     std::string note;
 };
 constexpr char kHighlightLayer[] = "tapioca.massing.functionVolumes";
+constexpr char kBuiltHover[] = "coverage.built";
+constexpr char kUnbuiltHover[] = "coverage.unbuilt";
 struct Usage {
     std::string function, label;
     uint32_t rgba = 0;

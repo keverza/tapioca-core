@@ -14,7 +14,7 @@ ImU32 Colour (uint32_t rgba)
 std::string Draw (const massingslices::Result& result, const overlaylayers::Panel& look, float scale)
 {
     std::string hovered;
-    if (result.rows.empty ())
+    if (result.rows.empty () && !result.hasCoverage)
         return hovered;
     ImGui::PushID ("massing.stats.mix");
     ImGui::SeparatorText ("Floor-area mix");
@@ -85,6 +85,14 @@ std::string Draw (const massingslices::Result& result, const overlaylayers::Pane
         ImGui::PushStyleColor (ImGuiCol_PlotHistogram, ImGui::ColorConvertU32ToFloat4 (Colour (0x9AA0A6FF)));
         ImGui::PushStyleColor (ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4 (Colour (0x66BB6AFF)));
         ImGui::ProgressBar (coverage, { -1, 0 }, caption);
+        if (ImGui::IsItemHovered ()) {
+            const float at = (ImGui::GetIO ().MousePos.x - ImGui::GetItemRectMin ().x) /
+                             (ImGui::GetItemRectMax ().x - ImGui::GetItemRectMin ().x);
+            const bool built = at < coverage;
+            hovered = built ? massingslices::kBuiltHover : massingslices::kUnbuiltHover;
+            ImGui::SetTooltip ("%s: %.2f m2 (%.2f%%)", built ? "Built footprint" : "Unbuilt parcel",
+                               built ? result.builtArea : result.unbuiltArea, 100 * (built ? coverage : 1 - coverage));
+        }
         ImGui::PopStyleColor (2);
         ImGui::TextDisabled ("Projected slab union within each parcel; not summed floor areas.");
     }

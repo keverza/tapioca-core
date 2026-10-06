@@ -761,8 +761,9 @@ std::string FigureText (const std::string& text, float width)
 }
 } // namespace
 
-void Cards (const std::vector<Card>& cards, const layers::Panel& look, float scale)
+std::string Cards (const std::vector<Card>& cards, const layers::Panel& look, float scale)
 {
+    std::string hovered;
     for (size_t c = 0; c < cards.size (); ++c) {
         const Card& card = cards[c];
         ImGui::PushID (int (c));
@@ -785,6 +786,8 @@ void Cards (const std::vector<Card>& cards, const layers::Panel& look, float sca
                 ImGui::PushStyleColor (ImGuiCol_Text, Colour (WithAlpha (look.textRgba, 0.72f)));
                 const auto label = FigureText (figure.label, ImGui::GetContentRegionAvail ().x);
                 ImGui::TextUnformatted (label.c_str ());
+                if (ImGui::IsItemHovered () && !figure.hoverKey.empty ())
+                    hovered = figure.hoverKey;
                 if (label != figure.label && ImGui::IsItemHovered ())
                     ImGui::SetTooltip ("%s", figure.label.c_str ());
                 ImGui::PopStyleColor ();
@@ -793,6 +796,8 @@ void Cards (const std::vector<Card>& cards, const layers::Panel& look, float sca
                                        Colour ((figure.rgba & 0xFFu) != 0 ? figure.rgba : look.textRgba));
                 const auto value = FigureText (figure.value, ImGui::GetContentRegionAvail ().x);
                 ImGui::TextUnformatted (value.c_str ());
+                if (ImGui::IsItemHovered () && !figure.hoverKey.empty ())
+                    hovered = figure.hoverKey;
                 if (value != figure.value && ImGui::IsItemHovered ())
                     ImGui::SetTooltip ("%s", figure.value.c_str ());
                 ImGui::PopStyleColor ();
@@ -811,6 +816,7 @@ void Cards (const std::vector<Card>& cards, const layers::Panel& look, float sca
             Muted (card.note, look, card.noteRgba);
         ImGui::PopID ();
     }
+    return hovered;
 }
 
 void SelectionList (const SelectionPage& page, const layers::Panel& look, float scale)
