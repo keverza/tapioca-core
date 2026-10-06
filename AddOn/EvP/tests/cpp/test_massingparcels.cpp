@@ -354,7 +354,7 @@ TEST (MassingParcels, ExtrudedHighlightsUseSliceFillOpacityAndAFunctionColouredW
     EXPECT_NE (highlight.meshes[0].style.edgeRgba & 0xFF, 0u);
 }
 
-TEST (MassingParcels, CoverageHoverFillsGroundFootprintsOrTheirParcelComplementIncludingCourtyards)
+TEST (MassingParcels, CoverageHoverFillsBuiltFootprintsButHatchesTheirUnbuiltComplement)
 {
     auto input = Slab ();
     input.slab.top = 8;
@@ -368,6 +368,14 @@ TEST (MassingParcels, CoverageHoverFillsGroundFootprintsOrTheirParcelComplementI
     for (const auto* key : { slices::kBuiltHover, slices::kUnbuiltHover }) {
         layers::Layer highlight;
         ASSERT_TRUE (slices::Highlight (result, key, highlight, error)) << error;
+        if (key == slices::kUnbuiltHover) {
+            EXPECT_TRUE (highlight.meshes.empty ());
+            EXPECT_FALSE (highlight.polylines.empty ());
+            EXPECT_EQ (highlight.views, layers::Views::TwoD);
+            for (const auto& line : highlight.polylines)
+                EXPECT_EQ (line.rgba, 0x66BB6AFFu);
+            continue;
+        }
         ASSERT_EQ (highlight.meshes.size (), 2u);
         double area = 0;
         for (const auto& mesh : highlight.meshes) {
@@ -402,13 +410,15 @@ TEST (MassingParcels, EmptySiteCoverageHoverUsesKnownParcelGroundOrPlanOnlyWitho
     layers::Layer highlight;
     ASSERT_TRUE (slices::Highlight (result, slices::kUnbuiltHover, highlight, error)) << error;
     EXPECT_EQ (highlight.views, layers::Views::TwoD);
-    ASSERT_EQ (highlight.meshes.size (), 1u);
+    EXPECT_TRUE (highlight.meshes.empty ());
+    ASSERT_FALSE (highlight.polylines.empty ());
     preview.result.hasMeanZ = true;
     preview.result.meanZ = 42;
     ASSERT_TRUE (slices::Coverage (result, preview, error));
     ASSERT_TRUE (slices::Highlight (result, slices::kUnbuiltHover, highlight, error));
-    EXPECT_EQ (highlight.views, layers::Views::Both);
-    EXPECT_NEAR (highlight.meshes[0].points[2], 42.012, 1e-7);
+    EXPECT_EQ (highlight.views, layers::Views::TwoD) << "Mean Z is not a terrain projection";
+    EXPECT_TRUE (highlight.meshes.empty ());
+    EXPECT_NEAR (highlight.polylines[0].points[2], 42.014, 1e-7);
     ASSERT_TRUE (slices::Highlight (result, slices::kBuiltHover, highlight, error));
     EXPECT_TRUE (highlight.meshes.empty ());
 }

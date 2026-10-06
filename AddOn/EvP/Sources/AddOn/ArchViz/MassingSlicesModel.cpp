@@ -38,12 +38,25 @@ std::string s_collapseNote;
 void Highlight ()
 {
     overlaylayers::Clear (massingslices::kHighlightLayer);
+    overlaylayers::Clear (massingslices::kUnbuiltProjectedLayer);
     const bool coverage =
         s_hoverFunction == massingslices::kBuiltHover || s_hoverFunction == massingslices::kUnbuiltHover;
     if ((!s_shown && !coverage) || !s_result || s_hoverFunction.empty ())
         return;
     overlaylayers::Layer layer;
     std::string error;
+    if (s_hoverFunction == massingslices::kUnbuiltHover) {
+        overlaylayers::Layer projected;
+        if (massingslices::UnbuiltHighlight (*s_result, s_projectionTerrain.get (), layer, projected, error)) {
+            if (!layer.polylines.empty ())
+                overlaylayers::Set (std::move (layer));
+            if (!projected.polylines.empty ())
+                overlaylayers::Set (std::move (projected));
+        }
+        else
+            ArchVizLog ("MASSING COVERAGE HATCH refused: " + error);
+        return;
+    }
     if (massingslices::Highlight (*s_result, s_hoverFunction, layer, error))
         overlaylayers::Set (std::move (layer));
     else
@@ -346,6 +359,7 @@ void Forget ()
     overlaylayers::Clear (massingcollapse::kProjectedLayer);
     s_projectionTerrain.reset ();
     overlaylayers::Clear (massingslices::kHighlightLayer);
+    overlaylayers::Clear (massingslices::kUnbuiltProjectedLayer);
     slabbodies::Want ({}, "massing");
     s_bodies = 0;
     s_bodySignature.clear ();

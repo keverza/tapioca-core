@@ -101,12 +101,21 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
     hud::SelectKey (*hud.state, hm::kTabKey);
     hud.Lay ({}, At (600, 600));
     const auto layout = hud.Lay ({}, At (600, 600));
-    float lastControl = 0;
+    std::vector<float> controls;
+    bool inControl = false;
     for (float y = 16 + layout.host.height - 1; y > 60; --y)
         if (hud.Lay ({}, At (40, y)).hand) {
-            lastControl = y - 4;
-            break;
+            if (!inControl)
+                controls.push_back (y - 4);
+            inControl = true;
         }
+        else {
+            inControl = false;
+            if (controls.size () == 2)
+                break;
+        }
+    ASSERT_EQ (controls.size (), 2u) << "Unique buildings follows envelope; envelope still follows collapse";
+    const float lastControl = controls[1];
     ASSERT_GT (lastControl, 60);
     hud::TakeMassingCalculations (*hud.state); // Discard the existing initial Massing-page preview request.
     constexpr const char* envelope = geomsrv::archviz::massingcalculation::kEnvelopeLayer;
@@ -123,4 +132,8 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
     hud.Click ({}, 40, lastControl);
     EXPECT_TRUE (hud::LayerShown (*hud.state, envelope));
     EXPECT_TRUE (hud::TakeMassingCalculations (*hud.state).empty ());
+    EXPECT_FALSE (hud::UniqueBuildings (*hud.state));
+    hud.Click ({}, 40, controls[0]);
+    EXPECT_TRUE (hud::UniqueBuildings (*hud.state));
+    EXPECT_EQ (hud.heard.back ().kind, "uniqueBuildings");
 }

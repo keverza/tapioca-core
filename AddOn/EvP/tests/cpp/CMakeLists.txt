@@ -507,6 +507,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseZone.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseProjection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TerrainProjection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCoverageHighlight.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingStats.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingParcelCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSlices.cpp"
@@ -726,6 +728,7 @@ set (EVP_TEST_SOURCES
     test_massingstats.cpp
     test_massingcollapse.cpp
     test_massingbuildings.cpp
+    test_terrainprojection.cpp
     test_massingfacade.cpp
     test_massingslices.cpp
     test_hudsection.cpp

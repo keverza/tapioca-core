@@ -240,6 +240,10 @@ bool Coverage (Result& result, const massingcalculation::Preview& preview, std::
 bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error)
 {
     error.clear ();
+    if (function == kUnbuiltHover) {
+        overlaylayers::Layer projected;
+        return UnbuiltHighlight (result, nullptr, layer, projected, error);
+    }
     overlaylayers::Layer out;
     out.name = kHighlightLayer;
     out.graphicsCategory =
