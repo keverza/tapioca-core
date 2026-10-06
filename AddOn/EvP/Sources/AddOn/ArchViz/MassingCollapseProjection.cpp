@@ -45,11 +45,11 @@ bool Project (const Result& zone, const Mesh& terrain, overlaylayers::Layer& lay
     overlaylayers::Layer out;
     out.name = kProjectedLayer;
     out.views = overlaylayers::Views::ThreeD;
-    out.occlusion = overlaylayers::Behind::Show;
+    out.occlusion = overlaylayers::Behind::Fade;
     overlaylayers::Mesh fill;
     fill.rgba = 0xAA446528;
     fill.styled = true;
-    fill.style.behind = overlaylayers::Behind::Show;
+    fill.style.behind = overlaylayers::Behind::Layer;
     const double phase = std::fmod (zone.hatchOriginSum - ox - oy, 0.7);
     size_t work = 0, topFaces = 0;
     for (size_t i = 0; i < terrain.triangles.size (); i += 3) {
@@ -119,7 +119,7 @@ bool Project (const Result& zone, const Mesh& terrain, overlaylayers::Layer& lay
                 overlaylayers::Polyline line;
                 line.rgba = 0xAA4465C0;
                 line.widthPixels = 0.7f;
-                line.behind = overlaylayers::Behind::Show;
+                line.behind = overlaylayers::Behind::Layer;
                 for (const auto& q : hits)
                     line.points.insert (line.points.end (), { q.x + ox, q.y + oy, height (q) + 0.014 });
                 out.polylines.push_back (std::move (line));

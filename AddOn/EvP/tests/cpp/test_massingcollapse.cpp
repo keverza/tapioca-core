@@ -1,4 +1,5 @@
 #include "ArchViz/MassingCollapseZone.hpp"
+#include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "Geometry/Primitives.hpp"
 #include "hud_fixture.hpp"
@@ -272,8 +273,20 @@ TEST (MassingCollapse, ThreeDProjectionFollowsTopographyForFillAndThinHatchesNot
     geomsrv::archviz::overlaylayers::Layer projected;
     ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
     EXPECT_EQ (projected.views, geomsrv::archviz::overlaylayers::Views::ThreeD);
+    EXPECT_EQ (projected.occlusion, geomsrv::archviz::overlaylayers::Behind::Fade);
     ASSERT_EQ (projected.meshes.size (), 1u);
     EXPECT_FALSE (projected.polylines.empty ());
+    EXPECT_EQ (geomsrv::archviz::overlaylayers::Resolve (projected.meshes[0].style.behind, projected),
+               geomsrv::archviz::overlaylayers::Behind::Fade);
+    const auto scene = geomsrv::archviz::overlayscene::PrepareScene (
+        { std::make_shared<const geomsrv::archviz::overlaylayers::Layer> (projected) }, nullptr);
+    ASSERT_FALSE (scene.fills.empty ());
+    ASSERT_FALSE (scene.lines.empty ());
+    ASSERT_FALSE (scene.fillDraws.empty ());
+    for (const auto& fill : scene.fillDraws)
+        EXPECT_EQ (fill.behind, geomsrv::archviz::overlayscene::kBehindFade);
+    for (const auto& line : scene.lines)
+        EXPECT_EQ (line.behind, geomsrv::archviz::overlayscene::kBehindFade);
     const auto& points = projected.meshes[0].points;
     for (size_t i = 0; i < points.size (); i += 3)
         EXPECT_NEAR (points[i + 2], 0.5 * points[i] + 0.2 * points[i + 1] + 0.012, 1e-7);
