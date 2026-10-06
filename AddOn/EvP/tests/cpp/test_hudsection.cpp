@@ -9,6 +9,7 @@
 #include "Metadata/TapiocaMetadata.hpp"
 
 #include <gtest/gtest.h>
+#include <imgui_internal.h>
 
 #include <cmath>
 #include <string>
@@ -128,6 +129,7 @@ TEST (HudSection, TheSlabsFloorsAreTheSectionsRowsByStorey)
     EXPECT_EQ (section.spans[0].high, 2);
     EXPECT_EQ (section.spans[1].low, 3);
     EXPECT_EQ (section.spans[1].high, 9);
+    EXPECT_EQ (hs::TotalArea (section), 5800);
 }
 
 // A run across both slabs is two edits, each clipped to its slab's own floors.
@@ -166,10 +168,12 @@ TEST (HudSection, SelectionFiltersOutUnselectedDefinedSlabsBeforeFloorEdits)
     EXPECT_EQ (selected.spans[0].guid, "TOWER");
     EXPECT_EQ (selected.floors.size (), 7u);
     EXPECT_EQ (selected.widestM2, 400);
+    EXPECT_EQ (hs::TotalArea (selected), 2800);
     const auto edits = hs::RunEdits (selected, { 0, 9 }, "commercial", false);
     ASSERT_EQ (edits.size (), 1u);
     EXPECT_EQ (edits[0].element, "TOWER");
     EXPECT_TRUE (hs::Filter (all, {}).floors.empty ());
+    EXPECT_EQ (hs::TotalArea (hs::Filter (all, {})), 0);
 }
 
 TEST (HudSection, FloorEditorLivesOnSelectionAndNotMassing)
@@ -192,6 +196,45 @@ TEST (HudSection, FloorEditorLivesOnSelectionAndNotMassing)
     EXPECT_FALSE (std::any_of (massing.host.vertices.begin (), massing.host.vertices.end (),
                                [] (const hud::Vertex& v) { return v.rgba == 0xE4572EFFu; }));
     EXPECT_TRUE (hud::PickedFloors (*hud.state).Empty ());
+}
+
+TEST (HudSection, FloorCaptionsShowAreaAndSelectionTotalsRemainBelowTheDiagram)
+{
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+    io.DisplaySize = { 1000, 1000 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const auto section = hs::Build (Building (), Storeys (10), meta::DefaultSchema ());
+    hs::Run run;
+    ImGui::NewFrame ();
+    ImGui::SetNextWindowSize ({ 500, 600 });
+    ImGui::Begin ("section-area");
+    hs::Diagram (section, run, shell::PlainLook (), 1);
+    const auto totals = hs::BuildingAreas (section);
+    ASSERT_EQ (totals.figures.size (), 2u);
+    EXPECT_EQ (totals.figures[0].label, "Total building area");
+    EXPECT_EQ (totals.figures[0].value, "5800.00 m2");
+    EXPECT_EQ (totals.figures[1].value, "4524.00 m2");
+    const auto* draw = ImGui::GetWindowDrawList ();
+    float bottom = 0;
+    for (const auto& vertex : draw->VtxBuffer)
+        if (vertex.col == shell::Packed (0xE4572EFFu))
+            bottom = (std::max) (bottom, vertex.pos.y);
+    const auto* squared = ImGui::GetFontBaked ()->FindGlyph (0xB2);
+    ASSERT_NE (squared, nullptr);
+    size_t areaCaptions = 0;
+    for (const auto& vertex : draw->VtxBuffer)
+        if (vertex.pos.y <= bottom && vertex.uv.x == squared->U0 && vertex.uv.y == squared->V0)
+            ++areaCaptions;
+    EXPECT_EQ (areaCaptions, 10u) << "Every floor caption has m2, not a function name";
+    ImGui::End ();
+    ImGui::Render ();
+    ImGui::DestroyContext (context);
 }
 
 // Through the HUD: a press picks a floor, a shift-press runs to another, a drag picks the

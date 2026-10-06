@@ -25,6 +25,7 @@
 
 #include "ArchViz/ExtractionStorySlices.hpp" // ProjectStoreys
 #include "ArchViz/HudMetadata.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/SlabSlices.hpp"
 #include "Metadata/TapiocaMetadata.hpp"
@@ -103,6 +104,8 @@ struct Slab {
 Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, const metadata::ProjectSchema& schema,
                const std::string& property = {});
 Section Filter (const Section& section, const std::vector<std::string>& guids);
+double TotalArea (const Section& section);
+hudshell::Card BuildingAreas (const Section& section);
 
 // The edits that assign `value` (or clear the key, `clear`) over `run`, one per slab that has a
 // floor in it, clipped to that slab's own floors.

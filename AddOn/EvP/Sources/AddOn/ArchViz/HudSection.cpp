@@ -43,6 +43,27 @@ Section Filter (const Section& section, const std::vector<std::string>& guids)
 namespace meta = metadata;
 namespace layers = overlaylayers;
 
+double TotalArea (const Section& section)
+{
+    double total = 0;
+    for (const auto& floor : section.floors)
+        total += floor.areaM2;
+    return total;
+}
+
+hudshell::Card BuildingAreas (const Section& section)
+{
+    hudshell::Card totals;
+    totals.alignDecimals = true;
+    const double total = TotalArea (section);
+    char value[64];
+    std::snprintf (value, sizeof (value), "%.2f m2", total);
+    totals.figures.push_back ({ "Total building area", value });
+    std::snprintf (value, sizeof (value), "%.2f m2", total * 0.78);
+    totals.figures.push_back ({ "Gross building area (total x 0.78)", value });
+    return totals;
+}
+
 namespace {
 
 constexpr char kMenu[] = "##tapioca.floors";
@@ -275,8 +296,8 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
         if (run.Has (floor.storey))
             draw->AddRect (ImVec2 (x0 - 1.0f, y0 - 1.0f), ImVec2 (x0 + w + 1.0f, y1 + 1.0f),
                            hudshell::Packed (look.accentRgba), rounding, 0, (std::max) (1.5f, 2.0f * scale));
-        // What the floor is, inside it where it fits.
-        const std::string value = FloorValue (section, floor);
+        // Colour names the function; the caption gives the complete floor's area.
+        const std::string value = Area (floor.areaM2);
         const ImVec2 size = ImGui::CalcTextSize (value.c_str ());
         if (!value.empty () && size.x + em * 0.5f < w)
             draw->AddText (ImVec2 (std::floor (x0 + (w - size.x) * 0.5f), std::floor (y0 + (row - em) * 0.5f)),
@@ -292,6 +313,8 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
             tip += "\n" + section.keyLabel + ": " + value;
         hudshell::TipBeside (ImVec2 (origin.x, y0), ImVec2 (origin.x + width, y0 + row), hudshell::TipSide::Left, tip);
     }
+
+    hudshell::Cards ({ BuildingAreas (section) }, look, scale);
 
     // ---- what is picked, and the values to give it --------------------------------------------
     double picked = 0.0;
