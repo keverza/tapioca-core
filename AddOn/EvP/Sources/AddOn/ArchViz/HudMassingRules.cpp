@@ -333,6 +333,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
             Distance ("Flat base depth", calculation.baseDepth, draft, 0.01, 100);
             ImGui::EndMenu ();
         }
+        draft.dirty = HasUnsavedOffsets (draft);
         if (ImGui::MenuItem ("Save assignments", nullptr, false, draft.dirty)) {
             metadata::Property property;
             if (rules::Encode (page.edges, draft.assignments, property, draft.note)) {
@@ -359,6 +360,26 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     return edits;
 }
 } // namespace
+
+bool HasUnsavedOffsets (const Draft& draft)
+{
+    const auto& source = draft.source;
+    if (!source.known || source.edges.empty () || draft.assignments.size () != source.edges.size ())
+        return false;
+    metadata::Property property;
+    std::string error;
+    if (source.hasStored && rules::Encode (source.edges, draft.assignments, property, error))
+        return property.value != source.stored; // Also includes fingerprints retained through topology edits.
+    if (draft.assignments.size () != source.assignments.size ())
+        return true;
+    for (size_t i = 0; i < draft.assignments.size (); ++i) {
+        const auto& a = draft.assignments[i];
+        const auto& b = source.assignments[i];
+        if (a.mode != b.mode || a.distance != b.distance || a.review != b.review)
+            return true;
+    }
+    return false;
+}
 
 void Sync (const rules::Page& page, Draft& draft)
 {
@@ -473,7 +494,25 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
     ImGui::Checkbox ("Project height cap", &draft.calculation.capped);
     if (draft.calculation.capped)
         Distance ("Cap Project Z", draft.calculation.capZ, draft, 5, 50);
-    edits = Diagram (page, draft, preview, parcels, sitePreview);
+    draft.dirty = HasUnsavedOffsets (draft);
+    const ImVec4 button =
+        ImGui::ColorConvertU32ToFloat4 (draft.dirty ? IM_COL32 (232, 163, 61, 255) : IM_COL32 (154, 160, 166, 255));
+    ImGui::PushStyleColor (ImGuiCol_Button, button);
+    ImGui::PushStyleColor (ImGuiCol_ButtonHovered, ImVec4 (0.97f, 0.73f, 0.30f, 1));
+    ImGui::PushStyleColor (ImGuiCol_ButtonActive, ImVec4 (0.84f, 0.54f, 0.13f, 1));
+    ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.11f, 0.11f, 0.11f, 1));
+    ImGui::BeginDisabled (!draft.dirty);
+    if (ImGui::Button ("Save")) {
+        metadata::Property property;
+        if (rules::Encode (page.edges, draft.assignments, property, draft.note))
+            edits.push_back ({ page, draft.assignments });
+    }
+    ImGui::EndDisabled ();
+    ImGui::PopStyleColor (4);
+    hudshell::Tip (draft.dirty ? "Save unsaved offsets for this parcel." : "All offsets for this parcel saved.");
+    for (auto& edit : Diagram (page, draft, preview, parcels, sitePreview))
+        edits.push_back (std::move (edit));
+    draft.dirty = HasUnsavedOffsets (draft);
     ImGui::PopID ();
     ImGui::PopID ();
     Follow (page, draft);

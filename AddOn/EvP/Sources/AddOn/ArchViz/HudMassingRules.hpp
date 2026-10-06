@@ -42,6 +42,7 @@ std::vector<massingrules::Edit> DrawSite (const std::vector<massingrules::Page>&
                                           bool busy, const std::string& note,
                                           const std::shared_ptr<const massingcalculation::Preview>& preview);
 void Sync (const massingrules::Page& page, Draft& draft);
+bool HasUnsavedOffsets (const Draft& draft);
 bool AnswerNumber (Draft& draft, const NumberEdit& edit, double number);
 // 0/1/3 set a fixed offset; -1 opens a cancellable Custom number panel.
 void SelectOffset (Draft& draft, int preset);

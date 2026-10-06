@@ -387,6 +387,37 @@ TEST (MassingRules, SuccessfulSaveAcknowledgesDraftAndPreservesRunLocalEndpoints
     EXPECT_EQ (draft.assignments[0].distance, 2);
 }
 
+TEST (MassingRules, UnsavedOffsetStateComparesActualAssignmentsAndIgnoresRunLocalSettings)
+{
+    auto page = Page (Saved ());
+    widgets::Draft draft;
+    widgets::Sync (page, draft);
+    EXPECT_FALSE (widgets::HasUnsavedOffsets (draft));
+    draft.endpoints[0] = false;
+    draft.regulated[0] = false;
+    draft.calculation.capZ = 40;
+    draft.dirty = true;
+    EXPECT_FALSE (widgets::HasUnsavedOffsets (draft)) << "Only persisted offsets make Save active";
+    widgets::SelectOffset (draft, 1);
+    EXPECT_FALSE (widgets::HasUnsavedOffsets (draft)) << "Choosing the saved preset again is not an edit";
+    widgets::SelectOffset (draft, 3);
+    EXPECT_TRUE (widgets::HasUnsavedOffsets (draft));
+    widgets::SelectOffset (draft, 1);
+    EXPECT_FALSE (widgets::HasUnsavedOffsets (draft)) << "Reverting to the saved value disables Save";
+    page.edges[0].ax -= 0.1;
+    page.edges.back ().bx -= 0.1;
+    ASSERT_TRUE (rules::Restore (page, Saved ()));
+    widgets::Sync (page, draft);
+    EXPECT_TRUE (widgets::HasUnsavedOffsets (draft)) << "Retained offsets still need their new fingerprints saved";
+    widgets::Draft fresh;
+    widgets::Sync (Page (), fresh);
+    EXPECT_FALSE (widgets::HasUnsavedOffsets (fresh)) << "Untouched defaults are not an unsaved edit";
+    widgets::SelectOffset (fresh, -1);
+    EXPECT_FALSE (widgets::HasUnsavedOffsets (fresh)) << "Opening Custom without accepting is not an edit";
+    widgets::SelectOffset (fresh, 0);
+    EXPECT_TRUE (widgets::HasUnsavedOffsets (fresh));
+}
+
 TEST (MassingRules, NativePageDrawsWithoutCommandAndStateClearDropsRequests)
 {
     using namespace hudtest;
@@ -496,6 +527,45 @@ TEST (MassingRules, OnlyContourRemainsInTheExpandedRulesSection)
     const ImGuiID parcel = ImHashStr (widget.page.guid.c_str (), 0, section);
     EXPECT_EQ (widget.lastItem, ImHashStr ("##massing.site", 0, parcel));
     EXPECT_NEAR (widget.canvas.GetHeight (), 200, 0.01);
+}
+
+TEST (MassingRules, MiniGuiSaveIsGreyDisabledWhenCleanAmberWhenEditedAndCleanOnlyAfterAcknowledgement)
+{
+    RulesWidget widget;
+    const auto pointer = ImVec2 { widget.canvas.Min.x + 10, widget.canvas.Min.y - ImGui::GetStyle ().ItemSpacing.y -
+                                                                ImGui::GetFrameHeight () / 2 };
+    const auto hasColour = [&] (ImU32 colour) {
+        const auto* draw = ImGui::FindWindowByName ("rules-test")->DrawList;
+        return std::any_of (draw->VtxBuffer.begin (), draw->VtxBuffer.end (),
+                            [&] (const auto& vertex) { return vertex.col == colour; });
+    };
+    const auto grey = ImGui::ColorConvertFloat4ToU32 (
+        { 154.0f / 255, 160.0f / 255, 166.0f / 255, ImGui::GetStyle ().Alpha * ImGui::GetStyle ().DisabledAlpha });
+    EXPECT_TRUE (hasColour (grey));
+    EXPECT_TRUE (widget.Frame (pointer, true).empty ());
+    EXPECT_TRUE (widget.Frame (pointer).empty ());
+    widget.draft.assignments[0].distance = 2;
+    widget.Frame ({ 850, 850 });
+    EXPECT_TRUE (widget.draft.dirty);
+    EXPECT_TRUE (hasColour (IM_COL32 (232, 163, 61, 255)));
+    EXPECT_TRUE (widget.Frame (pointer, true).empty ());
+    const auto edits = widget.Frame (pointer);
+    ASSERT_EQ (edits.size (), 1u);
+    EXPECT_EQ (edits[0].before.guid, "parcel");
+    EXPECT_EQ (edits[0].before.stored, widget.page.stored);
+    EXPECT_EQ (edits[0].assignments[0].distance, 2);
+    EXPECT_TRUE (widget.draft.dirty) << "A queued Save is not a successful write";
+    meta::Property property;
+    std::string error;
+    ASSERT_TRUE (rules::Encode (widget.page.edges, edits[0].assignments, property, error));
+    auto entity = Saved ();
+    meta::SetProperty (entity, std::move (property));
+    ASSERT_TRUE (rules::Restore (widget.page, entity));
+    widget.Frame ({ 850, 850 });
+    EXPECT_FALSE (widget.draft.dirty);
+    EXPECT_TRUE (hasColour (grey));
+    EXPECT_TRUE (widget.Frame (pointer, true).empty ());
+    EXPECT_TRUE (widget.Frame (pointer).empty ());
 }
 
 TEST (MassingRules, MiniGuiRotatesSelectedVerticalEdgeTextAndKeepsGlyphsClearOfParcelLines)
@@ -734,7 +804,7 @@ TEST (MassingRules, ContourAutomaticallyCapturesChangesWithoutCalculateOrSave)
     EXPECT_FALSE (request.endpoints[1]);
     EXPECT_FALSE (request.regulated[2]);
     EXPECT_EQ (request.landscape, 1);
-    EXPECT_FALSE (widget.draft.dirty); // calculating never saves metadata
+    EXPECT_TRUE (widget.draft.dirty); // Automatic preview does not save changed offsets.
 }
 
 TEST (MassingRules, CapKeyboardAnswerIsBoundedCapturedAndAutomaticallyRecalculated)
