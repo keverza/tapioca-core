@@ -186,23 +186,25 @@ void Update ()
     if (s_collapseShown) {
         if (zoneMissing || !error.empty ())
             s_collapseNote = "Collapse zone awaiting complete current 3D slab bodies; no partial zone displayed.";
+        else if (!zoneInputs.empty () && !s_projectionTerrain)
+            s_collapseNote =
+                "Collapse zone awaits the selected current topography mesh; no ground-height substitute used.";
         else {
             massingcollapse::Result zone;
+            const Mesh emptyTerrain;
             const double drawingZ = envelope && envelope->result.hasMeanZ ? envelope->result.meanZ : 0;
-            if (massingcollapse::Build (zoneInputs, drawingZ, zone, s_collapseNote)) {
+            if (massingcollapse::Build (zoneInputs, s_projectionTerrain ? *s_projectionTerrain : emptyTerrain, drawingZ,
+                                        zone, s_collapseNote)) {
                 zone.layer.views = overlaylayers::Views::TwoD;
                 if (!zone.layer.meshes.empty ())
                     overlaylayers::Set (std::move (zone.layer));
-                s_collapseNote =
-                    zoneInputs.empty ()
-                        ? "No massing slabs defined/selected."
-                        : "Current operated surfaces; local top minus local base height, merged into one fill.";
+                s_collapseNote = zoneInputs.empty ()
+                                     ? "No massing slabs defined/selected."
+                                     : "Current operated slab tops above local topography, merged into one fill.";
                 if (!zoneInputs.empty ()) {
                     overlaylayers::Layer projected;
                     std::string projectionError;
-                    if (!s_projectionTerrain)
-                        s_collapseNote += " 3D projection awaits the selected current topography mesh.";
-                    else if (massingcollapse::Project (zone, *s_projectionTerrain, projected, projectionError)) {
+                    if (massingcollapse::Project (zone, *s_projectionTerrain, projected, projectionError)) {
                         if (!projected.meshes.empty ())
                             overlaylayers::Set (std::move (projected));
                         s_collapseNote += " 3D zone projected onto topography; outside its mesh extent is undrawn.";

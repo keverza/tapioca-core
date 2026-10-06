@@ -76,9 +76,11 @@ bool Sweep (const cp::PathD& patch, const Facet& a, const Facet& b, cp::PathsD& 
 {
     if (patch.size () < 3 || std::abs (cp::Area (patch)) < 1e-10)
         return true;
+    if (std::all_of (patch.begin (), patch.end (), [&] (const auto& p) { return a.Height (p) - b.Height (p) < 1e-8; }))
+        return true; // No above-ground surface: do not emit a buried slab's footprint.
     cp::PathD cloud;
     for (const auto& p : patch) {
-        const double radius = std::abs (a.Height (p) - b.Height (p)) * kHeightFactor;
+        const double radius = (std::max) (0.0, a.Height (p) - b.Height (p)) * kHeightFactor;
         if (!std::isfinite (radius) || radius > 10000)
             return Fail (error, "Collapse-zone local height is out of range.");
         if (radius < 1e-8) {
@@ -106,11 +108,11 @@ bool Sweep (const cp::PathD& patch, const Facet& a, const Facet& b, cp::PathsD& 
         regions.push_back (std::move (hull));
     return true;
 }
-bool Facets (const Mesh& body, double ox, double oy, std::vector<Facet>& facets, std::string& error)
+bool Facets (const Mesh& body, double ox, double oy, bool terrain, std::vector<Facet>& facets, std::string& error)
 {
     if (body.vertices.empty () || body.triangles.empty () || body.vertices.size () % 3 || body.triangles.size () % 3 ||
-        body.TriangleCount () > 50000)
-        return Fail (error, "Collapse zone requires a complete bounded 3D slab body.");
+        body.vertices.size () > 600000 || body.TriangleCount () > (terrain ? 200000u : 50000u))
+        return Fail (error, "Collapse zone requires bounded current slab bodies and topography.");
     for (double value : body.vertices)
         if (!std::isfinite (value) || std::abs (value) > 1e9)
             return Fail (error, "Invalid collapse-zone body coordinate.");
@@ -129,15 +131,16 @@ bool Facets (const Mesh& body, double ox, double oy, std::vector<Facet>& facets,
             keys[k] = { int64_t (std::llround (p[k].x * 1e6)), int64_t (std::llround (p[k].y * 1e6)),
                         int64_t (std::llround (z[k] * 1e6)) };
         }
-        for (int k = 0; k < 3; ++k) {
-            const auto& a = keys[k];
-            const auto& b = keys[(k + 1) % 3];
-            if (a != b)
-                ++edges[a < b ? std::make_pair (a, b) : std::make_pair (b, a)];
-        }
+        if (!terrain)
+            for (int k = 0; k < 3; ++k) {
+                const auto& a = keys[k];
+                const auto& b = keys[(k + 1) % 3];
+                if (a != b)
+                    ++edges[a < b ? std::make_pair (a, b) : std::make_pair (b, a)];
+            }
         const double det = Cross (p[0], p[1], p[2]);
-        if (std::abs (det) < 1e-10)
-            continue; // vertical faces have no footprint area; their adjoining facets retain the edge
+        if (std::abs (det) < 1e-10 || (terrain && det < 0))
+            continue; // Terrain underside/vertical faces are not ground elevation.
         Facet f;
         f.xy = { p[0], p[1], p[2] };
         if (det < 0)
@@ -158,7 +161,8 @@ bool Facets (const Mesh& body, double ox, double oy, std::vector<Facet>& facets,
 }
 } // namespace
 
-bool Build (const std::vector<massingslices::Input>& inputs, double drawingZ, Result& result, std::string& error)
+bool Build (const std::vector<massingslices::Input>& inputs, const Mesh& terrain, double drawingZ, Result& result,
+            std::string& error)
 {
     error.clear ();
     if (!std::isfinite (drawingZ) || inputs.size () > 128)
@@ -172,47 +176,55 @@ bool Build (const std::vector<massingslices::Input>& inputs, double drawingZ, Re
         return true;
     }
     double ox = 0, oy = 0;
-    std::map<std::string, std::vector<Facet>> buildings;
-    size_t totalFacets = 0;
+    std::vector<Facet> surfaces;
     for (const auto& input : inputs) {
-        if (!input.body || input.body->vertices.empty ())
+        if (!input.body || input.body->vertices.size () < 3)
             return Fail (error, "Collapse zone awaiting current 3D slab bodies (including SEO/sloped surfaces).");
-        if (buildings.empty ()) {
+        if (surfaces.empty ()) {
             ox = input.body->vertices[0];
             oy = input.body->vertices[1];
         }
-        const auto* id = metadata::FindProperty (input.metadata, "massing.buildingId");
-        const auto building = id && !id->value.s.empty () ? "building:" + id->value.s : "slab:" + input.slab.guid;
-        auto& facets = buildings[building];
-        const size_t before = facets.size ();
-        if (!Facets (*input.body, ox, oy, facets, error))
+        if (!Facets (*input.body, ox, oy, false, surfaces, error))
             return false;
-        totalFacets += facets.size () - before;
-        if (totalFacets > 10000)
+        if (surfaces.size () > 10000)
             return Fail (error, "Collapse-zone surface partition exceeds its facet budget.");
     }
+    std::vector<Facet> ground;
+    if (!Facets (terrain, ox, oy, true, ground, error))
+        return false;
+    if (ground.empty ())
+        return Fail (error, "Collapse zone awaits upward-facing current topography.");
+    std::sort (ground.begin (), ground.end (), [] (const auto& a, const auto& b) { return a.minX < b.minX; });
     cp::PathsD regions;
     out.hatchOriginSum = ox + oy;
     size_t visits = 0, points = 0;
     const auto began = std::chrono::steady_clock::now ();
-    for (auto& building : buildings) {
-        auto& facets = building.second;
-        std::sort (facets.begin (), facets.end (), [] (const auto& a, const auto& b) { return a.minX < b.minX; });
-        for (size_t i = 0; i < facets.size (); ++i)
-            for (size_t j = i + 1; j < facets.size () && facets[j].minX < facets[i].maxX; ++j) {
-                if (++visits > 200000 ||
-                    (visits % 256 == 0 && std::chrono::steady_clock::now () - began > std::chrono::seconds (2)))
-                    return Fail (error, "Collapse-zone surface intersections exceed their work/time budget.");
-                const auto& a = facets[i];
-                const auto& b = facets[j];
-                if (b.minY >= a.maxY || b.maxY <= a.minY)
-                    continue;
-                for (const auto& overlap :
-                     cp::Intersect (cp::PathsD { a.xy }, cp::PathsD { b.xy }, cp::FillRule::NonZero, 6))
-                    for (double sign : { -1.0, 1.0 })
-                        if (!Sweep (Half (overlap, a, b, sign), a, b, regions, points, error))
-                            return false;
+    // At each XY, the highest operated surface supplies the largest disc. Discs
+    // from lower surfaces are contained within it, so their union gives the local
+    // top without requiring shared IDs, thickness sums or a bounding-box height.
+    for (const auto& a : surfaces) {
+        cp::PathsD covered;
+        for (const auto& b : ground) {
+            if (b.minX >= a.maxX)
+                break;
+            if (++visits > 200000 ||
+                (visits % 256 == 0 && std::chrono::steady_clock::now () - began > std::chrono::seconds (2)))
+                return Fail (error, "Collapse-zone surface intersections exceed their work/time budget.");
+            if (b.maxX <= a.minX || b.minY >= a.maxY || b.maxY <= a.minY)
+                continue;
+            for (const auto& overlap :
+                 cp::Intersect (cp::PathsD { a.xy }, cp::PathsD { b.xy }, cp::FillRule::NonZero, 6)) {
+                covered.push_back (overlap);
+                if (!Sweep (Half (overlap, a, b, 1.0), a, b, regions, points, error))
+                    return false;
             }
+        }
+        // Six-decimal clipping can leave micron-wide seams at terrain triangle
+        // boundaries. Scale the coverage tolerance by perimeter, not patch area.
+        const double coverageTolerance = (std::max) (1e-6, 2e-6 * cp::Length (a.xy, true));
+        if (std::abs (cp::Area (cp::Difference ({ a.xy }, covered, cp::FillRule::NonZero, 6))) > coverageTolerance)
+            return Fail (error,
+                         "Collapse zone awaits topography covering every slab footprint; no partial zone displayed.");
     }
     const auto unioned = cp::Union (regions, cp::FillRule::NonZero, 6);
     size_t unionPoints = 0;
@@ -244,7 +256,7 @@ bool Build (const std::vector<massingslices::Input>& inputs, double drawingZ, Re
     fill.rgba = 0xAA446528;
     fill.styled = true;
     fill.style.behind = overlaylayers::Behind::Show;
-    fill.hoverTitle = "Building collapse zone (0.3333 x local height)";
+    fill.hoverTitle = "Building collapse zone (0.3333 x slab top height above topography)";
     for (const auto& v : triangles) {
         fill.indices.push_back (uint32_t (fill.points.size () / 3));
         fill.points.insert (fill.points.end (), { ox + v.x, oy + v.y, drawingZ + 0.01 });

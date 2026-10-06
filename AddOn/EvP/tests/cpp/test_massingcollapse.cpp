@@ -29,6 +29,13 @@ slices::Input Input (geomsrv::Mesh mesh, std::string guid = "building")
     input.body = std::make_shared<const geomsrv::Mesh> (std::move (mesh));
     return input;
 }
+geomsrv::Mesh Terrain (double elevation = 0, double x = -100, double y = -100, double size = 200)
+{
+    geomsrv::Mesh mesh;
+    mesh.vertices = { x, y, elevation, x + size, y, elevation, x + size, y + size, elevation, x, y + size, elevation };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3 };
+    return mesh;
+}
 cp::RectD Bounds (const zone::Result& result)
 {
     cp::PathsD paths;
@@ -91,7 +98,7 @@ TEST (MassingCollapse, FlatBuildingHasOneThirdHeightRoundOffsetAndOneHatchedUnio
 {
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, 0, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, Terrain (), 0, result, error)) << error;
     ASSERT_EQ (result.layer.meshes.size (), 1u);
     EXPECT_FALSE (result.layer.polylines.empty ());
     const auto bounds = Bounds (result);
@@ -110,21 +117,24 @@ TEST (MassingCollapse, SlopedTopUsesTheLocalHeightAtBothEndsNotTheBoundingBoxMax
             wedge.vertices[i + 2] += 0.6 * wedge.vertices[i];
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (wedge) }, 0, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (wedge) }, Terrain (), 0, result, error)) << error;
     const auto bounds = Bounds (result);
     EXPECT_NEAR (bounds.left, -0.9999, 0.011);  // local 3 m height
     EXPECT_NEAR (bounds.right, 12.9997, 0.011); // local 9 m height
     EXPECT_GT (bounds.left, -1.1) << "not a uniform 3 m offset from the bbox";
 }
 
-TEST (MassingCollapse, SlopingTopAndBottomUseLocalVerticalSpanNotGlobalHighestMinusLowest)
+TEST (MassingCollapse, SlabFollowingSlopedTopographyUsesLocalGroundNotGlobalHighestMinusLowest)
 {
     auto sloping = Box ();
     for (size_t i = 0; i < sloping.vertices.size (); i += 3)
         sloping.vertices[i + 2] += 0.6 * sloping.vertices[i];
+    auto terrain = Terrain ();
+    for (size_t i = 0; i < terrain.vertices.size (); i += 3)
+        terrain.vertices[i + 2] = 0.6 * terrain.vertices[i];
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (sloping) }, 0, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (sloping) }, terrain, 0, result, error)) << error;
     const auto bounds = Bounds (result);
     EXPECT_NEAR (bounds.left, -0.9999, 0.011);
     EXPECT_NEAR (bounds.right, 10.9999, 0.011);
@@ -158,7 +168,7 @@ TEST (MassingCollapse, AHeightStepKeepsTheLowSideLocalInsteadOfUsingTheTallSides
     }
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (mesh) }, 0, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (mesh) }, Terrain (), 0, result, error)) << error;
     EXPECT_NEAR (Bounds (result).left, -0.9999, 0.011);
     EXPECT_NEAR (Bounds (result).right, 12.9997, 0.011);
 }
@@ -167,7 +177,7 @@ TEST (MassingCollapse, SeoCourtyardSurvivesAndHatchesAreClippedAroundTheRemainin
 {
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (Courtyard ()) }, 0, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Courtyard ()) }, Terrain (), 0, result, error)) << error;
     ASSERT_EQ (result.chains.size (), 2u);
     cp::PathD hole;
     for (const auto& chain : result.chains) {
@@ -190,23 +200,23 @@ TEST (MassingCollapse, OverlappingAndDisconnectedBuildingsAreUnionedWithoutDoubl
     zone::Result one, both, duplicate;
     std::string error;
     const auto first = Input (Box ());
-    ASSERT_TRUE (zone::Build ({ first }, 0, one, error));
-    ASSERT_TRUE (zone::Build ({ first, Input (Box (), "duplicate") }, 0, duplicate, error));
+    ASSERT_TRUE (zone::Build ({ first }, Terrain (), 0, one, error));
+    ASSERT_TRUE (zone::Build ({ first, Input (Box (), "duplicate") }, Terrain (), 0, duplicate, error));
     EXPECT_NEAR (duplicate.area, one.area, 1e-6);
     ASSERT_EQ (duplicate.layer.meshes.size (), 1u);
-    ASSERT_TRUE (zone::Build ({ first, Input (Box (5), "second") }, 0, both, error));
+    ASSERT_TRUE (zone::Build ({ first, Input (Box (5), "second") }, Terrain (), 0, both, error));
     EXPECT_LT (both.area, 2 * one.area);
     EXPECT_GT (both.area, one.area);
     ASSERT_EQ (both.layer.meshes.size (), 1u);
     auto split = Box (0, 0, 2, 2);
     Append (split, Box (20, 0, 2, 2, 0, 9));
-    ASSERT_TRUE (zone::Build ({ Input (split) }, 0, both, error));
+    ASSERT_TRUE (zone::Build ({ Input (split) }, Terrain (), 0, both, error));
     EXPECT_EQ (both.chains.size (), 2u);
     EXPECT_NEAR (Bounds (both).left, -0.9999, 0.011);
     EXPECT_NEAR (Bounds (both).right, 24.9997, 0.011);
 }
 
-TEST (MassingCollapse, StackedSlabsOfOneBuildingUseItsLocalBaseToTopHeight)
+TEST (MassingCollapse, StackedSlabsWithSharedBuildingIdUseGroundToTopHeight)
 {
     auto lower = Input (Box (), "lower"), upper = Input (Box (0, 0, 10, 10, 3, 3), "upper");
     geomsrv::metadata::Property id;
@@ -216,7 +226,7 @@ TEST (MassingCollapse, StackedSlabsOfOneBuildingUseItsLocalBaseToTopHeight)
     geomsrv::metadata::SetProperty (upper.metadata, id);
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ lower, upper }, 0, result, error));
+    ASSERT_TRUE (zone::Build ({ lower, upper }, Terrain (), 0, result, error));
     EXPECT_NEAR (Bounds (result).left, -1.9998, 0.011);
 }
 
@@ -226,25 +236,139 @@ TEST (MassingCollapse, MissingInvalidAndOpenBodiesRefuseAtomicallyWithoutFlatFal
     result.area = 123;
     std::string error;
     slices::Input missing;
-    EXPECT_FALSE (zone::Build ({ missing }, 0, result, error));
+    EXPECT_FALSE (zone::Build ({ missing }, Terrain (), 0, result, error));
     EXPECT_EQ (result.area, 123);
+    geomsrv::Mesh malformed;
+    malformed.vertices = { 0 };
+    malformed.triangles = { 0, 0, 0 };
+    EXPECT_FALSE (zone::Build ({ Input (malformed) }, Terrain (), 0, result, error));
     auto open = Box ();
     open.triangles.resize (open.triangles.size () - 3);
-    EXPECT_FALSE (zone::Build ({ Input (open) }, 0, result, error));
+    EXPECT_FALSE (zone::Build ({ Input (open) }, Terrain (), 0, result, error));
     auto invalid = Box ();
     invalid.triangles[0] = 999999;
-    EXPECT_FALSE (zone::Build ({ Input (invalid) }, 0, result, error));
+    EXPECT_FALSE (zone::Build ({ Input (invalid) }, Terrain (), 0, result, error));
     invalid = Box ();
     invalid.vertices[0] = std::numeric_limits<double>::quiet_NaN ();
-    EXPECT_FALSE (zone::Build ({ Input (invalid) }, 0, result, error));
+    EXPECT_FALSE (zone::Build ({ Input (invalid) }, Terrain (), 0, result, error));
     EXPECT_EQ (result.area, 123);
+}
+
+TEST (MassingCollapse, StackedFiveMetreSlabsGrowWithoutBuildingIdsAndUpperSlabAloneUsesItsElevation)
+{
+    const auto lower = Input (Box (0, 0, 10, 10, 0, 5), "lower");
+    const auto middle = Input (Box (0, 0, 10, 10, 5, 5), "middle");
+    const auto upper = Input (Box (0, 0, 10, 10, 10, 5), "upper");
+    zone::Result one, two, three, upperOnly;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ lower }, Terrain (), 0, one, error)) << error;
+    ASSERT_TRUE (zone::Build ({ lower, middle }, Terrain (), 0, two, error)) << error;
+    ASSERT_TRUE (zone::Build ({ lower, middle, upper }, Terrain (), 0, three, error)) << error;
+    ASSERT_TRUE (zone::Build ({ upper }, Terrain (), 0, upperOnly, error)) << error;
+    EXPECT_NEAR (Bounds (one).left, -5 * zone::kHeightFactor, 0.011);
+    EXPECT_NEAR (Bounds (two).left, -10 * zone::kHeightFactor, 0.011);
+    EXPECT_NEAR (Bounds (three).left, -15 * zone::kHeightFactor, 0.011);
+    EXPECT_GT (two.area, one.area);
+    EXPECT_GT (three.area, two.area);
+    EXPECT_NEAR (upperOnly.area, three.area, 1e-6);
+}
+
+TEST (MassingCollapse, GroundElevationAndTopMatterButSlabThicknessAndDrawingPlaneDoNot)
+{
+    zone::Result thick, thin, raisedGround;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ Input (Box (0, 0, 10, 10, 100, 15)) }, Terrain (100), -200, thick, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Box (0, 0, 10, 10, 114, 1)) }, Terrain (100), 300, thin, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Box (0, 0, 10, 10, 114, 1)) }, Terrain (110), 300, raisedGround, error))
+        << error;
+    EXPECT_NEAR (thick.area, thin.area, 1e-6);
+    EXPECT_NEAR (Bounds (thin).left, -15 * zone::kHeightFactor, 0.011);
+    EXPECT_NEAR (Bounds (raisedGround).left, -5 * zone::kHeightFactor, 0.011);
+    EXPECT_LT (raisedGround.area, thin.area);
+}
+
+TEST (MassingCollapse, FlatSlabAboveSlopedTerrainUsesLocalGroundAndIgnoresClosedMeshUnderside)
+{
+    auto terrain = Box (-5, -5, 20, 20, -50, 50);
+    for (size_t i = 0; i < terrain.vertices.size (); i += 3)
+        if (terrain.vertices[i + 2] == 0)
+            terrain.vertices[i + 2] = 0.6 * terrain.vertices[i];
+    zone::Result result;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ Input (Box (0, 0, 10, 10, 8, 1)) }, terrain, 0, result, error)) << error;
+    EXPECT_NEAR (Bounds (result).left, -9 * zone::kHeightFactor, 0.011);
+    EXPECT_NEAR (Bounds (result).right, 10 + 3 * zone::kHeightFactor, 0.011);
+}
+
+TEST (MassingCollapse, TerrainCrossingSlabTopClipsNegativeHeightAndBuriedSlabsHaveNoZone)
+{
+    auto terrain = Terrain ();
+    for (size_t i = 0; i < terrain.vertices.size (); i += 3)
+        terrain.vertices[i + 2] = 0.6 * terrain.vertices[i];
+    zone::Result result;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, terrain, 0, result, error)) << error;
+    EXPECT_NEAR (Bounds (result).left, -3 * zone::kHeightFactor, 0.011);
+    EXPECT_NEAR (Bounds (result).right, 5, 0.011);
+    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, Terrain (4), 0, result, error)) << error;
+    EXPECT_EQ (result.area, 0);
+    EXPECT_TRUE (result.chains.empty ());
+    EXPECT_TRUE (result.layer.meshes.empty ());
+    EXPECT_TRUE (result.layer.polylines.empty ());
+}
+
+TEST (MassingCollapse, CreasedTerrainPartitionsGroundHeightAtSurveyCoordinates)
+{
+    constexpr double ox = 700000, oy = 6000000;
+    geomsrv::Mesh terrain;
+    terrain.vertices = { ox, oy,      100, ox + 5, oy,      106, ox + 10, oy,      100,
+                         ox, oy + 10, 100, ox + 5, oy + 10, 106, ox + 10, oy + 10, 100 };
+    terrain.triangles = { 0, 1, 4, 0, 4, 3, 1, 2, 5, 1, 5, 4 };
+    const auto input = Input (Box (ox, oy, 10, 10, 108, 1));
+    zone::Result creased, low, high;
+    std::string error;
+    ASSERT_TRUE (zone::Build ({ input }, terrain, 100, creased, error)) << error;
+    ASSERT_TRUE (zone::Build ({ input }, Terrain (100, ox - 100, oy - 100), 100, low, error)) << error;
+    ASSERT_TRUE (zone::Build ({ input }, Terrain (106, ox - 100, oy - 100), 100, high, error)) << error;
+    EXPECT_NEAR (Bounds (creased).left, ox - 9 * zone::kHeightFactor, 0.011);
+    EXPECT_NEAR (Bounds (creased).right, ox + 10 + 9 * zone::kHeightFactor, 0.011);
+    EXPECT_GT (creased.area, high.area);
+    EXPECT_LT (creased.area, low.area);
+}
+
+TEST (MassingCollapse, MissingInvalidDownwardAndIncompleteTopographyRefuseAtomically)
+{
+    const auto input = Input (Box ());
+    zone::Result result;
+    result.area = 123;
+    std::string error;
+    EXPECT_FALSE (zone::Build ({ input }, {}, 0, result, error));
+    auto terrain = Terrain ();
+    terrain.triangles[0] = 999999;
+    EXPECT_FALSE (zone::Build ({ input }, terrain, 0, result, error));
+    terrain = Terrain ();
+    terrain.vertices[2] = std::numeric_limits<double>::quiet_NaN ();
+    EXPECT_FALSE (zone::Build ({ input }, terrain, 0, result, error));
+    terrain = Terrain ();
+    std::reverse (terrain.triangles.begin (), terrain.triangles.end ());
+    EXPECT_FALSE (zone::Build ({ input }, terrain, 0, result, error));
+    EXPECT_FALSE (zone::Build ({ input }, Terrain (0, 0, 0, 5), 0, result, error));
+    EXPECT_FALSE (zone::Build ({ input }, Terrain (0, 0.001, 0, 10), 0, result, error));
+    EXPECT_FALSE (zone::Build ({ input }, Courtyard (), 0, result, error));
+    EXPECT_EQ (result.area, 123);
+    ASSERT_TRUE (zone::Build ({ Input (Courtyard ()) }, Courtyard (), 0, result, error)) << error;
+    EXPECT_EQ (result.area, 0); // Same top as terrain, despite its different underside.
+    ASSERT_TRUE (zone::Build ({}, {}, 0, result, error)) << error;
+    EXPECT_TRUE (result.chains.empty ());
 }
 
 TEST (MassingCollapse, SurveyCoordinatesAndProjectElevationDoNotInflateLocalHeight)
 {
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (Box (700000, 6000000, 10, 10, 120, 3)) }, 120, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Box (700000, 6000000, 10, 10, 120, 3)) }, Terrain (120, 699900, 5999900), 120,
+                              result, error))
+        << error;
     EXPECT_NEAR (Bounds (result).left, 700000 - 0.9999, 0.011);
     for (const auto& line : result.layer.polylines)
         EXPECT_NEAR (line.points[2], 120.012, 1e-8);
@@ -264,7 +388,7 @@ TEST (MassingCollapse, ThreeDProjectionFollowsTopographyForFillAndThinHatchesNot
 {
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, 120, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, Terrain (), 120, result, error)) << error;
     geomsrv::Mesh terrain;
     terrain.vertices = { -5, -5, 0, 15, -5, 0, 15, 15, 0, -5, 15, 0 };
     for (size_t i = 0; i < terrain.vertices.size (); i += 3)
@@ -303,7 +427,7 @@ TEST (MassingCollapse, ProjectionKeepsCourtyardClipsToTerrainExtentAndIgnoresUnd
 {
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (Courtyard ()) }, 0, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Courtyard ()) }, Terrain (), 0, result, error)) << error;
     auto terrain = Box (0, 0, 10, 10, -50, 50);
     geomsrv::archviz::overlaylayers::Layer projected;
     ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
@@ -332,7 +456,9 @@ TEST (MassingCollapse, ProjectionAcrossTerrainCreasesPreservesUnionAreaAndHatchP
     constexpr double ox = 700000, oy = 6000000;
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (Box (ox, oy, 10, 10, 100, 3)) }, 100, result, error)) << error;
+    ASSERT_TRUE (
+        zone::Build ({ Input (Box (ox, oy, 10, 10, 100, 3)) }, Terrain (100, ox - 100, oy - 100), 100, result, error))
+        << error;
     geomsrv::Mesh terrain;
     terrain.vertices = { ox - 5, oy - 5, 100, ox + 15, oy - 5, 120, ox + 15, oy + 15, 100, ox - 5, oy + 15, 130 };
     terrain.triangles = { 0, 1, 2, 0, 2, 3 };
@@ -368,7 +494,7 @@ TEST (MassingCollapse, TopographyHolesAndAbsentMeshCoverageAreNotFilledWithInven
 {
     zone::Result result;
     std::string error;
-    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, 120, result, error)) << error;
+    ASSERT_TRUE (zone::Build ({ Input (Box ()) }, Terrain (), 120, result, error)) << error;
     const auto terrain = Courtyard ();
     geomsrv::archviz::overlaylayers::Layer projected;
     ASSERT_TRUE (zone::Project (result, terrain, projected, error)) << error;
