@@ -741,6 +741,19 @@ void Muted (const std::string& text, const layers::Panel& look, uint32_t rgba = 
 } // namespace
 
 namespace {
+size_t NumericAnchor (const std::string& value)
+{
+    size_t i = 0;
+    if (!value.empty () && (value[0] == '-' || value[0] == '+'))
+        ++i;
+    const size_t first = i;
+    while (i < value.size () && value[i] >= '0' && value[i] <= '9')
+        ++i;
+    if (i == first || (i < value.size () && value[i] != '.' && value[i] != ' '))
+        return std::string::npos;
+    return i;
+}
+
 std::string FigureText (const std::string& text, float width)
 {
     std::string prefix = text;
@@ -770,8 +783,18 @@ std::string Cards (const std::vector<Card>& cards, const layers::Panel& look, fl
         if (!card.title.empty ())
             ImGui::SeparatorText (card.title.c_str ());
         float valueWidth = 0;
-        for (const auto& figure : card.figures)
+        float prefixWidth = 0, suffixWidth = 0;
+        for (const auto& figure : card.figures) {
             valueWidth = (std::max) (valueWidth, ImGui::CalcTextSize (figure.value.c_str ()).x);
+            const auto anchor = NumericAnchor (figure.value);
+            if (card.alignDecimals && anchor != std::string::npos) {
+                prefixWidth =
+                    (std::max) (prefixWidth,
+                                ImGui::CalcTextSize (figure.value.c_str (), figure.value.c_str () + anchor).x);
+                suffixWidth = (std::max) (suffixWidth, ImGui::CalcTextSize (figure.value.c_str () + anchor).x);
+            }
+        }
+        valueWidth = (std::max) (valueWidth, prefixWidth + suffixWidth);
         valueWidth = (std::min) (valueWidth, (std::max) (1.0f, ImGui::GetContentRegionAvail ().x -
                                                                    4 * ImGui::GetStyle ().CellPadding.x -
                                                                    ImGui::CalcTextSize ("...").x));
@@ -794,8 +817,24 @@ std::string Cards (const std::vector<Card>& cards, const layers::Panel& look, fl
                 ImGui::TableSetColumnIndex (1);
                 ImGui::PushStyleColor (ImGuiCol_Text,
                                        Colour ((figure.rgba & 0xFFu) != 0 ? figure.rgba : look.textRgba));
+                const auto anchor = NumericAnchor (figure.value);
                 const auto value = FigureText (figure.value, ImGui::GetContentRegionAvail ().x);
-                ImGui::TextUnformatted (value.c_str ());
+                if (card.alignDecimals && anchor != std::string::npos &&
+                    prefixWidth + suffixWidth <= ImGui::GetContentRegionAvail ().x + 0.5f) {
+                    // Separate runs keep the dot on the same pixel after ImGui's text-origin snapping,
+                    // even with proportional fonts and fractional font scaling.
+                    const auto start = ImGui::GetCursorScreenPos ();
+                    const char *begin = figure.value.c_str (), *dot = begin + anchor;
+                    const float prefix =
+                        ImGui::GetFont ()->CalcTextSizeA (ImGui::GetFontSize (), FLT_MAX, 0, begin, dot).x;
+                    auto* draw = ImGui::GetWindowDrawList ();
+                    const auto colour = ImGui::GetColorU32 (ImGuiCol_Text);
+                    draw->AddText ({ start.x + prefixWidth - prefix, start.y }, colour, begin, dot);
+                    draw->AddText ({ start.x + prefixWidth, start.y }, colour, dot);
+                    ImGui::Dummy ({ prefixWidth + suffixWidth, ImGui::GetTextLineHeight () });
+                }
+                else
+                    ImGui::TextUnformatted (value.c_str ());
                 if (ImGui::IsItemHovered () && !figure.hoverKey.empty ())
                     hovered = figure.hoverKey;
                 if (value != figure.value && ImGui::IsItemHovered ())

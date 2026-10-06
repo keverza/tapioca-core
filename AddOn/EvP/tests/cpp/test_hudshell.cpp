@@ -183,6 +183,56 @@ TEST (HudText, StatsReserveFullNumericValueAndRevealTruncatedNameOnHover)
     ImGui::DestroyContext (context);
 }
 
+TEST (HudText, StorySliceFiguresAlignDecimalDotsAcrossUnitsPrecisionAndSignedValues)
+{
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+    io.DisplaySize = { 1000, 600 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    shell::Card card;
+    card.alignDecimals = true;
+    const std::vector<std::string> values { "123456.12 m2", "6.789", "-42.00 m3", "8", "n/a" };
+    for (size_t i = 0; i < values.size (); ++i)
+        card.figures.push_back (
+            { "A long descriptive story-slice figure name", values[i], 0x123456FFu + uint32_t (i) * 0x100 });
+    for (float fontScale : { 1.0f, 1.4f })
+        for (float panelWidth : { 260.0f, 420.0f }) {
+            for (int frame = 0; frame < 2; ++frame) {
+                ImGui::NewFrame ();
+                ImGui::SetNextWindowPos ({ 0, 0 });
+                ImGui::SetNextWindowSize ({ panelWidth, 300 });
+                ImGui::Begin ("decimal-stats");
+                ImGui::SetWindowFontScale (fontScale);
+                shell::Cards ({ card }, shell::PlainLook (), fontScale);
+                ImGui::End ();
+                ImGui::Render ();
+            }
+            const auto* window = ImGui::FindWindowByName ("decimal-stats");
+            float anchorX = 0;
+            for (size_t row = 0; row < 3; ++row) {
+                std::vector<ImDrawVert> vertices;
+                for (const auto& vertex : window->DrawList->VtxBuffer)
+                    if (vertex.col == shell::Packed (card.figures[row].rgba))
+                        vertices.push_back (vertex);
+                const size_t dot = values[row].find ('.');
+                const size_t glyphs =
+                    size_t (std::count_if (values[row].begin (), values[row].end (), [] (char c) { return c != ' '; }));
+                ASSERT_EQ (vertices.size (), glyphs * 4) << "Values and units are not truncated";
+                if (row == 0)
+                    anchorX = vertices[dot * 4].pos.x;
+                else
+                    EXPECT_NEAR (vertices[dot * 4].pos.x, anchorX, 0.02f);
+                EXPECT_LT (vertices.back ().pos.y - vertices.front ().pos.y, 13 * fontScale);
+            }
+        }
+    ImGui::DestroyContext (context);
+}
+
 namespace {
 
 constexpr uint32_t kFirstRgba = 0x1565C0FFu;

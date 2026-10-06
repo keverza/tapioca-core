@@ -254,6 +254,7 @@ struct Card {
     std::string progressText;
     std::string note;
     uint32_t noteRgba = 0;
+    bool alignDecimals = false; // Numeric values share a decimal anchor; integers end at that anchor.
 };
 
 // The cards one after another. `scale` is the look's: what the bar's height and the gaps take.

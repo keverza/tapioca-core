@@ -443,6 +443,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
             }
         Card card;
         card.title = "Massing story slices";
+        card.alignDecimals = true;
         card.figures.push_back ({ "Slices", std::to_string (slices->rows.size ()) });
         card.figures.push_back ({ "Slab slice area sum", Format ("%.2f m2", slices->rawArea) });
         const double total = slices->clipped ? slices->allowedArea : slices->rawArea;
