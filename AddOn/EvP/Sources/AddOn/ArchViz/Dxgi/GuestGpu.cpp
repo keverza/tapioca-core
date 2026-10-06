@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <cstring>
 
 namespace geomsrv {
@@ -156,6 +157,7 @@ DrawConstants Constants (float shading, float opacity, float pass, float screen)
     c.mode[1] = opacity;
     c.mode[2] = pass;
     c.mode[3] = screen;
+    c.surface[0] = 0.3f;
     return c;
 }
 
@@ -475,6 +477,13 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
             for (uint32_t p = 0; p < count; ++p) {
                 DrawConstants values =
                     Constants (float (draw.shading), draw.opacity, float (passes[p]), draw.screen ? 1.0f : 0.0f);
+                const float radians = draw.hatchDirection * 0.01745329252f;
+                values.hatch[0] = -std::sin (radians);
+                values.hatch[1] = std::cos (radians);
+                values.hatch[2] = draw.hatchDensity;
+                values.hatch[3] = draw.hatched ? 1.0f : 0.0f;
+                values.surface[0] = draw.occludedOpacity;
+                values.surface[1] = draw.hatchPhase;
                 Ramp (draw, dpiScale, values);
                 if (highlight.layer != 0 && draw.heatmap && !draw.screen && draw.layer == highlight.layer) {
                     values.highlight[0] = highlight.low;

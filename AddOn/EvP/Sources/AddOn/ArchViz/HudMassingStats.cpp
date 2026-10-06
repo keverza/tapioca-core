@@ -1,4 +1,5 @@
 #include "ArchViz/HudMassingStats.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 #include <imgui.h>
 
 #include <algorithm>
@@ -72,13 +73,14 @@ std::string Draw (const massingslices::Result& result, const overlaylayers::Pane
     for (const auto& use : mix) {
         const float span = width * float (use.percent / 100);
         const ImVec2 lo { start.x + offset, start.y }, hi { start.x + offset + span, start.y + height };
-        draw->AddRectFilled (lo, hi, Colour (use.rgba));
+        const auto colour = graphicssettings::FunctionColour (use.function, use.rgba);
+        draw->AddRectFilled (lo, hi, Colour (colour));
         char caption[32];
         std::snprintf (caption, sizeof (caption), "%.2f%%", use.percent);
         const auto textSize = ImGui::CalcTextSize (caption);
         if (textSize.x + 8 * scale <= span)
             draw->AddText ({ lo.x + (span - textSize.x) / 2, lo.y + (height - textSize.y) / 2 },
-                           hudshell::Packed (hudshell::Contrast (use.rgba)), caption);
+                           hudshell::Packed (hudshell::Contrast (colour)), caption);
         offset += span;
     }
     ImGui::InvisibleButton ("##mix", { width, height });
@@ -126,8 +128,10 @@ std::string Draw (const massingslices::Result& result, const overlaylayers::Pane
         char caption[160];
         std::snprintf (caption, sizeof (caption), "Built %.2f%% / Unbuilt %.2f%%", 100 * coverage,
                        100 * (1 - coverage));
-        ImGui::PushStyleColor (ImGuiCol_PlotHistogram, ImGui::ColorConvertU32ToFloat4 (Colour (0x9AA0A6FF)));
-        ImGui::PushStyleColor (ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4 (Colour (0x66BB6AFF)));
+        ImGui::PushStyleColor (ImGuiCol_PlotHistogram,
+                               hudshell::Colour (graphicssettings::Colour ("ui.coverage.built", 0x9AA0A6FF)));
+        ImGui::PushStyleColor (ImGuiCol_FrameBg,
+                               hudshell::Colour (graphicssettings::Colour ("ui.coverage.unbuilt", 0x66BB6AFF)));
         ImGui::ProgressBar (coverage, { -1, 0 }, caption);
         if (ImGui::IsItemHovered ()) {
             const float at = (ImGui::GetIO ().MousePos.x - ImGui::GetItemRectMin ().x) /

@@ -57,10 +57,10 @@ TEST (OverlayHudDisplays, SettingsSwitchesTheStoreySlicesOnAndShowsTheirStyle)
     ASSERT_GT (off.host.height, 0.0f);
     const float left = off.host.fraction[0] * 1200.0f + off.host.offset[0];
     const float top = off.host.fraction[1] * 800.0f + off.host.offset[1];
-    // Show overlay, Hover readout, Wireframe, Storey slices, Massing slices, Watch annotations.
+    // Show overlay, Hover readout, Wireframe, Storey slices, Massing slices, Watch annotations, style lab.
     const std::vector<std::pair<float, float>> boxes = Presses (hud, left + 14.0f, top + off.host.height);
     ASSERT_GE (boxes.size (), 4u);
-    const float slices = (boxes[boxes.size () - 3].first + boxes[boxes.size () - 3].second) * 0.5f;
+    const float slices = (boxes[boxes.size () - 4].first + boxes[boxes.size () - 4].second) * 0.5f;
     hud.Click ({}, left + 14.0f, slices);
 
     hud::Displays wanted;
@@ -90,7 +90,7 @@ TEST (OverlayHudDisplays, SettingsSwitchesExistingWireframesWithoutHidingAnalysi
     const float top = layout.host.fraction[1] * 800 + layout.host.offset[1];
     const auto boxes = Presses (hud, left + 14, top + layout.host.height);
     ASSERT_GE (boxes.size (), 6u);
-    const auto& wireframe = boxes[boxes.size () - 4];
+    const auto& wireframe = boxes[boxes.size () - 5];
     hud.Click ({}, left + 14, (wireframe.first + wireframe.second) * 0.5f);
     hud::Displays wanted;
     ASSERT_TRUE (hud::TakeDisplays (*hud.state, wanted));
@@ -117,7 +117,7 @@ TEST (OverlayHudDisplays, MassingSlicesExposeSharedStyleWithoutStandaloneSlices)
     const float top = off.host.fraction[1] * 800 + off.host.offset[1];
     const auto boxes = Presses (hud, left + 14, top + off.host.height);
     ASSERT_GE (boxes.size (), 5u);
-    const auto& massing = boxes[boxes.size () - 2];
+    const auto& massing = boxes[boxes.size () - 3];
     hud.Click ({}, left + 14, (massing.first + massing.second) * 0.5f);
     hud::Displays wanted;
     ASSERT_TRUE (hud::TakeDisplays (*hud.state, wanted));

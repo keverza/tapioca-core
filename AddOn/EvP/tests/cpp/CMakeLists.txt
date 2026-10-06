@@ -488,6 +488,8 @@ set (EVP_ARCHVIZ_SOURCES
     # font atlas, the same library the add-on links (TapiocaImGui below). Every HUD's
     # look, dock and floating panel are HudShell's.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettings.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettingsUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunControls.cpp"
     # A triangle cut to its clip rectangle: the overlays draw ImGui's triangles without a scissor.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudClip.cpp"
@@ -710,6 +712,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudown.cpp
     test_overlayhuddisplays.cpp
     test_hudshell.cpp
+    test_graphicssettings.cpp
     test_hudclip.cpp
     test_hudconsole.cpp
     test_hudmetadata.cpp

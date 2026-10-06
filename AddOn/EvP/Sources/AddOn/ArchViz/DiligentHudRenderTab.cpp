@@ -5,6 +5,7 @@
 // (DiligentHudSections.cpp), each in one place.
 
 #include "ArchViz/DiligentHudShell.hpp"
+#include "ArchViz/GraphicsSettingsUi.hpp"
 
 #include "ArchViz/AnnotationHudControls.hpp"
 #include "ArchViz/DiligentHudNames.hpp"
@@ -102,6 +103,7 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
 {
     bool reset = false;
     hudshell::HudSettings (shell.fontStep, shell.placement, reset);
+    graphicssettingsui::Draw ();
 
     // ---- the plan: the viewer opened in the floor plan's place (ViewerPlanMode.hpp) ----------
     // ⚠️ THE USER, 2026-10-03: a way back to the top view once it was turned, or no orbit in the

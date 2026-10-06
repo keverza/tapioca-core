@@ -145,6 +145,11 @@ struct FillDraw {
     uint32_t count = 0; // vertices, a triangle list
     uint32_t shading = 0;
     float opacity = 1.0f;
+    float occludedOpacity = 0.3f;
+    bool hatched = false;
+    float hatchDirection = 45.0f;
+    float hatchDensity = 1.0f;
+    float hatchPhase = 0.0f; // Plan origin's stripe phase, keeps hatches anchored as content changes.
     uint32_t behind = kBehindShow;
     bool cullBack = false;
     bool screen = false;

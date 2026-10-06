@@ -49,6 +49,8 @@ cbuffer GuestDraw
     float4 Atlas;         // x 1 / page width, y 1 / page height, z distance range and w the em in atlas pixels
     float4 Dashes[32];    // 16 dash patterns of 8 lengths in metres: on, off, on, off...
     float4 Highlight;     // x low, y high, z 1: a heatmap whose legend is pointed at
+    float4 Hatch;         // xy model-XY stripe normal, z lines per metre, w enabled
+    float4 SurfaceStyle;  // x retained alpha behind buildings
 };
 
 struct FillOut
@@ -57,6 +59,7 @@ struct FillOut
     float4 colour : COLOR0;
     float value : TEXCOORD0;
     float3 normalView : TEXCOORD1;
+    float2 hatchXY : TEXCOORD2;
 };
 
 struct LineOut
@@ -124,6 +127,17 @@ float4 Highlighted (float4 c, float value)
     return float4 (lerp (c.rgb, float3 (grey, grey, grey), 0.75), c.a * 0.35);
 }
 
+float HatchCoverage (float stripes, float derivative)
+{
+    float d = abs (frac (stripes + 0.5) - 0.5) / max (derivative, 1e-6);
+    return derivative > 0.5 ? 0.25 : saturate (1.0 - d);
+}
+
+float SurfaceAlpha (float alpha, float renderPass, float retained)
+{
+    return alpha * ((renderPass > 0.5 && renderPass < 1.5) ? retained : 1.0);
+}
+
 float4 PSFill (FillOut i) : SV_TARGET
 {
     float4 c = i.colour;
@@ -157,8 +171,12 @@ float4 PSFill (FillOut i) : SV_TARGET
     else if (Mode.x > 2.5)
         c.a *= 0.3 + 0.5 * pow (1.0 - facing, 2.0);
     c.a *= Mode.y;
-    if (Mode.z > 0.5 && Mode.z < 1.5)
-        c.a *= 0.3;
+    if (Hatch.w > 0.5) {
+        float f = dot (i.hatchXY, Hatch.xy) * Hatch.z + SurfaceStyle.y;
+        float coverage = HatchCoverage (f, fwidth (f));
+        c.a *= lerp (0.15, 1.0, coverage);
+    }
+    c.a = SurfaceAlpha (c.a, Mode.z, SurfaceStyle.x);
     return c;
 }
 
@@ -309,6 +327,7 @@ FillOut VSFill (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTRIB
     o.colour = colour;
     o.value = value;
     o.normalView = float3 (0.0, 0.0, 1.0);
+    o.hatchXY = hi + lo;
     return o;
 }
 
@@ -444,6 +463,7 @@ FillOut VSFill (float3 position : ATTRIB0, float3 normal : ATTRIB1, float2 offse
     o.colour = colour;
     o.value = value;
     o.normalView = mul (float4 (normal, 0.0), View).xyz;
+    o.hatchXY = position.xy;
     return o;
 }
 

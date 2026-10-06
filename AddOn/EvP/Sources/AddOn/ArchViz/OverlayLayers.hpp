@@ -96,6 +96,7 @@ struct Polyline {
     Terminator startArrow = Terminator::None;
     Terminator endArrow = Terminator::None;
     float arrowSizePixels = 10.0f;
+    std::string graphicsFunction; // Native floor-function role; not element metadata.
 };
 
 // A marker at each point: a square `sizePixels` wide in 2D, an axis cross with arms
@@ -146,6 +147,11 @@ struct MeshStyle {
     float edgeAngleDegrees = 30.0f;
     bool cullBack = false;
     Behind behind = Behind::Layer;
+    float occludedOpacity = 0.3f; // Retained alpha in the depth-tested behind pass.
+    bool hatched = false;
+    float hatchDirection = 45.0f; // Model XY degrees; model-anchored, not screen-anchored.
+    float hatchDensity = 1.0f;    // Lines per model metre.
+    std::vector<float> edgeDashMetres;
 };
 
 struct Mesh {
@@ -164,6 +170,7 @@ struct Mesh {
     // a label and a value. A mesh with `values` also says the value under the pointer.
     std::string hoverTitle;
     std::vector<std::pair<std::string, std::string>> hoverRows;
+    std::string graphicsFunction;
 };
 
 // A text's halo width that grows with the text as it is drawn -- see `Text::haloPixels`.
@@ -415,6 +422,7 @@ struct Layer {
     std::vector<Dimension> dimensions;
     std::vector<Legend> legends;
     std::vector<Panel> panels;
+    std::string graphicsCategory; // Native visual role; empty uses the layer name. Not element metadata.
 };
 
 // Which renderer draws a primitive -- see the header's second note. The raw pipelines

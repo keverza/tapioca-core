@@ -1,4 +1,5 @@
 #include "ArchViz/HudMassingDiagram.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 #include "ArchViz/StorySliceGeometry.hpp"
 #include <clipper2/clipper.h>
 #include <algorithm>
@@ -11,10 +12,12 @@ void DrawDiagramProperty (ImDrawList& draw, ScreenPoint from, ScreenPoint to, fl
     const double dx = double (to.x) - from.x, dy = double (to.y) - from.y, length = std::hypot (dx, dy);
     if (!std::isfinite (length) || length < 1e-6 || !std::isfinite (fontSize) || fontSize <= 0)
         return;
-    const double scale = fontSize / 13, period = 26 * scale;
+    const double scale = fontSize / 13, dash = graphicssettings::Number ("diagram.propertyDashLength", 12) * scale,
+                 period = dash + 14 * scale;
+    width = float (graphicssettings::Number ("diagram.propertyThickness", width));
     if (length > 8192 * period)
         return;
-    constexpr ImU32 red = IM_COL32 (170, 68, 101, 255);
+    const ImU32 red = overlaylayers::ToUnorm (graphicssettings::Colour ("diagram.propertyColor", 0xAA4465FFu));
     if (occupied)
         occupied->lines.push_back ({ from, to, red, width });
     const auto at = [&] (double position) {
@@ -22,10 +25,10 @@ void DrawDiagramProperty (ImDrawList& draw, ScreenPoint from, ScreenPoint to, fl
         return ImVec2 { float (from.x + t * dx), float (from.y + t * dy) };
     };
     for (double start = std::floor (arc / period) * period; start < arc + length; start += period) {
-        const double low = (std::max) (arc, start), high = (std::min) (arc + length, start + 12 * scale);
+        const double low = (std::max) (arc, start), high = (std::min) (arc + length, start + dash);
         if (high > low)
             draw.AddLine (at (low), at (high), red, width);
-        const double dot = start + 19 * scale;
+        const double dot = start + dash + 7 * scale;
         if (dot >= arc && dot < arc + length)
             draw.AddCircleFilled (at (dot), width / 2, red);
     }
@@ -37,7 +40,10 @@ void DrawDiagramOffset (ImDrawList& draw, const std::vector<ScreenPoint>& points
 {
     if (points.size () < 3 || !std::isfinite (fontSize) || fontSize <= 0)
         return;
-    const double dash = 5 * fontSize / 13, period = 8 * fontSize / 13;
+    const double dash = graphicssettings::Number ("diagram.offsetDashLength", 5) * fontSize / 13,
+                 period = dash + 3 * fontSize / 13;
+    const auto colour = overlaylayers::ToUnorm (graphicssettings::Colour ("diagram.offsetColor", 0xA66226FFu));
+    const float width = float (graphicssettings::Number ("diagram.offsetThickness", 2));
     double total = 0;
     for (size_t i = 0; i < points.size (); ++i) {
         const auto a = points[i], b = points[(i + 1) % points.size ()];
@@ -54,7 +60,7 @@ void DrawDiagramOffset (ImDrawList& draw, const std::vector<ScreenPoint>& points
         if (length < 1e-6)
             continue;
         if (occupied)
-            occupied->lines.push_back ({ a, b, IM_COL32 (166, 98, 38, 255), 2 });
+            occupied->lines.push_back ({ a, b, colour, width });
         for (double start = std::floor (arc / period) * period; start < arc + length; start += period) {
             const double low = (std::max) (arc, start), high = (std::min) (arc + length, start + dash);
             if (high <= low)
@@ -63,7 +69,7 @@ void DrawDiagramOffset (ImDrawList& draw, const std::vector<ScreenPoint>& points
                 const double t = (position - arc) / length;
                 return ImVec2 { float (a.x + t * dx), float (a.y + t * dy) };
             };
-            draw.AddLine (at (low), at (high), IM_COL32 (166, 98, 38, 255), 2);
+            draw.AddLine (at (low), at (high), colour, width);
         }
         arc += length;
     }
@@ -77,7 +83,11 @@ void DrawDiagramZeroOffset (ImDrawList& draw, const std::vector<ScreenPoint>& po
         fontSize <= 0 || std::none_of (zero.begin (), zero.end (), [] (bool value) { return value; }) ||
         points.size () * size_t (std::count (zero.begin (), zero.end (), true)) > 1000000)
         return;
-    const float depth = (std::min) (30.0f, 18 * fontSize / 13);
+    const float depth = float (graphicssettings::Number ("diagram.zeroOffsetDepth",
+                                                         (std::min) (30.0f, 18 * fontSize / 13) * 13 / fontSize)) *
+                        fontSize / 13;
+    if (depth <= 0)
+        return;
     const auto origin = points[0];
     cp::PathD polygon;
     for (const auto p : points) {
@@ -132,7 +142,11 @@ void DrawDiagramZeroOffset (ImDrawList& draw, const std::vector<ScreenPoint>& po
         for (const auto& p : triangles) {
             const double distance = (p.x - a.x) * n.x + (p.y - a.y) * n.y;
             const int alpha = int (std::lround (170 * (1 - std::clamp (distance / depth, 0.0, 1.0))));
-            vertices.push_back ({ { p.x + origin.x, p.y + origin.y }, uv, IM_COL32 (255, 193, 70, alpha) });
+            const auto colour = graphicssettings::Colour ("diagram.zeroOffsetColor", 0xFFC146FFu);
+            vertices.push_back (
+                { { p.x + origin.x, p.y + origin.y },
+                  uv,
+                  overlaylayers::ToUnorm ((colour & 0xFFFFFF00u) | uint32_t (alpha * (colour & 255u) / 255)) });
         }
         if (vertices.size () > 24000)
             return;

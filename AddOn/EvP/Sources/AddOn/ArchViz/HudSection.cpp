@@ -1,6 +1,7 @@
 // ArchViz/HudSection -- see the header.
 
 #include "ArchViz/HudSection.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 
 #include "ArchViz/HudShell.hpp"
 
@@ -213,7 +214,10 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
     ImGui::SeparatorText ("Building section");
     const ImGuiIO& io = ImGui::GetIO ();
     const float em = ImGui::GetFontSize ();
-    const float row = std::floor (em * 1.2f), gap = (std::max) (1.0f, std::floor (scale));
+    const float row = std::floor (em * float (graphicssettings::Number ("ui.section.rowHeight", 1.2))),
+                gap = float (graphicssettings::Number ("ui.section.rowGap",
+                                                       (std::max) (1.0f, std::floor (scale)) / scale)) *
+                      scale;
     const size_t count = section.floors.size ();
     float labels = 0.0f;
     for (const Floor& floor : section.floors)
@@ -265,7 +269,7 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
     const float bars = width - labels;
     const uint32_t empty = hudshell::WithAlpha (look.textRgba, 0.10f);
     const ImU32 muted = hudshell::Packed (hudshell::WithAlpha (look.textRgba, 0.65f));
-    const float rounding = std::floor (2.0f * scale);
+    const float rounding = std::floor (float (graphicssettings::Number ("ui.section.rounding", 2)) * scale);
     for (size_t i = 0; i < count; ++i) {
         const Floor& floor = section.floors[i];
         const float y0 = std::floor (origin.y + float (count - 1 - i) * (row + gap)), y1 = y0 + row;
@@ -280,18 +284,24 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
             const float pw =
                 floor.areaM2 > 0.0 ? w * float (part.areaM2 / floor.areaM2) : w / float (floor.parts.size ());
             const float right = p + 1 == floor.parts.size () ? x0 + w : std::floor (x + pw) - 1.0f;
-            const uint32_t fill = (part.rgba & 0xFFu) != 0 ? part.rgba : empty;
+            const uint32_t fill =
+                (part.rgba & 0xFFu) != 0 ? graphicssettings::FunctionColour (part.value, part.rgba) : empty;
             draw->AddRectFilled (ImVec2 (x, y0), ImVec2 (right, y1), hudshell::Packed (fill), rounding);
             if ((part.rgba & 0xFFu) != 0)
-                ink = hudshell::Contrast (part.rgba);
+                ink = hudshell::Contrast (fill);
             x = right + 1.0f;
         }
         if (int (i) == pointed)
             draw->AddRectFilled (ImVec2 (x0, y0), ImVec2 (x0 + w, y1),
-                                 hudshell::Packed (hudshell::WithAlpha (look.accentRgba, 0.22f)), rounding);
+                                 hudshell::Packed (graphicssettings::Colour (
+                                     "ui.section.hover", hudshell::WithAlpha (look.accentRgba, 0.22f))),
+                                 rounding);
         if (run.Has (floor.storey))
-            draw->AddRect (ImVec2 (x0 - 1.0f, y0 - 1.0f), ImVec2 (x0 + w + 1.0f, y1 + 1.0f),
-                           hudshell::Packed (look.accentRgba), rounding, 0, (std::max) (1.5f, 2.0f * scale));
+            draw->AddRect (
+                ImVec2 (x0 - 1.0f, y0 - 1.0f), ImVec2 (x0 + w + 1.0f, y1 + 1.0f),
+                hudshell::Packed (graphicssettings::Colour ("ui.section.selection", look.accentRgba)), rounding, 0,
+                float (graphicssettings::Number ("ui.section.selectionWidth", (std::max) (1.5f / scale, 2.0f))) *
+                    scale);
         // Colour names the function; the caption gives the complete floor's area.
         const std::string value = Area (floor.areaM2);
         const ImVec2 size = ImGui::CalcTextSize (value.c_str ());

@@ -190,6 +190,8 @@ bool Highlight (const Result& result, const std::string& function, overlaylayers
     error.clear ();
     overlaylayers::Layer out;
     out.name = kHighlightLayer;
+    out.graphicsCategory =
+        function == kBuiltHover || function == kUnbuiltHover ? "coverageHighlight" : "functionHighlight";
     out.views = overlaylayers::Views::Both;
     out.occlusion = overlaylayers::Behind::Show;
     size_t points = 0;
@@ -244,6 +246,7 @@ bool Highlight (const Result& result, const std::string& function, overlaylayers
             overlaylayers::Mesh mesh;
             if (!Extrude (floor, mesh, error))
                 return false;
+            mesh.graphicsFunction = floor.function;
             points += mesh.points.size () / 3;
             if (points > 600000) {
                 error = "Floor-volume highlight exceeds its geometry budget.";

@@ -460,7 +460,7 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     // The check boxes, at the page's left: Show overlay, Hover readout, then one per layer.
     const float x = 16.0f + 24.0f;
     std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
-    ASSERT_EQ (boxes.size (), 4u);
+    ASSERT_EQ (boxes.size (), 5u); // The collapsed Graphics style lab follows the layer checkboxes.
     const uint64_t revision = hud::Revision (*hud.state);
     hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_FALSE (hud::LayerShown (*hud.state, "hud"));
@@ -473,7 +473,7 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     const hud::Layout without = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_EQ (Presses (hud, { &panel }, without.host).size (), 2u) << "Settings and the close button";
     boxes = Controls (hud, { &panel }, without.host, x);
-    ASSERT_EQ (boxes.size (), 4u);
+    ASSERT_EQ (boxes.size (), 5u);
     hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "hud"));
     EXPECT_EQ (Presses (hud, { &panel }, hud.Lay ({ &panel }, At (600.0f, 600.0f)).host).size (), 3u);
@@ -699,7 +699,7 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     const float x = 16.0f + 24.0f;
     const std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
-    ASSERT_EQ (boxes.size (), 3u) << "Show overlay, Hover readout, the layer";
+    ASSERT_EQ (boxes.size (), 4u) << "Show overlay, Hover readout, the layer, Graphics style lab";
     hud.Click ({ &panel }, x, Middle (boxes[1]));
     EXPECT_TRUE (hud::HoverMode (*hud.state));
     ASSERT_EQ (hud.heard.back ().kind, "hover");

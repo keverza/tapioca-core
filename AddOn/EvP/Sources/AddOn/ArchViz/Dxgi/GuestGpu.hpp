@@ -66,8 +66,10 @@ struct DrawConstants {
     float atlas[4];
     float dashes[32][4]; // 16 patterns of 8 lengths in metres (overlayscene's `dashes`)
     float highlight[4];  // low, high, 1: the band of a heatmap shown (overlayscene::Highlight)
+    float hatch[4];      // sin/cos direction, lines per metre, enabled
+    float surface[4];    // retained occluded alpha
 };
-static_assert (sizeof (DrawConstants) == 928, "GuestDraw is 58 float4s");
+static_assert (sizeof (DrawConstants) == 960, "GuestDraw is 60 float4s");
 
 struct Pipelines {
     Kind kind = Kind::Plan;

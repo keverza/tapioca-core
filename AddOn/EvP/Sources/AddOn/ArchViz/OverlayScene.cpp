@@ -78,6 +78,10 @@ void Builder::AddMesh (const layers::Layer& layer, const layers::Mesh& mesh)
     DraftFill fill;
     fill.draw.shading = uint32_t (mesh.style.shading);
     fill.draw.opacity = mesh.style.opacity;
+    fill.draw.occludedOpacity = mesh.style.occludedOpacity;
+    fill.draw.hatched = mesh.style.hatched;
+    fill.draw.hatchDirection = mesh.style.hatchDirection;
+    fill.draw.hatchDensity = mesh.style.hatchDensity;
     fill.draw.behind = BehindOf (mesh.style.behind, layer);
     fill.draw.cullBack = mesh.style.cullBack;
     if (!mesh.values.empty ()) {
@@ -129,7 +133,7 @@ void Builder::AddMesh (const layers::Layer& layer, const layers::Mesh& mesh)
             line.rgba = mesh.style.edgeRgba;
             line.width = mesh.style.edgeWidthPixels;
             line.behind = behind;
-            line.dashes = DashesOf ({}, nullptr, behind);
+            line.dashes = DashesOf (mesh.style.edgeDashMetres, nullptr, behind);
             if (!PushLine (line))
                 break;
         }
@@ -771,6 +775,9 @@ void FinishPlan (Draft& draft, overlayhud::Engine* hud, Plan& out)
 
     for (const DraftFill& fill : draft.fills) {
         FillDraw draw = fill.draw;
+        const double radians = draw.hatchDirection * 0.017453292519943295;
+        const double phase = (-std::sin (radians) * out.originX + std::cos (radians) * out.originY) * draw.hatchDensity;
+        draw.hatchPhase = float (phase - std::floor (phase));
         draw.first = uint32_t (out.fills.size ());
         for (const DraftVertex& v : fill.vertices) {
             PlanFillVertex p = {};

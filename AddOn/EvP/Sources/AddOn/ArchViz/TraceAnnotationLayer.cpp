@@ -1,4 +1,5 @@
 #include "ArchViz/TraceAnnotationLayer.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 
 #include "ArchViz/AnnotationScreenLayout.hpp"
 #include "ArchViz/MatrixMath.hpp"
@@ -19,6 +20,14 @@ using annotation::SemanticRole;
 constexpr float kArrowLength = 10.0f;
 constexpr float kDimensionOffset = 14.0f;
 constexpr float kBaseFontPixels = 18.0f;
+
+annotation::DimensionStyle GraphicsStyle (annotation::DimensionStyle style, const graphicssettings::Snapshot& settings)
+{
+    style.textHeightModel *= graphicssettings::Number (settings, "annotation.textSize", 13) / 13;
+    style.hideBelowPixels = graphicssettings::Number (settings, "annotation.textHideDistance", style.hideBelowPixels);
+    style.capAbovePixels = (std::max) (style.capAbovePixels, style.hideBelowPixels);
+    return style;
+}
 
 bool PointAt (const Primitive& primitive, std::size_t index, double out[3])
 {
@@ -54,8 +63,7 @@ void AddLine (ProjectedDrawList& out, const ScreenPoint& from, const ScreenPoint
 }
 
 void AddArrowhead (ProjectedDrawList& out, const ScreenPoint& tail, const ScreenPoint& tip, uint32_t color,
-                    float dpiScale, float arrowLength = kArrowLength,
-                    float arrowAngle = 0.4636476090008061f)
+                   float dpiScale, float arrowLength = kArrowLength, float arrowAngle = 0.4636476090008061f)
 {
     const float dx = tip.x - tail.x;
     const float dy = tip.y - tail.y;
@@ -401,9 +409,9 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
 }
 
 void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
-                    uint32_t height, uint32_t color, float furnitureScale, const ScreenTextMeasure& measureText,
-                     float fontSizePixels, const annotation::DimensionStyle& style, std::size_t primitiveIndex,
-                     AnnotationPlacementHistory* placementHistory, bool retainDimensionCandidates)
+                   uint32_t height, uint32_t color, float furnitureScale, const ScreenTextMeasure& measureText,
+                   float fontSizePixels, const annotation::DimensionStyle& style, std::size_t primitiveIndex,
+                   AnnotationPlacementHistory* placementHistory, bool retainDimensionCandidates)
 {
     if (primitive.points.size () > 2) {
         AddArcDimension (out, primitive, viewProj, width, height, color, furnitureScale, measureText, fontSizePixels);
@@ -412,8 +420,8 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
     const annotation::Point3& worldA = primitive.points[0];
     const annotation::Point3& worldB = primitive.points[1];
     const annotation::Point3 difference { worldB.x - worldA.x, worldB.y - worldA.y, worldB.z - worldA.z };
-    const double worldLength = std::sqrt (difference.x * difference.x + difference.y * difference.y +
-                                          difference.z * difference.z);
+    const double worldLength =
+        std::sqrt (difference.x * difference.x + difference.y * difference.y + difference.z * difference.z);
     if (worldLength <= 1.0e-12)
         return;
     char measured[64];
@@ -431,8 +439,8 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
     if (!input.planes.explicitNormal.has_value () && input.planes.preferredOffsetDirection.has_value ()) {
         const annotation::Point3& preferred = *input.planes.preferredOffsetDirection;
         input.planes.geometryNormal = { axis.y * preferred.z - axis.z * preferred.y,
-                                       axis.z * preferred.x - axis.x * preferred.z,
-                                       axis.x * preferred.y - axis.y * preferred.x };
+                                        axis.z * preferred.x - axis.x * preferred.z,
+                                        axis.x * preferred.y - axis.y * preferred.x };
     }
     if (std::fabs (axis.z) < 1.0 - 1.0e-6)
         input.planes.declaredNormal = annotation::Point3 { 0.0, 0.0, 1.0 };
@@ -465,8 +473,8 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
         annotation::AlignedDimensionInput candidateInput = input;
         const double sign = candidateId % 2 == 0 ? 1.0 : -1.0;
         if (preferred.has_value ())
-            candidateInput.planes.preferredOffsetDirection = annotation::Point3 {
-                preferred->x * sign, preferred->y * sign, preferred->z * sign };
+            candidateInput.planes.preferredOffsetDirection =
+                annotation::Point3 { preferred->x * sign, preferred->y * sign, preferred->z * sign };
         else
             candidateInput.planes.preferredOffsetDirection = annotation::Point3 { 0.0, sign, 0.0 };
         const double baseOffset = input.explicitOffset.value_or (style.dimensionOffset + input.userOffset);
@@ -509,32 +517,28 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
         candidate.labelCenter = fit->textMode == annotation::DimensionTextMode::Centered
                                     ? center
                                     : (fit->textMode == annotation::DimensionTextMode::OutsideBefore ? before : after);
-        candidate.id = uint8_t (candidateId | (uint8_t (fit->textMode) << 2) |
-                                (uint8_t (fit->arrowMode) << 4));
-        candidate.score = EdgeClearance (candidate.first, candidate.second, candidate.labelCenter, textExtent, width,
-                                         height) -
-                          100.0f * LabelOverflow (candidate.labelCenter, textExtent, width, height, panelPadding) -
-                          AnnotationCandidateOccupancyPenalty (
-                              out, candidate.labelCenter, textExtent,
-                              ReadableRotation (std::atan2 (dimensionDy, dimensionDx)), 5.0f * furnitureScale,
-                              measureText);
+        candidate.id = uint8_t (candidateId | (uint8_t (fit->textMode) << 2) | (uint8_t (fit->arrowMode) << 4));
+        candidate.score =
+            EdgeClearance (candidate.first, candidate.second, candidate.labelCenter, textExtent, width, height) -
+            100.0f * LabelOverflow (candidate.labelCenter, textExtent, width, height, panelPadding) -
+            AnnotationCandidateOccupancyPenalty (out, candidate.labelCenter, textExtent,
+                                                 ReadableRotation (std::atan2 (dimensionDy, dimensionDx)),
+                                                 5.0f * furnitureScale, measureText);
         candidates.push_back (candidate);
     }
     if (candidates.empty ())
         return;
-    const auto best = std::max_element (candidates.begin (), candidates.end (), [] (const Candidate& left,
-                                                                                     const Candidate& right) {
-        return left.score < right.score;
-    });
+    const auto best =
+        std::max_element (candidates.begin (), candidates.end (),
+                          [] (const Candidate& left, const Candidate& right) { return left.score < right.score; });
     auto selected = best;
-    const std::string annotationId = primitive.annotationId.empty () ? std::to_string (primitiveIndex)
-                                                                      : primitive.annotationId;
+    const std::string annotationId =
+        primitive.annotationId.empty () ? std::to_string (primitiveIndex) : primitive.annotationId;
     if (placementHistory != nullptr) {
         const auto previous = placementHistory->dimensionCandidateByAnnotation.find (annotationId);
         if (previous != placementHistory->dimensionCandidateByAnnotation.end ()) {
-            const auto retained = std::find_if (candidates.begin (), candidates.end (), [&] (const Candidate& item) {
-                return item.id == previous->second;
-            });
+            const auto retained = std::find_if (candidates.begin (), candidates.end (),
+                                                [&] (const Candidate& item) { return item.id == previous->second; });
             if (retained != candidates.end () &&
                 (retainDimensionCandidates || retained->score >= best->score - 8.0f * furnitureScale))
                 selected = retained;
@@ -564,16 +568,16 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
     const ScreenPoint labelCenter = selected->labelCenter;
     const annotation::ResolvedDimensionFit& fit = selected->fit;
     if (fit.arrowMode == annotation::DimensionArrowMode::Inward) {
-        AddArrowhead (out, { da.x - unit.x, da.y - unit.y }, da, color, furnitureScale,
-                      float (style.arrowSize), float (style.arrowAngle));
-        AddArrowhead (out, { db.x + unit.x, db.y + unit.y }, db, color, furnitureScale,
-                      float (style.arrowSize), float (style.arrowAngle));
+        AddArrowhead (out, { da.x - unit.x, da.y - unit.y }, da, color, furnitureScale, float (style.arrowSize),
+                      float (style.arrowAngle));
+        AddArrowhead (out, { db.x + unit.x, db.y + unit.y }, db, color, furnitureScale, float (style.arrowSize),
+                      float (style.arrowAngle));
     }
     else {
-        AddArrowhead (out, { da.x + unit.x, da.y + unit.y }, da, color, furnitureScale,
-                      float (style.arrowSize), float (style.arrowAngle));
-        AddArrowhead (out, { db.x - unit.x, db.y - unit.y }, db, color, furnitureScale,
-                      float (style.arrowSize), float (style.arrowAngle));
+        AddArrowhead (out, { da.x + unit.x, da.y + unit.y }, da, color, furnitureScale, float (style.arrowSize),
+                      float (style.arrowAngle));
+        AddArrowhead (out, { db.x - unit.x, db.y - unit.y }, db, color, furnitureScale, float (style.arrowSize),
+                      float (style.arrowAngle));
     }
     AddResolvedDimensionLine (out, da, unit, dimensionLength, fit, color, 2.0f * furnitureScale);
     if (!text.empty ())
@@ -713,8 +717,10 @@ bool FitFrameProjection (const Frame& frame, const float viewProj[16], uint32_t 
 std::optional<std::size_t> HitTestTraceDimension (const Frame& frame, const float viewProj[16], uint32_t width,
                                                   uint32_t height, float dpiScale, bool fitSelectedFrame,
                                                   const ScreenPoint& cursor,
-                                                  const annotation::DimensionStyle& style)
+                                                  const annotation::DimensionStyle& authoredStyle)
 {
+    const auto settings = graphicssettings::Current ();
+    const auto style = GraphicsStyle (authoredStyle, *settings);
     if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f || !std::isfinite (cursor.x) ||
         !std::isfinite (cursor.y) || !annotation::IsValid (style))
         return std::nullopt;
@@ -835,13 +841,14 @@ UpdateDimensionHover (DimensionHoverState& state, const std::shared_ptr<const an
 ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewProj[16], uint32_t width, uint32_t height,
                                          float dpiScale, bool fitSelectedFrame, const ScreenTextMeasure& measureText,
                                          AnnotationPlacementHistory* placementHistory,
-                                         const annotation::DimensionStyle& style,
+                                         const annotation::DimensionStyle& authoredStyle,
                                          const AnnotationPrimitiveFilter& primitiveFilter,
                                          bool retainDimensionCandidates)
 {
+    const auto settings = graphicssettings::Current ();
+    const auto style = GraphicsStyle (authoredStyle, *settings);
     ProjectedDrawList out;
-    if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f ||
-        !annotation::IsValid (style))
+    if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f || !annotation::IsValid (style))
         return out;
     float fitted[16];
     const float* projection = viewProj;
@@ -865,10 +872,9 @@ ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewPro
                                       primitive.kind == PrimitiveKind::Label || primitive.kind == PrimitiveKind::Arrow;
         float fontSizePixels = 0.0f;
         float furnitureScale = 0.0f;
-        if (scaledAnnotation &&
-            !ModelAnnotationScale (primitive, projection, width, height, float (style.textHeightModel),
-                                   float (style.hideBelowPixels), float (style.capAbovePixels), fontSizePixels,
-                                   furnitureScale))
+        if (scaledAnnotation && !ModelAnnotationScale (primitive, projection, width, height,
+                                                       float (style.textHeightModel), float (style.hideBelowPixels),
+                                                       float (style.capAbovePixels), fontSizePixels, furnitureScale))
             continue;
         if (primitive.kind == PrimitiveKind::Dimension) {
             AddDimension (out, primitive, projection, width, height, color, furnitureScale, measureText, fontSizePixels,
@@ -926,6 +932,21 @@ ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewPro
             if (out.labels.size () > firstLabel)
                 FadeLabelWhenOccluded (out.labels.back (), firstDepth);
         }
+    }
+    for (auto& line : out.lines) {
+        line.rgba = uint32_t (graphicssettings::Number (*settings, "annotation.lineColor", line.rgba));
+        const auto alpha = uint32_t (
+            std::lround ((line.rgba & 255u) * graphicssettings::Number (*settings, "annotation.lineOpacity", 1)));
+        line.rgba = (line.rgba & 0xFFFFFF00u) | alpha;
+        line.width =
+            float (graphicssettings::Number (*settings, "annotation.lineThickness", line.width / dpiScale)) * dpiScale;
+    }
+    for (auto& label : out.labels) {
+        label.rgba = uint32_t (graphicssettings::Number (*settings, "annotation.textColor", label.rgba));
+        label.haloRgba = uint32_t (graphicssettings::Number (*settings, "annotation.textHaloColor", label.haloRgba));
+        label.haloWidthPixels =
+            float (graphicssettings::Number (*settings, "annotation.textHalo", label.haloWidthPixels / dpiScale)) *
+            dpiScale;
     }
     ResolveAnnotationLabelOverlaps (out, width, height, dpiScale, measureText, placementHistory);
     return out;

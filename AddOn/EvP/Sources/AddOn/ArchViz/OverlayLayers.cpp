@@ -1,6 +1,7 @@
 // ArchViz/OverlayLayers -- see the header.
 
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -405,6 +406,11 @@ std::string Validate (const Layer& layer)
         if (!InRange (style.opacity, 0.0f, 1.0f) || !InRange (style.edgeWidthPixels, 0.25f, 16.0f) ||
             !InRange (style.edgeAngleDegrees, 0.0f, 180.0f))
             return Numbered ("mesh", i, "opacity is 0 to 1, edge widthPixels 0.25 to 16, angleDegrees 0 to 180");
+        if (!InRange (style.occludedOpacity, 0.0f, 1.0f) || !InRange (style.hatchDirection, 0.0f, 180.0f) ||
+            !InRange (style.hatchDensity, 0.01f, 100.0f))
+            return Numbered ("mesh", i, "occludedOpacity is 0 to 1, hatchDirection 0 to 180, hatchDensity 0.01 to 100");
+        if (!ValidDash (style.edgeDashMetres))
+            return Numbered ("mesh", i, "an edge dash pattern is at most 8 lengths of 0 to 1000 m, not all 0");
     }
     for (size_t i = 0; i < layer.texts.size (); ++i) {
         const Text& text = layer.texts[i];
@@ -566,7 +572,19 @@ bool Reserved (const std::string& name)
 
 std::vector<std::shared_ptr<const Layer>> Layers ()
 {
-    return g_layers;
+    static uint64_t built = uint64_t (-1);
+    static std::vector<std::shared_ptr<const Layer>> styled;
+    const uint64_t generation = Generation ();
+    if (built != generation) {
+        styled.clear ();
+        const auto settings = graphicssettings::Current ();
+        for (const auto& layer : g_layers)
+            styled.push_back (graphicssettings::Affects (*layer, *settings)
+                                  ? std::make_shared<const Layer> (graphicssettings::Apply (*layer, *settings))
+                                  : layer);
+        built = generation;
+    }
+    return styled;
 }
 
 uint64_t Touch ()
@@ -576,6 +594,12 @@ uint64_t Touch ()
 
 uint64_t Generation ()
 {
+    static uint64_t graphicsRevision = 0;
+    const auto revision = graphicssettings::Current ()->sceneRevision;
+    if (graphicsRevision != revision) {
+        graphicsRevision = revision;
+        ++g_generation;
+    }
     return g_generation;
 }
 

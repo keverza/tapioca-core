@@ -1,6 +1,8 @@
 // ArchViz/HudShell -- see the header.
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/GraphicsSettingsUi.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 
 #include <imgui_internal.h> // ImGuiWindow: where the panel is, and whether it is being dragged
 
@@ -67,15 +69,21 @@ void BaseStyle (float scale)
     style.ScrollbarSize /= 3.0f; // Shared HUD scrollbars stay slim at every DPI/text scale.
     style.WindowMinSize = ImVec2 (1.0f, 1.0f);
     style.FrameRounding = 2.0f * scale;
+    graphicssettingsui::ApplyStyle (style, scale);
 }
 
 int PushLook (const layers::Panel& panel, float scale)
 {
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding,
-                         ImVec2 (panel.paddingPixels * scale, panel.paddingPixels * scale));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding, panel.roundingPixels * scale);
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize,
-                         (panel.borderRgba & 0xFFu) != 0 ? (std::max) (1.0f, scale) : 0.0f);
+    ImGui::PushStyleVar (
+        ImGuiStyleVar_WindowPadding,
+        ImVec2 (float (graphicssettings::Number ("ui.size.WindowPadding.x", panel.paddingPixels)) * scale,
+                float (graphicssettings::Number ("ui.size.WindowPadding.y", panel.paddingPixels)) * scale));
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding,
+                         float (graphicssettings::Number ("ui.size.WindowRounding", panel.roundingPixels)) * scale);
+    ImGui::PushStyleVar (
+        ImGuiStyleVar_WindowBorderSize,
+        float (graphicssettings::Number ("ui.size.WindowBorderSize", (panel.borderRgba & 0xFFu) != 0 ? 1.0f : 0.0f)) *
+            scale);
     const uint32_t text = panel.textRgba;
     const uint32_t accent = panel.accentRgba;
     const std::pair<ImGuiCol, uint32_t> colours[] = {
@@ -115,7 +123,7 @@ int PushLook (const layers::Panel& panel, float scale)
         { ImGuiCol_PopupBg, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u },
     };
     for (const auto& colour : colours)
-        ImGui::PushStyleColor (colour.first, Colour (colour.second));
+        ImGui::PushStyleColor (colour.first, graphicssettingsui::StyleColour (colour.first, Colour (colour.second)));
     return int (sizeof (colours) / sizeof (colours[0]));
 }
 
@@ -220,16 +228,17 @@ void PlaceTip (ImVec2 at, ImVec2 opposite, TipSide side, const std::string& text
     min.x = std::floor (Within (min.x, margin, view.x - margin - size.x));
     min.y = std::floor (Within (min.y, margin, view.y - margin - size.y));
     const ImVec2 max (min.x + size.x, min.y + size.y);
-    const float round = std::floor (kTipRound * em);
+    const float round = std::floor (float (graphicssettings::Number ("ui.tip.rounding", kTipRound)) * em);
 
     ImDrawList* const draw = ImGui::GetForegroundDrawList ();
     // A soft shadow: three widening rounds a pixel down, fainter outwards.
-    for (int k = 3; k >= 1; --k) {
+    for (int k = graphicssettings::Number ("ui.tip.shadow", 1) != 0 ? 3 : 0; k >= 1; --k) {
         const float grow = float (k);
         draw->AddRectFilled (ImVec2 (min.x - grow, min.y - grow + 1.0f), ImVec2 (max.x + grow, max.y + grow + 1.0f),
                              Packed (uint32_t (5 * (4 - k))), round + grow);
     }
-    const ImU32 ground = Packed (kTipGroundRgba), edge = Packed (kTipEdgeRgba);
+    const ImU32 ground = Packed (graphicssettings::Colour ("ui.tip.background", kTipGroundRgba)),
+                edge = Packed (graphicssettings::Colour ("ui.tip.border", kTipEdgeRgba));
     draw->AddRectFilled (min, max, ground, round);
     draw->AddRect (min, max, edge, round, 0, 1.0f);
     // The arrow: its base on the bubble's edge facing `at`, a pixel in so it covers the edge
@@ -264,7 +273,8 @@ void PlaceTip (ImVec2 at, ImVec2 opposite, TipSide side, const std::string& text
         draw->AddRect (a, ImVec2 (a.x + s, a.y + s), edge, 0.18f * em);
         pen.x += lead;
     }
-    draw->AddText (font, em, pen, Packed (kTipInkRgba), text.c_str (), nullptr, kTipWrap * em);
+    draw->AddText (font, em, pen, Packed (graphicssettings::Colour ("ui.tip.text", kTipInkRgba)), text.c_str (),
+                   nullptr, kTipWrap * em);
 }
 
 } // namespace
@@ -304,7 +314,7 @@ bool Tip (const std::string& text, TipSide side, uint32_t swatch)
 
 float FontScaleOfStep (uint32_t step)
 {
-    return kFontSteps[(std::min) (step, kFontStepCount - 1)];
+    return kFontSteps[(std::min) (step, kFontStepCount - 1)] * float (graphicssettings::Number ("ui.fontScale", 1));
 }
 
 std::string Percent (float scale)
@@ -338,12 +348,14 @@ uint32_t CircleColour (const Circle& circle, uint32_t ink, double seconds)
         case Phase::Ready:
             return ink;
         case Phase::Busy:
-            return circle.progress >= 0.0f ? Mix (kBusyRgba, ink, circle.progress) : kBusyRgba;
+            return circle.progress >= 0.0f
+                       ? Mix (graphicssettings::Colour ("ui.dock.busy", kBusyRgba), ink, circle.progress)
+                       : graphicssettings::Colour ("ui.dock.busy", kBusyRgba);
         case Phase::Attention:
             // Once a second, half of it faint: a still layout taken twice a second alternates.
             return std::fmod (seconds, 1.0) < 0.5 ? ink : WithAlpha (ink, 0.25f);
         case Phase::Error:
-            return kErrorRgba;
+            return graphicssettings::Colour ("ui.dock.error", kErrorRgba);
     }
     return ink;
 }
@@ -357,9 +369,10 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     DockPress press;
     const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
     const float across = std::ceil (text.y + 2.0f * padding.x);
-    const float r = (std::min) (6.0f * scale, across * 0.5f);
-    const uint32_t fill = open ? panel.accentRgba : panel.backgroundRgba;
-    const uint32_t ink = open ? Contrast (panel.accentRgba) : panel.textRgba;
+    const float r = (std::min) (float (graphicssettings::Number ("ui.dock.rounding", 6)) * scale, across * 0.5f);
+    const uint32_t fill = open ? graphicssettings::Colour ("ui.dock.activeBackground", panel.accentRgba)
+                               : graphicssettings::Colour ("ui.dock.background", panel.backgroundRgba);
+    const uint32_t ink = graphicssettings::Colour ("ui.dock.text", open ? Contrast (fill) : panel.textRgba);
     const double seconds = ImGui::GetTime ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     // One part: its ground, its tint when pointed at and pressed, its edge while closed.
@@ -368,8 +381,9 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
         draw->AddRectFilled (a, b, Packed (fill), r, corners);
         if (hovered || held) {
             // White over the open tab, the accent over the closed one.
-            const uint32_t tint = open ? WithAlpha (0xFFFFFFFFu, held ? 0.30f : 0.18f)
-                                       : WithAlpha (panel.accentRgba, held ? 0.48f : 0.30f);
+            const uint32_t tint = graphicssettings::Colour (held ? "ui.dock.pressed" : "ui.dock.hover",
+                                                            open ? WithAlpha (0xFFFFFFFFu, held ? 0.30f : 0.18f)
+                                                                 : WithAlpha (panel.accentRgba, held ? 0.48f : 0.30f));
             draw->AddRectFilled (a, b, Packed (tint), r, corners);
         }
     };
@@ -380,7 +394,8 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
         to = ImGui::GetItemRectMax ();
         part (from, to, corners);
         const ImVec2 centre (std::floor ((from.x + to.x) * 0.5f), std::floor ((from.y + to.y) * 0.5f));
-        const float radius = std::floor (across * 0.22f) + 0.5f;
+        const float radius =
+            std::floor (across * float (graphicssettings::Number ("ui.dock.circleRadius", 0.22))) + 0.5f;
         const ImU32 colour = Packed (CircleColour (c, ink, seconds));
         const float stroke = (std::max) (1.0f, 1.5f * scale);
         if (c.active)
@@ -394,7 +409,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
             const float sweep = c.progress >= 0.0f ? 2.0f * kPi * (std::min) (c.progress, 1.0f) : 0.5f * kPi;
             if (sweep > 0.0f) {
                 draw->PathArcTo (centre, radius + 2.5f * scale, start, start + sweep, 24);
-                draw->PathStroke (Packed (kBusyRgba), 0, stroke);
+                draw->PathStroke (Packed (graphicssettings::Colour ("ui.dock.busy", kBusyRgba)), 0, stroke);
             }
         }
         // Beside the circle, out over the view: the dock is at the view's right edge.
@@ -542,7 +557,8 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     for (const HostTab& tab : spec.tabs)
         row += ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
     row += ImGui::CalcTextSize (kClose, nullptr, true).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
-    const float width = (std::max) (std::ceil (row), panel.widthPixels * ui);
+    const float panelWidth = float (graphicssettings::Number ("ui.panelWidth", panel.widthPixels));
+    const float width = (std::max) (std::ceil (row), panelWidth * ui);
     const float tallest =
         (std::max) (TallestPanel (panel, placement, scale, view.y), 2.0f * kLeastPageEm * panel.sizePixels * ui);
     ImGui::SetNextWindowSizeConstraints (ImVec2 (width, 0.0f),

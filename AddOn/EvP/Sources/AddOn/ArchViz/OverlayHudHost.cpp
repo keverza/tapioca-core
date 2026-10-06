@@ -5,6 +5,7 @@
 
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
+#include "ArchViz/GraphicsSettingsUi.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -284,6 +285,7 @@ void Engine::Impl::Settings ()
     }
     // The add-on's own displays: switched on and off, and styled (OverlayHudDisplays.cpp).
     DisplaySettings ();
+    graphicssettingsui::Draw ();
 }
 
 // ⚠️ HOVER MODE'S READOUT IS IN THE HOST (the user, 2026-10-01: in the ImGui panel, not near

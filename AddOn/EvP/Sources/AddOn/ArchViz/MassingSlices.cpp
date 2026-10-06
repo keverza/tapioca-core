@@ -1,4 +1,5 @@
 #include "ArchViz/MassingSlices.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 #include "Geometry/SliceEngine.hpp"
 #include <clipper2/clipper.h>
 
@@ -307,8 +308,10 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             uint32_t colour = 0x9AA0A6FF;
             if (palette)
                 for (const auto& option : palette->options)
-                    if (option.value == row.function)
-                        colour = option.rgba;
+                    if (option.value == row.function) {
+                        graphicssettings::FunctionColour (option.value, option.rgba);
+                        colour = option.rgba; // Keep authored colours; renderer overrides are reversible.
+                    }
             row.z = slice.z;
             row.floorHeight = (i + 1 < slices.size () ? slices[i + 1].z : input.slab.top) - row.z;
             row.rgba = colour;
@@ -367,8 +370,14 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             controls.outlineRgba = colour;
             controls.labelMinProjectedPixels = 9;
             controls.liftMetres = 0.015;
-            if (!slice.chains.empty ())
-                Append (out.layer, storysliceoverlay::BuildLayer ({ slice }, controls).layer);
+            if (!slice.chains.empty ()) {
+                auto coloured = storysliceoverlay::BuildLayer ({ slice }, controls).layer;
+                for (auto& mesh : coloured.meshes)
+                    mesh.graphicsFunction = row.function;
+                for (auto& line : coloured.polylines)
+                    line.graphicsFunction = row.function;
+                Append (out.layer, std::move (coloured));
+            }
             if (!outside.chains.empty ()) {
                 outside.name = slice.name + " (outside envelope)";
                 controls.label = false; // the area label and feasibility use the allowed part only

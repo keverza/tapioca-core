@@ -1,4 +1,5 @@
 #include "ArchViz/HudMassingRules.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 #include "ArchViz/HudMassingLabels.hpp"
 #include "ArchViz/HudMassingDiagram.hpp"
 #include "ArchViz/HudShell.hpp"
@@ -123,7 +124,8 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
                 maxY = (std::max) (maxY, p.second);
             }
     const ImVec2 origin = ImGui::GetCursorScreenPos ();
-    const ImVec2 extent ((std::max) (80.0f, ImGui::GetContentRegionAvail ().x), 200);
+    const ImVec2 extent ((std::max) (80.0f, ImGui::GetContentRegionAvail ().x),
+                         float (graphicssettings::Number ("diagram.height", 200)));
     const float margin =
         (std::min) ({ (std::max) (32.0f, (std::min) (48.0f, 2 * ImGui::GetFontSize ())), extent.x / 4, extent.y / 4 });
     const double factor = (std::min) ((extent.x - 2 * margin) / (std::max) (maxX - minX, 1e-9),
@@ -231,7 +233,11 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
                 edgeHit = int (i);
             }
         }
-        draw->AddCircleFilled (a, 4, draft.endpoints[i] ? IM_COL32 (47, 111, 235, 255) : IM_COL32 (170, 180, 185, 255));
+        draw->AddCircleFilled (
+            a, float (graphicssettings::Number ("diagram.pointSize", 4)),
+            overlaylayers::ToUnorm (draft.endpoints[i]
+                                        ? graphicssettings::Colour ("diagram.pointColor", 0x2F6FEBFFu)
+                                        : graphicssettings::Colour ("diagram.pointDisabledColor", 0xAAB4B9FFu)));
         if (draft.labels)
             occupied.lines.push_back ({ { a.x, a.y }, { a.x, a.y } }); // Five-pixel clearance covers the point marker.
         const size_t middle = paths[i].size () / 2;
@@ -495,12 +501,21 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
     if (draft.calculation.capped)
         Distance ("Cap Project Z", draft.calculation.capZ, draft, 5, 50);
     draft.dirty = HasUnsavedOffsets (draft);
-    const ImVec4 button =
-        ImGui::ColorConvertU32ToFloat4 (draft.dirty ? IM_COL32 (232, 163, 61, 255) : IM_COL32 (154, 160, 166, 255));
+    const ImVec4 button = hudshell::Colour (draft.dirty ? graphicssettings::Colour ("ui.save.unsaved", 0xE8A33DFFu)
+                                                        : graphicssettings::Colour ("ui.save.saved", 0x9AA0A6FFu));
     ImGui::PushStyleColor (ImGuiCol_Button, button);
-    ImGui::PushStyleColor (ImGuiCol_ButtonHovered, ImVec4 (0.97f, 0.73f, 0.30f, 1));
-    ImGui::PushStyleColor (ImGuiCol_ButtonActive, ImVec4 (0.84f, 0.54f, 0.13f, 1));
-    ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.11f, 0.11f, 0.11f, 1));
+    ImGui::PushStyleColor (
+        ImGuiCol_ButtonHovered,
+        hudshell::Colour (graphicssettings::Colour (
+            "ui.save.hovered", hudshell::Unpacked (ImGui::ColorConvertFloat4ToU32 ({ 0.97f, 0.73f, 0.30f, 1 })))));
+    ImGui::PushStyleColor (
+        ImGuiCol_ButtonActive,
+        hudshell::Colour (graphicssettings::Colour (
+            "ui.save.active", hudshell::Unpacked (ImGui::ColorConvertFloat4ToU32 ({ 0.84f, 0.54f, 0.13f, 1 })))));
+    ImGui::PushStyleColor (
+        ImGuiCol_Text,
+        hudshell::Colour (graphicssettings::Colour (
+            "ui.save.text", hudshell::Unpacked (ImGui::ColorConvertFloat4ToU32 ({ 0.11f, 0.11f, 0.11f, 1 })))));
     ImGui::BeginDisabled (!draft.dirty);
     if (ImGui::Button ("Save")) {
         metadata::Property property;
