@@ -296,6 +296,8 @@ bool Decode (const std::string& bridgeJson, Result& result, std::string& error)
                 return Fail (error, "Invalid Python polyline buffer.");
             polyline.rgba = std::string (key) == "boundary" ? 0xAA4465FF : 0xA66226FF;
             polyline.widthPixels = 2;
+            if (std::string (key) == "boundary")
+                polyline.dashMetres = { 3.0f, 1.0f, 0.1f, 1.0f };
             (std::string (key) == "wires" ? out.layer : out.site).polylines.push_back (std::move (polyline));
         }
     }

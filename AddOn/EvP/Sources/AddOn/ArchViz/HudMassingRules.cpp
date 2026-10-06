@@ -138,11 +138,6 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     auto* draw = ImGui::GetWindowDrawList ();
     ProjectedDrawList occupied;
     std::vector<DiagramLabel> segmentLabels, otherLabels;
-    const auto addLine = [&] (ImVec2 from, ImVec2 to, ImU32 rgba, float width) {
-        draw->AddLine (from, to, rgba, width);
-        if (draft.labels)
-            occupied.lines.push_back ({ { from.x, from.y }, { to.x, to.y }, rgba, width });
-    };
     const auto addOffset = [&] (const std::vector<double>& xy) {
         std::vector<ScreenPoint> points;
         for (size_t i = 0; i + 1 < xy.size (); i += 2) {
@@ -170,11 +165,13 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         const auto& parcel = parcels[k];
         if (parcel.guid == page.guid || parcel.edges.empty ())
             continue;
+        double parcelArc = 0;
         for (const auto& edge : parcel.edges) {
             const auto path = Points (edge);
             for (size_t i = 1; i < path.size (); ++i) {
                 const auto from = project (path[i - 1]), to = project (path[i]);
-                addLine (from, to, IM_COL32 (170, 68, 101, 255), 1.5f);
+                DrawDiagramProperty (*draw, { from.x, from.y }, { to.x, to.y }, 1.5f, ImGui::GetFontSize (), parcelArc,
+                                     draft.labels ? &occupied : nullptr);
                 const float dx = to.x - from.x, dy = to.y - from.y;
                 const float px = pointer.x - from.x, py = pointer.y - from.y;
                 const float squared = dx * dx + dy * dy;
@@ -212,6 +209,7 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     }
     int pointHit = -1, edgeHit = -1;
     float nearestPoint = 81, nearestEdge = 100;
+    double parcelArc = 0;
     for (size_t i = 0; i < paths.size (); ++i) {
         const ImVec2 a = project (paths[i][0]);
         const float dx = pointer.x - a.x, dy = pointer.y - a.y;
@@ -221,7 +219,8 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
         }
         for (size_t p = 1; p < paths[i].size (); ++p) {
             const ImVec2 from = project (paths[i][p - 1]), to = project (paths[i][p]);
-            addLine (from, to, IM_COL32 (170, 68, 101, 255), int (i) == draft.selected ? 3.0f : 1.5f);
+            DrawDiagramProperty (*draw, { from.x, from.y }, { to.x, to.y }, int (i) == draft.selected ? 3.0f : 1.5f,
+                                 ImGui::GetFontSize (), parcelArc, draft.labels ? &occupied : nullptr);
             const float ex = to.x - from.x, ey = to.y - from.y;
             const float px = pointer.x - from.x, py = pointer.y - from.y;
             const float length = ex * ex + ey * ey;

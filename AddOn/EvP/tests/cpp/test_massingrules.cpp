@@ -826,6 +826,8 @@ TEST (MassingRules, HybridResultRejectsMalformedIndicesAndKeepsNativeStyles)
     EXPECT_EQ (result.layer.meshes[0].rgba, 0xDCF3FAFFu);
     EXPECT_FLOAT_EQ (result.layer.meshes[0].style.opacity, 0.25f);
     EXPECT_EQ (result.site.polylines[0].rgba, 0xAA4465FFu);
+    EXPECT_EQ (result.site.polylines[0].dashMetres, (std::vector<float> { 3, 1, 0.1f, 1 }));
+    EXPECT_TRUE (result.site.polylines[1].dashMetres.empty ());
     EXPECT_EQ (result.site.polylines[1].rgba, 0xA66226FFu);
     EXPECT_EQ (result.layer.polylines[0].rgba, 0xA66226FFu);
     EXPECT_EQ (result.layer.occlusion, hudtest::layers::Behind::Dash);

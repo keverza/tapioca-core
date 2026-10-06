@@ -4,6 +4,9 @@
 #include <imgui.h>
 
 namespace geomsrv::archviz::hudmassingrules {
+// Property boundary: long dash, gap, round dot, gap; arc persists across segments.
+void DrawDiagramProperty (ImDrawList& draw, ScreenPoint from, ScreenPoint to, float width, float fontSize, double& arc,
+                          ProjectedDrawList* occupied = nullptr);
 // Closed inset path; dash phase continues across corners. Collision reservations
 // cover the full path, not only its visible dashes.
 void DrawDiagramOffset (ImDrawList& draw, const std::vector<ScreenPoint>& points, float fontSize,

@@ -5,6 +5,33 @@
 #include <cmath>
 
 namespace geomsrv::archviz::hudmassingrules {
+void DrawDiagramProperty (ImDrawList& draw, ScreenPoint from, ScreenPoint to, float width, float fontSize, double& arc,
+                          ProjectedDrawList* occupied)
+{
+    const double dx = double (to.x) - from.x, dy = double (to.y) - from.y, length = std::hypot (dx, dy);
+    if (!std::isfinite (length) || length < 1e-6 || !std::isfinite (fontSize) || fontSize <= 0)
+        return;
+    const double scale = fontSize / 13, period = 26 * scale;
+    if (length > 8192 * period)
+        return;
+    constexpr ImU32 red = IM_COL32 (170, 68, 101, 255);
+    if (occupied)
+        occupied->lines.push_back ({ from, to, red, width });
+    const auto at = [&] (double position) {
+        const double t = (position - arc) / length;
+        return ImVec2 { float (from.x + t * dx), float (from.y + t * dy) };
+    };
+    for (double start = std::floor (arc / period) * period; start < arc + length; start += period) {
+        const double low = (std::max) (arc, start), high = (std::min) (arc + length, start + 12 * scale);
+        if (high > low)
+            draw.AddLine (at (low), at (high), red, width);
+        const double dot = start + 19 * scale;
+        if (dot >= arc && dot < arc + length)
+            draw.AddCircleFilled (at (dot), width / 2, red);
+    }
+    arc += length;
+}
+
 void DrawDiagramOffset (ImDrawList& draw, const std::vector<ScreenPoint>& points, float fontSize,
                         ProjectedDrawList* occupied)
 {

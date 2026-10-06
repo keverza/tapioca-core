@@ -75,6 +75,25 @@ TEST (HudMassingDiagram, OffsetOutlineIsDashedWithContinuousPhaseAtCornersAndWho
     EXPECT_EQ (widget.AlphaAt (colour, { 143, 45.5f }), 0);
 }
 
+TEST (HudMassingDiagram, PropertyLineIsDashDotWithRedRoundDotsAndContinuousCornerPhase)
+{
+    DiagramWidget widget;
+    av::ProjectedDrawList occupied;
+    double arc = 0;
+    diagram::DrawDiagramProperty (*widget.draw, { 30, 40 }, { 143, 40 }, 2, 13, arc, &occupied);
+    diagram::DrawDiagramProperty (*widget.draw, { 143, 40 }, { 143, 153 }, 2, 13, arc, &occupied);
+    constexpr ImU32 red = IM_COL32 (170, 68, 101, 255);
+    EXPECT_GT (widget.AlphaAt (red, { 35, 40 }), 200);
+    EXPECT_EQ (widget.AlphaAt (red, { 45, 40 }), 0);
+    EXPECT_GT (widget.AlphaAt (red, { 49, 40 }), 200);
+    EXPECT_EQ (widget.AlphaAt (red, { 53, 40 }), 0);
+    EXPECT_GT (widget.AlphaAt (red, { 60, 40 }), 200);
+    EXPECT_GT (widget.AlphaAt (red, { 143, 50 }), 200);
+    EXPECT_EQ (widget.AlphaAt (red, { 143, 46 }), 0);
+    EXPECT_EQ (occupied.lines.size (), 2u);
+    EXPECT_EQ (arc, 226);
+}
+
 TEST (HudMassingDiagram, OffsetDashesScaleWithFontAndInvalidPathsPublishNoGeometry)
 {
     DiagramWidget widget;
