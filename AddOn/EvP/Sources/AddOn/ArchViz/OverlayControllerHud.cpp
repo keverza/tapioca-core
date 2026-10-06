@@ -94,6 +94,21 @@ void FollowHudState ()
     massinghybrid::Dimensions (overlayhud::MassingDimensions (*state));
     massingslicesmodel::HoverFunction (overlayhud::MassingStatsFunction (*state));
     massingslicesmodel::CollapseZone (overlayhud::MassingCollapseZone (*state));
+    for (const auto& edit : overlayhud::TakeMassingCoefficientNumbers (*state)) {
+        std::string answer;
+        double number = 0;
+        if (textprompt::Ask (edit.key + " (" + hudmeta::NumberText (edit.min) + " - " + hudmeta::NumberText (edit.max) +
+                                 ")",
+                             hudmeta::NumberText (edit.number), answer)) {
+            if (!hudmeta::ParseNumber (answer, edit.min, edit.max, number))
+                hudconsole::Warning ("Area coefficients", "Enter a finite number within the displayed bounds.");
+            else if (!overlayhud::AnswerMassingCoefficientNumber (*state, edit, number))
+                hudconsole::Warning ("Area coefficients",
+                                     "Settings changed while the prompt was open; value not applied.");
+        }
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     for (const auto& edit : overlayhud::TakeMassingNumbers (*state)) {
         std::string answer;
         double number = 0;

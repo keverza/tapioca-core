@@ -26,6 +26,7 @@
 #include "ArchViz/ExtractionStorySlices.hpp" // ProjectStoreys
 #include "ArchViz/HudMetadata.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/MassingAreaCalculations.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/SlabSlices.hpp"
 #include "Metadata/TapiocaMetadata.hpp"
@@ -105,7 +106,7 @@ Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, co
                const std::string& property = {});
 Section Filter (const Section& section, const std::vector<std::string>& guids);
 double TotalArea (const Section& section);
-hudshell::Card BuildingAreas (const Section& section);
+hudshell::Card BuildingAreas (const Section& section, const massingareas::Coefficients& coefficients = {});
 
 // The edits that assign `value` (or clear the key, `clear`) over `run`, one per slab that has a
 // floor in it, clipped to that slab's own floors.
@@ -113,7 +114,8 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
 
 // The section drawn in `look`; `run` the floors picked, kept by the caller and changed here.
 // What the user assigned in this frame.
-std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const overlaylayers::Panel& look, float scale);
+std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const overlaylayers::Panel& look, float scale,
+                                    const massingareas::Coefficients& coefficients = {});
 
 } // namespace hudsection
 } // namespace archviz

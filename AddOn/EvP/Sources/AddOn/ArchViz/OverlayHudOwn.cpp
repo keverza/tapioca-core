@@ -91,7 +91,7 @@ void Engine::Impl::SelectionPage (float ui)
         }
         ImGui::TextDisabled ("Pick floors; right-click to set their function.");
         const hudsection::Run before = store->floors;
-        for (auto& edit : hudsection::Diagram (own.section, store->floors, *look, ui)) {
+        for (auto& edit : hudsection::Diagram (own.section, store->floors, *look, ui, store->massingCoefficients)) {
             changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, edit.number, edit.text, true });
             store->metadataEdits.push_back (std::move (edit));
         }
@@ -113,6 +113,36 @@ void Engine::Impl::SelectionPage (float ui)
 bool MassingDimensions (const State& state)
 {
     return state.massingRules.offsetDimensions;
+}
+
+massingareas::Coefficients MassingCoefficients (const State& state)
+{
+    return state.massingCoefficients;
+}
+
+bool SetMassingCoefficients (State& state, const massingareas::Coefficients& coefficients)
+{
+    if (!massingareas::Valid (coefficients) || massingareas::Same (coefficients, state.massingCoefficients))
+        return false;
+    state.massingCoefficients = coefficients;
+    ++state.revision;
+    return true;
+}
+
+std::vector<massingareas::NumberEdit> TakeMassingCoefficientNumbers (State& state)
+{
+    auto numbers = std::move (state.massingCoefficientNumbers);
+    state.massingCoefficientNumbers.clear ();
+    return numbers;
+}
+
+bool AnswerMassingCoefficientNumber (State& state, const massingareas::NumberEdit& edit, double number)
+{
+    auto wanted = state.massingCoefficients;
+    if (!massingareas::Same (edit.before, wanted) || !massingareas::Assign (wanted, edit.key, number))
+        return false;
+    SetMassingCoefficients (state, wanted);
+    return true;
 }
 
 void Engine::Impl::MassingPage ()
@@ -149,6 +179,12 @@ void Engine::Impl::MassingPage ()
     store->massingRules.calculations.clear ();
     if (!store->massingRules.numbers.empty ())
         changes.push_back ({ "massingNumber", {}, "Massing", "set", -1, 0, {}, true });
+    auto coefficients = store->massingCoefficients;
+    if (hudmassingstats::CoefficientInputs (coefficients, store->massingCoefficientNumbers) &&
+        SetMassingCoefficients (*store, coefficients))
+        changes.push_back ({ "massingCoefficients", {}, "Massing", "area calculations", -1, 1, {}, true });
+    if (!store->massingCoefficientNumbers.empty ())
+        changes.push_back ({ "massingCoefficientNumber", {}, "Massing", "set", -1, 0, {}, true });
     const Displays& shown = store->displaysPending ? store->displays : own.displays;
     Displays wanted = shown;
     if (ImGui::Checkbox ("Show slice area text when zoomed in", &wanted.slices.label)) {

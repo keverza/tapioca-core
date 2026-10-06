@@ -447,11 +447,12 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         card.figures.push_back ({ "Slices", std::to_string (slices->rows.size ()) });
         card.figures.push_back ({ "Slab slice area sum", Format ("%.2f m2", slices->rawArea) });
         const double total = slices->clipped ? slices->allowedArea : slices->rawArea;
+        const auto coefficients = overlayhud::MassingCoefficients (*guesttext::HudState ());
+        const auto areas = massingareas::Calculate (total, coefficients);
         const double first = slices->clipped ? slices->firstFloorArea : slices->rawFirstFloorArea;
         card.figures.push_back ({ "1st floor area", Format ("%.2f m2", first) });
-        card.figures.push_back ({ "Total floor area", Format ("%.2f m2", total) });
-        card.figures.push_back ({ "Gross area (total x 0.78)", Format ("%.2f m2", total * 0.78) });
-        card.figures.push_back ({ "Sellable area (total x 0.71)", Format ("%.2f m2", total * 0.71) });
+        for (auto& figure : massingareas::Figures (total, coefficients))
+            card.figures.push_back (std::move (figure));
         card.figures.push_back ({ "Slab volume (slice estimate)", Format ("%.2f m3", slices->rawVolume) });
         if (slices->clipped)
             card.figures.push_back ({ "Allowed volume (slice estimate)", Format ("%.2f m3", slices->allowedVolume) });
@@ -469,7 +470,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
             const double parcel = calculation.preview->result.parcelArea;
             card.figures.push_back ({ "Parcel / 1st floor area", first > 0 ? Format ("%.3f", parcel / first) : "n/a" });
             card.figures.push_back (
-                { "Parcel / (total x 0.78)", total > 0 ? Format ("%.3f", parcel / (total * 0.78)) : "n/a" });
+                { "Parcel / gross area", areas.gross > 0 ? Format ("%.3f", parcel / areas.gross) : "n/a" });
         }
         card.figures.push_back ({ "Facade area (exposed surfaces 70-90 deg)",
                                   slices->hasFacade ? Format ("%.2f m2", slices->facadeArea) : "n/a" });

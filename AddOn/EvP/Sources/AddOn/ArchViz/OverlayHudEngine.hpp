@@ -89,6 +89,8 @@ struct State {
     hudmassingrules::SiteDraft massingSite;
     std::string massingStatsFunction;
     bool massingCollapseZone = false;
+    massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
+    std::vector<massingareas::NumberEdit> massingCoefficientNumbers;
     std::vector<massingrules::Edit> massingRuleEdits;
     std::vector<massingcalculation::Request> massingCalculations;
     // The building section's floors picked (PickedFloors), both views'.

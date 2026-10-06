@@ -51,16 +51,11 @@ double TotalArea (const Section& section)
     return total;
 }
 
-hudshell::Card BuildingAreas (const Section& section)
+hudshell::Card BuildingAreas (const Section& section, const massingareas::Coefficients& coefficients)
 {
     hudshell::Card totals;
     totals.alignDecimals = true;
-    const double total = TotalArea (section);
-    char value[64];
-    std::snprintf (value, sizeof (value), "%.2f m2", total);
-    totals.figures.push_back ({ "Total building area", value });
-    std::snprintf (value, sizeof (value), "%.2f m2", total * 0.78);
-    totals.figures.push_back ({ "Gross building area (total x 0.78)", value });
+    totals.figures = massingareas::Figures (TotalArea (section), coefficients, true);
     return totals;
 }
 
@@ -209,7 +204,8 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
     return edits;
 }
 
-std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const layers::Panel& look, float scale)
+std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const layers::Panel& look, float scale,
+                                    const massingareas::Coefficients& coefficients)
 {
     std::vector<hudmeta::Edit> edits;
     if (!section.known || section.floors.empty ())
@@ -314,7 +310,7 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
         hudshell::TipBeside (ImVec2 (origin.x, y0), ImVec2 (origin.x + width, y0 + row), hudshell::TipSide::Left, tip);
     }
 
-    hudshell::Cards ({ BuildingAreas (section) }, look, scale);
+    hudshell::Cards ({ BuildingAreas (section, coefficients) }, look, scale);
 
     // ---- what is picked, and the values to give it --------------------------------------------
     double picked = 0.0;

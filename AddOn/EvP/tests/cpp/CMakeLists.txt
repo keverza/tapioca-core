@@ -500,6 +500,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSegmentMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingMetrics.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingAreaCalculations.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseZone.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseProjection.cpp"

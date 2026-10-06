@@ -1,4 +1,6 @@
 #include "ArchViz/HudMassingStats.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
+#include <limits>
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
 
@@ -115,4 +117,110 @@ TEST (MassingStats, ParcelCoverageUsesGreyBuiltAndGreenUnbuiltAndRestoresTheThem
     widget.Frame ();
     const auto fullGrey = widget.Rectangle (IM_COL32 (154, 160, 166, 255), greyCount);
     EXPECT_FLOAT_EQ (fullGrey.GetWidth (), green.GetWidth ());
+}
+
+TEST (MassingStats, AreaCoefficientsUseTheRequestedDefaultsAndKeepFractionalUnitEstimates)
+{
+    namespace areas = geomsrv::archviz::massingareas;
+    const areas::Coefficients c;
+    const auto out = areas::Calculate (1000, c);
+    EXPECT_DOUBLE_EQ (out.gross, 780);
+    EXPECT_DOUBLE_EQ (out.sellable, 710);
+    EXPECT_DOUBLE_EQ (out.units, 15.6);
+    EXPECT_DOUBLE_EQ (out.parking, 468);
+    const auto figures = areas::Figures (1000, c);
+    ASSERT_EQ (figures.size (), 5u);
+    EXPECT_EQ (figures[1].value, "780.00 m2");
+    EXPECT_EQ (figures[3].value, "15.60");
+    EXPECT_EQ (figures[4].value, "468.00 m2");
+}
+
+TEST (MassingStats, EditedCoefficientsAreSharedByStatsAndSelectedBuildingAreasWithoutGeometryRequests)
+{
+    namespace hud = geomsrv::archviz::overlayhud;
+    namespace areas = geomsrv::archviz::massingareas;
+    namespace section = geomsrv::archviz::hudsection;
+    auto state = hud::NewState ();
+    areas::Coefficients c { 0.8, 0.6, 40, 25 };
+    const auto revision = hud::Revision (*state);
+    ASSERT_TRUE (hud::SetMassingCoefficients (*state, c));
+    EXPECT_GT (hud::Revision (*state), revision);
+    const auto shared = hud::MassingCoefficients (*state);
+    section::Section building;
+    section::Floor floor;
+    floor.areaM2 = 1000;
+    building.floors.push_back (floor);
+    const auto selected = section::BuildingAreas (building, shared);
+    const auto stats = areas::Figures (1000, shared);
+    for (size_t i = 0; i < stats.size (); ++i)
+        EXPECT_EQ (selected.figures[i].value, stats[i].value);
+    EXPECT_EQ (stats[1].value, "800.00 m2");
+    EXPECT_EQ (stats[2].value, "600.00 m2");
+    EXPECT_EQ (stats[3].value, "20.00");
+    EXPECT_EQ (stats[4].value, "500.00 m2");
+    EXPECT_NE (stats[1].label.find ("0.8"), std::string::npos);
+    EXPECT_TRUE (hud::TakeMassingCalculations (*state).empty ());
+    EXPECT_FALSE (hud::SetMassingCoefficients (*state, c));
+    EXPECT_EQ (hud::Revision (*state), revision + 1);
+}
+
+TEST (MassingStats, InvalidAreaCoefficientsNeverReplaceTheCurrentSettingsOrDivideByZero)
+{
+    namespace hud = geomsrv::archviz::overlayhud;
+    namespace areas = geomsrv::archviz::massingareas;
+    auto state = hud::NewState ();
+    const auto original = hud::MassingCoefficients (*state);
+    for (const auto bad : { areas::Coefficients { -0.1, 0.71, 50, 30 },
+                            { 0.78, 1.1, 50, 30 },
+                            { 0.78, 0.71, 0, 30 },
+                            { 0.78, 0.71, 50, -1 },
+                            { std::numeric_limits<double>::quiet_NaN (), 0.71, 50, 30 },
+                            { 0.78, 0.71, 50, std::numeric_limits<double>::infinity () } }) {
+        EXPECT_FALSE (hud::SetMassingCoefficients (*state, bad));
+        EXPECT_TRUE (areas::Same (hud::MassingCoefficients (*state), original));
+    }
+    EXPECT_EQ (hud::Revision (*state), 0u);
+    EXPECT_EQ (areas::Calculate (0, original).units, 0);
+    EXPECT_EQ (areas::Calculate (1000, { 0, 0, 50, 0 }).parking, 0);
+}
+
+TEST (MassingStats, CoefficientSetQueuesNativeNumberEntryWithStaleAndInvalidAnswerGuards)
+{
+    StatsWidget widget;
+    geomsrv::archviz::massingareas::Coefficients coefficients;
+    std::vector<geomsrv::archviz::massingareas::NumberEdit> numbers;
+    ImVec2 target;
+    const auto frame = [&] () {
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 500, 600 });
+        ImGui::Begin ("coefficient-inputs");
+        const bool edited = stats::CoefficientInputs (coefficients, numbers);
+        const auto* table = widget.context->Tables.GetByKey (ImGui::GetID ("##massing.coefficients"));
+        if (table)
+            target = { table->Columns[1].WorkMaxX - 10, table->OuterRect.Min.y + ImGui::GetFrameHeight () / 2 };
+        ImGui::End ();
+        ImGui::Render ();
+        return edited;
+    };
+    frame ();
+    frame ();
+    ASSERT_GT (target.x, 0);
+    auto& io = ImGui::GetIO ();
+    io.AddMousePosEvent (target.x, target.y);
+    frame ();
+    io.AddMouseButtonEvent (0, true);
+    frame ();
+    io.AddMouseButtonEvent (0, false);
+    frame ();
+    ASSERT_EQ (numbers.size (), 1u);
+    EXPECT_EQ (numbers[0].key, "Gross area factor");
+    EXPECT_DOUBLE_EQ (coefficients.grossFactor, 0.78) << "Opening or cancelling Set does not change settings";
+    namespace hud = geomsrv::archviz::overlayhud;
+    auto state = hud::NewState ();
+    EXPECT_FALSE (hud::AnswerMassingCoefficientNumber (*state, numbers[0], 2));
+    EXPECT_TRUE (hud::AnswerMassingCoefficientNumber (*state, numbers[0], 0.85));
+    EXPECT_DOUBLE_EQ (hud::MassingCoefficients (*state).grossFactor, 0.85);
+    EXPECT_FALSE (hud::AnswerMassingCoefficientNumber (*state, numbers[0], 0.9)) << "Stale prompt rejected";
+    EXPECT_TRUE (hud::TakeMassingCalculations (*state).empty ());
 }

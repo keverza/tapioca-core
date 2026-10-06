@@ -11,6 +11,50 @@ ImU32 Colour (uint32_t rgba)
     return IM_COL32 ((rgba >> 24) & 255, (rgba >> 16) & 255, (rgba >> 8) & 255, 255);
 }
 } // namespace
+bool CoefficientInputs (massingareas::Coefficients& coefficients, std::vector<massingareas::NumberEdit>& numbers)
+{
+    if (!ImGui::CollapsingHeader ("Area calculation coefficients", ImGuiTreeNodeFlags_DefaultOpen))
+        return false;
+    auto wanted = coefficients;
+    bool edited = false;
+    if (ImGui::BeginTable ("##massing.coefficients", 2,
+                           ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::TableSetupColumn ("##name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn ("##value", ImGuiTableColumnFlags_WidthFixed, 9 * ImGui::GetFontSize ());
+        const auto input = [&] (const char* label, double& value, double low, double high) {
+            ImGui::TableNextRow ();
+            ImGui::TableSetColumnIndex (0);
+            ImGui::AlignTextToFramePadding ();
+            ImGui::TextUnformatted (label);
+            ImGui::TableSetColumnIndex (1);
+            ImGui::PushID (label);
+            ImGui::SetNextItemWidth (ImGui::GetContentRegionAvail ().x - ImGui::CalcTextSize ("Set").x -
+                                     2 * ImGui::GetStyle ().FramePadding.x - ImGui::GetStyle ().ItemSpacing.x);
+            edited |= ImGui::DragScalar ("##value", ImGuiDataType_Double, &value, high == 1 ? 0.005f : 0.5f, &low,
+                                         &high, "%.3f", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SameLine ();
+            if (ImGui::SmallButton ("Set"))
+                numbers.push_back ({ wanted, label, value, low, high });
+            ImGui::PopID ();
+        };
+        input ("Gross area factor", wanted.grossFactor, 0, 1);
+        input ("Sellable area factor", wanted.sellableFactor, 0, 1);
+        input ("Gross m2 per unit", wanted.unitGrossArea, 0.01, 1000000);
+        input ("Parking m2 per unit", wanted.parkingAreaPerUnit, 0, 1000000);
+        ImGui::EndTable ();
+    }
+    ImGui::TextDisabled ("Gross = total x factor; sellable = total x factor.");
+    ImGui::TextDisabled ("Units = gross / m2 per unit; parking = units x m2 per unit.");
+    if (!edited)
+        return false;
+    if (!massingareas::Valid (wanted)) {
+        ImGui::TextDisabled ("Factors: 0..1; unit area: 0.01..1000000; parking: 0..1000000.");
+        return false;
+    }
+    coefficients = wanted;
+    return true;
+}
+
 std::string Draw (const massingslices::Result& result, const overlaylayers::Panel& look, float scale)
 {
     std::string hovered;

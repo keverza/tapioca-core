@@ -216,7 +216,7 @@ TEST (HudSection, FloorCaptionsShowAreaAndSelectionTotalsRemainBelowTheDiagram)
     ImGui::Begin ("section-area");
     hs::Diagram (section, run, shell::PlainLook (), 1);
     const auto totals = hs::BuildingAreas (section);
-    ASSERT_EQ (totals.figures.size (), 2u);
+    ASSERT_EQ (totals.figures.size (), 5u);
     EXPECT_EQ (totals.figures[0].label, "Total building area");
     EXPECT_EQ (totals.figures[0].value, "5800.00 m2");
     EXPECT_EQ (totals.figures[1].value, "4524.00 m2");

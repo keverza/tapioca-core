@@ -313,6 +313,10 @@ bool TakeDisplays (State& state, Displays& displays);
 // The floors picked on the building section (HudSection.hpp): the owner draws their slices on
 // the 3D overlay, and clears them when the section is another building's.
 hudsection::Run PickedFloors (const State& state);
+massingareas::Coefficients MassingCoefficients (const State& state);
+bool SetMassingCoefficients (State& state, const massingareas::Coefficients& coefficients);
+std::vector<massingareas::NumberEdit> TakeMassingCoefficientNumbers (State& state);
+bool AnswerMassingCoefficientNumber (State& state, const massingareas::NumberEdit& edit, double number);
 void SetPickedFloors (State& state, const hudsection::Run& run);
 // Hover mode: off until the user turns it on in Settings or the HUD's menu, or Python does;
 // both views. `Revision` moves with it.
