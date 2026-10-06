@@ -248,6 +248,7 @@ struct OwnPages {
     hudmeta::Page metadata;
     hudsection::Section section;
     std::vector<hudmeta::Page> storyHeights;
+    std::vector<massingbuildings::Preview> buildings;
     hudmassing::Page massing;
     std::vector<hudshell::Card> debug;
     // What the Debug tab's console says (HudConsole.hpp), oldest first: the tab's title counts the
@@ -307,6 +308,10 @@ std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state);
 bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit, double number);
 std::string MassingStatsFunction (const State& state);
 bool MassingCollapseZone (const State& state);
+bool UniqueBuildings (const State& state);
+std::string HighlightedBuilding (const State& state);
+std::string BuildingFloorKey (const State& state);
+hudsection::Run BuildingFloors (const State& state);
 // What the user set the displays to on Settings since the last call: true, and `displays` the
 // whole of it -- the owner applies it, after the layout, never inside it.
 bool TakeDisplays (State& state, Displays& displays);

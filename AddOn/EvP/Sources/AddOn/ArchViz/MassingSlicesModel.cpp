@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 #include "ArchViz/MassingSlicesModel.hpp"
 #include "ArchViz/MassingCollapseZone.hpp"
+#include "ArchViz/MassingInspectionModel.hpp"
 #include "ArchViz/MassingHybrid.hpp"
 #include "ArchViz/MassingModel.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
@@ -66,6 +67,8 @@ void Update ()
     const auto defined = massingmodel::Read ();
     auto guids = defined.guids[3];
     guids.insert (guids.end (), s_selected.begin (), s_selected.end ());
+    if (defined.known)
+        guids = massingbuildings::Members (defined.buildingSlabs, guids);
     std::sort (guids.begin (), guids.end ());
     guids.erase (std::unique (guids.begin (), guids.end ()), guids.end ());
     const bool overBudget = guids.size () > 128;
@@ -245,6 +248,7 @@ void Update ()
         overlaylayers::Set (result.layer);
     s_result = std::make_shared<const massingslices::Result> (std::move (result));
     Highlight ();
+    massinginspectionmodel::Refresh ();
     Publish (); // Errors and empty sets also change Stats; wake an idle HUD once.
 }
 } // namespace
@@ -325,6 +329,7 @@ std::string CollapseNote ()
 
 void Forget ()
 {
+    massinginspectionmodel::Forget ();
     if (s_timer != 0) {
         ::KillTimer (nullptr, s_timer);
         s_timer = 0;
@@ -349,6 +354,11 @@ void Forget ()
     s_shown = true;
     s_dirty = true;
     s_lastPoll = 0;
+}
+
+std::vector<std::string> SelectedGuids ()
+{
+    return s_selected;
 }
 
 void Shutdown ()

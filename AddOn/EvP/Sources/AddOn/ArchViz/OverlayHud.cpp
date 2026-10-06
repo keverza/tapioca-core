@@ -172,6 +172,22 @@ bool MassingCollapseZone (const State& state)
 {
     return state.massingCollapseZone;
 }
+bool UniqueBuildings (const State& state)
+{
+    return state.uniqueBuildings;
+}
+std::string HighlightedBuilding (const State& state)
+{
+    return state.highlightedBuilding;
+}
+std::string BuildingFloorKey (const State& state)
+{
+    return state.hoveredFloors.Empty () ? state.pickedFloorBuilding : state.hoveredFloorBuilding;
+}
+hudsection::Run BuildingFloors (const State& state)
+{
+    return state.hoveredFloors.Empty () ? state.floors : state.hoveredFloors;
+}
 
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state)
 {
@@ -761,6 +777,8 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     impl_->lastBuild = started;
     impl_->changes.clear ();
     impl_->nextStatsHover.clear ();
+    impl_->nextFloorBuilding.clear ();
+    impl_->nextFloorHover = {};
     std::unique_lock<std::mutex> lock (ImGuiContextMutex ());
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
@@ -786,8 +804,11 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     const bool known = input.width >= 1.0f && input.height >= 1.0f;
     for (int attempt = 0; attempt < kAttempts; ++attempt) {
         const uint64_t before = impl_->atlasVersion;
-        for (int frame = 0; frame < frames; ++frame)
+        for (int frame = 0; frame < frames; ++frame) {
+            impl_->nextFloorBuilding.clear ();
+            impl_->nextFloorHover = {};
             impl_->Frame (panels, keys, at, input, legends, attempt == 0 && frame == 0 ? delta : kSettleSeconds);
+        }
         out = Layout {};
         out.panels.assign (panels.size (), Built {});
         unsampled = 0;
@@ -848,6 +869,12 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         impl_->statsHover = impl_->nextStatsHover;
         impl_->store->massingStatsFunction = impl_->statsHover;
         impl_->changes.push_back ({ "massingStatsHover", {}, "Stats", impl_->statsHover, -1, 0, {}, true });
+    }
+    if (impl_->store->hoveredFloors != impl_->nextFloorHover ||
+        impl_->store->hoveredFloorBuilding != impl_->nextFloorBuilding) {
+        impl_->store->hoveredFloors = impl_->nextFloorHover;
+        impl_->store->hoveredFloorBuilding = impl_->nextFloorBuilding;
+        impl_->changes.push_back ({ "buildingFloorHover", {}, "Selection", impl_->nextFloorBuilding, -1, 0, {}, true });
     }
     out.changes = impl_->changes;
     if (impl_->sink)

@@ -152,6 +152,8 @@ Section Build (const std::vector<Slab>& slabs, const ProjectStoreys& storeys, co
             row.base = (std::min) (row.base, slab.floors[k].base);
             Part part;
             part.guid = slab.guid;
+            part.base = slab.floors[k].base;
+            part.sourceStory = storey;
             part.areaM2 = slab.floors[k].areaM2;
             if (key != nullptr) {
                 // The floor's own value, or the element's where no range says one.
@@ -185,30 +187,44 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
     std::vector<hudmeta::Edit> edits;
     if (run.Empty () || section.key.empty ())
         return edits;
-    for (const Span& span : section.spans) {
-        const int from = (std::max) (run.first, span.low), to = (std::min) (run.last, span.high);
-        if (from > to)
-            continue;
-        hudmeta::Edit edit;
-        edit.id = section.key;
-        edit.action = clear ? hudmeta::Edit::Action::Clear : hudmeta::Edit::Action::Set;
-        edit.kind = hudmeta::FieldKind::Choice;
-        edit.type = section.valueType;
-        edit.text = value;
-        edit.label = section.keyLabel + ", " + RunText (run);
-        edit.domain = meta::kFloorDomain;
-        edit.from = double (from);
-        edit.to = double (to);
-        edit.element = span.guid;
-        edits.push_back (std::move (edit));
+    std::map<std::string, std::vector<int>> picked;
+    for (const auto& floor : section.floors)
+        if (run.Has (floor.storey))
+            for (const auto& part : floor.parts)
+                picked[part.guid].push_back (part.sourceStory == (std::numeric_limits<int>::min) () ? floor.storey
+                                                                                                    : part.sourceStory);
+    for (auto& [guid, stories] : picked) {
+        std::sort (stories.begin (), stories.end ());
+        stories.erase (std::unique (stories.begin (), stories.end ()), stories.end ());
+        for (size_t start = 0; start < stories.size ();) {
+            size_t end = start;
+            while (end + 1 < stories.size () && stories[end + 1] == stories[end] + 1)
+                ++end;
+            const int from = stories[start], to = stories[end];
+            hudmeta::Edit edit;
+            edit.id = section.key;
+            edit.action = clear ? hudmeta::Edit::Action::Clear : hudmeta::Edit::Action::Set;
+            edit.kind = hudmeta::FieldKind::Choice;
+            edit.type = section.valueType;
+            edit.text = value;
+            edit.label = section.keyLabel + ", " + RunText (run);
+            edit.domain = meta::kFloorDomain;
+            edit.from = double (from);
+            edit.to = double (to);
+            edit.element = guid;
+            edits.push_back (std::move (edit));
+            start = end + 1;
+        }
     }
     return edits;
 }
 
 std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const layers::Panel& look, float scale,
-                                    const massingareas::Coefficients& coefficients)
+                                    const massingareas::Coefficients& coefficients, bool editable, Run* hover)
 {
     std::vector<hudmeta::Edit> edits;
+    if (hover)
+        *hover = {};
     if (!section.known || section.floors.empty ())
         return edits;
     ImGui::SeparatorText ("Building section");
@@ -234,6 +250,8 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
         return int (count) - 1 - (std::min) ((std::max) (down, 0), int (count) - 1);
     };
     const int pointed = hovered || active ? under () : -1;
+    if (hover && pointed >= 0)
+        *hover = { section.floors[size_t (pointed)].storey, section.floors[size_t (pointed)].storey };
 
     // ---- picking: a press, a shift-press, a drag ----------------------------------------------
     ImGuiStorage* const storage = ImGui::GetStateStorage ();
@@ -254,7 +272,7 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
         if (hovered &&
             (ImGui::IsMouseClicked (ImGuiMouseButton_Right) || ImGui::IsMouseReleased (ImGuiMouseButton_Right))) {
             hudshell::ClaimRightClick ();
-            if (ImGui::IsMouseReleased (ImGuiMouseButton_Right)) {
+            if (editable && ImGui::IsMouseReleased (ImGuiMouseButton_Right)) {
                 if (!run.Has (storey)) {
                     run = { storey, storey };
                     storage->SetInt (anchorId, storey);
@@ -329,12 +347,13 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
             picked += floor.areaM2;
     ImGui::PushStyleColor (ImGuiCol_Text, hudshell::Colour (hudshell::WithAlpha (look.textRgba, 0.65f)));
     if (run.Empty ())
-        ImGui::TextWrapped ("Press a floor; shift-press or drag for several; right-click to assign %s",
+        ImGui::TextWrapped (editable ? "Press a floor; shift-press or drag for several; right-click to assign %s"
+                                     : "Hover to preview; click to highlight floors. Edit in Story slice editor.",
                             section.keyLabel.empty () ? "a value" : section.keyLabel.c_str ());
     else
         ImGui::TextWrapped ("%s picked, %s", RunText (run).c_str (), Area (picked).c_str ());
     ImGui::PopStyleColor ();
-    if (ImGui::BeginPopup (kMenu)) {
+    if (editable && ImGui::BeginPopup (kMenu)) {
         ImGui::TextDisabled ("%s: %s", RunText (run).c_str (), section.keyLabel.c_str ());
         ImGui::Separator ();
         for (const hudmeta::Option& option : section.options)

@@ -26,6 +26,7 @@
 #include "ArchViz/MassingModel.hpp"
 #include "ArchViz/MassingHybrid.hpp"
 #include "ArchViz/MassingSlicesModel.hpp"
+#include "ArchViz/MassingInspectionModel.hpp"
 #include "ArchViz/StorySliceOverlay.hpp" // Settings' displays: the storey slices
 #include "Metadata/MetadataExtractor.hpp"
 
@@ -388,6 +389,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.massing.calculationNote = calculation.note;
     pages.massing.preview = calculation.preview;
     pages.massing.collapseNote = massingslicesmodel::CollapseNote ();
+    pages.massing.inspectionNote = massinginspectionmodel::Note ();
     if (calculation.preview) {
         const auto& result = calculation.preview->result;
         Card card;
@@ -412,12 +414,13 @@ overlayhud::OwnPages Pages (overlayinput::View view)
     pages.section = g_section.section;
     if (const auto slices = massingslicesmodel::Read (); slices && (!slices->rows.empty () || !slices->note.empty ())) {
         pages.massingStats = slices;
-        std::vector<std::string> selected;
-        for (const auto& element : g_selection.elements)
-            selected.push_back (element.guid);
-        pages.section = hudsection::Filter (slices->section, selected);
+        const auto selected = massingslicesmodel::SelectedGuids ();
+        const auto members = massingbuildings::Members (pages.massing.buildingSlabs, selected);
+        pages.section = hudsection::Filter (slices->section, members);
+        pages.buildings =
+            massingbuildings::Previews (slices->section, pages.massing.buildingSlabs, slices->heightControls, selected);
         for (const auto& page : slices->heightControls)
-            if (std::find (selected.begin (), selected.end (), page.element) != selected.end ())
+            if (std::find (members.begin (), members.end (), page.element) != members.end ())
                 pages.storyHeights.push_back (page);
         for (auto& field : pages.metadata.fields)
             if (field.id == "massing.story") {

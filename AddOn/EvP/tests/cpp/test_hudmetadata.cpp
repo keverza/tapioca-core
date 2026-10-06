@@ -42,7 +42,9 @@ TEST (HudMetadata, SelectionOffersOnlyTheFourBuildingSlabFieldsAndPreservesLegac
     EXPECT_EQ (page.fields[1].kind, hm::FieldKind::Fixed);
     EXPECT_EQ (page.fields[2].kind, hm::FieldKind::Fixed);
     EXPECT_EQ (page.fields[2].type, meta::ValueType::String);
-    EXPECT_EQ (page.fields[3].kind, hm::FieldKind::Heights);
+    EXPECT_EQ (page.fields[3].kind, hm::FieldKind::Fixed);
+    EXPECT_EQ (page.fields[3].text, "4.00 m");
+    EXPECT_EQ (page.fields[0].kind, hm::FieldKind::Text);
     EXPECT_EQ (page.fields[3].numbers, std::vector<double> ({ 4 }));
     EXPECT_EQ (meta::ToJson (entity), before);
     hm::Edit edit;

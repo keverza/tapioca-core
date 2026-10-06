@@ -11,6 +11,7 @@
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
+#include "ArchViz/MassingModel.hpp"
 #include "ArchViz/SlabSliceSource.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "Metadata/MetadataStorage.hpp"
@@ -40,7 +41,12 @@ Reading Read (const std::vector<std::string>& guids)
     Reading out;
     if (guids.empty ())
         return out;
-    const std::vector<std::string> taken (guids.begin (), guids.begin () + (std::min) (guids.size (), kMostSlabs));
+    const auto members = massingbuildings::Members (massingmodel::Read ().buildingSlabs, guids);
+    if (members.size () > kMostSlabs) {
+        out.section.note = "Building section exceeds its slab budget; no partial building preview.";
+        return out;
+    }
+    const auto& taken = members;
     const ProjectStoreys storeys = ReadStoreys ();
     const slabsource::Reading slabs = slabsource::Read (taken, storeys);
     if (slabs.slabs.empty ())

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 
 namespace geomsrv::archviz::massingslices {
 namespace {
@@ -106,6 +107,57 @@ std::vector<Usage> UsageMix (const Result& result)
         out.push_back (std::move (item.second));
     }
     return out;
+}
+
+bool FloorHighlight (const Result& result, const std::string& building, const hudsection::Run& run,
+                     overlaylayers::Layer& layer, std::string& error)
+{
+    error.clear ();
+    overlaylayers::Layer out;
+    out.name = massingbuildings::kFloorsLayer;
+    out.views = overlaylayers::Views::Both;
+    out.occlusion = overlaylayers::Behind::Fade;
+    std::vector<massingbuildings::Record> records;
+    for (const auto& surface : result.buildingSurfaces)
+        records.push_back (surface.record);
+    size_t points = 0;
+    for (const auto& group : massingbuildings::Groups (records)) {
+        if (group.key != building)
+            continue;
+        std::set<std::pair<std::string, int>> targets;
+        const auto previews = massingbuildings::Previews (result.section, records, {}, group.guids);
+        for (const auto& preview : previews)
+            for (const auto& floor : preview.section.floors)
+                if (run.Has (floor.storey))
+                    for (const auto& part : floor.parts)
+                        targets.emplace (part.guid, part.sourceStory);
+        for (const auto& row : result.rows) {
+            if (!targets.count ({ row.guid, row.story }))
+                continue;
+            auto floor = row;
+            floor.chains = row.rawChains; // Highlight the actual floor, not just its allowed-envelope intersection.
+            floor.rgba = 0xD9822BFF;
+            floor.fillRgba = 0xD9822B90;
+            floor.fillOpacity = 1;
+            floor.wireWidthPixels = 2.5f;
+            overlaylayers::Mesh mesh;
+            if (!Extrude (floor, mesh, error))
+                return false;
+            if (mesh.indices.empty ())
+                continue;
+            mesh.style.behind = overlaylayers::Behind::Fade;
+            mesh.hoverTitle = "Building " + group.id + " floor " + std::to_string (row.story);
+            points += mesh.points.size () / 3;
+            if (points > 600000)
+                return error = "Floor highlight exceeds its geometry budget.", false;
+            out.meshes.push_back (std::move (mesh));
+        }
+    }
+    error = overlaylayers::Validate (out);
+    if (!error.empty ())
+        return false;
+    layer = std::move (out);
+    return true;
 }
 
 bool Coverage (Result& result, const massingcalculation::Preview& preview, std::string& error)

@@ -190,6 +190,8 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     size_t envelopeWork = 0;
     size_t retainedPoints = 0;
     for (const auto& input : slabs) {
+        out.buildingSurfaces.push_back ({ { input.slab.guid, massingbuildings::Id (input.metadata) },
+                                          input.facadeBody ? input.facadeBody : input.body });
         if (!std::isfinite (input.slab.bottom) || !std::isfinite (input.slab.top) ||
             std::abs (input.slab.bottom) > 1e9 || std::abs (input.slab.top) > 1e9 ||
             input.slab.top <= input.slab.bottom)

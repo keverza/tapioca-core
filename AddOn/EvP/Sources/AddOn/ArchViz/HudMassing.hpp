@@ -8,6 +8,7 @@
 #include <vector>
 #include "ArchViz/MassingRules.hpp"
 #include "ArchViz/MassingCalculation.hpp"
+#include "ArchViz/MassingBuildings.hpp"
 
 namespace geomsrv::archviz::hudmassing {
 
@@ -21,12 +22,14 @@ struct Request {
 struct Page {
     bool known = false;
     std::array<std::vector<std::string>, 4> guids;
+    std::vector<massingbuildings::Record> buildingSlabs; // Model-wide identity index, including undefined siblings.
     std::string note;
     massingrules::Page rules;
     std::vector<massingrules::Page> parcels;
     bool calculationBusy = false;
     std::string calculationNote;
     std::string collapseNote;
+    std::string inspectionNote;
     std::shared_ptr<const massingcalculation::Preview> preview;
 };
 struct Assignment {

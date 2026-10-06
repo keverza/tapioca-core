@@ -32,6 +32,7 @@
 #include "Metadata/TapiocaMetadata.hpp"
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -43,8 +44,10 @@ namespace hudsection {
 struct Part {
     std::string guid;
     double areaM2 = 0.0;
-    std::string value; // its value of the section's key there; empty: none
-    uint32_t rgba = 0; // that value's colour; alpha 0: none
+    std::string value;                                       // its value of the section's key there; empty: none
+    uint32_t rgba = 0;                                       // that value's colour; alpha 0: none
+    double base = std::numeric_limits<double>::quiet_NaN (); // Actual floor Z; supports multi-slab building rows.
+    int sourceStory = (std::numeric_limits<int>::min) ();    // Authored per-slab floor domain, not diagram row number.
 };
 
 struct Floor {
@@ -115,7 +118,8 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
 // The section drawn in `look`; `run` the floors picked, kept by the caller and changed here.
 // What the user assigned in this frame.
 std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const overlaylayers::Panel& look, float scale,
-                                    const massingareas::Coefficients& coefficients = {});
+                                    const massingareas::Coefficients& coefficients = {}, bool editable = true,
+                                    Run* hover = nullptr);
 
 } // namespace hudsection
 } // namespace archviz

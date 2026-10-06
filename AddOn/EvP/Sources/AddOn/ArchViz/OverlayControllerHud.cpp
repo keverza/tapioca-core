@@ -21,6 +21,7 @@
 #include "ArchViz/MassingModel.hpp"
 #include "ArchViz/MassingHybrid.hpp"
 #include "ArchViz/MassingSlicesModel.hpp"
+#include "ArchViz/MassingInspectionModel.hpp"
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/TextPrompt.hpp"
 #include "ArchViz/HudConsole.hpp"
@@ -94,6 +95,8 @@ void FollowHudState ()
     massinghybrid::Dimensions (overlayhud::MassingDimensions (*state));
     massingslicesmodel::HoverFunction (overlayhud::MassingStatsFunction (*state));
     massingslicesmodel::CollapseZone (overlayhud::MassingCollapseZone (*state));
+    massinginspectionmodel::Follow (overlayhud::UniqueBuildings (*state), overlayhud::HighlightedBuilding (*state),
+                                    overlayhud::BuildingFloorKey (*state), overlayhud::BuildingFloors (*state));
     for (const auto& edit : overlayhud::TakeMassingCoefficientNumbers (*state)) {
         std::string answer;
         double number = 0;

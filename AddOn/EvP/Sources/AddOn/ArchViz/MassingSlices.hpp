@@ -4,6 +4,7 @@
 #include "ArchViz/MassingCalculation.hpp"
 #include "ArchViz/SlabSlices.hpp"
 #include "ArchViz/HudSection.hpp"
+#include "ArchViz/MassingBuildings.hpp"
 
 namespace geomsrv::archviz::massingslices {
 constexpr char kLayer[] = "tapioca.massing.storySlices";
@@ -37,6 +38,7 @@ struct Result {
     double firstFloorArea = 0, rawFirstFloorArea = 0, facadeArea = 0;
     bool hasFacade = false;
     std::vector<hudmeta::Page> heightControls;
+    std::vector<massingbuildings::Surface> buildingSurfaces;
     bool clipped = false;
     double rawVolume = 0, allowedVolume = 0;
     double builtArea = 0, unbuiltArea = 0, parcelArea = 0;
@@ -55,6 +57,8 @@ struct Usage {
 std::vector<Usage> UsageMix (const Result& result);
 bool Coverage (Result& result, const massingcalculation::Preview& parcels, std::string& error);
 bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error);
+bool FloorHighlight (const Result& result, const std::string& building, const hudsection::Run& run,
+                     overlaylayers::Layer& layer, std::string& error);
 // Exposed union surface area, with 70-90 degree inclination from horizontal.
 bool Facade (const std::vector<Input>& inputs, double& area, std::string& error);
 // Allowed chains/areas come from intersection with the union of current parcel

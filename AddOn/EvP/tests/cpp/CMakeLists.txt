@@ -502,6 +502,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSegmentMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingMetrics.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBuildings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingAreaCalculations.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseZone.cpp"
@@ -515,6 +516,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudMassingParcels.cpp"
     # The building section: the massing slabs' floors picked and given their usage.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudSection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudBuildings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
@@ -723,6 +725,7 @@ set (EVP_TEST_SOURCES
     test_massingparcels.cpp
     test_massingstats.cpp
     test_massingcollapse.cpp
+    test_massingbuildings.cpp
     test_massingfacade.cpp
     test_massingslices.cpp
     test_hudsection.cpp

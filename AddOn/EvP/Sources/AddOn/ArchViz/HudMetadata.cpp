@@ -566,8 +566,22 @@ Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::En
                     if (archicad) {
                         field.kind = FieldKind::Fixed;
                         field.set = true;
-                        field.text = "Archicad stories (Massing)";
+                        field.text = "Archicad stories";
                     }
+                    else if (!field.mixed) {
+                        field.text.clear ();
+                        for (double height : field.numbers) {
+                            if (!field.text.empty ())
+                                field.text += ", ";
+                            field.text += NumberText (height);
+                        }
+                        field.text += " m";
+                    }
+                    else
+                        field.text = "mixed";
+                    field.kind = FieldKind::Fixed;
+                    field.set = true;
+                    field.note = "Preview only. Edit heights in Story slice editor.";
                 }
                 if (field.id == "massing.story") {
                     field.kind = FieldKind::Fixed;
@@ -576,8 +590,11 @@ Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::En
                 if (field.id == "massing.function") {
                     field.kind = FieldKind::Fixed;
                     field.set = true;
-                    field.text = "Per story (Massing)";
+                    field.text = "Per story (Story slice editor)";
                 }
+                if (field.id == "massing.buildingId")
+                    field.note =
+                        "One building ID identifies one stairwell. Edits apply only to viewport-selected slabs.";
                 page.fields.push_back (std::move (field));
                 break;
             }
@@ -589,7 +606,7 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
 {
     if (edit.id == "massing.story" || (edit.id == "massing.function" && edit.domain.empty ())) {
         error = edit.id == "massing.story" ? "Story count is calculated from slices."
-                                           : "Assign function to picked stories in Massing.";
+                                           : "Assign function to picked stories in Story slice editor.";
         return false;
     }
     meta::Provenance provenance;

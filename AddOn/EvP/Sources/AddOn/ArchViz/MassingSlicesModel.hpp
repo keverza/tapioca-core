@@ -8,6 +8,7 @@ namespace geomsrv::archviz::massingslicesmodel {
 void Changed ();
 void Poll ();
 std::shared_ptr<const massingslices::Result> Read ();
+std::vector<std::string> SelectedGuids ();
 void Display (bool shown, const storysliceoverlay::Controls& controls);
 void HoverFunction (const std::string& function);
 void CollapseZone (bool shown);

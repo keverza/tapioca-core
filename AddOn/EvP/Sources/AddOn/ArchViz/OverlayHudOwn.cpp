@@ -7,6 +7,7 @@
 #include "ArchViz/HudMassingStats.hpp"
 
 #include <string>
+#include <algorithm>
 
 namespace geomsrv {
 namespace archviz {
@@ -14,6 +15,18 @@ namespace overlayhud {
 
 void Engine::SetOwnPages (OwnPages pages)
 {
+    if (!pages.buildings.empty () || pages.selection.count == 0) {
+        const auto has = [&] (const std::string& key) {
+            return std::any_of (pages.buildings.begin (), pages.buildings.end (),
+                                [&] (const auto& preview) { return preview.building.key == key; });
+        };
+        if (!has (impl_->store->highlightedBuilding))
+            impl_->store->highlightedBuilding.clear ();
+        if (!has (impl_->store->pickedFloorBuilding)) {
+            impl_->store->pickedFloorBuilding.clear ();
+            impl_->store->floors = {};
+        }
+    }
     impl_->own = std::move (pages);
 }
 
@@ -79,7 +92,18 @@ void Engine::Impl::SelectionPage (float ui)
                              true });
         store->metadataEdits.push_back (std::move (edit));
     }
+    ImGui::PushID ("buildingPreview");
+    for (const auto& preview : own.buildings)
+        BuildingDiagram (preview, ui, false);
+    ImGui::PopID ();
+    if (!store->highlightedBuilding.empty () && !own.massing.inspectionNote.empty ())
+        ImGui::TextWrapped ("%s", own.massing.inspectionNote.c_str ());
     if (ImGui::CollapsingHeader ("Story slice editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!own.buildings.empty ()) {
+            for (const auto& preview : own.buildings)
+                BuildingDiagram (preview, ui, true);
+            return;
+        }
         ImGui::TextDisabled ("Story count is calculated from the slices.");
         for (const auto& page : own.storyHeights) {
             ImGui::PushID (page.element.c_str ());
@@ -204,8 +228,16 @@ void Engine::Impl::MassingPage ()
     bool envelope = LayerShown (*store, massingcalculation::kEnvelopeLayer);
     if (ImGui::Checkbox ("Show massing envelope", &envelope))
         ShowLayer (massingcalculation::kEnvelopeLayer, envelope);
+    if (ImGui::Checkbox ("Show unique buildings", &store->uniqueBuildings))
+        changes.push_back (
+            { "uniqueBuildings", {}, "Massing", "building IDs", -1, store->uniqueBuildings ? 1.0 : 0.0, {}, true });
+    if (store->uniqueBuildings) {
+        ImGui::TextDisabled ("Same building ID = same colour. Missing IDs stay separate.");
+        if (!own.massing.inspectionNote.empty ())
+            ImGui::TextWrapped ("%s", own.massing.inspectionNote.c_str ());
+    }
     if (store->massingCollapseZone) {
-        ImGui::TextDisabled ("Red hatches: 0.3333 x local vertical building height, unioned.");
+        ImGui::TextDisabled ("Red hatches: 0.3333 x slab top height above topography, unioned.");
         if (!own.massing.collapseNote.empty ())
             ImGui::TextWrapped ("%s", own.massing.collapseNote.c_str ());
     }

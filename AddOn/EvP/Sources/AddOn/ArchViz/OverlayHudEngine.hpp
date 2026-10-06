@@ -89,6 +89,9 @@ struct State {
     hudmassingrules::SiteDraft massingSite;
     std::string massingStatsFunction;
     bool massingCollapseZone = false;
+    bool uniqueBuildings = false;
+    std::string highlightedBuilding, pickedFloorBuilding, hoveredFloorBuilding;
+    hudsection::Run hoveredFloors;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
     std::vector<massingareas::NumberEdit> massingCoefficientNumbers;
     std::vector<massingrules::Edit> massingRuleEdits;
@@ -152,6 +155,8 @@ struct Engine::Impl {
     // The title of what the host shows -- a panel's, "Settings", or "Overlay" while there is
     // no titled panel: the dock's label, and what an open or a close is said with.
     std::string showing;
+    std::string nextFloorBuilding;
+    hudsection::Run nextFloorHover;
     // The tab the host's tab bar showed in this context's last frame: a panel key.
     std::string shownHost;
     // The page the host shows scrolls (hudshell::HostResult::scrolls): the wheel over it is the HUD's.
@@ -222,6 +227,7 @@ struct Engine::Impl {
     // to be one; Selection; Debug. And the title on a tab, by its key.
     void StatsPage (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float ui);
     void SelectionPage (float ui);
+    void BuildingDiagram (const massingbuildings::Preview& preview, float ui, bool editable);
     void MassingPage ();
     void DebugPage (float ui);
     std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,
