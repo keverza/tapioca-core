@@ -201,6 +201,9 @@ void Engine::Impl::MassingPage ()
                              store->massingCollapseZone ? 1.0 : 0.0,
                              {},
                              true });
+    bool envelope = LayerShown (*store, massingcalculation::kEnvelopeLayer);
+    if (ImGui::Checkbox ("Show massing envelope", &envelope))
+        ShowLayer (massingcalculation::kEnvelopeLayer, envelope);
     if (store->massingCollapseZone) {
         ImGui::TextDisabled ("Red hatches: 0.3333 x local vertical building height, unioned.");
         if (!own.massing.collapseNote.empty ())

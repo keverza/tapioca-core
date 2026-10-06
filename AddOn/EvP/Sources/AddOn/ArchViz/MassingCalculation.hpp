@@ -80,6 +80,7 @@ bool Encode (const Request& request, const geomsrv::Mesh& terrain, bool hasAltit
              std::string& error);
 bool Decode (const std::string& bridgeJson, Result& result, std::string& error);
 constexpr char kDimensions[] = "tapioca.massing.offsetDimensions";
+constexpr char kEnvelopeLayer[] = "tapioca.massing.envelope";
 overlaylayers::Layer OffsetDimensions (const Preview& preview);
 } // namespace geomsrv::archviz::massingcalculation
 #endif

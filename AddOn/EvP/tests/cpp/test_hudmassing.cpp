@@ -91,3 +91,36 @@ TEST (HudMassing, NativeTabDrawsWithoutAnyPythonPanelOrLayer)
     hud::ClearState (*hud.state);
     EXPECT_TRUE (hud::TakeMassingRequests (*hud.state).empty ());
 }
+
+TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBeforeTheLayerExists)
+{
+    Watched hud;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    hud.engine.SetOwnPages (pages);
+    hud::SelectKey (*hud.state, hm::kTabKey);
+    hud.Lay ({}, At (600, 600));
+    const auto layout = hud.Lay ({}, At (600, 600));
+    float lastControl = 0;
+    for (float y = 16 + layout.host.height - 1; y > 60; --y)
+        if (hud.Lay ({}, At (40, y)).hand) {
+            lastControl = y - 4;
+            break;
+        }
+    ASSERT_GT (lastControl, 60);
+    hud::TakeMassingCalculations (*hud.state); // Discard the existing initial Massing-page preview request.
+    constexpr const char* envelope = geomsrv::archviz::massingcalculation::kEnvelopeLayer;
+    EXPECT_TRUE (hud::LayerShown (*hud.state, envelope));
+    hud.Click ({}, 40, lastControl);
+    EXPECT_FALSE (hud::LayerShown (*hud.state, envelope));
+    EXPECT_FALSE (hud::MassingCollapseZone (*hud.state));
+    ASSERT_FALSE (hud.heard.empty ());
+    EXPECT_EQ (hud.heard.back ().kind, "layer");
+    EXPECT_EQ (hud.heard.back ().id, envelope);
+    hud.engine.SetLayers ({ envelope });
+    hud.Lay ({}, At (600, 600));
+    EXPECT_FALSE (hud::LayerShown (*hud.state, envelope)) << "New envelope publication keeps the visibility choice";
+    hud.Click ({}, 40, lastControl);
+    EXPECT_TRUE (hud::LayerShown (*hud.state, envelope));
+    EXPECT_TRUE (hud::TakeMassingCalculations (*hud.state).empty ());
+}

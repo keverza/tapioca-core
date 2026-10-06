@@ -276,6 +276,8 @@ void Engine::Impl::Settings ()
         ImGui::TextDisabled ("No layers");
     // Each layer drawn here, shown or hidden: a hidden one draws nothing, its panels no tab.
     for (const std::string& name : layerNames) {
+        if (own.standalone && name == massingcalculation::kEnvelopeLayer)
+            continue; // The dedicated Massing checkbox owns this layer's visibility.
         bool on = LayerShown (*store, name);
         if (ImGui::Checkbox ((Readable (name) + "##layer." + name).c_str (), &on))
             ShowLayer (name, on);
