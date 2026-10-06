@@ -64,6 +64,7 @@ void BaseStyle (float scale)
     style.ItemInnerSpacing = ImVec2 (4.0f, 3.0f);
     style.CellPadding = ImVec2 (4.0f, 1.0f);
     style.ScaleAllSizes (scale);
+    style.ScrollbarSize /= 3.0f; // Shared HUD scrollbars stay slim at every DPI/text scale.
     style.WindowMinSize = ImVec2 (1.0f, 1.0f);
     style.FrameRounding = 2.0f * scale;
 }

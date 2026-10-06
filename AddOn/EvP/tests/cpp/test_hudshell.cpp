@@ -266,6 +266,42 @@ hud::Input Short (float x, float y)
 
 // ⚠️ THE USER: the Settings page ran off the view and could not be read -- the panel is never
 // taller than the view; what its page does not hold is not drawn past it.
+TEST (HudScroll, ScrollbarsAreOneThirdOfTheDefaultWidthAtEveryUiScaleWithoutCompounding)
+{
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+    io.DisplaySize = { 1000, 1000 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    for (float scale : { 0.8f, 1.0f, 1.4f, 2.0f }) {
+        ImGuiStyle previous;
+        previous.ScaleAllSizes (scale);
+        const float expected = previous.ScrollbarSize / 3;
+        for (int frame = 0; frame < 2; ++frame) {
+            shell::BaseStyle (scale);
+            EXPECT_FLOAT_EQ (ImGui::GetStyle ().ScrollbarSize, expected);
+            ImGui::NewFrame ();
+            ImGui::SetNextWindowPos ({ 0, 0 });
+            ImGui::SetNextWindowSize ({ 260, 180 });
+            ImGui::Begin ("slim-settings-scrollbar");
+            for (int row = 0; row < 100; ++row)
+                ImGui::Text ("Setting %d", row);
+            ImGui::End ();
+            ImGui::Render ();
+        }
+        const auto* window = ImGui::FindWindowByName ("slim-settings-scrollbar");
+        EXPECT_TRUE (window->ScrollbarY);
+        EXPECT_FALSE (window->ScrollbarX);
+        EXPECT_FLOAT_EQ (window->ScrollbarSizes.x, expected);
+        EXPECT_GT (window->ScrollMax.y, 0);
+    }
+    ImGui::DestroyContext (context);
+}
+
 TEST (HudScroll, ThePanelIsNeverTallerThanTheView)
 {
     Fresh hud;
