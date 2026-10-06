@@ -5,6 +5,7 @@
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <limits>
 #include <set>
 
 namespace mb = geomsrv::archviz::massingbuildings;
@@ -36,6 +37,12 @@ std::vector<mb::Record> Records (const ms::Result& result)
     for (const auto& surface : result.buildingSurfaces)
         records.push_back (surface.record);
     return records;
+}
+ms::Input AreaSlab (const char* guid, const char* id, double area, double bottom = 0, double top = 3, double x = 0)
+{
+    auto input = Slab (guid, id, bottom, top, x);
+    input.slab.outer.xy = { x, 0, x + area / 10, 0, x + area / 10, 10, x, 10 };
+    return input;
 }
 } // namespace
 
@@ -257,4 +264,139 @@ TEST (MassingBuildings, WholeBuildingCheckboxIsMouseAccessible)
     EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
     gui.Click ({}, x, buttonY);
     EXPECT_TRUE (hud::HighlightedBuilding (*gui.state).empty ());
+}
+
+TEST (MassingBuildings, LargeFloorMarksUseStrictUnroundedGrossThresholdAndSharedCoefficient)
+{
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ AreaSlab ("below", "Below", 499.999), AreaSlab ("equal", "Equal", 500, 0, 3, 100),
+                              AreaSlab ("above", "Above", 500.001, 0, 3, 200) },
+                            {}, nullptr, result, error))
+        << error;
+    geomsrv::archviz::massingareas::Coefficients coefficients;
+    coefficients.grossFactor = 1;
+    geomsrv::archviz::overlaylayers::Layer layer;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), coefficients, layer, error)) << error;
+    ASSERT_EQ (layer.meshes.size (), 1u);
+    EXPECT_EQ (layer.name, ms::kLargeFloorsLayer);
+    EXPECT_EQ (layer.views, geomsrv::archviz::overlaylayers::Views::Both);
+    EXPECT_EQ (layer.occlusion, geomsrv::archviz::overlaylayers::Behind::Fade);
+    EXPECT_NE (layer.meshes[0].hoverTitle.find ("Building Above"), std::string::npos);
+    coefficients.grossFactor = 0.78;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), coefficients, layer, error));
+    EXPECT_TRUE (layer.meshes.empty ()) << "500 m2 total is only 390 m2 gross at the default factor";
+    coefficients.grossFactor = 0;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), coefficients, layer, error));
+    EXPECT_TRUE (layer.meshes.empty ());
+}
+
+TEST (MassingBuildings, LargeFloorMarksCombineSameIdPartsWithoutMergingOtherBuildingsOrStackedFloors)
+{
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ AreaSlab ("a", "Tower", 350), AreaSlab ("b", "Tower", 350, 0, 3, 40),
+                              AreaSlab ("upper", "Tower", 300, 3, 9), AreaSlab ("other", "Other", 350, 0, 3, 100),
+                              AreaSlab ("empty1", "", 350, 0, 3, 150), AreaSlab ("empty2", "", 350, 0, 3, 200) },
+                            {}, nullptr, result, error))
+        << error;
+    geomsrv::archviz::overlaylayers::Layer layer;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), {}, layer, error)) << error;
+    ASSERT_EQ (layer.meshes.size (), 2u) << "700 x 0.78 = 546 gross on the lower combined floor only";
+    for (const auto& mesh : layer.meshes) {
+        EXPECT_NE (mesh.hoverTitle.find ("546.00"), std::string::npos);
+        for (size_t i = 0; i < mesh.points.size (); i += 3) {
+            EXPECT_LE (mesh.points[i], 75);
+            EXPECT_LE (mesh.points[i + 2], 3);
+        }
+    }
+}
+
+TEST (MassingBuildings, LargeFloorMarksRetainCourtyardGeometryAndDoNotMutateFunctionColours)
+{
+    auto input = AreaSlab ("large", "Tower", 800);
+    input.slab.holes.push_back ({ { 10, 2, 30, 2, 30, 8, 10, 8 }, {} }); // 120 m2 hole
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ input }, {}, nullptr, result, error)) << error;
+    const auto original = result.layer.meshes[0].rgba;
+    geomsrv::archviz::overlaylayers::Layer layer;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), {}, layer, error)) << error;
+    ASSERT_EQ (layer.meshes.size (), 1u);
+    const auto& mesh = layer.meshes[0];
+    EXPECT_NE (mesh.hoverTitle.find ("530.40"), std::string::npos);
+    for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+        double x = 0, y = 0;
+        for (size_t j = 0; j < 3; ++j) {
+            x += mesh.points[mesh.indices[i + j] * 3] / 3;
+            y += mesh.points[mesh.indices[i + j] * 3 + 1] / 3;
+        }
+        EXPECT_FALSE (x > 10 + 1e-7 && x < 30 - 1e-7 && y > 2 + 1e-7 && y < 8 - 1e-7);
+    }
+    EXPECT_EQ (result.layer.meshes[0].rgba, original);
+    EXPECT_EQ (result.rows[0].function, "residential");
+}
+
+TEST (MassingBuildings, LargeFloorMarksMatchAllowedSectionGrossRatherThanRawExcessOutsideEnvelope)
+{
+    auto input = AreaSlab ("large", "Tower", 1000);
+    geomsrv::Mesh body;
+    std::string error;
+    ASSERT_TRUE (geomsrv::engine::MakeBox ({ 25, 5, 1.5 }, 50, 10, 6, body, error));
+    geomsrv::archviz::massingcalculation::Result envelope;
+    envelope.hasEnvelope = true;
+    geomsrv::archviz::overlaylayers::Mesh shell;
+    shell.points = body.vertices;
+    shell.indices = body.triangles;
+    envelope.layer.meshes.push_back (shell);
+    ms::Result result;
+    ASSERT_TRUE (ms::Build ({ input }, {}, &envelope, result, error)) << error;
+    EXPECT_NEAR (hs::TotalArea (result.section), 500, 1e-6);
+    geomsrv::archviz::overlaylayers::Layer layer;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), {}, layer, error)) << error;
+    EXPECT_TRUE (layer.meshes.empty ()) << "Raw 1000 x 0.78 is not the displayed allowed gross area";
+}
+
+TEST (MassingBuildings, LargeFloorMarksRefuseIncompleteMembershipAndInvalidCoefficientsAtomically)
+{
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ AreaSlab ("large", "Tower", 800) }, {}, nullptr, result, error));
+    auto records = Records (result);
+    records.push_back ({ "missing", "Tower" });
+    geomsrv::archviz::overlaylayers::Layer layer;
+    layer.name = "unchanged";
+    EXPECT_FALSE (ms::LargeFloorHighlight (result, records, {}, layer, error));
+    EXPECT_EQ (layer.name, "unchanged");
+    EXPECT_FALSE (error.empty ());
+    EXPECT_FALSE (ms::LargeFloorHighlight (result, {}, {}, layer, error));
+    EXPECT_EQ (layer.name, "unchanged");
+    geomsrv::archviz::massingareas::Coefficients coefficients;
+    coefficients.grossFactor = std::numeric_limits<double>::quiet_NaN ();
+    EXPECT_FALSE (ms::LargeFloorHighlight (result, Records (result), coefficients, layer, error));
+    EXPECT_EQ (layer.name, "unchanged");
+    result = {};
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, {}, {}, layer, error));
+    EXPECT_TRUE (layer.meshes.empty ());
+}
+
+TEST (MassingBuildings, LargeFloorMarksUseOperatedSlicesRatherThanTheUncutSlabPolygon)
+{
+    auto input = AreaSlab ("seo", "Tower", 900, 0, 6);
+    geomsrv::Mesh operated;
+    std::string error;
+    ASSERT_TRUE (geomsrv::engine::MakeBox ({ 30, 5, 3 }, 60, 10, 6, operated, error));
+    input.body = std::make_shared<const geomsrv::Mesh> (operated);
+    ms::Result result;
+    ASSERT_TRUE (ms::Build ({ input }, {}, nullptr, result, error)) << error;
+    geomsrv::archviz::overlaylayers::Layer layer;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), {}, layer, error)) << error;
+    EXPECT_TRUE (layer.meshes.empty ()) << "Operated 600 x 0.78 = 468, not the uncut polygon's 702 gross";
+    geomsrv::archviz::massingareas::Coefficients coefficients;
+    coefficients.grossFactor = 1;
+    ASSERT_TRUE (ms::LargeFloorHighlight (result, Records (result), coefficients, layer, error)) << error;
+    ASSERT_EQ (layer.meshes.size (), 2u);
+    for (const auto& mesh : layer.meshes)
+        for (size_t i = 0; i < mesh.points.size (); i += 3)
+            EXPECT_LE (mesh.points[i], 60) << "No prism substitute in the highlight";
 }

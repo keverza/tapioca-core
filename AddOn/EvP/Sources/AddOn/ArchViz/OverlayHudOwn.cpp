@@ -231,11 +231,16 @@ void Engine::Impl::MassingPage ()
     if (ImGui::Checkbox ("Show unique buildings", &store->uniqueBuildings))
         changes.push_back (
             { "uniqueBuildings", {}, "Massing", "building IDs", -1, store->uniqueBuildings ? 1.0 : 0.0, {}, true });
+    if (ImGui::Checkbox ("Mark larger than 500m2", &store->markLargeFloors))
+        changes.push_back (
+            { "markLargeFloors", {}, "Massing", "gross > 500 m2", -1, store->markLargeFloors ? 1.0 : 0.0, {}, true });
+    if (store->markLargeFloors)
+        ImGui::TextDisabled ("Orange: combined building floor gross area > 500 m2 (shared gross factor).");
     if (store->uniqueBuildings) {
         ImGui::TextDisabled ("Same building ID = same colour. Missing IDs stay separate.");
-        if (!own.massing.inspectionNote.empty ())
-            ImGui::TextWrapped ("%s", own.massing.inspectionNote.c_str ());
     }
+    if ((store->uniqueBuildings || store->markLargeFloors) && !own.massing.inspectionNote.empty ())
+        ImGui::TextWrapped ("%s", own.massing.inspectionNote.c_str ());
     if (store->massingCollapseZone) {
         ImGui::TextDisabled ("Red hatches: 0.3333 x slab top height above topography, unioned.");
         if (!own.massing.collapseNote.empty ())

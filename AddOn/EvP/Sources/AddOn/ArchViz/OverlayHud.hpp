@@ -309,6 +309,7 @@ bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit,
 std::string MassingStatsFunction (const State& state);
 bool MassingCollapseZone (const State& state);
 bool UniqueBuildings (const State& state);
+bool MarkLargeFloors (const State& state);
 std::string HighlightedBuilding (const State& state);
 std::string BuildingFloorKey (const State& state);
 hudsection::Run BuildingFloors (const State& state);

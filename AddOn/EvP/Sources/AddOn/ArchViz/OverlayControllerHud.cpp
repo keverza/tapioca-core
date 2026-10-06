@@ -96,7 +96,8 @@ void FollowHudState ()
     massingslicesmodel::HoverFunction (overlayhud::MassingStatsFunction (*state));
     massingslicesmodel::CollapseZone (overlayhud::MassingCollapseZone (*state));
     massinginspectionmodel::Follow (overlayhud::UniqueBuildings (*state), overlayhud::HighlightedBuilding (*state),
-                                    overlayhud::BuildingFloorKey (*state), overlayhud::BuildingFloors (*state));
+                                    overlayhud::BuildingFloorKey (*state), overlayhud::BuildingFloors (*state),
+                                    overlayhud::MarkLargeFloors (*state), overlayhud::MassingCoefficients (*state));
     for (const auto& edit : overlayhud::TakeMassingCoefficientNumbers (*state)) {
         std::string answer;
         double number = 0;

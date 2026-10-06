@@ -48,6 +48,7 @@ struct Result {
 };
 constexpr char kHighlightLayer[] = "tapioca.massing.functionVolumes";
 constexpr char kUnbuiltProjectedLayer[] = "tapioca.massing.unbuilt.terrain";
+constexpr char kLargeFloorsLayer[] = "tapioca.massing.largeFloorHighlight";
 constexpr char kBuiltHover[] = "coverage.built";
 constexpr char kUnbuiltHover[] = "coverage.unbuilt";
 struct Usage {
@@ -60,6 +61,11 @@ bool Coverage (Result& result, const massingcalculation::Preview& parcels, std::
 bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error);
 bool FloorHighlight (const Result& result, const std::string& building, const hudsection::Run& run,
                      overlaylayers::Layer& layer, std::string& error);
+// Strictly >500 m2 gross, using the displayed section area basis and shared coefficient.
+// Combine same-ID parts at one physical elevation; missing IDs remain separate slabs.
+bool LargeFloorHighlight (const Result& result, const std::vector<massingbuildings::Record>& records,
+                          const massingareas::Coefficients& coefficients, overlaylayers::Layer& layer,
+                          std::string& error);
 bool UnbuiltHighlight (const Result& result, const Mesh* terrain, overlaylayers::Layer& plan,
                        overlaylayers::Layer& projected, std::string& error);
 // Exposed union surface area, with 70-90 degree inclination from horizontal.

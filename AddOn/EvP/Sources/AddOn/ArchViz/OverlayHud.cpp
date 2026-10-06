@@ -176,6 +176,10 @@ bool UniqueBuildings (const State& state)
 {
     return state.uniqueBuildings;
 }
+bool MarkLargeFloors (const State& state)
+{
+    return state.markLargeFloors;
+}
 std::string HighlightedBuilding (const State& state)
 {
     return state.highlightedBuilding;

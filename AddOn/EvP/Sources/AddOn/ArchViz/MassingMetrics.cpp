@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
-#include <set>
 
 namespace geomsrv::archviz::massingslices {
 namespace {
@@ -78,6 +77,35 @@ bool Extrude (const Row& floor, overlaylayers::Mesh& mesh, std::string& error)
     mesh.hoverTitle = floor.function + " floor " + std::to_string (floor.story);
     return true;
 }
+using FloorTargets = std::map<std::pair<std::string, int>, std::string>;
+bool HighlightRows (const Result& result, const FloorTargets& targets, overlaylayers::Layer& layer, std::string& error)
+{
+    size_t points = 0;
+    for (const auto& row : result.rows) {
+        const auto target = targets.find ({ row.guid, row.story });
+        if (target == targets.end ())
+            continue;
+        auto floor = row;
+        floor.chains = row.rawChains; // Mark the actual floor, not only its allowed-envelope intersection.
+        floor.rgba = 0xD9822BFF;
+        floor.fillRgba = 0xD9822B90;
+        floor.fillOpacity = 1;
+        floor.wireWidthPixels = 2.5f;
+        overlaylayers::Mesh mesh;
+        if (!Extrude (floor, mesh, error))
+            return false;
+        if (mesh.indices.empty ())
+            continue;
+        mesh.style.behind = overlaylayers::Behind::Fade;
+        mesh.hoverTitle = target->second;
+        points += mesh.points.size () / 3;
+        if (points > 600000)
+            return error = "Floor highlight exceeds its geometry budget.", false;
+        layer.meshes.push_back (std::move (mesh));
+    }
+    error = overlaylayers::Validate (layer);
+    return error.empty ();
+}
 } // namespace
 
 std::vector<Usage> UsageMix (const Result& result)
@@ -120,41 +148,59 @@ bool FloorHighlight (const Result& result, const std::string& building, const hu
     std::vector<massingbuildings::Record> records;
     for (const auto& surface : result.buildingSurfaces)
         records.push_back (surface.record);
-    size_t points = 0;
+    FloorTargets targets;
     for (const auto& group : massingbuildings::Groups (records)) {
         if (group.key != building)
             continue;
-        std::set<std::pair<std::string, int>> targets;
         const auto previews = massingbuildings::Previews (result.section, records, {}, group.guids);
         for (const auto& preview : previews)
             for (const auto& floor : preview.section.floors)
                 if (run.Has (floor.storey))
                     for (const auto& part : floor.parts)
-                        targets.emplace (part.guid, part.sourceStory);
-        for (const auto& row : result.rows) {
-            if (!targets.count ({ row.guid, row.story }))
+                        targets[{ part.guid, part.sourceStory }] =
+                            "Building " + group.id + " floor " + std::to_string (floor.storey);
+    }
+    if (!HighlightRows (result, targets, out, error))
+        return false;
+    layer = std::move (out);
+    return true;
+}
+
+bool LargeFloorHighlight (const Result& result, const std::vector<massingbuildings::Record>& records,
+                          const massingareas::Coefficients& coefficients, overlaylayers::Layer& layer,
+                          std::string& error)
+{
+    error.clear ();
+    if (!massingareas::Valid (coefficients))
+        return error = "Large-floor inspection needs valid area coefficients.", false;
+    std::vector<std::string> seeds;
+    for (const auto& surface : result.buildingSurfaces)
+        seeds.push_back (surface.record.guid);
+    for (const auto& guid : seeds)
+        if (std::none_of (records.begin (), records.end (), [&] (const auto& record) { return record.guid == guid; }))
+            return error = "Large-floor inspection awaits the building identity index.", false;
+    const auto previews = massingbuildings::Previews (result.section, records, {}, seeds);
+    FloorTargets targets;
+    for (const auto& preview : previews) {
+        if (!preview.section.known)
+            return error = "Large-floor inspection awaits complete building story slices; no partial marks shown.",
+                   false;
+        for (const auto& floor : preview.section.floors) {
+            const double gross = massingareas::Calculate (floor.areaM2, coefficients).gross;
+            if (gross <= 500)
                 continue;
-            auto floor = row;
-            floor.chains = row.rawChains; // Highlight the actual floor, not just its allowed-envelope intersection.
-            floor.rgba = 0xD9822BFF;
-            floor.fillRgba = 0xD9822B90;
-            floor.fillOpacity = 1;
-            floor.wireWidthPixels = 2.5f;
-            overlaylayers::Mesh mesh;
-            if (!Extrude (floor, mesh, error))
-                return false;
-            if (mesh.indices.empty ())
-                continue;
-            mesh.style.behind = overlaylayers::Behind::Fade;
-            mesh.hoverTitle = "Building " + group.id + " floor " + std::to_string (row.story);
-            points += mesh.points.size () / 3;
-            if (points > 600000)
-                return error = "Floor highlight exceeds its geometry budget.", false;
-            out.meshes.push_back (std::move (mesh));
+            const std::string title =
+                (preview.building.id.empty () ? "Unassigned slab" : "Building " + preview.building.id) + " floor " +
+                std::to_string (floor.storey) + " (gross " + hudmeta::NumberText (gross) + " m2 > 500 m2)";
+            for (const auto& part : floor.parts)
+                targets[{ part.guid, part.sourceStory }] = title;
         }
     }
-    error = overlaylayers::Validate (out);
-    if (!error.empty ())
+    overlaylayers::Layer out;
+    out.name = kLargeFloorsLayer;
+    out.views = overlaylayers::Views::Both;
+    out.occlusion = overlaylayers::Behind::Fade;
+    if (!HighlightRows (result, targets, out, error))
         return false;
     layer = std::move (out);
     return true;

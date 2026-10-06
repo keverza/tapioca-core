@@ -8,10 +8,14 @@
 namespace geomsrv::archviz::massinginspectionmodel {
 namespace {
 bool s_unique = false;
+bool s_markLargeFloors = false;
+massingareas::Coefficients s_coefficients;
 std::string s_building, s_floorBuilding, s_note;
 std::string s_uniqueNote, s_buildingNote, s_floorNote;
+std::string s_largeFloorNote;
 std::shared_ptr<const massingslices::Result> s_snapshot;
 bool s_uniqueDirty = true, s_buildingDirty = true, s_floorDirty = true;
+bool s_largeFloorsDirty = true;
 hudsection::Run s_floors;
 void Publish ()
 {
@@ -25,7 +29,7 @@ void Refresh ()
     using namespace massingbuildings;
     const auto result = massingslicesmodel::Read ();
     if (result != s_snapshot)
-        s_uniqueDirty = s_buildingDirty = s_floorDirty = true;
+        s_uniqueDirty = s_buildingDirty = s_floorDirty = s_largeFloorsDirty = true;
     s_snapshot = result;
     if (s_uniqueDirty) {
         overlaylayers::Clear (kUniqueLayer);
@@ -38,6 +42,10 @@ void Refresh ()
     if (s_floorDirty) {
         overlaylayers::Clear (kFloorsLayer);
         s_floorNote.clear ();
+    }
+    if (s_largeFloorsDirty) {
+        overlaylayers::Clear (massingslices::kLargeFloorsLayer);
+        s_largeFloorNote.clear ();
     }
     if (!result)
         return;
@@ -93,23 +101,39 @@ void Refresh ()
         else
             s_floorNote = error;
     }
-    s_uniqueDirty = s_buildingDirty = s_floorDirty = false;
+    if (s_largeFloorsDirty && s_markLargeFloors) {
+        overlaylayers::Layer layer;
+        if (!model.known)
+            s_largeFloorNote = "Building identity index is incomplete; no partial large-floor marks displayed.";
+        else if (massingslices::LargeFloorHighlight (*result, model.buildingSlabs, s_coefficients, layer,
+                                                     s_largeFloorNote)) {
+            if (!layer.meshes.empty ())
+                overlaylayers::Set (std::move (layer));
+        }
+    }
+    s_uniqueDirty = s_buildingDirty = s_floorDirty = s_largeFloorsDirty = false;
     s_note = s_uniqueNote;
-    for (const auto& note : { s_buildingNote, s_floorNote })
+    for (const auto& note : { s_buildingNote, s_floorNote, s_largeFloorNote })
         if (!note.empty () && note != s_note)
             s_note += (s_note.empty () ? "" : " ") + note;
 }
-void Follow (bool unique, const std::string& building, const std::string& floorBuilding, const hudsection::Run& floors)
+void Follow (bool unique, const std::string& building, const std::string& floorBuilding, const hudsection::Run& floors,
+             bool markLargeFloors, const massingareas::Coefficients& coefficients)
 {
-    if (unique == s_unique && building == s_building && floorBuilding == s_floorBuilding && floors == s_floors)
+    const bool grossChanged = coefficients.grossFactor != s_coefficients.grossFactor;
+    if (unique == s_unique && building == s_building && floorBuilding == s_floorBuilding && floors == s_floors &&
+        markLargeFloors == s_markLargeFloors && !grossChanged)
         return;
     s_uniqueDirty = s_uniqueDirty || unique != s_unique;
     s_buildingDirty = s_buildingDirty || building != s_building;
     s_floorDirty = s_floorDirty || floorBuilding != s_floorBuilding || floors != s_floors;
+    s_largeFloorsDirty = s_largeFloorsDirty || markLargeFloors != s_markLargeFloors || grossChanged;
     s_unique = unique;
     s_building = building;
     s_floorBuilding = floorBuilding;
     s_floors = floors;
+    s_markLargeFloors = markLargeFloors;
+    s_coefficients = coefficients;
     Refresh ();
     Publish ();
 }
@@ -120,6 +144,8 @@ std::string Note ()
 void Forget ()
 {
     s_unique = false;
+    s_markLargeFloors = false;
+    s_coefficients = {};
     s_building.clear ();
     s_floorBuilding.clear ();
     s_floors = {};
@@ -127,10 +153,12 @@ void Forget ()
     s_uniqueNote.clear ();
     s_buildingNote.clear ();
     s_floorNote.clear ();
+    s_largeFloorNote.clear ();
     s_snapshot.reset ();
-    s_uniqueDirty = s_buildingDirty = s_floorDirty = true;
+    s_uniqueDirty = s_buildingDirty = s_floorDirty = s_largeFloorsDirty = true;
     overlaylayers::Clear (massingbuildings::kUniqueLayer);
     overlaylayers::Clear (massingbuildings::kSelectedLayer);
     overlaylayers::Clear (massingbuildings::kFloorsLayer);
+    overlaylayers::Clear (massingslices::kLargeFloorsLayer);
 }
 } // namespace geomsrv::archviz::massinginspectionmodel
