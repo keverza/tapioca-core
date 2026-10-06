@@ -69,6 +69,7 @@ struct Context {
         ImGui::DestroyContext (context);
     }
     ImGuiID checkbox = 0;
+    ImGuiID palette = 0;
     void Frame (ImVec2 pointer = { 1500, 1900 }, bool down = false)
     {
         shell::BaseStyle (1);
@@ -85,6 +86,9 @@ struct Context {
         ImGui::PushID ("envelope");
         ImGui::PushID ("envelope.surfaceOpacity");
         checkbox = ImGui::GetID ("##override");
+        ImGui::PopID ();
+        ImGui::PushID ("envelope.surfaceColor");
+        palette = ImGui::GetID ("##palette");
         ImGui::PopID ();
         ImGui::PopID ();
         ImGui::PopID ();
@@ -333,6 +337,59 @@ TEST_F (GraphicsSettings, CategoryOverrideCanBeEnabledAndResetWithMouseOnlyInThe
     context.Frame (point, true);
     context.Frame (point);
     EXPECT_FALSE (gs::Current ()->values.at ("envelope.surfaceOpacity").enabled);
+}
+
+TEST_F (GraphicsSettings, PaletteSwatchesAndLabelsHaveUniqueIdsAndBothSelectWithoutConflictWarnings)
+{
+    Context context;
+    context.Frame ();
+    context.Frame ();
+    ImVec2 combo { -1, -1 };
+    for (float y = 40; y < 1780 && combo.y < 0; y += 2) {
+        context.Frame ({ 100, y });
+        if (context.context->HoveredId == context.palette)
+            combo = { 100, y };
+    }
+    ASSERT_GT (combo.y, 0);
+    const auto open = [&] {
+        context.Frame (combo, true);
+        context.Frame (combo);
+        context.Frame ();
+    };
+    open ();
+    ASSERT_EQ (context.context->OpenPopupStack.Size, 1);
+    auto* popup = context.context->OpenPopupStack[0].Window;
+    ASSERT_NE (popup, nullptr);
+    const auto& style = ImGui::GetStyle ();
+    const float row = ImGui::GetFontSize () + style.ItemSpacing.y;
+    const float y = popup->Pos.y + style.WindowPadding.y + 2 * row + 6;
+    const ImVec2 swatch { popup->Pos.x + style.WindowPadding.x + 6, y };
+    const ImVec2 label { swatch.x + 12 + style.ItemSpacing.x + 8, y };
+    const auto hover = [&] (ImVec2 at) {
+        for (int frame = 0; frame < 3; ++frame)
+            context.Frame (at);
+        EXPECT_NE (context.context->HoveredId, 0u);
+        EXPECT_EQ (context.context->HoveredIdPreviousFrameItemCount, 1);
+        EXPECT_EQ (context.context->DebugDrawIdConflictsId, 0u);
+        return context.context->HoveredId;
+    };
+    const auto labelId = hover (label);
+    const auto swatchId = hover (swatch);
+    EXPECT_NE (labelId, swatchId);
+    context.Frame (label, true);
+    context.Frame (label);
+    EXPECT_TRUE (gs::Current ()->values.at ("envelope.surfaceColor").enabled);
+    EXPECT_EQ (gs::Colour ("envelope.surfaceColor", 0), gs::Palette ()[2].rgba);
+    EXPECT_TRUE (context.context->OpenPopupStack.empty ());
+    gs::Reset ("envelope.surfaceColor");
+    open ();
+    ASSERT_EQ (context.context->OpenPopupStack.Size, 1);
+    hover (swatch);
+    context.Frame (swatch, true);
+    context.Frame (swatch);
+    EXPECT_TRUE (gs::Current ()->values.at ("envelope.surfaceColor").enabled);
+    EXPECT_EQ (gs::Colour ("envelope.surfaceColor", 0), gs::Palette ()[2].rgba);
+    EXPECT_TRUE (context.context->OpenPopupStack.empty ());
 }
 
 TEST_F (GraphicsSettings, ExportIsTypedVersionedJsonAndEscapesCustomFunctionNames)

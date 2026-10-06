@@ -184,11 +184,15 @@ void Draw ()
                     gs::Set (key, Packed (colour));
                 if (ImGui::BeginCombo ("##palette", "Palette")) {
                     for (const auto& swatch : gs::Palette ()) {
-                        ImGui::ColorButton (swatch.name.c_str (), hudshell::Colour (swatch.rgba),
-                                            ImGuiColorEditFlags_NoTooltip, { 12, 12 });
+                        ImGui::PushID (swatch.name.c_str ());
+                        const bool pickedSwatch = ImGui::ColorButton ("##swatch", hudshell::Colour (swatch.rgba),
+                                                                      ImGuiColorEditFlags_NoTooltip, { 12, 12 });
                         ImGui::SameLine ();
-                        if (ImGui::Selectable (swatch.name.c_str ()))
+                        if (ImGui::Selectable (swatch.name.c_str ()) || pickedSwatch) {
                             gs::Set (key, swatch.rgba);
+                            ImGui::CloseCurrentPopup ();
+                        }
+                        ImGui::PopID ();
                     }
                     ImGui::EndCombo ();
                 }
