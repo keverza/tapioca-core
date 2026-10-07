@@ -285,14 +285,20 @@ void Engine::Impl::MassingPage ()
 void Engine::Impl::DebugPage (float ui)
 {
     // ⚠️ THE CONSOLE FIRST (the user, 2026-10-03: what to check when something is failing).
-    hudconsole::Draw (own.console, *look, store->consoleSeen, store->consoleCleared);
+    if (hudconsole::Draw (own.console, *look, store->consoleSeen, store->consoleCleared)) {
+        store->logsRequested = true;
+        changes.push_back ({ "logs", {}, "Debug", "open folder", -1, 1, {}, true });
+    }
     hudshell::Cards (own.debug, *look, ui);
     // What the HUD itself costs: the owner cannot see it, the engine measures it.
     hudshell::Card hud;
     hud.title = "HUD";
+    const auto counts = debugCounters.Observe (huddebug::Now (), { stats.builds, stats.frames });
     hud.figures.push_back ({ "Last layout", std::to_string (stats.lastMilliseconds) + " ms" });
-    hud.figures.push_back ({ "Layouts", std::to_string (stats.builds) });
+    hud.figures.push_back ({ "Layouts (60 s)", std::to_string (counts[0]) });
+    hud.figures.push_back ({ "ImGui frames (60 s)", std::to_string (counts[1]) });
     hud.figures.push_back ({ "Atlas versions", std::to_string (stats.atlasVersions) });
+    hud.note = "Activity counts reset every 60 seconds. Lifetime telemetry is unchanged.";
     hudshell::Cards ({ hud }, *look, ui);
 }
 

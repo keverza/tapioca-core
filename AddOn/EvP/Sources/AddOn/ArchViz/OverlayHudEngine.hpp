@@ -10,6 +10,7 @@
 // MAIN THREAD, inside ImGui's lock (ImGuiContextLock.hpp) wherever a frame is laid out.
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/HudDebugCounters.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/HudMassingRules.hpp"
 
@@ -82,6 +83,7 @@ struct State {
     std::set<std::string> seenPanels;
     // The viewer's circle pressed, and not yet taken by the owner (TakeViewerRequest).
     bool viewerRequested = false;
+    bool logsRequested = false;
     // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
     std::vector<hudmeta::Edit> metadataEdits;
     std::vector<hudmassing::Request> massingRequests;
@@ -126,6 +128,7 @@ struct Engine::Impl {
     std::vector<std::shared_ptr<const overlaytext::Page>> pages;
     uint64_t atlasVersion = 0;
     Stats stats;
+    huddebug::CounterWindow<2> debugCounters;
     bool ready = false;
 
     // What the user did to each panel: this engine's own, or the views' shared one.

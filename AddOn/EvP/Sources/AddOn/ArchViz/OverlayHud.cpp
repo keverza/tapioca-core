@@ -162,6 +162,10 @@ bool TakeViewerRequest (State& state)
     state.viewerRequested = false;
     return requested;
 }
+bool TakeLogsRequest (State& state)
+{
+    return std::exchange (state.logsRequested, false);
+}
 
 std::string MassingStatsFunction (const State& state)
 {

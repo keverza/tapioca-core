@@ -86,6 +86,8 @@ void FollowHudState ()
     // layout that took the press (SurfaceSwitch.hpp).
     if (overlayhud::TakeViewerRequest (*state))
         surfaceswitch::Request (surfaceswitch::Surface::Viewer);
+    if (overlayhud::TakeLogsRequest (*state))
+        hudconsole::OpenLogs ();
     for (const auto& request : overlayhud::TakeMassingRequests (*state))
         massingmodel::Request (request);
     for (auto& edit : overlayhud::TakeMassingRuleEdits (*state))

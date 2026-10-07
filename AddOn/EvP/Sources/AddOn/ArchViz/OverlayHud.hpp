@@ -264,8 +264,8 @@ struct OwnPages {
 };
 
 struct Stats {
-    uint32_t builds = 0;        // sets of panels laid out
-    uint32_t frames = 0;        // ImGui frames they took
+    uint64_t builds = 0;        // sets of panels laid out (lifetime telemetry; UI shows window deltas)
+    uint64_t frames = 0;        // ImGui frames they took
     uint32_t atlasVersions = 0; // font atlas versions made into pages
     uint32_t lastMilliseconds = 0;
     uint32_t fonts = 0; // in the atlas, the bundled one included
@@ -297,6 +297,7 @@ void SetLayerShown (State& state, const std::string& layer, bool shown);
 // The viewer's circle pressed since the last call: the owner switches to the viewer -- after
 // the layout, never inside it -- and the request is gone.
 bool TakeViewerRequest (State& state);
+bool TakeLogsRequest (State& state);
 // What the user changed in the Selection page's metadata since the last call, in order: the
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);

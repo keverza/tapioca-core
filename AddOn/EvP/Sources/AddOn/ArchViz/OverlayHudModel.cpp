@@ -7,6 +7,7 @@
 #include "ACAPinc.h"
 
 #include "ArchViz/OverlayHudModel.hpp"
+#include "ArchViz/HudDebugCounters.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
 #include "ArchViz/Dxgi/PlanGuest.hpp"
@@ -126,6 +127,8 @@ struct Rate {
     }
 };
 Rate g_composes3D, g_presentsPlan, g_drawnPlan, g_prelockDrawn;
+huddebug::CounterWindow<5> s_debug3D;
+huddebug::CounterWindow<2> s_debugPlan;
 
 std::string Format (const char* format, double value)
 {
@@ -253,6 +256,10 @@ overlayhud::OwnPages ThreeD ()
     overlayhud::OwnPages pages;
     pages.standalone = true;
     const overlayruntime::Health health = overlayruntime::GetHealth ();
+    const auto prelock = dxgi::prelockhud::GetStats ();
+    const auto counts =
+        s_debug3D.Observe (huddebug::Now (), { health.overlayDraws, health.modelFramesSeen, health.reacquisitions,
+                                               prelock.failed, prelock.noTarget });
     g_composes3D.Note (health.overlayDraws);
     const bool locked = health.camera == overlayruntime::CameraState::Locked;
     pages.overlay = OverlayCircle3D (health);
@@ -277,6 +284,7 @@ overlayhud::OwnPages ThreeD ()
     Card frame;
     frame.title = "Frame";
     frame.figures.push_back ({ "Composing", RateText (g_composes3D, "a second") });
+    frame.figures.push_back ({ "Redraws (60 s)", std::to_string (counts[0]) });
     dxgi::composetiming::Window cost;
     uint64_t age = 0;
     if (overlayruntime::report::LastCost (cost, age)) {
@@ -316,18 +324,16 @@ overlayhud::OwnPages ThreeD ()
     camera.title = "Camera";
     camera.figures.push_back ({ "State", overlayruntime::CameraStateName (health.camera) });
     camera.figures.push_back ({ "Blocked at", health.blockedAt.empty () ? std::string ("-") : health.blockedAt });
-    camera.figures.push_back ({ "Model frames", std::to_string (health.modelFramesSeen) });
-    camera.figures.push_back ({ "Re-acquired", std::to_string (health.reacquisitions) });
+    camera.figures.push_back ({ "Model frames (60 s)", std::to_string (counts[1]) });
+    camera.figures.push_back ({ "Re-acquired (60 s)", std::to_string (counts[2]) });
     // The HUD drawn alone before the camera (Dxgi/PrelockHud.hpp): how often, and why not.
-    const dxgi::prelockhud::Stats prelock = dxgi::prelockhud::GetStats ();
     g_prelockDrawn.Note (prelock.drawn);
     if (!locked) {
         camera.figures.push_back ({ "HUD alone", RateText (g_prelockDrawn, "a second") });
-        if (prelock.failed + prelock.noTarget > 0)
-            camera.figures.push_back ({ "HUD alone refused",
-                                        std::to_string (prelock.failed) + " failed, " +
-                                            std::to_string (prelock.noTarget) + " without a target",
-                                        kRed });
+        if (counts[3] > 0 || counts[4] > 0)
+            camera.figures.push_back (
+                { "HUD alone refused (60 s)",
+                  std::to_string (counts[3]) + " failed, " + std::to_string (counts[4]) + " without a target", kRed });
     }
     pages.debug.push_back (std::move (camera));
     return pages;
@@ -338,6 +344,7 @@ overlayhud::OwnPages Plan ()
     overlayhud::OwnPages pages;
     pages.standalone = true;
     const planruntime::Status status = planruntime::GetStatus ();
+    const auto counts = s_debugPlan.Observe (huddebug::Now (), { status.canvasPresents, status.drawn });
     g_presentsPlan.Note (status.canvasPresents);
     g_drawnPlan.Note (status.drawn);
     pages.overlay = OverlayCirclePlan (status);
@@ -360,6 +367,8 @@ overlayhud::OwnPages Plan ()
     frame.title = "Frame";
     frame.figures.push_back ({ "Plan presents", RateText (g_presentsPlan, "a second") });
     frame.figures.push_back ({ "Overlay drawn", RateText (g_drawnPlan, "a second") });
+    frame.figures.push_back ({ "Plan frames (60 s)", std::to_string (counts[0]) });
+    frame.figures.push_back ({ "Redraws (60 s)", std::to_string (counts[1]) });
     frame.figures.push_back ({ "Guest draw", std::to_string (guest.lastDrawMicroseconds) + " us last, " +
                                                  std::to_string (guest.drawMicroseconds) + " us mean" });
     pages.debug.push_back (std::move (frame));
@@ -575,6 +584,8 @@ void Forget ()
     g_presentsPlan = Rate {};
     g_drawnPlan = Rate {};
     g_prelockDrawn = Rate {};
+    s_debug3D = {};
+    s_debugPlan = {};
 }
 
 void WakeOnConsole (bool on)

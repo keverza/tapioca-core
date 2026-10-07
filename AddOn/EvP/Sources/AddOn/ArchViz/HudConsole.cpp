@@ -12,6 +12,7 @@
 #include <ctime>
 #include <deque>
 #include <mutex>
+#include <limits>
 #include <utility>
 
 namespace geomsrv {
@@ -93,7 +94,8 @@ void Say (Level level, const std::string& source, const std::string& text)
         if (!store.empty () && store.back ().level == level && store.back ().source == source &&
             store.back ().text == text) {
             Entry& last = store.back ();
-            ++last.repeats;
+            if (last.repeats < (std::numeric_limits<uint32_t>::max) ())
+                ++last.repeats;
             last.time = time;
             last.sequence = ++g_sequence;
         }
@@ -143,11 +145,11 @@ uint32_t Unseen (const std::vector<Entry>& entries, uint64_t seen, uint64_t clea
     return unseen;
 }
 
-void Draw (const std::vector<Entry>& entries, const overlaylayers::Panel& look, uint64_t& seen, uint64_t& cleared)
+bool Draw (const std::vector<Entry>& entries, const overlaylayers::Panel& look, uint64_t& seen, uint64_t& cleared)
 {
     // Newest first: what went wrong last is what the user came to read.
     std::vector<const Entry*> shown;
-    for (auto entry = entries.rbegin (); entry != entries.rend (); ++entry)
+    for (auto entry = entries.rbegin (); entry != entries.rend () && shown.size () < kKept; ++entry)
         if (entry->sequence > cleared)
             shown.push_back (&*entry);
     uint64_t newest = 0;
@@ -169,9 +171,12 @@ void Draw (const std::vector<Entry>& entries, const overlaylayers::Panel& look, 
         cleared = newest;
     hudshell::Tip ("Hide what is shown here; what comes next is shown", hudshell::TipSide::Above);
     ImGui::EndDisabled ();
+    ImGui::SameLine ();
+    const bool openLogs = ImGui::SmallButton ("Open logs##console");
+    hudshell::Tip ("Open %LOCALAPPDATA%\\Tapioca\\logs in Explorer", hudshell::TipSide::Above);
     if (shown.empty ()) {
         ImGui::TextDisabled ("Nothing has gone wrong");
-        return;
+        return openLogs;
     }
     const float em = ImGui::GetFontSize ();
     const float indent = std::floor (0.9f * em);
@@ -201,6 +206,7 @@ void Draw (const std::vector<Entry>& entries, const overlaylayers::Panel& look, 
         ImGui::PopID ();
     }
     seen = (std::max) (seen, newest);
+    return openLogs;
 }
 
 } // namespace hudconsole

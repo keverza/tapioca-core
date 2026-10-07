@@ -44,7 +44,7 @@ struct Entry {
     uint32_t repeats = 1;
 };
 
-constexpr size_t kKept = 64;
+constexpr size_t kKept = 5;
 
 // Say it. The same level, source and text as the newest entry: that entry, once more, with this
 // time and a new sequence. A new entry wakes the listener (`SetListener`) after; a repeat does not.
@@ -81,8 +81,11 @@ uint32_t Unseen (const std::vector<Entry>& entries, uint64_t seen, uint64_t clea
 // The console, on a page: newest first, each entry newer than `cleared` -- its level as a mark of
 // its colour, its time and source muted, its words wrapped, "x3" for a repeat -- under a row with
 // Copy (what is shown, to the clipboard) and Clear (moves `cleared` to the newest: this HUD shows
-// nothing older). `seen` moves to the newest shown. Nothing kept: a line saying so.
-void Draw (const std::vector<Entry>& entries, const overlaylayers::Panel& look, uint64_t& seen, uint64_t& cleared);
+// nothing older). Open logs remains enabled even when empty and returns a request
+// for the owner to dispatch outside layout. At most kKept entries are displayed.
+bool Draw (const std::vector<Entry>& entries, const overlaylayers::Panel& look, uint64_t& seen, uint64_t& cleared);
+// Host adapter: posts Explorer launch to the main thread; never opens during layout.
+void OpenLogs ();
 
 } // namespace hudconsole
 } // namespace archviz
