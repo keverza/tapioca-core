@@ -180,6 +180,10 @@ bool MarkLargeFloors (const State& state)
 {
     return state.markLargeFloors;
 }
+bool ShowLowHeadroom (const State& state)
+{
+    return state.showLowHeadroom;
+}
 std::string HighlightedBuilding (const State& state)
 {
     return state.highlightedBuilding;

@@ -9,6 +9,8 @@ namespace geomsrv::archviz::massinginspectionmodel {
 namespace {
 bool s_unique = false;
 bool s_markLargeFloors = false;
+bool s_showLowHeadroom = false, s_lowDirty = true;
+std::string s_lowNote;
 massingareas::Coefficients s_coefficients;
 std::string s_building, s_floorBuilding, s_note;
 std::string s_uniqueNote, s_buildingNote, s_floorNote;
@@ -29,7 +31,7 @@ void Refresh ()
     using namespace massingbuildings;
     const auto result = massingslicesmodel::Read ();
     if (result != s_snapshot)
-        s_uniqueDirty = s_buildingDirty = s_floorDirty = s_largeFloorsDirty = true;
+        s_uniqueDirty = s_buildingDirty = s_floorDirty = s_largeFloorsDirty = s_lowDirty = true;
     s_snapshot = result;
     if (s_uniqueDirty) {
         overlaylayers::Clear (kUniqueLayer);
@@ -46,6 +48,10 @@ void Refresh ()
     if (s_largeFloorsDirty) {
         overlaylayers::Clear (massingslices::kLargeFloorsLayer);
         s_largeFloorNote.clear ();
+    }
+    if (s_lowDirty) {
+        overlaylayers::Clear (massingslices::kLowHeadroomLayer);
+        s_lowNote.clear ();
     }
     if (!result)
         return;
@@ -111,29 +117,37 @@ void Refresh ()
                 overlaylayers::Set (std::move (layer));
         }
     }
-    s_uniqueDirty = s_buildingDirty = s_floorDirty = s_largeFloorsDirty = false;
+    if (s_lowDirty && s_showLowHeadroom) {
+        overlaylayers::Layer layer;
+        if (massingslices::LowHeadroomHighlight (*result, layer, s_lowNote) &&
+            (!layer.meshes.empty () || !layer.polylines.empty ()))
+            overlaylayers::Set (std::move (layer));
+    }
+    s_uniqueDirty = s_buildingDirty = s_floorDirty = s_largeFloorsDirty = s_lowDirty = false;
     s_note = s_uniqueNote;
-    for (const auto& note : { s_buildingNote, s_floorNote, s_largeFloorNote })
+    for (const auto& note : { s_buildingNote, s_floorNote, s_largeFloorNote, s_lowNote })
         if (!note.empty () && note != s_note)
             s_note += (s_note.empty () ? "" : " ") + note;
 }
 void Follow (bool unique, const std::string& building, const std::string& floorBuilding, const hudsection::Run& floors,
-             bool markLargeFloors, const massingareas::Coefficients& coefficients)
+             bool markLargeFloors, const massingareas::Coefficients& coefficients, bool showLowHeadroom)
 {
     const bool grossChanged = coefficients.grossFactor != s_coefficients.grossFactor;
     if (unique == s_unique && building == s_building && floorBuilding == s_floorBuilding && floors == s_floors &&
-        markLargeFloors == s_markLargeFloors && !grossChanged)
+        markLargeFloors == s_markLargeFloors && !grossChanged && showLowHeadroom == s_showLowHeadroom)
         return;
     s_uniqueDirty = s_uniqueDirty || unique != s_unique;
     s_buildingDirty = s_buildingDirty || building != s_building;
     s_floorDirty = s_floorDirty || floorBuilding != s_floorBuilding || floors != s_floors;
     s_largeFloorsDirty = s_largeFloorsDirty || markLargeFloors != s_markLargeFloors || grossChanged;
+    s_lowDirty = s_lowDirty || showLowHeadroom != s_showLowHeadroom;
     s_unique = unique;
     s_building = building;
     s_floorBuilding = floorBuilding;
     s_floors = floors;
     s_markLargeFloors = markLargeFloors;
     s_coefficients = coefficients;
+    s_showLowHeadroom = showLowHeadroom;
     Refresh ();
     Publish ();
 }
@@ -145,6 +159,9 @@ void Forget ()
 {
     s_unique = false;
     s_markLargeFloors = false;
+    s_showLowHeadroom = false;
+    s_lowDirty = true;
+    s_lowNote.clear ();
     s_coefficients = {};
     s_building.clear ();
     s_floorBuilding.clear ();
@@ -160,5 +177,6 @@ void Forget ()
     overlaylayers::Clear (massingbuildings::kSelectedLayer);
     overlaylayers::Clear (massingbuildings::kFloorsLayer);
     overlaylayers::Clear (massingslices::kLargeFloorsLayer);
+    overlaylayers::Clear (massingslices::kLowHeadroomLayer);
 }
 } // namespace geomsrv::archviz::massinginspectionmodel

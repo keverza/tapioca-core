@@ -4,7 +4,7 @@
 namespace geomsrv::archviz::massinginspectionmodel {
 // Main-thread only. Reuses immutable massing snapshots; no model writes or extraction.
 void Follow (bool unique, const std::string& building, const std::string& floorBuilding, const hudsection::Run& floors,
-             bool markLargeFloors, const massingareas::Coefficients& coefficients);
+             bool markLargeFloors, const massingareas::Coefficients& coefficients, bool showLowHeadroom);
 void Refresh ();
 std::string Note ();
 void Forget ();

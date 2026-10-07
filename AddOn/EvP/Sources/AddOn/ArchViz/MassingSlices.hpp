@@ -19,11 +19,14 @@ struct Row {
     std::string guid, function;
     int story = 0;
     double z = 0, floorHeight = 3, rawArea = 0, allowedArea = 0;
+    double excludedArea = 0, rawVolume = 0, allowedVolume = 0;
     bool clipped = false;
     uint32_t rgba = 0x9AA0A6FF;
     uint32_t fillRgba = 0x9AA0A659;
     float fillOpacity = 1, wireWidthPixels = 2;
     std::vector<SliceChain> rawChains, chains;
+    std::vector<SliceChain> footprintChains, lowChains,
+        highlightChains; // Physical coverage vs counted/gray floor regions.
 };
 struct CoveragePatch {
     std::vector<SliceChain> built, unbuilt;
@@ -35,6 +38,7 @@ struct Result {
     hudsection::Section section;
     std::vector<Row> rows;
     double rawArea = 0, allowedArea = 0;
+    double excludedArea = 0;
     double firstFloorArea = 0, rawFirstFloorArea = 0, facadeArea = 0;
     bool hasFacade = false;
     std::vector<hudmeta::Page> heightControls;
@@ -49,6 +53,7 @@ struct Result {
 constexpr char kHighlightLayer[] = "tapioca.massing.functionVolumes";
 constexpr char kUnbuiltProjectedLayer[] = "tapioca.massing.unbuilt.terrain";
 constexpr char kLargeFloorsLayer[] = "tapioca.massing.largeFloorHighlight";
+constexpr char kLowHeadroomLayer[] = "tapioca.massing.lowHeadroomHighlight";
 constexpr char kBuiltHover[] = "coverage.built";
 constexpr char kUnbuiltHover[] = "coverage.unbuilt";
 struct Usage {
@@ -66,6 +71,9 @@ bool FloorHighlight (const Result& result, const std::string& building, const hu
 bool LargeFloorHighlight (const Result& result, const std::vector<massingbuildings::Record>& records,
                           const massingareas::Coefficients& coefficients, overlaylayers::Layer& layer,
                           std::string& error);
+bool LowHeadroomHighlight (const Result& result, overlaylayers::Layer& layer, std::string& error);
+overlaylayers::Layer RowDisplay (const Row& row, const storysliceoverlay::Slice& outside, const std::string& name,
+                                 const storysliceoverlay::Controls& display);
 bool UnbuiltHighlight (const Result& result, const Mesh* terrain, overlaylayers::Layer& plan,
                        overlaylayers::Layer& projected, std::string& error);
 // Exposed union surface area, with 70-90 degree inclination from horizontal.

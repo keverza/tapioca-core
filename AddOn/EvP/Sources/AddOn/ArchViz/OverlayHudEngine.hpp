@@ -91,6 +91,7 @@ struct State {
     bool massingCollapseZone = false;
     bool uniqueBuildings = false;
     bool markLargeFloors = false;
+    bool showLowHeadroom = false;
     std::string highlightedBuilding, pickedFloorBuilding, hoveredFloorBuilding;
     hudsection::Run hoveredFloors;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.

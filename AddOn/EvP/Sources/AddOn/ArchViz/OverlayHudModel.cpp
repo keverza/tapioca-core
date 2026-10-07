@@ -449,6 +449,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         card.alignDecimals = true;
         card.figures.push_back ({ "Slices", std::to_string (slices->rows.size ()) });
         card.figures.push_back ({ "Slab slice area sum", Format ("%.2f m2", slices->rawArea) });
+        card.figures.push_back ({ "Excluded headroom < 1.6 m", Format ("%.2f m2", slices->excludedArea) });
         const double total = slices->clipped ? slices->allowedArea : slices->rawArea;
         const auto coefficients = overlayhud::MassingCoefficients (*guesttext::HudState ());
         const auto areas = massingareas::Calculate (total, coefficients);

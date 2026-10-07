@@ -1,5 +1,6 @@
 #include "ArchViz/MassingSlices.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
+#include "ArchViz/MassingHeadroom.hpp"
 #include "Geometry/SliceEngine.hpp"
 #include <clipper2/clipper.h>
 
@@ -64,6 +65,9 @@ bool CutEnvelope (const overlaylayers::Mesh& envelope, double z, std::vector<Sli
         if (index >= envelope.points.size () / 3)
             return Fail (error, "Invalid envelope intersection index.");
     // The envelope is flat-shaded, so duplicate face vertices are welded by SliceMesh.
+    // Match operated slab cuts when the floor sits on a bottom cap/vertex event.
+    if (IsTangentToPlane (envelope.points.data (), envelope.points.size () / 3, z))
+        z += 1e-6;
     const auto loops = SliceMesh (envelope.points.data (), envelope.points.size () / 3, envelope.indices.data (),
                                   envelope.indices.size () / 3, z);
     for (const auto& loop : loops) {
@@ -83,8 +87,11 @@ bool ClipContours (const std::vector<SliceChain>& slab, const std::vector<SliceC
                    std::vector<SliceChain>& outlines, double& area, std::string& error,
                    cp::ClipType operation = cp::ClipType::Intersection)
 {
-    if (slab.empty ())
-        return Fail (error, "Empty slab intersection contour.");
+    if (slab.empty ()) {
+        outlines.clear ();
+        area = 0;
+        return true;
+    }
     for (const auto& ring : slab)
         if (!ring.closed || ring.Count () < 3 || ring.xy.size () % 2 || ring.xy.size () > 200000)
             return Fail (error, "Story slice has an open or invalid contour.");
@@ -121,9 +128,9 @@ bool ClipContours (const std::vector<SliceChain>& slab, const std::vector<SliceC
 }
 
 bool CutEnvelopes (const std::vector<overlaylayers::Mesh>& meshes, double z, std::vector<SliceChain>& outlines,
-                   std::string& error)
+                   std::vector<SliceChain>& counted, size_t& headroomWork, std::string& error)
 {
-    cp::PathsD all;
+    cp::PathsD all, safe;
     double ox = 0, oy = 0;
     bool anchored = false;
     size_t points = 0;
@@ -150,14 +157,32 @@ bool CutEnvelopes (const std::vector<overlaylayers::Mesh>& meshes, double z, std
         // across different parcels would incorrectly remove overlapping regions.
         const auto normalized = cp::Union (parcel, cp::FillRule::EvenOdd, 6);
         all.insert (all.end (), normalized.begin (), normalized.end ());
+        massingheadroom::Split split;
+        if (!massingheadroom::Partition (cut, z, mesh.points, mesh.indices, split, headroomWork, error))
+            return false;
+        cp::PathsD usable;
+        for (const auto& ring : split.counted) {
+            cp::PathD path;
+            for (size_t i = 0; i < ring.xy.size (); i += 2)
+                path.emplace_back (ring.xy[i] - ox, ring.xy[i + 1] - oy);
+            usable.push_back (std::move (path));
+        }
+        // Qualify each parcel independently, then union: a low overlapping shell
+        // must not gray an area with full headroom in another parcel's shell.
+        const auto usableUnion = cp::Union (usable, cp::FillRule::EvenOdd, 6);
+        safe.insert (safe.end (), usableUnion.begin (), usableUnion.end ());
     }
-    for (const auto& path : cp::Union (all, cp::FillRule::NonZero, 6)) {
-        SliceChain ring;
-        ring.closed = true;
-        for (const auto& point : path)
-            ring.xy.insert (ring.xy.end (), { point.x + ox, point.y + oy });
-        outlines.push_back (std::move (ring));
-    }
+    const auto retain = [&] (const cp::PathsD& paths, std::vector<SliceChain>& target) {
+        for (const auto& path : cp::Union (paths, cp::FillRule::NonZero, 6)) {
+            SliceChain ring;
+            ring.closed = true;
+            for (const auto& point : path)
+                ring.xy.insert (ring.xy.end (), { point.x + ox, point.y + oy });
+            target.push_back (std::move (ring));
+        }
+    };
+    retain (all, outlines);
+    retain (safe, counted);
     return true;
 }
 } // namespace
@@ -184,11 +209,13 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
         return Fail (error, "Envelope budget is 32 parcels.");
     const auto schema = meta::DefaultSchema ();
     const auto* palette = schema.FindEnumeration ("building-usage");
-    std::map<double, std::vector<SliceChain>> cuts;
+    using Cut = std::pair<std::vector<SliceChain>, std::vector<SliceChain>>;
+    std::map<double, Cut> cuts;
     std::vector<hudsection::Slab> masses;
     size_t bodyWork = 0;
     size_t envelopeWork = 0;
     size_t retainedPoints = 0;
+    size_t headroomWork = 0;
     for (const auto& input : slabs) {
         out.buildingSurfaces.push_back ({ { input.slab.guid, massingbuildings::Id (input.metadata) },
                                           input.facadeBody ? input.facadeBody : input.body });
@@ -321,41 +348,81 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             row.fillOpacity = display.fillOpacity;
             row.wireWidthPixels = display.outlineWidthPixels;
             row.rawArea = slice.areaM2;
-            row.rawChains = slice.chains;
+            row.footprintChains = slice.chains;
+            row.rawVolume = slice.areaM2 * row.floorHeight;
+            massingheadroom::Split split;
+            if (input.body) {
+                if (!massingheadroom::Partition (slice.chains, row.z, input.body->vertices, input.body->triangles,
+                                                 split, headroomWork, error))
+                    return false;
+            }
+            else if (input.slab.top - row.z < massingheadroom::kMinimum - 1e-7) {
+                split.excluded = slice.chains;
+                split.excludedArea = slice.areaM2;
+            }
+            else {
+                split.counted = slice.chains;
+                split.countedArea = slice.areaM2;
+            }
+            row.rawChains = split.counted;
+            row.rawArea = split.countedArea;
+            row.lowChains = split.excluded;
+            row.excludedArea = split.excludedArea;
+            slice.chains = split.counted;
+            slice.areaM2 = split.countedArea;
             for (const auto& chain : slice.chains)
                 if (!chain.closed)
                     return Fail (error, "Operated slab cut is open; no partial area published.");
             row.clipped = out.clipped;
             storysliceoverlay::Slice outside = slice;
             outside.chains.clear ();
-            if (out.clipped && !slice.chains.empty ()) {
+            if (out.clipped && !row.footprintChains.empty ()) {
                 const auto cut = cuts.try_emplace (slice.z);
                 if (cut.second) {
                     for (const auto& mesh : envelope->layer.meshes)
                         envelopeWork += mesh.indices.size () / 3;
                     if (envelopeWork > 2000000)
                         return Fail (error, "Envelope cuts exceed their work budget.");
-                    if (!CutEnvelopes (envelope->layer.meshes, slice.z, cut.first->second, error))
+                    if (!CutEnvelopes (envelope->layer.meshes, slice.z, cut.first->second.first,
+                                       cut.first->second.second, headroomWork, error))
                         return false;
                 }
-                if (!ClipContours (slice.chains, cut.first->second, outside.chains, outside.areaM2, error,
+                std::vector<SliceChain> physical;
+                double physicalArea = 0;
+                if (!ClipContours (row.footprintChains, cut.first->second.first, physical, physicalArea, error))
+                    return false;
+                row.allowedVolume = physicalArea * row.floorHeight;
+                if (!ClipContours (slice.chains, cut.first->second.first, outside.chains, outside.areaM2, error,
                                    cp::ClipType::Difference))
                     return false;
-                if (!ClipContours (slice.chains, cut.first->second, slice.chains, slice.areaM2, error))
+                std::vector<SliceChain> lowEnvelope, allowed;
+                double unused = 0;
+                if (!ClipContours (slice.chains, cut.first->second.first, allowed, unused, error) ||
+                    !ClipContours (allowed, cut.first->second.second, lowEnvelope, unused, error,
+                                   cp::ClipType::Difference))
+                    return false;
+                row.lowChains.insert (row.lowChains.end (), lowEnvelope.begin (), lowEnvelope.end ());
+                row.excludedArea += unused;
+                if (!ClipContours (slice.chains, cut.first->second.second, slice.chains, slice.areaM2, error))
                     return false;
                 row.allowedArea = slice.areaM2;
             }
             out.rawArea += row.rawArea;
             out.allowedArea += row.allowedArea;
             row.chains = slice.chains;
-            for (const auto& chain : row.rawChains)
-                retainedPoints += chain.Count ();
-            for (const auto& chain : row.chains)
-                retainedPoints += chain.Count ();
-            if (retainedPoints > 400000)
+            double highlightArea = 0;
+            if (!ClipContours (row.rawChains, row.lowChains, row.highlightChains, highlightArea, error,
+                               cp::ClipType::Difference))
+                return false;
+            for (const auto* chains :
+                 { &row.rawChains, &row.chains, &row.footprintChains, &row.lowChains, &row.highlightChains })
+                for (const auto& chain : *chains)
+                    retainedPoints += chain.Count ();
+            if (retainedPoints > 1000000)
                 return Fail (error, "Retained floor contour budget exceeded.");
-            out.rawVolume += row.rawArea * row.floorHeight;
-            out.allowedVolume += row.allowedArea * row.floorHeight;
+            out.rawVolume += row.rawVolume;
+            out.allowedVolume += row.allowedVolume;
+            out.excludedArea += row.excludedArea;
             if (i == 0) {
                 out.rawFirstFloorArea += row.rawArea;
                 out.firstFloorArea += row.allowedArea;
@@ -364,30 +431,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             mass.floors.push_back ({ row.z, summary.floors[i].height, out.clipped ? row.allowedArea : row.rawArea });
             mass.storeys.push_back (row.story);
             slice.name = (building ? building->value.s : input.slab.id) + " S" + std::to_string (row.story);
-            storysliceoverlay::Controls controls = display;
-            controls.views = overlaylayers::Views::Both;
-            controls.fillColors.clear ();
-            controls.fillColormap.stops.clear ();
-            controls.fillRgba = (colour & 0xFFFFFF00) | ((display.fillRgba & 0xFF) ? 0x59 : 0);
-            controls.outlineRgba = colour;
-            controls.labelMinProjectedPixels = 9;
-            controls.liftMetres = 0.015;
-            if (!slice.chains.empty ()) {
-                auto coloured = storysliceoverlay::BuildLayer ({ slice }, controls).layer;
-                for (auto& mesh : coloured.meshes)
-                    mesh.graphicsFunction = row.function;
-                for (auto& line : coloured.polylines)
-                    line.graphicsFunction = row.function;
-                Append (out.layer, std::move (coloured));
-            }
-            if (!outside.chains.empty ()) {
-                outside.name = slice.name + " (outside envelope)";
-                controls.label = false; // the area label and feasibility use the allowed part only
-                controls.fillRgba = 0xAA446500 | ((display.fillRgba & 0xFF) ? 0xFF : 0);
-                controls.fillOpacity = 0.5f * display.fillOpacity;
-                controls.outlineRgba = 0xAA4465FF;
-                Append (out.layer, storysliceoverlay::BuildLayer ({ outside }, controls).layer);
-            }
+            Append (out.layer, RowDisplay (row, outside, slice.name, display));
         }
         masses.push_back (std::move (mass));
     }
@@ -414,6 +458,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
         out.note += " Facade area unavailable: " + facadeError;
     if (out.clipped)
         out.note += " Red regions are outside the allowed envelope union and excluded from allowed areas.";
+    out.note += " Light-gray regions have vertical roof headroom < 1.6 m and are excluded from floor-area totals.";
     error = overlaylayers::Validate (out.layer);
     if (!error.empty ())
         return false;

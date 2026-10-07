@@ -57,13 +57,15 @@ geomsrv::archviz::massingcalculation::Result Envelope (layers::Mesh mesh = Box (
 }
 } // namespace
 
-TEST (MassingSlices, ThinSelectedSlabIsOneFloorWithoutAnEnvelope)
+TEST (MassingSlices, ThinSelectedSlabRetainsOneFloorButIsGrayAndExcludedWithoutAnEnvelope)
 {
     ms::Result result;
     std::string error;
     ASSERT_TRUE (ms::Build ({ Slab (0.3) }, {}, nullptr, result, error)) << error;
     ASSERT_EQ (result.rows.size (), 1u);
-    EXPECT_DOUBLE_EQ (result.rawArea, 100);
+    EXPECT_DOUBLE_EQ (result.rawArea, 0);
+    EXPECT_DOUBLE_EQ (result.excludedArea, 100);
+    EXPECT_DOUBLE_EQ (result.rawVolume, 30);
     EXPECT_FALSE (result.clipped);
     EXPECT_EQ (result.layer.name, ms::kLayer);
     EXPECT_FALSE (result.layer.meshes.empty ());
@@ -87,7 +89,7 @@ TEST (MassingSlices, FloorHeightIsFloorToFloorAndLegacyStoryIndexDoesNotControlT
 
 TEST (MassingSlices, FunctionChangeRestylesFillAndOutlineButNotGeometry)
 {
-    auto input = Slab (0.3);
+    auto input = Slab (3);
     ms::Result residential, commercial;
     std::string error;
     ASSERT_TRUE (ms::Build ({ input }, {}, nullptr, residential, error)) << error;
@@ -129,7 +131,7 @@ TEST (MassingSlices, PickedStoryFunctionRangeRestylesOnlyThoseSlices)
 
 TEST (MassingSlices, IntersectionKeepsSlabHolesAndReportsTheSameAllowedArea)
 {
-    auto input = Slab (0.3);
+    auto input = Slab (3);
     input.slab.holes.push_back ({ Ring (4, 4, 6, 6).xy, {} });
     const auto envelope = Envelope (Box (2, 2, 8, 8));
     ms::Result result;
@@ -158,8 +160,10 @@ TEST (MassingSlices, ShellCutsShrinkAtEachLevelRatherThanReusingItsFootprint)
     ASSERT_EQ (result.rows.size (), 3u);
     EXPECT_GT (result.rows[0].allowedArea, result.rows[1].allowedArea);
     EXPECT_GT (result.rows[1].allowedArea, result.rows[2].allowedArea);
-    // At z=3, one-third of the way from -1 to 11: each side is 8 m.
-    EXPECT_NEAR (result.rows[1].allowedArea, 64, 1e-5);
+    // z=3 footprint has 8 m sides, but 1.6 m vertical clearance needs the
+    // z=4.6 roof section: 7.2 m sides. Its outer strip is gray, not counted.
+    EXPECT_NEAR (result.rows[1].allowedArea, 51.84, 2e-5);
+    EXPECT_NEAR (result.rows[1].excludedArea, 12.16, 2e-5);
 }
 
 TEST (MassingSlices, EmptyIntersectionIsZeroAndShowsOnlyTheRedOutsideRegion)
@@ -410,7 +414,7 @@ TEST (MassingSlices, DisplayControlsPreserveFunctionColoursAndLabelTheFinalArea)
 
 TEST (MassingSlices, AreaLabelsUseStandaloneFittingAndOneSizeAcrossFunctionColours)
 {
-    auto large = Slab (0.3), small = Slab (0.3);
+    auto large = Slab (3), small = Slab (3);
     small.slab.guid = "small";
     small.slab.outer.xy = Ring (20, 0, 24, 4).xy;
     Set (small, "massing.function", meta::Value::Text ("commercial"));

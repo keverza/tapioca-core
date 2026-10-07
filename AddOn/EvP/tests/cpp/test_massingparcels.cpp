@@ -57,7 +57,7 @@ slices::Input Slab ()
     slices::Input input;
     input.slab.guid = "slab";
     input.slab.id = "Building";
-    input.slab.top = 0.3;
+    input.slab.top = 3; // A counted floor: thin (<1.6 m) regions now belong to the excluded gray partition.
     input.slab.outer.xy = { 0, 0, 10, 0, 10, 10, 0, 10 };
     return input;
 }

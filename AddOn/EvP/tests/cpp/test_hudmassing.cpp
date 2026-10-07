@@ -111,11 +111,11 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
         }
         else {
             inControl = false;
-            if (controls.size () == 3)
+            if (controls.size () == 4)
                 break;
         }
-    ASSERT_EQ (controls.size (), 3u) << "Large floors follows unique buildings and envelope; envelope follows collapse";
-    const float lastControl = controls[2];
+    ASSERT_EQ (controls.size (), 4u) << "Headroom, large floors and unique buildings follow envelope and collapse";
+    const float lastControl = controls[3];
     ASSERT_GT (lastControl, 60);
     hud::TakeMassingCalculations (*hud.state); // Discard the existing initial Massing-page preview request.
     constexpr const char* envelope = geomsrv::archviz::massingcalculation::kEnvelopeLayer;
@@ -133,19 +133,27 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
     EXPECT_TRUE (hud::LayerShown (*hud.state, envelope));
     EXPECT_TRUE (hud::TakeMassingCalculations (*hud.state).empty ());
     EXPECT_FALSE (hud::UniqueBuildings (*hud.state));
-    hud.Click ({}, 40, controls[1]);
+    hud.Click ({}, 40, controls[2]);
     EXPECT_TRUE (hud::UniqueBuildings (*hud.state));
     EXPECT_EQ (hud.heard.back ().kind, "uniqueBuildings");
     EXPECT_FALSE (hud::MarkLargeFloors (*hud.state));
-    hud.Click ({}, 40, controls[0]);
+    hud.Click ({}, 40, controls[1]);
     EXPECT_TRUE (hud::MarkLargeFloors (*hud.state));
     EXPECT_EQ (hud.heard.back ().kind, "markLargeFloors");
     EXPECT_TRUE (hud::TakeMassingCalculations (*hud.state).empty ());
     EXPECT_TRUE (hud::TakeMetadataEdits (*hud.state).empty ());
-    hud.Click ({}, 40, controls[0]);
+    hud.Click ({}, 40, controls[1]);
     EXPECT_FALSE (hud::MarkLargeFloors (*hud.state));
-    hud.Click ({}, 40, controls[0]);
+    hud.Click ({}, 40, controls[1]);
     EXPECT_TRUE (hud::MarkLargeFloors (*hud.state));
+    EXPECT_FALSE (hud::ShowLowHeadroom (*hud.state));
+    hud.Click ({}, 40, controls[0]);
+    EXPECT_TRUE (hud::ShowLowHeadroom (*hud.state));
+    EXPECT_EQ (hud.heard.back ().kind, "lowHeadroom");
+    hud.Click ({}, 40, controls[0]);
+    EXPECT_FALSE (hud::ShowLowHeadroom (*hud.state));
+    hud.Click ({}, 40, controls[0]);
     hud::ClearState (*hud.state);
     EXPECT_FALSE (hud::MarkLargeFloors (*hud.state));
+    EXPECT_FALSE (hud::ShowLowHeadroom (*hud.state));
 }

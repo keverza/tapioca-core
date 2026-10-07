@@ -502,6 +502,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingSegmentMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCalculation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingMetrics.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroom.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroomDisplay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBuildings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingAreaCalculations.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
@@ -728,6 +730,7 @@ set (EVP_TEST_SOURCES
     test_massingstats.cpp
     test_massingcollapse.cpp
     test_massingbuildings.cpp
+    test_massingheadroom.cpp
     test_terrainprojection.cpp
     test_massingfacade.cpp
     test_massingslices.cpp

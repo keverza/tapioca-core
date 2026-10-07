@@ -86,7 +86,7 @@ bool HighlightRows (const Result& result, const FloorTargets& targets, overlayla
         if (target == targets.end ())
             continue;
         auto floor = row;
-        floor.chains = row.rawChains; // Mark the actual floor, not only its allowed-envelope intersection.
+        floor.chains = row.footprintChains.empty () ? row.rawChains : row.highlightChains;
         floor.rgba = 0xD9822BFF;
         floor.fillRgba = 0xD9822B90;
         floor.fillOpacity = 1;
@@ -116,7 +116,8 @@ std::vector<Usage> UsageMix (const Result& result)
     const auto* palette = schema.FindEnumeration ("building-usage");
     for (const auto& row : result.rows) {
         const double area = result.clipped ? row.allowedArea : row.rawArea;
-        if (area <= 0)
+        const double volume = result.clipped ? row.allowedVolume : row.rawVolume;
+        if (area <= 0 && volume <= 0)
             continue;
         auto& use = uses[row.function];
         use.function = use.label = row.function;
@@ -126,7 +127,7 @@ std::vector<Usage> UsageMix (const Result& result)
                 if (option.value == row.function)
                     use.label = option.label;
         use.area += area;
-        use.volume += area * row.floorHeight;
+        use.volume += volume > 0 ? volume : area * row.floorHeight;
         total += area;
     }
     std::vector<Usage> out;
@@ -231,13 +232,14 @@ bool Coverage (Result& result, const massingcalculation::Preview& preview, std::
         }
         cp::PathsD all;
         for (const auto& row : result.rows) {
-            for (const auto& chain : row.rawChains)
+            const auto& physical = row.footprintChains.empty () ? row.rawChains : row.footprintChains;
+            for (const auto& chain : physical)
                 work += chain.Count ();
             if (work > 2000000) {
                 error = "Parcel footprint union exceeds its work budget.";
                 return false;
             }
-            const auto paths = Paths (row.rawChains, ox, oy);
+            const auto paths = Paths (physical, ox, oy);
             all.insert (all.end (), paths.begin (), paths.end ());
         }
         const auto footprint = cp::Union (all, cp::FillRule::NonZero, 6);
@@ -256,7 +258,8 @@ bool Coverage (Result& result, const massingcalculation::Preview& preview, std::
         retain (inside, patch.built);
         retain (outside, patch.unbuilt);
         for (const auto& row : result.rows)
-            if (!row.rawChains.empty () && std::isfinite (row.z) && (!patch.hasElevation || row.z < patch.z)) {
+            if ((!row.footprintChains.empty () || !row.rawChains.empty ()) && std::isfinite (row.z) &&
+                (!patch.hasElevation || row.z < patch.z)) {
                 patch.hasElevation = true;
                 patch.z = row.z;
             }
