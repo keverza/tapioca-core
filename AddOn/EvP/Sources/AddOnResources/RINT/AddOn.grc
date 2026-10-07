@@ -367,3 +367,18 @@
 3	"What the text is for"							LeftText_0
 4	"The text"										TextEdit_0
 }
+
+'GDLG' 32590 Modal | noGrow 40 40 520 492 "Bake Massing" {
+/* [1] */ Button 408 456 100 24 LargePlain "Bake"
+/* [2] */ Button 300 456 100 24 LargePlain "Cancel"
+/* [3] */ LeftText 12 424 496 24 SmallPlain vCenter ""
+/* [4] */ UserControl 256 192 33 19 257 0x0001 0x1100 0
+/* [5] */ UserControl 304 192 33 19 257 0x0001 0x1100 0
+}
+'DLGH' 32590 DLG_32590_MassingBake {
+1 "Create model copies" OkButton
+2 "Close without creating elements" CancelButton
+3 "Bake status" LeftText_0
+4 "Contour pen" UserControl_0
+5 "Fill pen" UserControl_1
+}

@@ -22,7 +22,7 @@ AnchoredWorksheetDatabase::~AnchoredWorksheetDatabase ()
     if (changed_) {
         if (const GSErrCode err = ACAPI_Database_ChangeCurrentDatabase (&original_); err != NoError)
             EVP_ACAPI_FAIL ("ACAPI_Database_ChangeCurrentDatabase", err,
-                            "restoring the database after a worksheet drafting write");
+                            "restoring the database after a targeted model/drafting write");
     }
 }
 
@@ -31,6 +31,34 @@ bool AnchoredWorksheetDatabase::Activate (const GS::ObjectState& params, GS::Uni
 {
     GS::ObjectState anchorId;
     GS::UniString anchorGuidString;
+    bool floorPlan = false;
+    params.Get ("floorPlan", floorPlan);
+    if (floorPlan) {
+        if (params.Contains ("databaseAnchorElementId")) {
+            error = "Choose floorPlan or a worksheet anchor, not both.";
+            return false;
+        }
+        if (const auto err = ACAPI_Database_GetCurrentDatabase (&original_); err != NoError) {
+            error = EVP_ACAPI_FAIL ("ACAPI_Database_GetCurrentDatabase", err, "saving the bake database");
+            return false;
+        }
+        API_DatabaseInfo target {};
+        target.typeID = APIWind_FloorPlanID;
+        if (original_.typeID != APIWind_FloorPlanID) {
+            if (const auto err = ACAPI_Database_ChangeCurrentDatabase (&target); err != NoError) {
+                error =
+                    EVP_ACAPI_FAIL ("ACAPI_Database_ChangeCurrentDatabase", err, "activating floor plan for baking");
+                return false;
+            }
+            changed_ = true;
+        }
+        if (const auto err = ACAPI_Database_GetCurrentDatabase (&target); err != NoError) {
+            error = EVP_ACAPI_FAIL ("ACAPI_Database_GetCurrentDatabase", err, "verifying the bake target");
+            return false;
+        }
+        targetGuid = DatabaseGuidString (target);
+        return true;
+    }
     if (!params.Get ("databaseAnchorElementId", anchorId))
         return true;
     if (!anchorId.Get ("guid", anchorGuidString) || anchorGuidString.IsEmpty ()) {

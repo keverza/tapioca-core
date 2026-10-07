@@ -34,6 +34,7 @@ struct CoveragePatch {
     bool hasElevation = false;
 };
 struct Result {
+    bool complete = true; // False when automatic sources were skipped; baking must never create a partial building.
     overlaylayers::Layer layer;
     hudsection::Section section;
     std::vector<Row> rows;

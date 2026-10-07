@@ -13,6 +13,7 @@ void Display (bool shown, const storysliceoverlay::Controls& controls);
 void HoverFunction (const std::string& function);
 void CollapseZone (bool shown);
 std::string CollapseNote ();
+std::shared_ptr<const std::vector<SliceChain>> CollapseContours ();
 bool Shown ();
 storysliceoverlay::Controls Controls ();
 void Forget ();

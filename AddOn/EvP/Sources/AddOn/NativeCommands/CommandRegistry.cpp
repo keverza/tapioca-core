@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 
 #include "AddOnCommands.hpp"
+#include "NativeCommands/MassingBakeCommands.hpp"
 
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
@@ -136,6 +137,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetPlanOverlayCommandRegistrations,
     &GetPlanTrackCommandRegistrations,
     &GetArchVizCommandRegistrations,
+    &GetMassingBakeCommandRegistrations,
     &GetArchVizCaptureCommandRegistrations,
     &GetGraphCaptureCommandRegistrations,
     &GetGateDiagnosticCommandRegistrations,

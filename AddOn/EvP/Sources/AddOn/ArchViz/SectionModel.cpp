@@ -41,7 +41,14 @@ Reading Read (const std::vector<std::string>& guids)
     Reading out;
     if (guids.empty ())
         return out;
-    const auto members = massingbuildings::Members (massingmodel::Read ().buildingSlabs, guids);
+    const auto model = massingmodel::Read ();
+    std::vector<std::string> selected;
+    for (const auto& guid : guids)
+        if (std::find (model.guids[3].begin (), model.guids[3].end (), guid) != model.guids[3].end ())
+            selected.push_back (guid);
+    const auto members = massingbuildings::Members (model.buildingSlabs, selected);
+    if (members.empty ())
+        return out;
     if (members.size () > kMostSlabs) {
         out.section.note = "Building section exceeds its slab budget; no partial building preview.";
         return out;

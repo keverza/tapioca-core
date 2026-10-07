@@ -495,8 +495,6 @@ std::vector<rules::Edit> Draw (const rules::Page& page, Draft& draft, bool busy,
     draft.selected = (std::clamp) (draft.selected, 0, int (page.edges.size ()) - 1);
     if (!draft.note.empty ())
         ImGui::TextWrapped ("%s", draft.note.c_str ());
-    ImGui::Checkbox ("Show segment and endpoint labels", &draft.labels);
-    ImGui::Checkbox ("Show offset dimensions in overlay", &draft.offsetDimensions);
     ImGui::Checkbox ("Project height cap", &draft.calculation.capped);
     if (draft.calculation.capped)
         Distance ("Cap Project Z", draft.calculation.capZ, draft, 5, 50);

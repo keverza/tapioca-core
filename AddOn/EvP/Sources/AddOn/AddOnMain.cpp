@@ -36,6 +36,7 @@
 #include "RhinoCompute/RhinoComputeManager.hpp" // the supervised rhino.compute worker process
 #include "Dynamo/DynamoHost.hpp"                // Dynamo 4 editor in its own .NET 10 process
 #include "AddOnCommands.hpp"
+#include "ArchViz/MassingBake.hpp"
 #include "Server/ServerState.hpp"
 #include "Server/HttpServer.hpp"
 #include "NativeCommands/PlanOverlayCommands.hpp" // ShutdownPlanOverlay — Win32 windows we own
@@ -231,6 +232,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             evp::MainThreadGate::Get ().BeginShutdown ();
             evp::dynamo::Release ();
             geomsrv::archviz::massinghybrid::Shutdown ();
+            geomsrv::archviz::massingbake::Shutdown ();
             geomsrv::archviz::massingslicesmodel::Shutdown ();
             break;
         default:
@@ -683,6 +685,7 @@ GSErrCode FreeData (void)
     evp::MainThreadGate::Get ().BeginShutdown ();
     evp::dynamo::Release ();
     geomsrv::archviz::massinghybrid::Shutdown ();
+    geomsrv::archviz::massingbake::Shutdown ();
     geomsrv::archviz::massingslicesmodel::Shutdown ();
     // The plan frame record's subclass, message hook and timer call into this
     // module; they go before the Present hook, which it may also hold.

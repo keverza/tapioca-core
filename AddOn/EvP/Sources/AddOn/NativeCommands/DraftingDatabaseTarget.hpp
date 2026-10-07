@@ -6,6 +6,8 @@
 
 namespace geomsrv {
 
+// Scoped worksheet-anchor or explicit floorPlan targeting; restores the database
+// on every exit without switching the visible window. Unspecified target is unchanged.
 class AnchoredWorksheetDatabase {
   public:
     AnchoredWorksheetDatabase () = default;

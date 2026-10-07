@@ -22,7 +22,7 @@ struct Request {
 struct Page {
     bool known = false;
     std::array<std::vector<std::string>, 4> guids;
-    std::vector<massingbuildings::Record> buildingSlabs; // Model-wide identity index, including undefined siblings.
+    std::vector<massingbuildings::Record> buildingSlabs; // Authored MassingSlabs roles only, including pasted copies.
     std::string note;
     massingrules::Page rules;
     std::vector<massingrules::Page> parcels;

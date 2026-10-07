@@ -34,6 +34,8 @@ std::string s_bodySignature;
 std::string s_hoverFunction;
 bool s_collapseShown = false;
 std::string s_collapseNote;
+std::shared_ptr<const std::vector<SliceChain>> s_collapseContours;
+bool s_bakeCollapse = false;
 
 void Highlight ()
 {
@@ -78,10 +80,15 @@ void Update ()
         s_signature.clear ();
     }
     const auto defined = massingmodel::Read ();
+    s_selected.erase (std::remove_if (s_selected.begin (), s_selected.end (),
+                                      [&] (const auto& guid) {
+                                          return std::find (defined.guids[3].begin (), defined.guids[3].end (), guid) ==
+                                                 defined.guids[3].end ();
+                                      }),
+                      s_selected.end ());
     auto guids = defined.guids[3];
-    guids.insert (guids.end (), s_selected.begin (), s_selected.end ());
-    if (defined.known)
-        guids = massingbuildings::Members (defined.buildingSlabs, guids);
+    // Viewport selection inspects defined sources; it never enrolls new slabs.
+    // Copy/paste retains the authored role and is discovered by the model scan.
     std::sort (guids.begin (), guids.end ());
     guids.erase (std::unique (guids.begin (), guids.end ()), guids.end ());
     const bool overBudget = guids.size () > 128;
@@ -153,7 +160,7 @@ void Update ()
     bool zoneMissing = overBudget;
     bool facadeMissing = overBudget;
     if (overBudget)
-        error = "Automatic preview accepts at most 128 selected/defined elements.";
+        error = "Automatic preview accepts at most 128 defined massing slabs.";
     if (error.empty ()) {
         const auto reading = slabsource::Read (guids, storeys);
         for (const auto& skip : reading.skipped)
@@ -184,7 +191,7 @@ void Update ()
             bool present = false;
             if (!metadata::storage::Read (slab.guid, input.metadata, present, error))
                 break;
-            if (s_collapseShown) {
+            {
                 auto zone = input;
                 if (!hasBody)
                     zoneMissing = true;
@@ -199,7 +206,8 @@ void Update ()
     overlaylayers::Clear (massingcollapse::kLayer);
     overlaylayers::Clear (massingcollapse::kProjectedLayer);
     s_collapseNote.clear ();
-    if (s_collapseShown) {
+    s_collapseContours.reset ();
+    if (s_collapseShown || s_bakeCollapse) {
         if (zoneMissing || !error.empty ())
             s_collapseNote = "Collapse zone awaiting complete current 3D slab bodies; no partial zone displayed.";
         else if (!zoneInputs.empty () && !s_projectionTerrain)
@@ -212,12 +220,13 @@ void Update ()
             if (massingcollapse::Build (zoneInputs, s_projectionTerrain ? *s_projectionTerrain : emptyTerrain, drawingZ,
                                         zone, s_collapseNote)) {
                 zone.layer.views = overlaylayers::Views::TwoD;
-                if (!zone.layer.meshes.empty ())
+                s_collapseContours = std::make_shared<const std::vector<SliceChain>> (zone.chains);
+                if (s_collapseShown && !zone.layer.meshes.empty ())
                     overlaylayers::Set (std::move (zone.layer));
                 s_collapseNote = zoneInputs.empty ()
-                                     ? "No massing slabs defined/selected."
+                                     ? "No massing slabs defined."
                                      : "Current operated slab tops above local topography, merged into one fill.";
-                if (!zoneInputs.empty ()) {
+                if (s_collapseShown && !zoneInputs.empty ()) {
                     overlaylayers::Layer projected;
                     std::string projectionError;
                     if (massingcollapse::Project (zone, *s_projectionTerrain, projected, projectionError)) {
@@ -231,6 +240,7 @@ void Update ()
             }
         }
     }
+    s_bakeCollapse = false;
     const auto skipped = result.note;
     if (error.empty ())
         massingslices::Build (inputs, storeys, envelope ? &envelope->result : nullptr, result, error, s_display);
@@ -256,6 +266,7 @@ void Update ()
         result.note = error;
         ArchVizLog ("MASSING SLICES  refused: " + error);
     }
+    result.complete = skipped.empty () && error.empty ();
     overlaylayers::Clear (massingslices::kLayer);
     if (s_shown && !result.rows.empty ())
         overlaylayers::Set (result.layer);
@@ -339,6 +350,17 @@ std::string CollapseNote ()
 {
     return s_collapseNote;
 }
+std::shared_ptr<const std::vector<SliceChain>> CollapseContours ()
+{
+    if (!s_collapseContours) {
+        // Hidden zones are computed only for an explicit bake, not on every
+        // automatic slice/style refresh while the collapse display is off.
+        s_bakeCollapse = true;
+        s_styleDirty = true;
+        Poll ();
+    }
+    return s_collapseContours;
+}
 
 void Forget ()
 {
@@ -355,6 +377,8 @@ void Forget ()
     s_hoverFunction.clear ();
     s_collapseShown = false;
     s_collapseNote.clear ();
+    s_collapseContours.reset ();
+    s_bakeCollapse = false;
     overlaylayers::Clear (massingcollapse::kLayer);
     overlaylayers::Clear (massingcollapse::kProjectedLayer);
     s_projectionTerrain.reset ();

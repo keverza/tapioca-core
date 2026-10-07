@@ -75,11 +75,11 @@ bool Scan (hudmassing::Page& page, std::set<std::string>* modelGuids = nullptr)
                 page.note = error;
                 return false; // Never replace/clear an incompletely read group.
             }
-            if (type == API_SlabID)
-                page.buildingSlabs.push_back ({ id, massingbuildings::Id (entity) });
             const meta::Property* role = meta::FindProperty (entity, "tapioca.role");
             if (role == nullptr)
                 continue;
+            if (type == API_SlabID && role->value.s == hudmassing::Role (hudmassing::Group::MassingSlabs))
+                page.buildingSlabs.push_back ({ id, massingbuildings::Id (entity) });
             for (size_t i = 0; i < page.guids.size (); ++i)
                 if (role->value.s == hudmassing::Role (hudmassing::Group (i)))
                     page.guids[i].push_back (id);

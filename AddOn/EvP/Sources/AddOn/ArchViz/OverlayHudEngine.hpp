@@ -85,6 +85,7 @@ struct State {
     // The Selection page's metadata edits, not yet taken by the owner (TakeMetadataEdits).
     std::vector<hudmeta::Edit> metadataEdits;
     std::vector<hudmassing::Request> massingRequests;
+    std::vector<massingbake::Kind> massingBakes;
     hudmassingrules::Draft massingRules;
     hudmassingrules::SiteDraft massingSite;
     std::string massingStatsFunction;
@@ -224,6 +225,7 @@ struct Engine::Impl {
     // add-on's own displays switched and styled (OverlayHudDisplays.cpp).
     void Settings ();
     void DisplaySettings ();
+    void SliceStyles ();
 
     // The own pages (OverlayHudOwn.cpp): Stats -- the owner's cards, then each panel that asked
     // to be one; Selection; Debug. And the title on a tab, by its key.

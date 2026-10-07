@@ -187,15 +187,6 @@ void Engine::Impl::MassingPage ()
             { "massingRules", std::string (), "Massing", edit.before.guid, -1, 1.0, "Save assignments", true });
         store->massingRuleEdits.push_back (std::move (edit));
     }
-    if (dimensions != store->massingRules.offsetDimensions)
-        changes.push_back ({ "massingDimensions",
-                             {},
-                             "Massing",
-                             "offset dimensions",
-                             -1,
-                             store->massingRules.offsetDimensions ? 1.0 : 0.0,
-                             {},
-                             true });
     for (auto& request : store->massingRules.calculations) {
         changes.push_back ({ "massingCalculation", {}, "Massing", "calculate", -1, double (request.action), {}, true });
         store->massingCalculations.push_back (std::move (request));
@@ -209,14 +200,45 @@ void Engine::Impl::MassingPage ()
         changes.push_back ({ "massingCoefficients", {}, "Massing", "area calculations", -1, 1, {}, true });
     if (!store->massingCoefficientNumbers.empty ())
         changes.push_back ({ "massingCoefficientNumber", {}, "Massing", "set", -1, 0, {}, true });
+    if (!ImGui::CollapsingHeader ("Preview and Bake options", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+    ImGui::Checkbox ("Show segment and endpoint labels", &store->massingRules.labels);
+    ImGui::Checkbox ("Show offset dimensions in overlay", &store->massingRules.offsetDimensions);
+    if (dimensions != store->massingRules.offsetDimensions)
+        changes.push_back ({ "massingDimensions",
+                             {},
+                             "Massing",
+                             "offset dimensions",
+                             -1,
+                             store->massingRules.offsetDimensions ? 1.0 : 0.0,
+                             {},
+                             true });
     const Displays& shown = store->displaysPending ? store->displays : own.displays;
     Displays wanted = shown;
+    const auto bake = [this] (massingbake::Kind kind) {
+        ImGui::SameLine ();
+        ImGui::PushID (int (kind));
+        if (ImGui::Button ("Bake...")) {
+            store->massingBakes.push_back (kind);
+            changes.push_back ({ "massingBake", {}, "Massing", "settings", -1, double (kind), {}, true });
+        }
+        ImGui::PopID ();
+    };
+    if (ImGui::Checkbox ("Show story slices", &wanted.massingSlicesOn)) {
+        store->displays = wanted;
+        store->displaysPending = true;
+        ShowLayer (massingslices::kLayer, true);
+        changes.push_back ({ "display", {}, "Massing", "story slices", -1, 1, {}, true });
+    }
+    bake (massingbake::Kind::Slices);
     if (ImGui::Checkbox ("Show slice area text when zoomed in", &wanted.slices.label)) {
         store->displays = wanted;
         store->displaysPending = true;
         changes.push_back ({ "display", {}, "Massing", "slice area text", -1, 1, {}, true });
     }
-    if (ImGui::Checkbox ("Show building collapse zone", &store->massingCollapseZone))
+    if (ImGui::Checkbox ("Show building collapse zone", &store->massingCollapseZone)) {
+        ShowLayer ("tapioca.massing.collapseZone", true);
+        ShowLayer ("tapioca.massing.collapseZone.terrain", true);
         changes.push_back ({ "massingCollapseZone",
                              {},
                              "Massing",
@@ -225,9 +247,15 @@ void Engine::Impl::MassingPage ()
                              store->massingCollapseZone ? 1.0 : 0.0,
                              {},
                              true });
+    }
+    bake (massingbake::Kind::Collapse);
     bool envelope = LayerShown (*store, massingcalculation::kEnvelopeLayer);
     if (ImGui::Checkbox ("Show massing envelope", &envelope))
         ShowLayer (massingcalculation::kEnvelopeLayer, envelope);
+    bake (massingbake::Kind::Envelope);
+    bool lines = LayerShown (*store, "tapioca.massing.lines");
+    if (ImGui::Checkbox ("Show massing lines", &lines))
+        ShowLayer ("tapioca.massing.lines", lines);
     if (ImGui::Checkbox ("Show unique buildings", &store->uniqueBuildings))
         changes.push_back (
             { "uniqueBuildings", {}, "Massing", "building IDs", -1, store->uniqueBuildings ? 1.0 : 0.0, {}, true });

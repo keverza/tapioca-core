@@ -561,6 +561,7 @@ void FollowFloors (const hudsection::Run& run)
 void Forget ()
 {
     massingslicesmodel::Forget ();
+    massingbake::Forget ();
     massingmodel::Forget ();
     g_framesSeen = 0;
     g_framesMovedAt = std::chrono::steady_clock::time_point {};

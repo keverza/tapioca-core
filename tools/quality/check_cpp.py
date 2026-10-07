@@ -224,6 +224,12 @@ LOCAL_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"')
 # They are intentionally file-specific: a new sideways feature include must be
 # added here with its reason, rather than silently weakening the tier rule.
 BOUNDARY_INCLUDE_EXCEPTIONS = {
+    # The main-thread bake facade asks one native DG modal for an immutable settings
+    # value. UI construction/picker ownership stay in Palette, never in HUD layout.
+    ("ArchViz/MassingBake.cpp", "Palette/MassingBakeDialog.hpp"),
+    # Strict native guard/finalization adapters share the bake facade's session token;
+    # a second token store would allow stale worker writes after project close.
+    ("NativeCommands/MassingBakeCommands.cpp", "ArchViz/MassingBake.hpp"),
     # The GPU-state discovery verbs (PLAT-RE153..RE155, 2026-09-13), extracted out
     # of ViewerSyncCommands.cpp when the auto-orbit verb pushed it past the size
     # cap. They inherit that file's recorded reasons unchanged: each verb is a thin

@@ -6,6 +6,9 @@
 namespace geomsrv {
 
 NativeCommandRegistrations GetDraftingFillCommandRegistrations ();
+// Shared straight outer+hole polygon memo for fill creation and baked slab finalization.
+bool BuildStraightPolygonMemo (const GS::Array<GS::ObjectState>& outline, const GS::Array<GS::ObjectState>& holes,
+                               API_Polygon& polygon, API_ElementMemo& memo, GS::UniString& error);
 
 } // namespace geomsrv
 

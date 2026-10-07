@@ -64,6 +64,7 @@
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/HudMetadata.hpp"
 #include "ArchViz/HudMassing.hpp"
+#include "ArchViz/MassingBake.hpp"
 #include "ArchViz/HudMassingRules.hpp"
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
@@ -217,11 +218,9 @@ struct Layout {
 // Where each change goes: the views' engines hand them to the event ring with their view.
 using ChangeSink = std::function<void (const Change&)>;
 
-// ⚠️ THE ADD-ON'S OWN DISPLAYS, SWITCHED AND STYLED FROM SETTINGS (the user, 2026-10-03: Settings
-// should have options for the additional information displays there are -- the storey slices
-// on and off, and their style). What they are now, from the view's owner; what the user makes
-// them, `TakeDisplays`' -- the owner applies it after the layout (StorySliceOverlay.hpp: a new
-// look is `Restyle`, nothing read again).
+// Visibility belongs to Massing (automatic slices/labels) or Settings (model cuts).
+// Shared slice styling lives only in Graphic styles lab. TakeDisplays queues what
+// the user changes; the owner applies it after layout without rereading geometry.
 struct Displays {
     bool wireframeOn = true;
     bool slicesOn = false;
@@ -302,6 +301,7 @@ bool TakeViewerRequest (State& state);
 // owner writes it -- after the layout, never inside it (ArchViz/SelectionMetadata.hpp).
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
 std::vector<hudmassing::Request> TakeMassingRequests (State& state);
+std::vector<massingbake::Kind> TakeMassingBakes (State& state);
 std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);
 std::vector<massingcalculation::Request> TakeMassingCalculations (State& state);
 std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state);

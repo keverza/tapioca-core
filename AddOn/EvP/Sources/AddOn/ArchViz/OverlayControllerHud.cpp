@@ -156,6 +156,8 @@ void FollowHudState ()
     overlayhud::Displays displays;
     if (overlayhud::TakeDisplays (*state, displays))
         overlayhudmodel::ApplyDisplays (displays);
+    for (const auto kind : overlayhud::TakeMassingBakes (*state))
+        massingbake::Request (kind);
     const uint64_t revision = overlayhud::Revision (*state);
     if (revision == g_followedRevision)
         return;

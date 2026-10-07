@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 240,
+      "nativeRegistry": 243,
       "dispatcherLocal": 19,
-      "total": 259
+      "total": 262
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -220,6 +220,169 @@
               "error"
             ]
           }
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.BakeMassingSlices",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "slabs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2048,
+            "items": {
+              "type": "object",
+              "properties": {
+                "group": {
+                  "type": "string"
+                },
+                "z": {
+                  "type": "number"
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "layer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "structure": {
+                  "type": "string",
+                  "enum": [
+                    "basic",
+                    "composite"
+                  ]
+                },
+                "attribute": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "thickness": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10
+                },
+                "polygonOutline": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 4096,
+                  "items": {
+                    "$ref": "#Point2D"
+                  }
+                },
+                "holes": {
+                  "type": "array",
+                  "maxItems": 1024,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "polygonOutline": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4096,
+                        "items": {
+                          "$ref": "#Point2D"
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "polygonOutline"
+                    ]
+                  }
+                },
+                "wall": {
+                  "type": "object",
+                  "properties": {
+                    "layer": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "structure": {
+                      "type": "string",
+                      "enum": [
+                        "basic",
+                        "composite"
+                      ]
+                    },
+                    "attribute": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "thickness": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 10
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "layer",
+                    "structure",
+                    "attribute",
+                    "thickness"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "group",
+                "z",
+                "height",
+                "layer",
+                "structure",
+                "attribute",
+                "thickness",
+                "polygonOutline",
+                "holes"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "token",
+          "slabs"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2048,
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#ElementId"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2048
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements",
+          "count"
         ]
       }
     },
@@ -1649,6 +1812,51 @@
                     "$ref": "#Point2D"
                   }
                 },
+                "arcAngles": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 4097,
+                  "items": {
+                    "type": "number",
+                    "minimum": -3.141592653589793,
+                    "maximum": 3.141592653589793
+                  }
+                },
+                "holes": {
+                  "type": "array",
+                  "maxItems": 1024,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "polygonOutline": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4097,
+                        "items": {
+                          "$ref": "#Point2D"
+                        }
+                      },
+                      "arcAngles": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4097,
+                        "items": {
+                          "type": "number",
+                          "minimum": -3.141592653589793,
+                          "maximum": 3.141592653589793
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "polygonOutline"
+                    ]
+                  }
+                },
+                "lineType": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "layer": {
                   "type": "string"
                 },
@@ -1680,6 +1888,9 @@
           },
           "databaseAnchorElementId": {
             "$ref": "#ElementId"
+          },
+          "floorPlan": {
+            "type": "boolean"
           },
           "failOnError": {
             "type": "boolean"
@@ -3621,6 +3832,124 @@
         "additionalProperties": false,
         "required": [
           "elements",
+          "count"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.FinishMassingBake",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "elements": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2048,
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "layer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "morphMaterial": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "morphSurface": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "slab": {
+                  "type": "object",
+                  "properties": {
+                    "structure": {
+                      "type": "string",
+                      "enum": [
+                        "basic",
+                        "composite"
+                      ]
+                    },
+                    "attribute": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "thickness": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "polygonOutline": {
+                      "type": "array",
+                      "minItems": 3,
+                      "maxItems": 4096,
+                      "items": {
+                        "$ref": "#Point2D"
+                      }
+                    },
+                    "holes": {
+                      "type": "array",
+                      "maxItems": 1024,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "polygonOutline": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 4096,
+                            "items": {
+                              "$ref": "#Point2D"
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "polygonOutline"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "structure",
+                    "attribute",
+                    "thickness",
+                    "polygonOutline",
+                    "holes"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "layer"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "token",
+          "elements"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
           "count"
         ]
       }
@@ -18192,6 +18521,35 @@
       }
     },
     {
+      "name": "Tapioca.MassingBakeGuard",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "token"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "current"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ModelToScreen",
       "implementation": "native-registry",
       "inputScheme": {
@@ -26279,7 +26637,8 @@
                           "slider",
                           "combo",
                           "tab",
-                          "button"
+                          "button",
+                          "sitePlan"
                         ]
                       },
                       "id": {
@@ -26305,6 +26664,51 @@
                         "type": "integer",
                         "minimum": 0,
                         "description": "A dropdown's option, or the tab bar's tab (on its first tab), it starts on."
+                      },
+                      "outlineXY": {
+                        "type": "array",
+                        "minItems": 6,
+                        "maxItems": 512,
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "offsetXY": {
+                        "type": "array",
+                        "maxItems": 512,
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "setbackDistances": {
+                        "type": "array",
+                        "maxItems": 256,
+                        "items": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1000
+                        }
+                      },
+                      "setbackModes": {
+                        "type": "array",
+                        "maxItems": 256,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 2
+                        }
+                      },
+                      "referenceVertices": {
+                        "type": "array",
+                        "maxItems": 256,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        }
+                      },
+                      "editable": {
+                        "type": "boolean"
                       },
                       "text": {
                         "type": "string",

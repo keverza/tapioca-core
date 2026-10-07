@@ -103,11 +103,13 @@ void ApplyStyle (ImGuiStyle& style, float scale)
     flag ("AntiAliasedFill", style.AntiAliasedFill);
 }
 
-void Draw ()
+void Draw (const std::function<void ()>& displayStyles)
 {
     if (!hudshell::Section ("Graphics style lab", false))
         return;
     ImGui::PushID ("graphics-style-lab");
+    if (displayStyles)
+        displayStyles ();
     ImGui::TextWrapped ("Live category overrides. Unchecked rows keep authored styles; their values are reference "
                         "seeds. Export to logs for review, not automatic defaults.");
     static thread_local uint64_t savedRevision = std::numeric_limits<uint64_t>::max ();

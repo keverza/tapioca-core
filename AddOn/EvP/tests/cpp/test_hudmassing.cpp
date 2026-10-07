@@ -111,11 +111,55 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
         }
         else {
             inControl = false;
-            if (controls.size () == 4)
+            if (controls.size () == 10)
                 break;
         }
-    ASSERT_EQ (controls.size (), 4u) << "Headroom, large floors and unique buildings follow envelope and collapse";
-    const float lastControl = controls[3];
+    ASSERT_EQ (controls.size (), 10u) << "Preview and Bake options owns all controls; one collapse switch";
+    namespace bake = geomsrv::archviz::massingbake;
+    for (const auto& target : { std::make_pair (7u, bake::Kind::Slices), std::make_pair (5u, bake::Kind::Collapse),
+                                std::make_pair (4u, bake::Kind::Envelope) }) {
+        std::vector<std::pair<float, float>> runs;
+        bool in = false;
+        for (float x = 30; x < layout.host.width - 12; x += 2) {
+            const bool hand = hud.Lay ({}, At (x, controls[target.first])).hand;
+            if (hand && !in)
+                runs.emplace_back (x, x);
+            if (hand)
+                runs.back ().second = x;
+            in = hand;
+        }
+        ASSERT_EQ (runs.size (), 2u) << "Each primary visibility checkbox has exactly one adjacent Bake button";
+        hud.Click ({}, (runs.back ().first + runs.back ().second) / 2, controls[target.first]);
+        const auto requests = hud::TakeMassingBakes (*hud.state);
+        ASSERT_EQ (requests.size (), 1u);
+        EXPECT_EQ (requests[0], target.second);
+        EXPECT_TRUE (hud::TakeMassingBakes (*hud.state).empty ());
+        EXPECT_FALSE (hud::MassingCollapseZone (*hud.state));
+        EXPECT_TRUE (hud::LayerShown (*hud.state, geomsrv::archviz::massingcalculation::kEnvelopeLayer));
+        hud::Displays unchanged;
+        EXPECT_FALSE (hud::TakeDisplays (*hud.state, unchanged));
+    }
+    hud.Click ({}, 40, controls[7]);
+    hud::Displays off;
+    ASSERT_TRUE (hud::TakeDisplays (*hud.state, off));
+    EXPECT_FALSE (off.massingSlicesOn);
+    EXPECT_EQ (off.slices.label, pages.displays.slices.label);
+    pages.displays = off;
+    hud.engine.SetOwnPages (pages);
+    hud.Click ({}, 40, controls[7]);
+    hud::Displays on;
+    ASSERT_TRUE (hud::TakeDisplays (*hud.state, on));
+    EXPECT_TRUE (on.massingSlicesOn);
+    pages.displays = on;
+    hud.engine.SetOwnPages (pages);
+    hud.Click ({}, 40, controls[3]);
+    EXPECT_FALSE (hud::LayerShown (*hud.state, "tapioca.massing.lines"));
+    hud.Click ({}, 40, controls[5]);
+    EXPECT_TRUE (hud::MassingCollapseZone (*hud.state));
+    EXPECT_TRUE (hud::LayerShown (*hud.state, "tapioca.massing.collapseZone.terrain"));
+    hud.Click ({}, 40, controls[5]);
+    EXPECT_FALSE (hud::MassingCollapseZone (*hud.state));
+    const float lastControl = controls[4]; // envelope, after massing lines
     ASSERT_GT (lastControl, 60);
     hud::TakeMassingCalculations (*hud.state); // Discard the existing initial Massing-page preview request.
     constexpr const char* envelope = geomsrv::archviz::massingcalculation::kEnvelopeLayer;
@@ -156,4 +200,5 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
     hud::ClearState (*hud.state);
     EXPECT_FALSE (hud::MarkLargeFloors (*hud.state));
     EXPECT_FALSE (hud::ShowLowHeadroom (*hud.state));
+    EXPECT_TRUE (hud::TakeMassingBakes (*hud.state).empty ());
 }

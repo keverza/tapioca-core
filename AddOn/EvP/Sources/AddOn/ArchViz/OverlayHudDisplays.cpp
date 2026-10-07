@@ -1,6 +1,5 @@
-// ArchViz/OverlayHudDisplays -- Settings' "Displays": the add-on's own displays on the overlays,
-// switched and styled (OverlayHud.hpp `Displays`). The engine's (OverlayHudEngine.hpp): it shows
-// what the owner says they are and says what the user makes them; the owner applies it.
+// Display visibility belongs to its feature page; shared story-slice styling lives
+// only inside Graphics style lab. The owner applies queued changes after layout.
 
 #include "ArchViz/OverlayHudEngine.hpp"
 
@@ -51,9 +50,7 @@ bool TakeDisplays (State& state, Displays& displays)
     return true;
 }
 
-// ⚠️ THE USER, 2026-10-03: Settings should have options for the additional information displays
-// there are -- the storey slices on and off, and their style. Shown only where the overlay runs
-// (`OwnPages::standalone`): its owner is the one that can apply them.
+// Standalone model cuts remain distinct from the automatic massing story slices.
 void Engine::Impl::DisplaySettings ()
 {
     if (!own.standalone)
@@ -68,30 +65,43 @@ void Engine::Impl::DisplaySettings ()
         what = wanted.wireframeOn ? "wireframe on" : "wireframe off";
     hudshell::Tip (
         "Show the existing-model reference wireframe in 3D and outlines in 2D; analysis overlays stay visible.");
-    if (ImGui::Checkbox ("Storey slices##tapioca.display.slices", &wanted.slicesOn))
+    if (ImGui::Checkbox ("Model storey cuts##tapioca.display.slices", &wanted.slicesOn))
         what = wanted.slicesOn ? "slices on" : "slices off";
     hudshell::Tip ("Each storey's floor outlined on the model, with its area: the selected massing slabs' floors, "
                    "or the whole model cut at every storey");
-    if (ImGui::Checkbox ("Massing story slices##tapioca.display.massing", &wanted.massingSlicesOn))
-        what = wanted.massingSlicesOn ? "massing slices on" : "massing slices off";
-    hudshell::Tip (
-        "Display settings below apply to standalone and massing slices; massing colours follow floor function.");
-    if ((wanted.slicesOn || wanted.massingSlicesOn) &&
-        ImGui::BeginTable ("##tapioca.display.slices", 2,
+    if (wanted.slicesOn) {
+        int source = wanted.slicesFromModel ? 1 : 0;
+        const char* const sources[] = { "selected slabs", "whole model" };
+        if (ImGui::Combo ("Source##from", &source, sources, 2)) {
+            wanted.slicesFromModel = source == 1;
+            what = "slices source";
+        }
+    }
+    if (wanted.slicesOn && !shown.slicesSaid.empty ())
+        ImGui::TextDisabled ("%s", shown.slicesSaid.c_str ());
+    if (ImGui::Checkbox ("Watch annotations##tapioca.display.annotations", &wanted.annotationsOn))
+        what = wanted.annotationsOn ? "annotations on" : "annotations off";
+    hudshell::Tip ("The Watch trace's annotations of the selected frame, on the model");
+    if (what.empty ())
+        return;
+    store->displays = wanted;
+    store->displaysPending = true;
+    changes.push_back ({ "display", {}, "Settings", what, -1, 1.0, what, true });
+}
+
+void Engine::Impl::SliceStyles ()
+{
+    if (!own.standalone || !ImGui::TreeNode ("Story slice display styles"))
+        return;
+    const Displays& shown = store->displaysPending ? store->displays : own.displays;
+    Displays wanted = shown;
+    std::string what;
+    ImGui::TextWrapped ("Shared by storey and massing slices. Visibility and area labels are controlled in Massing.");
+    if (ImGui::BeginTable ("##tapioca.display.slices", 2,
                            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
         ImGui::TableSetupColumn ("##label", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn ("##value", ImGuiTableColumnFlags_WidthStretch);
-        storysliceoverlay::Controls& look = wanted.slices;
-
-        if (wanted.slicesOn) {
-            Row ("From");
-            int source = wanted.slicesFromModel ? 1 : 0;
-            const char* const sources[] = { "selected slabs", "whole model" };
-            if (ImGui::Combo ("##from", &source, sources, 2)) {
-                wanted.slicesFromModel = source == 1;
-                what = "slices source";
-            }
-        }
+        auto& look = wanted.slices;
         Row ("Width");
         if (ImGui::SliderFloat ("##width", &look.outlineWidthPixels, 1.0f, 6.0f, "%.1f px"))
             what = "slices width";
@@ -113,10 +123,6 @@ void Engine::Impl::DisplaySettings ()
             if (ImGui::SliderFloat ("##opacity", &look.fillOpacity, 0.1f, 1.0f, "%.2f"))
                 what = "slices fill opacity";
         }
-        Row ("Labels");
-        if (ImGui::Checkbox ("##labels", &look.label))
-            what = look.label ? "slices labels on" : "slices labels off";
-        hudshell::Tip ("Each slice's area, at a corner of it");
         if (look.label) {
             Row ("Name");
             if (ImGui::Checkbox ("##name", &look.labelName))
@@ -129,18 +135,12 @@ void Engine::Impl::DisplaySettings ()
         }
         ImGui::EndTable ();
     }
-    if (wanted.slicesOn && !shown.slicesSaid.empty ())
-        ImGui::TextDisabled ("%s", shown.slicesSaid.c_str ());
-
-    if (ImGui::Checkbox ("Watch annotations##tapioca.display.annotations", &wanted.annotationsOn))
-        what = wanted.annotationsOn ? "annotations on" : "annotations off";
-    hudshell::Tip ("The Watch trace's annotations of the selected frame, on the model");
-
+    ImGui::TreePop ();
     if (what.empty ())
         return;
     store->displays = wanted;
     store->displaysPending = true;
-    changes.push_back ({ "display", std::string (), "Settings", what, -1, 1.0, what, true });
+    changes.push_back ({ "display", {}, "Graphics style lab", what, -1, 1.0, what, true });
 }
 
 } // namespace overlayhud

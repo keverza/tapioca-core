@@ -98,8 +98,9 @@ def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
 
     Each item needs ``fill`` (an existing fill attribute name) and
     ``polygon_outline`` (at least three (x, y) model-coordinate pairs).
-    This first slice supports one straight outer ring, no holes or curved edges;
-    a repeated closing point is optional. ``pen=0`` hides the outline and
+    Optional ``holes`` is a list of straight (x, y) rings; ``line_type`` names
+    the contour line attribute. Curved edges are unsupported. A repeated closing
+    point is optional. ``pen=0`` hides the outline and
     ``fill_bg_pen=0`` makes the background transparent. Layer/pen/floor omitted
     from an item inherit the Fill tool's defaults. As with ``create_text``, a
     transaction returns a Handle with the raw wire response.
@@ -107,8 +108,8 @@ def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
     if isinstance(fills, dict):
         fills = [fills]
     items = []
-    keys = {"fill", "polygon_outline", "layer", "floor_ind", "pen", "fill_pen", "fill_bg_pen"}
-    aliases = {"floor_ind": "floorInd", "fill_pen": "fillPen", "fill_bg_pen": "fillBGPen"}
+    keys = {"fill", "polygon_outline", "holes", "line_type", "layer", "floor_ind", "pen", "fill_pen", "fill_bg_pen"}
+    aliases = {"floor_ind": "floorInd", "fill_pen": "fillPen", "fill_bg_pen": "fillBGPen", "line_type": "lineType"}
     for fill in fills:
         unknown = set(fill) - keys
         if unknown:
@@ -119,8 +120,15 @@ def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
         if len(outline) < 3:
             raise ValueError("fill polygon_outline needs at least three points")
         item = {"fill": str(fill["fill"]), "polygonOutline": outline}
+        if fill.get("holes") is not None:
+            holes = []
+            for ring in fill["holes"]:
+                if len(ring) < 3:
+                    raise ValueError("fill holes need at least three points")
+                holes.append({"polygonOutline": [{"x": float(x), "y": float(y)} for x, y in ring]})
+            item["holes"] = holes
         for key, value in fill.items():
-            if key not in ("fill", "polygon_outline") and value is not None:
+            if key not in ("fill", "polygon_outline", "holes") and value is not None:
                 item[aliases.get(key, key)] = value
         items.append(item)
     if not items:

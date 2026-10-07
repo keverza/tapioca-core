@@ -277,15 +277,17 @@ void Engine::Impl::Settings ()
         ImGui::TextDisabled ("No layers");
     // Each layer drawn here, shown or hidden: a hidden one draws nothing, its panels no tab.
     for (const std::string& name : layerNames) {
-        if (own.standalone && name == massingcalculation::kEnvelopeLayer)
-            continue; // The dedicated Massing checkbox owns this layer's visibility.
+        if (own.standalone && (name == massingcalculation::kEnvelopeLayer || name == massingslices::kLayer ||
+                               name == "tapioca.massing.lines" || name == "tapioca.massing.collapseZone" ||
+                               name == "tapioca.massing.collapseZone.terrain"))
+            continue; // Dedicated Massing controls own these layers, including terrain projection.
         bool on = LayerShown (*store, name);
         if (ImGui::Checkbox ((Readable (name) + "##layer." + name).c_str (), &on))
             ShowLayer (name, on);
     }
     // The add-on's own displays: switched on and off, and styled (OverlayHudDisplays.cpp).
     DisplaySettings ();
-    graphicssettingsui::Draw ();
+    graphicssettingsui::Draw ([this] () { SliceStyles (); });
 }
 
 // ⚠️ HOVER MODE'S READOUT IS IN THE HOST (the user, 2026-10-01: in the ImGui panel, not near

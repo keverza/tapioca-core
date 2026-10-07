@@ -184,6 +184,12 @@ bool ShowLowHeadroom (const State& state)
 {
     return state.showLowHeadroom;
 }
+std::vector<massingbake::Kind> TakeMassingBakes (State& state)
+{
+    auto requests = std::move (state.massingBakes);
+    state.massingBakes.clear ();
+    return requests;
+}
 std::string HighlightedBuilding (const State& state)
 {
     return state.highlightedBuilding;
