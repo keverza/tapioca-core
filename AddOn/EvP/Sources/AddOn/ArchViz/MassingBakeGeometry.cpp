@@ -151,6 +151,8 @@ bool Geometry (Kind kind, const massingslices::Result* slices, const massingcalc
                 auto object = *polygon.AsObject ();
                 object["z"] = V::Double (row.z);
                 object["height"] = V::Double (row.floorHeight);
+                object["sourceGuid"] = V::String (row.guid);
+                object["story"] = V::Integer (row.story);
                 std::string group = "slab:" + row.guid;
                 for (const auto& surface : slices->buildingSurfaces)
                     if (surface.record.guid == row.guid && !surface.record.id.empty ()) {
@@ -213,6 +215,23 @@ bool Geometry (Kind kind, const massingslices::Result* slices, const massingcalc
     if (js::Write (out, 0).size () > 16 * 1024 * 1024)
         return Fail (error, "Bake snapshot transport budget exceeded.");
     result = std::move (out);
+    return true;
+}
+bool Export2DJson (const massingslices::Result& slices, std::string& text, std::string& error)
+{
+    V geometry;
+    if (!Geometry (Kind::Slices, &slices, nullptr, {}, geometry, error))
+        return false;
+    const auto document =
+        V::Object ({ { "format", V::String ("tapioca.story-slices.2d") },
+                     { "version", V::Integer (1) },
+                     { "units", V::String ("m") },
+                     { "coordinateSystem", V::String ("Archicad project XY and world Z") },
+                     { "ringClosure", V::String ("implicit") },
+                     { "edgeType", V::String ("straight; curved sources tessellated") },
+                     { "contourBasis", V::String ("counted; outside-envelope and low-headroom regions excluded") },
+                     { "slices", *geometry.Find ("items") } });
+    text = js::Write (document, 2) + "\n";
     return true;
 }
 std::vector<size_t> HomeStoreys (const ProjectStoreys& storeys, const std::vector<double>& elevations,

@@ -9,6 +9,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "Python/PythonHost.hpp"
 #include "Python/MainThreadGate.hpp"
+#include "Python/PathUtils.hpp"
 #include <atomic>
 #include <thread>
 
@@ -42,9 +43,9 @@ void Run (Kind kind)
     s_dialog = true;
     const uint64_t token = ++s_nextToken;
     s_activeToken = token;
-    const bool accepted = evp::massingbakeui::AskSettings (kind, settings);
+    const auto action = evp::massingbakeui::AskSettings (kind, settings);
     s_dialog = false;
-    if (!accepted || !Current (token))
+    if (action == evp::massingbakeui::Action::Cancel || !Current (token))
         return;
     // A DG dialog has its own loop: validate the adopted snapshots after it closes.
     massinghybrid::Poll ();
@@ -54,6 +55,35 @@ void Run (Kind kind)
         hudconsole::Warning ("Massing bake",
                              "Preview changed while settings were open. Reopen Bake for current geometry.");
         return;
+    }
+    if (action == evp::massingbakeui::Action::Export2D) {
+        GS::UniString path;
+        s_dialog = true;
+        const bool chosen = evp::massingbakeui::AskExportPath (path);
+        s_dialog = false;
+        if (!chosen || !Current (token))
+            return;
+        // Save also runs a native modal loop. Do not export a stale fixture if
+        // the project or its current operated preview changed while choosing a file.
+        massinghybrid::Poll ();
+        massingslicesmodel::Poll ();
+        if (slices != massingslicesmodel::Read () || page.preview != massinghybrid::Read ().preview ||
+            massinghybrid::Read ().busy) {
+            hudconsole::Warning ("Massing export", "Preview changed while choosing a file. Reopen Export 2D.");
+            return;
+        }
+        std::string text;
+        GS::UniString writeError;
+        if (!slices || !Export2DJson (*slices, text, error))
+            hudconsole::Error ("Massing export", error);
+        else if (!evp::WriteTextFile (path, text.c_str (), writeError))
+            hudconsole::Error ("Massing export", writeError.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+        else {
+            const std::string saved = path.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+            ArchVizLog ("MASSING EXPORT 2D " + saved);
+            hudconsole::Note ("Massing export", "Saved story-slice 2D contours (JSON): " + saved);
+        }
+        return; // Export never initializes Python or dispatches a project write.
     }
     GS::UniString initializeError;
     if (!evp::PythonHost::Get ().EnsureInitialized (initializeError)) {

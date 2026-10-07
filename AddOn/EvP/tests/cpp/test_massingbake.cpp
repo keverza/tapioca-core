@@ -122,6 +122,82 @@ TEST (MassingBake, HomeStoriesStartClosestAdvancePerFloorAndClampAtHighest)
     EXPECT_EQ (homes, (std::vector<size_t> { 2, 3, 4, 4, 4, 4, 3, 0 }));
     EXPECT_TRUE (bake::HomeStoreys ({}, { 0 }, { "A" }).empty ());
 }
+TEST (MassingBake, Export2DJsonRetainsCountedHolesIslandsSourceFloorsAndBuildingIdentity)
+{
+    ms::Result slices;
+    ms::Row row;
+    row.guid = "source-slab";
+    row.story = -2;
+    row.z = 103.4;
+    row.floorHeight = 4.2;
+    row.chains = { Ring (700000, 6000000, 700010, 6000010), Ring (700002, 6000002, 700008, 6000008),
+                   Ring (700020, 6000020, 700030, 6000030) };
+    row.lowChains = { Ring (-10, -10, -5, -5) };
+    slices.rows = { row, row };
+    slices.rows[1].story = -1;
+    slices.rows[1].z += 4.2;
+    slices.buildingSurfaces.push_back ({ { row.guid, "Building \"A\"" }, {} });
+    std::string text, error;
+    ASSERT_TRUE (bake::Export2DJson (slices, text, error)) << error;
+    const auto parsed = js::Parse (text);
+    ASSERT_TRUE (parsed.ok);
+    std::string format, units;
+    ASSERT_TRUE (parsed.value.Find ("format")->AsString (format));
+    ASSERT_TRUE (parsed.value.Find ("units")->AsString (units));
+    EXPECT_EQ (format, "tapioca.story-slices.2d");
+    EXPECT_EQ (units, "m");
+    const auto* exported = parsed.value.Find ("slices")->AsArray ();
+    ASSERT_EQ (exported->size (), 4u);
+    size_t holes = 0;
+    for (const auto& item : *exported) {
+        std::string source, group;
+        ASSERT_TRUE (item.Find ("sourceGuid")->AsString (source));
+        ASSERT_TRUE (item.Find ("group")->AsString (group));
+        EXPECT_EQ (source, row.guid);
+        EXPECT_EQ (group, "building:Building \"A\"");
+        int64_t story = 0;
+        double z = 0;
+        ASSERT_TRUE (item.Find ("story")->AsInteger (story));
+        ASSERT_TRUE (item.Find ("z")->AsDouble (z));
+        EXPECT_TRUE (story == -2 || story == -1);
+        EXPECT_DOUBLE_EQ (z, story == -2 ? 103.4 : 107.6);
+        holes += item.Find ("holes")->AsArray ()->size ();
+        ASSERT_EQ (item.Find ("outer")->AsArray ()->size (), 4u);
+        for (const auto& point : *item.Find ("outer")->AsArray ()) {
+            double x = 0;
+            ASSERT_TRUE (point.Find ("x")->AsDouble (x));
+            EXPECT_GE (x, 700000); // Gray excluded contours were not restored.
+        }
+    }
+    EXPECT_EQ (holes, 2u);
+    EXPECT_EQ (slices.rows[0].chains.size (), 3u);
+    EXPECT_EQ (slices.rows[0].lowChains.size (), 1u);
+    EXPECT_EQ (parsed.value.Find ("settings"), nullptr);
+    EXPECT_EQ (parsed.value.Find ("token"), nullptr);
+}
+TEST (MassingBake, Export2DRefusesIncompleteEmptyAndInvalidSourcesWithoutChangingOutput)
+{
+    ms::Result slices;
+    std::string text = "unchanged", error;
+    EXPECT_FALSE (bake::Export2DJson (slices, text, error));
+    EXPECT_EQ (text, "unchanged");
+    ms::Row row;
+    row.chains = { Ring (0, 0, 10, 10) };
+    slices.rows = { row };
+    slices.complete = false;
+    EXPECT_FALSE (bake::Export2DJson (slices, text, error));
+    EXPECT_EQ (text, "unchanged");
+    slices.complete = true;
+    slices.rows[0].chains[0].closed = false;
+    EXPECT_FALSE (bake::Export2DJson (slices, text, error));
+    EXPECT_EQ (text, "unchanged");
+    slices.rows[0].chains[0].closed = true;
+    ASSERT_TRUE (bake::Export2DJson (slices, text, error)) << error;
+    const auto parsed = js::Parse (text);
+    std::string group;
+    ASSERT_TRUE (parsed.value.Find ("slices")->AsArray ()->front ().Find ("group")->AsString (group));
+    EXPECT_EQ (group, "slab:"); // Missing building ID is not inferred.
+}
 TEST (MassingBake, CircularRunsBecomeRealSignedArcsWhileCornersRemainLines)
 {
     geomsrv::archviz::slabslices::Ring ring;

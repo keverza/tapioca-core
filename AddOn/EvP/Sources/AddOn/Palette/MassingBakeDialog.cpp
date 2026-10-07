@@ -5,6 +5,9 @@
 #include "NativeCommands/CommandUtils.hpp"
 #include "ResourceIds.hpp"
 #include "DGModule.hpp"
+#include "DGFileDialog.hpp"
+#include "FileTypeManager.hpp"
+#include "Location.hpp"
 
 namespace evp::massingbakeui {
 using Kind = geomsrv::archviz::massingbake::Kind;
@@ -25,16 +28,19 @@ class Dialog final : public DG::ModalDialog,
     explicit Dialog (Kind kind)
         : DG::ModalDialog (ACAPI_GetOwnResModule (), MassingBakeResId, ACAPI_GetOwnResModule ()), kind (kind),
           bake (GetReference (), 1), cancel (GetReference (), 2), status (GetReference (), 3),
-          contourPen (GetReference (), 4), fillPen (GetReference (), 5)
+          contourPen (GetReference (), 4), fillPen (GetReference (), 5), export2D (GetReference (), 6)
     {
         Attach (*this);
         bake.Attach (*this);
         cancel.Attach (*this);
-        SetTitle (kind == Kind::Slices     ? "Bake massing story slices"
+        export2D.Attach (*this);
+        if (kind != Kind::Slices)
+            export2D.Hide ();
+        SetTitle (kind == Kind::Slices     ? "Bake / export massing story slices"
                   : kind == Kind::Envelope ? "Bake massing envelope"
                                            : "Bake collapse zone");
         status.SetText (kind == Kind::Slices
-                            ? "Creates non-source copies. Slabs/walls: one Undo step. No write retries."
+                            ? "Bake: one Undo step. Export 2D: JSON contours only, no model changes."
                             : "Creates copies. Envelope: two Undo steps; fills: one. No write retries.");
         contourPen.Hide ();
         fillPen.Hide ();
@@ -91,11 +97,16 @@ class Dialog final : public DG::ModalDialog,
                 check->Detach (*this);
         bake.Detach (*this);
         cancel.Detach (*this);
+        export2D.Detach (*this);
         Detach (*this);
     }
     V Settings () const
     {
         return settings;
+    }
+    Action Choice () const
+    {
+        return action;
     }
 
   private:
@@ -164,6 +175,13 @@ class Dialog final : public DG::ModalDialog,
             PostCloseRequest (Cancel);
             return;
         }
+        if (event.GetSource () == &export2D && kind == Kind::Slices) {
+            // Export has no construction settings and must work even when a
+            // project attribute picker/default is unavailable for baking.
+            action = Action::Export2D;
+            PostCloseRequest (Accept);
+            return;
+        }
         if (event.GetSource () != &bake || !valid)
             return;
         js::JsonObject values;
@@ -204,6 +222,7 @@ class Dialog final : public DG::ModalDialog,
             values["fillPen"] = V::Integer (fillPen.GetValue ());
         }
         settings = V::Object (std::move (values));
+        action = Action::Bake;
         PostCloseRequest (Accept);
     }
     void EnableSettings ()
@@ -254,6 +273,8 @@ class Dialog final : public DG::ModalDialog,
     DG::Button bake, cancel;
     DG::LeftText status;
     DG::UserControl contourPen, fillPen;
+    DG::Button export2D;
+    Action action = Action::Cancel;
     short top = 12;
     bool valid = true;
     std::vector<std::unique_ptr<DG::LeftText>> labels;
@@ -263,12 +284,30 @@ class Dialog final : public DG::ModalDialog,
     V settings;
 };
 } // namespace
-bool AskSettings (Kind kind, V& settings)
+Action AskSettings (Kind kind, V& settings)
 {
     Dialog dialog (kind);
     if (!dialog.Invoke ())
-        return false;
+        return Action::Cancel;
     settings = dialog.Settings ();
-    return true;
+    return dialog.Choice ();
+}
+bool AskExportPath (GS::UniString& path)
+{
+    FTM::FileTypeManager manager ("Tapioca.StorySliceContours");
+    const auto root = manager.AddGroup ("Story slice 2D contours");
+    const FTM::FileType fileType ("Story slice contours (*.json)", "json", 0, 0, 0);
+    const auto type = manager.AddType (fileType, root);
+    DG::FileDialog dialog (DG::FileDialog::Save);
+    if (type != FTM::UnknownType)
+        dialog.AddFilter (type);
+    dialog.SetFilterRoot (root);
+    IO::Location folder;
+    GS::UniString directory;
+    if (dialog.GetFolder (&folder) && folder.ToPath (&directory) == NoError) {
+        const GS::UniString suggested (directory + GS::UniString ("\\story-slices-2d.json"));
+        dialog.SelectFile (IO::Location (suggested), false);
+    }
+    return dialog.Invoke () && dialog.GetSelectedFile ().ToPath (&path) == NoError;
 }
 } // namespace evp::massingbakeui

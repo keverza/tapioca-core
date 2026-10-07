@@ -374,6 +374,7 @@
 /* [3] */ LeftText 12 424 496 24 SmallPlain vCenter ""
 /* [4] */ UserControl 256 192 33 19 257 0x0001 0x1100 0
 /* [5] */ UserControl 304 192 33 19 257 0x0001 0x1100 0
+/* [6] */ Button 12 456 120 24 LargePlain "Export 2D..."
 }
 'DLGH' 32590 DLG_32590_MassingBake {
 1 "Create model copies" OkButton
@@ -381,4 +382,5 @@
 3 "Bake status" LeftText_0
 4 "Contour pen" UserControl_0
 5 "Fill pen" UserControl_1
+6 "Save counted story-slice contours as JSON; no Archicad elements are created" Button_0
 }
