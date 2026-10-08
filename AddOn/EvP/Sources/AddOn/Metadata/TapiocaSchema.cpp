@@ -119,6 +119,11 @@ ProjectSchema DefaultSchema ()
 
     schema.properties.push_back (Definition ("tapioca.role", "Role", ValueType::String, "Common"));
     schema.properties.push_back (Definition ("massing.buildingId", "Building ID", ValueType::String, "Building slab"));
+    PropertyDefinition stairs =
+        Definition ("massing.stairwellLocations", "Proposed stairwells", ValueType::List, "Building plan", "m");
+    stairs.description =
+        "Building-wide approximate stairwell locations: ordered project XY pairs in metres; not generated geometry.";
+    schema.properties.push_back (stairs);
     PropertyDefinition story = Definition ("massing.story", "Story", ValueType::Int, "Building slab");
     story.min = -100; // retained legacy indices are readable; HUD now derives the count
     story.max = 1000;
@@ -225,7 +230,7 @@ ProjectSchema DefaultSchema ()
     schema.ui = {
         { "common", "Common", { "tapioca.role" } },
         { "massing",
-          "BUILDING SLAB",
+          "BUILDING SOURCE",
           { "massing.buildingId", "massing.story", "massing.function", "massing.floorHeight" } },
         { "program", "Program", { "program.usage", "program.occupancy", "program.units", "program.gfaTarget" } },
         { "structure", "Structure", { "structure.system" } },
@@ -286,6 +291,17 @@ void CheckValue (const Property& property, const ProjectSchema& schema, const st
     if (definition == nullptr)
         return;
     const std::string at = where + property.key;
+    if (property.key == "massing.stairwellLocations") {
+        if (property.value.type != ValueType::List || property.value.elementType != ValueType::Length ||
+            property.value.list.empty () || property.value.list.size () % 2 || property.value.list.size () > 64) {
+            problems.push_back (at + " needs 1..32 XY pairs in project metres");
+            return;
+        }
+        for (const auto& coordinate : property.value.list)
+            if (coordinate.type != ValueType::Length || !std::isfinite (coordinate.d) || std::abs (coordinate.d) > 1e9)
+                problems.push_back (at + " coordinates must be finite project metres within +/-1e9");
+        return;
+    }
     if (property.key == "massing.floorHeight") {
         // Scalar floorHeight from older packages remains readable until explicitly edited.
         if (IsNumber (property.value.type))

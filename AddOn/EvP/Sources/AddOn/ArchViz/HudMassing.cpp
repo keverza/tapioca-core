@@ -6,6 +6,15 @@
 
 namespace geomsrv::archviz::hudmassing {
 
+bool Accepts (Group group, SourceKind kind)
+{
+    if (group == Group::PropertyLine)
+        return kind == SourceKind::Polyline;
+    if (group == Group::MassingSlabs)
+        return kind == SourceKind::Slab || kind == SourceKind::Mesh || kind == SourceKind::Morph;
+    return kind == SourceKind::Mesh;
+}
+
 const char* Role (Group group)
 {
     switch (group) {
@@ -31,7 +40,7 @@ const char* Label (Group group)
         case Group::NewTerrain:
             return "New terrain";
         case Group::MassingSlabs:
-            return "Massing slabs";
+            return "Massing sources";
     }
     return "";
 }
@@ -82,6 +91,8 @@ std::vector<Request> Draw (const Page& page)
             const Group group = Group (i);
             ImGui::PushID (int (i));
             ImGui::Text ("%s (%zu)", Label (group), page.guids[i].size ());
+            if (group == Group::MassingSlabs)
+                hudshell::Tip ("Archicad Slabs, Meshes and solid Morphs. Slices use current operated 3D geometry.");
             ImGui::BeginDisabled (!page.known);
             for (int a = 0; a < 5; ++a) {
                 if (a != 0)

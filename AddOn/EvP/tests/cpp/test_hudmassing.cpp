@@ -59,6 +59,20 @@ TEST (HudMassing, RolesAndBuildingSlabFieldsUseTheElementMetadataSchema)
     EXPECT_TRUE (page.known);
 }
 
+TEST (HudMassing, SourceTypePolicyAcceptsSlabsMeshesAndMorphsWithoutChangingTerrainRoles)
+{
+    EXPECT_STREQ (hm::Label (hm::Group::MassingSlabs), "Massing sources");
+    EXPECT_STREQ (hm::Role (hm::Group::MassingSlabs), "MassingSlab"); // Persisted compatibility.
+    for (const auto kind : { hm::SourceKind::Polyline, hm::SourceKind::Slab, hm::SourceKind::Mesh,
+                             hm::SourceKind::Morph, hm::SourceKind::Other }) {
+        EXPECT_EQ (hm::Accepts (hm::Group::MassingSlabs, kind),
+                   kind == hm::SourceKind::Slab || kind == hm::SourceKind::Mesh || kind == hm::SourceKind::Morph);
+        EXPECT_EQ (hm::Accepts (hm::Group::ExistingTerrain, kind), kind == hm::SourceKind::Mesh);
+        EXPECT_EQ (hm::Accepts (hm::Group::NewTerrain, kind), kind == hm::SourceKind::Mesh);
+        EXPECT_EQ (hm::Accepts (hm::Group::PropertyLine, kind), kind == hm::SourceKind::Polyline);
+    }
+}
+
 TEST (HudMassing, NativeTabDrawsWithoutAnyPythonPanelOrLayer)
 {
     Watched hud;

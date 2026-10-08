@@ -1,6 +1,7 @@
 #ifndef EVP_ARCHVIZ_MASSINGBUILDINGS_HPP
 #define EVP_ARCHVIZ_MASSINGBUILDINGS_HPP
 #include "ArchViz/HudSection.hpp"
+#include "ArchViz/HudBuildingPlan.hpp"
 #include "Geometry/Mesh.hpp"
 #include <memory>
 
@@ -23,8 +24,9 @@ struct Preview {
     Group building;
     hudsection::Section section;
     std::vector<hudmeta::Page> heights;
+    buildingplan::Plan plan;
 };
-// Exact, case-sensitive authored IDs identify buildings (one stairwell each).
+// Exact, case-sensitive authored IDs identify buildings (possibly multiple stairwells).
 // Missing IDs remain separate slabs; element IDs, geometry and adjacency are not identity.
 std::string Id (const metadata::EntityMetadata& entity);
 std::vector<Group> Groups (const std::vector<Record>& records);

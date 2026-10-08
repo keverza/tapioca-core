@@ -141,7 +141,23 @@ void SelectionPage (Shell& shell, const HudState& state, float ui)
 
 void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
 {
-    DrawSunStudyHudSection (state, scene);
+    const bool changed = state.analysisSeenKind != scene.sunStudy.analysisKind;
+    state.analysisSeenKind = scene.sunStudy.analysisKind;
+    if (!ImGui::BeginTabBar ("##analysis-study"))
+        return;
+    const ImGuiTabItemFlags sunFlags = changed && scene.sunStudy.analysisKind == 0 ? ImGuiTabItemFlags_SetSelected : 0;
+    if (ImGui::BeginTabItem ("Sun study", nullptr, sunFlags)) {
+        state.visibilityPlacingPoint = false;
+        DrawSunStudyHudSection (state, scene);
+        ImGui::EndTabItem ();
+    }
+    const ImGuiTabItemFlags visibilityFlags =
+        changed && scene.sunStudy.analysisKind == 1 ? ImGuiTabItemFlags_SetSelected : 0;
+    if (ImGui::BeginTabItem ("Visibility", nullptr, visibilityFlags)) {
+        DrawVisibilityHudSection (state, scene);
+        ImGui::EndTabItem ();
+    }
+    ImGui::EndTabBar ();
 }
 
 void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width,

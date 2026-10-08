@@ -73,6 +73,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
 void StatsPage (HudState& state, const DiligentSceneStats& scene, float ui);
 void SelectionPage (Shell& shell, const HudState& state, float ui);
 void SunStudyPage (HudState& state, const DiligentSceneStats& scene);
+void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene);
 void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width,
                 uint32_t height, float ui);
 // The HUD's own rows, then the Render/Display sections.

@@ -20,9 +20,9 @@
 // is at least `minTopMetres` high (2.5 m): a complete storey is a floor however low
 // it is, a sliver under the roof is not.
 //
-// ⚠️ THE SLAB IS A PRISM HERE. Its outline is its polygon at every height, which is
-// what a massing slab is and what the feasibility figures assume; an edge trimmed off
-// vertical is COUNTED (`slopedEdges`), and its cut is drawn as if it were vertical.
+// SliceSlab is the legacy polygon-prism path. Native defined massing sources
+// (Slabs, Meshes, Morphs) require SliceBody and use their operated 3D extent;
+// bodyRequired forbids silently substituting a prism for a missing current body.
 //
 // Pure -- no DevKit -- so tests/cpp builds it: a floor too many is a wrong gross area,
 // and nothing in the picture says so. The slabs are read by SlabSliceSource.hpp.
@@ -54,8 +54,13 @@ struct Slab {
     double top = 0.0;
     Ring outer;
     std::vector<Ring> holes;
-    uint32_t slopedEdges = 0; // edges trimmed off vertical: cut here as if vertical
+    uint32_t slopedEdges = 0;  // edges trimmed off vertical: cut here as if vertical
+    bool bodyRequired = false; // Defined massing sources may never fall back to polygon extrusions.
 };
+
+// Validate a current operated body and derive its world-Z extent from vertices,
+// not cached bounds or native reference-plane/thickness fields. No box footprint.
+bool FromBody (Slab& source, const Mesh& body, std::string& error);
 
 enum class Cut { Storeys, StoreyLevels, Step, Levels };
 

@@ -118,6 +118,8 @@ struct PreparationResult {
 };
 std::shared_ptr<PreparationResult> s_preparation;
 std::shared_ptr<PreparedSunStudyDisplay> s_display;
+uint64_t s_displayGeneration = 0;
+uint64_t s_followDisplayGeneration = 0;
 
 evp::sunstudy::SunStudyTaskWorker& PreparationWorker ()
 {
@@ -292,10 +294,9 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
 
 void HideOverlay ()
 {
-    GS::ObjectState params;
-    params.Add ("show", false);
-    params.Add ("follow", false); // internal hide must not recursively lock Disable
-    ExecuteNativeCommand ("ShowSunStudy", params);
+    // A background hide must not claim the channel from an explicit request.
+    if (archviz::SceneCmdQueue::Get ().PushClearAnalysis (s_followDisplayGeneration))
+        ++s_followDisplayGeneration;
 }
 
 void Log (const std::string& line)
@@ -589,6 +590,7 @@ void AdvanceOneSlice (int64_t now)
     const auto id = gRunStudyId;
     const auto revision = s_runRevision;
     s_display = std::make_shared<PreparedSunStudyDisplay> ();
+    s_displayGeneration = s_followDisplayGeneration;
     const auto output = s_display;
     evp::sunstudy::StudyTaskRequest request;
     request.sessionGeneration = s_sessionGeneration;
@@ -629,9 +631,14 @@ void PollDisplay (int64_t now)
         s_stage = "failed";
         return;
     }
-    if (!evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (gRunStudyId, s_runRevision, [&] {
-            archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (output->upload));
-        })) {
+    bool enqueued = false;
+    if (!evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (
+            gRunStudyId, s_runRevision,
+            [&] {
+                enqueued =
+                    archviz::SceneCmdQueue::Get ().PushAnalysisAtlas (s_displayGeneration, std::move (output->upload));
+            }) ||
+        !enqueued) {
         gFollower.NoteFailed (gRunGeneration, now);
         RetireRun ("display cancelled before enqueue", false);
         return;
@@ -731,6 +738,7 @@ void Adopt (const std::string& studyId, const ActiveSunStudyConfig& config, uint
     gConfig = config;
     gConfig.valid = true;
     gAutoFollow = true;
+    s_followDisplayGeneration = archviz::SceneCmdQueue::Get ().AnalysisDisplayGeneration ();
     gSeenGeometryEdits = static_cast<uint32_t> (archviz::modelwatch::CaptureStamp ());
     s_refreshSchedule.Reset (gSeenGeometryEdits);
     s_stage = "current";
@@ -791,6 +799,17 @@ void Tick ()
     std::lock_guard<std::mutex> lock (gMutex);
     if (!gAutoFollow || !gConfig.valid)
         return;
+    if (archviz::SceneCmdQueue::Get ().AnalysisDisplayKind () != 0) {
+        DisableLocked (); // visibility took the shared channel; retire sun producers
+        return;
+    }
+    if (archviz::SceneCmdQueue::Get ().AnalysisDisplayGeneration () != s_followDisplayGeneration) {
+        // A newer manual sun request must be allowed to complete and adopt;
+        // DisableLocked would also cancel that request and retire its session.
+        RetireRun ("display ownership superseded");
+        gAutoFollow = false;
+        return;
+    }
 
     // ---- 0. stop with the watch -------------------------------------------
     //

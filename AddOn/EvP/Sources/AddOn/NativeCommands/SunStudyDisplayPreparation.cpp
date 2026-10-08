@@ -47,9 +47,13 @@ void PublishManualDisplay (uint64_t generation, const ManualSunStudyDisplayReque
             archviz::DiligentViewport::Get ().IsRunning ();
         if (!current || !completion.error.empty () || result->upload == nullptr)
             return false;
-        return evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (request.studyId, request.revision, [&] {
-            archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (result->upload));
-        });
+        bool enqueued = false;
+        const bool accepted =
+            evp::sunstudy::SunStudyStore::Get ().PublishDisplayRecord (request.studyId, request.revision, [&] {
+                enqueued = archviz::SceneCmdQueue::Get ().PushAnalysisAtlas (request.displayGeneration,
+                                                                             std::move (result->upload));
+            });
+        return accepted && enqueued;
     });
     if (!published) {
         std::lock_guard<std::mutex> lock (s_manualMutex);
@@ -102,6 +106,7 @@ bool SubmitManualSunStudyDisplay (ManualSunStudyDisplayRequest request, std::str
         return false;
     }
     const uint64_t generation = ++s_manualGeneration;
+    request.displayGeneration = archviz::SceneCmdQueue::Get ().ClaimAnalysisDisplay (0);
     auto output = std::make_shared<PreparedSunStudyDisplay> ();
     evp::sunstudy::StudyTaskRequest task;
     task.sessionGeneration = request.sessionGeneration;

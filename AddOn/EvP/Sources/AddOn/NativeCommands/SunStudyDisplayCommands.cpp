@@ -107,7 +107,8 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         // the id is forgotten, and when the viewer is showing one this
         // caller never started -- otherwise a stale tint could only be
         // removed by restarting the viewport.
-        archviz::SceneCmdQueue::Get ().PushClearSunStudy ();
+        auto& queue = archviz::SceneCmdQueue::Get ();
+        queue.PushClearAnalysis (queue.ClaimAnalysisDisplay (0));
         GS::ObjectState cleared;
         cleared.Add ("studyId", Text (std::string ()));
         cleared.Add ("shown", false);
@@ -260,6 +261,7 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
             // must get `false` here rather than a missing key, or "no viewer"
             // and "viewer with no study" become the same answer to it.
             os.Add ("studyId", Text (std::string ()));
+            os.Add ("analysisKind", (GS::Int32) 0);
             os.Add ("drawing", false);
             os.Add ("preview", false);
             os.Add ("elementsNamed", (GS::Int32) 0);
@@ -282,6 +284,7 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
         const archviz::DiligentViewportStats stats = archviz::DiligentViewport::Get ().Stats ();
         const archviz::SunStudyOverlayStatus& overlay = stats.sunStudy;
         os.Add ("studyId", Text (overlay.studyId));
+        os.Add ("analysisKind", (GS::Int32) overlay.analysisKind);
         os.Add ("drawing", overlay.drawing);
         os.Add ("preview", overlay.preview);
         os.Add ("elementsNamed", (GS::Int32) overlay.elementsNamed);
@@ -580,6 +583,7 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
             "properties":{
                 "viewerRunning":{"type":"boolean"},
                 "studyId":{"type":"string"},
+                "analysisKind":{"type":"integer"},
                 "drawing":{"type":"boolean"},
                 "preview":{"type":"boolean"},
                 "elementsNamed":{"type":"integer"},

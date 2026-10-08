@@ -50,6 +50,22 @@ struct ModelDatabase {
     }
 };
 
+hudmassing::SourceKind Kind (API_ElemTypeID type)
+{
+    switch (type) {
+        case API_PolyLineID:
+            return hudmassing::SourceKind::Polyline;
+        case API_SlabID:
+            return hudmassing::SourceKind::Slab;
+        case API_MeshID:
+            return hudmassing::SourceKind::Mesh;
+        case API_MorphID:
+            return hudmassing::SourceKind::Morph;
+        default:
+            return hudmassing::SourceKind::Other;
+    }
+}
+
 bool Scan (hudmassing::Page& page, std::set<std::string>* modelGuids = nullptr)
 {
     ModelDatabase database;
@@ -57,7 +73,7 @@ bool Scan (hudmassing::Page& page, std::set<std::string>* modelGuids = nullptr)
         page.note = "Cannot read the massing model database: " + Describe (database.error);
         return false;
     }
-    for (const API_ElemTypeID type : { API_PolyLineID, API_MeshID, API_SlabID }) {
+    for (const API_ElemTypeID type : { API_PolyLineID, API_MeshID, API_SlabID, API_MorphID }) {
         GS::Array<API_Guid> guids;
         const GSErrCode result = ACAPI_Element_GetElemList (type, &guids);
         if (result != NoError) {
@@ -78,10 +94,12 @@ bool Scan (hudmassing::Page& page, std::set<std::string>* modelGuids = nullptr)
             const meta::Property* role = meta::FindProperty (entity, "tapioca.role");
             if (role == nullptr)
                 continue;
-            if (type == API_SlabID && role->value.s == hudmassing::Role (hudmassing::Group::MassingSlabs))
+            if (hudmassing::Accepts (hudmassing::Group::MassingSlabs, Kind (type)) &&
+                role->value.s == hudmassing::Role (hudmassing::Group::MassingSlabs))
                 page.buildingSlabs.push_back ({ id, massingbuildings::Id (entity) });
             for (size_t i = 0; i < page.guids.size (); ++i)
-                if (role->value.s == hudmassing::Role (hudmassing::Group (i)))
+                if (hudmassing::Accepts (hudmassing::Group (i), Kind (type)) &&
+                    role->value.s == hudmassing::Role (hudmassing::Group (i)))
                     page.guids[i].push_back (id);
         }
     }
@@ -99,6 +117,12 @@ bool Compatible (hudmassing::Group group, const std::string& guid, std::string& 
         return false;
     }
     const API_ElemTypeID type = element.header.type.typeID;
+    if (group == hudmassing::Group::MassingSlabs &&
+        ((type == API_MorphID && element.morph.bodyType != APIMorphBodyType_SolidBody) ||
+         (type == API_MeshID && element.mesh.skirt != 1))) {
+        error = "Massing sources need a solid Morph or a Mesh with sides and bottom enabled.";
+        return false;
+    }
     bool closed = false;
     if (type == API_PolyLineID && element.polyLine.poly.nSubPolys == 1 && element.polyLine.poly.nCoords >= 4) {
         API_ElementMemo memo {};
@@ -111,13 +135,11 @@ bool Compatible (hudmassing::Group group, const std::string& guid, std::string& 
         }
         ACAPI_DisposeElemMemoHdls (&memo);
     }
-    const bool valid = group == hudmassing::Group::PropertyLine   ? type == API_PolyLineID && closed
-                       : group == hudmassing::Group::MassingSlabs ? type == API_SlabID
-                                                                  : type == API_MeshID;
+    const bool valid = hudmassing::Accepts (group, Kind (type)) && (group != hudmassing::Group::PropertyLine || closed);
     if (!valid)
         error = std::string (hudmassing::Label (group)) + " requires " +
                 (group == hudmassing::Group::PropertyLine   ? "a closed Polyline"
-                 : group == hudmassing::Group::MassingSlabs ? "Slabs"
+                 : group == hudmassing::Group::MassingSlabs ? "Slabs, Meshes or solid Morphs"
                                                             : "terrain Meshes");
     return valid;
 }

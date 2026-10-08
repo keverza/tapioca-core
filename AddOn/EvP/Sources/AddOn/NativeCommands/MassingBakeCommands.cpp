@@ -5,6 +5,7 @@
 #include "NativeCommands/DraftingDatabaseTarget.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 #include "ArchViz/MassingBake.hpp"
+#include <algorithm>
 #include <cmath>
 namespace geomsrv {
 namespace {
@@ -75,6 +76,56 @@ struct Regularized {
         ACAPI_DisposeElemMemoHdls (&input);
     }
 };
+bool CleanSlabContour (GS::Array<GS::ObjectState>& vertices, size_t& points, GS::UniString& error)
+{
+    points += vertices.GetSize ();
+    if (points > 100000) {
+        error = "Slab bake exceeds the 100000 input-point budget.";
+        return false;
+    }
+    archviz::slabslices::Ring input, cleaned;
+    for (const auto& vertex : vertices) {
+        double x = 0, y = 0;
+        if (!ReadFiniteNumber (vertex, "x", x) || !ReadFiniteNumber (vertex, "y", y)) {
+            error = "Slab bake needs finite XY coordinates.";
+            return false;
+        }
+        input.xy.push_back (x);
+        input.xy.push_back (y);
+    }
+    std::string why;
+    if (!archviz::massingbake::CleanSlabRing (input, cleaned, why)) {
+        error = GS::UniString (why.c_str (), CC_UTF8);
+        return false;
+    }
+    vertices.Clear ();
+    for (size_t i = 0; i < cleaned.xy.size (); i += 2) {
+        GS::ObjectState vertex;
+        vertex.Add ("x", cleaned.xy[i]);
+        vertex.Add ("y", cleaned.xy[i + 1]);
+        vertices.Push (vertex);
+    }
+    return true;
+}
+void LogRejectedSlab (const API_ElementMemo& memo, const API_Polygon& polygon, const std::string& group, double z,
+                      uint64_t token, UIndex sourceIndex)
+{
+    std::vector<archviz::SliceChain> contours;
+    Int32 first = 1;
+    for (Int32 sub = 1; sub <= polygon.nSubPolys; ++sub) {
+        const Int32 last = (*memo.pends)[sub];
+        archviz::SliceChain contour;
+        contour.closed = true;
+        for (Int32 i = first; i < last; ++i) {
+            const auto& a = (*memo.coords)[i];
+            contour.xy.push_back (a.x);
+            contour.xy.push_back (a.y);
+        }
+        contours.push_back (std::move (contour));
+        first = last + 1;
+    }
+    archviz::massingbake::RejectedSlab (contours, group, z, token, sourceIndex);
+}
 class BakeMassingSlicesCommand : public WriteCommand {
   public:
     GS::String GetName () const override
@@ -112,6 +163,7 @@ class BakeMassingSlicesCommand : public WriteCommand {
         }
         const auto homes = archviz::massingbake::HomeStoreys (storeys, elevations, groups);
         GS::Array<GS::ObjectState> results;
+        size_t points = 0;
         const auto created = [&results] (const API_Element& element) {
             GS::ObjectState record, id;
             id.Add ("guid", GS::UniString (APIGuidToString (element.header.guid).ToCStr ()));
@@ -149,6 +201,16 @@ class BakeMassingSlicesCommand : public WriteCommand {
             GS::Array<GS::ObjectState> outline, holes;
             item.Get ("polygonOutline", outline);
             item.Get ("holes", holes);
+            if (!CleanSlabContour (outline, points, error))
+                return NativeCommandResult::Failure (error);
+            for (auto& hole : holes) {
+                GS::Array<GS::ObjectState> vertices;
+                if (!hole.Get ("polygonOutline", vertices) || !CleanSlabContour (vertices, points, error))
+                    return NativeCommandResult::Failure (error.IsEmpty () ? GS::UniString ("Invalid slab bake hole.")
+                                                                          : error);
+                hole.Clear ();
+                hole.Add ("polygonOutline", vertices);
+            }
             Regularized regularized;
             if (!BuildStraightPolygonMemo (outline, holes, slab.slab.poly, regularized.input, error))
                 return NativeCommandResult::Failure (error);
@@ -195,9 +257,17 @@ class BakeMassingSlicesCommand : public WriteCommand {
                     return NativeCommandResult::Failure ("Bake exceeds 2048 elements; entire transaction refused.");
                 slab.header.guid = APINULLGuid;
                 const auto slabError = ACAPI_Element_Create (&slab, &memo);
-                if (slabError != NoError)
+                if (slabError != NoError) {
+                    try {
+                        LogRejectedSlab (memo, slab.slab.poly, groups[at], elevations[at], uint64_t (token), at);
+                    }
+                    catch (...) {
+                        // Best-effort forensic output must never mask the write
+                        // error or prevent the dispatcher's transaction rollback.
+                    }
                     return NativeCommandResult::Failure (
                         EVP_ACAPI_FAIL ("ACAPI_Element_Create", slabError, "Baked slab; transaction rolls back"));
+                }
                 created (slab);
                 if (!wallSettings)
                     continue;

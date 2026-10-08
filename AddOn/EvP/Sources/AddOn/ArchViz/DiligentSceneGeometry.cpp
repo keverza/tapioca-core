@@ -499,6 +499,11 @@ size_t DiligentScene::SelectionCount () const
     return n;
 }
 
+std::vector<std::string> DiligentScene::SelectedGuids () const
+{
+    return impl_ != nullptr ? impl_->selectionGuids : std::vector<std::string> {};
+}
+
 bool DiligentScene::SceneBounds (float outMin[3], float outMax[3]) const
 {
     bool any = false;
@@ -536,6 +541,7 @@ DiligentSceneStats DiligentScene::Stats () const
     }
     s.sunStudy.studyId = impl_->sunStudyId;
     s.sunStudy.version = impl_->sunStudyVersion;
+    s.sunStudy.analysisKind = impl_->sunAnalysisKind;
     s.sunStudy.atlasWidth = impl_->sunAtlasWidth;
     s.sunStudy.atlasHeight = impl_->sunAtlasHeight;
     s.sunStudy.elementsNamed = impl_->sunElementsNamed;

@@ -535,7 +535,7 @@ Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::En
         for (const auto& candidate : fields.fields)
             if (candidate.id == key) {
                 Field field = candidate;
-                field.group = "BUILDING SLAB";
+                field.group = "BUILDING SOURCE";
                 field.label = key;
                 if (field.id == "massing.floorHeight" && !field.set)
                     field.number = 3;
@@ -593,8 +593,8 @@ Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::En
                     field.text = "Per story (Story slice editor)";
                 }
                 if (field.id == "massing.buildingId")
-                    field.note =
-                        "One building ID identifies one stairwell. Edits apply only to viewport-selected slabs.";
+                    field.note = "One building ID identifies a building, which may have several stairwells. Edits "
+                                 "apply only to viewport-selected slabs.";
                 page.fields.push_back (std::move (field));
                 break;
             }
@@ -672,6 +672,22 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
             error = "Use comma-separated floor heights from 2.2 to 6.0 m.";
             return false;
         }
+    }
+    else if (edit.id == "massing.stairwellLocations") {
+        if (type != meta::ValueType::List) {
+            error = "The project's stairwell definition is not a location list.";
+            return false;
+        }
+        if (edit.numbers.empty () || edit.numbers.size () % 2 || edit.numbers.size () > 64 ||
+            std::any_of (edit.numbers.begin (), edit.numbers.end (),
+                         [] (double value) { return !std::isfinite (value) || std::abs (value) > 1e9; })) {
+            error = "Stairwell locations need 1..32 finite XY pairs in project metres.";
+            return false;
+        }
+        property.value.type = meta::ValueType::List;
+        property.value.elementType = meta::ValueType::Length;
+        for (double value : edit.numbers)
+            property.value.list.push_back (meta::Value::Number (value, meta::ValueType::Length));
     }
     else if (type == meta::ValueType::Bool)
         property.value = meta::Value::Boolean (edit.on);

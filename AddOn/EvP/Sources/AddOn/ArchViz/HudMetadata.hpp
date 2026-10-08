@@ -95,6 +95,9 @@ struct Edit {
     std::string element;
     int listIndex = -1; // one floorHeight array entry; -1 replaces the complete array
     double min = 0, max = 0;
+    std::vector<double> numbers;     // Proposed stairwell XY pairs, in project metres.
+    std::string expectedBuildingKey; // Guard delayed building-wide edits against ID/role changes.
+    std::string expectedPropertyJson;
 };
 
 // The fields of `entities` -- the selected elements read -- under `schema`: its definitions that

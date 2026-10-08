@@ -466,6 +466,13 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),
+    # Visibility is another scalar atlas producer on the existing SunStudy
+    # display channel. This command adapter only assembles/enqueues the owned
+    # packet and reports whether the viewer exists; analysis remains Diligent-free.
+    ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/DiligentViewport.hpp"),
+    ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
+    ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/VisibilityStudyDisplay.hpp"),
+    ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/VisibilityStudyCapture.hpp"),
     # Pipeline instrumentation must share the renderer packet byte accounting
     # and log sink, not copy them into the command/analysis engines. These narrow
     # adapters observe owned packets only; no device, UI, or SDK calls are added.

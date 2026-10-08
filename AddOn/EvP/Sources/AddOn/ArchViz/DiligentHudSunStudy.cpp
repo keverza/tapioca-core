@@ -309,6 +309,10 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
 {
     const SunStudyOverlayStatus& study = scene.sunStudy;
+    if (study.drawing && study.analysisKind == 1) {
+        ImGui::TextWrapped ("A visibility study is on screen. Open the Visibility tab for its controls and legend.");
+        return;
+    }
     // âš ï¸ ONLY WHILE A STUDY IS ON SCREEN. A range slider with nothing to filter
     // reads as a control that does nothing -- but the machine's LIMITS are worth
     // reading before the first study, so they alone stay reachable.

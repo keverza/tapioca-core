@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <limits>
 #include <cmath>
+#include <algorithm>
 
 namespace bake = geomsrv::archviz::massingbake;
 namespace ms = geomsrv::archviz::massingslices;
@@ -14,6 +15,73 @@ SliceChain Ring (double a, double b, double c, double d)
     return { { a, b, c, b, c, d, a, d }, true };
 }
 } // namespace
+TEST (MassingBake, SlabCleanupRemovesTheLoggedMicrometreCornerStepsBeforeNativeCreation)
+{
+    geomsrv::archviz::slabslices::Ring input;
+    // First three vertices are verbatim from the 2026-10-08 10:02:40 failure.
+    // The remaining rectangle closes a representative 1.9-micrometre stair-step.
+    input.xy = { 96.14302738290297,  -261.1064460082009, 96.14302738290297,  -246.10674832295922, 96.14302738290297,
+                 -246.1067464156106, 96.14302547555434,  -246.1067464156106, 96.14302547555434,   -246.106744508262,
+                 86.14302738290297,  -246.106744508262,  86.14302738290297,  -261.1064460082009 };
+    const auto before = input.xy;
+    geomsrv::archviz::slabslices::Ring cleaned;
+    std::string error;
+    ASSERT_TRUE (bake::CleanSlabRing (input, cleaned, error)) << error;
+    ASSERT_EQ (cleaned.xy.size (), 8u);
+    EXPECT_EQ (input.xy, before);
+    for (size_t i = 0; i < cleaned.xy.size (); i += 2) {
+        const size_t j = (i + 2) % cleaned.xy.size ();
+        EXPECT_GT (std::hypot (cleaned.xy[i] - cleaned.xy[j], cleaned.xy[i + 1] - cleaned.xy[j + 1]),
+                   bake::kSlabEdgeTolerance);
+    }
+    geomsrv::archviz::slabslices::Ring again;
+    ASSERT_TRUE (bake::CleanSlabRing (cleaned, again, error));
+    EXPECT_EQ (again.xy, cleaned.xy);
+}
+TEST (MassingBake, SlabCleanupHandlesClosingNearDuplicatesCollinearPointsAndLargeCoordinates)
+{
+    geomsrv::archviz::slabslices::Ring input;
+    input.xy = { 700000,  6000000, 700005,  6000000,       700010,         6000000, 700010,
+                 6000010, 700000,  6000010, 700000.000002, 6000000.000002, 700000,  6000000 };
+    geomsrv::archviz::slabslices::Ring cleaned;
+    std::string error;
+    ASSERT_TRUE (bake::CleanSlabRing (input, cleaned, error)) << error;
+    EXPECT_EQ (cleaned.xy,
+               (std::vector<double> { 700000, 6000000, 700010, 6000000, 700010, 6000010, 700000, 6000010 }));
+    std::reverse (cleaned.xy.begin (), cleaned.xy.end ());
+    input = cleaned; // Reflected/reversed coordinates must remain equally regular.
+    ASSERT_TRUE (bake::CleanSlabRing (input, cleaned, error));
+    EXPECT_EQ (cleaned.xy.size (), 8u);
+}
+TEST (MassingBake, SlabCleanupPreservesSmallRealNotchesAndDoesNotRoundAnEntireContourToAGrid)
+{
+    geomsrv::archviz::slabslices::Ring input;
+    input.xy = { 0.123456789, 0, 10, 0, 10, 10, 5.0001, 10, 5.0001, 9.9999, 5, 9.9999, 5, 10, 0.123456789, 10 };
+    geomsrv::archviz::slabslices::Ring cleaned;
+    std::string error;
+    ASSERT_TRUE (bake::CleanSlabRing (input, cleaned, error)) << error;
+    EXPECT_EQ (cleaned.xy, input.xy);
+}
+TEST (MassingBake, SlabCleanupRefusesCollapsedHoleInvalidInputsAndArcReplacementWithoutMutatingOutput)
+{
+    geomsrv::archviz::slabslices::Ring input, cleaned;
+    cleaned.xy = { 42, 43 };
+    std::string error;
+    for (const auto& xy :
+         std::vector<std::vector<double>> { {},
+                                            { 0, 0, 1, 0, 1 },
+                                            { 0, 0, 0.000005, 0, 0, 0.000005 },
+                                            { 0, 0, 1, 0, 2, 0 },
+                                            { 0, 0, 1, 0, 1, std::numeric_limits<double>::quiet_NaN () } }) {
+        input.xy = xy;
+        EXPECT_FALSE (bake::CleanSlabRing (input, cleaned, error));
+        EXPECT_EQ (cleaned.xy, (std::vector<double> { 42, 43 }));
+    }
+    input.xy = { 0, 0, 1, 0, 1, 1, 0, 1 };
+    input.arcs = { 0.5 };
+    EXPECT_FALSE (bake::CleanSlabRing (input, cleaned, error));
+    EXPECT_EQ (cleaned.xy, (std::vector<double> { 42, 43 }));
+}
 TEST (MassingBake, CountedSlicesRetainHolesSeparateIslandsAndPhysicalElevation)
 {
     ms::Result slices;

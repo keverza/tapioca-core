@@ -136,9 +136,12 @@ void FollowHudState ()
     // to every element selected then; the page is read again after (SelectionMetadata.hpp).
     std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);
     std::vector<hudmeta::Edit> targeted, selected;
+    std::map<std::string, std::vector<hudmeta::Edit>> buildingEdits;
     std::vector<std::string> targets;
     for (auto& edit : edits)
-        if (edit.element.empty ())
+        if (!edit.expectedBuildingKey.empty ())
+            buildingEdits[edit.expectedBuildingKey].push_back (std::move (edit));
+        else if (edit.element.empty ())
             selected.push_back (std::move (edit));
         else {
             targets.push_back (edit.element);
@@ -151,6 +154,13 @@ void FollowHudState ()
         std::sort (targets.begin (), targets.end ());
         targets.erase (std::unique (targets.begin (), targets.end ()), targets.end ());
         selectionmetadata::Request (std::move (targeted), std::move (targets),
+                                    [] () { overlayhudmodel::SelectionChanged (); });
+    }
+    for (auto& [building, assigned] : buildingEdits) {
+        std::vector<std::string> members;
+        for (const auto& edit : assigned)
+            members.push_back (edit.element);
+        selectionmetadata::Request (std::move (assigned), std::move (members),
                                     [] () { overlayhudmodel::SelectionChanged (); });
     }
     // Automatic function-coloured massing slices replace the legacy accent-only highlight.

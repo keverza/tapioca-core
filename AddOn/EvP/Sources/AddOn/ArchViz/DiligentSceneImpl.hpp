@@ -386,6 +386,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     Diligent::ITextureView* sunAtlasSRV = nullptr;
     std::string sunStudyId;
     uint64_t sunStudyVersion = 0;
+    uint32_t sunAnalysisKind = 0;
     uint32_t sunAtlasWidth = 0;
     uint32_t sunAtlasHeight = 0;
     float sunHoursMax = 1.0f;

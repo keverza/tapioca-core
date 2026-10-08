@@ -106,6 +106,10 @@ struct SunStudyAtlasUpload {
     // keeps it so a HUD can say which study is on screen, and so a stale push
     // that lost a race can be recognised.
     uint64_t version = 0;
+    // 0 = direct-sun study, 1 = geometric visibility. Both use the same square-cell
+    // atlas and face maps; the kind keeps HUD controls and diagnostics honest.
+    uint32_t analysisKind = 0;
+    uint64_t captureStamp = 0; // visibility display invalidates on real model edits
 
     uint32_t width = 0;
     uint32_t height = 0;
@@ -193,6 +197,7 @@ enum class SunStudyDebugMode : uint32_t {
     SingleShadow = 5, // lit or shadowed at ONE step (the HUD's time slider)
     AmPm = 6,         // duration-weighted morning / evening shadows, split at solar noon
     ShadowFan = 7,    // the LAST chosen step at which each surface was shadowed
+    Visibility = 8,   // 0..1 geometric visibility, red (blocked) to green (visible)
 };
 
 // The full-day range's open endpoint; the warm colour ramp still saturates at 9+.

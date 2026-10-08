@@ -158,12 +158,15 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySession.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/VisibilityStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPreset.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlasReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyDisplayData.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyDisplayAssembler.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/VisibilityStudyDisplay.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/VisibilityStudyController.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
@@ -506,6 +509,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBakeGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroomDisplay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBuildings.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudBuildingPlan.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudBuildingPlanDraw.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingAreaCalculations.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseZone.cpp"
@@ -731,6 +736,7 @@ set (EVP_TEST_SOURCES
     test_massingstats.cpp
     test_massingcollapse.cpp
     test_massingbuildings.cpp
+    test_hudbuildingplan.cpp
     test_massingheadroom.cpp
     test_massingbake.cpp
     test_terrainprojection.cpp
@@ -780,6 +786,7 @@ set (EVP_TEST_SOURCES
     test_cputraversal.cpp
     test_sunseries.cpp
     test_sunstudyocclusion.cpp
+    test_visibilitystudy.cpp
     test_sunstudyoccluders.cpp
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp

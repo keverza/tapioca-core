@@ -26,6 +26,11 @@ void Engine::SetOwnPages (OwnPages pages)
             impl_->store->pickedFloorBuilding.clear ();
             impl_->store->floors = {};
         }
+        for (auto it = impl_->store->buildingPlans.begin (); it != impl_->store->buildingPlans.end ();)
+            if (!has (it->first))
+                it = impl_->store->buildingPlans.erase (it);
+            else
+                ++it;
     }
     impl_->own = std::move (pages);
 }

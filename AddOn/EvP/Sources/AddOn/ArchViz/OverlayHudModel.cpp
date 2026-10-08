@@ -428,6 +428,8 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         pages.section = hudsection::Filter (slices->section, members);
         pages.buildings =
             massingbuildings::Previews (slices->section, pages.massing.buildingSlabs, slices->heightControls, selected);
+        for (auto& preview : pages.buildings)
+            preview.plan = buildingplan::Build (*slices, preview);
         for (const auto& page : slices->heightControls)
             if (std::find (members.begin (), members.end (), page.element) != members.end ())
                 pages.storyHeights.push_back (page);
@@ -466,7 +468,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         card.figures.push_back ({ "1st floor area", Format ("%.2f m2", first) });
         for (auto& figure : massingareas::Figures (total, coefficients))
             card.figures.push_back (std::move (figure));
-        card.figures.push_back ({ "Slab volume (slice estimate)", Format ("%.2f m3", slices->rawVolume) });
+        card.figures.push_back ({ "Massing volume (slice estimate)", Format ("%.2f m3", slices->rawVolume) });
         if (slices->clipped)
             card.figures.push_back ({ "Allowed volume (slice estimate)", Format ("%.2f m3", slices->allowedVolume) });
         if (slices->hasCoverage) {
@@ -495,7 +497,7 @@ overlayhud::OwnPages Pages (overlayinput::View view)
                       Format ("%.3f", slices->allowedArea / calculation.preview->result.parcelArea) });
         }
         card.note = slices->note;
-        card.note += " Volume estimates sum slice area x height to the next floor/slab top; not exact SEO body volume.";
+        card.note += " Volume estimates sum slice area x height to the next floor/source top; not exact body volume.";
         pages.stats.push_back (std::move (card));
     }
     pages.console = hudconsole::Entries (); // the Debug tab's console: what to check when something fails
@@ -550,6 +552,11 @@ void SelectionChanged ()
 {
     massingslicesmodel::Changed ();
     massingmodel::Changed ();
+    RefreshSelection ();
+}
+
+void RefreshSelection ()
+{
     g_selectionDirty = true;
     overlayinput::RequestLayout (overlayinput::View::ThreeD);
     overlayinput::RequestLayout (overlayinput::View::Plan);

@@ -52,7 +52,6 @@
 #include <vector>
 
 namespace geomsrv::archviz {
-
 void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 {
     const bool offscreen = surface.mode == SurfaceMode::Offscreen;
@@ -690,6 +689,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 const std::string selectedGuid = scene.PrimarySelectedGuid ();
                 hudState.selected =
                     selectedGuid.empty () ? DiligentScene::ElementInfo {} : scene.InfoForGuid (selectedGuid);
+                hudState.visibilitySelection = scene.SelectedGuids ();
             }
 
             // ---- the cursor's coordinate, for the callout --------------------
@@ -704,7 +704,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 float rayDir[3];
                 camera.CursorRay (CursorTargetX (input, width), CursorTargetY (input, height), width, height, rayOrigin,
                                   rayDir);
-                ServiceSunStudyInspector (hudState, scene, rayOrigin, rayDir);
+                viewerhud::ServiceAnalysisInteractions (hudState, scene, input, rayOrigin, rayDir);
                 // A ray parallel to z=0 never meets it; one pointing away meets it
                 // only behind the viewer, which is not what the cursor is over.
                 if (std::abs (rayDir[2]) > 1e-6f) {
@@ -915,7 +915,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.width = width;
                 hudState.height = height;
                 hudState.frameLatency = target.FrameLatency ();
-                hud.Draw (context, width, height, input, hudScene, annotations, hudState, !annotationsOnly);
+                hud.Draw (context, width, height, input, hudScene, annotations, motionViewProj, hudState, !annotationsOnly);
             }
             gpuTimings.End (context, GpuTimingStage::Post);
             // The current renderer is a single-sample forward raster path. Keep

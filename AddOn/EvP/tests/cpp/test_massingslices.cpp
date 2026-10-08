@@ -1,5 +1,6 @@
 #include "ArchViz/MassingSlices.hpp"
 #include "ArchViz/SlabBodies.hpp"
+#include "ArchViz/MassingBake.hpp"
 #include "Geometry/Primitives.hpp"
 #include "NodeGraph/Json.hpp"
 
@@ -56,6 +57,151 @@ geomsrv::archviz::massingcalculation::Result Envelope (layers::Mesh mesh = Box (
     return envelope;
 }
 } // namespace
+
+TEST (MassingSlices, BodySourceUsesOperatedVertexElevationsNotHomeStoryOrCachedBounds)
+{
+    geomsrv::Mesh body;
+    std::string error;
+    ASSERT_TRUE (geomsrv::engine::MakeBox ({ 5, 5, -6.5 }, 10, 10, 9, body, error));
+    body.bounds.mn[2] = 100;
+    body.bounds.mx[2] = 200; // The source extent must not trust stale bounds.
+    auto input = Slab (99);
+    input.slab.bottom = 50;
+    ASSERT_TRUE (geomsrv::archviz::slabslices::FromBody (input.slab, body, error)) << error;
+    EXPECT_DOUBLE_EQ (input.slab.bottom, -11);
+    EXPECT_DOUBLE_EQ (input.slab.top, -2);
+    EXPECT_TRUE (input.slab.bodyRequired);
+    EXPECT_EQ (input.slab.guid, "slab");
+    EXPECT_EQ (input.slab.id, "A");
+}
+
+TEST (MassingSlices, BodySourceRejectsMissingInvalidFlatAndOverBudgetGeometryWithoutChangingTheSource)
+{
+    geomsrv::Mesh box;
+    std::string error;
+    ASSERT_TRUE (geomsrv::engine::MakeBox ({ 0, 0, 4.5 }, 10, 10, 9, box, error));
+    std::vector<geomsrv::Mesh> bad { {} };
+    auto broken = box;
+    broken.vertices.push_back (0);
+    bad.push_back (broken);
+    broken = box;
+    broken.triangles[0] = uint32_t (broken.VertexCount ());
+    bad.push_back (broken);
+    broken = box;
+    broken.vertices[0] = std::numeric_limits<double>::quiet_NaN ();
+    bad.push_back (broken);
+    broken = box;
+    for (size_t i = 2; i < broken.vertices.size (); i += 3)
+        broken.vertices[i] = 0;
+    bad.push_back (broken);
+    broken = box;
+    broken.vertices.resize (600003);
+    bad.push_back (broken);
+    for (const auto& body : bad) {
+        auto input = Slab (99);
+        EXPECT_FALSE (geomsrv::archviz::slabslices::FromBody (input.slab, body, error));
+        EXPECT_FALSE (error.empty ());
+        EXPECT_DOUBLE_EQ (input.slab.top, 99);
+        EXPECT_FALSE (input.slab.bodyRequired);
+    }
+    auto input = Slab ();
+    input.slab.bodyRequired = true;
+    ms::Result result;
+    EXPECT_FALSE (ms::Build ({ input }, {}, nullptr, result, error));
+    EXPECT_NE (error.find ("no prism substitute"), std::string::npos);
+}
+
+TEST (MassingSlices, TaperedBodyOnlyMassingSourceFeedsFloorMetadataPlanAndBakeExport)
+{
+    auto body = std::make_shared<geomsrv::Mesh> ();
+    std::string error;
+    ASSERT_TRUE (geomsrv::engine::MakeBox ({ 5, 5, 4.5 }, 10, 10, 9, *body, error));
+    for (size_t i = 0; i < body->vertices.size (); i += 3)
+        if (body->vertices[i + 2] > 5) {
+            body->vertices[i] = 5 + (body->vertices[i] - 5) * 0.5;
+            body->vertices[i + 1] = 5 + (body->vertices[i + 1] - 5) * 0.5;
+        }
+    ms::Input input; // No slab polygon or native thickness: a mesh/Morph-shaped source.
+    input.slab.guid = "morph";
+    input.body = input.facadeBody = body;
+    ASSERT_TRUE (geomsrv::archviz::slabslices::FromBody (input.slab, *body, error));
+    Set (input, "tapioca.role", meta::Value::Text ("MassingSlab"));
+    Set (input, "massing.buildingId", meta::Value::Text ("A"));
+    Set (input, "massing.floorHeight", meta::Value::Number (3, meta::ValueType::Length));
+    ms::Result result;
+    ASSERT_TRUE (ms::Build ({ input }, {}, nullptr, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 3u);
+    EXPECT_NEAR (result.rows[0].rawVolume / 3, 100, 1e-4);
+    EXPECT_NEAR (result.rows[1].rawVolume / 3, 100 * 25.0 / 36.0, 1e-4);
+    EXPECT_NEAR (result.rows[2].rawVolume / 3, 100 * 4.0 / 9.0, 1e-4);
+    EXPECT_GT (result.rows[0].rawArea, result.rows[1].rawArea);
+    EXPECT_GT (result.rows[1].rawArea, result.rows[2].rawArea);
+    const auto previews =
+        geomsrv::archviz::massingbuildings::Previews (result.section, { { "morph", "A" } }, {}, { "morph" });
+    ASSERT_EQ (previews.size (), 1u);
+    const auto plan = geomsrv::archviz::buildingplan::Build (result, previews.front ());
+    ASSERT_EQ (plan.floors.size (), 3u);
+    EXPECT_TRUE (geomsrv::archviz::buildingplan::Contains (plan.floors[0], { 5, 5 }));
+    EXPECT_FALSE (geomsrv::archviz::buildingplan::Contains (plan.floors[2], { 0.5, 0.5 }));
+    std::string json;
+    ASSERT_TRUE (geomsrv::archviz::massingbake::Export2DJson (result, json, error)) << error;
+    EXPECT_NE (json.find ("morph"), std::string::npos);
+    EXPECT_NE (json.find ("tapioca.story-slices.2d"), std::string::npos);
+    evp::nodegraph::json::JsonValue geometry;
+    ASSERT_TRUE (geomsrv::archviz::massingbake::Geometry (geomsrv::archviz::massingbake::Kind::Slices, &result, nullptr,
+                                                          {}, geometry, error))
+        << error;
+    EXPECT_EQ (geometry.Find ("items")->AsArray ()->size (), 3u);
+}
+
+TEST (MassingSlices, BodyOnlySourcePreservesCourtyardsAndIslandsWithoutInventingAnOuterBox)
+{
+    auto body = std::make_shared<geomsrv::Mesh> ();
+    std::string error;
+    const auto append = [&] (geomsrv::engine::Vector3 centre, double width, bool reverse) {
+        geomsrv::Mesh part;
+        EXPECT_TRUE (geomsrv::engine::MakeBox (centre, width, width, 9, part, error));
+        const auto base = uint32_t (body->VertexCount ());
+        body->vertices.insert (body->vertices.end (), part.vertices.begin (), part.vertices.end ());
+        for (size_t i = 0; i < part.triangles.size (); i += 3) {
+            body->triangles.push_back (base + part.triangles[i]);
+            body->triangles.push_back (base + part.triangles[i + (reverse ? 2 : 1)]);
+            body->triangles.push_back (base + part.triangles[i + (reverse ? 1 : 2)]);
+        }
+    };
+    append ({ 5, 5, 4.5 }, 10, false);
+    append ({ 5, 5, 4.5 }, 2, true);
+    append ({ 22, 2, 4.5 }, 4, false);
+    ms::Input input;
+    input.slab.guid = "mesh";
+    input.body = input.facadeBody = body;
+    ASSERT_TRUE (geomsrv::archviz::slabslices::FromBody (input.slab, *body, error));
+    ms::Result result;
+    ASSERT_TRUE (ms::Build ({ input }, {}, nullptr, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 3u);
+    EXPECT_NEAR (result.rows[0].rawArea, 112, 1e-5);
+    EXPECT_EQ (result.rows[0].footprintChains.size (), 3u);
+    evp::nodegraph::json::JsonValue geometry;
+    ASSERT_TRUE (geomsrv::archviz::massingbake::Geometry (geomsrv::archviz::massingbake::Kind::Slices, &result, nullptr,
+                                                          {}, geometry, error))
+        << error;
+    EXPECT_EQ (geometry.Find ("items")->AsArray ()->size (), 6u); // Two separate slabs at each floor.
+}
+
+TEST (MassingSlices, OpenMassingBodySectionsAreRefusedBeforeAreaAndBakeContoursArePublished)
+{
+    auto body = std::make_shared<geomsrv::Mesh> ();
+    body->vertices = { 0, 0, 0, 10, 0, 0, 10, 0, 9, 0, 0, 9 };
+    body->triangles = { 0, 1, 2, 0, 2, 3 }; // An open Morph plane, not a building volume.
+    ms::Input input;
+    input.body = body;
+    std::string error;
+    ASSERT_TRUE (geomsrv::archviz::slabslices::FromBody (input.slab, *body, error));
+    ms::Result result;
+    EXPECT_FALSE (ms::Build ({ input }, {}, nullptr, result, error));
+    EXPECT_NE (error.find ("open cross-section"), std::string::npos);
+    EXPECT_TRUE (result.rows.empty ());
+}
 
 TEST (MassingSlices, ThinSelectedSlabRetainsOneFloorButIsGrayAndExcludedWithoutAnEnvelope)
 {

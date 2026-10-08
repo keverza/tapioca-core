@@ -328,6 +328,41 @@ Summary SliceSlab (const Slab& slab, const Rule& rule, const ProjectStoreys& sto
     return summary;
 }
 
+bool FromBody (Slab& source, const Mesh& body, std::string& error)
+{
+    error.clear ();
+    if (body.vertices.empty () || body.triangles.empty () || body.vertices.size () % 3 || body.triangles.size () % 3 ||
+        body.vertices.size () > 600000 || body.triangles.size () > 600000) {
+        error = "Massing source body is empty or exceeds its geometry budget.";
+        return false;
+    }
+    double bottom = 1e300, top = -1e300;
+    for (size_t i = 0; i < body.vertices.size (); ++i) {
+        const double coordinate = body.vertices[i];
+        if (!std::isfinite (coordinate) || std::abs (coordinate) > 1e9) {
+            error = "Invalid massing source body coordinate.";
+            return false;
+        }
+        if (i % 3 == 2) {
+            bottom = (std::min) (bottom, coordinate);
+            top = (std::max) (top, coordinate);
+        }
+    }
+    for (uint32_t index : body.triangles)
+        if (index >= body.VertexCount ()) {
+            error = "Invalid massing source body index.";
+            return false;
+        }
+    if (top - bottom <= 1e-6) {
+        error = "Massing source needs a 3D volume, not a flat surface.";
+        return false;
+    }
+    source.bottom = bottom;
+    source.top = top;
+    source.bodyRequired = true;
+    return true;
+}
+
 Summary SliceBody (const Slab& slab, const Mesh& body, const Rule& rule, const ProjectStoreys& storeys,
                    std::vector<storysliceoverlay::Slice>& out, bool keepEmptyFloors)
 {

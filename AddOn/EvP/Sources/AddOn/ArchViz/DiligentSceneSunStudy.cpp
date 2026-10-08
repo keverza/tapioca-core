@@ -20,6 +20,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include <chrono>
 #include "ArchViz/DiligentShaders.hpp"
+#include "Geometry/MeshStore.hpp"
 
 #include <Sampler.h>
 #include <Texture.h>
@@ -234,6 +235,7 @@ void DiligentScene::ClearSunStudy ()
     impl_->sunStepMinutes.clear ();
     impl_->sunStudyId.clear ();
     impl_->sunStudyVersion = 0;
+    impl_->sunAnalysisKind = 0;
     impl_->sunAtlasWidth = 0;
     impl_->sunAtlasHeight = 0;
     impl_->sunHoursMax = 1.0f;
@@ -259,6 +261,11 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, Diligent::ID
 
     if (device == nullptr || study == nullptr)
         return;
+    if (study->analysisKind == 1 && study->captureStamp != 0 &&
+        study->captureStamp != MeshStore::Get ().CaptureStamp ()) {
+        impl_->sunRejection = "visibility capture is stale; run it again";
+        return;
+    }
     if (study->width == 0 || study->height == 0 || study->texels == nullptr) {
         impl_->sunRejection = "the study carried no atlas image";
         ArchVizLog ("Diligent scene: sun study refused -- " + impl_->sunRejection);
@@ -420,6 +427,7 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, Diligent::ID
 
     impl_->sunStudyId = study->studyId;
     impl_->sunStudyVersion = study->version;
+    impl_->sunAnalysisKind = study->analysisKind;
     impl_->sunAtlasWidth = study->width;
     impl_->sunAtlasHeight = study->height;
     impl_->sunHoursMax = study->hoursMax > 0.0f ? study->hoursMax : 1.0f;
@@ -603,7 +611,9 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyParams[1] = impl_->sunAtlasHeight > 0 ? 1.0f / float (impl_->sunAtlasHeight) : 0.0f;
     constants.sunStudyParams[2] = impl_->sunHoursMax;
     // The HUD's view wins over the commanded one while it holds a choice.
-    const uint32_t mode = impl_->sunViewOverride >= 0 ? uint32_t (impl_->sunViewOverride) : impl_->sunDebugMode;
+    const uint32_t mode = impl_->sunAnalysisKind == 1
+                              ? uint32_t (SunStudyDebugMode::Visibility)
+                              : (impl_->sunViewOverride >= 0 ? uint32_t (impl_->sunViewOverride) : impl_->sunDebugMode);
     constants.sunStudyParams[3] = float (mode);
     const uint32_t lastStep = impl_->sunStepCount > 0 ? impl_->sunStepCount - 1 : 0u;
     constants.sunStudyShadow[0] = float ((std::min) (impl_->sunViewStep, lastStep));
@@ -684,6 +694,11 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
 {
     if (impl_ == nullptr)
         return;
+    if (impl_->sunAnalysisKind == 1 && impl_->sunStudyPayload != nullptr && impl_->sunStudyPayload->captureStamp != 0 &&
+        impl_->sunStudyPayload->captureStamp != MeshStore::Get ().CaptureStamp ()) {
+        ClearSunStudy ();
+        impl_->sunRejection = "visibility invalidated by a model edit; run it again";
+    }
     impl_->sunFilterLo = (std::max) (0.0f, view.lo); // parenthesised: windows.h defines max
     // The slider's top is "9+": at it, no surface is cut off for having MORE.
     impl_->sunFilterHi = view.hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, view.hi);

@@ -318,6 +318,15 @@ class SceneCmdQueue final {
     void PushEndPointLayer (const std::string& layerId);
     void PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> study);
     void PushClearSunStudy ();
+    // Explicit display requests take ownership; background sun refreshes never
+    // do. Tokens reject completions from a superseded request of either kind.
+    uint64_t ClaimAnalysisDisplay (uint32_t kind);
+    uint32_t AnalysisDisplayKind () const;
+    uint64_t AnalysisDisplayGeneration () const;
+    bool OwnsAnalysisDisplay (uint64_t generation) const;
+    bool PushAnalysisAtlas (uint64_t generation, std::unique_ptr<SunStudyAtlasUpload> study);
+    bool PushClearAnalysis (uint64_t generation);
+    bool PushClearAnalysisKind (uint32_t kind);
 
     // ---- consumer, on the render thread ----
     // Move out up to `max` commands. Bounded on purpose: draining an entire
@@ -351,6 +360,8 @@ class SceneCmdQueue final {
     std::vector<SceneCmd> queue_;
     size_t pendingBytes_ = 0;
     bool consumer_ = false;
+    uint64_t analysisGeneration_ = 1;
+    uint32_t analysisKind_ = 0;
 };
 
 } // namespace archviz

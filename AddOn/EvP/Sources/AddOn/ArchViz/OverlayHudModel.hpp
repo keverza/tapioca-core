@@ -37,6 +37,9 @@ overlayhud::Engine* Prepare (overlayinput::View view);
 // Archicad's selection changed: read again at the next layout, and both views' HUDs laid out
 // again. From Archicad's notification: cheap, nothing read here.
 void SelectionChanged ();
+// Completed source geometry changed: reread Selection without dirtying the
+// source model again (otherwise each massing publish schedules another rebuild).
+void RefreshSelection ();
 
 // The floors the user picked on the building section, after a layout: their slices drawn on
 // the 3D overlay when they, or the section, changed (SectionModel.hpp).

@@ -22,6 +22,7 @@ void PrepareSunStudyDisplay (const std::string& id, uint64_t revision, std::shar
 struct ManualSunStudyDisplayRequest {
     std::string studyId;
     uint64_t revision = 0, sessionGeneration = 0, captureStamp = 0;
+    uint64_t displayGeneration = 0;
     std::shared_ptr<const Snapshot> snapshot;
     archviz::SunStudyDisplayOptions options;
     sunfollow::ActiveSunStudyConfig config;

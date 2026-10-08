@@ -50,12 +50,18 @@ Reading Read (const std::vector<std::string>& guids)
     if (members.empty ())
         return out;
     if (members.size () > kMostSlabs) {
-        out.section.note = "Building section exceeds its slab budget; no partial building preview.";
+        out.section.note = "Building section exceeds its source budget; no partial building preview.";
         return out;
     }
     const auto& taken = members;
+    out.slabs = taken; // Keep retained floor picks while current source bodies are pending.
     const ProjectStoreys storeys = ReadStoreys ();
-    const slabsource::Reading slabs = slabsource::Read (taken, storeys);
+    const auto bodies = slabbodies::Latest ();
+    const slabsource::Reading slabs = slabsource::ReadMassing (taken, bodies.get ());
+    if (!slabs.skipped.empty ()) {
+        out.section.note = slabs.skipped.front ().reason + " No partial building section displayed.";
+        return out;
+    }
     if (slabs.slabs.empty ())
         return out;
     meta::ProjectSchema schema;
@@ -74,7 +80,13 @@ Reading Read (const std::vector<std::string>& guids)
     for (const slabslices::Slab& slab : slabs.slabs) {
         hudsection::Slab mass;
         mass.guid = slab.guid;
-        const slabslices::Summary summary = slabslices::SliceSlab (slab, rule, storeys, out.slices);
+        const slabslices::Summary summary =
+            slabslices::SliceBody (slab, bodies->meshes.at (slab.guid), rule, storeys, out.slices, true);
+        if (!summary.problem.empty ()) {
+            out.slices.clear ();
+            out.section.note = summary.problem;
+            return out;
+        }
         mass.floors = summary.floors;
         std::vector<double> bases;
         for (const slabslices::Floor& floor : summary.floors)
@@ -83,9 +95,15 @@ Reading Read (const std::vector<std::string>& guids)
         bool present = false;
         if (!meta::storage::Read (slab.guid, mass.meta, present, error) && first.empty ())
             first = error;
-        out.slabs.push_back (slab.guid);
         masses.push_back (std::move (mass));
     }
+    for (const auto& slice : out.slices)
+        for (const auto& chain : slice.chains)
+            if (!chain.closed) {
+                out.slices.clear ();
+                out.section.note = "Massing source has an open cross-section; no partial building section displayed.";
+                return out;
+            }
     out.section = hudsection::Build (masses, storeys, schema);
     out.section.note = first;
     return out;

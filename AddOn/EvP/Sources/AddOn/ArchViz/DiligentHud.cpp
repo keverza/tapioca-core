@@ -192,8 +192,8 @@ void DiligentHud::Shutdown ()
 }
 
 void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, const InputSnapshot& input,
-                        const DiligentSceneStats& scene, const ProjectedDrawList& annotations, HudState& state,
-                        bool showControls)
+                        const DiligentSceneStats& scene, const ProjectedDrawList& annotations,
+                        const float viewProj[16], HudState& state, bool showControls)
 {
     if (context == nullptr || !impl_->ready || width == 0 || height == 0)
         return;
@@ -382,6 +382,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                                          state.graphInteractionFastPath);
     state.graphInteractionActive = ImGui::IsAnyItemActive ();
     DrawSunStudyInspectorTooltip (state, input, width, height);
+    viewerhud::DrawVisibilityConeOverlay (state, viewProj, width, height);
 
     // ⚠️ NO FRAME-COST BADGE OVER THE VIEW (the user, 2026-10-03: a leftover panel; remove it).
     // The cost is the Debug tab's -- the rate, this frame, the worst of the last seconds -- and

@@ -90,6 +90,7 @@ struct SunStudyOverlayStatus {
     // id so a caller can see WHICH study was turned away.
     std::string studyId;
     uint64_t version = 0;
+    uint32_t analysisKind = 0; // SunStudyAtlasUpload::analysisKind
     uint32_t atlasWidth = 0;
     uint32_t atlasHeight = 0;
     // What the COMMAND asked to show, and the day the shadow views can scrub:
@@ -683,6 +684,7 @@ class DiligentScene final {
     // The element the properties panel describes. Empty when nothing is selected.
     std::string PrimarySelectedGuid () const;
     size_t SelectionCount () const;
+    std::vector<std::string> SelectedGuids () const;
 
     // The whole scene's AABB, elements only. False when no element has arrived:
     // framing an empty scene points the camera at the origin, which reads as

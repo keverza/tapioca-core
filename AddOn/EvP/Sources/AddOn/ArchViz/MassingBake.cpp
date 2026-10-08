@@ -11,9 +11,52 @@
 #include "Python/MainThreadGate.hpp"
 #include "Python/PathUtils.hpp"
 #include <atomic>
+#include <chrono>
+#include <algorithm>
+#include <cmath>
 #include <thread>
 
 namespace geomsrv::archviz::massingbake {
+void RejectedSlab (const std::vector<SliceChain>& rings, const std::string& group, double z, uint64_t token,
+                   size_t sourceIndex)
+{
+    namespace js = evp::nodegraph::json;
+    using V = js::JsonValue;
+    js::JsonArray contours;
+    double minEdge = 1e300;
+    for (const auto& ring : rings) {
+        js::JsonArray points;
+        for (size_t i = 0; i < ring.Count (); ++i) {
+            const size_t j = (i + 1) % ring.Count ();
+            minEdge = (std::min) (minEdge, std::hypot (ring.xy[i * 2] - ring.xy[j * 2],
+                                                       ring.xy[i * 2 + 1] - ring.xy[j * 2 + 1]));
+            points.push_back (
+                V::Object ({ { "x", V::Double (ring.xy[i * 2]) }, { "y", V::Double (ring.xy[i * 2 + 1]) } }));
+        }
+        contours.push_back (V::Array (std::move (points)));
+    }
+    const auto fixture = V::Object ({ { "format", V::String ("tapioca.massing-bake.rejected") },
+                                      { "version", V::Integer (1) },
+                                      { "units", V::String ("m") },
+                                      { "group", V::String (group) },
+                                      { "z", V::Double (z) },
+                                      { "minimumEdge", V::Double (minEdge) },
+                                      { "contours", V::Array (std::move (contours)) } });
+    const auto milliseconds =
+        std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::system_clock::now ().time_since_epoch ())
+            .count ();
+    const auto root = evp::EvpDataDir ();
+    if (root.IsEmpty ())
+        return;
+    const GS::UniString directory (root + GS::UniString ("\\logs"));
+    const std::string name = "\\massing-bake-rejected-" + std::to_string (milliseconds) + "-" + std::to_string (token) +
+                             "-" + std::to_string (sourceIndex) + ".json";
+    const GS::UniString path (directory + GS::UniString (name.c_str (), CC_UTF8));
+    GS::UniString error;
+    if (evp::CreateDirectoryChain (directory) && evp::WriteTextFile (path, js::Write (fixture, 2).c_str (), error))
+        ArchVizLog ("MASSING BAKE rejected polygon fixture: " +
+                    std::string (path.ToCStr (0, MaxUSize, CC_UTF8).Get ()));
+}
 namespace {
 namespace js = evp::nodegraph::json;
 std::thread s_worker;

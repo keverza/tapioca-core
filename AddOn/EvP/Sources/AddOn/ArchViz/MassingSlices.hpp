@@ -5,6 +5,7 @@
 #include "ArchViz/SlabSlices.hpp"
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/MassingBuildings.hpp"
+#include "ArchViz/HudBuildingPlan.hpp"
 
 namespace geomsrv::archviz::massingslices {
 constexpr char kLayer[] = "tapioca.massing.storySlices";
@@ -12,7 +13,7 @@ struct Input {
     slabslices::Slab slab;
     metadata::EntityMetadata metadata;
     std::shared_ptr<const geomsrv::Mesh> body;
-    // Current extracted surface for facade measurement without changing prism slice previews.
+    // Current extracted surface; native defined sources also use it for body slicing.
     std::shared_ptr<const geomsrv::Mesh> facadeBody;
 };
 struct Row {
@@ -44,6 +45,7 @@ struct Result {
     bool hasFacade = false;
     std::vector<hudmeta::Page> heightControls;
     std::vector<massingbuildings::Surface> buildingSurfaces;
+    std::vector<buildingplan::Source> planSources;
     bool clipped = false;
     double rawVolume = 0, allowedVolume = 0;
     double builtArea = 0, unbuiltArea = 0, parcelArea = 0;

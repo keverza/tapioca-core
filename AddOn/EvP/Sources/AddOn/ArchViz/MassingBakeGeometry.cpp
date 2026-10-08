@@ -130,6 +130,56 @@ bool Solid (const overlaylayers::Mesh& mesh, V& result, std::string& error)
     return true;
 }
 } // namespace
+bool CleanSlabRing (const slabslices::Ring& input, slabslices::Ring& output, std::string& error)
+{
+    if (input.xy.size () % 2 || input.xy.size () < 6 || input.xy.size () > 8192 ||
+        std::any_of (input.arcs.begin (), input.arcs.end (), [] (double angle) { return angle != 0; }))
+        return Fail (error, "Slab bake needs straight rings with 3..4096 vertices.");
+    const double ox = input.xy[0], oy = input.xy[1];
+    cp::PathD path;
+    for (size_t i = 0; i < input.xy.size (); i += 2) {
+        const double x = input.xy[i], y = input.xy[i + 1];
+        if (!std::isfinite (x) || !std::isfinite (y) || std::abs (x) > 1e9 || std::abs (y) > 1e9)
+            return Fail (error, "Slab bake ring has an invalid coordinate.");
+        path.emplace_back (x - ox, y - oy);
+    }
+    const auto distance = [] (const auto& a, const auto& b) { return std::hypot (a.x - b.x, a.y - b.y); };
+    const double originalArea = std::abs (cp::Area (path));
+    double perimeter = 0;
+    for (size_t i = 0; i < path.size (); ++i)
+        perimeter += distance (path[i], path[(i + 1) % path.size ()]);
+    // Clip/float-derived contour corners can contain several 1-2 micrometre
+    // steps. RegularizePolygon is topological; it is not a min-edge guarantee.
+    // Drop these before asking the SDK to regularize, never after a failed write.
+    for (;;) {
+        cp::PathD retained;
+        for (const auto& point : path)
+            if (retained.empty () || distance (retained.back (), point) > kSlabEdgeTolerance)
+                retained.push_back (point);
+        while (retained.size () > 1 && distance (retained.front (), retained.back ()) <= kSlabEdgeTolerance)
+            retained.pop_back ();
+        retained = cp::SimplifyPath (retained, kSlabEdgeTolerance);
+        if (retained.size () < 3 || std::abs (cp::Area (retained)) <= 1e-12)
+            return Fail (error,
+                         "Slab bake contour or hole collapses at the 0.02 mm native edge tolerance; nothing baked.");
+        if (retained.size () == path.size ()) {
+            path = std::move (retained);
+            break;
+        }
+        path = std::move (retained);
+    }
+    // Refuse substantial geometry changes; do not turn a tiny courtyard/island
+    // into filled material or silently skip it. Every caller ring must survive.
+    if (std::abs (std::abs (cp::Area (path)) - originalArea) > perimeter * kSlabEdgeTolerance + 1e-9)
+        return Fail (error, "Slab bake cleanup would change the contour area beyond native tolerance.");
+    slabslices::Ring cleaned;
+    for (const auto& point : path) {
+        cleaned.xy.push_back (point.x + ox);
+        cleaned.xy.push_back (point.y + oy);
+    }
+    output = std::move (cleaned);
+    return true;
+}
 bool Geometry (Kind kind, const massingslices::Result* slices, const massingcalculation::Result* envelope,
                const std::vector<SliceChain>& collapse, V& result, std::string& error)
 {

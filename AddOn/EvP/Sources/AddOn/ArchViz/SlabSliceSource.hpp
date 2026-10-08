@@ -19,6 +19,7 @@
 // MAIN THREAD ONLY: all of it is ACAPI.
 
 #include "ArchViz/SlabSlices.hpp"
+#include "ArchViz/SlabBodies.hpp"
 
 #include <cstdint>
 #include <string>
@@ -44,6 +45,10 @@ struct Reading {
 
 // Each element of `guids` read as a slab; anything else skipped with its reason.
 Reading Read (const std::vector<std::string>& guids, const ProjectStoreys& storeys);
+
+// Defined MassingSlab-role sources: Slabs, Meshes and Morphs, all from the
+// ticket-validated operated 3D cache. Missing/invalid bodies are explicitly skipped.
+Reading ReadMassing (const std::vector<std::string>& guids, const slabbodies::Bodies* bodies);
 
 // Each element's modification stamp, 0 for one that no longer exists.
 std::vector<uint64_t> Stamps (const std::vector<std::string>& guids);

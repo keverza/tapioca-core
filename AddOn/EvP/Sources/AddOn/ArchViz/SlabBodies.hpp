@@ -4,6 +4,8 @@
 // ArchViz/SlabBodies -- the 3D bodies of the slabs the storey slices cut from their body
 // (SlabSlices `SliceBody`): which slabs are wanted, and the latest bodies the extraction
 // read for them.
+// The legacy cache name is retained; GUID capture is type-neutral and also
+// supplies defined Mesh/Morph massing sources with their operated bodies.
 //
 // ⚠️ FROM THE PASS THAT DRAWS THE WIREFRAME, AFTER IT. A solid element operation exists
 // only in the 3D model, and the pass reads the 3D model as the modeler has it -- the

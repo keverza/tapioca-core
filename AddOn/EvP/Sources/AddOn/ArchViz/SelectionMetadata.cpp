@@ -10,6 +10,8 @@
 #include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/SectionModel.hpp"
 #include "ArchViz/TextPrompt.hpp"
+#include "ArchViz/HudBuildingPlan.hpp"
+#include "ArchViz/MassingModel.hpp"
 #include "Metadata/MetadataStorage.hpp"
 
 #include <windows.h>
@@ -108,6 +110,65 @@ GS::UniString StepName (const std::vector<hudmeta::Edit>& edits)
     return GS::UniString (("Tapioca: " + what).c_str (), CC_UTF8);
 }
 
+void WriteBuildingLocations (const Pending& pending, const meta::ProjectSchema& schema, int64_t now)
+{
+    const std::string key = pending.edits.front ().expectedBuildingKey;
+    std::vector<std::string> targets = pending.guids;
+    std::sort (targets.begin (), targets.end ());
+    targets.erase (std::unique (targets.begin (), targets.end ()), targets.end ());
+    // Refresh the source index before committing: a pasted/newly defined member
+    // must not be left with a different building-wide proposal.
+    massingmodel::Changed ();
+    const auto groups = massingbuildings::Groups (massingmodel::Read ().buildingSlabs);
+    const auto group =
+        std::find_if (groups.begin (), groups.end (), [&] (const auto& item) { return item.key == key; });
+    if (group == groups.end () || group->guids != targets || pending.edits.size () != targets.size ()) {
+        Fail ("Building membership changed; reload the plan before saving stairwells.");
+        return;
+    }
+    std::vector<std::pair<std::string, meta::EntityMetadata>> prepared;
+    for (const auto& guid : targets) {
+        const auto edit = std::find_if (pending.edits.begin (), pending.edits.end (),
+                                        [&] (const auto& item) { return item.element == guid; });
+        meta::EntityMetadata entity;
+        bool present = false;
+        std::string why;
+        if (edit == pending.edits.end () || edit->id != buildingplan::kLocations || edit->expectedBuildingKey != key ||
+            !meta::storage::Read (guid, entity, present, why) || !buildingplan::Matches (entity, *edit)) {
+            Fail ("Building identity or saved stairwell metadata changed; reload the plan before saving.");
+            return;
+        }
+        if (!hudmeta::Apply (entity, *edit, schema, now, why)) {
+            Fail (why);
+            return;
+        }
+        const auto problems = meta::Validate (entity, schema);
+        if (!problems.empty ()) {
+            Fail (problems.front ());
+            return;
+        }
+        prepared.emplace_back (guid, std::move (entity));
+    }
+    std::string writeError;
+    const GSErrCode err =
+        ACAPI_CallUndoableCommand (GS::UniString ("Tapioca: Proposed stairwells"), [&] () -> GSErrCode {
+            for (auto& [guid, entity] : prepared)
+                if (!meta::storage::Write (guid, std::move (entity), writeError))
+                    return APIERR_GENERAL; // Roll back all members, never a partial building proposal.
+            return NoError;
+        });
+    g_steps.fetch_add (1, std::memory_order_relaxed);
+    if (err != NoError) {
+        g_refused.fetch_add (prepared.size (), std::memory_order_relaxed);
+        Fail (writeError.empty () ? "Stairwell metadata Undo step was refused." : writeError);
+    }
+    else {
+        g_written.fetch_add (prepared.size (), std::memory_order_relaxed);
+        ArchVizLog ("METADATA     proposed stairwells saved for " + key + " (" + std::to_string (prepared.size ()) +
+                    " members)");
+    }
+}
+
 void Write (Pending& pending)
 {
     // Asked before the undo step opens: a modal dialog inside one would run inside the step.
@@ -126,6 +187,11 @@ void Write (Pending& pending)
         return;
     }
     const int64_t now = NowMs ();
+    if (std::any_of (pending.edits.begin (), pending.edits.end (),
+                     [] (const auto& edit) { return !edit.expectedBuildingKey.empty (); })) {
+        WriteBuildingLocations (pending, schema, now);
+        return;
+    }
     uint64_t written = 0, refused = 0;
     std::string first;
     const auto note = [&] (const std::string& why) {
@@ -273,13 +339,15 @@ hudmeta::Page Read (const std::vector<std::string>& listed, uint32_t selected)
         return page;
     }
     std::vector<meta::EntityMetadata> entities;
-    // A truncated preview must not enable slab-only edits for uninspected elements.
-    bool allSlabs = !listed.empty () && listed.size () == selected;
+    // A truncated preview must not enable source edits for uninspected elements.
+    bool allSources = !listed.empty () && listed.size () == selected;
     std::string first;
     for (const std::string& guid : listed) {
         API_Element element {};
         element.header.guid = APIGuidFromString (guid.c_str ());
-        allSlabs = allSlabs && ACAPI_Element_Get (&element) == NoError && element.header.type.typeID == API_SlabID;
+        const bool read = ACAPI_Element_Get (&element) == NoError;
+        const auto type = element.header.type.typeID;
+        allSources = allSources && read && (type == API_SlabID || type == API_MeshID || type == API_MorphID);
         meta::EntityMetadata entity;
         bool present = false;
         if (meta::storage::Read (guid, entity, present, error))
@@ -288,7 +356,7 @@ hudmeta::Page Read (const std::vector<std::string>& listed, uint32_t selected)
             first = error;
     }
     hudmeta::Page page = hudmeta::BuildingSlabFields (schema, entities, selected);
-    if (!allSlabs)
+    if (!allSources)
         page.fields.clear ();
     page.note = first;
     return page;

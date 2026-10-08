@@ -8,7 +8,7 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
     if (building.id.empty ())
         ImGui::TextDisabled ("Unassigned slab (no building ID)");
     else
-        ImGui::TextWrapped ("Building %s (%zu slabs, one stairwell)", building.id.c_str (), building.guids.size ());
+        ImGui::TextWrapped ("Building %s (%zu slabs)", building.id.c_str (), building.guids.size ());
     if (!preview.section.note.empty ())
         ImGui::TextWrapped ("%s", preview.section.note.c_str ());
     if (!editable) {
@@ -30,8 +30,9 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
     hudsection::Run run = store->pickedFloorBuilding == building.key ? store->floors : hudsection::Run {};
     const auto before = run;
     hudsection::Run hover;
-    for (auto& edit :
-         hudsection::Diagram (preview.section, run, *look, ui, store->massingCoefficients, editable, &hover)) {
+    int pickedStorey = (std::numeric_limits<int>::min) ();
+    for (auto& edit : hudsection::Diagram (preview.section, run, *look, ui, store->massingCoefficients, editable,
+                                           &hover, &pickedStorey)) {
         changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, edit.number, edit.text, true });
         store->metadataEdits.push_back (std::move (edit));
     }
@@ -44,6 +45,18 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
         nextFloorBuilding = building.key;
         nextFloorHover = hover;
     }
+    if (pickedStorey != (std::numeric_limits<int>::min) ()) {
+        auto& draft = store->buildingPlans[building.key];
+        if (draft.story != pickedStorey)
+            draft.placing = false;
+        draft.story = pickedStorey;
+    }
+    if (!editable)
+        for (auto& edit :
+             buildingplan::Draw (preview.plan, store->buildingPlans[building.key], ui, store->massingCoefficients)) {
+            changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, 0, {}, true });
+            store->metadataEdits.push_back (std::move (edit));
+        }
     ImGui::PopID ();
 }
 } // namespace geomsrv::archviz::overlayhud

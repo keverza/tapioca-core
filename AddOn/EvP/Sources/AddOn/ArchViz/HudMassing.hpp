@@ -14,6 +14,8 @@ namespace geomsrv::archviz::hudmassing {
 
 constexpr char kTabKey[] = "@massing";
 enum class Group { PropertyLine, ExistingTerrain, NewTerrain, MassingSlabs };
+enum class SourceKind { Polyline, Slab, Mesh, Morph, Other };
+bool Accepts (Group group, SourceKind kind);
 enum class Action { Update, Add, Remove, Reselect, Clear };
 struct Request {
     Group group = Group::PropertyLine;
@@ -22,7 +24,7 @@ struct Request {
 struct Page {
     bool known = false;
     std::array<std::vector<std::string>, 4> guids;
-    std::vector<massingbuildings::Record> buildingSlabs; // Authored MassingSlabs roles only, including pasted copies.
+    std::vector<massingbuildings::Record> buildingSlabs; // Defined slab/mesh/Morph sources; legacy role name retained.
     std::string note;
     massingrules::Page rules;
     std::vector<massingrules::Page> parcels;

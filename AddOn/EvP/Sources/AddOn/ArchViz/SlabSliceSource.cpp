@@ -165,6 +165,49 @@ Reading Read (const std::vector<std::string>& guids, const ProjectStoreys& store
     return reading;
 }
 
+Reading ReadMassing (const std::vector<std::string>& guids, const slabbodies::Bodies* bodies)
+{
+    Reading reading;
+    for (const auto& text : guids) {
+        API_Element element {};
+        element.header.guid = APIGuidFromString (text.c_str ());
+        const auto err = ACAPI_Element_Get (&element);
+        if (err != NoError) {
+            reading.skipped.push_back ({ text, "Cannot read massing source: " + Describe (err) });
+            continue;
+        }
+        const auto type = element.header.type.typeID;
+        if (type != API_SlabID && type != API_MeshID && type != API_MorphID) {
+            reading.skipped.push_back ({ text, "Massing sources must be Slabs, Meshes or solid Morphs." });
+            continue;
+        }
+        if ((type == API_MorphID && element.morph.bodyType != APIMorphBodyType_SolidBody) ||
+            (type == API_MeshID && element.mesh.skirt != 1)) {
+            reading.skipped.push_back (
+                { text, "Massing source needs a solid Morph or a Mesh with sides and bottom enabled." });
+            continue;
+        }
+        const auto found = bodies ? bodies->meshes.find (text) : std::map<std::string, Mesh>::const_iterator {};
+        if (!bodies || found == bodies->meshes.end ()) {
+            reading.skipped.push_back (
+                { text, "Awaiting a current operated 3D body; source must be visible in the 3D model." });
+            continue;
+        }
+        slabslices::Slab source;
+        source.guid = text;
+        GS::UniString id;
+        if (ACAPI_Element_GetElementInfoString (&element.header.guid, &id) == NoError)
+            source.id = Utf8 (id);
+        std::string reason;
+        if (!slabslices::FromBody (source, found->second, reason)) {
+            reading.skipped.push_back ({ text, reason });
+            continue;
+        }
+        reading.slabs.push_back (std::move (source));
+    }
+    return reading;
+}
+
 std::vector<uint64_t> Stamps (const std::vector<std::string>& guids)
 {
     std::vector<uint64_t> stamps;

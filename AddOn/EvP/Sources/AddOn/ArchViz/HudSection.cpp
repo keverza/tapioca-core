@@ -220,7 +220,8 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
 }
 
 std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const layers::Panel& look, float scale,
-                                    const massingareas::Coefficients& coefficients, bool editable, Run* hover)
+                                    const massingareas::Coefficients& coefficients, bool editable, Run* hover,
+                                    int* pickedStorey)
 {
     std::vector<hudmeta::Edit> edits;
     if (hover)
@@ -259,12 +260,16 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
     if (pointed >= 0) {
         const int storey = section.floors[size_t (pointed)].storey;
         if (ImGui::IsItemActivated () && ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
+            if (pickedStorey)
+                *pickedStorey = storey;
             if (!io.KeyShift || run.Empty ())
                 storage->SetInt (anchorId, storey);
             const int anchor = storage->GetInt (anchorId, storey);
             run = { (std::min) (anchor, storey), (std::max) (anchor, storey) };
         }
         else if (active && ImGui::IsMouseDragging (ImGuiMouseButton_Left, 0.0f)) {
+            if (pickedStorey)
+                *pickedStorey = storey;
             const int anchor = storage->GetInt (anchorId, storey);
             run = { (std::min) (anchor, storey), (std::max) (anchor, storey) };
         }

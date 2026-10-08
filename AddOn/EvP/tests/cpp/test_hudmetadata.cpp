@@ -36,7 +36,7 @@ TEST (HudMetadata, SelectionOffersOnlyTheFourBuildingSlabFieldsAndPreservesLegac
     EXPECT_EQ (page.fields[3].id, "massing.floorHeight");
     EXPECT_EQ (page.fields[3].number, 4);
     for (const auto& field : page.fields) {
-        EXPECT_EQ (field.group, "BUILDING SLAB");
+        EXPECT_EQ (field.group, "BUILDING SOURCE");
         EXPECT_EQ (field.label, field.id);
     }
     EXPECT_EQ (page.fields[1].kind, hm::FieldKind::Fixed);

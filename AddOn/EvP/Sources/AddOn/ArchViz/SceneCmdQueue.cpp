@@ -297,7 +297,7 @@ void SceneCmdQueue::PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> stud
         return; // a null node would be a consumer crash; see PushUpsert
 
     std::lock_guard<std::mutex> lock (mutex_);
-    if (!consumer_)
+    if (!consumer_ || analysisKind_ != study->analysisKind)
         return;
     pendingBytes_ += study->Bytes ();
     SceneCmd cmd;
@@ -310,11 +310,84 @@ void SceneCmdQueue::PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> stud
 void SceneCmdQueue::PushClearSunStudy ()
 {
     std::lock_guard<std::mutex> lock (mutex_);
-    if (!consumer_)
+    if (!consumer_ || analysisKind_ != 0)
         return;
     SceneCmd cmd;
     cmd.type = SceneCmdType::ClearSunStudy;
     queue_.push_back (std::move (cmd));
+}
+
+uint64_t SceneCmdQueue::ClaimAnalysisDisplay (uint32_t kind)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    analysisKind_ = kind;
+    ++analysisGeneration_;
+    for (auto it = queue_.begin (); it != queue_.end ();) {
+        if (it->type == SceneCmdType::SetSunStudyAtlas || it->type == SceneCmdType::ClearSunStudy) {
+            if (it->sunStudy != nullptr)
+                pendingBytes_ -= it->sunStudy->Bytes ();
+            it = queue_.erase (it);
+        }
+        else
+            ++it;
+    }
+    return analysisGeneration_;
+}
+
+bool SceneCmdQueue::OwnsAnalysisDisplay (uint64_t generation) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    return consumer_ && generation == analysisGeneration_;
+}
+
+uint32_t SceneCmdQueue::AnalysisDisplayKind () const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    return analysisKind_;
+}
+
+uint64_t SceneCmdQueue::AnalysisDisplayGeneration () const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    return analysisGeneration_;
+}
+
+bool SceneCmdQueue::PushAnalysisAtlas (uint64_t generation, std::unique_ptr<SunStudyAtlasUpload> study)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_ || generation != analysisGeneration_ || study == nullptr || study->analysisKind != analysisKind_)
+        return false;
+    pendingBytes_ += study->Bytes ();
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::SetSunStudyAtlas;
+    cmd.queuedAt = std::chrono::steady_clock::now ();
+    cmd.sunStudy = std::move (study);
+    queue_.push_back (std::move (cmd));
+    return true;
+}
+
+bool SceneCmdQueue::PushClearAnalysis (uint64_t generation)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_ || generation != analysisGeneration_)
+        return false;
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::ClearSunStudy;
+    queue_.push_back (std::move (cmd));
+    ++analysisGeneration_;
+    return true;
+}
+
+bool SceneCmdQueue::PushClearAnalysisKind (uint32_t kind)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (!consumer_ || analysisKind_ != kind)
+        return false;
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::ClearSunStudy;
+    queue_.push_back (std::move (cmd));
+    ++analysisGeneration_;
+    return true;
 }
 
 std::vector<SceneCmd> SceneCmdQueue::Take (size_t max)
@@ -363,6 +436,8 @@ void SceneCmdQueue::SetConsumer (bool present)
     consumer_ = present;
     if (present)
         return;
+    ++analysisGeneration_;
+    analysisKind_ = 0;
     queue_.clear ();
     pendingBytes_ = 0;
 }
@@ -376,6 +451,8 @@ bool SceneCmdQueue::HasConsumer () const
 void SceneCmdQueue::Clear ()
 {
     std::lock_guard<std::mutex> lock (mutex_);
+    ++analysisGeneration_;
+    analysisKind_ = 0;
     queue_.clear ();
     pendingBytes_ = 0;
 }

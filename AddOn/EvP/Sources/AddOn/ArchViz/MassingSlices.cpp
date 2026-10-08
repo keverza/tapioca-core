@@ -200,7 +200,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
 {
     error.clear ();
     if (slabs.size () > 128)
-        return Fail (error, "Automatic story slice budget is 128 slabs.");
+        return Fail (error, "Automatic story slice budget is 128 massing sources.");
     Result out;
     out.layer.name = kLayer;
     out.layer.occlusion = overlaylayers::Behind::Dash;
@@ -217,12 +217,16 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     size_t retainedPoints = 0;
     size_t headroomWork = 0;
     for (const auto& input : slabs) {
+        if (input.slab.bodyRequired && !input.body)
+            return Fail (error, "Massing source requires a current operated 3D body; no prism substitute.");
+        out.planSources.push_back (
+            { input.slab.guid, buildingplan::Read (input.metadata), buildingplan::Fingerprint (input.metadata) });
         out.buildingSurfaces.push_back ({ { input.slab.guid, massingbuildings::Id (input.metadata) },
                                           input.facadeBody ? input.facadeBody : input.body });
         if (!std::isfinite (input.slab.bottom) || !std::isfinite (input.slab.top) ||
             std::abs (input.slab.bottom) > 1e9 || std::abs (input.slab.top) > 1e9 ||
             input.slab.top <= input.slab.bottom)
-            return Fail (error, "Invalid massing slab height.");
+            return Fail (error, "Invalid massing source height.");
         auto rings = input.slab.holes;
         rings.push_back (input.slab.outer);
         size_t coordinates = 0;
@@ -284,6 +288,11 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
                                         : slabslices::SliceSlab (input.slab, rule, storeys, slices);
         if (!summary.problem.empty ())
             return Fail (error, summary.problem.c_str ());
+        if (input.slab.bodyRequired)
+            for (const auto& slice : slices)
+                for (const auto& chain : slice.chains)
+                    if (!chain.closed)
+                        return Fail (error, "Massing source has an open cross-section; use a solid Mesh or Morph.");
         const auto* use = meta::FindProperty (input.metadata, "massing.function");
         const std::string function = use ? use->value.s : "residential";
         const auto* building = meta::FindProperty (input.metadata, "massing.buildingId");

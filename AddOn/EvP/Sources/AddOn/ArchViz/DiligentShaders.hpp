@@ -772,6 +772,15 @@ float3 RoleColor (float role)
     return SrgbToLinear (float3 (0.84, 0.36, 0.72));     // ignored: absent -- magenta
 }
 
+float3 VisibilityColor (float visible)
+{
+    // The requested two-colour study: blocked red -> visible green. Decode the
+    // sRGB endpoints before the SRGB render target encodes them.
+    float3 blocked = float3 (0.722, 0.306, 0.271); // danger #B84E45
+    float3 clear = float3 (0.294, 0.514, 0.345);   // success #4B8358
+    return SrgbToLinear (lerp (blocked, clear, saturate (visible)));
+}
+
 void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput psOut)
 {
     SunFaceMap face = g_sunFaceMaps[primitiveId];
@@ -831,6 +840,11 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     float hours = g_sunAtlas.SampleLevel (g_sunAtlas_sampler, uv, 0);
     if (hours < 0.0)
         discard; // the sentinel: no sample here. NOT zero hours.
+
+    if (mode == 8) {
+        psOut.color = StudyOverlayColor (VisibilityColor (hours));
+        return;
+    }
 
     // The HUD's hours range: outside it, neutral trim -- or nothing, so the
     // model's own shading shows through -- exactly as the web page's filter.

@@ -13,6 +13,8 @@
 #include "ArchViz/SlabBodies.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ModelWatch.hpp"
+#include "ArchViz/SectionModel.hpp"
+#include "ArchViz/OverlayHudModel.hpp"
 #include "Metadata/MetadataStorage.hpp"
 
 #include <algorithm>
@@ -87,7 +89,7 @@ void Update ()
                                       }),
                       s_selected.end ());
     auto guids = defined.guids[3];
-    // Viewport selection inspects defined sources; it never enrolls new slabs.
+    // Viewport selection inspects defined sources; it never enrolls new elements.
     // Copy/paste retains the authored role and is discovered by the model scan.
     std::sort (guids.begin (), guids.end ());
     guids.erase (std::unique (guids.begin (), guids.end ()), guids.end ());
@@ -160,17 +162,16 @@ void Update ()
     bool zoneMissing = overBudget;
     bool facadeMissing = overBudget;
     if (overBudget)
-        error = "Automatic preview accepts at most 128 defined massing slabs.";
+        error = "Automatic preview accepts at most 128 defined massing sources.";
     if (error.empty ()) {
-        const auto reading = slabsource::Read (guids, storeys);
-        for (const auto& skip : reading.skipped)
-            if (skip.reason.find ("not a slab") == std::string::npos) {
-                result.note += skip.guid + ": " + skip.reason + ". ";
-                zoneMissing = true;
-                facadeMissing = true;
-            }
+        const auto reading =
+            slabsource::ReadMassing (guids, bodySignature == "operator-budget" ? nullptr : bodies.get ());
+        for (const auto& skip : reading.skipped) {
+            result.note += skip.guid + ": " + skip.reason + ". ";
+            zoneMissing = true;
+            facadeMissing = true;
+        }
         for (const auto& slab : reading.slabs) {
-            const auto index = size_t (std::lower_bound (guids.begin (), guids.end (), slab.guid) - guids.begin ());
             massingslices::Input input;
             input.slab = slab;
             const auto found =
@@ -180,9 +181,10 @@ void Update ()
                 input.facadeBody = std::shared_ptr<const Mesh> (bodies, &found->second);
             else
                 facadeMissing = true;
-            if (slab.slopedEdges || (index < operators.size () && !operators[index].empty ())) {
+            if (slab.bodyRequired) {
                 if (!hasBody) {
-                    result.note += "SEO/sloped slab awaiting a current 3D body (must be visible in the 3D model). ";
+                    result.note +=
+                        "Massing source awaiting a current operated 3D body (must be visible in the 3D model). ";
                     zoneMissing = true;
                     continue;
                 }
@@ -248,7 +250,7 @@ void Update ()
         result.hasFacade = false;
         result.facadeArea = 0;
         result.note +=
-            " Facade awaiting all current 3D slab bodies; no partial area or unoperated substitute reported.";
+            " Facade awaiting all current 3D source bodies; no partial area or unoperated substitute reported.";
     }
     if (error.empty () && envelope && skipped.empty ()) {
         std::string coverageError;
@@ -257,7 +259,7 @@ void Update ()
             result.note += " " + coverageError;
     }
     else if (!skipped.empty ())
-        result.note += " Parcel coverage unavailable while slab sources are incomplete.";
+        result.note += " Parcel coverage unavailable while massing sources are incomplete.";
     if (!skipped.empty ())
         result.note += " " + skipped;
     if (!error.empty ()) {
@@ -271,6 +273,8 @@ void Update ()
     if (s_shown && !result.rows.empty ())
         overlaylayers::Set (result.layer);
     s_result = std::make_shared<const massingslices::Result> (std::move (result));
+    sectionmodel::Publish ();
+    overlayhudmodel::RefreshSelection ();
     Highlight ();
     massinginspectionmodel::Refresh ();
     Publish (); // Errors and empty sets also change Stats; wake an idle HUD once.

@@ -119,7 +119,7 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
 // What the user assigned in this frame.
 std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const overlaylayers::Panel& look, float scale,
                                     const massingareas::Coefficients& coefficients = {}, bool editable = true,
-                                    Run* hover = nullptr);
+                                    Run* hover = nullptr, int* pickedStorey = nullptr);
 
 } // namespace hudsection
 } // namespace archviz

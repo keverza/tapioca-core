@@ -165,6 +165,23 @@ struct HudState {
     int sunFanInterval = 5; // duration-weighted morning / evening by default
     int sunStudyTimestepMinutes = 0;
     std::vector<uint16_t> sunStepMinutes; // mirrored from the scene
+
+    // Visibility study setup lives in the viewer session. FROM and TO are kept
+    // separate and exclusive; point mode replaces FROM with one placed view cone.
+    std::vector<std::string> visibilitySelection;
+    std::vector<std::string> visibilityFrom;
+    std::vector<std::string> visibilityTo;
+    int visibilityOrigin = 0; // 0 surfaces, 1 placed point
+    float visibilityGrid = 2.0f;
+    int visibilityAimPoints = 32;
+    float visibilityConeDegrees = 90.0f;
+    bool visibilityPlacingPoint = false;
+    bool visibilityPointValid = false;
+    bool visibilityPlacementMiss = false;
+    std::string visibilitySubmitError;
+    double visibilityPoint[3] = { 0.0, 0.0, 0.0 };
+    double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
+    uint32_t analysisSeenKind = 0xffffffffu;
     float annotationTextHeightMetres = 0.18f;
     float annotationDimensionOffsetMetres = 0.25f;
     float annotationWitnessStartGapMetres = 0.02f;
@@ -547,8 +564,8 @@ class DiligentHud final {
     // `state.wantsMouse` comes back true when the pointer is over a panel, and
     // the caller must then not let the camera consume the same click.
     void Draw (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, const InputSnapshot& input,
-               const DiligentSceneStats& scene, const ProjectedDrawList& annotations, HudState& state,
-               bool showControls = true);
+               const DiligentSceneStats& scene, const ProjectedDrawList& annotations, const float viewProj[16],
+               HudState& state, bool showControls = true);
 
   private:
     struct Impl;
@@ -570,6 +587,12 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);
+
+namespace viewerhud {
+void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
+                                  const float origin[3], const float direction[3]);
+void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+} // namespace viewerhud
 
 } // namespace archviz
 } // namespace geomsrv
