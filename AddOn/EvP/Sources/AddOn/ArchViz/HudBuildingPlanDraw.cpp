@@ -9,15 +9,17 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
                                  const massingareas::Coefficients& coefficients)
 {
     std::vector<hudmeta::Edit> edits;
+    const auto owner = reinterpret_cast<uintptr_t> (ImGui::GetCurrentContext ());
     if (!ImGui::CollapsingHeader ("Plan view", ImGuiTreeNodeFlags_DefaultOpen)) {
-        draft.placing = false;
+        if (!draft.dragging || draft.dragOwner == owner)
+            Cancel (draft);
         return edits;
     }
     if (!plan.note.empty ())
         ImGui::TextWrapped ("%s", plan.note.c_str ());
     const auto* floor = Displayed (plan, draft);
     if (!floor) {
-        draft.placing = false;
+        Cancel (draft);
         ImGui::TextDisabled ("No complete current floor contour.");
         return edits;
     }
@@ -27,35 +29,51 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         (Dirty (draft) && !plan.mixed && plan.saved == draft.points && plan.guids == draft.guids))
         Reset (plan, draft);
     const bool conflict = Conflict (plan, draft);
+    if (conflict || ImGui::IsKeyPressed (ImGuiKey_Escape))
+        Cancel (draft);
     ImGui::Text ("Floor %d | Z %.2f m | gross %.2f m2", floor->story, floor->z,
                  floor->areaM2 * coefficients.grossFactor);
-    ImGui::TextDisabled ("Click a floor in the section to change this plan. +Y is up.");
+    ImGui::TextDisabled ("4.5 x 4.1 m | Project XY, +Y up | Snap within 0.5 m");
 
-    ImGui::BeginDisabled (conflict || draft.points.size () >= kMaxStairs);
-    if (ImGui::Button ("Add stairwell")) {
-        draft.selected = -1;
-        draft.placing = true;
+    const bool active = draft.placing || draft.moving;
+    ImGui::BeginDisabled (!active && (conflict || draft.points.size () >= kMaxStairs));
+    if (active) {
+        ImGui::PushStyleColor (ImGuiCol_Button, ImVec4 (0.78f, 0.34f, 0.07f, 1));
+        ImGui::PushStyleColor (ImGuiCol_ButtonHovered, ImVec4 (0.95f, 0.46f, 0.10f, 1));
+        ImGui::PushStyleColor (ImGuiCol_ButtonActive, ImVec4 (0.65f, 0.27f, 0.05f, 1));
     }
+    const float buttonWidth = ImGui::CalcTextSize ("Cancel placement").x + 2 * ImGui::GetStyle ().FramePadding.x;
+    ImGui::PushID ("stairPlacement");
+    if (ImGui::Button (active ? "Cancel placement" : "Add stairwell", { buttonWidth, 0 })) {
+        if (active)
+            Cancel (draft);
+        else {
+            draft.selected = -1;
+            draft.placing = true;
+        }
+    }
+    ImGui::PopID ();
+    if (active)
+        ImGui::PopStyleColor (3);
     ImGui::EndDisabled ();
     if (draft.selected >= 0 && size_t (draft.selected) < draft.points.size ()) {
         ImGui::SameLine ();
         ImGui::BeginDisabled (conflict);
-        if (ImGui::Button ("Move"))
-            draft.placing = true;
+        if (ImGui::Button ("Move")) {
+            Cancel (draft);
+            draft.moving = true;
+        }
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("Press and drag the selected rectangle. Escape or Cancel restores an unfinished drag.");
         ImGui::SameLine ();
         if (ImGui::Button ("Remove")) {
+            Cancel (draft);
             draft.points.erase (draft.points.begin () + draft.selected);
             draft.selected = -1;
             draft.placing = false;
             draft.changed = true;
         }
         ImGui::EndDisabled ();
-    }
-    if (draft.placing) {
-        ImGui::TextWrapped ("Click inside the blue contour to %s a point (not in a courtyard).",
-                            draft.selected < 0 ? "add" : "move");
-        if (ImGui::SmallButton ("Cancel placement"))
-            draft.placing = false;
     }
     double minX = 1e300, minY = 1e300, maxX = -1e300, maxY = -1e300;
     for (const auto* groups : { &floor->physical, &floor->contours })
@@ -101,31 +119,56 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         outlines (floor->physical, IM_COL32 (140, 140, 140, 150), scale);
         outlines (floor->contours, IM_COL32 (74, 144, 217, 255), 2 * scale);
         int near = -1;
-        float best = 12 * scale;
+        double best = 1e300;
         const auto mouse = ImGui::GetIO ().MousePos;
+        const auto worldMouse = unproject (mouse);
         for (size_t i = 0; i < draft.points.size (); ++i) {
-            const auto at = project (draft.points[i]);
-            const float distance = std::hypot (at.x - mouse.x, at.y - mouse.y);
-            if (distance < best) {
+            const auto point = draft.points[i];
+            const double distance = std::hypot (point.x - worldMouse.x, point.y - worldMouse.y);
+            if (std::abs (point.x - worldMouse.x) <= kStairWidth / 2 &&
+                std::abs (point.y - worldMouse.y) <= kStairDepth / 2 && distance < best) {
                 best = distance;
                 near = int (i);
             }
-            const ImU32 colour =
-                Contains (*floor, draft.points[i]) ? IM_COL32 (255, 186, 0, 255) : IM_COL32 (229, 72, 77, 255);
-            draw->AddCircle (at, (draft.selected == int (i) ? 8 : 6) * scale, colour, 0, 2 * scale);
-            draw->AddLine ({ at.x - 4 * scale, at.y }, { at.x + 4 * scale, at.y }, colour, scale);
-            draw->AddLine ({ at.x, at.y - 4 * scale }, { at.x, at.y + 4 * scale }, colour, scale);
-            draw->AddText ({ at.x + 9 * scale, at.y }, colour, std::to_string (i + 1).c_str ());
         }
-        if (hovered && !conflict) {
-            if (draft.placing) {
-                ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);
-                if (ImGui::IsMouseClicked (ImGuiMouseButton_Left))
-                    Place (*floor, draft, unproject (mouse));
-            }
-            else if (ImGui::IsMouseClicked (ImGuiMouseButton_Left))
+        if (hovered && !conflict && ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
+            if (draft.placing)
+                Place (*floor, draft, worldMouse);
+            else if (draft.moving && near == draft.selected)
+                BeginDrag (draft, worldMouse, owner);
+            else {
+                Cancel (draft);
                 draft.selected = near;
+            }
         }
+        if (draft.dragging && draft.dragOwner == owner) {
+            if (ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+                if (ImGui::IsMouseDragging (ImGuiMouseButton_Left))
+                    Drag (*floor, draft, worldMouse);
+            }
+            else
+                EndDrag (draft);
+        }
+        if (hovered && (draft.placing || draft.moving || near >= 0))
+            ImGui::SetMouseCursor (draft.moving ? ImGuiMouseCursor_ResizeAll : ImGuiMouseCursor_Hand);
+        const auto rectangle = [&] (Point point, ImU32 colour, bool selected) {
+            const auto a = project ({ point.x - kStairWidth / 2, point.y + kStairDepth / 2 });
+            const auto b = project ({ point.x + kStairWidth / 2, point.y - kStairDepth / 2 });
+            draw->AddRectFilled (a, b, (colour & 0x00FFFFFFu) | 0x30000000u);
+            draw->AddRect (a, b, colour, 0, 0, (selected ? 3 : 1.5f) * scale);
+        };
+        for (size_t i = 0; i < draft.points.size (); ++i) {
+            const auto at = project (draft.points[i]);
+            const ImU32 colour =
+                Fits (*floor, draft.points[i]) ? IM_COL32 (255, 186, 0, 255) : IM_COL32 (229, 72, 77, 255);
+            rectangle (draft.points[i], colour, draft.selected == int (i));
+            draw->AddText ({ at.x + 3 * scale, at.y }, colour, std::to_string (i + 1).c_str ());
+        }
+        if (hovered && draft.placing)
+            rectangle (Snap (*floor, worldMouse),
+                       Fits (*floor, Snap (*floor, worldMouse)) ? IM_COL32 (255, 186, 0, 200)
+                                                                : IM_COL32 (229, 72, 77, 200),
+                       false);
         draw->PopClipRect ();
         ImGui::TextDisabled ("Blue: counted floor | Gray: physical outline | XY: project metres");
     }
@@ -134,11 +177,12 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         const std::string label = "Stair " + std::to_string (i + 1) + ": X " + hudmeta::NumberText (draft.points[i].x) +
                                   ", Y " + hudmeta::NumberText (draft.points[i].y);
         if (ImGui::Selectable (label.c_str (), draft.selected == int (i))) {
+            Cancel (draft);
             draft.selected = int (i);
             draft.placing = false;
         }
-        if (!Contains (*floor, draft.points[i]))
-            ImGui::TextWrapped ("Outside this floor's counted contour; relocate if required. Shared point retained.");
+        if (!Fits (*floor, draft.points[i]))
+            ImGui::TextWrapped ("Footprint does not fit this floor; relocate if required. Shared centre retained.");
         ImGui::PopID ();
     }
     const bool large = NeedsTwoStairs (floor->areaM2, coefficients);
@@ -151,7 +195,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         ImGui::TextWrapped ("Another floor is larger than 500 m2 gross: this building requires at least two stairs.");
     if (buildingLarge) {
         const size_t inside = size_t (std::count_if (draft.points.begin (), draft.points.end (),
-                                                     [&] (Point point) { return Contains (*floor, point); }));
+                                                     [&] (Point point) { return Fits (*floor, point); }));
         ImGui::TextWrapped ("Proposed building-wide: %zu stairs (%zu inside this floor). Approximate locations only; "
                             "no egress validation.",
                             draft.points.size (), inside);
@@ -164,6 +208,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
     if (plan.mixed || !draft.points.empty ()) {
         ImGui::BeginDisabled (conflict);
         if (ImGui::SmallButton ("Clear all proposed stairs")) {
+            Cancel (draft);
             draft.points.clear ();
             draft.changed = true;
             draft.selected = -1;
@@ -171,10 +216,10 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         }
         ImGui::EndDisabled ();
     }
-    ImGui::BeginDisabled (!Dirty (draft) || conflict);
+    ImGui::BeginDisabled (!Dirty (draft) || conflict || draft.dragging);
     if (ImGui::Button ("Save stairwells")) {
         edits = Edits (plan, draft);
-        draft.placing = false;
+        Cancel (draft);
     }
     ImGui::EndDisabled ();
     ImGui::SameLine ();

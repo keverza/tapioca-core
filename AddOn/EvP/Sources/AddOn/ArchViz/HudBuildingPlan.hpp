@@ -12,6 +12,7 @@ struct Preview;
 namespace geomsrv::archviz::buildingplan {
 constexpr char kLocations[] = "massing.stairwellLocations";
 constexpr size_t kMaxStairs = 32;
+constexpr double kStairWidth = 4.5, kStairDepth = 4.1, kSnapDistance = 0.5;
 struct Point {
     double x = 0, y = 0;
     bool operator== (const Point&) const = default;
@@ -32,6 +33,8 @@ struct Floor {
     // Keep each source's holes paired with its outer rings: overlap between
     // different slabs is a union, not an even/odd cancellation.
     std::vector<std::vector<SliceChain>> contours, physical;
+    std::vector<SliceChain> outline; // Unioned counted boundary, including holes; no internal source seams.
+    bool outlineKnown = false;
 };
 struct Plan {
     std::string key;
@@ -44,6 +47,9 @@ struct Plan {
 };
 struct Draft {
     bool known = false, placing = false;
+    bool moving = false, dragging = false;
+    uintptr_t dragOwner = 0; // Only the initiating ImGui context consumes the held-pointer gesture.
+    Point dragOffset, dragOriginal;
     int selected = -1; // -1: append a new stair; otherwise move the selected marker.
     int story = (std::numeric_limits<int>::min) ();
     std::vector<Point> original, points;
@@ -58,7 +64,13 @@ bool Matches (const metadata::EntityMetadata& entity, const hudmeta::Edit& edit)
 Plan Build (const massingslices::Result& slices, const massingbuildings::Preview& preview);
 const Floor* Displayed (const Plan& plan, const Draft& draft);
 bool Contains (const Floor& floor, Point point);
+bool Fits (const Floor& floor, Point center);
+Point Snap (const Floor& floor, Point center);
 bool Place (const Floor& floor, Draft& draft, Point point);
+bool BeginDrag (Draft& draft, Point mouse, uintptr_t owner = 0);
+bool Drag (const Floor& floor, Draft& draft, Point mouse);
+void EndDrag (Draft& draft);
+void Cancel (Draft& draft); // Restore an in-flight drag; do not discard earlier local edits.
 bool NeedsTwoStairs (double areaM2, const massingareas::Coefficients& coefficients);
 bool Dirty (const Draft& draft);
 bool Conflict (const Plan& plan, const Draft& draft);

@@ -2,8 +2,46 @@
 #include "ArchViz/MassingSlices.hpp"
 #include <algorithm>
 #include <cmath>
+#include <clipper2/clipper.h>
 
 namespace geomsrv::archviz::buildingplan {
+namespace {
+namespace cp = Clipper2Lib;
+cp::PathsD Outline (const Floor& floor, Point origin)
+{
+    cp::PathsD paths;
+    const auto convert = [&] (const std::vector<SliceChain>& contours, cp::PathsD& target) {
+        for (const auto& chain : contours) {
+            cp::PathD path;
+            for (size_t i = 0; i < chain.Count (); ++i)
+                path.emplace_back (chain.xy[i * 2] - origin.x, chain.xy[i * 2 + 1] - origin.y);
+            target.push_back (std::move (path));
+        }
+    };
+    if (floor.outlineKnown) {
+        convert (floor.outline, paths);
+        return paths;
+    }
+    for (const auto& source : floor.contours) {
+        cp::PathsD part;
+        convert (source, part);
+        const auto normalized = cp::Union (part, cp::FillRule::EvenOdd, 6);
+        paths.insert (paths.end (), normalized.begin (), normalized.end ());
+    }
+    return cp::Union (paths, cp::FillRule::NonZero, 6);
+}
+bool FitsOutline (const cp::PathsD& outline, Point delta)
+{
+    const double x = delta.x, y = delta.y, w = kStairWidth / 2, d = kStairDepth / 2;
+    const cp::PathD rectangle { { x - w, y - d }, { x + w, y - d }, { x + w, y + d }, { x - w, y + d } };
+    return !outline.empty () &&
+           std::abs (cp::Area (cp::Difference ({ rectangle }, outline, cp::FillRule::NonZero, 6))) < 1e-6;
+}
+bool Valid (Point point)
+{
+    return std::isfinite (point.x) && std::isfinite (point.y) && std::abs (point.x) <= 1e9 && std::abs (point.y) <= 1e9;
+}
+} // namespace
 std::string Fingerprint (const metadata::EntityMetadata& entity)
 {
     metadata::EntityMetadata value;
@@ -96,6 +134,18 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
             floor.contours.push_back (source->chains);
             floor.physical.push_back (source->rawChains);
         }
+        const Point origin =
+            floor.contours.empty () || floor.contours.front ().empty ()
+                ? Point {}
+                : Point { floor.contours.front ().front ().xy[0], floor.contours.front ().front ().xy[1] };
+        for (const auto& path : Outline (floor, origin)) {
+            SliceChain chain;
+            chain.closed = true;
+            for (const auto& point : path)
+                chain.xy.insert (chain.xy.end (), { point.x + origin.x, point.y + origin.y });
+            floor.outline.push_back (std::move (chain));
+        }
+        floor.outlineKnown = true;
         plan.floors.push_back (std::move (floor));
     }
     return plan;
@@ -134,6 +184,65 @@ bool Contains (const Floor& floor, Point point)
     }
     return false;
 }
+bool Fits (const Floor& floor, Point center)
+{
+    return Valid (center) && FitsOutline (Outline (floor, center), {});
+}
+Point Snap (const Floor& floor, Point center)
+{
+    if (!Valid (center))
+        return center;
+    const auto outline = Outline (floor, center);
+    struct Candidate {
+        double distance;
+        Point delta, normal;
+        double shift;
+    };
+    std::vector<Candidate> candidates;
+    for (const auto& path : outline)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const auto& a = path[i];
+            const auto& b = path[(i + 1) % path.size ()];
+            const double length = std::hypot (b.x - a.x, b.y - a.y);
+            if (length < 1e-8)
+                continue;
+            const double tx = (b.x - a.x) / length, ty = (b.y - a.y) / length;
+            const double nx = -ty, ny = tx;
+            const double along = -a.x * tx - a.y * ty;
+            const double extent = kStairWidth / 2 * std::abs (tx) + kStairDepth / 2 * std::abs (ty);
+            if (along + extent < 0 || along - extent > length)
+                continue; // Snap to a segment, never its infinite extension.
+            const double distance = -a.x * nx - a.y * ny;
+            const double support = kStairWidth / 2 * std::abs (nx) + kStairDepth / 2 * std::abs (ny);
+            for (double sign : { -1.0, 1.0 }) {
+                const double shift = sign * support - distance;
+                if (std::abs (shift) > kSnapDistance)
+                    continue;
+                candidates.push_back ({ std::abs (shift), { nx * shift, ny * shift }, { nx, ny }, shift });
+                std::stable_sort (candidates.begin (), candidates.end (),
+                                  [] (const auto& lhs, const auto& rhs) { return lhs.distance < rhs.distance; });
+                if (candidates.size () > 8)
+                    candidates.pop_back ();
+            }
+        }
+    for (const auto& candidate : candidates)
+        if (FitsOutline (outline, candidate.delta))
+            return { center.x + candidate.delta.x, center.y + candidate.delta.y };
+    // A corner may require both nearby sides to snap before the footprint fits.
+    for (size_t i = 0; i < candidates.size (); ++i)
+        for (size_t j = i + 1; j < candidates.size (); ++j) {
+            const auto& a = candidates[i];
+            const auto& b = candidates[j];
+            const double det = a.normal.x * b.normal.y - a.normal.y * b.normal.x;
+            if (std::abs (det) < 1e-6)
+                continue;
+            const Point delta { (a.shift * b.normal.y - b.shift * a.normal.y) / det,
+                                (a.normal.x * b.shift - b.normal.x * a.shift) / det };
+            if (std::hypot (delta.x, delta.y) <= kSnapDistance && FitsOutline (outline, delta))
+                return { center.x + delta.x, center.y + delta.y };
+        }
+    return center;
+}
 bool Dirty (const Draft& draft)
 {
     return draft.known && (draft.points != draft.original || (draft.originalMixed && draft.changed));
@@ -164,7 +273,7 @@ void Reset (const Plan& plan, Draft& draft)
 }
 std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
 {
-    if (!Dirty (draft) || Conflict (plan, draft) || plan.floors.empty ())
+    if (!Dirty (draft) || draft.dragging || Conflict (plan, draft) || plan.floors.empty ())
         return {};
     if (draft.points.size () > kMaxStairs || std::any_of (draft.points.begin (), draft.points.end (), [] (Point point) {
             return !std::isfinite (point.x) || !std::isfinite (point.y) || std::abs (point.x) > 1e9 ||
@@ -196,7 +305,8 @@ std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
 }
 bool Place (const Floor& floor, Draft& draft, Point point)
 {
-    if (!draft.placing || !Contains (floor, point))
+    point = Snap (floor, point);
+    if (!draft.placing || !Fits (floor, point))
         return false;
     for (size_t i = 0; i < draft.points.size (); ++i)
         if (int (i) != draft.selected && std::hypot (draft.points[i].x - point.x, draft.points[i].y - point.y) < 1e-6)
@@ -212,6 +322,47 @@ bool Place (const Floor& floor, Draft& draft, Point point)
     draft.placing = false;
     draft.changed = true;
     return true;
+}
+bool BeginDrag (Draft& draft, Point mouse, uintptr_t owner)
+{
+    if (!draft.moving || draft.dragging || draft.selected < 0 || size_t (draft.selected) >= draft.points.size () ||
+        !Valid (mouse))
+        return false;
+    const auto point = draft.points[size_t (draft.selected)];
+    if (std::abs (mouse.x - point.x) > kStairWidth / 2 || std::abs (mouse.y - point.y) > kStairDepth / 2)
+        return false;
+    draft.dragOriginal = point;
+    draft.dragOffset = { point.x - mouse.x, point.y - mouse.y };
+    draft.dragging = true;
+    draft.dragOwner = owner;
+    return true;
+}
+bool Drag (const Floor& floor, Draft& draft, Point mouse)
+{
+    if (!draft.dragging || draft.selected < 0 || size_t (draft.selected) >= draft.points.size ())
+        return false;
+    const auto point = Snap (floor, { mouse.x + draft.dragOffset.x, mouse.y + draft.dragOffset.y });
+    if (!Fits (floor, point))
+        return false; // Retain the last valid position across holes/outside the canvas.
+    for (size_t i = 0; i < draft.points.size (); ++i)
+        if (int (i) != draft.selected && std::hypot (draft.points[i].x - point.x, draft.points[i].y - point.y) < 1e-6)
+            return false;
+    draft.points[size_t (draft.selected)] = point;
+    return true;
+}
+void EndDrag (Draft& draft)
+{
+    if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < draft.points.size ())
+        draft.changed |= draft.points[size_t (draft.selected)] != draft.dragOriginal;
+    draft.moving = draft.dragging = false;
+    draft.dragOwner = 0;
+}
+void Cancel (Draft& draft)
+{
+    if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < draft.points.size ())
+        draft.points[size_t (draft.selected)] = draft.dragOriginal;
+    draft.placing = draft.moving = draft.dragging = false;
+    draft.dragOwner = 0;
 }
 bool NeedsTwoStairs (double areaM2, const massingareas::Coefficients& coefficients)
 {

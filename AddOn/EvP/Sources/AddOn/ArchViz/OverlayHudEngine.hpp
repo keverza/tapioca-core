@@ -235,7 +235,7 @@ struct Engine::Impl {
     // to be one; Selection; Debug. And the title on a tab, by its key.
     void StatsPage (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float ui);
     void SelectionPage (float ui);
-    void BuildingDiagram (const massingbuildings::Preview& preview, float ui, bool editable);
+    void BuildingDiagram (const massingbuildings::Preview& preview, float ui);
     void MassingPage ();
     void DebugPage (float ui);
     std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,

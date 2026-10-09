@@ -94,27 +94,27 @@ TEST (HudBuildingPlan, PlacementIsLocalSupportsSeveralStairsAndRefusesOutsideHol
     bp::Plan plan;
     bp::Floor floor;
     floor.story = -1;
-    floor.contours = { { Ring (0, 0, 10, 10), Ring (2, 2, 6, 6) } };
+    floor.contours = { { Ring (0, 0, 30, 30), Ring (10, 10, 10, 10) } };
     plan.floors = { floor };
     bp::Draft draft;
     bp::Reset (plan, draft);
     EXPECT_FALSE (bp::Place (floor, draft, { 1, 1 }));
     draft.placing = true;
-    EXPECT_FALSE (bp::Place (floor, draft, { 5, 5 }));
+    EXPECT_FALSE (bp::Place (floor, draft, { 15, 15 }));
     EXPECT_TRUE (draft.placing);
-    ASSERT_TRUE (bp::Place (floor, draft, { 1, 1 }));
+    ASSERT_TRUE (bp::Place (floor, draft, { 4, 4 }));
     EXPECT_TRUE (bp::Dirty (draft));
     EXPECT_TRUE (plan.saved.empty ());
     draft.selected = -1;
     draft.placing = true;
-    EXPECT_FALSE (bp::Place (floor, draft, { 1, 1 }));
-    EXPECT_TRUE (bp::Place (floor, draft, { 9, 9 }));
+    EXPECT_FALSE (bp::Place (floor, draft, { 4, 4 }));
+    EXPECT_TRUE (bp::Place (floor, draft, { 26, 26 }));
     ASSERT_EQ (draft.points.size (), 2u);
     draft.selected = 0;
     draft.placing = true;
-    EXPECT_TRUE (bp::Place (floor, draft, { 1, 9 }));
-    EXPECT_EQ (draft.points[0], (bp::Point { 1, 9 }));
-    EXPECT_EQ (draft.points[1], (bp::Point { 9, 9 }));
+    EXPECT_TRUE (bp::Place (floor, draft, { 4, 26 }));
+    EXPECT_EQ (draft.points[0], (bp::Point { 4, 26 }));
+    EXPECT_EQ (draft.points[1], (bp::Point { 26, 26 }));
     bp::Reset (plan, draft);
     EXPECT_FALSE (bp::Dirty (draft));
     EXPECT_TRUE (draft.points.empty ());
@@ -322,4 +322,147 @@ TEST (HudBuildingPlan, NativeSelectionPlanDefaultsToLowestThenClickSwitchesButHo
     pages.buildings.clear ();
     gui.engine.SetOwnPages (pages);
     EXPECT_TRUE (gui.state->buildingPlans.empty ());
+}
+
+TEST (HudBuildingPlan, RectangularFootprintMustFitTheCountedUnionIncludingCourtyardInteriors)
+{
+    bp::Floor floor;
+    floor.contours = { { Ring (0, 0, 20, 20), Ring (6, 6, 2, 2) } };
+    EXPECT_TRUE (bp::Fits (floor, { 3, 3 }));
+    EXPECT_TRUE (bp::Fits (floor, { bp::kStairWidth / 2, bp::kStairDepth / 2 }));
+    EXPECT_TRUE (bp::Contains (floor, { 5, 7 }));
+    EXPECT_FALSE (bp::Fits (floor, { 5, 7 })); // Centre fits, but rectangle enters the hole.
+    EXPECT_FALSE (bp::Fits (floor, { 7, 7 })); // A hole wholly inside the rectangle must also fail.
+    EXPECT_FALSE (bp::Fits (floor, { 1, 3 }));
+    floor.contours.push_back ({ Ring (6, 6, 2, 2) });
+    EXPECT_TRUE (bp::Fits (floor, { 5, 7 })); // Another source fills the courtyard.
+    floor.contours = { { Ring (700000, 6000000, 20, 20) } };
+    EXPECT_TRUE (bp::Fits (floor, { 700005, 6000005 }));
+    EXPECT_FALSE (bp::Fits (floor, { std::numeric_limits<double>::quiet_NaN (), 0 }));
+}
+
+TEST (HudBuildingPlan, RectangleSnapsToUnionEdgesAndCornersWithinHalfAMetreNotInternalSeams)
+{
+    bp::Floor floor;
+    floor.contours = { { Ring (0, 0, 20, 20) } };
+    EXPECT_NEAR (bp::Snap (floor, { 2.4, 8 }).x, 2.25, 1e-6);
+    EXPECT_DOUBLE_EQ (bp::Snap (floor, { 2.4, 8 }).y, 8);
+    const auto corner = bp::Snap (floor, { 2, 2 });
+    EXPECT_NEAR (corner.x, 2.25, 1e-6);
+    EXPECT_NEAR (corner.y, 2.05, 1e-6);
+    EXPECT_TRUE (bp::Fits (floor, corner));
+    EXPECT_EQ (bp::Snap (floor, { 3, 8 }), (bp::Point { 3, 8 }));
+    floor.contours.push_back ({ Ring (10, 0, 20, 20) });
+    EXPECT_EQ (bp::Snap (floor, { 12.4, 8 }), (bp::Point { 12.4, 8 }));
+    // A slanted boundary still snaps by translation; project-axis dimensions stay fixed.
+    geomsrv::archviz::SliceChain triangle;
+    triangle.closed = true;
+    triangle.xy = { 0, 0, 30, 0, 0, 30 };
+    floor.contours = { { triangle } };
+    const auto slanted = bp::Snap (floor, { 12.7, 12.7 });
+    EXPECT_NEAR (slanted.x + slanted.y + bp::kStairWidth / 2 + bp::kStairDepth / 2, 30, 1e-6);
+    EXPECT_TRUE (bp::Fits (floor, slanted));
+}
+
+TEST (HudBuildingPlan, MoveIsAPressHoldDragGestureWithGrabOffsetValidationAndCancelRollback)
+{
+    bp::Floor floor;
+    floor.contours = { { Ring (0, 0, 30, 30), Ring (15, 15, 5, 5) } };
+    bp::Draft draft;
+    draft.known = true;
+    draft.original = draft.points = { { 5, 5 } };
+    draft.selected = 0;
+    EXPECT_FALSE (bp::BeginDrag (draft, { 5, 5 }));
+    draft.moving = true;
+    EXPECT_FALSE (bp::BeginDrag (draft, { 10, 10 }));
+    ASSERT_TRUE (bp::BeginDrag (draft, { 6, 5 }));
+    EXPECT_EQ (draft.points[0], (bp::Point { 5, 5 })); // Press alone never teleports.
+    ASSERT_TRUE (bp::Drag (floor, draft, { 9, 8 }));
+    EXPECT_EQ (draft.points[0], (bp::Point { 8, 8 }));
+    EXPECT_FALSE (bp::Drag (floor, draft, { 18, 17 }));
+    EXPECT_EQ (draft.points[0], (bp::Point { 8, 8 }));
+    bp::Cancel (draft);
+    EXPECT_EQ (draft.points[0], (bp::Point { 5, 5 }));
+    EXPECT_FALSE (bp::Dirty (draft));
+    draft.moving = true;
+    ASSERT_TRUE (bp::BeginDrag (draft, { 5, 5 }));
+    ASSERT_TRUE (bp::Drag (floor, draft, { 10, 10 }));
+    bp::EndDrag (draft);
+    EXPECT_EQ (draft.points[0], (bp::Point { 10, 10 }));
+    EXPECT_TRUE (bp::Dirty (draft));
+    EXPECT_FALSE (draft.dragging);
+    EXPECT_FALSE (draft.moving);
+}
+
+TEST (HudBuildingPlan, SelectionHasOneEditableSectionAndPlacementDoesNotPushTheLayoutDown)
+{
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab ("lower", 0, 0), Slab ("upper", 3, 20) }, {}, nullptr, result, error));
+    hudtest::Watched gui;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    pages.selection.known = true;
+    pages.selection.count = 1;
+    pages.buildings = { Preview (result) };
+    gui.engine.SetOwnPages (pages);
+    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
+    const auto normal = gui.Lay ({}, hudtest::At (600, 600));
+    auto& draft = gui.state->buildingPlans.at ("building:Tower");
+    draft.placing = true;
+    const auto placing = gui.Lay ({}, hudtest::At (600, 600));
+    EXPECT_FLOAT_EQ (normal.host.height, placing.host.height);
+    bp::Cancel (draft);
+    int bands = 0;
+    bool wasHover = false;
+    int previous = (std::numeric_limits<int>::min) ();
+    for (float y = 60; y < 16 + normal.host.height; y += 1) {
+        gui.Lay ({}, hudtest::At (16 + normal.host.width * 0.6f, y));
+        const bool hover = !gui.state->hoveredFloors.Empty ();
+        bands += hover && (!wasHover || gui.state->hoveredFloors.first != previous);
+        previous = gui.state->hoveredFloors.first;
+        wasHover = hover;
+    }
+    EXPECT_EQ (bands, 2); // Two floors, once each; no read-only second diagram.
+}
+
+TEST (HudBuildingPlan, NativePlanUsesRectangleHitAreaAndHeldMouseMovementUntilRelease)
+{
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab ("lower", 0, 0, 30) }, {}, nullptr, result, error));
+    hudtest::Watched gui;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    pages.selection.known = true;
+    pages.selection.count = 1;
+    pages.buildings = { Preview (result) };
+    gui.engine.SetOwnPages (pages);
+    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
+    gui.Lay ({}, hudtest::At (600, 600));
+    auto& draft = gui.state->buildingPlans.at ("building:Tower");
+    draft.points = { { 5, 5 } };
+    draft.selected = 0;
+    draft.moving = true;
+    const auto drawn = gui.Lay ({}, hudtest::At (600, 600));
+    float bounds[4];
+    ASSERT_TRUE (hudtest::Box (drawn.host, 0xFFBA00FFu, bounds));
+    const float x = drawn.host.fraction[0] * 1200 + drawn.host.offset[0] + (bounds[0] + bounds[2]) / 2;
+    const float y = drawn.host.fraction[1] * 800 + drawn.host.offset[1] + (bounds[1] + bounds[3]) / 2;
+    gui.Lay ({}, hudtest::At (x, y));
+    gui.Lay ({}, hudtest::At (x, y, { { 0, true } }));
+    ASSERT_TRUE (draft.dragging);
+    EXPECT_EQ (draft.points[0], (bp::Point { 5, 5 }));
+    hudtest::Fresh other;
+    other.engine.UseState (gui.state);
+    other.engine.SetOwnPages (pages);
+    other.Lay ({}, hudtest::At (600, 600));
+    EXPECT_TRUE (draft.dragging) << "An idle second HUD must not release the initiating HUD's drag";
+    gui.Lay ({}, hudtest::At (x + 20, y));
+    EXPECT_GT (draft.points[0].x, 5);
+    EXPECT_TRUE (draft.dragging);
+    gui.Lay ({}, hudtest::At (x + 20, y, { { 0, false } }));
+    EXPECT_FALSE (draft.dragging);
+    EXPECT_FALSE (draft.moving);
+    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ()) << "Dragging remains a local draft until Save";
 }

@@ -89,7 +89,16 @@ void Engine::Impl::SelectionPage (float ui)
     if (own.selection.count == 0)
         return;
     std::vector<hudmeta::Edit> edits;
-    for (hudmeta::Edit& edit : hudmeta::Editor (own.metadata, *look, ui))
+    auto metadata = own.metadata;
+    if (!own.buildings.empty ())
+        metadata.fields.erase (std::remove_if (metadata.fields.begin (), metadata.fields.end (),
+                                               [] (const auto& field) {
+                                                   return field.id == "massing.story" ||
+                                                          field.id == "massing.function" ||
+                                                          field.id == "massing.floorHeight";
+                                               }),
+                               metadata.fields.end ());
+    for (hudmeta::Edit& edit : hudmeta::Editor (metadata, *look, ui))
         edits.push_back (std::move (edit));
     for (hudmeta::Edit& edit : edits) {
         changes.push_back ({ "metadata", std::string (), "Selection", edit.id, -1,
@@ -97,16 +106,10 @@ void Engine::Impl::SelectionPage (float ui)
                              true });
         store->metadataEdits.push_back (std::move (edit));
     }
-    ImGui::PushID ("buildingPreview");
-    for (const auto& preview : own.buildings)
-        BuildingDiagram (preview, ui, false);
-    ImGui::PopID ();
-    if (!store->highlightedBuilding.empty () && !own.massing.inspectionNote.empty ())
-        ImGui::TextWrapped ("%s", own.massing.inspectionNote.c_str ());
     if (ImGui::CollapsingHeader ("Story slice editor", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (!own.buildings.empty ()) {
             for (const auto& preview : own.buildings)
-                BuildingDiagram (preview, ui, true);
+                BuildingDiagram (preview, ui);
             return;
         }
         ImGui::TextDisabled ("Story count is calculated from the slices.");

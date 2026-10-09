@@ -253,11 +253,16 @@ TEST (MassingBuildings, WholeBuildingCheckboxIsMouseAccessible)
     const auto layout = gui.Lay ({}, hudtest::At (600, 600));
     const float x = 16 + layout.host.width * 0.5f;
     float buttonY = 0;
-    for (float y = 60; y < 16 + layout.host.height; y += 2)
-        if (gui.Lay ({}, hudtest::At (x, y)).hand) {
+    int islands = 0;
+    bool wasHand = false;
+    for (float y = 60; y < 16 + layout.host.height; y += 2) {
+        const bool hand = gui.Lay ({}, hudtest::At (x, y)).hand;
+        if (hand && !wasHand && ++islands == 2) { // Editor header, then the retained building checkbox.
             buttonY = y + 4;
             break;
         }
+        wasHand = hand;
+    }
     ASSERT_GT (buttonY, 0);
     gui.Click ({}, x, buttonY);
     EXPECT_EQ (hud::HighlightedBuilding (*gui.state), "building:Tower");
