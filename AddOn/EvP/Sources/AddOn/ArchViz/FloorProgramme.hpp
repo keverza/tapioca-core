@@ -55,6 +55,10 @@ uint32_t Colour (double rooms); // 0xRRGGBBAA
 bool Parse (const std::string& text, Programme& programme, std::string& error);
 // One brief line, its share kept as written (a fraction; not normalised).
 bool ParseType (const std::string& text, UnitType& type, std::string& error);
-std::string Brief (const Programme& programme);
+// Types joined by `separator`: "; " for the one-line prompt, a newline for the generator's files.
+std::string Brief (const Programme& programme, const char* separator = "; ");
+// The stored form (the project's Add-On Object): exact, one type per line after a header.
+std::string ToText (const Programme& programme);
+bool FromText (const std::string& text, Programme& programme, std::string& error);
 } // namespace geomsrv::archviz::floorprogramme
 #endif

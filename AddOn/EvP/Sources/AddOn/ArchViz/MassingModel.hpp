@@ -9,6 +9,8 @@ namespace geomsrv::archviz::massingmodel {
 hudmassing::Page Read ();
 void Request (hudmassing::Request request);
 void RequestRules (massingrules::Edit edit);
+// Store the flat programme in the project, one undo step, on the message loop.
+void RequestProgramme (floorprogramme::Programme programme);
 void Changed ();
 void Forget ();
 } // namespace geomsrv::archviz::massingmodel

@@ -1,6 +1,9 @@
 #include "ArchViz/HudBuildingPlan.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "hud_fixture.hpp"
+#include "NodeGraph/Json.hpp"
+#include <cstdlib>
+#include <fstream>
 #include <clipper2/clipper.h>
 #include <gtest/gtest.h>
 #include <cmath>
@@ -788,4 +791,91 @@ TEST (HudFloorPlan, EgressWalksTheCorridorLikeThePrivateGenerator)
     const auto two = bp::GenerateQuick (Floor (), { { { 6, 3 } }, { { 30, 3 } } });
     ASSERT_TRUE (two.ready);
     EXPECT_TRUE (two.egress.invalid.empty ()) << "Two stairs: within 40 m of one, a second way out";
+}
+
+TEST (HudFloorPlan, ProgrammeFromTheProjectIsAdoptedUnlessAnUnsavedEditIsWaiting)
+{
+    hudtest::Watched gui;
+    hud::OwnPages pages;
+    pages.massing.known = true;
+    auto stored = fp::Default ();
+    ASSERT_TRUE (fp::SetShare (stored, 1, 0.5));
+    pages.massing.programmeStored = true;
+    pages.massing.programme = stored;
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (gui.state->massingProgramme, stored);
+    EXPECT_EQ (gui.state->massingProgrammeSaved, stored);
+    // A typed answer is applied and queued for the owner to store, once.
+    hud::State& state = *gui.state;
+    std::string error;
+    ASSERT_TRUE (hud::AnswerProgrammeText (state, { state.massingProgramme, -1, {} },
+                                           "50% 2 room 40-45m2; 50% 3 room 60-70m2", error))
+        << error;
+    fp::Programme queued;
+    ASSERT_TRUE (hud::TakeProgrammeSave (state, queued));
+    EXPECT_EQ (queued, state.massingProgramme);
+    EXPECT_FALSE (hud::TakeProgrammeSave (state, queued));
+    // Pages read before the write still carry the old programme: the edit is kept.
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (state.massingProgramme, queued);
+    // The write acknowledged: saved and shown agree again.
+    pages.massing.programme = queued;
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (state.massingProgrammeSaved, queued);
+    EXPECT_EQ (state.massingProgramme, queued);
+    // Another project (or an Undo seen on reread) with no edit pending is followed.
+    pages.massing.programmeStored = false;
+    pages.massing.programme = fp::Default ();
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (state.massingProgramme, fp::Default ());
+}
+
+TEST (HudFloorPlan, ExportIsAStorySlicesFixtureWithTheCoresProgrammeAndEveryDesign)
+{
+    auto plan = Building ();
+    plan.floors[2].contours = { { Ring (0, 0, 36, 36), Ring (12, 12, 12, 12) } };
+    plan.saved = { { { 6, 2.1 } } };
+    bp::Draft draft;
+    bp::Reset (plan, draft);
+    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
+    ASSERT_TRUE (quick.ready);
+    ASSERT_TRUE (bp::SetUnitLocked (quick, MultiSeed (quick), true));
+    const auto file = bp::ExportPlan (plan, draft, plan.floors[0], "20261009-120000");
+    EXPECT_EQ (file.name, "Tower-floor0-20261009-120000.json");
+    if (const char* sample = std::getenv ("FLOORPLAN_EXPORT_SAMPLE"))
+        std::ofstream (sample, std::ios::binary) << file.text;
+    namespace js = evp::nodegraph::json;
+    const auto parsed = js::Parse (file.text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    const auto& doc = parsed.value;
+    std::string text;
+    ASSERT_TRUE (doc.Find ("format")->AsString (text));
+    EXPECT_EQ (text, "tapioca.story-slices.2d");
+    ASSERT_TRUE (doc.Find ("program")->AsString (text));
+    EXPECT_EQ (text, fp::Brief (draft.programme, "\n")) << "One type per line, as the generator reads briefs";
+    const auto* slices = doc.Find ("slices")->AsArray ();
+    ASSERT_NE (slices, nullptr);
+    ASSERT_EQ (slices->size (), 3u) << "One slice per floor ring";
+    EXPECT_EQ (slices->at (2).Find ("holes")->AsArray ()->size (), 1u) << "The courtyard stays a hole";
+    const auto* exported = doc.Find ("plan");
+    ASSERT_NE (exported, nullptr);
+    ASSERT_EQ (exported->Find ("cores")->AsArray ()->size (), 1u);
+    double width = 0;
+    ASSERT_TRUE (exported->Find ("cores")->AsArray ()->front ().Find ("width")->AsDouble (width));
+    EXPECT_DOUBLE_EQ (width, 4.5);
+    EXPECT_EQ (exported->Find ("programme")->AsArray ()->size (), draft.programme.types.size ());
+    const auto* designs = exported->Find ("designs")->AsArray ();
+    ASSERT_EQ (designs->size (), 2u) << "Floors 0 and 1 share a design; the courtyard floor has its own";
+    const auto* flats = designs->front ().Find ("flats")->AsArray ();
+    ASSERT_EQ (flats->size (), quick.seeds.size ());
+    size_t locked = 0;
+    for (const auto& flat : *flats) {
+        bool value = false;
+        ASSERT_TRUE (flat.Find ("locked")->AsBool (value));
+        locked += value;
+        double net = 0;
+        ASSERT_TRUE (flat.Find ("netM2")->AsDouble (net));
+        EXPECT_GT (net, 0);
+    }
+    EXPECT_EQ (locked, 1u);
 }

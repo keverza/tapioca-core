@@ -200,6 +200,59 @@ bool WriteSchema (ProjectSchema schema, std::string& error)
     return true;
 }
 
+bool ReadObject (const char* name, std::string& text, bool& stored, std::string& error)
+{
+    stored = false;
+    text.clear ();
+    API_Guid object = APINULLGuid;
+    if (ACAPI_AddOnObject_GetUniqueObjectGuidFromName (GS::UniString (name), &object) != NoError ||
+        object == APINULLGuid)
+        return true;
+    GS::UniString objectName;
+    GSHandle content = nullptr;
+    const GSErrCode err = ACAPI_AddOnObject_GetObjectContent (object, &objectName, &content);
+    if (err != NoError) {
+        error = std::string ("the project's ") + name + " could not be read (" + Describe (err) + ")";
+        return false;
+    }
+    const bool ours = Unpack (content, text);
+    BMKillHandle (&content);
+    if (!ours) {
+        error = std::string ("the project's ") + name + " object holds something else";
+        return false;
+    }
+    stored = true;
+    return true;
+}
+
+bool WriteObject (const char* name, const std::string& text, std::string& error)
+{
+    API_Guid object = APINULLGuid;
+    if (ACAPI_AddOnObject_GetUniqueObjectGuidFromName (GS::UniString (name), &object) != NoError ||
+        object == APINULLGuid) {
+        const GSErrCode created = ACAPI_AddOnObject_CreateUniqueObject (GS::UniString (name), &object);
+        if (created != NoError) {
+            error = std::string ("the project's ") + name + " could not be created (" + Describe (created) + ")" +
+                    (created == APIERR_NOTEAMWORKPROJECT ? ": an offline Teamwork project cannot create it" : "") +
+                    (created == APIERR_CANCEL ? ": the Teamwork send and receive was refused" : "");
+            return false;
+        }
+    }
+    GSHandle content = Payload (text);
+    if (content == nullptr) {
+        error = std::string ("no memory for the project's ") + name;
+        return false;
+    }
+    const GSErrCode err = ACAPI_AddOnObject_ModifyObject (object, nullptr, &content);
+    BMKillHandle (&content);
+    if (err != NoError) {
+        error = std::string ("the project's ") + name + " could not be stored (" + Describe (err) + ")" +
+                (err == APIERR_NOTMINE ? ": another Teamwork user holds it -- reserve it first" : "");
+        return false;
+    }
+    return true;
+}
+
 } // namespace storage
 } // namespace metadata
 } // namespace geomsrv

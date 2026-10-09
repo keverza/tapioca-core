@@ -6,12 +6,12 @@
 
 namespace geomsrv::archviz::hudprogramme {
 namespace fp = floorprogramme;
-bool Draw (fp::Programme& programme, std::vector<TextEdit>& prompts)
+Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<TextEdit>& prompts)
 {
     if (!ImGui::CollapsingHeader ("Define Programme"))
-        return false;
+        return {};
     auto wanted = programme;
-    bool changed = false;
+    bool changed = false, save = false;
     const float unit = ImGui::GetFontSize ();
     if (ImGui::BeginTable ("##massing.programme", 5,
                            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg)) {
@@ -42,6 +42,7 @@ bool Draw (fp::Programme& programme, std::vector<TextEdit>& prompts)
             if (ImGui::DragScalar ("##rooms", ImGuiDataType_Double, &rooms, 0.05f, &roomsLow, &roomsHigh, "%.1f",
                                    ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp))
                 changed |= fp::SetRooms (wanted, i, rooms);
+            save |= ImGui::IsItemDeactivatedAfterEdit ();
             ImGui::TableSetColumnIndex (2);
             double low = type.minM2, high = type.maxM2;
             const double floor = fp::kMinArea, ceiling = fp::kMaxArea;
@@ -50,11 +51,13 @@ bool Draw (fp::Programme& programme, std::vector<TextEdit>& prompts)
             ImGui::SetNextItemWidth (half);
             const bool lowMoved = ImGui::DragScalar ("##min", ImGuiDataType_Double, &low, 0.25f, &floor, &lowTop,
                                                      "%.1f", ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
+            save |= ImGui::IsItemDeactivatedAfterEdit ();
             ImGui::SameLine ();
             ImGui::SetNextItemWidth (half);
             const bool highMoved =
                 ImGui::DragScalar ("##max", ImGuiDataType_Double, &high, 0.25f, &highBottom, &ceiling, "%.1f",
                                    ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
+            save |= ImGui::IsItemDeactivatedAfterEdit ();
             if (lowMoved || highMoved)
                 changed |= fp::SetRange (wanted, i, std::round (low * 2) / 2, std::round (high * 2) / 2);
             ImGui::TableSetColumnIndex (3);
@@ -64,6 +67,7 @@ bool Draw (fp::Programme& programme, std::vector<TextEdit>& prompts)
             if (ImGui::DragScalar ("##share", ImGuiDataType_Double, &share, 0.2f, &none, &all, "%.1f%%",
                                    ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp))
                 changed |= fp::SetShare (wanted, i, std::round (share * 10) / 1000);
+            save |= ImGui::IsItemDeactivatedAfterEdit ();
             if (ImGui::IsItemHovered ())
                 ImGui::SetTooltip ("Share of the flat count. The other types scale so the total stays 100%%.");
             ImGui::TableSetColumnIndex (4);
@@ -79,12 +83,12 @@ bool Draw (fp::Programme& programme, std::vector<TextEdit>& prompts)
             ImGui::PopID ();
         }
         ImGui::EndTable ();
-        if (remove < wanted.types.size ())
-            changed |= fp::RemoveType (wanted, remove);
+        if (remove < wanted.types.size () && fp::RemoveType (wanted, remove))
+            changed = save = true;
     }
     ImGui::BeginDisabled (wanted.types.size () >= fp::kMaxTypes);
-    if (ImGui::SmallButton ("Add type"))
-        changed |= fp::AddType (wanted) < fp::kMaxTypes;
+    if (ImGui::SmallButton ("Add type") && fp::AddType (wanted) < fp::kMaxTypes)
+        changed = save = true;
     ImGui::EndDisabled ();
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Set brief..."))
@@ -93,19 +97,32 @@ bool Draw (fp::Programme& programme, std::vector<TextEdit>& prompts)
         ImGui::SetTooltip ("Type every type at once: \"5%% 1.5 room 30-36m2; 30%% 2 room 40-45m2; ...\". Shares are "
                            "scaled to 100%%.");
     ImGui::SameLine ();
-    if (ImGui::SmallButton ("Default")) {
-        changed |= !(wanted == fp::Default ());
+    if (ImGui::SmallButton ("Default") && !(wanted == fp::Default ())) {
         wanted = fp::Default ();
+        changed = save = true;
     }
     double total = 0;
     for (const auto& type : wanted.types)
         total += type.share;
     ImGui::TextDisabled ("Total %.1f%% | mean flat %.1f m2 net | net = inside walls, as the plan view measures",
                          total * 100, fp::MeanArea (wanted));
-    if (!changed || !fp::Valid (wanted))
-        return false;
-    programme = std::move (wanted);
-    return true;
+    if (wanted == saved)
+        ImGui::TextDisabled ("Saved with the project.");
+    else {
+        ImGui::AlignTextToFramePadding ();
+        ImGui::TextUnformatted ("Not saved with the project yet.");
+        ImGui::SameLine ();
+        save |= ImGui::SmallButton ("Save");
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("Store the programme in the project (one Undo step). Edits save when you let go.");
+    }
+    Outcome outcome;
+    if (changed && fp::Valid (wanted)) {
+        programme = std::move (wanted);
+        outcome.changed = true;
+    }
+    outcome.save = save && fp::Valid (programme) && !(programme == saved);
+    return outcome;
 }
 bool Answer (fp::Programme& programme, const TextEdit& edit, const std::string& answer, std::string& error)
 {

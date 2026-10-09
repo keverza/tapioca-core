@@ -147,6 +147,7 @@ struct Draft {
     std::vector<std::string> guids;
     std::vector<std::string> fingerprints;
     floorprogramme::Programme programme = floorprogramme::Default (); // the Massing programme, HUD-session
+    bool exportRequested = false;        // Export plan pressed; the owner builds and writes the file
     std::map<int, QuickPlan> quickPlans; // Local per-floor design; never written by Save stairwells.
     std::set<int> uniqueFloors;
     std::string previewFingerprint;
@@ -222,6 +223,13 @@ bool Dirty (const Draft& draft);
 bool Conflict (const Plan& plan, const Draft& draft);
 void Reset (const Plan& plan, Draft& draft);
 void Sync (const Plan& plan, Draft& draft);
+// A plan example for offline reference: the building's counted floors as a story-slices file
+// (tapioca.story-slices.2d, which the private generator loads as a fixture) with the programme
+// as its brief and a "plan" section holding the cores and every floor design's flats.
+struct PlanFile {
+    std::string name, text;
+};
+PlanFile ExportPlan (const Plan& plan, Draft& draft, const Floor& shown, const std::string& stamp);
 // Pure targeted edits; the owner writes outside ImGui and checks building identity.
 std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft);
 std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,

@@ -178,6 +178,12 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
                                "flats on corners, entrances and egress. Locked flats keep type, size and traits.");
         ImGui::SameLine ();
         ImGui::Checkbox ("may move cores", &draft.moveCores);
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Export plan"))
+            draft.exportRequested = true;
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("Save this building's floors, cores and flat designs as a JSON reference in the local "
+                               "Tapioca data folder (plans). The private generator opens it as a fixture.");
         ImGui::EndDisabled ();
     }
     auto& units = QuickFor (plan, draft, *floor);

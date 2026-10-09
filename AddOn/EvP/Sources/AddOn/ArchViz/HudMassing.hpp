@@ -9,6 +9,7 @@
 #include "ArchViz/MassingRules.hpp"
 #include "ArchViz/MassingCalculation.hpp"
 #include "ArchViz/MassingBuildings.hpp"
+#include "ArchViz/FloorProgramme.hpp"
 
 namespace geomsrv::archviz::hudmassing {
 
@@ -33,6 +34,9 @@ struct Page {
     std::string collapseNote;
     std::string inspectionNote;
     std::shared_ptr<const massingcalculation::Preview> preview;
+    // The project's stored flat programme (Define Programme); none stored reads as the default.
+    bool programmeStored = false;
+    floorprogramme::Programme programme = floorprogramme::Default ();
 };
 struct Assignment {
     std::string guid;

@@ -515,6 +515,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanTargets.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanFill.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanShare.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanExport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudFloorPlans.cpp"

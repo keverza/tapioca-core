@@ -39,6 +39,16 @@ void Engine::SetOwnPages (OwnPages pages)
             else
                 ++it;
     }
+    // The project's programme: adopted unless this HUD holds an edit the project has not stored yet.
+    if (pages.massing.known) {
+        auto& store = *impl_->store;
+        if (!(pages.massing.programme == store.massingProgrammeSaved)) {
+            if (store.massingProgramme == store.massingProgrammeSaved && !store.massingProgrammeSave)
+                store.massingProgramme = pages.massing.programme;
+            store.massingProgrammeSaved = pages.massing.programme;
+            ++store.revision;
+        }
+    }
     impl_->own = std::move (pages);
 }
 
@@ -196,8 +206,25 @@ bool AnswerProgrammeText (State& state, const hudprogramme::TextEdit& edit, cons
 {
     if (!hudprogramme::Answer (state.massingProgramme, edit, answer, error))
         return false;
+    state.massingProgrammeSave = state.massingProgramme;
     ++state.revision;
     return true;
+}
+
+bool TakeProgrammeSave (State& state, floorprogramme::Programme& programme)
+{
+    if (!state.massingProgrammeSave)
+        return false;
+    programme = std::move (*state.massingProgrammeSave);
+    state.massingProgrammeSave.reset ();
+    return true;
+}
+
+std::vector<buildingplan::PlanFile> TakePlanExports (State& state)
+{
+    auto files = std::move (state.planExports);
+    state.planExports.clear ();
+    return files;
 }
 
 void Engine::Impl::MassingPage ()
@@ -207,9 +234,15 @@ void Engine::Impl::MassingPage ()
         changes.push_back ({ "massing", std::string (), "Massing", hudmassing::Role (request.group), -1,
                              double (request.action), hudmassing::Label (request.group), true });
     }
-    if (hudprogramme::Draw (store->massingProgramme, store->massingProgrammeTexts)) {
+    const auto programme =
+        hudprogramme::Draw (store->massingProgramme, store->massingProgrammeSaved, store->massingProgrammeTexts);
+    if (programme.changed) {
         ++store->revision;
         changes.push_back ({ "massingProgramme", {}, "Massing", "programme", -1, 1, {}, true });
+    }
+    if (programme.save) {
+        store->massingProgrammeSave = store->massingProgramme;
+        changes.push_back ({ "massingProgrammeSave", {}, "Massing", "programme", -1, 1, {}, true });
     }
     if (!store->massingProgrammeTexts.empty ())
         changes.push_back ({ "massingProgrammeText", {}, "Massing", "set", -1, 0, {}, true });

@@ -122,3 +122,17 @@ TEST (FloorProgramme, PromptAnswersApplyOnlyToTheProgrammeTheyWereAskedAbout)
     EXPECT_FALSE (hp::Answer (programme, bad, "nothing", error));
     EXPECT_EQ (programme.types.size (), 2u);
 }
+
+TEST (FloorProgramme, StoredTextRoundTripsExactlyAndRefusesForeignOrBrokenText)
+{
+    auto programme = fp::Default ();
+    ASSERT_TRUE (fp::SetShare (programme, 2, 1.0 / 3.0));
+    fp::Programme read;
+    std::string error;
+    ASSERT_TRUE (fp::FromText (fp::ToText (programme), read, error)) << error;
+    EXPECT_EQ (read, programme) << "Exact, unlike the rounded brief";
+    EXPECT_FALSE (fp::FromText ("30% 2 room 40-45m2", read, error));
+    EXPECT_FALSE (fp::FromText ("tapioca.programme 1\n2 40 45\n", read, error));
+    EXPECT_FALSE (fp::FromText ("tapioca.programme 1\n2 40 45 0.5\n", read, error)) << "Shares must total 100%";
+    EXPECT_EQ (read, programme);
+}

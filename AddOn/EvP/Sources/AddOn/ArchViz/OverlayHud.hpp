@@ -316,6 +316,10 @@ bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit,
 std::vector<hudprogramme::TextEdit> TakeProgrammeTexts (State& state);
 bool AnswerProgrammeText (State& state, const hudprogramme::TextEdit& edit, const std::string& answer,
                           std::string& error);
+// A Define Programme edit to store in the project, once (massingmodel::RequestProgramme).
+bool TakeProgrammeSave (State& state, floorprogramme::Programme& programme);
+// Plan view exports to write under the local Tapioca data folder, once.
+std::vector<buildingplan::PlanFile> TakePlanExports (State& state);
 std::string MassingStatsFunction (const State& state);
 bool MassingCollapseZone (const State& state);
 bool UniqueBuildings (const State& state);

@@ -257,6 +257,15 @@ hudmassing::Page Read ()
             if (!page.parcels.empty ())
                 page.rules = page.parcels.front ();
         }
+        if (page.known) {
+            std::string text, error;
+            if (!meta::storage::ReadObject (meta::storage::kProgrammeObjectName, text, page.programmeStored, error) ||
+                (page.programmeStored && !floorprogramme::FromText (text, page.programme, error))) {
+                page.programmeStored = false;
+                page.programme = floorprogramme::Default ();
+                hudconsole::Warning ("Programme", "Stored programme ignored: " + error);
+            }
+        }
         if (page.note.empty ())
             page.note = s_notice;
         s_page = std::move (page);
@@ -305,6 +314,35 @@ void RequestRules (massingrules::Edit edit)
         s_notice = "Property-line save was not queued: the project message loop is unavailable.";
         s_dirty = true;
         hudconsole::Say (hudconsole::Level::Error, "Property line rules", s_notice);
+    }
+}
+
+void RequestProgramme (floorprogramme::Programme programme)
+{
+    const uint64_t epoch = s_projectEpoch;
+    if (!selectionmetadata::Later ([programme = std::move (programme), epoch] () {
+            if (epoch != s_projectEpoch)
+                return;
+            std::string error = floorprogramme::Problem (programme);
+            if (error.empty ()) {
+                const GSErrCode result = ACAPI_CallUndoableCommand ("Tapioca Flat Programme", [&] () -> GSErrCode {
+                    return meta::storage::WriteObject (meta::storage::kProgrammeObjectName,
+                                                       floorprogramme::ToText (programme), error)
+                               ? NoError
+                               : APIERR_GENERAL;
+                });
+                if (result != NoError && error.empty ())
+                    error = Describe (result);
+            }
+            s_dirty = true;
+            ArchVizLog ("MASSING PROGRAMME " + std::string (error.empty () ? "saved" : "refused: " + error));
+            if (!error.empty ())
+                hudconsole::Say (hudconsole::Level::Error, "Programme", "Not saved with the project: " + error);
+            overlayhudmodel::SelectionChanged ();
+        })) {
+        s_dirty = true;
+        hudconsole::Say (hudconsole::Level::Error, "Programme",
+                         "Programme save was not queued: the project message loop is unavailable.");
     }
 }
 

@@ -23,6 +23,7 @@
 #include <map>
 #include <set>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -107,6 +108,13 @@ struct State {
     // coefficients. Typed rows wait for the owner's native prompt.
     floorprogramme::Programme massingProgramme = floorprogramme::Default ();
     std::vector<hudprogramme::TextEdit> massingProgrammeTexts;
+    // The programme last read from the project (the default when none is stored), and one not
+    // yet taken by the owner to store (TakeProgrammeSave). Edits differ from the saved one
+    // until the owner's next pages carry it back.
+    floorprogramme::Programme massingProgrammeSaved = floorprogramme::Default ();
+    std::optional<floorprogramme::Programme> massingProgrammeSave;
+    // Plan view exports (buildingplan::ExportPlan) not yet written by the owner (TakePlanExports).
+    std::vector<buildingplan::PlanFile> planExports;
     std::vector<massingareas::NumberEdit> massingCoefficientNumbers;
     std::vector<massingrules::Edit> massingRuleEdits;
     std::vector<massingcalculation::Request> massingCalculations;

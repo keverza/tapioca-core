@@ -1,7 +1,23 @@
 #include "ArchViz/OverlayHudEngine.hpp"
+#include <cstdio>
+#include <ctime>
 #include <sstream>
 
 namespace geomsrv::archviz::overlayhud {
+namespace {
+// Local time to the second: export file names sort by when they were taken.
+std::string ExportStamp ()
+{
+    const std::time_t now = std::time (nullptr);
+    std::tm local = {};
+    if (localtime_s (&local, &now) != 0)
+        return "undated";
+    char text[32];
+    std::snprintf (text, sizeof (text), "%04d%02d%02d-%02d%02d%02d", local.tm_year + 1900, local.tm_mon + 1,
+                   local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec);
+    return text;
+}
+} // namespace
 void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, float ui)
 {
     const auto& building = preview.building;
@@ -60,6 +76,13 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
         store->metadataEdits.push_back (std::move (edit));
     }
     auto& draft = store->buildingPlans[building.key];
+    if (draft.exportRequested) {
+        draft.exportRequested = false;
+        if (const auto* floor = buildingplan::Displayed (preview.plan, draft)) {
+            store->planExports.push_back (buildingplan::ExportPlan (preview.plan, draft, *floor, ExportStamp ()));
+            changes.push_back ({ "planExport", {}, "Selection", building.key, -1, 1, {}, true });
+        }
+    }
     std::ostringstream signature;
     for (const auto& floor : preview.plan.floors)
         signature << buildingplan::QuickSignature (floor, draft.cores, &draft.programme);

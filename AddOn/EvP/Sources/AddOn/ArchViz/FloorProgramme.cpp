@@ -355,12 +355,56 @@ bool Parse (const std::string& text, Programme& programme, std::string& error)
     return true;
 }
 
-std::string Brief (const Programme& programme)
+namespace {
+constexpr char kHeader[] = "tapioca.programme 1";
+}
+
+std::string ToText (const Programme& programme)
+{
+    std::string text = kHeader;
+    char line[128];
+    for (const auto& type : programme.types) {
+        std::snprintf (line, sizeof (line), "\n%.17g %.17g %.17g %.17g", type.rooms, type.minM2, type.maxM2,
+                       type.share);
+        text += line;
+    }
+    return text + "\n";
+}
+
+bool FromText (const std::string& text, Programme& programme, std::string& error)
+{
+    if (text.compare (0, sizeof (kHeader) - 1, kHeader) != 0) {
+        error = "The stored programme is not in a known format.";
+        return false;
+    }
+    Programme read;
+    size_t start = text.find ('\n');
+    while (start != std::string::npos && start + 1 < text.size ()) {
+        const size_t end = text.find ('\n', start + 1);
+        const std::string row = text.substr (start + 1, end == std::string::npos ? std::string::npos : end - start - 1);
+        start = end;
+        if (row.find_first_not_of (" \r\t") == std::string::npos)
+            continue;
+        UnitType type;
+        if (std::sscanf (row.c_str (), "%lf %lf %lf %lf", &type.rooms, &type.minM2, &type.maxM2, &type.share) != 4) {
+            error = "The stored programme has an unreadable row: " + row;
+            return false;
+        }
+        read.types.push_back (type);
+    }
+    error = Problem (read);
+    if (!error.empty ())
+        return false;
+    programme = std::move (read);
+    return true;
+}
+
+std::string Brief (const Programme& programme, const char* separator)
 {
     std::string text;
     for (const auto& type : programme.types) {
         if (!text.empty ())
-            text += "; ";
+            text += separator;
         text += Text (type.share * 100) + "% " + Text (type.rooms) + " room " + Text (type.minM2) + "-" +
                 Text (type.maxM2) + "m2";
     }

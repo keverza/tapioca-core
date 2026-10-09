@@ -547,3 +547,32 @@ TEST (HudBuildingPlan, ApartmentCentreUsesRealHeldPointerDragAndDoesNotWriteMeta
     EXPECT_FALSE (bp::Dirty (draft));
     EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
 }
+
+TEST (HudBuildingPlan, ExportPlanButtonQueuesOneFileForTheOwnerAndWritesNoMetadata)
+{
+    ms::Result result;
+    std::string error;
+    auto slab = Slab ("lower", 0, 0, 36);
+    slab.slab.outer.xy = { 0, 0, 36, 0, 36, 16, 0, 16 };
+    ASSERT_TRUE (ms::Build ({ slab }, {}, nullptr, result, error));
+    hudtest::Watched gui;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    pages.selection.known = true;
+    pages.selection.count = 1;
+    pages.buildings = { Preview (result) };
+    pages.buildings.front ().plan.saved = { { { 6, 3 } } };
+    gui.engine.SetOwnPages (pages);
+    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
+    gui.Lay ({}, hudtest::At (600, 600));
+    auto& draft = gui.state->buildingPlans.at ("building:Tower");
+    draft.exportRequested = true;
+    gui.Lay ({}, hudtest::At (600, 600));
+    const auto files = hud::TakePlanExports (*gui.state);
+    ASSERT_EQ (files.size (), 1u);
+    EXPECT_EQ (files.front ().name.rfind ("Tower-floor", 0), 0u);
+    EXPECT_NE (files.front ().text.find ("tapioca.floor-plan.native"), std::string::npos);
+    EXPECT_FALSE (draft.exportRequested);
+    EXPECT_TRUE (hud::TakePlanExports (*gui.state).empty ());
+    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
+}

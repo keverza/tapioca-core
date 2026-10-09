@@ -25,6 +25,7 @@
 #include "ArchViz/SurfaceSwitch.hpp"
 #include "ArchViz/TextPrompt.hpp"
 #include "ArchViz/HudConsole.hpp"
+#include "ArchViz/HudFloorPlanFiles.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -151,6 +152,12 @@ void FollowHudState ()
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
     }
+    // A finished programme edit is stored in the project; Plan view exports become files.
+    floorprogramme::Programme programme;
+    if (overlayhud::TakeProgrammeSave (*state, programme))
+        massingmodel::RequestProgramme (std::move (programme));
+    for (const auto& file : overlayhud::TakePlanExports (*state))
+        planfiles::Write (file);
     // The Selection page's metadata edits: written from the message loop too, in one undo step,
     // to every element selected then; the page is read again after (SelectionMetadata.hpp).
     std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);

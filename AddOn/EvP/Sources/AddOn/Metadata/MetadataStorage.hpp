@@ -52,6 +52,18 @@ bool WriteSchema (ProjectSchema schema, std::string& error);
 // The name the schema's Add-On Object goes by.
 constexpr char kSchemaObjectName[] = "TapiocaProjectSchema";
 
+// Text kept in the project's unique Add-On Object `name`, beside the schema (the flat
+// programme). `stored` false when there is none -- reading never writes. False with `error`
+// when one exists and cannot be read or is not Tapioca's.
+bool ReadObject (const char* name, std::string& text, bool& stored, std::string& error);
+
+// `text` stored as the Add-On Object `name`, created on the first write (in Teamwork, a send
+// and receive). Inside an undo scope.
+bool WriteObject (const char* name, const std::string& text, std::string& error);
+
+// The Massing flat programme (floorprogramme::ToText).
+constexpr char kProgrammeObjectName[] = "TapiocaFlatProgramme";
+
 } // namespace storage
 } // namespace metadata
 } // namespace geomsrv
