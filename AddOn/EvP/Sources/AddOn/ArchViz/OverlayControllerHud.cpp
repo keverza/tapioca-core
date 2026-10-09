@@ -88,6 +88,14 @@ void FollowHudState ()
         surfaceswitch::Request (surfaceswitch::Surface::Viewer);
     if (overlayhud::TakeLogsRequest (*state))
         hudconsole::OpenLogs ();
+    overlaylayers::Layer stairs, units;
+    if (overlayhud::TakeFloorPlanLayers (*state, stairs, units)) {
+        overlaylayers::Set (std::move (stairs));
+        overlaylayers::Set (std::move (units));
+        PublishLayers ();
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     for (const auto& request : overlayhud::TakeMassingRequests (*state))
         massingmodel::Request (request);
     for (auto& edit : overlayhud::TakeMassingRuleEdits (*state))

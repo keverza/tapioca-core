@@ -132,6 +132,7 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
                     }
                 }
             floor.contours.push_back (source->chains);
+            floor.height = (std::max) (floor.height, source->floorHeight);
             floor.physical.push_back (source->rawChains);
         }
         const Point origin =
@@ -146,6 +147,7 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
             floor.outline.push_back (std::move (chain));
         }
         floor.outlineKnown = true;
+        floor.outlineKey = QuickSignature (floor, {});
         plan.floors.push_back (std::move (floor));
     }
     return plan;
@@ -262,7 +264,12 @@ bool Conflict (const Plan& plan, const Draft& draft)
 void Reset (const Plan& plan, Draft& draft)
 {
     const int story = draft.story;
+    const bool acknowledged = draft.known && draft.points == plan.saved && draft.guids == plan.guids && !plan.mixed;
+    auto quickPlans = acknowledged ? std::move (draft.quickPlans) : std::map<int, QuickPlan> {};
+    auto uniqueFloors = acknowledged ? std::move (draft.uniqueFloors) : std::set<int> {};
     draft = {};
+    draft.quickPlans = std::move (quickPlans);
+    draft.uniqueFloors = std::move (uniqueFloors);
     draft.known = true;
     draft.story = story;
     draft.points = draft.original = plan.saved;
@@ -270,6 +277,12 @@ void Reset (const Plan& plan, Draft& draft)
     draft.guids = plan.guids;
     for (const auto& source : plan.sources)
         draft.fingerprints.push_back (source.fingerprint);
+}
+void Sync (const Plan& plan, Draft& draft)
+{
+    if (!draft.known || (!Dirty (draft) && Conflict (plan, draft)) ||
+        (Dirty (draft) && !plan.mixed && plan.saved == draft.points && plan.guids == draft.guids))
+        Reset (plan, draft);
 }
 std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
 {
@@ -359,6 +372,8 @@ void EndDrag (Draft& draft)
 }
 void Cancel (Draft& draft)
 {
+    for (auto& [story, plan] : draft.quickPlans)
+        CancelUnits (plan);
     if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < draft.points.size ())
         draft.points[size_t (draft.selected)] = draft.dragOriginal;
     draft.placing = draft.moving = draft.dragging = false;

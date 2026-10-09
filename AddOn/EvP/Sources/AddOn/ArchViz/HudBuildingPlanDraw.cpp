@@ -11,7 +11,10 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
     std::vector<hudmeta::Edit> edits;
     const auto owner = reinterpret_cast<uintptr_t> (ImGui::GetCurrentContext ());
     if (!ImGui::CollapsingHeader ("Plan view", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (!draft.dragging || draft.dragOwner == owner)
+        const bool otherGesture =
+            std::any_of (draft.quickPlans.begin (), draft.quickPlans.end (),
+                         [&] (const auto& item) { return item.second.dragging && item.second.owner != owner; });
+        if ((!draft.dragging || draft.dragOwner == owner) && !otherGesture)
             Cancel (draft);
         return edits;
     }
@@ -25,9 +28,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
     }
     // A successful deferred Save is acknowledged by the next published metadata
     // snapshot. Other external changes never silently overwrite a local draft.
-    if (!draft.known || (!Dirty (draft) && Conflict (plan, draft)) ||
-        (Dirty (draft) && !plan.mixed && plan.saved == draft.points && plan.guids == draft.guids))
-        Reset (plan, draft);
+    Sync (plan, draft);
     const bool conflict = Conflict (plan, draft);
     if (conflict || ImGui::IsKeyPressed (ImGuiKey_Escape))
         Cancel (draft);
@@ -75,6 +76,54 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         }
         ImGui::EndDisabled ();
     }
+    auto& quick = QuickFor (plan, draft, *floor);
+    ImGui::SetNextItemWidth (150 * scale);
+    if (ImGui::Combo ("##quickStage", &quick.stage,
+                      "S0 Input\0S1 Local frame\0S2 Bars\0S3 Circulation\0S4 Bands\0S5 Segments\0Quick apartments\0"))
+        CancelUnits (quick);
+    ImGui::SameLine ();
+    if (ImGui::SmallButton ("Reset plan")) {
+        CancelUnits (quick);
+        ResetQuick (plan, draft, *floor);
+    }
+    if (!draft.uniqueFloors.contains (floor->story)) {
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("Make unique")) {
+            CancelUnits (quick);
+            MakeUnique (plan, draft, *floor);
+        }
+    }
+    // Reacquire: Reset/Make unique may replace the map entry behind the old reference.
+    auto& design = QuickFor (plan, draft, *floor);
+    if (design.stage == 6 && design.ready) {
+        ImGui::BeginDisabled (conflict || draft.placing || draft.moving || design.dragging);
+        if (ImGui::SmallButton (design.adding ? "Cancel unit" : "Add unit"))
+            design.adding = !design.adding;
+        ImGui::SameLine ();
+        ImGui::BeginDisabled (design.selected < 0);
+        if (ImGui::SmallButton ("Delete unit"))
+            RemoveUnit (design, size_t (design.selected));
+        ImGui::EndDisabled ();
+        ImGui::SameLine ();
+        const double rooms = design.selected >= 0 ? design.seeds[size_t (design.selected)].rooms : design.newRooms;
+        int roomType = rooms == 1 ? 0 : rooms == 1.5 ? 1 : rooms == 2 ? 2 : rooms == 3 ? 3 : 4;
+        ImGui::SetNextItemWidth (100 * scale);
+        if (ImGui::Combo ("##unitRooms", &roomType,
+                          "1 room\0"
+                          "1.5 rooms\0"
+                          "2 rooms\0"
+                          "3 rooms\0"
+                          "4 rooms\0")) {
+            const double values[] = { 1, 1.5, 2, 3, 4 };
+            design.newRooms = values[roomType];
+            if (design.selected >= 0)
+                SetUnitRooms (design, size_t (design.selected), design.newRooms);
+        }
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip (
+                "Area weight for the selected unit (or the next added unit). Not internal room generation.");
+        ImGui::EndDisabled ();
+    }
     double minX = 1e300, minY = 1e300, maxX = -1e300, maxY = -1e300;
     for (const auto* groups : { &floor->physical, &floor->contours })
         for (const auto& contours : *groups)
@@ -118,6 +167,33 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         };
         outlines (floor->physical, IM_COL32 (140, 140, 140, 150), scale);
         outlines (floor->contours, IM_COL32 (74, 144, 217, 255), 2 * scale);
+        const auto regions = [&] (const auto& values, ImU32 colour) {
+            for (const auto& region : values)
+                outlines (std::vector<std::vector<SliceChain>> { region.rings }, colour, 1.5f * scale);
+        };
+        if (design.stage == 1 && !design.bars.empty ()) {
+            const auto o = project (design.origin);
+            draw->AddLine (o,
+                           project ({ design.origin.x + 5 * std::cos (design.angle),
+                                      design.origin.y + 5 * std::sin (design.angle) }),
+                           IM_COL32 (229, 72, 77, 255), 2 * scale);
+            draw->AddLine (o,
+                           project ({ design.origin.x - 5 * std::sin (design.angle),
+                                      design.origin.y + 5 * std::cos (design.angle) }),
+                           IM_COL32 (127, 200, 169, 255), 2 * scale);
+        }
+        if (design.stage == 2)
+            regions (design.bars, IM_COL32 (176, 136, 201, 255));
+        if (design.stage >= 3)
+            regions (design.corridors, IM_COL32 (214, 196, 154, 255));
+        if (design.stage == 4)
+            regions (design.bands, IM_COL32 (154, 209, 230, 255));
+        if (design.stage == 5)
+            regions (design.segments, IM_COL32 (74, 127, 181, 255));
+        if (design.stage == 6)
+            for (size_t i = 0; i < design.units.size (); ++i)
+                outlines (std::vector<std::vector<SliceChain>> { design.units[i].rings },
+                          hudshell::Packed (UnitColour (design.seeds[i].rooms)), 1.5f * scale);
         int near = -1;
         double best = 1e300;
         const auto mouse = ImGui::GetIO ().MousePos;
@@ -131,15 +207,48 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
                 near = int (i);
             }
         }
+        int nearUnit = -1;
+        float unitDistance = 10 * scale;
+        if (design.stage == 6 && design.ready)
+            for (size_t i = 0; i < design.seeds.size (); ++i) {
+                const auto center = project (UnitCenter (design, design.seeds[i]));
+                const float distance = std::hypot (center.x - mouse.x, center.y - mouse.y);
+                if (distance < unitDistance) {
+                    unitDistance = distance;
+                    nearUnit = int (i);
+                }
+            }
         if (hovered && !conflict && ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
             if (draft.placing)
                 Place (*floor, draft, worldMouse);
             else if (draft.moving && near == draft.selected)
                 BeginDrag (draft, worldMouse, owner);
+            else if (design.stage == 6 && design.adding)
+                AddUnit (design, worldMouse);
+            else if (design.stage == 6 && nearUnit >= 0 && near < 0) {
+                Cancel (draft);
+                design.selected = nearUnit;
+                design.dragOriginal = design.seeds[size_t (nearUnit)].along;
+                const auto center = UnitCenter (design, design.seeds[size_t (nearUnit)]);
+                design.dragOffset = { center.x - worldMouse.x, center.y - worldMouse.y };
+                design.dragging = true;
+                design.owner = owner;
+                draft.selected = -1;
+            }
             else {
                 Cancel (draft);
                 draft.selected = near;
+                design.selected = -1;
             }
+        }
+        if (design.dragging && design.owner == owner) {
+            if (!ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+                design.dragging = false;
+                design.owner = 0;
+            }
+            else if (hovered && ImGui::IsMouseDragging (ImGuiMouseButton_Left))
+                MoveUnit (design, size_t (design.selected),
+                          { worldMouse.x + design.dragOffset.x, worldMouse.y + design.dragOffset.y });
         }
         if (draft.dragging && draft.dragOwner == owner) {
             if (ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
@@ -169,6 +278,20 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
                        Fits (*floor, Snap (*floor, worldMouse)) ? IM_COL32 (255, 186, 0, 200)
                                                                 : IM_COL32 (229, 72, 77, 200),
                        false);
+        if (design.stage == 6 && design.ready)
+            for (size_t i = 0; i < design.seeds.size (); ++i) {
+                const auto center = project (UnitCenter (design, design.seeds[i]));
+                const auto colour = hudshell::Packed (UnitColour (design.seeds[i].rooms));
+                draw->AddCircleFilled (center, (design.selected == int (i) ? 5 : 3) * scale, colour);
+                const auto& seed = design.seeds[i];
+                const std::string label =
+                    "U" + std::to_string (seed.id) + " / " + hudmeta::NumberText (seed.rooms) + "R";
+                draw->AddText ({ center.x + 6 * scale, center.y }, colour, label.c_str ());
+            }
+        if (hovered && (nearUnit >= 0 || design.dragging)) {
+            ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
+            ImGui::SetTooltip ("Drag centre along its segment to nudge apartment boundaries (0.3 m). Escape cancels.");
+        }
         draw->PopClipRect ();
         ImGui::TextDisabled ("Blue: counted floor | Gray: physical outline | XY: project metres");
     }
@@ -225,8 +348,18 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
     ImGui::SameLine ();
     if (ImGui::Button ("Discard"))
         Reset (plan, draft);
-    ImGui::TextDisabled ("%s | Building-wide metadata only; floor generation comes later.",
+    ImGui::TextDisabled ("%s | Stairs saved as metadata; apartment schemes are session-local.",
                          Dirty (draft) ? "Local changes not yet saved" : "No local changes");
+    const auto& info = QuickFor (plan, draft, *floor);
+    ImGui::TextWrapped ("%s", info.note.c_str ());
+    if (info.selected >= 0 && size_t (info.selected) < info.units.size ()) {
+        const auto& seed = info.seeds[size_t (info.selected)];
+        ImGui::Text ("U%u | %.1f rooms | %.1f m2 allocated / %.1f m2 target", seed.id, seed.rooms,
+                     UnitArea (info.units[size_t (info.selected)]), UnitTargetArea (seed.rooms));
+        ImGui::TextDisabled ("Weights nudge shared boundaries; target areas and room layouts are not guaranteed.");
+    }
+    ImGui::TextDisabled ("%s | Colours: room targets | Tan: corridors | Unassigned floor stays blue",
+                         draft.uniqueFloors.contains (floor->story) ? "Unique floor" : "Shared by identical outlines");
     return edits;
 }
 } // namespace geomsrv::archviz::buildingplan

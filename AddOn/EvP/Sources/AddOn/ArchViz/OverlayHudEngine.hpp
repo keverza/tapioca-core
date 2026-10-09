@@ -98,6 +98,9 @@ struct State {
     std::string highlightedBuilding, pickedFloorBuilding, hoveredFloorBuilding;
     hudsection::Run hoveredFloors;
     std::map<std::string, buildingplan::Draft> buildingPlans;
+    std::map<std::string, buildingplan::Plan> floorPlanSnapshots;
+    bool previewStairs = false, previewUnits = false;
+    std::string floorPlanPublished;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
     std::vector<massingareas::NumberEdit> massingCoefficientNumbers;
     std::vector<massingrules::Edit> massingRuleEdits;

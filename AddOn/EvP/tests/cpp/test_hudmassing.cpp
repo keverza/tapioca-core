@@ -1,6 +1,7 @@
 #include "hud_fixture.hpp"
 #include "ArchViz/HudMassing.hpp"
 #include "ArchViz/HudMetadata.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "Metadata/TapiocaMetadata.hpp"
 
 #include <gtest/gtest.h>
@@ -125,10 +126,27 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
         }
         else {
             inControl = false;
-            if (controls.size () == 10)
+            if (controls.size () == 12)
                 break;
         }
-    ASSERT_EQ (controls.size (), 10u) << "Preview and Bake options owns all controls; one collapse switch";
+    ASSERT_EQ (controls.size (), 12u)
+        << "Preview and Bake options owns all controls, including both floor scheme previews";
+    EXPECT_FALSE (hud.state->previewUnits);
+    EXPECT_FALSE (hud.state->previewStairs);
+    hud.Click ({}, 40, controls[0]);
+    EXPECT_TRUE (hud.state->previewUnits);
+    EXPECT_FALSE (hud.state->previewStairs);
+    EXPECT_EQ (hud.heard.back ().kind, "massingPlanPreview");
+    hud.Click ({}, 40, controls[1]);
+    EXPECT_TRUE (hud.state->previewStairs);
+    EXPECT_TRUE (hud.state->previewUnits);
+    hud.Click ({}, 40, controls[0]);
+    hud.Click ({}, 40, controls[1]);
+    EXPECT_FALSE (hud.state->previewUnits);
+    EXPECT_FALSE (hud.state->previewStairs);
+    EXPECT_TRUE (hud::TakeMassingBakes (*hud.state).empty ());
+    EXPECT_TRUE (hud::TakeMetadataEdits (*hud.state).empty ());
+    controls.erase (controls.begin (), controls.begin () + 2); // Existing bake/visibility block remains contiguous.
     namespace bake = geomsrv::archviz::massingbake;
     for (const auto& target : { std::make_pair (7u, bake::Kind::Slices), std::make_pair (5u, bake::Kind::Collapse),
                                 std::make_pair (4u, bake::Kind::Envelope) }) {

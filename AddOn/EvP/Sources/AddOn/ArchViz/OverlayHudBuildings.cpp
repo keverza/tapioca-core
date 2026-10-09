@@ -1,4 +1,5 @@
 #include "ArchViz/OverlayHudEngine.hpp"
+#include <sstream>
 
 namespace geomsrv::archviz::overlayhud {
 void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, float ui)
@@ -56,6 +57,18 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
          buildingplan::Draw (preview.plan, store->buildingPlans[building.key], ui, store->massingCoefficients)) {
         changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, 0, {}, true });
         store->metadataEdits.push_back (std::move (edit));
+    }
+    auto& draft = store->buildingPlans[building.key];
+    std::ostringstream signature;
+    for (const auto& floor : preview.plan.floors)
+        signature << buildingplan::QuickSignature (floor, draft.points);
+    for (const auto& [story, quick] : draft.quickPlans)
+        signature << story << ':' << quick.signature << ':' << quick.revision;
+    for (int story : draft.uniqueFloors)
+        signature << 'u' << story;
+    if (signature.str () != draft.previewFingerprint) {
+        draft.previewFingerprint = signature.str ();
+        changes.push_back ({ "massingPlanPreview", {}, "Selection", "local floor design", -1, 1, {}, true });
     }
     ImGui::PopID ();
 }

@@ -15,6 +15,9 @@ namespace overlayhud {
 
 void Engine::SetOwnPages (OwnPages pages)
 {
+    impl_->store->floorPlanSnapshots.clear ();
+    for (const auto& preview : pages.buildings)
+        impl_->store->floorPlanSnapshots[preview.building.key] = preview.plan;
     if (!pages.buildings.empty () || pages.selection.count == 0) {
         const auto has = [&] (const std::string& key) {
             return std::any_of (pages.buildings.begin (), pages.buildings.end (),
@@ -273,6 +276,13 @@ void Engine::Impl::MassingPage ()
     if (ImGui::Checkbox ("Highlight headroom below 1.6m", &store->showLowHeadroom))
         changes.push_back (
             { "lowHeadroom", {}, "Massing", "headroom < 1.6 m", -1, store->showLowHeadroom ? 1.0 : 0.0, {}, true });
+    const bool stairsChanged = ImGui::Checkbox ("Show proposed stair cores (all floors)", &store->previewStairs);
+    const bool unitsChanged = ImGui::Checkbox ("Show unit outlines (all floors)", &store->previewUnits);
+    if (stairsChanged || unitsChanged) {
+        ShowLayer (buildingplan::kStairsLayer, true);
+        ShowLayer (buildingplan::kUnitsLayer, true);
+        changes.push_back ({ "massingPlanPreview", {}, "Massing", "floor scheme overlays", -1, 1, {}, true });
+    }
     if (store->markLargeFloors)
         ImGui::TextDisabled ("Orange: combined building floor gross area > 500 m2 (shared gross factor).");
     if (store->showLowHeadroom)

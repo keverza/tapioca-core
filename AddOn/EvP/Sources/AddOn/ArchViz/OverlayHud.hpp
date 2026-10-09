@@ -303,6 +303,8 @@ bool TakeLogsRequest (State& state);
 std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
 std::vector<hudmassing::Request> TakeMassingRequests (State& state);
 std::vector<massingbake::Kind> TakeMassingBakes (State& state);
+// Pure snapshot assembly; owner publishes returned layers outside ImGui/render locks.
+bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylayers::Layer& units);
 std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);
 std::vector<massingcalculation::Request> TakeMassingCalculations (State& state);
 std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state);
