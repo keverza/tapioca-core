@@ -1,8 +1,41 @@
-#include "ArchViz/HudBuildingPlan.hpp"
+#include "ArchViz/HudFloorPlanFrame.hpp"
 #include <algorithm>
-#include <cmath>
 
 namespace geomsrv::archviz::buildingplan {
+namespace {
+constexpr double kAspect = 1.2; // facade length that counts as an aspect (one window)
+constexpr int kNetIterations = 4;
+// The facade or entrance length of `edge` that belongs to the flat between `lo` and `hi`.
+double Overlap (const PlanRegion::Edge& edge, bool alongX, double lo, double hi)
+{
+    if (edge.a1 - edge.a0 > 1e-6) {
+        const double overlap = (std::min) (edge.a1, hi) - (std::max) (edge.a0, lo);
+        return overlap > 0 ? overlap * edge.length / (edge.a1 - edge.a0) : 0;
+    }
+    // A piece across the axis belongs to the flat on its inner side.
+    const uint8_t forward = alongX ? 0 : 1, backward = alongX ? 2 : 3;
+    const double at = edge.a0;
+    if (edge.side == forward)
+        return at > lo + 1e-6 && at <= hi + 1e-6 ? edge.length : 0;
+    if (edge.side == backward)
+        return at >= lo - 1e-6 && at < hi - 1e-6 ? edge.length : 0;
+    return at >= lo - 1e-6 && at <= hi + 1e-6 ? edge.length : 0;
+}
+// Net = gross - one wall between flats across the band - the facade wall along the outline.
+double Deduction (const PlanRegion& segment, double lo, double hi)
+{
+    const double gross = AreaBefore (segment, hi) - AreaBefore (segment, lo);
+    const double depth = hi - lo > 1e-6 ? gross / (hi - lo) : 0;
+    return floorprogramme::kWall * depth + floorprogramme::kFacade * frame::FacadeLength (segment, lo, hi);
+}
+} // namespace
+double frame::FacadeLength (const PlanRegion& segment, double lo, double hi)
+{
+    double length = 0;
+    for (const auto& edge : segment.facade)
+        length += Overlap (edge, segment.alongX, lo, hi);
+    return length;
+}
 void BuildAreaProfile (const QuickPlan& plan, PlanRegion& segment)
 {
     std::vector<std::vector<Point>> rings;
@@ -10,9 +43,7 @@ void BuildAreaProfile (const QuickPlan& plan, PlanRegion& segment)
     for (const auto& ring : segment.rings) {
         std::vector<Point> points;
         for (size_t i = 0; i < ring.Count (); ++i) {
-            const double x = ring.xy[i * 2] - plan.origin.x, y = ring.xy[i * 2 + 1] - plan.origin.y;
-            Point p { x * std::cos (plan.angle) + y * std::sin (plan.angle),
-                      -x * std::sin (plan.angle) + y * std::cos (plan.angle) };
+            auto p = frame::Local (plan, { ring.xy[i * 2], ring.xy[i * 2 + 1] });
             if (!segment.alongX)
                 std::swap (p.x, p.y);
             points.push_back (p);
@@ -77,84 +108,139 @@ double AlongAtArea (const PlanRegion& segment, double area)
     }
     return segment.hi;
 }
-bool RelaxUnits (QuickPlan& plan, int anchor, bool exactTarget, bool dragging)
+bool SolveCuts (const QuickPlan& plan, std::vector<UnitSeed>& seeds, std::string& note, int anchor, bool exactTarget,
+                bool dragging)
 {
-    auto solved = plan.seeds;
-    bool remainder = false;
+    auto solved = seeds;
     for (size_t s = 0; s < plan.segments.size (); ++s) {
-        auto& segment = plan.segments[s];
-        if (segment.areaProfile.empty ())
-            BuildAreaProfile (plan, segment);
+        const auto& segment = plan.segments[s];
         const double total = AreaBefore (segment, segment.hi);
         std::vector<size_t> order;
         for (size_t i = 0; i < solved.size (); ++i)
             if (solved[i].segment == s)
                 order.push_back (i);
+        if (order.empty ())
+            continue;
         std::sort (order.begin (), order.end (), [&] (size_t a, size_t b) {
             return solved[a].along == solved[b].along ? solved[a].id < solved[b].id : solved[a].along < solved[b].along;
         });
         if (segment.endAccess && order.size () > 1) {
-            plan.solveNote = "Target would create an end-access apartment without corridor access. No changes applied.";
+            note = "Target would create an end-access apartment without corridor access. No changes applied.";
             return false;
         }
-        std::vector<double> areas;
-        std::vector<bool> fixed;
-        double hard = 0, soft = 0;
-        size_t free = 0;
-        for (size_t n = 0; n < order.size (); ++n) {
-            const size_t i = order[n];
-            const bool lock = solved[i].locked || (exactTarget && int (i) == anchor);
-            double desire = UnitTargetArea (solved[i].rooms);
-            if (dragging && !lock) {
-                // Overdamped spring rest lengths: the held point pulls adjacent cuts;
-                // other points are free to settle. Work is bounded, not a frame-time optimiser.
-                const double lo = n ? (solved[order[n - 1]].along + solved[i].along) / 2 : segment.lo;
-                const double hi =
-                    n + 1 < order.size () ? (solved[i].along + solved[order[n + 1]].along) / 2 : segment.hi;
-                desire = (std::max) (1.0, AreaBefore (segment, hi) - AreaBefore (segment, lo));
-            }
-            areas.push_back (desire);
-            fixed.push_back (lock);
-            if (lock)
-                hard += desire;
-            else {
-                soft += desire;
-                ++free;
-            }
+        const size_t n = order.size ();
+        // First estimate of each flat's span: halfway to its neighbours' centres. While a
+        // point is held, those spans are also the free flats' spring rest areas.
+        std::vector<double> lo (n), hi (n), spring (n);
+        for (size_t k = 0; k < n; ++k) {
+            lo[k] = k ? (solved[order[k - 1]].along + solved[order[k]].along) / 2 : segment.lo;
+            hi[k] = k + 1 < n ? (solved[order[k]].along + solved[order[k + 1]].along) / 2 : segment.hi;
+            spring[k] = (std::max) (1.0, AreaBefore (segment, hi[k]) - AreaBefore (segment, lo[k]));
         }
-        if (hard > total + 1e-4 || (free && total - hard < free * 1.0)) {
-            plan.solveNote = "Room target cannot fit while preserving locked sizes. No changes applied.";
-            return false;
-        }
-        // Positive spring lengths share the leftover exactly. Locked lengths never scale.
-        for (size_t n = 0; n < order.size (); ++n)
-            if (!fixed[n])
-                areas[n] = (total - hard) * areas[n] / soft;
-        double cursor = free ? 0 : (std::max) (0.0, (total - hard) / 2);
-        if (!free && segment.endAccess)
-            cursor = segment.endAccess > 0 ? (std::max) (0.0, total - hard) : 0;
-        if (dragging && !free && anchor >= 0 && !segment.endAccess) {
-            double prior = 0;
-            for (size_t n = 0; n < order.size (); ++n) {
-                if (int (order[n]) == anchor)
-                    cursor = std::clamp (AreaBefore (segment, solved[order[n]].along) - prior - areas[n] / 2, 0.0,
-                                         (std::max) (0.0, total - hard));
-                prior += areas[n];
+        // Net targets become gross lengths through the walls of the current spans; the
+        // fixed point converges in a few rounds (the facade wall is a small share of depth).
+        for (int round = 0; round < kNetIterations; ++round) {
+            std::vector<double> areas (n);
+            std::vector<bool> fixed (n);
+            double hard = 0, soft = 0;
+            size_t free = 0;
+            for (size_t k = 0; k < n; ++k) {
+                const size_t i = order[k];
+                const bool lock = solved[i].locked || (exactTarget && int (i) == anchor);
+                // Overdamped spring rest lengths while dragging: the held point pulls adjacent
+                // cuts; other points are free to settle. Bounded work, not a frame-time optimiser.
+                const double desire =
+                    dragging && !lock ? spring[k] : TargetArea (plan, solved[i]) + Deduction (segment, lo[k], hi[k]);
+                areas[k] = desire;
+                fixed[k] = lock;
+                if (lock)
+                    hard += desire;
+                else {
+                    soft += desire;
+                    ++free;
+                }
             }
-        }
-        remainder |= !free && total - hard > 1e-3 && !order.empty ();
-        for (size_t n = 0; n < order.size (); ++n) {
-            auto& seed = solved[order[n]];
-            seed.lo = AlongAtArea (segment, cursor);
-            seed.hi = AlongAtArea (segment, cursor + areas[n]);
-            seed.along = AlongAtArea (segment, cursor + areas[n] / 2);
-            cursor += areas[n];
+            if (hard > total + 1e-4 || (free && total - hard < free * 1.0)) {
+                note = "Room target cannot fit while preserving locked sizes. No changes applied.";
+                return false;
+            }
+            // Positive spring lengths share the leftover exactly. With every flat locked the
+            // locked flats stretch rather than leave empty floor.
+            for (size_t k = 0; k < n; ++k)
+                if (!free)
+                    areas[k] *= hard > 1e-9 ? total / hard : 1;
+                else if (!fixed[k])
+                    areas[k] = (total - hard) * areas[k] / soft;
+            double cursor = 0;
+            for (size_t k = 0; k < n; ++k) {
+                auto& seed = solved[order[k]];
+                lo[k] = seed.lo = AlongAtArea (segment, cursor);
+                hi[k] = seed.hi = AlongAtArea (segment, cursor + areas[k]);
+                seed.along = AlongAtArea (segment, cursor + areas[k] / 2);
+                cursor += areas[k];
+            }
         }
     }
-    plan.seeds = std::move (solved);
-    plan.solveNote = remainder ? "Locked sizes retained; remaining area is unassigned." : "";
+    seeds = std::move (solved);
+    return true;
+}
+bool RelaxUnits (QuickPlan& plan, int anchor, bool exactTarget, bool dragging)
+{
+    std::string note;
+    if (!SolveCuts (plan, plan.seeds, note, anchor, exactTarget, dragging)) {
+        plan.solveNote = note;
+        return false;
+    }
+    plan.solveNote.clear ();
     RebuildUnits (plan);
     return true;
+}
+UnitTraits Traits (const QuickPlan& plan, const UnitSeed& seed)
+{
+    UnitTraits out;
+    if (seed.segment >= plan.segments.size ())
+        return out;
+    const auto& segment = plan.segments[seed.segment];
+    const double lo = seed.lo, hi = (std::max) (seed.lo, seed.hi);
+    out.gross = AreaBefore (segment, hi) - AreaBefore (segment, lo);
+    out.depth = hi - lo > 1e-6 ? out.gross / (hi - lo) : 0;
+    double sides[4] = {};
+    double line[4] = {};
+    bool lined[4] = {}, straight = true;
+    for (const auto& edge : segment.facade) {
+        const double length = Overlap (edge, segment.alongX, lo, hi);
+        if (length <= 1e-9)
+            continue;
+        out.facade += length;
+        sides[edge.side] += length;
+        const double key = edge.a1 - edge.a0 > 1e-6 ? edge.across : edge.a0;
+        if (!lined[edge.side]) {
+            lined[edge.side] = true;
+            line[edge.side] = key;
+        }
+        else if (std::abs (line[edge.side] - key) > 0.05)
+            straight = false;
+    }
+    for (const auto& edge : segment.access)
+        out.access += Overlap (edge, segment.alongX, lo, hi);
+    out.net = (std::max) (0.0, out.gross - floorprogramme::kWall * out.depth - floorprogramme::kFacade * out.facade);
+    for (uint8_t side = 0; side < 4; ++side)
+        if (sides[side] >= kAspect)
+            out.sides |= uint8_t (1u << side);
+    const uint8_t along = segment.alongX ? 0b1010 : 0b0101; // long sides: facades parallel to the axis
+    const uint8_t ends = uint8_t (~along & 0b1111);
+    const bool corner = (out.sides & along) && (out.sides & ends);
+    const bool through = (out.sides & along) == along;
+    if (corner)
+        out.traits |= kCorner;
+    if (corner || through)
+        out.traits |= kDualAspect;
+    int faces = 0;
+    for (uint8_t side = 0; side < 4; ++side)
+        faces += sides[side] > 0.3;
+    if (straight && faces == 1 && out.facade >= kAspect)
+        out.traits |= kStraightFacade;
+    return out;
 }
 bool SetUnitLocked (QuickPlan& plan, size_t seed, bool locked)
 {
@@ -162,9 +248,19 @@ bool SetUnitLocked (QuickPlan& plan, size_t seed, bool locked)
         return false;
     const auto original = plan.seeds;
     plan.seeds[seed].locked = locked;
+    plan.seeds[seed].keep = locked ? Traits (plan, plan.seeds[seed]).traits : uint8_t (0);
     if (RelaxUnits (plan, int (seed), locked))
         return true;
     plan.seeds = original;
     return false;
+}
+bool SetUnitKeep (QuickPlan& plan, size_t seed, uint8_t keep)
+{
+    if (seed >= plan.seeds.size () || !plan.seeds[seed].locked || plan.seeds[seed].keep == keep)
+        return false;
+    plan.seeds[seed].keep = keep & (kCorner | kDualAspect | kStraightFacade);
+    plan.score = Score (plan, plan.seeds);
+    ++plan.revision;
+    return true;
 }
 } // namespace geomsrv::archviz::buildingplan

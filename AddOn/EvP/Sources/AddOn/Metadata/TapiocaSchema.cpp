@@ -124,6 +124,11 @@ ProjectSchema DefaultSchema ()
     stairs.description =
         "Building-wide approximate stairwell locations: ordered project XY pairs in metres; not generated geometry.";
     schema.properties.push_back (stairs);
+    PropertyDefinition stairSizes =
+        Definition ("massing.stairwellShapes", "Proposed stairwell sizes", ValueType::List, "Building plan", "m");
+    stairSizes.description = "Width and depth of each proposed stairwell in the building frame, in the order of the "
+                             "locations; absent means 4.5 x 4.2 m.";
+    schema.properties.push_back (stairSizes);
     PropertyDefinition story = Definition ("massing.story", "Story", ValueType::Int, "Building slab");
     story.min = -100; // retained legacy indices are readable; HUD now derives the count
     story.max = 1000;
@@ -300,6 +305,17 @@ void CheckValue (const Property& property, const ProjectSchema& schema, const st
         for (const auto& coordinate : property.value.list)
             if (coordinate.type != ValueType::Length || !std::isfinite (coordinate.d) || std::abs (coordinate.d) > 1e9)
                 problems.push_back (at + " coordinates must be finite project metres within +/-1e9");
+        return;
+    }
+    if (property.key == "massing.stairwellShapes") {
+        if (property.value.type != ValueType::List || property.value.elementType != ValueType::Length ||
+            property.value.list.empty () || property.value.list.size () % 2 || property.value.list.size () > 64) {
+            problems.push_back (at + " needs 1..32 width/depth pairs in metres");
+            return;
+        }
+        for (const auto& size : property.value.list)
+            if (size.type != ValueType::Length || !std::isfinite (size.d) || size.d < 2 || size.d > 12)
+                problems.push_back (at + " sizes must be 2 to 12 m");
         return;
     }
     if (property.key == "massing.floorHeight") {

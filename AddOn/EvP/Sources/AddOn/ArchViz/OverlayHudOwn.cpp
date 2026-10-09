@@ -184,6 +184,22 @@ bool AnswerMassingCoefficientNumber (State& state, const massingareas::NumberEdi
     return true;
 }
 
+std::vector<hudprogramme::TextEdit> TakeProgrammeTexts (State& state)
+{
+    auto texts = std::move (state.massingProgrammeTexts);
+    state.massingProgrammeTexts.clear ();
+    return texts;
+}
+
+bool AnswerProgrammeText (State& state, const hudprogramme::TextEdit& edit, const std::string& answer,
+                          std::string& error)
+{
+    if (!hudprogramme::Answer (state.massingProgramme, edit, answer, error))
+        return false;
+    ++state.revision;
+    return true;
+}
+
 void Engine::Impl::MassingPage ()
 {
     for (const auto& request : hudmassing::Draw (own.massing)) {
@@ -191,6 +207,12 @@ void Engine::Impl::MassingPage ()
         changes.push_back ({ "massing", std::string (), "Massing", hudmassing::Role (request.group), -1,
                              double (request.action), hudmassing::Label (request.group), true });
     }
+    if (hudprogramme::Draw (store->massingProgramme, store->massingProgrammeTexts)) {
+        ++store->revision;
+        changes.push_back ({ "massingProgramme", {}, "Massing", "programme", -1, 1, {}, true });
+    }
+    if (!store->massingProgrammeTexts.empty ())
+        changes.push_back ({ "massingProgrammeText", {}, "Massing", "set", -1, 0, {}, true });
     const bool dimensions = store->massingRules.offsetDimensions;
     const auto parcels = own.massing.parcels.empty () && !own.massing.rules.guid.empty ()
                              ? std::vector<massingrules::Page> { own.massing.rules }

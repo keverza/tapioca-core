@@ -30,23 +30,69 @@ cp::PathsD Outline (const Floor& floor, Point origin)
     }
     return cp::Union (paths, cp::FillRule::NonZero, 6);
 }
-bool FitsOutline (const cp::PathsD& outline, Point delta)
-{
-    const double x = delta.x, y = delta.y, w = kStairWidth / 2, d = kStairDepth / 2;
-    const cp::PathD rectangle { { x - w, y - d }, { x + w, y - d }, { x + w, y + d }, { x - w, y + d } };
-    return !outline.empty () &&
-           std::abs (cp::Area (cp::Difference ({ rectangle }, outline, cp::FillRule::NonZero, 6))) < 1e-6;
-}
 bool Valid (Point point)
 {
     return std::isfinite (point.x) && std::isfinite (point.y) && std::abs (point.x) <= 1e9 && std::abs (point.y) <= 1e9;
 }
+bool Sized (const Core& core)
+{
+    return std::isfinite (core.width) && std::isfinite (core.depth) && core.width >= kMinCore - 1e-9 &&
+           core.width <= kMaxCore + 1e-9 && core.depth >= kMinCore - 1e-9 && core.depth <= kMaxCore + 1e-9;
+}
+// The core at `delta` from the outline's origin, which is the core's own centre.
+bool FitsOutline (const cp::PathsD& outline, const Core& core, double angle, Point delta)
+{
+    cp::PathD rectangle;
+    for (const auto& corner : Corners ({ { delta.x, delta.y }, core.width, core.depth }, angle))
+        rectangle.emplace_back (corner.x, corner.y);
+    // Sub-millimetre slivers are snapping round-off (about 1e-7 m), not a core outside the floor.
+    return !outline.empty () &&
+           std::abs (cp::Area (cp::Difference ({ rectangle }, outline, cp::FillRule::NonZero, 6))) < 1e-4;
+}
+// Half extents of the turned core along unit direction (x, y).
+double Support (const Core& core, double angle, double x, double y)
+{
+    const double u = x * std::cos (angle) + y * std::sin (angle), v = -x * std::sin (angle) + y * std::cos (angle);
+    return core.width / 2 * std::abs (u) + core.depth / 2 * std::abs (v);
+}
+std::vector<double> Numbers (const metadata::EntityMetadata& entity, const char* key, bool& present, bool& valid)
+{
+    std::vector<double> out;
+    const auto* property = metadata::FindProperty (entity, key);
+    present = property != nullptr;
+    valid = true;
+    if (!property)
+        return out;
+    const auto& value = property->value;
+    if (value.type != metadata::ValueType::List || value.elementType != metadata::ValueType::Length ||
+        value.list.empty () || value.list.size () % 2 || value.list.size () > kMaxStairs * 2) {
+        valid = false;
+        return {};
+    }
+    for (const auto& item : value.list) {
+        if (item.type != metadata::ValueType::Length || !std::isfinite (item.d) || std::abs (item.d) > 1e9) {
+            valid = false;
+            return {};
+        }
+        out.push_back (item.d);
+    }
+    return out;
+}
 } // namespace
+std::vector<Point> Corners (const Core& core, double angle)
+{
+    const double c = std::cos (angle), s = std::sin (angle), w = core.width / 2, d = core.depth / 2;
+    std::vector<Point> out;
+    for (const auto& [u, v] : { std::pair { -w, -d }, { w, -d }, { w, d }, { -w, d } })
+        out.push_back ({ core.center.x + u * c - v * s, core.center.y + u * s + v * c });
+    return out;
+}
 std::string Fingerprint (const metadata::EntityMetadata& entity)
 {
     metadata::EntityMetadata value;
-    if (const auto* property = metadata::FindProperty (entity, kLocations))
-        value.properties.push_back (*property);
+    for (const char* key : { kLocations, kShapes })
+        if (const auto* property = metadata::FindProperty (entity, key))
+            value.properties.push_back (*property);
     return metadata::ToJson (value);
 }
 bool Matches (const metadata::EntityMetadata& entity, const hudmeta::Edit& edit)
@@ -59,23 +105,24 @@ bool Matches (const metadata::EntityMetadata& entity, const hudmeta::Edit& edit)
 }
 Stored Read (const metadata::EntityMetadata& entity)
 {
-    const auto* property = metadata::FindProperty (entity, kLocations);
-    if (!property)
+    bool present = false, valid = true;
+    const auto points = Numbers (entity, kLocations, present, valid);
+    if (!present)
         return {};
-    const auto& value = property->value;
-    if (value.type != metadata::ValueType::List || value.elementType != metadata::ValueType::Length ||
-        value.list.empty () || value.list.size () % 2 || value.list.size () > kMaxStairs * 2)
+    if (!valid)
         return { {}, true };
+    bool shaped = false, sizes = true;
+    const auto shapes = Numbers (entity, kShapes, shaped, sizes);
+    // Sizes are optional: a legacy or mismatched list reads as default 4.5 x 4.2 m cores.
+    const bool useShapes = shaped && sizes && shapes.size () == points.size ();
     Stored stored;
-    for (size_t i = 0; i < value.list.size (); i += 2) {
-        const auto& x = value.list[i];
-        const auto& y = value.list[i + 1];
-        const Point point { x.d, y.d };
-        if (x.type != metadata::ValueType::Length || y.type != metadata::ValueType::Length ||
-            !std::isfinite (point.x) || !std::isfinite (point.y) || std::abs (point.x) > 1e9 ||
-            std::abs (point.y) > 1e9)
-            return { {}, true };
-        stored.points.push_back (point);
+    for (size_t i = 0; i < points.size (); i += 2) {
+        Core core { { points[i], points[i + 1] } };
+        if (useShapes && Sized ({ {}, shapes[i], shapes[i + 1] })) {
+            core.width = shapes[i];
+            core.depth = shapes[i + 1];
+        }
+        stored.cores.push_back (core);
     }
     return stored;
 }
@@ -96,10 +143,10 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
             plan.note = "Plan awaits every building member's metadata.";
             return plan;
         }
-        plan.mixed |= source->stored.invalid || (!first && plan.saved != source->stored.points);
+        plan.mixed |= source->stored.invalid || (!first && plan.saved != source->stored.cores);
         plan.sources.push_back (*source);
         if (first)
-            plan.saved = source->stored.points;
+            plan.saved = source->stored.cores;
         first = false;
     }
     if (plan.mixed)
@@ -150,6 +197,21 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
         floor.outlineKey = QuickSignature (floor, {});
         plan.floors.push_back (std::move (floor));
     }
+    // One frame per building (as the private generator): the largest floor's longest edge.
+    const auto largest = std::max_element (plan.floors.begin (), plan.floors.end (),
+                                           [] (const Floor& a, const Floor& b) { return a.areaM2 < b.areaM2; });
+    if (largest != plan.floors.end ()) {
+        double longest = 0;
+        for (const auto& ring : largest->outline)
+            for (size_t i = 0; i < ring.Count (); ++i) {
+                const size_t j = (i + 1) % ring.Count ();
+                const double x = ring.xy[j * 2] - ring.xy[i * 2], y = ring.xy[j * 2 + 1] - ring.xy[i * 2 + 1];
+                if (std::hypot (x, y) > longest + 1e-9) {
+                    longest = std::hypot (x, y);
+                    plan.angle = std::atan2 (y, x);
+                }
+            }
+    }
     return plan;
 }
 const Floor* Displayed (const Plan& plan, const Draft& draft)
@@ -186,13 +248,15 @@ bool Contains (const Floor& floor, Point point)
     }
     return false;
 }
-bool Fits (const Floor& floor, Point center)
+bool Fits (const Floor& floor, const Core& core, double angle)
 {
-    return Valid (center) && FitsOutline (Outline (floor, center), {});
+    return Valid (core.center) && Sized (core) && std::isfinite (angle) &&
+           FitsOutline (Outline (floor, core.center), core, angle, {});
 }
-Point Snap (const Floor& floor, Point center)
+Point Snap (const Floor& floor, const Core& core, double angle)
 {
-    if (!Valid (center))
+    const Point center = core.center;
+    if (!Valid (center) || !Sized (core) || !std::isfinite (angle))
         return center;
     const auto outline = Outline (floor, center);
     struct Candidate {
@@ -211,11 +275,11 @@ Point Snap (const Floor& floor, Point center)
             const double tx = (b.x - a.x) / length, ty = (b.y - a.y) / length;
             const double nx = -ty, ny = tx;
             const double along = -a.x * tx - a.y * ty;
-            const double extent = kStairWidth / 2 * std::abs (tx) + kStairDepth / 2 * std::abs (ty);
+            const double extent = Support (core, angle, tx, ty);
             if (along + extent < 0 || along - extent > length)
                 continue; // Snap to a segment, never its infinite extension.
             const double distance = -a.x * nx - a.y * ny;
-            const double support = kStairWidth / 2 * std::abs (nx) + kStairDepth / 2 * std::abs (ny);
+            const double support = Support (core, angle, nx, ny);
             for (double sign : { -1.0, 1.0 }) {
                 const double shift = sign * support - distance;
                 if (std::abs (shift) > kSnapDistance)
@@ -228,7 +292,7 @@ Point Snap (const Floor& floor, Point center)
             }
         }
     for (const auto& candidate : candidates)
-        if (FitsOutline (outline, candidate.delta))
+        if (FitsOutline (outline, core, angle, candidate.delta))
             return { center.x + candidate.delta.x, center.y + candidate.delta.y };
     // A corner may require both nearby sides to snap before the footprint fits.
     for (size_t i = 0; i < candidates.size (); ++i)
@@ -240,14 +304,14 @@ Point Snap (const Floor& floor, Point center)
                 continue;
             const Point delta { (a.shift * b.normal.y - b.shift * a.normal.y) / det,
                                 (a.normal.x * b.shift - b.normal.x * a.shift) / det };
-            if (std::hypot (delta.x, delta.y) <= kSnapDistance && FitsOutline (outline, delta))
+            if (std::hypot (delta.x, delta.y) <= kSnapDistance && FitsOutline (outline, core, angle, delta))
                 return { center.x + delta.x, center.y + delta.y };
         }
     return center;
 }
 bool Dirty (const Draft& draft)
 {
-    return draft.known && (draft.points != draft.original || (draft.originalMixed && draft.changed));
+    return draft.known && (draft.cores != draft.original || (draft.originalMixed && draft.changed));
 }
 bool Conflict (const Plan& plan, const Draft& draft)
 {
@@ -264,15 +328,21 @@ bool Conflict (const Plan& plan, const Draft& draft)
 void Reset (const Plan& plan, Draft& draft)
 {
     const int story = draft.story;
-    const bool acknowledged = draft.known && draft.points == plan.saved && draft.guids == plan.guids && !plan.mixed;
+    const bool acknowledged = draft.known && draft.cores == plan.saved && draft.guids == plan.guids && !plan.mixed;
     auto quickPlans = acknowledged ? std::move (draft.quickPlans) : std::map<int, QuickPlan> {};
     auto uniqueFloors = acknowledged ? std::move (draft.uniqueFloors) : std::set<int> {};
+    auto programme = std::move (draft.programme);
+    const auto newCore = draft.newCore;
+    const bool moveCores = draft.moveCores;
     draft = {};
     draft.quickPlans = std::move (quickPlans);
     draft.uniqueFloors = std::move (uniqueFloors);
+    draft.programme = floorprogramme::Valid (programme) ? std::move (programme) : floorprogramme::Default ();
+    draft.newCore = newCore;
+    draft.moveCores = moveCores;
     draft.known = true;
     draft.story = story;
-    draft.points = draft.original = plan.saved;
+    draft.cores = draft.original = plan.saved;
     draft.originalMixed = plan.mixed;
     draft.guids = plan.guids;
     for (const auto& source : plan.sources)
@@ -281,17 +351,16 @@ void Reset (const Plan& plan, Draft& draft)
 void Sync (const Plan& plan, Draft& draft)
 {
     if (!draft.known || (!Dirty (draft) && Conflict (plan, draft)) ||
-        (Dirty (draft) && !plan.mixed && plan.saved == draft.points && plan.guids == draft.guids))
+        (Dirty (draft) && !plan.mixed && plan.saved == draft.cores && plan.guids == draft.guids))
         Reset (plan, draft);
 }
 std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
 {
     if (!Dirty (draft) || draft.dragging || Conflict (plan, draft) || plan.floors.empty ())
         return {};
-    if (draft.points.size () > kMaxStairs || std::any_of (draft.points.begin (), draft.points.end (), [] (Point point) {
-            return !std::isfinite (point.x) || !std::isfinite (point.y) || std::abs (point.x) > 1e9 ||
-                   std::abs (point.y) > 1e9;
-        }))
+    if (draft.cores.size () > kMaxStairs ||
+        std::any_of (draft.cores.begin (), draft.cores.end (),
+                     [] (const Core& core) { return !Valid (core.center) || !Sized (core); }))
         return {};
     std::vector<hudmeta::Edit> edits;
     for (const auto& guid : plan.guids) {
@@ -306,67 +375,76 @@ std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
         edit.expectedPropertyJson = source->fingerprint;
         edit.kind = hudmeta::FieldKind::Fixed;
         edit.type = metadata::ValueType::List;
-        edit.action = draft.points.empty () ? hudmeta::Edit::Action::Clear : hudmeta::Edit::Action::Set;
-        for (const auto& point : draft.points) {
-            edit.numbers.push_back (point.x);
-            edit.numbers.push_back (point.y);
+        edit.action = draft.cores.empty () ? hudmeta::Edit::Action::Clear : hudmeta::Edit::Action::Set;
+        for (const auto& core : draft.cores) {
+            edit.numbers.insert (edit.numbers.end (), { core.center.x, core.center.y });
+            edit.shapes.insert (edit.shapes.end (), { core.width, core.depth });
         }
         edit.label = "Proposed stairwell locations";
         edits.push_back (std::move (edit));
     }
     return edits;
 }
-bool Place (const Floor& floor, Draft& draft, Point point)
+bool Place (const Floor& floor, Draft& draft, Point point, double angle)
 {
-    point = Snap (floor, point);
-    if (!draft.placing || !Fits (floor, point))
+    const bool moving = draft.selected >= 0 && size_t (draft.selected) < draft.cores.size ();
+    Core core = moving ? draft.cores[size_t (draft.selected)] : draft.newCore;
+    core.center = point;
+    core.center = Snap (floor, core, angle);
+    if (!draft.placing || !Fits (floor, core, angle))
         return false;
-    for (size_t i = 0; i < draft.points.size (); ++i)
-        if (int (i) != draft.selected && std::hypot (draft.points[i].x - point.x, draft.points[i].y - point.y) < 1e-6)
+    for (size_t i = 0; i < draft.cores.size (); ++i)
+        if (int (i) != draft.selected &&
+            std::hypot (draft.cores[i].center.x - core.center.x, draft.cores[i].center.y - core.center.y) < 1e-6)
             return false;
-    if (draft.selected >= 0 && size_t (draft.selected) < draft.points.size ())
-        draft.points[size_t (draft.selected)] = point;
+    if (moving)
+        draft.cores[size_t (draft.selected)] = core;
     else {
-        if (draft.points.size () >= kMaxStairs)
+        if (draft.cores.size () >= kMaxStairs)
             return false;
-        draft.selected = int (draft.points.size ());
-        draft.points.push_back (point);
+        draft.selected = int (draft.cores.size ());
+        draft.cores.push_back (core);
     }
     draft.placing = false;
     draft.changed = true;
     return true;
 }
-bool BeginDrag (Draft& draft, Point mouse, uintptr_t owner)
+bool BeginDrag (Draft& draft, Point mouse, uintptr_t owner, double angle)
 {
-    if (!draft.moving || draft.dragging || draft.selected < 0 || size_t (draft.selected) >= draft.points.size () ||
+    if (!draft.moving || draft.dragging || draft.selected < 0 || size_t (draft.selected) >= draft.cores.size () ||
         !Valid (mouse))
         return false;
-    const auto point = draft.points[size_t (draft.selected)];
-    if (std::abs (mouse.x - point.x) > kStairWidth / 2 || std::abs (mouse.y - point.y) > kStairDepth / 2)
+    const auto& core = draft.cores[size_t (draft.selected)];
+    const double x = mouse.x - core.center.x, y = mouse.y - core.center.y;
+    const double u = x * std::cos (angle) + y * std::sin (angle), v = -x * std::sin (angle) + y * std::cos (angle);
+    if (std::abs (u) > core.width / 2 || std::abs (v) > core.depth / 2)
         return false;
-    draft.dragOriginal = point;
-    draft.dragOffset = { point.x - mouse.x, point.y - mouse.y };
+    draft.dragOriginal = core.center;
+    draft.dragOffset = { core.center.x - mouse.x, core.center.y - mouse.y };
     draft.dragging = true;
     draft.dragOwner = owner;
     return true;
 }
-bool Drag (const Floor& floor, Draft& draft, Point mouse)
+bool Drag (const Floor& floor, Draft& draft, Point mouse, double angle)
 {
-    if (!draft.dragging || draft.selected < 0 || size_t (draft.selected) >= draft.points.size ())
+    if (!draft.dragging || draft.selected < 0 || size_t (draft.selected) >= draft.cores.size ())
         return false;
-    const auto point = Snap (floor, { mouse.x + draft.dragOffset.x, mouse.y + draft.dragOffset.y });
-    if (!Fits (floor, point))
+    auto core = draft.cores[size_t (draft.selected)];
+    core.center = { mouse.x + draft.dragOffset.x, mouse.y + draft.dragOffset.y };
+    core.center = Snap (floor, core, angle);
+    if (!Fits (floor, core, angle))
         return false; // Retain the last valid position across holes/outside the canvas.
-    for (size_t i = 0; i < draft.points.size (); ++i)
-        if (int (i) != draft.selected && std::hypot (draft.points[i].x - point.x, draft.points[i].y - point.y) < 1e-6)
+    for (size_t i = 0; i < draft.cores.size (); ++i)
+        if (int (i) != draft.selected &&
+            std::hypot (draft.cores[i].center.x - core.center.x, draft.cores[i].center.y - core.center.y) < 1e-6)
             return false;
-    draft.points[size_t (draft.selected)] = point;
+    draft.cores[size_t (draft.selected)] = core;
     return true;
 }
 void EndDrag (Draft& draft)
 {
-    if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < draft.points.size ())
-        draft.changed |= draft.points[size_t (draft.selected)] != draft.dragOriginal;
+    if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < draft.cores.size ())
+        draft.changed |= draft.cores[size_t (draft.selected)].center != draft.dragOriginal;
     draft.moving = draft.dragging = false;
     draft.dragOwner = 0;
 }
@@ -374,8 +452,8 @@ void Cancel (Draft& draft)
 {
     for (auto& [story, plan] : draft.quickPlans)
         CancelUnits (plan);
-    if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < draft.points.size ())
-        draft.points[size_t (draft.selected)] = draft.dragOriginal;
+    if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < draft.cores.size ())
+        draft.cores[size_t (draft.selected)].center = draft.dragOriginal;
     draft.placing = draft.moving = draft.dragging = false;
     draft.dragOwner = 0;
 }

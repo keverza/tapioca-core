@@ -53,6 +53,7 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
             buildingplan::Cancel (draft);
         draft.story = pickedStorey;
     }
+    buildingplan::UseProgramme (store->buildingPlans[building.key], store->massingProgramme);
     for (auto& edit :
          buildingplan::Draw (preview.plan, store->buildingPlans[building.key], ui, store->massingCoefficients)) {
         changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, 0, {}, true });
@@ -61,7 +62,7 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
     auto& draft = store->buildingPlans[building.key];
     std::ostringstream signature;
     for (const auto& floor : preview.plan.floors)
-        signature << buildingplan::QuickSignature (floor, draft.points);
+        signature << buildingplan::QuickSignature (floor, draft.cores, &draft.programme);
     for (const auto& [story, quick] : draft.quickPlans)
         signature << story << ':' << quick.signature << ':' << quick.revision;
     for (int story : draft.uniqueFloors)

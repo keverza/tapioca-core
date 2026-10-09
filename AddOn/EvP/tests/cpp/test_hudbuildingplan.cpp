@@ -109,15 +109,15 @@ TEST (HudBuildingPlan, PlacementIsLocalSupportsSeveralStairsAndRefusesOutsideHol
     draft.placing = true;
     EXPECT_FALSE (bp::Place (floor, draft, { 4, 4 }));
     EXPECT_TRUE (bp::Place (floor, draft, { 26, 26 }));
-    ASSERT_EQ (draft.points.size (), 2u);
+    ASSERT_EQ (draft.cores.size (), 2u);
     draft.selected = 0;
     draft.placing = true;
     EXPECT_TRUE (bp::Place (floor, draft, { 4, 26 }));
-    EXPECT_EQ (draft.points[0], (bp::Point { 4, 26 }));
-    EXPECT_EQ (draft.points[1], (bp::Point { 26, 26 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 4, 26 }));
+    EXPECT_EQ (draft.cores[1].center, (bp::Point { 26, 26 }));
     bp::Reset (plan, draft);
     EXPECT_FALSE (bp::Dirty (draft));
-    EXPECT_TRUE (draft.points.empty ());
+    EXPECT_TRUE (draft.cores.empty ());
     EXPECT_FALSE (draft.placing);
 }
 
@@ -130,7 +130,7 @@ TEST (HudBuildingPlan, SavedLocationsRoundTripAsOneListAndTargetEveryExactBuildi
     const auto preview = Preview (result);
     bp::Draft draft;
     bp::Reset (preview.plan, draft);
-    draft.points = { { 1, 1 }, { 9, 9 } };
+    draft.cores = { { { 1, 1 } }, { { 9, 9 }, 9.0, 2.5 } };
     auto edits = bp::Edits (preview.plan, draft);
     ASSERT_EQ (edits.size (), 2u);
     const auto schema = meta::DefaultSchema ();
@@ -140,24 +140,25 @@ TEST (HudBuildingPlan, SavedLocationsRoundTripAsOneListAndTargetEveryExactBuildi
     ASSERT_TRUE (bp::Matches (lower.metadata, edits[0]));
     ASSERT_TRUE (hm::Apply (lower.metadata, edits[0], schema, 42, error)) << error;
     EXPECT_TRUE (meta::Validate (lower.metadata, schema).empty ());
-    EXPECT_EQ (bp::Read (lower.metadata).points, draft.points);
+    EXPECT_EQ (bp::Read (lower.metadata).cores, draft.cores) << "Sizes travel with the locations";
     EXPECT_FALSE (bp::Matches (lower.metadata, edits[0])) << "Do not overwrite metadata changed before deferred write";
     auto persisted = lower.metadata;
     ASSERT_TRUE (meta::FromJson (meta::ToJson (lower.metadata), persisted, error));
-    EXPECT_EQ (bp::Read (persisted).points, draft.points);
+    EXPECT_EQ (bp::Read (persisted).cores, draft.cores);
     ASSERT_TRUE (hm::Apply (upper.metadata, edits[1], schema, 42, error));
     ASSERT_TRUE (ms::Build ({ lower, upper }, {}, nullptr, result, error));
     auto saved = Preview (result).plan;
     EXPECT_FALSE (saved.mixed);
     EXPECT_EQ (saved.saved.size (), 2u);
     bp::Reset (saved, draft);
-    draft.points.clear ();
+    draft.cores.clear ();
     edits = bp::Edits (saved, draft);
     ASSERT_EQ (edits.size (), 2u);
     EXPECT_EQ (edits[0].action, hm::Edit::Action::Clear);
     EXPECT_TRUE (hm::Apply (lower.metadata, edits[0], schema, 43, error));
     EXPECT_FALSE (bp::Read (lower.metadata).invalid);
-    EXPECT_TRUE (bp::Read (lower.metadata).points.empty ());
+    EXPECT_TRUE (bp::Read (lower.metadata).cores.empty ());
+    EXPECT_EQ (meta::FindProperty (lower.metadata, bp::kShapes), nullptr) << "Clear removes the sizes too";
 }
 
 TEST (HudBuildingPlan, MixedSavedValuesAndChangedMembershipRequireExplicitDraftResolution)
@@ -220,6 +221,21 @@ TEST (HudBuildingPlan, StairwellSchemaAndGuardsRefuseInvalidCoordinatesRolesAndB
     meta::SetProperty (source.metadata, malformed);
     EXPECT_TRUE (bp::Read (source.metadata).invalid);
     EXPECT_FALSE (meta::Validate (source.metadata, schema).empty ());
+    // Sizes: one 2-12 m pair per location, else refused; a legacy list without sizes reads as 4.5 x 4.2 m.
+    source = Slab ("lower", 0, 0);
+    edit.numbers = { 1, 1, 5, 5 };
+    for (const auto& shapes : std::vector<std::vector<double>> { { 4.5 }, { 4.5, 4.2, 1, 3 }, { 4.5, 4.2, 13, 3 } }) {
+        edit.shapes = shapes;
+        EXPECT_FALSE (hm::Apply (source.metadata, edit, schema, 0, error));
+    }
+    edit.shapes = { 4.5, 4.2, 9, 2.5 };
+    ASSERT_TRUE (hm::Apply (source.metadata, edit, schema, 0, error)) << error;
+    EXPECT_TRUE (meta::Validate (source.metadata, schema).empty ());
+    EXPECT_EQ (bp::Read (source.metadata).cores[1], (bp::Core { { 5, 5 }, 9, 2.5 }));
+    edit.shapes.clear ();
+    ASSERT_TRUE (hm::Apply (source.metadata, edit, schema, 0, error));
+    EXPECT_EQ (meta::FindProperty (source.metadata, bp::kShapes), nullptr);
+    EXPECT_EQ (bp::Read (source.metadata).cores[1], (bp::Core { { 5, 5 } }));
 }
 
 TEST (HudBuildingPlan, TwoStairsCheckUsesUnroundedCombinedDisplayedGrossAreaStrictlyAbove500)
@@ -277,13 +293,13 @@ TEST (HudBuildingPlan, MixedFingerprintChangesConflictAndPointLimitDoesNotPreven
     bp::Floor floor;
     floor.contours = { { Ring (0, 0, 100, 100) } };
     for (size_t i = 0; i < bp::kMaxStairs; ++i)
-        draft.points.push_back ({ double (i) + 1, 1 });
+        draft.cores.push_back ({ { double (i) + 1, 1 } });
     draft.selected = -1;
     draft.placing = true;
     EXPECT_FALSE (bp::Place (floor, draft, { 50, 50 }));
     draft.selected = 0;
     EXPECT_TRUE (bp::Place (floor, draft, { 50, 50 }));
-    EXPECT_EQ (draft.points.size (), bp::kMaxStairs);
+    EXPECT_EQ (draft.cores.size (), bp::kMaxStairs);
 }
 
 TEST (HudBuildingPlan, NativeSelectionPlanDefaultsToLowestThenClickSwitchesButHoverDoesNot)
@@ -349,8 +365,8 @@ TEST (HudBuildingPlan, RectangleSnapsToUnionEdgesAndCornersWithinHalfAMetreNotIn
     EXPECT_DOUBLE_EQ (bp::Snap (floor, { 2.4, 8 }).y, 8);
     const auto corner = bp::Snap (floor, { 2, 2 });
     EXPECT_NEAR (corner.x, 2.25, 1e-6);
-    EXPECT_NEAR (corner.y, 2.05, 1e-6);
-    EXPECT_TRUE (bp::Fits (floor, corner));
+    EXPECT_NEAR (corner.y, bp::kStairDepth / 2, 1e-6);
+    EXPECT_TRUE (bp::Fits (floor, { corner }));
     EXPECT_EQ (bp::Snap (floor, { 3, 8 }), (bp::Point { 3, 8 }));
     floor.contours.push_back ({ Ring (10, 0, 20, 20) });
     EXPECT_EQ (bp::Snap (floor, { 12.4, 8 }), (bp::Point { 12.4, 8 }));
@@ -361,7 +377,7 @@ TEST (HudBuildingPlan, RectangleSnapsToUnionEdgesAndCornersWithinHalfAMetreNotIn
     floor.contours = { { triangle } };
     const auto slanted = bp::Snap (floor, { 12.7, 12.7 });
     EXPECT_NEAR (slanted.x + slanted.y + bp::kStairWidth / 2 + bp::kStairDepth / 2, 30, 1e-6);
-    EXPECT_TRUE (bp::Fits (floor, slanted));
+    EXPECT_TRUE (bp::Fits (floor, { slanted }));
 }
 
 TEST (HudBuildingPlan, MoveIsAPressHoldDragGestureWithGrabOffsetValidationAndCancelRollback)
@@ -370,25 +386,25 @@ TEST (HudBuildingPlan, MoveIsAPressHoldDragGestureWithGrabOffsetValidationAndCan
     floor.contours = { { Ring (0, 0, 30, 30), Ring (15, 15, 5, 5) } };
     bp::Draft draft;
     draft.known = true;
-    draft.original = draft.points = { { 5, 5 } };
+    draft.original = draft.cores = { { { 5, 5 } } };
     draft.selected = 0;
     EXPECT_FALSE (bp::BeginDrag (draft, { 5, 5 }));
     draft.moving = true;
     EXPECT_FALSE (bp::BeginDrag (draft, { 10, 10 }));
     ASSERT_TRUE (bp::BeginDrag (draft, { 6, 5 }));
-    EXPECT_EQ (draft.points[0], (bp::Point { 5, 5 })); // Press alone never teleports.
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 5 })); // Press alone never teleports.
     ASSERT_TRUE (bp::Drag (floor, draft, { 9, 8 }));
-    EXPECT_EQ (draft.points[0], (bp::Point { 8, 8 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 8, 8 }));
     EXPECT_FALSE (bp::Drag (floor, draft, { 18, 17 }));
-    EXPECT_EQ (draft.points[0], (bp::Point { 8, 8 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 8, 8 }));
     bp::Cancel (draft);
-    EXPECT_EQ (draft.points[0], (bp::Point { 5, 5 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 5 }));
     EXPECT_FALSE (bp::Dirty (draft));
     draft.moving = true;
     ASSERT_TRUE (bp::BeginDrag (draft, { 5, 5 }));
     ASSERT_TRUE (bp::Drag (floor, draft, { 10, 10 }));
     bp::EndDrag (draft);
-    EXPECT_EQ (draft.points[0], (bp::Point { 10, 10 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 10, 10 }));
     EXPECT_TRUE (bp::Dirty (draft));
     EXPECT_FALSE (draft.dragging);
     EXPECT_FALSE (draft.moving);
@@ -441,7 +457,7 @@ TEST (HudBuildingPlan, NativePlanUsesRectangleHitAreaAndHeldMouseMovementUntilRe
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     gui.Lay ({}, hudtest::At (600, 600));
     auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    draft.points = { { 5, 5 } };
+    draft.cores = { { { 5, 5 } } };
     draft.selected = 0;
     draft.moving = true;
     const auto drawn = gui.Lay ({}, hudtest::At (600, 600));
@@ -452,14 +468,14 @@ TEST (HudBuildingPlan, NativePlanUsesRectangleHitAreaAndHeldMouseMovementUntilRe
     gui.Lay ({}, hudtest::At (x, y));
     gui.Lay ({}, hudtest::At (x, y, { { 0, true } }));
     ASSERT_TRUE (draft.dragging);
-    EXPECT_EQ (draft.points[0], (bp::Point { 5, 5 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 5 }));
     hudtest::Fresh other;
     other.engine.UseState (gui.state);
     other.engine.SetOwnPages (pages);
     other.Lay ({}, hudtest::At (600, 600));
     EXPECT_TRUE (draft.dragging) << "An idle second HUD must not release the initiating HUD's drag";
     gui.Lay ({}, hudtest::At (x + 20, y));
-    EXPECT_GT (draft.points[0].x, 5);
+    EXPECT_GT (draft.cores[0].center.x, 5);
     EXPECT_TRUE (draft.dragging);
     gui.Lay ({}, hudtest::At (x + 20, y, { { 0, false } }));
     EXPECT_FALSE (draft.dragging);
@@ -524,8 +540,8 @@ TEST (HudBuildingPlan, ApartmentCentreUsesRealHeldPointerDragAndDoesNotWriteMeta
     const float canvasTop = (box[1] + box[3] - 200) / 2;
     const float lockY = originY + canvasTop - 12;
     gui.Click ({}, originX + 45, lockY);
-    ASSERT_TRUE (quick.seeds[at].locked) << "Real Lock room count button above the canvas";
-    EXPECT_NEAR (bp::UnitArea (quick.units[at]), bp::UnitTargetArea (quick.seeds[at].rooms), 1e-4);
+    ASSERT_TRUE (quick.seeds[at].locked) << "Real Lock flat button above the canvas";
+    EXPECT_NEAR (bp::Traits (quick, quick.seeds[at]).net, bp::TargetArea (quick, quick.seeds[at]), 0.05);
     gui.Click ({}, originX + 45, lockY);
     EXPECT_FALSE (quick.seeds[at].locked);
     EXPECT_FALSE (bp::Dirty (draft));

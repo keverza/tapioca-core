@@ -140,6 +140,17 @@ void FollowHudState ()
     }
     for (auto& request : overlayhud::TakeMassingCalculations (*state))
         massinghybrid::Request (std::move (request));
+    // Define Programme's typed rows: the same native prompt as the numeric Set panels.
+    for (const auto& edit : overlayhud::TakeProgrammeTexts (*state)) {
+        std::string answer, error;
+        if (textprompt::Ask (edit.type < 0 ? "Programme: share% rooms room min-max m2, types separated by ;"
+                                           : "Flat type: share% rooms room min-max m2",
+                             edit.text, answer) &&
+            !overlayhud::AnswerProgrammeText (*state, edit, answer, error))
+            hudconsole::Warning ("Programme", error);
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     // The Selection page's metadata edits: written from the message loop too, in one undo step,
     // to every element selected then; the page is read again after (SelectionMetadata.hpp).
     std::vector<hudmeta::Edit> edits = overlayhud::TakeMetadataEdits (*state);

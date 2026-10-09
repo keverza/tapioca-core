@@ -96,6 +96,7 @@ struct Edit {
     int listIndex = -1; // one floorHeight array entry; -1 replaces the complete array
     double min = 0, max = 0;
     std::vector<double> numbers;     // Proposed stairwell XY pairs, in project metres.
+    std::vector<double> shapes;      // Their width/depth pairs in the building frame; empty: 4.5 x 4.2 m.
     std::string expectedBuildingKey; // Guard delayed building-wide edits against ID/role changes.
     std::string expectedPropertyJson;
 };

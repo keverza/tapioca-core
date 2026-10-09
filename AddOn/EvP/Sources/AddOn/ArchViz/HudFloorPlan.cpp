@@ -1,47 +1,11 @@
-#include "ArchViz/HudBuildingPlan.hpp"
-#include <clipper2/clipper.h>
+#include "ArchViz/HudFloorPlanFrame.hpp"
 #include <clipper2/clipper.triangulation.h>
 #include <algorithm>
-#include <cmath>
 #include <iomanip>
 #include <sstream>
 
 namespace geomsrv::archviz::buildingplan {
-namespace {
-namespace cp = Clipper2Lib;
-constexpr double kCorridor = 1.8, kModule = 0.3, kMinWidth = 3.4;
-constexpr size_t kMaxUnits = 128, kMaxBars = 64, kMaxVertices = 2048;
-struct Rect {
-    double x0, y0, x1, y1;
-};
-cp::PathD Polygon (Rect r)
-{
-    return { { r.x0, r.y0 }, { r.x1, r.y0 }, { r.x1, r.y1 }, { r.x0, r.y1 } };
-}
-Point Local (const QuickPlan& plan, Point p)
-{
-    const double x = p.x - plan.origin.x, y = p.y - plan.origin.y;
-    return { x * std::cos (plan.angle) + y * std::sin (plan.angle),
-             -x * std::sin (plan.angle) + y * std::cos (plan.angle) };
-}
-Point World (const QuickPlan& plan, Point p)
-{
-    return { plan.origin.x + p.x * std::cos (plan.angle) - p.y * std::sin (plan.angle),
-             plan.origin.y + p.x * std::sin (plan.angle) + p.y * std::cos (plan.angle) };
-}
-cp::PathsD Paths (const QuickPlan& plan, const std::vector<SliceChain>& rings)
-{
-    cp::PathsD out;
-    for (const auto& ring : rings) {
-        cp::PathD path;
-        for (size_t i = 0; i < ring.Count (); ++i) {
-            const auto p = Local (plan, { ring.xy[i * 2], ring.xy[i * 2 + 1] });
-            path.emplace_back (p.x, p.y);
-        }
-        out.push_back (std::move (path));
-    }
-    return out;
-}
+namespace frame {
 PlanRegion Region (const QuickPlan& plan, const cp::PathsD& paths)
 {
     PlanRegion out;
@@ -61,6 +25,10 @@ PlanRegion Region (const QuickPlan& plan, const cp::PathsD& paths)
                 out.triangles.push_back (World (plan, { p.x, p.y }));
     return out;
 }
+} // namespace frame
+namespace {
+using namespace frame;
+constexpr size_t kMaxBars = 64, kMaxVertices = 2048;
 std::vector<SliceChain> Counted (const Floor& floor)
 {
     if (floor.outlineKnown)
@@ -69,25 +37,13 @@ std::vector<SliceChain> Counted (const Floor& floor)
     Point origin;
     if (!floor.contours.empty () && !floor.contours.front ().empty () && floor.contours.front ().front ().Count ())
         origin = { floor.contours.front ().front ().xy[0], floor.contours.front ().front ().xy[1] };
-    QuickPlan frame;
-    frame.origin = origin;
+    QuickPlan local;
+    local.origin = origin;
     for (const auto& source : floor.contours) {
-        const auto own = cp::Union (Paths (frame, source), cp::FillRule::EvenOdd, 6);
+        const auto own = cp::Union (Paths (local, source), cp::FillRule::EvenOdd, 6);
         parts.insert (parts.end (), own.begin (), own.end ());
     }
-    return Region (frame, cp::Union (parts, cp::FillRule::NonZero, 6)).rings;
-}
-bool Inside (const cp::PathsD& paths, Point p)
-{
-    int winding = 0;
-    for (const auto& path : paths) {
-        const auto where = cp::PointInPolygon (cp::PointD (p.x, p.y), path);
-        if (where == cp::PointInPolygonResult::IsOn)
-            return true;
-        if (where == cp::PointInPolygonResult::IsInside)
-            winding += cp::Area (path) > 0 ? 1 : -1;
-    }
-    return winding != 0;
+    return Region (local, cp::Union (parts, cp::FillRule::NonZero, 6)).rings;
 }
 bool Hit (const QuickPlan& plan, const PlanRegion& region, Point p)
 {
@@ -102,18 +58,79 @@ Rect Strip (bool alongX, double lo, double hi, double c0, double c1)
 {
     return alongX ? Rect { lo, c0, hi, c1 } : Rect { c0, lo, c1, hi };
 }
+double Contact (const cp::PathsD& piece, const cp::PathsD& other)
+{
+    // Shared boundary length: the overlap of a 5 cm band around `piece` with `other`.
+    constexpr double band = 0.05;
+    const auto grown = cp::InflatePaths (piece, band, cp::JoinType::Miter, cp::EndType::Polygon);
+    return std::abs (cp::Area (cp::Intersect (cp::Difference (grown, piece, cp::FillRule::NonZero, 6), other,
+                                              cp::FillRule::NonZero, 6))) /
+           band;
+}
+void Components (const cp::PolyPathD& node, std::vector<cp::PathsD>& out)
+{
+    for (size_t i = 0; i < node.Count (); ++i) {
+        const auto* outer = node.Child (i);
+        cp::PathsD component { outer->Polygon () };
+        for (size_t h = 0; h < outer->Count (); ++h) {
+            component.push_back (outer->Child (h)->Polygon ());
+            Components (*outer->Child (h), out); // islands inside the hole
+        }
+        out.push_back (std::move (component));
+    }
+}
+// Boundary pieces of one segment along its axis, at most one module long.
+void Edges (PlanRegion& segment, const cp::PathsD& piece, const cp::PathsD& outline, const cp::PathsD& circulation)
+{
+    segment.facade.clear ();
+    segment.access.clear ();
+    for (const auto& path : piece)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const auto a = path[i], b = path[(i + 1) % path.size ()];
+            const double length = std::hypot (b.x - a.x, b.y - a.y);
+            if (length < 1e-6)
+                continue;
+            Point normal { (b.y - a.y) / length, (a.x - b.x) / length };
+            const Point middle { (a.x + b.x) / 2, (a.y + b.y) / 2 };
+            if (Inside (piece, { middle.x + normal.x * 0.02, middle.y + normal.y * 0.02 }))
+                normal = { -normal.x, -normal.y };
+            const uint8_t side =
+                std::abs (normal.x) >= std::abs (normal.y) ? (normal.x > 0 ? 0 : 2) : (normal.y > 0 ? 1 : 3);
+            const size_t count = (std::max) (size_t (1), size_t (std::ceil (length / kModule - 1e-9)));
+            for (size_t k = 0; k < count; ++k) {
+                const Point p0 { a.x + (b.x - a.x) * double (k) / count, a.y + (b.y - a.y) * double (k) / count };
+                const Point p1 { a.x + (b.x - a.x) * double (k + 1) / count,
+                                 a.y + (b.y - a.y) * double (k + 1) / count };
+                const Point m { (p0.x + p1.x) / 2, (p0.y + p1.y) / 2 };
+                const Point out { m.x + normal.x * 0.05, m.y + normal.y * 0.05 };
+                const bool facade = !Inside (outline, out);
+                if (!facade && !Inside (circulation, out))
+                    continue;
+                const double a0 = segment.alongX ? (std::min) (p0.x, p1.x) : (std::min) (p0.y, p1.y);
+                const double a1 = segment.alongX ? (std::max) (p0.x, p1.x) : (std::max) (p0.y, p1.y);
+                PlanRegion::Edge edge { a0, a1, length / count, segment.alongX ? m.y : m.x, side };
+                (facade ? segment.facade : segment.access).push_back (edge);
+            }
+        }
+}
 } // namespace
 
-std::string QuickSignature (const Floor& floor, const std::vector<Point>& stairs)
+std::string QuickSignature (const Floor& floor, const std::vector<Core>& stairs,
+                            const floorprogramme::Programme* programme)
 {
     // Floor height/index are NOT template identity. Canonical world rings at micrometre precision
     // share across input order, start vertex and winding, but never across translated buildings.
     std::ostringstream key;
     key << std::fixed << std::setprecision (6);
+    const auto cores = [&] {
+        for (const auto& core : stairs)
+            key << core.center.x << ',' << core.center.y << ',' << core.width << 'x' << core.depth << ';';
+        if (programme)
+            key << floorprogramme::Key (*programme);
+    };
     if (!floor.outlineKey.empty ()) {
         key << floor.outlineKey;
-        for (const auto& p : stairs)
-            key << p.x << ',' << p.y << ';';
+        cores ();
         return key.str ();
     }
     std::vector<std::string> keys;
@@ -155,15 +172,20 @@ std::string QuickSignature (const Floor& floor, const std::vector<Point>& stairs
     for (const auto& ring : keys)
         key << '/' << ring;
     key << '#';
-    for (const auto& p : stairs)
-        key << p.x << ',' << p.y << ';';
+    cores ();
     return key.str ();
 }
 
-QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
+QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
+                         const floorprogramme::Programme& programme, double angle)
 {
     QuickPlan plan;
-    plan.signature = QuickSignature (floor, stairs);
+    plan.programme = floorprogramme::Valid (programme) ? programme : floorprogramme::Default ();
+    plan.newType = size_t (std::max_element (plan.programme.types.begin (), plan.programme.types.end (),
+                                             [] (const auto& a, const auto& b) { return a.share < b.share; }) -
+                           plan.programme.types.begin ());
+    plan.cores = stairs;
+    plan.signature = QuickSignature (floor, stairs, &plan.programme);
     plan.outlineSignature = QuickSignature (floor, {});
     plan.note = "Place a stairwell to generate a quick floor scheme.";
     const auto valid = [] (const auto& values) {
@@ -206,6 +228,8 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
             }
         }
     }
+    if (std::isfinite (angle))
+        plan.angle = angle; // the building's frame, shared by all its floors and cores
     if (!count || count > kMaxVertices || stairs.size () > kMaxStairs) {
         plan.note = "Quick plan refused: empty outline or preview budget exceeded.";
         return plan;
@@ -268,26 +292,22 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
     if (stairs.empty ())
         return plan;
     cp::PathsD cores;
-    for (const auto& p : stairs) {
-        if (!Fits (floor, p)) {
+    for (const auto& core : stairs) {
+        if (!Fits (floor, core, plan.angle)) {
             plan.note = "Quick plan refused: every proposed stair footprint must fit this floor.";
             return plan;
         }
-        cp::PathD core;
-        for (const auto& v :
-             Polygon ({ p.x - kStairWidth / 2, p.y - kStairDepth / 2, p.x + kStairWidth / 2, p.y + kStairDepth / 2 })) {
-            const auto q = Local (plan, { v.x, v.y });
-            core.emplace_back (q.x, q.y);
-        }
-        if (std::abs (cp::Area (cp::Intersect (cores, { core }, cp::FillRule::NonZero, 6))) > 1e-6) {
+        const auto rect = Polygon (CoreRect (plan, core));
+        if (std::abs (cp::Area (cp::Intersect (cores, { rect }, cp::FillRule::NonZero, 6))) > 1e-6) {
             plan.note = "Quick plan refused: proposed stair footprints overlap.";
             return plan;
         }
-        cores.push_back (std::move (core));
+        cores.push_back (rect);
     }
     cp::PathsD circulation;
     std::vector<Rect> spines;
     std::vector<Rect> spineBars;
+    std::vector<double> crossOf (bars.size (), std::numeric_limits<double>::quiet_NaN ());
     for (const auto& b : bars) {
         const bool axis = b.x1 - b.x0 >= b.y1 - b.y0;
         const double lo = axis ? b.x0 : b.y0, hi = axis ? b.x1 : b.y1;
@@ -298,6 +318,7 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
         if (c1 - c0 < 2 * 5.4 + kCorridor)
             cross = c0 + 0.6 + kCorridor / 2; // Shallow bar: keep circulation off the facade.
         const auto spine = Strip (axis, lo + kMinWidth, hi - kMinWidth, cross - kCorridor / 2, cross + kCorridor / 2);
+        crossOf[size_t (&b - bars.data ())] = cross;
         circulation.push_back (Polygon (spine));
         spines.push_back (spine);
         spineBars.push_back (b);
@@ -327,9 +348,10 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
                                (std::max) (shared.x, bend.x) + w, (std::max) (shared.y, bend.y) + w }));
             }
         }
-    // Connect each core to the nearest spine; clipping alone is NOT connectivity validation.
-    for (const auto& p : stairs) {
-        const auto q = Local (plan, p);
+    // Connect each core to the nearest spine from the middle of its facing side; clipping
+    // alone is NOT connectivity validation.
+    for (const auto& core : stairs) {
+        const auto q = Local (plan, core.center);
         double best = 1e300;
         Point target;
         for (const auto& spine : spines) {
@@ -359,7 +381,8 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
             plan.note = "Quick S4 refused: a corridor/island is disconnected from all proposed stairs.";
             return plan;
         }
-    plan.corridors.push_back (Region (plan, cp::Difference (circulation, cores, cp::FillRule::NonZero, 6)));
+    auto corridors = cp::Difference (circulation, cores, cp::FillRule::NonZero, 6);
+    std::vector<cp::PathsD> pieces, loose;
     for (size_t b = 0; b < bars.size (); ++b) {
         const auto& rect = bars[b];
         const bool axis = rect.x1 - rect.x0 >= rect.y1 - rect.y0;
@@ -375,33 +398,28 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
         unique (cuts);
         for (size_t c = 1; c < cuts.size (); ++c) {
             if (cuts[c] - cuts[c - 1] < kMinWidth - 1e-5)
-                continue;
-            const auto pieces = cp::Intersect (
+                continue; // a narrow strip joins a neighbouring flat below
+            const auto parts = cp::Intersect (
                 remaining,
                 { Polygon (Strip (axis, cuts[c - 1], cuts[c], axis ? rect.y0 : rect.x0, axis ? rect.y1 : rect.x1)) },
                 cp::FillRule::NonZero, 6);
-            for (const auto& path : pieces) {
+            for (const auto& path : parts) {
                 if (cp::Area (path) <= 1e-6)
-                    continue;
-                double a = 1e300, z = -1e300;
-                for (const auto& p : path) {
-                    a = (std::min) (a, axis ? p.y : p.x);
-                    z = (std::max) (z, axis ? p.y : p.x);
-                }
-                auto segment = Region (plan, { path });
-                segment.alongX = axis;
-                segment.lo = cuts[c - 1];
-                segment.hi = cuts[c];
-                segment.across = (a + z) / 2;
-                segment.center = World (plan, axis ? Point { (segment.lo + segment.hi) / 2, segment.across }
-                                                   : Point { segment.across, (segment.lo + segment.hi) / 2 });
-                if (!Hit (plan, segment, segment.center))
                     continue;
                 // Require actual shared corridor boundary, not just proximity or a stair marker.
                 const auto expanded =
                     cp::InflatePaths (cp::PathsD { path }, 0.01, cp::JoinType::Miter, cp::EndType::Polygon);
                 if (std::abs (cp::Area (cp::Intersect (expanded, circulation, cp::FillRule::NonZero, 6))) < 1e-6)
                     continue;
+                PlanRegion segment;
+                segment.alongX = axis;
+                segment.lo = cuts[c - 1];
+                segment.hi = cuts[c];
+                double a = 1e300, z = -1e300;
+                for (const auto& p : path) {
+                    a = (std::min) (a, axis ? p.y : p.x);
+                    z = (std::max) (z, axis ? p.y : p.x);
+                }
                 const auto touchesEnd = [&] (double at) {
                     return std::abs (cp::Area (cp::Intersect (
                                expanded,
@@ -417,30 +435,117 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
                     std::abs (cp::Area (cp::Intersect (expanded, middle, cp::FillRule::NonZero, 6))) > 1e-6;
                 if (low != high && !sideAccess)
                     segment.endAccess = high ? 1 : -1;
-                const size_t index = plan.segments.size ();
-                plan.segments.push_back (std::move (segment));
-                const int units = plan.segments.back ().endAccess
-                                      ? 1
-                                      : (std::max) (1, int (std::floor ((cuts[c] - cuts[c - 1]) /
-                                                                        (std::max) (kMinWidth, 55.0 / (z - a)))));
-                for (int n = 0; n < units; ++n) {
-                    if (plan.seeds.size () >= kMaxUnits) {
-                        plan.note = "Quick apartment division exceeds 128 units; no partial scheme shown.";
-                        plan.segments.clear ();
-                        plan.seeds.clear ();
-                        return plan;
+                const double cross = crossOf[b];
+                if (segment.endAccess && std::isfinite (cross) && a + 1.0 < cross - kCorridor / 2 &&
+                    cross + kCorridor / 2 < z - 1.0) {
+                    // A bar end across its double-loaded corridor: each half joins its band as
+                    // the corner flat (private generator band caps), not one through-flat.
+                    for (const auto& half : { Strip (axis, segment.lo, segment.hi, a, cross),
+                                              Strip (axis, segment.lo, segment.hi, cross, z) }) {
+                        const auto part = cp::Intersect ({ path }, { Polygon (half) }, cp::FillRule::NonZero, 6);
+                        if (std::abs (cp::Area (part)) > 1e-6)
+                            loose.push_back (part);
                     }
-                    plan.seeds.push_back (
-                        { plan.nextId++, index, cuts[c - 1] + (n + 0.5) * (cuts[c] - cuts[c - 1]) / units });
+                    continue;
                 }
+                plan.segments.push_back (std::move (segment));
+                pieces.push_back ({ path });
             }
         }
     }
-    plan.ready = !plan.seeds.empty ();
-    plan.note = plan.ready ? "Fast band springs: exact selected targets and locked areas; neighbours relax. No "
-                             "daylight/egress validation."
-                           : "No corridor-served segments wide enough for quick apartments.";
-    PartitionUnits (plan);
+    if (plan.segments.size () > kMaxUnits) {
+        plan.note = "Quick apartment division exceeds 128 segments; no partial scheme shown.";
+        plan.segments.clear ();
+        return plan;
+    }
+    // No empty floor: every leftover joins the flat band it shares most boundary with; strips
+    // reached only by circulation join the circulation; anything else is reported as empty.
+    {
+        const auto reach = cp::Union (circulation, cores, cp::FillRule::NonZero, 6);
+        cp::PathsD used = reach;
+        for (const auto* group : { &pieces, &loose })
+            for (const auto& piece : *group)
+                used.insert (used.end (), piece.begin (), piece.end ());
+        used = cp::Union (used, cp::FillRule::NonZero, 6);
+        cp::PolyTreeD tree;
+        cp::BooleanOp (cp::ClipType::Difference, cp::FillRule::NonZero, outline, used, tree, 6);
+        std::vector<cp::PathsD> leftovers = loose;
+        Components (tree, leftovers);
+        // Several passes: a strip may reach a band only through a piece attached before it.
+        cp::PathsD common, lost;
+        std::vector<bool> placed (leftovers.size (), false);
+        for (bool progress = true; progress;) {
+            progress = false;
+            for (size_t l = 0; l < leftovers.size (); ++l) {
+                if (placed[l] || std::abs (cp::Area (leftovers[l])) < 1e-4)
+                    continue;
+                size_t best = pieces.size ();
+                double contact = 0.3;
+                for (size_t s = 0; s < pieces.size (); ++s) {
+                    const double c = Contact (leftovers[l], pieces[s]);
+                    if (c > contact + 1e-9) {
+                        contact = c;
+                        best = s;
+                    }
+                }
+                if (best == pieces.size ())
+                    continue;
+                pieces[best] = cp::Union (pieces[best], leftovers[l], cp::FillRule::NonZero, 6);
+                auto& segment = plan.segments[best];
+                for (const auto& path : leftovers[l])
+                    for (const auto& p : path) {
+                        segment.lo = (std::min) (segment.lo, segment.alongX ? p.x : p.y);
+                        segment.hi = (std::max) (segment.hi, segment.alongX ? p.x : p.y);
+                    }
+                placed[l] = progress = true;
+            }
+        }
+        for (size_t l = 0; l < leftovers.size (); ++l) {
+            if (placed[l] || std::abs (cp::Area (leftovers[l])) < 1e-4)
+                continue;
+            auto& target = Contact (leftovers[l], reach) >= 0.3 ? common : lost;
+            target.insert (target.end (), leftovers[l].begin (), leftovers[l].end ());
+        }
+        if (!common.empty ())
+            corridors = cp::Union (corridors, common, cp::FillRule::NonZero, 6);
+        if (!lost.empty ())
+            plan.unassigned.push_back (Region (plan, lost));
+    }
+    plan.corridors.push_back (Region (plan, corridors));
+    const auto served = cp::Union (corridors, cores, cp::FillRule::NonZero, 6);
+    for (size_t s = 0; s < plan.segments.size (); ++s) {
+        auto& segment = plan.segments[s];
+        const auto region = Region (plan, pieces[s]);
+        segment.rings = region.rings;
+        segment.triangles = region.triangles;
+        double a = 1e300, z = -1e300;
+        for (const auto& path : pieces[s])
+            for (const auto& p : path) {
+                a = (std::min) (a, segment.alongX ? p.y : p.x);
+                z = (std::max) (z, segment.alongX ? p.y : p.x);
+            }
+        segment.across = (a + z) / 2;
+        segment.center = World (plan, segment.alongX ? Point { (segment.lo + segment.hi) / 2, segment.across }
+                                                     : Point { segment.across, (segment.lo + segment.hi) / 2 });
+        Edges (segment, pieces[s], outline, served);
+        BuildAreaProfile (plan, segment);
+    }
+    plan.ready = !plan.segments.empty ();
+    if (!plan.ready) {
+        plan.note = "No corridor-served segments wide enough for quick apartments.";
+        return plan;
+    }
+    Fill (plan);
+    if (plan.seeds.empty ()) {
+        plan.ready = false;
+        plan.note = "No programme flat fits the corridor-served segments.";
+        return plan;
+    }
+    plan.egress = AnalyseEgress (plan);
+    plan.score = Score (plan, plan.seeds);
+    OptimiseUnits (plan, 300);
+    plan.note = "Programme fill on the building frame: net areas against the programme ranges, larger flats on "
+                "corners. Optimise may retype, add or remove unlocked flats.";
     return plan;
 }
 
@@ -467,43 +572,39 @@ Point UnitCenter (const QuickPlan& plan, const UnitSeed& seed)
         }
     return World (plan, s.alongX ? Point { seed.along, across } : Point { across, seed.along });
 }
-double UnitTargetArea (double rooms)
+double TargetArea (const QuickPlan& plan, const UnitSeed& seed)
 {
-    // Python's default programme targets, with 1.5R interpolated between 1R and 2R.
-    if (rooms == 1)
-        return 34;
-    if (rooms == 1.5)
-        return 41;
-    if (rooms == 2)
-        return 48;
-    if (rooms == 3)
-        return 65;
-    if (rooms == 4)
-        return 82;
-    return 0;
+    return seed.type < plan.programme.types.size () ? floorprogramme::Target (plan.programme.types[seed.type])
+                                                    : seed.target;
+}
+double Rooms (const QuickPlan& plan, const UnitSeed& seed)
+{
+    return seed.type < plan.programme.types.size () ? plan.programme.types[seed.type].rooms : 0;
+}
+std::string TypeName (const QuickPlan& plan, const UnitSeed& seed)
+{
+    return floorprogramme::Name (plan.programme, seed.type);
 }
 double UnitArea (const PlanRegion& unit)
 {
     if (unit.rings.empty () || !unit.rings.front ().Count ())
         return 0;
-    QuickPlan frame;
-    frame.origin = { unit.rings.front ().xy[0], unit.rings.front ().xy[1] };
-    return std::abs (cp::Area (Paths (frame, unit.rings)));
+    QuickPlan local;
+    local.origin = { unit.rings.front ().xy[0], unit.rings.front ().xy[1] };
+    return std::abs (cp::Area (Paths (local, unit.rings)));
 }
 uint32_t UnitColour (double rooms)
 {
-    return rooms == 1     ? 0x9AD1E6FFu
-           : rooms == 1.5 ? 0xA7DADFFFu
-           : rooms == 2   ? 0x7FC8A9FFu
-           : rooms == 3   ? 0xF2D06BFFu
-                          : 0xF0A35EFFu;
+    return floorprogramme::Colour (rooms);
 }
-bool SetUnitRooms (QuickPlan& plan, size_t seed, double rooms)
+bool SetUnitType (QuickPlan& plan, size_t seed, size_t type)
 {
-    if (seed >= plan.seeds.size () || plan.dragging || UnitTargetArea (rooms) <= 0 || plan.seeds[seed].rooms == rooms)
+    if (seed >= plan.seeds.size () || plan.dragging || type >= plan.programme.types.size () ||
+        plan.seeds[seed].type == type)
         return false;
     const auto original = plan.seeds;
-    plan.seeds[seed].rooms = rooms;
+    plan.seeds[seed].type = type;
+    plan.seeds[seed].target = floorprogramme::Target (plan.programme.types[type]);
     if (RelaxUnits (plan, int (seed), true))
         return true;
     plan.seeds = original;
@@ -532,6 +633,7 @@ void RebuildUnits (QuickPlan& plan)
         unit.center = UnitCenter (plan, seed);
         plan.units.push_back (std::move (unit));
     }
+    plan.score = Score (plan, plan.seeds);
 }
 bool MoveUnit (QuickPlan& plan, size_t seed, Point point)
 {
@@ -560,7 +662,7 @@ bool MoveUnit (QuickPlan& plan, size_t seed, Point point)
 }
 bool AddUnit (QuickPlan& plan, Point point)
 {
-    if (!plan.ready || plan.seeds.size () >= kMaxUnits || UnitTargetArea (plan.newRooms) <= 0 ||
+    if (!plan.ready || plan.seeds.size () >= kMaxUnits || plan.newType >= plan.programme.types.size () ||
         !std::isfinite (point.x) || !std::isfinite (point.y))
         return false;
     for (size_t i = 0; i < plan.segments.size (); ++i) {
@@ -576,10 +678,12 @@ bool AddUnit (QuickPlan& plan, Point point)
         for (const auto& seed : plan.seeds)
             if (seed.segment == i && std::abs (seed.along - at) < 0.6)
                 return false;
-        if (!Hit (plan, s, UnitCenter (plan, UnitSeed { 0, i, at })))
+        UnitSeed added { plan.nextId, i, at, plan.newType,
+                         floorprogramme::Target (plan.programme.types[plan.newType]) };
+        if (!Hit (plan, s, UnitCenter (plan, added)))
             return false;
         const auto original = plan.seeds;
-        plan.seeds.push_back ({ plan.nextId, i, at, plan.newRooms });
+        plan.seeds.push_back (added);
         if (!RelaxUnits (plan, int (plan.seeds.size () - 1), true)) {
             plan.seeds = original;
             return false;
@@ -595,8 +699,14 @@ bool RemoveUnit (QuickPlan& plan, size_t seed)
 {
     if (seed >= plan.seeds.size () || plan.dragging)
         return false;
+    const size_t segment = plan.seeds[seed].segment;
+    if (std::count_if (plan.seeds.begin (), plan.seeds.end (),
+                       [&] (const UnitSeed& other) { return other.segment == segment; }) <= 1) {
+        plan.solveNote = "A band keeps at least one flat (no empty floor): change its type instead.";
+        return false;
+    }
     const auto original = plan.seeds;
-    plan.seeds.erase (plan.seeds.begin () + seed);
+    plan.seeds.erase (plan.seeds.begin () + std::ptrdiff_t (seed));
     if (!RelaxUnits (plan)) {
         plan.seeds = original;
         return false;
@@ -621,136 +731,5 @@ void CancelUnits (QuickPlan& plan)
     plan.owner = 0;
     plan.dragSeeds.clear ();
     plan.dragUnits.clear ();
-}
-namespace {
-int TemplateFloor (const Plan& plan, const Draft& draft, const Floor& floor)
-{
-    if (draft.uniqueFloors.contains (floor.story))
-        return floor.story;
-    const auto shape = QuickSignature (floor, {});
-    for (const auto& other : plan.floors)
-        if (!draft.uniqueFloors.contains (other.story) && QuickSignature (other, {}) == shape)
-            return other.story;
-    return floor.story;
-}
-} // namespace
-QuickPlan& QuickFor (const Plan& plan, Draft& draft, const Floor& floor)
-{
-    const int story = TemplateFloor (plan, draft, floor);
-    auto& quick = draft.quickPlans[story];
-    auto committed = draft.points;
-    if (draft.dragging && draft.selected >= 0 && size_t (draft.selected) < committed.size ())
-        committed[size_t (draft.selected)] = draft.dragOriginal;
-    const auto signature = QuickSignature (floor, committed);
-    if (quick.signature != signature) {
-        const int stage = quick.stage;
-        const bool replaced = !quick.signature.empty ();
-        auto next = GenerateQuick (floor, committed);
-        const bool locked =
-            std::any_of (quick.seeds.begin (), quick.seeds.end (), [] (const UnitSeed& seed) { return seed.locked; });
-        if (locked && quick.outlineSignature == next.outlineSignature) {
-            if (!TransferUnits (quick, next)) {
-                quick.signature = signature;
-                quick.ready = false;
-                quick.units.clear ();
-                quick.corridors.clear ();
-                quick.bands.clear ();
-                quick.solveNote = "Core change cannot preserve locked sizes. Restore core locations or reset the plan.";
-                ++quick.revision;
-                return quick;
-            }
-        }
-        quick = std::move (next);
-        quick.stage = stage;
-        if (replaced)
-            quick.note += " Source outline or cores changed: local unit edits reset.";
-    }
-    return quick;
-}
-void MakeUnique (const Plan& plan, Draft& draft, const Floor& floor)
-{
-    if (draft.uniqueFloors.contains (floor.story))
-        return;
-    const int shared = TemplateFloor (plan, draft, floor);
-    auto copy = QuickFor (plan, draft, floor);
-    CancelUnits (copy);
-    draft.uniqueFloors.insert (floor.story);
-    if (shared == floor.story)
-        for (const auto& other : plan.floors)
-            if (!draft.uniqueFloors.contains (other.story) &&
-                QuickSignature (other, {}) == QuickSignature (floor, {})) {
-                draft.quickPlans[TemplateFloor (plan, draft, other)] = copy;
-                break;
-            }
-    draft.quickPlans[floor.story] = std::move (copy);
-}
-void ResetQuick (const Plan& plan, Draft& draft, const Floor& floor)
-{
-    // Reset a unique floor rejoins its shared outline; reset a shared floor regenerates that template.
-    QuickPlan shared;
-    bool hasShared = false;
-    if (draft.uniqueFloors.contains (floor.story))
-        for (const auto& other : plan.floors)
-            if (!draft.uniqueFloors.contains (other.story) &&
-                QuickSignature (other, {}) == QuickSignature (floor, {})) {
-                shared = QuickFor (plan, draft, other);
-                hasShared = true;
-                break;
-            }
-    const bool unique = draft.uniqueFloors.erase (floor.story) != 0;
-    draft.quickPlans.erase (floor.story);
-    if (!unique)
-        draft.quickPlans.erase (TemplateFloor (plan, draft, floor));
-    else if (hasShared)
-        draft.quickPlans[TemplateFloor (plan, draft, floor)] = std::move (shared);
-    QuickFor (plan, draft, floor);
-}
-void PreviewLayers (const Plan& plan, Draft& draft, overlaylayers::Layer& stairs, overlaylayers::Layer& units,
-                    bool includeUnits)
-{
-    if (Conflict (plan, draft))
-        return;
-    const auto line = [] (overlaylayers::Layer& layer, const SliceChain& ring, double z, uint32_t rgba) {
-        overlaylayers::Polyline poly;
-        poly.closed = true;
-        poly.rgba = rgba;
-        poly.behind = overlaylayers::Behind::Show;
-        for (size_t i = 0; i < ring.Count (); ++i)
-            poly.points.insert (poly.points.end (), { ring.xy[i * 2], ring.xy[i * 2 + 1], z });
-        layer.polylines.push_back (std::move (poly));
-    };
-    for (const auto& floor : plan.floors) {
-        for (const auto& center : draft.points) {
-            SliceChain core;
-            core.closed = true;
-            for (const auto& p : Polygon ({ center.x - kStairWidth / 2, center.y - kStairDepth / 2,
-                                            center.x + kStairWidth / 2, center.y + kStairDepth / 2 }))
-                core.xy.insert (core.xy.end (), { p.x, p.y });
-            overlaylayers::Mesh box;
-            box.rgba = Fits (floor, center) ? 0x969696FFu : 0xE5484DFFu;
-            box.styled = true;
-            box.style.shading = overlaylayers::Shading::Lit;
-            box.style.behind = overlaylayers::Behind::Show;
-            for (double z : { floor.z, floor.z + (std::max) (0.0, floor.height) })
-                for (size_t i = 0; i < core.Count (); ++i)
-                    box.points.insert (box.points.end (), { core.xy[i * 2], core.xy[i * 2 + 1], z });
-            box.indices = { 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
-                            1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7 };
-            stairs.meshes.push_back (std::move (box));
-        }
-        if (!includeUnits)
-            continue;
-        const auto& quick = QuickFor (plan, draft, floor);
-        if (!quick.ready)
-            continue;
-        for (size_t i = 0; i < quick.units.size (); ++i) {
-            const uint32_t colour = UnitColour (quick.seeds[i].rooms);
-            for (const auto& ring : quick.units[i].rings)
-                line (units, ring, floor.z + 0.02, colour);
-        }
-        for (const auto& corridor : quick.corridors)
-            for (const auto& ring : corridor.rings)
-                line (units, ring, floor.z + 0.02, 0xD6C49AFFu);
-    }
 }
 } // namespace geomsrv::archviz::buildingplan

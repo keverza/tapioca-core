@@ -635,8 +635,11 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
         return true;
     }
     if (edit.action == Edit::Action::Clear) {
-        if (edit.domain.empty ())
+        if (edit.domain.empty ()) {
             meta::RemoveProperty (entity, edit.id);
+            if (edit.id == "massing.stairwellLocations")
+                meta::RemoveProperty (entity, "massing.stairwellShapes");
+        }
         else
             meta::ClearRange (entity, edit.domain, edit.from, edit.to, edit.id);
         return true;
@@ -684,10 +687,31 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
             error = "Stairwell locations need 1..32 finite XY pairs in project metres.";
             return false;
         }
+        if (!edit.shapes.empty () && (edit.shapes.size () != edit.numbers.size () ||
+                                      std::any_of (edit.shapes.begin (), edit.shapes.end (), [] (double value) {
+                                          return !std::isfinite (value) || value < 2.0 || value > 12.0;
+                                      }))) {
+            error = "Stairwell sizes need one 2-12 m width/depth pair per location.";
+            return false;
+        }
         property.value.type = meta::ValueType::List;
         property.value.elementType = meta::ValueType::Length;
         for (double value : edit.numbers)
             property.value.list.push_back (meta::Value::Number (value, meta::ValueType::Length));
+        // Sizes travel with the locations; a write without them restores the 4.5 x 4.2 m default.
+        if (edit.shapes.empty ())
+            meta::RemoveProperty (entity, "massing.stairwellShapes");
+        else {
+            meta::Property shapes;
+            shapes.key = "massing.stairwellShapes";
+            shapes.value.type = meta::ValueType::List;
+            shapes.value.elementType = meta::ValueType::Length;
+            for (double value : edit.shapes)
+                shapes.value.list.push_back (meta::Value::Number (value, meta::ValueType::Length));
+            shapes.state = meta::State::Authored;
+            shapes.provenance = provenance;
+            meta::SetProperty (entity, std::move (shapes));
+        }
     }
     else if (type == meta::ValueType::Bool)
         property.value = meta::Value::Boolean (edit.on);

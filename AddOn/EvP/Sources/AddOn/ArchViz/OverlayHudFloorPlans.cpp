@@ -11,11 +11,12 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         auto& draft = state.buildingPlans[key];
         Sync (plan, draft);
+        UseProgramme (draft, state.massingProgramme);
         signature << key << ':' << Conflict (plan, draft);
         if (Conflict (plan, draft))
             continue;
         for (const auto& floor : plan.floors) {
-            signature << ':' << floor.z << ':' << floor.height << QuickSignature (floor, draft.points);
+            signature << ':' << floor.z << ':' << floor.height << QuickSignature (floor, draft.cores, &draft.programme);
             if (state.previewUnits) {
                 const auto& quick = QuickFor (plan, draft, floor);
                 signature << ':' << quick.revision << ':' << quick.signature << ':'

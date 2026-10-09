@@ -66,6 +66,7 @@
 #include "ArchViz/HudMassing.hpp"
 #include "ArchViz/MassingBake.hpp"
 #include "ArchViz/HudMassingRules.hpp"
+#include "ArchViz/HudFloorProgramme.hpp"
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -311,6 +312,10 @@ std::vector<massingrules::Edit> TakeMassingRuleEdits (State& state);
 std::vector<massingcalculation::Request> TakeMassingCalculations (State& state);
 std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state);
 bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit, double number);
+// Define Programme's typed rows, asked by the owner in a native prompt and answered here.
+std::vector<hudprogramme::TextEdit> TakeProgrammeTexts (State& state);
+bool AnswerProgrammeText (State& state, const hudprogramme::TextEdit& edit, const std::string& answer,
+                          std::string& error);
 std::string MassingStatsFunction (const State& state);
 bool MassingCollapseZone (const State& state);
 bool UniqueBuildings (const State& state);

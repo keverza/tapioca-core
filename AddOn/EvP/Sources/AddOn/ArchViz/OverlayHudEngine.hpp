@@ -13,6 +13,7 @@
 #include "ArchViz/HudDebugCounters.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/HudMassingRules.hpp"
+#include "ArchViz/HudFloorProgramme.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: which draw list is whose
@@ -102,6 +103,10 @@ struct State {
     bool previewStairs = false, previewUnits = false;
     std::string floorPlanPublished;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
+    // The flat programme the plan view fills and scores against; HUD-session state like the
+    // coefficients. Typed rows wait for the owner's native prompt.
+    floorprogramme::Programme massingProgramme = floorprogramme::Default ();
+    std::vector<hudprogramme::TextEdit> massingProgrammeTexts;
     std::vector<massingareas::NumberEdit> massingCoefficientNumbers;
     std::vector<massingrules::Edit> massingRuleEdits;
     std::vector<massingcalculation::Request> massingCalculations;
