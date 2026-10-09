@@ -5,6 +5,10 @@
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <limits>
+#include <chrono>
+#include <clipper2/clipper.h>
+#include "imgui.h"
+#include "imgui_internal.h"
 
 namespace bp = geomsrv::archviz::buildingplan;
 namespace ms = geomsrv::archviz::massingslices;
@@ -113,8 +117,8 @@ TEST (HudBuildingPlan, PlacementIsLocalSupportsSeveralStairsAndRefusesOutsideHol
     draft.selected = 0;
     draft.placing = true;
     EXPECT_TRUE (bp::Place (floor, draft, { 4, 26 }));
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 4, 26 }));
-    EXPECT_EQ (draft.cores[1].center, (bp::Point { 26, 26 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 2.25, 26 }));
+    EXPECT_EQ (draft.cores[1].center, (bp::Point { 27.75, 26 }));
     bp::Reset (plan, draft);
     EXPECT_FALSE (bp::Dirty (draft));
     EXPECT_TRUE (draft.cores.empty ());
@@ -130,7 +134,9 @@ TEST (HudBuildingPlan, SavedLocationsRoundTripAsOneListAndTargetEveryExactBuildi
     const auto preview = Preview (result);
     bp::Draft draft;
     bp::Reset (preview.plan, draft);
-    draft.cores = { { { 1, 1 } }, { { 9, 9 }, 9.0, 2.5 } };
+    draft.cores = { { { 5, 4 } } };
+    EXPECT_TRUE (bp::Edits (preview.plan, draft).empty ()) << "Save refuses a core in the forbidden facade gap";
+    draft.cores = { { { 2.25, 2.1 } }, { { 5, 8.75 }, 9.0, 2.5 } };
     auto edits = bp::Edits (preview.plan, draft);
     ASSERT_EQ (edits.size (), 2u);
     const auto schema = meta::DefaultSchema ();
@@ -367,7 +373,7 @@ TEST (HudBuildingPlan, RectangleSnapsToUnionEdgesAndCornersWithinHalfAMetreNotIn
     EXPECT_NEAR (corner.x, 2.25, 1e-6);
     EXPECT_NEAR (corner.y, bp::kStairDepth / 2, 1e-6);
     EXPECT_TRUE (bp::Fits (floor, { corner }));
-    EXPECT_EQ (bp::Snap (floor, { 3, 8 }), (bp::Point { 3, 8 }));
+    EXPECT_EQ (bp::Snap (floor, { 3, 8 }), (bp::Point { 2.25, 8 }));
     floor.contours.push_back ({ Ring (10, 0, 20, 20) });
     EXPECT_EQ (bp::Snap (floor, { 12.4, 8 }), (bp::Point { 12.4, 8 }));
     // A slanted boundary still snaps by translation; project-axis dimensions stay fixed.
@@ -457,7 +463,7 @@ TEST (HudBuildingPlan, NativePlanUsesRectangleHitAreaAndHeldMouseMovementUntilRe
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     gui.Lay ({}, hudtest::At (600, 600));
     auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    draft.cores = { { { 5, 5 } } };
+    draft.cores = { { { 5, 2.1 } } };
     draft.selected = 0;
     draft.moving = true;
     const auto drawn = gui.Lay ({}, hudtest::At (600, 600));
@@ -468,7 +474,7 @@ TEST (HudBuildingPlan, NativePlanUsesRectangleHitAreaAndHeldMouseMovementUntilRe
     gui.Lay ({}, hudtest::At (x, y));
     gui.Lay ({}, hudtest::At (x, y, { { 0, true } }));
     ASSERT_TRUE (draft.dragging);
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 5 }));
+    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 2.1 }));
     hudtest::Fresh other;
     other.engine.UseState (gui.state);
     other.engine.SetOwnPages (pages);
@@ -496,7 +502,7 @@ TEST (HudBuildingPlan, ApartmentCentreUsesRealHeldPointerDragAndDoesNotWriteMeta
     pages.selection.known = true;
     pages.selection.count = 1;
     pages.buildings = { Preview (result) };
-    pages.buildings.front ().plan.saved = { { 6, 3 } };
+    pages.buildings.front ().plan.saved = { { 6, 2.1 } };
     gui.engine.SetOwnPages (pages);
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     const auto layout = gui.Lay ({}, hudtest::At (600, 600));
@@ -561,7 +567,7 @@ TEST (HudBuildingPlan, ExportPlanButtonQueuesOneFileForTheOwnerAndWritesNoMetada
     pages.selection.known = true;
     pages.selection.count = 1;
     pages.buildings = { Preview (result) };
-    pages.buildings.front ().plan.saved = { { { 6, 3 } } };
+    pages.buildings.front ().plan.saved = { { { 6, 2.1 } } };
     gui.engine.SetOwnPages (pages);
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     gui.Lay ({}, hudtest::At (600, 600));
@@ -575,4 +581,140 @@ TEST (HudBuildingPlan, ExportPlanButtonQueuesOneFileForTheOwnerAndWritesNoMetada
     EXPECT_FALSE (draft.exportRequested);
     EXPECT_TRUE (hud::TakePlanExports (*gui.state).empty ());
     EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
+}
+
+TEST (HudBuildingPlan, CoresSnapAcrossForbiddenFacadeGapButInteriorAndCourtyardClearancesStayValid)
+{
+    bp::Floor floor;
+    floor.contours = { { Ring (0, 0, 30, 30), Ring (12, 12, 6, 6) } };
+    EXPECT_FALSE (bp::CoreAllowed (floor, { { 8, 4 } }));
+    const bp::Core flush { bp::Snap (floor, { { 8, 4 } }) };
+    EXPECT_NEAR (flush.center.y, 2.1, 1e-6);
+    EXPECT_TRUE (bp::CoreAllowed (floor, flush));
+    EXPECT_TRUE (bp::CoreAllowed (floor, { { 7, 5.1 } })); // Exactly 3 m from the bottom.
+    EXPECT_FALSE (bp::CoreAllowed (floor, { { 9, 14 } })) << "Too close to the courtyard wall";
+    bp::Draft draft;
+    draft.known = draft.placing = true;
+    ASSERT_TRUE (bp::Place (floor, draft, { 8, 4 }));
+    EXPECT_TRUE (bp::CoreAllowed (floor, draft.cores[0]));
+}
+
+TEST (HudBuildingPlan, FastFootprintChecksMatchBooleanContainmentForHolesConcavityRotationAndGeoreference)
+{
+    namespace cp = Clipper2Lib;
+    bp::Floor floor;
+    floor.outlineKnown = true;
+    // Unioned winding, including a hole and an inward notch.
+    floor.outline = { Ring (0, 0, 30, 30), Ring (12, 12, 6, 6) };
+    floor.outline[0].xy = { 0, 0, 30, 0, 30, 30, 20, 30, 20, 24, 0, 24 };
+    cp::PathsD source;
+    for (const auto& ring : floor.outline) {
+        cp::PathD path;
+        for (size_t i = 0; i < ring.Count (); ++i)
+            path.emplace_back (ring.xy[i * 2], ring.xy[i * 2 + 1]);
+        source.push_back (path);
+    }
+    source = cp::Union (source, cp::FillRule::EvenOdd, 6);
+    floor.outline.clear ();
+    for (const auto& path : source) {
+        geomsrv::archviz::SliceChain ring;
+        ring.closed = true;
+        for (const auto& p : path)
+            ring.xy.insert (ring.xy.end (), { p.x, p.y });
+        floor.outline.push_back (ring);
+    }
+    for (double angle : { 0.0, 0.37 })
+        for (int x = 0; x <= 30; ++x)
+            for (int y = 0; y <= 30; ++y) {
+                const bp::Core core { { x + 0.07, y + 0.13 } };
+                cp::PathD rectangle;
+                for (const auto& p : bp::Corners (core, angle))
+                    rectangle.emplace_back (p.x, p.y);
+                const bool expected =
+                    std::abs (cp::Area (cp::Difference ({ rectangle }, source, cp::FillRule::NonZero, 6))) < 1e-4;
+                EXPECT_EQ (bp::Fits (floor, core, angle), expected) << x << "," << y << " @ " << angle;
+            }
+    for (auto& ring : floor.outline)
+        for (size_t i = 0; i < ring.Count (); ++i) {
+            ring.xy[i * 2] += 700000;
+            ring.xy[i * 2 + 1] += 6000000;
+        }
+    EXPECT_TRUE (bp::Fits (floor, { { 700007, 6000007 } }, 0.37));
+    EXPECT_FALSE (bp::Fits (floor, { { 700015, 6000015 } }, 0.37));
+}
+
+TEST (HudBuildingPlan, NarrowPlanControlsFitAndBodyDraggingAndPlacementHoverDoNotRegenerateThePlan)
+{
+    // Exercise Draw directly so the narrow content bounds and un-clipped control extents
+    // can be asserted, rather than mistaking clipped-off buttons for a fitting layout.
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 1000, 2000 };
+    io.DeltaTime = 1.0f / 60;
+    ASSERT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    bp::Plan plan;
+    plan.key = "building:Narrow";
+    bp::Floor floor;
+    floor.contours = { { Ring (0, 0, 36, 16) } };
+    floor.outlineKnown = true;
+    floor.outline = floor.contours.front ();
+    floor.outlineKey = bp::QuickSignature (floor, {});
+    plan.floors = { floor };
+    plan.saved = { { { 18, 2.1 } } };
+    bp::Draft draft;
+    bp::Reset (plan, draft);
+    const auto frame = [&] (ImVec2 mouse, bool down) {
+        io.MousePos = mouse;
+        io.MouseDown[0] = down;
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 240, 1800 });
+        ImGui::Begin ("Plan controls", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+        bp::Draw (plan, draft, 1, {});
+        EXPECT_LE (ImGui::GetCurrentWindow ()->DC.CursorMaxPos.x, 240 - ImGui::GetStyle ().WindowPadding.x + 1);
+        ImVec4 bounds { 1e6f, 1e6f, -1e6f, -1e6f };
+        for (const auto& vertex : ImGui::GetWindowDrawList ()->VtxBuffer)
+            if (vertex.col == IM_COL32 (74, 144, 217, 255)) {
+                bounds.x = (std::min) (bounds.x, vertex.pos.x);
+                bounds.y = (std::min) (bounds.y, vertex.pos.y);
+                bounds.z = (std::max) (bounds.z, vertex.pos.x);
+                bounds.w = (std::max) (bounds.w, vertex.pos.y);
+            }
+        ImGui::End ();
+        ImGui::Render ();
+        return bounds;
+    };
+    const auto bounds = frame ({ 900, 900 }, false);
+    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
+    ASSERT_TRUE (quick.ready) << quick.note;
+    const size_t at = 0;
+    auto p = quick.units[at].center;
+    p.x += 0.6; // Inside the polygon, deliberately away from the removed centre handle.
+    const float factor = (bounds.z - bounds.x) / 36;
+    const ImVec2 mouse { bounds.x + float (p.x) * factor, bounds.w - float (p.y) * factor };
+    frame (mouse, false);
+    frame (mouse, true);
+    EXPECT_TRUE (quick.dragging);
+    EXPECT_EQ (quick.selected, int (at));
+    frame (mouse, false);
+    draft.placing = true;
+    const auto revision = quick.revision;
+    const auto start = std::chrono::steady_clock::now ();
+    for (int n = 0; n < 100; ++n)
+        frame ({ bounds.x + (n % 30 + 2) * factor, (bounds.y + bounds.w) / 2 }, false);
+    const double ms = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - start).count ();
+    RecordProperty ("meanPlacementHoverMs", ms / 100);
+    EXPECT_EQ (quick.revision, revision);
+    EXPECT_EQ (draft.cores, plan.saved);
+    EXPECT_LT (ms, 3000) << "Guard against Boolean geometry / generation on every hover";
 }

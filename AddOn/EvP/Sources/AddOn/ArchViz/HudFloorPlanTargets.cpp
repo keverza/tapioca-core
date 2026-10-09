@@ -1,6 +1,7 @@
 #include "ArchViz/HudFloorPlanFrame.hpp"
 #include <algorithm>
 #include <limits>
+#include <random>
 
 namespace geomsrv::archviz::buildingplan {
 namespace {
@@ -112,6 +113,10 @@ bool ChangeUnitTarget (const Plan& plan, Draft& draft, const Floor& floor, size_
         return true;
     const auto requested = quick;
     quick = before;
+    if (!draft.moveCores) {
+        quick.solveNote = "Target cannot fit with current locks. Core movement is disabled. No changes applied.";
+        return false;
+    }
     // A bounded local core search runs only on infeasible room edits, never per animation frame.
     // Publish all floors and core points together, or retain the complete previous draft.
     constexpr double steps[] = { 0.6, 1.2, 2.4 };
@@ -132,8 +137,9 @@ bool ChangeUnitTarget (const Plan& plan, Draft& draft, const Floor& floor, size_
                 auto cores = draft.cores;
                 cores[core].center.x += step * direction.x;
                 cores[core].center.y += step * direction.y;
+                cores[core].center = Snap (floor, cores[core], plan.angle);
                 if (std::any_of (plan.floors.begin (), plan.floors.end (),
-                                 [&] (const Floor& f) { return !Fits (f, cores[core], plan.angle); }))
+                                 [&] (const Floor& f) { return !CoreAllowed (f, cores[core], plan.angle); }))
                     continue;
                 auto next = GenerateQuick (floor, cores, draft.programme, plan.angle);
                 if (!TransferUnits (requested, next, int (seed)))
@@ -190,12 +196,76 @@ bool Regenerate (const Plan& plan, Draft& draft, const Floor& floor)
         return false;
     }
     OptimiseUnits (fresh, 800);
+    const uint64_t alternative = quick.alternative + 1;
+    std::minstd_rand random (uint32_t (alternative * 7919 + 17));
+    const auto same = [&] (const std::vector<UnitSeed>& candidate) {
+        if (candidate.size () != quick.seeds.size ())
+            return false;
+        for (const auto& seed : candidate)
+            if (std::none_of (quick.seeds.begin (), quick.seeds.end (), [&] (const UnitSeed& old) {
+                    return old.segment == seed.segment && std::abs (old.lo - seed.lo) < 1e-5 &&
+                           std::abs (old.hi - seed.hi) < 1e-5;
+                }))
+                return false;
+        return true;
+    };
+    std::vector<UnitSeed> chosen;
+    double best = (std::numeric_limits<double>::max) ();
+    if (!same (fresh.seeds)) {
+        chosen = fresh.seeds;
+        best = fresh.score;
+    }
+    // Alternatives vary actual allocations, not IDs. No optimisation pass after selection
+    // that would collapse every click back to the same deterministic local minimum.
+    for (size_t attempt = 0; attempt < 48 && !fresh.seeds.empty (); ++attempt) {
+        auto candidate = fresh.seeds;
+        const size_t at = random () % candidate.size ();
+        if (candidate[at].locked)
+            continue;
+        const bool dragging = attempt % 3 == 2;
+        if (dragging)
+            candidate[at].along += (int (random () % 7) - 3) * frame::kModule;
+        else if (attempt % 3 == 0) {
+            const size_t type = random () % fresh.programme.types.size ();
+            if (fresh.programme.types[type].share <= 0)
+                continue;
+            candidate[at].type = type;
+            candidate[at].target = floorprogramme::Target (fresh.programme.types[type]);
+        }
+        else {
+            const size_t other = random () % candidate.size ();
+            if (candidate[other].locked)
+                continue;
+            std::swap (candidate[at].type, candidate[other].type);
+            std::swap (candidate[at].target, candidate[other].target);
+        }
+        std::string note;
+        if (!SolveCuts (fresh, candidate, note, -1, false, dragging) || same (candidate))
+            continue;
+        const bool keeps = std::all_of (candidate.begin (), candidate.end (), [&] (const UnitSeed& seed) {
+            return !seed.locked || (Traits (fresh, seed).traits & seed.keep) == seed.keep;
+        });
+        const double score = Score (fresh, candidate);
+        if (keeps && score < best) {
+            best = score;
+            chosen = std::move (candidate);
+        }
+    }
+    if (chosen.empty ()) {
+        quick.alternative = alternative;
+        quick.solveNote = "No different feasible allocation with current cores and locks. No changes applied.";
+        return false;
+    }
+    fresh.seeds = std::move (chosen);
+    RebuildUnits (fresh);
+    fresh.alternative = alternative;
     const size_t kept = size_t (
         std::count_if (fresh.seeds.begin (), fresh.seeds.end (), [] (const UnitSeed& seed) { return seed.locked; }));
     fresh.stage = quick.stage;
     fresh.newType = (std::min) (quick.newType, fresh.programme.types.size () - 1);
     fresh.revision = quick.revision + 1;
-    fresh.solveNote = "Regenerated from the programme around " + std::to_string (kept) + " locked flat(s).";
+    fresh.solveNote =
+        "Alternative " + std::to_string (alternative) + " around " + std::to_string (kept) + " locked flat(s).";
     quick = std::move (fresh);
     return true;
 }
@@ -241,7 +311,7 @@ bool Optimise (const Plan& plan, Draft& draft, const Floor& floor)
                     cores[c].center = { cores[c].center.x + step.x, cores[c].center.y + step.y };
                     cores[c].center = Snap (floor, cores[c], plan.angle);
                     if (std::any_of (plan.floors.begin (), plan.floors.end (),
-                                     [&] (const Floor& f) { return !Fits (f, cores[c], plan.angle); }))
+                                     [&] (const Floor& f) { return !CoreAllowed (f, cores[c], plan.angle); }))
                         continue;
                     std::map<int, QuickPlan> candidate;
                     double total = 0;

@@ -1,5 +1,6 @@
 #include "ArchViz/HudBuildingPlan.hpp"
 #include "ArchViz/MassingSlices.hpp"
+#include "ArchViz/HudFloorPlanFrame.hpp"
 #include <algorithm>
 #include <cmath>
 #include <clipper2/clipper.h>
@@ -42,12 +43,58 @@ bool Sized (const Core& core)
 // The core at `delta` from the outline's origin, which is the core's own centre.
 bool FitsOutline (const cp::PathsD& outline, const Core& core, double angle, Point delta)
 {
-    cp::PathD rectangle;
-    for (const auto& corner : Corners ({ { delta.x, delta.y }, core.width, core.depth }, angle))
-        rectangle.emplace_back (corner.x, corner.y);
-    // Sub-millimetre slivers are snapping round-off (about 1e-7 m), not a core outside the floor.
-    return !outline.empty () &&
-           std::abs (cp::Area (cp::Difference ({ rectangle }, outline, cp::FillRule::NonZero, 6))) < 1e-4;
+    if (outline.empty ())
+        return false;
+    for (const auto& corner : Corners ({ delta, core.width - 4e-6, core.depth - 4e-6 }, angle))
+        if (!frame::Inside (outline, corner))
+            return false;
+    const double c = std::cos (angle), s = std::sin (angle);
+    const auto local = [&] (cp::PointD p) {
+        return Point { (p.x - delta.x) * c + (p.y - delta.y) * s, -(p.x - delta.x) * s + (p.y - delta.y) * c };
+    };
+    // Any counted boundary passing through the rectangle's strict interior means a hole
+    // or concavity is covered. Segment clipping is linear in vertices; no Boolean op on hover.
+    const double w = core.width / 2 - 2e-6, d = core.depth / 2 - 2e-6;
+    for (const auto& path : outline)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const auto a = local (path[i]), b = local (path[(i + 1) % path.size ()]);
+            double lo = 0, hi = 1;
+            const auto clip = [&] (double at, double slope, double extent) {
+                if (std::abs (slope) < 1e-12)
+                    return std::abs (at) < extent;
+                double t0 = (-extent - at) / slope, t1 = (extent - at) / slope;
+                if (t0 > t1)
+                    std::swap (t0, t1);
+                lo = (std::max) (lo, t0);
+                hi = (std::min) (hi, t1);
+                return hi > lo;
+            };
+            if (clip (a.x, b.x - a.x, w) && clip (a.y, b.y - a.y, d))
+                return false;
+        }
+    return true;
+}
+double Clearance (const cp::PathsD& outline, const Core& core, double angle)
+{
+    const auto corners = Corners ({ {}, core.width, core.depth }, angle);
+    const auto distance = [] (Point p, Point a, Point b) {
+        const double dx = b.x - a.x, dy = b.y - a.y;
+        const double t =
+            std::clamp (((p.x - a.x) * dx + (p.y - a.y) * dy) / (std::max) (dx * dx + dy * dy, 1e-20), 0.0, 1.0);
+        return std::hypot (p.x - a.x - t * dx, p.y - a.y - t * dy);
+    };
+    double gap = 1e300;
+    for (const auto& path : outline)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const Point a { path[i].x, path[i].y },
+                b { path[(i + 1) % path.size ()].x, path[(i + 1) % path.size ()].y };
+            for (size_t j = 0; j < corners.size (); ++j) {
+                const auto c = corners[j], d = corners[(j + 1) % corners.size ()];
+                gap = (std::min) ({ gap, distance (c, a, b), distance (d, a, b), distance (a, c, d),
+                                    distance (b, c, d) });
+            }
+        }
+    return gap;
 }
 // Half extents of the turned core along unit direction (x, y).
 double Support (const Core& core, double angle, double x, double y)
@@ -253,12 +300,23 @@ bool Fits (const Floor& floor, const Core& core, double angle)
     return Valid (core.center) && Sized (core) && std::isfinite (angle) &&
            FitsOutline (Outline (floor, core.center), core, angle, {});
 }
+bool CoreAllowed (const Floor& floor, const Core& core, double angle)
+{
+    if (!Valid (core.center) || !Sized (core) || !std::isfinite (angle))
+        return false;
+    const auto outline = Outline (floor, core.center);
+    if (!FitsOutline (outline, core, angle, {}))
+        return false;
+    const double gap = Clearance (outline, core, angle);
+    return gap <= 1e-4 || gap >= kCoreFacadeGap - 1e-6;
+}
 Point Snap (const Floor& floor, const Core& core, double angle)
 {
     const Point center = core.center;
     if (!Valid (center) || !Sized (core) || !std::isfinite (angle))
         return center;
     const auto outline = Outline (floor, center);
+    const double snapDistance = FitsOutline (outline, core, angle, {}) ? kCoreFacadeGap : kSnapDistance;
     struct Candidate {
         double distance;
         Point delta, normal;
@@ -282,7 +340,7 @@ Point Snap (const Floor& floor, const Core& core, double angle)
             const double support = Support (core, angle, nx, ny);
             for (double sign : { -1.0, 1.0 }) {
                 const double shift = sign * support - distance;
-                if (std::abs (shift) > kSnapDistance)
+                if (std::abs (shift) > snapDistance)
                     continue;
                 candidates.push_back ({ std::abs (shift), { nx * shift, ny * shift }, { nx, ny }, shift });
                 std::stable_sort (candidates.begin (), candidates.end (),
@@ -304,7 +362,7 @@ Point Snap (const Floor& floor, const Core& core, double angle)
                 continue;
             const Point delta { (a.shift * b.normal.y - b.shift * a.normal.y) / det,
                                 (a.normal.x * b.shift - b.normal.x * a.shift) / det };
-            if (std::hypot (delta.x, delta.y) <= kSnapDistance && FitsOutline (outline, core, angle, delta))
+            if (std::hypot (delta.x, delta.y) <= snapDistance && FitsOutline (outline, core, angle, delta))
                 return { center.x + delta.x, center.y + delta.y };
         }
     return center;
@@ -362,6 +420,10 @@ std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
         std::any_of (draft.cores.begin (), draft.cores.end (),
                      [] (const Core& core) { return !Valid (core.center) || !Sized (core); }))
         return {};
+    for (const auto& floor : plan.floors)
+        for (const auto& core : draft.cores)
+            if (!CoreAllowed (floor, core, plan.angle))
+                return {};
     std::vector<hudmeta::Edit> edits;
     for (const auto& guid : plan.guids) {
         hudmeta::Edit edit;
@@ -391,7 +453,7 @@ bool Place (const Floor& floor, Draft& draft, Point point, double angle)
     Core core = moving ? draft.cores[size_t (draft.selected)] : draft.newCore;
     core.center = point;
     core.center = Snap (floor, core, angle);
-    if (!draft.placing || !Fits (floor, core, angle))
+    if (!draft.placing || !CoreAllowed (floor, core, angle))
         return false;
     for (size_t i = 0; i < draft.cores.size (); ++i)
         if (int (i) != draft.selected &&
@@ -432,7 +494,7 @@ bool Drag (const Floor& floor, Draft& draft, Point mouse, double angle)
     auto core = draft.cores[size_t (draft.selected)];
     core.center = { mouse.x + draft.dragOffset.x, mouse.y + draft.dragOffset.y };
     core.center = Snap (floor, core, angle);
-    if (!Fits (floor, core, angle))
+    if (!CoreAllowed (floor, core, angle))
         return false; // Retain the last valid position across holes/outside the canvas.
     for (size_t i = 0; i < draft.cores.size (); ++i)
         if (int (i) != draft.selected &&

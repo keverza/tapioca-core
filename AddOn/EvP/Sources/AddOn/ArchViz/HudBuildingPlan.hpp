@@ -20,6 +20,7 @@ constexpr size_t kMaxStairs = 32;
 // Stair assembly: 4.5 m along the corridor, 4.2 m from its facade (three flights around the lift).
 constexpr double kStairWidth = 4.5, kStairDepth = 4.2, kSnapDistance = 0.5;
 constexpr double kMinCore = 2.0, kMaxCore = 12.0;
+constexpr double kCoreFacadeGap = 3.0, kMinUnitArea = 25.0, kMinUnitDepth = 3.3;
 constexpr char kStairsLayer[] = "tapioca.massing.proposedStairs";
 constexpr char kUnitsLayer[] = "tapioca.massing.proposedUnits";
 struct Point {
@@ -89,11 +90,13 @@ struct QuickPlan {
     std::vector<Core> cores;
     Egress egress;
     double score = 0;
+    uint64_t alternative = 0;
     uint32_t nextId = 1;
     int stage = 6, selected = -1;
     bool adding = false, dragging = false;
     uintptr_t owner = 0;
     double dragOriginal = 0;
+    double dragRequestedAlong = std::numeric_limits<double>::quiet_NaN ();
     Point dragOffset;
     std::vector<UnitSeed> dragSeeds;
     std::vector<PlanRegion> dragUnits;
@@ -161,6 +164,8 @@ bool Contains (const Floor& floor, Point point);
 // World corners of a core turned to the building frame.
 std::vector<Point> Corners (const Core& core, double angle = 0);
 bool Fits (const Floor& floor, const Core& core, double angle = 0);
+// Project layout rule, separate from footprint containment: flush to a wall or >= 3 m clear.
+bool CoreAllowed (const Floor& floor, const Core& core, double angle = 0);
 Point Snap (const Floor& floor, const Core& core, double angle = 0);
 std::string QuickSignature (const Floor& floor, const std::vector<Core>& stairs,
                             const floorprogramme::Programme* programme = nullptr);
@@ -176,8 +181,10 @@ double TargetArea (const QuickPlan& plan, const UnitSeed& seed); // net m2
 double Rooms (const QuickPlan& plan, const UnitSeed& seed);
 std::string TypeName (const QuickPlan& plan, const UnitSeed& seed);
 uint32_t UnitColour (double rooms);
+uint32_t AreaColour (double netArea);
 double UnitArea (const PlanRegion& unit); // gross polygon area
 UnitTraits Traits (const QuickPlan& plan, const UnitSeed& seed);
+int UnitAt (const QuickPlan& plan, Point point);
 bool SetUnitType (QuickPlan& plan, size_t seed, size_t type);
 // Locking keeps the flat's type and net area and, by default, the traits it has now.
 bool SetUnitLocked (QuickPlan& plan, size_t seed, bool locked);

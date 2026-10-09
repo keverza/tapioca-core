@@ -110,7 +110,7 @@ void PreviewLayers (const Plan& plan, Draft& draft, overlaylayers::Layer& stairs
         for (const auto& core : draft.cores) {
             const auto corners = Corners (core, plan.angle);
             overlaylayers::Mesh box;
-            box.rgba = Fits (floor, core, plan.angle) ? 0x969696FFu : 0xE5484DFFu;
+            box.rgba = CoreAllowed (floor, core, plan.angle) ? 0x969696FFu : 0xE5484DFFu;
             box.styled = true;
             box.style.shading = overlaylayers::Shading::Lit;
             box.style.behind = overlaylayers::Behind::Show;
@@ -127,7 +127,7 @@ void PreviewLayers (const Plan& plan, Draft& draft, overlaylayers::Layer& stairs
         if (!quick.ready)
             continue;
         for (size_t i = 0; i < quick.units.size (); ++i) {
-            const uint32_t colour = UnitColour (Rooms (quick, quick.seeds[i]));
+            const uint32_t colour = AreaColour (Traits (quick, quick.seeds[i]).net);
             for (const auto& ring : quick.units[i].rings)
                 line (units, ring, floor.z + 0.02, colour);
         }

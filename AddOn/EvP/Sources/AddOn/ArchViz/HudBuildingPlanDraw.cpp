@@ -7,6 +7,16 @@
 
 namespace geomsrv::archviz::buildingplan {
 namespace {
+void NextControl (float width)
+{
+    const float right = ImGui::GetCursorScreenPos ().x + ImGui::GetContentRegionAvail ().x;
+    if (ImGui::GetItemRectMax ().x + ImGui::GetStyle ().ItemSpacing.x + width <= right)
+        ImGui::SameLine ();
+}
+void NextButton (const char* label)
+{
+    NextControl (ImGui::CalcTextSize (label).x + 2 * ImGui::GetStyle ().FramePadding.x);
+}
 std::string Metres (double value)
 {
     char text[32];
@@ -23,24 +33,24 @@ void CoreSize (const Floor& floor, const Plan& plan, Draft& draft, float scale)
     ImGui::TextUnformatted (chosen ? "Core" : "New core");
     const double low = kMinCore, high = kMaxCore;
     for (auto* value : { &core.width, &core.depth }) {
-        ImGui::SameLine ();
+        NextControl (60 * scale);
         ImGui::PushID (value);
         ImGui::SetNextItemWidth (60 * scale);
         ImGui::DragScalar ("##size", ImGuiDataType_Double, value, 0.05f, &low, &high, "%.2f m",
                            ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp);
         ImGui::PopID ();
     }
-    ImGui::SameLine ();
+    NextButton ("Rotate");
     if (ImGui::SmallButton ("Rotate"))
         std::swap (core.width, core.depth);
     if (ImGui::IsItemHovered ())
         ImGui::SetTooltip ("Swap width and depth: turn the core a quarter in the building frame.");
-    ImGui::SameLine ();
+    NextButton ("4.5x4.2");
     if (ImGui::SmallButton ("4.5x4.2"))
         core = { core.center, kStairWidth, kStairDepth };
     if (ImGui::IsItemHovered ())
         ImGui::SetTooltip ("Stair around a lift: 4.5 m along the corridor, 4.2 m deep.");
-    ImGui::SameLine ();
+    NextButton ("9.0x2.5");
     if (ImGui::SmallButton ("9.0x2.5"))
         core = { core.center, 9.0, 2.5 };
     if (ImGui::IsItemHovered ())
@@ -50,7 +60,8 @@ void CoreSize (const Floor& floor, const Plan& plan, Draft& draft, float scale)
     if (chosen && core != before) {
         Cancel (draft);
         draft.changed = true;
-        if (!Fits (floor, core, plan.angle))
+        core.center = Snap (floor, core, plan.angle);
+        if (!CoreAllowed (floor, core, plan.angle))
             ImGui::TextDisabled ("The resized core does not fit this floor; move it or change the size.");
     }
 }
@@ -99,8 +110,8 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         Cancel (draft);
     ImGui::Text ("Floor %d | Z %.2f m | gross %.2f m2", floor->story, floor->z,
                  floor->areaM2 * coefficients.grossFactor);
-    ImGui::TextDisabled ("Cores turn with the building frame (%.1f deg) | Snap within 0.5 m",
-                         std::remainder (plan.angle * 180 / 3.14159265358979323846, 180.0));
+    ImGui::TextWrapped ("Building frame %.1f deg | Core: wall-flush or at least 3 m from facade",
+                        std::remainder (plan.angle * 180 / 3.14159265358979323846, 180.0));
 
     const bool active = draft.placing || draft.moving;
     ImGui::BeginDisabled (!active && (conflict || draft.cores.size () >= kMaxStairs));
@@ -109,7 +120,9 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         ImGui::PushStyleColor (ImGuiCol_ButtonHovered, ImVec4 (0.95f, 0.46f, 0.10f, 1));
         ImGui::PushStyleColor (ImGuiCol_ButtonActive, ImVec4 (0.65f, 0.27f, 0.05f, 1));
     }
-    const float buttonWidth = ImGui::CalcTextSize ("Cancel placement").x + 2 * ImGui::GetStyle ().FramePadding.x;
+    const float buttonWidth =
+        (std::min) (ImGui::GetContentRegionAvail ().x,
+                    ImGui::CalcTextSize ("Cancel placement").x + 2 * ImGui::GetStyle ().FramePadding.x);
     ImGui::PushID ("stairPlacement");
     if (ImGui::Button (active ? "Cancel placement" : "Add stairwell", { buttonWidth, 0 })) {
         if (active)
@@ -124,7 +137,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         ImGui::PopStyleColor (3);
     ImGui::EndDisabled ();
     if (draft.selected >= 0 && size_t (draft.selected) < draft.cores.size ()) {
-        ImGui::SameLine ();
+        NextButton ("Move");
         ImGui::BeginDisabled (conflict);
         if (ImGui::Button ("Move")) {
             Cancel (draft);
@@ -132,7 +145,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         }
         if (ImGui::IsItemHovered ())
             ImGui::SetTooltip ("Press and drag the selected rectangle. Escape or Cancel restores an unfinished drag.");
-        ImGui::SameLine ();
+        NextButton ("Remove");
         if (ImGui::Button ("Remove")) {
             Cancel (draft);
             draft.cores.erase (draft.cores.begin () + draft.selected);
@@ -146,17 +159,17 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
     CoreSize (*floor, plan, draft, scale);
     ImGui::EndDisabled ();
     auto& quick = QuickFor (plan, draft, *floor);
-    ImGui::SetNextItemWidth (150 * scale);
+    ImGui::SetNextItemWidth ((std::min) (150 * scale, ImGui::GetContentRegionAvail ().x));
     if (ImGui::Combo ("##quickStage", &quick.stage,
                       "S0 Input\0S1 Local frame\0S2 Bars\0S3 Circulation\0S4 Bands\0S5 Segments\0Quick apartments\0"))
         CancelUnits (quick);
-    ImGui::SameLine ();
+    NextButton ("Reset plan");
     if (ImGui::SmallButton ("Reset plan")) {
         CancelUnits (quick);
         ResetQuick (plan, draft, *floor);
     }
     if (!draft.uniqueFloors.contains (floor->story)) {
-        ImGui::SameLine ();
+        NextButton ("Make unique");
         if (ImGui::SmallButton ("Make unique")) {
             CancelUnits (quick);
             MakeUnique (plan, draft, *floor);
@@ -169,16 +182,17 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         if (ImGui::SmallButton ("Regenerate"))
             Regenerate (plan, draft, *floor);
         if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("Fresh programme fill around the locked flats, then Optimise without moving cores.");
-        ImGui::SameLine ();
+            ImGui::SetTooltip ("Create a different feasible allocation around locked flats. Cores stay in place.");
+        NextButton ("Optimise");
         if (ImGui::SmallButton ("Optimise"))
             Optimise (plan, draft, *floor);
         if (ImGui::IsItemHovered ())
             ImGui::SetTooltip ("Retype, add, remove or reorder unlocked flats for the programme ranges and mix, larger "
                                "flats on corners, entrances and egress. Locked flats keep type, size and traits.");
-        ImGui::SameLine ();
+        NextControl (ImGui::CalcTextSize ("may move cores").x + ImGui::GetFrameHeight () +
+                     ImGui::GetStyle ().ItemInnerSpacing.x);
         ImGui::Checkbox ("may move cores", &draft.moveCores);
-        ImGui::SameLine ();
+        NextButton ("Export plan");
         if (ImGui::SmallButton ("Export plan"))
             draft.exportRequested = true;
         if (ImGui::IsItemHovered ())
@@ -191,12 +205,12 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         ImGui::BeginDisabled (conflict || draft.placing || draft.moving || units.dragging);
         if (ImGui::SmallButton (units.adding ? "Cancel unit" : "Add unit"))
             units.adding = !units.adding;
-        ImGui::SameLine ();
+        NextButton ("Delete unit");
         ImGui::BeginDisabled (units.selected < 0);
         if (ImGui::SmallButton ("Delete unit"))
             RemoveUnit (units, size_t (units.selected));
         ImGui::EndDisabled ();
-        ImGui::SameLine ();
+        NextControl (110 * scale);
         size_t type = units.selected >= 0 ? units.seeds[size_t (units.selected)].type : units.newType;
         const size_t was = type;
         TypeCombo (units, type, scale);
@@ -281,7 +295,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             for (const auto& corridor : shown.corridors)
                 fill (corridor, IM_COL32 (214, 196, 154, 255));
             for (size_t i = 0; i < shown.units.size (); ++i)
-                fill (shown.units[i], hudshell::Packed (UnitColour (Rooms (shown, shown.seeds[i]))));
+                fill (shown.units[i], hudshell::Packed (AreaColour (Traits (shown, shown.seeds[i]).net)));
             for (const auto& lost : shown.unassigned)
                 fill (lost, IM_COL32 (229, 72, 77, 140));
         }
@@ -327,16 +341,8 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             }
         }
         int nearUnit = -1;
-        float unitDistance = 10 * scale;
-        if (shown.stage == 6 && shown.ready)
-            for (size_t i = 0; i < shown.seeds.size (); ++i) {
-                const auto center = project (UnitCenter (shown, shown.seeds[i]));
-                const float distance = std::hypot (center.x - mouse.x, center.y - mouse.y);
-                if (distance < unitDistance) {
-                    unitDistance = distance;
-                    nearUnit = int (i);
-                }
-            }
+        if (hovered && shown.stage == 6 && shown.ready && near < 0)
+            nearUnit = UnitAt (shown, worldMouse);
         auto& design = shown;
         if (hovered && !conflict && ImGui::IsMouseClicked (ImGuiMouseButton_Left)) {
             if (draft.placing)
@@ -349,6 +355,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
                 Cancel (draft);
                 design.selected = nearUnit;
                 design.dragOriginal = design.seeds[size_t (nearUnit)].along;
+                design.dragRequestedAlong = std::numeric_limits<double>::quiet_NaN ();
                 design.dragSeeds = design.seeds;
                 design.dragUnits = design.units;
                 const auto center = UnitCenter (design, design.seeds[size_t (nearUnit)]);
@@ -367,6 +374,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             if (!ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
                 design.dragging = false;
                 design.owner = 0;
+                design.dragRequestedAlong = std::numeric_limits<double>::quiet_NaN ();
                 design.dragSeeds.clear ();
                 design.dragUnits.clear ();
             }
@@ -394,8 +402,8 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         };
         for (size_t i = 0; i < draft.cores.size (); ++i) {
             const auto at = project (draft.cores[i].center);
-            const ImU32 colour =
-                Fits (*floor, draft.cores[i], plan.angle) ? IM_COL32 (255, 186, 0, 255) : IM_COL32 (229, 72, 77, 255);
+            const ImU32 colour = CoreAllowed (*floor, draft.cores[i], plan.angle) ? IM_COL32 (255, 186, 0, 255)
+                                                                                  : IM_COL32 (229, 72, 77, 255);
             rectangle (draft.cores[i], colour, draft.selected == int (i));
             draw->AddText ({ at.x + 3 * scale, at.y }, colour, std::to_string (i + 1).c_str ());
         }
@@ -404,29 +412,28 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             ghost.center = worldMouse;
             ghost.center = Snap (*floor, ghost, plan.angle);
             rectangle (ghost,
-                       Fits (*floor, ghost, plan.angle) ? IM_COL32 (255, 186, 0, 200) : IM_COL32 (229, 72, 77, 200),
+                       CoreAllowed (*floor, ghost, plan.angle) ? IM_COL32 (255, 186, 0, 200)
+                                                               : IM_COL32 (229, 72, 77, 200),
                        false);
         }
         if (design.stage == 6 && design.ready)
             for (size_t i = 0; i < design.seeds.size (); ++i) {
-                const auto center = project (UnitCenter (design, design.seeds[i]));
-                const auto colour = hudshell::Packed (UnitColour (Rooms (design, design.seeds[i])));
-                draw->AddCircleFilled (center, (design.selected == int (i) ? 5 : 3) * scale,
-                                       IM_COL32 (30, 40, 40, 255));
+                const auto center = project (design.units[i].center);
+                const std::string label = Metres (Traits (design, design.seeds[i]).net);
+                const auto textSize = ImGui::CalcTextSize (label.c_str ());
+                draw->AddText ({ center.x - textSize.x / 2, center.y - textSize.y / 2 }, IM_COL32 (30, 40, 40, 255),
+                               label.c_str ());
                 if (design.selected == int (i))
-                    draw->AddCircle (center, 7 * scale, colour, 0, 2 * scale);
-                const auto& seed = design.seeds[i];
-                const std::string label =
-                    "U" + std::to_string (seed.id) + " / " + TypeName (design, seed) + (seed.locked ? " [L]" : "");
-                draw->AddText ({ center.x + 6 * scale, center.y }, IM_COL32 (30, 40, 40, 255), label.c_str ());
+                    outlines (std::vector<std::vector<SliceChain>> { design.units[i].rings },
+                              IM_COL32 (255, 255, 255, 255), 3 * scale);
             }
         if (hovered && (nearUnit >= 0 || design.dragging)) {
             ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
-            ImGui::SetTooltip (
-                "Drag to relax neighbours along the band (0.3 m); locked sizes stay exact. Escape cancels.");
+            ImGui::SetTooltip ("Drag inside an apartment parallel to its facade/corridor; neighbours resize. Minimum "
+                               "25 m2. Escape cancels.");
         }
         draw->PopClipRect ();
-        ImGui::TextDisabled ("Blue: counted floor | Gray: physical outline | Red: empty floor, egress beyond limit");
+        ImGui::TextWrapped ("Labels: actual net m2 | Blue: counted floor | Gray: physical | Red: empty/egress limit");
     }
     for (size_t i = 0; i < draft.cores.size (); ++i) {
         ImGui::PushID (int (i));
@@ -439,8 +446,9 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             draft.selected = int (i);
             draft.placing = false;
         }
-        if (!Fits (*floor, core, plan.angle))
-            ImGui::TextWrapped ("Footprint does not fit this floor; relocate if required. Shared centre retained.");
+        if (!CoreAllowed (*floor, core, plan.angle))
+            ImGui::TextWrapped (
+                "Core must fit and be wall-flush or at least 3 m clear. Move it; saved position is retained.");
         ImGui::PopID ();
     }
     const bool large = NeedsTwoStairs (floor->areaM2, coefficients);
@@ -474,17 +482,21 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         }
         ImGui::EndDisabled ();
     }
-    ImGui::BeginDisabled (!Dirty (draft) || conflict || draft.dragging);
+    const bool coresValid = std::all_of (plan.floors.begin (), plan.floors.end (), [&] (const Floor& item) {
+        return std::all_of (draft.cores.begin (), draft.cores.end (),
+                            [&] (const Core& core) { return CoreAllowed (item, core, plan.angle); });
+    });
+    ImGui::BeginDisabled (!Dirty (draft) || conflict || draft.dragging || !coresValid);
     if (ImGui::Button ("Save stairwells")) {
         edits = Edits (plan, draft);
         Cancel (draft);
     }
     ImGui::EndDisabled ();
-    ImGui::SameLine ();
+    NextButton ("Discard");
     if (ImGui::Button ("Discard"))
         Reset (plan, draft);
-    ImGui::TextDisabled ("%s | Stairs saved as metadata; apartment schemes are session-local.",
-                         Dirty (draft) ? "Local changes not yet saved" : "No local changes");
+    ImGui::TextWrapped ("%s | Stairs saved as metadata; apartment schemes are session-local.",
+                        Dirty (draft) ? "Local changes not yet saved" : "No local changes");
     auto& info = QuickFor (plan, draft, *floor);
     ImGui::TextWrapped ("%s", info.note.c_str ());
     if (!info.solveNote.empty ())
@@ -504,16 +516,16 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         double empty = 0;
         for (const auto& region : info.unassigned)
             empty += UnitArea (region);
-        ImGui::TextDisabled ("Score %.1f (lower is better) | empty %.1f m2 | farthest corridor point %.1f m%s",
-                             info.score, empty, info.egress.longest,
-                             info.egress.invalid.empty () ? "" : " | beyond egress limit (red)");
+        ImGui::TextWrapped ("Score %.1f (lower is better) | empty %.1f m2 | farthest corridor point %.1f m%s",
+                            info.score, empty, info.egress.longest,
+                            info.egress.invalid.empty () ? "" : " | beyond egress limit (red)");
     }
     if (info.selected >= 0 && size_t (info.selected) < info.units.size ()) {
         auto& seed = info.seeds[size_t (info.selected)];
         const auto traits = Traits (info, seed);
         const auto& type = info.programme.types[(std::min) (seed.type, info.programme.types.size () - 1)];
-        ImGui::Text ("U%u | %s | net %.1f m2 of %.0f-%.0f | facade %.1f m", seed.id, TypeName (info, seed).c_str (),
-                     traits.net, type.minM2, type.maxM2, traits.facade);
+        ImGui::TextWrapped ("U%u | %s | net %.1f m2 of %.0f-%.0f | facade %.1f m", seed.id,
+                            TypeName (info, seed).c_str (), traits.net, type.minM2, type.maxM2, traits.facade);
         ImGui::BeginDisabled (!seed.locked);
         uint8_t keep = seed.keep;
         for (const auto& [trait, label] : { std::pair { kCorner, "Corner" },
@@ -523,17 +535,15 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             const std::string text = std::string (label) + ((traits.traits & trait) ? " (has)" : " (lacks)");
             if (ImGui::Checkbox (text.c_str (), &on))
                 keep = on ? uint8_t (keep | trait) : uint8_t (keep & ~trait);
-            ImGui::SameLine ();
         }
-        ImGui::NewLine ();
         ImGui::EndDisabled ();
         if (keep != seed.keep)
             SetUnitKeep (info, size_t (info.selected), keep);
-        ImGui::TextDisabled ("%s", seed.locked ? "Locked: Regenerate and Optimise keep type, size and ticked traits."
-                                               : "Unlocked: Optimise may retype, move or remove it.");
+        ImGui::TextWrapped ("%s", seed.locked ? "Locked: Regenerate and Optimise keep type, size and ticked traits."
+                                              : "Unlocked: Optimise may retype, move or remove it.");
     }
-    ImGui::TextDisabled ("%s | Colours: rooms | Tan: circulation",
-                         draft.uniqueFloors.contains (floor->story) ? "Unique floor" : "Shared by identical outlines");
+    ImGui::TextWrapped ("%s | Colours: actual net area | Tan: circulation",
+                        draft.uniqueFloors.contains (floor->story) ? "Unique floor" : "Shared by identical outlines");
     return edits;
 }
 } // namespace geomsrv::archviz::buildingplan

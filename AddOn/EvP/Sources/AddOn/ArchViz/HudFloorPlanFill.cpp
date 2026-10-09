@@ -274,7 +274,30 @@ void Fill (QuickPlan& plan)
             cursor += w;
         }
     }
-    RelaxUnits (plan);
+    // Reduce an overfull initial band instead of accepting undersized / unserved flats.
+    while (!RelaxUnits (plan) && !plan.seeds.empty ()) {
+        size_t failed = plan.segments.size ();
+        for (size_t s = 0; s < plan.segments.size (); ++s) {
+            std::vector<UnitSeed> band;
+            for (const auto& seed : plan.seeds)
+                if (seed.segment == s)
+                    band.push_back (seed);
+            std::string note;
+            if (!SolveCuts (plan, band, note)) {
+                failed = s;
+                break;
+            }
+        }
+        const auto victim = std::find_if (plan.seeds.begin (), plan.seeds.end (), [&] (const UnitSeed& seed) {
+            return seed.segment == failed && Ordered (plan.seeds, seed.segment).size () > 1;
+        });
+        if (victim == plan.seeds.end ()) {
+            plan.seeds.clear ();
+            plan.units.clear ();
+            break;
+        }
+        plan.seeds.erase (victim);
+    }
 }
 
 bool OptimiseUnits (QuickPlan& plan, size_t budget)

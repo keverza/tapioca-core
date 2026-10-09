@@ -67,6 +67,11 @@ sectionmodel::Reading g_section;
 uint64_t g_sectionReads = 0;
 hudsection::Run g_shownRun;
 uint64_t g_shownReads = 0;
+// Immutable slices and exact authored membership own the expensive contour unions and
+// outline identities. Pointer motion prepares pages often; it must never rebuild these.
+std::shared_ptr<const massingslices::Result> s_planSlices;
+std::string s_planMembership;
+std::vector<massingbuildings::Preview> s_planBuildings;
 
 const hudshell::SelectionPage& Selection ()
 {
@@ -426,15 +431,31 @@ overlayhud::OwnPages Pages (overlayinput::View view)
         const auto selected = massingslicesmodel::SelectedGuids ();
         const auto members = massingbuildings::Members (pages.massing.buildingSlabs, selected);
         pages.section = hudsection::Filter (slices->section, members);
-        pages.buildings =
-            massingbuildings::Previews (slices->section, pages.massing.buildingSlabs, slices->heightControls, selected);
-        for (auto& preview : pages.buildings)
-            preview.plan = buildingplan::Build (*slices, preview);
+        std::string membership = std::to_string (pages.massing.buildingSlabs.size ()) + " records;";
+        for (const auto& record : pages.massing.buildingSlabs)
+            membership += std::to_string (record.guid.size ()) + ':' + record.guid +
+                          std::to_string (record.id.size ()) + ':' + record.id;
+        membership += std::to_string (pages.massing.guids[3].size ()) + " guids;";
+        for (const auto& guid : pages.massing.guids[3])
+            membership += std::to_string (guid.size ()) + ':' + guid;
+        if (s_planSlices != slices || s_planMembership != membership) {
+            s_planSlices = slices;
+            s_planMembership = std::move (membership);
+            s_planBuildings = massingbuildings::Previews (slices->section, pages.massing.buildingSlabs,
+                                                          slices->heightControls, pages.massing.guids[3]);
+            for (auto& preview : s_planBuildings)
+                preview.plan = buildingplan::Build (*slices, preview);
+        }
+        for (const auto& preview : s_planBuildings)
+            if (std::any_of (preview.building.guids.begin (), preview.building.guids.end (),
+                             [&] (const std::string& guid) {
+                                 return std::find (members.begin (), members.end (), guid) != members.end ();
+                             }))
+                pages.buildings.push_back (preview);
         pages.floorPlansKnown = slices->complete && pages.massing.known;
         if (pages.floorPlansKnown)
-            for (const auto& preview :
-                 massingbuildings::Previews (slices->section, pages.massing.buildingSlabs, {}, pages.massing.guids[3]))
-                pages.floorPlans.push_back (buildingplan::Build (*slices, preview));
+            for (const auto& preview : s_planBuildings)
+                pages.floorPlans.push_back (preview.plan);
         for (const auto& page : slices->heightControls)
             if (std::find (members.begin (), members.end (), page.element) != members.end ())
                 pages.storyHeights.push_back (page);
@@ -581,6 +602,9 @@ void FollowFloors (const hudsection::Run& run)
 
 void Forget ()
 {
+    s_planSlices.reset ();
+    s_planMembership.clear ();
+    s_planBuildings.clear ();
     massingslicesmodel::Forget ();
     massingbake::Forget ();
     massingmodel::Forget ();

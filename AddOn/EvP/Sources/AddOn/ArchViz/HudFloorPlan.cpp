@@ -293,8 +293,8 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
         return plan;
     cp::PathsD cores;
     for (const auto& core : stairs) {
-        if (!Fits (floor, core, plan.angle)) {
-            plan.note = "Quick plan refused: every proposed stair footprint must fit this floor.";
+        if (!CoreAllowed (floor, core, plan.angle)) {
+            plan.note = "Quick plan refused: cores must fit and be wall-flush or at least 3 m clear of the facade.";
             return plan;
         }
         const auto rect = Polygon (CoreRect (plan, core));
@@ -312,11 +312,36 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
         const bool axis = b.x1 - b.x0 >= b.y1 - b.y0;
         const double lo = axis ? b.x0 : b.y0, hi = axis ? b.x1 : b.y1;
         const double c0 = axis ? b.y0 : b.x0, c1 = axis ? b.y1 : b.x1;
-        if (c1 - c0 < kCorridor + kMinWidth + 0.6 || hi - lo <= 2 * kMinWidth)
+        if (c1 - c0 < 2 * kMinUnitDepth + kCorridor || hi - lo <= 2 * kMinWidth)
             continue;
         double cross = (c0 + c1) / 2;
-        if (c1 - c0 < 2 * 5.4 + kCorridor)
-            cross = c0 + 0.6 + kCorridor / 2; // Shallow bar: keep circulation off the facade.
+        // Parallel wings share one straight spine wherever both retain habitable-depth bands.
+        for (size_t i = 0; i < spineBars.size (); ++i) {
+            const auto& prior = spineBars[i];
+            const bool priorAxis = prior.x1 - prior.x0 >= prior.y1 - prior.y0;
+            const double at = axis ? (spines[i].y0 + spines[i].y1) / 2 : (spines[i].x0 + spines[i].x1) / 2;
+            const bool adjacent = axis ? std::abs (prior.x1 - b.x0) < 1e-5 || std::abs (b.x1 - prior.x0) < 1e-5
+                                       : std::abs (prior.y1 - b.y0) < 1e-5 || std::abs (b.y1 - prior.y0) < 1e-5;
+            const double prior0 = axis ? prior.y0 : prior.x0, prior1 = axis ? prior.y1 : prior.x1;
+            const double common0 = (std::max) (c0, prior0) + kMinUnitDepth + kCorridor / 2;
+            const double common1 = (std::min) (c1, prior1) - kMinUnitDepth - kCorridor / 2;
+            if (axis == priorAxis && adjacent && common0 <= common1) {
+                cross = at >= common0 && at <= common1 ? at : (common0 + common1) / 2;
+                if (axis) {
+                    spines[i].y0 = cross - kCorridor / 2;
+                    spines[i].y1 = cross + kCorridor / 2;
+                }
+                else {
+                    spines[i].x0 = cross - kCorridor / 2;
+                    spines[i].x1 = cross + kCorridor / 2;
+                }
+                circulation[i] = Polygon (spines[i]);
+                for (size_t p = 0; p < bars.size (); ++p)
+                    if (bars[p].x0 == prior.x0 && bars[p].x1 == prior.x1 && bars[p].y0 == prior.y0 &&
+                        bars[p].y1 == prior.y1)
+                        crossOf[p] = cross;
+            }
+        }
         const auto spine = Strip (axis, lo + kMinWidth, hi - kMinWidth, cross - kCorridor / 2, cross + kCorridor / 2);
         crossOf[size_t (&b - bars.data ())] = cross;
         circulation.push_back (Polygon (spine));
@@ -335,10 +360,22 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
             const bool horizontal = std::abs (y1 - y0) < 1e-5 && x1 - x0 >= kCorridor;
             if (!vertical && !horizontal)
                 continue;
-            const Point shared { (x0 + x1) / 2, (y0 + y1) / 2 };
+            const bool axisI = a.x1 - a.x0 >= a.y1 - a.y0, axisJ = b.x1 - b.x0 >= b.y1 - b.y0;
+            const Point ci { (spines[i].x0 + spines[i].x1) / 2, (spines[i].y0 + spines[i].y1) / 2 };
+            const Point cj { (spines[j].x0 + spines[j].x1) / 2, (spines[j].y0 + spines[j].y1) / 2 };
+            Point shared { (x0 + x1) / 2, (y0 + y1) / 2 };
+            if (vertical)
+                shared.y = std::clamp (axisI ? ci.y : axisJ ? cj.y : shared.y, y0 + kCorridor / 2, y1 - kCorridor / 2);
+            else
+                shared.x = std::clamp (!axisI   ? ci.x
+                                       : !axisJ ? cj.x
+                                                : shared.x,
+                                       x0 + kCorridor / 2, x1 - kCorridor / 2);
             for (size_t index : { i, j }) {
                 const auto& spine = spines[index];
-                const Point p { std::clamp (shared.x, spine.x0, spine.x1), std::clamp (shared.y, spine.y0, spine.y1) };
+                const bool axis = index == i ? axisI : axisJ;
+                const Point p = axis ? Point { std::clamp (shared.x, spine.x0, spine.x1), (spine.y0 + spine.y1) / 2 }
+                                     : Point { (spine.x0 + spine.x1) / 2, std::clamp (shared.y, spine.y0, spine.y1) };
                 const double w = kCorridor / 2;
                 const Point bend = vertical ? Point { p.x, shared.y } : Point { shared.x, p.y };
                 circulation.push_back (Polygon ({ (std::min) (p.x, bend.x) - w, (std::min) (p.y, bend.y) - w,
@@ -348,8 +385,8 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
                                (std::max) (shared.x, bend.x) + w, (std::max) (shared.y, bend.y) + w }));
             }
         }
-    // Connect each core to the nearest spine from the middle of its facing side; clipping
-    // alone is NOT connectivity validation.
+    // Short core-to-spine gaps are landings the full width of the facing core side, not
+    // narrow spur corridors. Longer connections use the corridor width and one orthogonal bend.
     for (const auto& core : stairs) {
         const auto q = Local (plan, core.center);
         double best = 1e300;
@@ -364,10 +401,21 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
         }
         if (best < 1e299) {
             const double w = kCorridor / 2;
-            circulation.push_back (
-                Polygon ({ (std::min) (q.x, target.x) - w, q.y - w, (std::max) (q.x, target.x) + w, q.y + w }));
-            circulation.push_back (Polygon (
-                { target.x - w, (std::min) (q.y, target.y) - w, target.x + w, (std::max) (q.y, target.y) + w }));
+            const auto r = CoreRect (plan, core);
+            const double dx = (std::max) ({ r.x0 - target.x, 0.0, target.x - r.x1 });
+            const double dy = (std::max) ({ r.y0 - target.y, 0.0, target.y - r.y1 });
+            if (dx < 1e-6 && dy < kCoreFacadeGap + kCorridor / 2)
+                circulation.push_back (
+                    Polygon ({ r.x0, (std::min) (r.y0, target.y - w), r.x1, (std::max) (r.y1, target.y + w) }));
+            else if (dy < 1e-6 && dx < kCoreFacadeGap + kCorridor / 2)
+                circulation.push_back (
+                    Polygon ({ (std::min) (r.x0, target.x - w), r.y0, (std::max) (r.x1, target.x + w), r.y1 }));
+            else {
+                circulation.push_back (
+                    Polygon ({ (std::min) (q.x, target.x) - w, q.y - w, (std::max) (q.x, target.x) + w, q.y + w }));
+                circulation.push_back (Polygon (
+                    { target.x - w, (std::min) (q.y, target.y) - w, target.x + w, (std::max) (q.y, target.y) + w }));
+            }
         }
     }
     // Both external facades and courtyard boundaries retain a positive apartment-side buffer.
@@ -472,7 +520,7 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
         std::vector<cp::PathsD> leftovers = loose;
         Components (tree, leftovers);
         // Several passes: a strip may reach a band only through a piece attached before it.
-        cp::PathsD common, lost;
+        cp::PathsD lost;
         std::vector<bool> placed (leftovers.size (), false);
         for (bool progress = true; progress;) {
             progress = false;
@@ -503,16 +551,58 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Core>& stairs,
         for (size_t l = 0; l < leftovers.size (); ++l) {
             if (placed[l] || std::abs (cp::Area (leftovers[l])) < 1e-4)
                 continue;
-            auto& target = Contact (leftovers[l], reach) >= 0.3 ? common : lost;
-            target.insert (target.end (), leftovers[l].begin (), leftovers[l].end ());
+            // Never invent circulation to consume a leftover shelf: that turns straight
+            // corridors into stepped sliver networks. Unfillable floor is explicit.
+            lost.insert (lost.end (), leftovers[l].begin (), leftovers[l].end ());
         }
-        if (!common.empty ())
-            corridors = cp::Union (corridors, common, cp::FillRule::NonZero, 6);
         if (!lost.empty ())
             plan.unassigned.push_back (Region (plan, lost));
     }
     plan.corridors.push_back (Region (plan, corridors));
     const auto served = cp::Union (corridors, cores, cp::FillRule::NonZero, 6);
+    // Absorb undersized shelves/caps into an adjacent apartment band, never circulation.
+    // This happens before seed filling, so no forbidden shallow or <25 m2 flat is published.
+    for (size_t pass = 0; pass < kMaxUnits; ++pass) {
+        bool merged = false;
+        for (size_t s = 0; s < pieces.size (); ++s) {
+            const auto& segment = plan.segments[s];
+            const double length = segment.hi - segment.lo;
+            const double area = std::abs (cp::Area (pieces[s]));
+            PlanRegion boundary = segment;
+            Edges (boundary, pieces[s], outline, served);
+            const double depth = area / (std::max) (length, 1e-9);
+            const double net = area - floorprogramme::kWall * depth -
+                               floorprogramme::kFacade * FacadeLength (boundary, segment.lo, segment.hi);
+            if (net >= kMinUnitArea - 0.05 && depth >= kMinUnitDepth - 0.01)
+                continue;
+            size_t best = pieces.size ();
+            double contact = 0.9;
+            for (size_t other = 0; other < pieces.size (); ++other)
+                if (other != s) {
+                    const double shared = Contact (pieces[s], pieces[other]);
+                    if (shared > contact) {
+                        best = other;
+                        contact = shared;
+                    }
+                }
+            if (best == pieces.size ())
+                continue;
+            pieces[best] = cp::Union (pieces[best], pieces[s], cp::FillRule::NonZero, 6);
+            auto& target = plan.segments[best];
+            for (const auto& path : pieces[best])
+                for (const auto& p : path) {
+                    target.lo = (std::min) (target.lo, target.alongX ? p.x : p.y);
+                    target.hi = (std::max) (target.hi, target.alongX ? p.x : p.y);
+                }
+            target.endAccess = 0;
+            pieces.erase (pieces.begin () + std::ptrdiff_t (s));
+            plan.segments.erase (plan.segments.begin () + std::ptrdiff_t (s));
+            merged = true;
+            break;
+        }
+        if (!merged)
+            break;
+    }
     for (size_t s = 0; s < plan.segments.size (); ++s) {
         auto& segment = plan.segments[s];
         const auto region = Region (plan, pieces[s]);
@@ -597,6 +687,39 @@ uint32_t UnitColour (double rooms)
 {
     return floorprogramme::Colour (rooms);
 }
+uint32_t AreaColour (double netArea)
+{
+    // Stable area bins across programme retyping, shared floors and model overlays.
+    if (netArea < 40)
+        return 0xA5D6DEFFu;
+    if (netArea < 55)
+        return 0x7FC8A9FFu;
+    if (netArea < 75)
+        return 0xF2D675FFu;
+    if (netArea < 85)
+        return 0xEDA85AFFu;
+    return 0xDA91A5FFu;
+}
+int UnitAt (const QuickPlan& plan, Point point)
+{
+    // Cached world polygons, no Clipper conversions or point handles on hover.
+    for (size_t u = 0; u < plan.units.size (); ++u) {
+        bool inside = false;
+        for (const auto& ring : plan.units[u].rings) {
+            if (ring.Count () < 3)
+                continue;
+            for (size_t i = 0, j = ring.Count () - 1; i < ring.Count (); j = i++) {
+                const double ax = ring.xy[j * 2] - point.x, ay = ring.xy[j * 2 + 1] - point.y;
+                const double bx = ring.xy[i * 2] - point.x, by = ring.xy[i * 2 + 1] - point.y;
+                if ((ay > 0) != (by > 0) && ax + (bx - ax) * (-ay) / (by - ay) > 0)
+                    inside = !inside;
+            }
+        }
+        if (inside)
+            return int (u);
+    }
+    return -1;
+}
 bool SetUnitType (QuickPlan& plan, size_t seed, size_t type)
 {
     if (seed >= plan.seeds.size () || plan.dragging || type >= plan.programme.types.size () ||
@@ -641,7 +764,14 @@ bool MoveUnit (QuickPlan& plan, size_t seed, Point point)
         return false;
     auto& selected = plan.seeds[seed];
     const auto& s = plan.segments[selected.segment];
-    const double at = std::clamp (std::round (Along (plan, s, point) / kModule) * kModule, s.lo + 0.3, s.hi - 0.3);
+    const double base = plan.dragging ? plan.dragOriginal : selected.along;
+    const double at = std::clamp (base + std::round ((Along (plan, s, point) - base) / kModule) * kModule,
+                                  s.lo + kModule, s.hi - kModule);
+    if (plan.dragging) {
+        if (at == plan.dragRequestedAlong)
+            return false;
+        plan.dragRequestedAlong = at;
+    }
     if (at == selected.along)
         return false;
     auto candidate = selected;
@@ -729,6 +859,7 @@ void CancelUnits (QuickPlan& plan)
     }
     plan.dragging = plan.adding = false;
     plan.owner = 0;
+    plan.dragRequestedAlong = std::numeric_limits<double>::quiet_NaN ();
     plan.dragSeeds.clear ();
     plan.dragUnits.clear ();
 }

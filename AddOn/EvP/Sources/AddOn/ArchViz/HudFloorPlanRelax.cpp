@@ -4,7 +4,7 @@
 namespace geomsrv::archviz::buildingplan {
 namespace {
 constexpr double kAspect = 1.2; // facade length that counts as an aspect (one window)
-constexpr int kNetIterations = 4;
+constexpr int kNetIterations = 8;
 // The facade or entrance length of `edge` that belongs to the flat between `lo` and `hi`.
 double Overlap (const PlanRegion::Edge& edge, bool alongX, double lo, double hi)
 {
@@ -160,17 +160,37 @@ bool SolveCuts (const QuickPlan& plan, std::vector<UnitSeed>& seeds, std::string
                     ++free;
                 }
             }
-            if (hard > total + 1e-4 || (free && total - hard < free * 1.0)) {
+            double minimum = 0;
+            std::vector<double> floors (n, 0);
+            for (size_t k = 0; k < n; ++k)
+                if (!fixed[k]) {
+                    floors[k] = kMinUnitArea + 0.001 + Deduction (segment, lo[k], hi[k]);
+                    minimum += floors[k];
+                }
+            if (hard > total + 1e-4 || (free && total - hard < minimum - 0.01) ||
+                (!free && std::abs (total - hard) > 0.05)) {
                 note = "Room target cannot fit while preserving locked sizes. No changes applied.";
                 return false;
             }
-            // Positive spring lengths share the leftover exactly. With every flat locked the
-            // locked flats stretch rather than leave empty floor.
-            for (size_t k = 0; k < n; ++k)
-                if (!free)
-                    areas[k] *= hard > 1e-9 ? total / hard : 1;
-                else if (!fixed[k])
-                    areas[k] = (total - hard) * areas[k] / soft;
+            // Water-fill free lengths above the 25 m2 net floor; exact locks never scale.
+            double left = total - hard;
+            for (size_t pass = 0; pass <= n && soft > 1e-9; ++pass) {
+                bool clamped = false;
+                for (size_t k = 0; k < n; ++k)
+                    if (!fixed[k] && left * areas[k] / soft < floors[k]) {
+                        soft -= areas[k];
+                        areas[k] = floors[k];
+                        left -= areas[k];
+                        fixed[k] = true;
+                        clamped = true;
+                    }
+                if (!clamped) {
+                    for (size_t k = 0; k < n; ++k)
+                        if (!fixed[k])
+                            areas[k] *= left / soft;
+                    break;
+                }
+            }
             double cursor = 0;
             for (size_t k = 0; k < n; ++k) {
                 auto& seed = solved[order[k]];
@@ -179,6 +199,15 @@ bool SolveCuts (const QuickPlan& plan, std::vector<UnitSeed>& seeds, std::string
                 seed.along = AlongAtArea (segment, cursor + areas[k] / 2);
                 cursor += areas[k];
             }
+        }
+    }
+    for (const auto& seed : solved) {
+        const auto traits = Traits (plan, seed);
+        if (traits.net < kMinUnitArea - 1e-4 || traits.depth < kMinUnitDepth - 0.01 || seed.hi - seed.lo < 2.6 - 0.01 ||
+            traits.facade < 1.2 - 0.01 || traits.access < 0.9 - 0.01) {
+            note = "Unit must have at least 25 m2 net, habitable depth/width, a facade and corridor access. No changes "
+                   "applied.";
+            return false;
         }
     }
     seeds = std::move (solved);
