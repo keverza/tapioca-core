@@ -248,6 +248,8 @@ struct OwnPages {
     hudsection::Section section;
     std::vector<hudmeta::Page> storyHeights;
     std::vector<massingbuildings::Preview> buildings;
+    bool floorPlansKnown = false;
+    std::vector<buildingplan::Plan> floorPlans; // All defined buildings, independent of viewport selection.
     hudmassing::Page massing;
     std::vector<hudshell::Card> debug;
     // What the Debug tab's console says (HudConsole.hpp), oldest first: the tab's title counts the

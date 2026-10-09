@@ -430,6 +430,11 @@ overlayhud::OwnPages Pages (overlayinput::View view)
             massingbuildings::Previews (slices->section, pages.massing.buildingSlabs, slices->heightControls, selected);
         for (auto& preview : pages.buildings)
             preview.plan = buildingplan::Build (*slices, preview);
+        pages.floorPlansKnown = slices->complete && pages.massing.known;
+        if (pages.floorPlansKnown)
+            for (const auto& preview :
+                 massingbuildings::Previews (slices->section, pages.massing.buildingSlabs, {}, pages.massing.guids[3]))
+                pages.floorPlans.push_back (buildingplan::Build (*slices, preview));
         for (const auto& page : slices->heightControls)
             if (std::find (members.begin (), members.end (), page.element) != members.end ())
                 pages.storyHeights.push_back (page);

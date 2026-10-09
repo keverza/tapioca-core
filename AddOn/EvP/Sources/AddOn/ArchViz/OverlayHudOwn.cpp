@@ -16,8 +16,12 @@ namespace overlayhud {
 void Engine::SetOwnPages (OwnPages pages)
 {
     impl_->store->floorPlanSnapshots.clear ();
-    for (const auto& preview : pages.buildings)
-        impl_->store->floorPlanSnapshots[preview.building.key] = preview.plan;
+    if (pages.floorPlansKnown)
+        for (const auto& plan : pages.floorPlans)
+            impl_->store->floorPlanSnapshots[plan.key] = plan;
+    else
+        for (const auto& preview : pages.buildings)
+            impl_->store->floorPlanSnapshots[preview.building.key] = preview.plan;
     if (!pages.buildings.empty () || pages.selection.count == 0) {
         const auto has = [&] (const std::string& key) {
             return std::any_of (pages.buildings.begin (), pages.buildings.end (),
@@ -30,7 +34,7 @@ void Engine::SetOwnPages (OwnPages pages)
             impl_->store->floors = {};
         }
         for (auto it = impl_->store->buildingPlans.begin (); it != impl_->store->buildingPlans.end ();)
-            if (!has (it->first))
+            if (pages.floorPlansKnown ? !impl_->store->floorPlanSnapshots.contains (it->first) : !has (it->first))
                 it = impl_->store->buildingPlans.erase (it);
             else
                 ++it;

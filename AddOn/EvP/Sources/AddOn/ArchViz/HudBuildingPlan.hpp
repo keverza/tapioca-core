@@ -27,15 +27,25 @@ struct PlanRegion {
     Point center;
     bool alongX = true;
     double lo = 0, hi = 0, across = 0;
+    int endAccess = 0; // -1/+1 when corridor access is only at the low/high axis end.
+    struct AreaSpan {
+        double lo, hi, width, slope, before;
+    };
+    std::vector<AreaSpan> areaProfile;
+    std::vector<Point> triangles; // Cached hole-aware fill triangles, in world XY.
 };
 struct UnitSeed {
     uint32_t id = 0;
     size_t segment = 0;
     double along = 0;
     double rooms = 2;
+    bool locked = false;
+    double lo = 0, hi = 0; // Solved shared cuts in the segment's local axis.
 };
 struct QuickPlan {
     std::string signature, note;
+    std::string outlineSignature;
+    std::string solveNote;
     Point origin;
     double angle = 0;
     std::vector<PlanRegion> bars, corridors, bands, segments, units;
@@ -46,6 +56,8 @@ struct QuickPlan {
     uintptr_t owner = 0;
     double dragOriginal = 0;
     Point dragOffset;
+    std::vector<UnitSeed> dragSeeds;
+    std::vector<PlanRegion> dragUnits;
     double newRooms = 2;
     bool ready = false;
     uint64_t revision = 0;
@@ -114,7 +126,15 @@ double UnitTargetArea (double rooms);
 uint32_t UnitColour (double rooms);
 double UnitArea (const PlanRegion& unit);
 bool SetUnitRooms (QuickPlan& plan, size_t seed, double rooms);
+bool SetUnitLocked (QuickPlan& plan, size_t seed, bool locked);
+void BuildAreaProfile (const QuickPlan& plan, PlanRegion& segment);
+double AreaBefore (const PlanRegion& segment, double along);
+double AlongAtArea (const PlanRegion& segment, double area);
+bool RelaxUnits (QuickPlan& plan, int anchor = -1, bool exactTarget = false, bool dragging = false);
+bool ChangeUnitTarget (const Plan& plan, Draft& draft, const Floor& floor, size_t seed, double rooms, bool locked);
+bool TransferUnits (const QuickPlan& old, QuickPlan& next, int anchor = -1);
 void PartitionUnits (QuickPlan& plan);
+void RebuildUnits (QuickPlan& plan);
 void CancelUnits (QuickPlan& plan);
 QuickPlan& QuickFor (const Plan& plan, Draft& draft, const Floor& floor);
 void MakeUnique (const Plan& plan, Draft& draft, const Floor& floor);

@@ -519,6 +519,15 @@ TEST (HudBuildingPlan, ApartmentCentreUsesRealHeldPointerDragAndDoesNotWriteMeta
     EXPECT_NE (quick.seeds[at].along, before);
     gui.Lay ({}, hudtest::At (x + dx, y + dy, { { 0, false } }));
     EXPECT_FALSE (quick.dragging);
+    const auto selectedLayout = gui.Lay ({}, hudtest::At (600, 600));
+    ASSERT_TRUE (hudtest::Box (selectedLayout.host, 0x4A90D9FFu, box));
+    const float canvasTop = (box[1] + box[3] - 200) / 2;
+    const float lockY = originY + canvasTop - 12;
+    gui.Click ({}, originX + 45, lockY);
+    ASSERT_TRUE (quick.seeds[at].locked) << "Real Lock room count button above the canvas";
+    EXPECT_NEAR (bp::UnitArea (quick.units[at]), bp::UnitTargetArea (quick.seeds[at].rooms), 1e-4);
+    gui.Click ({}, originX + 45, lockY);
+    EXPECT_FALSE (quick.seeds[at].locked);
     EXPECT_FALSE (bp::Dirty (draft));
     EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
 }

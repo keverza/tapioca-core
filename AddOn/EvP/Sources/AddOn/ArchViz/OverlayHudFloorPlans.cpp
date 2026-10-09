@@ -35,8 +35,10 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         overlaylayers::Layer coreLayer, unitLayer;
         if (state.previewStairs || state.previewUnits)
             PreviewLayers (plan, state.buildingPlans[key], coreLayer, unitLayer, state.previewUnits);
-        if (state.previewStairs)
+        if (state.previewStairs) {
             stairs.polylines.insert (stairs.polylines.end (), coreLayer.polylines.begin (), coreLayer.polylines.end ());
+            stairs.meshes.insert (stairs.meshes.end (), coreLayer.meshes.begin (), coreLayer.meshes.end ());
+        }
         if (state.previewUnits)
             units.polylines.insert (units.polylines.end (), unitLayer.polylines.begin (), unitLayer.polylines.end ());
     }

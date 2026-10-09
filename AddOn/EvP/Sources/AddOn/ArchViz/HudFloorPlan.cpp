@@ -1,5 +1,6 @@
 #include "ArchViz/HudBuildingPlan.hpp"
 #include <clipper2/clipper.h>
+#include <clipper2/clipper.triangulation.h>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -53,6 +54,11 @@ PlanRegion Region (const QuickPlan& plan, const cp::PathsD& paths)
         }
         out.rings.push_back (std::move (ring));
     }
+    cp::PathsD triangles;
+    if (cp::Triangulate (paths, 6, triangles, false) == cp::TriangulateResult::success)
+        for (const auto& triangle : triangles)
+            for (const auto& p : triangle)
+                out.triangles.push_back (World (plan, { p.x, p.y }));
     return out;
 }
 std::vector<SliceChain> Counted (const Floor& floor)
@@ -158,6 +164,7 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
 {
     QuickPlan plan;
     plan.signature = QuickSignature (floor, stairs);
+    plan.outlineSignature = QuickSignature (floor, {});
     plan.note = "Place a stairwell to generate a quick floor scheme.";
     const auto valid = [] (const auto& values) {
         size_t count = 0;
@@ -285,12 +292,12 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
         const bool axis = b.x1 - b.x0 >= b.y1 - b.y0;
         const double lo = axis ? b.x0 : b.y0, hi = axis ? b.x1 : b.y1;
         const double c0 = axis ? b.y0 : b.x0, c1 = axis ? b.y1 : b.x1;
-        if (c1 - c0 < kCorridor + kMinWidth)
+        if (c1 - c0 < kCorridor + kMinWidth + 0.6 || hi - lo <= 2 * kMinWidth)
             continue;
         double cross = (c0 + c1) / 2;
         if (c1 - c0 < 2 * 5.4 + kCorridor)
-            cross = c0 + kCorridor / 2; // Shallow bar: single-loaded, not two unusable bands.
-        const auto spine = Strip (axis, lo, hi, cross - kCorridor / 2, cross + kCorridor / 2);
+            cross = c0 + 0.6 + kCorridor / 2; // Shallow bar: keep circulation off the facade.
+        const auto spine = Strip (axis, lo + kMinWidth, hi - kMinWidth, cross - kCorridor / 2, cross + kCorridor / 2);
         circulation.push_back (Polygon (spine));
         spines.push_back (spine);
         spineBars.push_back (b);
@@ -341,7 +348,9 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
                 { target.x - w, (std::min) (q.y, target.y) - w, target.x + w, (std::max) (q.y, target.y) + w }));
         }
     }
-    circulation = cp::Intersect (cp::Union (circulation, cp::FillRule::NonZero, 6), outline, cp::FillRule::NonZero, 6);
+    // Both external facades and courtyard boundaries retain a positive apartment-side buffer.
+    const auto interior = cp::InflatePaths (outline, -0.3, cp::JoinType::Miter, cp::EndType::Polygon);
+    circulation = cp::Intersect (cp::Union (circulation, cp::FillRule::NonZero, 6), interior, cp::FillRule::NonZero, 6);
     const auto reserved = cp::Union (circulation, cores, cp::FillRule::NonZero, 6);
     // Reject a corridor component that has no core. No apparently served apartments across a courtyard/island.
     for (const auto& component : reserved)
@@ -365,7 +374,7 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
                 cuts.push_back (axis ? p.x : p.y);
         unique (cuts);
         for (size_t c = 1; c < cuts.size (); ++c) {
-            if (cuts[c] - cuts[c - 1] < kMinWidth)
+            if (cuts[c] - cuts[c - 1] < kMinWidth - 1e-5)
                 continue;
             const auto pieces = cp::Intersect (
                 remaining,
@@ -393,10 +402,27 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
                     cp::InflatePaths (cp::PathsD { path }, 0.01, cp::JoinType::Miter, cp::EndType::Polygon);
                 if (std::abs (cp::Area (cp::Intersect (expanded, circulation, cp::FillRule::NonZero, 6))) < 1e-6)
                     continue;
+                const auto touchesEnd = [&] (double at) {
+                    return std::abs (cp::Area (cp::Intersect (
+                               expanded,
+                               cp::Intersect (circulation, { Polygon (Strip (axis, at - 0.02, at + 0.02, a, z)) },
+                                              cp::FillRule::NonZero, 6),
+                               cp::FillRule::NonZero, 6))) > 1e-6;
+                };
+                const bool low = touchesEnd (segment.lo), high = touchesEnd (segment.hi);
+                const auto middle = cp::Intersect (
+                    circulation, { Polygon (Strip (axis, segment.lo + 0.03, segment.hi - 0.03, a - 0.02, z + 0.02)) },
+                    cp::FillRule::NonZero, 6);
+                const bool sideAccess =
+                    std::abs (cp::Area (cp::Intersect (expanded, middle, cp::FillRule::NonZero, 6))) > 1e-6;
+                if (low != high && !sideAccess)
+                    segment.endAccess = high ? 1 : -1;
                 const size_t index = plan.segments.size ();
                 plan.segments.push_back (std::move (segment));
-                const int units =
-                    (std::max) (1, int (std::floor ((cuts[c] - cuts[c - 1]) / (std::max) (kMinWidth, 55.0 / (z - a)))));
+                const int units = plan.segments.back ().endAccess
+                                      ? 1
+                                      : (std::max) (1, int (std::floor ((cuts[c] - cuts[c - 1]) /
+                                                                        (std::max) (kMinWidth, 55.0 / (z - a)))));
                 for (int n = 0; n < units; ++n) {
                     if (plan.seeds.size () >= kMaxUnits) {
                         plan.note = "Quick apartment division exceeds 128 units; no partial scheme shown.";
@@ -411,10 +437,9 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
         }
     }
     plan.ready = !plan.seeds.empty ();
-    plan.note =
-        plan.ready
-            ? "Quick heuristic: 0.3 m edits, 1.8 m corridors, ~55 m2 initial units. No daylight/egress validation."
-            : "No corridor-served segments wide enough for quick apartments.";
+    plan.note = plan.ready ? "Fast band springs: exact selected targets and locked areas; neighbours relax. No "
+                             "daylight/egress validation."
+                           : "No corridor-served segments wide enough for quick apartments.";
     PartitionUnits (plan);
     return plan;
 }
@@ -422,7 +447,25 @@ QuickPlan GenerateQuick (const Floor& floor, const std::vector<Point>& stairs)
 Point UnitCenter (const QuickPlan& plan, const UnitSeed& seed)
 {
     const auto& s = plan.segments.at (seed.segment);
-    return World (plan, s.alongX ? Point { seed.along, s.across } : Point { s.across, seed.along });
+    std::vector<double> crossings;
+    for (const auto& path : Paths (plan, s.rings))
+        for (size_t i = 0; i < path.size (); ++i) {
+            auto a = path[i], b = path[(i + 1) % path.size ()];
+            if (!s.alongX) {
+                std::swap (a.x, a.y);
+                std::swap (b.x, b.y);
+            }
+            if ((a.x < seed.along && b.x > seed.along) || (b.x < seed.along && a.x > seed.along))
+                crossings.push_back (a.y + (b.y - a.y) * (seed.along - a.x) / (b.x - a.x));
+        }
+    std::sort (crossings.begin (), crossings.end ());
+    double across = s.across, width = -1;
+    for (size_t i = 1; i < crossings.size (); i += 2)
+        if (crossings[i] - crossings[i - 1] > width) {
+            width = crossings[i] - crossings[i - 1];
+            across = (crossings[i] + crossings[i - 1]) / 2;
+        }
+    return World (plan, s.alongX ? Point { seed.along, across } : Point { across, seed.along });
 }
 double UnitTargetArea (double rooms)
 {
@@ -459,34 +502,24 @@ bool SetUnitRooms (QuickPlan& plan, size_t seed, double rooms)
 {
     if (seed >= plan.seeds.size () || plan.dragging || UnitTargetArea (rooms) <= 0 || plan.seeds[seed].rooms == rooms)
         return false;
+    const auto original = plan.seeds;
     plan.seeds[seed].rooms = rooms;
-    PartitionUnits (plan);
-    return true;
+    if (RelaxUnits (plan, int (seed), true))
+        return true;
+    plan.seeds = original;
+    return false;
 }
 void PartitionUnits (QuickPlan& plan)
+{
+    RelaxUnits (plan);
+}
+void RebuildUnits (QuickPlan& plan)
 {
     ++plan.revision;
     plan.units.clear ();
     for (const auto& seed : plan.seeds) {
         const auto& s = plan.segments.at (seed.segment);
-        double lo = s.lo, hi = s.hi;
-        const UnitSeed* left = nullptr;
-        const UnitSeed* right = nullptr;
-        for (const auto& other : plan.seeds)
-            if (other.segment == seed.segment && other.id != seed.id) {
-                if (other.along < seed.along && (!left || other.along > left->along))
-                    left = &other;
-                else if (other.along > seed.along && (!right || other.along < right->along))
-                    right = &other;
-            }
-        const auto cut = [] (const UnitSeed& a, const UnitSeed& b) {
-            const double wa = UnitTargetArea (a.rooms), wb = UnitTargetArea (b.rooms);
-            return a.along + (b.along - a.along) * wa / (wa + wb);
-        };
-        if (left)
-            lo = cut (*left, seed);
-        if (right)
-            hi = cut (seed, *right);
+        const double lo = seed.lo, hi = seed.hi;
         const auto paths = Paths (plan, s.rings);
         double c0 = 1e300, c1 = -1e300;
         for (const auto& path : paths)
@@ -507,19 +540,23 @@ bool MoveUnit (QuickPlan& plan, size_t seed, Point point)
     auto& selected = plan.seeds[seed];
     const auto& s = plan.segments[selected.segment];
     const double at = std::clamp (std::round (Along (plan, s, point) / kModule) * kModule, s.lo + 0.3, s.hi - 0.3);
-    for (const auto& other : plan.seeds)
-        if (other.segment == selected.segment && other.id != selected.id &&
-            (std::abs (other.along - at) < 0.6 || (other.along - at) * (other.along - selected.along) <= 0))
-            return false; // No coincidence or exchanging IDs by dragging through a neighbour.
     if (at == selected.along)
         return false;
     auto candidate = selected;
     candidate.along = at;
     if (!Hit (plan, s, UnitCenter (plan, candidate)))
         return false;
+    if (plan.dragging && plan.dragSeeds.empty ()) {
+        plan.dragSeeds = plan.seeds;
+        plan.dragSeeds[seed].along = plan.dragOriginal;
+        plan.dragUnits = plan.units;
+    }
+    const auto original = plan.seeds;
     selected.along = at;
-    PartitionUnits (plan);
-    return true;
+    if (RelaxUnits (plan, int (seed), false, true))
+        return true;
+    plan.seeds = original;
+    return false;
 }
 bool AddUnit (QuickPlan& plan, Point point)
 {
@@ -530,16 +567,26 @@ bool AddUnit (QuickPlan& plan, Point point)
         const auto& s = plan.segments[i];
         if (!Hit (plan, s, point))
             continue;
+        if (s.endAccess && std::any_of (plan.seeds.begin (), plan.seeds.end (),
+                                        [&] (const UnitSeed& seed) { return seed.segment == i; })) {
+            plan.solveNote = "Cannot split an end-access apartment along the band without losing corridor access.";
+            return false;
+        }
         const double at = std::clamp (std::round (Along (plan, s, point) / kModule) * kModule, s.lo + 0.3, s.hi - 0.3);
         for (const auto& seed : plan.seeds)
             if (seed.segment == i && std::abs (seed.along - at) < 0.6)
                 return false;
         if (!Hit (plan, s, UnitCenter (plan, UnitSeed { 0, i, at })))
             return false;
-        plan.seeds.push_back ({ plan.nextId++, i, at, plan.newRooms });
+        const auto original = plan.seeds;
+        plan.seeds.push_back ({ plan.nextId, i, at, plan.newRooms });
+        if (!RelaxUnits (plan, int (plan.seeds.size () - 1), true)) {
+            plan.seeds = original;
+            return false;
+        }
+        ++plan.nextId;
         plan.selected = int (plan.seeds.size () - 1);
         plan.adding = false;
-        PartitionUnits (plan);
         return true;
     }
     return false;
@@ -548,19 +595,32 @@ bool RemoveUnit (QuickPlan& plan, size_t seed)
 {
     if (seed >= plan.seeds.size () || plan.dragging)
         return false;
+    const auto original = plan.seeds;
     plan.seeds.erase (plan.seeds.begin () + seed);
+    if (!RelaxUnits (plan)) {
+        plan.seeds = original;
+        return false;
+    }
     plan.selected = -1;
-    PartitionUnits (plan);
     return true;
 }
 void CancelUnits (QuickPlan& plan)
 {
     if (plan.dragging && plan.selected >= 0 && size_t (plan.selected) < plan.seeds.size ()) {
-        plan.seeds[size_t (plan.selected)].along = plan.dragOriginal;
-        PartitionUnits (plan);
+        if (!plan.dragSeeds.empty ()) {
+            plan.seeds = std::move (plan.dragSeeds);
+            plan.units = std::move (plan.dragUnits);
+            ++plan.revision;
+        }
+        else {
+            plan.seeds[size_t (plan.selected)].along = plan.dragOriginal;
+            PartitionUnits (plan);
+        }
     }
     plan.dragging = plan.adding = false;
     plan.owner = 0;
+    plan.dragSeeds.clear ();
+    plan.dragUnits.clear ();
 }
 namespace {
 int TemplateFloor (const Plan& plan, const Draft& draft, const Floor& floor)
@@ -585,7 +645,22 @@ QuickPlan& QuickFor (const Plan& plan, Draft& draft, const Floor& floor)
     if (quick.signature != signature) {
         const int stage = quick.stage;
         const bool replaced = !quick.signature.empty ();
-        quick = GenerateQuick (floor, committed);
+        auto next = GenerateQuick (floor, committed);
+        const bool locked =
+            std::any_of (quick.seeds.begin (), quick.seeds.end (), [] (const UnitSeed& seed) { return seed.locked; });
+        if (locked && quick.outlineSignature == next.outlineSignature) {
+            if (!TransferUnits (quick, next)) {
+                quick.signature = signature;
+                quick.ready = false;
+                quick.units.clear ();
+                quick.corridors.clear ();
+                quick.bands.clear ();
+                quick.solveNote = "Core change cannot preserve locked sizes. Restore core locations or reset the plan.";
+                ++quick.revision;
+                return quick;
+            }
+        }
+        quick = std::move (next);
         quick.stage = stage;
         if (replaced)
             quick.note += " Source outline or cores changed: local unit edits reset.";
@@ -651,19 +726,17 @@ void PreviewLayers (const Plan& plan, Draft& draft, overlaylayers::Layer& stairs
             for (const auto& p : Polygon ({ center.x - kStairWidth / 2, center.y - kStairDepth / 2,
                                             center.x + kStairWidth / 2, center.y + kStairDepth / 2 }))
                 core.xy.insert (core.xy.end (), { p.x, p.y });
-            const uint32_t colour = Fits (floor, center) ? 0xFFBA00FFu : 0xE5484DFFu;
-            line (stairs, core, floor.z, colour);
-            if (floor.height > 0) {
-                line (stairs, core, floor.z + floor.height, colour);
-                for (size_t i = 0; i < core.Count (); ++i) {
-                    overlaylayers::Polyline edge;
-                    edge.rgba = colour;
-                    edge.behind = overlaylayers::Behind::Show;
-                    edge.points = { core.xy[i * 2], core.xy[i * 2 + 1], floor.z,
-                                    core.xy[i * 2], core.xy[i * 2 + 1], floor.z + floor.height };
-                    stairs.polylines.push_back (std::move (edge));
-                }
-            }
+            overlaylayers::Mesh box;
+            box.rgba = Fits (floor, center) ? 0x969696FFu : 0xE5484DFFu;
+            box.styled = true;
+            box.style.shading = overlaylayers::Shading::Lit;
+            box.style.behind = overlaylayers::Behind::Show;
+            for (double z : { floor.z, floor.z + (std::max) (0.0, floor.height) })
+                for (size_t i = 0; i < core.Count (); ++i)
+                    box.points.insert (box.points.end (), { core.xy[i * 2], core.xy[i * 2 + 1], z });
+            box.indices = { 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+                            1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7 };
+            stairs.meshes.push_back (std::move (box));
         }
         if (!includeUnits)
             continue;

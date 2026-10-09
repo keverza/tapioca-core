@@ -1,8 +1,10 @@
 #include "ArchViz/HudBuildingPlan.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "hud_fixture.hpp"
 #include <clipper2/clipper.h>
 #include <gtest/gtest.h>
 #include <cmath>
+#include <chrono>
 
 namespace bp = geomsrv::archviz::buildingplan;
 namespace hud = geomsrv::archviz::overlayhud;
@@ -50,6 +52,14 @@ bp::Plan Building ()
     }
     plan.saved = { { 6, 3 } };
     return plan;
+}
+size_t MultiSeed (const bp::QuickPlan& plan)
+{
+    for (size_t i = 0; i < plan.seeds.size (); ++i)
+        if (std::count_if (plan.seeds.begin (), plan.seeds.end (),
+                           [&] (const auto& seed) { return seed.segment == plan.seeds[i].segment; }) > 1)
+            return i;
+    return plan.seeds.size ();
 }
 } // namespace
 
@@ -213,11 +223,16 @@ TEST (HudFloorPlan, OverlayTogglesPublishEveryFloorAndLocalUnitEditsWithoutRepea
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
     EXPECT_EQ (stairs.name, bp::kStairsLayer);
     EXPECT_EQ (units.name, bp::kUnitsLayer);
-    EXPECT_EQ (stairs.polylines.size (), 18u); // Bottom/top rectangles plus four vertical edges on each floor.
+    EXPECT_TRUE (stairs.polylines.empty ());
+    ASSERT_EQ (stairs.meshes.size (), 3u);
     EXPECT_GT (units.polylines.size (), 3u);
-    EXPECT_DOUBLE_EQ (stairs.polylines[0].points[2], 0);
-    EXPECT_DOUBLE_EQ (stairs.polylines[6].points[2], 3);
-    EXPECT_DOUBLE_EQ (stairs.polylines[12].points[2], 6);
+    for (size_t i = 0; i < stairs.meshes.size (); ++i) {
+        EXPECT_DOUBLE_EQ (stairs.meshes[i].points[2], double (i) * 3);
+        EXPECT_DOUBLE_EQ (stairs.meshes[i].points[14], double (i + 1) * 3);
+        EXPECT_EQ (stairs.meshes[i].rgba, 0x969696FFu);
+        EXPECT_EQ (stairs.meshes[i].indices.size (), 36u);
+    }
+    EXPECT_TRUE (geomsrv::archviz::overlaylayers::Validate (stairs).empty ());
     EXPECT_FALSE (hud::TakeFloorPlanLayers (*state, stairs, units));
     auto& draft = state->buildingPlans.at (plan.key);
     ASSERT_TRUE (bp::RemoveUnit (bp::QuickFor (plan, draft, plan.floors[0]), 0));
@@ -225,6 +240,7 @@ TEST (HudFloorPlan, OverlayTogglesPublishEveryFloorAndLocalUnitEditsWithoutRepea
     state->previewStairs = state->previewUnits = false;
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
     EXPECT_TRUE (stairs.polylines.empty ());
+    EXPECT_TRUE (stairs.meshes.empty ());
     EXPECT_TRUE (units.polylines.empty ());
     state->floorPlanSnapshots.clear ();
     EXPECT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
@@ -240,7 +256,7 @@ TEST (HudFloorPlan, UnsupportedSlantedOutlineRefusesRatherThanSubstitutingBoundi
     EXPECT_NE (plan.note.find ("orthogonal"), std::string::npos);
 }
 
-TEST (HudFloorPlan, RoomWeightChoicesChangeAllocationWithoutMovingCentresOrChangingTotalArea)
+TEST (HudFloorPlan, RoomChoicesMeetActualTargetsAndRelaxCentresWithoutChangingTotalArea)
 {
     auto plan = bp::GenerateQuick (Floor (), { { 6, 3 } });
     ASSERT_TRUE (plan.ready);
@@ -258,7 +274,8 @@ TEST (HudFloorPlan, RoomWeightChoicesChangeAllocationWithoutMovingCentresOrChang
         ASSERT_TRUE (bp::SetUnitRooms (plan, at, rooms));
         EXPECT_GT (bp::UnitArea (plan.units[at]), previous);
         previous = bp::UnitArea (plan.units[at]);
-        EXPECT_EQ (bp::UnitCenter (plan, plan.seeds[at]), center);
+        EXPECT_NE (bp::UnitCenter (plan, plan.seeds[at]), center);
+        EXPECT_NEAR (bp::UnitArea (plan.units[at]), bp::UnitTargetArea (rooms), 1e-4);
         EXPECT_EQ (plan.seeds[at].id, id);
         EXPECT_NEAR (Area (plan.units), total, 1e-4);
     }
@@ -277,13 +294,15 @@ TEST (HudFloorPlan, SharedRoomWeightsCopyIntoUniqueFloorsAndResetRejoinsTheOrigi
     bp::Draft draft;
     bp::Reset (plan, draft);
     auto& shared = bp::QuickFor (plan, draft, plan.floors[0]);
-    ASSERT_TRUE (bp::SetUnitRooms (shared, 0, 1.5));
-    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[2]).seeds[0].rooms, 1.5);
+    const size_t at = MultiSeed (shared);
+    ASSERT_LT (at, shared.seeds.size ());
+    ASSERT_TRUE (bp::SetUnitRooms (shared, at, 1.5));
+    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[2]).seeds[at].rooms, 1.5);
     bp::MakeUnique (plan, draft, plan.floors[1]);
-    ASSERT_TRUE (bp::SetUnitRooms (bp::QuickFor (plan, draft, plan.floors[1]), 0, 4));
-    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[0]).seeds[0].rooms, 1.5);
+    ASSERT_TRUE (bp::SetUnitRooms (bp::QuickFor (plan, draft, plan.floors[1]), at, 4));
+    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[0]).seeds[at].rooms, 1.5);
     bp::ResetQuick (plan, draft, plan.floors[1]);
-    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[1]).seeds[0].rooms, 1.5);
+    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[1]).seeds[at].rooms, 1.5);
     EXPECT_FALSE (bp::Dirty (draft));
 }
 
@@ -333,7 +352,9 @@ TEST (HudFloorPlan, OverlayAcknowledgesStairSaveWhenSelectionTabIsNotDrawingAndR
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
     auto& draft = state->buildingPlans[plan.key];
     auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
-    ASSERT_TRUE (bp::SetUnitRooms (quick, 0, 4));
+    const size_t at = MultiSeed (quick);
+    ASSERT_LT (at, quick.seeds.size ());
+    ASSERT_TRUE (bp::SetUnitRooms (quick, at, 4));
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
     EXPECT_TRUE (std::any_of (units.polylines.begin (), units.polylines.end (),
                               [] (const auto& line) { return line.rgba == bp::UnitColour (4); }));
@@ -343,5 +364,197 @@ TEST (HudFloorPlan, OverlayAcknowledgesStairSaveWhenSelectionTabIsNotDrawingAndR
     hud::TakeFloorPlanLayers (*state, stairs, units);
     EXPECT_FALSE (bp::Conflict (plan, draft));
     EXPECT_FALSE (bp::Dirty (draft));
-    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[0]).seeds[0].rooms, 4);
+    EXPECT_DOUBLE_EQ (bp::QuickFor (plan, draft, plan.floors[0]).seeds[at].rooms, 4);
+}
+
+TEST (HudFloorPlan, LockedAreasSurviveOtherRoomChangesDraggingAddDeleteAndCancellation)
+{
+    auto plan = bp::GenerateQuick (Floor (), { { 6, 3 } });
+    const size_t at = MultiSeed (plan);
+    ASSERT_LT (at, plan.seeds.size ());
+    ASSERT_TRUE (bp::SetUnitRooms (plan, at, 1));
+    ASSERT_TRUE (bp::SetUnitLocked (plan, at, true));
+    const auto id = plan.seeds[at].id;
+    size_t neighbour = at + 1;
+    ASSERT_LT (neighbour, plan.seeds.size ());
+    ASSERT_EQ (plan.seeds[at].segment, plan.seeds[neighbour].segment);
+    ASSERT_TRUE (bp::SetUnitRooms (plan, neighbour, 3));
+    EXPECT_NEAR (bp::UnitArea (plan.units[at]), 34, 1e-4);
+    const auto seeds = plan.seeds;
+    const auto units = plan.units;
+    plan.selected = int (neighbour);
+    plan.dragOriginal = plan.seeds[neighbour].along;
+    plan.dragSeeds = seeds;
+    plan.dragUnits = units;
+    plan.dragging = true;
+    auto centre = bp::UnitCenter (plan, plan.seeds[neighbour]);
+    centre.x += 1.2 * std::cos (plan.angle);
+    centre.y += 1.2 * std::sin (plan.angle);
+    ASSERT_TRUE (bp::MoveUnit (plan, neighbour, centre));
+    EXPECT_NEAR (bp::UnitArea (plan.units[at]), 34, 1e-4);
+    bp::CancelUnits (plan);
+    for (size_t i = 0; i < seeds.size (); ++i) {
+        EXPECT_DOUBLE_EQ (plan.seeds[i].along, seeds[i].along);
+        EXPECT_EQ (plan.units[i].rings.front ().xy, units[i].rings.front ().xy);
+    }
+    ASSERT_TRUE (bp::RemoveUnit (plan, neighbour));
+    EXPECT_EQ (plan.seeds[at].id, id);
+    EXPECT_NEAR (bp::UnitArea (plan.units[at]), 34, 1e-4);
+}
+
+TEST (HudFloorPlan, InfeasibleLocksRejectAtomicallyRatherThanShowWrongSizes)
+{
+    auto plan = bp::GenerateQuick (Floor (), { { 6, 3 } });
+    ASSERT_TRUE (plan.ready);
+    auto at = std::min_element (plan.units.begin (), plan.units.end (),
+                                [] (const auto& a, const auto& b) { return bp::UnitArea (a) < bp::UnitArea (b); }) -
+              plan.units.begin ();
+    const double total = bp::UnitArea (plan.segments[plan.seeds[size_t (at)].segment]);
+    ASSERT_LT (total, 82);
+    const auto before = plan.seeds;
+    const auto rings = plan.units[size_t (at)].rings.front ().xy;
+    EXPECT_FALSE (bp::SetUnitRooms (plan, size_t (at), 4));
+    EXPECT_EQ (plan.seeds[size_t (at)].rooms, before[size_t (at)].rooms);
+    EXPECT_EQ (plan.units[size_t (at)].rings.front ().xy, rings);
+    EXPECT_FALSE (plan.solveNote.empty ());
+}
+
+TEST (HudFloorPlan, FinalCorridorsNeverTouchExternalOrCourtyardFacadesAndFillsRespectHoles)
+{
+    auto floor = Floor ();
+    floor.contours = { { Ring (0, 0, 36, 36), Ring (12, 12, 12, 12) } };
+    const auto plan = bp::GenerateQuick (floor, { { 6, 3 } });
+    ASSERT_TRUE (plan.ready) << plan.note;
+    const cp::PathD outer { { 0, 0 }, { 36, 0 }, { 36, 36 }, { 0, 36 } };
+    const cp::PathD hole { { 12, 12 }, { 24, 12 }, { 24, 24 }, { 12, 24 } };
+    const auto safe = cp::Difference (cp::InflatePaths ({ outer }, -0.29, cp::JoinType::Miter, cp::EndType::Polygon),
+                                      cp::InflatePaths ({ hole }, 0.29, cp::JoinType::Miter, cp::EndType::Polygon),
+                                      cp::FillRule::NonZero, 6);
+    EXPECT_NEAR (cp::Area (cp::Difference (Paths (plan.corridors), safe, cp::FillRule::NonZero, 6)), 0, 1e-5);
+    for (const auto& corridor : plan.corridors)
+        EXPECT_FALSE (corridor.triangles.empty ());
+    for (const auto& unit : plan.units) {
+        cp::PathsD triangles;
+        for (size_t i = 0; i + 2 < unit.triangles.size (); i += 3)
+            triangles.push_back ({ { unit.triangles[i].x, unit.triangles[i].y },
+                                   { unit.triangles[i + 1].x, unit.triangles[i + 1].y },
+                                   { unit.triangles[i + 2].x, unit.triangles[i + 2].y } });
+        EXPECT_NEAR (cp::Area (cp::Intersect (triangles, { hole }, cp::FillRule::NonZero, 6)), 0, 1e-5);
+        EXPECT_NEAR (std::abs (cp::Area (triangles)), bp::UnitArea (unit), 1e-4);
+    }
+}
+
+TEST (HudFloorPlan, AllBuildingSnapshotsKeepSolidCorePreviewsAndEditsOnDeselectionButClearOnRemoval)
+{
+    hudtest::Watched gui;
+    hud::OwnPages pages;
+    const auto plan = Building ();
+    pages.floorPlansKnown = true;
+    pages.floorPlans = { plan };
+    gui.engine.SetOwnPages (pages);
+    gui.state->previewStairs = true;
+    geomsrv::archviz::overlaylayers::Layer stairs, units;
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
+    ASSERT_EQ (stairs.meshes.size (), 3u);
+    auto& draft = gui.state->buildingPlans.at (plan.key);
+    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
+    ASSERT_TRUE (bp::SetUnitLocked (quick, MultiSeed (quick), true));
+    const auto count = draft.quickPlans.size ();
+    pages.selection.known = true;
+    pages.selection.count = 0;
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (gui.state->floorPlanSnapshots.size (), 1u);
+    EXPECT_EQ (gui.state->buildingPlans.at (plan.key).quickPlans.size (), count);
+    EXPECT_FALSE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
+    EXPECT_EQ (stairs.meshes.size (), 3u);
+    pages.floorPlans.clear ();
+    gui.engine.SetOwnPages (pages);
+    EXPECT_TRUE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
+    EXPECT_TRUE (stairs.meshes.empty ());
+    EXPECT_TRUE (gui.state->buildingPlans.empty ());
+}
+
+TEST (HudFloorPlan, ExactRoomTargetCanMoveCoreAtomicallyAcrossSharedAndUniqueFloors)
+{
+    bool moved = false;
+    for (const auto core : { bp::Point { 6, 3 }, bp::Point { 12, 4 }, bp::Point { 18, 8 }, bp::Point { 28, 8 } }) {
+        auto building = Building ();
+        building.saved = { core };
+        bp::Draft base;
+        bp::Reset (building, base);
+        const auto original = bp::QuickFor (building, base, building.floors[0]);
+        if (!original.ready)
+            continue;
+        for (size_t i = 0; i < original.seeds.size () && !moved; ++i) {
+            auto draft = base;
+            auto direct = original;
+            if (bp::SetUnitRooms (direct, i, 4))
+                continue;
+            bp::MakeUnique (building, draft, building.floors[1]);
+            auto& unique = bp::QuickFor (building, draft, building.floors[1]);
+            const size_t lock = MultiSeed (unique);
+            ASSERT_LT (lock, unique.seeds.size ());
+            ASSERT_TRUE (bp::SetUnitLocked (unique, lock, true));
+            if (!bp::ChangeUnitTarget (building, draft, building.floors[0], i, 4, true)) {
+                EXPECT_EQ (draft.points, base.points);
+                continue;
+            }
+            moved = true;
+            EXPECT_NE (draft.points, base.points);
+            EXPECT_TRUE (bp::Dirty (draft));
+            for (const auto& floor : building.floors) {
+                EXPECT_TRUE (bp::Fits (floor, draft.points[0]));
+                const auto& quick = bp::QuickFor (building, draft, floor);
+                ASSERT_TRUE (quick.ready);
+                for (size_t n = 0; n < quick.seeds.size (); ++n)
+                    if (quick.seeds[n].locked)
+                        EXPECT_NEAR (bp::UnitArea (quick.units[n]), bp::UnitTargetArea (quick.seeds[n].rooms), 1e-3);
+            }
+            EXPECT_NEAR (bp::UnitArea (bp::QuickFor (building, draft, building.floors[0]).units[i]), 82, 1e-3);
+        }
+        if (moved)
+            break;
+    }
+    EXPECT_TRUE (moved) << "At least one infeasible initial segment should be solved by local core motion";
+}
+
+TEST (HudFloorPlan, CachedSpringEditsAreBoundedAndLockedAreaDoesNotDrift)
+{
+    auto plan = bp::GenerateQuick (Floor (), { { 6, 3 } });
+    const size_t at = MultiSeed (plan);
+    ASSERT_LT (at, plan.seeds.size ());
+    ASSERT_TRUE (bp::SetUnitLocked (plan, at, true));
+    const auto start = std::chrono::steady_clock::now ();
+    for (int n = 0; n < 100; ++n) {
+        auto p = bp::UnitCenter (plan, plan.seeds[at + 1]);
+        p.x += (n % 2 ? -0.9 : 0.9) * std::cos (plan.angle);
+        p.y += (n % 2 ? -0.9 : 0.9) * std::sin (plan.angle);
+        bp::MoveUnit (plan, at + 1, p);
+        EXPECT_NEAR (bp::UnitArea (plan.units[at]), 48, 1e-4);
+    }
+    const double ms = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - start).count ();
+    RecordProperty ("meanEditMs", ms / 100);
+    EXPECT_LT (ms, 5000) << "Offline guard against unbounded per-frame optimisation";
+}
+
+TEST (HudFloorPlan, BadCoreChangeWithholdsStaleLockedPlansAndRestoringCoreRecoversLocks)
+{
+    const auto plan = Building ();
+    bp::Draft draft;
+    bp::Reset (plan, draft);
+    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
+    const size_t at = MultiSeed (quick);
+    ASSERT_LT (at, quick.seeds.size ());
+    ASSERT_TRUE (bp::SetUnitLocked (quick, at, true));
+    draft.points[0] = { -10, -10 };
+    const auto& invalid = bp::QuickFor (plan, draft, plan.floors[0]);
+    EXPECT_FALSE (invalid.ready);
+    EXPECT_TRUE (invalid.units.empty ());
+    EXPECT_TRUE (invalid.corridors.empty ());
+    EXPECT_TRUE (invalid.seeds[at].locked);
+    draft.points = plan.saved;
+    const auto& recovered = bp::QuickFor (plan, draft, plan.floors[0]);
+    ASSERT_TRUE (recovered.ready);
+    EXPECT_TRUE (recovered.seeds[at].locked);
+    EXPECT_NEAR (bp::UnitArea (recovered.units[at]), 48, 1e-4);
 }

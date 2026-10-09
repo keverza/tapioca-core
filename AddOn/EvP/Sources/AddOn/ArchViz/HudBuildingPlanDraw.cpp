@@ -117,11 +117,25 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             const double values[] = { 1, 1.5, 2, 3, 4 };
             design.newRooms = values[roomType];
             if (design.selected >= 0)
-                SetUnitRooms (design, size_t (design.selected), design.newRooms);
+                ChangeUnitTarget (plan, draft, *floor, size_t (design.selected), design.newRooms,
+                                  design.seeds[size_t (design.selected)].locked);
         }
         if (ImGui::IsItemHovered ())
             ImGui::SetTooltip (
-                "Area weight for the selected unit (or the next added unit). Not internal room generation.");
+                "Resize selected apartment to this area target; neighbours relax. New apartments use this target.");
+        ImGui::BeginDisabled (design.selected < 0);
+        const bool locked = design.selected >= 0 && design.seeds[size_t (design.selected)].locked;
+        if (ImGui::SmallButton (locked ? "Unlock room count" : "Lock room count")) {
+            if (locked)
+                SetUnitLocked (design, size_t (design.selected), false);
+            else
+                ChangeUnitTarget (plan, draft, *floor, size_t (design.selected),
+                                  design.seeds[size_t (design.selected)].rooms, true);
+        }
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip (
+                "Lock the exact target area, not the point position. Neighbours and proposed cores may move.");
+        ImGui::EndDisabled ();
         ImGui::EndDisabled ();
     }
     double minX = 1e300, minY = 1e300, maxX = -1e300, maxY = -1e300;
@@ -171,6 +185,17 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             for (const auto& region : values)
                 outlines (std::vector<std::vector<SliceChain>> { region.rings }, colour, 1.5f * scale);
         };
+        const auto fill = [&] (const PlanRegion& region, ImU32 colour) {
+            for (size_t i = 0; i + 2 < region.triangles.size (); i += 3)
+                draw->AddTriangleFilled (project (region.triangles[i]), project (region.triangles[i + 1]),
+                                         project (region.triangles[i + 2]), colour);
+        };
+        if (design.stage == 6) {
+            for (const auto& corridor : design.corridors)
+                fill (corridor, IM_COL32 (214, 196, 154, 255));
+            for (size_t i = 0; i < design.units.size (); ++i)
+                fill (design.units[i], hudshell::Packed (UnitColour (design.seeds[i].rooms)));
+        }
         if (design.stage == 1 && !design.bars.empty ()) {
             const auto o = project (design.origin);
             draw->AddLine (o,
@@ -188,12 +213,12 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             regions (design.corridors, IM_COL32 (214, 196, 154, 255));
         if (design.stage == 4)
             regions (design.bands, IM_COL32 (154, 209, 230, 255));
-        if (design.stage == 5)
+        if (design.stage == 5 && design.ready)
             regions (design.segments, IM_COL32 (74, 127, 181, 255));
         if (design.stage == 6)
             for (size_t i = 0; i < design.units.size (); ++i)
-                outlines (std::vector<std::vector<SliceChain>> { design.units[i].rings },
-                          hudshell::Packed (UnitColour (design.seeds[i].rooms)), 1.5f * scale);
+                outlines (std::vector<std::vector<SliceChain>> { design.units[i].rings }, IM_COL32 (38, 57, 57, 255),
+                          1.5f * scale);
         int near = -1;
         double best = 1e300;
         const auto mouse = ImGui::GetIO ().MousePos;
@@ -229,6 +254,8 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
                 Cancel (draft);
                 design.selected = nearUnit;
                 design.dragOriginal = design.seeds[size_t (nearUnit)].along;
+                design.dragSeeds = design.seeds;
+                design.dragUnits = design.units;
                 const auto center = UnitCenter (design, design.seeds[size_t (nearUnit)]);
                 design.dragOffset = { center.x - worldMouse.x, center.y - worldMouse.y };
                 design.dragging = true;
@@ -245,6 +272,8 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             if (!ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
                 design.dragging = false;
                 design.owner = 0;
+                design.dragSeeds.clear ();
+                design.dragUnits.clear ();
             }
             else if (hovered && ImGui::IsMouseDragging (ImGuiMouseButton_Left))
                 MoveUnit (design, size_t (design.selected),
@@ -263,7 +292,7 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
         const auto rectangle = [&] (Point point, ImU32 colour, bool selected) {
             const auto a = project ({ point.x - kStairWidth / 2, point.y + kStairDepth / 2 });
             const auto b = project ({ point.x + kStairWidth / 2, point.y - kStairDepth / 2 });
-            draw->AddRectFilled (a, b, (colour & 0x00FFFFFFu) | 0x30000000u);
+            draw->AddRectFilled (a, b, IM_COL32 (150, 150, 150, 255));
             draw->AddRect (a, b, colour, 0, 0, (selected ? 3 : 1.5f) * scale);
         };
         for (size_t i = 0; i < draft.points.size (); ++i) {
@@ -282,15 +311,19 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
             for (size_t i = 0; i < design.seeds.size (); ++i) {
                 const auto center = project (UnitCenter (design, design.seeds[i]));
                 const auto colour = hudshell::Packed (UnitColour (design.seeds[i].rooms));
-                draw->AddCircleFilled (center, (design.selected == int (i) ? 5 : 3) * scale, colour);
+                draw->AddCircleFilled (center, (design.selected == int (i) ? 5 : 3) * scale,
+                                       IM_COL32 (30, 40, 40, 255));
+                if (design.selected == int (i))
+                    draw->AddCircle (center, 7 * scale, colour, 0, 2 * scale);
                 const auto& seed = design.seeds[i];
-                const std::string label =
-                    "U" + std::to_string (seed.id) + " / " + hudmeta::NumberText (seed.rooms) + "R";
-                draw->AddText ({ center.x + 6 * scale, center.y }, colour, label.c_str ());
+                const std::string label = "U" + std::to_string (seed.id) + " / " + hudmeta::NumberText (seed.rooms) +
+                                          "R" + (seed.locked ? " [L]" : "");
+                draw->AddText ({ center.x + 6 * scale, center.y }, IM_COL32 (30, 40, 40, 255), label.c_str ());
             }
         if (hovered && (nearUnit >= 0 || design.dragging)) {
             ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
-            ImGui::SetTooltip ("Drag centre along its segment to nudge apartment boundaries (0.3 m). Escape cancels.");
+            ImGui::SetTooltip (
+                "Drag to relax neighbours along the band (0.3 m); locked sizes stay exact. Escape cancels.");
         }
         draw->PopClipRect ();
         ImGui::TextDisabled ("Blue: counted floor | Gray: physical outline | XY: project metres");
@@ -352,11 +385,14 @@ std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,
                          Dirty (draft) ? "Local changes not yet saved" : "No local changes");
     const auto& info = QuickFor (plan, draft, *floor);
     ImGui::TextWrapped ("%s", info.note.c_str ());
+    if (!info.solveNote.empty ())
+        ImGui::TextWrapped ("%s", info.solveNote.c_str ());
     if (info.selected >= 0 && size_t (info.selected) < info.units.size ()) {
         const auto& seed = info.seeds[size_t (info.selected)];
         ImGui::Text ("U%u | %.1f rooms | %.1f m2 allocated / %.1f m2 target", seed.id, seed.rooms,
                      UnitArea (info.units[size_t (info.selected)]), UnitTargetArea (seed.rooms));
-        ImGui::TextDisabled ("Weights nudge shared boundaries; target areas and room layouts are not guaranteed.");
+        ImGui::TextDisabled ("%s | Room count is an area target, not internal room generation.",
+                             seed.locked ? "Exact area locked" : "Unlocked: may resize when neighbours change");
     }
     ImGui::TextDisabled ("%s | Colours: room targets | Tan: corridors | Unassigned floor stays blue",
                          draft.uniqueFloors.contains (floor->story) ? "Unique floor" : "Shared by identical outlines");
