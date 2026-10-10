@@ -1,6 +1,7 @@
 // The floors' schemes on the overlay (OverlayHudFloorPlans.cpp): every building floor planned off
-// the UI thread and drawn once it arrives -- stairs as boxes a floor high, flats, circulation and
-// party walls -- published only when something changed, kept through deselection.
+// the UI thread and drawn once it arrives -- each stack stair as one shaft from the lowest floor to
+// under the top floor's slab, flats and circulation inside their walls, party walls -- published
+// only when something changed, kept through deselection.
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
@@ -38,12 +39,16 @@ bp::Plan Tower ()
     plan.saved = { { { 6, 8 } } };
     return plan;
 }
-// Layers taken until a call publishes stairs on every floor (at most two seconds).
-bool Planned (hud::State& state, layers::Layer& stairs, layers::Layer& units, size_t floors)
+// Layers taken until every floor is planned and `shafts` stairs are published (at most two seconds).
+bool Planned (hud::State& state, layers::Layer& stairs, layers::Layer& units, size_t shafts)
 {
     for (int n = 0; n < 400; ++n) {
         hud::TakeFloorPlanLayers (state, stairs, units);
-        if (stairs.meshes.size () == floors && !state.floorPlanner.Busy ())
+        bool all = true;
+        for (const auto& [key, plan] : state.floorPlanSnapshots)
+            for (const auto& floor : plan.floors)
+                all = all && state.floorPlanner.Latest (bp::FloorId (key, floor.story));
+        if (all && stairs.meshes.size () == shafts && !state.floorPlanner.Busy ())
             return true;
         std::this_thread::sleep_for (std::chrono::milliseconds (5));
     }
@@ -58,14 +63,30 @@ TEST (OverlayFloorPlans, EveryFloorsSchemeIsDrawnOnceItIsPlannedAndNotRebuiltUnt
     state->floorPlanSnapshots[plan.key] = plan;
     state->previewStairs = state->previewUnits = true;
     layers::Layer stairs, units;
-    ASSERT_TRUE (Planned (*state, stairs, units, 3));
+    ASSERT_TRUE (Planned (*state, stairs, units, 1));
     EXPECT_EQ (stairs.name, bp::kStairsLayer);
     EXPECT_EQ (units.name, bp::kUnitsLayer);
-    for (size_t i = 0; i < stairs.meshes.size (); ++i) {
-        EXPECT_DOUBLE_EQ (stairs.meshes[i].points[2], double (i) * 3);
-        EXPECT_DOUBLE_EQ (stairs.meshes[i].points[14], double (i + 1) * 3);
-        EXPECT_EQ (stairs.meshes[i].indices.size (), 36u);
-    }
+    // The one stair, a shaft from the ground floor's level to under the top floor's 0.3 m slab,
+    // 0.1 m inside its walls (a 4.5 m stair shows 4.3 m).
+    const auto& shaft = stairs.meshes.front ();
+    ASSERT_EQ (shaft.points.size (), 24u);
+    EXPECT_DOUBLE_EQ (shaft.points[2], 0.0);
+    EXPECT_NEAR (shaft.points[14], 3 * 3 - fp::kSlab, 1e-9);
+    EXPECT_EQ (shaft.indices.size (), 36u);
+    double x0 = 1e18, x1 = -1e18, y0 = 1e18, y1 = -1e18;
+    for (size_t i = 0; i < shaft.points.size (); i += 3)
+        x0 = (std::min) (x0, shaft.points[i]), x1 = (std::max) (x1, shaft.points[i]),
+        y0 = (std::min) (y0, shaft.points[i + 1]), y1 = (std::max) (y1, shaft.points[i + 1]);
+    const double w = x1 - x0, d = y1 - y0;
+    EXPECT_NEAR ((std::min) (w, d), 4.5 - 0.2, 1e-3) << "inside the stair's walls, not on their centre lines";
+    // Flats inside their walls: no outline reaches the massing's edge (the facade is 0.5 m thick).
+    for (const auto& line : units.polylines)
+        for (size_t i = 0; i < line.points.size (); i += 3) {
+            EXPECT_GE (line.points[i], 0.5 - 1e-6);
+            EXPECT_LE (line.points[i], 36 - 0.5 + 1e-6);
+            EXPECT_GE (line.points[i + 1], 0.5 - 1e-6);
+            EXPECT_LE (line.points[i + 1], 16 - 0.5 + 1e-6);
+        }
     EXPECT_TRUE (layers::Validate (stairs).empty ());
     EXPECT_GT (units.polylines.size (), 3u);
     EXPECT_FALSE (hud::TakeFloorPlanLayers (*state, stairs, units)) << "nothing changed: nothing published";
@@ -94,7 +115,7 @@ TEST (OverlayFloorPlans, DesignsSurviveDeselectionButClearWhenTheBuildingGoes)
     gui.engine.SetOwnPages (pages);
     gui.state->previewStairs = true;
     layers::Layer stairs, units;
-    ASSERT_TRUE (Planned (*gui.state, stairs, units, 3));
+    ASSERT_TRUE (Planned (*gui.state, stairs, units, 1));
     auto& draft = gui.state->buildingPlans.at (plan.key);
     draft.designs.unique = { 1 };
     pages.selection.known = true;
