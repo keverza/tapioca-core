@@ -670,16 +670,15 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
         for (int k = 1; k < n; ++k)
             cuts.push_back (p.s0 + length * k / n);
     cuts.push_back (p.s1);
-    int previousEnd = 0;
     for (size_t k = 0; k + 1 < cuts.size (); ++k) {
         const double a = cuts[k], b = cuts[k + 1];
         if (access == Access::Centre && b - a < 2 * c.o.maxCap + w + 5.0) {
-            // Short: the stair goes to an end that is not a gable, where it still has a window. A
-            // slanted end (floor beyond it that runs out within a flat's width) counts as a gable:
-            // the corridor reaches it and the flats there take the wedge (user, 2026-10-10).
-            auto wedge = [&] (bool hi) { return Wedge (c, f, hi ? b : a, hi, 0, depth) > 0; };
-            const bool lowGable = SideFacade (c, f, { a, 0, b, depth }, 3) >= 0.5 * depth || wedge (false);
-            const bool highGable = SideFacade (c, f, { a, 0, b, depth }, 1) >= 0.5 * depth || wedge (true);
+            // Short: the stair takes the corridor's end at a gable, where it has a window. Never at
+            // an end beside another section: the flat there would sit between two stairs (user,
+            // 2026-10-10: stair, flat, flat, stair). With no gable, caps at both ends and the stair
+            // in the band when it fits.
+            const bool lowGable = SideFacade (c, f, { a, 0, b, depth }, 3) >= 0.5 * depth;
+            const bool highGable = SideFacade (c, f, { a, 0, b, depth }, 1) >= 0.5 * depth;
             const double c0 = (depth - c.o.corridor) / 2;
             const Box core { 0, up ? c0 : 0, w, up ? depth : c0 + c.o.corridor };
             auto window = [&] (double u0) {
@@ -687,21 +686,16 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
                 return SideFacade (c, f, k, up ? 2 : 0) + SideFacade (c, f, k, u0 <= a + 1e-6 ? 3 : 1);
             };
             const bool highOk = window (b - w) >= c.o.stairWindow, lowOk = window (a) >= c.o.stairWindow;
-            // Never back to back with the previous section's stair.
-            const bool lowFree = lowOk && previousEnd != 1;
             int end = 0;
-            if (highOk && (!highGable || !lowFree || lowGable))
+            if (highGable && highOk)
                 end = 1;
-            else if (lowFree)
+            else if (lowGable && lowOk)
                 end = -1;
-            // The stair would take a slanted end: a full section (caps at both ends) when it fits.
-            if (end == 1 && wedge (true) && !lowFree && b - a >= 2 * c.o.minCap + w + 5.0)
-                end = 0;
+            else if (b - a < 2 * c.o.minCap + w + 5.0)
+                end = highOk ? 1 : lowOk ? -1 : 0;
             CentreSection (c, f, depth, a, b, up, run, end);
-            previousEnd = end;
             continue;
         }
-        previousEnd = 0;
         if (access == Access::Centre)
             CentreSection (c, f, depth, cuts[k], cuts[k + 1], up, run);
         else if (access == Access::OneSide)

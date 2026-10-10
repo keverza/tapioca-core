@@ -36,14 +36,16 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     const bool single = k.single;
     const double ca = (DA - corr) / 2, cb = single ? DB - corr : (DB - corr) / 2;
     const double bandA = DA - ca - corr, bandB = DB - cb - corr;
-    // The arm's outer band produced down over the corner square only makes a deep, dark corner
-    // flat: that bay is left out of the massing (user, 2026-10-10), so the parent's outer band
-    // and the arm's both end on a new gable beside the corridor's turn.
-    const Box bay { 0, 0, cb, DA };
-    const bool cull =
-        c.o.cullCorners && !single && SideFacade (c, f, bay, 3) >= 0.8 * DA && SideFacade (c, f, bay, 0) >= 0.8 * cb;
+    // An L is two bars at a right angle. An outer corner facing north only makes a deep, dark
+    // corner flat: the notch where the two outer bands meet is left out of the massing, and the
+    // flats of both bands front the new facades. Facing south the corner is sunny and keeps its
+    // flats (user, 2026-10-10).
+    const Box bay { 0, 0, cb, ca };
+    const Vec out = Unit ({ -f.u.x - f.v.x, -f.u.y - f.v.y });
+    const bool cull = c.o.cullCorners && !single && Dot (out, North (c.o)) > 0.1 &&
+                      SideFacade (c, f, bay, 3) >= 0.8 * ca && SideFacade (c, f, bay, 0) >= 0.8 * cb;
     if (cull) {
-        c.out.culled.push_back ({ ToRing (f, bay), "outer corner bay of an L: leave it out of the massing" });
+        c.out.culled.push_back ({ ToRing (f, bay), "outer corner of an L facing north: leave it out of the massing" });
         c.outline = cp::Difference (c.outline, { ToPath (ToRing (f, bay)) }, cp::FillRule::NonZero, kPrecision);
     }
     const double cap2 = RoomFrontage (2).pref;
@@ -57,7 +59,21 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     const bool alongB = !single && !alongA &&
                         FacadeAlong (c.outline, f.World (DB, DA), f.World (DB, DA + s), f.u) >= c.o.stairWindow - 0.05;
     const double coreU1 = single ? DB + w : alongB ? DB : DB + s, coreU0 = (std::max) (cb + corr, coreU1 - w);
-    const double armStart = alongB ? s : 0.0; // the arm's inner band starts above the stair
+    // An inner corner facing north: the arm's inner band is bitten out over the corner, so the
+    // stair and the lobby beside it see daylight instead of a dark corner flat (user sketch
+    // "possible place to bite out area for better plan", 2026-10-10).
+    const double biteDepth = DB - cb - corr;
+    const Box bite { cb + corr, DA, DB, DA + biteDepth };
+    const Vec in = Unit ({ f.u.x + f.v.x, f.u.y + f.v.y });
+    const bool bitten = c.o.biteCorners && !single && alongA && biteDepth >= kBedroomMin &&
+                        Dot (in, North (c.o)) > 0.1 && LBp >= biteDepth + c.o.minCap + 1.0 &&
+                        SideFacade (c, f, bite, 1) >= 0.8 * biteDepth;
+    if (bitten) {
+        c.out.culled.push_back ({ ToRing (f, bite), "inner corner of an L facing north: bitten out for a lit stair" });
+        c.outline = cp::Difference (c.outline, { ToPath (ToRing (f, bite)) }, cp::FillRule::NonZero, kPrecision);
+    }
+    // The arm's inner band starts above the stair, or above the bite.
+    const double armStart = alongB ? s : bitten ? biteDepth : 0.0;
     if (!alongA && !alongB) {
         // Neither inner facade is free at the corner: say how far a deeper stair would reach.
         double reach = 0;
@@ -77,13 +93,10 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     struct Arm {
         double length, cap;
         bool small = false; // only a studio fits beside the stair
-        bool lobby = false; // the corridor runs on to `reach` with a lobby, not flats, beside it
     };
     const double minRest = c.o.maxCap + w + 5.0;
-    // `reach`: corridor the arm needs past the corner, so its outer band still has a door when
-    // the corner bay is culled; on a short arm what lies beside that stretch is a lobby.
     // `open`: no inner band (a stub), so any corridor length beside the cap will do.
-    auto arms = [&] (double full, double start, double cap0, double reach, bool open) {
+    auto arms = [&] (double full, double start, double cap0, bool open) {
         std::vector<Arm> out;
         std::vector<double> lengths;
         for (double len = start + c.o.minCap; len <= full - minRest + 1e-6; len += 0.1)
@@ -94,37 +107,31 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
             // First a cap that leaves an ordinary flat's width (or none) beside the stair,
             // then any cap that leaves whole flats.
             double best = -1;
-            bool small = false, lobby = false;
+            bool small = false;
             // A short arm may give its whole length to a larger cap (up to 4 m past the
             // usual maximum) rather than leave a studio beside the stair.
             for (int pass = 0; pass < 2 && best < 0; ++pass)
                 for (double d = 0; d <= c.o.maxCap + 4 - c.o.minCap && best < 0; d += 0.1)
                     for (double cap : { cap0 - d, cap0 + d }) {
-                        double inner = at - start - cap;
+                        const double inner = at - start - cap;
                         const double most = c.o.maxCap + (pass == 0 ? 4 : 2);
                         if (cap < c.o.minCap - 1e-9 || cap > most + 1e-9 || inner < -1e-9 || inner > c.o.maxDeadEnd)
                             continue;
-                        const bool short_ = inner + start < reach - 1e-9;
-                        if (short_ && (inner >= 0.05 || at - reach < c.o.minCap - 1e-9))
-                            continue;
-                        if (short_)
-                            cap = at - reach, inner = 0;
                         if (pass == 0 && inner >= 0.05 && inner < ordinary && !open)
                             continue;
                         if (open || c.Fits (inner)) {
-                            best = cap, small = pass == 1, lobby = short_;
+                            best = cap, small = pass == 1;
                             break;
                         }
                     }
             if (best >= 0)
-                out.push_back ({ at, best, small, lobby });
+                out.push_back ({ at, best, small });
         }
         if (out.empty ())
             out.push_back ({ full, Clip (full - start, 0.0, cap0), true });
         return out;
     };
-    const auto optionsA = arms (LAp, coreU1, capA0, 0, false),
-               optionsB = arms (LBp, armStart, capB0, cull ? 1.3 : 0, single);
+    const auto optionsA = arms (LAp, coreU1, capA0, false), optionsB = arms (LBp, armStart, capB0, single);
     const double limit = (c.o.sectionArea + c.o.sectionSlack) / c.o.grossFactor;
     Arm armA = optionsA.back (), armB = optionsB.back ();
     double bestArea = -1;
@@ -178,14 +185,12 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     AddCap (c, f, { ueA, ca, LA, DA }, false, id, ca, ca + corr);
     // A stub's cap spans it: its outer band stops where the corridor does.
     AddCap (c, g, { veB, single ? 0 : cb, DA + LB, DB }, false, id, cb, cb + corr);
-    // Outer bands: the parent's runs round the corner unless the corner bay is culled.
+    // Outer bands: the parent's runs round the corner unless the corner is cut; the arm's runs
+    // down to the parent's corridor either way.
     AddSlot (c, f, { cull ? cb : 0, 0, LA, ca }, false, id, 0, 0, true, cb, ueA);
-    AddSlot (c, g, { cull ? DA : ca, 0, single ? veB : DA + LB, cb }, false, id, 0, 0, true, cull ? DA : ca, veB);
-    AddSlot (c, f, { coreU1, ca + corr, ueA, DA }, true, id); // inner band of the parent
-    if (armB.lobby)
-        c.out.lobbies.push_back (ToRing (g, { DA + armStart, cb + corr, veB, DB }));
-    else
-        AddSlot (c, g, { DA + armStart, cb + corr, veB, DB }, true, id); // inner band of the arm
+    AddSlot (c, g, { ca, 0, single ? veB : DA + LB, cb }, false, id, 0, 0, true, ca, veB);
+    AddSlot (c, f, { coreU1, ca + corr, ueA, DA }, true, id);        // inner band of the parent
+    AddSlot (c, g, { DA + armStart, cb + corr, veB, DB }, true, id); // inner band of the arm
 }
 std::vector<Corner> Corners (const Skeleton& sk, const std::vector<Access>& access, double corridor)
 {

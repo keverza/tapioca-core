@@ -301,14 +301,29 @@ const fs::Scheme& Named (const char* name)
     return it->second;
 }
 
-TEST (FloorScheme, LCornerLeavesItsOuterBayOutOfTheMassing)
+TEST (FloorScheme, LCornerFacingNorthLeavesItsOuterBayOutOfTheMassing)
 {
-    // User, 2026-10-10: the arm's outer band produced over the corner square is cut, so both
-    // outer bands end on a new gable beside the corridor's turn.
-    const auto& s = Named ("L 48 x 16 and 16 x 32");
-    ASSERT_EQ (s.culled.size (), 1u);
-    EXPECT_NEAR (std::abs (fs::Area (s.culled.front ().shape)), 7.1 * 16, 1.0);
-    EXPECT_NEAR (s.gross, 48 * 16 + 16 * 32 - 7.1 * 16, 1.0);
+    // User, 2026-10-10: an outer corner facing north is notched out, both outer bands ending on a
+    // new gable; facing south it keeps its flats.
+    const auto& south = Named ("L 48 x 16 and 16 x 32");
+    EXPECT_TRUE (south.culled.empty ());
+    const auto s = fs::Generate ({ Rect (0, 32, 48, 48), Rect (0, 0, 16, 32) }, fp::Default ());
+    ASSERT_EQ (s.culled.size (), 1u) << Report (s);
+    // The notch where the two outer bands meet; flats front both new faces.
+    EXPECT_NEAR (std::abs (fs::Area (s.culled.front ().shape)), 7.1 * 7.1, 1.0);
+    EXPECT_NEAR (s.gross, 48 * 16 + 16 * 32 - 7.1 * 7.1, 1.0);
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    EXPECT_LT (Red (s), 1.0);
+}
+
+TEST (FloorScheme, InnerCornerFacingNorthCanBeBittenOut)
+{
+    // Asked for: the arm's inner band over an inner corner facing north is bitten out, so the
+    // corner stair and its lobby see daylight.
+    fs::Options o;
+    o.biteCorners = true;
+    const auto s = fs::Generate (Named ("L 48 x 16 and 16 x 32").outline, fp::Default (), {}, o);
+    ASSERT_EQ (s.culled.size (), 1u) << Report (s);
     EXPECT_EQ (Errors (s), 0u) << Report (s);
     EXPECT_LT (Red (s), 1.0);
 }

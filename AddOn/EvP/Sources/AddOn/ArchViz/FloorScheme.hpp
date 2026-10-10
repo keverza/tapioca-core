@@ -56,10 +56,12 @@ struct Options {
     double maxFlat = 90.0;   // net m2 above which a flat is divided (user, 2026-10-10: more 2R
                              // flats beat a few over 100 m2); a programme type may ask for more
     double minCap = 5.0, maxCap = 8.0;
-    bool cullCorners = true; // an L corner leaves its outer corner bay out of the massing (user,
-                             // 2026-10-10: a rational plan beats a deep dark corner flat)
-    double north = 0;        // project north, radians anticlockwise from world +y
-    double raster = 0.3;     // skeleton search grid
+    bool cullCorners = true;  // an L's outer corner facing north is notched out of the massing
+                              // (user, 2026-10-10: a rational plan beats a deep dark corner flat)
+    bool biteCorners = false; // an L's inner corner facing north is bitten out for a lit stair
+                              // (user sketch: "possible place"; costs a flat, so asked for)
+    double north = 0;         // project north, radians anticlockwise from world +y
+    double raster = 0.3;      // skeleton search grid
 };
 
 // User guidance; every point is world XY.

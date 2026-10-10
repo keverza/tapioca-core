@@ -150,7 +150,7 @@ cp::PathsD Merge (const Ring& shape, const cp::PathD& piece)
     return cp::InflatePaths (cp::Union (grown, cp::FillRule::NonZero, kPrecision), -kWeld, cp::JoinType::Miter,
                              cp::EndType::Polygon, 4.0, kPrecision);
 }
-// True when an outline doubles back on itself: a spike or a fold of zero width.
+// True when an outline doubles back on itself or pinches: a spike, a fold or a bridge of zero width.
 bool Folded (const Ring& ring)
 {
     Ring r;
@@ -159,12 +159,25 @@ bool Folded (const Ring& ring)
             r.push_back (p);
     while (r.size () > 1 && std::hypot (r.front ().x - r.back ().x, r.front ().y - r.back ().y) <= 1e-4)
         r.pop_back ();
+    // A bridge or spike of no width (a piece hung on by a hairline): opening the outline by a
+    // centimetre removes it, so the outline loses length but no area.
+    auto perimeter = [] (const cp::PathD& p) {
+        double sum = 0;
+        for (size_t i = 0; i < p.size (); ++i)
+            sum += std::hypot (p[(i + 1) % p.size ()].x - p[i].x, p[(i + 1) % p.size ()].y - p[i].y);
+        return sum;
+    };
+    const auto opened = cp::InflatePaths (
+        cp::InflatePaths ({ ToPath (Counter (r)) }, -0.01, cp::JoinType::Miter, cp::EndType::Polygon, 4.0, kPrecision),
+        0.01, cp::JoinType::Miter, cp::EndType::Polygon, 4.0, kPrecision);
+    if (opened.size () != 1 || perimeter (ToPath (r)) - perimeter (opened.front ()) > 0.2)
+        return true;
     for (size_t i = 0; i < r.size (); ++i) {
         const Vec a = r[(i + r.size () - 1) % r.size ()], b = r[i], c = r[(i + 1) % r.size ()];
         const double l1 = std::hypot (b.x - a.x, b.y - a.y), l2 = std::hypot (c.x - b.x, c.y - b.y);
         if (l1 < 1e-6 || l2 < 1e-6)
             continue;
-        if (((b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)) / (l1 * l2) < -0.999)
+        if (((b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)) / (l1 * l2) < -0.985) // sharper than 10 degrees
             return true;
     }
     return false;
@@ -857,28 +870,32 @@ size_t Check (Scheme& s, const Options& o)
             door += Touch (f.shape, l);
         if (door < 0.9)
             fail ("flat.no_door", "A flat does not reach a corridor or a stair landing.", at);
-        // One stair's circulation per flat (user, 2026-10-10: a flat on two is uneconomical).
+        // One stair's circulation per flat: between two stairs at least two flats, never
+        // stair, flat, stair (user, 2026-10-10). A lobby belongs to the stair it touches; a
+        // contact shorter than a door (a corner brushing a stair) does not count.
         {
             std::vector<int> reached;
             auto reach = [&] (const Ring& ring, int section) {
-                if (section >= 0 && Near (f.shape, ring, 0.1) && Touch (f.shape, ring) >= 0.9 &&
+                if (section >= 0 && Near (f.shape, ring, 0.1) && Touch (f.shape, ring) >= 1.5 &&
                     std::find (reached.begin (), reached.end (), section) == reached.end ())
                     reached.push_back (section);
             };
             for (const auto& c : s.corridors)
                 reach (c.shape, c.section);
-            // A stair is a wall to the flats beside it; it counts only where the flat's door is.
-            const Vec door { (f.door.a.x + f.door.b.x) / 2, (f.door.a.y + f.door.b.y) / 2 };
-            const Ring mark { { door.x - 0.15, door.y - 0.15 },
-                              { door.x + 0.15, door.y - 0.15 },
-                              { door.x + 0.15, door.y + 0.15 },
-                              { door.x - 0.15, door.y + 0.15 } };
             for (const auto& c : s.cores)
-                if (c.section >= 0 && Near (mark, c.shape, 0) && Overlap (mark, c.shape) > 1e-4 &&
-                    std::find (reached.begin (), reached.end (), c.section) == reached.end ())
-                    reached.push_back (c.section);
+                reach (c.shape, c.section);
+            for (const auto& l : s.lobbies) {
+                int section = -1;
+                for (const auto& c : s.cores)
+                    if (section < 0 && Near (l, c.shape, 0.1) && Touch (l, c.shape) > 0.5)
+                        section = c.section;
+                for (const auto& c : s.corridors)
+                    if (section < 0 && Near (l, c.shape, 0.1) && Touch (l, c.shape) > 0.5)
+                        section = c.section;
+                reach (l, section);
+            }
             if (reached.size () > 1)
-                fail ("flat.two_stairs", "A flat opens onto the circulation of two stairs.", at);
+                fail ("flat.two_stairs", "A flat touches the circulation of two stairs.", at);
         }
         for (const auto& c : s.corridors)
             if (Overlap (f.shape, c.shape) > 0.01)
