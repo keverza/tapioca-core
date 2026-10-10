@@ -135,6 +135,52 @@ Design SpaceStairs (const Scheme& s, Design d, int wing, int count, const Vec* k
     }
     return d;
 }
+// A frozen band's spans laid out again from its first wall, `widths` in order.
+void Relay (Frozen& f, const std::vector<double>& widths)
+{
+    double u = f.lo.empty () ? 0 : f.lo.front ();
+    for (size_t k = 0; k < widths.size (); ++k) {
+        f.lo[k] = u;
+        u += widths[k];
+        f.hi[k] = u;
+    }
+}
+size_t Index (const Frozen& f, int flat)
+{
+    return static_cast<size_t> (std::find (f.flats.begin (), f.flats.end (), flat) - f.flats.begin ());
+}
+cp::PathsD Clean (const std::vector<Ring>& rings)
+{
+    return cp::Union (ToPaths (rings), cp::FillRule::NonZero, kPrecision);
+}
+// Where a wall may split span `k` of a frozen band: both parts at least `least` wide and each
+// reaching the band's circulation (corridor, stair, lobby) by a door's width, as the generator
+// asks of every flat. Empty (lo > hi) when the span cannot split.
+std::pair<double, double> SplitRange (const Scheme& s, const Frozen& f, size_t k, double least)
+{
+    constexpr double kDoor = 1.3;
+    double dlo = 1e18, dhi = -1e18;
+    const Ring& band = s.bands[f.band].shape;
+    const auto reach = [&] (const Ring& r) {
+        if (!Near (r, band, 0.2) || Touch (band, r, 0.1) < 0.5)
+            return;
+        for (const auto& p : r) {
+            const double u = f.U (p);
+            dlo = (std::min) (dlo, u), dhi = (std::max) (dhi, u);
+        }
+    };
+    for (const auto& c : s.corridors)
+        reach (c.shape);
+    for (const auto& c : s.cores)
+        reach (c.shape);
+    for (const auto& l : s.lobbies)
+        reach (l);
+    const double lo = f.lo[k], hi = f.hi[k];
+    if (dlo > dhi) // no circulation found: widths alone
+        return { lo + least, hi - least };
+    return { (std::max) (lo + least, (std::max) (lo, dlo) + kDoor),
+             (std::min) (hi - least, (std::min) (hi, dhi) - kDoor) };
+}
 size_t Nearest (const std::vector<Pins::Core>& pins, Vec p)
 {
     size_t best = pins.size ();
@@ -161,6 +207,72 @@ std::vector<Ring> Outline (const std::vector<Ring>& floor, const Design& design)
         joined = cp::Difference (joined, cut, cp::FillRule::NonZero, kPrecision);
     }
     return FromPaths (joined);
+}
+
+std::vector<std::vector<Ring>> Owned (const std::vector<std::vector<Ring>>& floors,
+                                      const std::vector<const Design*>& designs)
+{
+    const size_t n = floors.size ();
+    std::vector<cp::PathsD> base (n), added (n);
+    cp::PathsD before;
+    for (size_t i = 0; i < n; ++i) {
+        const auto floor = Clean (floors[i]);
+        base[i] = before.empty () ? floor : cp::Difference (floor, before, cp::FillRule::NonZero, kPrecision);
+        before = cp::Union (before, floor, cp::FillRule::NonZero, kPrecision);
+        if (i < designs.size () && designs[i])
+            added[i] = Clean (designs[i]->added);
+    }
+    std::vector<std::vector<Ring>> out (n);
+    for (size_t i = 0; i < n; ++i) {
+        auto own = added[i].empty () ? base[i] : cp::Union (base[i], added[i], cp::FillRule::NonZero, kPrecision);
+        if (i < designs.size () && designs[i] && !designs[i]->cut.empty ())
+            own = cp::Difference (own, Clean (designs[i]->cut), cp::FillRule::NonZero, kPrecision);
+        cp::PathsD others;
+        for (size_t j = 0; j < n; ++j)
+            if (j != i)
+                others.insert (others.end (), added[j].begin (), added[j].end ());
+        if (!others.empty ())
+            own = cp::Difference (own, cp::Union (others, cp::FillRule::NonZero, kPrecision), cp::FillRule::NonZero,
+                                  kPrecision);
+        out[i] = FromPaths (own);
+    }
+    return out;
+}
+Scheme RunOwned (const std::vector<Ring>& owned, const std::vector<Ring>& party,
+                 const floorprogramme::Programme& programme, const Design& design, const Options& options)
+{
+    Options o = options;
+    o.shallow = design.shallow;
+    o.party = party;
+    return Generate (owned, programme, design.pins, o);
+}
+std::vector<Ring> PartyStrip (const std::array<Vec, 2>& wall, double distance, const std::vector<Ring>& from)
+{
+    if (std::abs (distance) < 0.05 || from.empty ())
+        return {};
+    const Vec a = wall[0], b = wall[1];
+    const Vec d = Unit ({ b.x - a.x, b.y - a.y }), n { d.y, -d.x }; // outward: right of a counter-clockwise outline
+    const Ring strip = Counter (
+        { a, b, { b.x + n.x * distance, b.y + n.y * distance }, { a.x + n.x * distance, a.y + n.y * distance } });
+    std::vector<Ring> out;
+    for (auto& r : FromPaths (cp::Intersect ({ ToPath (strip) }, Clean (from), cp::FillRule::NonZero, kPrecision)))
+        if (std::abs (Area (r)) > 0.05)
+            out.push_back (std::move (r));
+    return out;
+}
+void Take (Design& gainer, Design& loser, const std::vector<Ring>& strip)
+{
+    if (strip.empty ())
+        return;
+    auto added = ToPaths (gainer.added);
+    for (const auto& r : strip)
+        added.push_back (ToPath (Counter (r)));
+    gainer.added = FromPaths (cp::Union (added, cp::FillRule::NonZero, kPrecision));
+    const auto paths = Clean (strip);
+    if (!gainer.cut.empty ())
+        gainer.cut = FromPaths (cp::Difference (Clean (gainer.cut), paths, cp::FillRule::NonZero, kPrecision));
+    if (!loser.added.empty ())
+        loser.added = FromPaths (cp::Difference (Clean (loser.added), paths, cp::FillRule::NonZero, kPrecision));
 }
 
 Scheme Run (const std::vector<Ring>& floor, const floorprogramme::Programme& programme, const Design& design,
@@ -340,7 +452,7 @@ Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to)
 }
 Design SplitFlat (const Scheme& s, Design d, int flat, Vec at)
 {
-    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()))
+    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()) || Locked (s, d, flat))
         return d;
     auto f = Freeze (s, s.flats[flat].band);
     if (!f)
@@ -349,9 +461,9 @@ Design SplitFlat (const Scheme& s, Design d, int flat, Vec at)
     if (it == f->flats.end ())
         return d;
     const size_t k = static_cast<size_t> (it - f->flats.begin ());
-    const double lo = f->lo[k] + kNarrowest, hi = f->hi[k] - kNarrowest;
+    const auto [lo, hi] = SplitRange (s, *f, k, kNarrowest + 0.2);
     if (lo > hi)
-        return d; // too narrow for two flats
+        return d; // too narrow for two flats that each reach the corridor
     const double u = std::clamp (f->U (at), lo, hi);
     f->lo.insert (f->lo.begin () + static_cast<std::ptrdiff_t> (k) + 1, u);
     f->hi.insert (f->hi.begin () + static_cast<std::ptrdiff_t> (k), u);
@@ -362,7 +474,7 @@ Design SplitFlat (const Scheme& s, Design d, int flat, Vec at)
 }
 Design RemoveFlat (const Scheme& s, Design d, int flat)
 {
-    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()))
+    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()) || Locked (s, d, flat))
         return d;
     auto f = Freeze (s, s.flats[flat].band);
     if (!f || f->flats.size () < 2)
@@ -468,5 +580,228 @@ Ring Rectangle (const Scheme& s, Vec a, Vec b, double grid)
                  b1 = snapTo (Dot ({ b.x - o.x, b.y - o.y }, v), lv);
     auto at = [&] (double p, double q) { return Vec { o.x + u.x * p + v.x * q, o.y + u.y * p + v.y * q }; };
     return Counter ({ at (a0, a1), at (b0, a1), at (b0, b1), at (a0, b1) });
+}
+Design SwapFlats (const Scheme& s, Design d, int a, int b)
+{
+    const int n = static_cast<int> (s.flats.size ());
+    if (a < 0 || b < 0 || a >= n || b >= n || a == b || Locked (s, d, a) || Locked (s, d, b))
+        return d;
+    const auto& fa = s.flats[a];
+    const auto& fb = s.flats[b];
+    if (fa.band >= 0 && fa.band == fb.band) {
+        auto f = Freeze (s, fa.band);
+        if (!f)
+            return d;
+        const size_t ka = Index (*f, a), kb = Index (*f, b);
+        if (ka >= f->flats.size () || kb >= f->flats.size ())
+            return d;
+        std::vector<double> widths;
+        for (size_t k = 0; k < f->lo.size (); ++k)
+            widths.push_back (f->hi[k] - f->lo[k]);
+        std::swap (widths[ka], widths[kb]);
+        std::swap (f->rooms[ka], f->rooms[kb]);
+        std::swap (f->flats[ka], f->flats[kb]);
+        Relay (*f, widths);
+        return Write (s, std::move (d), *f);
+    }
+    // Across the corridor, or in another section: each takes the other's room count and, where a
+    // neighbour in its band can give or take the difference, its width.
+    const double ra = fa.rooms, rb = fb.rooms, wa = fa.frontage, wb = fb.frontage;
+    const auto place = [&] (Design next, int flat, double rooms, double width) {
+        auto f = Freeze (s, s.flats[flat].band);
+        if (!f)
+            return SetRooms (s, std::move (next), flat, rooms);
+        const size_t k = Index (*f, flat);
+        if (k >= f->flats.size ())
+            return SetRooms (s, std::move (next), flat, rooms);
+        const double delta = width - (f->hi[k] - f->lo[k]);
+        const double least = kNarrowest + 0.2;
+        if (k + 1 < f->lo.size () && !Locked (s, next, f->flats[k + 1]) && f->hi[k + 1] - f->hi[k] - delta >= least)
+            f->hi[k] += delta, f->lo[k + 1] += delta;
+        else if (k > 0 && !Locked (s, next, f->flats[k - 1]) && f->lo[k] - delta - f->lo[k - 1] >= least)
+            f->lo[k] -= delta, f->hi[k - 1] -= delta;
+        f->rooms[k] = rooms;
+        return Write (s, std::move (next), *f);
+    };
+    if (fa.band >= 0 && fb.band >= 0)
+        return place (place (std::move (d), a, rb, wb), b, ra, wa);
+    d = SetRooms (s, std::move (d), a, rb);
+    return SetRooms (s, std::move (d), b, ra);
+}
+std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms)
+{
+    const int flat = FlatAt (s, at);
+    if (flat < 0 || s.flats[flat].band < 0)
+        return std::nullopt;
+    const int band = s.flats[flat].band;
+    const auto f = Freeze (s, band);
+    if (!f)
+        return std::nullopt;
+    const size_t k = Index (*f, flat);
+    if (k >= f->flats.size ())
+        return std::nullopt;
+    const double lo = f->lo[k], hi = f->hi[k];
+    // A little over the narrowest: a span right at a minimum reads as too short for a flat.
+    const auto [from, to] = SplitRange (s, *f, k, kNarrowest + 0.2);
+    if (from > to)
+        return std::nullopt;
+    const double w = RoomFrontage (rooms).pref;
+    // At the nearer end, but never the band's own end: a corner stays with the larger flat.
+    const bool first = k == 0 && f->flats.size () > 1, last = k + 1 == f->flats.size () && f->flats.size () > 1;
+    const bool low = first ? false : last ? true : f->U (at) < (lo + hi) / 2;
+    const double wall = std::clamp (low ? lo + w : hi - w, from, to), u0 = low ? lo : wall, u1 = low ? wall : hi;
+    const double half = s.bands[band].depth / 2;
+    const Vec n { -f->dir.y, f->dir.x };
+    const auto across = [&] (double u, double t) {
+        const Vec c = f->At (u);
+        return Vec { c.x + n.x * t, c.y + n.y * t };
+    };
+    Insertion out;
+    out.flat = flat;
+    out.a = across (wall, -half), out.b = across (wall, half);
+    out.region = Counter ({ across (u0, -half), across (u1, -half), across (u1, half), across (u0, half) });
+    return out;
+}
+Design InsertFlat (const Scheme& s, Design d, Vec at, double rooms)
+{
+    const auto ins = Insert (s, at, rooms);
+    if (!ins || Locked (s, d, ins->flat))
+        return d;
+    auto f = Freeze (s, s.flats[ins->flat].band);
+    if (!f)
+        return d;
+    const size_t k = Index (*f, ins->flat);
+    const double wall = f->U ({ (ins->a.x + ins->b.x) / 2, (ins->a.y + ins->b.y) / 2 });
+    const bool low = std::abs (wall - f->lo[k]) < std::abs (wall - f->hi[k]);
+    const auto i = static_cast<std::ptrdiff_t> (k);
+    // The flat splits at the new wall; the new one takes `rooms`, the rest is the generator's.
+    f->lo.insert (f->lo.begin () + i + 1, wall);
+    f->hi.insert (f->hi.begin () + i, wall);
+    f->rooms[k] = 0;
+    f->rooms.insert (f->rooms.begin () + (low ? i : i + 1), rooms);
+    f->flats.insert (f->flats.begin () + i + 1, -1);
+    return Write (s, std::move (d), *f);
+}
+Design SetCount (const Scheme& s, Design d, int total)
+{
+    std::vector<Frozen> bands;
+    for (size_t b = 0; b < s.bands.size (); ++b)
+        if (auto f = Freeze (s, static_cast<int> (b)))
+            bands.push_back (std::move (*f));
+    std::vector<char> touched (bands.size (), 0);
+    const auto free = [&] (const Frozen& f, size_t k) { return f.flats[k] < 0 || !Locked (s, d, f.flats[k]); };
+    int now = static_cast<int> (s.flats.size ());
+    while (now < total) {
+        size_t bi = bands.size (), ki = 0;
+        double widest = 0, mid = 0;
+        for (size_t b = 0; b < bands.size (); ++b)
+            for (size_t k = 0; k < bands[b].lo.size (); ++k) {
+                const auto [lo, hi] = SplitRange (s, bands[b], k, kNarrowest + 0.2);
+                if (free (bands[b], k) && lo <= hi && bands[b].hi[k] - bands[b].lo[k] > widest)
+                    widest = bands[b].hi[k] - bands[b].lo[k], bi = b, ki = k,
+                    mid = std::clamp ((bands[b].lo[k] + bands[b].hi[k]) / 2, lo, hi);
+            }
+        if (bi == bands.size ())
+            break; // nothing wide enough to split
+        auto& f = bands[bi];
+        const auto i = static_cast<std::ptrdiff_t> (ki);
+        f.lo.insert (f.lo.begin () + i + 1, mid);
+        f.hi.insert (f.hi.begin () + i, mid);
+        f.rooms[ki] = 0;
+        f.rooms.insert (f.rooms.begin () + i, 0);
+        f.flats.insert (f.flats.begin () + i + 1, -1);
+        touched[bi] = 1, ++now;
+    }
+    while (now > total) {
+        // The narrowest free flat with a free neighbour joins the narrower of them.
+        size_t bi = bands.size (), ki = 0, ji = 0;
+        double narrowest = 1e18;
+        for (size_t b = 0; b < bands.size (); ++b) {
+            const auto& f = bands[b];
+            for (size_t k = 0; k < f.lo.size (); ++k) {
+                if (!free (f, k))
+                    continue;
+                const bool before = k > 0 && free (f, k - 1), after = k + 1 < f.lo.size () && free (f, k + 1);
+                if (!before && !after)
+                    continue;
+                const size_t j =
+                    !after || (before && f.hi[k - 1] - f.lo[k - 1] <= f.hi[k + 1] - f.lo[k + 1]) ? k - 1 : k + 1;
+                if (f.hi[k] - f.lo[k] < narrowest)
+                    narrowest = f.hi[k] - f.lo[k], bi = b, ki = k, ji = j;
+            }
+        }
+        if (bi == bands.size ())
+            break;
+        auto& f = bands[bi];
+        const size_t keep = (std::min) (ki, ji);
+        const auto i = static_cast<std::ptrdiff_t> (keep);
+        f.hi[keep] = f.hi[keep + 1];
+        f.rooms[keep] = 0;
+        f.lo.erase (f.lo.begin () + i + 1);
+        f.hi.erase (f.hi.begin () + i + 1);
+        f.rooms.erase (f.rooms.begin () + i + 1);
+        f.flats.erase (f.flats.begin () + i + 1);
+        touched[bi] = 1, --now;
+    }
+    for (size_t b = 0; b < bands.size (); ++b)
+        if (touched[b])
+            d = Write (s, std::move (d), bands[b]);
+    return d;
+}
+bool Locked (const Scheme& s, const Design& d, int flat)
+{
+    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()))
+        return false;
+    return std::any_of (d.locked.begin (), d.locked.end (), [&] (Vec p) { return In (s.flats[flat].shape, p); });
+}
+Design SetLocked (const Scheme& s, Design d, int flat, bool locked)
+{
+    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()) || Locked (s, d, flat) == locked)
+        return d;
+    const Ring& shape = s.flats[flat].shape;
+    if (!locked) {
+        std::erase_if (d.locked, [&] (Vec p) { return In (shape, p); });
+        return d;
+    }
+    // Its walls and rooms pinned where they are, then marked.
+    if (auto f = Freeze (s, s.flats[flat].band))
+        d = Write (s, std::move (d), *f);
+    else
+        d = SetRooms (s, std::move (d), flat, s.flats[flat].rooms);
+    d.locked.push_back (Centroid (shape));
+    return d;
+}
+Vec SnapWall (const Scheme& s, const Wall& wall, Vec from, Vec to, const floorprogramme::Programme& programme,
+              double step)
+{
+    const Vec axis = Unit (wall.axis);
+    const double t = Dot ({ to.x - from.x, to.y - from.y }, axis);
+    double best = std::round (t / step) * step, near = step / 2;
+    const int n = static_cast<int> (s.flats.size ());
+    for (const auto& [flat, sign] : { std::pair { wall.low, 1.0 }, std::pair { wall.high, -1.0 } }) {
+        if (flat < 0 || flat >= n)
+            continue;
+        const auto& f = s.flats[flat];
+        if (f.depth <= floorprogramme::kFacade + 0.5)
+            continue;
+        for (const auto& type : programme.types) {
+            // The frontage at which this flat's net area is the type's middle (NetArea is linear in it).
+            const double mid = (type.minM2 + type.maxM2) / 2;
+            const double frontage = (mid + kPartyWall * f.depth) / (f.depth - floorprogramme::kFacade);
+            const double shift = sign * (frontage - f.frontage);
+            if (std::abs (shift - t) < near)
+                near = std::abs (shift - t), best = shift;
+        }
+    }
+    return { from.x + axis.x * best, from.y + axis.y * best };
+}
+Vec Stepped (const Scheme& s, Vec from, Vec to, double step)
+{
+    Vec u { 1, 0 };
+    if (const int wing = WingAt (s, from); wing >= 0)
+        u = Unit ({ s.wings[wing].b.x - s.wings[wing].a.x, s.wings[wing].b.y - s.wings[wing].a.y });
+    const Vec v { -u.y, u.x }, d { to.x - from.x, to.y - from.y };
+    const double du = std::round (Dot (d, u) / step) * step, dv = std::round (Dot (d, v) / step) * step;
+    return { from.x + u.x * du + v.x * dv, from.y + u.y * du + v.y * dv };
 }
 } // namespace geomsrv::archviz::floorscheme::edit
