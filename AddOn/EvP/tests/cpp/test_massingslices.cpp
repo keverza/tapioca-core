@@ -676,3 +676,21 @@ TEST (SlabBodies, IndependentConsumersAndTicketsPreventStaleOrMissingBodies)
     EXPECT_TRUE (bodies::Latest ()->meshes.empty ()) << "project reset never reuses request tickets";
     bodies::Clear ();
 }
+
+TEST (MassingSlices, OverlappingSlabsAtOneElevationCountTheirOverlapOnce)
+{
+    // Two 10 x 10 slabs overlapping by half, two 3 m floors each: 150 m2 a floor, not 200.
+    auto a = Slab (6), b = Slab (6);
+    b.slab.guid = "other";
+    b.slab.outer.xy = Ring (5, 0, 15, 10).xy;
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 4u);
+    EXPECT_NEAR (result.rawArea, 300, 1e-6);
+    EXPECT_NEAR (result.rawFirstFloorArea, 150, 1e-6);
+    EXPECT_NEAR (result.rawVolume, 900, 1e-6);
+    ASSERT_EQ (result.section.floors.size (), 2u);
+    for (const auto& floor : result.section.floors)
+        EXPECT_NEAR (floor.areaM2, 150, 1e-6) << floor.label;
+}

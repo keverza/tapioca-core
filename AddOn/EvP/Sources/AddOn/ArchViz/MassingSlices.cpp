@@ -185,6 +185,70 @@ bool CutEnvelopes (const std::vector<overlaylayers::Mesh>& meshes, double z, std
     retain (safe, counted);
     return true;
 }
+// ⚠️ OVERLAPS COUNT ONCE (the user, 2026-10-10): slabs overlapping at one elevation are a union,
+// not a sum. Each row keeps only the floor no earlier row at its elevation already covers, so any
+// sum of rows -- a building's floor, the site's total -- is the union's area. A row's chains stay
+// whole for display; its areas, volumes and section part become its exclusive share. `place`
+// maps each row to its slab's section floor.
+void CountOverlapsOnce (Result& out, std::vector<hudsection::Slab>& masses,
+                        const std::vector<std::pair<size_t, size_t>>& place)
+{
+    const auto paths = [] (const std::vector<SliceChain>& chains) {
+        cp::PathsD out;
+        for (const auto& chain : chains) {
+            cp::PathD path;
+            for (size_t i = 0; i < chain.Count (); ++i)
+                path.emplace_back (chain.xy[i * 2], chain.xy[i * 2 + 1]);
+            out.push_back (std::move (path));
+        }
+        return out;
+    };
+    // Clean (non-overlapping, oriented) union per elevation, to the millimetre.
+    std::map<int64_t, cp::PathsD> covered;
+    const auto exclusive = [&] (const std::vector<SliceChain>& chains, const cp::PathsD& before) {
+        if (chains.empty ())
+            return 0.0;
+        if (before.empty ())
+            return std::abs (cp::Area (cp::Union (paths (chains), cp::FillRule::EvenOdd, 6)));
+        return std::abs (cp::Area (cp::Difference (paths (chains), before, cp::FillRule::EvenOdd, 6)));
+    };
+    out.rawArea = out.allowedArea = out.excludedArea = 0;
+    out.rawVolume = out.allowedVolume = 0;
+    out.rawFirstFloorArea = out.firstFloorArea = 0;
+    for (size_t r = 0; r < out.rows.size (); ++r) {
+        auto& row = out.rows[r];
+        auto& before = covered[int64_t (std::llround (row.z * 1000))];
+        const double footprint =
+            std::abs (cp::Area (cp::Union (paths (row.footprintChains), cp::FillRule::EvenOdd, 6)));
+        if (!before.empty ()) {
+            const double raw = exclusive (row.rawChains, before);
+            const double kept = footprint > 1e-9 ? exclusive (row.footprintChains, before) / footprint : 1.0;
+            row.rawArea = raw;
+            row.excludedArea = exclusive (row.lowChains, before);
+            if (row.clipped)
+                row.allowedArea = exclusive (row.chains, before);
+            row.rawVolume *= kept;
+            row.allowedVolume *= kept;
+        }
+        // The row's own rings by even-odd (holes), then joined to what is there.
+        before = cp::Union (cp::Union (paths (row.footprintChains), cp::FillRule::EvenOdd, 6), before,
+                            cp::FillRule::NonZero, 6);
+        out.rawArea += row.rawArea;
+        out.allowedArea += row.allowedArea;
+        out.excludedArea += row.excludedArea;
+        out.rawVolume += row.rawVolume;
+        out.allowedVolume += row.allowedVolume;
+        if (r < place.size ()) {
+            const auto [mass, floor] = place[r];
+            if (floor == 0) {
+                out.rawFirstFloorArea += row.rawArea;
+                out.firstFloorArea += row.allowedArea;
+            }
+            if (mass < masses.size () && floor < masses[mass].floors.size ())
+                masses[mass].floors[floor].areaM2 = out.clipped ? row.allowedArea : row.rawArea;
+        }
+    }
+}
 } // namespace
 
 bool Intersect (const std::vector<SliceChain>& slab, const overlaylayers::Mesh& envelope, double z,
@@ -212,6 +276,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     using Cut = std::pair<std::vector<SliceChain>, std::vector<SliceChain>>;
     std::map<double, Cut> cuts;
     std::vector<hudsection::Slab> masses;
+    std::vector<std::pair<size_t, size_t>> place; // each row's slab and floor in `masses`
     size_t bodyWork = 0;
     size_t envelopeWork = 0;
     size_t retainedPoints = 0;
@@ -437,6 +502,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
                 out.firstFloorArea += row.allowedArea;
             }
             out.rows.push_back (row);
+            place.emplace_back (masses.size (), mass.floors.size ());
             mass.floors.push_back ({ row.z, summary.floors[i].height, out.clipped ? row.allowedArea : row.rawArea });
             mass.storeys.push_back (row.story);
             slice.name = (building ? building->value.s : input.slab.id) + " S" + std::to_string (row.story);
@@ -444,6 +510,7 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
         }
         masses.push_back (std::move (mass));
     }
+    CountOverlapsOnce (out, masses, place);
     out.section = hudsection::Build (masses, storeys, schema, "massing.function");
     for (auto& floor : out.section.floors)
         floor.label = "Floor " + std::to_string (floor.storey);
@@ -459,10 +526,8 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     std::string facadeError;
     out.hasFacade = Facade (slabs, out.facadeArea, facadeError);
     if (!slabs.empty ())
-        out.note =
-            out.clipped
-                ? "Story slices intersected with the allowed envelope; areas sum per slab (overlaps count twice)."
-                : "Showing slab story slices; allowed areas wait for the envelope.";
+        out.note = out.clipped ? "Story slices intersected with the allowed envelope; overlapping slabs count once."
+                               : "Showing slab story slices; allowed areas wait for the envelope.";
     if (!out.hasFacade)
         out.note += " Facade area unavailable: " + facadeError;
     if (out.clipped)
