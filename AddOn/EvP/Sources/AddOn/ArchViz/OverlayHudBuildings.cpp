@@ -18,16 +18,12 @@ std::string ExportStamp ()
     return text;
 }
 } // namespace
-void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, float ui)
+// The building's highlight, heights and story section, in a section of their own.
+void Engine::Impl::StoryDiagram (const massingbuildings::Preview& preview, float ui)
 {
     const auto& building = preview.building;
-    ImGui::PushID (building.key.c_str ());
-    if (building.id.empty ())
-        ImGui::TextDisabled ("Unassigned source (no building ID)");
-    else
-        ImGui::TextWrapped ("Building %s (%zu sources)", building.id.c_str (), building.guids.size ());
-    if (!preview.section.note.empty ())
-        ImGui::TextWrapped ("%s", preview.section.note.c_str ());
+    if (!ImGui::CollapsingHeader ("Story slice editor", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
     {
         bool highlighted = store->highlightedBuilding == building.key;
         if (ImGui::Checkbox ("Highlight whole building", &highlighted)) {
@@ -69,6 +65,18 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
             buildingplan::Cancel (draft);
         draft.story = pickedStorey;
     }
+}
+void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, float ui)
+{
+    const auto& building = preview.building;
+    ImGui::PushID (building.key.c_str ());
+    if (building.id.empty ())
+        ImGui::TextDisabled ("Unassigned source (no building ID)");
+    else
+        ImGui::TextWrapped ("Building %s (%zu sources)", building.id.c_str (), building.guids.size ());
+    if (!preview.section.note.empty ())
+        ImGui::TextWrapped ("%s", preview.section.note.c_str ());
+    StoryDiagram (preview, ui);
     buildingplan::UseProgramme (store->buildingPlans[building.key], store->massingProgramme);
     for (auto& edit :
          buildingplan::Draw (preview.plan, store->buildingPlans[building.key], ui, store->massingCoefficients)) {
