@@ -520,6 +520,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorScheme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeDivide.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRooms.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorProgramme.cpp"
