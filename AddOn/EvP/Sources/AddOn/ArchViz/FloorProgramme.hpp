@@ -14,8 +14,10 @@
 namespace geomsrv::archviz::floorprogramme {
 constexpr size_t kMaxTypes = 12;
 constexpr double kMinArea = 15, kMaxArea = 300, kMinRooms = 1, kMaxRooms = 8;
-constexpr double kWall = 0.2;   // wall between flats, deducted once per flat across the band
+// Wall and slab thicknesses (user, 2026-10-10): every planned floor and its preview use these.
+constexpr double kWall = 0.2;   // partition between flats, a flat and circulation, or a stair: centred on its cut
 constexpr double kFacade = 0.5; // external wall inside the counted outline
+constexpr double kSlab = 0.3;   // floor slab, below the floor's level
 struct UnitType {
     double rooms = 2;
     double minM2 = 40, maxM2 = 45;

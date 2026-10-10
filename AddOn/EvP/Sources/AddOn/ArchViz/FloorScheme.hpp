@@ -32,7 +32,7 @@ using Ring = std::vector<Vec>; // closed implicitly, counter-clockwise for areas
 constexpr double kPinTolerance = 3.0;
 // Room widths along the facade (STR 2.02.01 Table 9 minimums; preferred slightly larger).
 constexpr double kLivingMin = 3.3, kBedroomMin = 2.6, kBathMin = 1.7, kWcMin = 1.5, kStorageMin = 1.0;
-constexpr double kHallMin = 1.4, kInnerWall = 0.1, kPartyWall = 0.2;
+constexpr double kHallMin = 1.4, kInnerWall = 0.1, kPartyWall = floorprogramme::kWall;
 
 // Rows: sections whose stair has a flat on each side and two behind (pinned; Auto weighs them
 // with the other section plans).
