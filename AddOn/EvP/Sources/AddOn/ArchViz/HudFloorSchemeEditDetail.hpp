@@ -6,7 +6,9 @@
 // pointer, the selection's arrows, gestures, drawing, the palette). MAIN THREAD, under ImGui's lock.
 #include "ArchViz/HudFloorSchemeEdit.hpp"
 #include "imgui.h"
+#include <algorithm>
 #include <climits>
+#include <cmath>
 
 namespace geomsrv::archviz::hudfloorscheme {
 namespace bp = buildingplan;
@@ -70,7 +72,38 @@ struct Context {
     const floorprogramme::Programme& programme;
     const fs::Options& options;
 };
+// A projection of model metres onto the screen: pixel = (m0 x + m1 y + m2, m3 x + m4 y + m5) --
+// the canvas's fit, or a view's own (the overlay's plan, its frame's transform).
+struct View {
+    double m[6] = { 1, 0, 0, 0, 1, 0 };
+    ImVec2 origin, size; // the canvas's rectangle, when it is one
+    ImVec2 P (fs::Vec p) const
+    {
+        return { float (m[0] * p.x + m[1] * p.y + m[2]), float (m[3] * p.x + m[4] * p.y + m[5]) };
+    }
+    fs::Vec W (ImVec2 q) const
+    {
+        const double det = m[0] * m[4] - m[1] * m[3], x = q.x - m[2], y = q.y - m[5];
+        return { (m[4] * x - m[1] * y) / det, (m[0] * y - m[3] * x) / det };
+    }
+    double Pixel () const // a pixel in metres
+    {
+        return 1.0 / (std::max) (1e-9, std::sqrt (std::abs (m[0] * m[4] - m[1] * m[3])));
+    }
+};
+// What is under the pointer this frame, and the selection's arrows.
+struct Pointing {
+    Target hover;
+    std::vector<Arrow> arrows;
+    int arrow = -1; // the arrow under the pointer
+};
+
 namespace detail {
+// The pointer over view `v` (`hovered`: it is the HUD's here): hover, the selection's arrows,
+// gestures and their commits, the right-click menu opened, the cursor.
+Pointing Interact (Editor& e, Context& c, const View& v, bool hovered);
+// The hovered and selected outlines, the arrows, and the held gesture's ghost.
+void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, const Pointing& at);
 bool Inside (const std::vector<fs::Ring>& rings, fs::Vec p);
 fs::Vec Mid (const fs::Ring& r);
 fs::Vec Outward (const std::array<fs::Vec, 2>& wall); // out of the building, across a party wall

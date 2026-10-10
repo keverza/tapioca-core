@@ -314,20 +314,8 @@ void Palette (float scale)
 }
 
 // ---- the canvas -----------------------------------------------------------------------------
-struct View {
-    ImVec2 origin, size;
-    double cx = 0, cy = 0, k = 1;
-    ImVec2 P (fs::Vec p) const
-    {
-        return { origin.x + size.x / 2 + float ((p.x - cx) * k), origin.y + size.y / 2 - float ((p.y - cy) * k) };
-    }
-    fs::Vec W (ImVec2 q) const
-    {
-        return { cx + (q.x - origin.x - size.x / 2) / k, cy - (q.y - origin.y - size.y / 2) / k };
-    }
-};
 // The building's floor across the panel's width (user, 2026-10-10: no navigation, it fits).
-View Fit (const std::vector<fs::Ring>& rings, float width, float scale)
+View Fit (const std::vector<fs::Ring>& rings, ImVec2 origin, float width, float scale)
 {
     View v;
     double x0 = 1e18, y0 = 1e18, x1 = -1e18, y1 = -1e18;
@@ -338,12 +326,15 @@ View Fit (const std::vector<fs::Ring>& rings, float width, float scale)
         x0 = y0 = 0, x1 = y1 = 10;
     const double margin = 1.5, pad = 8.0 * scale;
     const double dx = x1 - x0 + 2 * margin, dy = y1 - y0 + 2 * margin;
-    v.k = (std::max) (0.5, (width - 2 * pad) / dx);
+    double k = (std::max) (0.5, (width - 2 * pad) / dx);
     const double tallest = 560.0 * scale, least = 140.0 * scale;
-    if (dy * v.k + 2 * pad > tallest)
-        v.k = (tallest - 2 * pad) / dy;
-    v.size = { width, float (std::clamp (dy * v.k + 2 * pad, least, tallest)) };
-    v.cx = (x0 + x1) / 2, v.cy = (y0 + y1) / 2;
+    if (dy * k + 2 * pad > tallest)
+        k = (tallest - 2 * pad) / dy;
+    v.origin = origin;
+    v.size = { width, float (std::clamp (dy * k + 2 * pad, least, tallest)) };
+    const double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    v.m[0] = k, v.m[1] = 0, v.m[2] = origin.x + v.size.x / 2 - cx * k;
+    v.m[3] = 0, v.m[4] = -k, v.m[5] = origin.y + v.size.y / 2 + cy * k;
     return v;
 }
 void Dashed (ImDrawList* draw, ImVec2 a, ImVec2 b, ImU32 colour, float width, float dash)
@@ -365,56 +356,37 @@ void Padlock (ImDrawList* draw, ImVec2 c, float s, ImU32 colour)
 }
 void Pointer (ImDrawList* draw, const View& v, const Arrow& a, float px, ImU32 colour)
 {
-    const ImVec2 c = v.P (a.at);
-    const ImVec2 d { float (a.dir.x), float (-a.dir.y) }, n { -d.y, d.x };
+    const ImVec2 c = v.P (a.at), tip = v.P ({ a.at.x + a.dir.x, a.at.y + a.dir.y });
+    const float l = (std::max) (1e-6f, std::hypot (tip.x - c.x, tip.y - c.y));
+    const ImVec2 d { (tip.x - c.x) / l, (tip.y - c.y) / l }, n { -d.y, d.x };
     draw->AddTriangleFilled ({ c.x + d.x * px, c.y + d.y * px },
                              { c.x - d.x * px * 0.4f + n.x * px * 0.8f, c.y - d.y * px * 0.4f + n.y * px * 0.8f },
                              { c.x - d.x * px * 0.4f - n.x * px * 0.8f, c.y - d.y * px * 0.4f - n.y * px * 0.8f },
                              colour);
 }
-
-void Canvas (Editor& e, Context& c, float scale)
+void Ring (ImDrawList* draw, const View& v, const fs::Ring& r, ImU32 colour, float width)
 {
-    std::vector<fs::Ring> all = e.input.owned;
-    all.insert (all.end (), e.real.begin (), e.real.end ());
-    View v = Fit (all, (std::max) (120.0f, ImGui::GetContentRegionAvail ().x), scale);
-    v.origin = ImGui::GetCursorScreenPos ();
-    ImGui::InvisibleButton ("##plan", v.size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-    const bool hovered = ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    std::vector<ImVec2> points;
+    for (const auto& p : r)
+        points.push_back (v.P (p));
+    draw->AddPolyline (points.data (), int (points.size ()), colour, ImDrawFlags_Closed, width);
+}
+
+Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
+{
+    Pointing at;
     const fs::Vec mouse = v.W (ImGui::GetIO ().MousePos);
-    const double px = 1.0 / v.k; // a pixel in metres
+    const double px = v.Pixel ();
     const auto& s = e.scheme;
-    auto* draw = ImGui::GetWindowDrawList ();
-    const ImVec2 end (v.origin.x + v.size.x, v.origin.y + v.size.y);
-
-    // The palette dropped here: a flat put in beside the one under it, or a stair.
-    std::optional<fe::Insertion> insertion;
-    std::optional<fs::Vec> stairDrop;
-    if (e.have && ImGui::BeginDragDropTarget ()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload (
-                kPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-            const double value = *static_cast<const double*> (payload->Data);
-            if (value < 0) {
-                stairDrop = mouse;
-                if (payload->IsDelivery () && Inside (e.input.owned, mouse))
-                    Commit (e, c, fe::AddStair (s, e.input.design, mouse));
-            }
-            else {
-                insertion = fe::Insert (s, mouse, value);
-                if (payload->IsDelivery () && insertion)
-                    Commit (e, c, fe::InsertFlat (s, e.input.design, mouse, value));
-            }
-        }
-        ImGui::EndDragDropTarget ();
-    }
-
     // Under the pointer, and the selection's arrows.
-    const auto arrows = e.have ? Arrows (s, e.selected, 12 * px) : std::vector<Arrow> {};
-    int arrowAt = -1;
-    for (size_t i = 0; i < arrows.size (); ++i)
-        if (std::hypot (arrows[i].at.x - mouse.x, arrows[i].at.y - mouse.y) < 9 * px)
-            arrowAt = int (i);
-    const Target hover = hovered && e.have ? HitAt (s, mouse, 6 * px) : Target {};
+    if (e.have)
+        at.arrows = Arrows (s, e.selected, 12 * px);
+    for (size_t i = 0; i < at.arrows.size (); ++i)
+        if (std::hypot (at.arrows[i].at.x - mouse.x, at.arrows[i].at.y - mouse.y) < 9 * px)
+            at.arrow = int (i);
+    if (hovered && e.have)
+        at.hover = HitAt (s, mouse, 6 * px);
+    const auto& hover = at.hover;
 
     // Gestures on the left button.
     if (hovered && e.have && ImGui::IsMouseClicked (ImGuiMouseButton_Left) && e.drag == Drag::None) {
@@ -426,9 +398,9 @@ void Canvas (Editor& e, Context& c, float scale)
         e.liveSince = c.planner.Revision ();
         if (e.tool != Tool::Select)
             e.drag = Drag::Rect;
-        else if (arrowAt >= 0) {
+        else if (at.arrow >= 0) {
             e.held = e.selected;
-            e.axis = arrows[arrowAt].dir;
+            e.axis = at.arrows[at.arrow].dir;
             e.drag = Drag::Arrow;
         }
         else {
@@ -516,13 +488,116 @@ void Canvas (Editor& e, Context& c, float scale)
     if (hovered) {
         hudshell::OwnCursor ();
         const Kind kind = hover.kind;
-        if (e.drag != Drag::None || arrowAt >= 0 || kind == Kind::Wall || kind == Kind::End || kind == Kind::Party)
+        if (e.drag != Drag::None || at.arrow >= 0 || kind == Kind::Wall || kind == Kind::End || kind == Kind::Party)
             ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
         else if (kind == Kind::Flat || kind == Kind::Stair)
             ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);
         else
             ImGui::SetMouseCursor (ImGuiMouseCursor_Arrow);
     }
+    return at;
+}
+
+void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, const Pointing& at)
+{
+    const auto& s = e.scheme;
+    // The hovered and the selected.
+    const auto outline = [&] (const Target& t, ImU32 colour, float width) {
+        if (t.kind == Kind::Flat && t.index >= 0 && t.index < int (s.flats.size ()))
+            Ring (draw, v, s.flats[t.index].shape, colour, width);
+        else if (t.kind == Kind::Stair && t.index >= 0 && t.index < int (s.cores.size ()))
+            Ring (draw, v, s.cores[t.index].shape, colour, width);
+        else if (t.kind == Kind::Wall && t.wall)
+            draw->AddLine (v.P (t.wall->a), v.P (t.wall->b), colour, width);
+        else if (t.kind == Kind::End && t.end)
+            draw->AddCircle (v.P (t.end->at), 7 * scale, colour, 0, width);
+        else if (t.kind == Kind::Party && t.index >= 0 && t.index < int (s.party.size ()))
+            draw->AddLine (v.P (s.party[t.index][0]), v.P (s.party[t.index][1]), colour, width + 2 * scale);
+    };
+    if (e.drag == Drag::None)
+        outline (at.hover, IM_COL32 (255, 255, 255, 170), 2 * scale);
+    outline (e.selected, IM_COL32 (255, 255, 255, 255), 3 * scale);
+    if (e.drag == Drag::None)
+        for (size_t i = 0; i < at.arrows.size (); ++i)
+            Pointer (draw, v, at.arrows[i], (int (i) == at.arrow ? 9.0f : 7.0f) * scale, kAccent);
+    // The gesture, drawn at once while the worker catches up.
+    if (e.drag == Drag::None || !e.moved)
+        return;
+    const fs::Vec d = Delta (e);
+    const bool off = !Inside (e.input.owned, e.at);
+    if (e.drag == Drag::Rect)
+        Ring (draw, v, fe::Rectangle (e.base, e.from, e.at, fe::kStep),
+              e.tool == Tool::Cut ? kRed : IM_COL32 (44, 122, 82, 255), 2.5f * scale);
+    else if (e.held.kind == Kind::Stair && e.held.index >= 0 && e.held.index < int (e.base.cores.size ())) {
+        const fs::Vec to = StairTo (e), from = e.base.cores[e.held.index].centre;
+        fs::Ring moved = e.base.cores[e.held.index].shape;
+        for (auto& p : moved)
+            p.x += to.x - from.x, p.y += to.y - from.y;
+        Ring (draw, v, moved, off ? kRed : kAccent, 2.5f * scale);
+    }
+    else if (e.held.kind == Kind::Flat && e.held.index >= 0 && e.held.index < int (e.base.flats.size ())) {
+        fs::Ring moved = e.base.flats[e.held.index].shape;
+        for (auto& p : moved)
+            p.x += d.x, p.y += d.y;
+        Ring (draw, v, moved, off ? kRed : kAccent, 2.5f * scale);
+        if (const int other = fe::FlatAt (e.base, e.at); other >= 0 && other != e.held.index)
+            Ring (draw, v, e.base.flats[other].shape, kAccent, 3 * scale);
+    }
+    else if (e.held.kind == Kind::Wall && e.held.wall) {
+        const fs::Vec to = fe::SnapWall (e.base, *e.held.wall, e.held.wall->a,
+                                         { e.held.wall->a.x + d.x, e.held.wall->a.y + d.y }, c.programme);
+        const fs::Vec t { to.x - e.held.wall->a.x, to.y - e.held.wall->a.y };
+        draw->AddLine (v.P ({ e.held.wall->a.x + t.x, e.held.wall->a.y + t.y }),
+                       v.P ({ e.held.wall->b.x + t.x, e.held.wall->b.y + t.y }), kAccent, 3 * scale);
+    }
+    else if (e.held.kind == Kind::End && e.held.end) {
+        const fs::Vec u = EndAxis (e);
+        const double t = Stepped (Dot (d, u));
+        draw->AddCircleFilled (v.P ({ e.held.end->at.x + u.x * t, e.held.end->at.y + u.y * t }), 6 * scale, kAccent);
+    }
+    else if (e.held.kind == Kind::Party && e.held.index >= 0 && e.held.index < int (e.base.party.size ())) {
+        const auto& w = e.base.party[e.held.index];
+        const fs::Vec n = Outward (w);
+        const double t = PartyDistance (e);
+        draw->AddLine (v.P ({ w[0].x + n.x * t, w[0].y + n.y * t }), v.P ({ w[1].x + n.x * t, w[1].y + n.y * t }),
+                       kAccent, 5 * scale);
+    }
+}
+
+void Canvas (Editor& e, Context& c, float scale)
+{
+    std::vector<fs::Ring> all = e.input.owned;
+    all.insert (all.end (), e.real.begin (), e.real.end ());
+    const View v =
+        Fit (all, ImGui::GetCursorScreenPos (), (std::max) (120.0f, ImGui::GetContentRegionAvail ().x), scale);
+    ImGui::InvisibleButton ("##plan", v.size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    const bool hovered = ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    const fs::Vec mouse = v.W (ImGui::GetIO ().MousePos);
+    const auto& s = e.scheme;
+    auto* draw = ImGui::GetWindowDrawList ();
+    const ImVec2 end (v.origin.x + v.size.x, v.origin.y + v.size.y);
+
+    // The palette dropped here: a flat put in beside the one under it, or a stair.
+    std::optional<fe::Insertion> insertion;
+    std::optional<fs::Vec> stairDrop;
+    if (e.have && ImGui::BeginDragDropTarget ()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload (
+                kPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+            const double value = *static_cast<const double*> (payload->Data);
+            if (value < 0) {
+                stairDrop = mouse;
+                if (payload->IsDelivery () && Inside (e.input.owned, mouse))
+                    Commit (e, c, fe::AddStair (s, e.input.design, mouse));
+            }
+            else {
+                insertion = fe::Insert (s, mouse, value);
+                if (payload->IsDelivery () && insertion)
+                    Commit (e, c, fe::InsertFlat (s, e.input.design, mouse, value));
+            }
+        }
+        ImGui::EndDragDropTarget ();
+    }
+    const Pointing at = Interact (e, c, v, hovered);
 
     // ---- drawing ----
     draw->AddRectFilled (v.origin, end, ImGui::GetColorU32 (ImGuiCol_FrameBg), 4 * scale);
@@ -532,12 +607,6 @@ void Canvas (Editor& e, Context& c, float scale)
             for (size_t i = 0; i + 2 < f.triangles.size (); i += 3)
                 draw->AddTriangleFilled (v.P (f.triangles[i]), v.P (f.triangles[i + 1]), v.P (f.triangles[i + 2]),
                                          f.colour);
-    };
-    const auto ring = [&] (const fs::Ring& r, ImU32 colour, float width) {
-        std::vector<ImVec2> points;
-        for (const auto& p : r)
-            points.push_back (v.P (p));
-        draw->AddPolyline (points.data (), int (points.size ()), colour, ImDrawFlags_Closed, width);
     };
     fill (e.around); // the neighbours: context only
     // A gesture planned live shows while it is held; otherwise the scheme planned.
@@ -550,12 +619,13 @@ void Canvas (Editor& e, Context& c, float scale)
         }
     if (shown == &s)
         fill (e.fills);
-    const bool rooms = v.k >= 7;
+    const double px = v.Pixel ();
+    const bool rooms = px <= 1.0 / 7;
     for (const auto& f : shown->flats) {
         if (rooms)
             for (const auto& r : f.roomList)
-                ring (r.shape, IM_COL32 (40, 50, 55, 70), 1);
-        ring (f.shape, kInk, 1.3f * scale);
+                Ring (draw, v, r.shape, IM_COL32 (40, 50, 55, 70), 1);
+        Ring (draw, v, f.shape, kInk, 1.3f * scale);
     }
     for (const auto& w : shown->party)
         draw->AddLine (v.P (w[0]), v.P (w[1]), kParty, 5 * scale);
@@ -563,7 +633,7 @@ void Canvas (Editor& e, Context& c, float scale)
         for (size_t i = 0; i < r.size (); ++i)
             Dashed (draw, v.P (r[i]), v.P (r[(i + 1) % r.size ()]), kReal, 1.3f * scale, 5 * scale);
     for (const auto& p : shown->culled)
-        ring (p.shape, IM_COL32 (120, 120, 120, 200), 1.2f * scale);
+        Ring (draw, v, p.shape, IM_COL32 (120, 120, 120, 200), 1.2f * scale);
     // Labels where they fit, a padlock on locked flats.
     for (size_t i = 0; i < shown->flats.size (); ++i) {
         const auto& f = shown->flats[i];
@@ -571,77 +641,16 @@ void Canvas (Editor& e, Context& c, float scale)
         std::snprintf (label, sizeof (label), "%s%s %.0f", f.manual ? "R " : "",
                        floorprogramme::Name (c.programme, f.type).c_str (), f.net);
         const auto t = ImGui::CalcTextSize (label);
-        const ImVec2 at = v.P (Mid (f.shape));
-        if (t.x < f.frontage * v.k * 0.95)
-            draw->AddText ({ at.x - t.x / 2, at.y - t.y / 2 }, IM_COL32 (20, 25, 28, 255), label);
+        const ImVec2 middle = v.P (Mid (f.shape));
+        if (t.x < f.frontage / px * 0.95)
+            draw->AddText ({ middle.x - t.x / 2, middle.y - t.y / 2 }, IM_COL32 (20, 25, 28, 255), label);
         if (fe::Locked (*shown, e.input.design, int (i)))
-            Padlock (draw, { at.x, at.y - t.y }, scale, kInk);
+            Padlock (draw, { middle.x, middle.y - t.y }, scale, kInk);
     }
     for (const auto& d : shown->diagnostics)
         if (d.level == fs::Diagnostic::Error)
             draw->AddCircleFilled (v.P (d.at), 4 * scale, kRed);
-    // The hovered and the selected.
-    const auto outline = [&] (const Target& t, ImU32 colour, float width) {
-        if (t.kind == Kind::Flat && t.index >= 0 && t.index < int (s.flats.size ()))
-            ring (s.flats[t.index].shape, colour, width);
-        else if (t.kind == Kind::Stair && t.index >= 0 && t.index < int (s.cores.size ()))
-            ring (s.cores[t.index].shape, colour, width);
-        else if (t.kind == Kind::Wall && t.wall)
-            draw->AddLine (v.P (t.wall->a), v.P (t.wall->b), colour, width);
-        else if (t.kind == Kind::End && t.end)
-            draw->AddCircle (v.P (t.end->at), 7 * scale, colour, 0, width);
-        else if (t.kind == Kind::Party && t.index >= 0 && t.index < int (s.party.size ()))
-            draw->AddLine (v.P (s.party[t.index][0]), v.P (s.party[t.index][1]), colour, width + 2 * scale);
-    };
-    if (e.drag == Drag::None)
-        outline (hover, IM_COL32 (255, 255, 255, 170), 2 * scale);
-    outline (e.selected, IM_COL32 (255, 255, 255, 255), 3 * scale);
-    if (e.drag == Drag::None)
-        for (size_t i = 0; i < arrows.size (); ++i)
-            Pointer (draw, v, arrows[i], (int (i) == arrowAt ? 9.0f : 7.0f) * scale, kAccent);
-    // The gesture, drawn at once while the worker catches up.
-    if (e.drag != Drag::None && e.moved) {
-        const fs::Vec d = Delta (e);
-        const bool off = !Inside (e.input.owned, e.at);
-        if (e.drag == Drag::Rect)
-            ring (fe::Rectangle (e.base, e.from, e.at, fe::kStep),
-                  e.tool == Tool::Cut ? kRed : IM_COL32 (44, 122, 82, 255), 2.5f * scale);
-        else if (e.held.kind == Kind::Stair && e.held.index >= 0 && e.held.index < int (e.base.cores.size ())) {
-            const fs::Vec to = StairTo (e), from = e.base.cores[e.held.index].centre;
-            fs::Ring moved = e.base.cores[e.held.index].shape;
-            for (auto& p : moved)
-                p.x += to.x - from.x, p.y += to.y - from.y;
-            ring (moved, off ? kRed : kAccent, 2.5f * scale);
-        }
-        else if (e.held.kind == Kind::Flat && e.held.index >= 0 && e.held.index < int (e.base.flats.size ())) {
-            fs::Ring moved = e.base.flats[e.held.index].shape;
-            for (auto& p : moved)
-                p.x += d.x, p.y += d.y;
-            ring (moved, off ? kRed : kAccent, 2.5f * scale);
-            if (const int other = fe::FlatAt (e.base, e.at); other >= 0 && other != e.held.index)
-                ring (e.base.flats[other].shape, kAccent, 3 * scale);
-        }
-        else if (e.held.kind == Kind::Wall && e.held.wall) {
-            const fs::Vec to = fe::SnapWall (e.base, *e.held.wall, e.held.wall->a,
-                                             { e.held.wall->a.x + d.x, e.held.wall->a.y + d.y }, c.programme);
-            const fs::Vec t { to.x - e.held.wall->a.x, to.y - e.held.wall->a.y };
-            draw->AddLine (v.P ({ e.held.wall->a.x + t.x, e.held.wall->a.y + t.y }),
-                           v.P ({ e.held.wall->b.x + t.x, e.held.wall->b.y + t.y }), kAccent, 3 * scale);
-        }
-        else if (e.held.kind == Kind::End && e.held.end) {
-            const fs::Vec u = EndAxis (e);
-            const double t = Stepped (Dot (d, u));
-            draw->AddCircleFilled (v.P ({ e.held.end->at.x + u.x * t, e.held.end->at.y + u.y * t }), 6 * scale,
-                                   kAccent);
-        }
-        else if (e.held.kind == Kind::Party && e.held.index >= 0 && e.held.index < int (e.base.party.size ())) {
-            const auto& w = e.base.party[e.held.index];
-            const fs::Vec n = Outward (w);
-            const double t = PartyDistance (e);
-            draw->AddLine (v.P ({ w[0].x + n.x * t, w[0].y + n.y * t }), v.P ({ w[1].x + n.x * t, w[1].y + n.y * t }),
-                           kAccent, 5 * scale);
-        }
-    }
+    Marks (e, c, v, draw, scale, at);
     // The palette over the plan: the new flat's wall in red across its band, the flat it makes.
     if (insertion) {
         std::vector<ImVec2> points;
@@ -653,7 +662,8 @@ void Canvas (Editor& e, Context& c, float scale)
     if (stairDrop) {
         const fs::Vec u = WingAxis (s, *stairDrop), n { -u.y, u.x }, p = *stairDrop;
         const double a = bp::kStairWidth / 2, b = bp::kStairDepth / 2;
-        ring ({ { p.x - u.x * a - n.x * b, p.y - u.y * a - n.y * b },
+        Ring (draw, v,
+              { { p.x - u.x * a - n.x * b, p.y - u.y * a - n.y * b },
                 { p.x + u.x * a - n.x * b, p.y + u.y * a - n.y * b },
                 { p.x + u.x * a + n.x * b, p.y + u.y * a + n.y * b },
                 { p.x - u.x * a + n.x * b, p.y - u.y * a + n.y * b } },
@@ -664,13 +674,13 @@ void Canvas (Editor& e, Context& c, float scale)
     draw->PopClipRect ();
     // A short note on what the pointer is over.
     if (hovered && e.drag == Drag::None && !ImGui::IsPopupOpen ("##planMenu")) {
-        if (hover.kind == Kind::Flat) {
-            const auto& f = s.flats[hover.index];
+        if (at.hover.kind == Kind::Flat) {
+            const auto& f = s.flats[at.hover.index];
             ImGui::SetTooltip ("%s | net %.1f m2 | %.1f x %.1f m%s",
                                floorprogramme::Name (c.programme, f.type).c_str (), f.net, f.frontage, f.depth,
                                f.manual ? " | walls at an angle: rooms left to you" : "");
         }
-        else if (hover.kind == Kind::Party)
+        else if (at.hover.kind == Kind::Party)
             ImGui::SetTooltip (
                 "Wall against the next building: no windows. Drag it to take its floor or give it yours.");
     }
