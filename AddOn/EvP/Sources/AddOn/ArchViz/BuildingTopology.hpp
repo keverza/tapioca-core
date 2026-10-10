@@ -142,5 +142,42 @@ std::vector<Ring> Plate (const Complex& complex, int floor);
 Span SlabSpan (const Floor& floor);
 // Between a floor's slab and the next one's underside: z to z + height - kSlab.
 Span ClearSpan (const Floor& floor);
+
+// BuildingTopologyAccess.cpp: three graphs over the cells, rebuilt from the faces, never stored as
+// truth. Sharing a wall is not a way through it: only doors, open circulation and stairs are.
+struct Link {
+    int from = -1, to = -1; // cells; `to` is -1 for a link to open air or a courtyard (Exterior)
+    int face = -1;          // the face it crosses; -1 for a stair between floors
+    int aperture = -1;      // the door or window that makes it, if one does
+    double length = 0;      // the shared wall (Adjacency, Exterior)
+};
+struct Graph {
+    std::vector<Link> links;
+    std::vector<std::vector<int>> at; // each cell's links
+};
+// Cells that share a wall longer than kContact (corner touches are no wall).
+Graph Adjacency (const Complex& complex);
+// Ways through: entrance doors, open faces between corridors and lobbies, a stair's side onto
+// circulation, and each stack stair to itself on the next floor up.
+Graph Access (const Complex& complex);
+// Cells with facade to open air or a courtyard (a neighbouring building is blind), with their
+// windows.
+Graph Exterior (const Complex& complex);
+// Cells reachable from `from` over `graph`, `from` included.
+std::vector<char> Reachable (const Complex& complex, const Graph& graph, const std::vector<int>& from);
+
+struct UnitFigures {
+    double clearArea = 0; // inside its walls
+    double frontage = 0;  // facade to open air or a courtyard
+    double partyWall = 0; // shared with other flats
+    int windows = 0;
+    bool entrance = false;     // its door is on a wall it shares with circulation or a stair
+    bool reachesStair = false; // from that door to a stair of the stack
+};
+UnitFigures Figures (const Complex& complex, int unit);
+// The rules a plan must keep, from the graphs: every flat has an entrance and reaches a stair;
+// every living room, bedroom and alcove has facade; every stack stair stands on every floor.
+// Error-level findings (unit.no_entrance, unit.unreachable, room.no_daylight, core.broken_stack).
+std::vector<Diagnostic> Check (const Complex& complex);
 } // namespace geomsrv::archviz::buildingtopology
 #endif

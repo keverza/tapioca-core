@@ -68,6 +68,8 @@ TEST (BuildingTopology, CellsTileEveryStandardFloorAndFlatsAreTheirRooms)
         ASSERT_TRUE (s.ok) << name;
         const auto c = bt::Build ({ { 0, 0, 3, &s, {} } });
         EXPECT_TRUE (c.diagnostics.empty ()) << name << ": " << Codes (c);
+        for (const auto& d : bt::Check (c))
+            ADD_FAILURE () << name << ": " << d.code;
         double cells = 0;
         for (const auto& cell : c.cells)
             cells += cell.area;
@@ -271,4 +273,80 @@ TEST (BuildingTopology, AReEntrantCornerKeepsTheWallCorner)
     ASSERT_EQ (clear.size (), 1u);
     // (10 - 1) x (4 - 1) plus (4 - 1) x (10 - 4): the arm above the bar's clear part.
     EXPECT_NEAR (Area (clear), 9 * 3 + 3 * 6, 1e-4);
+}
+
+// Sharing a wall is not a way through it; doors, open circulation and stairs are.
+TEST (BuildingTopology, GraphsTellWallsFromWaysThrough)
+{
+    const auto s = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default ());
+    const auto c = bt::Build ({ { 0, 0, 3, &s, {} } });
+    EXPECT_TRUE (bt::Check (c).empty ());
+    const auto adjacency = bt::Adjacency (c), access = bt::Access (c), exterior = bt::Exterior (c);
+    size_t doors = 0, partyWalls = 0;
+    for (const auto& link : access.links) {
+        doors += link.aperture >= 0;
+        const auto& a = c.cells[link.from];
+        const auto& b = c.cells[link.to];
+        EXPECT_FALSE (a.unit >= 0 && b.unit >= 0 && a.unit != b.unit) << "no way from one flat into another";
+    }
+    for (const auto& link : adjacency.links)
+        partyWalls += c.cells[link.from].unit >= 0 && c.cells[link.to].unit >= 0 &&
+                      c.cells[link.from].unit != c.cells[link.to].unit;
+    EXPECT_EQ (doors, s.flats.size ()) << "one entrance door per flat";
+    EXPECT_GT (partyWalls, 0u) << "flats share walls";
+    // Windows give exterior contact, never access.
+    size_t windows = 0;
+    for (const auto& link : exterior.links) {
+        EXPECT_EQ (link.to, -1);
+        windows += link.aperture >= 0;
+    }
+    EXPECT_GT (windows, 0u);
+    for (size_t u = 0; u < c.units.size (); ++u) {
+        const auto f = bt::Figures (c, static_cast<int> (u));
+        EXPECT_TRUE (f.entrance && f.reachesStair) << u;
+        EXPECT_GT (f.frontage, 0) << u;
+        EXPECT_GT (f.clearArea, 0) << u;
+        EXPECT_LT (f.clearArea, std::abs (fs::Area (s.flats[c.units[u].flat].shape))) << "inside its walls";
+    }
+}
+
+TEST (BuildingTopology, AStairMissingOnAFloorBreaksTheStack)
+{
+    const auto free = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default ());
+    fs::Pins pins;
+    for (const auto& core : free.cores)
+        pins.cores.push_back ({ core.centre, core.width, core.depth });
+    fs::Options held;
+    held.holdCores = true;
+    const auto ground = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default (), pins, held);
+    auto top = ground;
+    top.cores.pop_back (); // a stair the top floor lost
+    const auto whole = bt::Build ({ { 0, 0, 3, &ground, {} }, { 1, 3, 3, &ground, {} } }, pins.cores);
+    size_t vertical = 0;
+    for (const auto& link : bt::Access (whole).links)
+        vertical += link.face < 0;
+    EXPECT_EQ (vertical, pins.cores.size ()) << "each stair to itself one floor up";
+    EXPECT_TRUE (bt::Check (whole).empty ());
+    const auto broken = bt::Build ({ { 0, 0, 3, &ground, {} }, { 1, 3, 3, &top, {} } }, pins.cores);
+    const auto found = bt::Check (broken);
+    EXPECT_TRUE (std::any_of (found.begin (), found.end (),
+                              [] (const bt::Diagnostic& d) { return d.code == "core.broken_stack" && d.floor == 1; }));
+}
+
+TEST (BuildingTopology, AnInnerBedroomHasNoDaylightAndAFlatWithoutADoorNoEntrance)
+{
+    // A flat walled in by four others: its one bedroom touches no facade, and it has no door.
+    auto s = Flats ({ Rect (0, -4, 12, 8) }, { Rect (0, -4, 12, 0), Rect (0, 4, 12, 8), Rect (0, 0, 4, 4),
+                                               Rect (8, 0, 12, 4), Rect (4, 0, 8, 4) });
+    auto& inner = s.flats.back ();
+    inner.manual = false;
+    inner.roomList.push_back ({ Rect (4.1, 0.1, 7.9, 3.9), fs::RoomKind::Bedroom, 3.8, 3.8 });
+    const auto c = bt::Build ({ { 0, 0, 3, &s, {} } });
+    EXPECT_TRUE (c.units.back ().roomsKnown);
+    const auto found = bt::Check (c);
+    auto count = [&] (const char* code) {
+        return std::count_if (found.begin (), found.end (), [&] (const bt::Diagnostic& d) { return d.code == code; });
+    };
+    EXPECT_EQ (count ("room.no_daylight"), 1);
+    EXPECT_EQ (count ("unit.no_entrance"), 5) << "none of these flats has a door";
 }
