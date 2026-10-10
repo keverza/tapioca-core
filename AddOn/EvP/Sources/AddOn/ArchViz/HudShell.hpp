@@ -146,6 +146,9 @@ bool RightClickClaimed ();
 // sets (ImGui::SetMouseCursor: arrow, hand, move) is shown. Per ImGui context and frame.
 void OwnCursor ();
 bool CursorOwned ();
+// The cursor to show (overlayinput::Cursor): the canvas's own when it claimed the pointer this
+// frame, else a hand where `hand` (something pressable is under the pointer), else an arrow.
+uint8_t CursorOf (bool hand);
 
 // ---- the floating panel ---------------------------------------------------------------
 

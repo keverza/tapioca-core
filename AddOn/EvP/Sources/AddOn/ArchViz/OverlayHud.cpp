@@ -5,6 +5,7 @@
 #include "ArchViz/HudClip.hpp"
 #include "ArchViz/ImGuiContextLock.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
 
 #include <algorithm>
@@ -644,6 +645,9 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     const ImGuiContext& g = *ImGui::GetCurrentContext ();
     const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
     hand = g.HoveredId != 0 || held;
+    // A canvas that owns the pointer says which: ImGui's cursor of this frame.
+    cursor = hudshell::CursorOf (hand);
+    hand = cursor == uint8_t (overlayinput::Cursor::Hand);
     ImGui::Render ();
     Sync (ImGui::GetDrawData ());
     ++stats.frames;
@@ -833,6 +837,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         impl_->Collect (out, unsampled);
         out.highlight = impl_->highlight;
         out.hand = impl_->hand;
+        out.cursor = impl_->cursor;
         out.popup = impl_->popup;
         out.hoverTint = impl_->tinted;
         for (size_t i = 0; i < panels.size (); ++i) {

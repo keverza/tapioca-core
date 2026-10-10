@@ -1,6 +1,7 @@
 // ArchViz/HudShell -- see the header.
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/GraphicsSettingsUi.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
 
@@ -480,6 +481,27 @@ void OwnCursor ()
 bool CursorOwned ()
 {
     return g_cursorBy == ImGui::GetCurrentContext () && g_cursorFrame == ImGui::GetFrameCount ();
+}
+
+uint8_t CursorOf (bool hand)
+{
+    using overlayinput::Cursor;
+    if (!CursorOwned ())
+        return uint8_t (hand ? Cursor::Hand : Cursor::Arrow);
+    switch (ImGui::GetMouseCursor ()) {
+        case ImGuiMouseCursor_Hand:
+            return uint8_t (Cursor::Hand);
+        case ImGuiMouseCursor_ResizeAll:
+        case ImGuiMouseCursor_ResizeNESW:
+        case ImGuiMouseCursor_ResizeNWSE:
+            return uint8_t (Cursor::Move);
+        case ImGuiMouseCursor_ResizeEW:
+            return uint8_t (Cursor::SizeWE);
+        case ImGuiMouseCursor_ResizeNS:
+            return uint8_t (Cursor::SizeNS);
+        default:
+            return uint8_t (Cursor::Arrow);
+    }
 }
 
 namespace {

@@ -99,7 +99,8 @@ overlayscene::Problems g_hudProblems;
 // Where the scene's legends and the panels are: the HUD's input.
 std::vector<overlayinput::Region> g_sceneRegions;
 std::vector<overlayinput::Region> g_hudRegions;
-bool g_hand = false; // the pointer on something the HUD can press
+bool g_hand = false;  // the pointer on something the HUD can press
+uint8_t g_cursor = 0; // the cursor the HUD asked for there (overlayinput::Cursor)
 bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const overlayhud::Input& input,
                  bool& changed, std::string& error)
 {
@@ -110,6 +111,7 @@ bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>&
     g_hudRegions = panels.regions;
     g_highlight = panels.highlight;
     g_hand = panels.hand;
+    g_cursor = panels.cursor;
     const uint64_t print = overlayscene::Fingerprint (panels);
     if (print == g_hudPrint && g_hudPrint != 0)
         return true;
@@ -277,6 +279,7 @@ overlayinput::HitMap HitMap ()
     overlayinput::HitMap map;
     map.dpiScale = g_dpiScale;
     map.hand = g_hand;
+    map.cursor = g_cursor;
     map.regions = g_sceneRegions;
     map.regions.insert (map.regions.end (), g_hudRegions.begin (), g_hudRegions.end ());
     return map;
@@ -334,6 +337,7 @@ void Release ()
     g_sceneRegions.clear ();
     g_hudRegions.clear ();
     g_hand = false;
+    g_cursor = 0;
 }
 
 Stats GetStats ()

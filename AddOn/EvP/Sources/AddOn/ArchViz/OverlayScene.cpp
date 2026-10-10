@@ -743,6 +743,7 @@ void FinishPlan (Draft& draft, overlayhud::Engine* hud, Plan& out)
     out.regions = std::move (draft.regions);
     out.highlight = draft.highlight;
     out.hand = draft.hand;
+    out.cursor = draft.cursor;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);
@@ -882,6 +883,7 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
     out.regions = std::move (draft.regions);
     out.highlight = draft.highlight;
     out.hand = draft.hand;
+    out.cursor = draft.cursor;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);

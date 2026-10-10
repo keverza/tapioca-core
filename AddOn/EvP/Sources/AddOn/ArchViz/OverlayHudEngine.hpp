@@ -166,6 +166,7 @@ struct Engine::Impl {
     ChangeSink sink;
     Layout::Highlight highlight;
     bool hand = false;
+    uint8_t cursor = 0; // overlayinput::Cursor
     // The windows in the frame being laid out: an untitled panel's by its place in the set
     // (a titled one's is none: it is a tab of the host), then the dock's, then the host's.
     std::vector<ImGuiWindow*> windows;

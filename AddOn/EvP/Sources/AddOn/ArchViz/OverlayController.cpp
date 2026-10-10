@@ -138,6 +138,7 @@ bool PublishHud3D (overlayscene::Scene hud)
     overlayinput::HitMap map;
     map.dpiScale = g_scale3D;
     map.hand = hud.hand;
+    map.cursor = hud.cursor;
     map.regions = g_legends3D; // legends first: the panels are drawn over them
     map.regions.insert (map.regions.end (), hud.regions.begin (), hud.regions.end ());
     overlayinput::SetHitMap (overlayinput::View::ThreeD, std::move (map));

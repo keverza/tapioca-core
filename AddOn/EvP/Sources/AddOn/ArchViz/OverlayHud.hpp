@@ -205,8 +205,10 @@ struct Layout {
     };
     Highlight highlight;
     // The pointer is on something it can press, or pressing one: the input shows a hand
-    // over it (OverlayInput.hpp), an arrow over the rest of the HUD.
+    // over it (OverlayInput.hpp), an arrow over the rest of the HUD; `cursor` the one asked
+    // for (overlayinput::Cursor).
     bool hand = false;
+    uint8_t cursor = 0;
     // What the user changed in this layout, in the order they did it.
     std::vector<Change> changes;
     // A dropdown's list or the HUD's menu is open: the whole view is the HUD's until it

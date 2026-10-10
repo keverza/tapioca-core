@@ -60,11 +60,19 @@ struct HitMap {
     // At the last layout the pointer was on something it can press: a hand over the HUD,
     // not an arrow.
     bool hand = false;
+    // The cursor the HUD asked for there (`Cursor`): a canvas that is one pressable item says
+    // its own (HudShell `OwnCursor`); otherwise a hand or an arrow as `hand` says.
+    uint8_t cursor = 0;
 
     // The index of the topmost region holding the view point (x, y) of a view `width`
     // by `height` pixels; -1 for none.
     int Hit (float x, float y, float width, float height) const;
 };
+
+// ⚠️ THE POINTER SAYS WHAT A PRESS WILL DO (the user, 2026-10-10: over the plan canvas it kept
+// switching between a hand and an arrow): an arrow, a hand on what can be pressed, a move cross
+// on what drags, sizing arrows across a wall.
+enum class Cursor : uint8_t { Arrow = 0, Hand = 1, Move = 2, SizeWE = 3, SizeNS = 4 };
 
 enum class Button : uint8_t { Left = 0, Right = 1, Middle = 2, X1 = 3, X2 = 4 };
 enum class EventKind : uint8_t { Move = 0, Press = 1, Release = 2, Wheel = 3 };
