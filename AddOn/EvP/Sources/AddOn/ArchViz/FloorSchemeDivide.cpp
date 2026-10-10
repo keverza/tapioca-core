@@ -56,6 +56,13 @@ double NetArea (double frontage, double depth)
 {
     return frontage * depth - kPartyWall * depth - floorprogramme::kFacade * frontage;
 }
+double MaxFlat (const floorprogramme::Programme& programme, const Options& options)
+{
+    double largest = 0;
+    for (const auto& t : programme.types)
+        largest = (std::max) (largest, t.maxM2);
+    return (std::max) (options.maxFlat, largest);
+}
 } // namespace geomsrv::archviz::floorscheme
 
 namespace geomsrv::archviz::floorscheme::detail {
@@ -201,8 +208,22 @@ std::vector<size_t> Order (const floorprogramme::Programme& p, const std::vector
     }
     return chosen;
 }
+// Floor beyond a band's long sides that the mould will add to the flat in front of it, sampled
+// every `kBeyondStep` along u from the span's start.
+constexpr double kBeyondStep = 0.25;
+double Beyond (const std::vector<double>& beyond, double a, double b)
+{
+    double sum = 0;
+    for (size_t k = 0; k < beyond.size (); ++k) {
+        const double u = (static_cast<double> (k) + 0.5) * kBeyondStep;
+        if (u >= a && u < b)
+            sum += beyond[k] * kBeyondStep;
+    }
+    return sum;
+}
 Plan Best (const floorprogramme::Programme& p, const std::vector<Fit>& fits, const Tally& tally, double length,
-           int count, bool cornerLo, bool cornerHi, double minFirst, double minLast)
+           double depth, double cap, const std::vector<double>& beyond, double gableLo, double gableHi, int count,
+           bool cornerLo, bool cornerHi, double minFirst, double minLast)
 {
     Plan best;
     std::vector<size_t> chosen;
@@ -227,6 +248,14 @@ Plan Best (const floorprogramme::Programme& p, const std::vector<Fit>& fits, con
             double score = MixScore (tally, fits, chosen) + 10.0 * excess + (relaxed ? 3.0 : 0.0);
             for (size_t k = 0; k < order.size (); ++k)
                 score += 0.3 * std::abs (w[k] - fits[order[k]].pref) + (fits[order[k]].strict ? 0 : 2.0);
+            // A flat over the cap, with what the mould will add, costs more than any mix: more,
+            // smaller flats instead.
+            double at = 0;
+            for (size_t k = 0; k < w.size (); ++k) {
+                const double gable = (k == 0 ? gableLo : 0) + (k + 1 == w.size () ? gableHi : 0);
+                score += 50.0 * (std::max) (0.0, NetArea (w[k], depth) + Beyond (beyond, at, at + w[k]) + gable - cap);
+                at += w[k];
+            }
             if (score < best.score) {
                 best.score = score;
                 best.fits = order;
@@ -252,7 +281,47 @@ struct Builder {
     const Pins& pins;
     Scheme& scheme;
     Tally tally;
+    double cap = 90.0;         // largest net area of a flat
+    cp::PathsD outline, taken; // the floor; circulation and every band
 };
+// Depth of free floor beyond both long sides of `span`, out to the outline (as the mould's
+// strips reach, 3.5 m), every kBeyondStep.
+std::vector<double> Profile (const Builder& b, const Slot& slot, const Box& span)
+{
+    std::vector<double> out;
+    for (double u = span.u0 + kBeyondStep / 2; u < span.u1; u += kBeyondStep) {
+        double sum = 0;
+        for (int side = 0; side < 2; ++side) {
+            double e = 0;
+            while (e + 0.1 <= 3.5) {
+                const Vec q = slot.frame.World (u, side ? span.v1 + e + 0.1 : span.v0 - e - 0.1);
+                if (!Inside (b.outline, q) || Inside (b.taken, q))
+                    break;
+                e += 0.1;
+            }
+            sum += e < 3.4 ? e : 0; // a strip that does not reach the outline stays out
+        }
+        out.push_back (sum);
+    }
+    return out;
+}
+// Free floor beyond a span's end (`hi` at u1, else at u0), out to the outline within 2 m (the
+// gable strip the mould gives the end flat).
+double Gable (const Builder& b, const Slot& slot, const Box& span, bool hi)
+{
+    double sum = 0;
+    for (double v = span.v0 + kBeyondStep / 2; v < span.v1; v += kBeyondStep) {
+        double e = 0;
+        while (e + 0.1 <= 2.0) {
+            const Vec q = slot.frame.World (hi ? span.u1 + e + 0.1 : span.u0 - e - 0.1, v);
+            if (!Inside (b.outline, q) || Inside (b.taken, q))
+                break;
+            e += 0.1;
+        }
+        sum += e < 1.9 ? e * kBeyondStep : 0;
+    }
+    return sum;
+}
 void Emit (Builder& b, const Slot& slot, const std::vector<Fit>& fits, const std::vector<size_t>& order,
            const std::vector<double>& widths)
 {
@@ -321,7 +390,9 @@ bool DivideSpan (Builder& b, const Slot& slot, Box span, int count, bool cornerL
     const double minFirst = (std::max) (0.0, slot.doorLo + door - span.u0);
     const double minLast = (std::max) (0.0, span.u1 - (slot.doorHi - door));
     const auto fits = Fits (b.p, span.H ());
-    const auto plan = Best (b.p, fits, b.tally, span.W (), count, cornerLo, cornerHi, minFirst, minLast);
+    const auto plan =
+        Best (b.p, fits, b.tally, span.W (), span.H (), b.cap, Profile (b, slot, span), Gable (b, slot, span, false),
+              Gable (b, slot, span, true), count, cornerLo, cornerHi, minFirst, minLast);
     if (plan.fits.empty ())
         return false;
     auto order = plan.fits;
@@ -360,8 +431,18 @@ bool DivideSpan (Builder& b, const Slot& slot, Box span, int count, bool cornerL
 void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots, Scheme& scheme, const Pins& pins,
              const Options& o, bool resume)
 {
-    (void) o;
-    Builder b { p, pins, scheme, {} };
+    Builder b { p, pins, scheme, {}, MaxFlat (p, o), ToPaths (scheme.outline), {} };
+    for (const auto& c : scheme.corridors)
+        b.taken.push_back (ToPath (c.shape));
+    for (const auto& c : scheme.cores)
+        b.taken.push_back (ToPath (c.shape));
+    for (const auto& l : scheme.lobbies)
+        b.taken.push_back (ToPath (l));
+    for (const auto& f : scheme.flats)
+        b.taken.push_back (ToPath (f.shape));
+    for (const auto& slot : slots)
+        b.taken.push_back (ToPath (ToRing (slot.frame, slot.box)));
+    b.taken = cp::Union (b.taken, cp::FillRule::NonZero, kPrecision);
     // Flat count for the whole floor from the frontage it offers, then counts by share.
     double estimate = 0;
     double mean = 0;

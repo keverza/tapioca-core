@@ -418,14 +418,19 @@ double WidthFor (double area, double depth)
 }
 // Sections along `length` and the plan of each: fewest stairs whose flats stay near the sizes
 // of the sketch (2-3 rooms at the sides, 1-2 rooms behind the stair).
-std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double length)
+// `beyond`: mean depth of floor past the wing's two facades that the mould adds to the
+// through flats (a skewed or stepped outline).
+std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double length, double beyond)
 {
     const double S = c.o.coreWidth, behind = depth - c.o.coreDepth;
     const bool middle = behind >= 4.5;
     const double sideT = WidthFor (TypicalArea (c.programme, 2, 3, 60), depth);
     const double midT = middle ? WidthFor (TypicalArea (c.programme, 1, 2, 38), behind) : 0;
-    const double sideLo = 4.5, sideHi = 10.0, midLo = RoomFrontage (1).min, midHi = 7.5;
+    // Side flats are through flats: as narrow as the smallest through type (the programme check
+    // below rules out the types that do not fit the width).
+    const double sideLo = ThroughFrontage (1).min, sideHi = 10.0, midLo = RoomFrontage (1).min, midHi = 7.5;
     const double limit = (c.o.sectionArea + c.o.sectionSlack) / c.o.grossFactor;
+    const double cap = MaxFlat (c.programme, c.o);
     double best = 1e18;
     std::pair<int, Sectional> out { 1, { 2, (std::max) (0.0, (length - S) / 2), S } };
     for (int n = 1; n <= (std::max) (1, static_cast<int> (length / 8)); ++n) {
@@ -435,9 +440,12 @@ std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double leng
         // Score: how far each flat's net area falls from the nearest programme type (in m2,
         // over 10), plus a stair's worth of cost per section.
         // Only the types whose rooms fit the width count; none fitting rules the plan out.
-        auto miss = [&] (double width, double d, bool through) {
+        // `extra`: the hall that steps in beside the stair belongs to the side flat.
+        auto miss = [&] (double width, double d, bool through, double extra = 0) {
             double best = 1e18;
-            const double area = NetArea (width, d);
+            const double area = NetArea (width, d) + extra;
+            if (area > cap + 0.5)
+                return 1e18; // too large a flat: more sections instead
             for (const auto& t : c.programme.types) {
                 const auto f = through ? ThroughFrontage (t.rooms) : RoomFrontage (t.rooms);
                 if (width < f.min - 1e-6)
@@ -451,21 +459,25 @@ std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double leng
             const double side = (Ls - M) / 2;
             if (side < sideLo - 1e-9 || side > sideHi + 1e-9)
                 return;
-            double cost = 2 * miss (side, depth, depth >= 8.0) + 2.0 * n;
+            const double hall = units > 2 ? (M - S) / 2 * c.o.coreDepth : 0;
+            double cost = 2 * miss (side, depth, depth >= 8.0, hall + side * beyond) + 2.0 * n;
             if (units == 4)
                 cost += 2 * miss (M / 2, behind, false);
             if (units == 3)
-                cost += miss (S, behind, false);
+                cost += miss (M, behind, false);
             cost -= 0.25 * units; // more flats per stair is cheaper
             (void) sideT, (void) midT;
-            if (cost < best)
+            if (cost < best && cost < 1e17)
                 best = cost, out = { n, { units, side, M } };
         };
         if (middle) {
             // The side halls step in beside the stair: each at least a hall's width.
             for (double M = (std::max) (2 * midLo, S + 2 * (kHallMin + kInnerWall)); M <= 2 * midHi + 1e-9; M += 0.1)
                 consider (4, M);
+            // One flat behind the stair, as wide as the stair or wide enough for halls beside it.
             consider (3, S);
+            for (double M = S + 2 * (kHallMin + kInnerWall); M <= midHi + 1e-9; M += 0.1)
+                consider (3, M);
         }
         else
             consider (2, S);
@@ -475,6 +487,15 @@ std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double leng
 void CoreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bool up, int run, Sectional plan)
 {
     const double S = c.o.coreWidth, ds = c.o.coreDepth;
+    // The stair goes to the facade the wing's sections face unless its own stretch of that
+    // facade is covered (a neighbouring wing at a corner) and the other side is open.
+    {
+        const double centre = (s0 + s1 - S) / 2;
+        const Box stair { centre, 0, centre + S, depth };
+        if (SideFacade (c, f, stair, up ? 2 : 0) < c.o.stairWindow &&
+            SideFacade (c, f, stair, up ? 0 : 2) >= c.o.stairWindow)
+            up = !up;
+    }
     // Flats behind the stair face the other facade: where another wing covers it, the
     // section keeps only the two side flats.
     if (plan.units > 2 && SideFacade (c, f, { s0, 0, s1, depth }, up ? 0 : 2) < 0.6 * (s1 - s0))
@@ -503,8 +524,8 @@ void CoreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bo
         AddSlot (c, f, { xm, mv0, x3, mv1 }, !up, id, 0, 1, false, uc, uc + S);
     }
     const double dv0 = plan.units == 2 ? 0 : sv0, dv1 = plan.units == 2 ? depth : sv1;
-    const Box leftHall = plan.units == 4 && uc - x0 > 0.05 ? Box { x0, sv0, uc, sv1 } : Box {};
-    const Box rightHall = plan.units == 4 && x3 - uc - S > 0.05 ? Box { uc + S, sv0, x3, sv1 } : Box {};
+    const Box leftHall = plan.units > 2 && uc - x0 > 0.05 ? Box { x0, sv0, uc, sv1 } : Box {};
+    const Box rightHall = plan.units > 2 && x3 - uc - S > 0.05 ? Box { uc + S, sv0, x3, sv1 } : Box {};
     AddSlot (c, f, { s0, 0, x0, depth }, up, id, 2, 1, false, dv0, dv1, leftHall);
     AddSlot (c, f, { x3, 0, s1, depth }, up, id, 1, 1, false, dv0, dv1, rightHall);
 }
@@ -535,8 +556,19 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
         access = Access::CoreOnly;
     int n = 1;
     Sectional sectional;
-    if (access == Access::CoreOnly)
-        std::tie (n, sectional) = SectionalPlan (c, depth, length);
+    if (access == Access::CoreOnly) {
+        // Floor past either facade within the mould's reach, averaged along the wing.
+        double beyond = 0;
+        int samples = 0;
+        for (double u = p.s0 + 0.25; u < p.s1; u += 0.5, ++samples)
+            for (int side = 0; side < 2; ++side) {
+                double e = 0;
+                while (e + 0.1 <= 3.5 && Inside (c.outline, f.World (u, side ? depth + e + 0.1 : -e - 0.1)))
+                    e += 0.1;
+                beyond += e < 3.4 ? e : 0;
+            }
+        std::tie (n, sectional) = SectionalPlan (c, depth, length, samples ? beyond / samples : 0);
+    }
     else {
         n = (std::max) (1, static_cast<int> (std::ceil (
                                length * depth * c.o.grossFactor / (c.o.sectionArea + c.o.sectionSlack) - 1e-9)));

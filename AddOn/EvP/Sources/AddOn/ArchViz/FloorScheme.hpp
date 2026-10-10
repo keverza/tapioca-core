@@ -48,6 +48,8 @@ struct Options {
     double centreDepth = 13.0; // a wing at least this deep gets a centre corridor, else just stairs
                                // (sections of 3-4 flats); a corridor on one side only when pinned
     double windowGap = 1.6;    // wall between the two windows of a 1.5R (living and alcove)
+    double maxFlat = 90.0;     // net m2 above which a flat is divided (user, 2026-10-10: more 2R
+                               // flats beat a few over 100 m2); a programme type may ask for more
     double minCap = 5.0, maxCap = 8.0;
     double north = 0;    // project north, radians anticlockwise from world +y
     double raster = 0.3; // skeleton search grid
@@ -181,6 +183,8 @@ Frontage RoomFrontage (double rooms);
 Frontage ThroughFrontage (double rooms);
 // Net area of a band flat: gross minus a party wall across the band and the facade wall.
 double NetArea (double frontage, double depth);
+// Largest net area a flat may have: Options::maxFlat, or the programme's largest type if larger.
+double MaxFlat (const floorprogramme::Programme& programme, const Options& options);
 // Generate one floor. `outline` is any set of world rings (several buildings may touch or
 // overlap: they are planned as one massing); `programme` is the whole massing's.
 Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins = {},

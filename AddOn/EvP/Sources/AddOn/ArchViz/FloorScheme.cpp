@@ -198,8 +198,9 @@ void Grow (Flat& flat, const cp::PathD& piece, const Extent& e, int dir)
 }
 // Leftover floor beside flats and stairs joins them between their walls produced straight on to
 // the outline (user, 2026-10-10), so a skewed facade adds clean strips instead of diagonal cuts:
-// long sides first, then gables. Returns what is left.
-cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first)
+// long sides first, then gables. A strip that would take a flat over `cap` stays out (division
+// plans for the strips, so this is rare). Returns what is left.
+cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first, double cap)
 {
     constexpr double kSide = 3.5, kGable = 2.0;
     // A stair's axis is read before it grows: a joined strip can put a slanted edge first.
@@ -228,7 +229,7 @@ cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first)
             const Extent e (flat.shape, flat.axis);
             cp::PathsD took;
             for (const auto& piece : Strip (rest, flat.shape, e, dir, reach))
-                if (Join (flat.shape, piece)) {
+                if (flat.net + cp::Area (piece) <= cap + 0.5 && Join (flat.shape, piece)) {
                     Grow (flat, piece, e, dir);
                     const double area = cp::Area (piece);
                     flat.gross += area, flat.net += area;
@@ -240,9 +241,11 @@ cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first)
     return rest;
 }
 // A small piece joins a flat it touches when it is a sliver or keeps the flat square.
-bool Joinable (const Flat& flat, const cp::PathD& path)
+bool Joinable (const Flat& flat, const cp::PathD& path, double cap)
 {
     const double area = cp::Area (path);
+    if (flat.net + area > cap + 0.5)
+        return false; // a flat over the cap: the piece goes to a neighbour or stays out
     const Ring piece = Counter (FromPath (path));
     double perimeter = 0;
     for (size_t k = 0; k < piece.size (); ++k)
@@ -258,8 +261,9 @@ bool Joinable (const Flat& flat, const cp::PathD& path)
     const bool small = area <= (std::max) (2.0, 0.2 * flat.gross) && Squareness (joined.front (), flat.axis) >= 0.85;
     return area < 0.5 || sliver || small;
 }
-// Each simple leftover region goes whole to the flat it touches most, when Joinable.
-cp::PathsD Absorb (const cp::PathsD& rest, Scheme& s, size_t first)
+// Each simple leftover region goes whole to the flat it touches most, when Joinable; else to
+// the next one it touches.
+cp::PathsD Absorb (const cp::PathsD& rest, Scheme& s, size_t first, double cap)
 {
     cp::PathsD left;
     for (const auto& path : rest) {
@@ -267,28 +271,32 @@ cp::PathsD Absorb (const cp::PathsD& rest, Scheme& s, size_t first)
         for (const auto& hole : rest)
             holed = holed ||
                     (cp::Area (hole) < 0 && !hole.empty () && Inside ({ path }, { hole.front ().x, hole.front ().y }));
-        int owner = -1;
-        double best = 0.5;
+        std::vector<std::pair<double, size_t>> owners;
         const Ring ring = Counter (FromPath (path));
         for (size_t i = first; i < s.flats.size () && !holed; ++i) {
             if (!Near (ring, s.flats[i].shape, 0.1))
                 continue;
             const double t = Touch (ring, s.flats[i].shape);
-            if (t > best)
-                best = t, owner = static_cast<int> (i);
+            if (t > 0.5)
+                owners.push_back ({ -t, i });
         }
-        if (owner >= 0 && Joinable (s.flats[owner], path) && Join (s.flats[owner].shape, path)) {
-            s.flats[owner].gross += cp::Area (path), s.flats[owner].net += cp::Area (path);
-            continue;
-        }
-        left.push_back (path);
+        std::sort (owners.begin (), owners.end ());
+        bool joined = false;
+        for (const auto& [t, i] : owners)
+            if (Joinable (s.flats[i], path, cap) && Join (s.flats[i].shape, path)) {
+                s.flats[i].gross += cp::Area (path), s.flats[i].net += cp::Area (path);
+                joined = true;
+                break;
+            }
+        if (!joined)
+            left.push_back (path);
     }
     return left;
 }
 // What the strips leave (corners, steps of the outline) goes whole to the flat it touches most
 // when that keeps the flat square; failing that it is triangulated and each triangle goes to the
 // flat it touches most, joined when it is a sliver or a small square-keeping piece.
-void Mould (const cp::PathsD& outline, Scheme& s)
+void Mould (const cp::PathsD& outline, Scheme& s, double cap)
 {
     cp::PathsD used;
     for (const auto& f : s.flats)
@@ -303,8 +311,8 @@ void Mould (const cp::PathsD& outline, Scheme& s)
         used.push_back (ToPath (u.shape));
     auto rest = Extend (cp::Difference (outline, cp::Union (used, cp::FillRule::NonZero, kPrecision),
                                         cp::FillRule::NonZero, kPrecision),
-                        s, 0);
-    rest = Absorb (rest, s, 0);
+                        s, 0, cap);
+    rest = Absorb (rest, s, 0, cap);
     if (std::abs (detail::Area (rest)) < 0.05)
         return;
     // Simple pieces: each region with its holes triangulated, or cut on a 2 m grid when the
@@ -390,7 +398,7 @@ void Mould (const cp::PathsD& outline, Scheme& s)
             if (area <= 0)
                 continue;
             // Only a small piece next to the flat: anything larger stays visible.
-            if (Joinable (flat, path) && Join (flat.shape, path))
+            if (Joinable (flat, path, cap) && Join (flat.shape, path))
                 flat.gross += area, flat.net += area;
             else
                 leave (path, "would make a nook in the flat beside it");
@@ -501,7 +509,8 @@ void Rework (const cp::PathsD& outline, Scheme& s, const floorprogramme::Program
     }
     zone =
         cp::Difference (cp::Union (zone, cp::FillRule::NonZero, kPrecision), made, cp::FillRule::NonZero, kPrecision);
-    for (const auto& rest : Absorb (Extend (zone, s, before), s, before))
+    for (const auto& rest :
+         Absorb (Extend (zone, s, before, MaxFlat (programme, o)), s, before, MaxFlat (programme, o)))
         if (cp::Area (rest) > 0.5)
             kept.push_back ({ Counter (FromPath (rest)), "left beside the flats divided again" });
     s.unassigned = std::move (kept);
@@ -569,7 +578,7 @@ Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Program
     for (const auto& f : s.flats)
         if (f.band >= 0 && f.band < static_cast<int> (s.bands.size ()))
             ++s.bands[f.band].flats;
-    Mould (paths, s);
+    Mould (paths, s, MaxFlat (programme, options));
     Rework (paths, s, programme, pins, options);
     Tidy (s);
     for (const auto& f : s.flats)

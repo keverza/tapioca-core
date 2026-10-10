@@ -257,6 +257,30 @@ TEST (FloorScheme, SkewedFacadeExtendsThePartyWallsStraight)
     EXPECT_LT (red, 1.0);
 }
 
+TEST (FloorScheme, NoFlatOutgrowsTheCap)
+{
+    // More 2R flats beat a few over 100 m2: division, sections and moulding all stop at the cap.
+    const auto p = fp::Default ();
+    const double cap = fs::MaxFlat (p, fs::Options {});
+    for (const auto& c : Cases ()) {
+        const auto s = fs::Generate (c.outline, p);
+        for (const auto& f : s.flats)
+            EXPECT_LE (f.net, cap + 0.5) << c.name << ": " << f.rooms << "R";
+    }
+}
+
+TEST (FloorScheme, SteppedBarSplitsAtTheJog)
+{
+    // Two 12 m deep halves offset by 2 m: one inscribed wing would be 10 m deep, so the bar
+    // splits at the jog and each half is planned at its own depth.
+    const auto s = fs::Generate ({ Rect (0, 0, 30, 12), Rect (30, 2, 60, 14) }, fp::Default ());
+    EXPECT_EQ (s.typology, "I stepped") << Report (s);
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    ASSERT_FALSE (s.cores.empty ());
+    const double perStair = static_cast<double> (s.flats.size ()) / static_cast<double> (s.cores.size ());
+    EXPECT_GE (perStair, 3.0) << Report (s);
+}
+
 // Offline review: FLOORSCHEME_REVIEW=<file.json> writes every case (and the floors of
 // FLOORSCHEME_FIXTURES, "floor <name>" then "ring x y x y ..." lines) for the review page.
 TEST (FloorScheme, ReviewDump)

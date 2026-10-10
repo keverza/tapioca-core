@@ -353,6 +353,133 @@ std::string Name (const Skeleton& s, const std::vector<int>& members, bool court
         name << " " << static_cast<int> (std::round (s.wings[i].angle)) << "\xC2\xB0";
     return name.str ();
 }
+// A bar whose facades jog (a sheared or notched outline) is read as one wing as deep as its
+// narrowest part. The free depth beyond each long side is sampled along the wing; where it
+// jumps the wing is cut, and each part takes the depth its own facades allow (user, 2026-10-10:
+// sections are planned on the real depth).
+void Steps (Skeleton& s, const cp::PathsD& outline, const Options& o)
+{
+    constexpr double kSample = 0.5, kJump = 0.8, kGain = 1.0;
+    const double minPiece = (std::max) (o.minWingLength, 8.0);
+    auto clear = [&] (Vec p, size_t self) {
+        if (!Inside (outline, p))
+            return false;
+        for (size_t j = 0; j < s.wings.size (); ++j)
+            if (j != self && Inside ({ ToPath (s.wings[j].rect) }, p))
+                return false;
+        return true;
+    };
+    const size_t count = s.wings.size ();
+    for (size_t i = 0; i < count; ++i) {
+        const Wing w = s.wings[i];
+        const Frame f = s.frames[i];
+        const double reach = (std::min) (3.0, o.maxWingDepth - w.depth);
+        if (reach < kGain || w.length < 2 * minPiece)
+            continue;
+        // Free depth beyond side v = depth (+) and v = 0 (-) at u.
+        auto free = [&] (double u, int sign) {
+            double e = 0;
+            while (e + 0.1 <= reach && clear (f.World (u, sign > 0 ? w.depth + e + 0.1 : -e - 0.1), i))
+                e += 0.1;
+            return e;
+        };
+        const int n = static_cast<int> (std::floor (w.length / kSample));
+        if (n < 4)
+            continue;
+        std::vector<double> plus (n), minus (n);
+        for (int k = 0; k < n; ++k) {
+            const double u = (k + 0.5) * w.length / n;
+            plus[k] = free (u, 1), minus[k] = free (u, -1);
+        }
+        // Cuts where either side jumps, refined to 5 cm.
+        std::vector<double> cuts { 0 };
+        for (int k = 1; k < n; ++k) {
+            if (std::abs (plus[k] - plus[k - 1]) < kJump && std::abs (minus[k] - minus[k - 1]) < kJump)
+                continue;
+            const int sign = std::abs (plus[k] - plus[k - 1]) >= kJump ? 1 : -1;
+            const double before = sign > 0 ? plus[k - 1] : minus[k - 1];
+            double lo = (k - 0.5) * w.length / n, hi = (k + 0.5) * w.length / n;
+            while (hi - lo > 0.05) {
+                const double mid = (lo + hi) / 2;
+                (std::abs (free (mid, sign) - before) < kJump / 2 ? lo : hi) = mid;
+            }
+            cuts.push_back ((lo + hi) / 2);
+        }
+        cuts.push_back (w.length);
+        // Parts shorter than a flat or two join their neighbour.
+        for (bool merged = true; merged && cuts.size () > 2;) {
+            merged = false;
+            for (size_t k = 0; k + 1 < cuts.size (); ++k)
+                if (cuts[k + 1] - cuts[k] < minPiece) {
+                    cuts.erase (cuts.begin () + static_cast<long> (k == 0 ? 1 : k));
+                    merged = true;
+                    break;
+                }
+        }
+        if (cuts.size () < 3)
+            continue;
+        // Each part's extra depth: the least free depth inside it, then checked as a rectangle.
+        struct Part {
+            double u0, u1, lo, hi;
+        };
+        std::vector<Part> parts;
+        bool gain = false;
+        for (size_t k = 0; k + 1 < cuts.size (); ++k) {
+            Part p { cuts[k], cuts[k + 1], reach, reach };
+            for (int j = 0; j < n; ++j) {
+                const double u = (j + 0.5) * w.length / n;
+                if (u > p.u0 + 0.3 && u < p.u1 - 0.3)
+                    p.hi = (std::min) (p.hi, plus[j]), p.lo = (std::min) (p.lo, minus[j]);
+            }
+            p.hi = std::floor (p.hi * 10) / 10, p.lo = std::floor (p.lo * 10) / 10;
+            gain = gain || p.hi + p.lo >= kGain;
+            parts.push_back (p);
+        }
+        if (!gain)
+            continue;
+        auto ring = [&] (const Part& p) {
+            return Counter ({ f.World (p.u0, -p.lo), f.World (p.u1, -p.lo), f.World (p.u1, w.depth + p.hi),
+                              f.World (p.u0, w.depth + p.hi) });
+        };
+        // The grown wing already leans a hair past a skewed outline: a few hundredths of a m2.
+        auto fits = [&] (const Part& p) {
+            const auto r = ring (p);
+            if (Area (cp::Difference ({ ToPath (r) }, outline, cp::FillRule::NonZero, kPrecision)) > 0.05)
+                return false;
+            for (size_t j = 0; j < s.wings.size (); ++j)
+                if (j != i && Area (cp::Intersect ({ ToPath (r) }, { ToPath (s.wings[j].rect) }, cp::FillRule::NonZero,
+                                                   kPrecision)) > 0.05)
+                    return false;
+            return true;
+        };
+        // Each side shrinks on its own until the part fits.
+        for (auto& p : parts) {
+            for (double* side : { &p.hi, &p.lo }) {
+                Part one = p;
+                (side == &p.hi ? one.lo : one.hi) = 0;
+                double& e = side == &p.hi ? one.hi : one.lo;
+                while (e > 0 && !fits (one))
+                    e = (std::max) (0.0, e - 0.1);
+                *side = e;
+            }
+            while ((p.hi > 0 || p.lo > 0) && !fits (p))
+                p.hi = (std::max) (0.0, p.hi - 0.1), p.lo = (std::max) (0.0, p.lo - 0.1);
+        }
+        for (size_t k = 0; k < parts.size (); ++k) {
+            const auto& p = parts[k];
+            Frame pf = f;
+            pf.o = f.World (p.u0, -p.lo);
+            Wing piece = w;
+            piece.length = p.u1 - p.u0, piece.depth = w.depth + p.lo + p.hi;
+            piece.rect = ring (p);
+            piece.a = pf.World (0, piece.depth / 2), piece.b = pf.World (piece.length, piece.depth / 2);
+            if (k == 0)
+                s.wings[i] = piece, s.frames[i] = pf;
+            else
+                s.wings.push_back (piece), s.frames.push_back (pf);
+        }
+    }
+}
 } // namespace
 
 bool Inscribed (const cp::PathsD& area, double theta, double minDepth, double minLength, Frame& frame, Box& box)
@@ -433,6 +560,7 @@ Skeleton Decompose (const cp::PathsD& outline, const Options& o, std::vector<Dia
                 Counter ({ f.World (0, 0), f.World (w.length, 0), f.World (w.length, w.depth), f.World (0, w.depth) });
             w.a = f.World (0, w.depth / 2), w.b = f.World (w.length, w.depth / 2);
         }
+    Steps (s, outline, o);
     if (!s.wings.empty ()) {
         cp::PathsD all;
         for (const auto& w : s.wings)
