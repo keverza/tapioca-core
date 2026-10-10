@@ -137,7 +137,7 @@ std::vector<Point> Corners (const Core& core, double angle)
 std::string Fingerprint (const metadata::EntityMetadata& entity)
 {
     metadata::EntityMetadata value;
-    for (const char* key : { kLocations, kShapes })
+    for (const char* key : { kLocations, kShapes, kDesigns })
         if (const auto* property = metadata::FindProperty (entity, key))
             value.properties.push_back (*property);
     return metadata::ToJson (value);
@@ -153,16 +153,21 @@ bool Matches (const metadata::EntityMetadata& entity, const hudmeta::Edit& edit)
 Stored Read (const metadata::EntityMetadata& entity)
 {
     bool present = false, valid = true;
+    std::string designs;
+    if (const auto* text = metadata::FindProperty (entity, kDesigns);
+        text && text->value.type == metadata::ValueType::String)
+        designs = text->value.s;
     const auto points = Numbers (entity, kLocations, present, valid);
     if (!present)
-        return {};
+        return { {}, designs };
     if (!valid)
-        return { {}, true };
+        return { {}, designs, true };
     bool shaped = false, sizes = true;
     const auto shapes = Numbers (entity, kShapes, shaped, sizes);
     // Sizes are optional: a legacy or mismatched list reads as default 4.5 x 4.2 m cores.
     const bool useShapes = shaped && sizes && shapes.size () == points.size ();
     Stored stored;
+    stored.designs = designs;
     for (size_t i = 0; i < points.size (); i += 2) {
         Core core { { points[i], points[i + 1] } };
         if (useShapes && Sized ({ {}, shapes[i], shapes[i + 1] })) {
@@ -190,14 +195,15 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
             plan.note = "Plan awaits every building member's metadata.";
             return plan;
         }
-        plan.mixed |= source->stored.invalid || (!first && plan.saved != source->stored.cores);
+        plan.mixed |= source->stored.invalid ||
+                      (!first && (plan.saved != source->stored.cores || plan.savedDesigns != source->stored.designs));
         plan.sources.push_back (*source);
         if (first)
-            plan.saved = source->stored.cores;
+            plan.saved = source->stored.cores, plan.savedDesigns = source->stored.designs;
         first = false;
     }
     if (plan.mixed)
-        plan.saved.clear ();
+        plan.saved.clear (), plan.savedDesigns.clear ();
     size_t points = 0;
     for (const auto& row : preview.section.floors) {
         Floor floor;
@@ -369,13 +375,15 @@ Point Snap (const Floor& floor, const Core& core, double angle)
 }
 bool Dirty (const Draft& draft)
 {
-    return draft.known && (draft.cores != draft.original || (draft.originalMixed && draft.changed));
+    return draft.known && (draft.cores != draft.original || !(draft.designs == draft.originalDesigns) ||
+                           (draft.originalMixed && draft.changed));
 }
 bool Conflict (const Plan& plan, const Draft& draft)
 {
     if (!draft.known)
         return false;
     if (plan.guids != draft.guids || plan.saved != draft.original || plan.mixed != draft.originalMixed ||
+        plan.savedDesigns != floorscheme::edit::ToJson (draft.originalDesigns) ||
         plan.sources.size () != draft.fingerprints.size ())
         return true;
     for (size_t i = 0; i < plan.sources.size (); ++i)
@@ -386,7 +394,9 @@ bool Conflict (const Plan& plan, const Draft& draft)
 void Reset (const Plan& plan, Draft& draft)
 {
     const int story = draft.story;
-    const bool acknowledged = draft.known && draft.cores == plan.saved && draft.guids == plan.guids && !plan.mixed;
+    const bool acknowledged = draft.known && draft.cores == plan.saved &&
+                              floorscheme::edit::ToJson (draft.designs) == plan.savedDesigns &&
+                              draft.guids == plan.guids && !plan.mixed;
     auto quickPlans = acknowledged ? std::move (draft.quickPlans) : std::map<int, QuickPlan> {};
     auto uniqueFloors = acknowledged ? std::move (draft.uniqueFloors) : std::set<int> {};
     auto programme = std::move (draft.programme);
@@ -401,6 +411,11 @@ void Reset (const Plan& plan, Draft& draft)
     draft.known = true;
     draft.story = story;
     draft.cores = draft.original = plan.saved;
+    // Saved designs that do not read (a newer add-on wrote them) open as none; Save replaces them.
+    std::string unread;
+    if (!floorscheme::edit::FromJson (plan.savedDesigns, draft.designs, unread))
+        draft.designs = {};
+    draft.originalDesigns = draft.designs;
     draft.originalMixed = plan.mixed;
     draft.guids = plan.guids;
     for (const auto& source : plan.sources)
@@ -409,7 +424,8 @@ void Reset (const Plan& plan, Draft& draft)
 void Sync (const Plan& plan, Draft& draft)
 {
     if (!draft.known || (!Dirty (draft) && Conflict (plan, draft)) ||
-        (Dirty (draft) && !plan.mixed && plan.saved == draft.cores && plan.guids == draft.guids))
+        (Dirty (draft) && !plan.mixed && plan.saved == draft.cores &&
+         plan.savedDesigns == floorscheme::edit::ToJson (draft.designs) && plan.guids == draft.guids))
         Reset (plan, draft);
 }
 std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
@@ -438,11 +454,12 @@ std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
         edit.kind = hudmeta::FieldKind::Fixed;
         edit.type = metadata::ValueType::List;
         edit.action = draft.cores.empty () ? hudmeta::Edit::Action::Clear : hudmeta::Edit::Action::Set;
+        edit.text = floorscheme::edit::ToJson (draft.designs); // the floor designs travel with the stairs
         for (const auto& core : draft.cores) {
             edit.numbers.insert (edit.numbers.end (), { core.center.x, core.center.y });
             edit.shapes.insert (edit.shapes.end (), { core.width, core.depth });
         }
-        edit.label = "Proposed stairwell locations";
+        edit.label = "Proposed stairwells and floor plans";
         edits.push_back (std::move (edit));
     }
     return edits;

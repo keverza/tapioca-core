@@ -2,6 +2,7 @@
 #define EVP_ARCHVIZ_HUDBUILDINGPLAN_HPP
 
 #include "ArchViz/FloorProgramme.hpp"
+#include "ArchViz/FloorSchemeDesigns.hpp"
 #include "ArchViz/HudSection.hpp"
 #include <limits>
 #include <map>
@@ -16,6 +17,7 @@ struct Preview;
 namespace geomsrv::archviz::buildingplan {
 constexpr char kLocations[] = "massing.stairwellLocations";
 constexpr char kShapes[] = "massing.stairwellShapes";
+constexpr const char* kDesigns = floorscheme::edit::kDesignsKey; // the floor designs, beside the stairs
 constexpr size_t kMaxStairs = 32;
 // Stair assembly: 4.5 m along the corridor, 4.2 m from its facade (three flights around the lift).
 constexpr double kStairWidth = 4.5, kStairDepth = 4.2, kSnapDistance = 0.5;
@@ -106,6 +108,7 @@ struct QuickPlan {
 };
 struct Stored {
     std::vector<Core> cores;
+    std::string designs; // floorscheme::edit::Designs as JSON; empty when none were saved
     bool invalid = false;
 };
 struct Source {
@@ -131,7 +134,8 @@ struct Plan {
     std::vector<Source> sources;
     std::vector<Floor> floors;
     std::vector<Core> saved;
-    double angle = 0; // building frame: the longest counted edge of the largest floor
+    std::string savedDesigns; // every member's, when they agree
+    double angle = 0;         // building frame: the longest counted edge of the largest floor
     bool mixed = false;
     std::string note;
 };
@@ -150,6 +154,8 @@ struct Draft {
     std::vector<std::string> guids;
     std::vector<std::string> fingerprints;
     floorprogramme::Programme programme = floorprogramme::Default (); // the Massing programme, HUD-session
+    // The floor designs (stairs aside: `cores`), and as saved; Save writes them with the stairs.
+    floorscheme::edit::Designs designs, originalDesigns;
     bool exportRequested = false;        // Export plan pressed; the owner builds and writes the file
     std::map<int, QuickPlan> quickPlans; // Local per-floor design; never written by Save stairwells.
     std::set<int> uniqueFloors;
