@@ -128,5 +128,19 @@ double Thickness (FaceClass kind);
 double Share (const Complex& complex, int face, int cell);
 // Union of `cells` on wall centre lines: a flat, a floor, the building's footprint.
 std::vector<Ring> Union (const Complex& complex, const std::vector<int>& cells);
+
+// BuildingTopologyClear.cpp: what lies inside the walls (user, 2026-10-10: facade 0.5 m inside the
+// massing, partitions 0.2 m, a 0.3 m slab below each floor's level).
+struct Span {
+    double z0 = 0, z1 = 0;
+};
+// `cells` united, less each bounding face's share of its wall (faces between two of the cells are
+// no wall of the set: a flat is drawn without its internal walls). Outer rings counter-clockwise.
+std::vector<Ring> Clear (const Complex& complex, const std::vector<int>& cells);
+// A floor's slab: its cells inside the facade and party walls, from kSlab below its level up to it.
+std::vector<Ring> Plate (const Complex& complex, int floor);
+Span SlabSpan (const Floor& floor);
+// Between a floor's slab and the next one's underside: z to z + height - kSlab.
+Span ClearSpan (const Floor& floor);
 } // namespace geomsrv::archviz::buildingtopology
 #endif

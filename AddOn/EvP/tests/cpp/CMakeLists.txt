@@ -534,6 +534,7 @@ set (EVP_ARCHVIZ_SOURCES
     # A building's planned floors as one cell complex: rooms, walls, openings.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopology.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopologyBoundaries.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopologyClear.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudFloorPlans.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingAreaCalculations.cpp"

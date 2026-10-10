@@ -239,3 +239,36 @@ TEST (BuildingTopology, EveryFloorsStairIsTheStacksStair)
     for (const auto& [stair, floors] : stacks)
         EXPECT_EQ (floors, (std::vector<int> { 0, 1 })) << "stair " << stair << " on every floor";
 }
+
+// User, 2026-10-10: the facade wall 0.5 m inside the massing, 0.2 m partitions, a 0.3 m slab below.
+TEST (BuildingTopology, ClearGeometryStandsInsideTheWalls)
+{
+    const auto s = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 10, 2), Rect (0, 2, 4, 4), Rect (4, 2, 10, 4) });
+    bt::FloorInput input { 2, 6.0, 3.0, &s, {} };
+    const auto c = bt::Build ({ input });
+    // The long flat: facade on three sides (0.5 m in), party wall on the fourth (0.1 m).
+    const auto flat = bt::Clear (c, c.units[0].cells);
+    ASSERT_EQ (flat.size (), 1u);
+    EXPECT_NEAR (Area (flat), (10 - 1.0) * (2 - 0.5 - 0.1), 1e-4);
+    // Two flats together lose the wall between them, not its thickness on the outside.
+    const auto both = bt::Clear (c, { c.units[1].cells[0], c.units[2].cells[0] });
+    EXPECT_NEAR (Area (both), (10 - 1.0) * (2 - 0.5 - 0.1), 1e-4);
+    // The slab: the floor inside its facade, 0.3 m thick below the floor's level.
+    EXPECT_NEAR (Area (bt::Plate (c, 0)), 9 * 3, 1e-4);
+    EXPECT_NEAR (bt::SlabSpan (c.floors[0]).z0, 5.7, 1e-9);
+    EXPECT_NEAR (bt::SlabSpan (c.floors[0]).z1, 6.0, 1e-9);
+    EXPECT_NEAR (bt::ClearSpan (c.floors[0]).z0, 6.0, 1e-9);
+    EXPECT_NEAR (bt::ClearSpan (c.floors[0]).z1, 8.7, 1e-9);
+}
+
+TEST (BuildingTopology, AReEntrantCornerKeepsTheWallCorner)
+{
+    // An L flat on its own: its clear shape is the L moved 0.5 m in all round.
+    const fs::Ring l { { 0, 0 }, { 10, 0 }, { 10, 4 }, { 4, 4 }, { 4, 10 }, { 0, 10 } };
+    const auto s = Flats ({ l }, { l });
+    const auto c = bt::Build ({ { 0, 0, 3, &s, {} } });
+    const auto clear = bt::Clear (c, c.units[0].cells);
+    ASSERT_EQ (clear.size (), 1u);
+    // (10 - 1) x (4 - 1) plus (4 - 1) x (10 - 4): the arm above the bar's clear part.
+    EXPECT_NEAR (Area (clear), 9 * 3 + 3 * 6, 1e-4);
+}
