@@ -19,6 +19,7 @@
 //
 // MAIN THREAD, inside ImGui's lock like the rest of the HUD.
 #include "ArchViz/FloorPlanner.hpp"
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -41,6 +42,24 @@ Asked PlanView (EditorPtr& editor, buildingplan::Planner& planner,
                 std::map<std::string, buildingplan::Draft>& drafts, const std::string& key,
                 const floorprogramme::Programme& programme, const massingareas::Coefficients& coefficients,
                 float scale);
+
+// Model metres onto a view of the overlay: the plan's transform, the same at every elevation
+// (`planar`: pixel = plan[0] x + plan[1] y + plan[2], plan[3] x + plan[4] y + plan[5]), or 3D's
+// camera (`project`, false where a point does not project).
+struct ViewOnto {
+    bool planar = false;
+    double plan[6] = {};
+    std::function<bool (double x, double y, double z, float& px, float& py)> project;
+};
+// ⚠️ THE FLOOR PLAN EDITED ON THE VIEW ITSELF while the dock's lock is on (the user, 2026-10-10),
+// in the HUD's window over the whole view (`hovered`: the pointer is there, not on a panel). In
+// the plan each building's shown floor takes the Plan view's gestures -- select, arrows, drag,
+// right click -- through the plan's transform; in 3D a flat clicked is selected (its building's
+// Plan view turns to its floor) and a right click opens its menu.
+void OnView (std::map<std::string, EditorPtr>& editors, buildingplan::Planner& planner,
+             const std::map<std::string, buildingplan::Plan>& plans, std::map<std::string, buildingplan::Draft>& drafts,
+             const floorprogramme::Programme& programme, const massingareas::Coefficients& coefficients,
+             const ViewOnto& onto, bool hovered, float scale);
 
 // The flat selected in a Plan view, for the overlay to draw it highlighted.
 struct Selection {

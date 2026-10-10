@@ -111,6 +111,7 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     }
     draft_.hand = layout.hand;
     draft_.cursor = layout.cursor;
+    draft_.locked = layout.locked;
     if (layout.hoverTint)
         AddHoverTint (input.hover.tintModel);
     if (layout.highlight.active)

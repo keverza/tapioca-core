@@ -107,6 +107,7 @@ struct State {
     buildingplan::Planner floorPlanner;
     std::map<std::string, hudfloorscheme::EditorPtr> planEditors;
     std::string floorPlanAsked; // what the overlay last asked the planner for
+    bool editLocked = false;    // the dock's lock: the view's clicks edit the floor plan
     bool previewStairs = false, previewUnits = false;
     std::string floorPlanPublished;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
@@ -261,6 +262,9 @@ struct Engine::Impl {
     void BuildingDiagram (const massingbuildings::Preview& preview, float ui);
     void StoryDiagram (const massingbuildings::Preview& preview, float ui);
     void PlanSection (const massingbuildings::Preview& preview, float ui);
+    // While the dock's lock is on: a window over the whole view, behind the panels, where the
+    // floor plan is edited on the view (hudfloorscheme::OnView).
+    void LockedView (const Input& input, float ui, ImVec2 view);
     void MassingPage ();
     void DebugPage (float ui);
     std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,

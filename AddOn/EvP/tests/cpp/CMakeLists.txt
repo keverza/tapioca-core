@@ -519,6 +519,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorPlanner.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeCanvas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeOnView.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudLocked.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"

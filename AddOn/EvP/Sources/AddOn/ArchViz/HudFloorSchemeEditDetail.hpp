@@ -62,6 +62,7 @@ struct Editor {
     fs::Vec from, at, axis;
     bool moved = false;
     ImGuiContext* owner = nullptr;
+    bool menuOpen = false;  // its right-click menu is open (on the view, while locked)
     uint64_t liveSince = 0; // planner revision when the gesture began: newer live schemes are its
     std::vector<Step> undo, redo;
 };
@@ -116,6 +117,7 @@ void Canvas (Editor& e, Context& c, float scale);
 // HudFloorSchemeEdit.cpp: the shown floor's design becomes `next` (one undo step); a party wall
 // pushed `distance` out of the building, or pulled in.
 void Commit (Editor& e, Context& c, fe::Design next);
+void UndoRedo (Editor& e, Context& c, bool undo);
 // The editor of building `key` on `floor`, brought up to date with the planner and the drafts.
 Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp::Floor& floor);
 // The right-click menu ("##planMenu" in the window that opened it): a flat's rooms, split, join,

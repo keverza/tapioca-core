@@ -149,6 +149,7 @@ struct Draft {
     Highlight highlight;
     bool hand = false;
     uint8_t cursor = 0;
+    bool locked = false;
 };
 
 // A panel, and whose it is: its layer and its place among that layer's panels -- what

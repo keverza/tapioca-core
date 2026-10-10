@@ -622,6 +622,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     else if (ImGui::GetCurrentContext ()->HoveredWindow == nullptr && !onLegend)
         readout = input.hover;
     Dock (panels, ui, view);
+    if (known && store->shown && store->editLocked)
+        LockedView (input, ui, view);
     // Hidden by the dock's circle: the dock alone.
     if (store->shown) {
         Host (panels, keys, scale, ui, view);
@@ -838,6 +840,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         out.highlight = impl_->highlight;
         out.hand = impl_->hand;
         out.cursor = impl_->cursor;
+        out.locked = impl_->store->editLocked && impl_->store->shown;
         out.popup = impl_->popup;
         out.hoverTint = impl_->tinted;
         for (size_t i = 0; i < panels.size (); ++i) {

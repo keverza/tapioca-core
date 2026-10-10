@@ -125,6 +125,7 @@ struct DockPress {
     bool title = false;
     bool top = false;
     bool bottom = false;
+    bool lock = false;
 };
 
 // The dock's tab: `top` at its top, then `label` turned a quarter clockwise -- it reads top to
@@ -132,8 +133,11 @@ struct DockPress {
 // across and along, rounded on the left where it comes out of the view's edge. Filled with
 // `look`'s accent while `open`, in its card's colours otherwise; each part tinted when pointed
 // at and pressed, a circle's `tip` said by it.
+// ⚠️ AND A LOCK UNDER THE TOP CIRCLE when `locked` is given (the user, 2026-10-10): locked, the view's
+// clicks are the HUD's -- the floor plan is edited on the view itself -- and only the wheel and
+// the middle button reach Archicad, to navigate. A closed padlock while locked, open otherwise.
 DockPress DockTab (const char* id, const std::string& label, const overlaylayers::Panel& look, bool open,
-                   const Circle& top, const Circle* bottom, ImVec2 padding, float scale);
+                   const Circle& top, const Circle* bottom, ImVec2 padding, float scale, const bool* locked = nullptr);
 
 // ⚠️ A RIGHT CLICK A CONTROL ANSWERS IS THE CONTROL'S: the HUD's own menu opens on a right click
 // anywhere on the HUD (OverlayHudHost.cpp `Menu`) unless a control -- the building section's

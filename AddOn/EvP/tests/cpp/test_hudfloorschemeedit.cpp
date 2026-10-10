@@ -229,3 +229,146 @@ TEST (HudFloorSchemeEdit, ANarrowPanelFitsTheToolsAndTheCanvas)
         std::this_thread::sleep_for (std::chrono::milliseconds (5));
     }
 }
+
+namespace {
+// A headless HUD frame over a 1000 x 1400 view: one full-view window, as the locked view is.
+struct OnViewFrame {
+    ImGuiContext* previous = ImGui::GetCurrentContext ();
+    ImGuiContext* context = ImGui::CreateContext ();
+    OnViewFrame ()
+    {
+        auto& io = ImGui::GetIO ();
+        io.IniFilename = nullptr;
+        io.DisplaySize = { 1000, 1400 };
+        io.DeltaTime = 1.0f / 60;
+        EXPECT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
+        unsigned char* pixels = nullptr;
+        int width = 0, height = 0;
+        io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    }
+    ~OnViewFrame ()
+    {
+        ImGui::DestroyContext (context);
+        ImGui::SetCurrentContext (previous);
+    }
+    template <typename F> void operator() (ImVec2 mouse, bool left, bool right, F body)
+    {
+        auto& io = ImGui::GetIO ();
+        io.MousePos = mouse;
+        io.MouseDown[0] = left;
+        io.MouseDown[1] = right;
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 1000, 1400 });
+        ImGui::Begin ("##locked", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+        body (ImGui::IsWindowHovered ());
+        ImGui::End ();
+        ImGui::Render ();
+    }
+};
+// The plan's transform in these tests: 10 pixels a metre, y up, the origin at (100, 600).
+hf::ViewOnto Plan ()
+{
+    hf::ViewOnto onto;
+    onto.planar = true;
+    const double m[6] = { 10, 0, 100, 0, -10, 600 };
+    std::copy (std::begin (m), std::end (m), onto.plan);
+    return onto;
+}
+ImVec2 OnPlan (fs::Vec p)
+{
+    return { float (100 + 10 * p.x), float (600 - 10 * p.y) };
+}
+} // namespace
+
+// ⚠️ THE USER (2026-10-10): locked, the floor plan is edited on the view itself -- a flat clicked
+// there is selected, a stair dragged moves as on the Plan view's canvas.
+TEST (HudFloorSchemeEdit, OnTheLockedPlanAFlatIsSelectedAndAStairDragged)
+{
+    OnViewFrame frame;
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 36) } };
+    std::map<std::string, bp::Draft> drafts;
+    std::map<std::string, hf::EditorPtr> editors;
+    bp::Planner planner;
+    const auto programme = fp::Default ();
+    const auto onto = Plan ();
+    const auto view = [&] (ImVec2 mouse, bool left) {
+        frame (mouse, left, false,
+               [&] (bool hovered) { hf::OnView (editors, planner, plans, drafts, programme, {}, onto, hovered, 1); });
+    };
+    const fs::Scheme* scheme = nullptr;
+    for (int n = 0; n < 400 && !scheme; ++n) {
+        view (OnPlan ({ 18, 8 }), false);
+        if (const auto* planned = planner.Latest (bp::FloorId ("A", 0)))
+            scheme = &planned->scheme;
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+    ASSERT_NE (scheme, nullptr);
+    view (OnPlan ({ 18, 8 }), false);
+    fs::Vec mid;
+    for (const auto& p : scheme->flats.front ().shape)
+        mid.x += p.x / scheme->flats.front ().shape.size (), mid.y += p.y / scheme->flats.front ().shape.size ();
+    view (OnPlan (mid), false);
+    view (OnPlan (mid), true);
+    view (OnPlan (mid), false);
+    const auto selected = hf::Selected (editors["A"]);
+    ASSERT_TRUE (selected.has_value ()) << "the flat clicked on the view is selected";
+    // A stair dragged 2.1 m on the view lands 2.0 m on, the building's own.
+    const fs::Vec from = scheme->cores.front ().centre;
+    view (OnPlan (from), false);
+    view (OnPlan (from), true);
+    for (int k = 1; k <= 10; ++k)
+        view (OnPlan ({ from.x + 2.1 * k / 10, from.y }), true);
+    view (OnPlan ({ from.x + 2.1, from.y }), false);
+    ASSERT_FALSE (drafts["A"].cores.empty ());
+    double near = 1e9;
+    for (const auto& core : drafts["A"].cores)
+        near = (std::min) (near, std::hypot (core.center.x - (from.x + 2.0), core.center.y - from.y));
+    EXPECT_LT (near, 1e-6);
+}
+
+// In 3D the view selects: a flat picked through the camera is selected, its building's Plan view
+// turned to its floor -- the highest floor under the pointer.
+TEST (HudFloorSchemeEdit, OnTheLocked3DViewAFlatPickedTurnsThePlanViewToItsFloor)
+{
+    OnViewFrame frame;
+    auto tower = Building ("A", 0, 36);
+    auto upper = tower.floors.front ();
+    upper.story = 1, upper.z = 3;
+    tower.floors.push_back (upper);
+    const std::map<std::string, bp::Plan> plans { { "A", tower } };
+    std::map<std::string, bp::Draft> drafts;
+    std::map<std::string, hf::EditorPtr> editors;
+    bp::Planner planner;
+    const auto programme = fp::Default ();
+    for (int round = 0; round < 2; ++round)
+        for (int n = 0; n < 400; ++n) {
+            bp::WantFloors (planner, plans, drafts, "A", programme, 0);
+            planner.Poll ();
+            if (!planner.Busy () && planner.Latest (bp::FloorId ("A", 1)))
+                break;
+            std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        }
+    const auto* upperPlanned = planner.Latest (bp::FloorId ("A", 1));
+    ASSERT_NE (upperPlanned, nullptr);
+    hf::ViewOnto onto; // a camera looking straight down: the plan's transform at every height
+    onto.project = [] (double x, double y, double, float& px, float& py) {
+        px = float (100 + 10 * x), py = float (600 - 10 * y);
+        return true;
+    };
+    fs::Vec mid;
+    const auto& flat = upperPlanned->scheme.flats.front ().shape;
+    for (const auto& p : flat)
+        mid.x += p.x / flat.size (), mid.y += p.y / flat.size ();
+    const auto view = [&] (ImVec2 mouse, bool left) {
+        frame (mouse, left, false,
+               [&] (bool hovered) { hf::OnView (editors, planner, plans, drafts, programme, {}, onto, hovered, 1); });
+    };
+    view (OnPlan (mid), false);
+    view (OnPlan (mid), true);
+    view (OnPlan (mid), false);
+    EXPECT_EQ (drafts["A"].story, 1) << "the Plan view turns to the floor picked";
+    const auto selected = hf::Selected (editors["A"]);
+    ASSERT_TRUE (selected.has_value ());
+    EXPECT_EQ (selected->story, 1);
+}

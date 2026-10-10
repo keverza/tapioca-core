@@ -744,6 +744,7 @@ void FinishPlan (Draft& draft, overlayhud::Engine* hud, Plan& out)
     out.highlight = draft.highlight;
     out.hand = draft.hand;
     out.cursor = draft.cursor;
+    out.locked = draft.locked;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);
@@ -884,6 +885,7 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
     out.highlight = draft.highlight;
     out.hand = draft.hand;
     out.cursor = draft.cursor;
+    out.locked = draft.locked;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);

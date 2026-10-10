@@ -27,6 +27,11 @@ bool Hovering ();
 // does not decode as one) reads "nothing", and the reason is said once when it changes.
 void Fill (overlayhud::Input& input);
 
+// While the dock's lock is on, the camera as `input.project` -- model metres onto the view through
+// the matrix the overlay's shaders draw with (findings 1 and 2) -- for the floor plan picked on the
+// view. Nothing when no camera decodes yet.
+void Projection (overlayhud::Input& input);
+
 } // namespace overlayhover3d
 } // namespace archviz
 } // namespace geomsrv

@@ -11,6 +11,8 @@
 #include "ArchViz/OverlayHover.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
+#include <algorithm>
+#include <array>
 #include <string>
 
 namespace geomsrv {
@@ -86,6 +88,24 @@ void Fill (overlayhud::Input& input)
     // In model metres: the guest draws it with the camera of every Present, through an orbit.
     overlayhover::TintModel (mesh, hover.tintModel, whole ? -1 : int64_t (hit.triangle));
     input.hover = std::move (hover);
+}
+
+void Projection (overlayhud::Input& input)
+{
+    freshness::CameraCopy camera;
+    if (!freshness::LatestCamera (camera))
+        return;
+    float decoded[16];
+    if (cameralayout::Decode (camera.view, camera.projection, decoded) == cameralayout::Layout::Neither)
+        return;
+    std::array<double, 16> viewProjection {};
+    cameralayout::ViewProjection (camera.projection, camera.view, viewProjection.data ());
+    std::array<float, 4> viewport {};
+    std::copy (std::begin (camera.viewport), std::end (camera.viewport), viewport.begin ());
+    input.project = [viewProjection, viewport] (double x, double y, double z, float& px, float& py) {
+        float invW = 0.0f;
+        return overlayhover::ProjectThrough (viewProjection.data (), viewport.data (), x, y, z, px, py, invW);
+    };
 }
 
 } // namespace overlayhover3d

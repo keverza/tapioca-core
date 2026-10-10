@@ -63,10 +63,19 @@ struct HitMap {
     // The cursor the HUD asked for there (`Cursor`): a canvas that is one pressable item says
     // its own (HudShell `OwnCursor`); otherwise a hand or an arrow as `hand` says.
     uint8_t cursor = 0;
+    // ⚠️ LOCKED, THE VIEW IS THE HUD'S (the user, 2026-10-10: edit the floor plan on the view, not
+    // Archicad's elements): a press anywhere on it is the HUD's, and a move with nothing held;
+    // the wheel and the middle button still navigate (`Router`).
+    bool locked = false;
 
     // The index of the topmost region holding the view point (x, y) of a view `width`
     // by `height` pixels; -1 for none.
     int Hit (float x, float y, float width, float height) const;
+    // The point is the HUD's: on a region of it, or anywhere while the view is locked.
+    bool Owns (float x, float y, float width, float height) const
+    {
+        return locked || Hit (x, y, width, height) >= 0;
+    }
 };
 
 // ⚠️ THE POINTER SAYS WHAT A PRESS WILL DO (the user, 2026-10-10: over the plan canvas it kept

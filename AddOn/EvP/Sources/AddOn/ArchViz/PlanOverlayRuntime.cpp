@@ -33,6 +33,7 @@
 #endif
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -360,6 +361,21 @@ overlayhud::Input HudInput (bool take)
         if (input.pointer)
             input.hover = HoverAt (input.x, input.y);
         input.hover.picks = true; // the plan reads under the pointer: its readout may say "nothing"
+    }
+    // ⚠️ LOCKED, THE FLOOR PLAN IS EDITED ON THE VIEW (the user, 2026-10-10): the HUD is handed the
+    // plan's transform, read here as HoverAt reads it, to place the pointer in model metres.
+    if (overlayhud::EditLocked (*guesttext::HudState ()) && overlayvisibility::ContentShown ()) {
+        PlanViewTransform read;
+        {
+            const OwnAcapi own;
+            read = ReadPlanViewTransform (g_logicalWidth, g_logicalHeight);
+        }
+        if (read.valid) {
+            const plancontent::PixelTransform t = ToPhysical (read);
+            input.planar = true;
+            const double plan[6] = { t.xx, t.xy, t.ox, t.yx, t.yy, t.oy };
+            std::copy (std::begin (plan), std::end (plan), input.plan);
+        }
     }
     return input;
 }
