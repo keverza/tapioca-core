@@ -70,7 +70,10 @@ bool Highlight (const Result& result, const std::string& function, overlaylayers
 // Closed `chains` (holes kept, even-odd) as a prism from `bottom` to `top`, caps and sides, appended
 // to `mesh`'s points and indices in world coordinates; false when they do not triangulate.
 bool ExtrudeChains (const std::vector<SliceChain>& chains, double bottom, double top, overlaylayers::Mesh& mesh,
-                    std::string& error);
+                    std::string& error, bool topCap = true);
+// Closed `chains` moved `distance` inward (holes grow), mitred; empty where nothing is left. What a
+// floor is inside its facade wall (user, 2026-10-10: floorprogramme::kFacade inside the massing).
+std::vector<SliceChain> Inset (const std::vector<SliceChain>& chains, double distance);
 bool FloorHighlight (const Result& result, const std::string& building, const hudsection::Run& run,
                      overlaylayers::Layer& layer, std::string& error);
 // Strictly >500 m2 gross, using the displayed section area basis and shared coefficient.

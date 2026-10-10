@@ -1,4 +1,5 @@
 #include "ArchViz/MassingSlices.hpp"
+#include "ArchViz/FloorProgramme.hpp"
 #include <clipper2/clipper.h>
 
 #include <algorithm>
@@ -20,11 +21,16 @@ cp::PathsD Paths (const std::vector<SliceChain>& chains, double ox, double oy)
     }
     return cp::Union (paths, cp::FillRule::EvenOdd, 6);
 }
+// A floor inside its walls (user, 2026-10-10): its contour 0.5 m in for the facade wall, from its
+// level to the underside of the next floor's 0.3 m slab. A floor too narrow to keep anything inside
+// its facade leaves the mesh empty.
 bool Extrude (const Row& floor, overlaylayers::Mesh& mesh, std::string& error)
 {
-    if (floor.chains.empty ())
+    const auto inside = Inset (floor.chains, floorprogramme::kFacade);
+    if (inside.empty ())
         return true;
-    if (!ExtrudeChains (floor.chains, floor.z, floor.z + floor.floorHeight, mesh, error))
+    const double top = floor.z + (std::max) (0.0, floor.floorHeight - floorprogramme::kSlab);
+    if (!ExtrudeChains (inside, floor.z, top, mesh, error))
         return false;
     mesh.rgba = floor.fillRgba;
     mesh.styled = true;
@@ -67,8 +73,27 @@ bool HighlightRows (const Result& result, const FloorTargets& targets, overlayla
 }
 } // namespace
 
+std::vector<SliceChain> Inset (const std::vector<SliceChain>& chains, double distance)
+{
+    std::vector<SliceChain> out;
+    if (chains.empty () || chains.front ().xy.size () < 2)
+        return out;
+    const double ox = chains.front ().xy[0], oy = chains.front ().xy[1];
+    const auto inside =
+        cp::InflatePaths (Paths (chains, ox, oy), -distance, cp::JoinType::Miter, cp::EndType::Polygon, 2.0, 6);
+    for (const auto& path : inside) {
+        if (std::abs (cp::Area (path)) < 1e-6)
+            continue;
+        SliceChain chain;
+        chain.closed = true;
+        for (const auto& p : path)
+            chain.xy.insert (chain.xy.end (), { p.x + ox, p.y + oy });
+        out.push_back (std::move (chain));
+    }
+    return out;
+}
 bool ExtrudeChains (const std::vector<SliceChain>& chains, double bottom, double top, overlaylayers::Mesh& mesh,
-                    std::string& error)
+                    std::string& error, bool topCap)
 {
     if (chains.empty ())
         return true;
@@ -96,9 +121,11 @@ bool ExtrudeChains (const std::vector<SliceChain>& chains, double bottom, double
         auto a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
         if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0)
             std::swap (b, c);
-        vertex (a.x, a.y, top);
-        vertex (b.x, b.y, top);
-        vertex (c.x, c.y, top);
+        if (topCap) {
+            vertex (a.x, a.y, top);
+            vertex (b.x, b.y, top);
+            vertex (c.x, c.y, top);
+        }
         vertex (c.x, c.y, bottom);
         vertex (b.x, b.y, bottom);
         vertex (a.x, a.y, bottom);
@@ -359,6 +386,8 @@ bool Highlight (const Result& result, const std::string& function, overlaylayers
             overlaylayers::Mesh mesh;
             if (!Extrude (floor, mesh, error))
                 return false;
+            if (mesh.indices.empty ())
+                continue;
             mesh.graphicsFunction = floor.function;
             points += mesh.points.size () / 3;
             if (points > 600000) {

@@ -5,6 +5,7 @@
 #include "NodeGraph/Json.hpp"
 
 #include <gtest/gtest.h>
+#include <array>
 #include <algorithm>
 #include <limits>
 #include <fstream>
@@ -544,7 +545,7 @@ TEST (MassingSlices, DisplayControlsPreserveFunctionColoursAndLabelTheFinalArea)
     ASSERT_EQ (result.layer.texts.size (), 3u);
     EXPECT_EQ (result.layer.texts[0].text, "36.0 m\xC2\xB2");
     EXPECT_TRUE (result.layer.texts[0].planar);
-    EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres, 0.21);
+    EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres, 0.2) << "fitted to the slab inside the facade";
     EXPECT_EQ (result.layer.texts[0].minProjectedPixels, 9);
     EXPECT_EQ (result.layer.polylines[0].rgba, 0xF2C14EFF);
     EXPECT_EQ (result.layer.polylines[0].widthPixels, 4);
@@ -572,7 +573,9 @@ TEST (MassingSlices, AreaLabelsUseStandaloneFittingAndOneSizeAcrossFunctionColou
     EXPECT_EQ (result.layer.texts[1].text, "16.0 m\xC2\xB2");
     EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres, result.layer.texts[1].sizeMetres);
     EXPECT_DOUBLE_EQ (result.layer.texts[0].sizeMetres,
-                      geomsrv::archviz::storysliceoverlay::LabelSizeMetres (0, 16, 3.5, result.layer.texts[1].text));
+                      geomsrv::archviz::storysliceoverlay::LabelSizeMetres (
+                          0, 16, 3.5 - 2 * geomsrv::archviz::floorprogramme::kFacade, result.layer.texts[1].text))
+        << "the small slab's edge inside its facade";
     EXPECT_EQ (result.layer.meshes[0].rgba, 0xF2C14E59);
     EXPECT_EQ (result.layer.meshes[1].rgba, 0xE4572E59);
 }
@@ -693,4 +696,40 @@ TEST (MassingSlices, OverlappingSlabsAtOneElevationCountTheirOverlapOnce)
     ASSERT_EQ (result.section.floors.size (), 2u);
     for (const auto& floor : result.section.floors)
         EXPECT_NEAR (floor.areaM2, 150, 1e-6) << floor.label;
+}
+
+// User, 2026-10-10: a story slice is the floor's slab -- 0.5 m inside the massing for the facade
+// wall, 0.3 m thick below the floor's level -- and a floor's highlight stands inside the facade
+// from its level to the next slab's underside. Areas stay the counted contour's.
+TEST (MassingSlices, SlicesAreSlabsInsideTheFacadeAndHighlightsStopUnderTheNextSlab)
+{
+    namespace fp = geomsrv::archviz::floorprogramme;
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab () }, {}, nullptr, result, error)) << error;
+    ASSERT_FALSE (result.rows.empty ());
+    const auto& row = result.rows.front ();
+    EXPECT_NEAR (row.rawArea, 100, 1e-6) << "the counted area is the whole contour";
+    auto bounds = [] (const layers::Mesh& mesh) {
+        std::array<double, 6> b { 1e18, -1e18, 1e18, -1e18, 1e18, -1e18 };
+        for (size_t i = 0; i < mesh.points.size (); i += 3)
+            for (int k = 0; k < 3; ++k)
+                b[k * 2] = (std::min) (b[k * 2], mesh.points[i + k]),
+                      b[k * 2 + 1] = (std::max) (b[k * 2 + 1], mesh.points[i + k]);
+        return b;
+    };
+    ASSERT_FALSE (result.layer.meshes.empty ());
+    const auto slab = bounds (result.layer.meshes.front ());
+    EXPECT_NEAR (slab[0], fp::kFacade, 1e-6);
+    EXPECT_NEAR (slab[1], 10 - fp::kFacade, 1e-6);
+    EXPECT_NEAR (slab[4], row.z - fp::kSlab, 1e-6) << "0.3 m below the floor's level";
+    EXPECT_NEAR (slab[5], row.z, 0.05) << "up to the level (the fill is lifted a little)";
+    layers::Layer highlight;
+    ASSERT_TRUE (ms::Highlight (result, row.function, highlight, error)) << error;
+    ASSERT_FALSE (highlight.meshes.empty ());
+    const auto floor = bounds (highlight.meshes.front ());
+    EXPECT_NEAR (floor[0], fp::kFacade, 1e-6);
+    EXPECT_NEAR (floor[3], 10 - fp::kFacade, 1e-6);
+    EXPECT_NEAR (floor[4], row.z, 1e-9);
+    EXPECT_NEAR (floor[5], row.z + row.floorHeight - fp::kSlab, 1e-9);
 }

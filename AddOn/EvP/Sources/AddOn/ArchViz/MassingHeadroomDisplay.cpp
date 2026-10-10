@@ -1,4 +1,5 @@
 #include "ArchViz/MassingSlices.hpp"
+#include "ArchViz/FloorProgramme.hpp"
 #include <iterator>
 
 namespace geomsrv::archviz::massingslices {
@@ -18,7 +19,9 @@ overlaylayers::Layer RowDisplay (const Row& row, const storysliceoverlay::Slice&
 {
     overlaylayers::Layer out;
     storysliceoverlay::Slice slice;
-    slice.chains = row.chains;
+    // The floor's slab (user, 2026-10-10): inside the 0.5 m facade wall, 0.3 m thick below the
+    // floor's level. The caption keeps the counted area of the whole contour.
+    slice.chains = Inset (row.chains, floorprogramme::kFacade);
     slice.z = row.z;
     slice.storey = row.story;
     slice.areaM2 = row.clipped ? row.allowedArea : row.rawArea;
@@ -33,6 +36,18 @@ overlaylayers::Layer RowDisplay (const Row& row, const storysliceoverlay::Slice&
     controls.liftMetres = 0.015;
     if (!slice.chains.empty ()) {
         auto coloured = storysliceoverlay::BuildLayer ({ slice }, controls).layer;
+        // The slab's sides and underside join the slice's fill: one mesh, one hover, one colour.
+        overlaylayers::Mesh slab;
+        std::string error;
+        if (!coloured.meshes.empty () &&
+            ExtrudeChains (slice.chains, row.z - floorprogramme::kSlab, row.z, slab, error, false)) {
+            auto& fill = coloured.meshes.front ();
+            const uint32_t base = static_cast<uint32_t> (fill.points.size () / 3);
+            fill.points.insert (fill.points.end (), slab.points.begin (), slab.points.end ());
+            for (uint32_t index : slab.indices)
+                fill.indices.push_back (base + index);
+            fill.style.cullBack = false;
+        }
         for (auto& mesh : coloured.meshes)
             mesh.graphicsFunction = row.function;
         for (auto& line : coloured.polylines)
