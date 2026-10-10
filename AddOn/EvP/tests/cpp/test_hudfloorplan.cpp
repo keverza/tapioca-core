@@ -382,45 +382,6 @@ TEST (HudFloorPlan, StaleOutlineOrCoreChangesRegenerateUnitEditsButStairSaveAckn
                bp::GenerateQuick (plan.floors[0], draft.cores, draft.programme, plan.angle).seeds.size ());
 }
 
-TEST (HudFloorPlan, OverlayTogglesPublishEveryFloorAndLocalUnitEditsWithoutRepeatedRebuilds)
-{
-    auto state = hud::NewState ();
-    const auto plan = Building ();
-    state->floorPlanSnapshots[plan.key] = plan;
-    state->previewStairs = true;
-    state->previewUnits = true;
-    geomsrv::archviz::overlaylayers::Layer stairs, units;
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    EXPECT_EQ (stairs.name, bp::kStairsLayer);
-    EXPECT_EQ (units.name, bp::kUnitsLayer);
-    EXPECT_TRUE (stairs.polylines.empty ());
-    ASSERT_EQ (stairs.meshes.size (), 3u);
-    EXPECT_GT (units.polylines.size (), 3u);
-    for (size_t i = 0; i < stairs.meshes.size (); ++i) {
-        EXPECT_DOUBLE_EQ (stairs.meshes[i].points[2], double (i) * 3);
-        EXPECT_DOUBLE_EQ (stairs.meshes[i].points[14], double (i + 1) * 3);
-        EXPECT_EQ (stairs.meshes[i].rgba, 0x969696FFu);
-        EXPECT_EQ (stairs.meshes[i].indices.size (), 36u);
-    }
-    EXPECT_TRUE (geomsrv::archviz::overlaylayers::Validate (stairs).empty ());
-    EXPECT_FALSE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    auto& draft = state->buildingPlans.at (plan.key);
-    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
-    ASSERT_TRUE (bp::RemoveUnit (quick, MultiSeed (quick)));
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    // A programme edit on the Massing tab reaches every building's preview.
-    fp::SetShare (state->massingProgramme, 1, 0.5);
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    EXPECT_EQ (draft.programme, state->massingProgramme);
-    state->previewStairs = state->previewUnits = false;
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    EXPECT_TRUE (stairs.polylines.empty ());
-    EXPECT_TRUE (stairs.meshes.empty ());
-    EXPECT_TRUE (units.polylines.empty ());
-    state->floorPlanSnapshots.clear ();
-    EXPECT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-}
-
 TEST (HudFloorPlan, UnsupportedSlantedOutlineRefusesRatherThanSubstitutingBoundingRectangle)
 {
     auto floor = Floor ();
@@ -518,33 +479,6 @@ TEST (HudFloorPlan, RotatedAndGeoreferencedOutlinesKeepExactWorldContoursAndTurn
     EXPECT_TRUE (straight.ready) << Diagnostic (straight);
 }
 
-TEST (HudFloorPlan, OverlayAcknowledgesStairSaveWhenSelectionTabIsNotDrawingAndTypeEditsInvalidateCache)
-{
-    auto state = hud::NewState ();
-    auto plan = Building ();
-    state->floorPlanSnapshots[plan.key] = plan;
-    state->previewUnits = true;
-    geomsrv::archviz::overlaylayers::Layer stairs, units;
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    auto& draft = state->buildingPlans[plan.key];
-    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
-    const size_t at = MultiSeed (quick);
-    ASSERT_LT (at, quick.seeds.size ());
-    const size_t type = quick.seeds[at].type == 5 ? 0 : 5;
-    ASSERT_TRUE (bp::SetUnitType (quick, at, type));
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    EXPECT_TRUE (std::any_of (units.polylines.begin (), units.polylines.end (), [&] (const auto& line) {
-        return line.rgba == bp::AreaColour (bp::Traits (quick, quick.seeds[at]).net);
-    }));
-    draft.original.clear (); // Dirty local stair draft; the next snapshot acknowledges its saved points.
-    ASSERT_TRUE (bp::Dirty (draft));
-    state->floorPlanSnapshots[plan.key] = plan;
-    hud::TakeFloorPlanLayers (*state, stairs, units);
-    EXPECT_FALSE (bp::Conflict (plan, draft));
-    EXPECT_FALSE (bp::Dirty (draft));
-    EXPECT_EQ (bp::QuickFor (plan, draft, plan.floors[0]).seeds[at].type, type);
-}
-
 TEST (HudFloorPlan, LockedAreasSurviveOtherTypeChangesDraggingAddDeleteAndCancellation)
 {
     auto plan = bp::GenerateQuick (Floor (), { { { 6, 2.1 } } });
@@ -628,36 +562,6 @@ TEST (HudFloorPlan, FinalCorridorsNeverTouchExternalOrCourtyardFacadesAndFillsRe
         EXPECT_NEAR (cp::Area (cp::Intersect (triangles, { hole }, cp::FillRule::NonZero, 6)), 0, 1e-5);
         EXPECT_NEAR (std::abs (cp::Area (triangles)), bp::UnitArea (unit), 1e-4);
     }
-}
-
-TEST (HudFloorPlan, AllBuildingSnapshotsKeepSolidCorePreviewsAndEditsOnDeselectionButClearOnRemoval)
-{
-    hudtest::Watched gui;
-    hud::OwnPages pages;
-    const auto plan = Building ();
-    pages.floorPlansKnown = true;
-    pages.floorPlans = { plan };
-    gui.engine.SetOwnPages (pages);
-    gui.state->previewStairs = true;
-    geomsrv::archviz::overlaylayers::Layer stairs, units;
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
-    ASSERT_EQ (stairs.meshes.size (), 3u);
-    auto& draft = gui.state->buildingPlans.at (plan.key);
-    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
-    ASSERT_TRUE (bp::SetUnitLocked (quick, MultiSeed (quick), true));
-    const auto count = draft.quickPlans.size ();
-    pages.selection.known = true;
-    pages.selection.count = 0;
-    gui.engine.SetOwnPages (pages);
-    EXPECT_EQ (gui.state->floorPlanSnapshots.size (), 1u);
-    EXPECT_EQ (gui.state->buildingPlans.at (plan.key).quickPlans.size (), count);
-    EXPECT_FALSE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
-    EXPECT_EQ (stairs.meshes.size (), 3u);
-    pages.floorPlans.clear ();
-    gui.engine.SetOwnPages (pages);
-    EXPECT_TRUE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
-    EXPECT_TRUE (stairs.meshes.empty ());
-    EXPECT_TRUE (gui.state->buildingPlans.empty ());
 }
 
 TEST (HudFloorPlan, InfeasibleTargetEitherMovesTheCoreAtomicallyOrLeavesTheDraftUntouched)
@@ -849,56 +753,6 @@ TEST (HudFloorPlan, ProgrammeFromTheProjectIsAdoptedUnlessAnUnsavedEditIsWaiting
     pages.massing.programme = fp::Default ();
     gui.engine.SetOwnPages (pages);
     EXPECT_EQ (state.massingProgramme, fp::Default ());
-}
-
-TEST (HudFloorPlan, ExportIsAStorySlicesFixtureWithTheCoresProgrammeAndEveryDesign)
-{
-    auto plan = Building ();
-    plan.floors[2].contours = { { Ring (0, 0, 36, 36), Ring (12, 12, 12, 12) } };
-    plan.saved = { { { 6, 2.1 } } };
-    bp::Draft draft;
-    bp::Reset (plan, draft);
-    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
-    ASSERT_TRUE (quick.ready);
-    ASSERT_TRUE (bp::SetUnitLocked (quick, MultiSeed (quick), true));
-    const auto file = bp::ExportPlan (plan, draft, plan.floors[0], "20261009-120000");
-    EXPECT_EQ (file.name, "Tower-floor0-20261009-120000.json");
-    if (const char* sample = std::getenv ("FLOORPLAN_EXPORT_SAMPLE"))
-        std::ofstream (sample, std::ios::binary) << file.text;
-    namespace js = evp::nodegraph::json;
-    const auto parsed = js::Parse (file.text);
-    ASSERT_TRUE (parsed.ok) << parsed.error;
-    const auto& doc = parsed.value;
-    std::string text;
-    ASSERT_TRUE (doc.Find ("format")->AsString (text));
-    EXPECT_EQ (text, "tapioca.story-slices.2d");
-    ASSERT_TRUE (doc.Find ("program")->AsString (text));
-    EXPECT_EQ (text, fp::Brief (draft.programme, "\n")) << "One type per line, as the generator reads briefs";
-    const auto* slices = doc.Find ("slices")->AsArray ();
-    ASSERT_NE (slices, nullptr);
-    ASSERT_EQ (slices->size (), 3u) << "One slice per floor ring";
-    EXPECT_EQ (slices->at (2).Find ("holes")->AsArray ()->size (), 1u) << "The courtyard stays a hole";
-    const auto* exported = doc.Find ("plan");
-    ASSERT_NE (exported, nullptr);
-    ASSERT_EQ (exported->Find ("cores")->AsArray ()->size (), 1u);
-    double width = 0;
-    ASSERT_TRUE (exported->Find ("cores")->AsArray ()->front ().Find ("width")->AsDouble (width));
-    EXPECT_DOUBLE_EQ (width, 4.5);
-    EXPECT_EQ (exported->Find ("programme")->AsArray ()->size (), draft.programme.types.size ());
-    const auto* designs = exported->Find ("designs")->AsArray ();
-    ASSERT_EQ (designs->size (), 2u) << "Floors 0 and 1 share a design; the courtyard floor has its own";
-    const auto* flats = designs->front ().Find ("flats")->AsArray ();
-    ASSERT_EQ (flats->size (), quick.seeds.size ());
-    size_t locked = 0;
-    for (const auto& flat : *flats) {
-        bool value = false;
-        ASSERT_TRUE (flat.Find ("locked")->AsBool (value));
-        locked += value;
-        double net = 0;
-        ASSERT_TRUE (flat.Find ("netM2")->AsDouble (net));
-        EXPECT_GT (net, 0);
-    }
-    EXPECT_EQ (locked, 1u);
 }
 
 TEST (HudFloorPlan, EveryEditAndRegeneratedAlternativeKeepsNetAreaDepthFacadeAndEntranceFloors)

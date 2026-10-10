@@ -454,6 +454,9 @@ namespace {
 // Who claimed the right click, and in which frame: one HUD lays out at a time, under ImGui's lock.
 const ImGuiContext* g_claimedBy = nullptr;
 int g_claimedFrame = -1;
+// Who claimed the pointer, the same way.
+const ImGuiContext* g_cursorBy = nullptr;
+int g_cursorFrame = -1;
 
 } // namespace
 
@@ -466,6 +469,17 @@ void ClaimRightClick ()
 bool RightClickClaimed ()
 {
     return g_claimedBy == ImGui::GetCurrentContext () && g_claimedFrame == ImGui::GetFrameCount ();
+}
+
+void OwnCursor ()
+{
+    g_cursorBy = ImGui::GetCurrentContext ();
+    g_cursorFrame = ImGui::GetFrameCount ();
+}
+
+bool CursorOwned ()
+{
+    return g_cursorBy == ImGui::GetCurrentContext () && g_cursorFrame == ImGui::GetFrameCount ();
 }
 
 namespace {

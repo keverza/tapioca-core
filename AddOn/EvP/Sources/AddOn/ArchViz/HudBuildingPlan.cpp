@@ -436,10 +436,12 @@ std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft)
         std::any_of (draft.cores.begin (), draft.cores.end (),
                      [] (const Core& core) { return !Valid (core.center) || !Sized (core); }))
         return {};
-    for (const auto& floor : plan.floors)
-        for (const auto& core : draft.cores)
-            if (!CoreAllowed (floor, core, plan.angle))
-                return {};
+    // The typology places stairs by its own rules (FloorScheme.hpp); a saved stair need only stand
+    // on a floor of the building.
+    for (const auto& core : draft.cores)
+        if (std::none_of (plan.floors.begin (), plan.floors.end (),
+                          [&] (const Floor& floor) { return Contains (floor, core.center); }))
+            return {};
     std::vector<hudmeta::Edit> edits;
     for (const auto& guid : plan.guids) {
         hudmeta::Edit edit;

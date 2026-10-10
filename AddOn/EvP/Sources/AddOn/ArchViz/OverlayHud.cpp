@@ -719,9 +719,6 @@ Engine::~Engine ()
     for (auto& [key, draft] : impl_->store->buildingPlans) {
         if (draft.dragging && draft.dragOwner == reinterpret_cast<uintptr_t> (impl_->context))
             buildingplan::Cancel (draft);
-        for (auto& [story, quick] : draft.quickPlans)
-            if (quick.dragging && quick.owner == reinterpret_cast<uintptr_t> (impl_->context))
-                buildingplan::CancelUnits (quick);
     }
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);

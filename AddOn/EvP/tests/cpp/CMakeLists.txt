@@ -523,6 +523,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeDesigns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorPlanner.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeCanvas.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
@@ -762,6 +763,7 @@ set (EVP_TEST_SOURCES
     test_floorscheme_edit.cpp
     test_floorscheme_designs.cpp
     test_floorplanner.cpp
+    test_overlayfloorplans.cpp
     test_hudfloorschemeedit.cpp
     test_floorprogramme.cpp
     test_massingheadroom.cpp

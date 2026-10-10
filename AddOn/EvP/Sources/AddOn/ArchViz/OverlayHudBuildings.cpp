@@ -66,6 +66,50 @@ void Engine::Impl::StoryDiagram (const massingbuildings::Preview& preview, float
         draft.story = pickedStorey;
     }
 }
+// The building's Plan view, a section of its own: its floor among the others at the elevation.
+void Engine::Impl::PlanSection (const massingbuildings::Preview& preview, float ui)
+{
+    const auto& building = preview.building;
+    auto& draft = store->buildingPlans[building.key];
+    if (!ImGui::CollapsingHeader ("Plan view", ImGuiTreeNodeFlags_DefaultOpen)) {
+        buildingplan::Cancel (draft);
+        return;
+    }
+    if (!preview.plan.note.empty ())
+        ImGui::TextWrapped ("%s", preview.plan.note.c_str ());
+    buildingplan::UseProgramme (draft, store->massingProgramme);
+    // Every building is the floor's context; one not yet in the site's plans stands alone.
+    std::map<std::string, buildingplan::Plan> alone;
+    const auto& plans = store->floorPlanSnapshots.contains (building.key) ? store->floorPlanSnapshots
+                                                                          : (alone[building.key] = preview.plan, alone);
+    auto asked =
+        hudfloorscheme::PlanView (store->planEditors[building.key], store->floorPlanner, plans, store->buildingPlans,
+                                  building.key, store->massingProgramme, store->massingCoefficients, ui);
+    for (auto& edit : asked.edits) {
+        changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, 0, {}, true });
+        store->metadataEdits.push_back (std::move (edit));
+    }
+    if (asked.exportPlan)
+        if (const auto* floor = buildingplan::Displayed (preview.plan, draft)) {
+            std::map<int, const floorscheme::Scheme*> schemes;
+            for (const auto& f : preview.plan.floors)
+                if (const auto* planned = store->floorPlanner.Latest (buildingplan::FloorId (building.key, f.story)))
+                    schemes[f.story] = &planned->scheme;
+            store->planExports.push_back (
+                buildingplan::ExportPlan (preview.plan, draft, *floor, ExportStamp (), schemes));
+            changes.push_back ({ "planExport", {}, "Selection", building.key, -1, 1, {}, true });
+        }
+    // A new scheme, a changed design or selection: the overlay draws the floors again.
+    std::ostringstream signature;
+    signature << store->floorPlanner.Revision () << ':' << floorscheme::edit::ToJson (draft.designs) << ':'
+              << draft.cores.size ();
+    if (const auto selected = hudfloorscheme::Selected (store->planEditors[building.key]))
+        signature << ':' << selected->story << ':' << selected->flat.front ().x << ',' << selected->flat.front ().y;
+    if (signature.str () != draft.previewFingerprint) {
+        draft.previewFingerprint = signature.str ();
+        changes.push_back ({ "massingPlanPreview", {}, "Selection", "local floor design", -1, 1, {}, true });
+    }
+}
 void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, float ui)
 {
     const auto& building = preview.building;
@@ -77,35 +121,7 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
     if (!preview.section.note.empty ())
         ImGui::TextWrapped ("%s", preview.section.note.c_str ());
     StoryDiagram (preview, ui);
-    buildingplan::UseProgramme (store->buildingPlans[building.key], store->massingProgramme);
-    for (auto& edit :
-         buildingplan::Draw (preview.plan, store->buildingPlans[building.key], ui, store->massingCoefficients)) {
-        changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, 0, {}, true });
-        store->metadataEdits.push_back (std::move (edit));
-    }
-    auto& draft = store->buildingPlans[building.key];
-    if (const auto* floor = buildingplan::Displayed (preview.plan, draft);
-        floor && ImGui::CollapsingHeader ("Massing floor", ImGuiTreeNodeFlags_DefaultOpen))
-        hudfloorscheme::Section (store->floorEditor, store->floorPlanSnapshots, *floor, building.key,
-                                 store->massingProgramme, ui);
-    if (draft.exportRequested) {
-        draft.exportRequested = false;
-        if (const auto* floor = buildingplan::Displayed (preview.plan, draft)) {
-            store->planExports.push_back (buildingplan::ExportPlan (preview.plan, draft, *floor, ExportStamp ()));
-            changes.push_back ({ "planExport", {}, "Selection", building.key, -1, 1, {}, true });
-        }
-    }
-    std::ostringstream signature;
-    for (const auto& floor : preview.plan.floors)
-        signature << buildingplan::QuickSignature (floor, draft.cores, &draft.programme);
-    for (const auto& [story, quick] : draft.quickPlans)
-        signature << story << ':' << quick.signature << ':' << quick.revision;
-    for (int story : draft.uniqueFloors)
-        signature << 'u' << story;
-    if (signature.str () != draft.previewFingerprint) {
-        draft.previewFingerprint = signature.str ();
-        changes.push_back ({ "massingPlanPreview", {}, "Selection", "local floor design", -1, 1, {}, true });
-    }
+    PlanSection (preview, ui);
     ImGui::PopID ();
 }
 } // namespace geomsrv::archviz::overlayhud

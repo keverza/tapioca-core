@@ -242,7 +242,9 @@ void Sync (const Plan& plan, Draft& draft);
 struct PlanFile {
     std::string name, text;
 };
-PlanFile ExportPlan (const Plan& plan, Draft& draft, const Floor& shown, const std::string& stamp);
+// `schemes`: each floor's scheme as last planned, by story (a floor not yet planned is left out).
+PlanFile ExportPlan (const Plan& plan, const Draft& draft, const Floor& shown, const std::string& stamp,
+                     const std::map<int, const floorscheme::Scheme*>& schemes);
 // Pure targeted edits; the owner writes outside ImGui and checks building identity.
 std::vector<hudmeta::Edit> Edits (const Plan& plan, const Draft& draft);
 std::vector<hudmeta::Edit> Draw (const Plan& plan, Draft& draft, float scale,

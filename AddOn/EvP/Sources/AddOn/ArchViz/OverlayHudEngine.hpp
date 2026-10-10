@@ -102,8 +102,11 @@ struct State {
     hudsection::Run hoveredFloors;
     std::map<std::string, buildingplan::Draft> buildingPlans;
     std::map<std::string, buildingplan::Plan> floorPlanSnapshots;
-    // The massing floor open in Edit (HudFloorSchemeEdit.hpp), session-local; one at a time.
-    hudfloorscheme::EditorPtr floorEditor;
+    // Every building floor's scheme, planned off the UI thread (FloorPlanner.hpp), and each
+    // building's Plan view (HudFloorSchemeEdit.hpp): its selection, gesture, undo and redo.
+    buildingplan::Planner floorPlanner;
+    std::map<std::string, hudfloorscheme::EditorPtr> planEditors;
+    std::string floorPlanAsked; // what the overlay last asked the planner for
     bool previewStairs = false, previewUnits = false;
     std::string floorPlanPublished;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
@@ -256,6 +259,7 @@ struct Engine::Impl {
     void SelectionPage (float ui);
     void BuildingDiagram (const massingbuildings::Preview& preview, float ui);
     void StoryDiagram (const massingbuildings::Preview& preview, float ui);
+    void PlanSection (const massingbuildings::Preview& preview, float ui);
     void MassingPage ();
     void DebugPage (float ui);
     std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,

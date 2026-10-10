@@ -2,6 +2,7 @@
 // building's own silhouette, blind walls against the others, stairs that stack, newer inputs
 // replacing older ones.
 #include "ArchViz/FloorPlanner.hpp"
+#include "NodeGraph/Json.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
 #include <thread>
@@ -122,4 +123,51 @@ TEST (FloorPlanner, AChangedDesignIsPlannedAgainAndTheOldSchemeShowsMeanwhile)
     const auto* after = planner.Latest (bp::FloorId ("A", 0));
     EXPECT_GT (after->revision, revision);
     EXPECT_EQ (after->scheme.flats.size (), flats + 1);
+}
+
+TEST (FloorPlanner, ExportIsAStorySlicesFixtureWithTheStairsProgrammeAndEveryFloorsScheme)
+{
+    std::map<std::string, bp::Plan> plans { { "building:Tower", Building ("building:Tower", 0, 36, 3) } };
+    auto& plan = plans["building:Tower"];
+    plan.floors[2].outline = { Chain (0, 0, 36, 36), Chain (12, 12, 24, 24) };
+    plan.floors[2].outline[1].xy = { 12, 12, 12, 24, 24, 24, 24, 12 }; // the courtyard, clockwise
+    plan.floors[2].contours = { plan.floors[2].outline };
+    plan.floors[2].outlineKey = "courtyard";
+    plan.saved = { { { 6, 8 } } };
+    std::map<std::string, bp::Draft> drafts;
+    bp::Reset (plan, drafts["building:Tower"]);
+    bp::Planner planner;
+    for (int round = 0; round < 2; ++round) {
+        bp::WantFloors (planner, plans, drafts, "building:Tower", fp::Default (), 0);
+        Settle (planner);
+    }
+    std::map<int, const fs::Scheme*> schemes;
+    for (const auto& floor : plan.floors)
+        if (const auto* planned = planner.Latest (bp::FloorId ("building:Tower", floor.story)))
+            schemes[floor.story] = &planned->scheme;
+    ASSERT_EQ (schemes.size (), 3u);
+    const auto file = bp::ExportPlan (plan, drafts["building:Tower"], plan.floors[0], "20261010-120000", schemes);
+    EXPECT_EQ (file.name, "Tower-floor0-20261010-120000.json");
+    namespace js = evp::nodegraph::json;
+    const auto parsed = js::Parse (file.text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    const auto& doc = parsed.value;
+    std::string text;
+    ASSERT_TRUE (doc.Find ("format")->AsString (text));
+    EXPECT_EQ (text, "tapioca.story-slices.2d");
+    const auto* slices = doc.Find ("slices")->AsArray ();
+    ASSERT_EQ (slices->size (), 3u) << "one slice per floor ring";
+    EXPECT_EQ (slices->at (2).Find ("holes")->AsArray ()->size (), 1u) << "the courtyard stays a hole";
+    const auto* exported = doc.Find ("plan");
+    ASSERT_NE (exported, nullptr);
+    EXPECT_EQ (exported->Find ("cores")->AsArray ()->size (), 1u);
+    const auto* designs = exported->Find ("designs")->AsArray ();
+    ASSERT_EQ (designs->size (), 3u) << "every floor's scheme";
+    const auto* flats = designs->front ().Find ("flats")->AsArray ();
+    ASSERT_EQ (flats->size (), schemes[0]->flats.size ());
+    for (const auto& flat : *flats) {
+        double net = 0;
+        ASSERT_TRUE (flat.Find ("netM2")->AsDouble (net));
+        EXPECT_GT (net, 0);
+    }
 }

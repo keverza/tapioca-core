@@ -23,6 +23,8 @@ constexpr double kElevationTolerance = 0.05; // m: floors of different buildings
 int DesignStory (const Plan& plan, const Draft& draft, const Floor& floor);
 const floorscheme::edit::Design* FindDesign (const Plan& plan, const Draft& draft, const Floor& floor);
 std::vector<floorscheme::Ring> Rings (const std::vector<SliceChain>& chains);
+// A floor's counted boundary: its outline, or the union of its sources' contours when it has none.
+std::vector<floorscheme::Ring> FloorRings (const Floor& floor);
 // The building's stairs as generator pins.
 std::vector<floorscheme::Pins::Core> StairPins (const std::vector<Core>& cores);
 
@@ -40,6 +42,8 @@ struct FloorInput {
 FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<std::string, Draft>& drafts,
                      const std::string& key, const Floor& floor, const floorprogramme::Programme& programme,
                      const std::vector<floorscheme::Pins::Core>& lead = {}, const floorscheme::Options& options = {});
+// `input.signature` from the rest of it, after a change (a gesture's design on screen).
+void Sign (FloorInput& input);
 // The id a floor's scheme is kept under.
 std::string FloorId (const std::string& key, int story);
 

@@ -140,6 +140,12 @@ DockPress DockTab (const char* id, const std::string& label, const overlaylayers
 // floors -- claimed the click in this frame. Per ImGui context and frame; under its lock.
 void ClaimRightClick ();
 bool RightClickClaimed ();
+// ⚠️ A CANVAS SAYS ITS OWN POINTER (the user, 2026-10-10: the cursor kept switching between a hand
+// and an arrow over the plan). Over the HUD the pointer is a hand on anything ImGui can press;
+// a canvas that is one pressable item everywhere claims the pointer instead, and the cursor it
+// sets (ImGui::SetMouseCursor: arrow, hand, move) is shown. Per ImGui context and frame.
+void OwnCursor ();
+bool CursorOwned ();
 
 // ---- the floating panel ---------------------------------------------------------------
 

@@ -134,8 +134,8 @@ TEST (HudBuildingPlan, SavedLocationsRoundTripAsOneListAndTargetEveryExactBuildi
     const auto preview = Preview (result);
     bp::Draft draft;
     bp::Reset (preview.plan, draft);
-    draft.cores = { { { 5, 4 } } };
-    EXPECT_TRUE (bp::Edits (preview.plan, draft).empty ()) << "Save refuses a core in the forbidden facade gap";
+    draft.cores = { { { 500, 4 } } };
+    EXPECT_TRUE (bp::Edits (preview.plan, draft).empty ()) << "Save refuses a stair on no floor of the building";
     draft.cores = { { { 2.25, 2.1 } }, { { 5, 8.75 }, 9.0, 2.5 } };
     auto edits = bp::Edits (preview.plan, draft);
     ASSERT_EQ (edits.size (), 2u);
@@ -446,141 +446,6 @@ TEST (HudBuildingPlan, SelectionHasOneEditableSectionAndPlacementDoesNotPushTheL
         wasHover = hover;
     }
     EXPECT_EQ (bands, 2); // Two floors, once each; no read-only second diagram.
-}
-
-TEST (HudBuildingPlan, NativePlanUsesRectangleHitAreaAndHeldMouseMovementUntilRelease)
-{
-    ms::Result result;
-    std::string error;
-    ASSERT_TRUE (ms::Build ({ Slab ("lower", 0, 0, 30) }, {}, nullptr, result, error));
-    hudtest::Watched gui;
-    hud::OwnPages pages;
-    pages.standalone = true;
-    pages.selection.known = true;
-    pages.selection.count = 1;
-    pages.buildings = { Preview (result) };
-    gui.engine.SetOwnPages (pages);
-    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
-    gui.Lay ({}, hudtest::At (600, 600));
-    auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    draft.cores = { { { 5, 2.1 } } };
-    draft.selected = 0;
-    draft.moving = true;
-    const auto drawn = gui.Lay ({}, hudtest::At (600, 600));
-    float bounds[4];
-    ASSERT_TRUE (hudtest::Box (drawn.host, 0xFFBA00FFu, bounds));
-    const float x = drawn.host.fraction[0] * 1200 + drawn.host.offset[0] + (bounds[0] + bounds[2]) / 2;
-    const float y = drawn.host.fraction[1] * 800 + drawn.host.offset[1] + (bounds[1] + bounds[3]) / 2;
-    gui.Lay ({}, hudtest::At (x, y));
-    gui.Lay ({}, hudtest::At (x, y, { { 0, true } }));
-    ASSERT_TRUE (draft.dragging);
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 2.1 }));
-    hudtest::Fresh other;
-    other.engine.UseState (gui.state);
-    other.engine.SetOwnPages (pages);
-    other.Lay ({}, hudtest::At (600, 600));
-    EXPECT_TRUE (draft.dragging) << "An idle second HUD must not release the initiating HUD's drag";
-    gui.Lay ({}, hudtest::At (x + 20, y));
-    EXPECT_GT (draft.cores[0].center.x, 5);
-    EXPECT_TRUE (draft.dragging);
-    gui.Lay ({}, hudtest::At (x + 20, y, { { 0, false } }));
-    EXPECT_FALSE (draft.dragging);
-    EXPECT_FALSE (draft.moving);
-    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ()) << "Dragging remains a local draft until Save";
-}
-
-TEST (HudBuildingPlan, ApartmentCentreUsesRealHeldPointerDragAndDoesNotWriteMetadata)
-{
-    ms::Result result;
-    std::string error;
-    auto slab = Slab ("lower", 0, 0, 36);
-    slab.slab.outer.xy = { 0, 0, 36, 0, 36, 16, 0, 16 };
-    ASSERT_TRUE (ms::Build ({ slab }, {}, nullptr, result, error));
-    hudtest::Watched gui;
-    hud::OwnPages pages;
-    pages.standalone = true;
-    pages.selection.known = true;
-    pages.selection.count = 1;
-    pages.buildings = { Preview (result) };
-    pages.buildings.front ().plan.saved = { { 6, 2.1 } };
-    gui.engine.SetOwnPages (pages);
-    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
-    const auto layout = gui.Lay ({}, hudtest::At (600, 600));
-    auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    const auto& plan = pages.buildings.front ().plan;
-    auto& quick = bp::QuickFor (plan, draft, plan.floors.front ());
-    ASSERT_TRUE (quick.ready) << quick.note;
-    size_t at = 0;
-    for (; at < quick.seeds.size (); ++at)
-        if (std::count_if (quick.seeds.begin (), quick.seeds.end (),
-                           [&] (const auto& seed) { return seed.segment == quick.seeds[at].segment; }) > 1)
-            break;
-    ASSERT_LT (at, quick.seeds.size ());
-    const double before = quick.seeds[at].along;
-    const auto center = bp::UnitCenter (quick, quick.seeds[at]);
-    float box[4];
-    ASSERT_TRUE (hudtest::Box (layout.host, 0x4A90D9FFu, box));
-    const float originX = layout.host.fraction[0] * 1200 + layout.host.offset[0];
-    const float originY = layout.host.fraction[1] * 800 + layout.host.offset[1];
-    const double factor = (box[2] - box[0]) / 36;
-    const float x = originX + float (box[0] + center.x * factor);
-    const float y = originY + float (box[3] - center.y * factor);
-    gui.Lay ({}, hudtest::At (x, y));
-    gui.Lay ({}, hudtest::At (x, y, { { 0, true } }));
-    ASSERT_TRUE (quick.dragging);
-    EXPECT_EQ (quick.selected, int (at));
-    hudtest::Fresh other;
-    other.engine.UseState (gui.state);
-    other.engine.SetOwnPages (pages);
-    other.Lay ({}, hudtest::At (600, 600));
-    EXPECT_TRUE (quick.dragging);
-    const bool alongX = quick.segments[quick.seeds[at].segment].alongX;
-    const double angle = quick.angle + (alongX ? 0 : 1.5707963267948966);
-    const float dx = float (1.2 * factor * std::cos (angle)), dy = float (-1.2 * factor * std::sin (angle));
-    gui.Lay ({}, hudtest::At (x + dx, y + dy));
-    EXPECT_NE (quick.seeds[at].along, before);
-    gui.Lay ({}, hudtest::At (x + dx, y + dy, { { 0, false } }));
-    EXPECT_FALSE (quick.dragging);
-    const auto selectedLayout = gui.Lay ({}, hudtest::At (600, 600));
-    ASSERT_TRUE (hudtest::Box (selectedLayout.host, 0x4A90D9FFu, box));
-    const float canvasTop = (box[1] + box[3] - 200) / 2;
-    const float lockY = originY + canvasTop - 12;
-    gui.Click ({}, originX + 45, lockY);
-    ASSERT_TRUE (quick.seeds[at].locked) << "Real Lock flat button above the canvas";
-    EXPECT_NEAR (bp::Traits (quick, quick.seeds[at]).net, bp::TargetArea (quick, quick.seeds[at]), 0.05);
-    gui.Click ({}, originX + 45, lockY);
-    EXPECT_FALSE (quick.seeds[at].locked);
-    EXPECT_FALSE (bp::Dirty (draft));
-    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
-}
-
-TEST (HudBuildingPlan, ExportPlanButtonQueuesOneFileForTheOwnerAndWritesNoMetadata)
-{
-    ms::Result result;
-    std::string error;
-    auto slab = Slab ("lower", 0, 0, 36);
-    slab.slab.outer.xy = { 0, 0, 36, 0, 36, 16, 0, 16 };
-    ASSERT_TRUE (ms::Build ({ slab }, {}, nullptr, result, error));
-    hudtest::Watched gui;
-    hud::OwnPages pages;
-    pages.standalone = true;
-    pages.selection.known = true;
-    pages.selection.count = 1;
-    pages.buildings = { Preview (result) };
-    pages.buildings.front ().plan.saved = { { { 6, 2.1 } } };
-    gui.engine.SetOwnPages (pages);
-    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
-    gui.Lay ({}, hudtest::At (600, 600));
-    auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    draft.exportRequested = true;
-    gui.Lay ({}, hudtest::At (600, 600));
-    const auto files = hud::TakePlanExports (*gui.state);
-    ASSERT_EQ (files.size (), 1u);
-    EXPECT_EQ (files.front ().name.rfind ("Tower-floor", 0), 0u);
-    EXPECT_NE (files.front ().text.find ("tapioca.floor-plan.native"), std::string::npos);
-    EXPECT_FALSE (draft.exportRequested);
-    EXPECT_TRUE (hud::TakePlanExports (*gui.state).empty ());
-    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
 }
 
 TEST (HudBuildingPlan, CoresSnapAcrossForbiddenFacadeGapButInteriorAndCourtyardClearancesStayValid)

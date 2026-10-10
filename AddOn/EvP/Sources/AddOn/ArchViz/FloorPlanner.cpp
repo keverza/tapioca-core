@@ -1,4 +1,5 @@
 #include "ArchViz/FloorPlanner.hpp"
+#include <clipper2/clipper.h>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -38,6 +39,36 @@ std::vector<fs::Ring> Rings (const std::vector<SliceChain>& chains)
             rings.push_back (std::move (ring));
     }
     return rings;
+}
+std::vector<fs::Ring> FloorRings (const Floor& floor)
+{
+    if (floor.outlineKnown && !floor.outline.empty ())
+        return Rings (floor.outline);
+    // Each source's holes with its own rings (even-odd), then the sources joined (non-zero).
+    namespace cp = Clipper2Lib;
+    const auto paths = [] (const std::vector<fs::Ring>& rings) {
+        cp::PathsD out;
+        for (const auto& r : rings) {
+            cp::PathD path;
+            for (const auto& p : r)
+                path.emplace_back (p.x, p.y);
+            out.push_back (std::move (path));
+        }
+        return out;
+    };
+    cp::PathsD all;
+    for (const auto& source : floor.contours) {
+        const auto own = cp::Union (paths (Rings (source)), cp::FillRule::EvenOdd, 6);
+        all.insert (all.end (), own.begin (), own.end ());
+    }
+    std::vector<fs::Ring> out;
+    for (const auto& path : cp::Union (all, cp::FillRule::NonZero, 6)) {
+        fs::Ring ring;
+        for (const auto& p : path)
+            ring.push_back ({ p.x, p.y });
+        out.push_back (std::move (ring));
+    }
+    return out;
 }
 std::vector<fs::Pins::Core> StairPins (const std::vector<Core>& cores)
 {
@@ -86,12 +117,12 @@ FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<st
             continue;
         if (name == key)
             mine = floors.size ();
-        floors.push_back (Rings (at->outline));
+        floors.push_back (FloorRings (*at));
         const auto draft = drafts.find (name);
         designs.push_back (draft == drafts.end () ? nullptr : FindDesign (plan, draft->second, *at));
     }
     if (floors.empty () || !plans.contains (key)) { // a floor of no known building: on its own
-        floors = { Rings (floor.outline) };
+        floors = { FloorRings (floor) };
         designs = { nullptr };
         mine = 0;
     }
@@ -107,9 +138,14 @@ FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<st
     const auto stairs =
         draft != drafts.end () && !draft->second.cores.empty () ? StairPins (draft->second.cores) : lead;
     in.design.pins.cores = stairs;
+    Sign (in);
+    return in;
+}
+void Sign (FloorInput& in)
+{
     std::ostringstream signature;
-    signature << std::setprecision (9) << floorprogramme::Key (programme) << '|' << options.grossFactor << '|'
-              << options.north << '|';
+    signature << std::setprecision (9) << floorprogramme::Key (in.programme) << '|' << in.options.grossFactor << '|'
+              << in.options.north << '|';
     Write (signature, in.owned);
     signature << '|';
     Write (signature, in.party);
@@ -118,7 +154,6 @@ FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<st
     one.floors[0] = in.design;
     signature << fe::ToJson (one) << '|' << in.design.pins.cores.size ();
     in.signature = signature.str ();
-    return in;
 }
 
 const Planner::Planned* Planner::Latest (const std::string& id) const
