@@ -184,6 +184,13 @@ struct HudState {
     double visibilityPoint[3] = { 0.0, 0.0, 0.0 };
     double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
     uint32_t analysisSeenKind = 0xffffffffu;
+    bool viewpointPlacing = false;
+    bool viewpointOwnsMouse = false;
+    bool viewpointDragging = false;
+    int viewpointDragAxis = -1;
+    uint64_t viewpointSeenRevision = 0;
+    bool viewpointSelectTab = false;
+    double viewpointDragPoint[3] = {}, viewpointDragParameter[3] = {};
     float annotationTextHeightMetres = 0.18f;
     float annotationDimensionOffsetMetres = 0.25f;
     float annotationWitnessStartGapMetres = 0.02f;
@@ -594,6 +601,13 @@ namespace viewerhud {
 void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
                                   const float origin[3], const float direction[3]);
 void DrawVisibilityConeOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+void DrawViewpointHudSection (HudState& state);
+void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, const float viewProj[16],
+                                   uint32_t width, uint32_t height, const float rayOrigin[3],
+                                   const float rayDirection[3]);
+void PlaceViewpointFromPick (HudState& state, const DiligentScene& scene, const InputSnapshot& input,
+                             const float rayOrigin[3], const float rayDirection[3]);
+void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 } // namespace viewerhud
 
 } // namespace archviz

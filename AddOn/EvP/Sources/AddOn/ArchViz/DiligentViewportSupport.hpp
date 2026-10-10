@@ -43,6 +43,10 @@ class PlanAnchorLayer;
 struct HudState;
 
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
+void ServiceViewpointInput (const Camera& camera, HudState& hud, const InputSnapshot& input, uint32_t width,
+                            uint32_t height);
+void ServiceCursorAnalysis (const Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,
+                            uint32_t width, uint32_t height);
 
 // A line for archviz.log that the HUDs' console says too (HudConsole.hpp): a viewer that runs
 // without a part of it, or did not run at all. Said from DiligentViewport.cpp's frame loop,

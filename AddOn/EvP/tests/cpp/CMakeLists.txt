@@ -159,6 +159,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySurfaceSampling.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/VisibilityStudy.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/ViewpointStudy.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPreset.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
@@ -167,6 +168,10 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyDisplayAssembler.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/VisibilityStudyDisplay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/VisibilityStudyController.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointStudyController.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PointGumball.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewpointProjection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudViewpoint.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
@@ -810,6 +815,7 @@ set (EVP_TEST_SOURCES
     test_sunseries.cpp
     test_sunstudyocclusion.cpp
     test_visibilitystudy.cpp
+    test_viewpointstudy.cpp
     test_sunstudyoccluders.cpp
     test_sunstudyselectionbinding.cpp
     test_sunstudygputraversal.cpp

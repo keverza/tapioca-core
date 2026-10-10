@@ -7,6 +7,7 @@
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/VisibilityStudyDisplay.hpp"
 #include "ArchViz/VisibilityStudyCapture.hpp"
+#include "ArchViz/ViewpointStudyController.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/SunStudyCommandsSupport.hpp"
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -143,7 +145,54 @@ class RunVisibilityStudyCommand : public MainThreadCommand {
     }
 };
 
+class SetViewpointStudyCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "SetViewpointStudy";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        bool show = true;
+        params.Get ("show", show);
+        archviz::viewpointstudy::Settings settings;
+        settings.enabled = show;
+        if (show) {
+            if (!archviz::DiligentViewport::Get ().IsRunning ())
+                return NativeCommandResult::Failure ("open the Tapioca 3D Viewer before setting a viewpoint");
+            if (!ReadTriple (params, "point", settings.options.point.data ()) || !params.Contains ("contextElements"))
+                return NativeCommandResult::Failure (
+                    "viewpoint needs point xyz and explicit contextElements (may be empty)");
+            settings.options.radius = ReadDouble (params, "radius", 20.0);
+            if (!std::isfinite (settings.options.radius) || settings.options.radius < 0.1 ||
+                settings.options.radius > 10000.0 ||
+                !std::all_of (settings.options.point.begin (), settings.options.point.end (),
+                              [] (double value) { return std::isfinite (value); }))
+                return NativeCommandResult::Failure ("viewpoint needs finite XYZ and radius 0.1..10000 metres");
+            settings.context = ReadStringList (params, "contextElements");
+        }
+        archviz::viewpointstudy::Configure (std::move (settings));
+        GS::ObjectState result;
+        result.Add ("enabled", show);
+        result.Add ("revision", static_cast<GS::Int64> (archviz::viewpointstudy::GetSettings ()->revision));
+        return result;
+    }
+};
+
 const NativeCommandRegistration kVisibilityRegistrations[] = {
+    { "SetViewpointStudy", &MakeRegisteredNativeCommand<SetViewpointStudyCommand>, false,
+      R"json({"type":"object","properties":{
+        "show":{"type":"boolean"},
+        "point":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
+        "radius":{"type":"number","minimum":0.1,"maximum":10000},
+        "contextElements":{"type":"array","items":{"type":"string","minLength":1}}
+      },"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"revision":{"type":"integer"}},
+      "required":["enabled","revision"],"additionalProperties":false})json" },
     { "RunVisibilityStudy", &MakeRegisteredNativeCommand<RunVisibilityStudyCommand>, false,
       R"json({
         "type":"object",

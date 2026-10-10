@@ -32,6 +32,7 @@
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/Uniforms.hpp"
 #include "ArchViz/ViewerPlanMode.hpp"
+#include "ArchViz/ViewpointStudyController.hpp"
 #include "Screenshot/ScreenshotStore.hpp"
 
 #include <windows.h>
@@ -534,6 +535,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // this line sees the cursor at 0,0.
             if (!offscreen)
                 PollHardwareInput (surface.nwh, input);
+            if (!offscreen)
+                ServiceViewpointInput (camera, hudState, input, width, height);
             // ⚠️ THE HUD'S ANSWER IS FROM THE PREVIOUS FRAME, AND THAT IS
             // CORRECT. ImGui only knows whether it wants the mouse after its
             // widgets have been submitted, and the HUD is drawn at the END of
@@ -672,8 +675,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ⚠️ CALLED EVEN WHEN IT CANNOT PICK, because clearing the hover is
             // one of its answers. See ServicePick.
             if (!offscreen)
-                ServicePick (pick, pickState, !hudState.wantsMouse && modelIsDrawn, device, context, scene, input,
-                             frames, width, height, motionViewProj, rtv, dsv, mutex_, stats_);
+                ServicePick (pick, pickState, !hudState.wantsMouse && !hudState.viewpointOwnsMouse && modelIsDrawn,
+                             device, context, scene, input, frames, width, height, motionViewProj, rtv, dsv, mutex_,
+                             stats_);
             const uint32_t hoverId = pickState.hoverId;
 
             // What the callout shows. Looked up every frame rather than cached
@@ -696,27 +700,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // Where the view ray meets the GROUND PLANE (z=0). ⚠️ NOT the surface
             // under the cursor -- that needs a depth readback, which this path
             // throttles; the callout labels it "on z=0" for that reason.
-            hudState.cursorX = input.x;
-            hudState.cursorY = input.y;
-            hudState.cursorGroundValid = false;
-            if (input.inside && height > 0 && width > 0) {
-                float rayOrigin[3];
-                float rayDir[3];
-                camera.CursorRay (CursorTargetX (input, width), CursorTargetY (input, height), width, height, rayOrigin,
-                                  rayDir);
-                viewerhud::ServiceAnalysisInteractions (hudState, scene, input, rayOrigin, rayDir);
-                // A ray parallel to z=0 never meets it; one pointing away meets it
-                // only behind the viewer, which is not what the cursor is over.
-                if (std::abs (rayDir[2]) > 1e-6f) {
-                    const float t = -rayOrigin[2] / rayDir[2];
-                    if (t > 0.0f) {
-                        hudState.cursorGround[0] = rayOrigin[0] + rayDir[0] * t;
-                        hudState.cursorGround[1] = rayOrigin[1] + rayDir[1] * t;
-                        hudState.cursorGround[2] = 0.0f;
-                        hudState.cursorGroundValid = true;
-                    }
-                }
-            }
+            ServiceCursorAnalysis (camera, hudState, scene, input, width, height);
 
             // ⚠️ THE HUD AND THE COMMAND ARE TWO WAYS TO SET ONE VALUE, so one
             // of them has to lose. The COMMAND wins, but only when it CHANGES:
@@ -915,7 +899,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.width = width;
                 hudState.height = height;
                 hudState.frameLatency = target.FrameLatency ();
-                hud.Draw (context, width, height, input, hudScene, annotations, motionViewProj, hudState, !annotationsOnly);
+                hud.Draw (context, width, height, input, hudScene, annotations, motionViewProj, hudState,
+                          !annotationsOnly);
             }
             gpuTimings.End (context, GpuTimingStage::Post);
             // The current renderer is a single-sample forward raster path. Keep
@@ -1063,6 +1048,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
     if (offscreen)
         ExtractionWorker::Get ().RequestStop ();
+    else
+        viewpointstudy::Shutdown ();
     running_.store (false);
     std::lock_guard<std::mutex> lock (mutex_);
     stats_.running = false;

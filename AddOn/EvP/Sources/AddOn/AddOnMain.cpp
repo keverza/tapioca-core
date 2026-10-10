@@ -44,6 +44,7 @@
 #include "NativeCommands/GraphCaptureService.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
+#include "ArchViz/ViewpointStudyController.hpp"
 #include "NodeGraph/ArchicadHostImpl.hpp"   // the graph runtime's one ACAPI seam
 #include "NodeGraph/GraphRuntimeState.hpp"  // the graphs whose script nodes are reloaded
 #include "Python/GraphScriptRuntime.hpp"    // the Python half of the script node family
@@ -186,6 +187,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             ArchVizPanel::CloseViewer ();
             geomsrv::sunfollow::Disable ();
             geomsrv::archviz::visibilitystudy::Shutdown ();
+            geomsrv::archviz::viewpointstudy::Shutdown ();
             // ⚠️ THE OVERLAY'S WINDOWS GO WITH THE PROJECT. Closing the floor plan
             // closes the project, and a session left running outlived its window.
             geomsrv::archviz::overlaycontrol::OnProjectClosed ();
@@ -199,6 +201,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
         case APINotify_Quit:
             geomsrv::sunfollow::Shutdown ();
             geomsrv::archviz::visibilitystudy::Shutdown ();
+            geomsrv::archviz::viewpointstudy::Shutdown ();
             geomsrv::ServerState::Get ().modelOpen.store (false);
             geomsrv::ArmWorker::Get ().Stop ();
             geomsrv::archviz::ExtractionWorker::Get ().Stop ();
@@ -638,6 +641,7 @@ GSErrCode FreeData (void)
 {
     geomsrv::sunfollow::Shutdown (); // never join a calculation thread under loader-lock destruction
     geomsrv::archviz::visibilitystudy::Shutdown ();
+    geomsrv::archviz::viewpointstudy::Shutdown ();
     // RE51.D1's worker is guarded by the same crash breadcrumb as experimental
     // camera sync. Join it before ShutDownCameraSync clears that breadcrumb, so
     // a crash during D3D12 teardown still blocks an automatic retry next session.

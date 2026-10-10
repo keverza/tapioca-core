@@ -46,7 +46,7 @@ bool NavigateViewer (Camera& camera, HudState& hud, const InputSnapshot& input, 
             moved = true;
         }
     }
-    return camera.ApplyInput (input, hud.wantsMouse, width, height) || moved;
+    return camera.ApplyInput (input, hud.wantsMouse || hud.viewpointOwnsMouse, width, height) || moved;
 }
 
 bool FollowProjectionToggle (Camera& camera, const HudState& hud, bool& last)

@@ -3306,6 +3306,9 @@ def _one(command, params):
                     "description": "sun study '%s' is current for snapshot 1"
                                    % _SUN_OVERLAY.get("studyId", "")})
 
+    if command == "EvP.SetViewpointStudy":
+        return _v2({"enabled": bool(params.get("show", True)), "revision": 1})
+
     if command == "EvP.RunVisibilityStudy":
         domain = params.get("domain", "patch")
         data = {"studyId": "visibility-dryrun", "origin": params.get("origin", "surfaces"),

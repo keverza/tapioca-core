@@ -27,6 +27,7 @@
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp" // BuildAnchorRibbonSet
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/ViewpointStudyController.hpp"
 
 #include <cmath>
 #include <limits>
@@ -281,6 +282,7 @@ void DiligentViewport::Stop ()
         worker_.join ();
     running_.store (false);
     SceneCmdQueue::Get ().SetConsumer (false);
+    viewpointstudy::Shutdown ();
     ExtractionWorker::Get ().SetPlanCut (false, 0.0); // nobody draws it now
     std::lock_guard<std::mutex> lock (mutex_);
     stats_.running = false;

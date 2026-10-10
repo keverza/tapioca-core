@@ -235,6 +235,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.SetSelection` | `elements`: object[] | `add`: boolean | `selected`: integer<br>`missing`: object[]<br>`count`: integer |
 | `Tapioca.SetStatus` | `message`: string | - | `shown`: string |
 | `Tapioca.SetTracing` | - | `enabled`: boolean | `enabled`: boolean |
+| `Tapioca.SetViewpointStudy` | - | `show`: boolean<br>`point`: number[]<br>`radius`: number<br>`contextElements`: string[] | `enabled`: boolean<br>`revision`: integer |
 | `Tapioca.SetWatchTrace` | `version`: 1<br>`nodes`: string[] | - | `generation`: integer<br>`nodes`: integer<br>`frames`: integer<br>`points`: integer |
 | `Tapioca.ShowAlert` | `message`: string | - | `shown`: string |
 | `Tapioca.ShowResultText` | `text`: string | - | `shown`: string |

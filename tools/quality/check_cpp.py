@@ -473,6 +473,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/VisibilityStudyDisplay.hpp"),
     ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/VisibilityStudyCapture.hpp"),
+    # Viewpoint configuration is an immutable worker/render settings hand-over,
+    # not a renderer dependency in the visibility arithmetic.
+    ("NativeCommands/VisibilityStudyCommands.cpp", "ArchViz/ViewpointStudyController.hpp"),
     # Pipeline instrumentation must share the renderer packet byte accounting
     # and log sink, not copy them into the command/analysis engines. These narrow
     # adapters observe owned packets only; no device, UI, or SDK calls are added.
