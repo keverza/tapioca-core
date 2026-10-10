@@ -67,6 +67,10 @@ struct Usage {
 std::vector<Usage> UsageMix (const Result& result);
 bool Coverage (Result& result, const massingcalculation::Preview& parcels, std::string& error);
 bool Highlight (const Result& result, const std::string& function, overlaylayers::Layer& layer, std::string& error);
+// Closed `chains` (holes kept, even-odd) as a prism from `bottom` to `top`, caps and sides, appended
+// to `mesh`'s points and indices in world coordinates; false when they do not triangulate.
+bool ExtrudeChains (const std::vector<SliceChain>& chains, double bottom, double top, overlaylayers::Mesh& mesh,
+                    std::string& error);
 bool FloorHighlight (const Result& result, const std::string& building, const hudsection::Run& run,
                      overlaylayers::Layer& layer, std::string& error);
 // Strictly >500 m2 gross, using the displayed section area basis and shared coefficient.

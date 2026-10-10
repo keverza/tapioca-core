@@ -24,49 +24,8 @@ bool Extrude (const Row& floor, overlaylayers::Mesh& mesh, std::string& error)
 {
     if (floor.chains.empty ())
         return true;
-    const double ox = floor.chains.front ().xy[0], oy = floor.chains.front ().xy[1];
-    const auto paths = Paths (floor.chains, ox, oy);
-    std::vector<SliceChain> local;
-    for (const auto& path : paths) {
-        SliceChain chain;
-        chain.closed = true;
-        for (const auto& p : path)
-            chain.xy.insert (chain.xy.end (), { p.x, p.y });
-        local.push_back (std::move (chain));
-    }
-    std::vector<StorySliceFillVertex> triangles;
-    BuildSliceFill (local, 0, triangles);
-    if (triangles.empty ()) {
-        error = "Could not triangulate floor volume; no partial highlight published.";
+    if (!ExtrudeChains (floor.chains, floor.z, floor.z + floor.floorHeight, mesh, error))
         return false;
-    }
-    const auto vertex = [&] (double x, double y, double z) {
-        mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
-        mesh.points.insert (mesh.points.end (), { x + ox, y + oy, z });
-    };
-    const double bottom = floor.z, top = floor.z + floor.floorHeight;
-    for (size_t i = 0; i + 2 < triangles.size (); i += 3) {
-        auto a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
-        if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0)
-            std::swap (b, c);
-        vertex (a.x, a.y, top);
-        vertex (b.x, b.y, top);
-        vertex (c.x, c.y, top);
-        vertex (c.x, c.y, bottom);
-        vertex (b.x, b.y, bottom);
-        vertex (a.x, a.y, bottom);
-    }
-    for (const auto& path : paths)
-        for (size_t i = 0; i < path.size (); ++i) {
-            const auto& a = path[i];
-            const auto& b = path[(i + 1) % path.size ()];
-            vertex (a.x, a.y, bottom);
-            vertex (b.x, b.y, bottom);
-            vertex (b.x, b.y, top);
-            vertex (a.x, a.y, bottom);
-            vertex (b.x, b.y, top);
-            vertex (a.x, a.y, top);
-        }
     mesh.rgba = floor.fillRgba;
     mesh.styled = true;
     mesh.style.opacity = floor.fillOpacity;
@@ -108,6 +67,55 @@ bool HighlightRows (const Result& result, const FloorTargets& targets, overlayla
 }
 } // namespace
 
+bool ExtrudeChains (const std::vector<SliceChain>& chains, double bottom, double top, overlaylayers::Mesh& mesh,
+                    std::string& error)
+{
+    if (chains.empty ())
+        return true;
+    const double ox = chains.front ().xy[0], oy = chains.front ().xy[1];
+    const auto paths = Paths (chains, ox, oy);
+    std::vector<SliceChain> local;
+    for (const auto& path : paths) {
+        SliceChain chain;
+        chain.closed = true;
+        for (const auto& p : path)
+            chain.xy.insert (chain.xy.end (), { p.x, p.y });
+        local.push_back (std::move (chain));
+    }
+    std::vector<StorySliceFillVertex> triangles;
+    BuildSliceFill (local, 0, triangles);
+    if (triangles.empty ()) {
+        error = "Could not triangulate floor volume; no partial highlight published.";
+        return false;
+    }
+    const auto vertex = [&] (double x, double y, double z) {
+        mesh.indices.push_back (uint32_t (mesh.points.size () / 3));
+        mesh.points.insert (mesh.points.end (), { x + ox, y + oy, z });
+    };
+    for (size_t i = 0; i + 2 < triangles.size (); i += 3) {
+        auto a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+        if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) < 0)
+            std::swap (b, c);
+        vertex (a.x, a.y, top);
+        vertex (b.x, b.y, top);
+        vertex (c.x, c.y, top);
+        vertex (c.x, c.y, bottom);
+        vertex (b.x, b.y, bottom);
+        vertex (a.x, a.y, bottom);
+    }
+    for (const auto& path : paths)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const auto& a = path[i];
+            const auto& b = path[(i + 1) % path.size ()];
+            vertex (a.x, a.y, bottom);
+            vertex (b.x, b.y, bottom);
+            vertex (b.x, b.y, top);
+            vertex (a.x, a.y, bottom);
+            vertex (b.x, b.y, top);
+            vertex (a.x, a.y, top);
+        }
+    return true;
+}
 std::vector<Usage> UsageMix (const Result& result)
 {
     std::map<std::string, Usage> uses;
