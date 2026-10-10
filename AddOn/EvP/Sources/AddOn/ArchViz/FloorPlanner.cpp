@@ -133,10 +133,10 @@ FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<st
             in.party.insert (in.party.end (), owned[i].begin (), owned[i].end ());
     if (designs[mine])
         in.design = *designs[mine];
-    // The building's stairs on every floor, so they stack; none of its own: the lead floor's.
+    // The stack on every floor, so the stairs stand at one place; without one, the building's
+    // saved stairs (the floor the stack is planned on).
     const auto draft = drafts.find (key);
-    const auto stairs =
-        draft != drafts.end () && !draft->second.cores.empty () ? StairPins (draft->second.cores) : lead;
+    const auto stairs = !lead.empty () || draft == drafts.end () ? lead : StairPins (draft->second.cores);
     in.design.pins.cores = stairs;
     in.options.holdCores = !stairs.empty (); // the stack stands on every floor, never moved
     Sign (in);
@@ -263,6 +263,21 @@ std::vector<fs::Ring> Common (const Plan& plan, const std::vector<fs::Ring>& own
     }
     return out;
 }
+std::string StackId (const std::string& key, const Plan& plan)
+{
+    const Floor* lead = LeadFloor (plan);
+    return FloorId (key, lead ? lead->story : 0) + "#auto";
+}
+bool Stack (const Planner& planner, const std::string& key, const Plan& plan, std::vector<fs::Pins::Core>& out)
+{
+    out.clear ();
+    const auto* planned = planner.Latest (StackId (key, plan));
+    if (!planned)
+        return false;
+    for (const auto& core : planned->scheme.cores)
+        out.push_back ({ core.centre, core.width, core.depth });
+    return true;
+}
 const Floor* LeadFloor (const Plan& plan)
 {
     const Floor* lead = nullptr;
@@ -282,22 +297,17 @@ const Planner::Planned* WantFloors (Planner& planner, const std::map<std::string
     const Floor* lead = LeadFloor (plan->second);
     if (!lead)
         return nullptr;
-    // Stairs that stack: the building's own, or else where the generator puts them on the lead
-    // floor planned free (`#auto`), pinned on every floor alike -- the lead floor too, since
-    // pinned stairs set the section boundaries, so identical floors plan identically.
-    const auto draft = drafts.find (key);
+    // The stack: the floor every floor shares, planned with the building's saved stairs as
+    // ordinary pins (they may move to fit, here only); the stairs it gets are held on every
+    // floor, the lead floor too, so identical floors plan identically.
+    auto reference = InputFor (plans, drafts, key, *lead, programme, {}, options);
+    reference.owned = Common (plan->second, reference.owned);
+    reference.options.holdCores = false;
+    Sign (reference);
+    planner.Want (StackId (key, plan->second), std::move (reference), true);
     std::vector<fs::Pins::Core> stairs;
-    if (draft == drafts.end () || draft->second.cores.empty ()) {
-        auto free = InputFor (plans, drafts, key, *lead, programme, {}, options);
-        free.owned = Common (plan->second, free.owned);
-        Sign (free);
-        planner.Want (FloorId (key, lead->story) + "#auto", std::move (free), true);
-        const auto* led = planner.Latest (FloorId (key, lead->story) + "#auto");
-        if (!led)
-            return nullptr; // the stairs first
-        for (const auto& core : led->scheme.cores)
-            stairs.push_back ({ core.centre, core.width, core.depth });
-    }
+    if (!Stack (planner, key, plan->second, stairs))
+        return nullptr; // the stairs first
     const Planner::Planned* shown = nullptr;
     for (const auto& floor : plan->second.floors) {
         const auto* got =

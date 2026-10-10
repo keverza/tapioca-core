@@ -37,8 +37,8 @@ struct FloorInput {
     std::string signature; // everything above: equal signatures plan equal schemes
 };
 // `key`'s `floor` among every building at its elevation (`plans` in key order: an overlap of
-// floors is the earlier building's). `lead`: stairs to pin when the building has none of its own
-// (the largest floor's, so the floors' stairs stack).
+// floors is the earlier building's). `lead`: the stack (`Stack`), held on the floor; empty: the
+// building's saved stairs, as the floor the stack is planned on takes them.
 FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<std::string, Draft>& drafts,
                      const std::string& key, const Floor& floor, const floorprogramme::Programme& programme,
                      const std::vector<floorscheme::Pins::Core>& lead = {}, const floorscheme::Options& options = {});
@@ -90,9 +90,16 @@ const Floor* LeadFloor (const Plan& plan);
 // 2026-10-10). `owned` itself when less than kMinCommon is common.
 constexpr double kMinCommon = 50.0; // m2
 std::vector<floorscheme::Ring> Common (const Plan& plan, const std::vector<floorscheme::Ring>& owned);
-// Every floor of `key` asked of `planner`, the shown story first; with no stairs saved, the floor
-// all floors share (`Common`) is planned free first and its stairs held on every floor
-// (Options::holdCores). The newest scheme of the shown story, or null while it has none.
+// The id the floor the stack is planned on is kept under, and the stack: that floor's stairs as
+// planned, which every floor holds (Options::holdCores). False while it is not planned yet. A
+// saved stair is a pin there, so the stack is where the generator built it, not where it was
+// dragged across the corridor.
+std::string StackId (const std::string& key, const Plan& plan);
+bool Stack (const Planner& planner, const std::string& key, const Plan& plan,
+            std::vector<floorscheme::Pins::Core>& out);
+// Every floor of `key` asked of `planner`, the shown story first, after the floor all floors share
+// (`Common`) is planned with the saved stairs as pins and its stairs (`Stack`) held on every
+// floor. The newest scheme of the shown story, or null while it has none.
 const Planner::Planned* WantFloors (Planner& planner, const std::map<std::string, Plan>& plans,
                                     const std::map<std::string, Draft>& drafts, const std::string& key,
                                     const floorprogramme::Programme& programme, int shownStory,

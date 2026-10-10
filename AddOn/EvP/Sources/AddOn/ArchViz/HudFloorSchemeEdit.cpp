@@ -182,14 +182,11 @@ Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp
         editor.reset (new Editor);
     auto& e = *editor;
     const auto& plan = c.plans.at (key);
-    const auto& draft = c.drafts[key];
+    c.drafts.try_emplace (key); // the building has a draft from its first editor on, as before
     c.planner.Poll ();
     const auto* planned = bp::WantFloors (c.planner, c.plans, c.drafts, key, c.programme, floor.story, c.options);
     std::vector<fs::Pins::Core> stairs;
-    if (const auto* lead = bp::LeadFloor (plan); draft.cores.empty () && lead)
-        if (const auto* led = c.planner.Latest (bp::FloorId (key, lead->story) + "#auto"))
-            for (const auto& core : led->scheme.cores)
-                stairs.push_back ({ core.centre, core.width, core.depth });
+    bp::Stack (c.planner, key, plan, stairs);
     e.input = bp::InputFor (c.plans, c.drafts, key, floor, c.programme, stairs, c.options);
     if (e.key != key || e.story != floor.story) {
         e.key = key, e.story = floor.story;

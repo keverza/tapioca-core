@@ -136,6 +136,35 @@ TEST (FloorPlanner, StairsStandAtOnePlaceFromTheGroundToATopFloorSetBack)
     }
 }
 
+// A stair dragged into the corridor is where the generator builds it on the shared floor, and
+// there on every floor: no floor reports its stack stair moved.
+TEST (FloorPlanner, ASavedStairIsHeldWhereTheSharedFloorBuiltIt)
+{
+    std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 36, 3) } };
+    plans["A"].saved = { { { 14, 8 } } }; // in the corridor, not the stair band
+    std::map<std::string, bp::Draft> drafts;
+    bp::Reset (plans["A"], drafts["A"]);
+    bp::Planner planner;
+    for (int round = 0; round < 2; ++round) {
+        bp::WantFloors (planner, plans, drafts, "A", fp::Default (), 0);
+        Settle (planner);
+    }
+    std::vector<fs::Pins::Core> stack;
+    ASSERT_TRUE (bp::Stack (planner, "A", plans["A"], stack));
+    ASSERT_EQ (stack.size (), 1u);
+    EXPECT_LE (std::abs (stack[0].centre.x - 14), fs::kPinTolerance + 1e-6) << "the saved stair moved at most once";
+    for (int story : { 0, 1, 2 }) {
+        const auto* floor = planner.Latest (bp::FloorId ("A", story));
+        ASSERT_NE (floor, nullptr);
+        ASSERT_EQ (floor->scheme.cores.size (), 1u);
+        EXPECT_NEAR (floor->scheme.cores[0].centre.x, stack[0].centre.x, 1e-6);
+        EXPECT_NEAR (floor->scheme.cores[0].centre.y, stack[0].centre.y, 1e-6);
+        for (const auto& d : floor->scheme.diagnostics)
+            EXPECT_FALSE (d.level == fs::Diagnostic::Error && d.code.rfind ("core.", 0) == 0)
+                << story << ": " << d.code;
+    }
+}
+
 TEST (FloorPlanner, AChangedDesignIsPlannedAgainAndTheOldSchemeShowsMeanwhile)
 {
     const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 60) } };
