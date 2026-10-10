@@ -403,6 +403,7 @@ TEST (HudCursor, ACanvasThatClaimsThePointerShowsItsOwnCursor)
     auto* previous = ImGui::GetCurrentContext ();
     auto* context = ImGui::CreateContext ();
     auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
     io.DisplaySize = { 400, 300 };
     io.DeltaTime = 1.0f / 60;
     unsigned char* pixels = nullptr;
