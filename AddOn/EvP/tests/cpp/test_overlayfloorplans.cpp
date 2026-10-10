@@ -108,3 +108,40 @@ TEST (OverlayFloorPlans, DesignsSurviveDeselectionButClearWhenTheBuildingGoes)
     EXPECT_TRUE (stairs.meshes.empty ());
     EXPECT_TRUE (gui.state->buildingPlans.empty ());
 }
+
+TEST (OverlayFloorPlans, ProgrammeFromTheProjectIsAdoptedUnlessAnUnsavedEditIsWaiting)
+{
+    hudtest::Watched gui;
+    hud::OwnPages pages;
+    pages.massing.known = true;
+    auto stored = fp::Default ();
+    ASSERT_TRUE (fp::SetShare (stored, 1, 0.5));
+    pages.massing.programmeStored = true;
+    pages.massing.programme = stored;
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (gui.state->massingProgramme, stored);
+    EXPECT_EQ (gui.state->massingProgrammeSaved, stored);
+    // A typed answer is applied and queued for the owner to store, once.
+    hud::State& state = *gui.state;
+    std::string error;
+    ASSERT_TRUE (hud::AnswerProgrammeText (state, { state.massingProgramme, -1, {} },
+                                           "50% 2 room 40-45m2; 50% 3 room 60-70m2", error))
+        << error;
+    fp::Programme queued;
+    ASSERT_TRUE (hud::TakeProgrammeSave (state, queued));
+    EXPECT_EQ (queued, state.massingProgramme);
+    EXPECT_FALSE (hud::TakeProgrammeSave (state, queued));
+    // Pages read before the write still carry the old programme: the edit is kept.
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (state.massingProgramme, queued);
+    // The write acknowledged: saved and shown agree again.
+    pages.massing.programme = queued;
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (state.massingProgrammeSaved, queued);
+    EXPECT_EQ (state.massingProgramme, queued);
+    // Another project (or an Undo seen on reread) with no edit pending is followed.
+    pages.massing.programmeStored = false;
+    pages.massing.programme = fp::Default ();
+    gui.engine.SetOwnPages (pages);
+    EXPECT_EQ (state.massingProgramme, fp::Default ());
+}

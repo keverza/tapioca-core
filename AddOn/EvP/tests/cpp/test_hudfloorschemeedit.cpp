@@ -192,3 +192,40 @@ TEST (HudFloorSchemeEdit, TheSelectedFlatIsHighlightedOnTheOverlay)
         return line.rgba == 0xFFFFFFFFu && line.widthPixels >= 5;
     })) << "the selected flat, white, though outlines are off";
 }
+
+// In a narrow panel the tools wrap and the canvas takes the width: nothing runs past the edge.
+TEST (HudFloorSchemeEdit, ANarrowPanelFitsTheToolsAndTheCanvas)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 1000, 2000 };
+    io.DeltaTime = 1.0f / 60;
+    ASSERT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 36) } };
+    std::map<std::string, bp::Draft> drafts;
+    bp::Planner planner;
+    hf::EditorPtr editor;
+    for (int n = 0; n < 200; ++n) {
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 240, 1800 });
+        ImGui::Begin ("Narrow", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+        hf::PlanView (editor, planner, plans, drafts, "A", fp::Default (), {}, 1);
+        EXPECT_LE (ImGui::GetCurrentWindow ()->DC.CursorMaxPos.x, 240 - ImGui::GetStyle ().WindowPadding.x + 1) << n;
+        ImGui::End ();
+        ImGui::Render ();
+        if (n > 2 && !planner.Busy ())
+            break;
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+}

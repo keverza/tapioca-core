@@ -2,7 +2,7 @@
 // The file is a story-slices document (as Bake's Export 2D writes) so the private generator
 // reads it as a fixture; its "plan" member carries what the user designed here.
 #include "ArchViz/FloorPlanner.hpp"
-#include "ArchViz/HudFloorPlanFrame.hpp"
+#include <clipper2/clipper.h>
 #include "NodeGraph/Json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -13,6 +13,7 @@ namespace {
 namespace js = evp::nodegraph::json;
 namespace cp = Clipper2Lib;
 using V = js::JsonValue;
+constexpr double kModule = 0.3; // the offline generator's raster
 V Number (double value)
 {
     return V::Double (std::isfinite (value) ? std::round (value * 1e6) / 1e6 : 0.0);
@@ -131,7 +132,7 @@ PlanFile ExportPlan (const Plan& plan, const Draft& draft, const Floor& shown, c
             js::JsonArray holes;
             for (const auto& hole : boundary)
                 if (cp::Area (hole) < 0 && !hole.empty () &&
-                    frame::Inside ({ outer }, { hole.front ().x, hole.front ().y }))
+                    cp::PointInPolygon (hole.front (), outer) != cp::PointInPolygonResult::IsOutside)
                     holes.push_back (Points (hole));
             slices.push_back (V::Object ({ { "group", V::String (plan.key) },
                                            { "story", V::Integer (floor.story) },
@@ -177,7 +178,7 @@ PlanFile ExportPlan (const Plan& plan, const Draft& draft, const Floor& shown, c
                      { "ringClosure", V::String ("implicit") },
                      { "edgeType", V::String ("straight; curved sources tessellated") },
                      { "contourBasis", V::String ("counted; outside-envelope and low-headroom regions excluded") },
-                     { "module", Number (frame::kModule) },
+                     { "module", Number (kModule) },
                      { "program", V::String (floorprogramme::Brief (draft.programme, "\n")) },
                      { "slices", V::Array (std::move (slices)) },
                      { "plan", V::Object ({ { "format", V::String ("tapioca.floor-plan.typology") },

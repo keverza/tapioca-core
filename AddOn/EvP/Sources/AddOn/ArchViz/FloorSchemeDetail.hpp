@@ -96,7 +96,7 @@ inline Vec Unit (Vec a)
     const double l = std::hypot (a.x, a.y);
     return l > kEps ? Vec { a.x / l, a.y / l } : Vec { 1, 0 };
 }
-// Points on a boundary count as inside (ray cast; see HudFloorPlanFrame for why not Clipper's).
+// Points on a boundary count as inside (a ray cast: Clipper reports the boundary apart).
 bool Inside (const cp::PathsD& paths, Vec p);
 // Outline length along the segment a-b that faces outside: samples just beyond the side. Beyond
 // it in `blind` (a neighbouring building's floor) is a party wall, never a facade.

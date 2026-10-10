@@ -60,10 +60,7 @@ void Engine::Impl::StoryDiagram (const massingbuildings::Preview& preview, float
         nextFloorHover = hover;
     }
     if (pickedStorey != (std::numeric_limits<int>::min) ()) {
-        auto& draft = store->buildingPlans[building.key];
-        if (draft.story != pickedStorey)
-            buildingplan::Cancel (draft);
-        draft.story = pickedStorey;
+        store->buildingPlans[building.key].story = pickedStorey;
     }
 }
 // The building's Plan view, a section of its own: its floor among the others at the elevation.
@@ -71,10 +68,8 @@ void Engine::Impl::PlanSection (const massingbuildings::Preview& preview, float 
 {
     const auto& building = preview.building;
     auto& draft = store->buildingPlans[building.key];
-    if (!ImGui::CollapsingHeader ("Plan view", ImGuiTreeNodeFlags_DefaultOpen)) {
-        buildingplan::Cancel (draft);
+    if (!ImGui::CollapsingHeader ("Plan view", ImGuiTreeNodeFlags_DefaultOpen))
         return;
-    }
     if (!preview.plan.note.empty ())
         ImGui::TextWrapped ("%s", preview.plan.note.c_str ());
     buildingplan::UseProgramme (draft, store->massingProgramme);

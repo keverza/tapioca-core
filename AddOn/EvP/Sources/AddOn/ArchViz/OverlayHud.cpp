@@ -716,10 +716,6 @@ Engine::~Engine ()
     if (impl_->context == nullptr)
         return;
     std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
-    for (auto& [key, draft] : impl_->store->buildingPlans) {
-        if (draft.dragging && draft.dragOwner == reinterpret_cast<uintptr_t> (impl_->context))
-            buildingplan::Cancel (draft);
-    }
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
     ImGui::DestroyContext (impl_->context);

@@ -510,11 +510,6 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroomDisplay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBuildings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudBuildingPlan.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlan.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanRelax.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanTargets.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanFill.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanShare.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanExport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorScheme.cpp"
@@ -531,7 +526,6 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRooms.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudFloorPlans.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudBuildingPlanDraw.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingAreaCalculations.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseZone.cpp"
@@ -758,7 +752,6 @@ set (EVP_TEST_SOURCES
     test_massingcollapse.cpp
     test_massingbuildings.cpp
     test_hudbuildingplan.cpp
-    test_hudfloorplan.cpp
     test_floorscheme.cpp
     test_floorscheme_edit.cpp
     test_floorscheme_designs.cpp
