@@ -258,7 +258,8 @@ from typing import Any
 # 240 -> 242 with MassingBakeGuard and FinishMassingBake (2026-10-07), the
 # guarded native completion stage for the Massing HUD's explicitly requested copies.
 # 242 -> 243 with atomic native BakeMassingSlices (slabs plus optional walls).
-EXPECTED_REGISTRY_COMMANDS = 243
+# 243 -> 244 with the native visibility study's shared square-cell atlas path.
+EXPECTED_REGISTRY_COMMANDS = 244
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -276,7 +277,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 254 -> 255 with the sun study's pause, 255 -> 259 with the four metadata verbs.
 # 259 -> 261 with the two guarded Massing bake adapters.
 # 261 -> 262 with atomic native slice/wall baking.
-EXPECTED_TOTAL_COMMANDS = 262
+# 262 -> 263 with RunVisibilityStudy.
+EXPECTED_TOTAL_COMMANDS = 263
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

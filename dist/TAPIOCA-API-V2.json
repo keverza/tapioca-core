@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 243,
+      "nativeRegistry": 244,
       "dispatcherLocal": 19,
-      "total": 262
+      "total": 263
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -24166,6 +24166,178 @@
       }
     },
     {
+      "name": "Tapioca.RunVisibilityStudy",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "origin": {
+            "type": "string",
+            "enum": [
+              "surfaces",
+              "point"
+            ]
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "patch",
+              "triangle"
+            ]
+          },
+          "fromElements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "toElements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "contextElements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "point": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "direction": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "coneDegrees": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 179
+          },
+          "grid": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "normalOffset": {
+            "type": "number",
+            "minimum": 0
+          },
+          "tmin": {
+            "type": "number",
+            "minimum": 0
+          },
+          "maxAimPoints": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "maxParallel": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "show": {
+            "type": "boolean"
+          },
+          "includeValues": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "toElements"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "patch",
+              "triangle"
+            ]
+          },
+          "patchCount": {
+            "type": "integer"
+          },
+          "snapshotId": {
+            "type": "integer"
+          },
+          "sampleCount": {
+            "type": "integer"
+          },
+          "aimPointCount": {
+            "type": "integer"
+          },
+          "rayCount": {
+            "type": "integer"
+          },
+          "visibleSamples": {
+            "type": "integer"
+          },
+          "meanVisibility": {
+            "type": "number"
+          },
+          "analysisMilliseconds": {
+            "type": "number"
+          },
+          "atlasWidth": {
+            "type": "integer"
+          },
+          "atlasHeight": {
+            "type": "integer"
+          },
+          "shown": {
+            "type": "boolean"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "studyId",
+          "origin",
+          "domain",
+          "patchCount",
+          "snapshotId",
+          "sampleCount",
+          "aimPointCount",
+          "rayCount",
+          "visibleSamples",
+          "meanVisibility",
+          "analysisMilliseconds",
+          "atlasWidth",
+          "atlasHeight",
+          "shown",
+          "values"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.Set3DProjection",
       "implementation": "native-registry",
       "inputScheme": {
@@ -28496,10 +28668,16 @@
           "studyId": {
             "type": "string"
           },
+          "analysisKind": {
+            "type": "integer"
+          },
           "drawing": {
             "type": "boolean"
           },
           "preview": {
+            "type": "boolean"
+          },
+          "patchDomain": {
             "type": "boolean"
           },
           "elementsNamed": {

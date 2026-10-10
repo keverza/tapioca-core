@@ -1299,6 +1299,8 @@ def _one(command, params):
         name = params.get("name", "")
         if _SCENARIO == "topography" and name == "Terrain":
             guids = [_SNAP_GUIDS[0]]
+        elif _SCENARIO == "view_quality" and name in ("Analysis", "Context", "Focus"):
+            guids = [_GUID % {"Analysis": 601, "Context": 603, "Focus": 602}[name]]
         else:
             guids = list(_selection_sets.get(name, []))
         return _v2({"elements": [{"elementId": {"guid": guid}} for guid in guids],
@@ -3303,6 +3305,23 @@ def _one(command, params):
                     "completionWakes": 0, "completionWakeFailures": 0,
                     "description": "sun study '%s' is current for snapshot 1"
                                    % _SUN_OVERLAY.get("studyId", "")})
+
+    if command == "EvP.RunVisibilityStudy":
+        domain = params.get("domain", "patch")
+        data = {"studyId": "visibility-dryrun", "origin": params.get("origin", "surfaces"),
+                "domain": domain, "patchCount": 6 if domain == "patch" else 0,
+                "snapshotId": 1, "sampleCount": 12, "aimPointCount": 8, "rayCount": 96,
+                "visibleSamples": 9, "meanVisibility": 0.5, "analysisMilliseconds": 2.0,
+                "atlasWidth": 32, "atlasHeight": 32, "shown": bool(params.get("show", True)),
+                "values": [0.5] * 12 if params.get("includeValues") else []}
+        if data["shown"]:
+            _SUN_OVERLAY.clear()
+            _SUN_OVERLAY.update(viewerRunning=True, studyId=data["studyId"], analysisKind=1,
+                                drawing=True, patchDomain=domain == "patch", preview=False,
+                                elementsNamed=len(params.get("fromElements", [])),
+                                elementsAttached=len(params.get("fromElements", [])),
+                                atlasWidth=32, atlasHeight=32, rejection="")
+        return _v2(data)
 
     if command == "EvP.SunStudyOverlayState":
         if _SUN_DISPLAY_PREPARATION:

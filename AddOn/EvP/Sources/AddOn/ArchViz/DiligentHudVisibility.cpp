@@ -23,7 +23,7 @@ namespace {
 
 enum class RoleEdit { Replace, Add, Remove };
 
-void EditRole (std::vector<std::string>& role, std::vector<std::string>& other,
+void EditRole (std::vector<std::string>& role, std::vector<std::string>& other, std::vector<std::string>& third,
                const std::vector<std::string>& selection, RoleEdit edit)
 {
     std::set<std::string> values (role.begin (), role.end ());
@@ -41,11 +41,14 @@ void EditRole (std::vector<std::string>& role, std::vector<std::string>& other,
         other.erase (std::remove_if (other.begin (), other.end (),
                                      [&] (const std::string& guid) { return kept.find (guid) != kept.end (); }),
                      other.end ());
+        third.erase (std::remove_if (third.begin (), third.end (),
+                                     [&] (const std::string& guid) { return kept.find (guid) != kept.end (); }),
+                     third.end ());
     }
 }
 
 bool RoleRow (const char* label, std::vector<std::string>& role, std::vector<std::string>& other,
-              const std::vector<std::string>& selection)
+              std::vector<std::string>& third, const std::vector<std::string>& selection)
 {
     bool changed = false;
     ImGui::PushID (label);
@@ -53,17 +56,17 @@ bool RoleRow (const char* label, std::vector<std::string>& role, std::vector<std
     const bool haveSelection = !selection.empty ();
     ImGui::BeginDisabled (!haveSelection);
     if (ImGui::SmallButton ("Replace")) {
-        EditRole (role, other, selection, RoleEdit::Replace);
+        EditRole (role, other, third, selection, RoleEdit::Replace);
         changed = true;
     }
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Add")) {
-        EditRole (role, other, selection, RoleEdit::Add);
+        EditRole (role, other, third, selection, RoleEdit::Add);
         changed = true;
     }
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Remove")) {
-        EditRole (role, other, selection, RoleEdit::Remove);
+        EditRole (role, other, third, selection, RoleEdit::Remove);
         changed = true;
     }
     ImGui::EndDisabled ();
@@ -129,15 +132,21 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene)
     const auto status = visibilitystudy::GetStatus ();
     bool changed = false;
     ImGui::BeginDisabled (status.running);
-    ImGui::TextWrapped ("Measure which square surface cells can see a target. FROM and TO are separate roles.");
+    ImGui::TextWrapped (
+        "Analysis receives the gradient. Context occludes. Focus is checked for visibility from Analysis.");
     ImGui::TextDisabled ("Current viewport selection: %u element(s)", unsigned (state.visibilitySelection.size ()));
 
-    changed |= ImGui::RadioButton ("FROM surfaces", &state.visibilityOrigin, 0);
+    changed |= ImGui::RadioButton ("Analysis surfaces", &state.visibilityOrigin, 0);
     ImGui::SameLine ();
     changed |= ImGui::RadioButton ("Placed view point", &state.visibilityOrigin, 1);
     if (state.visibilityOrigin == 0)
-        changed |= RoleRow ("FROM", state.visibilityFrom, state.visibilityTo, state.visibilitySelection);
-    changed |= RoleRow ("TO", state.visibilityTo, state.visibilityFrom, state.visibilitySelection);
+        changed |= RoleRow ("Analysis", state.visibilityFrom, state.visibilityTo, state.visibilityContext,
+                            state.visibilitySelection);
+    changed |= RoleRow ("Context", state.visibilityContext, state.visibilityFrom, state.visibilityTo,
+                        state.visibilitySelection);
+    changed |=
+        RoleRow ("Focus", state.visibilityTo, state.visibilityFrom, state.visibilityContext, state.visibilitySelection);
+    ImGui::TextDisabled ("Empty Context: no context blockers; unassigned objects are ignored.");
 
     if (state.visibilityOrigin == 1) {
         if (ImGui::Button (state.visibilityPlacingPoint ? "Click the model..." : "Place view point")) {
@@ -159,8 +168,10 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene)
 
     changed |= ImGui::SliderFloat ("square cells", &state.visibilityGrid, 0.25f, 10.0f, "%.2f m",
                                    ImGuiSliderFlags_Logarithmic);
+    const char* domains[] = { "Triangle (oracle)", "Patch (coplanar surfaces)" };
+    changed |= ImGui::Combo ("sampling domain", &state.visibilityDomain, domains, 2);
     if (state.visibilityOrigin == 0)
-        changed |= ImGui::SliderInt ("TO aim points", &state.visibilityAimPoints, 1, 128);
+        changed |= ImGui::SliderInt ("Focus aim points", &state.visibilityAimPoints, 1, 128);
     ImGui::EndDisabled ();
     if (state.visibilityOrigin == 0)
         state.visibilityPlacingPoint = false;
@@ -181,6 +192,10 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene)
         request.snapshot = capture;
         request.fromElements = state.visibilityFrom;
         request.toElements = state.visibilityTo;
+        request.options.explicitContext = true;
+        request.options.contextElements = state.visibilityContext;
+        request.options.domain = state.visibilityDomain == 1 ? evp::sunstudy::SamplingDomain::SurfacePatch
+                                                             : evp::sunstudy::SamplingDomain::TriangleLegacy;
         request.options.origin = state.visibilityOrigin == 0 ? evp::sunstudy::VisibilityOrigin::Surfaces
                                                              : evp::sunstudy::VisibilityOrigin::Point;
         request.options.spacing = state.visibilityGrid;

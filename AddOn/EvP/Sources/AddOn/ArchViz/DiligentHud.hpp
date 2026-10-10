@@ -166,11 +166,13 @@ struct HudState {
     int sunStudyTimestepMinutes = 0;
     std::vector<uint16_t> sunStepMinutes; // mirrored from the scene
 
-    // Visibility study setup lives in the viewer session. FROM and TO are kept
-    // separate and exclusive; point mode replaces FROM with one placed view cone.
+    // Exclusive Analysis / Context / Focus roles. Point mode replaces Analysis
+    // with one placed view cone and displays the gradient on Focus instead.
     std::vector<std::string> visibilitySelection;
     std::vector<std::string> visibilityFrom;
     std::vector<std::string> visibilityTo;
+    std::vector<std::string> visibilityContext;
+    int visibilityDomain = 1; // 0 triangle oracle, 1 coplanar patches
     int visibilityOrigin = 0; // 0 surfaces, 1 placed point
     float visibilityGrid = 2.0f;
     int visibilityAimPoints = 32;

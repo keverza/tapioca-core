@@ -86,6 +86,11 @@ class QueryEngine {
     };
     RayHit Raycast (const double org[3], const double dir[3], double maxDist) const;
 
+    // Closest hit among enabled snapshot meshes, using the SAME BVH. An empty
+    // mask enables nothing; unlike ray-advancing this preserves coincident hits.
+    RayHit RaycastMasked (const double org[3], const double dir[3], double maxDist,
+                          const std::vector<uint8_t>& meshMask) const;
+
     // Query only an already-picked mesh, without building/caching a whole-model
     // BVH. The returned triangle is still GLOBAL in snapshot order, not local
     // to the mesh or a role-partition BVH. Two-sided, like Raycast; the normal
@@ -179,6 +184,8 @@ class QueryEngine {
     // the interpolated smooth normal, falling back to the geometric face normal
     // when the source mesh carried no normals.
     void SurfaceNormal (uint32_t globalTri, double u, double v, double out[3]) const;
+    RayHit RaycastImpl (const double org[3], const double dir[3], double maxDist,
+                        const std::vector<uint8_t>* meshMask) const;
 };
 
 // Lazily builds and caches one QueryEngine for the current snapshot id, so

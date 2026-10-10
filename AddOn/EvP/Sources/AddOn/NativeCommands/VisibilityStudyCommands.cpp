@@ -63,6 +63,13 @@ class RunVisibilityStudyCommand : public MainThreadCommand {
         const auto to = ReadStringList (params, "toElements");
 
         evp::sunstudy::VisibilityStudyOptions options;
+        const auto domain = ReadString (params, "domain", "patch");
+        if (domain != "patch" && domain != "triangle")
+            return NativeCommandResult::Failure ("domain must be patch or triangle");
+        options.domain = domain == "patch" ? evp::sunstudy::SamplingDomain::SurfacePatch
+                                           : evp::sunstudy::SamplingDomain::TriangleLegacy;
+        options.explicitContext = params.Contains ("contextElements");
+        options.contextElements = ReadStringList (params, "contextElements");
         const std::string origin = ReadString (params, "origin", "surfaces");
         if (origin == "point") {
             options.origin = evp::sunstudy::VisibilityOrigin::Point;
@@ -94,7 +101,7 @@ class RunVisibilityStudyCommand : public MainThreadCommand {
         result.id = "visibility-" + std::to_string (s_visibilityId.fetch_add (1));
 
         bool shown = false;
-        uint32_t atlasWidth = result.atlas.width, atlasHeight = result.atlas.height;
+        uint32_t atlasWidth = result.AtlasWidth (), atlasHeight = result.AtlasHeight ();
         if (show) {
             std::string error;
             auto upload = archviz::BuildVisibilityStudyUpload (
@@ -119,6 +126,8 @@ class RunVisibilityStudyCommand : public MainThreadCommand {
         GS::ObjectState os;
         os.Add ("studyId", Text (result.id));
         os.Add ("origin", Text (origin));
+        os.Add ("domain", Text (domain));
+        os.Add ("patchCount", static_cast<GS::Int32> (result.patchGrid.spans.size ()));
         os.Add ("snapshotId", static_cast<GS::Int64> (result.snapshotId));
         os.Add ("sampleCount", static_cast<GS::Int32> (result.values.size ()));
         os.Add ("aimPointCount", static_cast<GS::Int32> (result.aimPointCount));
@@ -140,8 +149,10 @@ const NativeCommandRegistration kVisibilityRegistrations[] = {
         "type":"object",
         "properties":{
           "origin":{"type":"string","enum":["surfaces","point"]},
+          "domain":{"type":"string","enum":["patch","triangle"]},
           "fromElements":{"type":"array","items":{"type":"string","minLength":1}},
           "toElements":{"type":"array","items":{"type":"string","minLength":1}},
+          "contextElements":{"type":"array","items":{"type":"string","minLength":1}},
           "point":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
           "direction":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
           "coneDegrees":{"type":"number","minimum":1,"maximum":179},
@@ -161,6 +172,8 @@ const NativeCommandRegistration kVisibilityRegistrations[] = {
         "properties":{
           "studyId":{"type":"string"},
           "origin":{"type":"string"},
+          "domain":{"type":"string","enum":["patch","triangle"]},
+          "patchCount":{"type":"integer"},
           "snapshotId":{"type":"integer"},
           "sampleCount":{"type":"integer"},
           "aimPointCount":{"type":"integer"},
@@ -174,7 +187,7 @@ const NativeCommandRegistration kVisibilityRegistrations[] = {
           "values":{"type":"array","items":{"type":"number"}}
         },
         "additionalProperties":false,
-        "required":["studyId","origin","snapshotId","sampleCount","aimPointCount","rayCount","visibleSamples",
+        "required":["studyId","origin","domain","patchCount","snapshotId","sampleCount","aimPointCount","rayCount","visibleSamples",
                     "meanVisibility","analysisMilliseconds","atlasWidth","atlasHeight","shown","values"]
       })json" },
 };

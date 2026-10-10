@@ -264,6 +264,7 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
             os.Add ("analysisKind", (GS::Int32) 0);
             os.Add ("drawing", false);
             os.Add ("preview", false);
+            os.Add ("patchDomain", false);
             os.Add ("elementsNamed", (GS::Int32) 0);
             os.Add ("elementsAttached", (GS::Int32) 0);
             os.Add ("refusedTriangleCount", (GS::Int32) 0);
@@ -287,6 +288,7 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
         os.Add ("analysisKind", (GS::Int32) overlay.analysisKind);
         os.Add ("drawing", overlay.drawing);
         os.Add ("preview", overlay.preview);
+        os.Add ("patchDomain", overlay.patchDomain);
         os.Add ("elementsNamed", (GS::Int32) overlay.elementsNamed);
         os.Add ("elementsAttached", (GS::Int32) overlay.elementsAttached);
         os.Add ("refusedTriangleCount", (GS::Int32) overlay.refusedTriangleCount);
@@ -586,6 +588,7 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "analysisKind":{"type":"integer"},
                 "drawing":{"type":"boolean"},
                 "preview":{"type":"boolean"},
+                "patchDomain":{"type":"boolean"},
                 "elementsNamed":{"type":"integer"},
                 "elementsAttached":{"type":"integer"},
                 "refusedTriangleCount":{"type":"integer"},

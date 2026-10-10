@@ -141,7 +141,7 @@ std::vector<AimPoint> ReduceAimPoints (const std::vector<AimPoint>& candidates, 
 
 void ClassifyFirstHitTargets (const geomsrv::QueryEngine& engine, const std::vector<OcclusionRay>& rays,
                               const std::vector<uint8_t>& targetMask, std::vector<uint8_t>& visible, size_t maxParallel,
-                              const std::function<bool ()>& isCancelled)
+                              const std::vector<uint8_t>* queryMask, const std::function<bool ()>& isCancelled)
 {
     visible.assign (rays.size (), 0);
     const auto body = [&] (size_t begin, size_t end) {
@@ -151,7 +151,9 @@ void ClassifyFirstHitTargets (const geomsrv::QueryEngine& engine, const std::vec
             double origin[3];
             for (int axis = 0; axis < 3; ++axis)
                 origin[axis] = rays[i].origin[axis] + rays[i].dir[axis] * rays[i].tmin;
-            const auto hit = engine.Raycast (origin, rays[i].dir, rays[i].tmax - rays[i].tmin);
+            const auto hit = queryMask != nullptr
+                                 ? engine.RaycastMasked (origin, rays[i].dir, rays[i].tmax - rays[i].tmin, *queryMask)
+                                 : engine.Raycast (origin, rays[i].dir, rays[i].tmax - rays[i].tmin);
             visible[i] = hit.hit && hit.meshIndex < targetMask.size () && targetMask[hit.meshIndex] != 0 ? 1 : 0;
         }
     };
@@ -171,6 +173,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
     result.fromElements = fromElements;
     result.toElements = toElements;
     result.origin = options.origin;
+    result.domain = options.domain;
     result.spacing = options.spacing;
     if (result.snapshot == nullptr || result.snapshot->meshes.empty ()) {
         result.error = "visibility study needs a live non-empty snapshot";
@@ -183,7 +186,8 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
     }
     if (!std::isfinite (options.normalOffset) || options.normalOffset < 0.0 || !std::isfinite (options.tmin) ||
         options.tmin < 0.0 || options.maxAimPoints == 0 || options.maxSamples == 0 || options.maxRays == 0 ||
-        (options.origin != VisibilityOrigin::Surfaces && options.origin != VisibilityOrigin::Point)) {
+        (options.origin != VisibilityOrigin::Surfaces && options.origin != VisibilityOrigin::Point) ||
+        (options.domain != SamplingDomain::SurfacePatch && options.domain != SamplingDomain::TriangleLegacy)) {
         result.error = "visibility options contain invalid offsets, limits or origin mode";
         return result;
     }
@@ -197,6 +201,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
         }
     }
     const auto from = CanonicalSet (fromElements), to = CanonicalSet (toElements);
+    const auto context = CanonicalSet (options.contextElements);
     if (to.empty ()) {
         result.error = "visibility study needs at least one TO element";
         return result;
@@ -211,6 +216,14 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
             return result;
         }
     }
+    if (options.explicitContext) {
+        for (const auto& guid : context) {
+            if (from.find (guid) != from.end () || to.find (guid) != to.end ()) {
+                result.error = "Analysis, Context and Focus element sets must not overlap";
+                return result;
+            }
+        }
+    }
 
     size_t fromMatches = 0, toMatches = 0;
     const auto fromMask = MaskOf (*result.snapshot, from, fromMatches);
@@ -223,15 +236,23 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
                             [&present] (const std::string& guid) { return present.find (guid) == present.end (); });
     };
     if (toMatches == 0 || missing (to) ||
-        (options.origin == VisibilityOrigin::Surfaces && (fromMatches == 0 || missing (from)))) {
+        (options.origin == VisibilityOrigin::Surfaces && (fromMatches == 0 || missing (from))) ||
+        (options.explicitContext && missing (context))) {
         result.error = "visibility role elements are absent from the live snapshot";
         return result;
     }
     const auto& displayMask = options.origin == VisibilityOrigin::Point ? toMask : fromMask;
     result.displayElements = options.origin == VisibilityOrigin::Point ? toElements : fromElements;
+    std::vector<uint8_t> queryMask;
+    if (options.explicitContext) {
+        size_t contextMatches = 0;
+        queryMask = MaskOf (*result.snapshot, context, contextMatches);
+        for (size_t mesh = 0; mesh < queryMask.size (); ++mesh)
+            queryMask[mesh] = queryMask[mesh] || toMask[mesh];
+    }
 
     SurfaceSamplingOptions samplingOptions;
-    samplingOptions.domain = SamplingDomain::TriangleLegacy;
+    samplingOptions.domain = options.domain;
     samplingOptions.spacing = options.spacing;
     samplingOptions.normalOffset = options.normalOffset;
     samplingOptions.maxSamples = options.maxSamples;
@@ -240,22 +261,30 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
         result.error = "visibility study cancelled";
         return result;
     }
-    if (!sampling.valid || !sampling.triangles.valid || sampling.triangles.Count () == 0) {
+    if (!sampling.valid || (result.IsPatchDomain () ? !sampling.patches.valid || sampling.patches.Count () == 0
+                                                    : !sampling.triangles.valid || sampling.triangles.Count () == 0)) {
         result.error = "visibility square-cell sampling was refused or produced no cells";
         return result;
     }
     result.grid = std::move (sampling.triangles);
-    if (result.grid.Count () > options.maxRays) {
+    result.patchGrid = std::move (sampling.patches);
+    if (result.Count () > options.maxRays) {
         result.error = "visibility ray budget cannot represent every square cell at least once";
         return result;
     }
-    result.atlas = BuildSunStudyAtlas (result.grid);
-    if (!result.atlas.valid) {
+    if (result.IsPatchDomain ())
+        result.patchAtlas.Fit (result.patchGrid);
+    else
+        result.atlas = BuildSunStudyAtlas (result.grid);
+    if (result.AtlasWidth () == 0 || result.AtlasHeight () == 0 || (!result.IsPatchDomain () && !result.atlas.valid)) {
         result.error = "visibility square-cell atlas could not be packed";
         return result;
     }
-    result.values.assign (result.grid.Count (), 0.0);
-    for (const double area : result.grid.areas)
+    result.values.assign (result.Count (), 0.0);
+    const auto& positions = result.IsPatchDomain () ? result.patchGrid.positions : result.grid.positions;
+    const auto& normals = result.IsPatchDomain () ? result.patchGrid.normals : result.grid.normals;
+    const auto& areas = result.IsPatchDomain () ? result.patchGrid.areas : result.grid.areas;
+    for (const double area : areas)
         result.analysedArea += area;
 
     const auto engine = geomsrv::QueryIndexCache::Get ().For (result.snapshot);
@@ -274,12 +303,12 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
         }
         const double cone = (std::max) (1.0, (std::min) (179.0, options.coneDegrees));
         const double cosHalf = std::cos (cone * 0.5 * 3.14159265358979323846 / 180.0);
-        for (size_t first = 0; first < result.grid.Count (); first += kRayBatch) {
+        for (size_t first = 0; first < result.Count (); first += kRayBatch) {
             if (Cancelled (isCancelled)) {
                 result.error = "visibility study cancelled";
                 return result;
             }
-            const size_t count = (std::min) (kRayBatch, result.grid.Count () - first);
+            const size_t count = (std::min) (kRayBatch, result.Count () - first);
             std::vector<OcclusionRay> rays;
             std::vector<size_t> samples;
             rays.reserve (count);
@@ -288,8 +317,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
                 const size_t sample = first + local;
                 double target[3], dir[3];
                 for (int axis = 0; axis < 3; ++axis) {
-                    target[axis] = result.grid.positions[3 * sample + axis] -
-                                   result.grid.normals[3 * sample + axis] * options.normalOffset;
+                    target[axis] = positions[3 * sample + axis] - normals[3 * sample + axis] * options.normalOffset;
                     dir[axis] = target[axis] - options.point[axis];
                 }
                 const double distance = std::sqrt (DistanceSquared (target, options.point));
@@ -305,8 +333,28 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
                 samples.push_back (sample);
             }
             std::vector<uint8_t> blocked (rays.size (), 1);
-            if (!rays.empty ())
-                traversal.OccludeRays (rays.data (), rays.size (), blocked.data (), options.maxParallel);
+            if (!rays.empty ()) {
+                if (options.explicitContext) {
+                    const auto body = [&] (size_t begin, size_t end) {
+                        for (size_t i = begin; i < end; ++i) {
+                            if (rays[i].tmax <= rays[i].tmin) {
+                                blocked[i] = 0;
+                                continue;
+                            }
+                            double origin[3];
+                            for (int axis = 0; axis < 3; ++axis)
+                                origin[axis] = rays[i].origin[axis] + rays[i].dir[axis] * rays[i].tmin;
+                            blocked[i] =
+                                engine->RaycastMasked (origin, rays[i].dir, rays[i].tmax - rays[i].tmin, queryMask).hit
+                                    ? 1
+                                    : 0;
+                        }
+                    };
+                    RunCpuTraversal (rays.size (), options.maxParallel, isCancelled, body);
+                }
+                else
+                    traversal.OccludeRays (rays.data (), rays.size (), blocked.data (), options.maxParallel);
+            }
             if (Cancelled (isCancelled)) {
                 result.error = "visibility study cancelled";
                 return result;
@@ -315,7 +363,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
             for (size_t i = 0; i < rays.size (); ++i)
                 result.values[samples[i]] = blocked[i] == 0 ? 1.0 : 0.0;
         }
-        result.aimPointCount = result.grid.Count ();
+        result.aimPointCount = result.Count ();
     }
     else {
         auto candidates = TargetCandidates (*result.snapshot, toMask, isCancelled);
@@ -334,7 +382,7 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
             result.error = "a TO element contains no valid target triangles";
             return result;
         }
-        const size_t rayBudgetAim = options.maxRays / result.grid.Count ();
+        const size_t rayBudgetAim = options.maxRays / result.Count ();
         // Every selected TO object owns at least one deterministic aim point.
         // Silently dropping small targets because a large neighbour exhausted
         // the cap would make set membership depend on tessellation density.
@@ -350,22 +398,21 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
             return result;
         }
         result.aimPointCount = aims.size ();
-        for (size_t first = 0; first < result.grid.Count ();
-             first += (std::max) (size_t (1), kRayBatch / aims.size ())) {
+        for (size_t first = 0; first < result.Count (); first += (std::max) (size_t (1), kRayBatch / aims.size ())) {
             if (Cancelled (isCancelled)) {
                 result.error = "visibility study cancelled";
                 return result;
             }
             const size_t sampleCount =
-                (std::min) ((std::max) (size_t (1), kRayBatch / aims.size ()), result.grid.Count () - first);
+                (std::min) ((std::max) (size_t (1), kRayBatch / aims.size ()), result.Count () - first);
             std::vector<OcclusionRay> rays;
             std::vector<size_t> samples;
             rays.reserve (sampleCount * aims.size ());
             samples.reserve (sampleCount * aims.size ());
             for (size_t local = 0; local < sampleCount; ++local) {
                 const size_t sample = first + local;
-                const double* origin = result.grid.positions.data () + 3 * sample;
-                const double* normal = result.grid.normals.data () + 3 * sample;
+                const double* origin = positions.data () + 3 * sample;
+                const double* normal = normals.data () + 3 * sample;
                 for (const AimPoint& aim : aims) {
                     double dir[3] = { aim.p[0] - origin[0], aim.p[1] - origin[1], aim.p[2] - origin[2] };
                     const double distance = std::sqrt (DistanceSquared (aim.p, origin));
@@ -386,7 +433,8 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
             }
             std::vector<uint8_t> visible;
             if (!rays.empty ())
-                ClassifyFirstHitTargets (*engine, rays, toMask, visible, options.maxParallel, isCancelled);
+                ClassifyFirstHitTargets (*engine, rays, toMask, visible, options.maxParallel,
+                                         options.explicitContext ? &queryMask : nullptr, isCancelled);
             if (Cancelled (isCancelled)) {
                 result.error = "visibility study cancelled";
                 return result;

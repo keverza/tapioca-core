@@ -18,6 +18,27 @@ struct QueryEngine::Impl {
 
 namespace {
 
+class MaskedTriangleIntersector : public nanort::TriangleIntersector<double, nanort::TriangleIntersection<double>> {
+  public:
+    using Base = nanort::TriangleIntersector<double, nanort::TriangleIntersection<double>>;
+    MaskedTriangleIntersector (const double* vertices, const uint32_t* faces, const std::vector<uint32_t>& triToMesh,
+                               const std::vector<uint8_t>* mask)
+        : Base (vertices, faces, sizeof (double) * 3), triToMesh_ (triToMesh), mask_ (mask)
+    {
+    }
+
+    bool Intersect (double* distance, unsigned int primitive) const
+    {
+        if (mask_ != nullptr && (triToMesh_[primitive] >= mask_->size () || (*mask_)[triToMesh_[primitive]] == 0))
+            return false;
+        return Base::Intersect (distance, primitive);
+    }
+
+  private:
+    const std::vector<uint32_t>& triToMesh_;
+    const std::vector<uint8_t>* mask_;
+};
+
 inline void Sub (const double a[3], const double b[3], double o[3])
 {
     o[0] = a[0] - b[0];
@@ -146,6 +167,18 @@ TraversalScene QueryEngine::ExportTraversalScene (const std::function<bool ()>& 
 
 QueryEngine::RayHit QueryEngine::Raycast (const double org[3], const double dir[3], double maxDist) const
 {
+    return RaycastImpl (org, dir, maxDist, nullptr);
+}
+
+QueryEngine::RayHit QueryEngine::RaycastMasked (const double org[3], const double dir[3], double maxDist,
+                                                const std::vector<uint8_t>& meshMask) const
+{
+    return RaycastImpl (org, dir, maxDist, &meshMask);
+}
+
+QueryEngine::RayHit QueryEngine::RaycastImpl (const double org[3], const double dir[3], double maxDist,
+                                              const std::vector<uint8_t>* meshMask) const
+{
     RayHit out;
     if (triToMesh.empty ())
         return out;
@@ -168,8 +201,7 @@ QueryEngine::RayHit QueryEngine::Raycast (const double org[3], const double dir[
     ray.min_t = 0.0;
     ray.max_t = (maxDist > 0.0) ? maxDist : std::numeric_limits<double>::max ();
 
-    nanort::TriangleIntersector<double, nanort::TriangleIntersection<double>> isector (verts.data (), faces.data (),
-                                                                                       sizeof (double) * 3);
+    MaskedTriangleIntersector isector (verts.data (), faces.data (), triToMesh, meshMask);
     nanort::TriangleIntersection<double> isect;
 
     if (!impl->accel.Traverse (ray, isector, &isect))

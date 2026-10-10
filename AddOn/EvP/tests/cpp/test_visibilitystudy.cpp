@@ -31,6 +31,7 @@ std::shared_ptr<const geomsrv::Snapshot> Scene (bool blocked)
 VisibilityStudyOptions Options ()
 {
     VisibilityStudyOptions options;
+    options.domain = SamplingDomain::TriangleLegacy;
     options.spacing = 0.75;
     options.normalOffset = 0.02;
     options.maxAimPoints = 24;
@@ -264,6 +265,92 @@ TEST (VisibilityStudy, ReusesTheSunStudyAtlasAndFaceMapDisplayChannel)
     ASSERT_NE (upload->texels, nullptr);
     EXPECT_TRUE (std::any_of (upload->texels->begin (), upload->texels->end (),
                               [] (float value) { return value >= 0.0f && value <= 1.0f; }));
+}
+
+TEST (VisibilityStudy, ExplicitContextAloneOccludesAndUnassignedObjectsAreIgnored)
+{
+    auto snapshot = std::make_shared<geomsrv::Snapshot> (*Scene (false));
+    snapshot->id = 101;
+    snapshot->meshes.push_back (evptest::MakeBox ("blocker", 2.0, -10.0, -10.0, 0.5, 22.0, 22.0));
+    auto options = Options ();
+    options.explicitContext = true;
+    const auto clear = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    ASSERT_TRUE (clear.valid) << clear.error;
+    EXPECT_GT (clear.visibleSamples, 0u);
+    options.contextElements = { "BLOCKER" };
+    const auto blocked = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    ASSERT_TRUE (blocked.valid) << blocked.error;
+    EXPECT_EQ (blocked.visibleSamples, 0u);
+    options.contextElements.clear ();
+    const auto cleared = RunVisibilityStudy (snapshot, { "from" }, { "to" }, options);
+    ASSERT_TRUE (cleared.valid) << cleared.error;
+    EXPECT_EQ (clear.values, cleared.values);
+}
+
+TEST (VisibilityStudy, ExplicitContextRejectsOverlapsAndMissingMembers)
+{
+    auto options = Options ();
+    options.explicitContext = true;
+    for (const auto& context : std::vector<std::string> { "FROM", "TO" }) {
+        options.contextElements = { context };
+        const auto overlap = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+        EXPECT_FALSE (overlap.valid);
+        EXPECT_NE (overlap.error.find ("must not overlap"), std::string::npos);
+    }
+    options.contextElements = { "deleted" };
+    const auto missing = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+    EXPECT_FALSE (missing.valid);
+    EXPECT_NE (missing.error.find ("absent"), std::string::npos);
+}
+
+TEST (VisibilityStudy, PatchDomainSharesLatticeAndAtlasAcrossCoplanarTriangleSeams)
+{
+    auto options = Options ();
+    options.domain = SamplingDomain::SurfacePatch;
+    options.explicitContext = true;
+    const auto result = RunVisibilityStudy (Scene (false), { "from" }, { "to" }, options);
+    ASSERT_TRUE (result.valid) << result.error;
+    EXPECT_TRUE (result.IsPatchDomain ());
+    EXPECT_TRUE (result.grid.areas.empty ());
+    EXPECT_EQ (result.patchGrid.spans.size (), 6u) << "one lattice per box face, not twelve triangles";
+    EXPECT_EQ (result.values.size (), result.patchGrid.Count ());
+    std::string error;
+    const auto upload = geomsrv::archviz::BuildVisibilityStudyUpload (result, error);
+    ASSERT_NE (upload, nullptr) << error;
+    EXPECT_TRUE (upload->patchDomain);
+    ASSERT_EQ (upload->elements.size (), 1u);
+    const auto& faces = upload->elements.front ().faces;
+    ASSERT_EQ (faces.size (), 12u);
+    for (size_t face = 0; face < faces.size (); face += 2) {
+        for (size_t component = 0; component < 4; ++component) {
+            EXPECT_EQ (faces[face].tile[component], faces[face + 1].tile[component]);
+            EXPECT_EQ (faces[face].originAndInvSpacing[component], faces[face + 1].originAndInvSpacing[component]);
+            EXPECT_EQ (faces[face].uAxisAndStart[component], faces[face + 1].uAxisAndStart[component]);
+            EXPECT_EQ (faces[face].vAxisAndStart[component], faces[face + 1].vAxisAndStart[component]);
+        }
+    }
+    for (size_t sample = 0; sample < result.Count (); ++sample) {
+        const auto texel = result.patchAtlas.TexelOf (result.patchGrid, sample);
+        ASSERT_GE (texel, 0);
+        EXPECT_FLOAT_EQ ((*upload->texels)[static_cast<size_t> (texel)], static_cast<float> (result.values[sample]));
+    }
+}
+
+TEST (VisibilityStudy, PointPatchModeUsesExplicitContextAndFocusFirstHits)
+{
+    auto options = Options ();
+    options.domain = SamplingDomain::SurfacePatch;
+    options.explicitContext = true;
+    options.origin = VisibilityOrigin::Point;
+    options.point[0] = 1.5;
+    options.point[1] = options.point[2] = 1.0;
+    const auto clear = RunVisibilityStudy (Scene (true), {}, { "to" }, options);
+    ASSERT_TRUE (clear.valid) << clear.error;
+    EXPECT_GT (clear.visibleSamples, 0u);
+    options.contextElements = { "blocker" };
+    const auto blocked = RunVisibilityStudy (Scene (true), {}, { "to" }, options);
+    ASSERT_TRUE (blocked.valid) << blocked.error;
+    EXPECT_LT (blocked.meanVisibility, clear.meanVisibility);
 }
 
 TEST (VisibilityStudy, ViewerUsesSharedCaptureAndModelEditsInvalidateItsStamp)
