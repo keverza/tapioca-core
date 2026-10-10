@@ -33,8 +33,9 @@
 // ⚠️ ONE FLOATING PANEL, THE TITLED PANELS ITS TABS (the user, 2026-09-30). Every panel with
 // a title, of every layer, is a tab of the host: one small panel with no title bar, its tab
 // row its head, the HUD's Settings its last tab and a close button at the row's end. The user drags
-// it by anything that is not a control; where they leave it is kept from the view's
-// nearest corner, in logical pixels, so a resized view keeps it there and inside. The dock
+// it by anything that is not a control; where they leave it is kept from the view's top and
+// nearer side, in logical pixels, so a resized view keeps it there and inside and a shorter
+// tab keeps its top in place. The dock
 // is ONE tab at the view's right edge, its title turned a quarter, that opens and closes
 // the host; a circle on it shows and hides the whole overlay (`ContentShown`). A panel
 // without a title stands alone at its anchor, as before; one on the view's right column

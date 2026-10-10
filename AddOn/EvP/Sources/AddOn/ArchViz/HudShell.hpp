@@ -143,8 +143,9 @@ bool RightClickClaimed ();
 
 // ---- the floating panel ---------------------------------------------------------------
 
-// Where the user left the panel: `offset` logical pixels in from the edges of the view's
-// `corner` nearest it (1 right, 2 bottom), so a resized view keeps it that far from them.
+// Where the panel is held: `offset` logical pixels in from the view's top and from its side
+// nearest it (`corner` 1: the right), so a resized view keeps it that far from them and a
+// shorter page keeps its top in place. Bit 2 (from the bottom) is only read, from older state.
 struct Placement {
     bool placed = false;
     uint8_t corner = 0;

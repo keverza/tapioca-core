@@ -527,15 +527,26 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     const bool moving = existing != nullptr && g.MovingWindow != nullptr && g.MovingWindow->RootWindow == existing;
     // ⚠️ NOT PLACED WHILE IT IS DRAGGED: ImGui moved it before this Begin, and a place set
     // now would put it back under the pointer's start.
+    // ⚠️ ITS TOP STAYS (the user, 2026-10-10: a switch from a very long tab to a short one moved the
+    // panel as if centred). Where the user left it is kept from its top, never its bottom.
+    if (!moving && placement.placed && (placement.corner & 2u) != 0) {
+        // Kept from a bottom corner before: the same place, from the top.
+        const float height = existing != nullptr ? existing->Size.y : 0.0f;
+        placement.offset[1] = (std::max) (view.y / scale - placement.offset[1] - height / scale, 0.0f);
+        placement.corner &= 1u;
+    }
     if (!moving) {
         if (placement.placed) {
             const ImVec2 size = existing != nullptr ? existing->Size : ImVec2 (0.0f, 0.0f);
-            const bool right = (placement.corner & 1u) != 0, bottom = (placement.corner & 2u) != 0;
+            const bool right = (placement.corner & 1u) != 0;
             float x = right ? view.x - placement.offset[0] * scale - size.x : placement.offset[0] * scale;
-            float y = bottom ? view.y - placement.offset[1] * scale - size.y : placement.offset[1] * scale;
+            float y = placement.offset[1] * scale;
             // Inside the view, however it was resized.
             x = (std::min) ((std::max) (x, 0.0f), (std::max) (view.x - size.x, 0.0f));
             y = (std::min) ((std::max) (y, 0.0f), (std::max) (view.y - size.y, 0.0f));
+            // A taller page pushed it up: that top is where it is now, kept when the page shortens.
+            if (existing != nullptr && std::abs (y - placement.offset[1] * scale) > 0.5f)
+                placement.offset[1] = y / scale;
             ImGui::SetNextWindowPos (ImVec2 (std::floor (x), std::floor (y)), ImGuiCond_Always);
         }
         else {
@@ -617,14 +628,14 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     ImGui::PopFont ();
     ImGui::PopStyleColor (colours);
     ImGui::PopStyleVar (kLookVars);
-    // Dragged: where to, from the view's corner nearest it, in logical pixels.
+    // Dragged: where to, from the view's nearer side and its top, in logical pixels.
     if (moving) {
         const ImVec2 pos = result.window->Pos, size = result.window->Size;
-        const bool right = pos.x + size.x * 0.5f > view.x * 0.5f, bottom = pos.y + size.y * 0.5f > view.y * 0.5f;
+        const bool right = pos.x + size.x * 0.5f > view.x * 0.5f;
         placement.placed = true;
-        placement.corner = uint8_t ((right ? 1u : 0u) | (bottom ? 2u : 0u));
+        placement.corner = right ? 1u : 0u;
         placement.offset[0] = (std::max) (right ? view.x - pos.x - size.x : pos.x, 0.0f) / scale;
-        placement.offset[1] = (std::max) (bottom ? view.y - pos.y - size.y : pos.y, 0.0f) / scale;
+        placement.offset[1] = (std::max) (pos.y, 0.0f) / scale;
         result.moved = true;
     }
     return result;

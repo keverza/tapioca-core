@@ -73,7 +73,7 @@ struct State {
     uint64_t revision = 0;
     // The floating panel the titled panels are tabs of: open or closed to the dock, the tab
     // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where
-    // (hudshell::Placement), so a view resized keeps it that far from its nearest corner.
+    // (hudshell::Placement), so a view resized keeps it that far from its top and nearer side.
     struct Host {
         bool known = false; // set from the panels the first time there were any
         bool open = true;

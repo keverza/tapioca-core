@@ -272,12 +272,12 @@ TEST (OverlayHudControls, TheHostStaysWhereItIsDragged)
     hud.Lay ({ &panel }, At (x + 400.0f, y + 250.0f));
     hud.Lay ({ &panel }, At (x + 800.0f, y + 500.0f));
     const hud::Layout dropped = hud.Lay ({ &panel }, At (x + 800.0f, y + 500.0f, { { 0, false } }));
-    // Anchored at the bottom-right now, where it was left.
+    // Held from the right edge and the top now, where it was left: a shorter page keeps its top.
     EXPECT_FLOAT_EQ (dropped.host.fraction[0], 1.0f);
-    EXPECT_FLOAT_EQ (dropped.host.fraction[1], 1.0f);
+    EXPECT_FLOAT_EQ (dropped.host.fraction[1], 0.0f);
     EXPECT_NEAR (1200.0f + dropped.host.offset[0], 16.0f + 800.0f, 1.0f);
-    EXPECT_NEAR (800.0f + dropped.host.offset[1], 16.0f + 500.0f, 1.0f);
-    // A bigger view: as far from its right and bottom edges.
+    EXPECT_NEAR (dropped.host.offset[1], 16.0f + 500.0f, 1.0f);
+    // A bigger view: as far from its right edge and its top.
     hud::Input bigger = At (100.0f, 100.0f);
     bigger.width = 1600.0f;
     bigger.height = 1000.0f;
@@ -290,7 +290,8 @@ TEST (OverlayHudControls, TheHostStaysWhereItIsDragged)
     smaller.height = 400.0f;
     const hud::Layout shrunk = hud.Lay ({ &panel }, smaller);
     EXPECT_GE (500.0f + shrunk.host.offset[0], 0.0f);
-    EXPECT_GE (400.0f + shrunk.host.offset[1], 0.0f);
+    EXPECT_GE (shrunk.host.offset[1], 0.0f);
+    EXPECT_LE (shrunk.host.offset[1] + shrunk.host.height, 400.0f + 0.5f);
     EXPECT_TRUE (hud.heard.empty ()) << "a move is not a change to report";
 }
 

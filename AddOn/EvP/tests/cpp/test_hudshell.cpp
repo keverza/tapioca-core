@@ -351,3 +351,45 @@ TEST (HudScroll, TheWheelScrollsThePageUnderATabRowThatStays)
     ASSERT_TRUE (Box (scrolled.host, look.textRgba, after));
     EXPECT_FLOAT_EQ (after[1], before[1]) << "the tab row's titles where they were";
 }
+
+// ⚠️ THE USER (2026-10-10): switched from a very long tab to a short one, the panel moved as if
+// centred: dragged into the view's lower half, it was held from the bottom. Its top edge stays.
+TEST (HudHost, ATabSwitchKeepsThePanelsTopWhereItWas)
+{
+    for (const float view : { 2400.0f, 1000.0f }) {
+        // 2400: room to drag the long page into the view's lower half, where a bottom corner is
+        // nearest; 1000: the long page is pushed up by the view's bottom and keeps that top.
+        Fresh hud;
+        auto state = hud::NewState ();
+        hud.engine.UseState (state);
+        hud.engine.SetOwnPages (LongStats ());
+        const auto lay = [&] (float x, float y, std::vector<hud::Input::Button> buttons = {}) {
+            hud::Input step = At (x, y, std::move (buttons));
+            step.height = view;
+            return hud.Lay ({}, step);
+        };
+        lay (5.0f, 5.0f);
+        hud::SelectKey (*state, shell::kStatsKey);
+        lay (5.0f, 5.0f);
+        hud::Layout tall = lay (5.0f, 5.0f);
+        // Dragged down by its padding.
+        const float x = tall.host.fraction[0] * 1200.0f + tall.host.offset[0] + 3.0f;
+        const float y = tall.host.fraction[1] * view + tall.host.offset[1] + tall.host.height - 3.0f;
+        lay (x, y);
+        lay (x, y, { { 0, true } });
+        for (int k = 1; k <= 16; ++k)
+            lay (x, y + 50.0f * k);
+        lay (x, y + 800.0f, { { 0, false } });
+        lay (5.0f, 5.0f);
+        tall = lay (5.0f, 5.0f);
+        const float top = tall.host.fraction[1] * view + tall.host.offset[1];
+        ASSERT_GT (tall.host.height, 400.0f);
+        if (view > 2000.0f)
+            ASSERT_GT (top + tall.host.height * 0.5f, view * 0.5f) << "dragged into the lower half";
+        hud::SelectKey (*state, shell::kSettingsKey);
+        lay (5.0f, 5.0f);
+        const hud::Layout small = lay (5.0f, 5.0f);
+        ASSERT_LT (small.host.height, tall.host.height - 50.0f) << "the other page is shorter";
+        EXPECT_NEAR (small.host.fraction[1] * view + small.host.offset[1], top, 1.0f) << "view " << view;
+    }
+}
