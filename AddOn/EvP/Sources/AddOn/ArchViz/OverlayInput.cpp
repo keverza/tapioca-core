@@ -206,6 +206,9 @@ DefSubclassFn g_defSubclass = nullptr;
 constexpr UINT_PTR kSubclassId = 0x54485544; // 'THUD'
 HCURSOR g_arrowCursor = nullptr;
 HCURSOR g_handCursor = nullptr;
+HCURSOR g_moveCursor = nullptr;
+HCURSOR g_sizeWECursor = nullptr;
+HCURSOR g_sizeNSCursor = nullptr;
 
 bool ResolveSubclassing ()
 {
@@ -243,8 +246,8 @@ bool OwnsPointer (const Target& target)
     RECT client = {};
     if (!::ScreenToClient (target.canvas, &point) || !::GetClientRect (target.canvas, &client))
         return false;
-    return target.map.Hit (float (point.x), float (point.y), float (client.right - client.left),
-                           float (client.bottom - client.top)) >= 0;
+    return target.map.Owns (float (point.x), float (point.y), float (client.right - client.left),
+                            float (client.bottom - client.top));
 }
 
 // ⚠️ AN ARROW OVER THE HUD, A HAND OVER WHAT IT CAN PRESS (the user, 2026-09-29) -- never
@@ -254,7 +257,22 @@ bool ShowCursor (const Target& target)
 {
     if (!OwnsPointer (target))
         return false;
-    ::SetCursor (target.map.hand ? g_handCursor : g_arrowCursor);
+    // The cursor the HUD asked for: a canvas's own, else a hand on what it can press.
+    HCURSOR cursor = target.map.hand ? g_handCursor : g_arrowCursor;
+    switch (Cursor (target.map.cursor)) {
+        case Cursor::Move:
+            cursor = g_moveCursor;
+            break;
+        case Cursor::SizeWE:
+            cursor = g_sizeWECursor;
+            break;
+        case Cursor::SizeNS:
+            cursor = g_sizeNSCursor;
+            break;
+        default:
+            break;
+    }
+    ::SetCursor (cursor != nullptr ? cursor : g_arrowCursor);
     ++g_stats.cursorsSet;
     if (target.map.hand)
         ++g_stats.handsShown;
@@ -308,6 +326,12 @@ void Subclass (Target& target, View view)
         g_arrowCursor = ::LoadCursorW (nullptr, IDC_ARROW);
     if (g_handCursor == nullptr)
         g_handCursor = ::LoadCursorW (nullptr, IDC_HAND);
+    if (g_moveCursor == nullptr)
+        g_moveCursor = ::LoadCursorW (nullptr, IDC_SIZEALL);
+    if (g_sizeWECursor == nullptr)
+        g_sizeWECursor = ::LoadCursorW (nullptr, IDC_SIZEWE);
+    if (g_sizeNSCursor == nullptr)
+        g_sizeNSCursor = ::LoadCursorW (nullptr, IDC_SIZENS);
     target.subclassed = g_setSubclass (target.canvas, &CanvasProc, kSubclassId + UINT_PTR (view), 0) != FALSE;
     if (!target.subclassed)
         ArchVizLog ("OVERLAY INPUT  SetWindowSubclass refused the canvas: Archicad's cursor stays over the HUD");
@@ -342,8 +366,11 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     Target* const self = &target;
     const int hit = self->map.Hit (float (point.x), float (point.y), float (client.right - client.left),
                                    float (client.bottom - client.top));
-    const bool over = hit >= 0;
-    const bool overScroll = over && self->map.regions[size_t (hit)].scrolls;
+    // Locked, the whole view is the HUD's: the router still leaves the wheel and the middle button
+    // to Archicad, to navigate.
+    const bool over = self->map.Owns (float (point.x), float (point.y), float (client.right - client.left),
+                                      float (client.bottom - client.top));
+    const bool overScroll = hit >= 0 && self->map.regions[size_t (hit)].scrolls;
     const bool shown = self->owner.shown != nullptr && self->owner.shown ();
     if (removing)
         ++g_stats.seen;

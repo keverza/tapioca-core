@@ -224,8 +224,19 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
         top.active = store->shown;
         const hudshell::DockPress press =
             hudshell::DockTab ("##hud", showing, colours, open, top, own.standalone ? &own.viewer : nullptr,
-                               ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale);
+                               ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale, &store->editLocked);
         const bool pressed = press.title;
+        if (press.lock) {
+            store->editLocked = !store->editLocked;
+            changes.push_back ({ "editLock",
+                                 std::string (),
+                                 std::string (),
+                                 std::string (),
+                                 -1,
+                                 store->editLocked ? 1.0 : 0.0,
+                                 {},
+                                 true });
+        }
         if (press.bottom) {
             store->viewerRequested = true;
             changes.push_back ({ "surface", std::string (), std::string (), std::string (), -1, 1.0, "viewer", true });

@@ -93,38 +93,6 @@ TEST (HudBuildingPlan, CourtyardsDisconnectedIslandsAndOverlappingSourcePartsKee
     EXPECT_FALSE (bp::Contains (floor, { 700002, 6000005 }));
 }
 
-TEST (HudBuildingPlan, PlacementIsLocalSupportsSeveralStairsAndRefusesOutsideHolesAndDuplicatePoints)
-{
-    bp::Plan plan;
-    bp::Floor floor;
-    floor.story = -1;
-    floor.contours = { { Ring (0, 0, 30, 30), Ring (10, 10, 10, 10) } };
-    plan.floors = { floor };
-    bp::Draft draft;
-    bp::Reset (plan, draft);
-    EXPECT_FALSE (bp::Place (floor, draft, { 1, 1 }));
-    draft.placing = true;
-    EXPECT_FALSE (bp::Place (floor, draft, { 15, 15 }));
-    EXPECT_TRUE (draft.placing);
-    ASSERT_TRUE (bp::Place (floor, draft, { 4, 4 }));
-    EXPECT_TRUE (bp::Dirty (draft));
-    EXPECT_TRUE (plan.saved.empty ());
-    draft.selected = -1;
-    draft.placing = true;
-    EXPECT_FALSE (bp::Place (floor, draft, { 4, 4 }));
-    EXPECT_TRUE (bp::Place (floor, draft, { 26, 26 }));
-    ASSERT_EQ (draft.cores.size (), 2u);
-    draft.selected = 0;
-    draft.placing = true;
-    EXPECT_TRUE (bp::Place (floor, draft, { 4, 26 }));
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 2.25, 26 }));
-    EXPECT_EQ (draft.cores[1].center, (bp::Point { 27.75, 26 }));
-    bp::Reset (plan, draft);
-    EXPECT_FALSE (bp::Dirty (draft));
-    EXPECT_TRUE (draft.cores.empty ());
-    EXPECT_FALSE (draft.placing);
-}
-
 TEST (HudBuildingPlan, SavedLocationsRoundTripAsOneListAndTargetEveryExactBuildingMember)
 {
     auto lower = Slab ("lower", 0, 0), upper = Slab ("upper", 3, 0);
@@ -134,8 +102,8 @@ TEST (HudBuildingPlan, SavedLocationsRoundTripAsOneListAndTargetEveryExactBuildi
     const auto preview = Preview (result);
     bp::Draft draft;
     bp::Reset (preview.plan, draft);
-    draft.cores = { { { 5, 4 } } };
-    EXPECT_TRUE (bp::Edits (preview.plan, draft).empty ()) << "Save refuses a core in the forbidden facade gap";
+    draft.cores = { { { 500, 4 } } };
+    EXPECT_TRUE (bp::Edits (preview.plan, draft).empty ()) << "Save refuses a stair on no floor of the building";
     draft.cores = { { { 2.25, 2.1 } }, { { 5, 8.75 }, 9.0, 2.5 } };
     auto edits = bp::Edits (preview.plan, draft);
     ASSERT_EQ (edits.size (), 2u);
@@ -185,8 +153,8 @@ TEST (HudBuildingPlan, MixedSavedValuesAndChangedMembershipRequireExplicitDraftR
     bp::Reset (plan, draft);
     EXPECT_FALSE (bp::Dirty (draft));
     EXPECT_TRUE (bp::Edits (plan, draft).empty ());
-    draft.placing = true;
-    ASSERT_TRUE (bp::Place (plan.floors.front (), draft, { 2, 2 }));
+    draft.cores = { { { 2, 2 } } };
+    draft.changed = true;
     EXPECT_EQ (bp::Edits (plan, draft).size (), 2u);
     plan.guids.push_back ("new-member");
     EXPECT_TRUE (bp::Conflict (plan, draft));
@@ -244,23 +212,6 @@ TEST (HudBuildingPlan, StairwellSchemaAndGuardsRefuseInvalidCoordinatesRolesAndB
     EXPECT_EQ (bp::Read (source.metadata).cores[1], (bp::Core { { 5, 5 } }));
 }
 
-TEST (HudBuildingPlan, TwoStairsCheckUsesUnroundedCombinedDisplayedGrossAreaStrictlyAbove500)
-{
-    geomsrv::archviz::massingareas::Coefficients coefficients;
-    coefficients.grossFactor = 1;
-    EXPECT_FALSE (bp::NeedsTwoStairs (500, coefficients));
-    EXPECT_TRUE (bp::NeedsTwoStairs (500.00001, coefficients));
-    EXPECT_FALSE (bp::NeedsTwoStairs (499.99999, coefficients));
-    coefficients.grossFactor = 0.78;
-    ms::Result result;
-    std::string error;
-    ASSERT_TRUE (ms::Build ({ Slab ("lower", 0, 0, 35), Slab ("same-floor", 0, 35, 35) }, {}, nullptr, result, error));
-    const auto plan = Preview (result).plan;
-    ASSERT_EQ (plan.floors.size (), 1u);
-    EXPECT_EQ (plan.floors[0].areaM2, 700);
-    EXPECT_TRUE (bp::NeedsTwoStairs (plan.floors[0].areaM2, coefficients));
-}
-
 TEST (HudBuildingPlan, CountedPlacementAndAreaRemainClippedWhilePhysicalOutlineIsRetained)
 {
     const auto source = Slab ("lower", 0, 0, 100);
@@ -281,13 +232,12 @@ TEST (HudBuildingPlan, CountedPlacementAndAreaRemainClippedWhilePhysicalOutlineI
     EXPECT_NEAR (floor.areaM2, 500, 1e-6);
     EXPECT_TRUE (bp::Contains (floor, { 25, 5 }));
     EXPECT_FALSE (bp::Contains (floor, { 75, 5 }));
-    EXPECT_FALSE (bp::NeedsTwoStairs (floor.areaM2, {}));
     EXPECT_NE (floor.contours[0][0].xy, floor.physical[0][0].xy);
     result.rows[0].chains[0].closed = false;
     EXPECT_TRUE (bp::Build (result, preview).floors.empty ());
 }
 
-TEST (HudBuildingPlan, MixedFingerprintChangesConflictAndPointLimitDoesNotPreventMovingExistingStair)
+TEST (HudBuildingPlan, MixedFingerprintChangesConflict)
 {
     bp::Plan plan;
     plan.mixed = true;
@@ -296,16 +246,6 @@ TEST (HudBuildingPlan, MixedFingerprintChangesConflictAndPointLimitDoesNotPreven
     bp::Reset (plan, draft);
     plan.sources[0].fingerprint = "after";
     EXPECT_TRUE (bp::Conflict (plan, draft));
-    bp::Floor floor;
-    floor.contours = { { Ring (0, 0, 100, 100) } };
-    for (size_t i = 0; i < bp::kMaxStairs; ++i)
-        draft.cores.push_back ({ { double (i) + 1, 1 } });
-    draft.selected = -1;
-    draft.placing = true;
-    EXPECT_FALSE (bp::Place (floor, draft, { 50, 50 }));
-    draft.selected = 0;
-    EXPECT_TRUE (bp::Place (floor, draft, { 50, 50 }));
-    EXPECT_EQ (draft.cores.size (), bp::kMaxStairs);
 }
 
 TEST (HudBuildingPlan, NativeSelectionPlanDefaultsToLowestThenClickSwitchesButHoverDoesNot)
@@ -346,77 +286,7 @@ TEST (HudBuildingPlan, NativeSelectionPlanDefaultsToLowestThenClickSwitchesButHo
     EXPECT_TRUE (gui.state->buildingPlans.empty ());
 }
 
-TEST (HudBuildingPlan, RectangularFootprintMustFitTheCountedUnionIncludingCourtyardInteriors)
-{
-    bp::Floor floor;
-    floor.contours = { { Ring (0, 0, 20, 20), Ring (6, 6, 2, 2) } };
-    EXPECT_TRUE (bp::Fits (floor, { 3, 3 }));
-    EXPECT_TRUE (bp::Fits (floor, { bp::kStairWidth / 2, bp::kStairDepth / 2 }));
-    EXPECT_TRUE (bp::Contains (floor, { 5, 7 }));
-    EXPECT_FALSE (bp::Fits (floor, { 5, 7 })); // Centre fits, but rectangle enters the hole.
-    EXPECT_FALSE (bp::Fits (floor, { 7, 7 })); // A hole wholly inside the rectangle must also fail.
-    EXPECT_FALSE (bp::Fits (floor, { 1, 3 }));
-    floor.contours.push_back ({ Ring (6, 6, 2, 2) });
-    EXPECT_TRUE (bp::Fits (floor, { 5, 7 })); // Another source fills the courtyard.
-    floor.contours = { { Ring (700000, 6000000, 20, 20) } };
-    EXPECT_TRUE (bp::Fits (floor, { 700005, 6000005 }));
-    EXPECT_FALSE (bp::Fits (floor, { std::numeric_limits<double>::quiet_NaN (), 0 }));
-}
-
-TEST (HudBuildingPlan, RectangleSnapsToUnionEdgesAndCornersWithinHalfAMetreNotInternalSeams)
-{
-    bp::Floor floor;
-    floor.contours = { { Ring (0, 0, 20, 20) } };
-    EXPECT_NEAR (bp::Snap (floor, { 2.4, 8 }).x, 2.25, 1e-6);
-    EXPECT_DOUBLE_EQ (bp::Snap (floor, { 2.4, 8 }).y, 8);
-    const auto corner = bp::Snap (floor, { 2, 2 });
-    EXPECT_NEAR (corner.x, 2.25, 1e-6);
-    EXPECT_NEAR (corner.y, bp::kStairDepth / 2, 1e-6);
-    EXPECT_TRUE (bp::Fits (floor, { corner }));
-    EXPECT_EQ (bp::Snap (floor, { 3, 8 }), (bp::Point { 2.25, 8 }));
-    floor.contours.push_back ({ Ring (10, 0, 20, 20) });
-    EXPECT_EQ (bp::Snap (floor, { 12.4, 8 }), (bp::Point { 12.4, 8 }));
-    // A slanted boundary still snaps by translation; project-axis dimensions stay fixed.
-    geomsrv::archviz::SliceChain triangle;
-    triangle.closed = true;
-    triangle.xy = { 0, 0, 30, 0, 0, 30 };
-    floor.contours = { { triangle } };
-    const auto slanted = bp::Snap (floor, { 12.7, 12.7 });
-    EXPECT_NEAR (slanted.x + slanted.y + bp::kStairWidth / 2 + bp::kStairDepth / 2, 30, 1e-6);
-    EXPECT_TRUE (bp::Fits (floor, { slanted }));
-}
-
-TEST (HudBuildingPlan, MoveIsAPressHoldDragGestureWithGrabOffsetValidationAndCancelRollback)
-{
-    bp::Floor floor;
-    floor.contours = { { Ring (0, 0, 30, 30), Ring (15, 15, 5, 5) } };
-    bp::Draft draft;
-    draft.known = true;
-    draft.original = draft.cores = { { { 5, 5 } } };
-    draft.selected = 0;
-    EXPECT_FALSE (bp::BeginDrag (draft, { 5, 5 }));
-    draft.moving = true;
-    EXPECT_FALSE (bp::BeginDrag (draft, { 10, 10 }));
-    ASSERT_TRUE (bp::BeginDrag (draft, { 6, 5 }));
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 5 })); // Press alone never teleports.
-    ASSERT_TRUE (bp::Drag (floor, draft, { 9, 8 }));
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 8, 8 }));
-    EXPECT_FALSE (bp::Drag (floor, draft, { 18, 17 }));
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 8, 8 }));
-    bp::Cancel (draft);
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 5 }));
-    EXPECT_FALSE (bp::Dirty (draft));
-    draft.moving = true;
-    ASSERT_TRUE (bp::BeginDrag (draft, { 5, 5 }));
-    ASSERT_TRUE (bp::Drag (floor, draft, { 10, 10 }));
-    bp::EndDrag (draft);
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 10, 10 }));
-    EXPECT_TRUE (bp::Dirty (draft));
-    EXPECT_FALSE (draft.dragging);
-    EXPECT_FALSE (draft.moving);
-}
-
-TEST (HudBuildingPlan, SelectionHasOneEditableSectionAndPlacementDoesNotPushTheLayoutDown)
+TEST (HudBuildingPlan, SelectionHasOneEditableSection)
 {
     ms::Result result;
     std::string error;
@@ -430,11 +300,6 @@ TEST (HudBuildingPlan, SelectionHasOneEditableSectionAndPlacementDoesNotPushTheL
     gui.engine.SetOwnPages (pages);
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     const auto normal = gui.Lay ({}, hudtest::At (600, 600));
-    auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    draft.placing = true;
-    const auto placing = gui.Lay ({}, hudtest::At (600, 600));
-    EXPECT_FLOAT_EQ (normal.host.height, placing.host.height);
-    bp::Cancel (draft);
     int bands = 0;
     bool wasHover = false;
     int previous = (std::numeric_limits<int>::min) ();
@@ -446,275 +311,4 @@ TEST (HudBuildingPlan, SelectionHasOneEditableSectionAndPlacementDoesNotPushTheL
         wasHover = hover;
     }
     EXPECT_EQ (bands, 2); // Two floors, once each; no read-only second diagram.
-}
-
-TEST (HudBuildingPlan, NativePlanUsesRectangleHitAreaAndHeldMouseMovementUntilRelease)
-{
-    ms::Result result;
-    std::string error;
-    ASSERT_TRUE (ms::Build ({ Slab ("lower", 0, 0, 30) }, {}, nullptr, result, error));
-    hudtest::Watched gui;
-    hud::OwnPages pages;
-    pages.standalone = true;
-    pages.selection.known = true;
-    pages.selection.count = 1;
-    pages.buildings = { Preview (result) };
-    gui.engine.SetOwnPages (pages);
-    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
-    gui.Lay ({}, hudtest::At (600, 600));
-    auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    draft.cores = { { { 5, 2.1 } } };
-    draft.selected = 0;
-    draft.moving = true;
-    const auto drawn = gui.Lay ({}, hudtest::At (600, 600));
-    float bounds[4];
-    ASSERT_TRUE (hudtest::Box (drawn.host, 0xFFBA00FFu, bounds));
-    const float x = drawn.host.fraction[0] * 1200 + drawn.host.offset[0] + (bounds[0] + bounds[2]) / 2;
-    const float y = drawn.host.fraction[1] * 800 + drawn.host.offset[1] + (bounds[1] + bounds[3]) / 2;
-    gui.Lay ({}, hudtest::At (x, y));
-    gui.Lay ({}, hudtest::At (x, y, { { 0, true } }));
-    ASSERT_TRUE (draft.dragging);
-    EXPECT_EQ (draft.cores[0].center, (bp::Point { 5, 2.1 }));
-    hudtest::Fresh other;
-    other.engine.UseState (gui.state);
-    other.engine.SetOwnPages (pages);
-    other.Lay ({}, hudtest::At (600, 600));
-    EXPECT_TRUE (draft.dragging) << "An idle second HUD must not release the initiating HUD's drag";
-    gui.Lay ({}, hudtest::At (x + 20, y));
-    EXPECT_GT (draft.cores[0].center.x, 5);
-    EXPECT_TRUE (draft.dragging);
-    gui.Lay ({}, hudtest::At (x + 20, y, { { 0, false } }));
-    EXPECT_FALSE (draft.dragging);
-    EXPECT_FALSE (draft.moving);
-    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ()) << "Dragging remains a local draft until Save";
-}
-
-TEST (HudBuildingPlan, ApartmentCentreUsesRealHeldPointerDragAndDoesNotWriteMetadata)
-{
-    ms::Result result;
-    std::string error;
-    auto slab = Slab ("lower", 0, 0, 36);
-    slab.slab.outer.xy = { 0, 0, 36, 0, 36, 16, 0, 16 };
-    ASSERT_TRUE (ms::Build ({ slab }, {}, nullptr, result, error));
-    hudtest::Watched gui;
-    hud::OwnPages pages;
-    pages.standalone = true;
-    pages.selection.known = true;
-    pages.selection.count = 1;
-    pages.buildings = { Preview (result) };
-    pages.buildings.front ().plan.saved = { { 6, 2.1 } };
-    gui.engine.SetOwnPages (pages);
-    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
-    const auto layout = gui.Lay ({}, hudtest::At (600, 600));
-    auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    const auto& plan = pages.buildings.front ().plan;
-    auto& quick = bp::QuickFor (plan, draft, plan.floors.front ());
-    ASSERT_TRUE (quick.ready) << quick.note;
-    size_t at = 0;
-    for (; at < quick.seeds.size (); ++at)
-        if (std::count_if (quick.seeds.begin (), quick.seeds.end (),
-                           [&] (const auto& seed) { return seed.segment == quick.seeds[at].segment; }) > 1)
-            break;
-    ASSERT_LT (at, quick.seeds.size ());
-    const double before = quick.seeds[at].along;
-    const auto center = bp::UnitCenter (quick, quick.seeds[at]);
-    float box[4];
-    ASSERT_TRUE (hudtest::Box (layout.host, 0x4A90D9FFu, box));
-    const float originX = layout.host.fraction[0] * 1200 + layout.host.offset[0];
-    const float originY = layout.host.fraction[1] * 800 + layout.host.offset[1];
-    const double factor = (box[2] - box[0]) / 36;
-    const float x = originX + float (box[0] + center.x * factor);
-    const float y = originY + float (box[3] - center.y * factor);
-    gui.Lay ({}, hudtest::At (x, y));
-    gui.Lay ({}, hudtest::At (x, y, { { 0, true } }));
-    ASSERT_TRUE (quick.dragging);
-    EXPECT_EQ (quick.selected, int (at));
-    hudtest::Fresh other;
-    other.engine.UseState (gui.state);
-    other.engine.SetOwnPages (pages);
-    other.Lay ({}, hudtest::At (600, 600));
-    EXPECT_TRUE (quick.dragging);
-    const bool alongX = quick.segments[quick.seeds[at].segment].alongX;
-    const double angle = quick.angle + (alongX ? 0 : 1.5707963267948966);
-    const float dx = float (1.2 * factor * std::cos (angle)), dy = float (-1.2 * factor * std::sin (angle));
-    gui.Lay ({}, hudtest::At (x + dx, y + dy));
-    EXPECT_NE (quick.seeds[at].along, before);
-    gui.Lay ({}, hudtest::At (x + dx, y + dy, { { 0, false } }));
-    EXPECT_FALSE (quick.dragging);
-    const auto selectedLayout = gui.Lay ({}, hudtest::At (600, 600));
-    ASSERT_TRUE (hudtest::Box (selectedLayout.host, 0x4A90D9FFu, box));
-    const float canvasTop = (box[1] + box[3] - 200) / 2;
-    const float lockY = originY + canvasTop - 12;
-    gui.Click ({}, originX + 45, lockY);
-    ASSERT_TRUE (quick.seeds[at].locked) << "Real Lock flat button above the canvas";
-    EXPECT_NEAR (bp::Traits (quick, quick.seeds[at]).net, bp::TargetArea (quick, quick.seeds[at]), 0.05);
-    gui.Click ({}, originX + 45, lockY);
-    EXPECT_FALSE (quick.seeds[at].locked);
-    EXPECT_FALSE (bp::Dirty (draft));
-    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
-}
-
-TEST (HudBuildingPlan, ExportPlanButtonQueuesOneFileForTheOwnerAndWritesNoMetadata)
-{
-    ms::Result result;
-    std::string error;
-    auto slab = Slab ("lower", 0, 0, 36);
-    slab.slab.outer.xy = { 0, 0, 36, 0, 36, 16, 0, 16 };
-    ASSERT_TRUE (ms::Build ({ slab }, {}, nullptr, result, error));
-    hudtest::Watched gui;
-    hud::OwnPages pages;
-    pages.standalone = true;
-    pages.selection.known = true;
-    pages.selection.count = 1;
-    pages.buildings = { Preview (result) };
-    pages.buildings.front ().plan.saved = { { { 6, 2.1 } } };
-    gui.engine.SetOwnPages (pages);
-    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
-    gui.Lay ({}, hudtest::At (600, 600));
-    auto& draft = gui.state->buildingPlans.at ("building:Tower");
-    draft.exportRequested = true;
-    gui.Lay ({}, hudtest::At (600, 600));
-    const auto files = hud::TakePlanExports (*gui.state);
-    ASSERT_EQ (files.size (), 1u);
-    EXPECT_EQ (files.front ().name.rfind ("Tower-floor", 0), 0u);
-    EXPECT_NE (files.front ().text.find ("tapioca.floor-plan.native"), std::string::npos);
-    EXPECT_FALSE (draft.exportRequested);
-    EXPECT_TRUE (hud::TakePlanExports (*gui.state).empty ());
-    EXPECT_TRUE (hud::TakeMetadataEdits (*gui.state).empty ());
-}
-
-TEST (HudBuildingPlan, CoresSnapAcrossForbiddenFacadeGapButInteriorAndCourtyardClearancesStayValid)
-{
-    bp::Floor floor;
-    floor.contours = { { Ring (0, 0, 30, 30), Ring (12, 12, 6, 6) } };
-    EXPECT_FALSE (bp::CoreAllowed (floor, { { 8, 4 } }));
-    const bp::Core flush { bp::Snap (floor, { { 8, 4 } }) };
-    EXPECT_NEAR (flush.center.y, 2.1, 1e-6);
-    EXPECT_TRUE (bp::CoreAllowed (floor, flush));
-    EXPECT_TRUE (bp::CoreAllowed (floor, { { 7, 5.1 } })); // Exactly 3 m from the bottom.
-    EXPECT_FALSE (bp::CoreAllowed (floor, { { 9, 14 } })) << "Too close to the courtyard wall";
-    bp::Draft draft;
-    draft.known = draft.placing = true;
-    ASSERT_TRUE (bp::Place (floor, draft, { 8, 4 }));
-    EXPECT_TRUE (bp::CoreAllowed (floor, draft.cores[0]));
-}
-
-TEST (HudBuildingPlan, FastFootprintChecksMatchBooleanContainmentForHolesConcavityRotationAndGeoreference)
-{
-    namespace cp = Clipper2Lib;
-    bp::Floor floor;
-    floor.outlineKnown = true;
-    // Unioned winding, including a hole and an inward notch.
-    floor.outline = { Ring (0, 0, 30, 30), Ring (12, 12, 6, 6) };
-    floor.outline[0].xy = { 0, 0, 30, 0, 30, 30, 20, 30, 20, 24, 0, 24 };
-    cp::PathsD source;
-    for (const auto& ring : floor.outline) {
-        cp::PathD path;
-        for (size_t i = 0; i < ring.Count (); ++i)
-            path.emplace_back (ring.xy[i * 2], ring.xy[i * 2 + 1]);
-        source.push_back (path);
-    }
-    source = cp::Union (source, cp::FillRule::EvenOdd, 6);
-    floor.outline.clear ();
-    for (const auto& path : source) {
-        geomsrv::archviz::SliceChain ring;
-        ring.closed = true;
-        for (const auto& p : path)
-            ring.xy.insert (ring.xy.end (), { p.x, p.y });
-        floor.outline.push_back (ring);
-    }
-    for (double angle : { 0.0, 0.37 })
-        for (int x = 0; x <= 30; ++x)
-            for (int y = 0; y <= 30; ++y) {
-                const bp::Core core { { x + 0.07, y + 0.13 } };
-                cp::PathD rectangle;
-                for (const auto& p : bp::Corners (core, angle))
-                    rectangle.emplace_back (p.x, p.y);
-                const bool expected =
-                    std::abs (cp::Area (cp::Difference ({ rectangle }, source, cp::FillRule::NonZero, 6))) < 1e-4;
-                EXPECT_EQ (bp::Fits (floor, core, angle), expected) << x << "," << y << " @ " << angle;
-            }
-    for (auto& ring : floor.outline)
-        for (size_t i = 0; i < ring.Count (); ++i) {
-            ring.xy[i * 2] += 700000;
-            ring.xy[i * 2 + 1] += 6000000;
-        }
-    EXPECT_TRUE (bp::Fits (floor, { { 700007, 6000007 } }, 0.37));
-    EXPECT_FALSE (bp::Fits (floor, { { 700015, 6000015 } }, 0.37));
-}
-
-TEST (HudBuildingPlan, NarrowPlanControlsFitAndBodyDraggingAndPlacementHoverDoNotRegenerateThePlan)
-{
-    // Exercise Draw directly so the narrow content bounds and un-clipped control extents
-    // can be asserted, rather than mistaking clipped-off buttons for a fitting layout.
-    auto* previous = ImGui::GetCurrentContext ();
-    auto* context = ImGui::CreateContext ();
-    const auto cleanup = [previous] (ImGuiContext* value) {
-        ImGui::DestroyContext (value);
-        ImGui::SetCurrentContext (previous);
-    };
-    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
-    auto& io = ImGui::GetIO ();
-    io.IniFilename = nullptr;
-    io.DisplaySize = { 1000, 2000 };
-    io.DeltaTime = 1.0f / 60;
-    ASSERT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
-    unsigned char* pixels = nullptr;
-    int width = 0, height = 0;
-    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
-    bp::Plan plan;
-    plan.key = "building:Narrow";
-    bp::Floor floor;
-    floor.contours = { { Ring (0, 0, 36, 16) } };
-    floor.outlineKnown = true;
-    floor.outline = floor.contours.front ();
-    floor.outlineKey = bp::QuickSignature (floor, {});
-    plan.floors = { floor };
-    plan.saved = { { { 18, 2.1 } } };
-    bp::Draft draft;
-    bp::Reset (plan, draft);
-    const auto frame = [&] (ImVec2 mouse, bool down) {
-        io.MousePos = mouse;
-        io.MouseDown[0] = down;
-        ImGui::NewFrame ();
-        ImGui::SetNextWindowPos ({ 0, 0 });
-        ImGui::SetNextWindowSize ({ 240, 1800 });
-        ImGui::Begin ("Plan controls", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
-        bp::Draw (plan, draft, 1, {});
-        EXPECT_LE (ImGui::GetCurrentWindow ()->DC.CursorMaxPos.x, 240 - ImGui::GetStyle ().WindowPadding.x + 1);
-        ImVec4 bounds { 1e6f, 1e6f, -1e6f, -1e6f };
-        for (const auto& vertex : ImGui::GetWindowDrawList ()->VtxBuffer)
-            if (vertex.col == IM_COL32 (74, 144, 217, 255)) {
-                bounds.x = (std::min) (bounds.x, vertex.pos.x);
-                bounds.y = (std::min) (bounds.y, vertex.pos.y);
-                bounds.z = (std::max) (bounds.z, vertex.pos.x);
-                bounds.w = (std::max) (bounds.w, vertex.pos.y);
-            }
-        ImGui::End ();
-        ImGui::Render ();
-        return bounds;
-    };
-    const auto bounds = frame ({ 900, 900 }, false);
-    auto& quick = bp::QuickFor (plan, draft, plan.floors[0]);
-    ASSERT_TRUE (quick.ready) << quick.note;
-    const size_t at = 0;
-    auto p = quick.units[at].center;
-    p.x += 0.6; // Inside the polygon, deliberately away from the removed centre handle.
-    const float factor = (bounds.z - bounds.x) / 36;
-    const ImVec2 mouse { bounds.x + float (p.x) * factor, bounds.w - float (p.y) * factor };
-    frame (mouse, false);
-    frame (mouse, true);
-    EXPECT_TRUE (quick.dragging);
-    EXPECT_EQ (quick.selected, int (at));
-    frame (mouse, false);
-    draft.placing = true;
-    const auto revision = quick.revision;
-    const auto start = std::chrono::steady_clock::now ();
-    for (int n = 0; n < 100; ++n)
-        frame ({ bounds.x + (n % 30 + 2) * factor, (bounds.y + bounds.w) / 2 }, false);
-    const double ms = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - start).count ();
-    RecordProperty ("meanPlacementHoverMs", ms / 100);
-    EXPECT_EQ (quick.revision, revision);
-    EXPECT_EQ (draft.cores, plan.saved);
-    EXPECT_LT (ms, 3000) << "Guard against Boolean geometry / generation on every hover";
 }

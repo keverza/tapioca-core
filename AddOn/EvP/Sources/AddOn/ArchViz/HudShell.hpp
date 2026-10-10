@@ -125,6 +125,7 @@ struct DockPress {
     bool title = false;
     bool top = false;
     bool bottom = false;
+    bool lock = false;
 };
 
 // The dock's tab: `top` at its top, then `label` turned a quarter clockwise -- it reads top to
@@ -132,14 +133,26 @@ struct DockPress {
 // across and along, rounded on the left where it comes out of the view's edge. Filled with
 // `look`'s accent while `open`, in its card's colours otherwise; each part tinted when pointed
 // at and pressed, a circle's `tip` said by it.
+// ⚠️ AND A LOCK UNDER THE TOP CIRCLE when `locked` is given (the user, 2026-10-10): locked, the view's
+// clicks are the HUD's -- the floor plan is edited on the view itself -- and only the wheel and
+// the middle button reach Archicad, to navigate. A closed padlock while locked, open otherwise.
 DockPress DockTab (const char* id, const std::string& label, const overlaylayers::Panel& look, bool open,
-                   const Circle& top, const Circle* bottom, ImVec2 padding, float scale);
+                   const Circle& top, const Circle* bottom, ImVec2 padding, float scale, const bool* locked = nullptr);
 
 // ⚠️ A RIGHT CLICK A CONTROL ANSWERS IS THE CONTROL'S: the HUD's own menu opens on a right click
 // anywhere on the HUD (OverlayHudHost.cpp `Menu`) unless a control -- the building section's
 // floors -- claimed the click in this frame. Per ImGui context and frame; under its lock.
 void ClaimRightClick ();
 bool RightClickClaimed ();
+// ⚠️ A CANVAS SAYS ITS OWN POINTER (the user, 2026-10-10: the cursor kept switching between a hand
+// and an arrow over the plan). Over the HUD the pointer is a hand on anything ImGui can press;
+// a canvas that is one pressable item everywhere claims the pointer instead, and the cursor it
+// sets (ImGui::SetMouseCursor: arrow, hand, move) is shown. Per ImGui context and frame.
+void OwnCursor ();
+bool CursorOwned ();
+// The cursor to show (overlayinput::Cursor): the canvas's own when it claimed the pointer this
+// frame, else a hand where `hand` (something pressable is under the pointer), else an arrow.
+uint8_t CursorOf (bool hand);
 
 // ---- the floating panel ---------------------------------------------------------------
 

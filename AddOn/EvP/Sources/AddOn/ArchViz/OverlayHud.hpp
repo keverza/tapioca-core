@@ -151,6 +151,12 @@ struct Input {
     bool shift = false;          // held now: a shift-press extends a pick (the building section's)
     float wheel = 0.0f;          // notches turned over a page that scrolls since the last layout
     Hover hover;
+    // While the dock's lock is on: model metres onto this view, for the floor plan edited on it
+    // (hudfloorscheme::ViewOnto) -- the plan's transform, the same at every elevation (`planar`:
+    // pixel = plan[0] x + plan[1] y + plan[2], plan[3] x + plan[4] y + plan[5]), or 3D's camera.
+    bool planar = false;
+    double plan[6] = {};
+    std::function<bool (double x, double y, double z, float& px, float& py)> project;
 };
 
 // A legend's colour bar as it is on the view (drawn by the scene, OverlaySceneScreen),
@@ -205,8 +211,12 @@ struct Layout {
     };
     Highlight highlight;
     // The pointer is on something it can press, or pressing one: the input shows a hand
-    // over it (OverlayInput.hpp), an arrow over the rest of the HUD.
+    // over it (OverlayInput.hpp), an arrow over the rest of the HUD; `cursor` the one asked
+    // for (overlayinput::Cursor).
     bool hand = false;
+    uint8_t cursor = 0;
+    // The dock's lock is on: every left and right click on the view is the HUD's.
+    bool locked = false;
     // What the user changed in this layout, in the order they did it.
     std::vector<Change> changes;
     // A dropdown's list or the HUD's menu is open: the whole view is the HUD's until it
@@ -287,6 +297,10 @@ void ClearState (State& state);
 float FontScaleOf (const State& state);
 void SetFontScale (State& state, float scale);
 bool HudOpen (const State& state);
+// The dock's lock (HudShell `DockTab`): the view's left and right clicks are the HUD's, which edits
+// the floor plan on the view; the wheel and the middle button navigate as ever.
+bool EditLocked (const State& state);
+void SetEditLocked (State& state, bool locked);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);
 void SelectKey (State& state, const std::string& key);

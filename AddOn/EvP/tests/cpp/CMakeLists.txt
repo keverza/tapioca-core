@@ -515,17 +515,17 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingHeadroomDisplay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingBuildings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudBuildingPlan.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlan.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanRelax.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanTargets.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanFill.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanShare.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanExport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorScheme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCheck.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeDesigns.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorPlanner.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeCanvas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeOnView.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudLocked.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
@@ -533,7 +533,6 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRooms.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudFloorPlans.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudBuildingPlanDraw.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingAreaCalculations.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingFacade.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MassingCollapseZone.cpp"
@@ -760,9 +759,11 @@ set (EVP_TEST_SOURCES
     test_massingcollapse.cpp
     test_massingbuildings.cpp
     test_hudbuildingplan.cpp
-    test_hudfloorplan.cpp
     test_floorscheme.cpp
     test_floorscheme_edit.cpp
+    test_floorscheme_designs.cpp
+    test_floorplanner.cpp
+    test_overlayfloorplans.cpp
     test_hudfloorschemeedit.cpp
     test_floorprogramme.cpp
     test_massingheadroom.cpp

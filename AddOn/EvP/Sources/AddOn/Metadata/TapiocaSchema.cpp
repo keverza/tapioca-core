@@ -129,6 +129,10 @@ ProjectSchema DefaultSchema ()
     stairSizes.description = "Width and depth of each proposed stairwell in the building frame, in the order of the "
                              "locations; absent means 4.5 x 4.2 m.";
     schema.properties.push_back (stairSizes);
+    PropertyDefinition designs = Definition ("massing.floorDesigns", "Floor plans", ValueType::String, "Building plan");
+    designs.description = "Building-wide floor plan designs from the Plan view: walls, room counts, locked flats and "
+                          "silhouette changes per floor, as JSON; written with the proposed stairwells.";
+    schema.properties.push_back (designs);
     PropertyDefinition story = Definition ("massing.story", "Story", ValueType::Int, "Building slab");
     story.min = -100; // retained legacy indices are readable; HUD now derives the count
     story.max = 1000;

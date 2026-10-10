@@ -102,8 +102,12 @@ struct State {
     hudsection::Run hoveredFloors;
     std::map<std::string, buildingplan::Draft> buildingPlans;
     std::map<std::string, buildingplan::Plan> floorPlanSnapshots;
-    // The massing floor open in Edit (HudFloorSchemeEdit.hpp), session-local; one at a time.
-    hudfloorscheme::EditorPtr floorEditor;
+    // Every building floor's scheme, planned off the UI thread (FloorPlanner.hpp), and each
+    // building's Plan view (HudFloorSchemeEdit.hpp): its selection, gesture, undo and redo.
+    buildingplan::Planner floorPlanner;
+    std::map<std::string, hudfloorscheme::EditorPtr> planEditors;
+    std::string floorPlanAsked; // what the overlay last asked the planner for
+    bool editLocked = false;    // the dock's lock: the view's clicks edit the floor plan
     bool previewStairs = false, previewUnits = false;
     std::string floorPlanPublished;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
@@ -163,6 +167,7 @@ struct Engine::Impl {
     ChangeSink sink;
     Layout::Highlight highlight;
     bool hand = false;
+    uint8_t cursor = 0; // overlayinput::Cursor
     // The windows in the frame being laid out: an untitled panel's by its place in the set
     // (a titled one's is none: it is a tab of the host), then the dock's, then the host's.
     std::vector<ImGuiWindow*> windows;
@@ -255,6 +260,11 @@ struct Engine::Impl {
     void StatsPage (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float ui);
     void SelectionPage (float ui);
     void BuildingDiagram (const massingbuildings::Preview& preview, float ui);
+    void StoryDiagram (const massingbuildings::Preview& preview, float ui);
+    void PlanSection (const massingbuildings::Preview& preview, float ui);
+    // While the dock's lock is on: a window over the whole view, behind the panels, where the
+    // floor plan is edited on the view (hudfloorscheme::OnView).
+    void LockedView (const Input& input, float ui, ImVec2 view);
     void MassingPage ();
     void DebugPage (float ui);
     std::string TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,

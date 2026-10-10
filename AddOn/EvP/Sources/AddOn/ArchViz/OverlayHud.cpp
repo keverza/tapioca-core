@@ -5,6 +5,7 @@
 #include "ArchViz/HudClip.hpp"
 #include "ArchViz/ImGuiContextLock.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
 
 #include <algorithm>
@@ -621,6 +622,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     else if (ImGui::GetCurrentContext ()->HoveredWindow == nullptr && !onLegend)
         readout = input.hover;
     Dock (panels, ui, view);
+    if (known && store->shown && store->editLocked)
+        LockedView (input, ui, view);
     // Hidden by the dock's circle: the dock alone.
     if (store->shown) {
         Host (panels, keys, scale, ui, view);
@@ -644,6 +647,9 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     const ImGuiContext& g = *ImGui::GetCurrentContext ();
     const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
     hand = g.HoveredId != 0 || held;
+    // A canvas that owns the pointer says which: ImGui's cursor of this frame.
+    cursor = hudshell::CursorOf (hand);
+    hand = cursor == uint8_t (overlayinput::Cursor::Hand);
     ImGui::Render ();
     Sync (ImGui::GetDrawData ());
     ++stats.frames;
@@ -716,13 +722,6 @@ Engine::~Engine ()
     if (impl_->context == nullptr)
         return;
     std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
-    for (auto& [key, draft] : impl_->store->buildingPlans) {
-        if (draft.dragging && draft.dragOwner == reinterpret_cast<uintptr_t> (impl_->context))
-            buildingplan::Cancel (draft);
-        for (auto& [story, quick] : draft.quickPlans)
-            if (quick.dragging && quick.owner == reinterpret_cast<uintptr_t> (impl_->context))
-                buildingplan::CancelUnits (quick);
-    }
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
     ImGui::DestroyContext (impl_->context);
@@ -840,6 +839,8 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         impl_->Collect (out, unsampled);
         out.highlight = impl_->highlight;
         out.hand = impl_->hand;
+        out.cursor = impl_->cursor;
+        out.locked = impl_->store->editLocked && impl_->store->shown;
         out.popup = impl_->popup;
         out.hoverTint = impl_->tinted;
         for (size_t i = 0; i < panels.size (); ++i) {

@@ -148,6 +148,8 @@ struct Draft {
     // A HUD draft's: the band of a layer's heatmaps the pointer shows, and the hand.
     Highlight highlight;
     bool hand = false;
+    uint8_t cursor = 0;
+    bool locked = false;
 };
 
 // A panel, and whose it is: its layer and its place among that layer's panels -- what

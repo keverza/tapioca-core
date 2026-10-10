@@ -256,3 +256,26 @@ TEST (OverlayHudOwn, ACirclesColourIsItsSurfacesState)
     ASSERT_TRUE (Box (out.dock, shell::kBusyRgba, box)) << "the viewer's circle, amber";
     EXPECT_GT (box[1], out.dock.height - out.dock.width - 1.0f) << "at the bottom";
 }
+
+// ⚠️ THE USER (2026-10-10): a lock under the dock's top circle. Pressed, the view's clicks are the
+// HUD's -- the layout says so to the input layer -- and pressed again they are Archicad's.
+TEST (OverlayHudOwn, TheDocksLockGivesTheViewsClicksToTheHudAndBack)
+{
+    Watched hud;
+    hud::OwnPages pages = Standalone ();
+    pages.overlay.phase = shell::Phase::Ready;
+    hud.engine.SetOwnPages (pages);
+    const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
+    EXPECT_FALSE (out.locked);
+    const auto top = TopCircle (out.dock);
+    const float x = top.first, y = top.second + out.dock.width; // the square under the circle
+    hud.Click ({}, x, y);
+    EXPECT_TRUE (hud::EditLocked (*hud.state));
+    EXPECT_TRUE (hud.Lay ({}, At (600.0f, 600.0f)).locked) << "the input layer is told";
+    ASSERT_FALSE (hud.heard.empty ());
+    EXPECT_EQ (hud.heard.back ().kind, "editLock");
+    hud.Click ({}, x, y);
+    EXPECT_FALSE (hud::EditLocked (*hud.state));
+    EXPECT_FALSE (hud.Lay ({}, At (600.0f, 600.0f)).locked);
+    EXPECT_TRUE (hud::ContentShown (*hud.state)) << "the lock hides nothing";
+}

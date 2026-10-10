@@ -54,10 +54,11 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     // The stair stands in the inner corner and reaches past it for a window: along the
     // parent's inner facade (A), or else along the arm's (B).
     // A stub's corridor fills its inner side: the stair stands wholly along the parent's.
-    const bool alongA =
-        FacadeAlong (c.outline, f.World (DB, DA), f.World (DB + (single ? w : s), DA), f.v) >= c.o.stairWindow - 0.05;
-    const bool alongB = !single && !alongA &&
-                        FacadeAlong (c.outline, f.World (DB, DA), f.World (DB, DA + s), f.u) >= c.o.stairWindow - 0.05;
+    const bool alongA = FacadeAlong (c.outline, f.World (DB, DA), f.World (DB + (single ? w : s), DA), f.v, &c.blind) >=
+                        c.o.stairWindow - 0.05;
+    const bool alongB =
+        !single && !alongA &&
+        FacadeAlong (c.outline, f.World (DB, DA), f.World (DB, DA + s), f.u, &c.blind) >= c.o.stairWindow - 0.05;
     const double coreU1 = single ? DB + w : alongB ? DB : DB + s, coreU0 = (std::max) (cb + corr, coreU1 - w);
     // An inner corner facing north: the arm's inner band is bitten out over the corner, so the
     // stair and the lobby beside it see daylight instead of a dark corner flat (user sketch
@@ -78,7 +79,7 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
         // Neither inner facade is free at the corner: say how far a deeper stair would reach.
         double reach = 0;
         for (double d = s; d <= 12.0 && reach == 0; d += 0.3)
-            if (FacadeAlong (c.outline, f.World (DB + d - 0.3, DA), f.World (DB + d, DA), f.v) > 0.2)
+            if (FacadeAlong (c.outline, f.World (DB + d - 0.3, DA), f.World (DB + d, DA), f.v, &c.blind) > 0.2)
                 reach = d;
         c.notes.push_back ({ Diagnostic::Warning, "stair.deepen",
                              reach > 0 ? "The corner stair has no window: make it about " +

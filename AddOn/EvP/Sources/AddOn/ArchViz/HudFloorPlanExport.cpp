@@ -1,7 +1,8 @@
 // Plan view's Export plan: one building as a reference example for improving the generator.
 // The file is a story-slices document (as Bake's Export 2D writes) so the private generator
 // reads it as a fixture; its "plan" member carries what the user designed here.
-#include "ArchViz/HudFloorPlanFrame.hpp"
+#include "ArchViz/FloorPlanner.hpp"
+#include <clipper2/clipper.h>
 #include "NodeGraph/Json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -12,6 +13,7 @@ namespace {
 namespace js = evp::nodegraph::json;
 namespace cp = Clipper2Lib;
 using V = js::JsonValue;
+constexpr double kModule = 0.3; // the offline generator's raster
 V Number (double value)
 {
     return V::Double (std::isfinite (value) ? std::round (value * 1e6) / 1e6 : 0.0);
@@ -19,17 +21,6 @@ V Number (double value)
 V Pair (Point p)
 {
     return V::Array ({ Number (p.x), Number (p.y) });
-}
-V Rings (const std::vector<SliceChain>& rings)
-{
-    js::JsonArray out;
-    for (const auto& ring : rings) {
-        js::JsonArray points;
-        for (size_t i = 0; i < ring.Count (); ++i)
-            points.push_back (Pair ({ ring.xy[i * 2], ring.xy[i * 2 + 1] }));
-        out.push_back (V::Array (std::move (points)));
-    }
-    return V::Array (std::move (out));
 }
 V Points (const cp::PathD& path)
 {
@@ -70,64 +61,68 @@ std::string FileStem (const std::string& key, int story, const std::string& stam
         name = "building";
     return name.substr (0, 48) + "-floor" + std::to_string (story) + "-" + stamp;
 }
-V Design (const QuickPlan& quick, int story)
+V Shape (const floorscheme::Ring& ring)
 {
-    js::JsonArray flats;
-    for (size_t i = 0; i < quick.seeds.size () && i < quick.units.size (); ++i) {
-        const auto& seed = quick.seeds[i];
-        const auto traits = Traits (quick, seed);
-        const auto& type = quick.programme.types[(std::min) (seed.type, quick.programme.types.size () - 1)];
-        js::JsonArray keep;
-        for (const auto& [trait, label] :
-             { std::pair { kCorner, "corner" }, { kDualAspect, "dualAspect" }, { kStraightFacade, "straightFacade" } })
-            if (seed.keep & trait)
-                keep.push_back (V::String (label));
-        flats.push_back (V::Object ({ { "id", V::Integer (seed.id) },
-                                      { "type", V::String (TypeName (quick, seed)) },
-                                      { "rooms", Number (type.rooms) },
-                                      { "minM2", Number (type.minM2) },
-                                      { "maxM2", Number (type.maxM2) },
-                                      { "targetM2", Number (TargetArea (quick, seed)) },
-                                      { "netM2", Number (traits.net) },
-                                      { "grossM2", Number (traits.gross) },
-                                      { "facadeM", Number (traits.facade) },
-                                      { "entranceM", Number (traits.access) },
-                                      { "depthM", Number (traits.depth) },
-                                      { "corner", V::Bool ((traits.traits & kCorner) != 0) },
-                                      { "dualAspect", V::Bool ((traits.traits & kDualAspect) != 0) },
-                                      { "straightFacade", V::Bool ((traits.traits & kStraightFacade) != 0) },
-                                      { "locked", V::Bool (seed.locked) },
-                                      { "keep", V::Array (std::move (keep)) },
-                                      { "centre", Pair (UnitCenter (quick, seed)) },
-                                      { "rings", Rings (quick.units[i].rings) } }));
-    }
-    js::JsonArray corridors, empty;
-    for (const auto& region : quick.corridors)
-        corridors.push_back (Rings (region.rings));
-    for (const auto& region : quick.unassigned)
-        empty.push_back (Rings (region.rings));
-    return V::Object (
-        { { "story", V::Integer (story) },
-          { "ready", V::Bool (quick.ready) },
-          { "note", V::String (quick.note) },
-          { "solveNote", V::String (quick.solveNote) },
-          { "score", Number (quick.score) },
-          { "egress", V::Object ({ { "longestM", Number (quick.egress.longest) },
-                                   { "beyondLimitCells", V::Integer (int64_t (quick.egress.invalid.size ())) },
-                                   { "cellM", Number (frame::kModule) } }) },
-          { "corridors", V::Array (std::move (corridors)) },
-          { "empty", V::Array (std::move (empty)) },
-          { "flats", V::Array (std::move (flats)) } });
+    js::JsonArray points;
+    for (const auto& p : ring)
+        points.push_back (Pair ({ p.x, p.y }));
+    return V::Array ({ V::Array (std::move (points)) });
+}
+// A floor's typology scheme: its flats, circulation, stairs, what is unassigned, and its walls
+// against the next building.
+V Design (const floorscheme::Scheme& s, int story, const floorprogramme::Programme& programme)
+{
+    js::JsonArray flats, corridors, empty, cores, party;
+    for (const auto& f : s.flats)
+        flats.push_back (V::Object ({ { "type", V::String (floorprogramme::Name (programme, f.type)) },
+                                      { "rooms", Number (f.rooms) },
+                                      { "netM2", Number (f.net) },
+                                      { "grossM2", Number (f.gross) },
+                                      { "frontageM", Number (f.frontage) },
+                                      { "depthM", Number (f.depth) },
+                                      { "corner", V::Bool (f.corner) },
+                                      { "dualAspect", V::Bool (f.through) },
+                                      { "corridorEnd", V::Bool (f.cap) },
+                                      { "roomsLeftToUser", V::Bool (f.manual) },
+                                      { "inRange", V::Bool (f.inRange) },
+                                      { "rings", Shape (f.shape) } }));
+    for (const auto& c : s.corridors)
+        corridors.push_back (Shape (c.shape));
+    for (const auto& l : s.lobbies)
+        corridors.push_back (Shape (l));
+    for (const auto& u : s.unassigned)
+        empty.push_back (V::Object ({ { "reason", V::String (u.reason) }, { "rings", Shape (u.shape) } }));
+    for (const auto& c : s.cores)
+        cores.push_back (V::Object ({ { "x", Number (c.centre.x) },
+                                      { "y", Number (c.centre.y) },
+                                      { "width", Number (c.width) },
+                                      { "depth", Number (c.depth) },
+                                      { "rings", Shape (c.shape) } }));
+    for (const auto& w : s.party)
+        party.push_back (V::Array ({ Pair ({ w[0].x, w[0].y }), Pair ({ w[1].x, w[1].y }) }));
+    size_t errors = 0;
+    for (const auto& d : s.diagnostics)
+        errors += d.level == floorscheme::Diagnostic::Error;
+    return V::Object ({ { "story", V::Integer (story) },
+                        { "typology", V::String (s.typology) },
+                        { "grossM2", Number (s.gross) },
+                        { "netM2", Number (s.net) },
+                        { "errors", V::Integer (int64_t (errors)) },
+                        { "stairs", V::Array (std::move (cores)) },
+                        { "corridors", V::Array (std::move (corridors)) },
+                        { "partyWalls", V::Array (std::move (party)) },
+                        { "empty", V::Array (std::move (empty)) },
+                        { "flats", V::Array (std::move (flats)) } });
 }
 } // namespace
 
-PlanFile ExportPlan (const Plan& plan, Draft& draft, const Floor& shown, const std::string& stamp)
+PlanFile ExportPlan (const Plan& plan, const Draft& draft, const Floor& shown, const std::string& stamp,
+                     const std::map<int, const floorscheme::Scheme*>& schemes)
 {
     PlanFile file;
     const std::string stem = FileStem (plan.key, shown.story, stamp);
     file.name = stem + ".json";
     js::JsonArray slices, floors, designs, cores, programme;
-    std::set<int> written;
     for (const auto& floor : plan.floors) {
         // Outer rings with the holes inside them, as the story-slices format keeps them.
         const auto boundary = Boundary (floor);
@@ -137,7 +132,7 @@ PlanFile ExportPlan (const Plan& plan, Draft& draft, const Floor& shown, const s
             js::JsonArray holes;
             for (const auto& hole : boundary)
                 if (cp::Area (hole) < 0 && !hole.empty () &&
-                    frame::Inside ({ outer }, { hole.front ().x, hole.front ().y }))
+                    cp::PointInPolygon (hole.front (), outer) != cp::PointInPolygonResult::IsOutside)
                     holes.push_back (Points (hole));
             slices.push_back (V::Object ({ { "group", V::String (plan.key) },
                                            { "story", V::Integer (floor.story) },
@@ -146,15 +141,15 @@ PlanFile ExportPlan (const Plan& plan, Draft& draft, const Floor& shown, const s
                                            { "outer", Points (outer) },
                                            { "holes", V::Array (std::move (holes)) } }));
         }
-        const int design = frame::TemplateStory (plan, draft, floor);
+        const int design = DesignStory (plan, draft, floor);
         floors.push_back (V::Object ({ { "story", V::Integer (floor.story) },
                                        { "z", Number (floor.z) },
                                        { "height", Number (floor.height) },
                                        { "areaM2", Number (floor.areaM2) },
                                        { "design", V::Integer (design) },
-                                       { "unique", V::Bool (draft.uniqueFloors.contains (floor.story)) } }));
-        if (written.insert (design).second)
-            designs.push_back (Design (QuickFor (plan, draft, floor), design));
+                                       { "unique", V::Bool (draft.designs.unique.contains (floor.story)) } }));
+        if (const auto scheme = schemes.find (floor.story); scheme != schemes.end () && scheme->second)
+            designs.push_back (Design (*scheme->second, floor.story, draft.programme));
     }
     for (const auto& core : draft.cores) {
         js::JsonArray corners;
@@ -183,11 +178,11 @@ PlanFile ExportPlan (const Plan& plan, Draft& draft, const Floor& shown, const s
                      { "ringClosure", V::String ("implicit") },
                      { "edgeType", V::String ("straight; curved sources tessellated") },
                      { "contourBasis", V::String ("counted; outside-envelope and low-headroom regions excluded") },
-                     { "module", Number (frame::kModule) },
+                     { "module", Number (kModule) },
                      { "program", V::String (floorprogramme::Brief (draft.programme, "\n")) },
                      { "slices", V::Array (std::move (slices)) },
-                     { "plan", V::Object ({ { "format", V::String ("tapioca.floor-plan.native") },
-                                            { "version", V::Integer (1) },
+                     { "plan", V::Object ({ { "format", V::String ("tapioca.floor-plan.typology") },
+                                            { "version", V::Integer (2) },
                                             { "exported", V::String (stamp) },
                                             { "building", V::String (plan.key) },
                                             { "frameAngleDeg", Number (plan.angle * 180 / 3.14159265358979323846) },
@@ -195,7 +190,8 @@ PlanFile ExportPlan (const Plan& plan, Draft& draft, const Floor& shown, const s
                                             { "programme", V::Array (std::move (programme)) },
                                             { "cores", V::Array (std::move (cores)) },
                                             { "floors", V::Array (std::move (floors)) },
-                                            { "designs", V::Array (std::move (designs)) } }) } });
+                                            { "designs", V::Array (std::move (designs)) },
+                                            { "edits", V::String (floorscheme::edit::ToJson (draft.designs)) } }) } });
     file.text = js::Write (document, 1) + "\n";
     return file;
 }

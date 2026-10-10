@@ -1,6 +1,7 @@
 // ArchViz/HudShell -- see the header.
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/GraphicsSettingsUi.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
 
@@ -364,7 +365,7 @@ uint32_t CircleColour (const Circle& circle, uint32_t ink, double seconds)
 // text rotated 90 degrees, that opens and closes the panel; 2026-10-03: the overlay's circle at
 // its top, the separate viewer's at its bottom -- a switch between the two).
 DockPress DockTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, const Circle& top,
-                   const Circle* bottom, ImVec2 padding, float scale)
+                   const Circle* bottom, ImVec2 padding, float scale, const bool* locked)
 {
     DockPress press;
     const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
@@ -419,6 +420,31 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     ImGui::PushID (id);
     ImVec2 topFrom, topTo, bottomFrom, bottomTo;
     press.top = circle ("##shown", top, ImDrawFlags_RoundCornersTopLeft, topFrom, topTo);
+    if (locked != nullptr) {
+        // The lock: a padlock, shut while the view's clicks are the HUD's.
+        press.lock = ImGui::InvisibleButton ("##lock", ImVec2 (across, across));
+        const ImVec2 from = ImGui::GetItemRectMin (), to = ImGui::GetItemRectMax ();
+        part (from, to, ImDrawFlags_RoundCornersNone);
+        if (*locked)
+            draw->AddRectFilled (from, to, Packed (WithAlpha (panel.accentRgba, 0.55f)), 0.0f);
+        const ImVec2 c (std::floor ((from.x + to.x) * 0.5f), std::floor ((from.y + to.y) * 0.5f) + 2.0f * scale);
+        const float w = std::floor (across * 0.18f) + 0.5f, h = std::floor (across * 0.14f) + 0.5f;
+        const ImU32 colour = Packed (ink);
+        const float stroke = (std::max) (1.0f, 1.5f * scale);
+        draw->AddRectFilled (ImVec2 (c.x - w, c.y - h * 0.4f), ImVec2 (c.x + w, c.y + h * 1.4f), colour, scale);
+        // The shackle: closed over the body while locked, swung up and open otherwise.
+        const float lift = *locked ? 0.0f : 2.5f * scale;
+        draw->PathArcTo (ImVec2 (c.x, c.y - h * 0.4f - lift), w * 0.7f, kPi, 2.0f * kPi, 12);
+        draw->PathStroke (colour, 0, stroke);
+        if (!*locked)
+            draw->AddLine (ImVec2 (c.x + w * 0.7f, c.y - h * 0.4f - lift), ImVec2 (c.x + w * 0.7f, c.y - h * 0.4f),
+                           colour, stroke);
+        Tip (*locked ? "Locked: clicks on the view edit the floor plan; the wheel and the middle button navigate. "
+                       "Press to give the view back to Archicad."
+                     : "Lock the view to edit the floor plan on it: clicks are the HUD's, the wheel and the middle "
+                       "button still navigate.",
+             TipSide::Left);
+    }
     // The title, under it.
     press.title = ImGui::InvisibleButton ("##title", ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
     const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
@@ -454,6 +480,9 @@ namespace {
 // Who claimed the right click, and in which frame: one HUD lays out at a time, under ImGui's lock.
 const ImGuiContext* g_claimedBy = nullptr;
 int g_claimedFrame = -1;
+// Who claimed the pointer, the same way.
+const ImGuiContext* g_cursorBy = nullptr;
+int g_cursorFrame = -1;
 
 } // namespace
 
@@ -466,6 +495,38 @@ void ClaimRightClick ()
 bool RightClickClaimed ()
 {
     return g_claimedBy == ImGui::GetCurrentContext () && g_claimedFrame == ImGui::GetFrameCount ();
+}
+
+void OwnCursor ()
+{
+    g_cursorBy = ImGui::GetCurrentContext ();
+    g_cursorFrame = ImGui::GetFrameCount ();
+}
+
+bool CursorOwned ()
+{
+    return g_cursorBy == ImGui::GetCurrentContext () && g_cursorFrame == ImGui::GetFrameCount ();
+}
+
+uint8_t CursorOf (bool hand)
+{
+    using overlayinput::Cursor;
+    if (!CursorOwned ())
+        return uint8_t (hand ? Cursor::Hand : Cursor::Arrow);
+    switch (ImGui::GetMouseCursor ()) {
+        case ImGuiMouseCursor_Hand:
+            return uint8_t (Cursor::Hand);
+        case ImGuiMouseCursor_ResizeAll:
+        case ImGuiMouseCursor_ResizeNESW:
+        case ImGuiMouseCursor_ResizeNWSE:
+            return uint8_t (Cursor::Move);
+        case ImGuiMouseCursor_ResizeEW:
+            return uint8_t (Cursor::SizeWE);
+        case ImGuiMouseCursor_ResizeNS:
+            return uint8_t (Cursor::SizeNS);
+        default:
+            return uint8_t (Cursor::Arrow);
+    }
 }
 
 namespace {

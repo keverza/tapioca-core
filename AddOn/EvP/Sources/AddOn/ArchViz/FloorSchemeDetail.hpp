@@ -96,18 +96,19 @@ inline Vec Unit (Vec a)
     const double l = std::hypot (a.x, a.y);
     return l > kEps ? Vec { a.x / l, a.y / l } : Vec { 1, 0 };
 }
-// Points on a boundary count as inside (ray cast; see HudFloorPlanFrame for why not Clipper's).
+// Points on a boundary count as inside (a ray cast: Clipper reports the boundary apart).
 bool Inside (const cp::PathsD& paths, Vec p);
-// Outline length along the segment a-b that faces outside: samples just beyond the side.
-double FacadeAlong (const cp::PathsD& outline, Vec a, Vec b, Vec outward);
+// Outline length along the segment a-b that faces outside: samples just beyond the side. Beyond
+// it in `blind` (a neighbouring building's floor) is a party wall, never a facade.
+double FacadeAlong (const cp::PathsD& outline, Vec a, Vec b, Vec outward, const cp::PathsD* blind = nullptr);
 double Area (const cp::PathsD& paths);
 
 // Shared by Generate and Check (FloorScheme.cpp, FloorSchemeCheck.cpp).
 double Overlap (const Ring& a, const Ring& b);
 // Boundary shared by two touching polygons, from the overlap of a thin band around `a`.
 double Touch (const Ring& a, const Ring& b, double band = 0.05);
-// Facade length of a ring: its edges that face outside the outline.
-double FacadeOf (const cp::PathsD& outline, const Ring& ring);
+// Facade length of a ring: its edges that face outside the outline (and not into `blind`).
+double FacadeOf (const cp::PathsD& outline, const Ring& ring, const cp::PathsD* blind = nullptr);
 void Note (Scheme& s, Diagnostic::Level level, const char* code, const std::string& text, Vec at);
 Vec Centroid (const Ring& r);
 // Bounding-box overlap test before the Clipper work.

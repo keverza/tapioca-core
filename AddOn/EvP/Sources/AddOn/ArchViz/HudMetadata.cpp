@@ -601,6 +601,29 @@ Page BuildingSlabFields (const meta::ProjectSchema& schema, std::vector<meta::En
     return page;
 }
 
+namespace {
+// The building's floor designs travel with its stairwells: written, or taken off when none.
+bool SetDesigns (meta::EntityMetadata& entity, const std::string& text, const meta::Provenance& provenance,
+                 std::string& error)
+{
+    if (text.empty ()) {
+        meta::RemoveProperty (entity, "massing.floorDesigns");
+        return true;
+    }
+    if (text.size () > 256 * 1024) {
+        error = "Floor designs exceed their size budget.";
+        return false;
+    }
+    meta::Property designs;
+    designs.key = "massing.floorDesigns";
+    designs.value = meta::Value::Text (text);
+    designs.state = meta::State::Authored;
+    designs.provenance = provenance;
+    meta::SetProperty (entity, std::move (designs));
+    return true;
+}
+} // namespace
+
 bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectSchema& schema, int64_t nowMs,
             std::string& error)
 {
@@ -637,8 +660,10 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
     if (edit.action == Edit::Action::Clear) {
         if (edit.domain.empty ()) {
             meta::RemoveProperty (entity, edit.id);
-            if (edit.id == "massing.stairwellLocations")
+            if (edit.id == "massing.stairwellLocations") {
                 meta::RemoveProperty (entity, "massing.stairwellShapes");
+                return SetDesigns (entity, edit.text, provenance, error);
+            }
         }
         else
             meta::ClearRange (entity, edit.domain, edit.from, edit.to, edit.id);
@@ -712,6 +737,8 @@ bool Apply (meta::EntityMetadata& entity, const Edit& edit, const meta::ProjectS
             shapes.provenance = provenance;
             meta::SetProperty (entity, std::move (shapes));
         }
+        if (!SetDesigns (entity, edit.text, provenance, error))
+            return false;
     }
     else if (type == meta::ValueType::Bool)
         property.value = meta::Value::Boolean (edit.on);

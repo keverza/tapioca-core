@@ -138,6 +138,8 @@ bool PublishHud3D (overlayscene::Scene hud)
     overlayinput::HitMap map;
     map.dpiScale = g_scale3D;
     map.hand = hud.hand;
+    map.cursor = hud.cursor;
+    map.locked = hud.locked;
     map.regions = g_legends3D; // legends first: the panels are drawn over them
     map.regions.insert (map.regions.end (), hud.regions.begin (), hud.regions.end ());
     overlayinput::SetHitMap (overlayinput::View::ThreeD, std::move (map));
@@ -166,6 +168,8 @@ bool RefreshHud3D ()
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
     overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::ThreeD);
     overlayhover3d::Fill (input); // hover mode: what the pointer is on (D19)
+    if (overlayhud::EditLocked (*guesttext::HudState ()))
+        overlayhover3d::Projection (input); // the floor plan picked on the view
     // ⚠️ THE HUD IS THERE WITH OR WITHOUT A LAYER: the overlay runs, its own pages say what.
     overlayscene::Scene hud = overlayscene::PrepareSceneHud (
         layers, overlayhudmodel::Prepare (overlayinput::View::ThreeD), g_scale3D, input, &g_legends3D);

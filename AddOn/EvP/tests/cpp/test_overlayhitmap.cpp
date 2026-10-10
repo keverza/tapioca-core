@@ -289,3 +289,28 @@ TEST (OverlayHitMap, APanelsRegionHoldsItsTriangles)
         EXPECT_LE (glyph.offset[1], region.rect[3] + fringe);
     }
 }
+
+// ⚠️ THE USER (2026-10-10): a lock on the dock gives the view's clicks to the HUD, to edit the
+// floor plan on it, and leaves Archicad only its navigation.
+TEST (OverlayHitMap, ALockedViewIsTheHudsButItsNavigationStaysArchicads)
+{
+    input::HitMap map;
+    map.regions = { Box (0.0f, 0.0f, 10.0f, 10.0f, 100.0f, 100.0f) };
+    EXPECT_FALSE (map.Owns (500.0f, 400.0f, 1000.0f, 800.0f)) << "unlocked: the view is Archicad's";
+    map.locked = true;
+    EXPECT_TRUE (map.Owns (500.0f, 400.0f, 1000.0f, 800.0f)) << "locked: anywhere on it is the HUD's";
+    input::Router router;
+    const bool over = map.Owns (500.0f, 400.0f, 1000.0f, 800.0f);
+    EXPECT_EQ (router.Decide (Press (input::Button::Left, kLeft), over), input::Route::Take);
+    EXPECT_EQ (router.Decide (Move (kLeft), over), input::Route::Take);
+    EXPECT_EQ (router.Decide (Release (input::Button::Left, 0), over), input::Route::Take);
+    EXPECT_EQ (router.Decide (Press (input::Button::Right, kRight), over), input::Route::Take);
+    EXPECT_EQ (router.Decide (Release (input::Button::Right, 0), over), input::Route::Take);
+    input::Event wheel;
+    wheel.kind = input::EventKind::Wheel;
+    wheel.wheel = -1.0f;
+    EXPECT_EQ (router.Decide (wheel, over, false), input::Route::Pass) << "the wheel still zooms";
+    EXPECT_EQ (router.Decide (Press (input::Button::Middle, kMiddle), over), input::Route::Pass) << "and pans";
+    EXPECT_EQ (router.Decide (Move (kMiddle), over), input::Route::Pass);
+    EXPECT_EQ (router.Decide (Release (input::Button::Middle, 0), over), input::Route::Pass);
+}

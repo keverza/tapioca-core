@@ -219,6 +219,8 @@ struct Plan {
     // pointer is on something it can press (overlayhud::Layout `hand`).
     Highlight highlight;
     bool hand = false;
+    uint8_t cursor = 0;  // overlayinput::Cursor
+    bool locked = false; // the dock's lock (overlayhud::Layout `locked`)
     uint64_t generation = 0;
     Problems problems;
     Cost cost;
@@ -246,6 +248,8 @@ struct Scene {
     // pointer is on something it can press (overlayhud::Layout `hand`).
     Highlight highlight;
     bool hand = false;
+    uint8_t cursor = 0;  // overlayinput::Cursor
+    bool locked = false; // the dock's lock (overlayhud::Layout `locked`)
     uint64_t generation = 0;
     Problems problems;
     Cost cost;

@@ -123,12 +123,14 @@ void Engine::Impl::SelectionPage (float ui)
                              true });
         store->metadataEdits.push_back (std::move (edit));
     }
+    // ⚠️ EACH SECTION FOLDS ON ITS OWN (the user, 2026-10-10: folding the first hid everything):
+    // a building's story slices and its plan are sibling sections, not one inside the other.
+    if (!own.buildings.empty ()) {
+        for (const auto& preview : own.buildings)
+            BuildingDiagram (preview, ui);
+        return;
+    }
     if (ImGui::CollapsingHeader ("Story slice editor", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (!own.buildings.empty ()) {
-            for (const auto& preview : own.buildings)
-                BuildingDiagram (preview, ui);
-            return;
-        }
         ImGui::TextDisabled ("Story count is calculated from the slices.");
         for (const auto& page : own.storyHeights) {
             ImGui::PushID (page.element.c_str ());

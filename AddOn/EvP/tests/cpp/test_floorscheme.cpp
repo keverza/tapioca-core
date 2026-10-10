@@ -416,6 +416,35 @@ TEST (FloorScheme, StubArmJoinsItsParentsCorridor)
 
 // Offline review: FLOORSCHEME_REVIEW=<file.json> writes every case (and the floors of
 // FLOORSCHEME_FIXTURES, "floor <name>" then "ring x y x y ..." lines) for the review page.
+TEST (FloorScheme, APartyWallWithANeighbourHasNoWindows)
+{
+    // A 36 x 16 building with its neighbour built against its east gable.
+    fs::Options o;
+    o.party = { Rect (36, 0, 60, 16) };
+    const auto s = fs::Generate ({ Rect (0, 0, 36, 16) }, fp::Default (), {}, o);
+    EXPECT_EQ (Errors (s), 0u);
+    ASSERT_EQ (s.party.size (), 1u);
+    double length = std::hypot (s.party[0][1].x - s.party[0][0].x, s.party[0][1].y - s.party[0][0].y);
+    EXPECT_NEAR (length, 16, 0.4);
+    EXPECT_NEAR (s.party[0][0].x, 36, 1e-6);
+    size_t windows = 0, blind = 0;
+    for (const auto& f : s.flats)
+        for (const auto& w : f.windows) {
+            ++windows;
+            blind += std::abs (w.a.x - 36) < 0.3 && std::abs (w.b.x - 36) < 0.3;
+        }
+    EXPECT_GT (windows, 0u);
+    EXPECT_EQ (blind, 0u) << "a window in the party wall";
+    // The west gable still lights its corner flats.
+    size_t west = 0;
+    for (const auto& f : s.flats)
+        for (const auto& w : f.windows)
+            west += std::abs (w.a.x) < 0.3 && std::abs (w.b.x) < 0.3;
+    EXPECT_GT (west, 0u);
+    // Alone, the same floor reports no party wall.
+    EXPECT_TRUE (fs::Generate ({ Rect (0, 0, 36, 16) }, fp::Default ()).party.empty ());
+}
+
 TEST (FloorScheme, ReviewDump)
 {
     const char* path = std::getenv ("FLOORSCHEME_REVIEW");

@@ -48,7 +48,7 @@ double Area (const cp::PathsD& paths)
         a += cp::Area (path);
     return a;
 }
-double FacadeAlong (const cp::PathsD& outline, Vec a, Vec b, Vec outward)
+double FacadeAlong (const cp::PathsD& outline, Vec a, Vec b, Vec outward, const cp::PathsD* blind)
 {
     const double length = std::hypot (b.x - a.x, b.y - a.y);
     if (length < kEps)
@@ -59,7 +59,7 @@ double FacadeAlong (const cp::PathsD& outline, Vec a, Vec b, Vec outward)
         const double t = (i + 0.5) / samples;
         const Vec p { a.x + (b.x - a.x) * t + outward.x * kFacadeOffset,
                       a.y + (b.y - a.y) * t + outward.y * kFacadeOffset };
-        out += Inside (outline, p) ? 0 : 1;
+        out += Inside (outline, p) || (blind && Inside (*blind, p)) ? 0 : 1;
     }
     return length * out / samples;
 }

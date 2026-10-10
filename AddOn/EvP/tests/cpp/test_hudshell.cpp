@@ -7,6 +7,7 @@
 #include "hud_fixture.hpp"
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/OverlayHitMap.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
@@ -392,4 +393,37 @@ TEST (HudHost, ATabSwitchKeepsThePanelsTopWhereItWas)
         ASSERT_LT (small.host.height, tall.host.height - 50.0f) << "the other page is shorter";
         EXPECT_NEAR (small.host.fraction[1] * view + small.host.offset[1], top, 1.0f) << "view " << view;
     }
+}
+
+// ⚠️ THE USER (2026-10-10): over the plan canvas the cursor kept switching between a hand and an
+// arrow. A canvas that claims the pointer shows the cursor it sets; the rest of the HUD a hand
+// on what it can press and an arrow elsewhere.
+TEST (HudCursor, ACanvasThatClaimsThePointerShowsItsOwnCursor)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 400, 300 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    using geomsrv::archviz::overlayinput::Cursor;
+    ImGui::NewFrame ();
+    EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Hand)) << "not claimed: a hand on what can be pressed";
+    EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::Arrow));
+    shell::OwnCursor ();
+    ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
+    EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Move)) << "the canvas's own, over the hand";
+    ImGui::SetMouseCursor (ImGuiMouseCursor_Arrow);
+    EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Arrow)) << "an arrow where the canvas says so";
+    ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeEW);
+    EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::SizeWE));
+    ImGui::EndFrame ();
+    ImGui::NewFrame ();
+    EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Hand)) << "a claim lasts its frame";
+    ImGui::EndFrame ();
+    ImGui::DestroyContext (context);
+    ImGui::SetCurrentContext (previous);
 }
