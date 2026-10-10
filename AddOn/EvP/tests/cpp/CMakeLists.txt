@@ -518,6 +518,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorPlanExport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorProgramme.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorScheme.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCheck.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"

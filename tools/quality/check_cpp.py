@@ -98,13 +98,6 @@ OVERSIZED = {
         "Nothing obvious is left to extract, so the next feature that needs a lot "
         "of lines needs a sub-object, not another shell file",
     ),
-    "ArchViz/FloorScheme.cpp": (
-        1005,
-        "A DEBT FOR ONE COMMIT. The fix for the user's round-5 review (north-facing corner "
-        "notch, stair-flat-flat-stair rule, fold checks) took the file over the cap; the hard-"
-        "rule check moves to FloorSchemeCheck.cpp in the next commit, which deletes this entry, "
-        "so the fix and the move stay separate",
-    ),
     "ArchViz/DiligentScene.cpp": (
         1185,
         "the scene's lifecycle file - shaders, pipeline states, settings. The "
