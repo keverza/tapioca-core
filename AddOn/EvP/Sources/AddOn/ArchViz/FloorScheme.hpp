@@ -69,24 +69,30 @@ struct Pins {
     struct Core {
         Vec centre;
         double width = 0, depth = 0; // 0: Options
+        bool operator== (const Core&) const = default;
     };
     struct AccessAt {
         Vec at;
         Access access = Access::Auto;
+        bool operator== (const AccessAt&) const = default;
     };
     struct Wall {
         Vec at; // a party wall between flats, on its band
+        bool operator== (const Wall&) const = default;
     };
     struct Rooms {
         Vec at;
         double rooms = 2; // the flat under `at` gets this room count
+        bool operator== (const Rooms&) const = default;
     };
     struct End {
         Vec at; // a corridor end moves here (corridor length)
+        bool operator== (const End&) const = default;
     };
     struct Count {
         Vec at;
-        int flats = 1; // flats in the band under `at`
+        int flats = 1; // flats in the band, or the span between pinned walls, under `at`
+        bool operator== (const Count&) const = default;
     };
     std::vector<Core> cores;
     std::vector<AccessAt> access;

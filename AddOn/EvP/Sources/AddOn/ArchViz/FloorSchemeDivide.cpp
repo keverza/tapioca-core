@@ -524,10 +524,6 @@ void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots,
             if (Contains (slot, pin.at, 0.3))
                 cuts.push_back (std::clamp (slot.frame.Local (pin.at).x, slot.box.u0, slot.box.u1));
         std::sort (cuts.begin (), cuts.end ());
-        int count = 0;
-        for (const auto& pin : pins.counts)
-            if (Contains (slot, pin.at, 0))
-                count = (std::max) (1, pin.flats);
         std::vector<double> edges { slot.box.u0 };
         for (double cut : cuts) {
             double best = cut;
@@ -553,7 +549,14 @@ void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots,
             if (span.W () < 0.3)
                 continue;
             const bool lo = k == 0 && slot.cornerLo, hi = k + 2 == edges.size () && slot.cornerHi;
-            if (!DivideSpan (b, slot, span, edges.size () == 2 ? count : 0, lo, hi))
+            // A flat-count pin holds the span between pinned walls (or the band) it lies in.
+            int count = 0;
+            for (const auto& pin : pins.counts) {
+                const auto q = slot.frame.Local (pin.at);
+                if (Contains (slot, pin.at, 0) && q.x >= span.u0 - 1e-6 && q.x <= span.u1 + 1e-6)
+                    count = (std::max) (1, pin.flats);
+            }
+            if (!DivideSpan (b, slot, span, count, lo, hi))
                 scheme.unassigned.push_back ({ ToRing (slot.frame, span), "band too short for a whole flat" });
         }
     }

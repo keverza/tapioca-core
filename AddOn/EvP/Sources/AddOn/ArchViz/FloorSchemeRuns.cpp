@@ -184,11 +184,16 @@ Vec North (const Options& o)
 // A pinned core in this box of the frame, nearest first; null when none.
 const Pins::Core* PinIn (const Ctx& c, const Frame& f, Box b, double margin)
 {
+    // One inside the box first, else the nearest within the margin.
     const Pins::Core* best = nullptr;
+    double near = 1e18;
     for (const auto& p : c.pins.cores) {
         const auto q = f.Local (p.centre);
-        if (q.x >= b.u0 - margin && q.x <= b.u1 + margin && q.y >= b.v0 - 0.01 && q.y <= b.v1 + 0.01)
-            best = best ? best : &p;
+        if (q.y < b.v0 - 0.01 || q.y > b.v1 + 0.01 || q.x < b.u0 - margin || q.x > b.u1 + margin)
+            continue;
+        const double out = (std::max) ({ 0.0, b.u0 - q.x, q.x - b.u1 });
+        if (out < near)
+            near = out, best = &p;
     }
     return best;
 }
@@ -289,10 +294,33 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     capHi = (std::max) (capFloor, capHi - Wedge (c, f, s1, true, coreLo, coreHi));
     EndPins (c, f, { s0, 0, s1, depth }, c0, c1, capLo, capHi);
     const int id = AddSection (c, run, (s1 - s0) * depth, 'C');
-    const double e0 = s0 + capLo, e1 = s1 - capHi;
+    double e0 = s0 + capLo, e1 = s1 - capHi;
     const double w = c.o.coreWidth;
     const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, kPinTolerance);
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
+    // A stair the user put somewhere stays there when other cap lengths make the bands either
+    // side of it whole flats: the nearest caps to the usual that do.
+    if (pin && wanted >= e0 - 3 && wanted + w <= e1 + 3) {
+        auto fits = [&] (double lo, double hi) {
+            const double a0 = s0 + lo, a1 = s1 - hi;
+            return wanted >= a0 - 1e-9 && wanted + w <= a1 + 1e-9 && wanted - a0 <= c.o.maxDeadEnd &&
+                   a1 - wanted - w <= c.o.maxDeadEnd &&
+                   SideFacade (c, f, { wanted, coreLo, wanted + w, coreHi }, up ? 2 : 0) >= c.o.stairWindow &&
+                   PieceFits (c, f, { a0, coreLo, wanted, coreHi }, up) &&
+                   PieceFits (c, f, { wanted + w, coreLo, a1, coreHi }, up);
+        };
+        if (!fits (capLo, capHi)) {
+            double best = 1e18, bestLo = capLo, bestHi = capHi;
+            for (double lo = c.o.minCap; lo <= c.o.maxCap + 2 + 1e-9; lo += 0.2)
+                for (double hi = c.o.minCap; hi <= c.o.maxCap + 2 + 1e-9; hi += 0.2) {
+                    const double change = std::abs (lo - capLo) + std::abs (hi - capHi);
+                    if (change < best && fits (lo, hi))
+                        best = change, bestLo = lo, bestHi = hi;
+                }
+            capLo = bestLo, capHi = bestHi;
+            e0 = s0 + capLo, e1 = s1 - capHi;
+        }
+    }
     // Caps take the corridor end and the core-side band; the door is the corridor end. A cap
     // whose side is covered by another wing (under the stem of a T) moves across the corridor.
     const double capV0 = up ? c0 : 0, capV1 = up ? depth : c1;
@@ -417,7 +445,9 @@ constexpr double kLobby = 2.0; // a landing lobby under the stair (user: about 2
 // (two facades). A flat over the cap, or one no type fits, rules a plan out.
 // `beyond`: mean depth of floor past the wing's two facades that the mould adds to the
 // through flats (a skewed or stepped outline).
-std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double length, double beyond, bool rowsOnly)
+// `only`: plan exactly that many sections (pinned stairs), else the best count.
+std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double length, double beyond, bool rowsOnly,
+                                         int only = 0)
 {
     const double S = c.o.coreWidth, ds = c.o.coreDepth, behind = depth - ds;
     const bool middle = behind >= 4.5;
@@ -467,10 +497,11 @@ std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double leng
         return n * (sum + mix * N + (circulation + c.o.stairCost) / 10.0 - 0.25 * N);
     };
     double best = 1e18;
-    std::pair<int, Sectional> out { 1, { 2, (std::max) (0.0, (length - S) / 2), S } };
-    for (int n = 1; n <= (std::max) (1, static_cast<int> (length / 8)); ++n) {
+    const int first = only > 0 ? only : 1;
+    std::pair<int, Sectional> out { first, { 2, (std::max) (0.0, (length / first - S) / 2), S } };
+    for (int n = first; n <= (only > 0 ? only : (std::max) (1, static_cast<int> (length / 8))); ++n) {
         const double Ls = length / n;
-        if (Ls * depth > limit + 1e-6)
+        if (Ls * depth > limit + 1e-6 && only == 0)
             continue;
         auto take = [&] (double cost, Sectional plan) {
             if (rowsOnly && !plan.rows)
@@ -653,7 +684,8 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
         const double shortest = access == Access::Centre ? minCentre : 2 * c.o.minCap + w;
         n = (std::min) (n, (std::max) (1, static_cast<int> (length / shortest)));
     }
-    // Pinned stairs each get a section; boundaries fall midway between them.
+    // Pinned stairs each get a section, boundaries midway between them, as long as no section
+    // is over one stair's area: the user may add or take away stairs down to that minimum.
     std::vector<double> pinned;
     for (const auto& pin : c.pins.cores) {
         const auto q = f.Local (pin.centre);
@@ -661,6 +693,15 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
             pinned.push_back (q.x);
     }
     std::sort (pinned.begin (), pinned.end ());
+    const int fewest =
+        (std::max) (1, static_cast<int> (
+                           std::ceil (length * depth * c.o.grossFactor / (c.o.sectionArea + c.o.sectionSlack) - 1e-9)));
+    if (!pinned.empty () && pinned.size () >= static_cast<size_t> (fewest) &&
+        pinned.size () != static_cast<size_t> (n)) {
+        n = static_cast<int> (pinned.size ());
+        if (access == Access::CoreOnly || access == Access::Rows)
+            sectional = SectionalPlan (c, depth, length, 0, access == Access::Rows, n).second;
+    }
     std::vector<double> cuts { p.s0 };
     if (pinned.size () >= static_cast<size_t> (n) && !pinned.empty ()) {
         for (size_t i = 0; i + 1 < pinned.size (); ++i)
@@ -693,6 +734,14 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
                 end = -1;
             else if (b - a < 2 * c.o.minCap + w + 5.0)
                 end = highOk ? 1 : lowOk ? -1 : 0;
+            // A pinned stair: in the band of a full section when one fits, else at its nearer end.
+            if (const auto* pin = PinIn (c, f, { a, 0, b, depth }, 0)) {
+                const double at = f.Local (pin->centre).x;
+                if (b - a >= 2 * c.o.minCap + w + 5.0)
+                    end = 0;
+                else
+                    end = at - a < b - at ? (lowOk ? -1 : end) : (highOk ? 1 : end);
+            }
             CentreSection (c, f, depth, a, b, up, run, end);
             continue;
         }

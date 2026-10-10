@@ -14,6 +14,7 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/HudMassingRules.hpp"
 #include "ArchViz/HudFloorProgramme.hpp"
+#include "ArchViz/HudFloorSchemeEdit.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: which draw list is whose
@@ -101,6 +102,8 @@ struct State {
     hudsection::Run hoveredFloors;
     std::map<std::string, buildingplan::Draft> buildingPlans;
     std::map<std::string, buildingplan::Plan> floorPlanSnapshots;
+    // The massing floor open in Edit (HudFloorSchemeEdit.hpp), session-local; one at a time.
+    hudfloorscheme::EditorPtr floorEditor;
     bool previewStairs = false, previewUnits = false;
     std::string floorPlanPublished;
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.

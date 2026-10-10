@@ -76,6 +76,10 @@ void Engine::Impl::BuildingDiagram (const massingbuildings::Preview& preview, fl
         store->metadataEdits.push_back (std::move (edit));
     }
     auto& draft = store->buildingPlans[building.key];
+    if (const auto* floor = buildingplan::Displayed (preview.plan, draft);
+        floor && ImGui::CollapsingHeader ("Massing floor", ImGuiTreeNodeFlags_DefaultOpen))
+        hudfloorscheme::Section (store->floorEditor, store->floorPlanSnapshots, *floor, building.key,
+                                 store->massingProgramme, ui);
     if (draft.exportRequested) {
         draft.exportRequested = false;
         if (const auto* floor = buildingplan::Displayed (preview.plan, draft)) {
