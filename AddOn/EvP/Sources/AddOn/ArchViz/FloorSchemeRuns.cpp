@@ -12,7 +12,7 @@ namespace {
 constexpr double kMinArm = 10.0;
 
 struct Ctx {
-    const cp::PathsD& outline;
+    cp::PathsD outline; // less what the typology culls, as the culling happens
     const floorprogramme::Programme& programme;
     const Pins& pins;
     const Options& o;
@@ -23,7 +23,9 @@ struct Ctx {
     {
         if (length < 0.05)
             return true;
-        const size_t i = static_cast<size_t> (std::lround (length * 10));
+        // Rounded down: a band a little short of a flat's minimum must not read as fillable
+        // (a little long only makes the flats wider).
+        const size_t i = static_cast<size_t> (std::floor (length * 10 + 1e-6));
         return i < fill.size () ? fill[i] != 0 : Fillable (programme, length);
     }
 };
@@ -165,7 +167,12 @@ void AddCap (Ctx& c, const Frame& f, Box b, bool doorHigh, int section, double c
         AddSlot (c, g, { 0, 0, b.H (), b.W () }, true, section, 0, 1, false, cv0 - b.v0, cv1 - b.v0);
     }
     else {
-        const bool high = SideFacade (c, f, b, 2) >= SideFacade (c, f, b, 0);
+        // Rooms on the facade side; with facades on both, the corridor end on the v0 side of
+        // the slot, where its hall is.
+        const double up = SideFacade (c, f, b, 2), down = SideFacade (c, f, b, 0);
+        bool high = up >= down;
+        if (up >= kBedroomMin && down >= kBedroomMin)
+            high = (cv0 + cv1) / 2 < (b.v0 + b.v1) / 2;
         AddSlot (c, f, b, high, section, doorHigh ? 2 : 1, 1, false, cv0, cv1);
     }
     c.out.slots.back ().cap = true;
@@ -232,6 +239,24 @@ void EndPins (const Ctx& c, const Frame& f, Box section, double c0, double c1, d
     }
 }
 
+// Mean depth of floor beyond the end at `u` (beyond u1 when `hi`) over [v0, v1] when it is a
+// slanted end the end flats take: all of it runs out within 8 m and its depth changes by 1.5 m
+// or more along the end. Else 0.
+double Wedge (const Ctx& c, const Frame& f, double u, bool hi, double v0, double v1)
+{
+    double sum = 0, lo = 1e18, top = 0;
+    int samples = 0;
+    for (double v = v0 + 0.25; v < v1; v += 0.5, ++samples) {
+        double e = 0;
+        while (e < 8.0 && Inside (c.outline, f.World (hi ? u + e + 0.1 : u - e - 0.1, v)))
+            e += 0.1;
+        if (e >= 8.0)
+            return 0;
+        sum += e, lo = (std::min) (lo, e), top = (std::max) (top, e);
+    }
+    return samples && top - lo >= 1.5 ? sum / samples : 0;
+}
+
 // --- straight sections ------------------------------------------------------------------
 // Centre corridor: core in the band on side `up` (true: v = depth), caps on that side too,
 // so the other band runs on to both gables with corner flats.
@@ -289,6 +314,10 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     const double coreLo = up ? c1 : 0, coreHi = up ? depth : c0;
     const double band = coreHi - coreLo;
     double capLo = Clip ((std::max) (band, RoomFrontage (2).pref), c.o.minCap, c.o.maxCap), capHi = capLo;
+    // A cap before a slanted end leaves room for the wedge it will take.
+    const double capFloor = (std::min) (capLo, c.o.minCap + 1.0);
+    capLo = (std::max) (capFloor, capLo - Wedge (c, f, s0, false, coreLo, coreHi));
+    capHi = (std::max) (capFloor, capHi - Wedge (c, f, s1, true, coreLo, coreHi));
     EndPins (c, f, { s0, 0, s1, depth }, c0, c1, capLo, capHi);
     const int id = AddSection (c, run, (s1 - s0) * depth, 'C');
     const double e0 = s0 + capLo, e1 = s1 - capHi;
@@ -367,7 +396,9 @@ void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1,
 {
     const double corr = c.o.corridor, w = c.o.coreWidth;
     const double c0 = up ? depth - corr : 0, c1 = up ? depth : corr;
-    double capLo = Clip (depth - corr, c.o.minCap, c.o.maxCap), capHi = capLo;
+    // Caps take the full depth: no wider than a flat of the largest size.
+    const double widest = (MaxFlat (c.programme, c.o) + kPartyWall * depth) / (depth - floorprogramme::kFacade);
+    double capLo = Clip ((std::min) (depth - corr, widest), c.o.minCap, c.o.maxCap), capHi = capLo;
     EndPins (c, f, { s0, 0, s1, depth }, c0, c1, capLo, capHi);
     const int id = AddSection (c, run, (s1 - s0) * depth, 'O');
     const double e0 = s0 + capLo, e1 = s1 - capHi;
@@ -402,85 +433,131 @@ void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1,
 struct Sectional {
     int units = 2;
     double side = 0, middle = 0; // side flat width; width of the zone behind the stair
+    // Rows (user sketch "wider stair for a 4 unit section", 2026-10-10): a flat each side of the
+    // stair on its facade, `top` deep, and two flats behind them that meet under the stair. With
+    // a `lobby` (its depth) under the stair, `span` long, end flats reach it from its ends and
+    // `bottom` flats from behind: the end flats of a bar split in two instead of one deep flat.
+    bool rows = false;
+    double top = 0, lobby = 0, span = 0;
+    int bottom = 0;
 };
-// Programme area of the types with room counts in [lo, hi], or `fallback`.
-double TypicalArea (const floorprogramme::Programme& p, double lo, double hi, double fallback)
-{
-    double sum = 0, weight = 0;
-    for (const auto& t : p.types)
-        if (t.rooms >= lo - 1e-9 && t.rooms <= hi + 1e-9)
-            sum += floorprogramme::Target (t) * (t.share + 1e-3), weight += t.share + 1e-3;
-    return weight > 0 ? sum / weight : fallback;
-}
-double WidthFor (double area, double depth)
-{
-    return (area + kPartyWall * depth) / (std::max) (1.0, depth - floorprogramme::kFacade);
-}
-// Sections along `length` and the plan of each: fewest stairs whose flats stay near the sizes
-// of the sketch (2-3 rooms at the sides, 1-2 rooms behind the stair).
+constexpr double kRowMin = 5.5; // a single-aspect row: rooms and a strip of services behind
+constexpr double kLobby = 2.0;  // a landing lobby under the stair (user: about 2.5 m)
+// Sections along `length` and the plan of each, scored over the whole wing (m2 over 10): flats
+// away from every type's range, the mix away from the programme's shares, the floor stairs and
+// lobbies take and Options::stairCost per stair, less 0.25 per flat and 0.3 per through flat
+// (two facades). A flat over the cap, or one no type fits, rules a plan out.
 // `beyond`: mean depth of floor past the wing's two facades that the mould adds to the
 // through flats (a skewed or stepped outline).
-std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double length, double beyond)
+std::pair<int, Sectional> SectionalPlan (const Ctx& c, double depth, double length, double beyond, bool rowsOnly)
 {
-    const double S = c.o.coreWidth, behind = depth - c.o.coreDepth;
+    const double S = c.o.coreWidth, ds = c.o.coreDepth, behind = depth - ds;
     const bool middle = behind >= 4.5;
-    const double sideT = WidthFor (TypicalArea (c.programme, 2, 3, 60), depth);
-    const double midT = middle ? WidthFor (TypicalArea (c.programme, 1, 2, 38), behind) : 0;
     // Side flats are through flats: as narrow as the smallest through type (the programme check
     // below rules out the types that do not fit the width).
     const double sideLo = ThroughFrontage (1).min, sideHi = 10.0, midLo = RoomFrontage (1).min, midHi = 7.5;
     const double limit = (c.o.sectionArea + c.o.sectionSlack) / c.o.grossFactor;
     const double cap = MaxFlat (c.programme, c.o);
+    const auto& types = c.programme.types;
+    struct Unit {
+        double width, depth;
+        bool through = false;
+        double extra = 0; // a hall beside the stair, the mould's strips
+    };
+    auto score = [&] (int n, const std::vector<Unit>& units, double circulation) {
+        std::vector<double> count (types.size (), 0.0);
+        double sum = 0;
+        for (const auto& u : units) {
+            const double area = NetArea (u.width, u.depth) + u.extra;
+            if (area > cap + 0.5)
+                return 1e18; // too large a flat: more sections instead
+            double miss = 1e18;
+            size_t pick = 0;
+            for (size_t t = 0; t < types.size (); ++t) {
+                const auto f = u.through ? ThroughFrontage (types[t].rooms) : RoomFrontage (types[t].rooms);
+                if (u.width < f.min - 1e-6)
+                    continue;
+                const double m = area < types[t].minM2   ? types[t].minM2 - area
+                                 : area > types[t].maxM2 ? area - types[t].maxM2
+                                                         : 0;
+                if (m < miss)
+                    miss = m, pick = t;
+            }
+            if (miss > 1e17)
+                return 1e18;
+            sum += miss / 10.0 - (u.through ? 0.3 : 0.0);
+            count[pick] += 1;
+        }
+        double share = 0, mix = 0;
+        for (const auto& t : types)
+            share += t.share;
+        const double N = static_cast<double> (units.size ());
+        for (size_t t = 0; t < types.size (); ++t) {
+            const double off = count[t] / N - (share > 0 ? types[t].share / share : 0);
+            mix += off * off;
+        }
+        return n * (sum + mix * N + (circulation + c.o.stairCost) / 10.0 - 0.25 * N);
+    };
     double best = 1e18;
     std::pair<int, Sectional> out { 1, { 2, (std::max) (0.0, (length - S) / 2), S } };
     for (int n = 1; n <= (std::max) (1, static_cast<int> (length / 8)); ++n) {
         const double Ls = length / n;
         if (Ls * depth > limit + 1e-6)
             continue;
-        // Score: how far each flat's net area falls from the nearest programme type (in m2,
-        // over 10), plus a stair's worth of cost per section.
-        // Only the types whose rooms fit the width count; none fitting rules the plan out.
-        // `extra`: the hall that steps in beside the stair belongs to the side flat.
-        auto miss = [&] (double width, double d, bool through, double extra = 0) {
-            double best = 1e18;
-            const double area = NetArea (width, d) + extra;
-            if (area > cap + 0.5)
-                return 1e18; // too large a flat: more sections instead
-            for (const auto& t : c.programme.types) {
-                const auto f = through ? ThroughFrontage (t.rooms) : RoomFrontage (t.rooms);
-                if (width < f.min - 1e-6)
-                    continue;
-                const double m = area < t.minM2 ? t.minM2 - area : area > t.maxM2 ? area - t.maxM2 : 0;
-                best = (std::min) (best, m);
-            }
-            return best / 10.0;
+        auto take = [&] (double cost, Sectional plan) {
+            if (rowsOnly && !plan.rows)
+                return;
+            if (cost < best && cost < 1e17)
+                best = cost, out = { n, plan };
         };
-        auto consider = [&] (int units, double M) {
+        // Through flats each side of the stair; `units` - 2 flats behind it, `M` wide in all. The
+        // hall that steps in beside the stair belongs to the side flat.
+        auto through = [&] (int units, double M) {
             const double side = (Ls - M) / 2;
             if (side < sideLo - 1e-9 || side > sideHi + 1e-9)
                 return;
-            const double hall = units > 2 ? (M - S) / 2 * c.o.coreDepth : 0;
-            double cost = 2 * miss (side, depth, depth >= 8.0, hall + side * beyond) + 2.0 * n;
-            if (units == 4)
-                cost += 2 * miss (M / 2, behind, false);
-            if (units == 3)
-                cost += miss (M, behind, false);
-            cost -= 0.25 * units; // more flats per stair is cheaper
-            (void) sideT, (void) midT;
-            if (cost < best && cost < 1e17)
-                best = cost, out = { n, { units, side, M } };
+            const double hall = units > 2 ? (M - S) / 2 * ds : 0;
+            std::vector<Unit> list (2, { side, depth, depth >= 8.0, hall + side * beyond });
+            for (int k = 2; k < units; ++k)
+                list.push_back ({ M / (units - 2), behind });
+            take (score (n, list, S * (units > 2 ? ds : depth)), { units, side, M });
         };
         if (middle) {
             // The side halls step in beside the stair: each at least a hall's width.
             for (double M = (std::max) (2 * midLo, S + 2 * (kHallMin + kInnerWall)); M <= 2 * midHi + 1e-9; M += 0.1)
-                consider (4, M);
+                through (4, M);
             // One flat behind the stair, as wide as the stair or wide enough for halls beside it.
-            consider (3, S);
+            through (3, S);
             for (double M = S + 2 * (kHallMin + kInnerWall); M <= midHi + 1e-9; M += 0.1)
-                consider (3, M);
+                through (3, M);
         }
         else
-            consider (2, S);
+            through (2, S);
+        // Rows: `top` deep beside the stair, the rest behind; with a lobby, end flats and `bottom`
+        // flats under it.
+        auto rows = [&] (double top, double lobby, double span, int bottom) {
+            const double low = depth - top, side = (Ls - S) / 2, end = (Ls - span) / 2;
+            if (side < RoomFrontage (1).min - 1e-9 || end < RoomFrontage (1).min - 1e-9)
+                return;
+            std::vector<Unit> list (2, { side, top });
+            if (lobby <= 0)
+                list.insert (list.end (), 2, { Ls / 2, low });
+            else {
+                list.insert (list.end (), 2, { end, low });
+                list.insert (list.end (), bottom, { span / bottom, low - lobby });
+            }
+            take (score (n, list, S * top + span * lobby),
+                  { static_cast<int> (list.size ()), side, S, true, top, lobby, span, bottom });
+        };
+        for (double top = (std::max) (ds, kRowMin); top <= depth - kRowMin + 1e-9; top += 0.25) {
+            rows (top, 0, S, 0);
+            if (depth - top - kLobby < kRowMin - 1e-9)
+                continue;
+            for (double span = S; span <= Ls - 2 * RoomFrontage (1).min + 1e-9; span += 0.25)
+                for (int bottom = 1; bottom <= 2; ++bottom)
+                    if (span / bottom >= RoomFrontage (1).min - 1e-9)
+                        rows (top, kLobby, span, bottom);
+        }
     }
     return out;
 }
@@ -499,8 +576,41 @@ void CoreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bo
     // Flats behind the stair face the other facade: where another wing covers it, the
     // section keeps only the two side flats.
     if (plan.units > 2 && SideFacade (c, f, { s0, 0, s1, depth }, up ? 0 : 2) < 0.6 * (s1 - s0))
-        plan.units = 2;
+        plan.units = 2, plan.rows = false;
     const int id = AddSection (c, run, (s1 - s0) * depth, 'S');
+    if (plan.rows) {
+        // Rows measured from the facade away from the stair, turned when the stair is at v = 0.
+        auto V = [&] (double v0, double v1) {
+            return up ? Box { 0, v0, 0, v1 } : Box { 0, depth - v1, 0, depth - v0 };
+        };
+        const double low = depth - plan.top, span = plan.lobby > 0 ? plan.span : S;
+        double uc = (s0 + s1 - S) / 2;
+        const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, kPinTolerance);
+        if (pin) {
+            const double room = (std::max) (0.0, (s1 - s0 - span) / 2 - RoomFrontage (1).min);
+            uc += Clip (Clip (f.Local (pin->centre).x - S / 2 - uc, -kPinTolerance, kPinTolerance), -room, room);
+        }
+        const double l0 = uc + S / 2 - span / 2, l1 = l0 + span;
+        const Box t = V (low, depth), b = V (0, low);
+        AddCore (c, f, { uc, t.v0, uc + S, t.v1 }, id, pin != nullptr);
+        AddSlot (c, f, { s0, t.v0, uc, t.v1 }, up, id, 2, 1, false, t.v0, t.v1);
+        AddSlot (c, f, { uc + S, t.v0, s1, t.v1 }, up, id, 1, 1, false, t.v0, t.v1);
+        if (plan.lobby <= 0) {
+            const double xm = uc + S / 2;
+            AddSlot (c, f, { s0, b.v0, xm, b.v1 }, !up, id, 0, 1, false, uc, xm);
+            AddSlot (c, f, { xm, b.v0, s1, b.v1 }, !up, id, 0, 1, false, xm, uc + S);
+            return;
+        }
+        const Box l = V (low - plan.lobby, low), m = V (0, low - plan.lobby);
+        c.out.lobbies.push_back (ToRing (f, { l0, l.v0, l1, l.v1 }));
+        AddSlot (c, f, { s0, b.v0, l0, b.v1 }, !up, id, 2, 1, false, l.v0, l.v1);
+        AddSlot (c, f, { l1, b.v0, s1, b.v1 }, !up, id, 1, 1, false, l.v0, l.v1);
+        for (int k = 0; k < plan.bottom; ++k) {
+            const double a = l0 + span * k / plan.bottom, z = l0 + span * (k + 1) / plan.bottom;
+            AddSlot (c, f, { a, m.v0, z, m.v1 }, !up, id, 0, 1, false, l0, l1);
+        }
+        return;
+    }
     const double middle = plan.units == 2 ? S : plan.middle;
     double x0 = s0 + (s1 - s0 - middle) / 2, x3 = x0 + middle;
     double uc = x0 + (middle - S) / 2;
@@ -556,7 +666,7 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
         access = Access::CoreOnly;
     int n = 1;
     Sectional sectional;
-    if (access == Access::CoreOnly) {
+    if (access == Access::CoreOnly || access == Access::Rows) {
         // Floor past either facade within the mould's reach, averaged along the wing.
         double beyond = 0;
         int samples = 0;
@@ -567,7 +677,8 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
                     e += 0.1;
                 beyond += e < 3.4 ? e : 0;
             }
-        std::tie (n, sectional) = SectionalPlan (c, depth, length, samples ? beyond / samples : 0);
+        std::tie (n, sectional) =
+            SectionalPlan (c, depth, length, samples ? beyond / samples : 0, access == Access::Rows);
     }
     else {
         n = (std::max) (1, static_cast<int> (std::ceil (
@@ -598,9 +709,12 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
     for (size_t k = 0; k + 1 < cuts.size (); ++k) {
         const double a = cuts[k], b = cuts[k + 1];
         if (access == Access::Centre && b - a < 2 * c.o.maxCap + w + 5.0) {
-            // Short: the stair goes to an end that is not a gable, where it still has a window.
-            const bool lowGable = SideFacade (c, f, { a, 0, b, depth }, 3) >= 0.5 * depth;
-            const bool highGable = SideFacade (c, f, { a, 0, b, depth }, 1) >= 0.5 * depth;
+            // Short: the stair goes to an end that is not a gable, where it still has a window. A
+            // slanted end (floor beyond it that runs out within a flat's width) counts as a gable:
+            // the corridor reaches it and the flats there take the wedge (user, 2026-10-10).
+            auto wedge = [&] (bool hi) { return Wedge (c, f, hi ? b : a, hi, 0, depth) > 0; };
+            const bool lowGable = SideFacade (c, f, { a, 0, b, depth }, 3) >= 0.5 * depth || wedge (false);
+            const bool highGable = SideFacade (c, f, { a, 0, b, depth }, 1) >= 0.5 * depth || wedge (true);
             const double c0 = (depth - c.o.corridor) / 2;
             const Box core { 0, up ? c0 : 0, w, up ? depth : c0 + c.o.corridor };
             auto window = [&] (double u0) {
@@ -615,6 +729,9 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
                 end = 1;
             else if (lowFree)
                 end = -1;
+            // The stair would take a slanted end: a full section (caps at both ends) when it fits.
+            if (end == 1 && wedge (true) && !lowFree && b - a >= 2 * c.o.minCap + w + 5.0)
+                end = 0;
             CentreSection (c, f, depth, a, b, up, run, end);
             previousEnd = end;
             continue;
@@ -634,6 +751,7 @@ struct Corner {
     int parent = -1, child = -1;
     int parentEnd = 0, childEnd = 0; // 0: u = 0, 1: u = length
     double score = 0;
+    bool single = false; // the arm is a short shallow stub: its corridor runs along its inner side
 };
 // Frame of an L: u along the parent from the corner, the child on the +v side at u = 0.
 Frame CornerFrame (const Skeleton& sk, const Corner& k)
@@ -661,17 +779,32 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     const double DA = A.depth, DB = B.depth, corr = c.o.corridor, w = c.o.coreWidth;
     const double LAp = pa.s1 - pa.s0, LBp = pb.s1 - pb.s0; // portion lengths from the corner
     const double s = (std::min) (c.o.stairWindow, w);
-    const double ca = (DA - corr) / 2, cb = (DB - corr) / 2;
+    // A stub arm too shallow for a centre corridor is entered from a corridor along its inner
+    // side, its flats facing the outer facade (site B's 12 m end wings, user 2026-10-10).
+    const bool single = k.single;
+    const double ca = (DA - corr) / 2, cb = single ? DB - corr : (DB - corr) / 2;
     const double bandA = DA - ca - corr, bandB = DB - cb - corr;
+    // The arm's outer band produced down over the corner square only makes a deep, dark corner
+    // flat: that bay is left out of the massing (user, 2026-10-10), so the parent's outer band
+    // and the arm's both end on a new gable beside the corridor's turn.
+    const Box bay { 0, 0, cb, DA };
+    const bool cull =
+        c.o.cullCorners && !single && SideFacade (c, f, bay, 3) >= 0.8 * DA && SideFacade (c, f, bay, 0) >= 0.8 * cb;
+    if (cull) {
+        c.out.culled.push_back ({ ToRing (f, bay), "outer corner bay of an L: leave it out of the massing" });
+        c.outline = cp::Difference (c.outline, { ToPath (ToRing (f, bay)) }, cp::FillRule::NonZero, kPrecision);
+    }
     const double cap2 = RoomFrontage (2).pref;
     const double capA0 = Clip ((std::max) (bandA, cap2), c.o.minCap, c.o.maxCap),
                  capB0 = Clip ((std::max) (bandB, cap2), c.o.minCap, c.o.maxCap);
     // The stair stands in the inner corner and reaches past it for a window: along the
     // parent's inner facade (A), or else along the arm's (B).
-    const bool alongA = FacadeAlong (c.outline, f.World (DB, DA), f.World (DB + s, DA), f.v) >= c.o.stairWindow - 0.05;
-    const bool alongB =
-        !alongA && FacadeAlong (c.outline, f.World (DB, DA), f.World (DB, DA + s), f.u) >= c.o.stairWindow - 0.05;
-    const double coreU1 = alongB ? DB : DB + s, coreU0 = (std::max) (cb + corr, coreU1 - w);
+    // A stub's corridor fills its inner side: the stair stands wholly along the parent's.
+    const bool alongA =
+        FacadeAlong (c.outline, f.World (DB, DA), f.World (DB + (single ? w : s), DA), f.v) >= c.o.stairWindow - 0.05;
+    const bool alongB = !single && !alongA &&
+                        FacadeAlong (c.outline, f.World (DB, DA), f.World (DB, DA + s), f.u) >= c.o.stairWindow - 0.05;
+    const double coreU1 = single ? DB + w : alongB ? DB : DB + s, coreU0 = (std::max) (cb + corr, coreU1 - w);
     const double armStart = alongB ? s : 0.0; // the arm's inner band starts above the stair
     if (!alongA && !alongB) {
         // Neither inner facade is free at the corner: say how far a deeper stair would reach.
@@ -692,9 +825,13 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     struct Arm {
         double length, cap;
         bool small = false; // only a studio fits beside the stair
+        bool lobby = false; // the corridor runs on to `reach` with a lobby, not flats, beside it
     };
     const double minRest = c.o.maxCap + w + 5.0;
-    auto arms = [&] (double full, double start, double cap0) {
+    // `reach`: corridor the arm needs past the corner, so its outer band still has a door when
+    // the corner bay is culled; on a short arm what lies beside that stretch is a lobby.
+    // `open`: no inner band (a stub), so any corridor length beside the cap will do.
+    auto arms = [&] (double full, double start, double cap0, double reach, bool open) {
         std::vector<Arm> out;
         std::vector<double> lengths;
         for (double len = start + c.o.minCap; len <= full - minRest + 1e-6; len += 0.1)
@@ -705,31 +842,37 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
             // First a cap that leaves an ordinary flat's width (or none) beside the stair,
             // then any cap that leaves whole flats.
             double best = -1;
-            bool small = false;
+            bool small = false, lobby = false;
             // A short arm may give its whole length to a larger cap (up to 4 m past the
             // usual maximum) rather than leave a studio beside the stair.
             for (int pass = 0; pass < 2 && best < 0; ++pass)
                 for (double d = 0; d <= c.o.maxCap + 4 - c.o.minCap && best < 0; d += 0.1)
                     for (double cap : { cap0 - d, cap0 + d }) {
-                        const double inner = at - start - cap;
+                        double inner = at - start - cap;
                         const double most = c.o.maxCap + (pass == 0 ? 4 : 2);
                         if (cap < c.o.minCap - 1e-9 || cap > most + 1e-9 || inner < -1e-9 || inner > c.o.maxDeadEnd)
                             continue;
-                        if (pass == 0 && inner >= 0.05 && inner < ordinary)
+                        const bool short_ = inner + start < reach - 1e-9;
+                        if (short_ && (inner >= 0.05 || at - reach < c.o.minCap - 1e-9))
                             continue;
-                        if (c.Fits (inner)) {
-                            best = cap, small = pass == 1;
+                        if (short_)
+                            cap = at - reach, inner = 0;
+                        if (pass == 0 && inner >= 0.05 && inner < ordinary && !open)
+                            continue;
+                        if (open || c.Fits (inner)) {
+                            best = cap, small = pass == 1, lobby = short_;
                             break;
                         }
                     }
             if (best >= 0)
-                out.push_back ({ at, best, small });
+                out.push_back ({ at, best, small, lobby });
         }
         if (out.empty ())
             out.push_back ({ full, Clip (full - start, 0.0, cap0), true });
         return out;
     };
-    const auto optionsA = arms (LAp, coreU1, capA0), optionsB = arms (LBp, armStart, capB0);
+    const auto optionsA = arms (LAp, coreU1, capA0, 0, false),
+               optionsB = arms (LBp, armStart, capB0, cull ? 1.3 : 0, single);
     const double limit = (c.o.sectionArea + c.o.sectionSlack) / c.o.grossFactor;
     Arm armA = optionsA.back (), armB = optionsB.back ();
     double bestArea = -1;
@@ -781,19 +924,28 @@ void LRun (Ctx& c, const Skeleton& sk, const Corner& k, Portion pa, Portion pb, 
     AddCorridor (c, f, { { cb, ca, ueA, ca + corr }, { cb, ca, cb + corr, veB } },
                  { { ueA, ma }, { mb, ma }, { mb, veB } }, id);
     AddCap (c, f, { ueA, ca, LA, DA }, false, id, ca, ca + corr);
-    AddCap (c, g, { veB, cb, DA + LB, DB }, false, id, cb, cb + corr);
-    AddSlot (c, f, { 0, 0, LA, ca }, false, id, 0, 0, true, cb, ueA); // outer band of the parent, round the corner
-    AddSlot (c, g, { ca, 0, DA + LB, cb }, false, id, 0, 0, true, ca, veB); // outer band of the arm
-    AddSlot (c, f, { coreU1, ca + corr, ueA, DA }, true, id);               // inner band of the parent
-    AddSlot (c, g, { DA + armStart, cb + corr, veB, DB }, true, id);        // inner band of the arm
+    // A stub's cap spans it: its outer band stops where the corridor does.
+    AddCap (c, g, { veB, single ? 0 : cb, DA + LB, DB }, false, id, cb, cb + corr);
+    // Outer bands: the parent's runs round the corner unless the corner bay is culled.
+    AddSlot (c, f, { cull ? cb : 0, 0, LA, ca }, false, id, 0, 0, true, cb, ueA);
+    AddSlot (c, g, { cull ? DA : ca, 0, single ? veB : DA + LB, cb }, false, id, 0, 0, true, cull ? DA : ca, veB);
+    AddSlot (c, f, { coreU1, ca + corr, ueA, DA }, true, id); // inner band of the parent
+    if (armB.lobby)
+        c.out.lobbies.push_back (ToRing (g, { DA + armStart, cb + corr, veB, DB }));
+    else
+        AddSlot (c, g, { DA + armStart, cb + corr, veB, DB }, true, id); // inner band of the arm
 }
-std::vector<Corner> Corners (const Skeleton& sk, const std::vector<Access>& access)
+std::vector<Corner> Corners (const Skeleton& sk, const std::vector<Access>& access, double corridor)
 {
     std::vector<Corner> out;
     const double right = std::sin (10 * std::numbers::pi / 180);
     for (size_t i = 0; i < sk.wings.size (); ++i)
         for (size_t j = 0; j < sk.wings.size (); ++j) {
-            if (i == j || access[i] != Access::Centre || access[j] != Access::Centre)
+            // A short shallow arm (a stub up to about twice its depth) joins as a single-loaded arm.
+            const bool stub = access[i] == Access::CoreOnly && sk.wings[i].parent == static_cast<int> (j) &&
+                              sk.wings[i].joint == 'L' && sk.wings[i].length <= 2 * sk.wings[i].depth + 4.0 &&
+                              sk.wings[i].depth - corridor >= kRowMin;
+            if (i == j || access[j] != Access::Centre || (access[i] != Access::Centre && !stub))
                 continue;
             const auto& a = sk.wings[i];
             const auto& b = sk.wings[j];
@@ -813,13 +965,254 @@ std::vector<Corner> Corners (const Skeleton& sk, const std::vector<Access>& acce
                 const double lo = (std::min) (q0.x, q1.x), hi = (std::max) (q0.x, q1.x);
                 // ...flush with one of its ends.
                 if (lo < 0.6 && lo > -0.6)
-                    out.push_back ({ static_cast<int> (j), static_cast<int> (i), 0, e, a.length + b.length });
+                    out.push_back ({ static_cast<int> (j), static_cast<int> (i), 0, e, a.length + b.length, stub });
                 else if (hi > b.length - 0.6 && hi < b.length + 0.6)
-                    out.push_back ({ static_cast<int> (j), static_cast<int> (i), 1, e, a.length + b.length });
+                    out.push_back ({ static_cast<int> (j), static_cast<int> (i), 1, e, a.length + b.length, stub });
             }
         }
     std::sort (out.begin (), out.end (), [] (const Corner& a, const Corner& b) { return a.score > b.score; });
     return out;
+}
+// --- the bend: an arm at an angle --------------------------------------------------------
+// An arm leaving its parent's end at an angle (a V) shares a section with the parent's end: the
+// corridor runs on through the bend instead of the arm taking a stair of its own (user,
+// 2026-10-10). Each leg's bands end on the bend's mitre line; the wedges between them are left to
+// the mould, which gives them to the flats beside them with their rooms left to the user. The
+// parent's floor beyond the arm's outer facade produced is cut from the massing.
+struct Leg {
+    Frame f; // u toward the bend
+    double depth = 0;
+    double s0 = 0, sJ = 0; // the far end (a cap) and the bend
+    Vec side;              // mitre normal: floor before the bend has Dot (X - P, side) < 0
+};
+// Last u from the far end where the band [v0, v1] stays on the floor and before the mitre.
+double BandEnd (const Ctx& c, const Leg& g, Vec P, double v0, double v1)
+{
+    auto mitre = [&] (double v) {
+        const Vec q = g.f.World (0, v);
+        return Dot ({ P.x - q.x, P.y - q.y }, g.side) / Dot (g.f.u, g.side);
+    };
+    const double limit = (std::min) (mitre (v0), mitre (v1));
+    const double step = (std::max) (0.1, (v1 - v0 - 0.1) / 6);
+    double u = g.s0;
+    while (u + 0.1 <= limit + 1e-9) {
+        bool inside = true;
+        for (double v = v0 + 0.05; v <= v1 - 0.05 + 1e-9 && inside; v += step)
+            inside = Inside (c.outline, g.f.World (u + 0.1, v));
+        if (!inside)
+            break;
+        u += 0.1;
+    }
+    return u;
+}
+void BendSection (Ctx& c, const Leg& A, const Leg& B, Vec P, int run)
+{
+    const double corr = c.o.corridor, w = c.o.coreWidth;
+    const int id = AddSection (c, run, (A.sJ - A.s0) * A.depth + (B.sJ - B.s0) * B.depth, 'C');
+    struct Laid {
+        double c0, c1, e0, coreLo, coreHi, otherLo, otherHi, endCore, endOther;
+        bool up;
+    };
+    auto prepare = [&] (const Leg& g, double cap = -1) {
+        Laid l {};
+        l.c0 = (g.depth - corr) / 2, l.c1 = l.c0 + corr;
+        const Box all { g.s0, 0, g.sJ, g.depth };
+        l.up = Dot (g.f.v, North (c.o)) >= 0;
+        const double fu = SideFacade (c, g.f, all, 2), fd = SideFacade (c, g.f, all, 0), len = g.sJ - g.s0;
+        if ((l.up ? fu : fd) < 0.5 * len && (l.up ? fd : fu) >= 0.5 * len)
+            l.up = !l.up;
+        l.coreLo = l.up ? l.c1 : 0, l.coreHi = l.up ? g.depth : l.c0;
+        l.otherLo = l.up ? 0 : l.c1, l.otherHi = l.up ? l.c0 : g.depth;
+        l.e0 = g.s0 +
+               (cap > 0 ? cap : Clip ((std::max) (l.coreHi - l.coreLo, RoomFrontage (2).pref), c.o.minCap, c.o.maxCap));
+        l.endCore = BandEnd (c, g, P, l.coreLo, l.coreHi);
+        l.endOther = BandEnd (c, g, P, l.otherLo, l.otherHi);
+        return l;
+    };
+    // Caps from the usual length outward: the first that leaves the band beside the corridor
+    // whole flats (with the stair: on both sides of it).
+    auto caps = [&] (const Laid& l, const Leg& g) {
+        std::vector<double> out;
+        const double cap0 = l.e0 - g.s0;
+        for (double d = 0; d <= c.o.maxCap - c.o.minCap + 1e-9; d += 0.1)
+            for (double cap : { cap0 - d, cap0 + d })
+                if (cap >= c.o.minCap - 1e-9 && cap <= c.o.maxCap + 1e-9 && cap < g.sJ - g.s0 - 1.2)
+                    out.push_back (cap);
+        return out;
+    };
+    Laid la = prepare (A), lb = prepare (B);
+    // The stair stands along the corridor on the longer leg, both dead ends as short as it can.
+    const bool onA = A.sJ - la.e0 >= B.sJ - lb.e0;
+    const Leg& g = onA ? A : B;
+    Laid& l = onA ? la : lb;
+    Laid& n = onA ? lb : la;
+    const Leg& h = onA ? B : A;
+    for (double cap : caps (n, h)) {
+        const Laid m = prepare (h, cap);
+        if (PieceFits (c, h.f, { m.e0, m.coreLo, m.endCore, m.coreHi }, m.up)) {
+            n = m;
+            break;
+        }
+    }
+    const double beyond = h.sJ - n.e0;
+    double uc = l.e0, bestCost = 1e18;
+    bool fitted = false;
+    const double cap0 = l.e0 - g.s0;
+    for (double cap : caps (l, g)) {
+        const Laid m = prepare (g, cap);
+        for (double u = m.e0; u <= m.endCore - w + 1e-9; u += 0.1) {
+            if (SideFacade (c, g.f, { u, m.coreLo, u + w, m.coreHi }, m.up ? 2 : 0) < c.o.stairWindow)
+                continue;
+            const double dead = (std::max) (u - m.e0, g.sJ - u - w + beyond);
+            const bool fits = PieceFits (c, g.f, { m.e0, m.coreLo, u, m.coreHi }, m.up) &&
+                              PieceFits (c, g.f, { u + w, m.coreLo, m.endCore, m.coreHi }, m.up);
+            const double cost = dead + (fits ? 0 : 100) + (dead > c.o.maxDeadEnd ? 50 : 0) + std::abs (cap - cap0);
+            if (cost < bestCost)
+                bestCost = cost, uc = u, fitted = fits, l = m;
+        }
+        if (fitted)
+            break;
+    }
+    if (!fitted)
+        c.notes.push_back ({ Diagnostic::Warning, "core.no_fit",
+                             "No stair position leaves whole flats on both sides; the band beside it will not divide.",
+                             g.f.World (uc + w / 2, (l.coreLo + l.coreHi) / 2) });
+    AddCore (c, g.f, { uc, l.coreLo, uc + w, l.coreHi }, id, false);
+    // One corridor from cap to cap through the bend, mitred at the turn.
+    const Vec a = A.f.World (la.e0, A.depth / 2), b = B.f.World (lb.e0, B.depth / 2);
+    const auto shape = cp::InflatePaths ({ cp::PathD { { a.x, a.y }, { P.x, P.y }, { b.x, b.y } } }, corr / 2,
+                                         cp::JoinType::Miter, cp::EndType::Butt, 4.0, kPrecision);
+    if (!shape.empty ()) {
+        Corridor corridor;
+        corridor.shape = Counter (FromPath (cp::SimplifyPath (shape.front (), 1e-4)));
+        corridor.axis = { a, P, b };
+        corridor.section = id;
+        c.out.corridors.push_back (std::move (corridor));
+    }
+    for (int k = 0; k < 2; ++k) {
+        const Leg& leg = k == 0 ? A : B;
+        const Laid& m = k == 0 ? la : lb;
+        auto lit = [&] (Box x, bool high) {
+            return SideFacade (c, leg.f, x, high ? 2 : 0) + SideFacade (c, leg.f, x, 3) + SideFacade (c, leg.f, x, 1);
+        };
+        const double capV0 = m.up ? m.c0 : 0, capV1 = m.up ? leg.depth : m.c1;
+        const double oppV0 = m.up ? 0 : m.c0, oppV1 = m.up ? m.c1 : leg.depth;
+        const Box sigma { leg.s0, capV0, m.e0, capV1 }, other { leg.s0, oppV0, m.e0, oppV1 };
+        const bool flip = lit (sigma, m.up) < kBedroomMin && lit (other, !m.up) >= kBedroomMin;
+        if (!flip && lit (sigma, m.up) < kBedroomMin)
+            c.out.storage.push_back ({ ToRing (leg.f, sigma), "corridor end without facade (storage)" });
+        else
+            AddCap (c, leg.f, flip ? other : sigma, true, id, m.c0, m.c1);
+        const double coreStart = flip ? leg.s0 : m.e0, otherStart = flip ? m.e0 : leg.s0;
+        if ((k == 0) == onA) {
+            AddSlot (c, leg.f, { coreStart, m.coreLo, uc, m.coreHi }, m.up, id, 0, 0, true, m.e0, leg.sJ);
+            AddSlot (c, leg.f, { uc + w, m.coreLo, m.endCore, m.coreHi }, m.up, id, 0, 0, true, m.e0, leg.sJ);
+        }
+        else
+            AddSlot (c, leg.f, { coreStart, m.coreLo, m.endCore, m.coreHi }, m.up, id, 0, 0, true, m.e0, leg.sJ);
+        AddSlot (c, leg.f, { otherStart, m.otherLo, m.endOther, m.otherHi }, !m.up, id, 0, 0, true, m.e0, leg.sJ);
+    }
+}
+
+// The parent `ia` and its angled arm `ib`: the bend section and what is left of each wing as
+// straight runs. False when the pair is no clean bend (the caller plans them straight).
+bool Bend (Ctx& c, const Skeleton& sk, int ia, int ib, int& run)
+{
+    const auto& A = sk.wings[ia];
+    const auto& B = sk.wings[ib];
+    const bool flipped = sk.frames[ia].Local (B.a).x < A.length / 2;
+    const Frame F = flipped ? FlipU (sk.frames[ia], A.length) : sk.frames[ia];
+    const Frame& G = sk.frames[ib];
+    // P: where the corridor centre lines meet.
+    const Vec pa = F.World (0, A.depth / 2), pb = G.World (0, B.depth / 2);
+    const double den = F.u.x * G.u.y - F.u.y * G.u.x;
+    if (std::abs (den) < 0.3)
+        return false;
+    const double t = ((pb.x - pa.x) * G.u.y - (pb.y - pa.y) * G.u.x) / den;
+    const Vec P { pa.x + t * F.u.x, pa.y + t * F.u.y };
+    const double uB = G.Local (P).x;
+    if (t < A.length - A.depth - B.depth || t > A.length + 1.0 || uB > 1.0 || uB < -(A.depth + B.depth))
+        return false;
+    // The parent's floor beyond the arm's outer facade produced: a small wedge, cut.
+    {
+        const bool high = Dot (G.v, F.u) > 0;
+        const Vec n = high ? G.v : Vec { -G.v.x, -G.v.y }, q = G.World (0, high ? B.depth : 0);
+        const double R = A.depth + B.depth + 10.0;
+        auto at = [&] (double s, double r) {
+            return cp::PointD (q.x + G.u.x * s + n.x * r, q.y + G.u.y * s + n.y * r);
+        };
+        const cp::PathD half { at (-R, 0), at (R, 0), at (R, R), at (-R, R) };
+        for (const auto& piece : cp::Intersect (c.outline, { half }, cp::FillRule::NonZero, kPrecision)) {
+            const double area = cp::Area (piece);
+            const Ring ring = FromPath (piece);
+            Vec mid {};
+            for (const auto& p : ring)
+                mid.x += p.x / ring.size (), mid.y += p.y / ring.size ();
+            if (area > 0.5 && area < 0.3 * A.depth * A.depth && F.Local (mid).x > t - A.depth) {
+                c.out.culled.push_back (
+                    { Counter (ring), "parent's end beyond the angled arm: leave it out of the massing" });
+                c.outline = cp::Difference (c.outline, { piece }, cp::FillRule::NonZero, kPrecision);
+            }
+        }
+    }
+    // The bend section as large as one stair's area allows, the rest of each wing on its own.
+    const double tA = t, tB = B.length - uB;
+    const double limit = (c.o.sectionArea + c.o.sectionSlack) / c.o.grossFactor;
+    const double minPart = c.o.minCap + 1.0, minRest = c.o.minCap + c.o.coreWidth + 5.0;
+    const Vec side { F.u.x + G.u.x, F.u.y + G.u.y };
+    // Floor of each leg between a cut `x` before (A) or after (B) the bend and the mitre.
+    const double R = 4 * (A.length + B.length);
+    auto floor = [&] (const Frame& f, double from, double to, double sign) {
+        auto at = [&] (double u, double v) {
+            const Vec q = f.World (u, v);
+            return cp::PointD (q.x, q.y);
+        };
+        const cp::PathD box { at (from, -R), at (to, -R), at (to, R), at (from, R) };
+        const Vec d { -side.y, side.x };
+        auto hp = [&] (double s, double r) {
+            return cp::PointD (P.x + d.x * s - sign * side.x * r, P.y + d.y * s - sign * side.y * r);
+        };
+        const cp::PathD half { hp (-R, 0), hp (R, 0), hp (R, R), hp (-R, R) };
+        return std::abs (
+            detail::Area (cp::Intersect (cp::Intersect (c.outline, { box }, cp::FillRule::NonZero, kPrecision),
+                                         { half }, cp::FillRule::NonZero, kPrecision)));
+    };
+    double best = 1e18, la = -1, lb = -1;
+    auto lengths = [&] (double total) {
+        std::vector<double> out;
+        for (double x = minPart; x < total - 1e-9; x += 0.5)
+            out.push_back (x);
+        out.push_back (total);
+        return out;
+    };
+    const auto xs = lengths (tA), ys = lengths (tB);
+    std::vector<double> areaA, areaB;
+    for (double x : xs)
+        areaA.push_back (floor (F, tA - x, tA + R, 1.0));
+    for (double y : ys)
+        areaB.push_back (floor (G, -R, uB + y, -1.0));
+    for (size_t i = 0; i < xs.size (); ++i)
+        for (size_t j = 0; j < ys.size (); ++j) {
+            const double x = xs[i], y = ys[j], rx = tA - x, ry = tB - y;
+            if ((rx > 0.25 && rx < minRest) || (ry > 0.25 && ry < minRest) || areaA[i] + areaB[j] > limit)
+                continue;
+            const int stairs = 1 + (rx > 0.25 ? static_cast<int> (std::ceil (rx * A.depth / limit)) : 0) +
+                               (ry > 0.25 ? static_cast<int> (std::ceil (ry * B.depth / limit)) : 0);
+            const double score = stairs * 1e4 - (areaA[i] + areaB[j]);
+            if (score < best)
+                best = score, la = x, lb = y;
+        }
+    if (la < 0)
+        return false;
+    if (tA - la > 0.25)
+        Straight (c, sk, flipped ? Portion { ia, A.length - (tA - la), A.length } : Portion { ia, 0, tA - la },
+                  Access::Centre, run++);
+    if (tB - lb > 0.25)
+        Straight (c, sk, { ib, uB + lb, B.length }, Access::Centre, run++);
+    const Leg legA { F, A.depth, tA - la, tA, side };
+    const Leg legB { FlipU (G, uB + lb), B.depth, 0, lb, { -side.x, -side.y } };
+    BendSection (c, legA, legB, P, run++);
+    return true;
 }
 Access AutoAccess (const Ctx& c, const Skeleton& sk, size_t i)
 {
@@ -827,9 +1220,11 @@ Access AutoAccess (const Ctx& c, const Skeleton& sk, size_t i)
     for (const auto& pin : c.pins.access)
         if (pin.access != Access::Auto && Inside ({ ToPath (w.rect) }, pin.at))
             return pin.access;
-    // Deep wings take a centre corridor; shallower ones are sections of 3-4 flats around a
-    // stair (2 when too shallow to fit a flat behind the stair).
-    return w.depth >= c.o.centreDepth - 1e-6 ? Access::Centre : Access::CoreOnly;
+    // Deep wings take a centre corridor; shallower ones are sections round a stair (or what
+    // Options::shallow asks for: Generate weighs both).
+    if (w.depth >= c.o.centreDepth - 1e-6)
+        return Access::Centre;
+    return c.o.shallow == Access::Auto ? Access::CoreOnly : c.o.shallow;
 }
 } // namespace
 
@@ -847,7 +1242,7 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
     // with a corner at both ends is split between its two L runs.
     std::vector<std::array<int, 2>> endUse (sk.wings.size (), { -1, -1 });
     std::vector<Corner> chosen;
-    for (const auto& k : Corners (sk, access)) {
+    for (const auto& k : Corners (sk, access, o.corridor)) {
         if (endUse[k.parent][k.parentEnd] >= 0 || endUse[k.child][k.childEnd] >= 0)
             continue;
         // A user stair away from this corner turns the L back into straight runs.
@@ -885,8 +1280,20 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
     int run = 0;
     for (const auto& k : chosen)
         LRun (c, sk, k, portion (k.parent, k.parentEnd), portion (k.child, k.childEnd), run++, straight);
+    // Arms at an angle to a corridor wing, where neither has an L run: one bend section.
+    std::vector<bool> bent (sk.wings.size (), false);
+    for (size_t i = 0; i < sk.wings.size (); ++i) {
+        const auto& w = sk.wings[i];
+        const int p = w.parent;
+        if (p < 0 || w.joint != 'L' || w.angle < 15 || w.angle > 80 || bent[i] || bent[p] ||
+            access[i] != Access::Centre || access[p] != Access::Centre || endUse[i][0] >= 0 || endUse[i][1] >= 0 ||
+            endUse[p][0] >= 0 || endUse[p][1] >= 0)
+            continue;
+        if (Bend (c, sk, p, static_cast<int> (i), run))
+            bent[i] = bent[p] = true;
+    }
     for (size_t i = 0; i < sk.wings.size (); ++i)
-        if (endUse[i][0] < 0 && endUse[i][1] < 0)
+        if (endUse[i][0] < 0 && endUse[i][1] < 0 && !bent[i])
             straight.push_back ({ static_cast<int> (i), 0, sk.wings[i].length });
     for (const auto& p : straight)
         Straight (c, sk, p, access[p.wing], run++);

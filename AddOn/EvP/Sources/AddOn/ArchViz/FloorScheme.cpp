@@ -123,6 +123,12 @@ cp::PathsD Strip (const cp::PathsD& rest, const Ring& shape, const Extent& e, in
         if (cp::Area (piece) < 0.01)
             continue;
         const Ring ring = FromPath (piece);
+        double perimeter = 0;
+        for (size_t k = 0; k < ring.size (); ++k)
+            perimeter +=
+                std::hypot (ring[(k + 1) % ring.size ()].x - ring[k].x, ring[(k + 1) % ring.size ()].y - ring[k].y);
+        if (2 * cp::Area (piece) / perimeter < 0.05)
+            continue; // a hairline left by rounding: joined it folds the flat's outline
         Extent pe (ring, e.u);
         const double depth = dir == 0 ? pe.v1 - e.v1 : dir == 1 ? e.v0 - pe.v0 : dir == 2 ? pe.u1 - e.u1 : e.u0 - pe.u0;
         if (depth < reach - 0.05 && Touch (Counter (ring), shape) >= 0.5)
@@ -144,7 +150,26 @@ cp::PathsD Merge (const Ring& shape, const cp::PathD& piece)
     return cp::InflatePaths (cp::Union (grown, cp::FillRule::NonZero, kPrecision), -kWeld, cp::JoinType::Miter,
                              cp::EndType::Polygon, 4.0, kPrecision);
 }
-// Joins `piece` to `shape` when the result is one ring without a hole.
+// True when an outline doubles back on itself: a spike or a fold of zero width.
+bool Folded (const Ring& ring)
+{
+    Ring r;
+    for (const auto& p : ring)
+        if (r.empty () || std::hypot (p.x - r.back ().x, p.y - r.back ().y) > 1e-4)
+            r.push_back (p);
+    while (r.size () > 1 && std::hypot (r.front ().x - r.back ().x, r.front ().y - r.back ().y) <= 1e-4)
+        r.pop_back ();
+    for (size_t i = 0; i < r.size (); ++i) {
+        const Vec a = r[(i + r.size () - 1) % r.size ()], b = r[i], c = r[(i + 1) % r.size ()];
+        const double l1 = std::hypot (b.x - a.x, b.y - a.y), l2 = std::hypot (c.x - b.x, c.y - b.y);
+        if (l1 < 1e-6 || l2 < 1e-6)
+            continue;
+        if (((b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)) / (l1 * l2) < -0.999)
+            return true;
+    }
+    return false;
+}
+// Joins `piece` to `shape` when the result is one ring without a hole or a fold.
 bool Join (Ring& shape, const cp::PathD& piece)
 {
     if (std::abs (cp::Area (piece)) < 1e-4)
@@ -157,8 +182,11 @@ bool Join (Ring& shape, const cp::PathD& piece)
     // Simplifying can fold the weld's millimetre edges away; keep it only when the area holds.
     const auto simple = cp::SimplifyPath (joined.front (), 1e-3);
     const double area = cp::Area (joined.front ());
-    shape = Counter (
+    const Ring result = Counter (
         FromPath (std::abs (cp::Area (simple) - area) < 1e-3 * (std::max) (1.0, area) ? simple : joined.front ()));
+    if (Folded (result))
+        return false;
+    shape = result;
     return true;
 }
 // The rooms on side `dir` grow over the piece between their own walls, and their windows move
@@ -196,26 +224,37 @@ void Grow (Flat& flat, const cp::PathD& piece, const Extent& e, int dir)
         }
     }
 }
+// True when `piece` runs along a corridor of another section than `section`: joined to a flat it
+// would open that flat onto a second stair's circulation.
+bool Foreign (const Scheme& s, const Ring& piece, int section)
+{
+    for (const auto& c : s.corridors)
+        if (c.section != section && Near (piece, c.shape, 0.1) && Touch (piece, c.shape) >= 0.3)
+            return true;
+    return false;
+}
 // Leftover floor beside flats and stairs joins them between their walls produced straight on to
 // the outline (user, 2026-10-10), so a skewed facade adds clean strips instead of diagonal cuts:
 // long sides first, then gables. A strip that would take a flat over `cap` stays out (division
 // plans for the strips, so this is rare). Returns what is left.
-cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first, double cap)
+// `wedge`: only gables, out to 8 m (a slanted end): the flat's walls at an angle leave its rooms
+// to the user.
+cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first, double cap, bool wedge = false)
 {
-    constexpr double kSide = 3.5, kGable = 2.0;
+    constexpr double kSide = 3.5, kGable = 2.0, kWedge = 8.0;
     // A stair's axis is read before it grows: a joined strip can put a slanted edge first.
     std::vector<Vec> axes;
     for (const auto& core : s.cores)
         axes.push_back (core.shape.size () < 2
                             ? Vec { 1, 0 }
                             : Vec { core.shape[1].x - core.shape[0].x, core.shape[1].y - core.shape[0].y });
-    for (int dir = 0; dir < 4 && !rest.empty (); ++dir) {
-        const double reach = dir < 2 ? kSide : kGable;
+    for (int dir = wedge ? 2 : 0; dir < 4 && !rest.empty (); ++dir) {
+        const double reach = wedge ? kWedge : dir < 2 ? kSide : kGable;
         auto apply = [&] (const cp::PathsD& take) {
             if (!take.empty ())
                 rest = cp::Difference (rest, take, cp::FillRule::NonZero, kPrecision);
         };
-        for (size_t k = 0; k < s.cores.size () && first == 0; ++k) {
+        for (size_t k = 0; k < s.cores.size () && first == 0 && !wedge; ++k) {
             auto& core = s.cores[k];
             const Extent e (core.shape, axes[k]);
             cp::PathsD took;
@@ -229,8 +268,12 @@ cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first, double cap)
             const Extent e (flat.shape, flat.axis);
             cp::PathsD took;
             for (const auto& piece : Strip (rest, flat.shape, e, dir, reach))
-                if (flat.net + cp::Area (piece) <= cap + 0.5 && Join (flat.shape, piece)) {
-                    Grow (flat, piece, e, dir);
+                if (flat.net + cp::Area (piece) <= cap + 0.5 &&
+                    !Foreign (s, Counter (FromPath (piece)), flat.section) && Join (flat.shape, piece)) {
+                    if (wedge && cp::Area (piece) > 0.5)
+                        flat.manual = true, flat.roomList.clear (), flat.windows.clear ();
+                    else
+                        Grow (flat, piece, e, dir);
                     const double area = cp::Area (piece);
                     flat.gross += area, flat.net += area;
                     took.push_back (piece);
@@ -241,11 +284,13 @@ cp::PathsD Extend (cp::PathsD rest, Scheme& s, size_t first, double cap)
     return rest;
 }
 // A small piece joins a flat it touches when it is a sliver or keeps the flat square.
-bool Joinable (const Flat& flat, const cp::PathD& path, double cap)
+bool Joinable (const Scheme& s, const Flat& flat, const cp::PathD& path, double cap)
 {
     const double area = cp::Area (path);
     if (flat.net + area > cap + 0.5)
         return false; // a flat over the cap: the piece goes to a neighbour or stays out
+    if (Foreign (s, Counter (FromPath (path)), flat.section))
+        return false;
     const Ring piece = Counter (FromPath (path));
     double perimeter = 0;
     for (size_t k = 0; k < piece.size (); ++k)
@@ -283,11 +328,78 @@ cp::PathsD Absorb (const cp::PathsD& rest, Scheme& s, size_t first, double cap)
         std::sort (owners.begin (), owners.end ());
         bool joined = false;
         for (const auto& [t, i] : owners)
-            if (Joinable (s.flats[i], path, cap) && Join (s.flats[i].shape, path)) {
+            if (Joinable (s, s.flats[i], path, cap) && Join (s.flats[i].shape, path)) {
                 s.flats[i].gross += cp::Area (path), s.flats[i].net += cp::Area (path);
                 joined = true;
                 break;
             }
+        if (!joined)
+            left.push_back (path);
+    }
+    return left;
+}
+// Area over the area of the convex hull.
+double Convexity (const cp::PathD& path)
+{
+    cp::PathD pts = path;
+    std::sort (pts.begin (), pts.end (),
+               [] (const cp::PointD& a, const cp::PointD& b) { return a.x < b.x || (a.x == b.x && a.y < b.y); });
+    if (pts.size () < 3)
+        return 0;
+    auto cross = [] (const cp::PointD& o, const cp::PointD& a, const cp::PointD& b) {
+        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    };
+    cp::PathD hull (2 * pts.size ());
+    size_t k = 0;
+    for (size_t i = 0; i < pts.size (); ++i) {
+        while (k >= 2 && cross (hull[k - 2], hull[k - 1], pts[i]) <= 0)
+            --k;
+        hull[k++] = pts[i];
+    }
+    for (size_t i = pts.size () - 1, t = k + 1; i-- > 0;) {
+        while (k >= t && cross (hull[k - 2], hull[k - 1], pts[i]) <= 0)
+            --k;
+        hull[k++] = pts[i];
+    }
+    hull.resize (k - 1);
+    const double h = std::abs (cp::Area (hull));
+    return h > kEps ? std::abs (cp::Area (path)) / h : 0;
+}
+// A leftover wedge on the outline (a slanted end, an angled junction) joins the flat it touches
+// most when the flat stays under the cap and convex: walls at an angle, so its rooms are left to
+// the user (user, 2026-10-10). Returns what is left.
+cp::PathsD Wedges (const cp::PathsD& outline, const cp::PathsD& rest, Scheme& s, double cap)
+{
+    cp::PathsD left;
+    for (const auto& path : rest) {
+        const double area = cp::Area (path);
+        const Ring ring = Counter (FromPath (path));
+        bool joined = false;
+        if (area >= 2.0 && FacadeOf (outline, ring) >= 1.0) {
+            std::vector<std::pair<double, size_t>> owners;
+            for (size_t i = 0; i < s.flats.size (); ++i)
+                if (Near (ring, s.flats[i].shape, 0.1)) {
+                    const double t = Touch (ring, s.flats[i].shape);
+                    if (t > 1.5)
+                        owners.push_back ({ -t, i });
+                }
+            std::sort (owners.begin (), owners.end ());
+            for (const auto& [t, i] : owners) {
+                auto& flat = s.flats[i];
+                if (flat.net + area > cap + 0.5 || Foreign (s, ring, flat.section))
+                    continue;
+                const auto merged = Merge (flat.shape, path);
+                if (merged.size () != 1 || Convexity (cp::SimplifyPath (merged.front (), 1e-3)) < 0.92 ||
+                    !Join (flat.shape, path))
+                    continue;
+                flat.gross += area, flat.net += area;
+                flat.manual = true;
+                flat.roomList.clear ();
+                flat.windows.clear ();
+                joined = true;
+                break;
+            }
+        }
         if (!joined)
             left.push_back (path);
     }
@@ -312,7 +424,7 @@ void Mould (const cp::PathsD& outline, Scheme& s, double cap)
     auto rest = Extend (cp::Difference (outline, cp::Union (used, cp::FillRule::NonZero, kPrecision),
                                         cp::FillRule::NonZero, kPrecision),
                         s, 0, cap);
-    rest = Absorb (rest, s, 0, cap);
+    rest = Wedges (outline, Extend (Absorb (rest, s, 0, cap), s, 0, cap, true), s, cap);
     if (std::abs (detail::Area (rest)) < 0.05)
         return;
     // Simple pieces: each region with its holes triangulated, or cut on a 2 m grid when the
@@ -398,7 +510,7 @@ void Mould (const cp::PathsD& outline, Scheme& s, double cap)
             if (area <= 0)
                 continue;
             // Only a small piece next to the flat: anything larger stays visible.
-            if (Joinable (flat, path, cap) && Join (flat.shape, path))
+            if (Joinable (s, flat, path, cap) && Join (flat.shape, path))
                 flat.gross += area, flat.net += area;
             else
                 leave (path, "would make a nook in the flat beside it");
@@ -537,8 +649,51 @@ void Tidy (Scheme& s)
 }
 } // namespace
 
+namespace {
+// Net area less what the stairs cost and the floor left unassigned; a broken scheme loses.
+double Economy (const Scheme& s, const Options& o)
+{
+    double red = 0;
+    for (const auto& u : s.unassigned)
+        if (u.reason.find ("storage") == std::string::npos)
+            red += std::abs (Area (u.shape));
+    return s.net - o.stairCost * static_cast<double> (s.cores.size ()) - red - (s.ok ? 0.0 : 1e6);
+}
+Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
+             const Options& options);
+} // namespace
+
 Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
                  const Options& options)
+{
+    auto s = Plan (outline, programme, pins, options);
+    if (options.shallow != Access::Auto)
+        return s;
+    // Typology adaptation (user, 2026-10-10): shallow wings planned as sections are weighed
+    // against a corridor on one side, the economic plan of a thin bar.
+    bool sections = false;
+    for (const auto& w : s.wings)
+        sections = sections || w.access == Access::CoreOnly;
+    if (!sections)
+        return s;
+    Options corridor = options;
+    corridor.shallow = Access::OneSide;
+    auto alt = Plan (outline, programme, pins, corridor);
+    const double a = Economy (s, options), b = Economy (alt, options);
+    auto& kept = b > a ? alt : s;
+    kept.diagnostics.push_back ({ Diagnostic::Info,
+                                  "typology.choice",
+                                  std::string (b > a ? "A corridor on one side" : "Sections round stairs") +
+                                      " scored " + std::to_string (static_cast<int> (std::round ((std::max) (a, b)))) +
+                                      " against " + std::to_string (static_cast<int> (std::round ((std::min) (a, b)))) +
+                                      " (net m2 less stairs and unassigned).",
+                                  {} });
+    return std::move (kept);
+}
+
+namespace {
+Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
+             const Options& options)
 {
     Scheme s;
     auto paths = cp::Union (ToPaths (outline), cp::FillRule::NonZero, kPrecision);
@@ -559,6 +714,16 @@ Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Program
     auto skeleton = Decompose (paths, options, s.diagnostics);
     s.typology = skeleton.typology;
     auto layout = Circulate (paths, skeleton, programme, pins, options, s.diagnostics);
+    if (!layout.culled.empty ()) {
+        // What the typology leaves out is no longer floor: the rest is planned and checked.
+        cp::PathsD cut;
+        for (const auto& piece : layout.culled)
+            cut.push_back (ToPath (piece.shape));
+        paths = cp::Difference (paths, cut, cp::FillRule::NonZero, kPrecision);
+        s.outline = FromPaths (paths);
+        s.gross = detail::Area (paths);
+        s.culled = layout.culled;
+    }
     s.wings = skeleton.wings;
     s.sections = layout.sections;
     s.corridors = layout.corridors;
@@ -581,6 +746,23 @@ Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Program
     Mould (paths, s, MaxFlat (programme, options));
     Rework (paths, s, programme, pins, options);
     Tidy (s);
+    // A flat whose rooms are left to the user takes the type its area fits.
+    for (auto& f : s.flats) {
+        if (!f.manual)
+            continue;
+        size_t pick = f.type;
+        double miss = 1e18;
+        for (size_t t = 0; t < programme.types.size (); ++t) {
+            const auto& type = programme.types[t];
+            const double m = f.net < type.minM2 ? type.minM2 - f.net : f.net > type.maxM2 ? f.net - type.maxM2 : 0;
+            if (m < miss)
+                miss = m, pick = t;
+        }
+        if (pick != f.type && pick < s.counts.size () && f.type < s.counts.size ())
+            --s.counts[f.type], ++s.counts[pick];
+        f.type = pick, f.rooms = programme.types[pick].rooms;
+        f.inRange = miss <= 0.5;
+    }
     for (const auto& f : s.flats)
         s.net += f.net;
     for (const auto& c : s.corridors)
@@ -592,6 +774,8 @@ Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Program
     Check (s, options);
     return s;
 }
+
+} // namespace
 
 size_t Check (Scheme& s, const Options& o)
 {
@@ -673,6 +857,29 @@ size_t Check (Scheme& s, const Options& o)
             door += Touch (f.shape, l);
         if (door < 0.9)
             fail ("flat.no_door", "A flat does not reach a corridor or a stair landing.", at);
+        // One stair's circulation per flat (user, 2026-10-10: a flat on two is uneconomical).
+        {
+            std::vector<int> reached;
+            auto reach = [&] (const Ring& ring, int section) {
+                if (section >= 0 && Near (f.shape, ring, 0.1) && Touch (f.shape, ring) >= 0.9 &&
+                    std::find (reached.begin (), reached.end (), section) == reached.end ())
+                    reached.push_back (section);
+            };
+            for (const auto& c : s.corridors)
+                reach (c.shape, c.section);
+            // A stair is a wall to the flats beside it; it counts only where the flat's door is.
+            const Vec door { (f.door.a.x + f.door.b.x) / 2, (f.door.a.y + f.door.b.y) / 2 };
+            const Ring mark { { door.x - 0.15, door.y - 0.15 },
+                              { door.x + 0.15, door.y - 0.15 },
+                              { door.x + 0.15, door.y + 0.15 },
+                              { door.x - 0.15, door.y + 0.15 } };
+            for (const auto& c : s.cores)
+                if (c.section >= 0 && Near (mark, c.shape, 0) && Overlap (mark, c.shape) > 1e-4 &&
+                    std::find (reached.begin (), reached.end (), c.section) == reached.end ())
+                    reached.push_back (c.section);
+            if (reached.size () > 1)
+                fail ("flat.two_stairs", "A flat opens onto the circulation of two stairs.", at);
+        }
         for (const auto& c : s.corridors)
             if (Overlap (f.shape, c.shape) > 0.01)
                 fail ("flat.over_corridor", "A flat crosses a corridor.", at);

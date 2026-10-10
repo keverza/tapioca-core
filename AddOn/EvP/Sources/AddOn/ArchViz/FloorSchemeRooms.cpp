@@ -98,6 +98,13 @@ void Services (Ctx& c, double u0, double u1, double v0, double v1, int rooms, do
     double left = width - (hall ? kHallMin + kInnerWall : 0) - 2.0;
     if (rooms >= 3 && left >= kWcMin + kInnerWall)
         list.push_back ({ RoomKind::Wc, kWcMin }), left -= kWcMin + kInnerWall;
+    // 4 rooms and up have two bathrooms (user, 2026-10-10): the storage becomes the second
+    // bath, or the WC grows into one.
+    if (rooms >= 4 && left >= kBathMin + kInnerWall)
+        list.push_back ({ RoomKind::Bath, (std::min) (2.0, left - kInnerWall) }),
+            left -= list.back ().second + kInnerWall;
+    else if (rooms >= 4 && list.back ().first == RoomKind::Wc && left >= kBathMin - kWcMin)
+        list.back () = { RoomKind::Bath, kBathMin }, left -= kBathMin - kWcMin;
     if (left >= kStorageMin + kInnerWall)
         list.push_back ({ RoomKind::Storage, (std::min) (1.4, left - kInnerWall) }),
             left -= list.back ().second + kInnerWall;
@@ -219,6 +226,13 @@ bool Corner (Ctx& c, int corner)
     auto box = [&] (double t0, double t1, double v0, double v1) {
         return corner == 0 ? Box { b.u0 + t0, v0, b.u0 + t1, v1 } : Box { b.u1 - t1, v0, b.u1 - t0, v1 };
     };
+    // The hall is in the strip behind the facade bedrooms: that strip must meet the door side
+    // where circulation does (a corridor that ends beside the corner room cannot be reached).
+    if (c.door.side == 0) {
+        const Box behind = box (kHalf + w[0] + kInnerWall, b.W () - kHalf, b.v0, b.v1);
+        if ((std::min) (behind.u1, c.door.hi) - (std::max) (behind.u0, c.door.lo) < kHallMin)
+            return false;
+    }
     const int gable = corner == 0 ? 3 : 1;
     double t = kHalf;
     const Box living = box (t, t + w[0], b.v1 - rd, b.v1);
@@ -263,10 +277,12 @@ bool Through (Ctx& c, bool hallOutside)
         high = (std::max) (kBedroomMin, (std::min) (high, b.v1 - reach - kInnerWall));
     const double doorV = (std::max) (c.door.lo, b.v0) + 0.5;
     const bool hallHigh = !hallOutside && doorV > b.v1 - high;
+    // A door wholly within the living-room row (the corridor ends beside it): the hall is there.
+    const bool hallLow = !hallOutside && !hallHigh && (std::min) (c.door.hi, b.v1) <= b.v0 + low + 1e-6;
     // v0 facade: living room (and a bedroom from 3 rooms when wide enough).
     std::vector<RoomKind> lowKinds { RoomKind::Living }, highKinds;
     int beds = whole - 1;
-    if (beds >= 2 && width >= kLivingMin + kInnerWall + kBedroomMin)
+    if (beds >= 2 && width >= kLivingMin + kInnerWall + kBedroomMin + (hallLow ? kHallMin + kInnerWall : 0))
         lowKinds.push_back (RoomKind::Bedroom), --beds;
     if (half)
         highKinds.push_back (RoomKind::Alcove);
@@ -274,6 +290,8 @@ bool Through (Ctx& c, bool hallOutside)
         highKinds.push_back (RoomKind::Bedroom);
     if (hallHigh)
         doorLow ? (void) highKinds.insert (highKinds.begin (), RoomKind::Hall) : highKinds.push_back (RoomKind::Hall);
+    if (hallLow)
+        doorLow ? (void) lowKinds.insert (lowKinds.begin (), RoomKind::Hall) : lowKinds.push_back (RoomKind::Hall);
     auto strip = [&] (std::vector<RoomKind> kinds, double v0, double v1, int side) {
         if (kinds.empty ())
             return true;
@@ -305,7 +323,8 @@ bool Through (Ctx& c, bool hallOutside)
         return false;
     }
     const double m0 = b.v0 + low + kInnerWall, m1 = b.v1 - high - kInnerWall;
-    Services (c, b.u0 + kHalf, b.u1 - kHalf, m0, m1, whole, doorLow ? b.u0 : b.u1, !hallOutside && !hallHigh);
+    Services (c, b.u0 + kHalf, b.u1 - kHalf, m0, m1, whole, doorLow ? b.u0 : b.u1,
+              !hallOutside && !hallHigh && !hallLow);
     return true;
 }
 } // namespace

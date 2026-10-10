@@ -479,12 +479,30 @@ void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots,
             const bool through = slot.through && slot.door != 0 && slot.box.H () >= 8.0;
             const auto fits = Fits (p, slot.box.H (), through);
             Plan best;
+            // Rooms that do not fit the box (a through flat whose hall needs a row) rule a type out.
+            auto lays = [&] (size_t k) {
+                Flat trial;
+                trial.rooms = p.types[fits[k].type].rooms;
+                LayRooms (trial, slot, slot.box,
+                          slot.cornerLo   ? 0
+                          : slot.cornerHi ? 1
+                                          : -1,
+                          { slot.door, slot.doorLo, slot.doorHi });
+                for (const auto& r : trial.roomList)
+                    for (const auto& q : r.shape) {
+                        const auto l = slot.frame.Local (q);
+                        if (l.x < slot.box.u0 - 1e-3 || l.x > slot.box.u1 + 1e-3)
+                            return false;
+                    }
+                return true;
+            };
             for (size_t k = 0; k < fits.size (); ++k) {
                 const bool room = slot.box.W () >= fits[k].roomLo - 1e-6;
-                if (!room)
+                if (!room || !lays (k))
                     continue;
                 const bool strict = slot.box.W () >= fits[k].lo - 1e-6 && slot.box.W () <= fits[k].hi + 1e-6;
-                double score = MixScore (b.tally, fits, { k }) + (strict && fits[k].strict ? 0 : 2.0) +
+                // A type whose area range misses this fixed width costs more than the mix gains.
+                double score = MixScore (b.tally, fits, { k }) + (strict && fits[k].strict ? 0 : 50.0) +
                                0.3 * std::abs (slot.box.W () - fits[k].pref);
                 for (const auto& pin : pins.rooms)
                     if (Contains (slot, pin.at, 0) && std::abs (pin.rooms - p.types[fits[k].type].rooms) > 1e-6)

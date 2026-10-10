@@ -135,6 +135,7 @@ struct Layout {
     std::vector<Core> cores;
     std::vector<Slot> slots;
     std::vector<Piece> storage; // band without facade
+    std::vector<Piece> culled;  // left out of the massing (an L's outer corner bay)
 };
 Layout Circulate (const cp::PathsD& outline, Skeleton& skeleton, const floorprogramme::Programme& programme,
                   const Pins& pins, const Options& options, std::vector<Diagnostic>& notes);

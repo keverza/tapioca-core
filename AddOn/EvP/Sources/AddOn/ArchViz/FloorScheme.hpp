@@ -33,7 +33,9 @@ constexpr double kPinTolerance = 3.0;
 constexpr double kLivingMin = 3.3, kBedroomMin = 2.6, kBathMin = 1.7, kWcMin = 1.5, kStorageMin = 1.0;
 constexpr double kHallMin = 1.4, kInnerWall = 0.1, kPartyWall = 0.2;
 
-enum class Access : uint8_t { Auto, Centre, OneSide, CoreOnly };
+// Rows: sections whose stair has a flat on each side and two behind (pinned; Auto weighs them
+// with the other section plans).
+enum class Access : uint8_t { Auto, Centre, OneSide, CoreOnly, Rows };
 enum class RoomKind : uint8_t { Living, Bedroom, Alcove, Hall, Bath, Wc, Storage };
 
 struct Options {
@@ -45,14 +47,19 @@ struct Options {
     double sectionSlack = 10.0;              // tolerated above sectionArea (510 m2 is fine)
     double grossFactor = 0.78;               // Massing's gross coefficient
     double minWingDepth = 5.0, maxWingDepth = 22.0, minWingLength = 6.0;
-    double centreDepth = 13.0; // a wing at least this deep gets a centre corridor, else just stairs
-                               // (sections of 3-4 flats); a corridor on one side only when pinned
-    double windowGap = 1.6;    // wall between the two windows of a 1.5R (living and alcove)
-    double maxFlat = 90.0;     // net m2 above which a flat is divided (user, 2026-10-10: more 2R
-                               // flats beat a few over 100 m2); a programme type may ask for more
+    double centreDepth = 13.0; // a wing at least this deep gets a centre corridor, else `shallow`
+    // Shallower wings: Auto plans them both as sections round stairs and with a corridor on one
+    // side, and keeps the floor that scores better (net area less `stairCost` per stair).
+    Access shallow = Access::Auto;
+    double stairCost = 40.0; // m2 of flats a stair and its lift are worth when typologies compete
+    double windowGap = 1.6;  // wall between the two windows of a 1.5R (living and alcove)
+    double maxFlat = 90.0;   // net m2 above which a flat is divided (user, 2026-10-10: more 2R
+                             // flats beat a few over 100 m2); a programme type may ask for more
     double minCap = 5.0, maxCap = 8.0;
-    double north = 0;    // project north, radians anticlockwise from world +y
-    double raster = 0.3; // skeleton search grid
+    bool cullCorners = true; // an L corner leaves its outer corner bay out of the massing (user,
+                             // 2026-10-10: a rational plan beats a deep dark corner flat)
+    double north = 0;        // project north, radians anticlockwise from world +y
+    double raster = 0.3;     // skeleton search grid
 };
 
 // User guidance; every point is world XY.
@@ -131,6 +138,7 @@ struct Flat {
     bool cap = false;     // owns a corridor end
     bool through = false; // facades on opposite sides
     bool inRange = true;  // net area within the type's programme range
+    bool manual = false;  // walls at an angle (a slanted end, a junction): rooms left to the user
     std::vector<Room> roomList;
     std::vector<Opening> windows; // one per living room, bedroom and alcove, on its facade
     Opening door;                 // entrance, from the corridor, landing or lobby into the hall
@@ -167,6 +175,8 @@ struct Scheme {
     std::vector<Band> bands;
     std::vector<Flat> flats;
     std::vector<Piece> unassigned; // floor no flat, corridor or core takes, and why
+    std::vector<Piece> culled;     // massing the typology leaves out: a change to suggest to the
+                                   // massing (`outline` and `gross` are what remains)
     std::vector<Diagnostic> diagnostics;
     std::vector<int> targets, counts; // programme flat counts, wanted and made
     double gross = 0, net = 0, circulation = 0;

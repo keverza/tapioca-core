@@ -98,6 +98,15 @@ OVERSIZED = {
         "Nothing obvious is left to extract, so the next feature that needs a lot "
         "of lines needs a sub-object, not another shell file",
     ),
+    "ArchViz/FloorSchemeRuns.cpp": (
+        1302,
+        "A DEBT FOR ONE COMMIT. Round 5 of the floor-scheme generator added the bend run "
+        "(an arm at an angle sharing a corridor), stub arms on the L run and the rows "
+        "section plan. The corner and bend runs are one unit and move to "
+        "FloorSchemeCorners.cpp in the next commit, which deletes this entry; that split "
+        "is a pure move and is kept out of the feature commit so neither mixes a refactor "
+        "with a feature",
+    ),
     "ArchViz/DiligentScene.cpp": (
         1185,
         "the scene's lifecycle file - shaders, pipeline states, settings. The "

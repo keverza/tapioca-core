@@ -38,9 +38,9 @@ std::vector<Case> Cases ()
     return {
         { "I 60 x 16", { Rect (0, 0, 60, 16) } },
         { "I 36 x 16", { Rect (0, 0, 36, 16) } },
-        { "I 60 x 10, sections", { Rect (0, 0, 60, 10) } },
+        { "I 60 x 10, thin bar", { Rect (0, 0, 60, 10) } },
         { "I 48 x 12, sections", { Rect (0, 0, 48, 12) } },
-        { "I 40 x 7.5, shallow sections", { Rect (0, 0, 40, 7.5) } },
+        { "I 40 x 7.5, shallow", { Rect (0, 0, 40, 7.5) } },
         { "L 48 x 16 and 16 x 32", { Rect (0, 0, 48, 16), Rect (0, 16, 16, 48) } },
         { "U 60 x 16 with two 16 x 24 arms", { Rect (0, 0, 60, 16), Rect (0, 16, 16, 40), Rect (44, 16, 60, 40) } },
         { "O 50 x 50, 14 deep", { Rect (0, 0, 50, 50), Reversed (Rect (14, 14, 36, 36)) } },
@@ -113,9 +113,10 @@ TEST (FloorScheme, StandardShapesKeepEveryHardRule)
         for (const auto& corridor : s.corridors)
             EXPECT_LE (corridor.axis.size (), 3u) << c.name; // straight or one L
         for (const auto& f : s.flats)
-            EXPECT_GE (f.frontage,
-                       (std::min) (fs::RoomFrontage (f.rooms).min, fs::ThroughFrontage (f.rooms).min) - 1e-6)
-                << c.name;
+            if (!f.manual) // walls at an angle: the rooms are the user's to plan
+                EXPECT_GE (f.frontage,
+                           (std::min) (fs::RoomFrontage (f.rooms).min, fs::ThroughFrontage (f.rooms).min) - 1e-6)
+                    << c.name;
     }
 }
 
@@ -281,6 +282,123 @@ TEST (FloorScheme, SteppedBarSplitsAtTheJog)
     EXPECT_GE (perStair, 3.0) << Report (s);
 }
 
+double Red (const fs::Scheme& s)
+{
+    double red = 0;
+    for (const auto& u : s.unassigned)
+        if (u.reason.find ("storage") == std::string::npos)
+            red += std::abs (fs::Area (u.shape));
+    return red;
+}
+const fs::Scheme& Named (const char* name)
+{
+    static std::map<std::string, fs::Scheme> made;
+    auto it = made.find (name);
+    if (it == made.end ())
+        for (const auto& c : Cases ())
+            if (std::string (c.name) == name)
+                it = made.emplace (name, fs::Generate (c.outline, fp::Default ())).first;
+    return it->second;
+}
+
+TEST (FloorScheme, LCornerLeavesItsOuterBayOutOfTheMassing)
+{
+    // User, 2026-10-10: the arm's outer band produced over the corner square is cut, so both
+    // outer bands end on a new gable beside the corridor's turn.
+    const auto& s = Named ("L 48 x 16 and 16 x 32");
+    ASSERT_EQ (s.culled.size (), 1u);
+    EXPECT_NEAR (std::abs (fs::Area (s.culled.front ().shape)), 7.1 * 16, 1.0);
+    EXPECT_NEAR (s.gross, 48 * 16 + 16 * 32 - 7.1 * 16, 1.0);
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    EXPECT_LT (Red (s), 1.0);
+}
+
+TEST (FloorScheme, SlantedEndGoesToFlatsLeftForTheUser)
+{
+    // The corridor runs to the slanted end; the flats there take the wedge, rooms left to the user.
+    const auto& s = Named ("I 50 x 16, slanted end");
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    EXPECT_LT (Red (s), 1.0);
+    int manual = 0;
+    for (const auto& f : s.flats)
+        manual += f.manual && f.roomList.empty ();
+    EXPECT_GE (manual, 2);
+    for (const auto& c : s.cores)
+        EXPECT_LT (c.centre.x, 48.0) << "a stair took the slanted end";
+}
+
+TEST (FloorScheme, AngledArmSharesABentCorridor)
+{
+    // A V: the parent's corridor turns into the arm (one corridor, one turn of about 60 degrees)
+    // and the parent's floor beyond the arm's outer facade is cut.
+    const auto& s = Named ("L at 60 degrees");
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    EXPECT_LT (Red (s), 1.0);
+    EXPECT_FALSE (s.culled.empty ());
+    bool bent = false;
+    for (const auto& c : s.corridors) {
+        if (c.axis.size () != 3)
+            continue;
+        const fs::Vec a { c.axis[1].x - c.axis[0].x, c.axis[1].y - c.axis[0].y };
+        const fs::Vec b { c.axis[2].x - c.axis[1].x, c.axis[2].y - c.axis[1].y };
+        const double turn = std::acos ((a.x * b.x + a.y * b.y) / (std::hypot (a.x, a.y) * std::hypot (b.x, b.y))) *
+                            180 / std::numbers::pi;
+        bent = bent || std::abs (turn - 60) < 5;
+    }
+    EXPECT_TRUE (bent);
+}
+
+TEST (FloorScheme, ThinBarWeighsACorridorOnOneSide)
+{
+    // 10 m deep: sections need three stairs; a corridor on one side serves the bar from one.
+    const auto& s = Named ("I 60 x 10, thin bar");
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    EXPECT_EQ (s.cores.size (), 1u);
+    EXPECT_FALSE (s.corridors.empty ());
+    bool told = false;
+    for (const auto& d : s.diagnostics)
+        told = told || d.code == "typology.choice";
+    EXPECT_TRUE (told);
+}
+
+TEST (FloorScheme, FourRoomsAndMoreHaveTwoBathrooms)
+{
+    for (const auto& c : Cases ()) {
+        const auto& s = Named (c.name);
+        for (const auto& f : s.flats) {
+            if (f.manual || f.rooms < 4)
+                continue;
+            int baths = 0;
+            for (const auto& r : f.roomList)
+                baths += r.kind == fs::RoomKind::Bath;
+            EXPECT_GE (baths, 2) << c.name << ": " << f.rooms << "R " << f.net;
+        }
+    }
+}
+
+TEST (FloorScheme, PinnedRowsPutAFlatEachSideOfTheStairAndTwoBehind)
+{
+    fs::Pins pins;
+    pins.access.push_back ({ { 24, 6 }, fs::Access::Rows });
+    const auto s = fs::Generate ({ Rect (0, 0, 48, 12) }, fp::Default (), pins);
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    ASSERT_FALSE (s.cores.empty ());
+    EXPECT_GE (s.flats.size (), 4 * s.cores.size ());
+    for (const auto& f : s.flats)
+        EXPECT_FALSE (f.through); // single-aspect rows
+}
+
+TEST (FloorScheme, StubArmJoinsItsParentsCorridor)
+{
+    // A 12 m arm, 10 deep, at the end of a 14 m corridor wing (site B's end wings): its corridor
+    // turns into the stub along its inner side; the stub takes no stair of its own.
+    const auto s = fs::Generate ({ Rect (0, 0, 40, 14), Rect (0, 14, 10, 26) }, fp::Default ());
+    EXPECT_EQ (Errors (s), 0u) << Report (s);
+    EXPECT_LT (Red (s), 1.0) << Report (s);
+    for (const auto& c : s.cores)
+        EXPECT_LT (c.centre.y, 16.0) << "a stair in the stub";
+}
+
 // Offline review: FLOORSCHEME_REVIEW=<file.json> writes every case (and the floors of
 // FLOORSCHEME_FIXTURES, "floor <name>" then "ring x y x y ..." lines) for the review page.
 TEST (FloorScheme, ReviewDump)
@@ -350,7 +468,8 @@ TEST (FloorScheme, ReviewDump)
         out << ",\"axes\":[";
         for (size_t i = 0; i < s.wings.size (); ++i)
             out << (i ? "," : "") << "[[" << s.wings[i].a.x << "," << s.wings[i].a.y << "],[" << s.wings[i].b.x << ","
-                << s.wings[i].b.y << "],\"" << static_cast<int> (s.wings[i].access) << "\"]";
+                << s.wings[i].b.y << "],\"" << static_cast<int> (s.wings[i].access) << "\"," << s.wings[i].parent
+                << ",\"" << (s.wings[i].joint ? s.wings[i].joint : '-') << "\"," << s.wings[i].angle << "]";
         out << "]";
         list.clear ();
         for (const auto& c : s.corridors)
@@ -373,6 +492,9 @@ TEST (FloorScheme, ReviewDump)
             ring (s.unassigned[i].shape);
             out << "}";
         }
+        out << "],\"culled\":[";
+        for (size_t i = 0; i < s.culled.size (); ++i)
+            out << (i ? "," : ""), ring (s.culled[i].shape);
         out << "],\"flats\":[";
         for (size_t i = 0; i < s.flats.size (); ++i) {
             const auto& f = s.flats[i];
@@ -380,7 +502,7 @@ TEST (FloorScheme, ReviewDump)
             text (fp::Name (p, f.type));
             out << ",\"rooms\":" << f.rooms << ",\"net\":" << f.net << ",\"frontage\":" << f.frontage
                 << ",\"depth\":" << f.depth << ",\"cap\":" << f.cap << ",\"corner\":" << f.corner
-                << ",\"inRange\":" << f.inRange << ",\"ring\":";
+                << ",\"inRange\":" << f.inRange << ",\"manual\":" << f.manual << ",\"ring\":";
             ring (f.shape);
             out << ",\"rooms_\":[";
             for (size_t r = 0; r < f.roomList.size (); ++r) {
