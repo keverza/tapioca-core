@@ -17,6 +17,7 @@
 // generator may move a pin by at most `kPinTolerance` to keep a hard rule, otherwise it
 // keeps the pin and reports the conflict. Pure C++/Clipper2: no ImGui, no Archicad.
 #include "ArchViz/FloorProgramme.hpp"
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -61,7 +62,10 @@ struct Options {
     bool biteCorners = false; // an L's inner corner facing north is bitten out for a lit stair
                               // (user sketch: "possible place"; costs a flat, so asked for)
     double north = 0;         // project north, radians anticlockwise from world +y
-    double raster = 0.3;      // skeleton search grid
+    // Neighbouring buildings' floor at this elevation (world rings): a wall against it is a party
+    // wall -- thick, blind, never a facade for a window (user, 2026-10-10).
+    std::vector<Ring> party;
+    double raster = 0.3; // skeleton search grid
 };
 
 // User guidance; every point is world XY.
@@ -182,9 +186,10 @@ struct Scheme {
     std::vector<Core> cores;
     std::vector<Band> bands;
     std::vector<Flat> flats;
-    std::vector<Piece> unassigned; // floor no flat, corridor or core takes, and why
-    std::vector<Piece> culled;     // massing the typology leaves out: a change to suggest to the
-                                   // massing (`outline` and `gross` are what remains)
+    std::vector<Piece> unassigned;         // floor no flat, corridor or core takes, and why
+    std::vector<Piece> culled;             // massing the typology leaves out: a change to suggest to the
+                                           // massing (`outline` and `gross` are what remains)
+    std::vector<std::array<Vec, 2>> party; // outline against a neighbouring building (Options::party)
     std::vector<Diagnostic> diagnostics;
     std::vector<int> targets, counts; // programme flat counts, wanted and made
     double gross = 0, net = 0, circulation = 0;

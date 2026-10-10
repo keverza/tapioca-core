@@ -9,6 +9,7 @@ using namespace detail;
 size_t Check (Scheme& s, const Options& o)
 {
     const auto outline = ToPaths (s.outline);
+    const auto blind = ToPaths (o.party);
     size_t errors = 0;
     auto fail = [&] (const char* code, const std::string& text, Vec at) {
         Note (s, Diagnostic::Error, code, text, at);
@@ -59,23 +60,23 @@ size_t Check (Scheme& s, const Options& o)
     }
     // Stairs need a window: in the stair itself or in the corridor right beside it.
     for (auto& core : s.cores) {
-        core.window = FacadeOf (outline, core.shape);
+        core.window = FacadeOf (outline, core.shape, &blind);
         if (core.window >= o.stairWindow - 0.05)
             continue;
         double beside = 0;
         for (const auto& c : s.corridors)
             if (Touch (core.shape, c.shape) > 0.5)
-                beside = (std::max) (beside, FacadeOf (outline, c.shape));
+                beside = (std::max) (beside, FacadeOf (outline, c.shape, &blind));
         for (const auto& l : s.lobbies)
             if (Touch (core.shape, l) > 0.5)
-                beside = (std::max) (beside, FacadeOf (outline, l));
+                beside = (std::max) (beside, FacadeOf (outline, l, &blind));
         if (beside < o.stairWindow - 0.05)
             fail ("stair.no_facade", "A stair has no window, nor does the corridor beside it.", core.centre);
     }
     // Flats: a facade, a door, no corridor inside, rooms no narrower than the minimum.
     for (const auto& f : s.flats) {
         const Vec at = Centroid (f.shape);
-        if (FacadeOf (outline, f.shape) < kBedroomMin)
+        if (FacadeOf (outline, f.shape, &blind) < kBedroomMin)
             fail ("flat.no_facade", "A flat has no facade wide enough for a room.", at);
         double door = 0;
         for (const auto& c : s.corridors)

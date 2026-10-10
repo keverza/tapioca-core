@@ -17,6 +17,7 @@ struct Ctx {
     std::vector<Diagnostic>& notes;
     Layout out;
     std::vector<char> fill; // Fillable by 0.1 m
+    cp::PathsD blind;       // neighbouring buildings' floor (Options::party): party walls, no facade
     bool Fits (double length) const
     {
         if (length < 0.05)

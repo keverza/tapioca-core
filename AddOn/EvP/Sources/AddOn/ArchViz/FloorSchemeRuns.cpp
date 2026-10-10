@@ -17,7 +17,8 @@ std::vector<std::pair<double, double>> FacadeRuns (const Ctx& c, const Frame& f,
     const double step = b.W () / samples;
     for (int i = 0; i < samples; ++i) {
         const double u = b.u0 + (i + 0.5) * step;
-        if (Inside (c.outline, f.World (u, b.v1 + kFacadeOffset)))
+        const Vec beyond = f.World (u, b.v1 + kFacadeOffset);
+        if (Inside (c.outline, beyond) || Inside (c.blind, beyond))
             continue;
         if (!runs.empty () && std::abs (runs.back ().second - (b.u0 + i * step)) < 1e-6)
             runs.back ().second = b.u0 + (i + 1) * step;
@@ -32,13 +33,13 @@ double SideFacade (const Ctx& c, const Frame& f, Box b, int side)
 {
     switch (side) {
         case 0:
-            return FacadeAlong (c.outline, f.World (b.u0, b.v0), f.World (b.u1, b.v0), { -f.v.x, -f.v.y });
+            return FacadeAlong (c.outline, f.World (b.u0, b.v0), f.World (b.u1, b.v0), { -f.v.x, -f.v.y }, &c.blind);
         case 1:
-            return FacadeAlong (c.outline, f.World (b.u1, b.v0), f.World (b.u1, b.v1), f.u);
+            return FacadeAlong (c.outline, f.World (b.u1, b.v0), f.World (b.u1, b.v1), f.u, &c.blind);
         case 2:
-            return FacadeAlong (c.outline, f.World (b.u0, b.v1), f.World (b.u1, b.v1), f.v);
+            return FacadeAlong (c.outline, f.World (b.u0, b.v1), f.World (b.u1, b.v1), f.v, &c.blind);
         default:
-            return FacadeAlong (c.outline, f.World (b.u0, b.v0), f.World (b.u0, b.v1), { -f.u.x, -f.u.y });
+            return FacadeAlong (c.outline, f.World (b.u0, b.v0), f.World (b.u0, b.v1), { -f.u.x, -f.u.y }, &c.blind);
     }
 }
 // A rectangle to divide, in frame f; `facadeHigh` says its facade is at v1 of f (else at v0,
@@ -775,7 +776,7 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
                   const Options& o, std::vector<Diagnostic>& notes)
 {
     using namespace runs;
-    Ctx c { outline, programme, pins, o, notes, {}, {} };
+    Ctx c { outline, programme, pins, o, notes, {}, {}, ToPaths (o.party) };
     c.fill.resize (1201);
     for (size_t i = 0; i < c.fill.size (); ++i)
         c.fill[i] = Fillable (programme, i / 10.0) ? 1 : 0;

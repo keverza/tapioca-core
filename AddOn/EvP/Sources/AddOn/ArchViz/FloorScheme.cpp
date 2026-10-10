@@ -1,5 +1,6 @@
 #include "ArchViz/FloorSchemeDetail.hpp"
 #include <algorithm>
+#include <array>
 #include <clipper2/clipper.triangulation.h>
 
 // T0 and T7 plus the hard-rule check. Generate joins the massing floor into one outline,
@@ -18,14 +19,14 @@ double Touch (const Ring& a, const Ring& b, double band)
     auto grown = cp::InflatePaths ({ ToPath (a) }, band, cp::JoinType::Miter, cp::EndType::Polygon, 2.0, kPrecision);
     return std::abs (detail::Area (cp::Intersect (grown, { ToPath (b) }, cp::FillRule::NonZero, kPrecision))) / band;
 }
-double FacadeOf (const cp::PathsD& outline, const Ring& ring)
+double FacadeOf (const cp::PathsD& outline, const Ring& ring, const cp::PathsD* blind)
 {
     const Ring r = Counter (ring);
     double sum = 0;
     for (size_t i = 0; i < r.size (); ++i) {
         const Vec a = r[i], b = r[(i + 1) % r.size ()];
         const Vec d = Unit ({ b.x - a.x, b.y - a.y });
-        sum += FacadeAlong (outline, a, b, { d.y, -d.x }); // outward of a counter-clockwise ring
+        sum += FacadeAlong (outline, a, b, { d.y, -d.x }, blind); // outward of a counter-clockwise ring
     }
     return sum;
 }
@@ -384,14 +385,14 @@ double Convexity (const cp::PathD& path)
 // A leftover wedge on the outline (a slanted end, an angled junction) joins the flat it touches
 // most when the flat stays under the cap and convex: walls at an angle, so its rooms are left to
 // the user (user, 2026-10-10). Returns what is left.
-cp::PathsD Wedges (const cp::PathsD& outline, const cp::PathsD& rest, Scheme& s, double cap)
+cp::PathsD Wedges (const cp::PathsD& outline, const cp::PathsD* blind, const cp::PathsD& rest, Scheme& s, double cap)
 {
     cp::PathsD left;
     for (const auto& path : rest) {
         const double area = cp::Area (path);
         const Ring ring = Counter (FromPath (path));
         bool joined = false;
-        if (area >= 2.0 && FacadeOf (outline, ring) >= 1.0) {
+        if (area >= 2.0 && FacadeOf (outline, ring, blind) >= 1.0) {
             std::vector<std::pair<double, size_t>> owners;
             for (size_t i = 0; i < s.flats.size (); ++i)
                 if (Near (ring, s.flats[i].shape, 0.1)) {
@@ -424,7 +425,7 @@ cp::PathsD Wedges (const cp::PathsD& outline, const cp::PathsD& rest, Scheme& s,
 // What the strips leave (corners, steps of the outline) goes whole to the flat it touches most
 // when that keeps the flat square; failing that it is triangulated and each triangle goes to the
 // flat it touches most, joined when it is a sliver or a small square-keeping piece.
-void Mould (const cp::PathsD& outline, Scheme& s, double cap)
+void Mould (const cp::PathsD& outline, const cp::PathsD* blind, Scheme& s, double cap)
 {
     cp::PathsD used;
     for (const auto& f : s.flats)
@@ -440,7 +441,7 @@ void Mould (const cp::PathsD& outline, Scheme& s, double cap)
     auto rest = Extend (cp::Difference (outline, cp::Union (used, cp::FillRule::NonZero, kPrecision),
                                         cp::FillRule::NonZero, kPrecision),
                         s, 0, cap);
-    rest = Wedges (outline, Extend (Absorb (rest, s, 0, cap), s, 0, cap, true), s, cap);
+    rest = Wedges (outline, blind, Extend (Absorb (rest, s, 0, cap), s, 0, cap, true), s, cap);
     if (std::abs (detail::Area (rest)) < 0.05)
         return;
     // Simple pieces: each region with its holes triangulated, or cut on a 2 m grid when the
@@ -543,6 +544,7 @@ void Rework (const cp::PathsD& outline, Scheme& s, const floorprogramme::Program
 {
     // Touching leftovers are one zone: a band read as dark beside the strip that reaches the
     // real facade of a stepped outline only divides once they are joined.
+    const auto blind = ToPaths (o.party);
     cp::PathsD pieces;
     for (const auto& u : s.unassigned)
         pieces.push_back (ToPath (u.shape));
@@ -599,16 +601,16 @@ void Rework (const cp::PathsD& outline, Scheme& s, const floorprogramme::Program
         box.u0 = (std::max) (box.u0, cu0 - past), box.u1 = (std::min) (box.u1, cu1 + past);
         if (box.W () < RoomFrontage (1).min)
             continue;
-        if (FacadeAlong (outline, f.World (box.u0, box.v1), f.World (box.u1, box.v1), f.v) < 0.5 * box.W ())
+        if (FacadeAlong (outline, f.World (box.u0, box.v1), f.World (box.u1, box.v1), f.v, &blind) < 0.5 * box.W ())
             continue;
         Slot slot;
         slot.frame = f, slot.box = box;
         slot.section = corridor.section;
         slot.doorLo = cu0, slot.doorHi = cu1;
-        slot.cornerLo = FacadeAlong (outline, f.World (box.u0, box.v0), f.World (box.u0, box.v1), { -f.u.x, -f.u.y }) >=
-                        0.5 * box.H ();
+        slot.cornerLo = FacadeAlong (outline, f.World (box.u0, box.v0), f.World (box.u0, box.v1), { -f.u.x, -f.u.y },
+                                     &blind) >= 0.5 * box.H ();
         slot.cornerHi =
-            FacadeAlong (outline, f.World (box.u1, box.v0), f.World (box.u1, box.v1), f.u) >= 0.5 * box.H ();
+            FacadeAlong (outline, f.World (box.u1, box.v0), f.World (box.u1, box.v1), f.u, &blind) >= 0.5 * box.H ();
         slots.push_back (slot);
         reworked.push_back (zonePath);
     }
@@ -708,6 +710,39 @@ Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Program
 }
 
 namespace {
+// Stretches of the outline against a neighbouring building's floor (Options::party): the walls
+// no window may be in, drawn thick.
+std::vector<std::array<Vec, 2>> PartyWalls (const cp::PathsD& outline, const cp::PathsD& blind)
+{
+    std::vector<std::array<Vec, 2>> out;
+    if (blind.empty ())
+        return out;
+    for (const auto& path : outline)
+        for (size_t i = 0; i < path.size (); ++i) {
+            const Vec a { path[i].x, path[i].y }, b { path[(i + 1) % path.size ()].x, path[(i + 1) % path.size ()].y };
+            const double length = std::hypot (b.x - a.x, b.y - a.y);
+            if (length < 0.1)
+                continue;
+            const Vec d = Unit ({ b.x - a.x, b.y - a.y }), n { d.y, -d.x }; // outward of the solid
+            const int samples = (std::max) (2, static_cast<int> (std::ceil (length / 0.15)));
+            double from = -1;
+            for (int k = 0; k <= samples; ++k) {
+                const double t = length * (k + 0.5) / (samples + 1);
+                const bool party =
+                    k < samples && Inside (blind, { a.x + d.x * t + n.x * 0.3, a.y + d.y * t + n.y * 0.3 });
+                if (party && from < 0)
+                    from = length * k / (samples + 1);
+                else if (!party && from >= 0) {
+                    const double to = k == samples ? length : length * k / (samples + 1);
+                    if (to - from > 0.3)
+                        out.push_back (
+                            { Vec { a.x + d.x * from, a.y + d.y * from }, Vec { a.x + d.x * to, a.y + d.y * to } });
+                    from = -1;
+                }
+            }
+        }
+    return out;
+}
 Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
              const Options& options)
 {
@@ -759,9 +794,11 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
     for (const auto& f : s.flats)
         if (f.band >= 0 && f.band < static_cast<int> (s.bands.size ()))
             ++s.bands[f.band].flats;
-    Mould (paths, s, MaxFlat (programme, options));
+    const auto blind = ToPaths (options.party);
+    Mould (paths, &blind, s, MaxFlat (programme, options));
     Rework (paths, s, programme, pins, options);
     Tidy (s);
+    s.party = PartyWalls (paths, blind);
     // A flat whose rooms are left to the user takes the type its area fits.
     for (auto& f : s.flats) {
         if (!f.manual)
