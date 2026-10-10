@@ -174,6 +174,43 @@ const char* AccessName (fs::Access a)
             return "Auto";
     }
 }
+// The editor of building `key` on `floor`: its floors asked of the planner when their inputs
+// change, its input and scheme brought up to date; a new floor drops the selection and gesture.
+Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp::Floor& floor)
+{
+    if (!editor)
+        editor.reset (new Editor);
+    auto& e = *editor;
+    const auto& plan = c.plans.at (key);
+    const auto& draft = c.drafts[key];
+    c.planner.Poll ();
+    const auto* planned = bp::WantFloors (c.planner, c.plans, c.drafts, key, c.programme, floor.story, c.options);
+    std::vector<fs::Pins::Core> stairs;
+    if (const auto* lead = bp::LeadFloor (plan); draft.cores.empty () && lead)
+        if (const auto* led = c.planner.Latest (bp::FloorId (key, lead->story) + "#auto"))
+            for (const auto& core : led->scheme.cores)
+                stairs.push_back ({ core.centre, core.width, core.depth });
+    e.input = bp::InputFor (c.plans, c.drafts, key, floor, c.programme, stairs, c.options);
+    if (e.key != key || e.story != floor.story) {
+        e.key = key, e.story = floor.story;
+        e.selected = e.menu = {};
+        e.drag = Drag::None;
+        e.have = false;
+        e.revision = 0;
+    }
+    e.real = bp::FloorRings (floor);
+    if (planned && planned->revision != e.revision) {
+        e.scheme = planned->scheme;
+        e.revision = planned->revision;
+        e.have = true;
+        e.fills = Fills (e.scheme);
+        e.around.clear ();
+        if (!e.input.party.empty ())
+            e.around.push_back (Triangles (e.input.party, IM_COL32 (205, 207, 203, 255)));
+        e.selected = Again (e.scheme, e.selected, e.selectedAt);
+    }
+    return e;
+}
 // The right-click menu: a flat's rooms, split, join, lock; a stair's size; the floor's own.
 void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const bp::Floor& floor, Asked& asked)
 {
@@ -316,39 +353,10 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
         ImGui::TextDisabled ("No complete current floor contour.");
         return asked;
     }
-    if (!editor)
-        editor.reset (new Editor);
-    auto& e = *editor;
     fs::Options options;
     options.grossFactor = coefficients.grossFactor;
     Context c { planner, plans, drafts, programme, options };
-    // This floor and its building's others: asked whenever their inputs change.
-    planner.Poll ();
-    const auto* planned = bp::WantFloors (planner, plans, drafts, key, programme, floor->story, options);
-    std::vector<fs::Pins::Core> stairs;
-    if (const auto* lead = bp::LeadFloor (plan->second); draft.cores.empty () && lead)
-        if (const auto* led = planner.Latest (bp::FloorId (key, lead->story) + "#auto"))
-            for (const auto& core : led->scheme.cores)
-                stairs.push_back ({ core.centre, core.width, core.depth });
-    e.input = bp::InputFor (plans, drafts, key, *floor, programme, stairs, options);
-    if (e.key != key || e.story != floor->story) {
-        e.key = key, e.story = floor->story;
-        e.selected = e.menu = {};
-        e.drag = Drag::None;
-        e.have = false;
-        e.revision = 0;
-    }
-    e.real = bp::FloorRings (*floor);
-    if (planned && planned->revision != e.revision) {
-        e.scheme = planned->scheme;
-        e.revision = planned->revision;
-        e.have = true;
-        e.fills = Fills (e.scheme);
-        e.around.clear ();
-        if (!e.input.party.empty ())
-            e.around.push_back (Triangles (e.input.party, IM_COL32 (205, 207, 203, 255)));
-        e.selected = Again (e.scheme, e.selected, e.selectedAt);
-    }
+    auto& e = Refresh (editor, c, key, *floor);
 
     // The tools, in one row where they fit.
     const auto& s = e.scheme;

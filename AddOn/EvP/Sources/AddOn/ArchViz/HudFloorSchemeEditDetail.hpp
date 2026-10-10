@@ -116,6 +116,11 @@ void Canvas (Editor& e, Context& c, float scale);
 // HudFloorSchemeEdit.cpp: the shown floor's design becomes `next` (one undo step); a party wall
 // pushed `distance` out of the building, or pulled in.
 void Commit (Editor& e, Context& c, fe::Design next);
+// The editor of building `key` on `floor`, brought up to date with the planner and the drafts.
+Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp::Floor& floor);
+// The right-click menu ("##planMenu" in the window that opened it): a flat's rooms, split, join,
+// lock; a stair's size; the floor's flat count, access, unique or shared design, reset, export.
+void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const bp::Floor& floor, Asked& asked);
 void PushParty (Editor& e, Context& c, const std::array<fs::Vec, 2>& wall, double distance);
 } // namespace detail
 } // namespace geomsrv::archviz::hudfloorscheme
