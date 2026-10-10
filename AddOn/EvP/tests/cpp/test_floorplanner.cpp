@@ -102,6 +102,40 @@ TEST (FloorPlanner, FloorsWithoutSavedStairsTakeTheLargestFloorsStairs)
     }
 }
 
+// User, 2026-10-10: "stair core must be same position from ground to top floor". A setback top
+// floor shares only part of the floors below: the stairs are planned there and held on all.
+TEST (FloorPlanner, StairsStandAtOnePlaceFromTheGroundToATopFloorSetBack)
+{
+    std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 60, 3) } };
+    auto& top = plans["A"].floors[2];
+    top.outline = { Chain (0, 0, 30, 16) };
+    top.contours = { top.outline };
+    top.areaM2 = 30 * 16;
+    top.outlineKey = "A-setback";
+    const std::map<std::string, bp::Draft> drafts;
+    bp::Planner planner;
+    for (int round = 0; round < 2; ++round) {
+        bp::WantFloors (planner, plans, drafts, "A", fp::Default (), 0);
+        Settle (planner);
+    }
+    const auto* ground = planner.Latest (bp::FloorId ("A", 0));
+    ASSERT_NE (ground, nullptr);
+    ASSERT_FALSE (ground->scheme.cores.empty ());
+    for (int story : { 0, 1, 2 }) {
+        const auto* floor = planner.Latest (bp::FloorId ("A", story));
+        ASSERT_NE (floor, nullptr) << story;
+        ASSERT_EQ (floor->scheme.cores.size (), ground->scheme.cores.size ()) << story;
+        for (size_t i = 0; i < floor->scheme.cores.size (); ++i) {
+            EXPECT_NEAR (floor->scheme.cores[i].centre.x, ground->scheme.cores[i].centre.x, 1e-6) << story;
+            EXPECT_NEAR (floor->scheme.cores[i].centre.y, ground->scheme.cores[i].centre.y, 1e-6) << story;
+            EXPECT_LE (floor->scheme.cores[i].centre.x, 30.0) << "inside the top floor";
+        }
+        for (const auto& d : floor->scheme.diagnostics)
+            EXPECT_FALSE (d.level == fs::Diagnostic::Error && d.code.rfind ("core.", 0) == 0)
+                << story << ": " << d.code << " " << d.text;
+    }
+}
+
 TEST (FloorPlanner, AChangedDesignIsPlannedAgainAndTheOldSchemeShowsMeanwhile)
 {
     const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 60) } };

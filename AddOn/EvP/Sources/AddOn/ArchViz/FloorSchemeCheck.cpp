@@ -219,4 +219,66 @@ size_t Check (Scheme& s, const Options& o)
         s.ok = s.ok && d.level != Diagnostic::Error;
     return errors;
 }
+
+namespace {
+// A stack stair's footprint turned to the planned stair `core`: its width along the core's first
+// side, or across it when that side is the stair's depth.
+Ring Footprint (const Pins::Core& pin, const Core& core, const Options& o)
+{
+    const double w = pin.width > 0 ? pin.width : o.coreWidth, d = pin.depth > 0 ? pin.depth : o.coreDepth;
+    Vec u { 1, 0 };
+    double side = w;
+    if (core.shape.size () >= 2) {
+        const Vec a = core.shape[0], b = core.shape[1];
+        u = Unit ({ b.x - a.x, b.y - a.y });
+        side = std::hypot (b.x - a.x, b.y - a.y);
+    }
+    const bool across = std::abs (side - d) < std::abs (side - w);
+    const Vec v { -u.y, u.x };
+    const double hu = (across ? d : w) / 2, hv = (across ? w : d) / 2;
+    const Vec c = pin.centre;
+    auto at = [&] (double s, double t) { return Vec { c.x + u.x * s + v.x * t, c.y + u.y * s + v.y * t }; };
+    return Counter ({ at (-hu, -hv), at (hu, -hv), at (hu, hv), at (-hu, hv) });
+}
+} // namespace
+
+size_t CheckStack (Scheme& s, const std::vector<Pins::Core>& stack, const Options& o)
+{
+    // The stair shaft runs from the ground to the top floor: a stack stair's footprint must lie
+    // within one stair of every floor (a deeper stair hall round it is the same shaft).
+    constexpr double kCovered = 0.95;
+    const auto outline = ToPaths (s.outline);
+    size_t errors = 0;
+    auto fail = [&] (const char* code, const std::string& text, Vec at) {
+        Note (s, Diagnostic::Error, code, text, at);
+        ++errors;
+    };
+    std::vector<bool> stacked (s.cores.size (), false);
+    for (const auto& pin : stack) {
+        bool found = false;
+        for (size_t i = 0; i < s.cores.size () && !found; ++i) {
+            const Ring foot = Footprint (pin, s.cores[i], o);
+            if (Near (foot, s.cores[i].shape, 0) &&
+                Overlap (foot, s.cores[i].shape) >= kCovered * std::abs (Area (foot)))
+                found = stacked[i] = true;
+        }
+        if (found)
+            continue;
+        if (!Inside (outline, pin.centre))
+            fail ("core.outside_floor",
+                  "A stair of the building is outside this floor: stairs run from the ground to the top floor.",
+                  pin.centre);
+        else
+            fail ("core.stack_moved", "A stair of the building is not where it stands on the other floors.",
+                  pin.centre);
+    }
+    for (size_t i = 0; i < s.cores.size (); ++i)
+        if (!stacked[i])
+            fail ("core.not_in_stack",
+                  "A stair only this floor has: add it to the building so it runs from the ground to the top floor.",
+                  s.cores[i].centre);
+    for (const auto& d : s.diagnostics)
+        s.ok = s.ok && d.level != Diagnostic::Error;
+    return errors;
+}
 } // namespace geomsrv::archviz::floorscheme

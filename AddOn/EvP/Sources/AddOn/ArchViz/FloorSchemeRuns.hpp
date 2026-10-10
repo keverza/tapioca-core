@@ -60,6 +60,11 @@ int AddSection (Ctx& c, int run, double gross, char access);
 Vec North (const Options& o);
 // A pinned core in this box of the frame, nearest first; null when none.
 const Pins::Core* PinIn (const Ctx& c, const Frame& f, Box b, double margin);
+// How far a pinned stair may move: none when the pins are the building's stack.
+inline double CoreSlack (const Options& o)
+{
+    return o.holdCores ? 0.0 : kPinTolerance;
+}
 // Cap lengths from corridor-end pins near this section's ends.
 void EndPins (const Ctx& c, const Frame& f, Box section, double c0, double c1, double& capLo, double& capHi);
 

@@ -297,7 +297,7 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     const int id = AddSection (c, run, (s1 - s0) * depth, 'C');
     double e0 = s0 + capLo, e1 = s1 - capHi;
     const double w = c.o.coreWidth;
-    const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, kPinTolerance);
+    const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o));
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
     // A stair the user put somewhere stays there when other cap lengths make the bands either
     // side of it whole flats: the nearest caps to the usual that do.
@@ -335,7 +335,7 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
         lit ({ e1, capV0, s1, capV1 }, up) < kBedroomMin && lit ({ e1, oppV0, s1, oppV1 }, !up) >= kBedroomMin;
     // Core along the corridor: pieces on both sides must take whole flats (or none),
     // and the corridor stays within the dead-end limit of the stair.
-    const double range = pin ? kPinTolerance : (e1 - e0) / 2;
+    const double range = pin ? CoreSlack (c.o) : (e1 - e0) / 2;
     double uc = wanted;
     bool fitted = false;
     // Among the positions that work, prefer pieces that take ordinary flats (or none): a
@@ -360,7 +360,7 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
             bestCost = cost, uc = u, fitted = true;
     }
     if (!fitted) {
-        uc = Clip (wanted, e0, e1 - w);
+        uc = pin && c.o.holdCores ? wanted : Clip (wanted, e0, e1 - w); // a stack stair never moves
         c.notes.push_back ({ Diagnostic::Warning, "core.no_fit",
                              "No stair position leaves whole flats on both sides; the band beside it will not divide.",
                              f.World (uc + w / 2, (coreLo + coreHi) / 2) });
@@ -400,10 +400,11 @@ void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1,
     EndPins (c, f, { s0, 0, s1, depth }, c0, c1, capLo, capHi);
     const int id = AddSection (c, run, (s1 - s0) * depth, 'O');
     const double e0 = s0 + capLo, e1 = s1 - capHi;
-    const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, kPinTolerance);
+    const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o));
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
-    double uc = Clip (wanted, e0, e1 - w);
-    for (int k = 0; k <= 30; ++k) {
+    const bool held = pin && c.o.holdCores; // a stack stair never moves
+    double uc = held ? wanted : Clip (wanted, e0, e1 - w);
+    for (int k = 0; k <= 30 && !held; ++k) {
         const double u = Clip (wanted + (k % 2 ? 1 : -1) * (k / 2) * 0.1, e0, e1 - w);
         const double p1 = u - e0, p2 = e1 - u - w;
         if ((p1 < 0.05 || c.Fits (p1)) && (p2 < 0.05 || c.Fits (p2))) {
@@ -585,8 +586,10 @@ void CoreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bo
         };
         const double low = depth - plan.top, span = plan.lobby > 0 ? plan.span : S;
         double uc = (s0 + s1 - S) / 2;
-        const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, kPinTolerance);
-        if (pin) {
+        const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o));
+        if (pin && c.o.holdCores)
+            uc = f.Local (pin->centre).x - S / 2; // a stack stair never moves
+        else if (pin) {
             const double room = (std::max) (0.0, (s1 - s0 - span) / 2 - RoomFrontage (1).min);
             uc += Clip (Clip (f.Local (pin->centre).x - S / 2 - uc, -kPinTolerance, kPinTolerance), -room, room);
         }
@@ -615,9 +618,11 @@ void CoreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bo
     double x0 = s0 + (s1 - s0 - middle) / 2, x3 = x0 + middle;
     double uc = x0 + (middle - S) / 2;
     // A pinned stair moves the whole middle by up to the pin tolerance, keeping both sides.
-    if (const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, kPinTolerance)) {
-        const double shift = Clip (f.Local (pin->centre).x - S / 2 - uc, -kPinTolerance, kPinTolerance);
-        const double d = Clip (shift, -(std::max) (0.0, x0 - s0 - 4.5), (std::max) (0.0, s1 - x3 - 4.5));
+    if (const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o))) {
+        const double shift = f.Local (pin->centre).x - S / 2 - uc;
+        const double d = c.o.holdCores ? shift // a stack stair never moves
+                                       : Clip (Clip (shift, -kPinTolerance, kPinTolerance),
+                                               -(std::max) (0.0, x0 - s0 - 4.5), (std::max) (0.0, s1 - x3 - 4.5));
         x0 += d, x3 += d, uc += d;
     }
     const double sv0 = up ? depth - ds : 0, sv1 = up ? depth : ds;
@@ -694,10 +699,16 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
             pinned.push_back (q.x);
     }
     std::sort (pinned.begin (), pinned.end ());
-    const int fewest =
-        (std::max) (1, static_cast<int> (
-                           std::ceil (length * depth * c.o.grossFactor / (c.o.sectionArea + c.o.sectionSlack) - 1e-9)));
-    if (!pinned.empty () && pinned.size () >= static_cast<size_t> (fewest) &&
+    const int fewest = (std::max) (
+        1,
+        static_cast<int> (std::ceil (length * depth * c.o.grossFactor / (c.o.sectionArea + c.o.sectionSlack) - 1e-9)));
+    // A stack is the building's: its stairs make the sections even when they are fewer than the
+    // floor area asks for; the stair that is missing is added to the building, never to one floor.
+    if (c.o.holdCores && !pinned.empty () && pinned.size () < static_cast<size_t> (fewest))
+        c.notes.push_back ({ Diagnostic::Warning, "core.missing",
+                             "This wing is over one stair's floor per stair: the building needs another stair.",
+                             f.World ((p.s0 + p.s1) / 2, depth / 2) });
+    if (!pinned.empty () && (pinned.size () >= static_cast<size_t> (fewest) || c.o.holdCores) &&
         pinned.size () != static_cast<size_t> (n)) {
         n = static_cast<int> (pinned.size ());
         if (access == Access::CoreOnly || access == Access::Rows)
@@ -798,7 +809,7 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
             const bool inside = Inside ({ ToPath (wa.rect) }, pin.centre) || Inside ({ ToPath (wb.rect) }, pin.centre);
             const auto q = CornerFrame (sk, k).Local (pin.centre);
             pinnedAway =
-                pinnedAway || (inside && std::hypot (q.x - wb.depth, q.y - wa.depth) > kPinTolerance + o.coreWidth);
+                pinnedAway || (inside && std::hypot (q.x - wb.depth, q.y - wa.depth) > CoreSlack (o) + o.coreWidth);
         }
         if (pinnedAway)
             continue;

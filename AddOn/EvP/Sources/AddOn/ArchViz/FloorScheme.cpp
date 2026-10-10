@@ -825,6 +825,8 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
     for (const auto& l : s.lobbies)
         s.circulation += Area (l);
     Check (s, options);
+    if (options.holdCores)
+        CheckStack (s, pins.cores, options);
     return s;
 }
 

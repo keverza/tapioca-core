@@ -85,9 +85,14 @@ class Planner {
 
 // The building's largest floor: its stairs lead the others' while the building has none saved.
 const Floor* LeadFloor (const Plan& plan);
-// Every floor of `key` asked of `planner`, the shown story first; with no stairs saved, the lead
-// floor is planned free first and its stairs pinned on every floor. The newest scheme of the
-// shown story, or null while it has none.
+// The floor every floor of `plan` has, within `owned` (the lead floor's silhouette): where the
+// stack's stairs are planned, so each stands on every floor from the ground to the top (user,
+// 2026-10-10). `owned` itself when less than kMinCommon is common.
+constexpr double kMinCommon = 50.0; // m2
+std::vector<floorscheme::Ring> Common (const Plan& plan, const std::vector<floorscheme::Ring>& owned);
+// Every floor of `key` asked of `planner`, the shown story first; with no stairs saved, the floor
+// all floors share (`Common`) is planned free first and its stairs held on every floor
+// (Options::holdCores). The newest scheme of the shown story, or null while it has none.
 const Planner::Planned* WantFloors (Planner& planner, const std::map<std::string, Plan>& plans,
                                     const std::map<std::string, Draft>& drafts, const std::string& key,
                                     const floorprogramme::Programme& programme, int shownStory,

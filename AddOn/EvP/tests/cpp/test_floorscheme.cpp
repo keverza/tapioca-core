@@ -202,6 +202,72 @@ TEST (FloorScheme, PinnedStairMovesAtMostThreeMetres)
     EXPECT_EQ (Errors (s), 0u) << Report (s);
 }
 
+// The building's stair stack (user, 2026-10-10): a held stair never moves, whatever fits better.
+TEST (FloorScheme, AHeldStairStandsExactlyWherePinned)
+{
+    const auto free = fs::Generate ({ Rect (0, 0, 36, 16) }, fp::Default ());
+    ASSERT_EQ (free.cores.size (), 1u);
+    const auto& core = free.cores.front ();
+    fs::Pins pins;
+    pins.cores.push_back ({ { core.centre.x + 2.0, core.centre.y }, core.width, core.depth });
+    fs::Options held;
+    held.holdCores = true;
+    const auto s = fs::Generate ({ Rect (0, 0, 36, 16) }, fp::Default (), pins, held);
+    ASSERT_EQ (s.cores.size (), 1u);
+    EXPECT_NEAR (s.cores.front ().centre.x, core.centre.x + 2.0, 1e-6);
+    EXPECT_NEAR (s.cores.front ().centre.y, core.centre.y, 1e-6);
+    for (const auto& d : s.diagnostics)
+        EXPECT_FALSE (d.code.rfind ("core.", 0) == 0 && d.level == fs::Diagnostic::Error) << Report (s);
+    EXPECT_EQ (std::count_if (s.diagnostics.begin (), s.diagnostics.end (),
+                              [] (const fs::Diagnostic& d) { return d.code == "pin.core_moved"; }),
+               0);
+}
+
+TEST (FloorScheme, AHeldStackNeverGainsAStairOfTheFloorsOwn)
+{
+    const auto free = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default ());
+    ASSERT_EQ (free.cores.size (), 2u);
+    fs::Pins pins;
+    pins.cores.push_back ({ free.cores[0].centre, free.cores[0].width, free.cores[0].depth });
+    fs::Options held;
+    held.holdCores = true;
+    const auto s = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default (), pins, held);
+    ASSERT_EQ (s.cores.size (), 1u) << Report (s);
+    EXPECT_NEAR (s.cores.front ().centre.x, free.cores[0].centre.x, 1e-6);
+    EXPECT_TRUE (std::any_of (s.diagnostics.begin (), s.diagnostics.end (), [] (const fs::Diagnostic& d) {
+        return d.code == "core.missing";
+    })) << Report (s);
+}
+
+TEST (FloorScheme, CheckStackReportsAMovedAForeignAndAnOutsideStair)
+{
+    auto s = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default ());
+    ASSERT_EQ (s.cores.size (), 2u);
+    ASSERT_TRUE (s.ok) << Report (s);
+    const auto& a = s.cores[0];
+    auto count = [&] (const char* code) {
+        return std::count_if (s.diagnostics.begin (), s.diagnostics.end (),
+                              [&] (const fs::Diagnostic& d) { return d.code == code; });
+    };
+    // Both stairs in the stack: nothing to report.
+    {
+        auto copy = s;
+        std::vector<fs::Pins::Core> stack;
+        for (const auto& core : s.cores)
+            stack.push_back ({ core.centre, core.width, core.depth });
+        EXPECT_EQ (fs::CheckStack (copy, stack), 0u) << Report (copy);
+        EXPECT_TRUE (copy.ok);
+    }
+    // One stair the stack does not have, one stack stair 5 m away, one beyond the floor.
+    const std::vector<fs::Pins::Core> stack { { { a.centre.x + 5.0, a.centre.y }, a.width, a.depth },
+                                              { { 100.0, 8.0 }, a.width, a.depth } };
+    EXPECT_EQ (fs::CheckStack (s, stack), 4u) << Report (s);
+    EXPECT_EQ (count ("core.stack_moved"), 1);
+    EXPECT_EQ (count ("core.outside_floor"), 1);
+    EXPECT_EQ (count ("core.not_in_stack"), 2);
+    EXPECT_FALSE (s.ok);
+}
+
 TEST (FloorScheme, PinnedWallAndRoomCountAreKept)
 {
     const auto base = fs::Generate ({ Rect (0, 0, 36, 16) }, fp::Default ());

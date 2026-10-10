@@ -138,6 +138,7 @@ FloorInput InputFor (const std::map<std::string, Plan>& plans, const std::map<st
     const auto stairs =
         draft != drafts.end () && !draft->second.cores.empty () ? StairPins (draft->second.cores) : lead;
     in.design.pins.cores = stairs;
+    in.options.holdCores = !stairs.empty (); // the stack stands on every floor, never moved
     Sign (in);
     return in;
 }
@@ -145,7 +146,7 @@ void Sign (FloorInput& in)
 {
     std::ostringstream signature;
     signature << std::setprecision (9) << floorprogramme::Key (in.programme) << '|' << in.options.grossFactor << '|'
-              << in.options.north << '|';
+              << in.options.north << '|' << in.options.holdCores << '|';
     Write (signature, in.owned);
     signature << '|';
     Write (signature, in.party);
@@ -232,6 +233,36 @@ bool Planner::Busy () const
     return Running () > 0 ||
            std::any_of (jobs_.begin (), jobs_.end (), [] (const auto& job) { return job.second.waiting.has_value (); });
 }
+std::vector<fs::Ring> Common (const Plan& plan, const std::vector<fs::Ring>& owned)
+{
+    namespace cp = Clipper2Lib;
+    const auto paths = [] (const std::vector<fs::Ring>& rings) {
+        cp::PathsD out;
+        for (const auto& r : rings) {
+            cp::PathD path;
+            for (const auto& p : r)
+                path.emplace_back (p.x, p.y);
+            out.push_back (std::move (path));
+        }
+        return out;
+    };
+    auto common = cp::Union (paths (owned), cp::FillRule::NonZero, 6);
+    for (const auto& floor : plan.floors)
+        common = cp::Intersect (common, cp::Union (paths (FloorRings (floor)), cp::FillRule::NonZero, 6),
+                                cp::FillRule::NonZero, 6);
+    // Too little floor in common to plan a stair: the lead floor's own (CheckStack reports the
+    // floors the stack misses).
+    if (std::abs (cp::Area (common)) < kMinCommon)
+        return owned;
+    std::vector<fs::Ring> out;
+    for (const auto& path : common) {
+        fs::Ring ring;
+        for (const auto& p : path)
+            ring.push_back ({ p.x, p.y });
+        out.push_back (std::move (ring));
+    }
+    return out;
+}
 const Floor* LeadFloor (const Plan& plan)
 {
     const Floor* lead = nullptr;
@@ -258,6 +289,8 @@ const Planner::Planned* WantFloors (Planner& planner, const std::map<std::string
     std::vector<fs::Pins::Core> stairs;
     if (draft == drafts.end () || draft->second.cores.empty ()) {
         auto free = InputFor (plans, drafts, key, *lead, programme, {}, options);
+        free.owned = Common (plan->second, free.owned);
+        Sign (free);
         planner.Want (FloorId (key, lead->story) + "#auto", std::move (free), true);
         const auto* led = planner.Latest (FloorId (key, lead->story) + "#auto");
         if (!led)

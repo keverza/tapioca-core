@@ -66,6 +66,10 @@ struct Options {
     // wall -- thick, blind, never a facade for a window (user, 2026-10-10).
     std::vector<Ring> party;
     double raster = 0.3; // skeleton search grid
+    // The pinned stairs are the building's stair stack (user, 2026-10-10: "stair core must be
+    // same position from ground to top floor"): each stands exactly where pinned, never moved by
+    // `kPinTolerance`, and a stair the stack does not have is an error (`CheckStack`).
+    bool holdCores = false;
 };
 
 // User guidance; every point is world XY.
@@ -214,6 +218,11 @@ Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Program
                  const Options& options = {});
 // Every hard rule on a finished scheme; appends Error diagnostics and returns their count.
 size_t Check (Scheme& scheme, const Options& options = {});
+// The building's stair stack on this floor: every stack stair inside the floor stands on one of
+// its stairs, and the floor has no stair of its own. Appends Error diagnostics (core.outside_floor,
+// core.stack_moved, core.not_in_stack) and returns their count; `ok` is updated. (Too few stack
+// stairs for a wing's floor is the generator's `core.missing` warning.)
+size_t CheckStack (Scheme& scheme, const std::vector<Pins::Core>& stack, const Options& options = {});
 double Area (const Ring& ring); // signed, counter-clockwise positive
 } // namespace geomsrv::archviz::floorscheme
 #endif
