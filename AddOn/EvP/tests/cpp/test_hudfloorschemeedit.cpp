@@ -3,6 +3,7 @@
 // frame waiting for the generator, and the moved stair the building's own.
 #include "ArchViz/FloorSchemeEdit.hpp"
 #include "ArchViz/HudFloorSchemeEdit.hpp"
+#include "ArchViz/HudFloorSchemeEditDetail.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
@@ -51,6 +52,82 @@ ImVec4 Bounds (ImU32 colour, ImVec4 within = { -1e6f, -1e6f, 1e6f, 1e6f })
     return b;
 }
 } // namespace
+
+TEST (HudFloorSchemeEdit, UnitCaptionsUseRoomCountAndActualNetAreaWithoutProgrammeRanges)
+{
+    fs::Flat flat;
+    flat.rooms = 3;
+    flat.net = 61.25;
+    flat.type = 2; // The repeated 3R type's name contains an area range; the caption must not.
+    const auto [rooms, area] = hf::detail::FlatLabel (flat);
+    EXPECT_EQ (rooms, "3R");
+    EXPECT_EQ (area, "61.2 m2");
+    flat.rooms = 1.5;
+    flat.manual = true;
+    EXPECT_EQ (hf::detail::FlatLabel (flat).first, "1.5R");
+}
+
+TEST (HudFloorSchemeEdit, TwoLineCaptionsFitActualPolygonsNotJustFrontage)
+{
+    hf::View view;
+    const fs::Ring square { { 0, 0 }, { 100, 0 }, { 100, 100 }, { 0, 100 } };
+    EXPECT_TRUE (hf::detail::LabelFits (square, view, { 50, 50 }, { 50, 28 }, 2));
+    EXPECT_FALSE (hf::detail::LabelFits (square, view, { 50, 50 }, { 100, 28 }, 2));
+    const fs::Ring thin { { 0, 0 }, { 100, 0 }, { 100, 20 }, { 0, 20 } };
+    EXPECT_FALSE (hf::detail::LabelFits (thin, view, { 50, 10 }, { 50, 28 }, 2));
+    const fs::Ring rotated { { 0, 50 }, { 50, 0 }, { 100, 50 }, { 50, 100 } };
+    EXPECT_FALSE (hf::detail::LabelFits (rotated, view, { 50, 50 }, { 80, 40 }, 2));
+    const fs::Ring concave { { 0, 0 },   { 100, 0 }, { 100, 100 }, { 55, 100 },
+                             { 55, 40 }, { 45, 40 }, { 45, 100 },  { 0, 100 } };
+    EXPECT_FALSE (hf::detail::LabelFits (concave, view, { 50, 50 }, { 50, 28 }, 2));
+}
+
+TEST (HudFloorSchemeEdit, CanvasDrawsRoomAndAreaOnSeparateCentredLines)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 1000, 1400 };
+    io.DeltaTime = 1.0f / 60;
+    ASSERT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    bp::Planner planner;
+    const std::map<std::string, bp::Plan> plans;
+    std::map<std::string, bp::Draft> drafts;
+    const auto programme = fp::Default ();
+    const fs::Options options;
+    hf::Context c { planner, plans, drafts, programme, options };
+    hf::Editor editor;
+    editor.input.owned = { { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } } };
+    fs::Flat flat;
+    flat.rooms = 3, flat.net = 61.25, flat.type = 2;
+    flat.shape = { { 1, 1 }, { 9, 1 }, { 9, 9 }, { 1, 9 } };
+    editor.scheme.flats = { flat };
+    ImGui::NewFrame ();
+    ImGui::SetNextWindowPos ({ 0, 0 });
+    ImGui::SetNextWindowSize ({ 600, 1200 });
+    ImGui::Begin ("labels", nullptr, ImGuiWindowFlags_NoSavedSettings);
+    hf::detail::Canvas (editor, c, 1);
+    const auto lo = ImGui::GetItemRectMin (), hi = ImGui::GetItemRectMax ();
+    const ImVec2 middle { (lo.x + hi.x) / 2, (lo.y + hi.y) / 2 };
+    const ImVec4 above = Bounds (IM_COL32 (20, 25, 28, 255), { 0, 0, 1000, middle.y });
+    const ImVec4 below = Bounds (IM_COL32 (20, 25, 28, 255), { 0, middle.y, 1000, 1400 });
+    EXPECT_GT (above.z, above.x);
+    EXPECT_GT (below.z, below.x);
+    EXPECT_LT (above.w, below.y);
+    EXPECT_NEAR ((above.x + above.z) / 2, middle.x, 1);
+    EXPECT_NEAR ((below.x + below.z) / 2, middle.x, 1);
+    ImGui::End ();
+    ImGui::Render ();
+}
 
 TEST (HudFloorSchemeEdit, ABuildingIsEditedAmongItsNeighbourAndAStairDragsWithoutStallingTheFrame)
 {

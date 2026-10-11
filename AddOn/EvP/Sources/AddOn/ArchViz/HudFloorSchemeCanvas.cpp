@@ -372,6 +372,31 @@ void Ring (ImDrawList* draw, const View& v, const fs::Ring& r, ImU32 colour, flo
     draw->AddPolyline (points.data (), int (points.size ()), colour, ImDrawFlags_Closed, width);
 }
 
+std::pair<std::string, std::string> FlatLabel (const fs::Flat& flat)
+{
+    char rooms[24], area[32];
+    std::snprintf (rooms, sizeof (rooms), "%gR", flat.rooms);
+    std::snprintf (area, sizeof (area), "%.1f m2", flat.net);
+    return { rooms, area };
+}
+
+bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 size, float padding)
+{
+    if (shape.size () < 3)
+        return false;
+    const float x = size.x / 2 + padding, y = size.y / 2 + padding;
+    cp::PathD box;
+    for (const ImVec2 corner : { ImVec2 { middle.x - x, middle.y - y },
+                                 { middle.x + x, middle.y - y },
+                                 { middle.x + x, middle.y + y },
+                                 { middle.x - x, middle.y + y } }) {
+        const auto world = view.W (corner);
+        box.emplace_back (world.x, world.y);
+    }
+    // A frontage-only check lets a horizontal caption cross a rotated or concave flat.
+    return cp::Difference ({ box }, { Path (shape) }, cp::FillRule::EvenOdd, 6).empty ();
+}
+
 Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
 {
     Pointing at;
@@ -637,15 +662,19 @@ void Canvas (Editor& e, Context& c, float scale)
     // Labels where they fit, a padlock on locked flats.
     for (size_t i = 0; i < shown->flats.size (); ++i) {
         const auto& f = shown->flats[i];
-        char label[48];
-        std::snprintf (label, sizeof (label), "%s%s %.0f", f.manual ? "R " : "",
-                       floorprogramme::Name (c.programme, f.type).c_str (), f.net);
-        const auto t = ImGui::CalcTextSize (label);
+        const auto [roomText, areaText] = FlatLabel (f);
+        const auto roomSize = ImGui::CalcTextSize (roomText.c_str ());
+        const auto areaSize = ImGui::CalcTextSize (areaText.c_str ());
+        const float line = ImGui::GetTextLineHeight ();
+        const ImVec2 t { (std::max) (roomSize.x, areaSize.x), 2 * line };
         const ImVec2 middle = v.P (Mid (f.shape));
-        if (t.x < f.frontage / px * 0.95)
-            draw->AddText ({ middle.x - t.x / 2, middle.y - t.y / 2 }, IM_COL32 (20, 25, 28, 255), label);
+        if (LabelFits (f.shape, v, middle, t, 2 * scale)) {
+            draw->AddText ({ middle.x - roomSize.x / 2, middle.y - line }, IM_COL32 (20, 25, 28, 255),
+                           roomText.c_str ());
+            draw->AddText ({ middle.x - areaSize.x / 2, middle.y }, IM_COL32 (20, 25, 28, 255), areaText.c_str ());
+        }
         if (fe::Locked (*shown, e.input.design, int (i)))
-            Padlock (draw, { middle.x, middle.y - t.y }, scale, kInk);
+            Padlock (draw, { middle.x, middle.y - line - 6 * scale }, scale, kInk);
     }
     for (const auto& d : shown->diagnostics)
         if (d.level == fs::Diagnostic::Error)

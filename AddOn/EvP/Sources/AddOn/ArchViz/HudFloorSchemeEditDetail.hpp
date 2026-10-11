@@ -113,6 +113,9 @@ std::vector<Fill> Fills (const fs::Scheme& s);
 // The selection found again in a new scheme, where it was picked.
 Target Again (const fs::Scheme& s, const Target& t, fs::Vec at);
 void Palette (float scale);
+// Two centred lines, bounded by the actual flat polygon rather than its frontage.
+std::pair<std::string, std::string> FlatLabel (const fs::Flat& flat);
+bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 size, float padding);
 void Canvas (Editor& e, Context& c, float scale);
 // HudFloorSchemeEdit.cpp: the shown floor's design becomes `next` (one undo step); a party wall
 // pushed `distance` out of the building, or pulled in.
