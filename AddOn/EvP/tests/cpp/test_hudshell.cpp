@@ -41,6 +41,39 @@ std::pair<float, float> TopCircle (const hud::Built& dock)
 
 } // namespace
 
+TEST (HudContextMenu, AControlsClaimSurvivesHeldFramesAndReleaseButNotTheNextClick)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 800, 600 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const auto frame = [&] (bool down, bool claim, bool expected) {
+        io.MouseDown[ImGuiMouseButton_Right] = down;
+        ImGui::NewFrame ();
+        ImGui::Begin ("context claim");
+        if (claim)
+            shell::ClaimRightClick ();
+        EXPECT_EQ (shell::RightClickClaimed (), expected);
+        ImGui::End ();
+        ImGui::Render ();
+    };
+    frame (false, false, false);
+    frame (true, true, true);
+    for (int held = 0; held < 20; ++held)
+        frame (true, false, true);
+    frame (false, false, true); // The generic HUD menu checks here, not on the press frame.
+    frame (false, false, false);
+    frame (true, false, false);
+    frame (false, false, false);
+    ImGui::DestroyContext (context);
+    ImGui::SetCurrentContext (previous);
+}
+
 // ⚠️ THE USER: the vertical tab's hover text on a light background, as a tooltip to the left
 // side, not where the pointer is.
 TEST (HudTips, TheDocksCircleSaysItsTipToItsLeftOnALightGround)

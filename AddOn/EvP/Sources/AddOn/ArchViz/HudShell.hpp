@@ -141,7 +141,8 @@ DockPress DockTab (const char* id, const std::string& label, const overlaylayers
 
 // ⚠️ A RIGHT CLICK A CONTROL ANSWERS IS THE CONTROL'S: the HUD's own menu opens on a right click
 // anywhere on the HUD (OverlayHudHost.cpp `Menu`) unless a control -- the building section's
-// floors -- claimed the click in this frame. Per ImGui context and frame; under its lock.
+// floors -- claimed the press. That claim lasts through its release, not just one frame;
+// the next press is independent. Scoped to the initiating ImGui context, under its lock.
 void ClaimRightClick ();
 bool RightClickClaimed ();
 // ⚠️ A CANVAS SAYS ITS OWN POINTER (the user, 2026-10-10: the cursor kept switching between a hand

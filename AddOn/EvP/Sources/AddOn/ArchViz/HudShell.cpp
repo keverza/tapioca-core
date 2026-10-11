@@ -477,9 +477,9 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
 
 namespace {
 
-// Who claimed the right click, and in which frame: one HUD lays out at a time, under ImGui's lock.
-const ImGuiContext* g_claimedBy = nullptr;
-int g_claimedFrame = -1;
+// A control opens on press; the HUD's fallback menu opens on release, potentially many frames later.
+const ImGuiContext* s_claimedBy = nullptr;
+double s_claimedPress = -1;
 // Who claimed the pointer, the same way.
 const ImGuiContext* g_cursorBy = nullptr;
 int g_cursorFrame = -1;
@@ -488,13 +488,15 @@ int g_cursorFrame = -1;
 
 void ClaimRightClick ()
 {
-    g_claimedBy = ImGui::GetCurrentContext ();
-    g_claimedFrame = ImGui::GetFrameCount ();
+    s_claimedBy = ImGui::GetCurrentContext ();
+    s_claimedPress = ImGui::GetIO ().MouseClickedTime[ImGuiMouseButton_Right];
 }
 
 bool RightClickClaimed ()
 {
-    return g_claimedBy == ImGui::GetCurrentContext () && g_claimedFrame == ImGui::GetFrameCount ();
+    return s_claimedBy == ImGui::GetCurrentContext () &&
+           s_claimedPress == ImGui::GetIO ().MouseClickedTime[ImGuiMouseButton_Right] &&
+           (ImGui::IsMouseDown (ImGuiMouseButton_Right) || ImGui::IsMouseReleased (ImGuiMouseButton_Right));
 }
 
 void OwnCursor ()

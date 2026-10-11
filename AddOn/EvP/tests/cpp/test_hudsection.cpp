@@ -307,6 +307,8 @@ TEST (HudSection, ARightClickAssignsAValueToThePickedFloors)
     hud.Lay ({}, At (x, floor2, { { 0, false } }));
     ASSERT_EQ (hud::PickedFloors (*hud.state), (hs::Run { 1, 2 }));
     hud.Lay ({}, At (x, floor2, { { 1, true } }));
+    for (int held = 0; held < 5; ++held)
+        hud.Lay ({}, At (x, floor2));
     hud.Lay ({}, At (x, floor2, { { 1, false } }));
     // The menu at the pointer: below the click, the first row the hand shows over is the first
     // value -- Residential.

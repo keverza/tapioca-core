@@ -428,9 +428,9 @@ void Engine::Impl::Menu (float ui)
             ImGui::ClosePopupsExceptModals ();
         return;
     }
-    // Released over any of the HUD's windows -- the menu's own included: it opens again there --
-    // but not where a control of the HUD answered it (hudshell::ClaimRightClick).
+    // The fallback is for the HUD background, never an already open contextual popup.
     if (ImGui::IsMouseReleased (ImGuiMouseButton_Right) && ImGui::GetCurrentContext ()->HoveredWindow != nullptr &&
+        !(ImGui::GetCurrentContext ()->HoveredWindow->Flags & ImGuiWindowFlags_Popup) &&
         !hudshell::RightClickClaimed ())
         ImGui::OpenPopup (kMenu);
     const layers::Panel& panel = *look;
