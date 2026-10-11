@@ -212,7 +212,10 @@ void GhBridge::Stop ()
 {
     if (expectedGh2) {
         BeginGh2Shutdown ();
-        ClearGh2Overlays (generation.load ()); // Stop is owned by the Archicad main thread
+        // Only a live session can own content. The singleton destructor repeats
+        // Stop after application teardown, when feature stores may already be gone.
+        if (io.joinable ())
+            ClearGh2Overlays (generation.load ()); // Stop is owned by the Archicad main thread
     }
     if (!io.joinable ()) {
         // A failed Start can leave a pipe with no thread behind it. Closing it
