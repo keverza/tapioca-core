@@ -35,12 +35,27 @@ def test_adoption_is_gated_and_a_closed_session_cannot_rearm_following():
     assert "IsMainThread ()" in adopt
     assert "[studyId, config, sessionGeneration]" in adopt
     assert "sessionGeneration != s_sessionGeneration" in adopt
+    assert "s_followDisplayGeneration = archviz::SceneCmdQueue::Get ().AnalysisDisplayGeneration ()" in adopt
     assert "++s_sessionGeneration" in source
     display = (_ADDON / "NativeCommands" / "SunStudyDisplayCommands.cpp").read_text(encoding="utf-8")
     assert display.index("sunfollow::SessionGeneration ()") < display.index("SubmitManualSunStudyDisplay")
     preparation = (_ADDON / "NativeCommands" / "SunStudyDisplayPreparation.cpp").read_text(encoding="utf-8")
-    assert "sunfollow::Adopt (request.studyId, request.config, request.sessionGeneration)" in preparation
-    assert preparation.index("PublishInSession") < preparation.index("PushSunStudyAtlas")
+    publish = preparation.split("void PublishManualDisplay (", 1)[1].split("} // namespace", 1)[0]
+    session = publish.index("PublishInSession (request.sessionGeneration, request.config")
+    record = publish.index("PublishDisplayRecord (request.studyId, request.revision")
+    enqueue = publish.index("PushAnalysisAtlas (request.displayGeneration,")
+    accepted = publish.index("return accepted && enqueued;")
+    adopt = publish.index("sunfollow::Adopt (request.studyId, request.config, request.sessionGeneration)")
+    assert session < record < enqueue < accepted < adopt
+    assert "std::move (result->upload)" in publish[enqueue:accepted]
+    rejected = publish.split("if (!published) {", 1)[1].split("if (request.follow)", 1)[0]
+    assert "return;" in rejected
+    submit = preparation.split("bool SubmitManualSunStudyDisplay (", 1)[1].split(
+        "ManualSunStudyDisplayState ManualSunStudyDisplayStatus", 1
+    )[0]
+    assert submit.index("request.displayGeneration = archviz::SceneCmdQueue::Get ().ClaimAnalysisDisplay (0)") < (
+        submit.index("task.execute = [request, output]")
+    )
 
 
 def test_worker_is_joined_on_both_quit_and_unload():
@@ -134,12 +149,21 @@ def test_automatic_replacement_never_coarsens_and_reuses_only_compatible_accepte
 
 def test_incremental_publication_uses_the_stale_guard_and_commits_after_enqueue():
     source = (_ADDON / "NativeCommands" / "SunStudyFollowerDriver.cpp").read_text(encoding="utf-8")
-    check = source.index("gFollower.CanPublishResult (gRunGeneration, gRunSignature)")
-    show = source.index("PushSunStudyAtlas (std::move (output->upload))")
-    accept = source.index("gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now)")
-    assert check < show < accept
-    assert "completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration" in source
-    assert "output->upload == nullptr || !archviz::DiligentViewport::Get ().IsRunning ()" in source
+    poll = source.split("void PollDisplay (int64_t now)\n{", 1)[1].split("void DisableLocked ()", 1)[0]
+    check = poll.index("gFollower.CanPublishResult (gRunGeneration, gRunSignature)")
+    record = poll.index("PublishDisplayRecord (")
+    show = poll.index("PushAnalysisAtlas (s_displayGeneration, std::move (output->upload))")
+    accept = poll.index("gFollower.NoteCompleted (gRunGeneration, gRunStudyId, gRunSignature, now)")
+    assert check < record < show < accept
+    rejected = poll.split("!enqueued) {", 1)[1].split("\n    }", 1)[0]
+    assert "gFollower.NoteFailed (gRunGeneration, now)" in rejected
+    assert 'RetireRun ("display cancelled before enqueue", false)' in rejected
+    assert "return;" in rejected
+    assert "completion.sessionGeneration != s_sessionGeneration || completion.runGeneration != gRunGeneration" in poll
+    assert "Revision (gRunStudyId) != s_runRevision" in poll
+    assert "gRunStudyId, s_runRevision," in poll[record:show]
+    assert "output->upload == nullptr || !archviz::DiligentViewport::Get ().IsRunning ()" in poll
+    assert "s_displayGeneration = s_followDisplayGeneration;" in source
     assert "s_reuseRecord.reset ();" in source.split("void DisableLocked ()", 1)[1]
 
 

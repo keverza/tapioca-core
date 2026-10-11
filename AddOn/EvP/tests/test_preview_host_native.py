@@ -23,9 +23,7 @@ def test_3d_band_uses_validated_dg_hwnd_without_full_model_extraction():
     assert "DGGetDialogItemWindow" in start
     assert "::IsWindow" in start
     assert "::GetClientRect" in start
-    assert start.index("SceneCmdQueue::Get ().Clear") < start.index(
-        "DiligentViewport::Get ().Start"
-    )
+    assert start.index("SceneCmdQueue::Get ().Clear") < start.index("DiligentViewport::Get ().Start")
     assert "ExtractionWorker::Get ().Start" not in start
     assert "CameraForTrace (drawList)" in start
     assert "surface.retainedAnnotationsOnly = true" in start
@@ -73,12 +71,8 @@ def test_external_viewer_relinquishes_embedded_preview_before_busy_check():
 
 def test_3d_band_routes_supported_user_item_input_to_existing_ring():
     source = _PANEL.read_text(encoding="utf-8")
-    shell = (_ADDON / "Palette" / "ControlPaletteLayout.cpp").read_text(
-        encoding="utf-8"
-    )
-    hardware = (_ADDON / "ArchViz" / "HardwareInput.cpp").read_text(
-        encoding="utf-8"
-    )
+    shell = (_ADDON / "Palette" / "ControlPaletteUserItems.cpp").read_text(encoding="utf-8")
+    hardware = (_ADDON / "ArchViz" / "HardwareInput.cpp").read_text(encoding="utf-8")
 
     assert "PreviewPanel::HandleUserItemMouseDown" in source
     assert "PreviewPanel::HandleUserItemMouseUp" in source
@@ -91,7 +85,15 @@ def test_3d_band_routes_supported_user_item_input_to_existing_ring():
     assert "canvas->EnableCapture ()" in source
     assert "::SetCapture (hwnd)" in source
     assert "::ReleaseCapture ()" in source
-    assert "preview.HandleUserItemMouseMoved (ev)" in shell
+    for handler, delegate in (
+        ("UserItemMouseDown", "HandleUserItemMouseDown"),
+        ("UserItemMouseUp", "HandleUserItemMouseUp"),
+        ("UserItemMouseMoved", "HandleUserItemMouseMoved"),
+        ("UserItemMouseExited", "HandleUserItemMouseExited"),
+        ("PanelWheelTracked", "HandleWheelTracked"),
+    ):
+        body = shell.split(f"void ControlPalette::{handler} (", 1)[1].split("\n}", 1)[0]
+        assert f"preview.{delegate} (ev)" in body
     assert "::ScreenToClient (hwnd, &clientPt)" in hardware
     assert "DGGetDPI" not in hardware
 
@@ -114,9 +116,7 @@ def test_3d_band_releases_input_on_every_host_lifecycle_exit():
 
 
 def test_renderer_consumes_only_retained_watch_selection_for_preview_annotations():
-    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
-        encoding="utf-8"
-    )
+    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(encoding="utf-8")
     support = _TRACE_ANNOTATION_VIEWPORT.read_text(encoding="utf-8")
 
     assert "SelectedRetainedFrameSnapshotCopy" in support
@@ -127,9 +127,7 @@ def test_renderer_consumes_only_retained_watch_selection_for_preview_annotations
 
 
 def test_renderer_routes_annotation_labels_through_scene_text_with_imgui_fallback():
-    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
-        encoding="utf-8"
-    )
+    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(encoding="utf-8")
     support = _TRACE_ANNOTATION_VIEWPORT.read_text(encoding="utf-8")
     projected = support.index("layer.DrawProjected")
     fallback_clear = support.index("annotations.labels.clear", projected)
@@ -144,9 +142,7 @@ def test_renderer_routes_annotation_labels_through_scene_text_with_imgui_fallbac
 def test_scene_text_shaping_is_owned_by_the_layout_worker_not_the_render_layer():
     layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
     atlas = (_ADDON / "ArchViz" / "SceneTextAtlas.cpp").read_text(encoding="utf-8")
-    cache = (_ADDON / "ArchViz" / "SceneTextLayoutCache.cpp").read_text(
-        encoding="utf-8"
-    )
+    cache = (_ADDON / "ArchViz" / "SceneTextLayoutCache.cpp").read_text(encoding="utf-8")
 
     assert "SceneTextShaper" not in layer
     assert "SceneTextShaper" not in atlas
@@ -187,11 +183,9 @@ def test_dynamic_scene_text_pages_keep_cpu_generation_off_the_render_api():
     for forbidden in ("ACAPI_", "MainThreadGate", "Diligent::", "DG::"):
         assert forbidden not in cache
     assert "GenerateSceneTextAtlasPage" in cache
-    assert "kMaximumStagingPages = 2" in (
-        _ADDON / "ArchViz" / "SceneTextAtlasCache.hpp"
-    ).read_text(encoding="utf-8")
-    assert 'desc.Usage = Diligent::USAGE_IMMUTABLE' in layer
-    assert 'desc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM' in layer
+    assert "kMaximumStagingPages = 2" in (_ADDON / "ArchViz" / "SceneTextAtlasCache.hpp").read_text(encoding="utf-8")
+    assert "desc.Usage = Diligent::USAGE_IMMUTABLE" in layer
+    assert "desc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM" in layer
     assert "UploadReadyPages (device)" in layer
     assert "draw.StartVertexLocation = startVertex" in layer
     assert "dynamicPages[pageIndex - 1].srb" in layer
@@ -219,27 +213,19 @@ def test_headless_capture_waits_for_exact_text_at_explicit_dpi():
 
 
 def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
-    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
-        encoding="utf-8"
-    )
+    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(encoding="utf-8")
     support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
     trace_support = _TRACE_ANNOTATION_VIEWPORT.read_text(encoding="utf-8")
-    header = (_ADDON / "ArchViz" / "SceneTextLayer.hpp").read_text(
-        encoding="utf-8"
-    )
-    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(
-        encoding="utf-8"
-    )
-    commands = (_ADDON / "NativeCommands" / "ArchVizCommands.cpp").read_text(
-        encoding="utf-8"
-    )
+    header = (_ADDON / "ArchViz" / "SceneTextLayer.hpp").read_text(encoding="utf-8")
+    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
+    commands = (_ADDON / "NativeCommands" / "ArchVizCommands.cpp").read_text(encoding="utf-8")
 
     assert "enum class SceneTextOcclusion : uint8_t { Always, Hide, Fade }" in header
     assert "SceneTextOcclusion::Always" in header
     assert 'item.Get ("occlusion", occlusion)' in commands
     assert 'item.Get ("allowOverlap", allowOverlap)' in commands
     assert '"allowOverlap":{"type":"boolean"}' in commands
-    assert '\"enum\":[\"always\",\"hide\",\"fade\"]' in commands
+    assert '"enum":["always","hide","fade"]' in commands
     assert "dsv, target.DepthShaderView (), motionViewProj" in renderer
     assert "label.occlusion != SceneTextOcclusion::Always" in support
     assert "SetRenderTargets (1, &colorTarget, nullptr" in support
@@ -300,21 +286,15 @@ def test_plan_overlay_return_releases_the_explicit_watch_session():
     clear = panel[panel.index("void PreviewPanel::ClearOverlay") :]
     clear = clear[: clear.index("bool PreviewPanel::HandleButtonClicked")]
 
-    assert clear.index("SetAnnotationFrame (nullptr)") < clear.index(
-        "EndSession (overlaySession)"
-    )
+    assert clear.index("SetAnnotationFrame (nullptr)") < clear.index("EndSession (overlaySession)")
     assert "Owner::Watch" in panel
 
 
 def test_preview_enable_state_gates_palette_and_webui_watch_arming():
-    palette_run = (_ADDON / "Palette" / "ControlPaletteRun.cpp").read_text(
-        encoding="utf-8"
-    )
+    palette_run = (_ADDON / "Palette" / "ControlPaletteRun.cpp").read_text(encoding="utf-8")
     webui = (_ADDON / "Python" / "WebUIDispatch.cpp").read_text(encoding="utf-8")
     runtime = _RUNTIME.read_text(encoding="utf-8")
-    native = (_ADDON / "NativeCommands" / "PreviewCommands.cpp").read_text(
-        encoding="utf-8"
-    )
+    native = (_ADDON / "NativeCommands" / "PreviewCommands.cpp").read_text(encoding="utf-8")
 
     assert "std::atomic<bool> enabled" in runtime
     # A Watch trace has two readers since 2026-09-29: the palette's preview and the
@@ -345,9 +325,7 @@ def test_palette_consumes_retained_change_for_layout_and_redraw():
     shell = (_ADDON / "Palette" / "ControlPalette.cpp").read_text(encoding="utf-8")
     idle = shell[shell.index("void ControlPalette::PanelIdle") :]
     idle = idle[: idle.index("void ControlPalette::RefreshSearchFilter")]
-    automatic = (_ADDON / "Palette" / "ControlPaletteAutoPreview.cpp").read_text(
-        encoding="utf-8"
-    )
+    automatic = (_ADDON / "Palette" / "ControlPaletteAutoPreview.cpp").read_text(encoding="utf-8")
 
     assert "PollAutomaticPreview ();" in idle
     assert "if (!runActive.load () && preview.PollRetained ())" in automatic
@@ -357,18 +335,14 @@ def test_palette_consumes_retained_change_for_layout_and_redraw():
 
 def test_band_resize_has_neutral_fallback_and_duplicate_requests_are_coalesced():
     panel = _PANEL.read_text(encoding="utf-8")
-    viewport = (_ADDON / "ArchViz" / "DiligentViewportControl.cpp").read_text(
-        encoding="utf-8"
-    )
+    viewport = (_ADDON / "ArchViz" / "DiligentViewportControl.cpp").read_text(encoding="utf-8")
 
     assert "stats.width != (uint32_t) canvas->GetWidth ()" in panel
     assert "CreateSolidBrush (RGB (238, 238, 238))" in panel
     resize = viewport[viewport.index("void DiligentViewport::RequestResize") :]
     resize = resize[: resize.index("void DiligentViewport::SyncCamera")]
     assert "pendingWidth_.load () == width" in resize
-    assert resize.index("pendingWidth_.load () == width") < resize.index(
-        "resizePending_.store (true)"
-    )
+    assert resize.index("pendingWidth_.load () == width") < resize.index("resizePending_.store (true)")
 
 
 def test_plan_band_uses_persistent_camera_and_canvas_scoped_input():
@@ -383,7 +357,7 @@ def test_plan_band_uses_persistent_camera_and_canvas_scoped_input():
     assert "planCamera.Transform ()" in paint
     assert "FitFrame" not in paint
     assert "planCameraSelectionValid" in select
-    assert 'event.GetItem () == canvas.get ()' in wheel
+    assert "event.GetItem () == canvas.get ()" in wheel
     assert "planCamera.ZoomAt" in wheel
     assert "HandleUserItemDoubleClicked" in panel
     assert "GetClientRect (hwnd, &rect)" in paint
@@ -391,12 +365,10 @@ def test_plan_band_uses_persistent_camera_and_canvas_scoped_input():
 
 
 def test_plan_overlay_opacity_is_interactive_and_owner_scoped():
-    panel = _PANEL.read_text(encoding="utf-8") + (
-        _ADDON / "Palette" / "PreviewPanelSupport.cpp"
-    ).read_text(encoding="utf-8")
-    overlay = (_ADDON / "PlanOverlay" / "OverlayWindow.cpp").read_text(
+    panel = _PANEL.read_text(encoding="utf-8") + (_ADDON / "Palette" / "PreviewPanelSupport.cpp").read_text(
         encoding="utf-8"
     )
+    overlay = (_ADDON / "PlanOverlay" / "OverlayWindow.cpp").read_text(encoding="utf-8")
 
     assert "opacitySlider" in panel
     assert "SetOpacity (geomsrv::planoverlay::Owner::Watch" in panel
@@ -405,8 +377,6 @@ def test_plan_overlay_opacity_is_interactive_and_owner_scoped():
 
 
 def test_centered_gdi_text_is_centered_on_both_axes():
-    painter = (_ADDON / "Annotation" / "GdiPainter.cpp").read_text(
-        encoding="utf-8"
-    )
+    painter = (_ADDON / "Annotation" / "GdiPainter.cpp").read_text(encoding="utf-8")
     assert "anchor.x - extent.cx / 2" in painter
     assert "anchor.y - extent.cy / 2" in painter

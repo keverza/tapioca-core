@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ARCHVIZ = ROOT / "Sources" / "AddOn" / "ArchViz"
 
@@ -63,10 +62,16 @@ def test_graph_lab_logs_each_input_stage_without_swap_chain_hooks() -> None:
 
 def test_scene_text_live_check_uses_the_production_text_layer() -> None:
     hud = (ARCHVIZ / "DiligentHud.cpp").read_text(encoding="utf-8")
+    shell = (ARCHVIZ / "DiligentHudShell.cpp").read_text(encoding="utf-8")
+    tabs = (ARCHVIZ / "DiligentHudTabs.cpp").read_text(encoding="utf-8")
     live_check = (ARCHVIZ / "SceneTextLiveCheck.cpp").read_text(encoding="utf-8")
     viewport = (ARCHVIZ / "DiligentViewport.cpp").read_text(encoding="utf-8")
 
-    assert "DrawSceneTextLiveCheckControls (state)" in hud
+    assert "viewerhud::Draw (impl_->shell, state, scene" in hud
+    assert "else if (key == hudshell::kDebugKey)" in shell
+    assert "DebugPage (shell, state, scene, frame, width, height, ui)" in shell
+    debug = tabs.split("void DebugPage (", 1)[1]
+    assert "DrawSceneTextLiveCheckControls (state)" in debug
     assert 'ImGui::Checkbox ("show production text sample"' in live_check
     assert 'ImGui::Checkbox ("show edge / overlap placement"' in live_check
     assert 'ImGui::Checkbox ("show always / hide / fade lines"' in live_check
