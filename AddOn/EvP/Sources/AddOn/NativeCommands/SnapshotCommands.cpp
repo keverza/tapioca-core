@@ -89,7 +89,7 @@ class BuildSnapshotCommand : public MainThreadCommand {
         const bool sharedCapture = snap != nullptr && snap->captureStamp == stamp && snap->completeModel;
         if (!sharedCapture) {
             const uint64_t id = MeshStore::Get ().NextId ();
-            snap = selectionOnly ? ExtractSelectedElements (id) : ExtractAllElements (id, stamp);
+            snap = selectionOnly ? ExtractSelectedElements (id, stamp) : ExtractAllElements (id, stamp);
         }
         const double captureMs =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - captureStarted).count ();
@@ -108,6 +108,7 @@ class BuildSnapshotCommand : public MainThreadCommand {
             auto keep = std::make_shared<Snapshot> ();
             keep->id = MeshStore::Get ().NextId (); // a subset must not alias the shared query index
             keep->scope = snap->scope;
+            keep->captureStamp = snap->captureStamp;
             keep->materialTransparency = snap->materialTransparency;
             for (auto& m : snap->meshes) {
                 if (std::find (excludeTypes.begin (), excludeTypes.end (), m.elemType) != excludeTypes.end ()) {
@@ -148,6 +149,7 @@ class BuildSnapshotCommand : public MainThreadCommand {
             MetadataStore::Get ().Release (); // stale metadata would lie about this snapshot
 
         os.Add ("snapshotId", static_cast<GS::Int64> (snap->id));
+        os.Add ("captureStamp", static_cast<GS::Int64> (snap->captureStamp));
         os.Add ("scope", GS::UniString (snap->scope.c_str ()));
         os.Add ("elementCount", static_cast<GS::Int64> (snap->meshes.size ()));
         os.Add ("vertexCount", static_cast<GS::Int64> (snap->TotalVertices ()));
@@ -278,6 +280,7 @@ class GetSnapshotInfoCommand : public MainThreadCommand {
         }
 
         os.Add ("snapshotId", (GS::Int64) snapshot->id);
+        os.Add ("captureStamp", (GS::Int64) snapshot->captureStamp);
         os.Add ("scope", GS::UniString (snapshot->scope.c_str (), CC_UTF8));
         os.Add ("meshCount", (GS::Int32) snapshot->meshes.size ());
         os.Add ("guids", guids);
@@ -308,6 +311,7 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
             "type":"object",
             "properties":{
                 "snapshotId":{"type":"integer"},
+                "captureStamp":{"type":"integer","minimum":0},
                 "scope":{"type":"string","enum":["all","selection"]},
                 "elementCount":{"type":"integer"},
                 "vertexCount":{"type":"integer"},
@@ -321,7 +325,7 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
                 "retainedBytes":{"type":"integer"}
             },
             "additionalProperties":false,
-            "required":["snapshotId","scope","elementCount","vertexCount","triangleCount","hasMetadata","metaLevel","metadataCancelled","retainedBytes"]
+            "required":["snapshotId","captureStamp","scope","elementCount","vertexCount","triangleCount","hasMetadata","metaLevel","metadataCancelled","retainedBytes"]
         })json" },
     { "ReleaseSnapshot", &MakeRegisteredNativeCommand<ReleaseSnapshotCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",
@@ -337,6 +341,7 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
             "type":"object",
             "properties":{
                 "snapshotId":{"type":"integer"},
+                "captureStamp":{"type":"integer","minimum":0},
                 "scope":{"type":"string","enum":["all","selection"]},
                 "meshCount":{"type":"integer"},
                 "guids":{"type":"array","items":{"type":"string"}},
@@ -346,7 +351,7 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
                 "retainedBytes":{"type":"integer"}
             },
             "additionalProperties":false,
-            "required":["snapshotId","scope","meshCount","guids","elemTypes","vertexCounts","triangleCounts","retainedBytes"]
+            "required":["snapshotId","captureStamp","scope","meshCount","guids","elemTypes","vertexCounts","triangleCounts","retainedBytes"]
         })json" },
     { "GetStatus", &MakeRegisteredNativeCommand<GetStatusCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",

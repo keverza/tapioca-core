@@ -31,6 +31,13 @@ def test_build_snapshot_schema_models_its_public_inputs():
     assert build_input["properties"]["reuseShared"] == {"type": "boolean"}
 
 
+def test_filtered_snapshot_keeps_the_source_capture_epoch_but_not_complete_model():
+    with open(_SOURCE_PATH, encoding="utf-8") as source:
+        filtered = source.read().split("if (!excludeTypes.empty ()) {", 1)[1].split("snap = keep;", 1)[0]
+    assert "keep->captureStamp = snap->captureStamp;" in filtered
+    assert "keep->completeModel = true" not in filtered
+
+
 def test_snapshot_success_schemas_forbid_legacy_payload_fields():
     for schema in _schemas()[1::2]:
         assert "ok" not in schema["properties"]
@@ -42,6 +49,7 @@ def test_snapshot_success_schemas_declare_and_require_emitted_fields():
 
     assert set(build["properties"]) == {
         "snapshotId",
+        "captureStamp",
         "scope",
         "elementCount",
         "vertexCount",

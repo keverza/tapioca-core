@@ -456,6 +456,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # and viewer-lifetime acknowledgement, not GPU/device or analysis policy.
     ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/SceneCmdQueue.hpp"),
+    # The exposed-surface picker records bounded diagnostics in the existing host
+    # log (one start/finish line, never per mouse move). It controls no renderer;
+    # its capture epoch comes directly from Geometry/MeshStore, not ModelWatch.
+    ("NativeCommands/SurfaceInspectorCommands.cpp", "ArchViz/ArchVizLog.hpp"),
     ("NativeCommands/SunStudyDisplayPreparation.hpp", "ArchViz/SunStudyDisplayAssembler.hpp"),
     ("NativeCommands/SunStudyDisplayPreparation.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayPreparation.cpp", "ArchViz/SceneCmdQueue.hpp"),

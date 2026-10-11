@@ -38,7 +38,8 @@ bool MakeFrame (const double normal[3], const double origin[3], Frame& frame, st
 // than two pieces, an open or crossing boundary chain, a self-intersecting loop,
 // a backtracking spike, a zero-area loop, and any loop set that is not exactly
 // one outer contour with oppositely wound, strictly enclosed holes. Loops are
-// returned sorted so two loop sets compare with `==`.
+// returned sorted so two loop sets compare with `==`. Both outputs are cleared
+// on entry; callers must use loops only when the function returns true.
 bool BuildCanonicalLoops (const std::vector<std::vector<double>>& pieces, const Frame& frame, double vertexTolerance,
                           std::vector<Loop>& loops, std::string& reason);
 

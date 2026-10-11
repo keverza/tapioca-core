@@ -379,6 +379,7 @@ TEST (PolygonPickState, pollConsumesATerminalOutcomeExactlyOnce)
     state.Complete (token, MakePick ("GUID-A", 0, 0, 5), world);
 
     EXPECT_EQ (state.Poll ("pick-6", world).status, Status::Done);
+    EXPECT_EQ (state.ShouldAbort (token), Abort::Superseded);
     EXPECT_EQ (state.Poll ("pick-6", world).status, Status::Idle);
 
     state.Complete (token, MakePick ("GUID-B", 0, 0, 5), world); // ignored
@@ -459,6 +460,40 @@ TEST (PolygonPickState, callbackAfterInputEndedIsIgnored)
 
     state.OnComponent (token, MakeSighting ("GUID-A", 0, 0, 5, 1.0, 0.0, 0.0));
     EXPECT_FALSE (state.Peek ("pick-ended").callbackSawComponent);
+}
+
+TEST (PolygonPickState, differentBodyAloneCannotSupplyThePickedNormal)
+{
+    PolygonPickState state;
+    const auto world = World (100, 77);
+    Token token;
+    ASSERT_EQ (state.Begin ("body-mismatch", world, token), BeginStatus::Accepted);
+    ASSERT_EQ (state.BeginInput (token, world), InputStart::Started);
+    state.OnComponent (token, MakeSighting ("GUID-A", 3, 2, 5, 1, 0, 0));
+    state.Complete (token, MakePick ("GUID-A", 3, 1, 5), world);
+    state.EndInput (token);
+    const auto outcome = state.Poll (token.requestId, world);
+    ASSERT_EQ (outcome.status, Status::Done);
+    EXPECT_FALSE (outcome.callbackMatchedPick);
+    EXPECT_FALSE (outcome.pick.haveNormal);
+}
+
+TEST (PolygonPickState, completionAfterResetCannotPublishIntoANewRequest)
+{
+    PolygonPickState state;
+    const auto world = World (100, 77);
+    Token oldToken;
+    ASSERT_EQ (state.Begin ("retired", world, oldToken), BeginStatus::Accepted);
+    ASSERT_EQ (state.BeginInput (oldToken, world), InputStart::Started);
+    state.Reset ();
+    state.Complete (oldToken, MakePick ("GUID-A", 3, 1, 5), world);
+    state.EndInput (oldToken);
+    EXPECT_EQ (state.Peek (oldToken.requestId).status, Status::Idle);
+    Token newToken;
+    ASSERT_EQ (state.Begin ("fresh", world, newToken), BeginStatus::Accepted);
+    state.Complete (oldToken, MakePick ("GUID-A", 3, 1, 5), world);
+    EXPECT_EQ (state.Peek (newToken.requestId).status, Status::Pending);
+    EXPECT_FALSE (state.Peek (newToken.requestId).pick.found);
 }
 
 } // namespace

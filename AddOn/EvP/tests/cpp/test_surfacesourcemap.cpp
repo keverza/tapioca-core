@@ -12,6 +12,7 @@
 
 #include "Geometry/Mesh.hpp"
 #include "Geometry/SurfaceSourceMap.hpp"
+#include "Geometry/SurfaceSourceBoundary.hpp"
 
 #include <gtest/gtest.h>
 
@@ -561,4 +562,31 @@ TEST (SurfaceSourceMap, EmptyMeshHasNoFaces)
     double area = 0.0;
     EXPECT_FALSE (AnalyticArea (mesh, 1, 1, &area, &reason));
     EXPECT_FALSE (reason.empty ());
+}
+
+TEST (SurfaceSourceMap, ExistingMeshWithAbsentSourceFaceCannotSupplyAnArea)
+{
+    double area = -1;
+    std::string reason;
+    EXPECT_FALSE (AnalyticArea (Square (0, 0, 0, 1, 1), 1, 99, &area, &reason));
+    EXPECT_EQ (reason, "no face with body 1 polygon 99");
+    EXPECT_DOUBLE_EQ (area, -1);
+}
+
+TEST (SurfaceSourceMap, ReusedBoundaryOutputsAreClearedBeforeSuccess)
+{
+    namespace boundary = geomsrv::surfacemap::boundary;
+    boundary::Frame frame;
+    const double normal[] = { 0, 0, 1 };
+    const double origin[] = { 0, 0, 0 };
+    std::string reason;
+    ASSERT_TRUE (boundary::MakeFrame (normal, origin, frame, reason));
+    std::vector<boundary::Loop> loops;
+    const std::vector<std::vector<double>> pieces { SquarePoints (0, 0, 0) };
+    ASSERT_TRUE (boundary::BuildCanonicalLoops (pieces, frame, 1e-4, loops, reason));
+    const auto expected = loops;
+    reason = "stale failure";
+    ASSERT_TRUE (boundary::BuildCanonicalLoops (pieces, frame, 1e-4, loops, reason));
+    EXPECT_EQ (loops, expected);
+    EXPECT_TRUE (reason.empty ());
 }

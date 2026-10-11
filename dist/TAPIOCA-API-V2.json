@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 246,
+      "nativeRegistry": 249,
       "dispatcherLocal": 19,
-      "total": 265
+      "total": 268
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -432,6 +432,10 @@
           "snapshotId": {
             "type": "integer"
           },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 0
+          },
           "scope": {
             "type": "string",
             "enum": [
@@ -479,6 +483,7 @@
         "additionalProperties": false,
         "required": [
           "snapshotId",
+          "captureStamp",
           "scope",
           "elementCount",
           "vertexCount",
@@ -8095,6 +8100,187 @@
       }
     },
     {
+      "name": "Tapioca.GetExposedSurfaceQuantities",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#/$defs/elementId"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId"
+              ]
+            }
+          },
+          "coverElements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#/$defs/elementId"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements"
+        ],
+        "$defs": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          }
+        }
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "type": "string",
+            "const": "m2"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverElements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/element"
+            }
+          },
+          "elements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/row"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "unit",
+          "count",
+          "coverCount",
+          "coverElements",
+          "elements"
+        ],
+        "$defs": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "element": {
+            "type": "object",
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/elementId"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "elementId"
+            ]
+          },
+          "quantity": {
+            "type": "object",
+            "properties": {
+              "materialIndex": {
+                "type": "string",
+                "description": "Archicad surface material attribute index."
+              },
+              "materialName": {
+                "type": "string",
+                "description": "Resolved surface name; empty when unresolved."
+              },
+              "buildMatIdx": {
+                "type": "string",
+                "description": "Building material attribute index."
+              },
+              "buildingMaterialName": {
+                "type": "string",
+                "description": "Resolved building material name; empty when unresolved."
+              },
+              "exposedSurface": {
+                "type": "number",
+                "description": "Exposed surface area in square metres."
+              },
+              "unit": {
+                "type": "string",
+                "const": "m2"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "materialIndex",
+              "buildMatIdx",
+              "exposedSurface",
+              "unit"
+            ]
+          },
+          "row": {
+            "type": "object",
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/elementId"
+              },
+              "found": {
+                "type": "boolean"
+              },
+              "quantities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/quantity"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "elementId",
+              "found",
+              "quantities"
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "Tapioca.GetGhConnectionInfo",
       "implementation": "native-registry",
       "inputScheme": {
@@ -11464,6 +11650,10 @@
           "snapshotId": {
             "type": "integer"
           },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 0
+          },
           "scope": {
             "type": "string",
             "enum": [
@@ -11505,6 +11695,7 @@
         "additionalProperties": false,
         "required": [
           "snapshotId",
+          "captureStamp",
           "scope",
           "meshCount",
           "guids",
@@ -17619,6 +17810,181 @@
       }
     },
     {
+      "name": "Tapioca.InspectSurfaceSourceFace",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "elementId": {
+            "$ref": "#/$defs/elementId"
+          },
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "polygonPoints": {
+            "$ref": "#/$defs/contour",
+            "description": "Outer planar contour in world-space metres. Omit both geometry fields to enumerate only."
+          },
+          "polygonPieces": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/contour"
+            },
+            "description": "Additional opposite-wound holes, or same-wound convex decomposition parts. May be used without polygonPoints."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elementId",
+          "snapshotId",
+          "captureStamp"
+        ],
+        "$defs": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "contour": {
+            "type": "array",
+            "minItems": 9,
+            "items": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elementId": {
+            "$ref": "#/$defs/elementId"
+          },
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unit": {
+            "const": "m2"
+          },
+          "indexSpace": {
+            "const": "ModelerAPI-1-based"
+          },
+          "status": {
+            "enum": [
+              "enumerated",
+              "matched",
+              "invalid",
+              "noMatch",
+              "ambiguous"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "faces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/face"
+            }
+          },
+          "matchedFace": {
+            "$ref": "#/$defs/face"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elementId",
+          "snapshotId",
+          "captureStamp",
+          "unit",
+          "indexSpace",
+          "status",
+          "reason",
+          "faces"
+        ],
+        "$defs": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "vector3": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          },
+          "face": {
+            "type": "object",
+            "properties": {
+              "sourceBody": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "sourcePgon": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "areaM2": {
+                "type": "number",
+                "minimum": 0
+              },
+              "centroid": {
+                "$ref": "#/$defs/vector3"
+              },
+              "normal": {
+                "$ref": "#/$defs/vector3"
+              },
+              "sourceTriangles": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "sourceBody",
+              "sourcePgon",
+              "areaM2",
+              "centroid",
+              "normal",
+              "sourceTriangles"
+            ]
+          }
+        }
+      }
+    },
+    {
       "name": "Tapioca.List3DViews",
       "implementation": "native-registry",
       "inputScheme": {
@@ -21383,6 +21749,256 @@
           "autoFollow"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.PickPolygon",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "poll",
+              "cancel"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prompt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "oneOf": [
+          {
+            "properties": {
+              "action": {
+                "const": "start"
+              },
+              "prompt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "poll",
+                  "cancel"
+                ]
+              },
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "action",
+              "requestId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "pending",
+              "done",
+              "cancelled",
+              "failed"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "cancelRequested": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "pick": {
+            "$ref": "#/$defs/pick"
+          },
+          "failure": {
+            "$ref": "#/$defs/failure"
+          },
+          "diagnostics": {
+            "$ref": "#/$defs/diagnostics"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "requestId"
+        ],
+        "$defs": {
+          "point3": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "z": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "x",
+              "y",
+              "z"
+            ]
+          },
+          "neig": {
+            "type": "object",
+            "properties": {
+              "neigID": {
+                "type": "integer"
+              },
+              "inIndex": {
+                "type": "integer"
+              },
+              "flags": {
+                "type": "integer"
+              },
+              "elemPart": {
+                "type": "integer"
+              },
+              "elemPartIndex": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "neigID",
+              "inIndex",
+              "flags",
+              "elemPart",
+              "elemPartIndex"
+            ]
+          },
+          "pick": {
+            "type": "object",
+            "properties": {
+              "found": {
+                "type": "boolean"
+              },
+              "guid": {
+                "type": "string"
+              },
+              "dbElemIdx": {
+                "type": "integer"
+              },
+              "bodyIdx": {
+                "type": "integer"
+              },
+              "ipgon": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pos": {
+                "$ref": "#/$defs/point3"
+              },
+              "neig": {
+                "$ref": "#/$defs/neig"
+              },
+              "normal": {
+                "$ref": "#/$defs/point3",
+                "description": "Component normal, present only when the live callback named the same component as the committed pick and the normal was finite and non-zero."
+              },
+              "normalSource": {
+                "type": "string",
+                "enum": [
+                  "callback"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "found",
+              "guid",
+              "dbElemIdx",
+              "bodyIdx",
+              "ipgon",
+              "pos",
+              "neig"
+            ]
+          },
+          "failure": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "integer",
+                "description": "Raw GSErrCode, present only for a real native SDK failure or cancel."
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "reason"
+            ]
+          },
+          "diagnostics": {
+            "type": "object",
+            "properties": {
+              "sessionGeneration": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "captureStamp": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "haveSnapshot": {
+                "type": "boolean"
+              },
+              "snapshotId": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "callbackSawComponent": {
+                "type": "boolean"
+              },
+              "callbackMatchedPick": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "sessionGeneration",
+              "captureStamp",
+              "haveSnapshot",
+              "snapshotId",
+              "callbackSawComponent",
+              "callbackMatchedPick"
+            ]
+          }
+        }
       }
     },
     {

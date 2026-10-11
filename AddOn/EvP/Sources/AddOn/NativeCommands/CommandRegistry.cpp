@@ -25,6 +25,8 @@
 #include "NativeCommands/CaptureCommands.hpp"
 #include "NativeCommands/CameraSetCommands.hpp"
 #include "NativeCommands/Component3DCommands.hpp"
+#include "NativeCommands/SurfaceSourceCommands.hpp"
+#include "NativeCommands/SurfaceInspectorCommands.hpp"
 #include "NativeCommands/CreateCommands.hpp"
 #include "NativeCommands/CuttingPlaneCommands.hpp"
 #include "NativeCommands/DraftingCommands.hpp"
@@ -133,6 +135,8 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetModelAppearanceCommandRegistrations,
     &GetNurbsCommandRegistrations,
     &GetComponent3DCommandRegistrations,
+    &GetSurfaceSourceCommandRegistrations,
+    &GetSurfaceInspectorCommandRegistrations,
     &GetCuttingPlaneCommandRegistrations,
     &GetNotifyCommandRegistrations,
     &GetPlanGeometryCommandRegistrations,

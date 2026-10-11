@@ -216,6 +216,8 @@ bool MakeFrame (const double normal[3], const double origin[3], Frame& frame, st
 bool BuildCanonicalLoops (const std::vector<std::vector<double>>& pieces, const Frame& frame, double vertexTolerance,
                           std::vector<Loop>& loops, std::string& reason)
 {
+    loops.clear ();
+    reason.clear ();
     const Vec3 origin = FromArray (frame.origin);
     const Vec3 axisU = FromArray (frame.u);
     const Vec3 axisV = FromArray (frame.v);

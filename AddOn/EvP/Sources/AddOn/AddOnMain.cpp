@@ -42,6 +42,7 @@
 #include "ArchViz/ViewportOverlayWindow.hpp"      // the 3D overlay, same hazard
 #include "NativeCommands/GraphCaptureService.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
+#include "NativeCommands/SurfaceInspectorCommands.hpp"
 #include "ArchViz/VisibilityStudyController.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "NodeGraph/ArchicadHostImpl.hpp"   // the graph runtime's one ACAPI seam
@@ -156,6 +157,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
         case APINotify_New:
         case APINotify_NewAndReset:
         case APINotify_Open:
+            geomsrv::ResetSurfaceInspectorState ();
             if (ControlPalette::HasInstance ())
                 ControlPalette::GetInstance ().Hide ();
             ArchVizPanel::CloseViewer ();
@@ -181,6 +183,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Close:
+            geomsrv::ResetSurfaceInspectorState ();
             if (ControlPalette::HasInstance ())
                 ControlPalette::GetInstance ().Hide ();
             ArchVizPanel::CloseViewer ();
@@ -198,6 +201,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Quit:
+            geomsrv::ResetSurfaceInspectorState ();
             geomsrv::sunfollow::Shutdown ();
             geomsrv::archviz::visibilitystudy::Shutdown ();
             geomsrv::archviz::viewpointstudy::Shutdown ();
@@ -624,6 +628,8 @@ GSErrCode Initialize (void)
 
 GSErrCode FreeData (void)
 {
+    // Retire posted interactions before the main-thread gate and this module go away.
+    geomsrv::ResetSurfaceInspectorState ();
     geomsrv::sunfollow::Shutdown (); // never join a calculation thread under loader-lock destruction
     geomsrv::archviz::visibilitystudy::Shutdown ();
     geomsrv::archviz::viewpointstudy::Shutdown ();
