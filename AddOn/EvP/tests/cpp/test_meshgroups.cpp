@@ -197,3 +197,38 @@ TEST (MeshGroups, WireEdgesFollowMaterialPermutation)
     EXPECT_EQ (idx[3] / 3, 0u);
     EXPECT_EQ (idx[6] / 3, 2u);
 }
+
+// ⚠️ THE PERMUTATION IS HANDED OUT, NOT RE-DERIVED. A second consumer (the
+// provenance side buffer) walks this exact order, and a separate stable_sort
+// written elsewhere is free to disagree the first time either tie-break changes.
+// outOrder[i] is the SOURCE triangle the GPU draws as output triangle i.
+TEST (MeshGroups, OutOrderIsTheRenderToSourcePermutation)
+{
+    const std::vector<int32_t> mats = { 2, 1, 2, 1 };
+    std::vector<uint32_t> idx;
+    std::vector<MaterialRange> ranges;
+    std::vector<uint32_t> order;
+    BuildMaterialGroups (Triangles (4), mats, idx, ranges, nullptr, nullptr, &order);
+
+    ASSERT_EQ (order.size (), 4u);
+    EXPECT_EQ (order, (std::vector<uint32_t> { 1, 3, 0, 2 }));
+    // `Triangles(4)` makes source triangle i start at index 3i, so index 0 of the
+    // reordered buffer IS the permuted triangle's first index * 3.
+    for (size_t render = 0; render < order.size (); ++render) {
+        EXPECT_EQ (idx[render * 3 + 0], order[render] * 3);
+        EXPECT_EQ (idx[render * 3 + 1], order[render] * 3 + 1);
+        EXPECT_EQ (idx[render * 3 + 2], order[render] * 3 + 2);
+    }
+}
+
+// Empty in -> empty out includes the permutation; a stale order must be cleared,
+// or a caller reads a previous element's triangles.
+TEST (MeshGroups, OutOrderEmptyForEmptyInput)
+{
+    std::vector<uint32_t> idx;
+    std::vector<uint32_t> order = { 9, 9, 9 };
+    std::vector<MaterialRange> ranges;
+    BuildMaterialGroups ({}, {}, idx, ranges, nullptr, nullptr, &order);
+    EXPECT_TRUE (idx.empty ());
+    EXPECT_TRUE (order.empty ());
+}

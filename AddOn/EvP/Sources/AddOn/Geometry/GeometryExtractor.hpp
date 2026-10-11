@@ -30,7 +30,7 @@ std::shared_ptr<const Snapshot> ExtractAllElements (uint64_t snapshotId, uint64_
 
 // Extract only the currently selected elements ("selection"). Null on error;
 // an empty (0-element) snapshot means nothing is selected.
-std::shared_ptr<const Snapshot> ExtractSelectedElements (uint64_t snapshotId);
+std::shared_ptr<const Snapshot> ExtractSelectedElements (uint64_t snapshotId, uint64_t captureStamp = 0);
 
 // How many elements a model holds. 0 for an empty or unusable model.
 //

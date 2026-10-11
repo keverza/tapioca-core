@@ -147,6 +147,26 @@ TEST_F (SceneQueueTest, ConsumerOwnsThePayload)
     EXPECT_EQ (taken[0].upload->guid, "owned");
 }
 
+TEST_F (SceneQueueTest, SourcePermutationIsOwnedAndCountedThroughTheHandover)
+{
+    SceneCmdQueue& queue = SceneCmdQueue::Get ();
+    auto upload = MakeUpload ("source-map", 12);
+    const size_t withoutMap = upload->Bytes ();
+    upload->renderToSourceTriangle = { 1, 3, 0, 2 };
+    const size_t mapBytes = upload->renderToSourceTriangle.capacity () * sizeof (uint32_t);
+    EXPECT_EQ (upload->Bytes (), withoutMap + mapBytes);
+    const size_t retained = upload->Bytes ();
+    queue.PushUpsert (std::move (upload));
+    EXPECT_EQ (queue.PendingBytes (), retained);
+    auto taken = queue.Take (1);
+    ASSERT_EQ (taken.size (), 1u);
+    ASSERT_NE (taken[0].upload, nullptr);
+    EXPECT_EQ (taken[0].upload->renderToSourceTriangle, (std::vector<uint32_t> { 1, 3, 0, 2 }));
+    EXPECT_EQ (queue.PendingBytes (), 0u);
+    queue.Clear ();
+    EXPECT_EQ (taken[0].upload->renderToSourceTriangle.size (), 4u);
+}
+
 TEST_F (SceneQueueTest, PendingBytesRisesOnPushAndFallsOnTake)
 {
     SceneCmdQueue& q = SceneCmdQueue::Get ();

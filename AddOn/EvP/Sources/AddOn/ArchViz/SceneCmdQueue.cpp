@@ -12,14 +12,14 @@ size_t ElementUpload::Bytes () const
 {
     return guid.capacity () + vertices.capacity () * sizeof (float) + normals.capacity () * sizeof (float) +
            indices.capacity () * sizeof (uint32_t) + ranges.capacity () * sizeof (MaterialRange) +
-           wireEdges.capacity () * sizeof (uint32_t);
+           wireEdges.capacity () * sizeof (uint32_t) + renderToSourceTriangle.capacity () * sizeof (uint32_t);
 }
 
 size_t ElementUpload::PayloadBytes () const
 {
     return guid.size () + vertices.size () * sizeof (float) + normals.size () * sizeof (float) +
            indices.size () * sizeof (uint32_t) + ranges.size () * sizeof (MaterialRange) +
-           wireEdges.size () * sizeof (uint32_t);
+           wireEdges.size () * sizeof (uint32_t) + renderToSourceTriangle.size () * sizeof (uint32_t);
 }
 
 size_t PointLayerUpload::Bytes () const

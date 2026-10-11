@@ -17,6 +17,7 @@
 #include <ModelMaterial.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <set>
 #include <string>
@@ -175,6 +176,14 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                         mesh.triangles.push_back (emit (corners[k + 1]));
                         mesh.triMaterial.push_back (material);
                         mesh.triWireEdges.push_back (BuildTriangleWireEdgeMask (sourceVertices, visibleEdges));
+                        // Provenance at the ONE triangle-emission point. Welding
+                        // preserves this order; later material grouping does not.
+                        // The body loop index
+                        // and the polygon loop index are both 1-based ModelerAPI
+                        // indices (see Mesh.hpp). Independent of the C 3D-database
+                        // numbering and of the native picker's ids.
+                        mesh.triSourceBody.push_back (iBody);
+                        mesh.triSourcePgon.push_back (iPoly);
                     }
                 }
             }
@@ -184,6 +193,10 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
         }
     }
 
+    assert (mesh.triSourceBody.size () == mesh.TriangleCount ());
+    assert (mesh.triSourcePgon.size () == mesh.TriangleCount ());
+    assert (mesh.triMaterial.size () == mesh.TriangleCount ());
+    assert (mesh.triWireEdges.size () == mesh.TriangleCount ());
     if (mesh.TriangleCount () == 0)
         return false;
 
@@ -724,7 +737,7 @@ std::shared_ptr<const Snapshot> ExtractAllElements (uint64_t snapshotId, uint64_
     return BuildSnapshot (model, snapshotId, "all", nullptr, captureStamp);
 }
 
-std::shared_ptr<const Snapshot> ExtractSelectedElements (uint64_t snapshotId)
+std::shared_ptr<const Snapshot> ExtractSelectedElements (uint64_t snapshotId, uint64_t captureStamp)
 {
     // Collect the GUIDs of the currently selected elements. Selection is
     // available in any window (incl. floor plan), unlike a selected-sight model.
@@ -746,7 +759,7 @@ std::shared_ptr<const Snapshot> ExtractSelectedElements (uint64_t snapshotId)
     if (!AcquireCurrentModel (model))
         return nullptr;
 
-    return BuildSnapshot (model, snapshotId, "selection", &selected);
+    return BuildSnapshot (model, snapshotId, "selection", &selected, captureStamp);
 }
 
 } // namespace geomsrv

@@ -23,6 +23,20 @@ struct Mesh {
     // Three source-face boundary bits per triangle. Internal triangulation
     // edges stay clear so the wire pass can omit them without changing geometry.
     std::vector<uint8_t> triWireEdges;
+    // Per-triangle provenance, one entry per triangle in `triangles` (the same
+    // length as triMaterial once extraction is done):
+    //   triSourceBody — the 1-BASED ModelerAPI::Element::GetTessellatedBody
+    //                   index the triangle was emitted from;
+    //   triSourcePgon — the 1-BASED MeshBody::GetPolygon index inside that body.
+    //
+    // ⚠️ THESE ARE THE MODELER'S OWN INDICES AND NOTHING ELSE. They are NOT the
+    // C 3D-database elem/body/polygon ids of ACAPI_ModelAccess_* and NOT the
+    // native picker's dbElemIdx/bodyIdx/ipgon. Nothing may assume the numberings
+    // agree; correlate by geometry (Geometry/SurfaceSourceMap). Empty on a mesh
+    // built outside the extractor (Primitives), which means "no provenance" and
+    // must be treated as unusable rather than guessed at.
+    std::vector<int32_t> triSourceBody;
+    std::vector<int32_t> triSourcePgon;
     Aabb bounds; // element AABB (server-side spatial index)
 
     size_t VertexCount () const
@@ -39,7 +53,8 @@ struct Mesh {
     {
         return guid.capacity () + vertices.capacity () * sizeof (double) + normals.capacity () * sizeof (float) +
                triangles.capacity () * sizeof (uint32_t) + triMaterial.capacity () * sizeof (int32_t) +
-               triWireEdges.capacity () * sizeof (uint8_t);
+               triWireEdges.capacity () * sizeof (uint8_t) + triSourceBody.capacity () * sizeof (int32_t) +
+               triSourcePgon.capacity () * sizeof (int32_t);
     }
 };
 

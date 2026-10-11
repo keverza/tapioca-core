@@ -71,7 +71,14 @@ set (EVP_GEOM_SOURCES
     # mirrored mesh that is inside-out, a normal transformed as a direction under
     # a non-uniform scale. None of those logs anything.
     "${GEOM_DIR}/Curves.cpp"
-    "${GEOM_DIR}/Transforms.cpp")
+    "${GEOM_DIR}/Transforms.cpp"
+    # SurfaceSourceMap is the one place a face pick is correlated with extracted
+    # provenance (Mesh::triSourceBody / triSourcePgon) by geometry. Pure by
+    # construction -- no ACAPI, no ModelerAPI -- so the failure that matters, a
+    # confident wrong face, is asserted offline rather than seen on screen.
+    "${GEOM_DIR}/SurfaceSourceMap.cpp"
+    "${GEOM_DIR}/SurfaceSourceBoundary.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NativeCommands/PolygonPickState.cpp")
 list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
 # Not an engine, but it makes the same promise: Palette/CommandFilter.cpp is pure
@@ -720,6 +727,9 @@ set (EVP_TEST_SOURCES
     test_normals.cpp
     test_geometryengine.cpp
     test_meshgroups.cpp
+    test_surfacesourcemap.cpp
+    test_polygonpickstate.cpp
+    test_elementpacket.cpp
     test_snapshotassembly.cpp
     test_wireframeedges.cpp
     test_scenecmdqueue.cpp

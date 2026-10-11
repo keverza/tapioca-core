@@ -74,7 +74,8 @@ void LogSnapshotCapture (const Snapshot& snapshot, double wallMs)
         triangles += mesh.TriangleCount ();
         bytes += mesh.vertices.size () * sizeof (double) + mesh.normals.size () * sizeof (float) +
                  mesh.triangles.size () * sizeof (uint32_t) + mesh.triMaterial.size () * sizeof (int32_t) +
-                 mesh.triWireEdges.size ();
+                 mesh.triWireEdges.size () + mesh.triSourceBody.size () * sizeof (int32_t) +
+                 mesh.triSourcePgon.size () * sizeof (int32_t);
     }
     ArchVizLog ("pipeline: stage=snapshot-capture snapshot=" + std::to_string (snapshot.id) +
                 " elements=" + std::to_string (snapshot.meshes.size ()) + " vertices=" + std::to_string (vertices) +

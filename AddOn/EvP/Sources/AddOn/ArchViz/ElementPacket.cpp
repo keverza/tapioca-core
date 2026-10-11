@@ -25,7 +25,11 @@ std::unique_ptr<ElementUpload> MakeElementPacket (const CapturedMeshPacket& pack
     for (size_t i = 0; i < mesh.vertices.size (); ++i)
         up->vertices[i] = static_cast<float> (mesh.vertices[i]);
     up->normals = mesh.normals;
-    BuildMaterialGroups (mesh.triangles, mesh.triMaterial, up->indices, up->ranges, &mesh.triWireEdges, &up->wireEdges);
+    // Retain the exact material permutation on the upload for later face-picking
+    // integration. It refers only to this producing mesh; no renderer consumer
+    // or native-picker/ModelerAPI index equivalence is implied in Stage A.
+    BuildMaterialGroups (mesh.triangles, mesh.triMaterial, up->indices, up->ranges, &mesh.triWireEdges, &up->wireEdges,
+                         &up->renderToSourceTriangle);
     if (up->indices.empty ())
         return nullptr;
     if (mesh.bounds.Valid ()) {
@@ -48,7 +52,9 @@ std::unique_ptr<ElementUpload> MakeElementPacket (const CapturedMeshPacket& pack
     }
     const size_t sourceBytes = mesh.vertices.size () * sizeof (double) + mesh.normals.size () * sizeof (float) +
                                mesh.triangles.size () * sizeof (uint32_t) +
-                               mesh.triMaterial.size () * sizeof (int32_t) + mesh.triWireEdges.size ();
+                               mesh.triMaterial.size () * sizeof (int32_t) + mesh.triWireEdges.size () +
+                               mesh.triSourceBody.size () * sizeof (int32_t) +
+                               mesh.triSourcePgon.size () * sizeof (int32_t);
     const double convertMs =
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
     ArchVizLog (

@@ -135,6 +135,19 @@ struct ElementUpload {
     // StructuredBuffer<uint> in the hull shader.
     std::vector<uint32_t> wireEdges;
 
+    // ⚠️ RENDER TRIANGLE -> SOURCE TRIANGLE. `renderToSourceTriangle[i]` is the
+    // SOURCE triangle index into the exact producing Mesh's triangle order.
+    // This is BuildMaterialGroups' outOrder, retained through the command queue;
+    // Stage A does not yet retain or consume it in renderer entries. A future
+    // face consumer must retain it with matching source provenance and capture
+    // identity, never combine it with an arbitrary newer MeshStore snapshot.
+    // Provenance additionally requires aligned triSourceBody/triSourcePgon on
+    // that source Mesh; the permutation alone does not prove availability.
+    // Whole-element draw: i = SV_PrimitiveID. Per-material draw: add
+    // range.firstIndex / 3, since primitive IDs restart for every draw.
+    // Empty means no map, never an implicit identity permutation.
+    std::vector<uint32_t> renderToSourceTriangle;
+
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
 
