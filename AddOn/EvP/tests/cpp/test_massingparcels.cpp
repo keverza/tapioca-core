@@ -3,11 +3,13 @@
 #include "ArchViz/MassingSlices.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/HudMassingStats.hpp"
+#include "ArchViz/FloorProgramme.hpp"
 #include "Geometry/Primitives.hpp"
 #include "hud_fixture.hpp"
 
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace calc = geomsrv::archviz::massingcalculation;
@@ -15,6 +17,7 @@ namespace rules = geomsrv::archviz::massingrules;
 namespace widgets = geomsrv::archviz::hudmassingrules;
 namespace layers = geomsrv::archviz::overlaylayers;
 namespace slices = geomsrv::archviz::massingslices;
+namespace fp = geomsrv::archviz::floorprogramme;
 
 namespace {
 rules::Page Parcel (std::string guid, double x = 0, double y = 0)
@@ -61,16 +64,36 @@ slices::Input Slab ()
     input.slab.outer.xy = { 0, 0, 10, 0, 10, 10, 0, 10 };
     return input;
 }
-double Area (const layers::Mesh& mesh)
+// Story-slice meshes include a slab underside: only the highest horizontal cap is its plan area.
+double TopArea (const layers::Mesh& mesh)
 {
+    double top = -std::numeric_limits<double>::infinity ();
+    for (size_t i = 2; i < mesh.points.size (); i += 3)
+        top = (std::max) (top, mesh.points[i]);
     double area = 0;
     for (size_t i = 0; i < mesh.indices.size (); i += 3) {
         const auto a = mesh.indices[i] * 3, b = mesh.indices[i + 1] * 3, c = mesh.indices[i + 2] * 3;
+        if (std::abs (mesh.points[a + 2] - top) > 1e-6 || std::abs (mesh.points[b + 2] - top) > 1e-6 ||
+            std::abs (mesh.points[c + 2] - top) > 1e-6)
+            continue;
         area += std::abs ((mesh.points[b] - mesh.points[a]) * (mesh.points[c + 1] - mesh.points[a + 1]) -
                           (mesh.points[b + 1] - mesh.points[a + 1]) * (mesh.points[c] - mesh.points[a])) *
                 0.5;
     }
     return area;
+}
+double SignedVolume (const layers::Mesh& mesh)
+{
+    double volume = 0;
+    for (size_t i = 0; i < mesh.indices.size (); i += 3) {
+        const size_t a = mesh.indices[i] * 3, b = mesh.indices[i + 1] * 3, c = mesh.indices[i + 2] * 3;
+        volume +=
+            (mesh.points[a] * (mesh.points[b + 1] * mesh.points[c + 2] - mesh.points[b + 2] * mesh.points[c + 1]) +
+             mesh.points[a + 1] * (mesh.points[b + 2] * mesh.points[c] - mesh.points[b] * mesh.points[c + 2]) +
+             mesh.points[a + 2] * (mesh.points[b] * mesh.points[c + 1] - mesh.points[b + 1] * mesh.points[c])) /
+            6;
+    }
+    return volume;
 }
 } // namespace
 
@@ -185,15 +208,24 @@ TEST (MassingParcels, OverlappingAllowedEnvelopesUseAUnionAndNeverXorOrDoubleCou
     std::string error;
     ASSERT_TRUE (slices::Build ({ Slab () }, {}, &envelope, result, error)) << error;
     EXPECT_TRUE (result.clipped);
+    EXPECT_NEAR (result.rawArea, 100, 1e-6);
     EXPECT_NEAR (result.allowedArea, 100, 1e-6);
+    ASSERT_EQ (result.rows.size (), 1u);
+    ASSERT_EQ (result.rows[0].chains.size (), 1u);
+    EXPECT_NEAR (geomsrv::archviz::UnionArea (result.rows[0].chains), 100, 1e-6);
     ASSERT_EQ (result.layer.meshes.size (), 1u);
-    EXPECT_NEAR (Area (result.layer.meshes[0]), 100, 1e-6);
+    const double insideHeight = 10 - 2 * fp::kFacade;
+    EXPECT_NEAR (TopArea (result.layer.meshes[0]), insideHeight * insideHeight, 1e-6);
     envelope.layer.meshes[1] = Envelope (8, 0, 2, 10).layer.meshes.front ();
     ASSERT_TRUE (slices::Build ({ Slab () }, {}, &envelope, result, error)) << error;
     EXPECT_NEAR (result.allowedArea, 80, 1e-6);
+    ASSERT_EQ (result.rows.size (), 1u);
+    ASSERT_EQ (result.rows[0].chains.size (), 2u);
+    EXPECT_NEAR (geomsrv::archviz::UnionArea (result.rows[0].chains), 80, 1e-6);
     ASSERT_EQ (result.layer.meshes.size (), 2u);
-    EXPECT_NEAR (Area (result.layer.meshes[0]), 80, 1e-6);
-    EXPECT_NEAR (Area (result.layer.meshes[1]), 20, 1e-6);
+    const double insideWidth = (6 - 2 * fp::kFacade) + (2 - 2 * fp::kFacade);
+    EXPECT_NEAR (TopArea (result.layer.meshes[0]), insideWidth * insideHeight, 1e-6);
+    EXPECT_NEAR (TopArea (result.layer.meshes[1]), 20, 1e-6);
     EXPECT_EQ (result.layer.meshes[1].rgba, 0xAA4465FF);
 }
 
@@ -206,8 +238,11 @@ TEST (MassingParcels, ProtrudingRegionIsPropertyRedAtHalfOpacityAndExcludedFromL
     std::string error;
     ASSERT_TRUE (slices::Build ({ input }, {}, &envelope, result, error)) << error;
     ASSERT_EQ (result.layer.meshes.size (), 2u);
-    EXPECT_NEAR (Area (result.layer.meshes[0]), 32, 1e-6);
-    EXPECT_NEAR (Area (result.layer.meshes[1]), 64, 1e-6);
+    // The counted contour is 6x6 minus the 2x2 courtyard; its inset display is 5x5 minus 3x3.
+    ASSERT_EQ (result.rows.size (), 1u);
+    EXPECT_NEAR (geomsrv::archviz::UnionArea (result.rows[0].chains), 32, 1e-6);
+    EXPECT_NEAR (TopArea (result.layer.meshes[0]), 16, 1e-6);
+    EXPECT_NEAR (TopArea (result.layer.meshes[1]), 64, 1e-6);
     EXPECT_EQ (result.layer.meshes[0].rgba, 0xF2C14E59);
     EXPECT_EQ (result.layer.meshes[1].rgba, 0xAA4465FF);
     EXPECT_FLOAT_EQ (result.layer.meshes[1].style.opacity, 0.5f);
@@ -314,18 +349,24 @@ TEST (MassingParcels, StatsMixVolumeAndCoverageUseRealContoursAndCapTheLastFloor
         high = (std::max) (high, highlight.meshes[0].points[i]);
     }
     EXPECT_EQ (low, 0);
-    EXPECT_EQ (high, 3);
-    double signedVolume = 0;
-    const auto& mesh = highlight.meshes[0];
-    for (size_t i = 0; i < mesh.indices.size (); i += 3) {
-        const size_t a = mesh.indices[i] * 3, b = mesh.indices[i + 1] * 3, c = mesh.indices[i + 2] * 3;
-        signedVolume +=
-            (mesh.points[a] * (mesh.points[b + 1] * mesh.points[c + 2] - mesh.points[b + 2] * mesh.points[c + 1]) +
-             mesh.points[a + 1] * (mesh.points[b + 2] * mesh.points[c] - mesh.points[b] * mesh.points[c + 2]) +
-             mesh.points[a + 2] * (mesh.points[b] * mesh.points[c + 1] - mesh.points[b + 1] * mesh.points[c])) /
-            6;
+    EXPECT_NEAR (high, 3 - fp::kSlab, 1e-6);
+    const double insideEdge = 10 - 2 * fp::kFacade, courtyardEdge = 2 + 2 * fp::kFacade;
+    const double insideArea = insideEdge * insideEdge - courtyardEdge * courtyardEdge;
+    EXPECT_NEAR (TopArea (highlight.meshes[0]), insideArea, 1e-6);
+    EXPECT_NEAR (SignedVolume (highlight.meshes[0]), insideArea * (3 - fp::kSlab), 1e-6)
+        << "courtyard grows into the facade inset and keeps inward-facing walls";
+    ASSERT_TRUE (slices::Highlight (result, "residential", highlight, error)) << error;
+    ASSERT_EQ (highlight.meshes.size (), 1u);
+    low = 100;
+    high = -100;
+    for (size_t i = 2; i < highlight.meshes[0].points.size (); i += 3) {
+        low = (std::min) (low, highlight.meshes[0].points[i]);
+        high = (std::max) (high, highlight.meshes[0].points[i]);
     }
-    EXPECT_NEAR (signedVolume, 96 * 3, 1e-6) << "courtyard remains a hole with inward-facing walls";
+    EXPECT_EQ (low, 3);
+    EXPECT_NEAR (high, input.slab.top - fp::kSlab, 1e-6) << "last highlight stops below the slab top";
+    EXPECT_NEAR (TopArea (highlight.meshes[0]), insideArea, 1e-6);
+    EXPECT_NEAR (SignedVolume (highlight.meshes[0]), insideArea * (5 - fp::kSlab), 1e-6);
     ASSERT_TRUE (slices::Highlight (result, "", highlight, error));
     EXPECT_TRUE (highlight.meshes.empty ());
 }
