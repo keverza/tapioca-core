@@ -3,6 +3,7 @@
 #include "Palette/ProgrammeDialog.hpp"
 #include "ResourceIds.hpp"
 #include "DGModule.hpp"
+#include "Color.hpp"
 #include <array>
 #include <memory>
 
@@ -103,7 +104,9 @@ class Dialog final : public DG::ModalDialog, public DG::PanelObserver, public DG
             }
         }
         std::string error;
-        if (!hp::PrepareTable (std::move (values), answer, error)) {
+        if (values == edit.before)
+            answer = edit.before; // A no-op Apply never rewrites a valid stored share total.
+        else if (!hp::PrepareTable (std::move (values), answer, error)) {
             status.SetText (GS::UniString (error.c_str (), CC_UTF8));
             return;
         }
@@ -126,6 +129,19 @@ bool Ask (const hp::TableEdit& edit, fp::Programme& answer)
     if (dialog.Invoke () != DG::ModalDialog::Accept)
         return false;
     answer = dialog.Answer ();
+    return true;
+}
+bool AskColour (const hp::ColourEdit& edit, uint32_t& rgba)
+{
+    if (!fp::Valid (edit.before) || edit.type >= edit.before.types.size ())
+        return false;
+    const auto initial = fp::Colour (edit.before.types[edit.type]);
+    Gfx::Color colour (UChar (initial >> 24), UChar (initial >> 16), UChar (initial >> 8));
+    const std::string title = "Programme: " + fp::Name (edit.before, edit.type);
+    if (!DG::GetColor (GS::UniString (title.c_str (), CC_UTF8), &colour))
+        return false;
+    rgba = uint32_t (colour.GetRed ()) << 24 | uint32_t (colour.GetGreen ()) << 16 | uint32_t (colour.GetBlue ()) << 8 |
+           0xFFu;
     return true;
 }
 } // namespace evp::programmeui

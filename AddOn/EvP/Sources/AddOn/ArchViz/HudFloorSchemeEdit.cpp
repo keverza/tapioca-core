@@ -200,11 +200,16 @@ Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp
         e.scheme = planned->scheme;
         e.revision = planned->revision;
         e.have = true;
-        e.fills = Fills (e.scheme);
+        e.fills = Fills (e.scheme, c.programme);
+        e.colours = floorprogramme::ColoursKey (c.programme);
         e.around.clear ();
         if (!e.input.party.empty ())
             e.around.push_back (Triangles (e.input.party, IM_COL32 (205, 207, 203, 255)));
         e.selected = Again (e.scheme, e.selected, e.selectedAt);
+    }
+    if (e.colours != floorprogramme::ColoursKey (c.programme)) {
+        e.fills = Fills (e.scheme, c.programme);
+        e.colours = floorprogramme::ColoursKey (c.programme);
     }
     return e;
 }
@@ -413,7 +418,7 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
         ImGui::TextUnformatted ("A building or its saved plan changed in the project; Discard reloads it.");
         ImGui::EndPopup ();
     }
-    Palette (scale);
+    Palette (c.programme, scale);
     Canvas (e, c, scale);
     Menu (e, c, draft, plan->second, *floor, asked);
 

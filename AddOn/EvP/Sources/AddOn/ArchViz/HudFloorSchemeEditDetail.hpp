@@ -50,6 +50,7 @@ struct Editor {
     uint64_t revision = 0;
     bool have = false;
     std::vector<Fill> fills, around;
+    std::string colours;        // repaint without planning again when Programme colours change
     std::vector<fs::Ring> real; // the slab's own contour, dashed
     Tool tool = Tool::Select;
     Target selected, menu;
@@ -109,10 +110,10 @@ bool Inside (const std::vector<fs::Ring>& rings, fs::Vec p);
 fs::Vec Mid (const fs::Ring& r);
 fs::Vec Outward (const std::array<fs::Vec, 2>& wall); // out of the building, across a party wall
 Fill Triangles (const std::vector<fs::Ring>& rings, ImU32 colour);
-std::vector<Fill> Fills (const fs::Scheme& s);
+std::vector<Fill> Fills (const fs::Scheme& s, const floorprogramme::Programme& programme);
 // The selection found again in a new scheme, where it was picked.
 Target Again (const fs::Scheme& s, const Target& t, fs::Vec at);
-void Palette (float scale);
+void Palette (const floorprogramme::Programme& programme, float scale);
 // Two centred lines, bounded by the actual flat polygon rather than its frontage.
 std::pair<std::string, std::string> FlatLabel (const fs::Flat& flat);
 bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 size, float padding);

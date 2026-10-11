@@ -78,11 +78,12 @@ Fill Triangles (const std::vector<fs::Ring>& rings, ImU32 colour)
                 fill.triangles.insert (fill.triangles.end (), { r[0], r[i], r[i + 1] });
     return fill;
 }
-ImU32 RoomsColour (double rooms)
+ImU32 Ink (uint32_t rgba)
 {
-    return hudshell::Packed (floorprogramme::Colour (rooms));
+    const double brightness = 0.2126 * (rgba >> 24) + 0.7152 * ((rgba >> 16) & 0xFF) + 0.0722 * ((rgba >> 8) & 0xFF);
+    return brightness < 140 ? IM_COL32 (243, 247, 248, 255) : IM_COL32 (20, 25, 28, 255);
 }
-std::vector<Fill> Fills (const fs::Scheme& s)
+std::vector<Fill> Fills (const fs::Scheme& s, const floorprogramme::Programme& programme)
 {
     std::vector<Fill> fills;
     fills.push_back (Triangles (s.outline, IM_COL32 (236, 238, 232, 255)));
@@ -91,7 +92,7 @@ std::vector<Fill> Fills (const fs::Scheme& s)
                                                      ? IM_COL32 (190, 190, 182, 255)
                                                      : IM_COL32 (229, 72, 77, 150)));
     for (const auto& f : s.flats) {
-        ImU32 colour = RoomsColour (f.rooms);
+        ImU32 colour = hudshell::Packed (floorprogramme::Colour (programme, f.type, f.rooms));
         if (f.manual)
             colour = (colour & 0x00FFFFFF) | 0x99000000;
         fills.push_back (Triangles ({ f.shape }, colour));
@@ -278,7 +279,7 @@ double PartyDistance (const Editor& e)
 }
 
 // The palette above the plan: flats of 1 to 5 rooms and a stair, each a square to drag onto it.
-void Palette (float scale)
+void Palette (const floorprogramme::Programme& programme, float scale)
 {
     const float side = ImGui::GetFrameHeight ();
     for (int k = 0; k <= 5; ++k) {
@@ -289,12 +290,14 @@ void Palette (float scale)
         ImGui::InvisibleButton ("##swatch", { side, side });
         const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
         auto* draw = ImGui::GetWindowDrawList ();
-        draw->AddRectFilled (a, b, value < 0 ? IM_COL32 (109, 114, 118, 255) : RoomsColour (value), 3 * scale);
+        const auto colour = floorprogramme::ColourForRooms (programme, value);
+        draw->AddRectFilled (a, b, value < 0 ? IM_COL32 (109, 114, 118, 255) : hudshell::Packed (colour), 3 * scale);
         draw->AddRect (a, b, ImGui::IsItemHovered () ? kAccent : IM_COL32 (60, 60, 60, 160), 3 * scale, 0, scale);
         char label[8];
         std::snprintf (label, sizeof (label), value < 0 ? "S" : "%d", k + 1);
         const ImVec2 t = ImGui::CalcTextSize (label);
-        draw->AddText ({ (a.x + b.x - t.x) / 2, (a.y + b.y - t.y) / 2 }, value < 0 ? IM_COL32_WHITE : kInk, label);
+        draw->AddText ({ (a.x + b.x - t.x) / 2, (a.y + b.y - t.y) / 2 }, value < 0 ? IM_COL32_WHITE : Ink (colour),
+                       label);
         if (ImGui::IsItemHovered () && !ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
             if (value < 0)
                 ImGui::SetTooltip ("Drag onto the plan: a stair there.");
@@ -640,7 +643,7 @@ void Canvas (Editor& e, Context& c, float scale)
         if (const auto* live = c.planner.Latest (bp::FloorId (e.key, e.story) + "#live");
             live && live->revision > e.liveSince) {
             shown = &live->scheme;
-            fill (Fills (live->scheme));
+            fill (Fills (live->scheme, c.programme));
         }
     if (shown == &s)
         fill (e.fills);
@@ -662,6 +665,7 @@ void Canvas (Editor& e, Context& c, float scale)
     // Labels where they fit, a padlock on locked flats.
     for (size_t i = 0; i < shown->flats.size (); ++i) {
         const auto& f = shown->flats[i];
+        const ImU32 ink = Ink (floorprogramme::Colour (c.programme, f.type, f.rooms));
         const auto [roomText, areaText] = FlatLabel (f);
         const auto roomSize = ImGui::CalcTextSize (roomText.c_str ());
         const auto areaSize = ImGui::CalcTextSize (areaText.c_str ());
@@ -669,12 +673,11 @@ void Canvas (Editor& e, Context& c, float scale)
         const ImVec2 t { (std::max) (roomSize.x, areaSize.x), 2 * line };
         const ImVec2 middle = v.P (Mid (f.shape));
         if (LabelFits (f.shape, v, middle, t, 2 * scale)) {
-            draw->AddText ({ middle.x - roomSize.x / 2, middle.y - line }, IM_COL32 (20, 25, 28, 255),
-                           roomText.c_str ());
-            draw->AddText ({ middle.x - areaSize.x / 2, middle.y }, IM_COL32 (20, 25, 28, 255), areaText.c_str ());
+            draw->AddText ({ middle.x - roomSize.x / 2, middle.y - line }, ink, roomText.c_str ());
+            draw->AddText ({ middle.x - areaSize.x / 2, middle.y }, ink, areaText.c_str ());
         }
         if (fe::Locked (*shown, e.input.design, int (i)))
-            Padlock (draw, { middle.x, middle.y - line - 6 * scale }, scale, kInk);
+            Padlock (draw, { middle.x, middle.y - line - 6 * scale }, scale, ink);
     }
     for (const auto& d : shown->diagnostics)
         if (d.level == fs::Diagnostic::Error)

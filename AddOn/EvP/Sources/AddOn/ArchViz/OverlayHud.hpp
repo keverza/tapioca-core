@@ -330,6 +330,8 @@ bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit,
 // Define Programme's typed rows, asked by the owner in a native prompt and answered here.
 std::vector<hudprogramme::TextEdit> TakeProgrammeTexts (State& state);
 std::vector<hudprogramme::TableEdit> TakeProgrammeTables (State& state);
+std::vector<hudprogramme::ColourEdit> TakeProgrammeColours (State& state);
+bool AnswerProgrammeColour (State& state, const hudprogramme::ColourEdit& edit, uint32_t rgba, std::string& error);
 bool AnswerProgrammeTable (State& state, const hudprogramme::TableEdit& edit, const floorprogramme::Programme& answer,
                            std::string& error);
 bool AnswerProgrammeText (State& state, const hudprogramme::TextEdit& edit, const std::string& answer,

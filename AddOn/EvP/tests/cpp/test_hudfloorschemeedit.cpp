@@ -82,6 +82,23 @@ TEST (HudFloorSchemeEdit, TwoLineCaptionsFitActualPolygonsNotJustFrontage)
     EXPECT_FALSE (hf::detail::LabelFits (concave, view, { 50, 50 }, { 50, 28 }, 2));
 }
 
+TEST (HudFloorSchemeEdit, FlatsOfTheSameRoomCountUseTheirOwnProgrammeColours)
+{
+    auto programme = fp::Default ();
+    ASSERT_TRUE (fp::SetColour (programme, 2, 0x102040FFu));
+    ASSERT_TRUE (fp::SetColour (programme, 3, 0xEF5050FFu));
+    fs::Scheme scheme;
+    fs::Flat first, second;
+    first.type = 2, second.type = 3;
+    first.rooms = second.rooms = 3;
+    first.shape = second.shape = { { 0, 0 }, { 5, 0 }, { 5, 5 }, { 0, 5 } };
+    scheme.flats = { first, second };
+    const auto fills = hf::detail::Fills (scheme, programme);
+    ASSERT_EQ (fills.size (), 3u);
+    EXPECT_EQ (fills[1].colour, IM_COL32 (16, 32, 64, 255));
+    EXPECT_EQ (fills[2].colour, IM_COL32 (239, 80, 80, 255));
+}
+
 TEST (HudFloorSchemeEdit, CanvasDrawsRoomAndAreaOnSeparateCentredLines)
 {
     auto* previous = ImGui::GetCurrentContext ();
@@ -228,7 +245,7 @@ TEST (HudFloorSchemeEdit, TheSelectedFlatIsHighlightedOnTheOverlay)
 
     auto state = hud::NewState ();
     state->floorPlanSnapshots = { { "A", Building ("A", 0, 36) } };
-    ImVec4 floor {};
+    ImVec4 floor {}, coloured {}, lightInk {};
     const auto frame = [&] (ImVec2 mouse, bool down) {
         io.MousePos = mouse;
         io.MouseDown[0] = down;
@@ -239,6 +256,8 @@ TEST (HudFloorSchemeEdit, TheSelectedFlatIsHighlightedOnTheOverlay)
         hf::PlanView (state->planEditors["A"], state->floorPlanner, state->floorPlanSnapshots, state->buildingPlans,
                       "A", state->massingProgramme, {}, 1);
         floor = Bounds (IM_COL32 (236, 238, 232, 255));
+        coloured = Bounds (IM_COL32 (16, 32, 64, 255));
+        lightInk = Bounds (IM_COL32 (243, 247, 248, 255));
         ImGui::End ();
         ImGui::Render ();
     };
@@ -268,6 +287,15 @@ TEST (HudFloorSchemeEdit, TheSelectedFlatIsHighlightedOnTheOverlay)
     EXPECT_TRUE (std::any_of (units.polylines.begin (), units.polylines.end (), [] (const auto& line) {
         return line.rgba == 0xFFFFFFFFu && line.widthPixels >= 5;
     })) << "the selected flat, white, though outlines are off";
+    // Colour-only edits refresh the cached canvas fills while keeping the same planned floor.
+    const auto revision = state->floorPlanner.Revision ();
+    for (size_t i = 0; i < state->massingProgramme.types.size (); ++i)
+        ASSERT_TRUE (fp::SetColour (state->massingProgramme, i, 0x102040FFu));
+    frame ({ 5, 5 }, false);
+    EXPECT_EQ (state->floorPlanner.Revision (), revision);
+    EXPECT_FALSE (state->floorPlanner.Busy ());
+    EXPECT_GT (coloured.z, 0) << "the new colour is drawn without another worker";
+    EXPECT_GT (lightInk.z, 0) << "labels on a dark custom colour remain readable";
 }
 
 // In a narrow panel the tools wrap and the canvas takes the width: nothing runs past the edge.

@@ -21,7 +21,8 @@ constexpr double kSlab = 0.3;   // floor slab, below the floor's level
 struct UnitType {
     double rooms = 2;
     double minM2 = 40, maxM2 = 45;
-    double share = 0; // fraction of the flat count
+    double share = 0;  // fraction of the flat count
+    uint32_t rgba = 0; // 0: automatic room colour; otherwise opaque 0xRRGGBBAA, stored per type
     bool operator== (const UnitType&) const = default;
 };
 struct Programme {
@@ -36,7 +37,8 @@ bool Valid (const Programme& programme);
 double Target (const UnitType& type);
 double Frontage (const UnitType& type);
 std::string Name (const Programme& programme, size_t type); // "2R"; a repeated room count adds its range
-std::string Key (const Programme& programme);               // cache identity
+std::string Key (const Programme& programme);               // geometry cache identity, excludes colours
+std::string ColoursKey (const Programme& programme);        // display cache identity
 double MeanArea (const Programme& programme);               // share-weighted target
 // Edits keep the shares adding to one: the other types scale in proportion.
 bool SetShare (Programme& programme, size_t type, double share);
@@ -54,12 +56,17 @@ std::vector<int> Counts (const Programme& programme, int flats);
 // Programme deviation: half weight within 3% per type, 4 per flat beyond it.
 double MixCost (const Programme& programme, const std::vector<int>& counts);
 uint32_t Colour (double rooms); // 0xRRGGBBAA
+uint32_t Colour (const UnitType& type);
+uint32_t Colour (const Programme& programme, size_t type, double rooms);
+uint32_t ColourForRooms (const Programme& programme, double rooms); // palette: first matching type
+bool SetColour (Programme& programme, size_t type, uint32_t rgba);  // 0 resets to automatic
 bool Parse (const std::string& text, Programme& programme, std::string& error);
 // One brief line, its share kept as written (a fraction; not normalised).
 bool ParseType (const std::string& text, UnitType& type, std::string& error);
 // Types joined by `separator`: "; " for the one-line prompt, a newline for the generator's files.
 std::string Brief (const Programme& programme, const char* separator = "; ");
 // The stored form (the project's Add-On Object): exact, one type per line after a header.
+// Version 2 adds colours; version 1 projects still read with automatic colours.
 std::string ToText (const Programme& programme);
 bool FromText (const std::string& text, Programme& programme, std::string& error);
 } // namespace geomsrv::archviz::floorprogramme

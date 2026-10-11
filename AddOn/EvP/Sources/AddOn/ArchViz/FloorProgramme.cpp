@@ -3,6 +3,9 @@
 #include <cmath>
 #include <cstdio>
 #include <regex>
+#include <charconv>
+#include <locale>
+#include <sstream>
 
 namespace geomsrv::archviz::floorprogramme {
 namespace {
@@ -63,6 +66,8 @@ std::string Problem (const Programme& programme)
             return "Each area range rises within 15-300 m2.";
         if (!Finite (type.share) || type.share < 0 || type.share > 1)
             return "Shares are 0-100%.";
+        if (type.rgba != 0 && (type.rgba & 0xFFu) != 0xFFu)
+            return "Flat colours must be opaque RGB colours.";
     }
     const double sum = ShareSum (programme);
     if (std::abs (sum - 1) > 1e-6)
@@ -114,6 +119,14 @@ double MeanArea (const Programme& programme)
         weight += type.share;
     }
     return weight > 1e-12 ? sum / weight : 0;
+}
+
+std::string ColoursKey (const Programme& programme)
+{
+    std::string key = "colours";
+    for (const auto& type : programme.types)
+        key += '|' + std::to_string (Colour (type));
+    return key;
 }
 
 void Normalise (Programme& programme)
@@ -185,6 +198,7 @@ size_t AddType (Programme& programme)
     added.minM2 = (std::min) (kMaxArea - span, added.maxM2);
     added.maxM2 = added.minM2 + span;
     added.share = 0;
+    added.rgba = 0;
     programme.types.push_back (added);
     return programme.types.size () - 1;
 }
@@ -273,6 +287,35 @@ uint32_t Colour (double rooms)
                           : 0xB79BD8FFu;
 }
 
+uint32_t Colour (const UnitType& type)
+{
+    return type.rgba != 0 ? type.rgba : Colour (type.rooms);
+}
+
+uint32_t Colour (const Programme& programme, size_t type, double rooms)
+{
+    return type < programme.types.size () ? Colour (programme.types[type]) : Colour (rooms);
+}
+
+uint32_t ColourForRooms (const Programme& programme, double rooms)
+{
+    for (const auto& type : programme.types)
+        if (std::abs (type.rooms - rooms) < 1e-9)
+            return Colour (type);
+    return Colour (rooms);
+}
+
+bool SetColour (Programme& programme, size_t type, uint32_t rgba)
+{
+    if (type >= programme.types.size () || (rgba != 0 && (rgba & 0xFFu) != 0xFFu))
+        return false;
+    auto& row = programme.types[type];
+    if (row.rgba == rgba || (rgba != 0 && Colour (row) == rgba))
+        return false;
+    row.rgba = rgba;
+    return true;
+}
+
 namespace {
 const std::regex& Line ()
 {
@@ -356,16 +399,17 @@ bool Parse (const std::string& text, Programme& programme, std::string& error)
 }
 
 namespace {
-constexpr char kHeader[] = "tapioca.programme 1";
-}
+constexpr char kHeader[] = "tapioca.programme 2";
+constexpr char kLegacyHeader[] = "tapioca.programme 1";
+} // namespace
 
 std::string ToText (const Programme& programme)
 {
     std::string text = kHeader;
     char line[128];
     for (const auto& type : programme.types) {
-        std::snprintf (line, sizeof (line), "\n%.17g %.17g %.17g %.17g", type.rooms, type.minM2, type.maxM2,
-                       type.share);
+        std::snprintf (line, sizeof (line), "\n%.17g %.17g %.17g %.17g %08X", type.rooms, type.minM2, type.maxM2,
+                       type.share, unsigned (type.rgba));
         text += line;
     }
     return text + "\n";
@@ -373,12 +417,16 @@ std::string ToText (const Programme& programme)
 
 bool FromText (const std::string& text, Programme& programme, std::string& error)
 {
-    if (text.compare (0, sizeof (kHeader) - 1, kHeader) != 0) {
+    size_t start = text.find ('\n');
+    std::string header = text.substr (0, start);
+    if (!header.empty () && header.back () == '\r')
+        header.pop_back ();
+    const bool legacy = header == kLegacyHeader;
+    if (!legacy && header != kHeader) {
         error = "The stored programme is not in a known format.";
         return false;
     }
     Programme read;
-    size_t start = text.find ('\n');
     while (start != std::string::npos && start + 1 < text.size ()) {
         const size_t end = text.find ('\n', start + 1);
         const std::string row = text.substr (start + 1, end == std::string::npos ? std::string::npos : end - start - 1);
@@ -386,7 +434,19 @@ bool FromText (const std::string& text, Programme& programme, std::string& error
         if (row.find_first_not_of (" \r\t") == std::string::npos)
             continue;
         UnitType type;
-        if (std::sscanf (row.c_str (), "%lf %lf %lf %lf", &type.rooms, &type.minM2, &type.maxM2, &type.share) != 4) {
+        std::istringstream fields (row);
+        fields.imbue (std::locale::classic ());
+        bool valid = bool (fields >> type.rooms >> type.minM2 >> type.maxM2 >> type.share);
+        if (valid && !legacy) {
+            std::string colour;
+            valid = bool (fields >> colour) && colour.size () == 8;
+            if (valid) {
+                const auto parsed = std::from_chars (colour.data (), colour.data () + colour.size (), type.rgba, 16);
+                valid = parsed.ec == std::errc {} && parsed.ptr == colour.data () + colour.size ();
+            }
+        }
+        fields >> std::ws;
+        if (!valid || !fields.eof ()) {
             error = "The stored programme has an unreadable row: " + row;
             return false;
         }

@@ -116,6 +116,7 @@ struct State {
     floorprogramme::Programme massingProgramme = floorprogramme::Default ();
     std::vector<hudprogramme::TextEdit> massingProgrammeTexts;
     std::vector<hudprogramme::TableEdit> massingProgrammeTables;
+    std::vector<hudprogramme::ColourEdit> massingProgrammeColours;
     // The programme last read from the project (the default when none is stored), and one not
     // yet taken by the owner to store (TakeProgrammeSave). Edits differ from the saved one
     // until the owner's next pages carry it back.

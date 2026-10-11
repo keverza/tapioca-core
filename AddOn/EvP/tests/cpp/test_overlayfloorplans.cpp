@@ -130,6 +130,25 @@ TEST (OverlayFloorPlans, DesignsSurviveDeselectionButClearWhenTheBuildingGoes)
     EXPECT_TRUE (gui.state->buildingPlans.empty ());
 }
 
+TEST (OverlayFloorPlans, ProgrammeColourEditsRepaintImmediatelyWithoutRegeneratingFloors)
+{
+    auto state = hud::NewState ();
+    const auto plan = Tower ();
+    state->floorPlanSnapshots[plan.key] = plan;
+    state->previewStairs = state->previewUnits = true;
+    layers::Layer stairs, units;
+    ASSERT_TRUE (Planned (*state, stairs, units, 1));
+    const auto revision = state->floorPlanner.Revision ();
+    for (size_t i = 0; i < state->massingProgramme.types.size (); ++i)
+        ASSERT_TRUE (fp::SetColour (state->massingProgramme, i, 0x123456FFu));
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
+    EXPECT_TRUE (std::any_of (units.polylines.begin (), units.polylines.end (),
+                              [] (const auto& line) { return line.rgba == 0x123456FFu; }));
+    EXPECT_FALSE (state->floorPlanner.Busy ());
+    EXPECT_EQ (state->floorPlanner.Revision (), revision);
+    EXPECT_FALSE (hud::TakeFloorPlanLayers (*state, stairs, units)) << "One colour edit, one republish";
+}
+
 TEST (OverlayFloorPlans, ProgrammeFromTheProjectIsAdoptedUnlessAnUnsavedEditIsWaiting)
 {
     hudtest::Watched gui;

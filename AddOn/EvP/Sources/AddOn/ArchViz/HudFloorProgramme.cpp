@@ -6,7 +6,8 @@
 
 namespace geomsrv::archviz::hudprogramme {
 namespace fp = floorprogramme;
-Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<TableEdit>& tables)
+Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<TableEdit>& tables,
+              std::vector<ColourEdit>& colours)
 {
     if (!ImGui::CollapsingHeader ("Define Programme"))
         return {};
@@ -29,9 +30,25 @@ Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<
             ImGui::PushID (int (i));
             ImGui::TableNextRow ();
             ImGui::TableSetColumnIndex (0);
-            const auto colour = fp::Colour (type.rooms);
+            const auto colour = fp::Colour (type);
             ImGui::ColorButton ("##colour", hudshell::Colour (colour), ImGuiColorEditFlags_NoTooltip,
                                 { unit, ImGui::GetFrameHeight () });
+            if (ImGui::IsItemHovered ()) {
+                if (ImGui::IsMouseDoubleClicked (ImGuiMouseButton_Left))
+                    colours.push_back ({ programme, i });
+                if (ImGui::IsMouseClicked (ImGuiMouseButton_Right)) {
+                    hudshell::ClaimRightClick ();
+                    ImGui::OpenPopup ("##colour.menu");
+                }
+                ImGui::SetTooltip ("%s: double-click to choose a colour; right-click to reset it.",
+                                   fp::Name (wanted, i).c_str ());
+            }
+            if (ImGui::BeginPopup ("##colour.menu")) {
+                if (ImGui::MenuItem ("Use default colour", nullptr, false, type.rgba != 0) &&
+                    fp::SetColour (wanted, i, 0))
+                    changed = save = true;
+                ImGui::EndPopup ();
+            }
             const auto editCell = [&] (Field field) {
                 if (ImGui::IsItemHovered () && ImGui::IsMouseDoubleClicked (ImGuiMouseButton_Left))
                     tables.push_back ({ programme, i, field });
@@ -167,6 +184,21 @@ bool Answer (fp::Programme& programme, const TableEdit& edit, const fp::Programm
     programme = answer;
     return true;
 }
+bool Answer (fp::Programme& programme, const ColourEdit& edit, uint32_t rgba, std::string& error)
+{
+    if (!(programme == edit.before)) {
+        error = "The programme changed while the colour picker was open; not applied.";
+        return false;
+    }
+    if (edit.type >= programme.types.size () || (rgba != 0 && (rgba & 0xFFu) != 0xFFu)) {
+        error = "Choose an opaque RGB colour for an existing type.";
+        return false;
+    }
+    fp::SetColour (programme, edit.type, rgba);
+    error.clear ();
+    return true;
+}
+
 bool Answer (fp::Programme& programme, const TextEdit& edit, const std::string& answer, std::string& error)
 {
     if (!(programme == edit.before)) {
@@ -189,7 +221,7 @@ bool Answer (fp::Programme& programme, const TextEdit& edit, const std::string& 
         return false;
     auto wanted = programme;
     const size_t i = size_t (edit.type);
-    wanted.types[i] = { row.rooms, row.minM2, row.maxM2, wanted.types[i].share };
+    wanted.types[i] = { row.rooms, row.minM2, row.maxM2, wanted.types[i].share, wanted.types[i].rgba };
     fp::SetShare (wanted, i, row.share);
     error = fp::Problem (wanted);
     if (!error.empty ())

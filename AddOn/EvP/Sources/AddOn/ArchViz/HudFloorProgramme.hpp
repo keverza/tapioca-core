@@ -21,17 +21,22 @@ struct TableEdit {
     size_t type = 0;
     Field field = Field::Rooms;
 };
+struct ColourEdit {
+    floorprogramme::Programme before;
+    size_t type = 0;
+};
 struct Outcome {
     bool changed = false; // `programme` changed this frame (previews follow it live)
     bool save = false;    // an edit finished: store `programme` in the project
 };
 // `saved` is the project's stored programme, for the section's saved / not saved line.
 Outcome Draw (floorprogramme::Programme& programme, const floorprogramme::Programme& saved,
-              std::vector<TableEdit>& tables);
+              std::vector<TableEdit>& tables, std::vector<ColourEdit>& colours);
 // Native table readback: validate each value before normalising the share percentages.
 bool PrepareTable (floorprogramme::Programme values, floorprogramme::Programme& answer, std::string& error);
 bool Answer (floorprogramme::Programme& programme, const TableEdit& edit, const floorprogramme::Programme& answer,
              std::string& error);
+bool Answer (floorprogramme::Programme& programme, const ColourEdit& edit, uint32_t rgba, std::string& error);
 // A prompt's answer: false with `error` when the programme moved on or the text is wrong.
 bool Answer (floorprogramme::Programme& programme, const TextEdit& edit, const std::string& answer, std::string& error);
 } // namespace geomsrv::archviz::hudprogramme

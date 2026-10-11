@@ -110,7 +110,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             selected.push_back (std::move (*s));
     std::ostringstream signature;
     signature << std::setprecision (17) << state.previewStairs << state.previewUnits << ':'
-              << state.floorPlanner.Revision ();
+              << state.floorPlanner.Revision () << ':' << floorprogramme::ColoursKey (state.massingProgramme);
     for (const auto& [key, plan] : state.floorPlanSnapshots)
         signature << '|' << key << ':' << plan.floors.size ();
     for (const auto& s : selected)
@@ -164,7 +164,10 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             const double z = floor.z + 0.02;
             for (int u : floor.units)
                 for (const auto& ring : bt::Clear (complex, complex.units[u].cells))
-                    Line (units, ring, z, floorprogramme::Colour (complex.units[u].rooms), 2.0f);
+                    Line (
+                        units, ring, z,
+                        floorprogramme::Colour (state.massingProgramme, complex.units[u].type, complex.units[u].rooms),
+                        2.0f);
             for (int id : floor.cells) {
                 const auto kind = complex.cells[id].kind;
                 if (kind == bt::CellKind::Corridor || kind == bt::CellKind::Lobby)

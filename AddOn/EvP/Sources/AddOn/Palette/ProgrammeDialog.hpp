@@ -6,5 +6,6 @@
 namespace evp::programmeui {
 // MAIN THREAD, outside ImGui/render locks. No project writes; Apply returns a validated table.
 bool Ask (const geomsrv::archviz::hudprogramme::TableEdit& edit, geomsrv::archviz::floorprogramme::Programme& answer);
+bool AskColour (const geomsrv::archviz::hudprogramme::ColourEdit& edit, uint32_t& rgba);
 } // namespace evp::programmeui
 #endif

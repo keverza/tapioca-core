@@ -171,6 +171,66 @@ TEST (FloorProgramme, TableReadbackValidatesBeforeNormalisingAndDoesNotMutateOnF
     EXPECT_EQ (answer, valid);
 }
 
+TEST (FloorProgramme, ColoursArePerTypePersistWithOldProjectsAndDoNotChangeGeometryIdentity)
+{
+    auto programme = fp::Default ();
+    const auto geometry = fp::Key (programme), colours = fp::ColoursKey (programme);
+    const double mean = fp::MeanArea (programme);
+    ASSERT_TRUE (fp::SetColour (programme, 2, 0x102040FFu));
+    ASSERT_TRUE (fp::SetColour (programme, 3, 0xEF5050FFu));
+    EXPECT_EQ (programme.types[2].rooms, programme.types[3].rooms);
+    EXPECT_EQ (fp::Colour (programme, 2, 3), 0x102040FFu);
+    EXPECT_EQ (fp::Colour (programme, 3, 3), 0xEF5050FFu);
+    EXPECT_EQ (fp::ColourForRooms (programme, 3), 0x102040FFu);
+    EXPECT_EQ (fp::Colour (programme, 999, 5), fp::Colour (5));
+    EXPECT_EQ (fp::Key (programme), geometry);
+    EXPECT_NE (fp::ColoursKey (programme), colours);
+    EXPECT_DOUBLE_EQ (fp::MeanArea (programme), mean);
+    EXPECT_FALSE (fp::SetColour (programme, 0, 0x11223380u));
+    EXPECT_FALSE (fp::SetColour (programme, 999, 0x112233FFu));
+    fp::Programme read;
+    std::string error;
+    ASSERT_TRUE (fp::FromText (fp::ToText (programme), read, error)) << error;
+    EXPECT_EQ (read, programme);
+    const auto kept = read;
+    for (const char* invalid :
+         { "tapioca.programme 2\n2 40 45 1\n", "tapioca.programme 2\n2 40 45 1 11223380\n",
+           "tapioca.programme 2\n2 40 45 1 112233FF trailing\n", "tapioca.programme 2\n2 40 45 1 1FFFFFFFF\n",
+           "tapioca.programme 2\n2 40 45 1 nope0000\n", "tapioca.programme 3\n2 40 45 1 112233FF\n" }) {
+        EXPECT_FALSE (fp::FromText (invalid, read, error));
+        EXPECT_EQ (read, kept);
+    }
+    ASSERT_TRUE (fp::FromText ("tapioca.programme 1\r\n1.5 30 36 0.05\r\n2 40 45 0.3\r\n3 55 65 0.2\r\n"
+                               "3 65 75 0.2\r\n4 75 80 0.2\r\n5 80 90 0.05\r\n",
+                               read, error))
+        << error;
+    EXPECT_EQ (read, fp::Default ()) << "Old projects retain automatic colours";
+    ASSERT_TRUE (hp::PrepareTable (programme, read, error));
+    EXPECT_EQ (read, programme) << "The numeric table preserves custom colours";
+    ASSERT_TRUE (fp::SetColour (programme, 2, 0));
+    EXPECT_EQ (fp::Colour (programme.types[2]), fp::Colour (3));
+}
+
+TEST (FloorProgramme, ColourAnswersQueueOnlyChangedSavesAndRefuseStaleAnswers)
+{
+    namespace hud = geomsrv::archviz::overlayhud;
+    auto state = hud::NewState ();
+    const hp::ColourEdit edit { state->massingProgramme, 2 };
+    fp::Programme saved;
+    std::string error;
+    ASSERT_TRUE (hud::AnswerProgrammeColour (*state, edit, fp::Colour (3), error));
+    EXPECT_FALSE (hud::TakeProgrammeSave (*state, saved));
+    EXPECT_EQ (state->massingProgramme, edit.before);
+    EXPECT_FALSE (hud::AnswerProgrammeColour (*state, edit, 0x11223380u, error));
+    ASSERT_TRUE (hud::AnswerProgrammeColour (*state, edit, 0x112233FFu, error));
+    ASSERT_TRUE (hud::TakeProgrammeSave (*state, saved));
+    EXPECT_EQ (saved.types[2].rgba, 0x112233FFu);
+    EXPECT_EQ (saved.types[3].rgba, 0u) << "The other 3R type is independent";
+    EXPECT_FALSE (hud::TakeProgrammeSave (*state, saved));
+    EXPECT_FALSE (hud::AnswerProgrammeColour (*state, edit, 0x998877FFu, error));
+    EXPECT_EQ (state->massingProgramme.types[2].rgba, 0x112233FFu);
+}
+
 TEST (FloorProgramme, TableAnswerIsAtomicStaleSafeAndQueuesOnlyChangedSaves)
 {
     namespace hud = geomsrv::archviz::overlayhud;
@@ -216,7 +276,9 @@ TEST (HudProgramme, DoubleClickEachNumericCellRequestsTheNativeTableAndFitsANarr
     auto programme = fp::Default ();
     const auto saved = programme;
     std::vector<hp::TableEdit> edits;
+    std::vector<hp::ColourEdit> colours;
     std::array<ImVec2, 4> cells;
+    ImVec2 swatch;
     const auto frame = [&] (ImVec2 mouse, bool down) {
         io.MousePos = mouse;
         io.MouseDown[0] = down;
@@ -225,11 +287,13 @@ TEST (HudProgramme, DoubleClickEachNumericCellRequestsTheNativeTableAndFitsANarr
         ImGui::SetNextWindowSize ({ 240, 1100 });
         ImGui::Begin ("programme", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
         ImGui::SetNextItemOpen (true, ImGuiCond_Always);
-        hp::Draw (programme, saved, edits);
+        hp::Draw (programme, saved, edits, colours);
         const auto* table = context->Tables.GetByKey (ImGui::GetID ("##massing.programme"));
         if (table) {
             const float rowHeight = table->RowPosY2 - table->RowPosY1;
             const float y = table->RowPosY1 - float (programme.types.size () - 1) * rowHeight + rowHeight / 2;
+            const auto& colour = table->Columns[0];
+            swatch = { (colour.WorkMinX + colour.WorkMaxX) / 2, y };
             for (size_t field = 0; field < cells.size (); ++field) {
                 const auto& column = table->Columns[int (field) + 1];
                 cells[field] = { (column.WorkMinX + column.WorkMaxX) / 2, y };
@@ -254,4 +318,13 @@ TEST (HudProgramme, DoubleClickEachNumericCellRequestsTheNativeTableAndFitsANarr
         EXPECT_EQ (edits.back ().before, saved);
     }
     EXPECT_EQ (programme, saved) << "Double-click queues UI only, not a project write";
+    frame (swatch, false);
+    frame (swatch, true);
+    frame (swatch, false);
+    frame (swatch, true);
+    frame (swatch, false);
+    ASSERT_EQ (colours.size (), 1u);
+    EXPECT_EQ (colours.front ().type, 0u);
+    EXPECT_EQ (colours.front ().before, saved);
+    EXPECT_EQ (edits.size (), 4u) << "The colour block opens only the colour picker";
 }

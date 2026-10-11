@@ -157,13 +157,39 @@ void FollowHudState ()
         const auto epoch = massingmodel::ProjectEpoch ();
         const auto saved = massingmodel::Read ();
         floorprogramme::Programme answer;
-        if (evp::programmeui::Ask (edit, answer)) {
+        const bool accepted = evp::programmeui::Ask (edit, answer);
+        // A modal pumps the host loop, even on Cancel. Never drain the old HUD's remaining
+        // saves or actions into a different project after it returns.
+        if (epoch != massingmodel::ProjectEpoch () || state != guesttext::HudState ()) {
+            hudconsole::Warning ("Programme", "The project changed while the table was open; not applied.");
+            return;
+        }
+        if (accepted) {
             const auto current = massingmodel::Read ();
             std::string error;
-            if (epoch != massingmodel::ProjectEpoch () || state != guesttext::HudState () || !current.known ||
-                !(saved.programme == current.programme))
+            if (!current.known || !(saved.programme == current.programme))
                 hudconsole::Warning ("Programme", "The project or saved programme changed; table not applied.");
             else if (!overlayhud::AnswerProgrammeTable (*state, edit, answer, error))
+                hudconsole::Warning ("Programme", error);
+        }
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
+    for (const auto& edit : overlayhud::TakeProgrammeColours (*state)) {
+        const auto epoch = massingmodel::ProjectEpoch ();
+        const auto saved = massingmodel::Read ();
+        uint32_t rgba = 0;
+        const bool accepted = evp::programmeui::AskColour (edit, rgba);
+        if (epoch != massingmodel::ProjectEpoch () || state != guesttext::HudState ()) {
+            hudconsole::Warning ("Programme", "The project changed while the colour picker was open; not applied.");
+            return;
+        }
+        if (accepted) {
+            const auto current = massingmodel::Read ();
+            std::string error;
+            if (!current.known || !(saved.programme == current.programme))
+                hudconsole::Warning ("Programme", "The project or saved programme changed; colour not applied.");
+            else if (!overlayhud::AnswerProgrammeColour (*state, edit, rgba, error))
                 hudconsole::Warning ("Programme", error);
         }
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
