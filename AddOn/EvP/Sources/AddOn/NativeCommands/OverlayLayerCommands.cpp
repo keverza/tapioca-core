@@ -23,6 +23,7 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
 #include "NativeCommands/OverlayLayerReading.hpp"
+#include "Grasshopper/Gh2OverlayRequest.hpp"
 
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -172,6 +173,26 @@ GS::ObjectState GuestRecord (const archviz::overlaycontrol::GuestCounts& counts)
     os.Add ("hudPrepareMicroseconds", (GS::Int32) counts.hudPrepareMicroseconds);
     return os;
 }
+
+// BOUND BY OVERLAY-INVARIANTS.md: release only this bridge generation's
+// content. Global overlay intent belongs to the user, not to a detached peer.
+class ClearGhOverlaySessionCommand : public MainThreadCommand {
+  public:
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Int64 generation = 0;
+        params.Get ("generation", generation);
+        GS::Int32 cleared = 0;
+        for (const auto& layer : layers::Layers ())
+            if (evp::grasshopper::IsGh2OverlayLayer (layer->name, uint32_t (generation)))
+                cleared += layers::Clear (layer->name) ? 1 : 0;
+        if (cleared > 0)
+            control::PublishLayers ();
+        GS::ObjectState os;
+        os.Add ("cleared", cleared);
+        return os;
+    }
+};
 
 class OverlayLayersCommand : public MainThreadCommand {
   public:
@@ -535,6 +556,9 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
   "additionalProperties":false,"required":["layers","generation","guest","input"]})json";
 
 const NativeCommandRegistration kOverlayLayerCommandRegistrations[] = {
+    { "ClearGhOverlaySession", &MakeRegisteredNativeCommand<ClearGhOverlaySessionCommand>, false,
+      R"json({"type":"object","properties":{"generation":{"type":"integer","minimum":1,"maximum":4294967295}},"additionalProperties":false,"required":["generation"]})json",
+      R"json({"type":"object","properties":{"cleared":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["cleared"]})json" },
     { "SetOverlayLayer", &MakeRegisteredNativeCommand<SetOverlayLayerCommand>, false, kSetOverlayLayerInput,
       kSetOverlayLayerOutput },
     { "ClearOverlayLayer", &MakeRegisteredNativeCommand<ClearOverlayLayerCommand>, false, kClearOverlayLayerInput,

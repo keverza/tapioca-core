@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 245,
+      "nativeRegistry": 246,
       "dispatcherLocal": 19,
-      "total": 264
+      "total": 265
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1028,6 +1028,37 @@
           "cleared": {
             "type": "boolean",
             "const": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cleared"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ClearGhOverlaySession",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "generation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "generation"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": false,

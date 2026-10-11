@@ -2,6 +2,7 @@
 
 #include "GhBridge.hpp"
 #include "GhLog.hpp"
+#include "Gh2OverlayRequest.hpp"
 
 #include "AddOnCommands.hpp"
 #include "Preview/GhPreviewCache.hpp"
@@ -10,6 +11,7 @@
 #include "Preview/PreviewRuntimeState.hpp"
 #include "Python/ApiDispatcher.hpp"
 #include "Python/MainThreadGate.hpp"
+#include "ObjectStateJSONConversion.hpp"
 
 #include <array>
 #include <string>
@@ -19,6 +21,17 @@ namespace evp {
 namespace grasshopper {
 
 namespace {
+
+// BOUND BY OVERLAY-INVARIANTS.md: session-owned layers leave with the peer;
+// neither cleanup nor Clear turns off overlays another caller may be using.
+void ClearGh2Overlays (uint32_t generation)
+{
+    if (generation == 0)
+        return;
+    evp::DispatchApiCall ("Tapioca.ClearGhOverlaySession",
+                          GS::UniString (("{\"generation\":" + std::to_string (generation) + "}").c_str ()),
+                          "external");
+}
 
 // A read waits indefinitely — the worker is idle most of the time and an idle
 // worker sends nothing but heartbeats. A WRITE does not: a worker that has
@@ -197,8 +210,10 @@ bool GhBridge::Start (uint32_t startGeneration, GS::UniString& error, bool expec
 
 void GhBridge::Stop ()
 {
-    if (expectedGh2)
+    if (expectedGh2) {
         BeginGh2Shutdown ();
+        ClearGh2Overlays (generation.load ()); // Stop is owned by the Archicad main thread
+    }
     if (!io.joinable ()) {
         // A failed Start can leave a pipe with no thread behind it. Closing it
         // unconditionally is what makes Stop safe to call from the quit path.
@@ -300,7 +315,7 @@ void GhBridge::FlushGh2Reply (void* server, uint32_t currentGeneration)
     }
     if (!stopping.load ())
         LogLine (currentGeneration, workerProcessId.load (),
-                         GS::UniString::Printf ("GH2 read response: bridge IO thread %u, request %u, dispatch %llu ms, "
+                 GS::UniString::Printf ("GH2 read response: bridge IO thread %u, request %u, dispatch %llu ms, "
                                         "queued %llu ms, total %llu ms",
                                         (unsigned int) GetCurrentThreadId (), (unsigned int) request->requestId,
                                         (unsigned long long) (request->queuedTick - request->receivedTick),
@@ -665,45 +680,47 @@ void GhBridge::Run ()
                         else if (gh2PendingRequest != nullptr)
                             refusal = "another GH2 request is still pending";
                         if (!gh2ShutdownRequested && gh2PendingRequest == nullptr &&
-                             ((request.command == "Tapioca.GetGhConnectionInfo" && request.parameters == "{}") ||
-                               (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
-                                (request.command == "Tapioca.GetGhElementHeaders" &&
-                                 request.parameters.size () <= 5000 &&
-                                 request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
-                                 request.parameters.size () >= 12 &&
-                                 request.parameters.compare (request.parameters.size () - 2, 2, "]}") == 0) ||
-                                 (request.command == "Tapioca.CreateMesh" &&
-                                  request.parameters.size () <= 32000 &&
-                                  request.parameters.rfind ("{\"outline\":[", 0) == 0 &&
-                                  request.parameters.find (",\"polyZ\":[") != std::string::npos &&
-                                  request.parameters.find (",\"ridgeCoords\":[") != std::string::npos &&
-                                  request.parameters.find (",\"ridgeCounts\":[") != std::string::npos &&
-                                  request.parameters.find (",\"floorInd\":0,") != std::string::npos &&
-                                  request.parameters.find (",\"skirt\":\"SurfaceOnlyWithoutSkirt\",\"skirtLevel\":0.0,") != std::string::npos &&
-                                  request.parameters.find (",\"onFloorPlan\":true,\"layer\":\"") != std::string::npos &&
-                                  request.parameters.back () == '}') ||
-                                 (request.command == "Tapioca.GetGhElementQuery" &&
-                                 request.parameters.size () <= 11000 &&
-                                 request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
-                                 request.parameters.find (",\"kind\":") != std::string::npos &&
-                                 request.parameters.find (",\"mode\":") != std::string::npos &&
-                                  request.parameters.find (",\"search\":") != std::string::npos &&
-                                  request.parameters.find (",\"selectors\":[") != std::string::npos &&
-                                  request.parameters.find (",\"offset\":") != std::string::npos &&
-                                  request.parameters.size () >= 2 &&
-                                  request.parameters.back () == '}') ||
-                              (request.command == "Tapioca.SetSelection" && request.parameters.size () <= 200000 &&
-                               request.parameters.rfind ("{\"elements\":[", 0) == 0 &&
-                               request.parameters.size () >= 13 &&
-                               request.parameters.compare (request.parameters.size () - 13, 13,
-                                                           ",\"add\":false}") == 0) ||
+                            (IsGh2OverlayRequest (request.command, request.parameters, gen) ||
+                             (request.command == "Tapioca.GetGhConnectionInfo" && request.parameters == "{}") ||
+                             (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                             (request.command == "Tapioca.GetGhElementHeaders" && request.parameters.size () <= 5000 &&
+                              request.parameters.rfind ("{\"guids\":[", 0) == 0 && request.parameters.size () >= 12 &&
+                              request.parameters.compare (request.parameters.size () - 2, 2, "]}") == 0) ||
+                             (request.command == "Tapioca.CreateMesh" && request.parameters.size () <= 32000 &&
+                              request.parameters.rfind ("{\"outline\":[", 0) == 0 &&
+                              request.parameters.find (",\"polyZ\":[") != std::string::npos &&
+                              request.parameters.find (",\"ridgeCoords\":[") != std::string::npos &&
+                              request.parameters.find (",\"ridgeCounts\":[") != std::string::npos &&
+                              request.parameters.find (",\"floorInd\":0,") != std::string::npos &&
+                              request.parameters.find (",\"skirt\":\"SurfaceOnlyWithoutSkirt\",\"skirtLevel\":0.0,") !=
+                                  std::string::npos &&
+                              request.parameters.find (",\"onFloorPlan\":true,\"layer\":\"") != std::string::npos &&
+                              request.parameters.back () == '}') ||
+                             (request.command == "Tapioca.GetGhElementQuery" && request.parameters.size () <= 11000 &&
+                              request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
+                              request.parameters.find (",\"kind\":") != std::string::npos &&
+                              request.parameters.find (",\"mode\":") != std::string::npos &&
+                              request.parameters.find (",\"search\":") != std::string::npos &&
+                              request.parameters.find (",\"selectors\":[") != std::string::npos &&
+                              request.parameters.find (",\"offset\":") != std::string::npos &&
+                              request.parameters.size () >= 2 && request.parameters.back () == '}') ||
+                             (request.command == "Tapioca.SetSelection" && request.parameters.size () <= 200000 &&
+                              request.parameters.rfind ("{\"elements\":[", 0) == 0 &&
+                              request.parameters.size () >= 13 &&
+                              request.parameters.compare (request.parameters.size () - 13, 13, ",\"add\":false}") ==
+                                  0) ||
                              (request.command == "Tapioca.GetStories" && request.parameters == "{}") ||
                              (request.command == "Tapioca.ListAttributes" &&
                               (request.parameters == "{\"kind\":\"layer\"}" ||
                                request.parameters == "{\"kind\":\"lineType\"}")))) {
-                            pending = std::make_shared<Gh2PendingRequest> (Gh2PendingRequest {
-                                gen, header.requestId, request.command, request.parameters, {}, false,
-                                (uint64_t) GetTickCount64 () });
+                            pending = std::make_shared<Gh2PendingRequest> (
+                                Gh2PendingRequest { gen,
+                                                    header.requestId,
+                                                    request.command,
+                                                    request.parameters,
+                                                    {},
+                                                    false,
+                                                    (uint64_t) GetTickCount64 () });
                             gh2PendingRequest = pending;
                         }
                     }
@@ -718,22 +735,43 @@ void GhBridge::Run ()
                         if (!MainThreadGate::Get ().Post (
                                 [weak] () {
                                     const auto job = weak.lock ();
-                                     if (job == nullptr || !GhBridge::Get ().IsGh2RequestCurrent (job))
-                                         return;
-                                     LogLine (job->generation, GhBridge::Get ().WorkerProcessId (),
-                                              GS::UniString::Printf ("GH2 read dispatch: Archicad main thread %u, "
-                                                                     "request %u, gate wait %llu ms",
-                                                                     (unsigned int) GetCurrentThreadId (),
-                                                                     (unsigned int) job->requestId,
-                                                                     (unsigned long long) ((uint64_t) GetTickCount64 () -
-                                                                                           job->receivedTick)));
-                                      // The approved request is dispatched inline by the
+                                    if (job == nullptr || !GhBridge::Get ().IsGh2RequestCurrent (job))
+                                        return;
+                                    LogLine (
+                                        job->generation, GhBridge::Get ().WorkerProcessId (),
+                                        GS::UniString::Printf (
+                                            "GH2 read dispatch: Archicad main thread %u, "
+                                            "request %u, gate wait %llu ms",
+                                            (unsigned int) GetCurrentThreadId (), (unsigned int) job->requestId,
+                                            (unsigned long long) ((uint64_t) GetTickCount64 () - job->receivedTick)));
+                                    // The approved request is dispatched inline by the
                                     // gate's main-thread handler. No bridge state
                                     // or pipe handle is captured by this job.
                                     std::string answer;
                                     try {
-                                        answer = ToUtf8 (evp::DispatchApiCall (FromUtf8 (job->command),
-                                                                               FromUtf8 (job->parameters), "external"));
+                                        // The cheap IO prefix check is not JSON validation:
+                                        // escaped/duplicate keys must not redirect content or
+                                        // clear somebody else's layer after JSON decoding.
+                                        bool admitted = true;
+                                        if (job->command == "Tapioca.SetOverlayLayer" ||
+                                            job->command == "Tapioca.ClearOverlayLayer") {
+                                            GS::ObjectState params;
+                                            GS::UniString name, views;
+                                            admitted = JSON::ConvertToObjectState (FromUtf8 (job->parameters),
+                                                                                   params) == NoError &&
+                                                       params.Get ("layer", name) &&
+                                                       IsGh2OverlayLayer (ToUtf8 (name), job->generation) &&
+                                                       !params.Contains ("all");
+                                            if (job->command == "Tapioca.SetOverlayLayer")
+                                                admitted = admitted && params.Get ("views", views) &&
+                                                           (views == "2d" || views == "3d");
+                                        }
+                                        answer =
+                                            admitted
+                                                ? ToUtf8 (evp::DispatchApiCall (FromUtf8 (job->command),
+                                                                                FromUtf8 (job->parameters), "external"))
+                                                : ErrorEnvelope (
+                                                      "overlay parameters do not name this GH2 session's layer");
                                     }
                                     catch (...) {
                                         answer = ErrorEnvelope ("Archicad could not complete the GH2 Ping.");
@@ -928,6 +966,10 @@ void GhBridge::Run ()
     }
 
     connected.store (false);
+    if (expectedGh2) {
+        GS::UniString cleanupError;
+        MainThreadGate::Get ().Post ([gen] () { ClearGh2Overlays (gen); }, cleanupError);
+    }
     // ⚠️ THE SEGMENT GOES WITH THE WORKER. A mapped view of a dead process's
     // memory is a handle and an address-space reservation this add-on would hold
     // until Archicad quits, and a preview nothing can ever update, remove or

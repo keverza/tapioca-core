@@ -16,6 +16,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.CancelSunStudy` | - | `studyId`: string<br>`all`: boolean | `studyId?`: string<br>`erased`: integer |
 | `Tapioca.CaptureScreenshot` | - | `view`: "current" \| "top" | `view`: "current" \| "top"<br>`bytes`: integer<br>`url`: string<br>`retainedBytes`: integer |
 | `Tapioca.ClearDiligentTextLabels` | - | - | `cleared`: true |
+| `Tapioca.ClearGhOverlaySession` | `generation`: integer | - | `cleared`: integer |
 | `Tapioca.ClearHighlights` | - | - | object |
 | `Tapioca.ClearOverlayLayer` | - | `layer`: string<br>`all`: boolean | `cleared`: integer<br>`layers`: integer<br>`generation`: string |
 | `Tapioca.CloseDiligentOverlay` | - | - | `posted`: boolean |

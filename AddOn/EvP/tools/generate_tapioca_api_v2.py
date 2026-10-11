@@ -260,7 +260,8 @@ from typing import Any
 # 242 -> 243 with atomic native BakeMassingSlices (slabs plus optional walls).
 # 243 -> 244 with the native visibility study's shared square-cell atlas path.
 # 244 -> 245 with the live radius-limited viewpoint configuration.
-EXPECTED_REGISTRY_COMMANDS = 245
+# 2026-10-11: +1 for ClearGhOverlaySession, generation-scoped display cleanup.
+EXPECTED_REGISTRY_COMMANDS = 246
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -280,7 +281,7 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 261 -> 262 with atomic native slice/wall baking.
 # 262 -> 263 with RunVisibilityStudy.
 # 263 -> 264 with SetViewpointStudy.
-EXPECTED_TOTAL_COMMANDS = 264
+EXPECTED_TOTAL_COMMANDS = 265
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

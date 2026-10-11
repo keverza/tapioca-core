@@ -852,6 +852,7 @@ set (EVP_TEST_SOURCES
     test_camera_cursorray.cpp
     test_camera_plan.cpp
     test_ghprotocol.cpp
+    test_gh2overlayrequest.cpp
     test_ghsessionprotocol.cpp
     test_ghworkflowcontroller.cpp
     test_ghinputmodel.cpp
