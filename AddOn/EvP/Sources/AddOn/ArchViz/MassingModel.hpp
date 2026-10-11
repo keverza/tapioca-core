@@ -11,6 +11,7 @@ void Request (hudmassing::Request request);
 void RequestRules (massingrules::Edit edit);
 // Store the flat programme in the project, one undo step, on the message loop.
 void RequestProgramme (floorprogramme::Programme programme);
+uint64_t ProjectEpoch ();
 void Changed ();
 void Forget ();
 } // namespace geomsrv::archviz::massingmodel

@@ -1,6 +1,10 @@
 #include "ArchViz/FloorProgramme.hpp"
 #include "ArchViz/HudFloorProgramme.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include <gtest/gtest.h>
+#include <imgui_internal.h>
+#include <array>
+#include <memory>
 #include <cmath>
 #include <limits>
 
@@ -135,4 +139,119 @@ TEST (FloorProgramme, StoredTextRoundTripsExactlyAndRefusesForeignOrBrokenText)
     EXPECT_FALSE (fp::FromText ("tapioca.programme 1\n2 40 45\n", read, error));
     EXPECT_FALSE (fp::FromText ("tapioca.programme 1\n2 40 45 0.5\n", read, error)) << "Shares must total 100%";
     EXPECT_EQ (read, programme);
+}
+
+TEST (FloorProgramme, TableReadbackValidatesBeforeNormalisingAndDoesNotMutateOnFailure)
+{
+    auto values = fp::Default ();
+    values.types[0].share = 0.10;
+    fp::Programme answer;
+    std::string error;
+    ASSERT_TRUE (hp::PrepareTable (fp::Default (), answer, error));
+    EXPECT_EQ (answer, fp::Default ()) << "Untouched Apply preserves stored precision";
+    ASSERT_TRUE (hp::PrepareTable (values, answer, error));
+    EXPECT_TRUE (fp::Valid (answer));
+    EXPECT_NEAR (answer.types[0].share, 0.10 / 1.05, 1e-12);
+    const auto valid = answer;
+    values.types[1].rooms = 2.25;
+    EXPECT_FALSE (hp::PrepareTable (values, answer, error));
+    EXPECT_EQ (answer, valid);
+    values = fp::Default ();
+    values.types[0].minM2 = values.types[0].maxM2;
+    EXPECT_FALSE (hp::PrepareTable (values, answer, error));
+    values = fp::Default ();
+    values.types[0].share = 1.1;
+    EXPECT_FALSE (hp::PrepareTable (values, answer, error));
+    values.types[0].share = std::numeric_limits<double>::quiet_NaN ();
+    EXPECT_FALSE (hp::PrepareTable (values, answer, error));
+    values = fp::Default ();
+    for (auto& type : values.types)
+        type.share = 0;
+    EXPECT_FALSE (hp::PrepareTable (values, answer, error));
+    EXPECT_EQ (answer, valid);
+}
+
+TEST (FloorProgramme, TableAnswerIsAtomicStaleSafeAndQueuesOnlyChangedSaves)
+{
+    namespace hud = geomsrv::archviz::overlayhud;
+    auto state = hud::NewState ();
+    const hp::TableEdit edit { state->massingProgramme, 1, hp::Field::Minimum };
+    std::string error;
+    EXPECT_TRUE (hud::AnswerProgrammeTable (*state, edit, edit.before, error));
+    fp::Programme saved;
+    EXPECT_FALSE (hud::TakeProgrammeSave (*state, saved)) << "No-op Apply adds no Undo step";
+    auto answer = edit.before;
+    answer.types[1].minM2 = 41;
+    answer.types[2].rooms = 3.5;
+    ASSERT_TRUE (hud::AnswerProgrammeTable (*state, edit, answer, error));
+    EXPECT_EQ (state->massingProgramme, answer);
+    ASSERT_TRUE (hud::TakeProgrammeSave (*state, saved));
+    EXPECT_EQ (saved, answer);
+    EXPECT_FALSE (hud::TakeProgrammeSave (*state, saved));
+    EXPECT_FALSE (hud::AnswerProgrammeTable (*state, edit, edit.before, error));
+    EXPECT_EQ (state->massingProgramme, answer);
+    const hp::TableEdit fresh { answer };
+    auto invalid = answer;
+    invalid.types[1].maxM2 = 0;
+    EXPECT_FALSE (hud::AnswerProgrammeTable (*state, fresh, invalid, error));
+    EXPECT_EQ (state->massingProgramme, answer);
+}
+
+TEST (HudProgramme, DoubleClickEachNumericCellRequestsTheNativeTableAndFitsANarrowPanel)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 800, 1200 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    auto programme = fp::Default ();
+    const auto saved = programme;
+    std::vector<hp::TableEdit> edits;
+    std::array<ImVec2, 4> cells;
+    const auto frame = [&] (ImVec2 mouse, bool down) {
+        io.MousePos = mouse;
+        io.MouseDown[0] = down;
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 240, 1100 });
+        ImGui::Begin ("programme", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+        ImGui::SetNextItemOpen (true, ImGuiCond_Always);
+        hp::Draw (programme, saved, edits);
+        const auto* table = context->Tables.GetByKey (ImGui::GetID ("##massing.programme"));
+        if (table) {
+            const float rowHeight = table->RowPosY2 - table->RowPosY1;
+            const float y = table->RowPosY1 - float (programme.types.size () - 1) * rowHeight + rowHeight / 2;
+            for (size_t field = 0; field < cells.size (); ++field) {
+                const auto& column = table->Columns[int (field) + 1];
+                cells[field] = { (column.WorkMinX + column.WorkMaxX) / 2, y };
+            }
+        }
+        EXPECT_LE (ImGui::GetCurrentWindow ()->DC.CursorMaxPos.x, ImGui::GetCurrentWindow ()->WorkRect.Max.x + 1);
+        ImGui::End ();
+        ImGui::Render ();
+    };
+    frame ({ 600, 600 }, false);
+    frame ({ 600, 600 }, false);
+    for (size_t field = 0; field < cells.size (); ++field) {
+        const ImVec2 at = cells[field];
+        frame (at, false);
+        frame (at, true);
+        frame (at, false);
+        frame (at, true);
+        frame (at, false);
+        ASSERT_EQ (edits.size (), field + 1);
+        EXPECT_EQ (edits.back ().type, 0u);
+        EXPECT_EQ (edits.back ().field, hp::Field (field));
+        EXPECT_EQ (edits.back ().before, saved);
+    }
+    EXPECT_EQ (programme, saved) << "Double-click queues UI only, not a project write";
 }

@@ -221,6 +221,9 @@ LOCAL_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"')
 # They are intentionally file-specific: a new sideways feature include must be
 # added here with its reason, rather than silently weakening the tier rule.
 BOUNDARY_INCLUDE_EXCEPTIONS = {
+    # The main-thread HUD owner opens the native Programme table after layout; widgets
+    # queue immutable requests and never construct DG controls under the ImGui lock.
+    ("ArchViz/OverlayControllerHud.cpp", "Palette/ProgrammeDialog.hpp"),
     # The main-thread bake facade asks one native DG modal for an immutable settings
     # value. UI construction/picker ownership stay in Palette, never in HUD layout.
     ("ArchViz/MassingBake.cpp", "Palette/MassingBakeDialog.hpp"),

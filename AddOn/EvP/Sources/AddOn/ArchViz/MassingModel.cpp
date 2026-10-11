@@ -317,6 +317,11 @@ void RequestRules (massingrules::Edit edit)
     }
 }
 
+uint64_t ProjectEpoch ()
+{
+    return s_projectEpoch;
+}
+
 void RequestProgramme (floorprogramme::Programme programme)
 {
     const uint64_t epoch = s_projectEpoch;

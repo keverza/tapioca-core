@@ -379,3 +379,15 @@
 5 "Fill pen" UserControl_1
 6 "Save counted story-slice contours as JSON; no Archicad elements are created" Button_0
 }
+
+/* Runtime-created numeric table; item 1/2 retain native Enter/Escape behavior. */
+'GDLG' 32591 Modal | noGrow 40 40 520 508 "Define Programme" {
+/* [1] */ Button 408 472 100 24 LargePlain "Apply"
+/* [2] */ Button 300 472 100 24 LargePlain "Cancel"
+/* [3] */ LeftText 12 420 496 40 SmallPlain vCenter ""
+}
+'DLGH' 32591 DLG_32591_Programme {
+1 "Apply the complete Programme table" OkButton
+2 "Close without changing the programme" CancelButton
+3 "Programme validation" LeftText_0
+}

@@ -203,6 +203,25 @@ std::vector<hudprogramme::TextEdit> TakeProgrammeTexts (State& state)
     return texts;
 }
 
+std::vector<hudprogramme::TableEdit> TakeProgrammeTables (State& state)
+{
+    auto tables = std::move (state.massingProgrammeTables);
+    state.massingProgrammeTables.clear ();
+    return tables;
+}
+
+bool AnswerProgrammeTable (State& state, const hudprogramme::TableEdit& edit, const floorprogramme::Programme& answer,
+                           std::string& error)
+{
+    if (!hudprogramme::Answer (state.massingProgramme, edit, answer, error))
+        return false;
+    if (!(edit.before == answer)) {
+        state.massingProgrammeSave = state.massingProgramme;
+        ++state.revision;
+    }
+    return true;
+}
+
 bool AnswerProgrammeText (State& state, const hudprogramme::TextEdit& edit, const std::string& answer,
                           std::string& error)
 {
@@ -237,7 +256,7 @@ void Engine::Impl::MassingPage ()
                              double (request.action), hudmassing::Label (request.group), true });
     }
     const auto programme =
-        hudprogramme::Draw (store->massingProgramme, store->massingProgrammeSaved, store->massingProgrammeTexts);
+        hudprogramme::Draw (store->massingProgramme, store->massingProgrammeSaved, store->massingProgrammeTables);
     if (programme.changed) {
         ++store->revision;
         changes.push_back ({ "massingProgramme", {}, "Massing", "programme", -1, 1, {}, true });
@@ -246,8 +265,8 @@ void Engine::Impl::MassingPage ()
         store->massingProgrammeSave = store->massingProgramme;
         changes.push_back ({ "massingProgrammeSave", {}, "Massing", "programme", -1, 1, {}, true });
     }
-    if (!store->massingProgrammeTexts.empty ())
-        changes.push_back ({ "massingProgrammeText", {}, "Massing", "set", -1, 0, {}, true });
+    if (!store->massingProgrammeTables.empty ())
+        changes.push_back ({ "massingProgrammeTable", {}, "Massing", "edit table", -1, 0, {}, true });
     const bool dimensions = store->massingRules.offsetDimensions;
     const auto parcels = own.massing.parcels.empty () && !own.massing.rules.guid.empty ()
                              ? std::vector<massingrules::Page> { own.massing.rules }

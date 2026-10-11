@@ -329,6 +329,9 @@ std::vector<hudmassingrules::NumberEdit> TakeMassingNumbers (State& state);
 bool AnswerMassingNumber (State& state, const hudmassingrules::NumberEdit& edit, double number);
 // Define Programme's typed rows, asked by the owner in a native prompt and answered here.
 std::vector<hudprogramme::TextEdit> TakeProgrammeTexts (State& state);
+std::vector<hudprogramme::TableEdit> TakeProgrammeTables (State& state);
+bool AnswerProgrammeTable (State& state, const hudprogramme::TableEdit& edit, const floorprogramme::Programme& answer,
+                           std::string& error);
 bool AnswerProgrammeText (State& state, const hudprogramme::TextEdit& edit, const std::string& answer,
                           std::string& error);
 // A Define Programme edit to store in the project, once (massingmodel::RequestProgramme).

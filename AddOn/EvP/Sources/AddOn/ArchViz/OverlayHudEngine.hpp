@@ -115,6 +115,7 @@ struct State {
     // coefficients. Typed rows wait for the owner's native prompt.
     floorprogramme::Programme massingProgramme = floorprogramme::Default ();
     std::vector<hudprogramme::TextEdit> massingProgrammeTexts;
+    std::vector<hudprogramme::TableEdit> massingProgrammeTables;
     // The programme last read from the project (the default when none is stored), and one not
     // yet taken by the owner to store (TakeProgrammeSave). Edits differ from the saved one
     // until the owner's next pages carry it back.

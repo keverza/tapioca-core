@@ -26,6 +26,7 @@
 #include "ArchViz/TextPrompt.hpp"
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/HudFloorPlanFiles.hpp"
+#include "Palette/ProgrammeDialog.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -149,6 +150,22 @@ void FollowHudState ()
                              edit.text, answer) &&
             !overlayhud::AnswerProgrammeText (*state, edit, answer, error))
             hudconsole::Warning ("Programme", error);
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
+    for (const auto& edit : overlayhud::TakeProgrammeTables (*state)) {
+        const auto epoch = massingmodel::ProjectEpoch ();
+        const auto saved = massingmodel::Read ();
+        floorprogramme::Programme answer;
+        if (evp::programmeui::Ask (edit, answer)) {
+            const auto current = massingmodel::Read ();
+            std::string error;
+            if (epoch != massingmodel::ProjectEpoch () || state != guesttext::HudState () || !current.known ||
+                !(saved.programme == current.programme))
+                hudconsole::Warning ("Programme", "The project or saved programme changed; table not applied.");
+            else if (!overlayhud::AnswerProgrammeTable (*state, edit, answer, error))
+                hudconsole::Warning ("Programme", error);
+        }
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
     }

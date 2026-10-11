@@ -208,6 +208,7 @@ constexpr short GraphEditorHtmlResId = 32571; // 'DATA', generated GraphUI/dist/
 // (ArchViz/TextPrompt.hpp). Item order is the .grc's; OK and Cancel are 1 and 2.
 constexpr short TextPromptResId = 32580;
 constexpr short MassingBakeResId = 32590;
+constexpr short ProgrammeDialogResId = 32591;
 constexpr short TextPromptOkButtonId = 1;
 constexpr short TextPromptCancelButtonId = 2;
 constexpr short TextPromptLabelId = 3;
