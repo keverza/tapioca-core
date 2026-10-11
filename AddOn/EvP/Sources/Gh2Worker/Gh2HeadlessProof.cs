@@ -236,6 +236,8 @@ internal static class Gh2HeadlessProof
                 ((double[])grouped.GetType().GetProperty("RidgeCoords")!.GetValue(grouped)!).Length != 15)
                 throw new InvalidOperationException("Multiple ridge polylines lost their native line boundaries.");
             var pluginAssembly = meshAction.GetType().Assembly;
+            Component[] overlays = Gh2OverlayChecks.AddComponents(document);
+            Gh2OverlayChecks.Geometry(pluginAssembly);
             var ring = Activator.CreateInstance(pluginAssembly.GetType("TapiocaGH2.AcContourRing")!,
                 "outer", true, new double[] { 0, 0, 2, 0, 2, 2, 0, 2 }, new double[] { 0, 0, 0, 0 })!;
             var curve = (Rhino.Geometry.Curve)pluginAssembly.GetType("TapiocaGH2.ArchicadGetContours")!
@@ -303,6 +305,10 @@ internal static class Gh2HeadlessProof
                 .GetAwaiter().GetResult();
             if (solution.Phase != SolutionPhase.Completed)
                 throw new InvalidOperationException($"GH2 status solution ended in {solution.Phase}.");
+            foreach (Component overlay in overlays)
+                if (overlay.State.Data.Messages.WarningCount == 0 ||
+                    overlay.GetType().BaseType!.GetField("prepared", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(overlay) is not null)
+                    throw new InvalidOperationException("A disconnected overlay solve prepared a publishable action.");
             foreach (var (picker, expected) in presetChecks)
                 if (picker.State.Data.Tree()?.AllItems.SingleOrDefault()?.ToString() != expected)
                     throw new InvalidOperationException($"GH2 Preset Picker did not emit the selected input value {expected}.");
@@ -411,6 +417,7 @@ internal static class Gh2HeadlessProof
             standalone.PersistentDataWeak = Grasshopper2.Data.Garden.ITreeFromIPears([typedPear]);
             if (!document.Objects.Add((IDocumentObject)standalone))
                 throw new InvalidOperationException("GH2 could not add a persistent Archicad reference parameter.");
+            Gh2OverlayActionChecks.Run(document, overlays);
             Guid[] before = choiceComponents.Select(ExposureId).ToArray();
             document.Objects.ChangeAllIds();
             Guid[] reminted = choiceComponents.Select(ExposureId).ToArray();
@@ -428,6 +435,7 @@ internal static class Gh2HeadlessProof
                     throw new InvalidOperationException("GH2 could not reopen a selector definition.");
                 try
                 {
+                    Gh2OverlayChecks.Reopened(io.Document, overlays);
                     Guid[] restored = io.Document.Objects.ActiveObjects.OfType<Component>()
                         .Where(component => selectors.Contains(component.GetType().GetCustomAttributes(false)
                             .OfType<GrasshopperIO.IoIdAttribute>().FirstOrDefault()?.Id ?? Guid.Empty))

@@ -204,6 +204,19 @@ internal sealed class Gh2PipeClient : IDisposable
     internal Task<string> ReadProjectInfoAsync() => ReadProjectAsync("Tapioca.GetGhConnectionInfo", "{}");
     internal Task<string> ReadStoriesAsync() => ReadProjectAsync("Tapioca.GetStories", "{}");
     internal Task<string> ReadSelectionAsync() => ReadProjectAsync("Tapioca.GetSelection", "{}");
+    internal Task<string> EnableOverlayAsync(bool plan) =>
+        ReadProjectAsync(plan ? "Tapioca.Overlay2D" : "Tapioca.Overlay3D", "{\"action\":\"on\"}");
+    internal Task<string> SetOverlayAsync(string parameters)
+    {
+        if (Encoding.UTF8.GetByteCount(parameters) > Gh2OverlayPayload.MaxBytes)
+            throw new ArgumentException("Overlay exceeds the transfer budget.", nameof(parameters));
+        return ReadProjectAsync("Tapioca.SetOverlayLayer", parameters);
+    }
+    internal Task<string> ClearOverlayAsync(uint generation, Guid producer) =>
+        ReadProjectAsync("Tapioca.ClearOverlayLayer", JsonSerializer.Serialize(new
+        {
+            layer = Gh2OverlayPayload.Layer(generation, producer)
+        }));
     internal Task<string> ReadElementHeadersAsync(IReadOnlyList<Guid> ids)
     {
         if (ids.Count > 64 || ids.Any(id => id == Guid.Empty))

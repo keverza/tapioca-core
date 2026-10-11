@@ -14,7 +14,7 @@
 
   <PropertyGroup>
     <!-- Rhino and GH2 use the same assembly GUID for this .rhp. -->
-    <Version>0.8.0</Version>
+    <Version>0.9.0</Version>
     <Title>Tapioca GH2</Title>
     <Company>Tapioca</Company>
     <Description>Tapioca components for Grasshopper 2.</Description>
@@ -29,6 +29,7 @@
     <Compile Include="..\Gh2Worker\Gh2Wire.cs" Link="Bridge\Gh2Wire.cs" />
     <Compile Include="..\Gh2Worker\Gh2PipeClient.cs" Link="Bridge\Gh2PipeClient.cs" />
     <Compile Include="..\Gh2Worker\Gh2Ping.cs" Link="Bridge\Gh2Ping.cs" />
+    <Compile Include="..\Gh2Worker\Gh2OverlayPayload.cs" Link="Bridge\Gh2OverlayPayload.cs" />
   </ItemGroup>
 
   <ItemGroup>

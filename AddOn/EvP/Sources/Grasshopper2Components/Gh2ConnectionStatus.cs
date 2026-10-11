@@ -44,6 +44,17 @@ internal static class Gh2ConnectionStatus
         return active?.RequestRefresh() ?? false;
     }
 
+    // A display action keeps this exact connection; reconnect must not redirect
+    // prepared geometry or a late Clear into a different Archicad session.
+    internal static Gh2PipeClient? OverlayClient()
+    {
+        lock (Sync) return phase == "Connected" ? client : null;
+    }
+    internal static (Gh2PipeClient? Client, string Endpoint) OverlayConnection()
+    {
+        lock (Sync) return (phase == "Connected" ? client : null, endpoint);
+    }
+
     internal static Task<string> ReadSelectionAsync()
     {
         lock (Sync)

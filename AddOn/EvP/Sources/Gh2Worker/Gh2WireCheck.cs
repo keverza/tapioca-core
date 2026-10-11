@@ -35,6 +35,7 @@ internal static class Gh2WireCheck
         PeerAttachAndDetach();
         PeerRefreshAndDetach();
         SelectionActions();
+        OverlayActions();
         PeerRefusedPing();
         PeerLostConnection();
         ProjectOptionValidation();
@@ -390,7 +391,7 @@ internal static class Gh2WireCheck
             ExpectRead(server, "Tapioca.CreateMesh",
                 "{\"outline\":[0.0,0.0,10.0,0.0,10.0,10.0,0.0,10.0]," +
                 "\"polyZ\":[0.0,0.0,0.0,0.0],\"baseLevel\":0.0," +
-                "\"ridgeCoords\":[5.0,5.0,2.0],\"ridgeCounts\":[1],\"floorInd\":0," +
+                "\"ridgeCoords\":[1.0,1.0,0.0,2.0,2.0,1.0],\"ridgeCounts\":[2],\"floorInd\":0," +
                 "\"skirt\":\"SurfaceOnlyWithoutSkirt\",\"skirtLevel\":0.0," +
                 "\"onFloorPlan\":true,\"layer\":\"\"}",
                 "{\"ok\":true,\"data\":{\"elementId\":{\"guid\":\"" + id + "\"}}}");
@@ -414,10 +415,55 @@ internal static class Gh2WireCheck
             .GetAwaiter().GetResult().Contains("\"more\":false", StringComparison.Ordinal),
             "GH2 did not request the next property discovery page.");
         Require(client.CreateTerrainMeshAsync([0, 0, 10, 0, 10, 10, 0, 10], [0, 0, 0, 0],
-                0, [5, 5, 2], [1], "").GetAwaiter().GetResult().Contains(id.ToString(), StringComparison.OrdinalIgnoreCase),
+                0, [1, 1, 0, 2, 2, 1], [2], "").GetAwaiter().GetResult().Contains(id.ToString(), StringComparison.OrdinalIgnoreCase),
             "The explicit mesh action did not encode real-valued coordinates.");
         reader.GetAwaiter().GetResult();
         host.GetAwaiter().GetResult();
+    }
+
+    private static void OverlayActions()
+    {
+        Guid producer = Guid.NewGuid();
+        string layer = Gh2OverlayPayload.Layer(12, producer);
+        string[] payloads = new[] { true, false }.Select(plan => Gh2OverlayPayload.Encode(12, producer, plan,
+            [new([1, 2, plan ? 0 : 3, 4, 5, plan ? 0 : 6], false, "6495ED80", 2, plan ? "always" : "hide")],
+            [], [])).ToArray();
+        Require(payloads[0].Contains("\"views\":\"2d\"", StringComparison.Ordinal) &&
+            payloads[1].Contains("\"views\":\"3d\"", StringComparison.Ordinal) &&
+            layer != Gh2OverlayPayload.Layer(13, producer), "Overlay lost view/generation identity.");
+        try
+        {
+            Gh2OverlayPayload.Encode(12, producer, false,
+                [new(new double[600000], false, "6495ED80", 2, "hide")], [], []);
+            throw new InvalidOperationException("Overlay accepted an oversized payload.");
+        }
+        catch (ArgumentException) { }
+
+        string name = "Tapioca.Gh2.Overlay." + producer.ToString("N");
+        using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        Task host = Host(server, () =>
+        {
+            server.WaitForConnection(); Receive(server);
+            Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
+            for (int i = 0; i < 2; i++)
+            {
+                ExpectRead(server, i == 0 ? "Tapioca.Overlay2D" : "Tapioca.Overlay3D", "{\"action\":\"on\"}",
+                    "{\"ok\":true,\"data\":{\"running\":true,\"refused\":false}}");
+                ExpectRead(server, "Tapioca.SetOverlayLayer", payloads[i], "{\"ok\":true,\"data\":{\"generation\":\"1\"}}");
+            }
+            ExpectRead(server, "Tapioca.ClearOverlayLayer", "{\"layer\":\"" + layer + "\"}",
+                "{\"ok\":true,\"data\":{\"cleared\":1}}");
+            Send(server, 8, 0, 0, []);
+        });
+        using var client = Gh2PipeClient.Connect(name);
+        Task reader = Task.Run(() => client.WaitForShutdown(false));
+        for (int i = 0; i < 2; i++)
+        {
+            client.EnableOverlayAsync(i == 0).GetAwaiter().GetResult();
+            client.SetOverlayAsync(payloads[i]).GetAwaiter().GetResult();
+        }
+        client.ClearOverlayAsync(12, producer).GetAwaiter().GetResult();
+        reader.GetAwaiter().GetResult(); host.GetAwaiter().GetResult();
     }
 
     private static ((uint type, uint requestId, uint correlationId, int size) header, byte[] body)

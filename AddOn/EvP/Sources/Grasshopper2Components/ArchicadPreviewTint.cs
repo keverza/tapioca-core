@@ -6,13 +6,12 @@ using GhColour = Grasshopper2.Types.Colour.Colour;
 
 namespace TapiocaGH2;
 
-// A GH2 style value, not an Archicad overlay. The viewport renderer still
-// needs its own revision-scoped preview transport before it can consume this.
+// A style value: drawing is an explicit action on either overlay component.
 [IoId("35be9ebe-1510-4fe1-a922-fd6e8e863210")]
 public sealed class ArchicadPreviewTint : Component
 {
     public ArchicadPreviewTint() : base(new Nomen("Preview Tint",
-        "Set a colour and opacity for GH2 preview styling; does not draw in Archicad yet.",
+        "Set a colour and opacity for preview styling or the Floor Plan / 3D Overlay Tint input.",
         "Tapioca", "Display")) { }
     public ArchicadPreviewTint(IReader reader) : base(reader) { }
 
