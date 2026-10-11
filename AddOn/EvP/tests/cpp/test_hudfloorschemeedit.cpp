@@ -82,6 +82,153 @@ TEST (HudFloorSchemeEdit, TwoLineCaptionsFitActualPolygonsNotJustFrontage)
     EXPECT_FALSE (hf::detail::LabelFits (concave, view, { 50, 50 }, { 50, 28 }, 2));
 }
 
+TEST (HudFloorSchemeEdit, SelectedUnitDimensionsMeasureFinalShapeAndPutLengthAtTheFacade)
+{
+    fs::Scheme scheme;
+    scheme.outline = { { { 0, 0 }, { 20, 0 }, { 20, 16 }, { 0, 16 } } };
+    fs::Flat flat;
+    flat.shape = { { 4, 0 }, { 10.4, 0 }, { 10.4, 7.2 }, { 4, 7.2 } };
+    flat.frontage = 5, flat.depth = 6; // The mould changed the shape after division.
+    scheme.flats = { flat };
+    const auto dims = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (dims.has_value ());
+    EXPECT_EQ (hf::detail::DimensionText ((*dims)[0], "L"), "L 6.40 m");
+    EXPECT_EQ (hf::detail::DimensionText ((*dims)[1], "D"), "D 7.20 m");
+    EXPECT_NEAR ((*dims)[0].a.y, 0, 1e-9);
+    EXPECT_NEAR ((*dims)[0].b.y, 0, 1e-9);
+    EXPECT_LT ((*dims)[0].outward.y, 0) << "outside, not towards the corridor";
+    EXPECT_NEAR ((*dims)[1].a.x, 10.4, 1e-9);
+    EXPECT_NEAR ((*dims)[1].b.x, 10.4, 1e-9);
+    EXPECT_GT ((*dims)[1].outward.x, 0);
+    std::reverse (scheme.flats[0].shape.begin (), scheme.flats[0].shape.end ());
+    scheme.flats[0].axis = { -3, 0 };
+    const auto reversed = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (reversed.has_value ());
+    EXPECT_NEAR ((*reversed)[0].a.x, (*dims)[0].a.x, 1e-9);
+    EXPECT_NEAR ((*reversed)[0].b.x, (*dims)[0].b.x, 1e-9);
+    EXPECT_EQ ((*reversed)[0].outward, (*dims)[0].outward);
+}
+
+TEST (HudFloorSchemeEdit, DimensionsFollowRotatedUnitsOnBothFacades)
+{
+    for (double angle : { 0.0, 0.37, 1.57079632679, 2.4 })
+        for (bool upper : { false, true }) {
+            const fs::Vec u { std::cos (angle), std::sin (angle) }, n { -u.y, u.x };
+            const auto world = [&] (fs::Vec p) {
+                return fs::Vec { 100000 + u.x * p.x + n.x * p.y, 600000 + u.y * p.x + n.y * p.y };
+            };
+            fs::Scheme scheme;
+            scheme.outline = { { { 0, 0 }, { 20, 0 }, { 20, 16 }, { 0, 16 } } };
+            fs::Flat flat;
+            const double y0 = upper ? 9 : 0, y1 = upper ? 16 : 7;
+            flat.shape = { { 4, y0 }, { 10, y0 }, { 10, y1 }, { 4, y1 } };
+            flat.axis = u;
+            for (auto& p : scheme.outline[0])
+                p = world (p);
+            for (auto& p : flat.shape)
+                p = world (p);
+            scheme.flats = { flat };
+            const auto dims = hf::detail::FlatDimensions (scheme, 0);
+            ASSERT_TRUE (dims.has_value ()) << angle;
+            const auto& length = (*dims)[0];
+            EXPECT_NEAR (std::hypot (length.b.x - length.a.x, length.b.y - length.a.y), 6, 1e-7);
+            const auto& depth = (*dims)[1];
+            EXPECT_NEAR (std::hypot (depth.b.x - depth.a.x, depth.b.y - depth.a.y), 7, 1e-7);
+            EXPECT_NEAR (length.outward.x * n.x + length.outward.y * n.y, upper ? 1 : -1, 1e-9);
+            EXPECT_NEAR ((length.b.x - length.a.x) * u.y - (length.b.y - length.a.y) * u.x, 0, 1e-7);
+        }
+}
+
+TEST (HudFloorSchemeEdit, EquallyExposedFacadesDoNotFlipWhenRingOrAxisIsReversed)
+{
+    fs::Scheme scheme;
+    fs::Flat flat;
+    flat.shape = { { 0, 0 }, { 6, 0 }, { 6, 7 }, { 0, 7 } };
+    flat.through = true;
+    scheme.outline = { flat.shape };
+    scheme.flats = { flat };
+    const auto before = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (before);
+    std::reverse (scheme.flats[0].shape.begin (), scheme.flats[0].shape.end ());
+    scheme.flats[0].axis = { -1, 0 };
+    const auto after = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (after);
+    for (size_t i = 0; i < 2; ++i) {
+        EXPECT_EQ ((*before)[i].a, (*after)[i].a);
+        EXPECT_EQ ((*before)[i].b, (*after)[i].b);
+        EXPECT_EQ ((*before)[i].outward, (*after)[i].outward);
+    }
+}
+
+TEST (HudFloorSchemeEdit, ASteppedUnitUsesOverallExtentsRatherThanTwiceItsVertexMean)
+{
+    fs::Scheme scheme;
+    scheme.outline = { { { 0, 0 }, { 20, 0 }, { 20, 16 }, { 0, 16 } } };
+    fs::Flat flat;
+    flat.shape = { { 4, 0 }, { 10, 0 }, { 10, 7 }, { 8, 7 }, { 8, 9 }, { 4, 9 } };
+    scheme.flats = { flat };
+    const auto dims = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (dims.has_value ());
+    EXPECT_EQ (hf::detail::DimensionText ((*dims)[0], "L"), "L 6.00 m");
+    EXPECT_EQ (hf::detail::DimensionText ((*dims)[1], "D"), "D 9.00 m");
+    EXPECT_LT ((*dims)[0].outward.y, 0);
+}
+
+TEST (HudFloorSchemeEdit, CourtyardFacadesPointIntoTheHoleNotIntoTheBuilding)
+{
+    fs::Scheme scheme;
+    scheme.outline = { { { 0, 0 }, { 20, 0 }, { 20, 20 }, { 0, 20 } }, { { 6, 6 }, { 6, 14 }, { 14, 14 }, { 14, 6 } } };
+    fs::Flat flat;
+    flat.shape = { { 7, 2 }, { 13, 2 }, { 13, 6 }, { 7, 6 } };
+    scheme.flats = { flat };
+    const auto dims = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (dims.has_value ());
+    EXPECT_NEAR ((*dims)[0].a.y, 6, 1e-9);
+    EXPECT_GT ((*dims)[0].outward.y, 0);
+    EXPECT_FALSE (hf::detail::Inside (scheme.outline, { 10, 6.1 }));
+}
+
+TEST (HudFloorSchemeEdit, ABlindPartyWallDoesNotWinOverTheUnitsOtherFacade)
+{
+    fs::Scheme scheme;
+    scheme.outline = { { { 0, 0 }, { 20, 0 }, { 20, 16 }, { 0, 16 } } };
+    scheme.party = { { fs::Vec { 4, 0 }, fs::Vec { 10, 0 } } };
+    fs::Flat flat;
+    flat.shape = { { 4, 0 }, { 10, 0 }, { 10, 16 }, { 4, 16 } };
+    scheme.flats = { flat };
+    const auto dims = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (dims.has_value ());
+    EXPECT_NEAR ((*dims)[0].a.y, 16, 1e-9);
+    EXPECT_GT ((*dims)[0].outward.y, 0);
+}
+
+TEST (HudFloorSchemeEdit, AnEndCapWithOnlyAGableFacadeDimensionsAlongThatFacade)
+{
+    fs::Scheme scheme;
+    scheme.outline = { { { 0, 0 }, { 20, 0 }, { 20, 16 }, { 0, 16 } } };
+    fs::Flat flat;
+    flat.shape = { { 0, 2 }, { 5, 2 }, { 5, 14 }, { 0, 14 } };
+    flat.cap = true;
+    scheme.flats = { flat };
+    const auto dims = hf::detail::FlatDimensions (scheme, 0);
+    ASSERT_TRUE (dims.has_value ());
+    EXPECT_EQ (hf::detail::DimensionText ((*dims)[0], "L"), "L 12.00 m");
+    EXPECT_EQ (hf::detail::DimensionText ((*dims)[1], "D"), "D 5.00 m");
+    EXPECT_NEAR ((*dims)[0].a.x, 0, 1e-9);
+    EXPECT_LT ((*dims)[0].outward.x, 0);
+}
+
+TEST (HudFloorSchemeEdit, InvalidOrEmptyUnitSelectionsHaveNoDimensions)
+{
+    fs::Scheme scheme;
+    EXPECT_FALSE (hf::detail::FlatDimensions (scheme, -1));
+    EXPECT_FALSE (hf::detail::FlatDimensions (scheme, 0));
+    scheme.flats.emplace_back ();
+    EXPECT_FALSE (hf::detail::FlatDimensions (scheme, 0));
+    scheme.flats[0].shape = { { 0, 0 }, { 1, 0 }, { 2, 0 } };
+    EXPECT_FALSE (hf::detail::FlatDimensions (scheme, 0));
+}
+
 TEST (HudFloorSchemeEdit, FlatsOfTheSameRoomCountUseTheirOwnProgrammeColours)
 {
     auto programme = fp::Default ();
@@ -476,4 +623,78 @@ TEST (HudFloorSchemeEdit, OnTheLocked3DViewAFlatPickedTurnsThePlanViewToItsFloor
     const auto selected = hf::Selected (editors["A"]);
     ASSERT_TRUE (selected.has_value ());
     EXPECT_EQ (selected->story, 1);
+}
+
+TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvasesAtEveryAngle)
+{
+    OnViewFrame frame;
+    bp::Planner planner;
+    const std::map<std::string, bp::Plan> plans;
+    std::map<std::string, bp::Draft> drafts;
+    const auto programme = fp::Default ();
+    const fs::Options options;
+    hf::Context c { planner, plans, drafts, programme, options };
+    const ImU32 dimensionColour = IM_COL32 (255, 219, 112, 255);
+    for (float panelWidth : { 240.0f, 600.0f })
+        for (float scale : { 1.0f, 1.5f })
+            for (double length : { 20.0, 1000.0 })
+                for (double angle : { 0.0, 0.65, 1.57079632679, 2.4 }) {
+                    hf::Editor editor;
+                    const fs::Vec u { std::cos (angle), std::sin (angle) };
+                    const auto world = [&] (fs::Vec p) {
+                        return fs::Vec { u.x * p.x - u.y * p.y, u.y * p.x + u.x * p.y };
+                    };
+                    editor.input.owned = { { { 0, 0 }, { length, 0 }, { length, 16 }, { 0, 16 } } };
+                    fs::Flat flat;
+                    flat.shape = { { 0, 0 }, { 6, 0 }, { 6, 7 }, { 0, 7 } };
+                    flat.axis = u;
+                    for (auto& p : editor.input.owned[0])
+                        p = world (p);
+                    for (auto& p : flat.shape)
+                        p = world (p);
+                    editor.scheme.outline = editor.input.owned;
+                    editor.scheme.flats = { flat };
+                    editor.fills = hf::detail::Fills (editor.scheme, programme);
+                    const auto canvas = [&] (hf::Target selected, bool expected) {
+                        editor.selected = selected;
+                        frame ({ 5, 5 }, false, false, [&] (bool) {
+                            ImGui::SetWindowSize ({ panelWidth, 1200 });
+                            hf::detail::Canvas (editor, c, scale);
+                            const auto lo = ImGui::GetItemRectMin (), hi = ImGui::GetItemRectMax ();
+                            const auto bounds = Bounds (dimensionColour);
+                            if (!expected) {
+                                EXPECT_LT (bounds.z, bounds.x);
+                                return;
+                            }
+                            ASSERT_GT (bounds.z, bounds.x)
+                                << panelWidth << "/" << scale << "/" << length << "/" << angle;
+                            EXPECT_GE (bounds.x, lo.x);
+                            EXPECT_GE (bounds.y, lo.y);
+                            EXPECT_LE (bounds.z, hi.x);
+                            EXPECT_LE (bounds.w, hi.y);
+                            int glyphVertices = 0;
+                            std::vector<ImVec2> glyphUvs;
+                            for (char letter : std::string ("LD67.0m")) {
+                                const auto* glyph = ImGui::GetFontBaked ()->FindGlyph (ImWchar (letter));
+                                ASSERT_NE (glyph, nullptr);
+                                for (float x : { glyph->U0, glyph->U1 })
+                                    for (float y : { glyph->V0, glyph->V1 })
+                                        glyphUvs.push_back ({ x, y });
+                            }
+                            for (const auto& vertex : ImGui::GetWindowDrawList ()->VtxBuffer)
+                                if (vertex.col == dimensionColour &&
+                                    std::any_of (glyphUvs.begin (), glyphUvs.end (), [&] (ImVec2 uv) {
+                                        return uv.x == vertex.uv.x && uv.y == vertex.uv.y;
+                                    }))
+                                    ++glyphVertices;
+                            EXPECT_EQ (glyphVertices, 48) << "all glyphs in L 6.00 m and D 7.00 m survive rotation";
+                        });
+                    };
+                    canvas ({}, false);
+                    canvas ({ hf::Kind::Flat, 0, {}, {} }, true);
+                    canvas ({ hf::Kind::Stair, 0, {}, {} }, false);
+                    canvas ({ hf::Kind::Flat, 1, {}, {} }, false);
+                }
+    EXPECT_EQ (planner.Revision (), 0u) << "selection dimensions do not queue a planning job";
+    EXPECT_TRUE (drafts.empty ()) << "selection dimensions do not dirty the design";
 }

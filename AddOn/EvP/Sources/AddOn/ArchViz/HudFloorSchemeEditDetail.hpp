@@ -42,6 +42,9 @@ struct Fill {
 struct Arrow {
     fs::Vec at, dir; // world: where it sits and where it points
 };
+struct AlignedDimension {
+    fs::Vec a, b, outward; // measured world endpoints; screen-sized offset towards outward
+};
 struct Editor {
     std::string key;
     int story = INT_MIN;
@@ -117,6 +120,9 @@ void Palette (const floorprogramme::Programme& programme, float scale);
 // Two centred lines, bounded by the actual flat polygon rather than its frontage.
 std::pair<std::string, std::string> FlatLabel (const fs::Flat& flat);
 bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 size, float padding);
+// Actual polygon extents along the facade and across it, not the generator's nominal sizes.
+std::optional<std::array<AlignedDimension, 2>> FlatDimensions (const fs::Scheme& scheme, int flat);
+std::string DimensionText (const AlignedDimension& dimension, const char* name);
 void Canvas (Editor& e, Context& c, float scale);
 // HudFloorSchemeEdit.cpp: the shown floor's design becomes `next` (one undo step); a party wall
 // pushed `distance` out of the building, or pulled in.

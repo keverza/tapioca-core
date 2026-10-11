@@ -327,9 +327,10 @@ View Fit (const std::vector<fs::Ring>& rings, ImVec2 origin, float width, float 
             x0 = (std::min) (x0, p.x), y0 = (std::min) (y0, p.y), x1 = (std::max) (x1, p.x), y1 = (std::max) (y1, p.y);
     if (x0 > x1)
         x0 = y0 = 0, x1 = y1 = 10;
-    const double margin = 1.5, pad = 8.0 * scale;
+    // Outside dimensions need screen space even when a large floor makes 1.5 m only a few pixels.
+    const double margin = 1.5, pad = 36.0 * scale + ImGui::GetTextLineHeight ();
     const double dx = x1 - x0 + 2 * margin, dy = y1 - y0 + 2 * margin;
-    double k = (std::max) (0.5, (width - 2 * pad) / dx);
+    double k = (std::max) (1e-6, (width - 2 * pad) / dx);
     const double tallest = 560.0 * scale, least = 140.0 * scale;
     if (dy * k + 2 * pad > tallest)
         k = (tallest - 2 * pad) / dy;
@@ -398,6 +399,138 @@ bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 s
     }
     // A frontage-only check lets a horizontal caption cross a rotated or concave flat.
     return cp::Difference ({ box }, { Path (shape) }, cp::FillRule::EvenOdd, 6).empty ();
+}
+
+// Shared length of two collinear boundary segments, with tolerance for the mould's rounding.
+double SharedEdge (fs::Vec a, fs::Vec b, fs::Vec c, fs::Vec d)
+{
+    const fs::Vec u = Unit ({ b.x - a.x, b.y - a.y }), n { -u.y, u.x };
+    const fs::Vec ac { c.x - a.x, c.y - a.y }, ad { d.x - a.x, d.y - a.y };
+    if (std::abs (Dot (ac, n)) > 0.01 || std::abs (Dot (ad, n)) > 0.01)
+        return 0;
+    const double lo = (std::min) (Dot (ac, u), Dot (ad, u)), hi = (std::max) (Dot (ac, u), Dot (ad, u));
+    return (std::max) (0.0, (std::min) (std::hypot (b.x - a.x, b.y - a.y), hi) - (std::max) (0.0, lo));
+}
+
+std::optional<std::array<AlignedDimension, 2>> FlatDimensions (const fs::Scheme& scheme, int flat)
+{
+    if (flat < 0 || flat >= int (scheme.flats.size ()))
+        return std::nullopt;
+    const auto& f = scheme.flats[flat];
+    if (f.shape.size () < 3 || std::abs (fs::Area (f.shape)) < 1e-8)
+        return std::nullopt;
+    fs::Vec u = Unit (f.axis);
+    if (u.x < -1e-9 || (std::abs (u.x) <= 1e-9 && u.y < 0))
+        u = { -u.x, -u.y };
+    const fs::Vec bandNormal { -u.y, u.x };
+    fs::Vec facade = bandNormal, edge = u;
+    double best = 0;
+    bool alongBand = false;
+    // Prefer an exposed edge along the band over a corner's gable. A courtyard is outside too;
+    // a wall against another building is not a facade. Ring winding must not change the result.
+    const double winding = fs::Area (f.shape) > 0 ? 1.0 : -1.0;
+    for (size_t i = 0; i < f.shape.size (); ++i) {
+        const fs::Vec a = f.shape[i], b = f.shape[(i + 1) % f.shape.size ()];
+        const fs::Vec dir = Unit ({ b.x - a.x, b.y - a.y });
+        double shared = 0, blind = 0;
+        for (const auto& ring : scheme.outline)
+            for (size_t j = 0; j < ring.size (); ++j)
+                shared += SharedEdge (a, b, ring[j], ring[(j + 1) % ring.size ()]);
+        for (const auto& wall : scheme.party)
+            blind += SharedEdge (a, b, wall[0], wall[1]);
+        const double exposed = (std::max) (0.0, shared - blind);
+        const double alignment = std::abs (Dot (dir, u)), score = exposed * (0.1 + alignment);
+        const bool aligned = alignment >= 0.5;
+        const fs::Vec outside { winding * dir.y, -winding * dir.x };
+        const bool better = score > best + 1e-6 ||
+                            (std::abs (score - best) <= 1e-6 && Dot (outside, bandNormal) > Dot (facade, bandNormal));
+        if (exposed > 1e-6 && ((aligned && !alongBand) || (aligned == alongBand && better))) {
+            best = score;
+            alongBand = aligned;
+            edge = dir;
+            facade = outside;
+        }
+    }
+    // End caps can have their only facade across the original band.
+    if (best > 0 && std::abs (Dot (edge, u)) < 0.5)
+        u = edge;
+    if (u.x < -1e-9 || (std::abs (u.x) <= 1e-9 && u.y < 0))
+        u = { -u.x, -u.y };
+    const fs::Vec n { -u.y, u.x }, origin = f.shape.front ();
+    double u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+    for (const auto& p : f.shape) {
+        const fs::Vec q { p.x - origin.x, p.y - origin.y };
+        u0 = (std::min) (u0, Dot (q, u)), u1 = (std::max) (u1, Dot (q, u));
+        v0 = (std::min) (v0, Dot (q, n)), v1 = (std::max) (v1, Dot (q, n));
+    }
+    if (u1 - u0 < 1e-6 || v1 - v0 < 1e-6)
+        return std::nullopt;
+    const auto world = [&] (double along, double across) {
+        return fs::Vec { origin.x + u.x * along + n.x * across, origin.y + u.y * along + n.y * across };
+    };
+    const double sign = Dot (facade, n) >= 0 ? 1.0 : -1.0, side = sign > 0 ? v1 : v0;
+    return std::array<AlignedDimension, 2> { AlignedDimension {
+                                                 world (u0, side), world (u1, side), { sign * n.x, sign * n.y } },
+                                             AlignedDimension { world (u1, v0), world (u1, v1), u } };
+}
+
+std::string DimensionText (const AlignedDimension& dimension, const char* name)
+{
+    char text[64];
+    std::snprintf (text, sizeof (text), "%s %.2f m", name,
+                   std::hypot (dimension.b.x - dimension.a.x, dimension.b.y - dimension.a.y));
+    return text;
+}
+
+void Dimension (ImDrawList* draw, const View& view, const AlignedDimension& dimension, const char* name, float scale)
+{
+    const ImVec2 a = view.P (dimension.a), b = view.P (dimension.b);
+    const float span = std::hypot (b.x - a.x, b.y - a.y);
+    if (span < 1e-3f)
+        return;
+    const ImVec2 d { (b.x - a.x) / span, (b.y - a.y) / span };
+    ImVec2 n { -d.y, d.x };
+    const ImVec2 outside = view.P ({ dimension.a.x + dimension.outward.x, dimension.a.y + dimension.outward.y });
+    if ((outside.x - a.x) * n.x + (outside.y - a.y) * n.y < 0)
+        n = { -n.x, -n.y };
+    const auto shift = [&] (ImVec2 p, float offset) { return ImVec2 { p.x + n.x * offset, p.y + n.y * offset }; };
+    const ImVec2 x = shift (a, 18 * scale), y = shift (b, 18 * scale);
+    const ImU32 colour = IM_COL32 (255, 219, 112, 255), halo = IM_COL32 (26, 30, 32, 235);
+    const auto line = [&] (ImVec2 from, ImVec2 to) {
+        draw->AddLine (from, to, halo, 3 * scale);
+        draw->AddLine (from, to, colour, scale);
+    };
+    line (shift (a, 3 * scale), shift (a, 23 * scale));
+    line (shift (b, 3 * scale), shift (b, 23 * scale));
+    line (x, y);
+    for (const ImVec2 p : { x, y }) {
+        const ImVec2 tick { (d.x + n.x) * 3 * scale, (d.y + n.y) * 3 * scale };
+        line ({ p.x - tick.x, p.y - tick.y }, { p.x + tick.x, p.y + tick.y });
+    }
+    const auto text = DimensionText (dimension, name);
+    const ImVec2 size = ImGui::CalcTextSize (text.c_str ());
+    const ImVec2 middle = shift ({ (x.x + y.x) / 2, (x.y + y.y) / 2 }, size.y / 2 + 4 * scale);
+    // ImGui lays out horizontal glyphs. Rotate just these vertices, keeping text upright on
+    // either facade and at every building angle; no font, input or overlay-renderer changes.
+    const float sign = d.x < -1e-6f || (std::abs (d.x) <= 1e-6f && d.y > 0) ? -1.0f : 1.0f;
+    const ImVec2 along { sign * d.x, sign * d.y }, across { -along.y, along.x };
+    const auto rotate = [&] (float px, float py) {
+        return ImVec2 { middle.x + along.x * px + across.x * py, middle.y + along.y * px + across.y * py };
+    };
+    const float halfWidth = size.x / 2 + 3 * scale, halfHeight = size.y / 2 + 2 * scale;
+    const ImVec2 box[] = { rotate (-halfWidth, -halfHeight), rotate (halfWidth, -halfHeight),
+                           rotate (halfWidth, halfHeight), rotate (-halfWidth, halfHeight) };
+    draw->AddConvexPolyFilled (box, 4, halo);
+    const int first = draw->VtxBuffer.Size;
+    // Lay out at the clip centre: clipping a horizontal source caption at its final anchor
+    // would discard glyphs that fit after rotation (especially a vertical facade at an edge).
+    const ImVec2 clipLo = draw->GetClipRectMin (), clipHi = draw->GetClipRectMax ();
+    const ImVec2 source { (clipLo.x + clipHi.x) / 2, (clipLo.y + clipHi.y) / 2 };
+    draw->AddText ({ source.x - size.x / 2, source.y - size.y / 2 }, colour, text.c_str ());
+    for (int i = first; i < draw->VtxBuffer.Size; ++i) {
+        auto& p = draw->VtxBuffer[i].pos;
+        p = rotate (p.x - source.x, p.y - source.y);
+    }
 }
 
 Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
@@ -683,6 +816,12 @@ void Canvas (Editor& e, Context& c, float scale)
         if (d.level == fs::Diagnostic::Error)
             draw->AddCircleFilled (v.P (d.at), 4 * scale, kRed);
     Marks (e, c, v, draw, scale, at);
+    const Target selected = shown == &s ? e.selected : Again (*shown, e.selected, e.selectedAt);
+    if (selected.kind == Kind::Flat)
+        if (const auto dimensions = FlatDimensions (*shown, selected.index)) {
+            Dimension (draw, v, (*dimensions)[0], "L", scale);
+            Dimension (draw, v, (*dimensions)[1], "D", scale);
+        }
     // The palette over the plan: the new flat's wall in red across its band, the flat it makes.
     if (insertion) {
         std::vector<ImVec2> points;
