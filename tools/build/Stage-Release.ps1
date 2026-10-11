@@ -57,7 +57,7 @@ Copy-Item -LiteralPath (Join-Path $build "PyPackage") -Destination $stage -Recur
 # Ship only public starter commands; never use the developer's local sync overlay.
 Copy-Item -LiteralPath (Join-Path $repo 'Examples') -Destination (Join-Path $stage 'Commands') -Recurse -Force
 
-$optionalDirectories = @("GhWorker", "Gh2Worker", "DynamoRunner", "DynamoPackage")
+$optionalDirectories = @("GhWorker", "Gh2Worker")
 foreach ($name in $optionalDirectories) {
     $source = Join-Path $build $name
     if (Test-Path -LiteralPath $source -PathType Container) {
@@ -65,14 +65,6 @@ foreach ($name in $optionalDirectories) {
     } else {
         Write-Warning "Optional release directory was not built: $source"
     }
-}
-
-# Package metadata is source, not a compiler product. Taking it directly avoids
-# carrying an old manifest when this script stages an otherwise-current build.
-$dynamoSource = Join-Path $repo "AddOn\EvP\Sources\TapiocaDynamo\pkg.json"
-$dynamoManifest = Join-Path $stage "DynamoPackage\Tapioca\pkg.json"
-if (Test-Path -LiteralPath (Split-Path -Parent $dynamoManifest) -PathType Container) {
-    Copy-Item -LiteralPath $dynamoSource -Destination $dynamoManifest -Force
 }
 
 # Debug symbols and Python caches are build products, not release payloads.

@@ -52,7 +52,7 @@ ambiguous-ray checks, or silently changing manual CPU/GPU or Early/Late choices.
   64-bit word boundaries, custom-bound refusal, actual ImGui hover controls and
   fixed reading space, and real D3D readback of overlay alpha/blue blending.
 - 51 focused Python tests pass. Full add-on pytest: 576 passed, 6 skipped, the
-  same three previously confirmed baseline failures (scene-text seam, Dynamo
+  same three previously confirmed baseline failures (scene-text seam, retired-runtime
   packaging, preview routing). Updated Python tests pass lint/format checks.
 - 35 HLSL stages compile; C++ architecture and touched-file style checks pass.
 - Final native `RelWithDebInfo` `EvPAddOn` build succeeds. Artifact:
@@ -127,7 +127,7 @@ hover accuracy, the morning/evening visual distinction and dense-model coverage.
   of the exact blue cutoff, interval shadow fractions and morning/evening colours.
 - 62 focused Python tests pass. Add-on pytest: 575 passed, 6 skipped, 3 failed. All
   three failures reproduce unchanged at pre-task `5e9592b`: the relocated scene-
-  text live-check seam, Dynamo template packaging and preview input routing.
+  text live-check seam, retired-runtime template packaging and preview input routing.
 - 35 embedded HLSL stages compile. Native `RelWithDebInfo` add-on build passes.
 - Command roots scan successfully; CPU/compact and GPU/fresh/detailed smoke dry
   runs each complete twice, and UIShowcase Temporal executes without native calls.

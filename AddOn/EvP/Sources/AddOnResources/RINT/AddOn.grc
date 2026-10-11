@@ -110,11 +110,6 @@
 /* [  1] */	"Stop rhino.compute^E3^ES^EE^EI^ED^EW^EL"
 }
 
-'STR#' 32508 "Menu strings - Dynamo" {
-/* [   ] */	"Tapioca"
-/* [  1] */	"Dynamo^E3^ES^EE^EI^ED^EW^EL"
-}
-
 /* "Definition", not "Script" or "File": .gh/.ghx are definitions in every piece
    of Grasshopper's own vocabulary, and a user who has just come from the canvas
    should not have to translate. */

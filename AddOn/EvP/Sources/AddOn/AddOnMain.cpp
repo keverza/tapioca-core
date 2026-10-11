@@ -34,7 +34,6 @@
 #include "Palette/WebUIPalette.hpp"
 #include "Grasshopper/GhWorkerHost.hpp"         // the supervised Grasshopper worker process
 #include "RhinoCompute/RhinoComputeManager.hpp" // the supervised rhino.compute worker process
-#include "Dynamo/DynamoHost.hpp"                // Dynamo 4 editor in its own .NET 10 process
 #include "AddOnCommands.hpp"
 #include "ArchViz/MassingBake.hpp"
 #include "Server/ServerState.hpp"
@@ -236,7 +235,6 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // and static destruction would join them under the loader lock.
             evp::nodegraph::ShutDownWorkerPool ();
             evp::MainThreadGate::Get ().BeginShutdown ();
-            evp::dynamo::Release ();
             geomsrv::archviz::massinghybrid::Shutdown ();
             geomsrv::archviz::massingbake::Shutdown ();
             geomsrv::archviz::massingslicesmodel::Shutdown ();
@@ -368,13 +366,6 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
                 RecordStartupEvent ("Grasshopper Editor: menu command completed");
             }
             break;
-        case DynamoMenuResId:
-            if (menuParams->menuItemRef.itemIndex == DynamoMenuItemIndex) {
-                RecordStartupEvent ("Dynamo: menu command received");
-                evp::dynamo::OpenFromMenu ();
-                RecordStartupEvent ("Dynamo: menu command completed");
-            }
-            break;
         case AboutMenuResId:
             if (menuParams->menuItemRef.itemIndex == AboutMenuItemIndex) {
                 AboutDialog aboutDialog;
@@ -436,9 +427,6 @@ GSErrCode RegisterInterface (void)
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperRunMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperRunMenuResId, "Run Grasshopper Definition item");
-    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
-                   ACAPI_MenuItem_RegisterMenu (DynamoMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
-                   DynamoMenuResId, "Dynamo item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (ArchVizOverlayMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    ArchVizOverlayMenuResId, "3D overlay item");
@@ -552,9 +540,6 @@ GSErrCode Initialize (void)
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperRunMenuResId, MenuCommandHandler),
                    GrasshopperRunMenuResId, "Run Grasshopper Definition item");
-    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
-                   ACAPI_MenuItem_InstallMenuHandler (DynamoMenuResId, MenuCommandHandler), DynamoMenuResId,
-                   "Dynamo item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (AboutMenuResId, MenuCommandHandler), AboutMenuResId,
                    "About item");
@@ -691,7 +676,6 @@ GSErrCode FreeData (void)
     // Quit path above having done it already is fine.
     evp::nodegraph::ShutDownWorkerPool ();
     evp::MainThreadGate::Get ().BeginShutdown ();
-    evp::dynamo::Release ();
     geomsrv::archviz::massinghybrid::Shutdown ();
     geomsrv::archviz::massingbake::Shutdown ();
     geomsrv::archviz::massingslicesmodel::Shutdown ();

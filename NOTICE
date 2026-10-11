@@ -4,9 +4,8 @@ LICENSE for the complete terms.
 Third-party review (2026-08-30)
 -------------------------------
 The release contains Tapioca's native add-on, Python bridge and package, optional
-Grasshopper worker and components, and optional Dynamo runner and ZeroTouch
-package. It does not contain an Archicad, Rhino, Grasshopper, Dynamo or .NET
-runtime. Those products remain separately installed and licensed.
+Grasshopper worker and components. It does not contain an Archicad, Rhino,
+Grasshopper or .NET runtime. Those products remain separately installed and licensed.
 
 The native add-on incorporates code from Diligent Engine, cpp-httplib,
 MessagePack for C/C++, nanort, GLM, Clipper2 and quickjs-ng. Their source
@@ -34,12 +33,6 @@ Other dependency boundaries are:
   includes Rhino.Inside.dll. RhinoCommon and Grasshopper are compile-time-only
   references and are not copied or redistributed; the assemblies that run come
   from the user's separately installed and licensed Rhino 8.
-- Tapioca.Dynamo and Tapioca.DynamoRunner are compiled against Dynamo Core 4.2.1.
-  The release includes only Tapioca's assemblies, package manifest, customization
-  file and example graph. It does not include Dynamo Core or Autodesk binaries.
-  The user supplies the separately licensed Dynamo runtime, either through
-  TAPIOCA_DYNAMO_DIR or in the documented directory beside the add-on. Dynamo
-  Core is available from the DynamoDS/Dynamo project under Apache-2.0.
 
 Notable upstream components used by the build, each under its own license:
 
@@ -54,7 +47,6 @@ Notable upstream components used by the build, each under its own license:
 - GoogleTest
 - CPython
 - Rhino.Inside, RhinoCommon and Grasshopper (McNeel)
-- Dynamo Core (DynamoDS/Autodesk)
 
 Iconoir
 -------

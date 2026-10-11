@@ -40,7 +40,6 @@ void ControlPalette::Layout ()
 
     // The server's address, on its own line above the row that starts it.
     y += serverBand.PlaceAt (y, Margin, right);
-    y += PlaceDynamoStatus (y, Margin, right);
     y += PlaceWorkflowStatusLine (y, Margin, right); // see ControlPalette.hpp for why it is here and not in the band
 
     // ---- action row: Start/Stop server | Rescan | Run, all one line -----

@@ -102,18 +102,13 @@ GS::UniString ControlPalette::WhatIsMissing () const
     // FIRST INSTRUCTION, before anything command-specific: the two things that have to be true before
     // any command can run, in the order they are done. The server is how external commands reach
     // Archicad at all.
-    // A Grasshopper command is the Dynamo case again: it reaches nothing through the bus, so the bus
-    // cannot be what is missing.
+    // Hosted workflows do not use the bus, so they do not require the server.
     const evp::CommandInfo* const info = SelectedCommand ();
-    if (!IsDynamoCommand (info) && !IsWorkflowCommand (info) && !serverBand.IsRunning ())
+    if (!IsWorkflowCommand (info) && !serverBand.IsRunning ())
         return "Start server, pick command.";
 
     if (info == nullptr)
         return "Pick a command.";
-
-    const GS::UniString runnerWait = DynamoGateMessage (info);
-    if (!runnerWait.IsEmpty ())
-        return runnerWait;
 
     // A required parameter with nothing usable in it.
     const GS::UniString unsetInput = params.WhatIsMissing ();
@@ -219,13 +214,10 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     if (IsWorkflowCommand (info))   // Run IS Solve here, and starting Python for a run() with nothing in it
         return SolveWorkflowNow (); // would be seconds spent on a no-op; see ControlPaletteGrasshopper.cpp
 
-    const bool dynamo = IsDynamoCommand (info);
     GS::UniString error;
-    if (!dynamo) {
-        if (!evp::PythonHost::Get ().EnsureInitialized (error)) {
-            SetCommandStatus ("Python init failed - see logs\\scan.log");
-            return;
-        }
+    if (!evp::PythonHost::Get ().EnsureInitialized (error)) {
+        SetCommandStatus ("Python init failed - see logs\\scan.log");
+        return;
     }
 
     // What the status line calls this. An action says what it is doing, because
@@ -288,15 +280,6 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
                                     info->previewOverridesJson.ToCStr (0, MaxUSize, CC_UTF8).Get ());
         paramsJson = GS::UniString (merged.c_str (), CC_UTF8);
     }
-    // The runner instead of a Python worker — same generation, same gate, same
-    // FinishRun on the way back. See ControlPaletteDynamo.cpp.
-    if (dynamo) {
-        GS::UniString launchError;
-        if (!LaunchDynamoRun (paramsJson, generation, title, launchError))
-            FinishRun (generation, title + ": FAILED - " + launchError + ".");
-        return;
-    }
-
     const evp::CommandLaunchRequest request {
         info->path,          info->folder,       title,      paramsJson, action, menuRegion, info->requiresApi,
         info->requiresTapir, info->requirements, watchArmed, external,   port,   generation

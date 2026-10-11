@@ -110,7 +110,7 @@ Analysis remains the model minus Context/Ignored, with Late filtering glass face
 - **104 focused Python tests passed** across seams, fake-wire behavior, strict
   schemas/catalog generation, preset metadata, scanners and the private smoke
   client. Full core pytest: **646 passed, 6 skipped, 2 pre-existing failures**.
-  The Dynamo template target assertion and preview mouse-routing source assertion
+  The retired-runtime template target assertion and preview mouse-routing source assertion
   both reproduce at the pre-speedup commit `e41ed81`; no unrelated fix is included.
 - C++ architecture/formatting, Python quality/scanners, native schema checks,
   structure and secret checks passed. The stale native catalog count is corrected

@@ -61,10 +61,6 @@ constexpr short GrasshopperMenuItemIndex = 1;
 // second one.
 constexpr short GrasshopperEditorMenuResId = 32507;
 constexpr short GrasshopperEditorMenuItemIndex = 1;
-// Dynamo 4 runs out of process too, in its own editor: its .NET 10 runtime
-// cannot share a process with Grasshopper's .NET 8 one.
-constexpr short DynamoMenuResId = 32508;
-constexpr short DynamoMenuItemIndex = 1;
 // "Run Grasshopper Definition" — solves the definition on the worker's canvas
 // once and reports it (PLAT-GH-PLAYER slice 2). It is the Player's execution
 // half without the Player's input half: typed inputs need the exposed-parameter

@@ -147,9 +147,6 @@ TIER_ASSIGNMENTS = {
     # still needs an explicit assignment because the tier scan covers every folder.
     "ArchViz/task-history": "features",
     "Diagnostics": "features",
-    # Dynamo 4 is an optional external runtime lifecycle. It owns no palette or
-    # document behavior and remains load-safe when the runtime is absent.
-    "Dynamo": "services",
     "Geometry": "services",
     # The Grasshopper worker's supervisor and transport: an external process
     # lifecycle owned on behalf of whatever UI eventually drives it, in the same
@@ -976,14 +973,13 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
     palette = ADDON_SRC / "Palette"
     # The shell is deliberately more than one .cpp: ControlPaletteParams.cpp set
     # that precedent; ControlPaletteLayout.cpp, ControlPaletteRun.cpp and
-    # ControlPaletteDynamo.cpp and ControlPaletteGrasshopper.cpp follow it. These files DEFINE
+    # ControlPaletteGrasshopper.cpp follow it. These files DEFINE
     # ControlPalette methods, so the "never call into the shell" rule below
     # cannot apply to them — they are the shell.
     shell_implementation_files = {
         "ControlPalette.cpp",
         "ControlPalette.hpp",
         "ControlPaletteAutoPreview.cpp",
-        "ControlPaletteDynamo.cpp",
         "ControlPaletteGrasshopper.cpp",
         "ControlPaletteInputEvents.cpp",  # shell's generated-input observer overrides
         "ControlPaletteWorkflowPicker.cpp",  # defines the shell's file-picker method

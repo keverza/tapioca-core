@@ -72,9 +72,6 @@ AddOn/reference/*
 AddOn/EvP/Sources/GhWorker/bin/
 AddOn/EvP/Sources/GhWorker/obj/
 
-# Dynamo ZeroTouch build intermediates; CMake stages the package in build_29/.
-AddOn/EvP/Sources/TapiocaDynamo/bin/
-AddOn/EvP/Sources/TapiocaDynamo/obj/
 /AddOn/EvP/GraphUI/node_modules
 /AddOn/EvP/GraphUI/dist/
 # The Grasshopper component library's build tree. The .gha/.pdb ship from
@@ -82,10 +79,6 @@ AddOn/EvP/Sources/TapiocaDynamo/obj/
 # slashes so the .cs sources beside them stay tracked.
 /AddOn/EvP/Sources/GrasshopperComponents/bin/
 /AddOn/EvP/Sources/GrasshopperComponents/obj/
-# Headless Dynamo runner build intermediates; CMake stages its published output.
-/AddOn/EvP/Sources/DynamoRunner/obj/
-/AddOn/EvP/Sources/DynamoRunner/bin/
-/AddOn/EvP/Sources/TapiocaDynamoNodesUI/obj/Release
 # Rhino 9 / GH2 build outputs are local intermediates. Ignore both Debug and
 # Release bin/ and obj/ trees while keeping the projects' sources trackable.
 /AddOn/EvP/Sources/Gh2Worker/bin/

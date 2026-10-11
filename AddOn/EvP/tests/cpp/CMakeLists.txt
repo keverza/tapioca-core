@@ -139,9 +139,6 @@ set (EVP_GRASSHOPPER_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhUndoBudget.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/HostState.cpp")
 
-set (EVP_DYNAMO_SOURCES
-    "${EVP_ROOT}/Sources/AddOn/Dynamo/ApiPipeProtocol.cpp")
-
 # SunStudy is the renderer-agnostic sun/shadow analysis core. It deliberately
 # includes no Diligent header and calls no ACAPI, which is what lets the Diligent
 # viewport, the WebGL study page and a headless run share one engine -- and what
@@ -854,7 +851,6 @@ set (EVP_TEST_SOURCES
     test_cursortotarget.cpp
     test_camera_cursorray.cpp
     test_camera_plan.cpp
-    test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp
     test_ghworkflowcontroller.cpp
@@ -983,7 +979,6 @@ add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_SCENE_TEXT_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
                                 ${EVP_ANNOTATION_SOURCES} ${EVP_PREVIEW_SOURCES} ${EVP_COMMAND_SOURCES}
                                 ${EVP_GRASSHOPPER_SOURCES}
-                                 ${EVP_DYNAMO_SOURCES}
                                  ${EVP_NODEGRAPH_SOURCES}
                                  ${EVP_SUNSTUDY_SOURCES}
                                  ${EVP_TEST_SOURCES})

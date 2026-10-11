@@ -58,7 +58,7 @@ void ControlPalette::Initialize ()
     runButton.Attach (*this);
     commandList.Attach (*this);
 
-    StartDynamoRunner (); // the owned background DynamoModel, and the line that reports it
+    statusText.Hide (); // reserved resource item [3]; keep later positional IDs stable
     commandsLabel.Hide ();
     // PLAT-F13 retired: the description band's fold header names the command, and a
     // panel printing that name twice read as a bug. Hidden rather than deleted - see
@@ -214,7 +214,6 @@ void ControlPalette::PanelIdle (const DG::PanelIdleEvent&)
     if (itemsDisabled.load ())
         return;
 
-    RefreshDynamoStatus ();
     RefreshWorkflowBand ();
     RefreshRunGate ();
 
@@ -534,13 +533,11 @@ void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)
     // check runs on idle — and a required FilePath may have just been satisfied.
     if (HandleWorkflowButton (ev))
         return;
-    GS::UniString chosenPath;
     bool reflow = false;
-    if (params.HandleButtonClicked (ev, &chosenPath, &reflow)) {
+    if (params.HandleButtonClicked (ev, nullptr, &reflow)) {
         if (reflow)
             ReflowParams ();
         RefreshRunGate ();
-        DynamoGraphChosen (chosenPath); // a .dyn also carries the rows below it; re-gates Run
     }
 }
 

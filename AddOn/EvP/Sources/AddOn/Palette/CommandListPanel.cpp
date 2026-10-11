@@ -6,7 +6,6 @@
 #include "Palette/CommandFilter.hpp"  // F2 search: scoring/ranking, DevKit-free
 #include "DGNativeContexts.hpp"       // UserItemUpdateNativeContext — the arrow cell draws itself
 #include "ControlPalette.hpp"         // the shell — the sole registered DG observer
-#include "Dynamo/DynamoGraphInputs.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -134,7 +133,6 @@ GS::UniString CommandListPanel::Rescan ()
 {
     const ScanOutcome outcome = ScanCommandFolders ();
     commands = outcome.commands;
-    commands.push_back (dynamo::LoaderCommand ());
 
     bool selectionChanged = false;
     ApplyFilter (selectionChanged); // the caller rebuilds the block regardless

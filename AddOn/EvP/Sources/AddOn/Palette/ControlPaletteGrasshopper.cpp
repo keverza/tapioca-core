@@ -1,6 +1,6 @@
-// The palette shell's GRASSHOPPER BAND — a fifth implementation file for the
+// The palette shell's WORKFLOW BAND — a separate implementation file for the
 // same class, on the precedent of ControlPaletteParams.cpp,
-// ControlPaletteLayout.cpp, ControlPaletteRun.cpp and ControlPaletteDynamo.cpp.
+// ControlPaletteLayout.cpp and ControlPaletteRun.cpp.
 //
 // WHY IT IS THE SHELL, and not a sub-object: everything here writes the shell's
 // own items — the band's own status line and its three buttons — and it drives
@@ -10,9 +10,8 @@
 // answer rather than drive already do: Palette/WorkflowRows decides what is
 // drawn and Palette/WorkflowPanel draws it.
 //
-// WHY IT IS ITS OWN FILE: a workflow session is a whole third way to produce
-// something from this palette, beside a Python command and a Dynamo graph, and
-// the three shell files it would otherwise land in each read as one concern.
+// WHY IT IS ITS OWN FILE: a workflow session produces results independently of
+// Python commands. The shell files it would otherwise land in each read as one concern.
 // Their size caps say so in tools/quality/check_cpp.py, and the answer that rule
 // asks for is a new home, not a bigger file.
 //
@@ -335,7 +334,7 @@ short ControlPalette::PlaceWorkflowStatusLine (short top, short left, short righ
 
 bool ControlPalette::IsWorkflowCommand (const evp::CommandInfo* command) const
 {
-    // The same shape as IsDynamoCommand: the catalog carries `runtime` as
+    // The catalog carries `runtime` as
     // free-form text, so it is compared in exactly one place and a null
     // selection answers "no" rather than making every caller ask.
     return command != nullptr && command->runtime == "grasshopper";

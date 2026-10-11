@@ -178,42 +178,13 @@ class ControlPalette final : public DG::Palette,
     GS::UniString WhatIsMissing () const;
     void RefreshRunGate ();
 
-    // ---- the owned Dynamo runner (ControlPaletteDynamo.cpp) ----------------
-    // Everything the palette knows about the background DynamoModel process is
-    // defined in one file, so the shell's event routing, band layout and run
-    // state each keep reading as one concern. These are shell methods, not a
-    // sub-object: they write the shell's status line and replace the shell's
-    // selected command, which a sub-object may not do.
-
-    // Starts the runner and shows its first state. Called once, from Initialize.
-    void StartDynamoRunner ();
-    // The runner's state line, above the action row. Rewritten only when it
-    // changed, so the idle poll does not repaint the panel every tick.
-    short PlaceDynamoStatus (short top, short left, short right);
-    void RefreshDynamoStatus ();
-    // "" when `command` is not a Dynamo command or one could run right now;
-    // otherwise what the runner is still waiting for.
-    GS::UniString DynamoGateMessage (const evp::CommandInfo* command) const;
-    // True when the selected command runs on the runner rather than on Python.
-    // Takes the pointer SelectedCommand returns, nullptr and all.
-    bool IsDynamoCommand (const evp::CommandInfo* command) const;
-    // A generated FilePath row's Browse dialog returned `graphPath` (empty when it
-    // was cancelled). If that row is the Dynamo loader's graph, the file also
-    // carries the schema of every row below it, so the parameter block is rebuilt
-    // from its Dynamo Player metadata. Re-gates Run either way.
-    void DynamoGraphChosen (const GS::UniString& graphPath);
-    // Runs the selected graph on a worker and finishes the run from the gate.
-    // False (with `error` set) when the run could not be started at all.
-    bool LaunchDynamoRun (const GS::UniString& paramsJson, uint64_t generation, const GS::UniString& title,
-                          GS::UniString& error);
-
     // ---- the Grasshopper band (ControlPaletteGrasshopper.cpp) -------------
     // The band's own items. Built at runtime like the Continue button, so they
     // need no .grc entry.
     void CreateWorkflowBand ();
-    // The Grasshopper state, on its own line in the FIXED head beside the other
-    // background runner's. It is the one part of this band that shows with no
-    // worker running, because "not running" is the state a user most needs to
+    // The workflow state, on its own line in the FIXED head. It is the one part
+    // of this band that shows with no worker running, because "not running"
+    // is the state a user most needs to
     // read -- inside the scrolled band it would only ever appear once the thing
     // it reports on already existed.
     short PlaceWorkflowStatusLine (short top, short left, short right);
@@ -493,7 +464,6 @@ class ControlPalette final : public DG::Palette,
     evp::PaletteScroll scroll;
 
     GS::UniString lastGateMessage; // so the status line is not rewritten every idle
-    GS::UniString lastDynamoStatus;
     GS::UniString lastWorkflowStatus;
     // The schema the workflow band was last built from, and the values last sent.
     // Both are COMPARISON keys rather than state: rebuilding on every idle would
