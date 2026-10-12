@@ -461,10 +461,7 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
                 items::Bars (panel, item, width, scale);
                 break;
             case layers::ItemKind::Ramp: {
-                double band[2] = {};
-                // A ramp in a panel describes its own layer's heatmaps.
-                if (items::Ramp (panel, item, width, scale, band))
-                    highlight = { true, layer, band[0], band[1] };
+                Ramp (panel, item, i, state, width, scale);
                 break;
             }
             case layers::ItemKind::Plot:

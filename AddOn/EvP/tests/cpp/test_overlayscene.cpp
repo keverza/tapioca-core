@@ -359,6 +359,25 @@ TEST (OverlayScene, TheRampInterpolatesBetweenItsStops)
 // ⚠️ A SEAM IS NOT AN EDGE. A mesh that repeats its vertices per face -- how a brep's
 // faces arrive -- has boundaries everywhere by index; welding by position is what
 // keeps the edges to the cube's twelve.
+TEST (OverlayScene, RampCutoffIsRedBelowTheHandleAndPreservesTheGradientAbove)
+{
+    layers::Colormap map;
+    layers::PresetStops ("clearance", map.stops);
+    map.autoRange = false;
+    map.min = 0;
+    map.max = 4;
+    map.hasCutoff = true;
+    map.cutoff = 2;
+    const auto stops = scene::RampStops (map);
+    EXPECT_LE (stops.size (), layers::kMaxStops);
+    EXPECT_EQ (scene::RampAt (stops, 0.49f), 0xD73027FFu);
+    EXPECT_EQ (scene::RampAt (stops, 0.75f), scene::RampAt (map.stops, 0.75f));
+    map.cutoff = 4;
+    EXPECT_EQ (scene::RampAt (scene::RampStops (map), 1), 0xD73027FFu);
+    map.cutoff = 0;
+    EXPECT_EQ (scene::RampAt (scene::RampStops (map), 0.75f), scene::RampAt (map.stops, 0.75f));
+}
+
 TEST (OverlayScene, ACubeHasTwelveFeatureEdgesSharedOrSplit)
 {
     const layers::Mesh shared = Cube (false);

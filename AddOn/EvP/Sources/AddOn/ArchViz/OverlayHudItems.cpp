@@ -157,7 +157,8 @@ void Table (const layers::PanelItem& item)
     ImGui::EndTable ();
 }
 
-bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale, double band[2])
+bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale, double band[2],
+           double* cutoff, bool* released)
 {
     if (!item.text.empty ())
         ImGui::TextUnformatted (item.text.c_str ());
@@ -165,7 +166,19 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
     const float h = (item.heightPixels > 0.0f ? item.heightPixels : 12.0f) * scale;
     const ImVec2 p = ImGui::GetCursorScreenPos ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
-    const std::vector<layers::ColourStop>& stops = item.colormap.stops;
+    layers::Colormap colormap = item.colormap;
+    if (cutoff != nullptr) {
+        ImGui::InvisibleButton ("##ramp.cutoff", ImVec2 (w, h + 12 * scale));
+        if (ImGui::IsItemActive () && ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+            const double t = std::clamp (double ((ImGui::GetIO ().MousePos.x - p.x) / (std::max) (w, 1.0f)), 0.0, 1.0);
+            *cutoff = std::clamp (std::round ((colormap.min + t * (colormap.max - colormap.min)) * 100) / 100,
+                                 colormap.min, colormap.max);
+        }
+        if (released != nullptr)
+            *released = ImGui::IsItemDeactivated ();
+        colormap.cutoff = *cutoff;
+    }
+    const std::vector<layers::ColourStop> stops = overlayscene::RampStops (colormap);
     if (item.colormap.bands > 0) {
         const uint32_t bands = item.colormap.bands;
         for (uint32_t k = 0; k < bands; ++k) {
@@ -186,6 +199,13 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
                              Packed (stops.back ().rgba));
     }
     draw->AddRect (p, ImVec2 (p.x + w, p.y + h), Packed (WithAlpha (panel.textRgba, 0.45f)));
+    if (cutoff != nullptr) {
+        const float edge = p.x + w * float ((colormap.cutoff - colormap.min) / (colormap.max - colormap.min));
+        draw->AddRectFilled (ImVec2 (edge - 5 * scale, p.y + h - 3 * scale),
+                             ImVec2 (edge + 5 * scale, p.y + h + 9 * scale), Packed (0xD73027FFu), 2 * scale);
+        draw->AddRect (ImVec2 (edge - 5 * scale, p.y + h - 3 * scale),
+                       ImVec2 (edge + 5 * scale, p.y + h + 9 * scale), Packed (0xFFFFFFFFu), 2 * scale);
+    }
 
     // The ticks under the bar, each label centred on its tick and kept inside the bar.
     const double low = item.colormap.min, high = item.colormap.max;
@@ -208,9 +228,13 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
             label += " " + item.unit;
         const ImVec2 size = ImGui::CalcTextSize (label.c_str ());
         const float left = (std::min) ((std::max) (x - size.x * 0.5f, p.x), p.x + w - size.x);
-        draw->AddText (ImVec2 (left, p.y + h + 4.0f * scale), textColour, label.c_str ());
+        draw->AddText (ImVec2 (left, p.y + h + (cutoff != nullptr ? 16.0f : 4.0f) * scale), textColour, label.c_str ());
     }
-    ImGui::Dummy (ImVec2 (w, h + 4.0f * scale + font));
+    ImGui::Dummy (ImVec2 (w, (cutoff != nullptr ? 4.0f * scale : h + 4.0f * scale) + font));
+    if (cutoff != nullptr) {
+        ImGui::Text ("Red below %s %s", Number (*cutoff, item.decimals).c_str (), item.unit.c_str ());
+        return false;
+    }
 
     // Pointed at: the value there, over the bar at the pointer.
     const ImVec2 mouse = ImGui::GetIO ().MousePos;

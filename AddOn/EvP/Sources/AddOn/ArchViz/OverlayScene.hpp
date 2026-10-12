@@ -334,6 +334,7 @@ std::string FormatLength (double metres, uint32_t decimals, overlaylayers::Lengt
 
 // A ramp's colour at `t` in 0..1, by the same interpolation the pixel shader makes.
 uint32_t RampAt (const std::vector<overlaylayers::ColourStop>& stops, float t);
+std::vector<overlaylayers::ColourStop> RampStops (const overlaylayers::Colormap& colormap);
 
 } // namespace overlayscene
 } // namespace archviz

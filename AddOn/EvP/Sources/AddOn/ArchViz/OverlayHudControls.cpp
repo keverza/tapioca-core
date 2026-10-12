@@ -54,6 +54,10 @@ void Engine::Impl::Reconcile (const std::vector<const layers::Panel*>& panels, c
                 case layers::ItemKind::Slider:
                     Hold (state, item.id, (std::min) ((std::max) (item.number, item.min), item.max));
                     break;
+                case layers::ItemKind::Ramp:
+                    if (!item.colormap.cutoffControl.empty ())
+                        Hold (state, item.colormap.cutoffControl, item.colormap.cutoff);
+                    break;
                 case layers::ItemKind::Combo:
                     Hold (state, item.id, double (item.selected));
                     break;
@@ -129,6 +133,35 @@ void Engine::Impl::Control (const layers::Panel& panel, const layers::PanelItem&
         }
         default:
             break;
+    }
+}
+
+std::vector<Change> TakeRampCutoffs (State& state)
+{
+    std::vector<Change> pending;
+    pending.swap (state.rampCutoffs);
+    return pending;
+}
+
+void Engine::Impl::Ramp (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
+                         float width, float scale)
+{
+    double band[2] = {};
+    const std::string& control = item.colormap.cutoffControl;
+    if (control.empty ()) {
+        if (items::Ramp (panel, item, width, scale, band))
+            highlight = { true, layer, band[0], band[1] };
+        return;
+    }
+    State::Held& held = state.values[control];
+    const double previous = held.current;
+    bool released = false;
+    items::Ramp (panel, item, width, scale, band, &held.current, &released);
+    if (previous != held.current || released) {
+        Change change { "rampCutoff", key, panel.title, control, int32_t (index), held.current,
+                        items::Number (held.current, item.decimals) + " " + item.unit, released };
+        changes.push_back (change);
+        store->rampCutoffs.push_back (std::move (change));
     }
 }
 

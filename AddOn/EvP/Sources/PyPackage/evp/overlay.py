@@ -403,7 +403,12 @@ class Panel:
         height=None,
         color=None,
     ):
-        """A colour bar over [minimum, maximum] with its ticks: a legend inside the panel."""
+        """A colour bar over [minimum, maximum] with its ticks: a legend inside the panel.
+
+        A colormap dict may include ``cutoff`` and ``cutoffControl``. The latter adds a
+        draggable red cutoff handle; heatmaps in this layer sharing its control id are
+        recoloured natively without rerunning the analysis or polling Python events.
+        """
         return self._add(
             "ramp",
             colormap=_colormap(colormap, minimum, maximum, bands),

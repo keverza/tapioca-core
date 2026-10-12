@@ -38,6 +38,40 @@ constexpr float kTop = 16.0f + 10.0f;
 // A checkbox flips on a press and says so; the add-on keeps what the user set when the
 // layer is set again saying what it said before, and takes the layer's when it says
 // something new.
+TEST (OverlayHudWidgets, AGradientHandleQueuesNativeCutoffAndSharesItsValueAcrossViews)
+{
+    Watched first;
+    layers::Panel panel;
+    layers::PanelItem ramp;
+    ramp.kind = layers::ItemKind::Ramp;
+    ramp.widthPixels = 200;
+    ramp.heightPixels = 20;
+    ramp.decimals = 2;
+    ramp.unit = "m";
+    layers::PresetStops ("clearance", ramp.colormap.stops);
+    ramp.colormap.autoRange = false;
+    ramp.colormap.max = 4;
+    ramp.colormap.hasCutoff = true;
+    ramp.colormap.cutoff = 2.2;
+    ramp.colormap.cutoffControl = "cutoff";
+    panel.items = { ramp };
+    first.Lay ({ &panel }, At (600, 600));
+    EXPECT_DOUBLE_EQ (first.Value ("cutoff"), 2.2);
+    first.Click ({ &panel }, kLeft + 150, kTop + 10);
+    EXPECT_DOUBLE_EQ (first.Value ("cutoff"), 3);
+    auto pending = hud::TakeRampCutoffs (*first.state);
+    ASSERT_FALSE (pending.empty ());
+    EXPECT_EQ (pending.back ().kind, "rampCutoff");
+    EXPECT_EQ (pending.back ().id, "cutoff");
+    EXPECT_DOUBLE_EQ (pending.back ().value, 3);
+    EXPECT_TRUE (hud::TakeRampCutoffs (*first.state).empty ());
+    Watched second;
+    second.state = first.state;
+    second.engine.UseState (first.state);
+    second.Lay ({ &panel }, At (600, 600));
+    EXPECT_DOUBLE_EQ (second.Value ("cutoff"), 3);
+}
+
 TEST (OverlayHudWidgets, ACheckboxHoldsTheUsersValueUntilTheLayerSaysANewOne)
 {
     Watched hud;

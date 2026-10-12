@@ -344,6 +344,18 @@ def test_the_hud_events_are_asked_for_after_the_last_seen(monkeypatch):
     assert overlay.wait_events(5, timeout=0.5)["events"]
 
 
+def test_live_cutoff_control_is_shared_by_panel_ramp_and_heatmap(monkeypatch):
+    seen = _capture(monkeypatch)
+    ramp = {"preset": "clearance", "min": 0, "max": 4, "cutoff": 2.2, "cutoffControl": "headroom"}
+    panel = overlay.Panel(title="Height clearance").ramp(ramp, 0, 4, unit="m", decimals=2)
+    heatmap = overlay.heatmap([0, 0, 0, 1, 0, 0, 0, 1, 0], [0, 1, 2], [2.8] * 3, ramp)
+    overlay.set_layer("clearance-heatmap", meshes=[heatmap], panels=[panel])
+    params = seen[0][1]
+    assert params["panels"][0]["items"][0]["colormap"] == params["meshes"][0]["colormap"]
+    assert params["meshes"][0]["values"] == [2.8] * 3
+    assert params["meshes"][0]["colormap"]["cutoffControl"] == "headroom"
+
+
 def test_waiting_for_hud_events_gives_up_at_its_timeout(monkeypatch):
     monkeypatch.setattr(
         overlay, "call", lambda command, params: SimpleNamespace(data={"lastSeq": 3, "gap": False, "events": []})

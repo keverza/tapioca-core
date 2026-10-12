@@ -90,6 +90,11 @@ std::string ValidateColormap (const Colormap& colormap)
         return "isolines' step is 0 (none) or positive";
     if (!InRange (colormap.isolineWidthPixels, 0.25f, 16.0f))
         return "isolines' widthPixels is 0.25 to 16";
+    if (colormap.hasCutoff && (colormap.autoRange || !std::isfinite (colormap.cutoff) ||
+                              colormap.cutoff < colormap.min || colormap.cutoff > colormap.max))
+        return "a cutoff needs an explicit range and a finite value inside it";
+    if (!colormap.cutoffControl.empty () && (!colormap.hasCutoff || colormap.cutoffControl.size () > kMaxControlId))
+        return "a cutoff control needs a cutoff and an id of at most 64 bytes";
     return std::string ();
 }
 
@@ -211,6 +216,8 @@ std::string ValidatePanel (const Panel& panel)
         if (item.kind == ItemKind::Bars && (item.values.empty () || item.values.size () > 256))
             return at + "a histogram has 1 to 256 values";
         if (item.kind == ItemKind::Ramp) {
+            if (!item.colormap.cutoffControl.empty () && !ids.insert (item.colormap.cutoffControl).second)
+                return at + "a ramp cutoff shares another control's id";
             const std::string ramp = ValidateColormap (item.colormap);
             if (!ramp.empty ())
                 return at + ramp;
@@ -557,6 +564,37 @@ uint64_t Set (Layer layer)
     }
     g_layers.push_back (std::move (shared));
     return ++g_generation;
+}
+
+bool SetRampCutoff (const std::string& name, const std::string& control, double value)
+{
+    if (!std::isfinite (value) || control.empty ())
+        return false;
+    for (const auto& existing : g_layers) {
+        if (existing->name != name)
+            continue;
+        Layer layer = *existing;
+        bool changed = false;
+        const auto update = [&] (Colormap& map) {
+            if (!map.hasCutoff || map.cutoffControl != control)
+                return;
+            const double next = std::clamp (value, map.min, map.max);
+            changed = changed || next != map.cutoff;
+            map.cutoff = next;
+        };
+        for (auto& mesh : layer.meshes)
+            update (mesh.colormap);
+        for (auto& legend : layer.legends)
+            update (legend.colormap);
+        for (auto& panel : layer.panels)
+            for (auto& item : panel.items)
+                if (item.kind == ItemKind::Ramp)
+                    update (item.colormap);
+        if (changed)
+            Set (std::move (layer));
+        return changed;
+    }
+    return false;
 }
 
 bool Clear (const std::string& name)

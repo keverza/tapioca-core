@@ -76,6 +76,46 @@ TEST (OverlayLayers, ClearingMovesTheGenerationOnlyWhenSomethingWent)
     EXPECT_TRUE (ol::Layers ().empty ());
 }
 
+TEST (OverlayLayers, LiveRampCutoffRecoloursOnlyItsLayerAndKeepsMeasurements)
+{
+    Fresh fresh;
+    ol::Layer layer = Square ("clearance-heatmap");
+    ol::Mesh mesh;
+    mesh.points = { 0, 0, 0, 1, 0, 0, 1, 1, 0 };
+    mesh.indices = { 0, 1, 2 };
+    mesh.values = { 2.8, 2.8, 2.8 };
+    ol::PresetStops ("clearance", mesh.colormap.stops);
+    mesh.colormap.autoRange = false;
+    mesh.colormap.max = 4;
+    mesh.colormap.hasCutoff = true;
+    mesh.colormap.cutoff = 2.2;
+    mesh.colormap.cutoffControl = "cutoff";
+    layer.meshes = { mesh };
+    ol::Panel panel;
+    ol::PanelItem ramp;
+    ramp.kind = ol::ItemKind::Ramp;
+    ramp.colormap = mesh.colormap;
+    panel.items = { ramp };
+    layer.panels = { panel };
+    ASSERT_TRUE (ol::Validate (layer).empty ());
+    ol::Set (layer);
+    ol::Set (Square ("unrelated"));
+    EXPECT_FALSE (ol::SetRampCutoff ("clearance-heatmap", "unknown", 3));
+    EXPECT_TRUE (ol::SetRampCutoff ("clearance-heatmap", "cutoff", 3));
+    const auto changed = ol::Layers ()[0];
+    EXPECT_DOUBLE_EQ (changed->meshes[0].colormap.cutoff, 3);
+    EXPECT_DOUBLE_EQ (changed->panels[0].items[0].colormap.cutoff, 3);
+    EXPECT_EQ (changed->meshes[0].points, mesh.points);
+    EXPECT_EQ (changed->meshes[0].values, mesh.values);
+    EXPECT_EQ (changed->meshes[0].colormap.stops.size (), mesh.colormap.stops.size ());
+    const auto generation = ol::Generation ();
+    EXPECT_FALSE (ol::SetRampCutoff ("clearance-heatmap", "cutoff", 3));
+    EXPECT_EQ (ol::Generation (), generation);
+    EXPECT_EQ (ol::Layers ()[1]->name, "unrelated");
+    layer.meshes[0].colormap.cutoff = 5;
+    EXPECT_FALSE (ol::Validate (layer).empty ());
+}
+
 TEST (OverlayLayers, CommandBoundaryClearsOnlyOptInTransientLayers)
 {
     Fresh fresh;

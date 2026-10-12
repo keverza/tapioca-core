@@ -126,6 +126,9 @@ struct Colormap {
     double isolineStep = 0; // 0 is none; otherwise a contour every `step` value units
     uint32_t isolineRgba = 0x000000A0u;
     float isolineWidthPixels = 1.0f;
+    bool hasCutoff = false;
+    double cutoff = 0.0; // values below this are red; the original gradient remains above it
+    std::string cutoffControl; // optional live panel ramp control id, shared by its layer's heatmaps
 };
 
 // The named ramps a caller can ask for instead of writing stops. False for a name
@@ -485,6 +488,8 @@ bool Reserved (const std::string& name);
 
 // Replace (or add) the layer of this name. Returns the store's new generation.
 uint64_t Set (Layer layer);
+// A panel ramp's native drag updates only colour styling; measured geometry/values stay immutable.
+bool SetRampCutoff (const std::string& layer, const std::string& control, double value);
 // Remove one layer; false when there was none of that name.
 bool Clear (const std::string& name);
 // Every caller layer; the reserved ones stay.

@@ -70,6 +70,7 @@ struct State {
     bool shown = true;
     std::set<std::string> hidden; // layer names
     bool hover = false;           // hover mode (OverlayHud.hpp `Hover`)
+    std::vector<Change> rampCutoffs;
     uint64_t revision = 0;
     // The floating panel the titled panels are tabs of: open or closed to the dock, the tab
     // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where
@@ -216,6 +217,8 @@ struct Engine::Impl {
     void Sync (ImDrawData* data);
 
     void Items (const layers::Panel& panel, PanelState& state, float scale);
+    void Ramp (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
+               float width, float scale);
 
     // A panel without a title, at its anchor on the view: its items. A titled one is a tab
     // of the host; a hidden layer's is not drawn.

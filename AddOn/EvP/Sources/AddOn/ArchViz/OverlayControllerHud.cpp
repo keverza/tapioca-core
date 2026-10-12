@@ -84,6 +84,16 @@ void FollowHudState ()
     massinghybrid::Poll ();
     massingslicesmodel::Poll ();
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
+    bool recoloured = false;
+    for (const auto& change : overlayhud::TakeRampCutoffs (*state)) {
+        const std::string layer = change.key.substr (0, change.key.rfind ('#'));
+        recoloured = overlaylayers::SetRampCutoff (layer, change.id, change.value) || recoloured;
+    }
+    if (recoloured) {
+        PublishLayers ();
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     // The dock's viewer circle pressed: the switch, from the message loop's top -- not inside the
     // layout that took the press (SurfaceSwitch.hpp).
     if (overlayhud::TakeViewerRequest (*state))

@@ -302,6 +302,8 @@ struct Stats {
 
 // What the user did to the panels, by key: shared by the views' engines (`UseState`).
 struct State;
+// Live ramp edits drained outside ImGui layout; analysis geometry is never recalculated.
+std::vector<Change> TakeRampCutoffs (State& state);
 bool MassingDimensions (const State& state);
 std::shared_ptr<State> NewState ();
 // Forgets it all: the project whose layers it named closed (§8).

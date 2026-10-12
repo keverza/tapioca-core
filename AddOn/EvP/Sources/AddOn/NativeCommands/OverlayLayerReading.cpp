@@ -135,6 +135,11 @@ bool ReadColormap (const GS::ObjectState& item, layers::Colormap& colormap, std:
         colormap.autoRange = false;
     }
     ReadCount (item, "bands", colormap.bands);
+    if (item.Contains ("cutoff")) {
+        colormap.hasCutoff = true;
+        ReadDouble (item, "cutoff", colormap.cutoff);
+    }
+    colormap.cutoffControl = StringValue (item, "cutoffControl");
     GS::ObjectState isolines;
     if (item.Get ("isolines", isolines)) {
         ReadDouble (isolines, "step", colormap.isolineStep);

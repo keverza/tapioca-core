@@ -48,7 +48,7 @@ void Plot (const overlaylayers::PanelItem& item, float width, float scale);
 void Table (const overlaylayers::PanelItem& item);
 // True, with the band under the pointer, when the pointer is on the bar.
 bool Ramp (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, float width, float scale,
-           double band[2]);
+           double band[2], double* cutoff = nullptr, bool* released = nullptr);
 // A section's header, `open` as the user left it and as they leave it now; its `info`
 // behind a small (i) that says it when pointed at.
 void Section (const overlaylayers::Panel& panel, const overlaylayers::PanelItem& item, bool& open, float scale);

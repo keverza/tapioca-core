@@ -151,16 +151,31 @@ overlayhud::Hover Readout (const layers::Layer& layer, const Hit& hit)
         uint32_t decimals = 2;
         std::string value;
         std::string unit;
+        std::string label = "Value";
         if (!layer.legends.empty ()) {
             decimals = layer.legends.front ().decimals;
             unit = layer.legends.front ().unit;
+            if (!layer.legends.front ().title.empty ())
+                label = layer.legends.front ().title;
+        }
+        else {
+            bool foundRamp = false;
+            for (const auto& panel : layer.panels) {
+                for (const auto& item : panel.items)
+                    if (item.kind == layers::ItemKind::Ramp) {
+                        decimals = item.decimals;
+                        unit = item.unit;
+                        label = item.text.empty () ? panel.title : item.text;
+                        foundRamp = true;
+                        break;
+                    }
+                if (foundRamp)
+                    break;
+            }
         }
         value = Number (hit.value, decimals);
         if (!unit.empty ())
             value += " " + unit;
-        const std::string label = !layer.legends.empty () && !layer.legends.front ().title.empty ()
-                                      ? layer.legends.front ().title
-                                      : std::string ("Value");
         hover.rows.emplace_back (label, value);
         hover.measuredValue = hit.value;
         hover.valueRgba = RampColor (mesh, hit.value);

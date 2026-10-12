@@ -52,22 +52,6 @@ void Builder::Truncated ()
     ++draft_.problems.truncated;
 }
 
-void Builder::SetRamp (FillDraw& draw, const layers::Colormap& colormap, double min, double max) const
-{
-    draw.heatmap = true;
-    draw.stopCount = uint32_t ((std::min) (colormap.stops.size (), layers::kMaxStops));
-    for (uint32_t i = 0; i < draw.stopCount; ++i) {
-        draw.stopAt[i] = colormap.stops[i].at;
-        draw.stopRgba[i] = colormap.stops[i].rgba;
-    }
-    draw.min = float (min);
-    draw.max = float (max);
-    draw.bands = colormap.bands;
-    draw.isolineStep = float (colormap.isolineStep);
-    draw.isolineRgba = colormap.isolineRgba;
-    draw.isolineWidthPixels = colormap.isolineWidthPixels;
-}
-
 void Builder::AddMesh (const layers::Layer& layer, const layers::Mesh& mesh)
 {
     const size_t vertices = mesh.points.size () / 3;

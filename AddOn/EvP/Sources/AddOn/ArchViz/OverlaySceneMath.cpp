@@ -210,6 +210,46 @@ uint32_t RampAt (const std::vector<layers::ColourStop>& stops, float t)
     return stops.back ().rgba;
 }
 
+void build::Builder::SetRamp (FillDraw& draw, const layers::Colormap& colormap, double min, double max) const
+{
+    draw.heatmap = true;
+    const auto stops = RampStops (colormap);
+    draw.stopCount = uint32_t ((std::min) (stops.size (), layers::kMaxStops));
+    for (uint32_t i = 0; i < draw.stopCount; ++i) {
+        draw.stopAt[i] = stops[i].at;
+        draw.stopRgba[i] = stops[i].rgba;
+    }
+    draw.min = float (min);
+    draw.max = float (max);
+    draw.bands = colormap.bands;
+    draw.isolineStep = float (colormap.isolineStep);
+    draw.isolineRgba = colormap.isolineRgba;
+    draw.isolineWidthPixels = colormap.isolineWidthPixels;
+}
+
+std::vector<layers::ColourStop> RampStops (const layers::Colormap& colormap)
+{
+    if (!colormap.hasCutoff || colormap.cutoff <= colormap.min)
+        return colormap.stops;
+    constexpr uint32_t red = 0xD73027FFu;
+    if (colormap.cutoff >= colormap.max)
+        return { { 0.0f, red }, { 1.0f, red } };
+    const float edge = float ((colormap.cutoff - colormap.min) / (colormap.max - colormap.min));
+    std::vector<layers::ColourStop> stops { { 0.0f, red }, { edge, red },
+                                           { edge, RampAt (colormap.stops, edge) } };
+    for (const auto& stop : colormap.stops)
+        if (stop.at > edge)
+            stops.push_back (stop);
+    if (stops.size () > layers::kMaxStops) {
+        stops.resize (3);
+        for (size_t i = 1; i <= layers::kMaxStops - 3; ++i) {
+            const float at = edge + (1 - edge) * float (i) / float (layers::kMaxStops - 3);
+            stops.push_back ({ at, RampAt (colormap.stops, at) });
+        }
+    }
+    return stops;
+}
+
 } // namespace overlayscene
 } // namespace archviz
 } // namespace geomsrv
