@@ -359,20 +359,38 @@ def polyline_rectangles(database_anchor):
     ]
 
 
-def create_polyline(coordinates, layer=None, database_anchor=None, tx=None):
+def create_polyline(
+    coordinates, layer=None, database_anchor=None, tx=None, *, floor_plan=False, floor_ind=None, pen=None
+):
     """Create a straight-segment Polyline from ``(x, y)`` model coordinates.
 
     ``database_anchor`` identifies the containing worksheet explicitly. Pass a
     repeated first point when the Polyline should be visibly closed.
+    ``floor_plan=True`` targets the floor-plan database even from another view;
+    ``floor_ind`` sets the home story, and ``pen`` overrides the tool default.
     """
     points = [{"x": float(point[0]), "y": float(point[1])} for point in coordinates]
     if len(points) < 2:
         raise ValueError("create_polyline needs at least two coordinates")
+    if any(not math.isfinite(value) for point in points for value in point.values()):
+        raise ValueError("create_polyline coordinates must be finite")
     params = {"coordinates": points}
     if layer:
         params["layer"] = str(layer)
     if database_anchor:
         params["databaseAnchorElementId"] = {"guid": str(database_anchor)}
+    if floor_plan:
+        if database_anchor:
+            raise ValueError("choose floor_plan or database_anchor, not both")
+        params["floorPlan"] = True
+    if floor_ind is not None:
+        if isinstance(floor_ind, bool) or int(floor_ind) != floor_ind or not -32768 <= floor_ind <= 32767:
+            raise ValueError("floor_ind must be a signed 16-bit story index")
+        params["floorInd"] = int(floor_ind)
+    if pen is not None:
+        if isinstance(pen, bool) or int(pen) != pen or not 1 <= pen <= 255:
+            raise ValueError("pen must be an integer in 1..255")
+        params["pen"] = int(pen)
     if tx is not None:
         return tx.call("Tapioca.CreateDraftingPolyline", params)
     data = call("Tapioca.CreateDraftingPolyline", params).data or {}

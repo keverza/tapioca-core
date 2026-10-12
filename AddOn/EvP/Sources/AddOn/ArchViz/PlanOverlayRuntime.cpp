@@ -337,7 +337,10 @@ overlayhud::Hover HoverAt (float x, float y)
     overlayhud::Hover hover = overlayhover::Readout (*layers[hit.layer], hit);
     const bool whole = mesh.values.empty () && mesh.indices.size () / 3 <= kTintTriangles;
     // In model metres: the plan guest draws it through the transform it reads at Present.
-    overlayhover::TintModel (mesh, hover.tintModel, whole ? -1 : int64_t (hit.triangle));
+    if (hit.hasCell && hit.cell < mesh.hoverCells.size ())
+        overlayhover::TintModel (mesh, hover.tintModel, mesh.hoverCells[hit.cell].triangles);
+    else
+        overlayhover::TintModel (mesh, hover.tintModel, whole ? -1 : int64_t (hit.triangle));
     return hover;
 }
 

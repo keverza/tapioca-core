@@ -127,10 +127,23 @@ void Place (const overlaylayers::Panel& panel, float width, float height, float 
 struct Hover {
     bool picks = false; // the view reads what is under the pointer: both views do (D19)
     bool active = false;
+    std::string layer; // source layer; a titled layer's readout belongs on its own page
     std::string title;
     std::vector<std::pair<std::string, std::string>> rows; // label, value
     std::vector<double> tintModel;                         // x, y, z model metres, three corners a triangle
+    bool hasMeasuredCell = false;
+    double cellCenter[3] = {};
+    double measurementFrom[3] = {};
+    double measurementTo[3] = {};
+    double cellNormal[3] = {};
+    double measuredValue = 0.0;
+    uint32_t valueRgba = 0xFFFFFFFFu;
 };
+
+// A titled layer's readout is shown on that layer's page, never on Settings or an
+// unrelated tab. Layers without a titled page keep the host's existing footer.
+bool ReadoutOnPage (const Hover& hover, const std::string& pageKey,
+                    const std::vector<std::string>& titledPanelKeys);
 
 // The tint over a hovered item, 0xRRGGBBAA.
 constexpr uint32_t kHoverTintRgba = 0xFFBA0046u;
@@ -156,6 +169,8 @@ struct Input {
     // pixel = plan[0] x + plan[1] y + plan[2], plan[3] x + plan[4] y + plan[5]), or 3D's camera.
     bool planar = false;
     double plan[6] = {};
+    bool hasCameraDirection = false;
+    double cameraDirection[3] = {}; // camera-to-scene world direction; the 3D annotation plane faces back
     std::function<bool (double x, double y, double z, float& px, float& py)> project;
 };
 

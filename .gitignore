@@ -85,3 +85,5 @@ AddOn/EvP/Sources/GhWorker/obj/
 /AddOn/EvP/Sources/Gh2Worker/obj/
 /AddOn/EvP/Sources/Grasshopper2Components/bin/
 /AddOn/EvP/Sources/Grasshopper2Components/obj/
+/AddOn/EvP/Sources/DynamoRunner
+/AddOn/EvP/Sources/TapiocaDynamo

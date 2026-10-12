@@ -648,10 +648,10 @@ Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
 // the scene's legends' bars where they are on the view, for their tooltips.
 Draft HudDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
                 overlayhud::Engine* hud, float scale, const overlayhud::Input& input,
-                const std::vector<overlayinput::Region>* legends)
+                const std::vector<overlayinput::Region>* legends, overlaytext::Engine* text)
 {
     const FontResolver none;
-    Builder builder (view, nullptr, hud, scale, none);
+    Builder builder (view, text, hud, scale, none);
     builder.AddHud (all, input, legends);
     return builder.Take ();
 }
@@ -865,11 +865,12 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
 }
 
 Plan PreparePlanHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlayhud::Engine* hud, float scale,
-                     const overlayhud::Input& input, const std::vector<overlayinput::Region>* legends)
+                     const overlayhud::Input& input, const std::vector<overlayinput::Region>* legends,
+                     overlaytext::Engine* text)
 {
     const auto started = std::chrono::steady_clock::now ();
     Plan out;
-    Draft draft = HudDraft (all, layers::Views::TwoD, hud, scale, input, legends);
+    Draft draft = HudDraft (all, layers::Views::TwoD, hud, scale, input, legends, text);
     FinishPlan (draft, hud, out);
     out.cost.microseconds = MicrosecondsSince (started);
     return out;
@@ -973,11 +974,12 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all
 }
 
 Scene PrepareSceneHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlayhud::Engine* hud,
-                       float scale, const overlayhud::Input& input, const std::vector<overlayinput::Region>* legends)
+                       float scale, const overlayhud::Input& input, const std::vector<overlayinput::Region>* legends,
+                       overlaytext::Engine* text)
 {
     const auto started = std::chrono::steady_clock::now ();
     Scene out;
-    Draft draft = HudDraft (all, layers::Views::ThreeD, hud, scale, input, legends);
+    Draft draft = HudDraft (all, layers::Views::ThreeD, hud, scale, input, legends, text);
     FinishScene (draft, hud, out);
     out.cost.microseconds = MicrosecondsSince (started);
     return out;

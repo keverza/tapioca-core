@@ -158,8 +158,10 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
         case APINotify_NewAndReset:
         case APINotify_Open:
             geomsrv::ResetSurfaceInspectorState ();
-            if (ControlPalette::HasInstance ())
+            if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
+                ControlPalette::GetInstance ().ForgetCommandPreviews ();
+            }
             ArchVizPanel::CloseViewer ();
             geomsrv::sunfollow::Disable (); // invalidate calculation/adoption from the previous document
             // A document that replaces another ends the overlay the old one had, if
@@ -184,8 +186,10 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             break;
         case APINotify_Close:
             geomsrv::ResetSurfaceInspectorState ();
-            if (ControlPalette::HasInstance ())
+            if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
+                ControlPalette::GetInstance ().ForgetCommandPreviews ();
+            }
             ArchVizPanel::CloseViewer ();
             geomsrv::sunfollow::Disable ();
             geomsrv::archviz::visibilitystudy::Shutdown ();

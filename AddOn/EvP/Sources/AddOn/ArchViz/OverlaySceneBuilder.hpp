@@ -196,6 +196,7 @@ class Builder {
     // metres, one flat fill in `kHoverTintRgba`, never hidden -- drawn by the view's renderer
     // with its camera or transform, so it stays on the item as the view moves.
     void AddHoverTint (const std::vector<double>& corners);
+    void AddHoverMeasurement (const overlayhud::Hover& hover, const overlayhud::Input& input);
     void AddPolyline (const layers::Layer& layer, const layers::Polyline& polyline);
     void AddDimension (const layers::Layer& layer, const layers::Dimension& dimension);
     void AddDimensionText (const layers::Layer& layer, const layers::Dimension& dimension, double measurement,

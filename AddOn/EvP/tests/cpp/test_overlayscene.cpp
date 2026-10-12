@@ -4,10 +4,12 @@
 // rule is pinned here, offline, against the real source.
 
 #include "ArchViz/OverlayScene.hpp"
+#include "hud_fixture.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -18,6 +20,7 @@
 namespace scene = geomsrv::archviz::overlayscene;
 namespace layers = geomsrv::archviz::overlaylayers;
 namespace text = geomsrv::archviz::overlaytext;
+namespace hud = geomsrv::archviz::overlayhud;
 
 namespace {
 
@@ -36,6 +39,34 @@ text::Engine& Engine ()
 std::vector<std::shared_ptr<const layers::Layer>> One (layers::Layer layer)
 {
     return { std::make_shared<const layers::Layer> (std::move (layer)) };
+}
+
+std::array<double, 3> ModelGlyphPlaneNormal (const scene::Scene& frame)
+{
+    std::vector<std::array<double, 3>> points;
+    for (const scene::SceneGlyph& glyph : frame.glyphs)
+        if ((glyph.flags & scene::kModelQuad) != 0)
+            points.push_back ({ glyph.position[0], glyph.position[1], glyph.position[2] });
+    if (points.size () < 3)
+        return {};
+    const auto sub = [] (const auto& a, const auto& b) {
+        return std::array<double, 3> { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+    };
+    const auto length = [] (const auto& v) { return std::sqrt (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); };
+    for (size_t i = 1; i < points.size (); ++i) {
+        const auto a = sub (points[i], points[0]);
+        if (length (a) < 1e-6)
+            continue;
+        for (size_t j = i + 1; j < points.size (); ++j) {
+            const auto b = sub (points[j], points[0]);
+            const std::array<double, 3> normal = { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+                                                   a[0] * b[1] - a[1] * b[0] };
+            const double magnitude = length (normal);
+            if (magnitude > 1e-6)
+                return { normal[0] / magnitude, normal[1] / magnitude, normal[2] / magnitude };
+        }
+    }
+    return {};
 }
 
 double Rejoin (float hi, float lo, double origin)
@@ -567,6 +598,104 @@ TEST (OverlayScene, ModelDimensionTextIsNotScreenSizedOrPixelCappedInEitherView)
     check (scene::PrepareScene (One (layer), &Engine ()).glyphs);
     layer.dimensions[0].textSizeMetres = -1;
     EXPECT_FALSE (layers::Validate (layer).empty ());
+}
+
+TEST (OverlayScene, HoverRayIsAlwaysDrawnButTheAlignedMeasurementWaitsForCloseZoom)
+{
+    layers::Layer layer;
+    layer.name = "clearance-heatmap";
+    layers::Panel panel;
+    panel.title = "Height clearance";
+    layer.panels = { panel };
+    const auto all = One (layer);
+    hudtest::Fresh host;
+    hud::Input input;
+    input.width = 1200;
+    input.height = 800;
+    input.pointer = true;
+    input.hover.active = true;
+    input.hover.hasMeasuredCell = true;
+    input.hover.valueRgba = 0xF6D987FFu;
+    input.hover.measuredValue = 2.8;
+    input.hover.measurementFrom[0] = input.hover.measurementTo[0] = 0.5;
+    input.hover.measurementFrom[1] = input.hover.measurementTo[1] = 0.5;
+    input.hover.measurementFrom[2] = 0.2;
+    input.hover.measurementTo[2] = 3.0;
+    input.hover.cellNormal[2] = 1.0;
+    const auto projectAt = [] (float pixelsPerMetre) {
+        return [pixelsPerMetre] (double x, double, double z, float& px, float& py) {
+            px = float (x * pixelsPerMetre);
+            py = float (z * pixelsPerMetre);
+            return true;
+        };
+    };
+    input.project = projectAt (20.0f);
+    const scene::Scene far = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
+    ASSERT_EQ (far.lines.size (), 1u) << "the measured vertical ray stays visible at every zoom";
+
+    input.project = projectAt (40.0f);
+    const scene::Scene close = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
+    ASSERT_EQ (close.lines.size (), 4u) << "the ray plus all three aligned dimension lines";
+    EXPECT_FALSE (close.glyphs.empty ()) << "the dimension's model-sized value appears with its geometry";
+    EXPECT_TRUE (std::any_of (close.glyphs.begin (), close.glyphs.end (), [] (const auto& glyph) {
+        return (glyph.flags & scene::kZoomLabel) != 0 && glyph.minSpan == 14.0f;
+    })) << "model-sized dimension text waits until its em is readable";
+    EXPECT_EQ (close.problems.dimensionsNotResolved, 0u);
+}
+
+TEST (OverlayScene, HoverDimensionTextPlaneTracksCameraAndHasAnOverheadFallback)
+{
+    layers::Layer layer;
+    layer.name = "clearance-heatmap";
+    layers::Panel panel;
+    panel.title = "Height clearance";
+    layer.panels = { panel };
+    const auto all = One (layer);
+    hudtest::Fresh host;
+
+    const auto prepare = [&] (double cameraX, double cameraY, double cameraZ, bool hasDirection = true) {
+        hud::Input input;
+        input.width = 1200;
+        input.height = 800;
+        input.pointer = true;
+        input.hover.active = true;
+        input.hover.hasMeasuredCell = true;
+        input.hover.measuredValue = 2.8;
+        input.hover.measurementFrom[0] = input.hover.measurementTo[0] = 0.5;
+        input.hover.measurementFrom[1] = input.hover.measurementTo[1] = 0.5;
+        input.hover.measurementFrom[2] = 0.2;
+        input.hover.measurementTo[2] = 3.0;
+        input.hover.cellNormal[2] = 1.0;
+        input.hasCameraDirection = hasDirection;
+        input.cameraDirection[0] = cameraX;
+        input.cameraDirection[1] = cameraY;
+        input.cameraDirection[2] = cameraZ;
+        input.project = [] (double x, double, double z, float& px, float& py) {
+            px = float (x * 40.0);
+            py = float (z * 40.0);
+            return true;
+        };
+        return scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
+    };
+    const auto dot = [] (const auto& a, const auto& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+
+    const auto alongPositiveX = ModelGlyphPlaneNormal (prepare (1.0, 0.0, 0.0));
+    const auto alongNegativeX = ModelGlyphPlaneNormal (prepare (-1.0, 0.0, 0.0));
+    const auto alongPositiveY = ModelGlyphPlaneNormal (prepare (0.0, 1.0, 0.0));
+    const auto overhead = ModelGlyphPlaneNormal (prepare (0.0, 0.0, 1.0));
+    const auto noCamera = ModelGlyphPlaneNormal (prepare (0.0, 0.0, 0.0, false));
+
+    EXPECT_NEAR (std::fabs (alongPositiveX[0]), 1.0, 1e-4);
+    EXPECT_NEAR (std::fabs (alongNegativeX[0]), 1.0, 1e-4);
+    EXPECT_NEAR (dot (alongPositiveX, alongNegativeX), -1.0, 1e-4)
+        << "opposing camera directions face opposite sides of the annotation plane";
+    EXPECT_NEAR (std::fabs (alongPositiveY[1]), 1.0, 1e-4);
+    EXPECT_NEAR (dot (alongPositiveX, alongPositiveY), 0.0, 1e-4)
+        << "perpendicular camera directions produce perpendicular text planes";
+    EXPECT_NEAR (std::fabs (overhead[0]), 1.0, 1e-4)
+        << "an overhead view uses a stable horizontal fallback axis";
+    EXPECT_NEAR (dot (overhead, noCamera), 1.0, 1e-4)
+        << "missing camera data uses the same deterministic fallback";
 }
 
 TEST (OverlayScene, AHorizontalLegendPlacedAnywhereSaysItsOwnTicks)

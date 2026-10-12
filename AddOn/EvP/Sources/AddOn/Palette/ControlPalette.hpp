@@ -78,6 +78,8 @@ class ControlPalette final : public DG::Palette,
 
     void Show (bool focusSearch = false);
     void Hide ();
+    // Main-thread command/project boundary; drops copied preview geometry even hidden.
+    void ForgetCommandPreviews ();
 
     void SetCommandStatus (const GS::UniString& text);
 

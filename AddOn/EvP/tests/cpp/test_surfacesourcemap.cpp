@@ -134,6 +134,109 @@ TEST (SurfaceSourceMap, WeldedVerticesDoNotMergeOrCorruptFaces)
     EXPECT_EQ (match.face.sourcePgon, 2);
 }
 
+// A native convex decomposition may subdivide only one side of an internal
+// edge. The long edge and its two opposite subedges still cancel exactly.
+TEST (SurfaceSourceMap, TJunctionSubdivisionPreservesCompleteBoundaryAndArea)
+{
+    Mesh mesh;
+    mesh.vertices = { 0, 0, 0, 2, 0, 0, 2, 1, 0, 0, 1, 0, 1, 1, 0, 1, 2, 0, 0, 2, 0 };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3, 3, 4, 5, 3, 5, 6 };
+    mesh.triSourceBody.assign (4, 1);
+    mesh.triSourcePgon.assign (4, 5);
+    std::string reason;
+    double area = 0.0;
+    ASSERT_TRUE (AnalyticArea (mesh, 1, 5, &area, &reason)) << reason;
+    EXPECT_DOUBLE_EQ (area, 3.0);
+    FaceQuery query;
+    query.points = { 0, 0, 0, 2, 0, 0, 2, 1, 0, 1, 1, 0, 1, 2, 0, 0, 2, 0 };
+    const auto match = Resolve (mesh, query);
+    ASSERT_EQ (match.status, MatchStatus::Ok) << match.reason;
+    EXPECT_EQ (match.face.sourcePgon, 5);
+    EXPECT_DOUBLE_EQ (match.face.areaM2, 3.0);
+}
+
+TEST (SurfaceSourceMap, TJunctionDoesNotHideDuplicatedTriangles)
+{
+    Mesh mesh;
+    mesh.vertices = { 0, 0, 0, 2, 0, 0, 2, 1, 0, 0, 1, 0, 1, 1, 0, 1, 2, 0, 0, 2, 0 };
+    mesh.triangles = { 0, 1, 2, 0, 2, 3, 3, 4, 5, 3, 5, 6, 3, 4, 5 };
+    mesh.triSourceBody.assign (5, 1);
+    mesh.triSourcePgon.assign (5, 1);
+    std::string reason;
+    EXPECT_TRUE (EnumerateSourceFaces (mesh, &reason).empty ());
+    EXPECT_FALSE (reason.empty ());
+}
+
+TEST (SurfaceSourceMap, BoundarySubdivisionBudgetRefusesWithoutPartialMatch)
+{
+    FaceQuery query;
+    for (int i = 0; i < 1500; ++i) {
+        const double angle = i * 6.283185307179586 / 1500;
+        query.points.insert (query.points.end (), { 10 * std::cos (angle), 10 * std::sin (angle), 0 });
+    }
+    const auto match = Resolve (Square (0, 0, 0, 1, 1), query);
+    EXPECT_EQ (match.status, MatchStatus::Invalid);
+    EXPECT_NE (match.reason.find ("budget"), std::string::npos);
+}
+
+TEST (SurfaceSourceMap, QueryIgnoresMalformedFaceOnlyWhenGeometricallyExcluded)
+{
+    Mesh mesh = Square (0, 0, 0, 1, 1);
+    const uint32_t base = static_cast<uint32_t> (mesh.VertexCount ());
+    mesh.vertices.insert (mesh.vertices.end (), { 10, 10, 0, 11, 10, 0, 12, 10, 0 });
+    mesh.triangles.insert (mesh.triangles.end (), { base, base + 1, base + 2 });
+    mesh.triSourceBody.push_back (1);
+    mesh.triSourcePgon.push_back (2);
+    std::string reason;
+    EXPECT_TRUE (EnumerateSourceFaces (mesh, &reason).empty ()); // whole-element inventory stays strict
+    EXPECT_FALSE (reason.empty ());
+    const auto matched = Resolve (mesh, FaceQuery { SquarePoints (0, 0, 0), 0, 0 });
+    ASSERT_EQ (matched.status, MatchStatus::Ok) << matched.reason;
+    EXPECT_EQ (matched.face.sourcePgon, 1);
+    EXPECT_DOUBLE_EQ (matched.face.areaM2, 1.0);
+}
+
+TEST (SurfaceSourceMap, QueryRefusesMalformedCandidateInsteadOfDroppingIt)
+{
+    Mesh mesh = Square (0, 0, 0, 1, 1);
+    const uint32_t base = static_cast<uint32_t> (mesh.VertexCount ());
+    mesh.vertices.insert (mesh.vertices.end (), { 0.2, 0.2, 0, 0.4, 0.2, 0, 0.6, 0.2, 0 });
+    mesh.triangles.insert (mesh.triangles.end (), { base, base + 1, base + 2 });
+    mesh.triSourceBody.push_back (1);
+    mesh.triSourcePgon.push_back (2);
+    const auto matched = Resolve (mesh, FaceQuery { SquarePoints (0, 0, 0), 0, 0 });
+    EXPECT_EQ (matched.status, MatchStatus::Invalid);
+    EXPECT_NE (matched.reason.find ("degenerate"), std::string::npos);
+}
+
+TEST (SurfaceSourceMap, QueryScopeStillValidatesGlobalProvenanceAndIndices)
+{
+    Mesh mesh = Square (0, 0, 0, 1, 1);
+    mesh.vertices.insert (mesh.vertices.end (), { 10, 10, 0, 11, 10, 0, 12, 10, 0 });
+    mesh.triangles.insert (mesh.triangles.end (), { 4, 5, 99 });
+    mesh.triSourceBody.push_back (1);
+    mesh.triSourcePgon.push_back (2);
+    const auto matched = Resolve (mesh, FaceQuery { SquarePoints (0, 0, 0), 0, 0 });
+    EXPECT_EQ (matched.status, MatchStatus::Invalid);
+    EXPECT_NE (matched.reason.find ("missing vertex"), std::string::npos);
+}
+
+TEST (SurfaceSourceMap, QueryScopeUsesAllPiecesAndDoesNotLetIdsBreakTies)
+{
+    Mesh mesh = Square (0, 0, 0, 1, 1);
+    const uint32_t base = static_cast<uint32_t> (mesh.VertexCount ());
+    const Mesh duplicate = Square (0, 0, 0, 2, 1);
+    mesh.vertices.insert (mesh.vertices.end (), duplicate.vertices.begin (), duplicate.vertices.end ());
+    for (uint32_t index : duplicate.triangles)
+        mesh.triangles.push_back (base + index);
+    mesh.triSourceBody.insert (mesh.triSourceBody.end (), { 2, 2 });
+    mesh.triSourcePgon.insert (mesh.triSourcePgon.end (), { 1, 1 });
+    FaceQuery query;
+    query.expectedBody = 2;
+    query.pieces = { { 0, 0, 0, 1, 0, 0, 1, 1, 0 }, { 0, 0, 0, 1, 1, 0, 0, 1, 0 } };
+    EXPECT_EQ (Resolve (mesh, query).status, MatchStatus::Ambiguous);
+}
+
 // Two bodies, each with a polygon id of 1, geometrically apart. The complete
 // boundary resolves the right one; the ids only confirm the unique match.
 TEST (SurfaceSourceMap, MultiBodySharedPolygonIdResolvesByGeometryAndId)
@@ -207,7 +310,7 @@ TEST (SurfaceSourceMap, EqualAreaEqualCentroidDifferentContourIsNoMatch)
 }
 
 // A bent face is refused rather than having its vector area silently projected.
-TEST (SurfaceSourceMap, NonPlanarFaceIsInvalid)
+TEST (SurfaceSourceMap, NonPlanarInventoryIsInvalidAndPlanarQueryCannotMatch)
 {
     Mesh mesh;
     mesh.vertices = { 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 0 }; // (1,1,0) raised to z = 1
@@ -219,7 +322,7 @@ TEST (SurfaceSourceMap, NonPlanarFaceIsInvalid)
     std::string reason;
     EXPECT_TRUE (EnumerateSourceFaces (mesh, &reason).empty ());
     EXPECT_FALSE (reason.empty ());
-    EXPECT_EQ (Resolve (mesh, FaceQuery { SquarePoints (0.0, 0.0, 0.0), 0, 0 }).status, MatchStatus::Invalid);
+    EXPECT_EQ (Resolve (mesh, FaceQuery { SquarePoints (0.0, 0.0, 0.0), 0, 0 }).status, MatchStatus::NoMatch);
 }
 
 // A query contour that is not planar is refused.

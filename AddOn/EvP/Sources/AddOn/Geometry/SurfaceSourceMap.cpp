@@ -322,9 +322,8 @@ bool BuildQuery (const FaceQuery& query, const MatchTolerance& tolerance, Vec3& 
     return true;
 }
 
-} // namespace
-
-std::vector<SourceFace> EnumerateSourceFaces (const Mesh& mesh, std::string* reason, const MatchTolerance& tolerance)
+std::vector<SourceFace> EnumerateFaces (const Mesh& mesh, std::string* reason, const MatchTolerance& tolerance,
+                                        const FaceQuery* query)
 {
     if (reason != nullptr)
         reason->clear ();
@@ -342,6 +341,30 @@ std::vector<SourceFace> EnumerateSourceFaces (const Mesh& mesh, std::string* rea
         return faces;
     }
 
+    Vec3 queryNormal, queryOrigin;
+    double queryLow[3] = {}, queryHigh[3] = {};
+    if (query != nullptr) {
+        double area = 0;
+        if (!BuildQuery (*query, tolerance, queryNormal, queryOrigin, area, failure)) {
+            if (reason != nullptr)
+                *reason = failure;
+            return faces;
+        }
+        bool first = true;
+        const auto bounds = [&] (const std::vector<double>& points) {
+            for (size_t i = 0; i + 2 < points.size (); i += 3) {
+                for (int axis = 0; axis < 3; ++axis) {
+                    queryLow[axis] = first ? points[i + axis] : std::min (queryLow[axis], points[i + axis]);
+                    queryHigh[axis] = first ? points[i + axis] : std::max (queryHigh[axis], points[i + axis]);
+                }
+                first = false;
+            }
+        };
+        bounds (query->points);
+        for (const auto& piece : query->pieces)
+            bounds (piece);
+    }
+
     const size_t triangleCount = mesh.triangles.size () / 3;
     if (triangleCount == 0)
         return faces;
@@ -355,6 +378,40 @@ std::vector<SourceFace> EnumerateSourceFaces (const Mesh& mesh, std::string* rea
 
     faces.reserve (grouped.size ());
     for (auto& entry : grouped) {
+        if (query != nullptr) {
+            double low[3] = {}, high[3] = {};
+            bool onQueryPlane = true;
+            bool first = true;
+            for (uint32_t tri : entry.second) {
+                for (int corner = 0; corner < 3; ++corner) {
+                    const Vec3 point = At (mesh.vertices, mesh.triangles[tri * 3 + corner]);
+                    const double xyz[3] = { point.x, point.y, point.z };
+                    const double distance = Dot (Sub (point, queryOrigin), queryNormal);
+                    if (!std::isfinite (distance)) {
+                        if (reason != nullptr)
+                            *reason = "candidate plane distance overflowed";
+                        return {};
+                    }
+                    onQueryPlane &= std::fabs (distance) <= tolerance.planeDistance;
+                    for (int axis = 0; axis < 3; ++axis) {
+                        low[axis] = first ? xyz[axis] : std::min (low[axis], xyz[axis]);
+                        high[axis] = first ? xyz[axis] : std::max (high[axis], xyz[axis]);
+                    }
+                    first = false;
+                }
+            }
+            // Conservative broadphase: projected grid displacement plus the
+            // allowed plane offset must not exclude a potential boundary match.
+            const double margin = 3 * std::max (tolerance.vertexTolerance, tolerance.planeDistance);
+            // A complete planar face match requires every source vertex to lie
+            // on the query plane. Merely touching/straddling it admits unrelated
+            // reveals with sliver triangles and would still poison the query.
+            bool candidate = onQueryPlane;
+            for (int axis = 0; axis < 3; ++axis)
+                candidate &= low[axis] <= queryHigh[axis] + margin && high[axis] >= queryLow[axis] - margin;
+            if (!candidate)
+                continue;
+        }
         SourceFace face;
         face.sourceBody = entry.first.first;
         face.sourcePgon = entry.first.second;
@@ -368,6 +425,19 @@ std::vector<SourceFace> EnumerateSourceFaces (const Mesh& mesh, std::string* rea
         faces.push_back (std::move (face));
     }
     return faces;
+}
+
+} // namespace
+
+std::vector<SourceFace> EnumerateSourceFaces (const Mesh& mesh, std::string* reason, const MatchTolerance& tolerance)
+{
+    return EnumerateFaces (mesh, reason, tolerance, nullptr);
+}
+
+std::vector<SourceFace> EnumerateQuerySourceFaces (const Mesh& mesh, const FaceQuery& query, std::string* reason,
+                                                   const MatchTolerance& tolerance)
+{
+    return EnumerateFaces (mesh, reason, tolerance, &query);
 }
 
 bool AnalyticArea (const Mesh& mesh, int32_t sourceBody, int32_t sourcePgon, double* areaM2, std::string* reason,
@@ -499,7 +569,7 @@ MatchResult Resolve (const std::vector<SourceFace>& faces, const FaceQuery& quer
 MatchResult Resolve (const Mesh& mesh, const FaceQuery& query, const MatchTolerance& tolerance)
 {
     std::string failure;
-    const std::vector<SourceFace> faces = EnumerateSourceFaces (mesh, &failure, tolerance);
+    const std::vector<SourceFace> faces = EnumerateQuerySourceFaces (mesh, query, &failure, tolerance);
     if (!failure.empty ()) {
         MatchResult result;
         result.status = MatchStatus::Invalid;

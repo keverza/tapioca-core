@@ -168,11 +168,11 @@ bool RefreshHud3D ()
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
     overlayhud::Input input = overlayinput::TakeInput (overlayinput::View::ThreeD);
     overlayhover3d::Fill (input); // hover mode: what the pointer is on (D19)
-    if (overlayhud::EditLocked (*guesttext::HudState ()))
-        overlayhover3d::Projection (input); // the floor plan picked on the view
+    overlayhover3d::Projection (input); // the camera also gates the measured dimension at close zoom
     // ⚠️ THE HUD IS THERE WITH OR WITHOUT A LAYER: the overlay runs, its own pages say what.
     overlayscene::Scene hud = overlayscene::PrepareSceneHud (
-        layers, overlayhudmodel::Prepare (overlayinput::View::ThreeD), g_scale3D, input, &g_legends3D);
+        layers, overlayhudmodel::Prepare (overlayinput::View::ThreeD), g_scale3D, input, &g_legends3D,
+        input.hover.hasMeasuredCell ? guesttext::Engine () : nullptr);
     const bool changed = PublishHud3D (std::move (hud));
     // What the user did there may be the dock's circle or a layer hidden.
     FollowHudState ();
@@ -198,9 +198,11 @@ void HeartbeatHud3D ()
     overlayhud::Input input = overlayinput::CurrentInput (overlayinput::View::ThreeD);
     input.buttons.clear ();
     overlayhover3d::Fill (input);
+    overlayhover3d::Projection (input);
     const bool changed = PublishHud3D (
         overlayscene::PrepareSceneHud (overlaylayers::Layers (), overlayhudmodel::Prepare (overlayinput::View::ThreeD),
-                                       g_scale3D, input, &g_legends3D));
+                                       g_scale3D, input, &g_legends3D,
+                                       input.hover.hasMeasuredCell ? guesttext::Engine () : nullptr));
     // ⚠️ AND ONLY ONCE THE CAMERA IS LOCKED: before, a redraw is the cold start's budget's to
     // spend (OverlayRedrawBudget.hpp), never the HUD's -- the HUD drawn alone shows with the
     // frames Archicad presents anyway (Dxgi/PrelockHud.hpp).
@@ -859,9 +861,12 @@ void PublishLayers ()
     g_scale3D = scale;
     // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud), laid
     // out for where the pointer is now.
-    overlayscene::Scene hud =
-        overlayscene::PrepareSceneHud (all, overlayhudmodel::Prepare (overlayinput::View::ThreeD), scale,
-                                       overlayinput::CurrentInput (overlayinput::View::ThreeD), &g_legends3D);
+    overlayhud::Input hudInput = overlayinput::CurrentInput (overlayinput::View::ThreeD);
+    overlayhover3d::Fill (hudInput);
+    overlayhover3d::Projection (hudInput);
+    overlayscene::Scene hud = overlayscene::PrepareSceneHud (
+        all, overlayhudmodel::Prepare (overlayinput::View::ThreeD), scale, hudInput, &g_legends3D,
+        hudInput.hover.hasMeasuredCell ? guesttext::Engine () : nullptr);
     hud.generation = scene.generation;
     const overlayscene::Problems& problems = scene.problems;
     const uint32_t panelsNotDrawn = hud.problems.textsNotLaidOut;

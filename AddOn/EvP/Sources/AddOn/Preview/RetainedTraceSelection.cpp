@@ -6,6 +6,10 @@
 
 namespace {
 
+std::mutex s_cacheMutex;
+uint64_t s_cachedGeneration = 0;
+std::weak_ptr<const geomsrv::annotation::DrawList> s_cachedDrawList;
+
 geomsrv::annotation::PrimitiveKind KindOf (evp::preview::WatchPrimitiveKind kind)
 {
     using A = geomsrv::annotation::PrimitiveKind;
@@ -102,15 +106,21 @@ std::optional<RetainedFrameSnapshot> SelectedRetainedFrameSnapshotCopy ()
     if (!selected.has_value ())
         return std::nullopt;
 
-    static std::mutex cacheMutex;
-    static uint64_t cachedGeneration = 0;
-    static std::shared_ptr<const DrawList> cachedDrawList;
-    std::lock_guard<std::mutex> lock (cacheMutex);
-    if (cachedGeneration != selected->snapshot->generation) {
-        cachedDrawList = std::make_shared<const DrawList> (evp::preview::ToDrawList (selected->snapshot->trace));
-        cachedGeneration = selected->snapshot->generation;
+    std::lock_guard<std::mutex> lock (s_cacheMutex);
+    auto drawList = s_cachedDrawList.lock ();
+    if (s_cachedGeneration != selected->snapshot->generation || drawList == nullptr) {
+        drawList = std::make_shared<const DrawList> (evp::preview::ToDrawList (selected->snapshot->trace));
+        s_cachedDrawList = drawList;
+        s_cachedGeneration = selected->snapshot->generation;
     }
-    return RetainedFrameSnapshot { cachedDrawList, selected->nodeIndex, selected->frameIndex };
+    return RetainedFrameSnapshot { std::move (drawList), selected->nodeIndex, selected->frameIndex };
+}
+
+void ClearRetainedFrameCache ()
+{
+    std::lock_guard<std::mutex> lock (s_cacheMutex);
+    s_cachedDrawList.reset ();
+    s_cachedGeneration = 0;
 }
 
 } // namespace geomsrv::annotation

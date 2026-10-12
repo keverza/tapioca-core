@@ -56,6 +56,9 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
     // Every layer drawn here, for the HUD's Settings -- and a reason for its dock.
     if (hud_ != nullptr)
         hud_->SetLayers (std::move (names));
+    // The measured ray belongs to the overlay scene, not to a successfully laid-out
+    // ImGui panel; keep it visible even if the HUD engine is unavailable this frame.
+    AddHoverMeasurement (input.hover, input);
     AddPanels (panels, input, bars);
 }
 
@@ -82,6 +85,69 @@ void Builder::AddHoverTint (const std::vector<double>& corners)
     }
     draft_.fillVertices += fill.vertices.size ();
     draft_.fills.push_back (std::move (fill));
+}
+
+void Builder::AddHoverMeasurement (const overlayhud::Hover& hover, const overlayhud::Input& input)
+{
+    if (Plan () || !hover.active || !hover.hasMeasuredCell)
+        return;
+    DraftLine ray;
+    std::copy (std::begin (hover.measurementFrom), std::end (hover.measurementFrom), ray.a);
+    std::copy (std::begin (hover.measurementTo), std::end (hover.measurementTo), ray.b);
+    ray.rgba = hover.valueRgba;
+    ray.width = 2.5f;
+    ray.behind = kBehindShow; // the measured ray remains readable at every zoom
+    ray.dashes = kSolidDashes;
+    PushLine (ray);
+
+    if (!input.project)
+        return;
+    float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+    if (!input.project (hover.measurementFrom[0], hover.measurementFrom[1], hover.measurementFrom[2], x0, y0) ||
+        !input.project (hover.measurementTo[0], hover.measurementTo[1], hover.measurementTo[2], x1, y1))
+        return;
+    constexpr float kDimensionCloseZoomPixels = 90.0f;
+    if (std::hypot (x1 - x0, y1 - y0) < kDimensionCloseZoomPixels)
+        return;
+
+    layers::Dimension dimension;
+    std::copy (std::begin (hover.measurementFrom), std::end (hover.measurementFrom), dimension.from);
+    std::copy (std::begin (hover.measurementTo), std::end (hover.measurementTo), dimension.to);
+    // A vertical dimension's text plane must face the camera, not inherit the floor's
+    // normal (which makes the text edge-on for many orbit directions).
+    dimension.normal[0] = input.hasCameraDirection ? -input.cameraDirection[0] : 0.0;
+    dimension.normal[1] = input.hasCameraDirection ? -input.cameraDirection[1] : 0.0;
+    double normalLength = std::hypot (dimension.normal[0], dimension.normal[1]);
+    if (normalLength < 1e-6) {
+        // Overhead view: use the floor's horizontal normal where available, then a
+        // deterministic world axis for a horizontal floor.
+        dimension.normal[0] = hover.cellNormal[0];
+        dimension.normal[1] = hover.cellNormal[1];
+        normalLength = std::hypot (dimension.normal[0], dimension.normal[1]);
+    }
+    if (normalLength < 1e-6) {
+        dimension.normal[0] = 1.0;
+        dimension.normal[1] = 0.0;
+        normalLength = 1.0;
+    }
+    dimension.normal[0] /= normalLength;
+    dimension.normal[1] /= normalLength;
+    dimension.normal[2] = 0.0;
+    dimension.direction[0] = -dimension.normal[1];
+    dimension.direction[1] = dimension.normal[0];
+    dimension.offsetMetres = 0.10;
+    dimension.text = FormatLength (hover.measuredValue, 2, layers::LengthUnit::Metres, true);
+    dimension.textSizeMetres = 0.20;
+    dimension.textSizePixels = 24.0f;
+    dimension.textMinProjectedPixels = 14.0f;
+    dimension.rgba = hover.valueRgba;
+    dimension.textRgba = hover.valueRgba;
+    dimension.haloRgba = 0x071018FFu;
+    dimension.haloPixels = 1.75f;
+    dimension.terminator = layers::Terminator::Tick;
+    dimension.terminatorSizePixels = 10.0f;
+    dimension.behind = layers::Behind::Show;
+    AddDimension (layers::Layer (), dimension);
 }
 
 // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn

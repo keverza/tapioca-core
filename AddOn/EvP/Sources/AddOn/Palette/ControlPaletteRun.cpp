@@ -27,6 +27,9 @@
 #include "Python/RunCancel.hpp" // E9 — the running command's cancel token
 #include "Python/ForcedParamMerge.hpp"
 #include "Preview/PreviewRuntimeState.hpp"
+#include "Preview/RetainedPreviewStore.hpp"
+#include "ArchViz/OverlayController.hpp"
+#include "ArchViz/OverlayLayers.hpp"
 
 // E3 — enter/leave the selection-prompt state. Both run on the main thread (the
 // dispatcher Posts them); the worker thread only reads the atomic flags.
@@ -181,6 +184,16 @@ void ControlPalette::RefreshRunGate ()
             commandStatus.SetText (message);
     }
 }
+void ControlPalette::ForgetCommandPreviews ()
+{
+    // OVERLAY-INVARIANTS.md §8: the hidden/disabled band cannot rely on its poll.
+    evp::preview::RetainedPreviewStore::Get ().Clear ();
+    preview.ForgetContext ();
+    if (geomsrv::archviz::overlaylayers::ClearCommandScoped ())
+        geomsrv::archviz::overlaycontrol::PublishLayers ();
+    evp::StartupTrace ("Command/project boundary: transient preview geometry released");
+}
+
 void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniString& menuRegion,
                                   bool automaticPreviewRun)
 {
@@ -205,6 +218,10 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
         SetCommandStatus ("Select a command first.");
         return;
     }
+
+    // OVERLAY-INVARIANTS.md §8: previous command previews are not project data.
+    // Clear before workflow/Python branching, without changing navigation or intent.
+    ForgetCommandPreviews ();
 
     // Running is a decision — the browse it came from is over. Collapsing here also
     // keeps the run's status line and results from opening below a list that is

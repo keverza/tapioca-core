@@ -12,6 +12,7 @@
   ],
   "exclude": {
     "directories": [
+      ".venv",
       "__pycache__",
       ".pytest_cache",
       "_archive",

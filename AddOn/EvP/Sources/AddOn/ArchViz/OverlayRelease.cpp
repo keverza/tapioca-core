@@ -16,6 +16,7 @@
 #include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/StorySliceOverlay.hpp"
+#include "Preview/RetainedPreviewStore.hpp"
 
 namespace geomsrv {
 namespace archviz {
@@ -56,6 +57,9 @@ void Shared ()
     // trace's annotations.
     storysliceoverlay::OnProjectClosed ();
     overlayannotations::OnProjectClosed ();
+    // The trace store outlives the renderer; disabling annotations alone left the
+    // last command's geometry available to reappear over the next project (§8).
+    evp::preview::RetainedPreviewStore::Get ().Clear ();
     overlaylayers::ClearEverything ();
     guesttext::ForgetHudState ();
     // The laid-out layers hold the text engines' pages: they go first.

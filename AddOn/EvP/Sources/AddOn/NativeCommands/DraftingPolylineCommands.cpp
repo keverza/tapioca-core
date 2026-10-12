@@ -7,6 +7,8 @@
 #include "NativeCommands/CommandUtils.hpp"
 #include "NativeCommands/DraftingDatabaseTarget.hpp"
 
+#include <cmath>
+
 namespace geomsrv {
 
 namespace {
@@ -90,6 +92,19 @@ class CreateDraftingPolylineCommand : public WriteCommand {
         if (!ResolveLayerParam (params, element.header, layerError))
             return NativeCommandResult::Failure (layerError);
 
+        GS::Int32 floorInd = 0;
+        if (params.Get ("floorInd", floorInd)) {
+            if (floorInd < -32768 || floorInd > 32767)
+                return NativeCommandResult::Failure ("floorInd must be a signed 16-bit story index");
+            element.header.floorInd = (short) floorInd;
+        }
+        GS::Int32 pen = 0;
+        if (params.Get ("pen", pen)) {
+            if (pen < 1 || pen > 255)
+                return NativeCommandResult::Failure ("pen must be 1..255");
+            element.polyLine.linePen.penIndex = (short) pen;
+        }
+
         element.polyLine.poly.nCoords = (Int32) coordinates.GetSize ();
         element.polyLine.poly.nSubPolys = 1;
         element.polyLine.poly.nArcs = 0;
@@ -109,9 +124,10 @@ class CreateDraftingPolylineCommand : public WriteCommand {
         for (UIndex index = 0; index < coordinates.GetSize (); ++index) {
             double x = 0.0;
             double y = 0.0;
-            if (!coordinates[index].Get ("x", x) || !coordinates[index].Get ("y", y)) {
+            if (!coordinates[index].Get ("x", x) || !coordinates[index].Get ("y", y) || !std::isfinite (x) ||
+                !std::isfinite (y)) {
                 ACAPI_DisposeElemMemoHdls (&memo);
-                return NativeCommandResult::Failure ("every Polyline coordinate needs numeric x and y");
+                return NativeCommandResult::Failure ("every Polyline coordinate needs finite numeric x and y");
             }
             (*memo.coords)[index + 1] = { x, y };
         }
@@ -134,15 +150,13 @@ class CreateDraftingPolylineCommand : public WriteCommand {
     }
 };
 
-const NativeCommandRegistration
-    DraftingPolylineCommandRegistrations
-        [] = {
-            { "ListDraftingPolylines", &MakeRegisteredNativeCommand<ListDraftingPolylinesCommand>, false,
-              R"json({"type":"object","properties":{"databaseAnchorElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["databaseAnchorElementId"]})json",
-              R"json({"type":"object","properties":{"databaseId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"polylines":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"},"layer":{"type":"string"}},"additionalProperties":false,"required":["elementId","x","y","width","height","layer"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["databaseId","polylines","count"]})json" },
-            { "CreateDraftingPolyline", &MakeRegisteredNativeCommand<CreateDraftingPolylineCommand>,
-              false, R"json({"type":"object","properties":{"coordinates":{"type":"array","minItems":2,"items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"additionalProperties":false,"required":["x","y"]}},"layer":{"type":"string"},"databaseAnchorElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["coordinates"]})json", R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"databaseId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"layer":{"type":"string"},"verified":{"type":"boolean"}},"additionalProperties":false,"required":["elementId","databaseId","layer","verified"]})json" },
-        };
+const NativeCommandRegistration DraftingPolylineCommandRegistrations[] = {
+    { "ListDraftingPolylines", &MakeRegisteredNativeCommand<ListDraftingPolylinesCommand>, false,
+      R"json({"type":"object","properties":{"databaseAnchorElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["databaseAnchorElementId"]})json",
+      R"json({"type":"object","properties":{"databaseId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"polylines":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"},"layer":{"type":"string"}},"additionalProperties":false,"required":["elementId","x","y","width","height","layer"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["databaseId","polylines","count"]})json" },
+    { "CreateDraftingPolyline", &MakeRegisteredNativeCommand<CreateDraftingPolylineCommand>, false,
+      R"json({"type":"object","properties":{"coordinates":{"type":"array","minItems":2,"items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"additionalProperties":false,"required":["x","y"]}},"layer":{"type":"string"},"floorPlan":{"type":"boolean"},"floorInd":{"type":"integer","minimum":-32768,"maximum":32767},"pen":{"type":"integer","minimum":1,"maximum":255},"databaseAnchorElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["coordinates"]})json", R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"databaseId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"layer":{"type":"string"},"verified":{"type":"boolean"}},"additionalProperties":false,"required":["elementId","databaseId","layer","verified"]})json" },
+};
 
 } // namespace
 

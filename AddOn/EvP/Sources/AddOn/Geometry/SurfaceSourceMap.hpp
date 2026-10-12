@@ -91,6 +91,13 @@ struct MatchTolerance {
 std::vector<SourceFace> EnumerateSourceFaces (const Mesh& mesh, std::string* reason = nullptr,
                                               const MatchTolerance& tolerance = {});
 
+// Query inventory: validate the whole mesh/provenance, but only build faces whose
+// bounds overlap the complete query bounds and whose vertices all lie on its
+// plane. An unrelated noncoplanar face cannot match; a malformed candidate still
+// refuses the entire query. Never a partial whole-element area inventory.
+std::vector<SourceFace> EnumerateQuerySourceFaces (const Mesh& mesh, const FaceQuery& query,
+                                                   std::string* reason = nullptr, const MatchTolerance& tolerance = {});
+
 // The exact area of the source triangles carrying one (body, polygon): the sum
 // of their magnitudes, which is the polygon area for a valid same-wound emitted
 // tessellation (holes already handled by the tessellation). False and a reason
@@ -102,7 +109,8 @@ bool AnalyticArea (const Mesh& mesh, int32_t sourceBody, int32_t sourcePgon, dou
 MatchResult Resolve (const std::vector<SourceFace>& faces, const FaceQuery& query,
                      const MatchTolerance& tolerance = {});
 
-// Convenience over one mesh: enumerates first, so an unusable mesh reports Invalid.
+// Convenience over one mesh: query-scoped enumeration; invalid mesh/provenance
+// or a malformed candidate reports Invalid. Unrelated faces are not classified.
 MatchResult Resolve (const Mesh& mesh, const FaceQuery& query, const MatchTolerance& tolerance = {});
 
 } // namespace surfacemap

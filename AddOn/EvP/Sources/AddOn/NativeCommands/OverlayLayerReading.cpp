@@ -203,6 +203,43 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
             ReadFloat (edges, "angleDegrees", mesh.style.edgeAngleDegrees);
         }
     }
+    GS::Array<GS::ObjectState> hoverCells;
+    if (item.Get ("hoverCells", hoverCells)) {
+        for (const GS::ObjectState& record : hoverCells) {
+            layers::HoverCell cell;
+            GS::Array<GS::Int32> triangles;
+            if (!record.Get ("triangles", triangles) || triangles.IsEmpty () ||
+                !ReadPoint (record, "center", cell.center, 3) || !ReadPoint (record, "from", cell.from, 3) ||
+                !ReadPoint (record, "to", cell.to, 3) || !ReadPoint (record, "normal", cell.normal, 3)) {
+                error = "a hover cell needs triangles, center, from, to and normal";
+                return false;
+            }
+            for (const GS::Int32 triangle : triangles) {
+                if (triangle < 0) {
+                    error = "hover cell triangle indices are never negative";
+                    return false;
+                }
+                cell.triangles.push_back (uint32_t (triangle));
+            }
+            cell.floorGuid = StringValue (record, "floorGuid");
+            mesh.hoverCells.push_back (std::move (cell));
+        }
+        mesh.hoverCellByTriangle.assign (mesh.indices.size () / 3, -1);
+        for (size_t cellIndex = 0; cellIndex < mesh.hoverCells.size (); ++cellIndex) {
+            for (const uint32_t triangle : mesh.hoverCells[cellIndex].triangles) {
+                if (triangle >= mesh.hoverCellByTriangle.size ()) {
+                    error = "a hover cell names a triangle past this mesh";
+                    return false;
+                }
+                int32_t& assigned = mesh.hoverCellByTriangle[triangle];
+                if (assigned >= 0) {
+                    error = "a mesh triangle belongs to at most one hover cell";
+                    return false;
+                }
+                assigned = int32_t (cellIndex);
+            }
+        }
+    }
     return true;
 }
 
@@ -232,6 +269,7 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
         return false;
     ReadFloat (item, "haloPixels", text.haloPixels);
     ReadFloat (item, "haloScale", text.haloScale);
+    ReadFloat (item, "minProjectedPixels", text.minProjectedPixels);
     if (item.Contains ("align")) {
         const std::string align = StringValue (item, "align");
         text.align = align == "left"    ? layers::Align::Left
@@ -295,6 +333,8 @@ bool ReadDimension (const GS::ObjectState& item, layers::Dimension& dimension, s
         return false;
     ReadFloat (item, "widthPixels", dimension.widthPixels);
     ReadFloat (item, "textSizePixels", dimension.textSizePixels);
+    ReadDouble (item, "textSizeMetres", dimension.textSizeMetres);
+    ReadFloat (item, "textMinProjectedPixels", dimension.textMinProjectedPixels);
     ReadFloat (item, "haloPixels", dimension.haloPixels);
     dimension.terminator = TerminatorOf (item, "terminator", dimension.terminator);
     ReadFloat (item, "terminatorSizePixels", dimension.terminatorSizePixels);
@@ -626,6 +666,8 @@ bool ReadFont (const GS::ObjectState& item, const char* key, std::string& path, 
 bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string& error)
 {
     layer.name = StringValue (params, "layer");
+    layer.lifetime =
+        StringValue (params, "lifetime") == "command" ? layers::LayerLifetime::Command : layers::LayerLifetime::Project;
     if (layers::Reserved (layer.name)) {
         error = std::string ("names starting \"") + layers::kReservedPrefix +
                 "\" are the add-on's own layers, switched by their own verbs";

@@ -16,7 +16,7 @@ namespace layers = overlaylayers;
 
 bool SaysSomething (const layers::Mesh& mesh)
 {
-    return !mesh.hoverTitle.empty () || !mesh.hoverRows.empty () || !mesh.values.empty ();
+    return !mesh.hoverTitle.empty () || !mesh.hoverRows.empty () || !mesh.values.empty () || !mesh.hoverCells.empty ();
 }
 
 // The point's barycentric weights in the triangle a, b, c (x, y), or false outside it -- a
@@ -38,6 +38,67 @@ std::string Number (double value, uint32_t decimals)
     char text[64] = {};
     std::snprintf (text, sizeof (text), "%.*f", int ((std::min) (decimals, 6u)), value);
     return text;
+}
+
+uint32_t RampColor (const layers::Mesh& mesh, double value)
+{
+    if (mesh.colormap.stops.empty ())
+        return 0xFFFFFFFFu;
+    double minimum = mesh.colormap.min, maximum = mesh.colormap.max;
+    if (mesh.colormap.autoRange && !mesh.values.empty ()) {
+        const auto range = std::minmax_element (mesh.values.begin (), mesh.values.end ());
+        minimum = *range.first;
+        maximum = *range.second;
+    }
+    if (!(maximum > minimum))
+        maximum = minimum + 1.0;
+    const float t = float (std::clamp ((value - minimum) / (maximum - minimum), 0.0, 1.0));
+    uint32_t rgba = mesh.colormap.stops.front ().rgba;
+    if (t >= mesh.colormap.stops.back ().at)
+        rgba = mesh.colormap.stops.back ().rgba;
+    else if (t > mesh.colormap.stops.front ().at) {
+        for (size_t i = 1; i < mesh.colormap.stops.size (); ++i) {
+            if (t > mesh.colormap.stops[i].at)
+                continue;
+            const layers::ColourStop& a = mesh.colormap.stops[i - 1];
+            const layers::ColourStop& b = mesh.colormap.stops[i];
+            const float span = b.at - a.at;
+            const float fraction = span > 1e-6f ? (t - a.at) / span : 1.0f;
+            rgba = 0;
+            for (int shift = 0; shift < 32; shift += 8) {
+                const float left = float ((a.rgba >> shift) & 0xFFu);
+                const float right = float ((b.rgba >> shift) & 0xFFu);
+                rgba |= uint32_t (std::lround (left + (right - left) * fraction)) << shift;
+            }
+            break;
+        }
+    }
+    // A fully opaque, brighter shade keeps the heatmap's hue while reading over its fill.
+    for (int shift : { 8, 16, 24 }) {
+        const uint32_t component = (rgba >> shift) & 0xFFu;
+        rgba = (rgba & ~(0xFFu << shift)) | (uint32_t (std::lround (component + (255u - component) * 0.42)) << shift);
+    }
+    return (rgba & 0xFFFFFF00u) | 0xFFu;
+}
+
+void SetCell (const layers::Mesh& mesh, Hit& hit)
+{
+    if (hit.triangle < mesh.hoverCellByTriangle.size ()) {
+        const int32_t cell = mesh.hoverCellByTriangle[hit.triangle];
+        if (cell >= 0 && size_t (cell) < mesh.hoverCells.size ()) {
+            hit.hasCell = true;
+            hit.cell = size_t (cell);
+            return;
+        }
+    }
+    // Test-built layers may not have passed through the native reader's lookup table.
+    for (size_t i = 0; i < mesh.hoverCells.size (); ++i)
+        if (std::find (mesh.hoverCells[i].triangles.begin (), mesh.hoverCells[i].triangles.end (), hit.triangle) !=
+            mesh.hoverCells[i].triangles.end ()) {
+            hit.hasCell = true;
+            hit.cell = i;
+            return;
+        }
 }
 
 } // namespace
@@ -65,6 +126,7 @@ Hit PickPlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, doub
                 hit.layer = li;
                 hit.mesh = mi;
                 hit.triangle = uint32_t (t / 3);
+                SetCell (mesh, hit);
                 if (mesh.values.size () >= corners) {
                     hit.hasValue = true;
                     hit.value = w[0] * mesh.values[i0] + w[1] * mesh.values[i1] + w[2] * mesh.values[i2];
@@ -83,6 +145,7 @@ overlayhud::Hover Readout (const layers::Layer& layer, const Hit& hit)
         return hover;
     const layers::Mesh& mesh = layer.meshes[hit.mesh];
     hover.active = true;
+    hover.layer = layer.name;
     hover.title = !mesh.hoverTitle.empty () ? mesh.hoverTitle : layer.name;
     if (hit.hasValue) {
         uint32_t decimals = 2;
@@ -99,8 +162,20 @@ overlayhud::Hover Readout (const layers::Layer& layer, const Hit& hit)
                                       ? layer.legends.front ().title
                                       : std::string ("Value");
         hover.rows.emplace_back (label, value);
+        hover.measuredValue = hit.value;
+        hover.valueRgba = RampColor (mesh, hit.value);
     }
     hover.rows.insert (hover.rows.end (), mesh.hoverRows.begin (), mesh.hoverRows.end ());
+    if (hit.hasCell && hit.cell < mesh.hoverCells.size ()) {
+        const layers::HoverCell& cell = mesh.hoverCells[hit.cell];
+        hover.hasMeasuredCell = true;
+        std::copy (std::begin (cell.center), std::end (cell.center), hover.cellCenter);
+        std::copy (std::begin (cell.from), std::end (cell.from), hover.measurementFrom);
+        std::copy (std::begin (cell.to), std::end (cell.to), hover.measurementTo);
+        std::copy (std::begin (cell.normal), std::end (cell.normal), hover.cellNormal);
+        hover.rows.emplace_back ("Floor", Number (cell.from[2], 2) + " m");
+        hover.rows.emplace_back ("Ceiling", Number (cell.to[2], 2) + " m");
+    }
     return hover;
 }
 
@@ -163,6 +238,7 @@ Hit PickView (const std::vector<std::shared_ptr<const layers::Layer>>& all, cons
                 hit.layer = li;
                 hit.mesh = mi;
                 hit.triangle = uint32_t (t / 3);
+                SetCell (mesh, hit);
                 if (mesh.values.size () >= corners) {
                     hit.hasValue = true;
                     hit.value = (w[0] * iw[i0] * mesh.values[i0] + w[1] * iw[i1] * mesh.values[i1] +
@@ -180,6 +256,21 @@ void TintModel (const layers::Mesh& mesh, std::vector<double>& out, int64_t only
     const size_t corners = mesh.points.size () / 3;
     for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
         if (only >= 0 && int64_t (t / 3) != only)
+            continue;
+        const uint32_t i[3] = { mesh.indices[t], mesh.indices[t + 1], mesh.indices[t + 2] };
+        if (i[0] >= corners || i[1] >= corners || i[2] >= corners)
+            continue;
+        for (const uint32_t k : i)
+            out.insert (out.end (), { mesh.points[k * 3], mesh.points[k * 3 + 1], mesh.points[k * 3 + 2] });
+    }
+}
+
+void TintModel (const layers::Mesh& mesh, std::vector<double>& out, const std::vector<uint32_t>& onlyTriangles)
+{
+    const size_t corners = mesh.points.size () / 3;
+    for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
+        const uint32_t triangle = uint32_t (t / 3);
+        if (std::find (onlyTriangles.begin (), onlyTriangles.end (), triangle) == onlyTriangles.end ())
             continue;
         const uint32_t i[3] = { mesh.indices[t], mesh.indices[t + 1], mesh.indices[t + 2] };
         if (i[0] >= corners || i[1] >= corners || i[2] >= corners)

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <numeric>
 #include <set>
 
 namespace geomsrv {
@@ -73,6 +74,26 @@ bool OnSegment (const Key& a, const Key& b, const Key& r)
 {
     return std::min (a.first, b.first) <= r.first && r.first <= std::max (a.first, b.first) &&
            std::min (a.second, b.second) <= r.second && r.second <= std::max (a.second, b.second);
+}
+
+bool ExactOnSegment (const Key& a, const Key& b, const Key& r)
+{
+    if (!OnSegment (a, b, r))
+        return false;
+    // Key differences fit int64, their cross-products do not. Reduce the lattice
+    // direction instead of trusting cancellation in MSVC's double-sized long
+    // double at the far end of the quantizable range.
+    const int64_t dx = b.first - a.first, dy = b.second - a.second;
+    const int64_t divisor = std::gcd (dx, dy);
+    if (divisor == 0)
+        return a == r;
+    const int64_t ux = dx / divisor, uy = dy / divisor;
+    const int64_t rx = r.first - a.first, ry = r.second - a.second;
+    if (ux == 0)
+        return rx == 0;
+    if (uy == 0)
+        return ry == 0;
+    return rx % ux == 0 && ry % uy == 0 && rx / ux == ry / uy;
 }
 
 // True when the closed segments ab and cd meet at all (crossing or touching).
@@ -225,6 +246,8 @@ bool BuildCanonicalLoops (const std::vector<std::vector<double>>& pieces, const 
     std::map<EdgeKey, int> edgeCount;
     std::map<std::pair<Key, Key>, int> directedCount;
     std::vector<std::pair<Key, Key>> directed;
+    std::set<Key> vertices;
+    std::vector<std::pair<Key, Key>> pieceEdges;
 
     for (const std::vector<double>& piece : pieces) {
         if (piece.size () % 3 != 0 || piece.size () < 9) {
@@ -248,15 +271,41 @@ bool BuildCanonicalLoops (const std::vector<std::vector<double>>& pieces, const 
                 return false;
             }
             keys[i] = Key { static_cast<int64_t> (std::llround (rx)), static_cast<int64_t> (std::llround (ry)) };
+            vertices.insert (keys[i]);
         }
         for (size_t i = 0; i < count; ++i) {
             const Key a = keys[i];
             const Key b = keys[(i + 1) % count];
             if (a == b)
                 continue;
-            edgeCount[MakeEdge (a, b)]++;
-            directedCount[std::make_pair (a, b)]++;
-            directed.push_back (std::make_pair (a, b));
+            pieceEdges.emplace_back (a, b);
+        }
+    }
+
+    // Modeler convex pieces can meet at T-junctions: AB on one piece is AC + CB
+    // on its neighbour. Cancel only after splitting at existing, exactly
+    // collinear snapped vertices. No new geometry, fuzzy welding or union that
+    // could hide duplicate/overlapping triangles. Bound the quadratic work and
+    // refuse rather than publish a partially normalized boundary.
+    size_t splitWork = 0;
+    for (const auto& edge : pieceEdges) {
+        std::vector<Key> split { edge.first, edge.second };
+        for (const Key& vertex : vertices) {
+            if (++splitWork > 2000000) {
+                reason = "boundary subdivision work budget exceeded";
+                return false;
+            }
+            if (vertex != edge.first && vertex != edge.second && ExactOnSegment (edge.first, edge.second, vertex))
+                split.push_back (vertex);
+        }
+        std::sort (split.begin (), split.end ());
+        if (edge.second < edge.first)
+            std::reverse (split.begin (), split.end ());
+        for (size_t i = 1; i < split.size (); ++i) {
+            const auto segment = std::make_pair (split[i - 1], split[i]);
+            edgeCount[MakeEdge (segment.first, segment.second)]++;
+            directedCount[segment]++;
+            directed.push_back (segment);
         }
     }
 

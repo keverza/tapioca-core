@@ -69,7 +69,7 @@ __all__ = [
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
-_INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh", "storeys", "selected", "perRow"}
+_INTEGER_KEYS = {"indices", "triangles", "ticks", "decimals", "bands", "mesh", "storeys", "selected", "perRow"}
 
 _ANCHORS = ("top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right")
 
@@ -640,6 +640,8 @@ def dimension(
     color=None,
     width=None,
     text_size=None,
+    text_size_metres=None,
+    min_projected_pixels=None,
     text_color=None,
     halo=None,
     halo_size=None,
@@ -676,6 +678,8 @@ def dimension(
             ("offsetMetres", offset),
             ("widthPixels", width),
             ("textSizePixels", text_size),
+            ("textSizeMetres", text_size_metres),
+            ("textMinProjectedPixels", min_projected_pixels),
             ("haloPixels", halo_size),
             ("terminatorSizePixels", terminator_size),
         ),
@@ -689,6 +693,7 @@ def text(
     screen=None,
     plane=None,
     size=None,
+    min_projected_pixels=None,
     color=None,
     halo=None,
     halo_size=None,
@@ -725,6 +730,7 @@ def text(
         out["plane"] = {"direction": point3(direction), "normal": point3(normal), "sizeMetres": float(height)}
     for key, value in (
         ("sizePixels", size),
+        ("minProjectedPixels", min_projected_pixels),
         ("haloPixels", halo_size),
         ("haloScale", halo_scale),
         ("rotationDegrees", rotation),
@@ -827,6 +833,7 @@ def heatmap(
     isolines=None,
     opacity=None,
     occlusion=None,
+    hover_cells=None,
 ):
     """A mesh coloured by a value per vertex: flat x, y, z points, three indices per
     triangle. Smooth by default; `bands` steps it, `isolines` ({"step", "color"}) draws
@@ -844,6 +851,18 @@ def heatmap(
     }
     if style:
         out["style"] = style
+    if hover_cells is not None:
+        out["hoverCells"] = [
+            {
+                "triangles": [int(i) for i in cell["triangles"]],
+                "center": point3(cell["center"]),
+                "from": point3(cell["from"]),
+                "to": point3(cell["to"]),
+                "normal": point3(cell["normal"]),
+                "floorGuid": str(cell["floor_guid"]),
+            }
+            for cell in hover_cells
+        ]
     return out
 
 

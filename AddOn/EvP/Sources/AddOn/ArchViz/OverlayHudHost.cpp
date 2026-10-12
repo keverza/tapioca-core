@@ -49,6 +49,17 @@ std::string Readable (const std::string& name)
 
 } // namespace
 
+bool ReadoutOnPage (const Hover& hover, const std::string& pageKey,
+                    const std::vector<std::string>& titledPanelKeys)
+{
+    if (hover.layer.empty ())
+        return true;
+    const bool hasTitledPage = std::any_of (titledPanelKeys.begin (), titledPanelKeys.end (), [&] (const auto& key) {
+        return LayerOf (key) == hover.layer;
+    });
+    return !hasTitledPage || LayerOf (pageKey) == hover.layer;
+}
+
 void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys)
 {
     titled.clear ();
@@ -302,9 +313,9 @@ void Engine::Impl::Settings ()
 }
 
 // ⚠️ HOVER MODE'S READOUT IS IN THE HOST (the user, 2026-10-01: in the ImGui panel, not near
-// the pointer). Under the page, whichever tab it shows: what the pointer is on -- a slice's
-// figures, a heatmap's value -- held while the pointer is on the HUD (Frame). A view that does
-// not read under the pointer says so rather than "nothing".
+// the pointer). A titled layer's page owns its readout; only layers without a titled page
+// use the shared footer. Held while the pointer is on the HUD (Frame). A view that does not
+// read under the pointer says so rather than "nothing".
 void Engine::Impl::Readout ()
 {
     ImGui::SeparatorText ("Under the pointer");
@@ -392,12 +403,23 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
                 layer = LayerOf (k);
                 Items (*panels[i], StateOf (k, *panels[i]), ui);
                 return;
-            }
+        }
     };
-    const hudshell::HostResult result = hudshell::Host (spec, host.selected, shownHost, host.placement, page, [&] () {
-        if (store->hover)
-            Readout ();
-    });
+    std::vector<std::string> titledPanelKeys;
+    titledPanelKeys.reserve (titled.size ());
+    for (const size_t i : titled)
+        titledPanelKeys.push_back (keys[i]);
+    std::string pageKey;
+    const hudshell::HostResult result = hudshell::Host (
+        spec, host.selected, shownHost, host.placement,
+        [&] (const std::string& k) {
+            pageKey = k;
+            page (k);
+        },
+        [&] () {
+            if (store->hover && ReadoutOnPage (readout, pageKey, titledPanelKeys))
+                Readout ();
+        });
     windows.back () = result.window;
     hostScrolls = result.scrolls;
     if (!result.pressed.empty ()) {

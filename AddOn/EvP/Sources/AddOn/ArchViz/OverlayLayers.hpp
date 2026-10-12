@@ -154,6 +154,19 @@ struct MeshStyle {
     std::vector<float> edgeDashMetres;
 };
 
+// Optional semantic cell metadata for heatmaps whose triangles represent measured
+// samples. `triangles` maps arbitrary mesh triangles to one cell without assuming a
+// fixed triangle-pair layout; endpoints are the stored measurement, not reconstructed
+// from the rendered surface.
+struct HoverCell {
+    std::vector<uint32_t> triangles;
+    double center[3] = {};
+    double from[3] = {};
+    double to[3] = {};
+    double normal[3] = {};
+    std::string floorGuid;
+};
+
 struct Mesh {
     std::vector<double> points;       // x, y, z
     std::vector<uint32_t> indices;    // three per triangle
@@ -163,6 +176,8 @@ struct Mesh {
     // per-vertex values for a heatmap, and how the whole mesh is drawn.
     std::vector<double> normals;
     std::vector<double> values;
+    std::vector<HoverCell> hoverCells;
+    std::vector<int32_t> hoverCellByTriangle; // -1 where a triangle has no semantic cell
     Colormap colormap;
     MeshStyle style;
     bool styled = false; // the caller gave a style: the guest draws it
@@ -408,9 +423,14 @@ struct Panel {
 // A theme's colours, rounding and padding, over `panel`'s own defaults.
 void ApplyTheme (Panel& panel, PanelTheme theme);
 
+// OVERLAY-INVARIANTS.md §8: command previews end before another command starts;
+// all project layers already end through OverlayRelease::Shared on document change.
+enum class LayerLifetime { Project, Command };
+
 struct Layer {
     std::string name;
     Views views = Views::Both;
+    LayerLifetime lifetime = LayerLifetime::Project;
     // 3D only: what an item that names no occlusion of its own does behind the
     // building's opaque surfaces (the host occluder). Hidden, as the reference wireframe
     // is, unless the caller says otherwise. Never `Behind::Layer`.
@@ -468,6 +488,8 @@ uint64_t Set (Layer layer);
 bool Clear (const std::string& name);
 // Every caller layer; the reserved ones stay.
 void ClearAll ();
+// Only opt-in transient previews; unrelated caller/reserved layers remain.
+bool ClearCommandScoped ();
 // Every layer, reserved ones too: a project close (§8).
 void ClearEverything ();
 // Every layer, in the order they were first set -- the draw order.

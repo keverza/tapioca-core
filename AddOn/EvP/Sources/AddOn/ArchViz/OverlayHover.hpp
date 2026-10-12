@@ -39,6 +39,8 @@ struct Hit {
     uint32_t triangle = 0;
     bool hasValue = false;
     double value = 0.0; // the mesh's values at the point, between its triangle's corners
+    bool hasCell = false;
+    size_t cell = 0;
 };
 
 // The plan: the topmost mesh drawn in 2D whose triangle covers the model point (x, y) -- the
@@ -54,6 +56,8 @@ overlayhud::Hover Readout (const overlaylayers::Layer& layer, const Hit& hit);
 // a heatmap, the cell under the pointer. Both views: their renderers draw it with their own
 // camera or transform, so the tint stays on the item as the view moves.
 void TintModel (const overlaylayers::Mesh& mesh, std::vector<double>& out, int64_t only = -1);
+void TintModel (const overlaylayers::Mesh& mesh, std::vector<double>& out,
+                const std::vector<uint32_t>& onlyTriangles);
 
 // ---- the 3D view (D19) ------------------------------------------------------------------
 

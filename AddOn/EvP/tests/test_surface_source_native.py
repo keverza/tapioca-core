@@ -64,3 +64,12 @@ def test_source_triangle_indices_are_not_render_triangle_indices():
     assert face["properties"]["sourceTriangles"]["items"]["minimum"] == 0
     assert face["properties"]["sourceBody"]["minimum"] == 1
     assert response["properties"]["indexSpace"]["const"] == "ModelerAPI-1-based"
+
+
+def test_query_inventory_is_explicitly_scoped_and_full_inventory_stays_strict():
+    source = SOURCE.read_text()
+    assert "surfacemap::EnumerateQuerySourceFaces (*mesh, query, &reason)" in source
+    assert "surfacemap::EnumerateSourceFaces (*mesh, &reason)" in source
+    _, response = schemas()
+    assert response["properties"]["inventoryScope"]["enum"] == ["element", "queryBounds"]
+    assert "inventoryScope" in response["required"]

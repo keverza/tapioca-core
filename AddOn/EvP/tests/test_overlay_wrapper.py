@@ -113,7 +113,25 @@ def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch)
     overlay.set_layer(
         "sun",
         texts=[overlay.text("Origin", at=(0, 0, 0), offset=(6, -6))],
-        meshes=[overlay.heatmap([0, 0, 0, 1, 0, 0, 1, 1, 0], [0, 1, 2], [2, 8, 5], "sunhours", bands=8)],
+        meshes=[
+            overlay.heatmap(
+                [0, 0, 0, 1, 0, 0, 1, 1, 0],
+                [0, 1, 2],
+                [2, 8, 5],
+                "sunhours",
+                bands=8,
+                hover_cells=[
+                    {
+                        "triangles": [0],
+                        "center": (0.5, 0.5, 0),
+                        "from": (0.5, 0.5, 0),
+                        "to": (0.5, 0.5, 2),
+                        "normal": (0, 0, 1),
+                        "floor_guid": "floor-guid",
+                    }
+                ],
+            )
+        ],
         legends=[overlay.legend(None, mesh=0, title="Sun hours", decimals=1, horizontal=True, screen=(0.5, 1))],
         panels=[overlay.Panel(title="HUD").row("GFA", "2633 m2")],
     )
@@ -127,6 +145,8 @@ def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch)
     assert label["offsetPixels"] == {"x": 6.0, "y": -6.0}
     mesh = params["meshes"][0]
     assert mesh["indices"] == [0, 1, 2] and all(isinstance(i, int) for i in mesh["indices"])
+    assert mesh["hoverCells"][0]["triangles"] == [0]
+    assert all(isinstance(i, int) for i in mesh["hoverCells"][0]["triangles"])
     assert all(isinstance(v, float) for v in mesh["values"])
     assert mesh["colormap"]["bands"] == 8 and isinstance(mesh["colormap"]["bands"], int)
     legend = params["legends"][0]
@@ -136,13 +156,44 @@ def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch)
     assert params["panels"][0]["items"][0] == {"kind": "row", "text": "GFA", "value": "2633 m2"}
 
 
+def test_heatmap_carries_explicit_semantic_cell_measurements():
+    mesh = overlay.heatmap(
+        [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0],
+        [0, 1, 2, 0, 2, 3],
+        [2.5] * 4,
+        "clearance",
+        hover_cells=[
+            {
+                "triangles": [0, 1],
+                "center": (0.5, 0.5, 0.0),
+                "from": (0.5, 0.5, 0.0),
+                "to": (0.5, 0.5, 2.5),
+                "normal": (0, 0, 1),
+                "floor_guid": "floor-guid",
+            }
+        ],
+    )
+    cell = mesh["hoverCells"][0]
+    assert cell["triangles"] == [0, 1]
+    assert cell["center"] == {"x": 0.5, "y": 0.5, "z": 0.0}
+    assert cell["from"]["z"] == 0.0 and cell["to"]["z"] == 2.5
+    assert cell["floorGuid"] == "floor-guid"
+
+
 def test_a_text_on_a_plane_carries_its_plane():
-    label = overlay.text("Hall", at=(10, 20, 3), plane=((0, 1, 0), (0, 0, 1), 0.5), align="left")
+    label = overlay.text(
+        "Hall",
+        at=(10, 20, 3),
+        plane=((0, 1, 0), (0, 0, 1), 0.5),
+        align="left",
+        min_projected_pixels=18,
+    )
     assert label["plane"] == {
         "direction": {"x": 0.0, "y": 1.0, "z": 0.0},
         "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
         "sizeMetres": 0.5,
     }
+    assert label["minProjectedPixels"] == 18.0
     assert label["at"] == overlay.point3({"x": 10, "y": 20, "z": 3})
     with pytest.raises(ValueError):
         overlay.text("both", at=(0, 0, 0), screen=(0, 0))
@@ -216,9 +267,12 @@ def test_every_item_kind_carries_its_style():
         terminator="arrow",
         terminator_size=8,
         show_unit=True,
+        text_size_metres=0.2,
+        min_projected_pixels=14,
     )
     assert measure["from"] == {"x": 0.0, "y": 0.0, "z": 0.0} and measure["direction"]["y"] == -1.0
     assert measure["textColor"] == "202020FF" and measure["terminatorSizePixels"] == 8.0
+    assert measure["textSizeMetres"] == 0.2 and measure["textMinProjectedPixels"] == 14.0
     marks = overlay.points([(1, 2, 3)], color="#00FF00", size=6)
     assert marks == {"points": [1.0, 2.0, 3.0], "color": "00FF00FF", "sizePixels": 6.0}
     with pytest.raises(ValueError):
@@ -349,8 +403,10 @@ def test_the_controls_are_the_wire_names():
 def test_a_grids_cells_to_a_row_are_an_integer_on_the_wire():
     # The schema says integer and the validator refuses a real: sent as 2.0, a panel with a
     # grid or a key of two to a row failed its whole layer.
-    panel = overlay.Panel().metrics([("Site area", "11 214 m2"), ("BCR", "20 %")], per_row=2).swatch(
-        "#2A7F86", "Healthcare", value="18.3 %", per_row=2
+    panel = (
+        overlay.Panel()
+        .metrics([("Site area", "11 214 m2"), ("BCR", "20 %")], per_row=2)
+        .swatch("#2A7F86", "Healthcare", value="18.3 %", per_row=2)
     )
     items = overlay._reals({"panels": [panel.to_dict()]})["panels"][0]["items"]
     assert items[0]["perRow"] == 2 and isinstance(items[0]["perRow"], int)

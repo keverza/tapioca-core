@@ -296,10 +296,10 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const overlaylayers::Layer
 // against for a value tooltip. The engine is one view's: each keeps its own state.
 Plan PreparePlanHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlayhud::Engine* hud,
                      float scale, const overlayhud::Input& input = overlayhud::Input (),
-                     const std::vector<overlayinput::Region>* legends = nullptr);
+                     const std::vector<overlayinput::Region>* legends = nullptr, overlaytext::Engine* text = nullptr);
 Scene PrepareSceneHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlayhud::Engine* hud,
                        float scale, const overlayhud::Input& input = overlayhud::Input (),
-                       const std::vector<overlayinput::Region>* legends = nullptr);
+                       const std::vector<overlayinput::Region>* legends = nullptr, overlaytext::Engine* text = nullptr);
 
 // What a HUD stream puts on screen, in one number: two layouts with the same one draw
 // the same pixels, so the second need not be uploaded or redrawn.

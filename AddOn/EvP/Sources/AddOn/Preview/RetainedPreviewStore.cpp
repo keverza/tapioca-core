@@ -1,4 +1,5 @@
 #include "Preview/RetainedPreviewStore.hpp"
+#include "Annotation/RetainedTraceSelection.hpp"
 
 #include <utility>
 
@@ -85,6 +86,20 @@ void RetainedPreviewStore::ClearWatchSelection ()
     std::lock_guard<std::mutex> lock (mutex);
     selectedWatchNode.reset ();
     selectedWatchFrame.reset ();
+}
+
+void RetainedPreviewStore::Clear ()
+{
+    {
+        std::lock_guard<std::mutex> lock (mutex);
+        previewScene.reset ();
+        auto empty = std::make_shared<WatchTraceSnapshot> ();
+        empty->generation = ++generation;
+        watchTrace = std::move (empty);
+        selectedWatchNode.reset ();
+        selectedWatchFrame.reset ();
+    }
+    geomsrv::annotation::ClearRetainedFrameCache ();
 }
 
 } // namespace evp::preview

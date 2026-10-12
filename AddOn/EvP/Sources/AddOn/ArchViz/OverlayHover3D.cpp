@@ -86,7 +86,10 @@ void Fill (overlayhud::Input& input)
     hover.picks = true;
     const bool whole = mesh.values.empty () && mesh.indices.size () / 3 <= kTintTriangles;
     // In model metres: the guest draws it with the camera of every Present, through an orbit.
-    overlayhover::TintModel (mesh, hover.tintModel, whole ? -1 : int64_t (hit.triangle));
+    if (hit.hasCell && hit.cell < mesh.hoverCells.size ())
+        overlayhover::TintModel (mesh, hover.tintModel, mesh.hoverCells[hit.cell].triangles);
+    else
+        overlayhover::TintModel (mesh, hover.tintModel, whole ? -1 : int64_t (hit.triangle));
     input.hover = std::move (hover);
 }
 
@@ -102,6 +105,12 @@ void Projection (overlayhud::Input& input)
     cameralayout::ViewProjection (camera.projection, camera.view, viewProjection.data ());
     std::array<float, 4> viewport {};
     std::copy (std::begin (camera.viewport), std::end (camera.viewport), viewport.begin ());
+    // This captured projection's homogeneous-w column points into the visible half-space
+    // (ProjectThrough accepts w > 0), so it is the camera-to-scene direction in model space.
+    input.hasCameraDirection = true;
+    input.cameraDirection[0] = camera.projection[3];
+    input.cameraDirection[1] = camera.projection[7];
+    input.cameraDirection[2] = camera.projection[11];
     input.project = [viewProjection, viewport] (double x, double y, double z, float& px, float& py) {
         float invW = 0.0f;
         return overlayhover::ProjectThrough (viewProjection.data (), viewport.data (), x, y, z, px, py, invW);

@@ -87,30 +87,32 @@ class InspectSurfaceSourceFaceCommand : public MainThreadCommand {
             return NativeCommandResult::Failure (
                 EVP_FAIL ("element is absent from the snapshot", "Tapioca.InspectSurfaceSourceFace"));
 
+        GS::Array<double> polygonPoints;
+        GS::Array<GS::Array<double>> polygonPieces;
+        const bool havePoints = params.Get ("polygonPoints", polygonPoints);
+        const bool havePieces = params.Get ("polygonPieces", polygonPieces);
+        const bool haveQuery = havePoints || havePieces;
+        surfacemap::FaceQuery query;
+        query.points.assign (polygonPoints.Begin (), polygonPoints.End ());
+        for (const auto& piece : polygonPieces)
+            query.pieces.emplace_back (piece.Begin (), piece.End ());
         std::string reason;
-        const auto faces = surfacemap::EnumerateSourceFaces (*mesh, &reason);
+        const auto faces = haveQuery ? surfacemap::EnumerateQuerySourceFaces (*mesh, query, &reason)
+                                     : surfacemap::EnumerateSourceFaces (*mesh, &reason);
         GS::ObjectState output;
         output.Add ("snapshotId", snapshotId);
         output.Add ("captureStamp", captureStamp);
         output.Add ("elementId", elementId);
         output.Add ("unit", GS::UniString ("m2"));
         output.Add ("indexSpace", GS::UniString ("ModelerAPI-1-based"));
+        output.Add ("inventoryScope", GS::UniString (haveQuery ? "queryBounds" : "element"));
         GS::Array<GS::ObjectState> rows;
         for (const auto& face : faces)
             rows.Push (DescribeFace (face));
         output.Add ("faces", rows);
 
-        GS::Array<double> polygonPoints;
-        GS::Array<GS::Array<double>> polygonPieces;
-        const bool havePoints = params.Get ("polygonPoints", polygonPoints);
-        const bool havePieces = params.Get ("polygonPieces", polygonPieces);
-        const bool haveQuery = havePoints || havePieces;
         const char* status = reason.empty () ? "enumerated" : "invalid";
         if (reason.empty () && haveQuery) {
-            surfacemap::FaceQuery query;
-            query.points.assign (polygonPoints.Begin (), polygonPoints.End ());
-            for (const auto& piece : polygonPieces)
-                query.pieces.emplace_back (piece.Begin (), piece.End ());
             const auto match = surfacemap::Resolve (faces, query);
             reason = match.reason;
             switch (match.status) {
@@ -163,7 +165,40 @@ constexpr const char kSourceInput[] =
     }
 })json";
 constexpr const char kSourceOutput[] =
-    R"json({"type":"object","properties":{"elementId":{"$ref":"#/$defs/elementId"},"snapshotId":{"type":"integer","minimum":1},"captureStamp":{"type":"integer","minimum":1},"unit":{"const":"m2"},"indexSpace":{"const":"ModelerAPI-1-based"},"status":{"enum":["enumerated","matched","invalid","noMatch","ambiguous"]},"reason":{"type":"string"},"faces":{"type":"array","items":{"$ref":"#/$defs/face"}},"matchedFace":{"$ref":"#/$defs/face"}},"additionalProperties":false,"required":["elementId","snapshotId","captureStamp","unit","indexSpace","status","reason","faces"],"$defs":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"vector3":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},"face":{"type":"object","properties":{"sourceBody":{"type":"integer","minimum":1},"sourcePgon":{"type":"integer","minimum":1},"areaM2":{"type":"number","minimum":0},"centroid":{"$ref":"#/$defs/vector3"},"normal":{"$ref":"#/$defs/vector3"},"sourceTriangles":{"type":"array","items":{"type":"integer","minimum":0}}},"additionalProperties":false,"required":["sourceBody","sourcePgon","areaM2","centroid","normal","sourceTriangles"]}}})json";
+    R"json({
+    "type":"object",
+    "properties":{
+        "elementId":{"$ref":"#/$defs/elementId"},
+        "snapshotId":{"type":"integer","minimum":1},
+        "captureStamp":{"type":"integer","minimum":1},
+        "unit":{"const":"m2"},
+        "indexSpace":{"const":"ModelerAPI-1-based"},
+        "inventoryScope":{"type":"string","enum":["element","queryBounds"],"description":"With a complete contour query, faces lists only geometric candidates; it is not a whole-element inventory."},
+        "status":{"enum":["enumerated","matched","invalid","noMatch","ambiguous"]},
+        "reason":{"type":"string"},
+        "faces":{"type":"array","items":{"$ref":"#/$defs/face"}},
+        "matchedFace":{"$ref":"#/$defs/face"}
+    },
+    "additionalProperties":false,
+    "required":["elementId","snapshotId","captureStamp","unit","indexSpace","inventoryScope","status","reason","faces"],
+    "$defs":{
+        "elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},
+        "vector3":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
+        "face":{
+            "type":"object",
+            "properties":{
+                "sourceBody":{"type":"integer","minimum":1},
+                "sourcePgon":{"type":"integer","minimum":1},
+                "areaM2":{"type":"number","minimum":0},
+                "centroid":{"$ref":"#/$defs/vector3"},
+                "normal":{"$ref":"#/$defs/vector3"},
+                "sourceTriangles":{"type":"array","items":{"type":"integer","minimum":0}}
+            },
+            "additionalProperties":false,
+            "required":["sourceBody","sourcePgon","areaM2","centroid","normal","sourceTriangles"]
+        }
+    }
+})json";
 
 const NativeCommandRegistration kSurfaceSourceCommandRegistrations[] = {
     { "InspectSurfaceSourceFace", &MakeRegisteredNativeCommand<InspectSurfaceSourceFaceCommand>, false, kSourceInput,

@@ -106,6 +106,9 @@ class RetainedPreviewStore {
 
     bool SelectWatchFrame (std::size_t nodeIndex, std::size_t frameIndex);
     void ClearWatchSelection ();
+    // Forget model-derived scenes/traces at command/project boundaries. Publish an
+    // empty generation so a palette host notices instead of retaining stale pixels.
+    void Clear ();
 
   private:
     mutable std::mutex mutex;

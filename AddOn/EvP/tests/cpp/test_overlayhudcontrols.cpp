@@ -759,3 +759,17 @@ TEST (OverlayHudControls, HoverModeOpensThePanelItReadsOutIn)
     EXPECT_TRUE (hud::HudOpen (*hud.state)) << "the readout's panel open";
     EXPECT_EQ (hud.heard.back ().kind, "hover");
 }
+
+TEST (OverlayHudControls, AReadoutFromATitledLayerRoutesToItsPanelNotSettings)
+{
+    hud::Hover hover;
+    hover.layer = "clearance-heatmap";
+    const std::vector<std::string> titled = { "clearance-heatmap#0", "other#0" };
+    EXPECT_TRUE (hud::ReadoutOnPage (hover, "clearance-heatmap#0", titled));
+    EXPECT_FALSE (hud::ReadoutOnPage (hover, "tapioca.settings", titled));
+    EXPECT_FALSE (hud::ReadoutOnPage (hover, "other#0", titled));
+
+    hover.layer = "untitled-overlay";
+    EXPECT_TRUE (hud::ReadoutOnPage (hover, "tapioca.settings", titled))
+        << "layers without titled panels keep the host footer";
+}

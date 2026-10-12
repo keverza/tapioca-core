@@ -23,6 +23,8 @@ struct RetainedFrameSnapshot {
 // Implemented by Preview's retained-store adapter. The converted draw list is
 // immutable and cached by trace generation, so render hosts only copy a pointer.
 std::optional<RetainedFrameSnapshot> SelectedRetainedFrameSnapshotCopy ();
+// Command/project teardown releases the converted copy as well as source geometry.
+void ClearRetainedFrameCache ();
 
 } // namespace geomsrv::annotation
 

@@ -305,6 +305,9 @@ bool PreviewPanel::PollRetained ()
             const bool haveFrame = SelectFirstAvailableFrame ();
             if (!haveFrame) {
                 preview::RetainedPreviewStore::Get ().ClearWatchSelection ();
+                // OVERLAY-INVARIANTS.md §8: an empty generation releases the band host too.
+                if (kind == "3d" && (host.current == Host::Band || host.target == Host::Band))
+                    Request3DHost (Host::None);
                 UpdateLabels ();
                 if (canvas)
                     canvas->Redraw ();

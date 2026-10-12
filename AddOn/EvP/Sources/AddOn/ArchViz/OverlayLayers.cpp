@@ -402,6 +402,31 @@ std::string Validate (const Layer& layer)
             if (!ramp.empty ())
                 return Numbered ("mesh", i, ramp);
         }
+        if (mesh.hoverCells.size () > 8192)
+            return Numbered ("mesh", i, "hoverCells has at most 8192 semantic samples");
+        if (!mesh.hoverCellByTriangle.empty () && mesh.hoverCellByTriangle.size () != mesh.indices.size () / 3)
+            return Numbered ("mesh", i, "hoverCellByTriangle has one entry per triangle or none");
+        std::vector<int32_t> cellForTriangle (mesh.indices.size () / 3, -1);
+        for (size_t cellIndex = 0; cellIndex < mesh.hoverCells.size (); ++cellIndex) {
+            const HoverCell& cell = mesh.hoverCells[cellIndex];
+            if (cell.triangles.empty () || cell.triangles.size () > 64 || !Finite3 (cell.center) ||
+                !Finite3 (cell.from) || !Finite3 (cell.to) || !Finite3 (cell.normal) || cell.floorGuid.empty () ||
+                cell.floorGuid.size () > 64)
+                return Numbered ("mesh", i, "a hover cell has finite points, a normal, a GUID and 1 to 64 triangles");
+            const double normalLength = std::sqrt (cell.normal[0] * cell.normal[0] + cell.normal[1] * cell.normal[1] +
+                                                   cell.normal[2] * cell.normal[2]);
+            const double dx = cell.to[0] - cell.from[0], dy = cell.to[1] - cell.from[1],
+                         dz = cell.to[2] - cell.from[2];
+            if (!(normalLength > 1e-12) || dx * dx + dy * dy + dz * dz < kSamePoint * kSamePoint)
+                return Numbered ("mesh", i, "a hover cell has a nonzero normal and distinct measured endpoints");
+            for (const uint32_t triangle : cell.triangles) {
+                if (triangle >= cellForTriangle.size () || cellForTriangle[triangle] >= 0)
+                    return Numbered ("mesh", i, "hover cell triangle references are in-range and unique");
+                cellForTriangle[triangle] = int32_t (cellIndex);
+            }
+        }
+        if (!mesh.hoverCellByTriangle.empty () && mesh.hoverCellByTriangle != cellForTriangle)
+            return Numbered ("mesh", i, "hoverCellByTriangle agrees with hoverCells");
         const MeshStyle& style = mesh.style;
         if (!InRange (style.opacity, 0.0f, 1.0f) || !InRange (style.edgeWidthPixels, 0.25f, 16.0f) ||
             !InRange (style.edgeAngleDegrees, 0.0f, 180.0f))
@@ -563,6 +588,21 @@ void ClearEverything ()
         return;
     g_layers.clear ();
     ++g_generation;
+    // The styled copy cache otherwise holds the previous document until another
+    // renderer asks for Layers. Teardown must release it even when no view draws.
+    (void) Layers ();
+}
+
+bool ClearCommandScoped ()
+{
+    // OVERLAY-INVARIANTS.md §8: release the prior run's geometry, not overlay intent.
+    const auto end = std::remove_if (g_layers.begin (), g_layers.end (),
+                                     [] (const auto& layer) { return layer->lifetime == LayerLifetime::Command; });
+    if (end == g_layers.end ())
+        return false;
+    g_layers.erase (end, g_layers.end ());
+    ++g_generation;
+    return true;
 }
 
 bool Reserved (const std::string& name)

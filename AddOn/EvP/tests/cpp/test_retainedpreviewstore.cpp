@@ -125,4 +125,40 @@ TEST (RetainedPreviewStore, RetainedAnnotationSelectionFollowsTheSelectedWatchFr
     EXPECT_DOUBLE_EQ (selected->SelectedFrame ().primitives[0].points[0].y, 2.0);
 }
 
+TEST (RetainedPreviewStore, ClearDropsModelGeometryAndPublishesAnEmptyGeneration)
+{
+    preview::RetainedPreviewStore store;
+    store.PublishPreviewScene (preview::PreviewScene {});
+    preview::WatchTrace trace;
+    trace.nodes.resize (1);
+    trace.nodes[0].frames.resize (1);
+    const auto before = store.PublishWatchTrace (std::move (trace));
+    std::weak_ptr<const preview::WatchTraceSnapshot> oldTrace = store.WatchTraceSnapshotCopy ();
+    std::weak_ptr<const preview::PreviewSceneSnapshot> oldScene = store.PreviewSceneSnapshotCopy ();
+    store.Clear ();
+    EXPECT_TRUE (oldTrace.expired ());
+    EXPECT_TRUE (oldScene.expired ());
+    EXPECT_EQ (store.PreviewSceneSnapshotCopy (), nullptr);
+    ASSERT_NE (store.WatchTraceSnapshotCopy (), nullptr);
+    EXPECT_GT (store.WatchTraceSnapshotCopy ()->generation, before);
+    EXPECT_TRUE (store.WatchTraceSnapshotCopy ()->trace.nodes.empty ());
+    EXPECT_FALSE (store.SelectedWatchFrameSnapshotCopy ().has_value ());
+}
+
+TEST (RetainedPreviewStore, ConvertedGeometryDoesNotOutliveClearedSelection)
+{
+    auto& store = preview::RetainedPreviewStore::Get ();
+    preview::WatchTrace trace;
+    trace.nodes.resize (1);
+    trace.nodes[0].frames.resize (1);
+    store.PublishWatchTrace (std::move (trace));
+    auto selected = geomsrv::annotation::SelectedRetainedFrameSnapshotCopy ();
+    ASSERT_TRUE (selected.has_value ());
+    std::weak_ptr<const geomsrv::annotation::DrawList> geometry = selected->drawList;
+    selected.reset ();
+    store.Clear ();
+    EXPECT_TRUE (geometry.expired ());
+    EXPECT_FALSE (geomsrv::annotation::SelectedRetainedFrameSnapshotCopy ().has_value ());
+}
+
 } // namespace

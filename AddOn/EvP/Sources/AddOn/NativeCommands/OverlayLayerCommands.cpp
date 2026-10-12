@@ -261,6 +261,7 @@ class OverlayLayersCommand : public MainThreadCommand {
 constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properties":{
     "layer":{"type":"string","minLength":1,"maxLength":64},
     "views":{"type":"string","enum":["2d","3d","both"]},
+    "lifetime":{"type":"string","enum":["project","command"],"description":"Command previews are cleared before the next palette run; all layers end with the project."},
     "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
     "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
     "polylines":{"type":"array","maxItems":20000,"items":{"type":"object","properties":{
@@ -288,6 +289,11 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "vertexColors":{"type":"array","maxItems":100000,"description":"One colour per vertex.","items":{"$ref":"#Color"}},
         "normals":{"type":"array","minItems":9,"maxItems":300000,"description":"Packed x, y, z per vertex; stride 3.","items":{"type":"number"}},
         "values":{"type":"array","minItems":3,"maxItems":100000,"description":"One value per vertex.","items":{"type":"number"}},
+        "hoverCells":{"type":"array","maxItems":8192,"description":"Semantic per-cell measured samples; triangle indices are explicit.","items":{"type":"object","properties":{
+            "triangles":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"integer","minimum":0}},
+            "center":{"$ref":"#Point3D"},"from":{"$ref":"#Point3D"},"to":{"$ref":"#Point3D"},
+            "normal":{"$ref":"#Point3D"},"floorGuid":{"type":"string","minLength":1,"maxLength":64}},
+          "additionalProperties":false,"required":["triangles","center","from","to","normal","floorGuid"]}},
         "colormap":{"type":"object","properties":{
             "preset":{"type":"string","enum":["viridis","inferno","magma","plasma","turbo","coolwarm","greys","sunhours","slope","clearance"]},
             "stops":{"type":"array","minItems":2,"maxItems":16,"items":{"type":"object","properties":{
@@ -322,6 +328,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "halo":{"$ref":"#Color"},
         "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
         "haloScale":{"type":"number","minimum":0,"maximum":8},
+        "minProjectedPixels":{"type":"number","minimum":0,"maximum":256,"description":"For model-sized text, hide until its world-size em projects this many pixels."},
         "background":{"$ref":"#Color"},
         "align":{"type":"string","enum":["left","center","right"]},
         "baseline":{"type":"string","enum":["top","middle","bottom","alphabetic"]},
@@ -347,6 +354,8 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "color":{"$ref":"#Color"},
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":16},
         "textSizePixels":{"type":"number","minimum":4,"maximum":128},
+        "textSizeMetres":{"type":"number","minimum":0,"maximum":1000,"description":"Positive makes dimension text model-sized; 0 keeps it screen-sized."},
+        "textMinProjectedPixels":{"type":"number","minimum":0,"maximum":256,"description":"Hide model-sized dimension text until it projects this many pixels."},
         "textColor":{"$ref":"#Color"},
         "halo":{"$ref":"#Color"},
         "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},

@@ -33,6 +33,8 @@ class PreviewPanel {
     void SetEnabled (bool enabled);
     bool IsEnabled () const;
     void SetPaletteVisible (bool visible);
+    // Main-thread context boundary, including while hidden/disabled (no poll then).
+    void ForgetContext ();
 
     bool HandleCheckItemChanged (const DG::CheckItemChangeEvent& event);
     bool HandleButtonClicked (const DG::ButtonClickEvent& event);

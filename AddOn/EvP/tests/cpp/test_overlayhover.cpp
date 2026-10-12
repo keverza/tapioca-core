@@ -53,6 +53,7 @@ TEST (OverlayHover, ASliceUnderThePointerSaysItsFigures)
     EXPECT_FALSE (hit.hasValue);
     const geomsrv::archviz::overlayhud::Hover said = hover::Readout (*all[0], hit);
     EXPECT_TRUE (said.active);
+    EXPECT_EQ (said.layer, "tapioca.storeySlices");
     EXPECT_EQ (said.title, "A-01 F2");
     ASSERT_EQ (said.rows.size (), 1u);
     EXPECT_EQ (said.rows[0].first, "Area");
@@ -97,9 +98,47 @@ TEST (OverlayHover, AHeatmapSaysItsValueAtThePointInItsLegendsUnit)
     EXPECT_NEAR (hit.value, 2.5, 1e-9);
     const geomsrv::archviz::overlayhud::Hover said = hover::Readout (*layer, hit);
     EXPECT_EQ (said.title, "sun") << "no title of its own: the layer's name";
+    EXPECT_EQ (said.layer, "sun");
     ASSERT_EQ (said.rows.size (), 1u);
     EXPECT_EQ (said.rows[0].first, "Sun hours");
     EXPECT_EQ (said.rows[0].second, "2.5 h");
+}
+
+TEST (OverlayHover, AHeatmapCellCarriesItsMeasuredEndpointsAndSourceLayer)
+{
+    layers::Mesh heat = Square (0, 0, 1, 1, 0.02);
+    heat.values = { 2.8, 2.8, 2.8, 2.8 };
+    layers::HoverCell cell;
+    cell.triangles = { 0, 1 };
+    cell.center[0] = cell.center[1] = 0.5;
+    cell.center[2] = 0.02;
+    cell.from[0] = cell.to[0] = 0.5;
+    cell.from[1] = cell.to[1] = 0.5;
+    cell.from[2] = 0.2;
+    cell.to[2] = 3.0;
+    cell.normal[2] = 1.0;
+    cell.floorGuid = "measured-floor";
+    heat.hoverCells = { cell };
+    heat.hoverCellByTriangle = { 0, 0 };
+    auto layer = std::make_shared<layers::Layer> ();
+    layer->name = "clearance-heatmap";
+    layer->meshes = { heat };
+    const hover::Hit hit = hover::PickPlan ({ layer }, 0.25, 0.25);
+    ASSERT_TRUE (hit.found);
+    ASSERT_TRUE (hit.hasCell);
+    EXPECT_EQ (hit.cell, 0u);
+    const auto readout = hover::Readout (*layer, hit);
+    EXPECT_EQ (readout.layer, "clearance-heatmap");
+    EXPECT_TRUE (readout.hasMeasuredCell);
+    EXPECT_DOUBLE_EQ (readout.measurementFrom[2], 0.2);
+    EXPECT_DOUBLE_EQ (readout.measurementTo[2], 3.0);
+    ASSERT_EQ (readout.rows.size (), 3u);
+    EXPECT_EQ (readout.rows[0].second, "2.80");
+    EXPECT_EQ (readout.rows[1].first, "Floor");
+    EXPECT_EQ (readout.rows[2].first, "Ceiling");
+    std::vector<double> tint;
+    hover::TintModel (heat, tint, cell.triangles);
+    EXPECT_EQ (tint.size (), 18u) << "the semantic cell tint covers both triangles, not half a quad";
 }
 
 // A plain fill says nothing and is passed over: what is under it is found. A layer the plan

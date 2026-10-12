@@ -76,6 +76,32 @@ TEST (OverlayLayers, ClearingMovesTheGenerationOnlyWhenSomethingWent)
     EXPECT_TRUE (ol::Layers ().empty ());
 }
 
+TEST (OverlayLayers, CommandBoundaryClearsOnlyOptInTransientLayers)
+{
+    Fresh fresh;
+    ol::Layer transient = Square ("temporary-preview");
+    transient.lifetime = ol::LayerLifetime::Command;
+    ol::Set (std::move (transient));
+    ol::Set (Square ("project-analysis"));
+    EXPECT_TRUE (ol::ClearCommandScoped ());
+    const auto remaining = ol::Layers ();
+    ASSERT_EQ (remaining.size (), 1u);
+    EXPECT_EQ (remaining[0]->name, "project-analysis");
+    const auto generation = ol::Generation ();
+    EXPECT_FALSE (ol::ClearCommandScoped ());
+    EXPECT_EQ (ol::Generation (), generation);
+}
+
+TEST (OverlayLayers, ProjectBoundaryDropsTheStyledCopyCacheAsWell)
+{
+    Fresh fresh;
+    ol::Set (Square ("project-preview"));
+    std::weak_ptr<const ol::Layer> cached = ol::Layers ()[0];
+    ol::ClearEverything ();
+    EXPECT_TRUE (cached.expired ());
+    EXPECT_TRUE (ol::Layers ().empty ());
+}
+
 TEST (OverlayLayers, ValidationNamesTheFirstProblemItFinds)
 {
     ol::Layer layer = Square ("ok");
@@ -98,6 +124,33 @@ TEST (OverlayLayers, ValidationNamesTheFirstProblemItFinds)
     ol::Layer nan = Square ("n");
     nan.polylines[0].points[4] = std::nan ("");
     EXPECT_FALSE (ol::Validate (nan).empty ());
+}
+
+TEST (OverlayLayers, SemanticHoverCellsValidateTheirTriangleMapAndMeasuredEndpoints)
+{
+    ol::Layer layer;
+    layer.name = "clearance";
+    ol::Mesh mesh;
+    mesh.points = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
+    mesh.indices = { 0, 1, 2, 0, 2, 3 };
+    mesh.values = { 2.8, 2.8, 2.8, 2.8 };
+    ASSERT_TRUE (ol::PresetStops ("clearance", mesh.colormap.stops));
+    ol::HoverCell cell;
+    cell.triangles = { 0, 1 };
+    cell.center[0] = cell.center[1] = 0.5;
+    cell.from[0] = cell.to[0] = 0.5;
+    cell.from[1] = cell.to[1] = 0.5;
+    cell.from[2] = 0.2;
+    cell.to[2] = 3.0;
+    cell.normal[2] = 1.0;
+    cell.floorGuid = "measured-floor";
+    mesh.hoverCells = { cell };
+    mesh.hoverCellByTriangle = { 0, 0 };
+    layer.meshes = { mesh };
+    EXPECT_TRUE (ol::Validate (layer).empty ()) << ol::Validate (layer);
+
+    layer.meshes[0].hoverCells[0].triangles[1] = 4;
+    EXPECT_NE (ol::Validate (layer).find ("triangle references"), std::string::npos);
 }
 
 TEST (OverlayLayers, ColoursAreWrittenRrggbbaaAndReadRedFirst)
