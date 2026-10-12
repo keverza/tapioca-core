@@ -121,6 +121,7 @@ struct DraftLine {
 
 struct DraftGlyph {
     double anchor[3] = {};
+    double visibility[4] = {}; // whole-label model reference xyz and bounding radius
     double dir[3] = {};
     float offset[2] = {};
     float uv[2] = {};

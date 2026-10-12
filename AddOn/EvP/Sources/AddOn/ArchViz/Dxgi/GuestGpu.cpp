@@ -85,7 +85,8 @@ std::vector<LayoutElement> GlyphLayout (Kind kind)
     const uint32_t s = sizeof (overlayscene::SceneGlyph);
     return { At (0, 3, F32, 0, s, kVertex),  At (1, 3, F32, 12, s, kVertex), At (2, 2, F32, 24, s, kVertex),
              At (3, 2, F32, 32, s, kVertex), At (4, 4, U8, 40, s, kVertex),  At (5, 4, U8, 44, s, kVertex),
-             At (6, 1, F32, 48, s, kVertex), At (7, 1, U32, 52, s, kVertex), At (8, 1, F32, 56, s, kVertex) };
+             At (6, 1, F32, 48, s, kVertex), At (7, 1, U32, 52, s, kVertex), At (8, 1, F32, 56, s, kVertex),
+             At (9, 4, F32, 64, s, kVertex) };
 }
 
 bool Compile (Diligent::IRenderDevice* device, Diligent::SHADER_TYPE type, const char* name, const std::string& source,

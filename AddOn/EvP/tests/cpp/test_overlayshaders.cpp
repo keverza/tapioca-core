@@ -149,7 +149,7 @@ TEST (OverlayShaders, TheGuestSceneCompilesForEveryCameraSlot)
     const std::pair<const char*, size_t> expected[] = {
         { "VSFill", 5 },  // SceneFillVertex: position, normal, offset, rgba, value
         { "VSLine", 7 },  // SceneLine: a, b, rgba, hidden rgba, style, dashes, behind
-        { "VSGlyph", 9 }, // SceneGlyph: position, dir, offset, uv, rgba, halo, haloPixels, flags, minSpan
+        { "VSGlyph", 10 }, // SceneGlyph: includes the shared whole-label visibility bound
     };
     for (uint32_t slot = 0; slot < cs::kShaderSlots; ++slot) {
         ASSERT_TRUE (cs::Compose (cs::InterpretationOfSlot (slot), body.c_str (), source.data (), source.size ()))

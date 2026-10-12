@@ -531,7 +531,7 @@ LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2,
 
 GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset : ATTRIB2, float2 uv : ATTRIB3,
                   float4 colour : ATTRIB4, float4 halo : ATTRIB5, float haloPixels : ATTRIB6, uint flags : ATTRIB7,
-                  float minSpan : ATTRIB8)
+                  float minSpan : ATTRIB8, float4 visibility : ATTRIB9)
 {
     GlyphOut o;
     o.uv = uv;
@@ -542,9 +542,24 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
     o.solid = (flags & 64u) != 0u ? 2.0 : ((flags & 8u) != 0u ? 1.0 : 0.0);
     // 32: every corner is its own model point -- text lying on a plane in the model.
     // Projected whole, so the glyph is perspective-correct and occluded by depth.
+    bool wholeLabel = (flags & 512u) != 0u;
+    float3 reference = wholeLabel ? visibility.xyz : position;
+    if (wholeLabel) {
+        // Conservative whole-text bound, shared by every character. Never cut a label
+        // at the eye or viewport edge, even when the camera changes between HUD ticks.
+        [unroll] for (uint corner = 0; corner < 8; ++corner) {
+            float3 side = float3 ((corner & 1u) ? 1.0 : -1.0, (corner & 2u) ? 1.0 : -1.0,
+                                  (corner & 4u) ? 1.0 : -1.0);
+            float4 bound = ArchicadClip (float4 (reference + side * visibility.w, 1.0));
+            if (bound.w <= kNearW || any (abs (bound.xy) > bound.w)) {
+                o.position = kCulled;
+                return o;
+            }
+        }
+    }
     if ((flags & 256u) != 0u) {
-        float4 a = ArchicadClip (float4 (position, 1.0));
-        float4 b = ArchicadClip (float4 (position + dir, 1.0));
+        float4 a = ArchicadClip (float4 (reference, 1.0));
+        float4 b = ArchicadClip (float4 (reference + dir, 1.0));
         if (a.w <= kNearW || b.w <= kNearW || length (ToPixels (b) - ToPixels (a)) < minSpan * Surface.z) {
             o.position = kCulled;
             return o;

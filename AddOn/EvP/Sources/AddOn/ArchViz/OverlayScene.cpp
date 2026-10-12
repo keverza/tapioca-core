@@ -392,7 +392,17 @@ void Builder::AddPlanarText (const layers::Layer& layer, const layers::Text& tex
         return Plus (at, Plus (Scaled (along, a), Scaled (up, b)));
     };
     DraftGlyph glyph;
-    glyph.flags = kModelQuad;
+    glyph.flags = kModelQuad | kWholeLabel;
+    glyph.visibility[0] = at.x;
+    glyph.visibility[1] = at.y;
+    glyph.visibility[2] = at.z;
+    // Identical for every vertex of every character: a threshold/near-plane decision
+    // made at a glyph corner otherwise leaves half a number visible while zooming.
+    double radius = 0.0;
+    for (float x : { label.left, label.right })
+        for (float y : { label.top, label.bottom })
+            radius = (std::max) (radius, Length (Sub (model (x, y), at)));
+    glyph.visibility[3] = radius + text.sizeMetres * 0.2;
     if (text.minProjectedPixels > 0) {
         glyph.flags |= kZoomLabel;
         Assign (glyph.dir, Scaled (along, text.sizeMetres));
@@ -953,6 +963,8 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
             g.flags = glyph.flags;
             g.minSpan = glyph.minSpan;
             g.behind = draw.behind;
+            for (int k = 0; k < 4; ++k)
+                g.visibility[k] = float (glyph.visibility[k]);
             out.glyphs.push_back (g);
         }
         draw.count = uint32_t (out.glyphs.size ()) - draw.first;

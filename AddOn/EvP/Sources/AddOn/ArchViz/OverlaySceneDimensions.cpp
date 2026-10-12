@@ -40,7 +40,7 @@ void Builder::AddDimensionText (const layers::Layer& layer, const layers::Dimens
     model.behind = dimension.behind;
     const auto baseline = Unit (span), plane = Unit (normal);
     const auto up = Unit (Cross (plane, baseline));
-    const double gap = dimension.textSizeMetres * 0.75;
+    const double gap = dimension.textSizeMetres * (dimension.textOppositeSide ? -0.75 : 0.75);
     const Vec3 at { middle.x + up.x * gap, middle.y + up.y * gap, middle.z + up.z * gap };
     Assign (model.at, at);
     Assign (model.direction, baseline);

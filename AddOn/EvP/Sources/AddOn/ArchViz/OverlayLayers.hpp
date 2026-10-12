@@ -252,6 +252,7 @@ struct Dimension {
     // Zero retains screen-sized annotations; positive draws planar model text.
     double textSizeMetres = 0;
     float textMinProjectedPixels = 0;
+    bool textOppositeSide = false; // native annotation: move model text to the other side of the line
     uint32_t textRgba = 0; // alpha 0: the line's colour
     uint32_t haloRgba = 0x000000A0u;
     float haloPixels = kAutoHalo; // as a text's

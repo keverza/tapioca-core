@@ -94,11 +94,29 @@ void Builder::AddHoverMeasurement (const overlayhud::Hover& hover, const overlay
     DraftLine ray;
     std::copy (std::begin (hover.measurementFrom), std::end (hover.measurementFrom), ray.a);
     std::copy (std::begin (hover.measurementTo), std::end (hover.measurementTo), ray.b);
-    ray.rgba = hover.valueRgba;
+    ray.rgba = 0xD73027FFu;
     ray.width = 2.5f;
     ray.behind = kBehindShow; // the measured ray remains readable at every zoom
     ray.dashes = kSolidDashes;
     PushLine (ray);
+
+    // A small translucent square identifies the stored ceiling collision, independently
+    // of annotation zoom. It is not a second, possibly different runtime raycast.
+    DraftFill collision;
+    collision.draw.behind = kBehindShow;
+    constexpr double kCollisionHalfSize = 0.10;
+    const int order[] = { 0, 1, 2, 0, 2, 3 };
+    const double offsets[4][2] = { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } };
+    for (const int corner : order) {
+        DraftVertex vertex;
+        vertex.p[0] = hover.measurementTo[0] + offsets[corner][0] * kCollisionHalfSize;
+        vertex.p[1] = hover.measurementTo[1] + offsets[corner][1] * kCollisionHalfSize;
+        vertex.p[2] = hover.measurementTo[2];
+        vertex.rgba = 0xD7302780u;
+        collision.vertices.push_back (vertex);
+    }
+    draft_.fillVertices += collision.vertices.size ();
+    draft_.fills.push_back (std::move (collision));
 
     if (!input.project)
         return;
@@ -140,13 +158,45 @@ void Builder::AddHoverMeasurement (const overlayhud::Hover& hover, const overlay
     dimension.textSizeMetres = 0.20;
     dimension.textSizePixels = 24.0f;
     dimension.textMinProjectedPixels = 14.0f;
-    dimension.rgba = hover.valueRgba;
-    dimension.textRgba = hover.valueRgba;
-    dimension.haloRgba = 0x071018FFu;
-    dimension.haloPixels = 1.75f;
+    dimension.textOppositeSide = true;
+    dimension.rgba = 0x385366FFu;
+    dimension.textRgba = 0x385366FFu;
+    dimension.haloRgba = 0xFFFFFFA0u;
+    dimension.haloPixels = 0.35f;
     dimension.terminator = layers::Terminator::Tick;
     dimension.terminatorSizePixels = 10.0f;
     dimension.behind = layers::Behind::Show;
+
+    // The dimension and its entire label are one annotation: no bare dimension line
+    // when its em is unreadable or any of the shared whole-text bound is clipped.
+    overlaytext::Label label;
+    if (!LayOut (dimension.text, dimension.textSizePixels, layers::Align::Center, layers::Baseline::Middle, label,
+                 dimension.font))
+        return;
+    const Vec3 from { dimension.from[0], dimension.from[1], dimension.from[2] };
+    const Vec3 to { dimension.to[0], dimension.to[1], dimension.to[2] };
+    const Vec3 span = Unit (Sub (to, from));
+    const Vec3 normal { dimension.normal[0], dimension.normal[1], dimension.normal[2] };
+    const Vec3 direction { dimension.direction[0], dimension.direction[1], dimension.direction[2] };
+    const Vec3 up = Unit (Cross (normal, span));
+    const Vec3 at = Plus (Plus (Scaled (Plus (from, to), 0.5), Scaled (direction, dimension.offsetMetres)),
+                         Scaled (up, -dimension.textSizeMetres * 0.75));
+    const Vec3 emEnd = Plus (at, Scaled (span, dimension.textSizeMetres));
+    if (!input.project (at.x, at.y, at.z, x0, y0) || !input.project (emEnd.x, emEnd.y, emEnd.z, x1, y1) ||
+        std::hypot (x1 - x0, y1 - y0) < dimension.textMinProjectedPixels * scale_)
+        return;
+    const double radius = std::hypot ((std::max) (std::abs (label.left), std::abs (label.right)),
+                                     (std::max) (std::abs (label.top), std::abs (label.bottom))) *
+                              dimension.textSizeMetres / dimension.textSizePixels +
+                          dimension.textSizeMetres * 0.2;
+    for (int corner = 0; corner < 8; ++corner) {
+        const Vec3 bound { at.x + ((corner & 1) ? radius : -radius),
+                           at.y + ((corner & 2) ? radius : -radius),
+                           at.z + ((corner & 4) ? radius : -radius) };
+        if (!input.project (bound.x, bound.y, bound.z, x0, y0) || !std::isfinite (x0) || !std::isfinite (y0) ||
+            x0 < 0 || x0 > input.width || y0 < 0 || y0 > input.height)
+            return;
+    }
     AddDimension (layers::Layer (), dimension);
 }
 

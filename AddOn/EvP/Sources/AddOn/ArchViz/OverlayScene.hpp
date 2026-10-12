@@ -56,6 +56,7 @@ constexpr uint32_t kModelQuad = 32u;       // each corner is its own model point
 constexpr uint32_t kPlainTexture = 64u;    // the texture times the colour: an ImGui panel (OverlayHud.hpp)
 constexpr uint32_t kPhysicalPixels = 128u; // the offset is in the view's pixels already, not logical ones
 constexpr uint32_t kZoomLabel = 256u;      // dir is one world-size em; hide below minSpan pixels
+constexpr uint32_t kWholeLabel = 512u;     // one shared visibility reference/bound for the entire model label
 
 // `Behind`, resolved, as the 3D shaders read it.
 constexpr uint32_t kBehindHide = 0u;
@@ -134,8 +135,9 @@ struct SceneGlyph {
     uint32_t flags;
     float minSpan;
     uint32_t behind;
+    float visibility[4]; // shared model anchor xyz and conservative whole-label radius
 };
-static_assert (sizeof (SceneGlyph) == 64, "the guest's 3D glyph vertex is 64 bytes");
+static_assert (sizeof (SceneGlyph) == 80, "the guest's 3D glyph vertex is 80 bytes");
 
 // ---- the draws ----------------------------------------------------------------
 

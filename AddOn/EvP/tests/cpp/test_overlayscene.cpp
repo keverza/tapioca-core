@@ -600,6 +600,33 @@ TEST (OverlayScene, ModelDimensionTextIsNotScreenSizedOrPixelCappedInEitherView)
     EXPECT_FALSE (layers::Validate (layer).empty ());
 }
 
+TEST (OverlayScene, AModelLabelSharesOneVisibilityDecisionAcrossAllCharacters)
+{
+    layers::Layer layer;
+    layer.name = "clearance-heatmap";
+    layers::Text text;
+    text.text = "2.80 m";
+    text.planar = true;
+    text.at[0] = 10;
+    text.at[1] = 20;
+    text.at[2] = 3;
+    text.sizeMetres = 0.2;
+    text.minProjectedPixels = 14;
+    layer.texts = { text };
+    const auto drawn = scene::PrepareScene (One (layer), &Engine ());
+    ASSERT_GT (drawn.glyphs.size (), 6u);
+    const auto& reference = drawn.glyphs.front ();
+    EXPECT_GT (reference.visibility[3], 0.2f);
+    for (const auto& glyph : drawn.glyphs) {
+        EXPECT_NE (glyph.flags & scene::kWholeLabel, 0u);
+        for (int k = 0; k < 4; ++k)
+            EXPECT_FLOAT_EQ (glyph.visibility[k], reference.visibility[k]);
+        EXPECT_FLOAT_EQ (glyph.visibility[0], 10);
+        EXPECT_FLOAT_EQ (glyph.visibility[1], 20);
+        EXPECT_FLOAT_EQ (glyph.visibility[2], 3);
+    }
+}
+
 TEST (OverlayScene, HoverRayIsAlwaysDrawnButTheAlignedMeasurementWaitsForCloseZoom)
 {
     layers::Layer layer;
@@ -624,16 +651,23 @@ TEST (OverlayScene, HoverRayIsAlwaysDrawnButTheAlignedMeasurementWaitsForCloseZo
     input.hover.cellNormal[2] = 1.0;
     const auto projectAt = [] (float pixelsPerMetre) {
         return [pixelsPerMetre] (double x, double, double z, float& px, float& py) {
-            px = float (x * pixelsPerMetre);
-            py = float (z * pixelsPerMetre);
+            px = float (400 + x * pixelsPerMetre);
+            py = float (200 + z * pixelsPerMetre);
             return true;
         };
     };
     input.project = projectAt (20.0f);
     const scene::Scene far = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
     ASSERT_EQ (far.lines.size (), 1u) << "the measured vertical ray stays visible at every zoom";
+    EXPECT_EQ (far.lines[0].rgba, layers::ToUnorm (0xD73027FFu));
+    ASSERT_EQ (far.fills.size (), 6u);
+    EXPECT_EQ (far.fills[0].rgba, layers::ToUnorm (0xD7302780u));
+    EXPECT_FLOAT_EQ (far.fills[0].position[2], 3.0f);
 
     input.project = projectAt (40.0f);
+    const scene::Scene unreadable = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
+    EXPECT_EQ (unreadable.lines.size (), 1u) << "a long-enough ray alone does not make the text readable";
+    input.project = projectAt (100.0f);
     const scene::Scene close = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
     ASSERT_EQ (close.lines.size (), 4u) << "the ray plus all three aligned dimension lines";
     EXPECT_FALSE (close.glyphs.empty ()) << "the dimension's model-sized value appears with its geometry";
@@ -641,6 +675,17 @@ TEST (OverlayScene, HoverRayIsAlwaysDrawnButTheAlignedMeasurementWaitsForCloseZo
         return (glyph.flags & scene::kZoomLabel) != 0 && glyph.minSpan == 14.0f;
     })) << "model-sized dimension text waits until its em is readable";
     EXPECT_EQ (close.problems.dimensionsNotResolved, 0u);
+    for (size_t i = 1; i < close.lines.size (); ++i)
+        EXPECT_EQ (close.lines[i].rgba, layers::ToUnorm (0x385366FFu));
+    for (const auto& glyph : close.glyphs)
+        if ((glyph.flags & scene::kModelQuad) != 0) {
+            EXPECT_EQ (glyph.rgba, layers::ToUnorm (0x385366FFu));
+            EXPECT_FLOAT_EQ (glyph.haloPixels, 0.35f);
+            EXPECT_GT (glyph.visibility[1], 0.60f) << "text is on the outside of the offset line";
+        }
+    input.width = 420;
+    const scene::Scene clipped = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
+    EXPECT_EQ (clipped.lines.size (), 1u) << "a partially clipped text hides the entire dimension";
 }
 
 TEST (OverlayScene, HoverDimensionTextPlaneTracksCameraAndHasAnOverheadFallback)
@@ -671,8 +716,8 @@ TEST (OverlayScene, HoverDimensionTextPlaneTracksCameraAndHasAnOverheadFallback)
         input.cameraDirection[1] = cameraY;
         input.cameraDirection[2] = cameraZ;
         input.project = [] (double x, double, double z, float& px, float& py) {
-            px = float (x * 40.0);
-            py = float (z * 40.0);
+            px = float (400 + x * 100.0);
+            py = float (200 + z * 100.0);
             return true;
         };
         return scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
