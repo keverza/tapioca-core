@@ -401,7 +401,10 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
             if (keys[i] == k) {
                 key = k;
                 layer = LayerOf (k);
-                Items (*panels[i], StateOf (k, *panels[i]), ui);
+                if (layer == roofslope::kLayer && store->roofEditor)
+                    roofhud::Panel (*store->roofEditor, FontFor ("tapioca:roof-heading"), ui);
+                else
+                    Items (*panels[i], StateOf (k, *panels[i]), ui);
                 return;
         }
     };

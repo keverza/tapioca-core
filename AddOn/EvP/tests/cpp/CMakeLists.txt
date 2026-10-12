@@ -530,6 +530,9 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeCanvas.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorSchemeOnView.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudLocked.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlope.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeHud.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudRoof.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
@@ -594,6 +597,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/Dxgi/CameraRecognizerDiagnosis.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/InjectionCameraStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayFonts.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextFont.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ImGuiContextLock.cpp"
     # The storey slices and the Watch annotations as overlay layers: which storeys, the
     # label's corner, each annotation primitive's drawn form.
@@ -776,6 +780,7 @@ set (EVP_TEST_SOURCES
     test_floorscheme_designs.cpp
     test_floorplanner.cpp
     test_buildingtopology.cpp
+    test_roofslope.cpp
     test_overlayfloorplans.cpp
     test_hudfloorschemeedit.cpp
     test_floorprogramme.cpp

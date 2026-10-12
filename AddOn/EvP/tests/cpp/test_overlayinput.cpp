@@ -110,3 +110,34 @@ TEST (OverlayInput, ACanvasNewlyTakenAsksForALayout)
     ::DestroyWindow (reopened);
     ::DestroyWindow (canvas);
 }
+
+TEST (OverlayInput, RoofEscapeIsScopedToItsLockedCanvasAndStopsWithTheSession)
+{
+    const HWND canvas = Canvas (), other = Canvas ();
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error));
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    input::EnableRoofEditKeys (true);
+    ::PostMessageW (other, WM_KEYDOWN, VK_ESCAPE, 0);
+    Pump ();
+    EXPECT_TRUE (input::TakeInput (input::View::Plan).editActions.empty ());
+    ::PostMessageW (canvas, WM_KEYDOWN, VK_ESCAPE, 0);
+    Pump ();
+    const auto taken = input::TakeInput (input::View::Plan);
+    ASSERT_EQ (taken.editActions.size (), 1u);
+    EXPECT_EQ (taken.editActions.front (), geomsrv::archviz::overlayhud::Input::EditAction::Cancel);
+    ::PostMessageW (canvas, WM_KEYDOWN, VK_DELETE, 0);
+    Pump ();
+    const auto blocked = input::TakeInput (input::View::Plan);
+    ASSERT_EQ (blocked.editActions.size (), 1u);
+    EXPECT_EQ (blocked.editActions.front (), geomsrv::archviz::overlayhud::Input::EditAction::BlockedModelKey);
+    input::EnableRoofEditKeys (false);
+    ::PostMessageW (canvas, WM_KEYDOWN, VK_ESCAPE, 0);
+    Pump ();
+    EXPECT_TRUE (input::TakeInput (input::View::Plan).editActions.empty ());
+    input::Shutdown ();
+    ::DestroyWindow (other);
+    ::DestroyWindow (canvas);
+}

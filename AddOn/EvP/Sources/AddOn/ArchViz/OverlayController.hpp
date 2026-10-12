@@ -264,6 +264,9 @@ std::vector<std::shared_ptr<const overlaylayers::Layer>> ShownLayers ();
 // After anything that may have changed the HUD's state -- a HUD laid out for the pointer,
 // a verb, a project closing: the renderers brought into line, both views' HUDs laid out.
 void FollowHudState ();
+// Command boundaries release a roof's borrowed lock and command-owned layers
+// before the next Run, even when no renderer/idle poll is active.
+void ClearCommandPreviews ();
 void SetOverlayVisible (bool visible);
 void SetLayerVisible (const std::string& layer, bool visible);
 // The HUD's text size, the nearest step (0.8 to 2), laid out again in both views. MAIN

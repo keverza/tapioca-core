@@ -70,6 +70,7 @@
 #include "ArchViz/HudFloorProgramme.hpp"
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/RoofSlopeHud.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
 #include "ArchViz/StorySliceOverlayContent.hpp" // the storey slices' controls, on Settings
@@ -161,6 +162,8 @@ struct Input {
         bool down = false;
     };
     std::vector<Button> buttons; // since the last layout, in order
+    enum class EditAction { Cancel, Undo, Redo, BlockedModelKey };
+    std::vector<EditAction> editActions; // scoped to the active roof canvas, consumed once per Build
     bool shift = false;          // held now: a shift-press extends a pick (the building section's)
     float wheel = 0.0f;          // notches turned over a page that scrolls since the last layout
     Hover hover;
@@ -318,6 +321,14 @@ bool HudOpen (const State& state);
 // the floor plan on the view; the wheel and the middle button navigate as ever.
 bool EditLocked (const State& state);
 void SetEditLocked (State& state, bool locked);
+// Roof sessions own only their command-scoped layer and temporarily borrow the dock lock.
+bool StartRoofEditor (State& state, roofslope::Data data);
+void StopRoofEditor (State& state);
+bool RoofEditorActive (const State& state);
+const roofslope::Data* RoofEditorData (const State& state);
+bool FollowRoofEditor (State& state, overlaylayers::Layer& layer, bool& clear);
+std::optional<roofhud::NumberEdit> TakeRoofNumber (State& state);
+bool AnswerRoofNumber (State& state, const roofhud::NumberEdit& edit, double value);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);
 void SelectKey (State& state, const std::string& key);

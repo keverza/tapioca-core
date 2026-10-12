@@ -100,6 +100,9 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error);
 void Detach (View view);
 // Every view, the hook and the window: the unload, and a project closing.
 void Shutdown ();
+// Esc and virtual Ctrl+Z/Y on a locked roof canvas; native delete/cut/paste blocked.
+// Never navigation keys, text input, other windows or the host outside this session.
+void EnableRoofEditKeys (bool enabled);
 
 // Where the HUD is on that view, from its last layout.
 void SetHitMap (View view, HitMap map);

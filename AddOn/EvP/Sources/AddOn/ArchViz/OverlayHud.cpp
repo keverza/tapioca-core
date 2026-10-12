@@ -800,6 +800,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     impl_->nextStatsHover.clear ();
     impl_->nextFloorBuilding.clear ();
     impl_->nextFloorHover = {};
+    impl_->RoofEditActions (input);
     std::unique_lock<std::mutex> lock (ImGuiContextMutex ());
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
@@ -810,6 +811,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     impl_->fontError.clear ();
     for (const layers::Panel* panel : panels)
         impl_->FontFor (panel->font);
+    impl_->RoofFonts ();
     // The pointer and its buttons, queued once: ImGui takes a press and its release a
     // frame apart, and a press after a move a frame after the move.
     ImGuiIO& io = ImGui::GetIO ();
@@ -837,7 +839,8 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         out.highlight = impl_->highlight;
         out.hand = impl_->hand;
         out.cursor = impl_->cursor;
-        out.locked = impl_->store->editLocked && impl_->store->shown;
+        out.locked = impl_->store->editLocked && impl_->store->shown &&
+                     (!impl_->store->roofEditor || LayerShown (*impl_->store, roofslope::kLayer));
         out.popup = impl_->popup;
         out.hoverTint = impl_->tinted;
         for (size_t i = 0; i < panels.size (); ++i) {

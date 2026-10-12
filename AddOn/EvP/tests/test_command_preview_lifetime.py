@@ -30,7 +30,10 @@ def test_run_clears_before_workflow_or_python_launch():
     ]
     assert "RetainedPreviewStore::Get ().Clear ()" in cleanup
     assert "preview.ForgetContext ()" in cleanup
-    assert "ClearCommandScoped ()" in cleanup
+    assert "ClearCommandPreviews ()" in cleanup
+    controller = (ROOT / "ArchViz/OverlayControllerHud.cpp").read_text(encoding="utf-8")
+    assert "ClearCommandScoped ()" in controller
+    assert "StopRoofEditor" in controller
 
 
 def test_new_open_close_release_hidden_palette_copies_and_store():

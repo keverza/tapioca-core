@@ -1,0 +1,12 @@
+'DATA' 32582 "Tapioca roof Inter" {
+    "Inter.ttf"
+}
+'DATA' 32583 "Tapioca roof Space Grotesk" {
+    "SpaceGrotesk.ttf"
+}
+'DATA' 32584 "Inter SIL Open Font License" {
+    "Inter-OFL.txt"
+}
+'DATA' 32585 "Space Grotesk SIL Open Font License" {
+    "SpaceGrotesk-OFL.txt"
+}

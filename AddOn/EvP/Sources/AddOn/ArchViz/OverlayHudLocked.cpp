@@ -23,13 +23,24 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollWithMouse;
     if (ImGui::Begin ("###tapioca.lockedView", nullptr, flags)) {
-        hudfloorscheme::ViewOnto onto;
-        onto.planar = input.planar;
-        std::copy (std::begin (input.plan), std::end (input.plan), onto.plan);
-        onto.project = input.project;
-        hudfloorscheme::OnView (store->planEditors, store->floorPlanner, store->floorPlanSnapshots,
-                                store->buildingPlans, store->massingProgramme, store->massingCoefficients, onto,
-                                input.pointer && ImGui::IsWindowHovered (), ui);
+        if (store->roofEditor && LayerShown (*store, roofslope::kLayer)) {
+            const auto style = roofslope::PanelStyle ();
+            const int colours = hudshell::PushLook (style, ui);
+            ImGui::PushFont (FontFor (style.font), 16 * ui);
+            roofhud::OnView (*store->roofEditor, input, input.pointer && ImGui::IsWindowHovered (), ui);
+            ImGui::PopFont ();
+            ImGui::PopStyleColor (colours);
+            ImGui::PopStyleVar (hudshell::kLookVars);
+        }
+        else if (!store->roofEditor) {
+            hudfloorscheme::ViewOnto onto;
+            onto.planar = input.planar;
+            std::copy (std::begin (input.plan), std::end (input.plan), onto.plan);
+            onto.project = input.project;
+            hudfloorscheme::OnView (store->planEditors, store->floorPlanner, store->floorPlanSnapshots,
+                                    store->buildingPlans, store->massingProgramme, store->massingCoefficients, onto,
+                                    input.pointer && ImGui::IsWindowHovered (), ui);
+        }
     }
     // Behind every panel, whenever it was made.
     ImGui::BringWindowToDisplayBack (ImGui::GetCurrentWindow ());

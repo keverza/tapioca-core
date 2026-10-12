@@ -85,6 +85,30 @@ void FollowHudState ()
     massingslicesmodel::Poll ();
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
     bool recoloured = false;
+    overlaylayers::Layer roof;
+    bool clearRoof = false;
+    if (overlayhud::FollowRoofEditor (*state, roof, clearRoof)) {
+        if (clearRoof)
+            overlaylayers::Clear (roofslope::kLayer);
+        else
+            overlaylayers::Set (std::move (roof));
+        PublishLayers ();
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
+    overlayinput::EnableRoofEditKeys (overlayhud::RoofEditorActive (*state));
+    if (const auto edit = overlayhud::TakeRoofNumber (*state)) {
+        std::string answer;
+        double number = 0;
+        if (textprompt::Ask (edit->label, hudmeta::NumberText (edit->value), answer)) {
+            if (hudmeta::ParseNumber (answer, -100000, 100000, number))
+                overlayhud::AnswerRoofNumber (*state, *edit, number);
+            else
+                hudconsole::Warning ("Roof slopes", "Enter a finite value in metres.");
+        }
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     for (const auto& change : overlayhud::TakeRampCutoffs (*state)) {
         const std::string layer = change.key.substr (0, change.key.rfind ('#'));
         recoloured = overlaylayers::SetRampCutoff (layer, change.id, change.value) || recoloured;
@@ -268,6 +292,14 @@ void FollowHudState ()
     // Both views' HUDs follow -- the dock's circle, the tabs of a hidden layer -- and draw.
     overlayinput::RequestLayout (overlayinput::View::ThreeD);
     overlayinput::RequestLayout (overlayinput::View::Plan);
+}
+
+void ClearCommandPreviews ()
+{
+    overlayhud::StopRoofEditor (*guesttext::HudState ());
+    overlayinput::EnableRoofEditKeys (false);
+    if (overlaylayers::ClearCommandScoped ())
+        PublishLayers ();
 }
 
 void SetOverlayVisible (bool visible)

@@ -1,6 +1,7 @@
 // ArchViz/OverlayFonts -- see the header.
 
 #include "ArchViz/OverlayFonts.hpp"
+#include "ArchViz/SceneTextFont.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -151,6 +152,8 @@ bool Resolve (const std::string& name, std::string& path, std::string& error)
 
 bool Read (const std::string& path, std::vector<uint8_t>& bytes, std::string& error)
 {
+    if (path == "tapioca:roof-inter" || path == "tapioca:roof-heading")
+        return LoadBundledTextFont (path == "tapioca:roof-inter" ? 32582 : 32583, bytes, error);
     std::ifstream in (Wide (path), std::ios::binary | std::ios::ate);
     if (!in) {
         error = "the font file \"" + path + "\" could not be opened";

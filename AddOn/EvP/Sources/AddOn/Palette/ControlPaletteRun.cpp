@@ -189,8 +189,7 @@ void ControlPalette::ForgetCommandPreviews ()
     // OVERLAY-INVARIANTS.md §8: the hidden/disabled band cannot rely on its poll.
     evp::preview::RetainedPreviewStore::Get ().Clear ();
     preview.ForgetContext ();
-    if (geomsrv::archviz::overlaylayers::ClearCommandScoped ())
-        geomsrv::archviz::overlaycontrol::PublishLayers ();
+    geomsrv::archviz::overlaycontrol::ClearCommandPreviews ();
     evp::StartupTrace ("Command/project boundary: transient preview geometry released");
 }
 

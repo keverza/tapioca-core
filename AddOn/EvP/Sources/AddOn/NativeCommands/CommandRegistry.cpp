@@ -18,6 +18,7 @@
 #include "NativeCommands/PlanFrameRecordCommands.hpp"
 #include "NativeCommands/OverlayCommands.hpp"
 #include "NativeCommands/OverlayLayerCommands.hpp"
+#include "NativeCommands/RoofSlopeCommands.hpp"
 #include "NativeCommands/OverlayHudCommands.hpp"
 #include "NativeCommands/ViewerPassProvenanceCommands.hpp"
 #include "NativeCommands/ViewerSyncCommands.hpp"
@@ -156,6 +157,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetPlanFrameRecordCommandRegistrations,
     &GetOverlayCommandRegistrations,
     &GetOverlayLayerCommandRegistrations,
+    &GetRoofSlopeCommandRegistrations,
     &GetOverlayHudCommandRegistrations,
     &GetHostGeometryCommandRegistrations,
     &GetPreviewCommandRegistrations,

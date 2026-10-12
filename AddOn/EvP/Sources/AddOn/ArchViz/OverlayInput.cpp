@@ -37,6 +37,7 @@ struct Target {
     float y = 0.0f;
     bool wasOver = false; // over the HUD at the last message: leaving it redraws the hover
     std::vector<overlayhud::Input::Button> buttons;
+    std::vector<overlayhud::Input::EditAction> editActions;
     float wheel = 0.0f; // notches turned over a page that scrolls, since the last layout took them
     bool refreshPending = false;
     bool timerArmed = false;
@@ -74,6 +75,7 @@ Target g_targets[2];
 // One latch: the views never run together, and a gesture is one pointer's.
 Router g_router;
 Stats g_stats;
+bool s_roofEditKeys = false;
 
 Target& TargetOf (View view)
 {
@@ -549,6 +551,25 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
             Consider (*message, removing);
         else if (original == WM_MOUSELEAVE && removing)
             Left (*message);
+        else if (s_roofEditKeys && original == WM_KEYDOWN) {
+            Target* target = TargetFor (window);
+            if (target && target->map.locked && target->owner.shown && target->owner.shown ()) {
+                const bool ctrl = ::GetKeyState (VK_CONTROL) < 0;
+                const auto key = message->wParam;
+                const bool modelling = key == VK_DELETE || key == VK_BACK || (ctrl && (key == 'X' || key == 'V'));
+                if (key == VK_ESCAPE || modelling || (ctrl && (key == 'Z' || key == 'Y'))) {
+                    if (removing && (message->lParam & (1ll << 30)) == 0) {
+                        if (target->editActions.size () < 16)
+                            target->editActions.push_back (modelling ? overlayhud::Input::EditAction::BlockedModelKey
+                                                          : key == VK_ESCAPE ? overlayhud::Input::EditAction::Cancel
+                                                          : key == 'Z' ? overlayhud::Input::EditAction::Undo
+                                                                       : overlayhud::Input::EditAction::Redo);
+                        RequestRefresh (*target);
+                    }
+                    message->message = WM_NULL;
+                }
+            }
+        }
         // The click meter's press, when no mouse hook timed it first.
         if (g_timing && removing && g_mouseHook == nullptr &&
             (original == WM_LBUTTONDOWN || original == WM_LBUTTONDBLCLK))
@@ -728,6 +749,8 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.shift = ::GetKeyState (VK_SHIFT) < 0;
     if (take) {
         input.buttons = std::move (target.buttons);
+        input.editActions = std::move (target.editActions);
+        target.editActions.clear ();
         target.buttons.clear ();
         input.wheel = target.wheel;
         target.wheel = 0.0f;
@@ -818,11 +841,20 @@ void Detach (View view)
 
 void Shutdown ()
 {
+    s_roofEditKeys = false;
     g_timing = false;
     for (Target& target : g_targets)
         Clear (target);
     g_router.Reset ();
     Uninstall ();
+}
+
+void EnableRoofEditKeys (bool enabled)
+{
+    s_roofEditKeys = enabled;
+    if (!enabled)
+        for (auto& target : g_targets)
+            target.editActions.clear ();
 }
 
 void SetHitMap (View view, HitMap map)

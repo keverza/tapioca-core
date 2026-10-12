@@ -14,6 +14,7 @@ namespace geomsrv::archviz {
 // The font's bytes, from resource 32581 of the module this code is in. False, with
 // the reason, when the resource is missing or malformed.
 bool LoadBundledSceneTextFont (std::vector<uint8_t>& bytes, std::string& error);
+bool LoadBundledTextFont (int resourceId, std::vector<uint8_t>& bytes, std::string& error);
 
 } // namespace geomsrv::archviz
 

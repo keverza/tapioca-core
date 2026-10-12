@@ -166,6 +166,22 @@ endif ()
 
 # Generate this DATA resource through Graphisoft's ResConv, not directly through
 # rc.exe. RSLoadResource expects ResConv's numeric type and length-prefixed data.
+set (RoofDesignerFontDir "${CMAKE_CURRENT_LIST_DIR}/${AddOnResourcesFolder}/Fonts/RoofDesigner")
+configure_file ("${AddOnResourcesFolder}/RFIX.win/RoofDesignerFonts.grc.in"
+                "${ResourceObjectsDir}/RoofDesignerFonts.grc" @ONLY)
+set (RoofDesignerFontResourceRc2 "${ResourceObjectsDir}/RoofDesignerFonts.grc.rc2")
+if (WIN32)
+    add_custom_command (
+        OUTPUT "${RoofDesignerFontResourceRc2}"
+        DEPENDS "${RoofDesignerFontDir}/Inter.ttf" "${RoofDesignerFontDir}/SpaceGrotesk.ttf"
+                "${RoofDesignerFontDir}/Inter-OFL.txt" "${RoofDesignerFontDir}/SpaceGrotesk-OFL.txt"
+                "${ResourceObjectsDir}/RoofDesignerFonts.grc"
+        COMMENT "EvP: embedding roof designer typography"
+        COMMAND "${AC_API_DEVKIT_DIR}/Support/Tools/Win/ResConv.exe"
+            -m r -T W -q utf8 1252 -p "${RoofDesignerFontDir}"
+            -i "${ResourceObjectsDir}/RoofDesignerFonts.grc" -o "${RoofDesignerFontResourceRc2}"
+        VERBATIM)
+endif ()
 configure_file (
     "${AddOnResourcesFolder}/RFIX.win/NotebookUI.grc.in"
     "${ResourceObjectsDir}/NotebookUI.grc"
@@ -239,6 +255,7 @@ add_custom_command (
     OUTPUT "${ResourceObjectsDir}/AddOnResources.stamp"
     DEPENDS ${AddOnResourceFiles} ${AddOnImageFiles} "${NotebookUIOutput}" "${NotebookUIResourceRc2}"
             "${GraphUIOutput}" "${GraphUIResourceRc2}" "${WebUIResourceRc2}" "${SceneTextFontResourceRc2}"
+            "${RoofDesignerFontResourceRc2}"
     COMMENT "GeometryServer: compiling resources..."
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ResourceObjectsDir}"
     COMMAND python "${AddOnResourcesFolderAbsolute}/Tools/CompileResources.py"

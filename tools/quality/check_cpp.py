@@ -368,6 +368,15 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # 3D overlay its prepared copy through the controller.
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayLayers.hpp"),
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayController.hpp"),
+    # RoofSlopeEditor is a read-only boundary adapter: immutable slab input to the
+    # native virtual editor, the shared HUD lock and its owned overlay layer. No
+    # modelling, camera, rendering or native element writes live in the command.
+    ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/RoofSlope.hpp"),
+    ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayGuestText.hpp"),
+    ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayHud.hpp"),
+    ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayController.hpp"),
+    ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayInput.hpp"),
+    ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/SlabSliceSource.hpp"),
     # The layer verbs' parameters, read into the same store the verbs fill: split out
     # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),
