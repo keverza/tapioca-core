@@ -660,7 +660,8 @@ TEST (OverlayScene, PlanHoverShowsCellAndNumberEvenWhenCanvasIsLocked)
     input.hover.active = true;
     input.hover.hasMeasuredCell = true;
     input.hover.measuredValue = 2.8;
-    input.hover.cellCenter[0] = 0.5; input.hover.cellCenter[1] = 0.5;
+    input.hover.cellCenter[0] = 0.5;
+    input.hover.cellCenter[1] = 0.5;
     input.hover.tintModel = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0 };
     const auto plan = scene::PreparePlanHud (One (layer), &host.engine, 1, input, nullptr, &Engine ());
     EXPECT_EQ (plan.fills.size (), 6u);
@@ -789,10 +790,8 @@ TEST (OverlayScene, HoverDimensionTextPlaneTracksCameraAndHasAnOverheadFallback)
     EXPECT_NEAR (std::fabs (alongPositiveY[1]), 1.0, 1e-4);
     EXPECT_NEAR (dot (alongPositiveX, alongPositiveY), 0.0, 1e-4)
         << "perpendicular camera directions produce perpendicular text planes";
-    EXPECT_NEAR (std::fabs (overhead[0]), 1.0, 1e-4)
-        << "an overhead view uses a stable horizontal fallback axis";
-    EXPECT_NEAR (dot (overhead, noCamera), 1.0, 1e-4)
-        << "missing camera data uses the same deterministic fallback";
+    EXPECT_NEAR (std::fabs (overhead[0]), 1.0, 1e-4) << "an overhead view uses a stable horizontal fallback axis";
+    EXPECT_NEAR (dot (overhead, noCamera), 1.0, 1e-4) << "missing camera data uses the same deterministic fallback";
 }
 
 TEST (OverlayScene, AHorizontalLegendPlacedAnywhereSaysItsOwnTicks)

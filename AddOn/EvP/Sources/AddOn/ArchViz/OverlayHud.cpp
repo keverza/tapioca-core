@@ -610,8 +610,9 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
                                 input.y >= bar.rect[1] && input.y <= bar.rect[3]);
     if (!store->hover)
         readout = Hover {};
-    else if (!input.overHud && !onLegend && (ImGui::GetCurrentContext ()->HoveredWindow == nullptr ||
-             ImGui::GetCurrentContext ()->HoveredWindow == ImGui::FindWindowByName ("###tapioca.lockedView")))
+    else if (!input.overHud && !onLegend &&
+             (ImGui::GetCurrentContext ()->HoveredWindow == nullptr ||
+              ImGui::GetCurrentContext ()->HoveredWindow == ImGui::FindWindowByName ("###tapioca.lockedView")))
         readout = input.hover;
     Dock (panels, ui, view);
     if (known && store->shown && store->editLocked)

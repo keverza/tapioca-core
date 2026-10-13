@@ -120,12 +120,12 @@ void Fill (overlayhud::Input& input)
     overlayhud::Hover hover = overlayhover::Readout (*layers[hit.layer], hit);
     if (hover.hasMeasuredCell && hit.hasCell) {
         const uint64_t now = ::GetTickCount64 ();
-        hover.measurementReady = s_dwell.Observe (reinterpret_cast<uintptr_t> (layers[hit.layer].get ()),
-                                                 hit.mesh, hit.cell, now);
+        hover.measurementReady =
+            s_dwell.Observe (reinterpret_cast<uintptr_t> (layers[hit.layer].get ()), hit.mesh, hit.cell, now);
         s_dwellLayer = layers[hit.layer];
         if (!hover.measurementReady)
-            s_dwellTimer = ::SetTimer (nullptr, s_dwellTimer, UINT ((std::max) (uint64_t (10), s_dwell.Remaining (now))),
-                                      &DwellReady);
+            s_dwellTimer = ::SetTimer (nullptr, s_dwellTimer,
+                                       UINT ((std::max) (uint64_t (10), s_dwell.Remaining (now))), &DwellReady);
         else if (s_dwellTimer != 0) {
             ::KillTimer (nullptr, s_dwellTimer);
             s_dwellTimer = 0;

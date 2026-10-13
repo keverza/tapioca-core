@@ -108,7 +108,8 @@ detail::PickCache s_planPicks, s_viewPicks;
 
 void ClearPickCache ()
 {
-    s_planPicks = {}; s_viewPicks = {};
+    s_planPicks = {};
+    s_viewPicks = {};
 }
 
 uint64_t ProjectionKey (const double matrix[16], const float viewport[4])
@@ -116,9 +117,11 @@ uint64_t ProjectionKey (const double matrix[16], const float viewport[4])
     uint64_t key = 1469598103934665603ull;
     const auto append = [&] (const void* data, size_t size) {
         const auto* bytes = static_cast<const unsigned char*> (data);
-        for (size_t i = 0; i < size; ++i) key = (key ^ bytes[i]) * 1099511628211ull;
+        for (size_t i = 0; i < size; ++i)
+            key = (key ^ bytes[i]) * 1099511628211ull;
     };
-    append (matrix, sizeof (double) * 16); append (viewport, sizeof (float) * 4);
+    append (matrix, sizeof (double) * 16);
+    append (viewport, sizeof (float) * 4);
     return key != 0 ? key : 1;
 }
 
@@ -235,7 +238,8 @@ Hit PickView (const std::vector<std::shared_ptr<const layers::Layer>>& all, cons
 {
     Hit hit;
     float nearest = 0.0f; // 1/w of the nearest hit: larger is nearer
-    if (projectionKey != 0) s_viewPicks.Prepare (all, projectionKey, &project);
+    if (projectionKey != 0)
+        s_viewPicks.Prepare (all, projectionKey, &project);
     for (size_t li = 0; li < all.size (); ++li) {
         const layers::Layer& layer = *all[li];
         if (!layers::DrawnIn (layer.views, layers::Views::ThreeD))
@@ -246,10 +250,13 @@ Hit PickView (const std::vector<std::shared_ptr<const layers::Layer>>& all, cons
                 continue;
             const size_t corners = mesh.points.size () / 3;
             detail::PickIndex fresh;
-            if (projectionKey == 0) fresh.Build (mesh, &project);
+            if (projectionKey == 0)
+                fresh.Build (mesh, &project);
             const auto& index = projectionKey != 0 ? s_viewPicks.indices[li][mi] : fresh;
-            const auto& sx = index.sx; const auto& sy = index.sy;
-            const auto& iw = index.iw; const auto& seen = index.seen;
+            const auto& sx = index.sx;
+            const auto& sy = index.sy;
+            const auto& iw = index.iw;
+            const auto& seen = index.seen;
             for (const uint32_t triangle : index.At (x, y)) {
                 const size_t t = size_t (triangle) * 3;
                 const uint32_t i0 = mesh.indices[t], i1 = mesh.indices[t + 1], i2 = mesh.indices[t + 2];
@@ -301,7 +308,8 @@ void TintModel (const layers::Mesh& mesh, std::vector<double>& out, const std::v
     const size_t corners = mesh.points.size () / 3;
     for (const uint32_t triangle : onlyTriangles) {
         const size_t t = size_t (triangle) * 3;
-        if (t + 2 >= mesh.indices.size ()) continue;
+        if (t + 2 >= mesh.indices.size ())
+            continue;
         const uint32_t i[3] = { mesh.indices[t], mesh.indices[t + 1], mesh.indices[t + 2] };
         if (i[0] >= corners || i[1] >= corners || i[2] >= corners)
             continue;

@@ -165,8 +165,14 @@ void Engine::Impl::Ramp (const layers::Panel& panel, const layers::PanelItem& it
     bool released = false;
     items::Ramp (panel, item, width, scale, band, &held.current, &released);
     if (previous != held.current || released) {
-        Change change { "rampCutoff", key, panel.title, control, int32_t (index), held.current,
-                        items::Number (held.current, item.decimals) + " " + item.unit, released };
+        Change change { "rampCutoff",
+                        key,
+                        panel.title,
+                        control,
+                        int32_t (index),
+                        held.current,
+                        items::Number (held.current, item.decimals) + " " + item.unit,
+                        released };
         changes.push_back (change);
         store->rampCutoffs.push_back (std::move (change));
     }

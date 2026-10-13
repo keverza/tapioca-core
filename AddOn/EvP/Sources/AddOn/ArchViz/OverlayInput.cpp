@@ -561,9 +561,9 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
                     if (removing && (message->lParam & (1ll << 30)) == 0) {
                         if (target->editActions.size () < 16)
                             target->editActions.push_back (modelling ? overlayhud::Input::EditAction::BlockedModelKey
-                                                          : key == VK_ESCAPE ? overlayhud::Input::EditAction::Cancel
-                                                          : key == 'Z' ? overlayhud::Input::EditAction::Undo
-                                                                       : overlayhud::Input::EditAction::Redo);
+                                                           : key == VK_ESCAPE ? overlayhud::Input::EditAction::Cancel
+                                                           : key == 'Z'       ? overlayhud::Input::EditAction::Undo
+                                                                              : overlayhud::Input::EditAction::Redo);
                         RequestRefresh (*target);
                     }
                     message->message = WM_NULL;
@@ -752,9 +752,10 @@ overlayhud::Input InputOf (Target& target, bool take)
         const HWND under = ::WindowFromPoint (screen);
         POINT point = screen;
         if (::ScreenToClient (target.canvas, &point)) {
-            input.pointer = (under == target.canvas || ::IsChild (target.canvas, under)) &&
-                            point.x >= 0 && point.y >= 0 && point.x < input.width && point.y < input.height;
-            input.x = float (point.x); input.y = float (point.y);
+            input.pointer = (under == target.canvas || ::IsChild (target.canvas, under)) && point.x >= 0 &&
+                            point.y >= 0 && point.x < input.width && point.y < input.height;
+            input.x = float (point.x);
+            input.y = float (point.y);
         }
     }
     // Locking routes canvas interactions to us, but does not turn the canvas into a panel.

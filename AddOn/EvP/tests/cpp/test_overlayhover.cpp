@@ -52,7 +52,11 @@ TEST (OverlayHover, PointerMovesReuseProjectionsAndCameraOrLayerChangesInvalidat
     auto layer = Layer ("heatmap", { Slice ("cell", 0, 0, 10, 10) });
     size_t calls = 0;
     const hover::ProjectView project = [&] (double x, double y, double, float& px, float& py, float& iw) {
-        ++calls; px = float (x * 100); py = float (y * 100); iw = 1; return true;
+        ++calls;
+        px = float (x * 100);
+        py = float (y * 100);
+        iw = 1;
+        return true;
     };
     EXPECT_TRUE (hover::PickView ({ layer }, project, 250, 500, 1).found);
     EXPECT_EQ (calls, 4u);
