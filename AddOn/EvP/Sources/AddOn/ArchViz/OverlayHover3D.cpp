@@ -9,11 +9,14 @@
 #include "ArchViz/Dxgi/CameraLayout.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayHover.hpp"
+#include "ArchViz/OverlayHoverDwell.hpp"
+#include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
 #include <algorithm>
 #include <array>
 #include <string>
+#include <windows.h>
 
 namespace geomsrv {
 namespace archviz {
@@ -29,6 +32,20 @@ constexpr size_t kTintTriangles = 4096;
 
 // ⚠️ A POINTER NOT READ SAYS WHY, ONCE (§7): the reason it last could not, cleared when it can.
 std::string g_declined;
+CellDwell s_dwell;
+std::shared_ptr<const overlaylayers::Layer> s_dwellLayer;
+UINT_PTR s_dwellTimer = 0;
+
+void CALLBACK DwellReady (HWND, UINT, UINT_PTR timer, DWORD)
+{
+    if (timer != s_dwellTimer)
+        return;
+    ::KillTimer (nullptr, timer);
+    s_dwellTimer = 0;
+    // Refresh through the existing main-thread input owner; a stationary pointer
+    // must not depend on a second mouse move or the coarse controller heartbeat.
+    overlayinput::RequestLayout (overlayinput::View::ThreeD);
+}
 
 void Decline (const char* why)
 {
@@ -45,16 +62,30 @@ bool Hovering ()
     return overlayvisibility::Hovering ();
 }
 
+void ResetDwell ()
+{
+    if (s_dwellTimer != 0)
+        ::KillTimer (nullptr, s_dwellTimer);
+    s_dwellTimer = 0;
+    s_dwell.Reset ();
+    s_dwellLayer.reset ();
+}
+
 void Fill (overlayhud::Input& input)
 {
-    if (!overlayvisibility::Hovering ())
+    if (!overlayvisibility::Hovering ()) {
+        ResetDwell ();
         return;
+    }
     input.hover.picks = true; // the 3D view reads under the pointer: its readout may say "nothing"
-    if (!input.pointer || !overlayvisibility::ContentShown ())
+    if (!input.pointer || input.overHud || !overlayvisibility::ContentShown ()) {
+        ResetDwell ();
         return;
+    }
 
     freshness::CameraCopy camera;
     if (!freshness::LatestCamera (camera)) {
+        ResetDwell ();
         Decline ("no camera decoded yet -- orbit the view once");
         return;
     }
@@ -63,6 +94,7 @@ void Fill (overlayhud::Input& input)
     // read nonsense.
     float decoded[16];
     if (cameralayout::Decode (camera.view, camera.projection, decoded) == cameralayout::Layout::Neither) {
+        ResetDwell ();
         Decline ("the last capture does not decode as a camera");
         return;
     }
@@ -79,10 +111,27 @@ void Fill (overlayhud::Input& input)
     };
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaycontrol::ShownLayers ();
     const overlayhover::Hit hit = overlayhover::PickView (layers, project, input.x, input.y);
-    if (!hit.found)
+    if (!hit.found) {
+        ResetDwell ();
         return;
+    }
     const overlaylayers::Mesh& mesh = layers[hit.layer]->meshes[hit.mesh];
     overlayhud::Hover hover = overlayhover::Readout (*layers[hit.layer], hit);
+    if (hover.hasMeasuredCell && hit.hasCell) {
+        const uint64_t now = ::GetTickCount64 ();
+        hover.measurementReady = s_dwell.Observe (reinterpret_cast<uintptr_t> (layers[hit.layer].get ()),
+                                                 hit.mesh, hit.cell, now);
+        s_dwellLayer = layers[hit.layer];
+        if (!hover.measurementReady)
+            s_dwellTimer = ::SetTimer (nullptr, s_dwellTimer, UINT ((std::max) (uint64_t (10), s_dwell.Remaining (now))),
+                                      &DwellReady);
+        else if (s_dwellTimer != 0) {
+            ::KillTimer (nullptr, s_dwellTimer);
+            s_dwellTimer = 0;
+        }
+    }
+    else
+        ResetDwell ();
     hover.picks = true;
     const bool whole = mesh.values.empty () && mesh.indices.size () / 3 <= kTintTriangles;
     // In model metres: the guest draws it with the camera of every Present, through an orbit.

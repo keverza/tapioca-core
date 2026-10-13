@@ -4,6 +4,7 @@
 // ArchViz/OverlayRelease -- see the header.
 
 #include "ArchViz/OverlayRelease.hpp"
+#include "ArchViz/OverlayHover3D.hpp"
 
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
@@ -38,6 +39,7 @@ void Model ()
 
 void ThreeD ()
 {
+    overlayhover3d::ResetDwell ();
     dxgi::sceneguest::Publish (overlayscene::Scene {}, 1.0f);
     dxgi::sceneguest::PublishHud (overlayscene::Scene {}, 1.0f);
     dxgi::layers3d::Publish (overlaylayers::Prepared3D {});
@@ -53,6 +55,7 @@ void Plan ()
 
 void Shared ()
 {
+    overlayhover3d::ResetDwell ();
     // The add-on's own layers first, each with what drives it: the slices' timer, the
     // trace's annotations.
     storysliceoverlay::OnProjectClosed ();

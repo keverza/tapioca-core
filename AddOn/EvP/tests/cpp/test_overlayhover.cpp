@@ -3,6 +3,7 @@
 // slice's figures, a heatmap's value at that point.
 
 #include "ArchViz/OverlayHover.hpp"
+#include "ArchViz/OverlayHoverDwell.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,6 +11,7 @@
 
 namespace layers = geomsrv::archviz::overlaylayers;
 namespace hover = geomsrv::archviz::overlayhover;
+namespace hover3d = geomsrv::archviz::overlayhover3d;
 
 namespace {
 
@@ -44,6 +46,41 @@ layers::Mesh Slice (const char* name, double x0, double y0, double x1, double y1
 
 // ⚠️ THE USER, 2026-09-29: hover mode shows a storey slice's figures under the pointer. The
 // slice's own title and rows, and nothing off it.
+TEST (OverlayHover, AMeasuredCellWaitsHalfASecondWithoutRestartingInsideTheCell)
+{
+    hover3d::CellDwell dwell;
+    EXPECT_FALSE (dwell.Observe (1, 0, 3, 1000));
+    EXPECT_FALSE (dwell.Observe (1, 0, 3, 1200));
+    EXPECT_EQ (dwell.Remaining (1200), 300u);
+    EXPECT_FALSE (dwell.Observe (1, 0, 3, 1499));
+    EXPECT_TRUE (dwell.Observe (1, 0, 3, 1500));
+    EXPECT_TRUE (dwell.Observe (1, 0, 3, 1600));
+}
+
+TEST (OverlayHover, LeavingChangingOrReplacingTheMeasuredCellRestartsTheDelay)
+{
+    hover3d::CellDwell dwell;
+    dwell.Observe (1, 0, 3, 0);
+    EXPECT_TRUE (dwell.Observe (1, 0, 3, 500));
+    EXPECT_FALSE (dwell.Observe (1, 0, 4, 510));
+    EXPECT_TRUE (dwell.Observe (1, 0, 4, 1010));
+    EXPECT_FALSE (dwell.Observe (1, 1, 4, 1020));
+    EXPECT_FALSE (dwell.Observe (2, 1, 4, 1600));
+    EXPECT_TRUE (dwell.Observe (2, 1, 4, 2100));
+    dwell.Reset ();
+    EXPECT_FALSE (dwell.Observe (2, 1, 4, 2110));
+    EXPECT_TRUE (dwell.Observe (2, 1, 4, 2610));
+}
+
+TEST (OverlayHover, ABackwardsClockCannotMakeTheDwellAppearImmediately)
+{
+    hover3d::CellDwell dwell;
+    EXPECT_FALSE (dwell.Observe (1, 0, 0, 1000));
+    EXPECT_FALSE (dwell.Observe (1, 0, 0, 900));
+    EXPECT_FALSE (dwell.Observe (1, 0, 0, 1399));
+    EXPECT_TRUE (dwell.Observe (1, 0, 0, 1400));
+}
+
 TEST (OverlayHover, ASliceUnderThePointerSaysItsFigures)
 {
     const std::vector<std::shared_ptr<const layers::Layer>> all = { Layer ("tapioca.storeySlices",

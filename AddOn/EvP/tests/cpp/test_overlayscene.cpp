@@ -676,6 +676,11 @@ TEST (OverlayScene, HoverRayIsAlwaysDrawnButTheAlignedMeasurementWaitsForCloseZo
         };
     };
     input.project = projectAt (20.0f);
+    input.hover.measurementReady = false;
+    const scene::Scene waiting = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
+    EXPECT_TRUE (waiting.lines.empty ());
+    EXPECT_TRUE (waiting.fills.empty ()) << "the ray and its end marker wait together";
+    input.hover.measurementReady = true;
     const scene::Scene far = scene::PrepareSceneHud (all, &host.engine, 1.0f, input, nullptr, &Engine ());
     ASSERT_EQ (far.lines.size (), 1u) << "the measured vertical ray stays visible at every zoom";
     EXPECT_EQ (far.lines[0].rgba, layers::ToUnorm (0xD73027FFu));

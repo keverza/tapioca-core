@@ -745,6 +745,7 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.pointer = target.inside;
     input.x = target.x;
     input.y = target.y;
+    input.overHud = input.pointer && target.map.Owns (input.x, input.y, input.width, input.height);
     // Read as the layout is: it follows the press that asked for it, the key held through both.
     input.shift = ::GetKeyState (VK_SHIFT) < 0;
     if (take) {

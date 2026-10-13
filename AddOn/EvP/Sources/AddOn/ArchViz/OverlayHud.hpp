@@ -133,6 +133,7 @@ struct Hover {
     std::vector<std::pair<std::string, std::string>> rows; // label, value
     std::vector<double> tintModel;                         // x, y, z model metres, three corners a triangle
     bool hasMeasuredCell = false;
+    bool measurementReady = true; // 3D same-cell dwell gates the ray/dimension, not the panel readout
     double cellCenter[3] = {};
     double measurementFrom[3] = {};
     double measurementTo[3] = {};
@@ -155,6 +156,7 @@ struct Input {
     float width = 0.0f; // the view, physical pixels; 0 while it is not known
     float height = 0.0f;
     bool pointer = false; // the pointer is over the view
+    bool overHud = false; // the pointer is on a panel, legend, dock or locked editing canvas
     float x = 0.0f;
     float y = 0.0f;
     struct Button {

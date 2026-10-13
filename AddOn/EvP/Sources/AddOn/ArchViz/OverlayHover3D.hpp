@@ -26,6 +26,8 @@ bool Hovering ();
 // while the mode is off. A pointer it cannot read (no camera decoded yet, a camera that
 // does not decode as one) reads "nothing", and the reason is said once when it changes.
 void Fill (overlayhud::Input& input);
+// Cancel the pending dwell timer and release its retained layer on renderer/project teardown.
+void ResetDwell ();
 
 // While the dock's lock is on, the camera as `input.project` -- model metres onto the view through
 // the matrix the overlay's shaders draw with (findings 1 and 2) -- for the floor plan picked on the

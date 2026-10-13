@@ -89,7 +89,7 @@ void Builder::AddHoverTint (const std::vector<double>& corners)
 
 void Builder::AddHoverMeasurement (const overlayhud::Hover& hover, const overlayhud::Input& input)
 {
-    if (Plan () || !hover.active || !hover.hasMeasuredCell)
+    if (Plan () || !hover.active || !hover.hasMeasuredCell || !hover.measurementReady)
         return;
     DraftLine ray;
     std::copy (std::begin (hover.measurementFrom), std::end (hover.measurementFrom), ray.a);
