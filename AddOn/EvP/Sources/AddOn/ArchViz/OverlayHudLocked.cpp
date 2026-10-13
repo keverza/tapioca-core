@@ -24,7 +24,7 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollWithMouse;
     if (ImGui::Begin ("###tapioca.lockedView", nullptr, flags)) {
         if (store->roofEditor && LayerShown (*store, roofslope::kLayer)) {
-            const auto style = roofslope::PanelStyle ();
+            const auto style = roofslope::EditorStyle ();
             const int colours = hudshell::PushLook (style, ui);
             ImGui::PushFont (FontFor (style.font), 16 * ui);
             roofhud::OnView (*store->roofEditor, input, input.pointer && ImGui::IsWindowHovered (), ui);

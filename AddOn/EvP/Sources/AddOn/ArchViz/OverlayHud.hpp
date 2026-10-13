@@ -76,6 +76,7 @@
 #include "ArchViz/StorySliceOverlayContent.hpp" // the storey slices' controls, on Settings
 
 #include <cstdint>
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -96,6 +97,9 @@ struct Vertex {
     float u = 0.0f, v = 0.0f;
     uint32_t rgba = 0;
     uint32_t page = 0;
+    bool modelAnchored = false, turn = false;
+    std::array<double, 3> model {}, direction {};
+    std::array<float, 2> modelOffset {}; // physical pixels, reprojected at Present
 };
 
 struct Built {
@@ -167,8 +171,14 @@ struct Input {
     uint32_t buttonsDown = 0;    // current physical button mask; synthetic callers may omit it
     enum class EditAction { Cancel, Undo, Redo, BlockedModelKey };
     std::vector<EditAction> editActions; // scoped to the active roof canvas, consumed once per Build
-    bool shift = false;                  // held now: a shift-press extends a pick (the building section's)
-    float wheel = 0.0f;                  // notches turned over a page that scrolls since the last layout
+    struct Key {
+        uint32_t code = 0;
+        bool down = false, repeat = false, ctrl = false, shift = false, alt = false;
+    };
+    std::vector<Key> keys;
+    std::u16string characters;
+    bool shift = false; // held now: a shift-press extends a pick (the building section's)
+    float wheel = 0.0f; // notches turned over a page that scrolls since the last layout
     Hover hover;
     // While the dock's lock is on: model metres onto this view, for the floor plan edited on it
     // (hudfloorscheme::ViewOnto) -- the plan's transform, the same at every elevation (`planar`:
@@ -331,8 +341,6 @@ void StopRoofEditor (State& state);
 bool RoofEditorActive (const State& state);
 const roofslope::Data* RoofEditorData (const State& state);
 bool FollowRoofEditor (State& state, overlaylayers::Layer& layer, bool& clear);
-std::optional<roofhud::NumberEdit> TakeRoofNumber (State& state);
-bool AnswerRoofNumber (State& state, const roofhud::NumberEdit& edit, double value);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);
 void SelectKey (State& state, const std::string& key);

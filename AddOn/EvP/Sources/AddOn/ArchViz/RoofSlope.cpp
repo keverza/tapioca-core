@@ -14,6 +14,11 @@ namespace cp = Clipper2Lib;
 constexpr double kTolerance = 1e-6, kMinSpan = 0.01;
 constexpr int kPrecision = 6;
 using Box = std::array<double, 4>;
+double Aspect (Box b)
+{
+    const double w = b[2] - b[0], h = b[3] - b[1];
+    return (std::max) (w, h) / (std::min) (w, h);
+}
 cp::PathD Path (const Ring& ring)
 {
     cp::PathD out;
@@ -251,12 +256,13 @@ std::vector<double> Cuts (std::vector<double> values, double step)
 {
     std::sort (values.begin (), values.end ());
     values.erase (std::unique (values.begin (), values.end (), Close), values.end ());
-    // Only subdivision candidates are clustered. The exact boundary still clips
-    // every face, so modelling noise/arc samples cannot create 1 mm grid strips
-    // or silently simplify the roof. Extrema are always retained for coverage.
+    // Tiny corner events are clipping detail, not drainage strips. A minimum
+    // candidate spacing proportional to the drainage size prevents hundreds of
+    // tiny square cells around bevels/arcs. The exact outline still clips faces.
+    const double spacing = (std::max) (0.05, step * 0.15);
     std::vector<double> significant { values.front () };
     for (size_t i = 1; i + 1 < values.size (); ++i)
-        if (values[i] - significant.back () >= 0.05 && values.back () - values[i] >= 0.05)
+        if (values[i] - significant.back () >= spacing && values.back () - values[i] >= spacing)
             significant.push_back (values[i]);
     if (!Close (significant.back (), values.back ()))
         significant.push_back (values.back ());
@@ -281,6 +287,10 @@ bool Populate (Data& d, const std::vector<Box>& boxes, const std::vector<Node>& 
     for (const auto& b : boxes) {
         if (b[2] - b[0] < kMinSpan || b[3] - b[1] < kMinSpan) {
             error = "A divider leaves a cell narrower than 10 mm.";
+            return false;
+        }
+        if (Aspect (b) > kMaxAspect + 1e-6) {
+            error = "Roof rectangles must stay near-square (maximum aspect ratio 1.5:1).";
             return false;
         }
         const auto pieces = cp::Intersect ({ Rect (b) }, outline, cp::FillRule::NonZero, kPrecision);
@@ -410,7 +420,8 @@ bool Plan (const std::vector<Ring>& world, double top, double percent, double ca
                         if (cp::PointInPolygon (center, p) == cp::PointInPolygonResult::IsInside)
                             centerInside = !centerInside;
                     }
-                    if (cp::Area (Rect (a)) < cap * 0.999 && centerInside && components == 1) {
+                    if (cp::Area (Rect (a)) < cap * 0.999 && Aspect (a) <= kMaxAspect && centerInside &&
+                        components == 1) {
                         boxes[i] = a;
                         boxes.erase (boxes.begin () + j);
                         continue;
@@ -418,6 +429,22 @@ bool Plan (const std::vector<Ring>& world, double top, double percent, double ca
                 }
                 ++j;
             }
+    // Corner events can leave a shallow strip even before any merge. Split its
+    // long axis evenly; clipping retains the exact footprint, not the grid strips.
+    std::vector<Box> balanced;
+    for (const auto& b : boxes) {
+        const double w = b[2] - b[0], h = b[3] - b[1];
+        const int nx = int (std::ceil (w / (h * kMaxAspect))), ny = int (std::ceil (h / (w * kMaxAspect)));
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i)
+                balanced.push_back (
+                    { b[0] + w * i / nx, b[1] + h * j / ny, b[0] + w * (i + 1) / nx, b[1] + h * (j + 1) / ny });
+        if (balanced.size () > 1000) {
+            error = "More than 1000 near-square roof rectangles. Reduce the input scope.";
+            return false;
+        }
+    }
+    boxes = std::move (balanced);
     double inv = 0, inv2 = 0;
     for (const auto& b : boxes)
         for (double run : { (b[2] - b[0]) / 2, (b[3] - b[1]) / 2 })
@@ -520,6 +547,54 @@ bool MoveDivider (Data& d, int cell, int side, double value, std::string& error)
         return false;
     d = std::move (candidate);
     return true;
+}
+bool RemoveDivider (Data& d, int cell, int side, std::string& error)
+{
+    if (cell < 0 || size_t (cell) >= d.cells.size () || side < 0 || side > 3) {
+        error = "Select an internal rectangle edge to delete. The source slab is never deleted.";
+        return false;
+    }
+    const auto a = d.cells[cell].box;
+    const int axis = side % 2, other = 1 - axis;
+    for (size_t i = 0; i < d.cells.size (); ++i) {
+        const auto b = d.cells[i].box;
+        if (i == size_t (cell) || !Close (a[side], b[(side + 2) % 4]) || !Close (a[other], b[other]) ||
+            !Close (a[other + 2], b[other + 2]))
+            continue;
+        for (int n : d.cells[cell].rim)
+            if (d.nodes[n].lockXY || d.nodes[n].lockZ) {
+                error = "Unlock this edge before deleting it.";
+                return false;
+            }
+        for (int n : d.cells[i].rim)
+            if (d.nodes[n].lockXY || d.nodes[n].lockZ) {
+                error = "The neighbouring rectangle is locked.";
+                return false;
+            }
+        for (int c : { cell, int (i) })
+            if (d.nodes[d.cells[c].drain].lockXY || d.nodes[d.cells[c].drain].lockZ) {
+                error = "Unlock the drains before merging their rectangles.";
+                return false;
+            }
+        Box merged { (std::min) (a[0], b[0]), (std::min) (a[1], b[1]), (std::max) (a[2], b[2]),
+                     (std::max) (a[3], b[3]) };
+        if ((merged[2] - merged[0]) * (merged[3] - merged[1]) >= d.cap || Aspect (merged) > kMaxAspect) {
+            error = "Deleting this edge would exceed the roof area/aspect limits.";
+            return false;
+        }
+        std::vector<Box> boxes;
+        for (size_t j = 0; j < d.cells.size (); ++j)
+            if (j != i && j != size_t (cell))
+                boxes.push_back (d.cells[j].box);
+        boxes.push_back (merged);
+        auto candidate = d;
+        if (!Populate (candidate, boxes, d.nodes, d.cells, error))
+            return false;
+        d = std::move (candidate);
+        return true;
+    }
+    error = "This edge is a footprint boundary or meets several neighbours. Use virtual footprint grips.";
+    return false;
 }
 bool EditOutline (Data& d, int ring, int vertex, Vec at, bool insert, bool remove, std::string& error)
 {
@@ -771,6 +846,12 @@ overlaylayers::Panel PanelStyle ()
     panel.title = "Roof slopes";
     panel.widthPixels = 360;
     panel.sizePixels = 16;
+    panel.defaultImGuiStyle = true;
+    return panel;
+}
+overlaylayers::Panel EditorStyle ()
+{
+    overlaylayers::Panel panel;
     panel.theme = overlaylayers::PanelTheme::Light;
     panel.font = "tapioca:roof-inter";
     panel.textRgba = 0x1C211DFF;

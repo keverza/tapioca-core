@@ -596,7 +596,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     io.DisplaySize = view;
     io.DeltaTime = delta;
     const float ui = scale * hudshell::FontScaleOfStep (store->fontStep);
-    hudshell::BaseStyle (ui);
+    hudshell::BaseStyle (ui, store->roofEditor != nullptr);
     ImGui::NewFrame ();
     windows.assign (panels.size () + 2, nullptr);
     highlight = Layout::Highlight {};
@@ -663,49 +663,6 @@ int Engine::Impl::PanelOf (const ImDrawList* list) const
         return -1;
     }
     return -1;
-}
-
-// The last frame's triangles, each panel's from its top-left, against the pages as
-// they stand.
-void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
-{
-    const ImDrawData* data = ImGui::GetDrawData ();
-    if (data == nullptr)
-        return;
-    std::vector<hudclip::Corner> cut;
-    for (const ImDrawList* list : data->CmdLists) {
-        const int panel = PanelOf (list);
-        Built& into = panel < 0                              ? out.overlay
-                      : size_t (panel) < out.panels.size ()  ? out.panels[size_t (panel)]
-                      : size_t (panel) == out.panels.size () ? out.dock
-                                                             : out.host;
-        const ImVec2 origin = panel >= 0 ? windows[size_t (panel)]->Pos : ImVec2 (0.0f, 0.0f);
-        for (const ImDrawCmd& command : list->CmdBuffer) {
-            if (command.UserCallback != nullptr || command.ElemCount == 0)
-                continue;
-            const ImTextureID id = command.GetTexID ();
-            const size_t slot = id == ImTextureID_Invalid ? pages.size () : size_t (id - 1);
-            if (slot >= pages.size () || pages[slot] == nullptr) {
-                ++unsampled;
-                continue;
-            }
-            // ⚠️ CUT TO THE COMMAND'S RECTANGLE, as the scissor a renderer of ImGui's would set
-            // (HudClip.hpp): a scrolled page's rows past its edges are not drawn.
-            const hudclip::Rect clip { command.ClipRect.x, command.ClipRect.y, command.ClipRect.z, command.ClipRect.w };
-            const auto corner = [&] (unsigned int e) {
-                const ImDrawVert& v =
-                    list->VtxBuffer[int (command.VtxOffset + list->IdxBuffer[int (command.IdxOffset + e)])];
-                return hudclip::Corner { v.pos.x, v.pos.y, v.uv.x, v.uv.y, v.col };
-            };
-            for (unsigned int e = 0; e + 2 < command.ElemCount; e += 3) {
-                cut.clear ();
-                hudclip::Clip (corner (e), corner (e + 1), corner (e + 2), clip, cut);
-                for (const hudclip::Corner& c : cut)
-                    into.vertices.push_back (
-                        { c.x - origin.x, c.y - origin.y, c.u, c.v, Unpacked (c.col), uint32_t (slot) });
-            }
-        }
-    }
 }
 
 Engine::Engine () : impl_ (new Impl ())
@@ -798,10 +755,10 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     impl_->nextStatsHover.clear ();
     impl_->nextFloorBuilding.clear ();
     impl_->nextFloorHover = {};
-    impl_->RoofEditActions (input);
     std::unique_lock<std::mutex> lock (ImGuiContextMutex ());
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
+    impl_->RoofEditActions (input);
     uint32_t unsampled = 0;
     // Each control's value as its layer says it now.
     impl_->Reconcile (panels, keys);
@@ -816,11 +773,12 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
     io.AddKeyEvent (ImGuiMod_Shift, input.shift);
     impl_->PointerButtons (input);
+    impl_->KeyboardInput (input);
     // The wheel the input layer took over a page that scrolls: ImGui scrolls the page under the
     // pointer by it.
     if (input.wheel != 0.0f)
         io.AddMouseWheelEvent (0.0f, input.wheel);
-    int frames = kFrames + int (input.buttons.size ()) + (input.buttons.empty () ? 0 : 1);
+    int frames = kFrames + int (input.buttons.size () + input.keys.size ()) + (input.buttons.empty () ? 0 : 1);
     const bool known = input.width >= 1.0f && input.height >= 1.0f;
     for (int attempt = 0; attempt < kAttempts; ++attempt) {
         const uint64_t before = impl_->atlasVersion;

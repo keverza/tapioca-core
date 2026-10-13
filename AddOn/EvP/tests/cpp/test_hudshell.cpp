@@ -453,6 +453,8 @@ TEST (HudCursor, ACanvasThatClaimsThePointerShowsItsOwnCursor)
     EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Arrow)) << "an arrow where the canvas says so";
     ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeEW);
     EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::SizeWE));
+    ImGui::SetMouseCursor (ImGuiMouseCursor_TextInput);
+    EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::Text));
     ImGui::EndFrame ();
     ImGui::NewFrame ();
     EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Hand)) << "a claim lasts its frame";

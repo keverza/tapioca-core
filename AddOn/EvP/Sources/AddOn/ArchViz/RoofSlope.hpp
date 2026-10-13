@@ -15,6 +15,7 @@ namespace geomsrv::archviz::roofslope {
 using floorscheme::Ring;
 using floorscheme::Vec;
 constexpr char kLayer[] = "slope-designer-roof";
+constexpr double kMaxAspect = 1.5; // roof envelopes are near-square, not long grading strips
 struct Node {
     Vec xy;
     double z = 0;
@@ -58,12 +59,19 @@ bool MoveDrain (Data& data, int cell, Vec xy, std::string& error);
 // Moves every connected divider at that coordinate. Refuses footprint borders,
 // collapsed cells, locked nodes and a cap/coverage violation instead of warping a box.
 bool MoveDivider (Data& data, int cell, int side, double value, std::string& error);
+bool RemoveDivider (Data& data, int cell, int side, std::string& error);
 bool EditOutline (Data& data, int ring, int vertex, Vec at, bool insert, bool remove, std::string& error);
 bool LiftCell (Data& data, int cell, double delta, std::string& error);
 bool Reorient (Data& data, double bearing, std::string& error);
 Snap Infer (const Data& data, Vec at, Vec anchor, double tolerance, int exclude = -1);
 overlaylayers::Layer Layer (const Data& data);
 overlaylayers::Panel PanelStyle ();
+overlaylayers::Panel EditorStyle ();
+struct Measures {
+    double maxAspect = 0, maxSpan = 0, maxBorderRise = 0;
+    int faces = 0;
+};
+Measures Measure (const Data& data);
 
 // Gesture updates are evaluated from `before`, not accumulated screen deltas.
 // Commit creates one virtual undo entry; rejected updates leave the last valid state.

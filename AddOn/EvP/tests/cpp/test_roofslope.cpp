@@ -2,6 +2,7 @@
 #include "ArchViz/RoofSlopeHud.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/OverlayScene.hpp"
 #include "hud_fixture.hpp"
 #include <imgui.h>
 #include <gtest/gtest.h>
@@ -9,17 +10,18 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include <chrono>
 
 namespace rs = geomsrv::archviz::roofslope;
 namespace hud = geomsrv::archviz::overlayhud;
 namespace rh = geomsrv::archviz::roofhud;
 namespace cp = Clipper2Lib;
 namespace {
-rs::Data Plan (std::vector<rs::Ring> rings, double top = 5)
+rs::Data Plan (std::vector<rs::Ring> rings, double top = 5, double cap = 200)
 {
     rs::Data d;
     std::string error;
-    EXPECT_TRUE (rs::Plan (rings, top, 2, 200, d, error)) << error;
+    EXPECT_TRUE (rs::Plan (rings, top, 2, cap, d, error)) << error;
     return d;
 }
 cp::PathsD Shapes (const rs::Data& d)
@@ -171,6 +173,31 @@ TEST (RoofSlope, RotationAndGeoreferencedCoordinatesPreserveArea)
     }
     auto d = Plan ({ ring });
     EXPECT_NEAR (Area (d), 400, 1e-3);
+}
+TEST (RoofSlope, October13EveningCaptureAndLongRoofsNeverProduceElongatedEnvelopes)
+{
+    for (const auto& rings : std::vector<std::vector<rs::Ring>> { { { { -43.853246409, -2.878364638 },
+                                                                      { -11.898320409, 4.222730029 },
+                                                                      { -15.369207734, 19.841722992 },
+                                                                      { -45.781482134, 13.083439792 },
+                                                                      { -46.173266667, 14.846470192 },
+                                                                      { -72.563627967, 8.981945458 },
+                                                                      { -69.294675767, -5.728339442 },
+                                                                      { -44.446966067, -0.206626175 } } },
+                                                                  { { { 0, 0 }, { 80, 0 }, { 80, 4 }, { 0, 4 } } } }) {
+        auto d = Plan (rings);
+        ASSERT_FALSE (d.cells.empty ());
+        const double expected = rings[0][0].x < 0 ? 910.172019233 : 320;
+        EXPECT_NEAR (Area (d), expected, 1e-3);
+        const auto measures = rs::Measure (d);
+        EXPECT_LE (measures.maxAspect, rs::kMaxAspect + 1e-6);
+        EXPECT_LT (measures.maxBorderRise, 0.2);
+        for (const auto& c : d.cells) {
+            const double w = c.box[2] - c.box[0], h = c.box[3] - c.box[1];
+            EXPECT_LE ((std::max) (w, h) / (std::min) (w, h), rs::kMaxAspect + 1e-6);
+            EXPECT_LT (w * h, 200);
+        }
+    }
 }
 TEST (RoofSlope, ElevationAndDrainLocksRejectWithoutChangingGeometry)
 {
@@ -327,6 +354,28 @@ TEST (RoofSlope, OpeningTheEditorDrawsItsGripsAndSelectedDrainGumballWithoutACli
     EXPECT_TRUE (control (600, 500, 0x5A7F62FF)); // corner grip
     EXPECT_TRUE (control (748, 400, 0x5A7F62FF)); // selected drain U gumball
     EXPECT_TRUE (control (700, 352, 0x5A7F62FF)); // selected drain V gumball
+    size_t anchors = 0, axes = 0;
+    for (const auto& v : out.overlay.vertices) {
+        anchors += v.modelAnchored;
+        axes += v.modelAnchored && v.turn;
+    }
+    EXPECT_GT (anchors, 0u);
+    EXPECT_GT (axes, 0u);
+    const auto drainWorld = rs::World (data, data.nodes[data.cells[0].drain].xy);
+    bool areaButton = false;
+    for (const auto& v : out.overlay.vertices)
+        if (v.modelAnchored && std::abs (v.model[0] - drainWorld.x) < 1e-6 &&
+            std::abs (v.model[1] - drainWorld.y) < 1e-6 && v.rgba == 0xF0F5F1FF && v.modelOffset[0] > 8 &&
+            v.modelOffset[1] < -16 && v.modelOffset[1] > -26)
+            areaButton = true;
+    EXPECT_FALSE (areaButton) << "net area is a readout, not an editable button";
+    const auto plan = geomsrv::archviz::overlayscene::PreparePlanHud (
+        { std::make_shared<const geomsrv::archviz::overlaylayers::Layer> (layer) }, &view.engine, 1, input);
+    size_t projected = 0;
+    for (const auto& glyph : plan.glyphs)
+        projected += (glyph.flags & geomsrv::archviz::overlayscene::kPlainTexture) != 0 &&
+                     (glyph.flags & geomsrv::archviz::overlayscene::kScreenAnchored) == 0;
+    EXPECT_GT (projected, 0u) << "roof furniture uses the current Present's projection, not layout screen pixels";
     hud::StopRoofEditor (*view.state);
     geomsrv::archviz::overlaylayers::Clear (rs::kLayer);
 }
@@ -355,4 +404,173 @@ TEST (RoofSlope, AClippedOutCentreIsFlaggedWithoutPublishingAnEmptyMarkerSet)
     EXPECT_TRUE (layer.points.empty ());
     EXPECT_EQ (geomsrv::archviz::overlaylayers::Validate (layer), "");
     EXPECT_NEAR (Area (d), 50, 1e-5);
+}
+TEST (RoofSlope, InlineNumberReceivesKeyboardAndEnterWithoutANativePopup)
+{
+    hudtest::Watched view;
+    auto data = Plan ({ { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } } });
+    auto layer = rs::Layer (data);
+    geomsrv::archviz::overlaylayers::Set (layer);
+    ASSERT_TRUE (hud::StartRoofEditor (*view.state, data));
+    auto& s = *view.state->roofEditor;
+    const int node = data.cells[0].drain;
+    s.number = rh::NumberEdit { s.editor.revision, node, 0, -1, 5, "Elevation", s.token };
+    std::snprintf (s.numberText, sizeof (s.numberText), "5");
+    s.focusNumber = true;
+    auto input = hudtest::At (950, 700);
+    input.planar = true;
+    input.plan[0] = 20, input.plan[2] = 600, input.plan[4] = -20, input.plan[5] = 500;
+    auto frame = [&] () {
+        hud::Layout out;
+        std::string error;
+        EXPECT_TRUE (
+            view.engine.Build ({ &layer.panels[0] }, { std::string (rs::kLayer) + "#0" }, 1, input, {}, out, error))
+            << error;
+        input.keys.clear (), input.characters.clear ();
+    };
+    frame ();
+    input.characters = u"5.02";
+    frame ();
+    input.keys.push_back ({ 0x2E, true });
+    frame ();
+    EXPECT_TRUE (s.number.has_value ());
+    EXPECT_TRUE (s.editor.undo.empty ()) << "Delete edits the active text field, not virtual geometry";
+    input.keys.push_back ({ 0x2E, false });
+    frame ();
+    input.keys.push_back ({ 0x0D, true });
+    frame ();
+    EXPECT_FALSE (s.number.has_value ());
+    EXPECT_NEAR (s.editor.data.nodes[node].z, 5.02, 1e-8);
+    EXPECT_EQ (s.editor.undo.size (), 1u);
+    input.keys.push_back ({ 0x0D, false });
+    frame ();
+    s.number = rh::NumberEdit { s.editor.revision, node, 0, -1, 5.02, "Elevation", s.token };
+    std::snprintf (s.numberText, sizeof (s.numberText), "5.02");
+    s.focusNumber = true;
+    frame ();
+    input.characters = u"5.04";
+    frame ();
+    input.keys.push_back ({ 0x1B, true });
+    frame ();
+    EXPECT_FALSE (s.number.has_value ());
+    EXPECT_FALSE (s.close) << "Esc cancels a field, not the whole editor";
+    EXPECT_NEAR (s.editor.data.nodes[node].z, 5.02, 1e-8);
+    hud::StopRoofEditor (*view.state);
+    geomsrv::archviz::overlaylayers::Clear (rs::kLayer);
+}
+TEST (RoofSlope, DeleteChangesOnlyTheVirtualFootprintAndCanBeUndone)
+{
+    rh::Session s;
+    s.editor.data = Plan ({ { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } } });
+    s.footprint = true, s.ring = 0, s.vertex = 1;
+    ASSERT_TRUE (rh::DeleteSelection (s)) << s.editor.message;
+    EXPECT_EQ (s.editor.data.outline[0].size (), 3u);
+    EXPECT_EQ (s.editor.undo.size (), 1u);
+    ASSERT_TRUE (s.editor.Undo (true));
+    EXPECT_EQ (s.editor.data.outline[0].size (), 4u);
+    s.footprint = false;
+    EXPECT_FALSE (rh::DeleteSelection (s));
+    EXPECT_EQ (s.editor.data.outline[0].size (), 4u);
+}
+TEST (RoofSlope, FloatingPanelKeepsDefaultImGuiAndCssIsOnlyTheEditingCanvas)
+{
+    const auto panel = rs::PanelStyle (), canvas = rs::EditorStyle ();
+    EXPECT_TRUE (panel.defaultImGuiStyle);
+    EXPECT_TRUE (panel.font.empty ());
+    EXPECT_FALSE (canvas.defaultImGuiStyle);
+    EXPECT_EQ (canvas.font, "tapioca:roof-inter");
+}
+TEST (RoofSlope, CapturedRoofGeometryEditsFitAnInteractiveFrameBudget)
+{
+    auto d = Plan ({ { { -43.853246409, -2.878364638 },
+                       { -11.898320409, 4.222730029 },
+                       { -15.369207734, 19.841722992 },
+                       { -45.781482134, 13.083439792 },
+                       { -46.173266667, 14.846470192 },
+                       { -72.563627967, 8.981945458 },
+                       { -69.294675767, -5.728339442 },
+                       { -44.446966067, -0.206626175 } } });
+    int cell = -1;
+    for (size_t i = 0; i < d.cells.size (); ++i)
+        if (d.cells[i].drainInside) {
+            cell = int (i);
+            break;
+        }
+    ASSERT_GE (cell, 0);
+    const auto start = d.nodes[d.cells[cell].drain].xy;
+    const auto began = std::chrono::steady_clock::now ();
+    for (int i = 0; i < 40; ++i) {
+        std::string error;
+        ASSERT_TRUE (rs::MoveDrain (d, cell, { start.x + 0.01 * std::sin (i), start.y }, error)) << error;
+        EXPECT_EQ (geomsrv::archviz::overlaylayers::Validate (rs::Layer (d)), "");
+    }
+    const double ms =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - began).count () / 40;
+    RecordProperty ("meanRoofGeometryEditMs", std::to_string (ms));
+    RecordProperty ("roofRectangles", int (d.cells.size ()));
+    EXPECT_LT (ms, 16) << "CPU geometry/publication preparation, not a live GPU or navigation measurement";
+}
+TEST (RoofSlope, VirtualDividerDeletionMergesOnlyWithinAreaAspectAndLockLimits)
+{
+    const auto original = Plan ({ { { 0, 0 }, { 14, 0 }, { 14, 10 }, { 0, 10 } } }, 5, 100);
+    ASSERT_EQ (original.cells.size (), 2u);
+    int cell = -1, side = -1;
+    for (int ci = 0; ci < 2; ++ci)
+        for (int s = 0; s < 4; ++s)
+            if (std::abs (original.cells[ci].box[s] - 7) < 1e-6)
+                cell = ci, side = s;
+    ASSERT_GE (cell, 0);
+    std::string error;
+    auto data = original;
+    EXPECT_FALSE (rs::RemoveDivider (data, cell, side, error));
+    EXPECT_EQ (data.cells.size (), 2u);
+    // A larger project cap makes this pair eligible without silently relaxing
+    // the aspect rule or losing controls on an unrelated rectangle.
+    data.cap = 200;
+    data.nodes[data.cells[cell].drain].lockXY = true;
+    EXPECT_FALSE (rs::RemoveDivider (data, cell, side, error));
+    EXPECT_EQ (data.cells.size (), 2u);
+    data.nodes[data.cells[cell].drain].lockXY = false;
+    ASSERT_TRUE (rs::RemoveDivider (data, cell, side, error)) << error;
+    EXPECT_EQ (data.cells.size (), 1u);
+    EXPECT_NEAR (Area (data), 140, 1e-4);
+    EXPECT_LE (rs::Measure (data).maxAspect, rs::kMaxAspect);
+    EXPECT_FALSE (rs::RemoveDivider (data, 0, 0, error));
+    auto longRoof = Plan ({ { { 0, 0 }, { 16, 0 }, { 16, 8 }, { 0, 8 } } });
+    for (int ci = 0; ci < int (longRoof.cells.size ()); ++ci)
+        for (int s = 0; s < 4; ++s)
+            EXPECT_FALSE (rs::RemoveDivider (longRoof, ci, s, error));
+}
+TEST (RoofSlope, HidingOrUnlockingCancelsInlineFields)
+{
+    auto state = hud::NewState ();
+    auto data = Plan ({ { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } } });
+    auto layer = rs::Layer (data);
+    geomsrv::archviz::overlaylayers::Set (layer);
+    ASSERT_TRUE (hud::StartRoofEditor (*state, data));
+    auto& s = *state->roofEditor;
+    s.number = rh::NumberEdit { s.editor.revision, data.cells[0].drain, 0, -1, 5, "Elevation", s.token };
+    hud::SetEditLocked (*state, false);
+    bool clear = false;
+    hud::FollowRoofEditor (*state, layer, clear);
+    EXPECT_FALSE (s.number.has_value ());
+    hud::SetEditLocked (*state, true);
+    s.number = rh::NumberEdit { s.editor.revision, data.cells[0].drain, 0, -1, 5, "Elevation", s.token };
+    state->shown = false;
+    hud::FollowRoofEditor (*state, layer, clear);
+    EXPECT_FALSE (s.number.has_value ());
+    hud::StopRoofEditor (*state);
+    geomsrv::archviz::overlaylayers::Clear (rs::kLayer);
+}
+TEST (RoofSlope, PlanHudFingerprintIncludesTheModelAnchorPackingOrigin)
+{
+    geomsrv::archviz::overlayscene::Plan before;
+    before.originX = 100, before.originY = 200;
+    const auto hash = geomsrv::archviz::overlayscene::Fingerprint (before);
+    auto after = before;
+    after.originX += 10;
+    EXPECT_NE (hash, geomsrv::archviz::overlayscene::Fingerprint (after));
+    after = before;
+    after.originY += 10;
+    EXPECT_NE (hash, geomsrv::archviz::overlayscene::Fingerprint (after));
 }

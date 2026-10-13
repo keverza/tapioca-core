@@ -1,8 +1,8 @@
 #ifndef EVP_ARCHVIZ_ROOFSLOPEHUD_HPP
 #define EVP_ARCHVIZ_ROOFSLOPEHUD_HPP
 #include "ArchViz/RoofSlope.hpp"
+#include "ArchViz/RoofSlopeCanvas.hpp"
 #include <optional>
-struct ImFont;
 namespace geomsrv::archviz::overlayhud {
 struct Input;
 }
@@ -26,13 +26,17 @@ struct Session {
     bool dragPlanar = false;
     roofslope::Snap snap;
     std::optional<NumberEdit> number;
+    roofcanvas::Frame canvas;
+    char numberText[64] = {};
+    bool focusNumber = false;
 };
 // Inverse of the supplied view projection at a fixed Z, with a singularity refusal.
 // No camera guesses, ACAPI calls or millimetres-per-pixel constants.
 bool OntoPlane (const overlayhud::Input& view, const roofslope::Data& data, float px, float py, double z,
                 roofslope::Vec seed, roofslope::Vec& local);
 void OnView (Session& session, const overlayhud::Input& view, bool hovered, float scale);
-void Panel (Session& session, ImFont* heading, float scale);
+void Panel (Session& session);
 bool Answer (Session& session, const NumberEdit& edit, double value);
+bool DeleteSelection (Session& session);
 } // namespace geomsrv::archviz::roofhud
 #endif

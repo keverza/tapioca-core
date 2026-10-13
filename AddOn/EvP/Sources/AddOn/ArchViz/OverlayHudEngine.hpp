@@ -160,6 +160,7 @@ struct Engine::Impl {
     Stats stats;
     huddebug::CounterWindow<2> debugCounters;
     bool ready = false;
+    bool roofKeysActive = false;
 
     // What the user did to each panel: this engine's own, or the views' shared one.
     using PanelState = State::Panel;
@@ -275,6 +276,7 @@ struct Engine::Impl {
     // floor plan is edited on the view (hudfloorscheme::OnView).
     void LockedView (const Input& input, float ui, ImVec2 view);
     void RoofEditActions (const Input& input);
+    void KeyboardInput (const Input& input);
     void RoofFonts ();
     void MassingPage ();
     void DebugPage (float ui);

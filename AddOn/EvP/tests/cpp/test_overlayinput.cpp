@@ -16,6 +16,7 @@ namespace {
 
 int g_refreshes = 0;
 int s_hostHovers = 0, s_hostLeaves = 0;
+int s_hostDeletes = 0;
 
 LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -23,6 +24,8 @@ LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lPar
         ++s_hostHovers;
     if (message == WM_MOUSELEAVE)
         ++s_hostLeaves;
+    if (message == WM_COMMAND && LOWORD (wParam) == 4242)
+        ++s_hostDeletes;
     return ::DefWindowProcW (window, message, wParam, lParam);
 }
 
@@ -132,21 +135,21 @@ TEST (OverlayInput, RoofEscapeIsScopedToItsLockedCanvasAndStopsWithTheSession)
     input::EnableRoofEditKeys (true);
     ::PostMessageW (other, WM_KEYDOWN, VK_ESCAPE, 0);
     Pump ();
-    EXPECT_TRUE (input::TakeInput (input::View::Plan).editActions.empty ());
+    EXPECT_TRUE (input::TakeInput (input::View::Plan).keys.empty ());
     ::PostMessageW (canvas, WM_KEYDOWN, VK_ESCAPE, 0);
     Pump ();
     const auto taken = input::TakeInput (input::View::Plan);
-    ASSERT_EQ (taken.editActions.size (), 1u);
-    EXPECT_EQ (taken.editActions.front (), geomsrv::archviz::overlayhud::Input::EditAction::Cancel);
+    ASSERT_EQ (taken.keys.size (), 1u);
+    EXPECT_EQ (taken.keys.front ().code, uint32_t (VK_ESCAPE));
     ::PostMessageW (canvas, WM_KEYDOWN, VK_DELETE, 0);
     Pump ();
     const auto blocked = input::TakeInput (input::View::Plan);
-    ASSERT_EQ (blocked.editActions.size (), 1u);
-    EXPECT_EQ (blocked.editActions.front (), geomsrv::archviz::overlayhud::Input::EditAction::BlockedModelKey);
+    ASSERT_EQ (blocked.keys.size (), 1u);
+    EXPECT_EQ (blocked.keys.front ().code, uint32_t (VK_DELETE));
     input::EnableRoofEditKeys (false);
     ::PostMessageW (canvas, WM_KEYDOWN, VK_ESCAPE, 0);
     Pump ();
-    EXPECT_TRUE (input::TakeInput (input::View::Plan).editActions.empty ());
+    EXPECT_TRUE (input::TakeInput (input::View::Plan).keys.empty ());
     input::Shutdown ();
     ::DestroyWindow (other);
     ::DestroyWindow (canvas);
@@ -176,4 +179,47 @@ TEST (OverlayInput, LockedCanvasCancelsOldHoverAndRejectsStationaryHostFeedbackO
     ::DestroyWindow (other);
     ::DestroyWindow (canvas);
     ::FreeLibrary (controls);
+}
+TEST (OverlayInput, LockedRoofConsumesParentDeleteBeforeNativeAcceleratorsAndForwardsText)
+{
+    const HWND parent = Canvas (), other = Canvas ();
+    const HWND canvas = ::CreateWindowExW (0, L"TapiocaOverlayInputTestCanvas", L"", WS_CHILD, 0, 0, 400, 300, parent,
+                                           nullptr, ::GetModuleHandleW (nullptr), nullptr);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error));
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    ASSERT_TRUE (input::EnableRoofEditKeys (true));
+    ACCEL shortcut { FVIRTKEY, VK_DELETE, 4242 };
+    const HACCEL accelerators = ::CreateAcceleratorTableW (&shortcut, 1);
+    s_hostDeletes = 0;
+    auto pump = [&] (HWND recipient) {
+        MSG message;
+        while (::PeekMessageW (&message, nullptr, 0, 0, PM_REMOVE))
+            if (!::TranslateAcceleratorW (recipient, accelerators, &message)) {
+                ::TranslateMessage (&message);
+                ::DispatchMessageW (&message);
+            }
+    };
+    ::PostMessageW (parent, WM_KEYDOWN, VK_DELETE, 0);
+    ::PostMessageW (parent, WM_CHAR, L'3', 0);
+    pump (parent);
+    const auto taken = input::TakeInput (input::View::Plan);
+    ASSERT_EQ (taken.keys.size (), 1u);
+    EXPECT_EQ (taken.keys.front ().code, uint32_t (VK_DELETE));
+    EXPECT_EQ (taken.characters, u"3");
+    EXPECT_EQ (s_hostDeletes, 0);
+    ::PostMessageW (other, WM_KEYDOWN, VK_DELETE, 0);
+    pump (other);
+    EXPECT_EQ (s_hostDeletes, 1) << "an unrelated native window retains its accelerator";
+    map.locked = false;
+    input::SetHitMap (input::View::Plan, map);
+    ::PostMessageW (parent, WM_KEYDOWN, VK_DELETE, 0);
+    pump (parent);
+    EXPECT_EQ (s_hostDeletes, 2) << "unlocking restores native modelling keys";
+    input::Shutdown ();
+    ::DestroyAcceleratorTable (accelerators);
+    ::DestroyWindow (parent);
+    ::DestroyWindow (other);
 }

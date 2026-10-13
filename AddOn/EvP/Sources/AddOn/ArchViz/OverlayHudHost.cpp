@@ -49,14 +49,12 @@ std::string Readable (const std::string& name)
 
 } // namespace
 
-bool ReadoutOnPage (const Hover& hover, const std::string& pageKey,
-                    const std::vector<std::string>& titledPanelKeys)
+bool ReadoutOnPage (const Hover& hover, const std::string& pageKey, const std::vector<std::string>& titledPanelKeys)
 {
     if (hover.layer.empty ())
         return true;
-    const bool hasTitledPage = std::any_of (titledPanelKeys.begin (), titledPanelKeys.end (), [&] (const auto& key) {
-        return LayerOf (key) == hover.layer;
-    });
+    const bool hasTitledPage = std::any_of (titledPanelKeys.begin (), titledPanelKeys.end (),
+                                            [&] (const auto& key) { return LayerOf (key) == hover.layer; });
     return !hasTitledPage || LayerOf (pageKey) == hover.layer;
 }
 
@@ -402,11 +400,11 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
                 key = k;
                 layer = LayerOf (k);
                 if (layer == roofslope::kLayer && store->roofEditor)
-                    roofhud::Panel (*store->roofEditor, FontFor ("tapioca:roof-heading"), ui);
+                    roofhud::Panel (*store->roofEditor);
                 else
                     Items (*panels[i], StateOf (k, *panels[i]), ui);
                 return;
-        }
+            }
     };
     std::vector<std::string> titledPanelKeys;
     titledPanelKeys.reserve (titled.size ());

@@ -501,6 +501,7 @@ set (EVP_ARCHVIZ_SOURCES
     # font atlas, the same library the add-on links (TapiocaImGui below). Every HUD's
     # look, dock and floating panel are HudShell's.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellStyle.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettingsUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunControls.cpp"
@@ -533,6 +534,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudLocked.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlope.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeHud.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeCanvas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeReport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudRoof.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
@@ -563,6 +566,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudSection.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudBuildings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudCollect.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudKeyboard.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudDisplays.cpp"
@@ -577,6 +582,7 @@ set (EVP_ARCHVIZ_SOURCES
     # The hooks and the canvas themselves: plain Win32, a window of the test's own thread for the
     # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
     # Independent sun-analysis compute device; no renderer, window or ACAPI.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyGpuTraversal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ArchVizLogStub.cpp"

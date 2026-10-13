@@ -85,6 +85,7 @@ ULONGLONG g_lastReportMs = 0;
 ULONGLONG g_lastDeviceRedrawMs = 0;
 ULONGLONG g_lastTargetCheckMs = 0;
 layer::Stats g_reported;
+double s_lastHudPlan[6] = {};
 
 struct OwnAcapi {
     OwnAcapi ()
@@ -270,6 +271,7 @@ void Teardown (const std::string& reason, bool acapi)
 {
     const bool wasRunning = g_running;
     g_running = false;
+    std::fill (std::begin (s_lastHudPlan), std::end (s_lastHudPlan), 0.0);
     overlayinput::Detach (overlayinput::View::Plan);
     layer::Disarm ();
     if (g_timer != 0) {
@@ -360,13 +362,17 @@ overlayhud::Input HudInput (bool take)
                                    : overlayinput::CurrentInput (overlayinput::View::Plan);
     if (!take)
         input.buttons.clear ();
-    if (overlayvisibility::Hovering ()) {
+    input.planar = true;
+    std::copy (std::begin (s_lastHudPlan), std::end (s_lastHudPlan), input.plan);
+    const bool locked = overlayhud::EditLocked (*guesttext::HudState ());
+    const bool navigation = (::GetAsyncKeyState (VK_MBUTTON) & 0x8000) != 0;
+    if (overlayvisibility::Hovering () && !locked && !navigation) {
         if (input.pointer && !input.overHud)
             input.hover = HoverAt (input.x, input.y);
         input.hover.picks = true; // the plan reads under the pointer: its readout may say "nothing"
     }
     // Editing and close-zoom cell values need the same plan transform, also while unlocked.
-    if (overlayvisibility::ContentShown ()) {
+    if (overlayvisibility::ContentShown () && !navigation && (Untouched () || locked)) {
         PlanViewTransform read;
         {
             const OwnAcapi own;
@@ -377,6 +383,7 @@ overlayhud::Input HudInput (bool take)
             input.planar = true;
             const double plan[6] = { t.xx, t.xy, t.ox, t.yx, t.yy, t.oy };
             std::copy (std::begin (plan), std::end (plan), input.plan);
+            std::copy (std::begin (plan), std::end (plan), s_lastHudPlan);
         }
     }
     return input;
@@ -401,6 +408,24 @@ bool RefreshHud ()
     overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
     // What the user did there may be the dock's circle or a layer hidden.
     overlaycontrol::FollowHudState ();
+    // Editing must publish the scene in this input turn, not at the 100 ms tick.
+    // Prepare remains outside Present; only its existing shaders reproject at Present.
+    if (layer::GetStats ().prepared) {
+        const uint64_t generation = overlaylayers::Generation ();
+        bool linesChanged = false, sceneChanged = false;
+        if (!layer::HoldsLayers (generation) &&
+            !layer::PrepareLayers (overlaylayers::Prepare2D (overlaycontrol::ShownLayers ()), generation, linesChanged,
+                                   error))
+            ArchVizLog ("PLAN OVERLAY  edit lines NOT PREPARED: " + error);
+        auto settled = input;
+        settled.buttons.clear (), settled.editActions.clear ();
+        settled.keys.clear (), settled.characters.clear ();
+        if (!dxgi::planguest::Prepare (layer::Device (), overlaycontrol::ShownLayers (), overlaylayers::Layers (),
+                                       generation, float (g_dpi), settled, sceneChanged, error) &&
+            error != g_lastHudError)
+            ArchVizLog ("PLAN OVERLAY  edit scene NOT PREPARED: " + error);
+        changed = changed || linesChanged || sceneChanged;
+    }
     return changed;
 }
 
@@ -531,8 +556,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         error.clear ();
         overlayhudmodel::Prepare (overlayinput::View::Plan);
         if (dxgi::planguest::Prepare (layer::Device (), overlaycontrol::ShownLayers (), overlaylayers::Layers (),
-                                      layersGeneration, float (g_dpi),
-                                      overlayinput::CurrentInput (overlayinput::View::Plan), guestChanged, error)) {
+                                      layersGeneration, float (g_dpi), HudInput (false), guestChanged, error)) {
             if (guestChanged) {
                 overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
                 const dxgi::planguest::Stats guest = dxgi::planguest::GetStats ();

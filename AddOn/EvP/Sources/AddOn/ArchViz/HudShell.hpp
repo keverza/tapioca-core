@@ -46,7 +46,7 @@ uint32_t Contrast (uint32_t rgba);
 
 // The style every window starts from at `scale` (the view's DPI times the text size);
 // each pushes its own colours and spacing over it.
-void BaseStyle (float scale);
+void BaseStyle (float scale, bool defaults = false);
 
 // A card's own colours, rounding and padding over the base: what the pointer can press is
 // tinted with its accent. Returns the number of colours pushed; `kLookVars` style vars

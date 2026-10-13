@@ -5,6 +5,7 @@
 
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayInputEvents.hpp"
+#include "ArchViz/OverlayInputKeyboard.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
@@ -41,6 +42,8 @@ struct Target {
     bool wasOver = false; // over the HUD at the last message: leaving it redraws the hover
     std::vector<overlayhud::Input::Button> buttons;
     std::vector<overlayhud::Input::EditAction> editActions;
+    std::vector<overlayhud::Input::Key> keys;
+    std::u16string characters;
     float wheel = 0.0f; // notches turned over a page that scrolls, since the last layout took them
     bool refreshPending = false;
     bool timerArmed = false;
@@ -76,6 +79,7 @@ overlayclicks::Meter g_meter;
 ATOM g_windowClass = 0;
 Target g_targets[2];
 Target* s_gestureTarget = nullptr; // observe the owning canvas's release even on another window
+Target* s_keyboardTarget = nullptr;
 // One latch: the views never run together, and a gesture is one pointer's.
 Router g_router;
 Stats g_stats;
@@ -141,6 +145,7 @@ HCURSOR g_handCursor = nullptr;
 HCURSOR g_moveCursor = nullptr;
 HCURSOR g_sizeWECursor = nullptr;
 HCURSOR g_sizeNSCursor = nullptr;
+HCURSOR s_textCursor = nullptr;
 
 bool ResolveSubclassing ()
 {
@@ -212,6 +217,9 @@ bool ShowCursor (const Target& target)
         case Cursor::SizeNS:
             cursor = g_sizeNSCursor;
             break;
+        case Cursor::Text:
+            cursor = s_textCursor;
+            break;
         default:
             break;
     }
@@ -280,6 +288,8 @@ void Subclass (Target& target, View view)
         g_sizeWECursor = ::LoadCursorW (nullptr, IDC_SIZEWE);
     if (g_sizeNSCursor == nullptr)
         g_sizeNSCursor = ::LoadCursorW (nullptr, IDC_SIZENS);
+    if (!s_textCursor)
+        s_textCursor = ::LoadCursorW (nullptr, IDC_IBEAM);
     target.subclassed = g_setSubclass (target.canvas, &CanvasProc, kSubclassId + UINT_PTR (view), 0) != FALSE;
     if (!target.subclassed)
         ArchVizLog ("OVERLAY INPUT  SetWindowSubclass refused the canvas: Archicad's cursor stays over the HUD");
@@ -339,7 +349,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     const Route route =
         removing ? g_router.Decide (event, over, overScroll) : g_router.Preview (event, over, overScroll);
     if (removing && event.kind == EventKind::Press && route == Route::Take)
-        s_gestureTarget = self;
+        s_gestureTarget = self, s_keyboardTarget = self;
     if (removing && g_router.GetOwner () == Owner::None)
         s_gestureTarget = nullptr;
     if (route == Route::Take) {
@@ -508,6 +518,35 @@ void Left (const MSG& message)
     target->wasOver = false;
 }
 
+bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16string& text, bool take)
+{
+    if (!s_roofEditKeys || !window)
+        return false;
+    Target* target = TargetFor (window);
+    // Taken mouse presses do not focus Archicad's canvas. The document/frame may
+    // retain keyboard focus and translate Delete as an accelerator there.
+    if (!target) {
+        if (s_keyboardTarget && ::IsChild (window, s_keyboardTarget->canvas))
+            target = s_keyboardTarget;
+        else
+            for (auto& candidate : g_targets)
+                if (candidate.canvas && ::IsChild (window, candidate.canvas) && candidate.map.locked &&
+                    candidate.owner.shown && candidate.owner.shown ()) {
+                    target = &candidate;
+                    break;
+                }
+    }
+    if (!target || !target->map.locked || !target->owner.shown || !target->owner.shown ())
+        return false; // unrelated palettes, modal dialogs and unlocked canvases pass
+    if (take) {
+        if (key.code && target->keys.size () < 128)
+            target->keys.push_back (key);
+        if (target->characters.size () + text.size () < 256)
+            target->characters += text;
+        RequestRefresh (*target);
+    }
+    return true;
+}
 LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
 {
     // ⚠️ THE CHAIN IS CALLED ON EVERY PATH: skipping it breaks every other hook on this
@@ -528,25 +567,8 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
         }
         else if (original == WM_MOUSELEAVE && removing)
             Left (*message);
-        else if (s_roofEditKeys && original == WM_KEYDOWN) {
-            Target* target = TargetFor (window);
-            if (target && target->map.locked && target->owner.shown && target->owner.shown ()) {
-                const bool ctrl = ::GetKeyState (VK_CONTROL) < 0;
-                const auto key = message->wParam;
-                const bool modelling = key == VK_DELETE || key == VK_BACK || (ctrl && (key == 'X' || key == 'V'));
-                if (key == VK_ESCAPE || modelling || (ctrl && (key == 'Z' || key == 'Y'))) {
-                    if (removing && (message->lParam & (1ll << 30)) == 0) {
-                        if (target->editActions.size () < 16)
-                            target->editActions.push_back (modelling ? overlayhud::Input::EditAction::BlockedModelKey
-                                                           : key == VK_ESCAPE ? overlayhud::Input::EditAction::Cancel
-                                                           : key == 'Z'       ? overlayhud::Input::EditAction::Undo
-                                                                              : overlayhud::Input::EditAction::Redo);
-                        RequestRefresh (*target);
-                    }
-                    message->message = WM_NULL;
-                }
-            }
-        }
+        else if (s_roofEditKeys)
+            keyboard::Message (*message, removing);
         // The click meter's press, when no mouse hook timed it first.
         if (g_timing && removing && g_mouseHook == nullptr &&
             (original == WM_LBUTTONDOWN || original == WM_LBUTTONDBLCLK))
@@ -685,6 +707,8 @@ void Clear (Target& target)
 {
     if (s_gestureTarget == &target)
         s_gestureTarget = nullptr;
+    if (s_keyboardTarget == &target)
+        s_keyboardTarget = nullptr;
     Unsubclass (target);
     if (target.timerArmed && g_window != nullptr)
         ::KillTimer (g_window, kRedrawTimer + UINT_PTR (ViewOf (target)));
@@ -693,6 +717,10 @@ void Clear (Target& target)
 
 void Uninstall ()
 {
+    keyboard::Stop ();
+    // Resolved procedures belong to comctl32, not to this session. Resolve again
+    // on the next attach instead of retaining addresses across module teardown.
+    g_setSubclass = nullptr, g_removeSubclass = nullptr, g_defSubclass = nullptr;
     if (g_mouseHook != nullptr) {
         ::UnhookWindowsHookEx (g_mouseHook);
         g_mouseHook = nullptr;
@@ -746,6 +774,9 @@ overlayhud::Input InputOf (Target& target, bool take)
     if (take) {
         input.buttons = std::move (target.buttons);
         input.editActions = std::move (target.editActions);
+        input.keys = std::move (target.keys);
+        input.characters = std::move (target.characters);
+        target.keys.clear (), target.characters.clear ();
         target.editActions.clear ();
         target.buttons.clear ();
         input.wheel = target.wheel;
@@ -820,6 +851,8 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
         // attached had published the regions.
         RequestRefresh (target);
     }
+    if (s_roofEditKeys)
+        keyboard::Install (&QueueKey);
     return true;
 }
 
@@ -845,12 +878,22 @@ void Shutdown ()
     Uninstall ();
 }
 
-void EnableRoofEditKeys (bool enabled)
+bool EnableRoofEditKeys (bool enabled)
 {
     s_roofEditKeys = enabled;
+    if (enabled) {
+        if (!keyboard::Install (&QueueKey)) {
+            s_roofEditKeys = false;
+            hudconsole::Warning ("Roof input", "Keyboard ownership could not be installed; editing was refused.");
+            return false;
+        }
+    }
+    else
+        keyboard::Stop ();
     if (!enabled)
         for (auto& target : g_targets)
-            target.editActions.clear ();
+            target.editActions.clear (), target.keys.clear (), target.characters.clear ();
+    return true;
 }
 
 void SetHitMap (View view, HitMap map)

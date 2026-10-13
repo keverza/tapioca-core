@@ -96,16 +96,12 @@ void FollowHudState ()
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
     }
-    overlayinput::EnableRoofEditKeys (overlayhud::RoofEditorActive (*state));
-    if (const auto edit = overlayhud::TakeRoofNumber (*state)) {
-        std::string answer;
-        double number = 0;
-        if (textprompt::Ask (edit->label, hudmeta::NumberText (edit->value), answer)) {
-            if (hudmeta::ParseNumber (answer, -100000, 100000, number))
-                overlayhud::AnswerRoofNumber (*state, *edit, number);
-            else
-                hudconsole::Warning ("Roof slopes", "Enter a finite value in metres.");
-        }
+    const bool roofKeys = overlayhud::RoofEditorActive (*state) && overlayhud::EditLocked (*state) &&
+                          overlayhud::ContentShown (*state) && overlayhud::LayerShown (*state, roofslope::kLayer);
+    if (!overlayinput::EnableRoofEditKeys (roofKeys)) {
+        overlayhud::StopRoofEditor (*state);
+        overlaylayers::Clear (roofslope::kLayer);
+        PublishLayers ();
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
     }

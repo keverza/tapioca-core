@@ -311,9 +311,14 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     tip.flags = kScreenAnchored | kPlainTexture | kPhysicalPixels;
     tip.behind = kBehindShow;
     for (const overlayhud::Vertex& v : layout.overlay.vertices) {
+        tip.flags = kPlainTexture | kPhysicalPixels | (v.modelAnchored ? 0u : kScreenAnchored) |
+                    (v.turn ? kAlongDirection : 0u);
+        std::copy (v.model.begin (), v.model.end (), tip.anchor);
+        std::copy (v.direction.begin (), v.direction.end (), tip.dir);
         tip.rgba = v.rgba;
         tip.page = kHudPageBase + v.page;
-        if (!PushGlyphVertex (tip, v.x, v.y, v.u, v.v))
+        if (!PushGlyphVertex (tip, v.modelAnchored ? v.modelOffset[0] : v.x, v.modelAnchored ? v.modelOffset[1] : v.y,
+                              v.u, v.v))
             return;
     }
 }
@@ -561,7 +566,12 @@ uint32_t LayerKey (const std::string& name)
 
 uint64_t Fingerprint (const Plan& hud)
 {
-    return FingerprintOf (hud);
+    auto hash = FingerprintOf (hud);
+    // Model anchors are packed relative to this origin. A translated roof can
+    // keep identical packed glyphs, but must still publish its new world origin.
+    Mix (hash, &hud.originX, sizeof (hud.originX));
+    Mix (hash, &hud.originY, sizeof (hud.originY));
+    return hash;
 }
 
 uint64_t Fingerprint (const Scene& hud)

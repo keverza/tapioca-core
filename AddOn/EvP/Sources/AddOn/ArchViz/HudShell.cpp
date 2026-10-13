@@ -55,26 +55,19 @@ uint32_t Contrast (uint32_t rgba)
     return (0.299f * r + 0.587f * g + 0.114f * b) / 255.0f > 0.62f ? 0x1F2328FFu : 0xFFFFFFFFu;
 }
 
-void BaseStyle (float scale)
-{
-    ImGuiStyle& style = ImGui::GetStyle ();
-    style = ImGuiStyle ();
-    ImGui::StyleColorsDark (&style);
-    // ⚠️ DENSE (the user, 2026-09-30: a small, content-dense inspection panel, not unused
-    // space): a pixel less round every frame and between items than ImGui's own.
-    style.FramePadding = ImVec2 (4.0f, 2.0f);
-    style.ItemSpacing = ImVec2 (6.0f, 3.0f);
-    style.ItemInnerSpacing = ImVec2 (4.0f, 3.0f);
-    style.CellPadding = ImVec2 (4.0f, 1.0f);
-    style.ScaleAllSizes (scale);
-    style.ScrollbarSize /= 3.0f; // Shared HUD scrollbars stay slim at every DPI/text scale.
-    style.WindowMinSize = ImVec2 (1.0f, 1.0f);
-    style.FrameRounding = 2.0f * scale;
-    graphicssettingsui::ApplyStyle (style, scale);
-}
-
 int PushLook (const layers::Panel& panel, float scale)
 {
+    if (panel.defaultImGuiStyle) {
+        ImGuiStyle defaults;
+        ImGui::StyleColorsDark (&defaults);
+        defaults.ScaleAllSizes (scale);
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, defaults.WindowPadding);
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding, defaults.WindowRounding);
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, defaults.WindowBorderSize);
+        for (int i = 0; i < ImGuiCol_COUNT; ++i)
+            ImGui::PushStyleColor (ImGuiCol (i), defaults.Colors[i]);
+        return ImGuiCol_COUNT;
+    }
     ImGui::PushStyleVar (
         ImGuiStyleVar_WindowPadding,
         ImVec2 (float (graphicssettings::Number ("ui.size.WindowPadding.x", panel.paddingPixels)) * scale,
@@ -516,6 +509,8 @@ uint8_t CursorOf (bool hand)
     if (!CursorOwned ())
         return uint8_t (hand ? Cursor::Hand : Cursor::Arrow);
     switch (ImGui::GetMouseCursor ()) {
+        case ImGuiMouseCursor_TextInput:
+            return uint8_t (Cursor::Text);
         case ImGuiMouseCursor_Hand:
             return uint8_t (Cursor::Hand);
         case ImGuiMouseCursor_ResizeAll:

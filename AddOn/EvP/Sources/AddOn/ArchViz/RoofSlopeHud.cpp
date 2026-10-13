@@ -5,9 +5,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <charconv>
 
 namespace geomsrv::archviz::roofhud {
 namespace rs = roofslope;
+namespace rc = roofcanvas;
 namespace {
 constexpr ImU32 kAccent = IM_COL32 (90, 127, 98, 255), kSecondary = IM_COL32 (131, 153, 135, 255);
 constexpr ImU32 kDark = IM_COL32 (55, 82, 61, 255), kSurface = IM_COL32 (240, 245, 241, 255);
@@ -22,6 +24,11 @@ bool Project (const overlayhud::Input& v, const rs::Data& d, rs::Vec p, double z
     }
     return v.project && v.project (p.x, p.y, z, screen.x, screen.y);
 }
+rc::Anchor At (const rs::Data& d, rs::Vec xy, double z, ImVec2 screen)
+{
+    const auto p = rs::World (d, xy);
+    return { { p.x, p.y, z }, { screen.x, screen.y } };
+}
 double Distance (ImVec2 a, ImVec2 b)
 {
     return std::hypot (a.x - b.x, a.y - b.y);
@@ -35,7 +42,8 @@ std::string Number (double number, const char* suffix, int decimals = 3)
 void Ask (Session& s, int node, int cell, int side, double value, const std::string& label)
 {
     if (!s.number)
-        s.number = NumberEdit { s.editor.revision, node, cell, side, value, label, s.token };
+        s.number = NumberEdit { s.editor.revision, node, cell, side, value, label, s.token },
+        std::snprintf (s.numberText, sizeof (s.numberText), "%.6g", value), s.focusNumber = true;
 }
 bool Edit (Session& s, rs::Data candidate, const std::string& error)
 {
@@ -48,10 +56,13 @@ bool Edit (Session& s, rs::Data candidate, const std::string& error)
     s.editor.Commit ();
     return true;
 }
-void Label (ImDrawList* draw, ImVec2 at, const std::string& text, ImU32 color)
+void Label (ImDrawList* draw, ImVec2 at, const std::string& text, ImU32 color, bool editable = false)
 {
     const auto size = ImGui::CalcTextSize (text.c_str ());
-    draw->AddRectFilled ({ at.x - 4, at.y - 2 }, { at.x + size.x + 4, at.y + size.y + 2 }, kSurface, 2);
+    if (editable) {
+        draw->AddRectFilled ({ at.x - 4, at.y - 2 }, { at.x + size.x + 4, at.y + size.y + 2 }, kSurface, 2);
+        draw->AddRect ({ at.x - 4, at.y - 2 }, { at.x + size.x + 4, at.y + size.y + 2 }, kSecondary, 2);
+    }
     draw->AddText (at, color, text.c_str ());
 }
 struct Hit {
@@ -121,6 +132,62 @@ bool ElevationAt (const Session& s, const overlayhud::Input& v, ImVec2 mouse, do
     }
     return false;
 }
+void NumberInput (Session& s, const overlayhud::Input& view, float scale)
+{
+    if (!s.number)
+        return;
+    const auto edit = *s.number;
+    if (edit.revision != s.editor.revision) {
+        s.number.reset ();
+        s.editor.message = "Design changed while the field was open; value not applied.";
+        return;
+    }
+    const auto& d = s.editor.data;
+    rs::Vec xy;
+    double z = d.topZ;
+    if (edit.node >= 0 && size_t (edit.node) < d.nodes.size ()) {
+        xy = d.nodes[edit.node].xy, z = d.nodes[edit.node].z;
+    }
+    else if (edit.cell >= 0 && size_t (edit.cell) < d.cells.size ()) {
+        const auto& c = d.cells[edit.cell];
+        xy = d.nodes[c.drain].xy, z = d.nodes[c.drain].z;
+        if (edit.side == 2)
+            xy = { (c.box[0] + c.box[2]) / 2, c.box[1] };
+        if (edit.side == 3)
+            xy = { c.box[0], (c.box[1] + c.box[3]) / 2 };
+    }
+    else {
+        s.number.reset ();
+        return;
+    }
+    ImVec2 p;
+    if (!Project (view, d, xy, z, p))
+        return;
+    rc::Scope field (s.canvas, { At (d, xy, z, p) });
+    ImGui::SetCursorScreenPos ({ p.x + 8 * scale, p.y + (edit.side == 2 ? -24 : 4) * scale });
+    ImGui::SetNextItemWidth (150 * scale);
+    if (s.focusNumber)
+        ImGui::SetKeyboardFocusHere ();
+    s.focusNumber = false;
+    const bool enter = ImGui::InputText ("##roofNumber", s.numberText, sizeof (s.numberText),
+                                         ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+    if (ImGui::IsKeyPressed (ImGuiKey_Escape)) {
+        s.number.reset ();
+        return;
+    }
+    if (enter || ImGui::IsItemDeactivatedAfterEdit ()) {
+        std::string text = s.numberText;
+        std::replace (text.begin (), text.end (), ',', '.');
+        double value = 0;
+        const auto parsed = std::from_chars (text.data (), text.data () + text.size (), value);
+        if (parsed.ec == std::errc () && parsed.ptr == text.data () + text.size () && std::isfinite (value)) {
+            s.number.reset ();
+            Answer (s, edit, value);
+        }
+        else
+            s.editor.message = "Enter a finite number; Enter applies and Esc cancels.";
+    }
+}
 } // namespace
 
 bool OntoPlane (const overlayhud::Input& v, const rs::Data& d, float px, float py, double z, rs::Vec seed,
@@ -155,8 +222,14 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         e.Cancel (), s.drag = 0;
     auto& d = e.data;
     auto* draw = ImGui::GetWindowDrawList ();
+    s.canvas.list = draw;
+    s.canvas.batches.clear ();
+    // Retain model furniture even outside this layout's view; the GPU's viewport
+    // clips it after reprojection with the actual frame's transform/camera.
+    draw->PushClipRect ({ -1e6f, -1e6f }, { 1e6f, 1e6f }, false);
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
     Hit hit;
+    bool fieldHovered = false;
     hit.distance *= scale;
     auto offer = [&] (Hit next) {
         ImVec2 p;
@@ -178,6 +251,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 continue;
             const bool selected = e.selectedNode == n;
             const float r = (j == 4 ? 5 : 4) * scale;
+            rc::Scope marker (s.canvas, { At (d, node.xy, node.z, p) });
             draw->AddRectFilled ({ p.x - r, p.y - r }, { p.x + r, p.y + r },
                                  j == 4 && !c.drainInside ? kWarning
                                  : selected               ? kDark
@@ -188,9 +262,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             if (ci == e.selectedCell) {
                 const auto text = "Z " + Number (node.z, " m");
                 ImVec2 at { p.x + 8 * scale, p.y + 4 * scale };
-                Label (draw, at, text, kDark);
+                if (!s.number || s.number->node != n)
+                    Label (draw, at, text, kDark, !node.lockZ);
                 const auto size = ImGui::CalcTextSize (text.c_str ());
-                if (hovered && ImGui::IsMouseClicked (0) && mouse.x >= at.x && mouse.y >= at.y &&
+                fieldHovered = fieldHovered || (hovered && !node.lockZ && mouse.x >= at.x && mouse.y >= at.y &&
+                                                mouse.x < at.x + size.x && mouse.y < at.y + size.y);
+                if (hovered && !node.lockZ && ImGui::IsMouseClicked (0) && mouse.x >= at.x && mouse.y >= at.y &&
                     mouse.x < at.x + size.x && mouse.y < at.y + size.y)
                     Ask (s, n, ci, -1, node.z, "Point elevation, project-world metres");
             }
@@ -203,7 +280,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             projected = Project (v, d, d.nodes[c.rim[j]].xy, d.nodes[c.rim[j]].z, points[j]) && projected;
         if (!projected)
             continue;
-        draw->AddPolyline (points, 4, kAccent, ImDrawFlags_Closed, 2 * scale);
+        {
+            rc::Scope border (s.canvas, { At (d, d.nodes[c.rim[0]].xy, d.nodes[c.rim[0]].z, points[0]),
+                                          At (d, d.nodes[c.rim[1]].xy, d.nodes[c.rim[1]].z, points[1]),
+                                          At (d, d.nodes[c.rim[2]].xy, d.nodes[c.rim[2]].z, points[2]),
+                                          At (d, d.nodes[c.rim[3]].xy, d.nodes[c.rim[3]].z, points[3]) });
+            draw->AddPolyline (points, 4, kAccent, ImDrawFlags_Closed, 2 * scale);
+        }
         // Midpoint grips translate the whole aligned divider, never just one edge.
         for (int side = 0; side < 4; ++side) {
             const int a = side == 0 ? 3 : side == 1 ? 0 : side == 2 ? 1 : 2;
@@ -213,6 +296,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             const double z = (na.z + nb.z) / 2;
             ImVec2 p;
             if (Project (v, d, mid, z, p)) {
+                rc::Scope grip (s.canvas, { At (d, mid, z, p) });
                 draw->AddRectFilled ({ p.x - 4 * scale, p.y - 4 * scale }, { p.x + 4 * scale, p.y + 4 * scale },
                                      kSecondary, 2);
                 if (hovered && !s.footprint)
@@ -220,11 +304,20 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             }
         }
         for (int axis = 0; axis < 2; ++axis) {
-            ImVec2 a = points[0], b = points[axis == 0 ? 1 : 3];
-            ImVec2 mid { (a.x + b.x) / 2, (a.y + b.y) / 2 - (axis == 0 ? 24 : 0) * scale };
+            const auto &na = d.nodes[c.rim[0]], &nb = d.nodes[c.rim[axis == 0 ? 1 : 3]];
+            const rs::Vec xy { (na.xy.x + nb.xy.x) / 2, (na.xy.y + nb.xy.y) / 2 };
+            ImVec2 projectedMid;
+            if (!Project (v, d, xy, (na.z + nb.z) / 2, projectedMid))
+                continue;
+            ImVec2 mid = projectedMid;
+            mid.y -= (axis == 0 ? 24 : 0) * scale;
+            rc::Scope dimension (s.canvas, { At (d, xy, (na.z + nb.z) / 2, projectedMid) });
             const auto text = Number (c.box[axis + 2] - c.box[axis], " m");
-            Label (draw, mid, text, kDark);
+            if (!s.number || s.number->cell != ci || s.number->side != axis + 2)
+                Label (draw, mid, text, kDark, true);
             const auto size = ImGui::CalcTextSize (text.c_str ());
+            fieldHovered = fieldHovered || (hovered && mouse.x >= mid.x && mouse.y >= mid.y &&
+                                            mouse.x < mid.x + size.x && mouse.y < mid.y + size.y);
             if (hovered && ImGui::IsMouseClicked (0) && mouse.x >= mid.x && mouse.y >= mid.y &&
                 mouse.x < mid.x + size.x && mouse.y < mid.y + size.y)
                 Ask (s, -1, ci, axis + 2, c.box[axis + 2] - c.box[axis],
@@ -232,8 +325,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
         ImVec2 p;
         const auto& drain = d.nodes[c.drain];
-        if (Project (v, d, drain.xy, drain.z, p))
+        if (Project (v, d, drain.xy, drain.z, p)) {
+            rc::Scope area (s.canvas, { At (d, drain.xy, drain.z, p) });
             Label (draw, { p.x + 8 * scale, p.y - 24 * scale }, Number (c.area, " m2", 2), kDark);
+        }
     }
     // A selected point's gumball uses the roof's axes, with elevation available in
     // 3D only when Z projects to a stable screen direction. Plan Z uses the text.
@@ -255,6 +350,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 const double length = Distance (p, x);
                 ImVec2 end { p.x + float ((x.x - p.x) / length) * 48 * scale,
                              p.y + float ((x.y - p.y) / length) * 48 * scale };
+                auto anchor = At (d, node.xy, node.z, p);
+                const auto start = rs::World (d, node.xy), finish = rs::World (d, q);
+                anchor.direction = { finish.x - start.x, finish.y - start.y, z - node.z };
+                anchor.screenDirection = { float ((x.x - p.x) / length), float ((x.y - p.y) / length) };
+                anchor.turn = true;
+                rc::Scope gumball (s.canvas, { anchor });
                 draw->AddLine (p, end, axis == 0 ? kAccent : axis == 1 ? kSecondary : kDark, 2 * scale);
                 draw->AddCircleFilled (end, 4 * scale, kAccent);
                 draw->AddText ({ end.x + 4, end.y }, kDark, axis == 0 ? "U" : axis == 1 ? "V" : "Z");
@@ -282,9 +383,15 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 const rs::Vec mid { (a.x + b.x) / 2, (a.y + b.y) / 2 };
                 ImVec2 p, q;
                 if (Project (v, d, a, d.topZ, p) && Project (v, d, mid, d.topZ, q)) {
-                    draw->AddCircleFilled (p, 4 * scale, kAccent);
-                    draw->AddRectFilled ({ q.x - 3 * scale, q.y - 3 * scale }, { q.x + 3 * scale, q.y + 3 * scale },
-                                         kSecondary, 2);
+                    {
+                        rc::Scope vertex (s.canvas, { At (d, a, d.topZ, p) });
+                        draw->AddCircleFilled (p, 4 * scale, kAccent);
+                    }
+                    {
+                        rc::Scope edge (s.canvas, { At (d, mid, d.topZ, q) });
+                        draw->AddRectFilled ({ q.x - 3 * scale, q.y - 3 * scale }, { q.x + 3 * scale, q.y + 3 * scale },
+                                             kSecondary, 2);
+                    }
                     if (hovered) {
                         offer ({ 5, -1, -1, -1, -1, r, i, -1, a, d.topZ });
                         offer ({ 6, -1, -1, -1, -1, r, i, -1, mid, d.topZ });
@@ -294,7 +401,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (hovered) {
         hudshell::OwnCursor ();
-        ImGui::SetMouseCursor (hit.kind ? ImGuiMouseCursor_ResizeAll : ImGuiMouseCursor_Arrow);
+        ImGui::SetMouseCursor (fieldHovered ? ImGuiMouseCursor_TextInput
+                               : hit.kind   ? ImGuiMouseCursor_ResizeAll
+                                            : ImGuiMouseCursor_Arrow);
     }
     if (hovered && ImGui::IsMouseClicked (0) && !s.number) {
         if (hit.kind) {
@@ -352,16 +461,20 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 Label (draw, { mouse.x + 16 * scale, mouse.y + 16 * scale }, s.snap.label, kDark);
                 ImVec2 from, to;
                 if (s.snap.guide && Project (v, d, s.snap.guideFrom, s.startZ, from) &&
-                    Project (v, d, at, s.startZ, to))
+                    Project (v, d, at, s.startZ, to)) {
+                    rc::Scope guide (s.canvas, { At (d, s.snap.guideFrom, s.startZ, from), At (d, at, s.startZ, to) });
                     draw->AddLine (from, to, kSecondary, scale);
+                }
             }
             if (s.drag <= 3)
                 ApplyDrag (s, at, s.startZ);
             else {
                 s.last = at;
                 ImVec2 p;
-                if (Project (v, d, at, d.topZ, p))
+                if (Project (v, d, at, d.topZ, p)) {
+                    rc::Scope preview (s.canvas, { At (d, at, d.topZ, p) });
                     draw->AddCircle (p, 8 * scale, kAccent);
+                }
             }
         }
         else
@@ -403,6 +516,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         e.Commit ();
         s.drag = 0;
     }
+    draw->PopClipRect ();
+    NumberInput (s, v, scale);
     if (hovered && ImGui::IsMouseClicked (1)) {
         if (s.drag)
             e.Cancel (), s.drag = 0;
@@ -439,6 +554,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     Edit (s, std::move (copy), error);
                 }
         }
+        if (e.selectedSide >= 0 && ImGui::MenuItem ("Delete virtual divider"))
+            DeleteSelection (s);
         if (ImGui::MenuItem ("Undo", nullptr, false, !e.undo.empty ()))
             e.Undo (true);
         if (ImGui::MenuItem ("Redo", nullptr, false, !e.redo.empty ()))
@@ -449,13 +566,11 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
 }
 
-void Panel (Session& s, ImFont* heading, float scale)
+void Panel (Session& s)
 {
     auto& e = s.editor;
     const auto& d = e.data;
-    ImGui::PushFont (heading, 19.2f * scale);
     ImGui::TextUnformatted ("Roof drainage");
-    ImGui::PopFont ();
     ImGui::Text ("%zu rectangles   %zu clipped triangles", d.cells.size (), d.triangles.size ());
     ImGui::Text ("Slab top %.3f m   Target %.2f%%", d.topZ, d.targetPercent);
     ImGui::Text ("Cell envelope < %.2f m2", d.cap);
@@ -511,18 +626,20 @@ void Panel (Session& s, ImFont* heading, float scale)
 bool Answer (Session& s, const NumberEdit& edit, double value)
 {
     if (s.token != edit.sessionToken || s.editor.revision != edit.revision || !std::isfinite (value)) {
-        s.editor.message = "Design changed while the prompt was open; value not applied.";
+        s.editor.message = "Design changed while the field was open; value not applied.";
         return false;
     }
     auto candidate = s.editor.data;
     std::string error;
     if (edit.node >= 0)
         rs::SetElevation (candidate, edit.node, value, error);
+    else if (edit.cell < 0 || size_t (edit.cell) >= candidate.cells.size ())
+        error = "Select a roof rectangle before editing its dimensions.";
     else if (edit.side == -2)
         rs::LiftCell (candidate, edit.cell, value, error);
     else if (edit.side == -3)
         rs::Reorient (candidate, value * 3.141592653589793 / 180, error);
-    else if (value > 0) {
+    else if ((edit.side == 2 || edit.side == 3) && value > 0) {
         const auto box = candidate.cells[edit.cell].box;
         if (!rs::MoveDivider (candidate, edit.cell, edit.side, box[edit.side - 2] + value, error) &&
             error == "The slab boundary is fixed. Drag an internal divider.") {
@@ -532,6 +649,33 @@ bool Answer (Session& s, const NumberEdit& edit, double value)
     }
     else
         error = "Dimensions must be positive.";
-    return Edit (s, std::move (candidate), error);
+    const bool applied = Edit (s, std::move (candidate), error);
+    if (applied && edit.side == -3)
+        s.editor.selectedCell = s.editor.selectedNode = s.editor.selectedSide = -1, s.ring = s.vertex = -1;
+    return applied;
+}
+bool DeleteSelection (Session& s)
+{
+    if (s.number)
+        return false; // Delete belongs to the active inline field
+    if (s.editor.gesture)
+        s.editor.Cancel (), s.drag = 0;
+    auto candidate = s.editor.data;
+    std::string error;
+    const bool valid = s.footprint && s.ring >= 0
+                           ? rs::EditOutline (candidate, s.ring, s.vertex, s.last, false, true, error)
+                           : rs::RemoveDivider (candidate, s.editor.selectedCell, s.editor.selectedSide, error);
+    if (!valid) {
+        s.editor.message = error;
+        return false;
+    }
+    const bool applied = Edit (s, std::move (candidate), {});
+    if (applied)
+        s.editor.message = s.footprint && s.ring >= 0
+                               ? "Virtual footprint replanned; manual edits reset. Source slab unchanged."
+                               : "Virtual rectangles merged; central drain reset. Source slab unchanged.";
+    s.editor.selectedCell = s.editor.selectedNode = s.editor.selectedSide = -1;
+    s.ring = s.vertex = -1;
+    return applied;
 }
 } // namespace geomsrv::archviz::roofhud
