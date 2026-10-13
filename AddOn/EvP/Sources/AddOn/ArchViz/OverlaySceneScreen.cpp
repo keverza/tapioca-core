@@ -62,7 +62,7 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
     AddPanels (panels, input, bars);
 }
 
-void Builder::AddHoverTint (const std::vector<double>& corners)
+void Builder::AddHoverTint (const std::vector<double>& corners, bool measuredCell)
 {
     const size_t triangles = corners.size () / 9;
     if (triangles == 0)
@@ -73,7 +73,9 @@ void Builder::AddHoverTint (const std::vector<double>& corners)
     }
     DraftFill fill;
     fill.draw.shading = uint32_t (layers::Shading::Flat);
-    fill.draw.behind = Plan () ? kBehindShow : kBehindFade;
+    // Only measured heatmap cells inherit the half-opacity occlusion policy;
+    // general overlay-item inspection keeps its established always-visible tint.
+    fill.draw.behind = !Plan () && measuredCell ? kBehindFade : kBehindShow;
     fill.draw.occludedOpacity = 0.5f;
     fill.vertices.reserve (triangles * 3);
     for (size_t c = 0; c < triangles * 3; ++c) {
@@ -181,18 +183,17 @@ void Builder::AddHoverMeasurement (const overlayhud::Hover& hover, const overlay
     const Vec3 direction { dimension.direction[0], dimension.direction[1], dimension.direction[2] };
     const Vec3 up = Unit (Cross (normal, span));
     const Vec3 at = Plus (Plus (Scaled (Plus (from, to), 0.5), Scaled (direction, dimension.offsetMetres)),
-                         Scaled (up, -dimension.textSizeMetres * 0.75));
+                          Scaled (up, -dimension.textSizeMetres * 0.75));
     const Vec3 emEnd = Plus (at, Scaled (span, dimension.textSizeMetres));
     if (!input.project (at.x, at.y, at.z, x0, y0) || !input.project (emEnd.x, emEnd.y, emEnd.z, x1, y1) ||
         std::hypot (x1 - x0, y1 - y0) < dimension.textMinProjectedPixels * scale_)
         return;
     const double radius = std::hypot ((std::max) (std::abs (label.left), std::abs (label.right)),
-                                     (std::max) (std::abs (label.top), std::abs (label.bottom))) *
+                                      (std::max) (std::abs (label.top), std::abs (label.bottom))) *
                               dimension.textSizeMetres / dimension.textSizePixels +
                           dimension.textSizeMetres * 0.2;
     for (int corner = 0; corner < 8; ++corner) {
-        const Vec3 bound { at.x + ((corner & 1) ? radius : -radius),
-                           at.y + ((corner & 2) ? radius : -radius),
+        const Vec3 bound { at.x + ((corner & 1) ? radius : -radius), at.y + ((corner & 2) ? radius : -radius),
                            at.z + ((corner & 4) ? radius : -radius) };
         if (!input.project (bound.x, bound.y, bound.z, x0, y0) || !std::isfinite (x0) || !std::isfinite (y0) ||
             x0 < 0 || x0 > input.width || y0 < 0 || y0 > input.height)
@@ -230,7 +231,7 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     draft_.cursor = layout.cursor;
     draft_.locked = layout.locked;
     if (layout.hoverTint) {
-        AddHoverTint (input.hover.tintModel);
+        AddHoverTint (input.hover.tintModel, input.hover.hasMeasuredCell);
         if (Plan () && input.hover.hasMeasuredCell && !input.overHud) {
             layers::Text value;
             value.text = FormatLength (input.hover.measuredValue, 2, layers::LengthUnit::Metres, false);

@@ -194,9 +194,9 @@ class Builder {
     void SetRamp (FillDraw& draw, const layers::Colormap& colormap, double min, double max) const;
     void AddMesh (const layers::Layer& layer, const layers::Mesh& mesh);
     // Hover mode's tint (OverlayHud.hpp `Hover::tintModel`): the item's triangles in model
-    // metres, one flat fill in `kHoverTintRgba`, never hidden -- drawn by the view's renderer
-    // with its camera or transform, so it stays on the item as the view moves.
-    void AddHoverTint (const std::vector<double>& corners);
+    // metres, one flat fill in `kHoverTintRgba`, drawn by the view's renderer with its
+    // camera or transform. Measured 3D cells fade behind geometry; other tints stay whole.
+    void AddHoverTint (const std::vector<double>& corners, bool measuredCell);
     void AddHoverMeasurement (const overlayhud::Hover& hover, const overlayhud::Input& input);
     void AddPolyline (const layers::Layer& layer, const layers::Polyline& polyline);
     void AddDimension (const layers::Layer& layer, const layers::Dimension& dimension);

@@ -420,6 +420,14 @@ TEST (OverlayHud, HoverModesTintIsAWorldFillInTheStream)
     EXPECT_FLOAT_EQ (corner.position[2], 3.0f);
     EXPECT_EQ (corner.rgba, layers::ToUnorm (hud::kHoverTintRgba));
 
+    hud::Input measured = input;
+    measured.hover.hasMeasuredCell = true;
+    measured.hover.measurementReady = false; // test the immediate cell tint, before the delayed ray
+    const scene::Scene measuredTint = scene::PrepareSceneHud (all, &hud.engine, 1.0f, measured);
+    ASSERT_EQ (measuredTint.fillDraws.size (), 1u);
+    EXPECT_EQ (measuredTint.fillDraws[0].behind, scene::kBehindFade);
+    EXPECT_FLOAT_EQ (measuredTint.fillDraws[0].occludedOpacity, 0.5f);
+
     hud::Input moved = input;
     moved.hover.tintModel = { 0, 0, 6, 10, 0, 6, 10, 10, 6 }; // the floor above
     EXPECT_NE (scene::Fingerprint (scene::PrepareSceneHud (all, &hud.engine, 1.0f, moved)), scene::Fingerprint (tinted))
