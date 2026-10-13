@@ -237,6 +237,11 @@ LRESULT CALLBACK CanvasProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
         if (target != nullptr && ShowCursor (*target))
             return TRUE;
     }
+    if (message == WM_MOUSEHOVER) {
+        const Target* const target = TargetFor (window);
+        if (target != nullptr && target->map.locked && target->owner.shown != nullptr && target->owner.shown ())
+            return 0; // a stationary native preselection/info-tag timer has no role on the locked canvas
+    }
     // ⚠️ AND NO CONTEXT MENU OF ARCHICAD'S OVER THE HUD, however it was asked for: a right
     // click there is the HUD's (its own menu). The keyboard's (lParam -1) is Archicad's.
     if (message == WM_CONTEXTMENU && lParam != LPARAM (-1)) {
@@ -442,6 +447,19 @@ void TimePress (HWND window, bool taken)
 // the hook returns nonzero and Windows discards it, as the WH_MOUSE contract allows.
 LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
 {
+    if (code == HC_ACTION && lParam != 0 && wParam == WM_MOUSEMOVE) {
+        const auto* info = reinterpret_cast<const MOUSEHOOKSTRUCT*> (lParam);
+        Target* target = TargetFor (info->hwnd);
+        Event move;
+        move.kind = EventKind::Move;
+        move.held = PhysicalButtons ();
+        if (target != nullptr && target->map.locked && (move.held & Bit (Button::Middle)) == 0 &&
+            Weigh (*target, move, info->pt, false) == Route::Take) {
+            Weigh (*target, move, info->pt, true);
+            ShowCursor (*target);
+            return 1; // stop host hover feedback before its sent notifications, not after dispatch
+        }
+    }
     if (code == HC_ACTION && lParam != 0 && IsButton (UINT (wParam))) {
         const MOUSEHOOKSTRUCTEX* const info = reinterpret_cast<const MOUSEHOOKSTRUCTEX*> (lParam);
         MSG message = {};
@@ -503,6 +521,11 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
             g_meter.Wake (Micros ());
         if (original >= WM_MOUSEFIRST && original <= WM_MOUSELAST)
             Consider (*message, removing);
+        else if (original == WM_MOUSEHOVER) {
+            const Target* target = TargetFor (window);
+            if (target && target->map.locked && target->owner.shown && target->owner.shown ())
+                message->message = WM_NULL;
+        }
         else if (original == WM_MOUSELEAVE && removing)
             Left (*message);
         else if (s_roofEditKeys && original == WM_KEYDOWN) {
@@ -832,7 +855,14 @@ void EnableRoofEditKeys (bool enabled)
 
 void SetHitMap (View view, HitMap map)
 {
-    TargetOf (view).map = std::move (map);
+    Target& target = TargetOf (view);
+    const bool locking = map.locked && !target.map.locked;
+    target.map = std::move (map);
+    if (locking && target.canvas != nullptr && target.owner.shown != nullptr && target.owner.shown ()) {
+        TRACKMOUSEEVENT tracking { sizeof (TRACKMOUSEEVENT), TME_CANCEL | TME_HOVER, target.canvas, 0 };
+        ::TrackMouseEvent (&tracking);
+        ::SendMessageW (target.canvas, WM_MOUSELEAVE, 0, 0); // clear feedback scheduled before the lock
+    }
 }
 
 void RequestLayout (View view)

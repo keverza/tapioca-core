@@ -15,6 +15,16 @@ namespace input = geomsrv::archviz::overlayinput;
 namespace {
 
 int g_refreshes = 0;
+int s_hostHovers = 0, s_hostLeaves = 0;
+
+LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    if (message == WM_MOUSEHOVER)
+        ++s_hostHovers;
+    if (message == WM_MOUSELEAVE)
+        ++s_hostLeaves;
+    return ::DefWindowProcW (window, message, wParam, lParam);
+}
 
 bool Shown ()
 {
@@ -47,7 +57,7 @@ HWND Canvas ()
     static const wchar_t kClass[] = L"TapiocaOverlayInputTestCanvas";
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof (wc);
-    wc.lpfnWndProc = &::DefWindowProcW;
+    wc.lpfnWndProc = &HostProc;
     wc.hInstance = ::GetModuleHandleW (nullptr);
     wc.lpszClassName = kClass;
     ::RegisterClassExW (&wc);
@@ -140,4 +150,30 @@ TEST (OverlayInput, RoofEscapeIsScopedToItsLockedCanvasAndStopsWithTheSession)
     input::Shutdown ();
     ::DestroyWindow (other);
     ::DestroyWindow (canvas);
+}
+
+TEST (OverlayInput, LockedCanvasCancelsOldHoverAndRejectsStationaryHostFeedbackOnlyWhileLocked)
+{
+    const HMODULE controls = ::LoadLibraryW (L"comctl32.dll"); // Archicad loads this before its canvas is attached
+    ASSERT_NE (controls, nullptr);
+    const HWND canvas = Canvas (), other = Canvas ();
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error));
+    s_hostHovers = s_hostLeaves = 0;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    EXPECT_EQ (s_hostLeaves, 1) << "clear feedback already scheduled before the lock";
+    ::SendMessageW (canvas, WM_MOUSEHOVER, 0, 0);
+    EXPECT_EQ (s_hostHovers, 0);
+    ::SendMessageW (other, WM_MOUSEHOVER, 0, 0);
+    EXPECT_EQ (s_hostHovers, 1) << "other host windows are untouched";
+    map.locked = false;
+    input::SetHitMap (input::View::Plan, map);
+    ::SendMessageW (canvas, WM_MOUSEHOVER, 0, 0);
+    EXPECT_EQ (s_hostHovers, 2) << "normal host hover resumes when unlocked";
+    input::Shutdown ();
+    ::DestroyWindow (other);
+    ::DestroyWindow (canvas);
+    ::FreeLibrary (controls);
 }
