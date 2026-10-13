@@ -193,6 +193,27 @@ TEST (OverlayLayers, SemanticHoverCellsValidateTheirTriangleMapAndMeasuredEndpoi
     EXPECT_NE (ol::Validate (layer).find ("triangle references"), std::string::npos);
 }
 
+TEST (OverlayLayers, AFinelyTessellatedCellIsNotLimitedToSixtyFourFragments)
+{
+    ol::Layer layer;
+    layer.name = "clearance";
+    ol::Mesh mesh;
+    mesh.points = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    ol::HoverCell cell;
+    cell.normal[2] = 1;
+    cell.to[2] = 3;
+    cell.floorGuid = "floor";
+    for (uint32_t triangle = 0; triangle < 128; ++triangle) {
+        mesh.indices.insert (mesh.indices.end (), { 0, 1, 2 });
+        cell.triangles.push_back (triangle);
+    }
+    mesh.hoverCells = { cell };
+    layer.meshes = { mesh };
+    EXPECT_TRUE (ol::Validate (layer).empty ()) << ol::Validate (layer);
+    layer.meshes[0].hoverCells[0].triangles.resize (4097);
+    EXPECT_NE (ol::Validate (layer).find ("1 to 4096 triangles"), std::string::npos);
+}
+
 TEST (OverlayLayers, ColoursAreWrittenRrggbbaaAndReadRedFirst)
 {
     EXPECT_EQ (ol::ToUnorm (0x11223344u), 0x44332211u);

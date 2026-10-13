@@ -290,7 +290,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "normals":{"type":"array","minItems":9,"maxItems":300000,"description":"Packed x, y, z per vertex; stride 3.","items":{"type":"number"}},
         "values":{"type":"array","minItems":3,"maxItems":100000,"description":"One value per vertex.","items":{"type":"number"}},
         "hoverCells":{"type":"array","maxItems":8192,"description":"Semantic per-cell measured samples; triangle indices are explicit.","items":{"type":"object","properties":{
-            "triangles":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"integer","minimum":0}},
+            "triangles":{"type":"array","minItems":1,"maxItems":4096,"items":{"type":"integer","minimum":0}},
             "center":{"$ref":"#Point3D"},"from":{"$ref":"#Point3D"},"to":{"$ref":"#Point3D"},
             "normal":{"$ref":"#Point3D"},"floorGuid":{"type":"string","minLength":1,"maxLength":64}},
           "additionalProperties":false,"required":["triangles","center","from","to","normal","floorGuid"]}},

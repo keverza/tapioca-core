@@ -91,7 +91,7 @@ std::string ValidateColormap (const Colormap& colormap)
     if (!InRange (colormap.isolineWidthPixels, 0.25f, 16.0f))
         return "isolines' widthPixels is 0.25 to 16";
     if (colormap.hasCutoff && (colormap.autoRange || !std::isfinite (colormap.cutoff) ||
-                              colormap.cutoff < colormap.min || colormap.cutoff > colormap.max))
+                               colormap.cutoff < colormap.min || colormap.cutoff > colormap.max))
         return "a cutoff needs an explicit range and a finite value inside it";
     if (!colormap.cutoffControl.empty () && (!colormap.hasCutoff || colormap.cutoffControl.size () > kMaxControlId))
         return "a cutoff control needs a cutoff and an id of at most 64 bytes";
@@ -416,14 +416,13 @@ std::string Validate (const Layer& layer)
         std::vector<int32_t> cellForTriangle (mesh.indices.size () / 3, -1);
         for (size_t cellIndex = 0; cellIndex < mesh.hoverCells.size (); ++cellIndex) {
             const HoverCell& cell = mesh.hoverCells[cellIndex];
-            if (cell.triangles.empty () || cell.triangles.size () > 64 || !Finite3 (cell.center) ||
+            if (cell.triangles.empty () || cell.triangles.size () > 4096 || !Finite3 (cell.center) ||
                 !Finite3 (cell.from) || !Finite3 (cell.to) || !Finite3 (cell.normal) || cell.floorGuid.empty () ||
                 cell.floorGuid.size () > 64)
-                return Numbered ("mesh", i, "a hover cell has finite points, a normal, a GUID and 1 to 64 triangles");
+                return Numbered ("mesh", i, "a hover cell has finite points, a normal, a GUID and 1 to 4096 triangles");
             const double normalLength = std::sqrt (cell.normal[0] * cell.normal[0] + cell.normal[1] * cell.normal[1] +
                                                    cell.normal[2] * cell.normal[2]);
-            const double dx = cell.to[0] - cell.from[0], dy = cell.to[1] - cell.from[1],
-                         dz = cell.to[2] - cell.from[2];
+            const double dx = cell.to[0] - cell.from[0], dy = cell.to[1] - cell.from[1], dz = cell.to[2] - cell.from[2];
             if (!(normalLength > 1e-12) || dx * dx + dy * dy + dz * dz < kSamePoint * kSamePoint)
                 return Numbered ("mesh", i, "a hover cell has a nonzero normal and distinct measured endpoints");
             for (const uint32_t triangle : cell.triangles) {
