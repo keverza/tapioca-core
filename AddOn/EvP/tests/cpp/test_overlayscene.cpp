@@ -667,6 +667,9 @@ TEST (OverlayScene, PlanHoverShowsCellAndNumberEvenWhenCanvasIsLocked)
     EXPECT_EQ (plan.fills.size (), 6u);
     EXPECT_TRUE (plan.locked);
     EXPECT_EQ (plan.cursor, uint8_t (geomsrv::archviz::overlayinput::Cursor::Arrow));
+    EXPECT_FALSE (std::any_of (plan.glyphs.begin (), plan.glyphs.end (), [] (const auto& glyph) {
+        return (glyph.flags & scene::kScreenAnchored) == 0 && (glyph.flags & scene::kSolid) != 0;
+    })) << "the hovered plan value has no background rectangle";
     EXPECT_TRUE (std::any_of (plan.glyphs.begin (), plan.glyphs.end (), [] (const auto& glyph) {
         return glyph.rgba == layers::ToUnorm (0x385366FFu) && (glyph.flags & scene::kScreenAnchored) == 0;
     }));

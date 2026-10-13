@@ -238,7 +238,7 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
             std::copy (std::begin (input.hover.cellCenter), std::end (input.hover.cellCenter), value.at);
             value.sizePixels = 16;
             value.rgba = 0x385366FFu;
-            value.backgroundRgba = 0xFFFFFFE8u;
+            value.backgroundRgba = 0;
             value.haloPixels = 0;
             value.behind = layers::Behind::Show;
             AddText (layers::Layer (), value); // one readable value, only on the currently hovered plan cell
