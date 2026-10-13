@@ -197,6 +197,7 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
                              : shading == "xray"  ? layers::Shading::Xray
                                                   : layers::Shading::Flat;
         ReadFloat (style, "opacity", mesh.style.opacity);
+        ReadFloat (style, "occludedOpacity", mesh.style.occludedOpacity);
         mesh.style.behind = OcclusionOf (style, layers::Behind::Layer);
         mesh.style.cullBack = style.Contains ("cull") && StringValue (style, "cull") == "back";
         GS::ObjectState edges;

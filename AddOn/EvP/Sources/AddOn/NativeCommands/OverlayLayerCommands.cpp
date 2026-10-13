@@ -310,6 +310,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "style":{"type":"object","properties":{
             "shading":{"type":"string","enum":["flat","lit","ghost","xray"]},
             "opacity":{"type":"number","minimum":0,"maximum":1},
+            "occludedOpacity":{"type":"number","minimum":0,"maximum":1,"description":"Fraction of normal mesh alpha retained behind opaque host geometry when occlusion is fade; defaults to 0.3."},
             "occlusion":{"type":"string","enum":["hide","fade","always"]},
             "cull":{"type":"string","enum":["none","back"]},
             "edges":{"type":"object","properties":{

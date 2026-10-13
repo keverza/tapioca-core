@@ -1,7 +1,11 @@
+import json
 import os
+import re
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
+import jsonschema
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Sources", "PyPackage"))
@@ -154,6 +158,38 @@ def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch)
     assert legend["screen"] == {"x": 0.5, "y": 1.0} and legend["horizontal"] is True
     assert legend["decimals"] == 1 and isinstance(legend["decimals"], int)
     assert params["panels"][0]["items"][0] == {"kind": "row", "text": "GFA", "value": "2633 m2"}
+
+
+@pytest.mark.parametrize("occluded_opacity", [0, 0.5, 1])
+def test_heatmap_occlusion_opacity_matches_native_schema_and_reader(monkeypatch, occluded_opacity):
+    native = Path(__file__).resolve().parents[1] / "Sources/AddOn/NativeCommands"
+    source = (native / "OverlayLayerCommands.cpp").read_text(encoding="utf-8")
+    declaration = source[
+        source.index("constexpr const char kSetOverlayLayerInput") : source.index(
+            "constexpr const char kSetOverlayLayerOutput"
+        )
+    ]
+    schema = json.loads("".join(re.findall(r'R"json\((.*?)\)json"', declaration, re.S)))
+    seen = _capture(monkeypatch)
+    overlay.set_layer(
+        "heatmap",
+        meshes=[
+            overlay.heatmap(
+                [0, 0, 0, 1, 0, 0, 0, 1, 0],
+                [0, 1, 2],
+                [2.8] * 3,
+                opacity=0.65,
+                occlusion="fade",
+                occluded_opacity=occluded_opacity,
+            )
+        ],
+    )
+    command, params = seen[0]
+    assert command == "Tapioca.SetOverlayLayer"
+    jsonschema.validate(params, schema)
+    assert params["meshes"][0]["style"]["occludedOpacity"] == occluded_opacity
+    reader = (native / "OverlayLayerReading.cpp").read_text(encoding="utf-8")
+    assert 'ReadFloat (style, "occludedOpacity", mesh.style.occludedOpacity)' in reader
 
 
 def test_heatmap_carries_explicit_semantic_cell_measurements():
