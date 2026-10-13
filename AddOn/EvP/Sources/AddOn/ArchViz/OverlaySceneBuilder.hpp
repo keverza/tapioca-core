@@ -198,6 +198,7 @@ class Builder {
     // camera or transform. Measured 3D cells fade behind geometry; other tints stay whole.
     void AddHoverTint (const std::vector<double>& corners, bool measuredCell);
     void AddHoverMeasurement (const overlayhud::Hover& hover, const overlayhud::Input& input);
+    void AddCellLabels (const layers::Layer& layer, const overlayhud::Input& input);
     void AddPolyline (const layers::Layer& layer, const layers::Polyline& polyline);
     void AddDimension (const layers::Layer& layer, const layers::Dimension& dimension);
     void AddDimensionText (const layers::Layer& layer, const layers::Dimension& dimension, double measurement,
@@ -237,6 +238,8 @@ class Builder {
     float scale_;
     const FontResolver& fonts_;
     Draft draft_;
+    bool planHoverLabelShown_ = false;
+    std::map<std::pair<int, int>, std::vector<std::array<double, 4>>> planLabelBins_;
     // Each (engine, page) a glyph used, and its index in `draft_.textPages`.
     std::map<std::pair<const overlaytext::Engine*, uint32_t>, uint32_t> pageSlots_;
 };

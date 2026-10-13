@@ -2,6 +2,7 @@
 
 #include "ArchViz/OverlayHover.hpp"
 #include "ArchViz/OverlayHoverIndex.hpp"
+#include "ArchViz/OverlayScene.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -53,33 +54,7 @@ uint32_t RampColor (const layers::Mesh& mesh, double value)
     }
     if (!(maximum > minimum))
         maximum = minimum + 1.0;
-    const float t = float (std::clamp ((value - minimum) / (maximum - minimum), 0.0, 1.0));
-    uint32_t rgba = mesh.colormap.stops.front ().rgba;
-    if (t >= mesh.colormap.stops.back ().at)
-        rgba = mesh.colormap.stops.back ().rgba;
-    else if (t > mesh.colormap.stops.front ().at) {
-        for (size_t i = 1; i < mesh.colormap.stops.size (); ++i) {
-            if (t > mesh.colormap.stops[i].at)
-                continue;
-            const layers::ColourStop& a = mesh.colormap.stops[i - 1];
-            const layers::ColourStop& b = mesh.colormap.stops[i];
-            const float span = b.at - a.at;
-            const float fraction = span > 1e-6f ? (t - a.at) / span : 1.0f;
-            rgba = 0;
-            for (int shift = 0; shift < 32; shift += 8) {
-                const float left = float ((a.rgba >> shift) & 0xFFu);
-                const float right = float ((b.rgba >> shift) & 0xFFu);
-                rgba |= uint32_t (std::lround (left + (right - left) * fraction)) << shift;
-            }
-            break;
-        }
-    }
-    // A fully opaque, brighter shade keeps the heatmap's hue while reading over its fill.
-    for (int shift : { 8, 16, 24 }) {
-        const uint32_t component = (rgba >> shift) & 0xFFu;
-        rgba = (rgba & ~(0xFFu << shift)) | (uint32_t (std::lround (component + (255u - component) * 0.42)) << shift);
-    }
-    return (rgba & 0xFFFFFF00u) | 0xFFu;
+    return overlayscene::RampTextColor (mesh.colormap, value, minimum, maximum);
 }
 
 void SetCell (const layers::Mesh& mesh, Hit& hit)

@@ -31,7 +31,8 @@ void Builder::AddLayer (const layers::Layer& layer)
     for (const layers::Dimension& dimension : layer.dimensions)
         AddDimension (layer, dimension);
     for (const layers::Text& text : layer.texts)
-        AddText (layer, text);
+        if (layers::DrawnIn (text.views, view_))
+            AddText (layer, text);
     for (size_t i = 0; i < layer.legends.size (); ++i)
         AddLegend (layer, layer.legends[i], uint32_t (i));
 }

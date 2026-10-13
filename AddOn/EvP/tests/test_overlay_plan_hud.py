@@ -22,3 +22,10 @@ def test_hover_draw_rejoins_coordinates_in_its_own_origin_at_the_current_present
     submit = draw.index("g_hudPages, g_hudContent", frame)
     assert origin < frame < submit
     assert "s_hudOriginX = s_hudOriginY = 0" in source[source.index("void Release (") :]
+
+
+def test_close_zoom_plan_values_have_a_text_engine_without_an_active_hover():
+    source = SOURCE.read_text(encoding="utf-8")
+    upload = source[source.index("bool PrepareHud (") : source.index("bool NeedsGuest2D (")]
+    assert "return mesh.cellLabels" in upload
+    assert "input.hover.hasMeasuredCell || hasCellLabels ? guesttext::Engine () : nullptr" in upload

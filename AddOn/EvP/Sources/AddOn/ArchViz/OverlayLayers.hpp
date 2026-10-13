@@ -171,6 +171,8 @@ struct HoverCell {
     double to[3] = {};
     double normal[3] = {};
     std::string floorGuid;
+    bool boundsKnown = false;
+    double planBounds[4] = {}; // left, bottom, right, top; derived from source triangles, never caller guesses
 };
 
 struct Mesh {
@@ -186,7 +188,8 @@ struct Mesh {
     std::vector<int32_t> hoverCellByTriangle; // -1 where a triangle has no semantic cell
     Colormap colormap;
     MeshStyle style;
-    bool styled = false; // the caller gave a style: the guest draws it
+    bool styled = false;     // the caller gave a style: the guest draws it
+    bool cellLabels = false; // native close-zoom plan values, generated only for visible measured cells
     // Hover mode (OverlayHover.hpp): what the HUD says over this mesh -- a title, and rows of
     // a label and a value. A mesh with `values` also says the value under the pointer.
     std::string hoverTitle;
@@ -205,6 +208,7 @@ enum class Baseline : uint8_t { Top = 0, Middle = 1, Bottom = 2, Alphabetic = 3 
 // fractions of its width and height from the top left: a text layer fixed to the view.
 // Or -- `planar` -- lying on a plane in the model, scaling with it.
 struct Text {
+    Views views = Views::Both;
     std::string text; // UTF-8, one line
     bool screen = false;
     double at[3] = {};
@@ -259,7 +263,7 @@ struct Dimension {
     double textSizeMetres = 0;
     float textMinProjectedPixels = 0;
     bool textOppositeSide = false; // native annotation: move model text to the other side of the line
-    uint32_t textRgba = 0; // alpha 0: the line's colour
+    uint32_t textRgba = 0;         // alpha 0: the line's colour
     uint32_t haloRgba = 0x000000A0u;
     float haloPixels = kAutoHalo; // as a text's
     Terminator terminator = Terminator::Tick;

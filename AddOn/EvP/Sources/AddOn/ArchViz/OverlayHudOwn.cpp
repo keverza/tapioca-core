@@ -57,6 +57,11 @@ bool Engine::Standalone () const
     return impl_->own.standalone;
 }
 
+bool Engine::DrawsLayer (const std::string& name) const
+{
+    return ContentShown (*impl_->store) && LayerShown (*impl_->store, name);
+}
+
 std::string Engine::Impl::TitleOf (const std::string& tabKey, const std::vector<const layers::Panel*>& panels,
                                    const std::vector<std::string>& keys) const
 {

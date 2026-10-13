@@ -59,6 +59,12 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
     // The measured ray belongs to the overlay scene, not to a successfully laid-out
     // ImGui panel; keep it visible even if the HUD engine is unavailable this frame.
     AddHoverMeasurement (input.hover, input);
+    if (Plan ())
+        for (auto it = all.rbegin (); it != all.rend (); ++it) {
+            const auto& layer = *it;
+            if (layers::DrawnIn (layer->views, view_) && (hud_ == nullptr || hud_->DrawsLayer (layer->name)))
+                AddCellLabels (*layer, input);
+        }
     AddPanels (panels, input, bars);
 }
 
@@ -232,12 +238,12 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     draft_.locked = layout.locked;
     if (layout.hoverTint) {
         AddHoverTint (input.hover.tintModel, input.hover.hasMeasuredCell);
-        if (Plan () && input.hover.hasMeasuredCell && !input.overHud) {
+        if (Plan () && input.hover.hasMeasuredCell && !input.overHud && !planHoverLabelShown_) {
             layers::Text value;
             value.text = FormatLength (input.hover.measuredValue, 2, layers::LengthUnit::Metres, false);
             std::copy (std::begin (input.hover.cellCenter), std::end (input.hover.cellCenter), value.at);
             value.sizePixels = 16;
-            value.rgba = 0x385366FFu;
+            value.rgba = input.hover.valueRgba;
             value.backgroundRgba = 0;
             value.haloPixels = 0;
             value.behind = layers::Behind::Show;

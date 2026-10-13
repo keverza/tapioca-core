@@ -426,6 +426,7 @@ class Engine final {
     // layer (`OwnPages::standalone`).
     void SetOwnPages (OwnPages pages);
     bool Standalone () const;
+    bool DrawsLayer (const std::string& name) const;
 
     // The HUD's text size, a factor on every size but the distances from the view's edges:
     // one of a few steps (0.8 to 2), chosen in Settings or the HUD's menu. Set, the step

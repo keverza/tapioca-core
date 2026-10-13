@@ -12,6 +12,7 @@
 #include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 
@@ -108,8 +109,14 @@ bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>&
 {
     changed = false;
     overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud (overlayinput::View::Plan) : nullptr;
-    const overlayscene::Plan panels = overlayscene::PreparePlanHud (
-        layers, hud, g_dpiScale, input, &g_sceneRegions, input.hover.hasMeasuredCell ? guesttext::Engine () : nullptr);
+    const bool hasCellLabels = std::any_of (layers.begin (), layers.end (), [] (const auto& layer) {
+        return overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD) &&
+               std::any_of (layer->meshes.begin (), layer->meshes.end (),
+                            [] (const auto& mesh) { return mesh.cellLabels; });
+    });
+    const overlayscene::Plan panels =
+        overlayscene::PreparePlanHud (layers, hud, g_dpiScale, input, &g_sceneRegions,
+                                      input.hover.hasMeasuredCell || hasCellLabels ? guesttext::Engine () : nullptr);
     g_hudProblems = panels.problems;
     g_hudRegions = panels.regions;
     g_highlight = panels.highlight;

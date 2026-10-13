@@ -237,6 +237,18 @@ def test_a_text_on_a_plane_carries_its_plane():
         overlay.text("short", at=(0, 0))
 
 
+@pytest.mark.parametrize("views", ["2d", "3d", "both"])
+def test_per_text_views_and_native_cell_values_are_opt_in(views):
+    assert overlay.text("value", at=(0, 0, 0), views=views)["views"] == views
+    assert "views" not in overlay.text("value", at=(0, 0, 0))
+    args = ([0, 0, 0, 1, 0, 0, 0, 1, 0], [0, 1, 2], [2.8] * 3)
+    assert overlay.heatmap(*args, cell_labels=True)["cellLabels"] is True
+    assert overlay.heatmap(*args, cell_labels=False)["cellLabels"] is False
+    assert "cellLabels" not in overlay.heatmap(*args)
+    with pytest.raises(ValueError):
+        overlay.text("value", at=(0, 0, 0), views="plan")
+
+
 def test_occlusion_speaks_the_text_labels_vocabulary(monkeypatch):
     seen = _capture(monkeypatch)
     label = overlay.text("Behind a wall", at=(0, 0, 0), occlusion="fade")

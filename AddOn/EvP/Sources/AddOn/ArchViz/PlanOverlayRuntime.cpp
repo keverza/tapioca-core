@@ -365,9 +365,8 @@ overlayhud::Input HudInput (bool take)
             input.hover = HoverAt (input.x, input.y);
         input.hover.picks = true; // the plan reads under the pointer: its readout may say "nothing"
     }
-    // ⚠️ LOCKED, THE FLOOR PLAN IS EDITED ON THE VIEW (the user, 2026-10-10): the HUD is handed the
-    // plan's transform, read here as HoverAt reads it, to place the pointer in model metres.
-    if (overlayhud::EditLocked (*guesttext::HudState ()) && overlayvisibility::ContentShown ()) {
+    // Editing and close-zoom cell values need the same plan transform, also while unlocked.
+    if (overlayvisibility::ContentShown ()) {
         PlanViewTransform read;
         {
             const OwnAcapi own;

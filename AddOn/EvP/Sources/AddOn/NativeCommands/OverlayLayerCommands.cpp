@@ -289,6 +289,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "vertexColors":{"type":"array","maxItems":100000,"description":"One colour per vertex.","items":{"$ref":"#Color"}},
         "normals":{"type":"array","minItems":9,"maxItems":300000,"description":"Packed x, y, z per vertex; stride 3.","items":{"type":"number"}},
         "values":{"type":"array","minItems":3,"maxItems":100000,"description":"One value per vertex.","items":{"type":"number"}},
+        "cellLabels":{"type":"boolean","description":"Native close-zoom values for every visible measured plan cell."},
         "hoverCells":{"type":"array","maxItems":8192,"description":"Semantic per-cell measured samples; triangle indices are explicit.","items":{"type":"object","properties":{
             "triangles":{"type":"array","minItems":1,"maxItems":4096,"items":{"type":"integer","minimum":0}},
             "center":{"$ref":"#Point3D"},"from":{"$ref":"#Point3D"},"to":{"$ref":"#Point3D"},
@@ -322,6 +323,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
           "additionalProperties":false}},
       "additionalProperties":false,"required":["points","indices"]}},
     "texts":{"type":"array","maxItems":5000,"items":{"type":"object","properties":{
+        "views":{"type":"string","enum":["2d","3d","both"]},
         "text":{"type":"string","minLength":1,"maxLength":512},
         "at":{"$ref":"#Point3D"},
         "screen":{"$ref":"#Point2D"},

@@ -710,6 +710,7 @@ def text(
     rotation=None,
     occlusion=None,
     font=None,
+    views=None,
 ):
     """A label: at a model point (`at`), fixed to the view (`screen`, fractions from its
     top left), or lying on a plane in the model (`at` and `plane`).
@@ -719,10 +720,15 @@ def text(
 
     The halo grows with the text as drawn -- 0.5 px round a 24 px em, 2 px round a 72 px
     one, none under 8 px -- times `halo_scale`; `halo_size` fixes it in pixels instead.
+    `views` restricts this label to 2d or 3d inside a layer drawn in both views.
     """
     if (at is None) == (screen is None):
         raise ValueError("a text is anchored at a model point or on the screen, one of the two")
     out = {"text": str(text)}
+    if views is not None:
+        if views not in ("2d", "3d", "both"):
+            raise ValueError("views is 2d, 3d or both")
+        out["views"] = views
     if at is not None:
         out["at"] = point3(at)
     if screen is not None:
@@ -840,10 +846,12 @@ def heatmap(
     occlusion=None,
     hover_cells=None,
     occluded_opacity=None,
+    cell_labels=None,
 ):
     """A mesh coloured by a value per vertex: flat x, y, z points, three indices per
     triangle. Smooth by default; `bands` steps it, `isolines` ({"step", "color"}) draws
-    contours."""
+    contours. `cell_labels` generates close-zoom 2D values from measured `hover_cells`;
+    only complete visible labels are uploaded, without the layer text-count limit."""
     style = {}
     if opacity is not None:
         style["opacity"] = float(opacity)
@@ -859,6 +867,8 @@ def heatmap(
     }
     if style:
         out["style"] = style
+    if cell_labels is not None:
+        out["cellLabels"] = bool(cell_labels)
     if hover_cells is not None:
         out["hoverCells"] = [
             {

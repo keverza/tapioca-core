@@ -660,6 +660,7 @@ TEST (OverlayScene, PlanHoverShowsCellAndNumberEvenWhenCanvasIsLocked)
     input.hover.active = true;
     input.hover.hasMeasuredCell = true;
     input.hover.measuredValue = 2.8;
+    input.hover.valueRgba = 0x385366FFu;
     input.hover.cellCenter[0] = -81.5;
     input.hover.cellCenter[1] = -217.5;
     input.hover.tintModel = { -82, -218, 0, -81, -218, 0, -81, -217, 0, -82, -218, 0, -81, -217, 0, -82, -217, 0 };

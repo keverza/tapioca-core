@@ -11,6 +11,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 
 #include <string>
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -140,12 +141,12 @@ bool ReadColormap (const GS::ObjectState& item, layers::Colormap& colormap, std:
         ReadDouble (item, "cutoff", colormap.cutoff);
     }
     colormap.cutoffControl = StringValue (item, "cutoffControl");
-    GS::ObjectState isolines;
     if (item.Contains ("green")) {
         colormap.hasGreen = true;
         ReadDouble (item, "green", colormap.green);
     }
     colormap.greenControl = StringValue (item, "greenControl");
+    GS::ObjectState isolines;
     if (item.Get ("isolines", isolines)) {
         ReadDouble (isolines, "step", colormap.isolineStep);
         if (!ReadColour (isolines, "color", colormap.isolineRgba, error))
@@ -184,6 +185,8 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
     }
     ReadNumbers (item, "normals", mesh.normals);
     ReadNumbers (item, "values", mesh.values);
+    if (item.Contains ("cellLabels"))
+        item.Get ("cellLabels", mesh.cellLabels);
     GS::ObjectState colormap;
     if (item.Get ("colormap", colormap)) {
         if (!ReadColormap (colormap, mesh.colormap, error))
@@ -237,7 +240,8 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
         }
         mesh.hoverCellByTriangle.assign (mesh.indices.size () / 3, -1);
         for (size_t cellIndex = 0; cellIndex < mesh.hoverCells.size (); ++cellIndex) {
-            for (const uint32_t triangle : mesh.hoverCells[cellIndex].triangles) {
+            auto& cell = mesh.hoverCells[cellIndex];
+            for (const uint32_t triangle : cell.triangles) {
                 if (triangle >= mesh.hoverCellByTriangle.size ()) {
                     error = "a hover cell names a triangle past this mesh";
                     return false;
@@ -248,6 +252,23 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
                     return false;
                 }
                 assigned = int32_t (cellIndex);
+                for (size_t corner = 0; corner < 3; ++corner) {
+                    const size_t vertex = size_t (mesh.indices[size_t (triangle) * 3 + corner]) * 3;
+                    if (vertex + 2 >= mesh.points.size ()) {
+                        error = "a hover cell vertex is past this mesh";
+                        return false;
+                    }
+                    const double x = mesh.points[vertex], y = mesh.points[vertex + 1];
+                    if (!cell.boundsKnown) {
+                        cell.planBounds[0] = cell.planBounds[2] = x;
+                        cell.planBounds[1] = cell.planBounds[3] = y;
+                        cell.boundsKnown = true;
+                    }
+                    cell.planBounds[0] = (std::min) (cell.planBounds[0], x);
+                    cell.planBounds[1] = (std::min) (cell.planBounds[1], y);
+                    cell.planBounds[2] = (std::max) (cell.planBounds[2], x);
+                    cell.planBounds[3] = (std::max) (cell.planBounds[3], y);
+                }
             }
         }
     }
@@ -257,6 +278,10 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
 bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& error)
 {
     text.text = StringValue (item, "text");
+    if (item.Contains ("views")) {
+        const auto views = StringValue (item, "views");
+        text.views = views == "2d" ? layers::Views::TwoD : views == "3d" ? layers::Views::ThreeD : layers::Views::Both;
+    }
     const bool at = item.Contains ("at"), screen = item.Contains ("screen");
     if (at == screen) {
         error = "a text is anchored at a model point (at) or on the view (screen), one of the two";
