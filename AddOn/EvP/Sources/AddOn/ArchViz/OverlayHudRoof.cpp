@@ -35,6 +35,12 @@ bool StartRoofEditor (State& state, roofslope::Data data)
     session->token = state.revision + 1;
     session->previousLock = state.editLocked;
     session->editor.data = std::move (data);
+    for (size_t i = 0; i < session->editor.data.cells.size (); ++i)
+        if (session->editor.data.cells[i].drainInside) {
+            session->editor.selectedCell = int (i);
+            session->editor.selectedNode = session->editor.data.cells[i].drain;
+            break;
+        }
     session->editor.published = session->editor.revision;
     state.roofEditor = std::move (session);
     state.editLocked = true;

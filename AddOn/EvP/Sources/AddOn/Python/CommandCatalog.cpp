@@ -66,6 +66,7 @@ ScanOutcome ScanCommandFolders ()
         os.Get ("requires", info.requirements);
         os.Get ("tags", info.tags);
         os.Get ("selection_sets", info.selectionSets);
+        os.Get ("selection_set_rules_json", info.selectionSetRulesJson);
         os.Get ("camera_sets", info.cameraSets);
         os.Get ("preview_on_selection", info.previewOnSelection);
         os.Get ("exclusive_selection_sets", info.exclusiveSelectionSets);
@@ -126,6 +127,7 @@ GS::UniString CommandInfoJson (const CommandInfo& info)
     command.Add ("requires", info.requirements);
     command.Add ("tags", info.tags);
     command.Add ("selection_sets", info.selectionSets);
+    command.Add ("selection_set_rules_json", info.selectionSetRulesJson);
     command.Add ("camera_sets", info.cameraSets);
     command.Add ("preview_on_selection", info.previewOnSelection);
     command.Add ("exclusive_selection_sets", info.exclusiveSelectionSets);

@@ -22,6 +22,7 @@ void ControlPalette::PopUpChanged (const DG::PopUpChangeEvent& ev)
 {
     bool reflow = false;
     if (!preview.HandlePopUpChanged (ev) && params.HandlePopUpChanged (ev, reflow)) {
+        reflow = selectionSets.RefreshVisibility (params) || reflow;
         if (reflow)
             ReflowParams ();
         RefreshRunGate ();

@@ -53,12 +53,16 @@ def _validate_version_requirement(value, name, line):
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip():
-        raise ScanError("@evp.command(%s=...) must be a non-empty semver range "
-                        "such as \">=1.5.2\" (line %d)" % (name, line), line)
+        raise ScanError(
+            '@evp.command(%s=...) must be a non-empty semver range such as ">=1.5.2" (line %d)' % (name, line), line
+        )
     clauses = [clause.strip() for clause in value.replace(",", " ").split() if clause.strip()]
     if not clauses or any(_VERSION_CLAUSE.fullmatch(clause) is None for clause in clauses):
-        raise ScanError("@evp.command(%s=...) must be semver comparisons joined by spaces, "
-                        "e.g. \">=1.5.2 <2.0.0\" (line %d)" % (name, line), line)
+        raise ScanError(
+            "@evp.command(%s=...) must be semver comparisons joined by spaces, "
+            'e.g. ">=1.5.2 <2.0.0" (line %d)' % (name, line),
+            line,
+        )
     return " ".join(clauses)
 
 
@@ -70,14 +74,14 @@ def _literal(node, what):
     except (ValueError, SyntaxError):
         raise ScanError(
             "%s is not a literal (line %d). @evp.command arguments must be literals "
-            "so the scanner can read them without executing the script."
-            % (what, getattr(node, "lineno", 0)),
+            "so the scanner can read them without executing the script." % (what, getattr(node, "lineno", 0)),
             getattr(node, "lineno", 0),
         ) from None
 
 
 def _json_literal(value, what, line):
     """Accept only values JSON can represent exactly and safely."""
+
     def validate(item):
         if item is None or isinstance(item, (str, bool, int)):
             return
@@ -101,9 +105,7 @@ def _json_literal(value, what, line):
         validate(value)
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError):
-        raise ScanError(
-            "%s must be an AST-literal JSON-compatible object (line %d)" % (what, line), line
-        ) from None
+        raise ScanError("%s must be an AST-literal JSON-compatible object (line %d)" % (what, line), line) from None
 
 
 def _is_command_decorator(node, namespaces, direct_command):
@@ -130,10 +132,10 @@ def _describe_annotation(node):
     if node is None:
         return "any", {}
     if isinstance(node, ast.Name):
-        return node.id, {}                       # bool / int / float / str
-    if isinstance(node, ast.Attribute):          # evp.Layer, evp.Story, ...
+        return node.id, {}  # bool / int / float / str
+    if isinstance(node, ast.Attribute):  # evp.Layer, evp.Story, ...
         return node.attr, {}
-    if isinstance(node, ast.Call):               # evp.Float(unit="m2"), evp.Enum("a","b")
+    if isinstance(node, ast.Call):  # evp.Float(unit="m2"), evp.Enum("a","b")
         func = node.func
         name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "?")
         extra = {}
@@ -142,9 +144,7 @@ def _describe_annotation(node):
             try:
                 args.append(ast.literal_eval(arg))
             except (ValueError, SyntaxError):
-                raise ScanError(
-                    "annotation argument is not a literal (line %d)" % node.lineno, node.lineno
-                ) from None
+                raise ScanError("annotation argument is not a literal (line %d)" % node.lineno, node.lineno) from None
         if args:
             extra["args"] = args
         for kw in node.keywords:
@@ -164,15 +164,11 @@ def _describe_annotation(node):
                 )
             extensions = extra.get("extensions", ())
             if not isinstance(extensions, (list, tuple)) or any(
-                not isinstance(extension, str)
-                or not extension.lstrip(".")
-                or "/" in extension
-                or "\\" in extension
+                not isinstance(extension, str) or not extension.lstrip(".") or "/" in extension or "\\" in extension
                 for extension in extensions
             ):
                 raise ScanError(
-                    "FilePath extensions must be a literal list or tuple of file suffixes "
-                    "(line %d)" % node.lineno,
+                    "FilePath extensions must be a literal list or tuple of file suffixes (line %d)" % node.lineno,
                     node.lineno,
                 )
         return name, extra
@@ -201,8 +197,9 @@ def _model_name(node, arg, line):
         raise ScanError(
             "@evp.command(%s=...) must name a class or function defined in this "
             "module, e.g. %s=Inputs (line %d). A computed value would have to be "
-            "executed to be read, and reading a command never runs it."
-            % (arg, arg, line), line)
+            "executed to be read, and reading a command never runs it." % (arg, arg, line),
+            line,
+        )
     parts.append(cursor.id)
     return ".".join(reversed(parts))
 
@@ -217,15 +214,15 @@ def _check_schema_run_signature(fn, line):
     """
     args = fn.args
     if args.vararg or args.kwarg:
-        raise ScanError(
-            "run() must not take *args/**kwargs (line %d)" % line, line)
+        raise ScanError("run() must not take *args/**kwargs (line %d)" % line, line)
     names = [a.arg for a in args.posonlyargs + args.args + args.kwonlyargs]
     if names != ["ctx", "inputs"]:
         raise ScanError(
             "a command with inputs= must define run(ctx, inputs), not run(%s) "
             "(line %d). The ports are the model's; annotating the signature too "
-            "would give one control two sources."
-            % (", ".join(names) or "", line), line)
+            "would give one control two sources." % (", ".join(names) or "", line),
+            line,
+        )
 
 
 def _parse_run_signature(fn):
@@ -257,7 +254,7 @@ def _parse_run_signature(fn):
         _validate_color_default(entry, arg.lineno)
         params.append(entry)
 
-    for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True):
         kind, extra = _describe_annotation(arg.annotation)
         entry = {"name": arg.arg, "type": kind}
         if extra:
@@ -296,12 +293,11 @@ def _validate_color_default(entry, line):
     if entry["type"] != "Color" or "default" not in entry:
         return
     value = entry["default"]
-    if not isinstance(value, str) or (value and (
-        len(value) != 7 or value[0] != "#" or
-        any(digit not in "0123456789abcdefABCDEF" for digit in value[1:])
-    )):
-        raise ScanError("Color default must be an opaque #RRGGBB string or empty (line %d)" % line,
-                        line)
+    if not isinstance(value, str) or (
+        value
+        and (len(value) != 7 or value[0] != "#" or any(digit not in "0123456789abcdefABCDEF" for digit in value[1:]))
+    ):
+        raise ScanError("Color default must be an opaque #RRGGBB string or empty (line %d)" % line, line)
 
 
 def _value_text(value):
@@ -356,13 +352,17 @@ def _fold_show_when(params, line):
             "run() declares %d evp.Action parameters (%s), but a command has ONE "
             "mode (line %d). Use evp.Enum for a second choice — only the Action is "
             "pinned to the top of the block and reflows the inputs below it."
-            % (len(actions), ", ".join(p["name"] for p in actions), line), line)
+            % (len(actions), ", ".join(p["name"] for p in actions), line),
+            line,
+        )
     for action in actions:
         if not action.get("args"):
             raise ScanError(
                 "evp.Action('%s') declares no choices (line %d): evp.Action takes "
                 "its modes as positional literals, e.g. "
-                'evp.Action("Place", "Remove").' % (action["name"], line), line)
+                'evp.Action("Place", "Remove").' % (action["name"], line),
+                line,
+            )
 
     # ⚠️ THE CHOICES ARE VARARGS, NOT A LIST. `evp.Enum(["a", "b"])` is a
     # perfectly good literal, so it scans, and it evaluates fine at runtime --
@@ -380,16 +380,18 @@ def _fold_show_when(params, line):
             if isinstance(arg, (list, tuple, set, dict)):
                 raise ScanError(
                     "evp.%s('%s') was given a %s of choices (line %d). The choices "
-                    "are POSITIONAL: evp.%s(\"a\", \"b\"), not evp.%s([\"a\", \"b\"]). "
+                    'are POSITIONAL: evp.%s("a", "b"), not evp.%s(["a", "b"]). '
                     "The list form runs fine but reaches the palette as a nested "
                     "array, and the popup appears EMPTY."
-                    % (param["type"], param["name"], type(arg).__name__, line,
-                       param["type"], param["type"]), line)
+                    % (param["type"], param["name"], type(arg).__name__, line, param["type"], param["type"]),
+                    line,
+                )
             if not isinstance(arg, str):
                 raise ScanError(
                     "evp.%s('%s') has a non-string choice %r (line %d): a popup's "
-                    "items are text. Spell numbers as strings."
-                    % (param["type"], param["name"], arg, line), line)
+                    "items are text. Spell numbers as strings." % (param["type"], param["name"], arg, line),
+                    line,
+                )
 
     for param in params:
         spec = param.pop("show_when", None)
@@ -398,24 +400,27 @@ def _fold_show_when(params, line):
         if not isinstance(spec, dict) or len(spec) != 1:
             raise ScanError(
                 "show_when on '%s' must be a dict naming exactly ONE controlling "
-                'parameter, e.g. show_when={"action": "Place"} (line %d).'
-                % (param["name"], line), line)
+                'parameter, e.g. show_when={"action": "Place"} (line %d).' % (param["name"], line),
+                line,
+            )
         controller, wanted = next(iter(spec.items()))
         if controller == param["name"]:
             raise ScanError(
                 "'%s' has a show_when on itself (line %d): a control cannot decide "
-                "whether it is visible." % (param["name"], line), line)
+                "whether it is visible." % (param["name"], line),
+                line,
+            )
         if controller not in by_name:
             raise ScanError(
                 "show_when on '%s' names '%s', which is not a parameter of run() "
-                "(line %d). It would be a control that never appears."
-                % (param["name"], controller, line), line)
+                "(line %d). It would be a control that never appears." % (param["name"], controller, line),
+                line,
+            )
 
         values = list(wanted) if isinstance(wanted, (list, tuple)) else [wanted]
         values = [_value_text(v) for v in values]
         if not values:
-            raise ScanError(
-                "show_when on '%s' lists no values (line %d)." % (param["name"], line), line)
+            raise ScanError("show_when on '%s' lists no values (line %d)." % (param["name"], line), line)
 
         choices = _choices_of(by_name[controller])
         if choices is not None:
@@ -424,11 +429,38 @@ def _fold_show_when(params, line):
                 raise ScanError(
                     "show_when on '%s' waits for '%s' to be %s, which it can never "
                     "be — its choices are %s (line %d)."
-                    % (param["name"], controller, ", ".join(unknown),
-                       ", ".join(choices) or "(none)", line), line)
+                    % (param["name"], controller, ", ".join(unknown), ", ".join(choices) or "(none)", line),
+                    line,
+                )
 
         param["show_when_param"] = controller
         param["show_when_values"] = values
+
+
+def _fold_selection_visibility(meta, line):
+    """Reuse show_when validation; native metadata is parallel JSON-string rules."""
+    specs = meta.pop("selection_sets_show_when", None)
+    if specs is None:
+        specs = {}
+    roles = meta["selection_sets"]
+    if not isinstance(specs, dict) or any(role not in roles for role in specs):
+        raise ScanError("selection_sets_show_when must name declared selection roles (line %d)." % line, line)
+    rows = [{"name": "@selection:" + role, "type": "SelectionSet", "show_when": specs.get(role)} for role in roles]
+    _fold_show_when([dict(param) for param in meta["params"]] + rows, line)
+    types = {param["name"]: param["type"] for param in meta["params"]}
+    for row in rows:
+        controller = row.get("show_when_param")
+        if controller and types.get(controller) not in ("Action", "Enum", "Bool"):
+            raise ScanError("selection_sets_show_when needs an Action, Enum or Bool controller (line %d)." % line, line)
+    meta["selection_set_rules_json"] = [
+        json.dumps(
+            {
+                "show_when_param": row.get("show_when_param", ""),
+                "show_when_values": row.get("show_when_values", []),
+            }
+        )
+        for row in rows
+    ]
 
 
 #: What each standard action's button SAYS. Here rather than in evp.outputs
@@ -437,14 +469,14 @@ def _fold_show_when(params, line):
 #: exactly what this file owns. evp.outputs owns the other half, what each action
 #: DOES; test_outputs pins that the two name sets stay in step.
 STANDARD_ACTION_LABELS = {
-    "csv":       "Export CSV",
-    "json":      "Export JSON",
-    "text":      "Export text",
-    "pdf":       "Export PDF",
-    "png":       "Save image",
-    "layout":    "Place on layout",
+    "csv": "Export CSV",
+    "json": "Export JSON",
+    "text": "Export text",
+    "pdf": "Export PDF",
+    "png": "Save image",
+    "layout": "Place on layout",
     "worksheet": "New worksheet",
-    "bake":      "Bake",
+    "bake": "Bake",
 }
 
 
@@ -464,8 +496,7 @@ def _custom_action_labels(tree):
             if call is None:
                 continue
             target = call.func
-            name = (target.attr if isinstance(target, ast.Attribute)
-                    else getattr(target, "id", None))
+            name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", None)
             if name != "action" or not call.args:
                 continue
             label = _literal(call.args[0], "@evp.action(...)")
@@ -488,8 +519,8 @@ def _resolve_actions(meta, tree, line):
     declared = meta.get("actions") or []
     if isinstance(declared, str) or not isinstance(declared, (list, tuple)):
         raise ScanError(
-            "@evp.command(actions=...) must be a list of action names, e.g. "
-            "[\"csv\", \"bake\"] (line %d)" % line, line)
+            '@evp.command(actions=...) must be a list of action names, e.g. ["csv", "bake"] (line %d)' % line, line
+        )
 
     names, labels = [], []
     for name in list(declared) + [n for n in custom if n not in declared]:
@@ -502,8 +533,9 @@ def _resolve_actions(meta, tree, line):
             raise ScanError(
                 "@evp.command(actions=...) names %r, which is neither a standard "
                 "action (%s) nor a function in this file decorated with "
-                "@evp.action (line %d)"
-                % (name, ", ".join(sorted(STANDARD_ACTION_LABELS)), line), line)
+                "@evp.action (line %d)" % (name, ", ".join(sorted(STANDARD_ACTION_LABELS)), line),
+                line,
+            )
         names.append(name)
 
     meta["actions"] = names
@@ -534,8 +566,7 @@ def _custom_menu_items(tree):
             if call is None:
                 continue
             target = call.func
-            name = (target.attr if isinstance(target, ast.Attribute)
-                    else getattr(target, "id", None))
+            name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", None)
             if name != "menu" or not call.args:
                 continue
             label = _literal(call.args[0], "@evp.menu(...)")
@@ -568,23 +599,27 @@ def _resolve_menu(meta, tree, line):
     names, labels, regions = [], [], []
     for name, label, region in _custom_menu_items(tree):
         if region.startswith(MENU_PARAM_PREFIX):
-            param = region[len(MENU_PARAM_PREFIX):]
+            param = region[len(MENU_PARAM_PREFIX) :]
             if not param:
                 raise ScanError(
                     '@evp.menu(region="param:...") needs a parameter name after '
-                    "the colon, e.g. \"param:offset\" (line %d)" % line, line)
+                    'the colon, e.g. "param:offset" (line %d)' % line,
+                    line,
+                )
             if not schema_ports and param not in declared_params:
                 raise ScanError(
                     "@evp.menu(region=%r) names a parameter this command does not "
                     "declare. Declared: %s. An entry pinned to a control that does "
                     "not exist can never appear (line %d)"
                     % (region, ", ".join(sorted(declared_params)) or "none", line),
-                    line)
+                    line,
+                )
         elif region not in MENU_REGIONS:
             raise ScanError(
                 "@evp.menu(region=%r) is not a region. Use one of %s, or "
-                '"param:<name>" for a single parameter\'s control (line %d)'
-                % (region, ", ".join(MENU_REGIONS), line), line)
+                '"param:<name>" for a single parameter\'s control (line %d)' % (region, ", ".join(MENU_REGIONS), line),
+                line,
+            )
         names.append(name)
         labels.append(label)
         regions.append(region)
@@ -606,12 +641,14 @@ def scan_file(path, folder_name):
 
     namespaces = {
         alias.name
-        for node in ast.walk(tree) if isinstance(node, ast.Import)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
         for alias in node.names
         if alias.name in ("evp", "tapioca") and alias.asname is None
     }
     direct_command = any(
-        isinstance(node, ast.ImportFrom) and node.module in ("evp", "tapioca")
+        isinstance(node, ast.ImportFrom)
+        and node.module in ("evp", "tapioca")
         and any(alias.name == "command" and alias.asname is None for alias in node.names)
         for node in ast.walk(tree)
     )
@@ -622,7 +659,7 @@ def scan_file(path, folder_name):
             "the decorator statically."
         )
 
-    for node in tree.body:                     # top-level only, by contract
+    for node in tree.body:  # top-level only, by contract
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         if node.name != "run":
@@ -720,13 +757,16 @@ def scan_file(path, folder_name):
                 meta["timeout_s"] = float(meta.get("timeout_s") or 0)
             except (TypeError, ValueError):
                 raise ScanError(
-                    "@evp.command(timeout_s=...) must be a number of seconds "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "@evp.command(timeout_s=...) must be a number of seconds (line %d)" % decorator.lineno,
+                    decorator.lineno,
+                ) from None
 
             meta["requires_api"] = _validate_version_requirement(
-                meta.get("requires_api"), "requires_api", decorator.lineno)
+                meta.get("requires_api"), "requires_api", decorator.lineno
+            )
             meta["requires_tapir"] = _validate_version_requirement(
-                meta.get("requires_tapir"), "requires_tapir", decorator.lineno)
+                meta.get("requires_tapir"), "requires_tapir", decorator.lineno
+            )
 
             # Tags reach C++ as a flat array of strings, like `requires`. A single
             # string is the natural typo (tags="roof") and would otherwise arrive as
@@ -735,49 +775,67 @@ def scan_file(path, folder_name):
             if isinstance(tags, str) or not isinstance(tags, (list, tuple)):
                 raise ScanError(
                     "@evp.command(tags=...) must be a list of strings, e.g. "
-                    '["roof", "slope"] (line %d)' % decorator.lineno, decorator.lineno)
+                    '["roof", "slope"] (line %d)' % decorator.lineno,
+                    decorator.lineno,
+                )
             meta["tags"] = [str(t) for t in tags]
 
             selection_sets = meta.get("selection_sets") or []
-            if (isinstance(selection_sets, str) or not isinstance(selection_sets, (list, tuple))
-                    or (selection_sets_specified and not selection_sets)):
+            if (
+                isinstance(selection_sets, str)
+                or not isinstance(selection_sets, (list, tuple))
+                or (selection_sets_specified and not selection_sets)
+            ):
                 raise ScanError(
                     "@evp.command(selection_sets=...) must be a list/tuple of role names, e.g. "
-                    '("Targets", "Operators") (line %d)' % decorator.lineno, decorator.lineno)
+                    '("Targets", "Operators") (line %d)' % decorator.lineno,
+                    decorator.lineno,
+                )
             normalized = []
             seen = set()
             for role in selection_sets:
                 if not isinstance(role, str) or not role.strip():
                     raise ScanError(
                         "@evp.command(selection_sets=...) role names must be non-empty strings "
-                        "(line %d)" % decorator.lineno, decorator.lineno)
+                        "(line %d)" % decorator.lineno,
+                        decorator.lineno,
+                    )
                 key = role.strip().casefold()
                 if key in seen:
                     raise ScanError(
-                        "@evp.command(selection_sets=...) role names must be unique "
-                        "(line %d)" % decorator.lineno, decorator.lineno)
+                        "@evp.command(selection_sets=...) role names must be unique (line %d)" % decorator.lineno,
+                        decorator.lineno,
+                    )
                 seen.add(key)
                 normalized.append(role.strip())
             meta["selection_sets"] = normalized
 
             camera_sets = meta.get("camera_sets") or []
-            if (isinstance(camera_sets, str) or not isinstance(camera_sets, (list, tuple))
-                    or (camera_sets_specified and not camera_sets)):
+            if (
+                isinstance(camera_sets, str)
+                or not isinstance(camera_sets, (list, tuple))
+                or (camera_sets_specified and not camera_sets)
+            ):
                 raise ScanError(
                     "@evp.command(camera_sets=...) must be a list/tuple of role names, e.g. "
-                    '("Exterior", "Interior") (line %d)' % decorator.lineno, decorator.lineno)
+                    '("Exterior", "Interior") (line %d)' % decorator.lineno,
+                    decorator.lineno,
+                )
             normalized_cameras = []
             seen_cameras = set()
             for role in camera_sets:
                 if not isinstance(role, str) or not role.strip():
                     raise ScanError(
                         "@evp.command(camera_sets=...) role names must be non-empty strings "
-                        "(line %d)" % decorator.lineno, decorator.lineno)
+                        "(line %d)" % decorator.lineno,
+                        decorator.lineno,
+                    )
                 key = role.strip().casefold()
                 if key in seen_cameras:
                     raise ScanError(
-                        "@evp.command(camera_sets=...) role names must be unique "
-                        "(line %d)" % decorator.lineno, decorator.lineno)
+                        "@evp.command(camera_sets=...) role names must be unique (line %d)" % decorator.lineno,
+                        decorator.lineno,
+                    )
                 seen_cameras.add(key)
                 normalized_cameras.append(role.strip())
             meta["camera_sets"] = normalized_cameras
@@ -785,34 +843,44 @@ def scan_file(path, folder_name):
             exclusive_sets = meta.get("exclusive_selection_sets", False)
             if not isinstance(exclusive_sets, bool):
                 raise ScanError(
-                    "@evp.command(exclusive_selection_sets=...) must be True or False "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "@evp.command(exclusive_selection_sets=...) must be True or False (line %d)" % decorator.lineno,
+                    decorator.lineno,
+                )
             if exclusive_sets and len(normalized) < 2:
                 raise ScanError(
                     "@evp.command(exclusive_selection_sets=True) needs at least two selection_sets "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "(line %d)" % decorator.lineno,
+                    decorator.lineno,
+                )
 
             preview_on_selection = meta.get("preview_on_selection", False)
             if not isinstance(preview_on_selection, bool):
                 raise ScanError(
-                    "@evp.command(preview_on_selection=...) must be True or False "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "@evp.command(preview_on_selection=...) must be True or False (line %d)" % decorator.lineno,
+                    decorator.lineno,
+                )
             if preview_overrides is None:
                 preview_overrides = {}
             if not isinstance(preview_overrides, dict):
                 raise ScanError(
                     "@evp.command(preview_overrides=...) must be a dict of forced parameter values "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "(line %d)" % decorator.lineno,
+                    decorator.lineno,
+                )
             if preview_on_selection and not normalized:
                 raise ScanError(
-                    "@evp.command(preview_on_selection=True) requires selection_sets=... "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "@evp.command(preview_on_selection=True) requires selection_sets=... (line %d)" % decorator.lineno,
+                    decorator.lineno,
+                )
             if preview_on_selection and not preview_overrides:
                 raise ScanError(
                     "@evp.command(preview_on_selection=True) requires non-empty preview_overrides=... "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "(line %d)" % decorator.lineno,
+                    decorator.lineno,
+                )
             meta["preview_overrides_json"] = _json_literal(
-                preview_overrides, "@evp.command(preview_overrides=...)", decorator.lineno)
+                preview_overrides, "@evp.command(preview_overrides=...)", decorator.lineno
+            )
             _resolve_actions(meta, tree, decorator.lineno)
 
             if isinstance(node, ast.AsyncFunctionDef):
@@ -837,8 +905,9 @@ def scan_file(path, folder_name):
                         "dimensional parameter '%s' uses unit=%r (line %d). Use API-base "
                         "unit=%r and express defaults/bounds in %s; the palette displays "
                         "the open project's Working Unit."
-                        % (param["name"], param["unit"], decorator.lineno,
-                           api_unit, api_name), decorator.lineno)
+                        % (param["name"], param["unit"], decorator.lineno, api_unit, api_name),
+                        decorator.lineno,
+                    )
 
             # AFTER the parameters are parsed, because a "param:<name>" region is
             # checked against them — an entry pinned to a control that does not
@@ -853,30 +922,36 @@ def scan_file(path, folder_name):
             labels = meta.pop("labels", None) or {}
             if not isinstance(labels, dict):
                 raise ScanError(
-                    "@evp.command(labels=...) must be a dict of {param_name: text} "
-                    "(line %d)" % decorator.lineno, decorator.lineno)
+                    "@evp.command(labels=...) must be a dict of {param_name: text} (line %d)" % decorator.lineno,
+                    decorator.lineno,
+                )
             for param in meta["params"]:
                 if param["name"] in labels:
                     label = str(labels[param["name"]])
                     if param.get("unit") in ("m", "m2", "m3", "rad") and re.search(
-                            r"\((?:m|mm|m[23]|mm[23]|cm[23]?|km[23]?|ft[23]?|in[23]?|yd[23]?|"
-                            r"deg(?:rees)?|rad|°)\)\s*$", label, re.IGNORECASE):
+                        r"\((?:m|mm|m[23]|mm[23]|cm[23]?|km[23]?|ft[23]?|in[23]?|yd[23]?|"
+                        r"deg(?:rees)?|rad|°)\)\s*$",
+                        label,
+                        re.IGNORECASE,
+                    ):
                         raise ScanError(
                             "label for dimensional parameter '%s' hardcodes a unit (line %d). "
                             "Remove the suffix: the palette appends the open project's Working Unit."
-                            % (param["name"], decorator.lineno), decorator.lineno)
+                            % (param["name"], decorator.lineno),
+                            decorator.lineno,
+                        )
                     param["label"] = label
 
             # F3 — the same folding, for the same reason: show_when arrives as a
             # nested dict and has to leave as flat keys the C++ side can read.
             _fold_show_when(meta["params"], node.lineno)
+            _fold_selection_visibility(meta, node.lineno)
 
             meta["line"] = node.lineno
             return meta
 
         raise ScanError(
-            "found a top-level `def run` but it has no @evp.command(...) decorator "
-            "(line %d)" % node.lineno,
+            "found a top-level `def run` but it has no @evp.command(...) decorator (line %d)" % node.lineno,
             node.lineno,
         )
 
@@ -894,9 +969,11 @@ def scan_root(root):
     diagnostics = []
 
     if not os.path.isdir(root):
-        return {"root": root, "commands": [], "diagnostics": [
-            {"folder": "", "error": "scripts root does not exist: %s" % root, "line": 0}
-        ]}
+        return {
+            "root": root,
+            "commands": [],
+            "diagnostics": [{"folder": "", "error": "scripts root does not exist: %s" % root, "line": 0}],
+        }
 
     for name in sorted(os.listdir(root)):
         # `_`-prefixed folders are RESERVED, never commands: `_lib/` is the E4
@@ -954,8 +1031,8 @@ def scan_root(root):
                     # be Lithuanian; text this file invents stays ASCII.
                     meta["description"] = (
                         "INPUTS COULD NOT BE READ, so this command has no controls "
-                        "and running it will fail. %s\n\n%s"
-                        % (meta["scan_error"], meta.get("description") or ""))
+                        "and running it will fail. %s\n\n%s" % (meta["scan_error"], meta.get("description") or "")
+                    )
             # `params` stays a list of dicts (readable in the log). `paramsJson`
             # is the same data as a list of JSON STRINGS, because that is the
             # only nested shape the C++ side can read: GS::Array<GS::ObjectState>

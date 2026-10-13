@@ -4,6 +4,23 @@
 
 namespace evp {
 
+bool ParamPanel::MatchesVisibility (const GS::UniString& controller, const GS::Array<GS::UniString>& values) const
+{
+    if (controller.IsEmpty ())
+        return true;
+    for (const auto& pc : paramControls)
+        if (pc.name == controller) {
+            if (!pc.visible)
+                return false;
+            const auto current = pc.CurrentValueText ();
+            for (const auto& value : values)
+                if (current == value)
+                    return true;
+            return false;
+        }
+    return false; // scanner rejects unknown controllers; fail closed for mismatched metadata
+}
+
 // Keep reactive per-row metadata out of the control factory. Visibility and
 // advisory text can ask for a reflow, but neither changes parameter values.
 bool ParamPanel::ApplyVisibility ()

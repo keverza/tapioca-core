@@ -3,7 +3,9 @@
 #include "NativeCommands/SelectionSetStore.hpp"
 #include "Palette/PaletteMetrics.hpp"
 #include "Palette/PaletteScroll.hpp"
+#include "Palette/ParamPanel.hpp"
 #include "Python/PathUtils.hpp"
+#include "ObjectStateJSONConversion.hpp"
 
 namespace evp {
 
@@ -20,13 +22,21 @@ void SelectionSetPanel::Clear ()
     geomsrv::SelectionSetStore::Get ().Clear ();
 }
 
-void SelectionSetPanel::Rebuild (const GS::Array<GS::UniString>& names, bool exclusive)
+void SelectionSetPanel::Rebuild (const GS::Array<GS::UniString>& names, bool exclusive,
+                                 const GS::Array<GS::UniString>& rulesJson)
 {
     Clear ();
     geomsrv::SelectionSetStore::Get ().Configure (names, exclusive);
     for (const GS::UniString& name : names) {
         Row row;
         row.name = name;
+        if (rows.size () < rulesJson.GetSize ()) {
+            GS::ObjectState rule;
+            if (JSON::ConvertToObjectState (rulesJson[UIndex (rows.size ())], rule) == NoError) {
+                rule.Get ("show_when_param", row.showWhenParam);
+                rule.Get ("show_when_values", row.showWhenValues);
+            }
+        }
         const DG::Rect seed (Margin, 0, Margin + 50, RowHeight);
         row.label = std::make_unique<DG::LeftText> (panel, seed);
         row.update = std::make_unique<DG::Button> (panel, seed);
@@ -56,10 +66,26 @@ void SelectionSetPanel::RefreshLabel (Row& row)
     row.label->SetText (GS::UniString::Printf ("%T (%d)", row.name.ToPrintf (), (int) count));
 }
 
+bool SelectionSetPanel::RefreshVisibility (const ParamPanel& params)
+{
+    bool changed = false;
+    for (auto& row : rows) {
+        const bool visible = params.MatchesVisibility (row.showWhenParam, row.showWhenValues);
+        changed = changed || visible != row.visible;
+        row.visible = visible;
+    }
+    return changed;
+}
+
 short SelectionSetPanel::PlaceAt (short top, short left, short right, const PaletteScroll& clip)
 {
     short y = top;
     for (Row& row : rows) {
+        if (!row.visible) {
+            row.label->Hide ();
+            row.update->Hide (), row.add->Hide (), row.remove->Hide (), row.reselect->Hide (), row.clear->Hide ();
+            continue;
+        }
         RefreshLabel (row);
         const bool titleVisible = clip.IsVisible (y, (short) (y + 16));
         clip.Place (row.label.get (), DG::Rect (left, y, right, (short) (y + 16)));
@@ -82,7 +108,7 @@ short SelectionSetPanel::PlaceAt (short top, short left, short right, const Pale
         else
             row.label->Hide ();
     }
-    return rows.empty () ? 0 : (short) (y - top + 4);
+    return y == top ? 0 : (short) (y - top + 4);
 }
 
 bool SelectionSetPanel::Apply (Row& row, Action action, bool& contentsChanged)
@@ -145,6 +171,8 @@ bool SelectionSetPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, boo
 {
     contentsChanged = false;
     for (Row& row : rows) {
+        if (!row.visible)
+            continue;
         if (ev.GetSource () == row.update.get ())
             return Apply (row, Action::Update, contentsChanged);
         if (ev.GetSource () == row.add.get ())
@@ -161,13 +189,15 @@ bool SelectionSetPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, boo
 
 bool SelectionSetPanel::AllRolesNonEmpty () const
 {
-    if (rows.empty ())
-        return false;
+    bool any = false;
     for (const Row& row : rows) {
-        if (geomsrv::SelectionSetStore::Get ().Values (row.name).IsEmpty ())
-            return false;
+        if (row.visible) {
+            any = true;
+            if (geomsrv::SelectionSetStore::Get ().Values (row.name).IsEmpty ())
+                return false;
+        }
     }
-    return true;
+    return any;
 }
 
 } // namespace evp

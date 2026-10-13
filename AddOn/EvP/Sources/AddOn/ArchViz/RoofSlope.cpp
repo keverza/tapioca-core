@@ -217,8 +217,13 @@ bool Mesh (Data& d, std::string& error)
                 covered += t.area;
             }
         }
-        if (std::abs (covered - c.area) > (std::max) (1e-5, c.area * 1e-7)) {
-            error = "Drain fan does not cover its cell.";
+        // Each face is clipped independently on Clipper's micron grid. Boundary
+        // intersections can round oppositely to the rectangle's own clip; bound
+        // that error by perimeter * grid, not only by area (long thin cells).
+        const double clipTolerance = (std::max) (1e-5, 4e-6 * ((c.box[2] - c.box[0]) + (c.box[3] - c.box[1])));
+        if (std::abs (covered - c.area) > clipTolerance) {
+            error = "Drain fan does not cover rectangle " + std::to_string (ci + 1) + ": clipped " +
+                    Number (c.area, 9) + " m2, faces " + Number (covered, 9) + " m2.";
             return false;
         }
     }

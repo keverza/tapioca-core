@@ -1,11 +1,14 @@
 #include "ArchViz/RoofSlope.hpp"
 #include "ArchViz/RoofSlopeHud.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
+#include "hud_fixture.hpp"
 #include <imgui.h>
 #include <gtest/gtest.h>
 #include <clipper2/clipper.h>
 #include <cmath>
 #include <limits>
+#include <set>
 
 namespace rs = geomsrv::archviz::roofslope;
 namespace hud = geomsrv::archviz::overlayhud;
@@ -106,6 +109,58 @@ TEST (RoofSlope, CapturedUnevenRoofUsesSignificantCornersWithoutSliverGridStrips
     for (const auto& c : d.cells)
         EXPECT_EQ (c.rim.size (), 4u);
 }
+TEST (RoofSlope, CapturedOctober13SlabOpensFourFaceDrainageCells)
+{
+    auto d = Plan ({ { { -69.464325192, -14.118220441 },
+                       { -40.040897839, 2.183307455 },
+                       { -41.285217693, 4.429241398 },
+                       { -14.922616675, 19.034972769 },
+                       { -22.553701043, 32.808691278 },
+                       { -56.568367899, 13.963468592 },
+                       { -55.446954068, 11.939373758 },
+                       { -77.218315582, -0.122662823 } } });
+    ASSERT_FALSE (d.cells.empty ());
+    EXPECT_NEAR (Area (d), 1033.010698253, 1e-3);
+    for (size_t ci = 0; ci < d.cells.size (); ++ci) {
+        const auto& c = d.cells[ci];
+        ASSERT_EQ (c.rim.size (), 4u);
+        const auto& drain = d.nodes[c.drain];
+        EXPECT_NEAR (drain.xy.x, (c.box[0] + c.box[2]) / 2, 1e-6);
+        EXPECT_NEAR (drain.xy.y, (c.box[1] + c.box[3]) / 2, 1e-6);
+        for (int n : c.rim)
+            EXPECT_GT (d.nodes[n].z, drain.z);
+        std::set<std::array<int, 3>> faces;
+        for (const auto& t : d.triangles)
+            if (t.cell == int (ci)) {
+                faces.insert (t.nodes);
+                rs::Vec center {};
+                for (const auto& n : t.vertices)
+                    center.x += n.xy.x / 3, center.y += n.xy.y / 3;
+                EXPECT_LT (t.gx * (drain.xy.x - center.x) + t.gy * (drain.xy.y - center.y), 0);
+            }
+        EXPECT_EQ (faces.size (), 4u) << "rectangle " << ci;
+    }
+    const auto shapes = Shapes (d);
+    const auto united = cp::Union (shapes, cp::FillRule::NonZero, 6);
+    cp::PathsD outline;
+    for (const auto& ring : d.outline) {
+        cp::PathD p;
+        for (const auto& n : ring)
+            p.emplace_back (n.x, n.y);
+        outline.push_back (p);
+    }
+    EXPECT_LT (std::abs (cp::Area (cp::Xor (united, outline, cp::FillRule::NonZero, 6))), 1e-4);
+    EXPECT_NEAR (Area (d), std::abs (cp::Area (united)), 1e-4);
+    const auto layer = rs::Layer (d);
+    EXPECT_EQ (layer.texts.size (), 4 * d.cells.size ());
+    size_t arrows = 0;
+    for (const auto& line : layer.polylines)
+        if (line.endArrow == geomsrv::archviz::overlaylayers::Terminator::Arrow) {
+            ++arrows;
+            EXPECT_LT (line.points[5], line.points[2]);
+        }
+    EXPECT_EQ (arrows, 4 * d.cells.size ());
+}
 TEST (RoofSlope, RotationAndGeoreferencedCoordinatesPreserveArea)
 {
     rs::Ring ring { { 0, 0 }, { 25, 0 }, { 25, 16 }, { 0, 16 } };
@@ -178,6 +233,9 @@ TEST (RoofSlope, NativeSessionBorrowsLockAndDoesNotRepublishForCameraMotion)
     geomsrv::archviz::overlaylayers::Set (layer);
     hud::StartRoofEditor (*state, data);
     EXPECT_TRUE (hud::EditLocked (*state));
+    ASSERT_NE (state->roofEditor, nullptr);
+    EXPECT_EQ (state->roofEditor->editor.selectedCell, 0);
+    EXPECT_EQ (state->roofEditor->editor.selectedNode, data.cells[0].drain);
     bool clear = false;
     EXPECT_FALSE (hud::FollowRoofEditor (*state, layer, clear));
     geomsrv::archviz::overlaylayers::ClearCommandScoped ();
@@ -245,6 +303,32 @@ TEST (RoofSlope, NativeCanvasDragsTheDrainAndCommitsOneVirtualUndo)
     EXPECT_TRUE (s.editor.Undo (true));
     ImGui::DestroyContext (context);
     ImGui::SetCurrentContext (previous);
+}
+TEST (RoofSlope, OpeningTheEditorDrawsItsGripsAndSelectedDrainGumballWithoutAClick)
+{
+    hudtest::Watched view;
+    auto data = Plan ({ { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } } });
+    auto layer = rs::Layer (data);
+    geomsrv::archviz::overlaylayers::Set (layer);
+    ASSERT_TRUE (hud::StartRoofEditor (*view.state, data));
+    view.engine.SetLayers ({ rs::kLayer });
+    auto input = hudtest::At (950, 700);
+    input.planar = true;
+    input.plan[0] = 20, input.plan[2] = 600, input.plan[4] = -20, input.plan[5] = 500;
+    hud::Layout out;
+    std::string error;
+    ASSERT_TRUE (view.engine.Build ({ &layer.panels[0] }, { rs::kLayer }, 1, input, {}, out, error)) << error;
+    auto control = [&] (float x, float y, uint32_t rgba) {
+        for (const auto& v : out.overlay.vertices)
+            if (std::abs (v.x - x) <= 6 && std::abs (v.y - y) <= 6 && v.rgba == rgba)
+                return true;
+        return false;
+    };
+    EXPECT_TRUE (control (600, 500, 0x5A7F62FF)); // corner grip
+    EXPECT_TRUE (control (748, 400, 0x5A7F62FF)); // selected drain U gumball
+    EXPECT_TRUE (control (700, 352, 0x5A7F62FF)); // selected drain V gumball
+    hud::StopRoofEditor (*view.state);
+    geomsrv::archviz::overlaylayers::Clear (rs::kLayer);
 }
 TEST (RoofSlope, AnExactDimensionCanMoveTheOppositeDividerWhenTheOuterSideIsFixed)
 {

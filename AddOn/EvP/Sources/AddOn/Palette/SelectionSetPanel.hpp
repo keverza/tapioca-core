@@ -11,6 +11,7 @@
 namespace evp {
 
 class PaletteScroll;
+class ParamPanel;
 
 // PLAT-6 — command-declared element-set capture controls. The shell remains the
 // only observer; this panel owns just its runtime DG items and layout band.
@@ -33,7 +34,9 @@ class SelectionSetPanel {
 
     // `exclusive`: the command's sets are mutually exclusive (see
     // SelectionSetStore::Configure); every row is refreshed after a move.
-    void Rebuild (const GS::Array<GS::UniString>& names, bool exclusive = false);
+    void Rebuild (const GS::Array<GS::UniString>& names, bool exclusive = false,
+                  const GS::Array<GS::UniString>& rulesJson = {});
+    bool RefreshVisibility (const ParamPanel& params);
     void Clear ();
     short PlaceAt (short top, short left, short right, const PaletteScroll& clip);
     bool HandleButtonClicked (const DG::ButtonClickEvent& ev, bool& contentsChanged);
@@ -43,6 +46,9 @@ class SelectionSetPanel {
     enum class Action { Update, Add, Remove, Reselect, Clear };
     struct Row {
         GS::UniString name;
+        GS::UniString showWhenParam;
+        GS::Array<GS::UniString> showWhenValues;
+        bool visible = true;
         GS::UniString lastAction;
         std::unique_ptr<DG::LeftText> label;
         std::unique_ptr<DG::Button> update;

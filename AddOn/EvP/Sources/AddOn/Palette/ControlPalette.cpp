@@ -394,7 +394,7 @@ void ControlPalette::RebuildCommandBlock ()
     actionBar.Rebuild (*info);
 
     params.Rebuild (*info);
-    selectionSets.Rebuild (info->selectionSets, info->exclusiveSelectionSets);
+    selectionSets.Rebuild (info->selectionSets, info->exclusiveSelectionSets, info->selectionSetRulesJson);
     cameraSets.Rebuild (info->cameraSets);
 
     // Position everything BEFORE revealing it: a dynamically created DG item starts
@@ -441,6 +441,7 @@ void ControlPalette::CheckItemChanged (const DG::CheckItemChangeEvent& ev)
     // host) — the panel that built it handles it and says so.
     bool reflow = false;
     if (params.HandleCheckItemChanged (ev, reflow)) {
+        reflow = selectionSets.RefreshVisibility (params) || reflow;
         if (reflow)
             ReflowParams ();
         RefreshRunGate (); // a required layer may have just been set

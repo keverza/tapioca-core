@@ -217,6 +217,7 @@ class ParamPanel {
     // HIDDEN; the shell lays out and then calls ShowControls.
     void Rebuild (const CommandInfo& info);
     void ShowControls ();
+    bool MatchesVisibility (const GS::UniString& controller, const GS::Array<GS::UniString>& values) const;
     bool RefreshAdvisories ();
     void Clear ();
 

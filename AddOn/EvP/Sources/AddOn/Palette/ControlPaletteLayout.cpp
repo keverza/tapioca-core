@@ -128,6 +128,7 @@ void ControlPalette::Layout ()
     // Element sets sit BETWEEN the description and the inputs: the description
     // says what the command does, then the user builds the set the parameters
     // below operate on.
+    selectionSets.RefreshVisibility (params);
     y += selectionSets.PlaceAt (y, Margin, right, scroll);
     y += cameraSets.PlaceAt (y, Margin, right, scroll);
 

@@ -503,6 +503,7 @@ def command(
     timeout_s=0,
     tags=None,
     selection_sets=None,
+    selection_sets_show_when=None,
     camera_sets=None,
     inputs=None,
     outputs=None,
@@ -563,7 +564,10 @@ def command(
     exclusive_selection_sets
                   make the declared selection sets MUTUALLY EXCLUSIVE: putting an
                   element into one set removes it from the command's others, so
-                  an element can hold only one role. Requires selection_sets.
+                   an element can hold only one role. Requires selection_sets.
+    selection_sets_show_when
+                  Optional {role: {parameter: value}} visibility rules, like a
+                  parameter's show_when. Hidden roles keep their captured elements.
     preview_on_selection
                   explicitly opts this command into a debounced normal run whenever
                   one of its declared selection sets changes and every role is
@@ -641,6 +645,7 @@ def command(
             "timeout_s": float(timeout_s or 0),
             "labels": dict(labels) if labels else {},
             "selection_sets": list(selection_sets) if selection_sets else [],
+            "selection_sets_show_when": dict(selection_sets_show_when) if selection_sets_show_when else {},
             "camera_sets": list(camera_sets) if camera_sets else [],
             "preview_on_selection": bool(preview_on_selection),
             "exclusive_selection_sets": bool(exclusive_selection_sets),
