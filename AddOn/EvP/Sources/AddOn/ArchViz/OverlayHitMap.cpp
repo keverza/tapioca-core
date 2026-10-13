@@ -6,6 +6,12 @@ namespace geomsrv {
 namespace archviz {
 namespace overlayinput {
 
+Cursor CursorFor (const HitMap& map, bool overRegion, bool hudGesture)
+{
+    const Cursor cursor = map.cursor == uint8_t (Cursor::Arrow) && map.hand ? Cursor::Hand : Cursor (map.cursor);
+    return map.locked && !overRegion && !hudGesture && cursor == Cursor::Hand ? Cursor::Arrow : cursor;
+}
+
 int HitMap::Hit (float x, float y, float width, float height) const
 {
     for (size_t i = regions.size (); i-- > 0;) {

@@ -83,6 +83,40 @@ TEST (OverlayHudWidgets, AGradientHandleQueuesNativeCutoffAndSharesItsValueAcros
     EXPECT_DOUBLE_EQ (second.Value ("cutoff"), 3);
 }
 
+TEST (OverlayHudWidgets, APhysicallyReleasedCutoffGripStopsEvenWhenItsReleaseEventWasMissed)
+{
+    Watched hud;
+    layers::Panel panel;
+    panel.widthPixels = 220;
+    layers::PanelItem ramp;
+    ramp.kind = layers::ItemKind::Ramp;
+    ramp.heightPixels = 10;
+    layers::PresetStops ("clearance", ramp.colormap.stops);
+    ramp.colormap.autoRange = false;
+    ramp.colormap.max = 4;
+    ramp.colormap.hasCutoff = true;
+    ramp.colormap.cutoff = 2.2;
+    ramp.colormap.cutoffControl = "cutoff";
+    panel.items = { ramp };
+    hud.Lay ({ &panel }, At (600, 600));
+    hud::Input press = At (kLeft + 150, kTop + 5);
+    press.buttons = { { 0, true } };
+    press.hasButtonState = true;
+    press.buttonsDown = 1;
+    hud.Lay ({ &panel }, press);
+    EXPECT_DOUBLE_EQ (hud.Value ("cutoff"), 3);
+    hud::Input released = At (kLeft + 150, kTop + 5);
+    released.hasButtonState = true; // no queued up event, but the physical button is up
+    hud.Lay ({ &panel }, released);
+    auto pending = hud::TakeRampCutoffs (*hud.state);
+    ASSERT_FALSE (pending.empty ());
+    EXPECT_TRUE (pending.back ().final);
+    const double stopped = hud.Value ("cutoff");
+    released.x = kLeft + 10;
+    hud.Lay ({ &panel }, released);
+    EXPECT_DOUBLE_EQ (hud.Value ("cutoff"), stopped) << "the released grip no longer follows the mouse";
+}
+
 TEST (OverlayHudWidgets, ACheckboxHoldsTheUsersValueUntilTheLayerSaysANewOne)
 {
     Watched hud;

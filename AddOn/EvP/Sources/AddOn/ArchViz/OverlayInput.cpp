@@ -24,7 +24,7 @@ namespace {
 constexpr wchar_t kWindowClass[] = L"TapiocaOverlayInput";
 constexpr UINT kRefreshMessage = WM_APP + 1;
 constexpr UINT_PTR kRedrawTimer = 1;
-// At most one redraw a view this often for the HUD: about thirty a second.
+// At most one redraw a view this often for the HUD: about sixty a second.
 constexpr uint64_t kRedrawMs = 16; // hover feedback follows the pointer at up to 60 Hz
 
 struct Target {
@@ -72,6 +72,7 @@ HHOOK g_idleHook = nullptr;
 overlayclicks::Meter g_meter;
 ATOM g_windowClass = 0;
 Target g_targets[2];
+Target* s_gestureTarget = nullptr; // observe the owning canvas's release even on another window
 // One latch: the views never run together, and a gesture is one pointer's.
 Router g_router;
 Stats g_stats;
@@ -134,6 +135,16 @@ uint32_t Held (WPARAM keys)
         held |= Bit (Button::X1);
     if ((keys & MK_XBUTTON2) != 0)
         held |= Bit (Button::X2);
+    return held;
+}
+
+uint32_t PhysicalButtons ()
+{
+    uint32_t held = 0;
+    const int keys[] = { VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2 };
+    for (int button = 0; button < 5; ++button)
+        if ((::GetAsyncKeyState (keys[button]) & 0x8000) != 0)
+            held |= 1u << button;
     return held;
 }
 
@@ -260,8 +271,19 @@ bool ShowCursor (const Target& target)
     if (!OwnsPointer (target))
         return false;
     // The cursor the HUD asked for: a canvas's own, else a hand on what it can press.
-    HCURSOR cursor = target.map.hand ? g_handCursor : g_arrowCursor;
-    switch (Cursor (target.map.cursor)) {
+    POINT point = {};
+    RECT client = {};
+    const bool overRegion =
+        ::GetCursorPos (&point) && ::ScreenToClient (target.canvas, &point) &&
+        ::GetClientRect (target.canvas, &client) &&
+        target.map.Hit (float (point.x), float (point.y), float (client.right), float (client.bottom)) >= 0;
+    const Cursor desired =
+        CursorFor (target.map, overRegion, g_router.GetOwner () == Owner::Hud && PhysicalButtons () != 0);
+    HCURSOR cursor = g_arrowCursor;
+    switch (desired) {
+        case Cursor::Hand:
+            cursor = g_handCursor;
+            break;
         case Cursor::Move:
             cursor = g_moveCursor;
             break;
@@ -276,7 +298,7 @@ bool ShowCursor (const Target& target)
     }
     ::SetCursor (cursor != nullptr ? cursor : g_arrowCursor);
     ++g_stats.cursorsSet;
-    if (target.map.hand)
+    if (desired == Cursor::Hand)
         ++g_stats.handsShown;
     return true;
 }
@@ -381,6 +403,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         // lets go of a gesture the HUD can no longer finish.
         if (removing) {
             g_router.Reset ();
+            s_gestureTarget = nullptr;
             self->buttons.clear ();
             self->wheel = 0.0f;
             self->wasOver = false;
@@ -391,6 +414,10 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     }
     const Route route =
         removing ? g_router.Decide (event, over, overScroll) : g_router.Preview (event, over, overScroll);
+    if (removing && event.kind == EventKind::Press && route == Route::Take)
+        s_gestureTarget = self;
+    if (removing && g_router.GetOwner () == Owner::None)
+        s_gestureTarget = nullptr;
     if (route == Route::Take) {
         if (removing) {
             ++g_stats.taken;
@@ -472,8 +499,11 @@ void Consider (MSG& message, bool removing)
     }
     // MSG::pt is where the pointer was when the message was posted, in screen pixels;
     // the wheel's lParam is in screen pixels too, so every message is read from it.
-    if (Weigh (*target, event, message.pt, removing) == Route::Take)
+    if (Weigh (*target, event, message.pt, removing) == Route::Take) {
         message.message = WM_NULL;
+        if (removing && event.kind == EventKind::Move && target->subclassed)
+            ShowCursor (*target); // Archicad's pre-dispatch cursor must not flash through a locked hover
+    }
 }
 
 // The click meter's press: on the HUD when the HUD took it, on the view when it passed it,
@@ -508,7 +538,12 @@ LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
         g_down = event.kind == EventKind::Press ? (g_down | bit) : (g_down & ~bit);
         event.held = g_down;
         Target* const target = TargetFor (info->hwnd);
-        const bool taken = target != nullptr && Weigh (*target, event, info->pt, true) == Route::Take;
+        const bool outsideRelease =
+            event.kind == EventKind::Release && s_gestureTarget != nullptr && target != s_gestureTarget;
+        if (outsideRelease)
+            Weigh (*s_gestureTarget, event, info->pt, true); // observe only; never swallow another window's event
+        const bool taken =
+            !outsideRelease && target != nullptr && Weigh (*target, event, info->pt, true) == Route::Take;
         if (g_timing && (message.message == WM_LBUTTONDOWN || message.message == WM_LBUTTONDBLCLK))
             TimePress (info->hwnd, taken);
         if (taken) {
@@ -706,6 +741,8 @@ bool CreateInputWindow (std::string& error)
 // The view's session is over: its timer, its pointer, its callbacks.
 void Clear (Target& target)
 {
+    if (s_gestureTarget == &target)
+        s_gestureTarget = nullptr;
     Unsubclass (target);
     if (target.timerArmed && g_window != nullptr)
         ::KillTimer (g_window, kRedrawTimer + UINT_PTR (ViewOf (target)));
@@ -760,6 +797,8 @@ overlayhud::Input InputOf (Target& target, bool take)
     }
     // Locking routes canvas interactions to us, but does not turn the canvas into a panel.
     input.overHud = input.pointer && target.map.Hit (input.x, input.y, input.width, input.height) >= 0;
+    input.hasButtonState = true;
+    input.buttonsDown = PhysicalButtons ();
     // Read as the layout is: it follows the press that asked for it, the key held through both.
     input.shift = ::GetKeyState (VK_SHIFT) < 0;
     if (take) {

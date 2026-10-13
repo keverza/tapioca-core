@@ -144,8 +144,7 @@ struct Hover {
 
 // A titled layer's readout is shown on that layer's page, never on Settings or an
 // unrelated tab. Layers without a titled page keep the host's existing footer.
-bool ReadoutOnPage (const Hover& hover, const std::string& pageKey,
-                    const std::vector<std::string>& titledPanelKeys);
+bool ReadoutOnPage (const Hover& hover, const std::string& pageKey, const std::vector<std::string>& titledPanelKeys);
 
 // The tint over a hovered item, 0xRRGGBBAA.
 constexpr uint32_t kHoverTintRgba = 0xFFBA0046u;
@@ -156,7 +155,7 @@ struct Input {
     float width = 0.0f; // the view, physical pixels; 0 while it is not known
     float height = 0.0f;
     bool pointer = false; // the pointer is over the view
-    bool overHud = false; // the pointer is on a panel, legend, dock or locked editing canvas
+    bool overHud = false; // the pointer is on a panel, legend, dock or popup, not the locked canvas
     float x = 0.0f;
     float y = 0.0f;
     struct Button {
@@ -164,10 +163,12 @@ struct Input {
         bool down = false;
     };
     std::vector<Button> buttons; // since the last layout, in order
+    bool hasButtonState = false; // the runtime can reconcile a release missed outside its canvas
+    uint32_t buttonsDown = 0;    // current physical button mask; synthetic callers may omit it
     enum class EditAction { Cancel, Undo, Redo, BlockedModelKey };
     std::vector<EditAction> editActions; // scoped to the active roof canvas, consumed once per Build
-    bool shift = false;          // held now: a shift-press extends a pick (the building section's)
-    float wheel = 0.0f;          // notches turned over a page that scrolls since the last layout
+    bool shift = false;                  // held now: a shift-press extends a pick (the building section's)
+    float wheel = 0.0f;                  // notches turned over a page that scrolls since the last layout
     Hover hover;
     // While the dock's lock is on: model metres onto this view, for the floor plan edited on it
     // (hudfloorscheme::ViewOnto) -- the plan's transform, the same at every elevation (`planar`:

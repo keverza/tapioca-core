@@ -21,6 +21,22 @@ namespace layers = geomsrv::archviz::overlaylayers;
 namespace scene = geomsrv::archviz::overlayscene;
 namespace text = geomsrv::archviz::overlaytext;
 
+TEST (OverlayHitMap, LockedCanvasDoesNotInheritAStalePanelHandButKeepsEditingAndDragCursors)
+{
+    input::HitMap map;
+    map.locked = true;
+    map.hand = true;
+    map.cursor = uint8_t (input::Cursor::Hand);
+    EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Arrow);
+    EXPECT_EQ (input::CursorFor (map, true, false), input::Cursor::Hand);
+    EXPECT_EQ (input::CursorFor (map, false, true), input::Cursor::Hand);
+    map.cursor = uint8_t (input::Cursor::Move);
+    EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Move);
+    map.locked = false;
+    map.cursor = uint8_t (input::Cursor::Hand);
+    EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Hand);
+}
+
 namespace {
 
 input::Region Box (float fx, float fy, float left, float top, float right, float bottom, bool logical = false)

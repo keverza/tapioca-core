@@ -82,6 +82,7 @@ struct HitMap {
 // switching between a hand and an arrow): an arrow, a hand on what can be pressed, a move cross
 // on what drags, sizing arrows across a wall.
 enum class Cursor : uint8_t { Arrow = 0, Hand = 1, Move = 2, SizeWE = 3, SizeNS = 4 };
+Cursor CursorFor (const HitMap& map, bool overRegion, bool hudGesture);
 
 enum class Button : uint8_t { Left = 0, Right = 1, Middle = 2, X1 = 3, X2 = 4 };
 enum class EventKind : uint8_t { Move = 0, Press = 1, Release = 2, Wheel = 3 };

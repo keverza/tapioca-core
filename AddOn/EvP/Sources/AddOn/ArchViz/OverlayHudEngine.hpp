@@ -219,8 +219,8 @@ struct Engine::Impl {
     void Sync (ImDrawData* data);
 
     void Items (const layers::Panel& panel, PanelState& state, float scale);
-    void Ramp (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
-               float width, float scale);
+    void Ramp (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state, float width,
+               float scale);
 
     // A panel without a title, at its anchor on the view: its items. A titled one is a tab
     // of the host; a hidden layer's is not drawn.
@@ -236,6 +236,7 @@ struct Engine::Impl {
     // its page -- what the pointer is on, or, while it is on the HUD or a legend, what it was
     // on (`readout`, OverlayHudHost.cpp).
     void HoverTint (const Hover& hover);
+    void PointerButtons (const Input& input);
     void Readout ();
     Hover readout;
     bool tinted = false;

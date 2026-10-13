@@ -150,6 +150,20 @@ void Engine::Impl::HoverTint (const Hover& hover)
              (window == nullptr || window == ImGui::FindWindowByName ("###tapioca.lockedView"));
 }
 
+void Engine::Impl::PointerButtons (const Input& input)
+{
+    ImGuiIO& io = ImGui::GetIO ();
+    for (const Input::Button& button : input.buttons)
+        io.AddMouseButtonEvent (button.button, button.down);
+    if (input.hasButtonState)
+        for (int button = 0; button < 5; ++button)
+            if ((input.buttonsDown & (1u << button)) == 0 &&
+                (io.MouseDown[button] ||
+                 std::any_of (input.buttons.begin (), input.buttons.end (),
+                              [button] (const Input::Button& event) { return event.button == button && event.down; })))
+                io.AddMouseButtonEvent (button, false);
+}
+
 void Engine::Impl::Ramp (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
                          float width, float scale)
 {

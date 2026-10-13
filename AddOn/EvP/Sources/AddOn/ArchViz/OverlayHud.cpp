@@ -641,7 +641,9 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     const bool held = g.ActiveId != 0 && (g.ActiveIdWindow == nullptr || g.ActiveId != g.ActiveIdWindow->MoveId);
     hand = g.HoveredId != 0 || held;
     // A canvas that owns the pointer says which: ImGui's cursor of this frame.
-    cursor = hudshell::CursorOf (hand);
+    const bool cellCanvas =
+        store->editLocked && input.pointer && !input.overHud && input.hover.hasMeasuredCell && !held;
+    cursor = cellCanvas ? uint8_t (overlayinput::Cursor::Arrow) : hudshell::CursorOf (hand);
     hand = cursor == uint8_t (overlayinput::Cursor::Hand);
     ImGui::Render ();
     Sync (ImGui::GetDrawData ());
@@ -813,8 +815,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     ImGuiIO& io = ImGui::GetIO ();
     io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
     io.AddKeyEvent (ImGuiMod_Shift, input.shift);
-    for (const Input::Button& button : input.buttons)
-        io.AddMouseButtonEvent (button.button, button.down);
+    impl_->PointerButtons (input);
     // The wheel the input layer took over a page that scrolls: ImGui scrolls the page under the
     // pointer by it.
     if (input.wheel != 0.0f)
