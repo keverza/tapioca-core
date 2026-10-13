@@ -99,9 +99,10 @@ overlayscene::Problems g_hudProblems;
 // Where the scene's legends and the panels are: the HUD's input.
 std::vector<overlayinput::Region> g_sceneRegions;
 std::vector<overlayinput::Region> g_hudRegions;
-bool g_hand = false;   // the pointer on something the HUD can press
-uint8_t g_cursor = 0;  // the cursor the HUD asked for there (overlayinput::Cursor)
-bool g_locked = false; // the dock's lock: the view's clicks are the HUD's
+bool g_hand = false;                       // the pointer on something the HUD can press
+uint8_t g_cursor = 0;                      // the cursor the HUD asked for there (overlayinput::Cursor)
+bool g_locked = false;                     // the dock's lock: the view's clicks are the HUD's
+double s_hudOriginX = 0, s_hudOriginY = 0; // model hover geometry has its own packing origin
 bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const overlayhud::Input& input,
                  bool& changed, std::string& error)
 {
@@ -119,6 +120,9 @@ bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>&
     if (print == g_hudPrint && g_hudPrint != 0)
         return true;
     gpu::Arrays arrays;
+    arrays.fills = panels.fills.data ();
+    arrays.fillCount = panels.fills.size ();
+    arrays.fillStride = sizeof (overlayscene::PlanFillVertex);
     arrays.glyphs = panels.glyphs.data ();
     arrays.glyphCount = panels.glyphs.size ();
     arrays.glyphStride = sizeof (overlayscene::PlanGlyph);
@@ -129,6 +133,8 @@ bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>&
         return false;
     }
     g_hudContent = std::move (content);
+    s_hudOriginX = panels.originX;
+    s_hudOriginY = panels.originY;
     g_hudPrint = print;
     changed = true;
     ++g_stats.hudUploads;
@@ -319,6 +325,14 @@ void Draw (ID3D11DeviceContext* native, ID3D11RenderTargetView* target, const pl
     if (overlayvisibility::ContentShown ())
         gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, &frame, false, g_dpiScale, drawn, g_highlight);
     // The HUD last, over everything.
+    // A hovered cell's label/tint is model geometry, not a screen panel. Rejoin it
+    // with the same origin that packed this independent stream, at this Present.
+    if (!plancontent::MakeViewConstants (transform, s_hudOriginX, s_hudOriginY, width, height, view)) {
+        ++g_stats.declinedNoTransform;
+        return;
+    }
+    std::memcpy (frame.view, view.view, sizeof (frame.view));
+    std::memcpy (frame.screen, view.screen, sizeof (frame.screen));
     gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, &frame, false, g_dpiScale, drawn);
     const uint32_t took = uint32_t (
         std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
@@ -343,6 +357,7 @@ void Release ()
     g_hand = false;
     g_cursor = 0;
     g_locked = false;
+    s_hudOriginX = s_hudOriginY = 0;
 }
 
 Stats GetStats ()

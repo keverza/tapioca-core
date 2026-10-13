@@ -660,15 +660,20 @@ TEST (OverlayScene, PlanHoverShowsCellAndNumberEvenWhenCanvasIsLocked)
     input.hover.active = true;
     input.hover.hasMeasuredCell = true;
     input.hover.measuredValue = 2.8;
-    input.hover.cellCenter[0] = 0.5;
-    input.hover.cellCenter[1] = 0.5;
-    input.hover.tintModel = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0 };
+    input.hover.cellCenter[0] = -81.5;
+    input.hover.cellCenter[1] = -217.5;
+    input.hover.tintModel = { -82, -218, 0, -81, -218, 0, -81, -217, 0, -82, -218, 0, -81, -217, 0, -82, -217, 0 };
     const auto plan = scene::PreparePlanHud (One (layer), &host.engine, 1, input, nullptr, &Engine ());
     EXPECT_EQ (plan.fills.size (), 6u);
     EXPECT_TRUE (plan.locked);
     EXPECT_TRUE (std::any_of (plan.glyphs.begin (), plan.glyphs.end (), [] (const auto& glyph) {
         return glyph.rgba == layers::ToUnorm (0x385366FFu) && (glyph.flags & scene::kScreenAnchored) == 0;
     }));
+    for (const auto& glyph : plan.glyphs)
+        if (glyph.rgba == layers::ToUnorm (0x385366FFu) && (glyph.flags & scene::kScreenAnchored) == 0) {
+            EXPECT_NEAR (Rejoin (glyph.hi[0], glyph.lo[0], plan.originX), -81.5, 1e-8);
+            EXPECT_NEAR (Rejoin (glyph.hi[1], glyph.lo[1], plan.originY), -217.5, 1e-8);
+        }
     input.overHud = true;
     input.hover = {};
     const auto panelOnly = scene::PreparePlanHud (One (layer), &host.engine, 1, input, nullptr, &Engine ());
