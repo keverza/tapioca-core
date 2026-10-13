@@ -586,12 +586,6 @@ void Engine::Impl::LegendTips (const std::vector<LegendBar>& legends, float scal
 // tint is the item's own triangles in model metres, which the stream hands the view's
 // renderer (`Layout::hoverTint`) -- it follows the view as it moves, which pixels laid out
 // at the last pointer move did not.
-void Engine::Impl::HoverTint (const Hover& hover)
-{
-    tinted = hover.active && !hover.tintModel.empty () && !highlight.active &&
-             ImGui::GetCurrentContext ()->HoveredWindow == nullptr;
-}
-
 // One frame of the whole set.
 void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys,
                           float scale, const Input& input, const std::vector<LegendBar>& legends, float delta)
@@ -616,7 +610,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
                                 input.y >= bar.rect[1] && input.y <= bar.rect[3]);
     if (!store->hover)
         readout = Hover {};
-    else if (ImGui::GetCurrentContext ()->HoveredWindow == nullptr && !onLegend)
+    else if (!input.overHud && !onLegend && (ImGui::GetCurrentContext ()->HoveredWindow == nullptr ||
+             ImGui::GetCurrentContext ()->HoveredWindow == ImGui::FindWindowByName ("###tapioca.lockedView")))
         readout = input.hover;
     Dock (panels, ui, view);
     if (known && store->shown && store->editLocked)

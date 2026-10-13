@@ -839,6 +839,7 @@ def heatmap(
     opacity=None,
     occlusion=None,
     hover_cells=None,
+    occluded_opacity=None,
 ):
     """A mesh coloured by a value per vertex: flat x, y, z points, three indices per
     triangle. Smooth by default; `bands` steps it, `isolines` ({"step", "color"}) draws
@@ -846,6 +847,8 @@ def heatmap(
     style = {}
     if opacity is not None:
         style["opacity"] = float(opacity)
+    if occluded_opacity is not None:
+        style["occludedOpacity"] = float(occluded_opacity)
     if occlusion is not None:
         style["occlusion"] = _occlusion(occlusion)
     out = {

@@ -646,6 +646,34 @@ TEST (OverlayScene, AModelLabelSharesOneVisibilityDecisionAcrossAllCharacters)
     }
 }
 
+TEST (OverlayScene, PlanHoverShowsCellAndNumberEvenWhenCanvasIsLocked)
+{
+    layers::Layer layer;
+    layer.name = "clearance-heatmap";
+    layers::Panel panel;
+    panel.title = "Height clearance";
+    layer.panels = { panel };
+    hudtest::Watched host;
+    hud::SetHoverMode (*host.state, true);
+    hud::SetEditLocked (*host.state, true);
+    hud::Input input = hudtest::At (900, 500);
+    input.hover.active = true;
+    input.hover.hasMeasuredCell = true;
+    input.hover.measuredValue = 2.8;
+    input.hover.cellCenter[0] = 0.5; input.hover.cellCenter[1] = 0.5;
+    input.hover.tintModel = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0 };
+    const auto plan = scene::PreparePlanHud (One (layer), &host.engine, 1, input, nullptr, &Engine ());
+    EXPECT_EQ (plan.fills.size (), 6u);
+    EXPECT_TRUE (plan.locked);
+    EXPECT_TRUE (std::any_of (plan.glyphs.begin (), plan.glyphs.end (), [] (const auto& glyph) {
+        return glyph.rgba == layers::ToUnorm (0x385366FFu) && (glyph.flags & scene::kScreenAnchored) == 0;
+    }));
+    input.overHud = true;
+    input.hover = {};
+    const auto panelOnly = scene::PreparePlanHud (One (layer), &host.engine, 1, input, nullptr, &Engine ());
+    EXPECT_TRUE (panelOnly.fills.empty ());
+}
+
 TEST (OverlayScene, HoverRayIsAlwaysDrawnButTheAlignedMeasurementWaitsForCloseZoom)
 {
     layers::Layer layer;

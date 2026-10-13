@@ -73,7 +73,8 @@ void Builder::AddHoverTint (const std::vector<double>& corners)
     }
     DraftFill fill;
     fill.draw.shading = uint32_t (layers::Shading::Flat);
-    fill.draw.behind = kBehindShow;
+    fill.draw.behind = Plan () ? kBehindShow : kBehindFade;
+    fill.draw.occludedOpacity = 0.5f;
     fill.vertices.reserve (triangles * 3);
     for (size_t c = 0; c < triangles * 3; ++c) {
         DraftVertex v;
@@ -228,8 +229,20 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     draft_.hand = layout.hand;
     draft_.cursor = layout.cursor;
     draft_.locked = layout.locked;
-    if (layout.hoverTint)
+    if (layout.hoverTint) {
         AddHoverTint (input.hover.tintModel);
+        if (Plan () && input.hover.hasMeasuredCell && !input.overHud) {
+            layers::Text value;
+            value.text = FormatLength (input.hover.measuredValue, 2, layers::LengthUnit::Metres, false);
+            std::copy (std::begin (input.hover.cellCenter), std::end (input.hover.cellCenter), value.at);
+            value.sizePixels = 16;
+            value.rgba = 0x385366FFu;
+            value.backgroundRgba = 0xFFFFFFE8u;
+            value.haloPixels = 0;
+            value.behind = layers::Behind::Show;
+            AddText (layers::Layer (), value); // one readable value, only on the currently hovered plan cell
+        }
+    }
     if (layout.highlight.active)
         draft_.highlight = { LayerKey (layout.highlight.layer), float (layout.highlight.low),
                              float (layout.highlight.high) };

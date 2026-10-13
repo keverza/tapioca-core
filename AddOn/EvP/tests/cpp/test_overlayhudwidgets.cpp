@@ -9,6 +9,7 @@
 
 #include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayScene.hpp"
+#include "ArchViz/OverlayHudItems.hpp"
 
 #include <gtest/gtest.h>
 
@@ -38,6 +39,15 @@ constexpr float kTop = 16.0f + 10.0f;
 // A checkbox flips on a press and says so; the add-on keeps what the user set when the
 // layer is set again saying what it said before, and takes the layer's when it says
 // something new.
+TEST (OverlayHudWidgets, CutoffNumberFitsBesideGripAtBothExtremes)
+{
+    for (float grip : { 10.0f, 110.0f, 210.0f }) {
+        const float left = hud::items::CutoffLabelLeft (10, 200, grip, 45, 9);
+        EXPECT_GE (left, 10);
+        EXPECT_LE (left + 45, 210);
+    }
+}
+
 TEST (OverlayHudWidgets, AGradientHandleQueuesNativeCutoffAndSharesItsValueAcrossViews)
 {
     Watched first;
@@ -45,6 +55,7 @@ TEST (OverlayHudWidgets, AGradientHandleQueuesNativeCutoffAndSharesItsValueAcros
     layers::PanelItem ramp;
     ramp.kind = layers::ItemKind::Ramp;
     ramp.widthPixels = 200;
+    panel.widthPixels = 220; // full-width gradient: 200 pixels after panel padding
     ramp.heightPixels = 20;
     ramp.decimals = 2;
     ramp.unit = "m";

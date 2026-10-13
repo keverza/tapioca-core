@@ -72,7 +72,9 @@ using ProjectView = std::function<bool (double x, double y, double z, float& px,
 // screen. ⚠️ THE BUILDING DOES NOT HIDE WHAT IS PICKED: what it hides is drawn faded
 // (`Behind::Fade`, the slices' default) or dashed, still seen, so still read.
 Hit PickView (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const ProjectView& project,
-              float x, float y);
+              float x, float y, uint64_t projectionKey = 0);
+uint64_t ProjectionKey (const double viewProjection[16], const float viewport[4]);
+void ClearPickCache ();
 
 // The projection itself: clip = [x y z 1] * viewProjection (row vectors, as the shaders), and
 // the census's screen convention (InjectionOracle): px = vx + (ndcX / 2 + 1/2) * width,

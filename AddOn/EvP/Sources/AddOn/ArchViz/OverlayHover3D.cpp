@@ -110,7 +110,8 @@ void Fill (overlayhud::Input& input)
         return overlayhover::ProjectThrough (viewProjection, camera.viewport, x, y, z, px, py, invW);
     };
     const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaycontrol::ShownLayers ();
-    const overlayhover::Hit hit = overlayhover::PickView (layers, project, input.x, input.y);
+    const overlayhover::Hit hit = overlayhover::PickView (
+        layers, project, input.x, input.y, overlayhover::ProjectionKey (viewProjection, camera.viewport));
     if (!hit.found) {
         ResetDwell ();
         return;

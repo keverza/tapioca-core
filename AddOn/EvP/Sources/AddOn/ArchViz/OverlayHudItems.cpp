@@ -157,18 +157,27 @@ void Table (const layers::PanelItem& item)
     ImGui::EndTable ();
 }
 
+float CutoffLabelLeft (float left, float width, float grip, float textWidth, float gap)
+{
+    const float right = left + width;
+    const float preferred = grip + gap + textWidth <= right ? grip + gap : grip - gap - textWidth;
+    return std::clamp (preferred, left, (std::max) (left, right - textWidth));
+}
+
 bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale, double band[2],
            double* cutoff, bool* released)
 {
     if (!item.text.empty ())
         ImGui::TextUnformatted (item.text.c_str ());
-    const float w = item.widthPixels > 0.0f ? item.widthPixels * scale : width;
+    const float w = cutoff != nullptr ? (std::max) (width, ImGui::GetContentRegionAvail ().x)
+                                     : item.widthPixels > 0.0f ? item.widthPixels * scale : width;
     const float h = (item.heightPixels > 0.0f ? item.heightPixels : 12.0f) * scale;
+    const float numberRow = (std::max) (12 * scale, ImGui::GetFontSize () + 3 * scale);
     const ImVec2 p = ImGui::GetCursorScreenPos ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     layers::Colormap colormap = item.colormap;
     if (cutoff != nullptr) {
-        ImGui::InvisibleButton ("##ramp.cutoff", ImVec2 (w, h + 12 * scale));
+        ImGui::InvisibleButton ("##ramp.cutoff", ImVec2 (w, h + numberRow));
         if (ImGui::IsItemActive () && ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
             const double t = std::clamp (double ((ImGui::GetIO ().MousePos.x - p.x) / (std::max) (w, 1.0f)), 0.0, 1.0);
             *cutoff = std::clamp (std::round ((colormap.min + t * (colormap.max - colormap.min)) * 100) / 100,
@@ -200,11 +209,19 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
     }
     draw->AddRect (p, ImVec2 (p.x + w, p.y + h), Packed (WithAlpha (panel.textRgba, 0.45f)));
     if (cutoff != nullptr) {
-        const float edge = p.x + w * float ((colormap.cutoff - colormap.min) / (colormap.max - colormap.min));
+        const float edge = std::clamp (p.x + w * float ((colormap.cutoff - colormap.min) / (colormap.max - colormap.min)),
+                                       p.x + 5 * scale, p.x + w - 5 * scale);
         draw->AddRectFilled (ImVec2 (edge - 5 * scale, p.y + h - 3 * scale),
                              ImVec2 (edge + 5 * scale, p.y + h + 9 * scale), Packed (0xD73027FFu), 2 * scale);
         draw->AddRect (ImVec2 (edge - 5 * scale, p.y + h - 3 * scale),
                        ImVec2 (edge + 5 * scale, p.y + h + 9 * scale), Packed (0xFFFFFFFFu), 2 * scale);
+        const std::string number = Number (*cutoff, item.decimals);
+        const float rawWidth = ImGui::CalcTextSize (number.c_str ()).x;
+        const float fontSize = ImGui::GetFontSize () * (std::min) (1.0f, (w - 4 * scale) / (std::max) (rawWidth, 1.0f));
+        const float textWidth = rawWidth * fontSize / ImGui::GetFontSize ();
+        const float numberLeft = CutoffLabelLeft (p.x + 2 * scale, w - 4 * scale, edge, textWidth, 9 * scale);
+        draw->AddText (ImGui::GetFont (), fontSize, ImVec2 (numberLeft, p.y + h + 2 * scale),
+                       Packed (panel.textRgba), number.c_str ());
     }
 
     // The ticks under the bar, each label centred on its tick and kept inside the bar.
@@ -228,11 +245,10 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
             label += " " + item.unit;
         const ImVec2 size = ImGui::CalcTextSize (label.c_str ());
         const float left = (std::min) ((std::max) (x - size.x * 0.5f, p.x), p.x + w - size.x);
-        draw->AddText (ImVec2 (left, p.y + h + (cutoff != nullptr ? 16.0f : 4.0f) * scale), textColour, label.c_str ());
+        draw->AddText (ImVec2 (left, p.y + h + (cutoff != nullptr ? numberRow : 0) + 4 * scale), textColour, label.c_str ());
     }
     ImGui::Dummy (ImVec2 (w, (cutoff != nullptr ? 4.0f * scale : h + 4.0f * scale) + font));
     if (cutoff != nullptr) {
-        ImGui::Text ("Red below %s %s", Number (*cutoff, item.decimals).c_str (), item.unit.c_str ());
         return false;
     }
 

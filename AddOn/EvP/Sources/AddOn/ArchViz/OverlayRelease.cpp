@@ -5,6 +5,7 @@
 
 #include "ArchViz/OverlayRelease.hpp"
 #include "ArchViz/OverlayHover3D.hpp"
+#include "ArchViz/OverlayHover.hpp"
 
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
@@ -39,6 +40,7 @@ void Model ()
 
 void ThreeD ()
 {
+    overlayhover::ClearPickCache ();
     overlayhover3d::ResetDwell ();
     dxgi::sceneguest::Publish (overlayscene::Scene {}, 1.0f);
     dxgi::sceneguest::PublishHud (overlayscene::Scene {}, 1.0f);
@@ -50,11 +52,13 @@ void ThreeD ()
 
 void Plan ()
 {
+    overlayhover::ClearPickCache ();
     guesttext::ReleaseHud (overlayinput::View::Plan);
 }
 
 void Shared ()
 {
+    overlayhover::ClearPickCache ();
     overlayhover3d::ResetDwell ();
     // The add-on's own layers first, each with what drives it: the slices' timer, the
     // trace's annotations.

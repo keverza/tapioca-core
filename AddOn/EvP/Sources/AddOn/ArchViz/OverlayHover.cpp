@@ -1,6 +1,7 @@
 // ArchViz/OverlayHover -- see the header.
 
 #include "ArchViz/OverlayHover.hpp"
+#include "ArchViz/OverlayHoverIndex.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -101,10 +102,29 @@ void SetCell (const layers::Mesh& mesh, Hit& hit)
         }
 }
 
+detail::PickCache s_planPicks, s_viewPicks;
+
 } // namespace
+
+void ClearPickCache ()
+{
+    s_planPicks = {}; s_viewPicks = {};
+}
+
+uint64_t ProjectionKey (const double matrix[16], const float viewport[4])
+{
+    uint64_t key = 1469598103934665603ull;
+    const auto append = [&] (const void* data, size_t size) {
+        const auto* bytes = static_cast<const unsigned char*> (data);
+        for (size_t i = 0; i < size; ++i) key = (key ^ bytes[i]) * 1099511628211ull;
+    };
+    append (matrix, sizeof (double) * 16); append (viewport, sizeof (float) * 4);
+    return key != 0 ? key : 1;
+}
 
 Hit PickPlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, double x, double y)
 {
+    s_planPicks.Prepare (all, 1, nullptr);
     Hit hit;
     for (size_t li = all.size (); li-- > 0;) {
         const layers::Layer& layer = *all[li];
@@ -115,7 +135,8 @@ Hit PickPlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, doub
             if (!SaysSomething (mesh))
                 continue;
             const size_t corners = mesh.points.size () / 3;
-            for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
+            for (const uint32_t triangle : s_planPicks.indices[li][mi].At (x, y)) {
+                const size_t t = size_t (triangle) * 3;
                 const uint32_t i0 = mesh.indices[t], i1 = mesh.indices[t + 1], i2 = mesh.indices[t + 2];
                 if (i0 >= corners || i1 >= corners || i2 >= corners)
                     continue;
@@ -210,12 +231,11 @@ bool ProjectThrough (const double m[16], const float viewport[4], double x, doub
 }
 
 Hit PickView (const std::vector<std::shared_ptr<const layers::Layer>>& all, const ProjectView& project, float x,
-              float y)
+              float y, uint64_t projectionKey)
 {
     Hit hit;
     float nearest = 0.0f; // 1/w of the nearest hit: larger is nearer
-    std::vector<float> sx, sy, iw;
-    std::vector<uint8_t> seen;
+    if (projectionKey != 0) s_viewPicks.Prepare (all, projectionKey, &project);
     for (size_t li = 0; li < all.size (); ++li) {
         const layers::Layer& layer = *all[li];
         if (!layers::DrawnIn (layer.views, layers::Views::ThreeD))
@@ -224,18 +244,14 @@ Hit PickView (const std::vector<std::shared_ptr<const layers::Layer>>& all, cons
             const layers::Mesh& mesh = layer.meshes[mi];
             if (!SaysSomething (mesh))
                 continue;
-            // Each corner projected once.
             const size_t corners = mesh.points.size () / 3;
-            sx.assign (corners, 0.0f);
-            sy.assign (corners, 0.0f);
-            iw.assign (corners, 0.0f);
-            seen.assign (corners, 0);
-            for (size_t k = 0; k < corners; ++k)
-                seen[k] =
-                    project (mesh.points[k * 3], mesh.points[k * 3 + 1], mesh.points[k * 3 + 2], sx[k], sy[k], iw[k])
-                        ? 1
-                        : 0;
-            for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
+            detail::PickIndex fresh;
+            if (projectionKey == 0) fresh.Build (mesh, &project);
+            const auto& index = projectionKey != 0 ? s_viewPicks.indices[li][mi] : fresh;
+            const auto& sx = index.sx; const auto& sy = index.sy;
+            const auto& iw = index.iw; const auto& seen = index.seen;
+            for (const uint32_t triangle : index.At (x, y)) {
+                const size_t t = size_t (triangle) * 3;
                 const uint32_t i0 = mesh.indices[t], i1 = mesh.indices[t + 1], i2 = mesh.indices[t + 2];
                 if (i0 >= corners || i1 >= corners || i2 >= corners || !seen[i0] || !seen[i1] || !seen[i2])
                     continue;
@@ -283,10 +299,9 @@ void TintModel (const layers::Mesh& mesh, std::vector<double>& out, int64_t only
 void TintModel (const layers::Mesh& mesh, std::vector<double>& out, const std::vector<uint32_t>& onlyTriangles)
 {
     const size_t corners = mesh.points.size () / 3;
-    for (size_t t = 0; t + 2 < mesh.indices.size (); t += 3) {
-        const uint32_t triangle = uint32_t (t / 3);
-        if (std::find (onlyTriangles.begin (), onlyTriangles.end (), triangle) == onlyTriangles.end ())
-            continue;
+    for (const uint32_t triangle : onlyTriangles) {
+        const size_t t = size_t (triangle) * 3;
+        if (t + 2 >= mesh.indices.size ()) continue;
         const uint32_t i[3] = { mesh.indices[t], mesh.indices[t + 1], mesh.indices[t + 2] };
         if (i[0] >= corners || i[1] >= corners || i[2] >= corners)
             continue;

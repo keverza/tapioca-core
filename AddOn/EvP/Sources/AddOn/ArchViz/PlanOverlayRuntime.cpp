@@ -361,7 +361,7 @@ overlayhud::Input HudInput (bool take)
     if (!take)
         input.buttons.clear ();
     if (overlayvisibility::Hovering ()) {
-        if (input.pointer)
+        if (input.pointer && !input.overHud)
             input.hover = HoverAt (input.x, input.y);
         input.hover.picks = true; // the plan reads under the pointer: its readout may say "nothing"
     }

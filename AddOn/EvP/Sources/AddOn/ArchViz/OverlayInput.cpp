@@ -25,7 +25,7 @@ constexpr wchar_t kWindowClass[] = L"TapiocaOverlayInput";
 constexpr UINT kRefreshMessage = WM_APP + 1;
 constexpr UINT_PTR kRedrawTimer = 1;
 // At most one redraw a view this often for the HUD: about thirty a second.
-constexpr uint64_t kRedrawMs = 33;
+constexpr uint64_t kRedrawMs = 16; // hover feedback follows the pointer at up to 60 Hz
 
 struct Target {
     HWND canvas = nullptr;
@@ -745,7 +745,20 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.pointer = target.inside;
     input.x = target.x;
     input.y = target.y;
-    input.overHud = input.pointer && target.map.Owns (input.x, input.y, input.width, input.height);
+    // Coalesced layout messages can sit behind queued moves. Sample the current
+    // cursor for hover, but preserve event coordinates when delivering a click.
+    POINT screen = {};
+    if (target.buttons.empty () && target.canvas != nullptr && ::GetCursorPos (&screen)) {
+        const HWND under = ::WindowFromPoint (screen);
+        POINT point = screen;
+        if (::ScreenToClient (target.canvas, &point)) {
+            input.pointer = (under == target.canvas || ::IsChild (target.canvas, under)) &&
+                            point.x >= 0 && point.y >= 0 && point.x < input.width && point.y < input.height;
+            input.x = float (point.x); input.y = float (point.y);
+        }
+    }
+    // Locking routes canvas interactions to us, but does not turn the canvas into a panel.
+    input.overHud = input.pointer && target.map.Hit (input.x, input.y, input.width, input.height) >= 0;
     // Read as the layout is: it follows the press that asked for it, the key held through both.
     input.shift = ::GetKeyState (VK_SHIFT) < 0;
     if (take) {

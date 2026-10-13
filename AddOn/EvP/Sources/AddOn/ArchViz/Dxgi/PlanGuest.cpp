@@ -107,7 +107,8 @@ bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>&
 {
     changed = false;
     overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud (overlayinput::View::Plan) : nullptr;
-    const overlayscene::Plan panels = overlayscene::PreparePlanHud (layers, hud, g_dpiScale, input, &g_sceneRegions);
+    const overlayscene::Plan panels = overlayscene::PreparePlanHud (
+        layers, hud, g_dpiScale, input, &g_sceneRegions, input.hover.hasMeasuredCell ? guesttext::Engine () : nullptr);
     g_hudProblems = panels.problems;
     g_hudRegions = panels.regions;
     g_highlight = panels.highlight;

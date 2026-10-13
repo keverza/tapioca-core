@@ -46,6 +46,28 @@ layers::Mesh Slice (const char* name, double x0, double y0, double x1, double y1
 
 // ⚠️ THE USER, 2026-09-29: hover mode shows a storey slice's figures under the pointer. The
 // slice's own title and rows, and nothing off it.
+TEST (OverlayHover, PointerMovesReuseProjectionsAndCameraOrLayerChangesInvalidateThem)
+{
+    hover::ClearPickCache ();
+    auto layer = Layer ("heatmap", { Slice ("cell", 0, 0, 10, 10) });
+    size_t calls = 0;
+    const hover::ProjectView project = [&] (double x, double y, double, float& px, float& py, float& iw) {
+        ++calls; px = float (x * 100); py = float (y * 100); iw = 1; return true;
+    };
+    EXPECT_TRUE (hover::PickView ({ layer }, project, 250, 500, 1).found);
+    EXPECT_EQ (calls, 4u);
+    EXPECT_TRUE (hover::PickView ({ layer }, project, 750, 500, 1).found);
+    EXPECT_EQ (calls, 4u) << "no full-mesh reprojection for another mouse move";
+    EXPECT_TRUE (hover::PickView ({ layer }, project, 750, 500, 2).found);
+    EXPECT_EQ (calls, 8u);
+    auto replacement = Layer ("heatmap", { Slice ("cell", 20, 0, 30, 10) });
+    EXPECT_FALSE (hover::PickView ({ replacement }, project, 750, 500, 2).found);
+    EXPECT_EQ (calls, 12u);
+    EXPECT_FALSE (hover::PickPlan ({ replacement }, 5, 5).found);
+    EXPECT_TRUE (hover::PickPlan ({ replacement }, 25, 5).found);
+    hover::ClearPickCache ();
+}
+
 TEST (OverlayHover, AMeasuredCellWaitsHalfASecondWithoutRestartingInsideTheCell)
 {
     hover3d::CellDwell dwell;
