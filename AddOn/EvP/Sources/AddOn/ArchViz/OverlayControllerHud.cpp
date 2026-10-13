@@ -113,6 +113,10 @@ void FollowHudState ()
         const std::string layer = change.key.substr (0, change.key.rfind ('#'));
         recoloured = overlaylayers::SetRampCutoff (layer, change.id, change.value) || recoloured;
     }
+    for (const auto& change : overlayhud::TakeRampGreens (*state)) {
+        const std::string layer = change.key.substr (0, change.key.rfind ('#'));
+        recoloured = overlaylayers::SetRampGreen (layer, change.id, change.value) || recoloured;
+    }
     if (recoloured) {
         PublishLayers ();
         overlayinput::RequestLayout (overlayinput::View::ThreeD);

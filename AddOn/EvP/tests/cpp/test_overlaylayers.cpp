@@ -90,6 +90,9 @@ TEST (OverlayLayers, LiveRampCutoffRecoloursOnlyItsLayerAndKeepsMeasurements)
     mesh.colormap.hasCutoff = true;
     mesh.colormap.cutoff = 2.2;
     mesh.colormap.cutoffControl = "cutoff";
+    mesh.colormap.hasGreen = true;
+    mesh.colormap.green = 3.2;
+    mesh.colormap.greenControl = "green";
     layer.meshes = { mesh };
     ol::Panel panel;
     ol::PanelItem ramp;
@@ -112,6 +115,19 @@ TEST (OverlayLayers, LiveRampCutoffRecoloursOnlyItsLayerAndKeepsMeasurements)
     EXPECT_FALSE (ol::SetRampCutoff ("clearance-heatmap", "cutoff", 3));
     EXPECT_EQ (ol::Generation (), generation);
     EXPECT_EQ (ol::Layers ()[1]->name, "unrelated");
+    EXPECT_FALSE (ol::SetRampGreen ("clearance-heatmap", "unknown", 3.5));
+    EXPECT_TRUE (ol::SetRampGreen ("clearance-heatmap", "green", 3.5));
+    EXPECT_DOUBLE_EQ (ol::Layers ()[0]->meshes[0].colormap.green, 3.5);
+    EXPECT_DOUBLE_EQ (ol::Layers ()[0]->panels[0].items[0].colormap.green, 3.5);
+    EXPECT_EQ (ol::Layers ()[0]->meshes[0].points, mesh.points);
+    EXPECT_TRUE (ol::SetRampGreen ("clearance-heatmap", "green", 1));
+    EXPECT_DOUBLE_EQ (ol::Layers ()[0]->meshes[0].colormap.green, 3);
+    EXPECT_TRUE (ol::SetRampCutoff ("clearance-heatmap", "cutoff", 4));
+    EXPECT_DOUBLE_EQ (ol::Layers ()[0]->meshes[0].colormap.green, 4);
+    EXPECT_TRUE (ol::Validate (*ol::Layers ()[0]).empty ());
+    layer.meshes[0].colormap.green = 1;
+    EXPECT_FALSE (ol::Validate (layer).empty ());
+    layer.meshes[0].colormap.green = 3.2;
     layer.meshes[0].colormap.cutoff = 5;
     EXPECT_FALSE (ol::Validate (layer).empty ());
 }

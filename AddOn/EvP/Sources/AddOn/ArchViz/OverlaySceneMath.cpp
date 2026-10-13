@@ -190,12 +190,12 @@ uint32_t RampAt (const std::vector<layers::ColourStop>& stops, float t)
 {
     if (stops.empty ())
         return 0;
-    if (t <= stops.front ().at)
+    if (t < stops.front ().at)
         return stops.front ().rgba;
     if (t >= stops.back ().at)
         return stops.back ().rgba;
     for (size_t i = 1; i < stops.size (); ++i) {
-        if (t > stops[i].at)
+        if (t >= stops[i].at)
             continue;
         const float span = stops[i].at - stops[i - 1].at;
         const float f = span > 1e-6f ? (t - stops[i - 1].at) / span : 1.0f;
@@ -229,25 +229,45 @@ void build::Builder::SetRamp (FillDraw& draw, const layers::Colormap& colormap, 
 
 std::vector<layers::ColourStop> RampStops (const layers::Colormap& colormap)
 {
+    auto base = colormap.stops;
+    if (colormap.hasGreen && colormap.max > colormap.min) {
+        const float end =
+            float (std::clamp ((colormap.green - colormap.min) / (colormap.max - colormap.min), 0.0, 1.0));
+        for (auto& stop : base)
+            stop.at *= end;
+    }
     if (!colormap.hasCutoff || colormap.cutoff <= colormap.min)
-        return colormap.stops;
+        return base;
     constexpr uint32_t red = 0xD73027FFu;
     if (colormap.cutoff >= colormap.max)
         return { { 0.0f, red }, { 1.0f, red } };
     const float edge = float ((colormap.cutoff - colormap.min) / (colormap.max - colormap.min));
-    std::vector<layers::ColourStop> stops { { 0.0f, red }, { edge, red },
-                                           { edge, RampAt (colormap.stops, edge) } };
-    for (const auto& stop : colormap.stops)
+    std::vector<layers::ColourStop> stops { { 0.0f, red }, { edge, red }, { edge, RampAt (base, edge) } };
+    for (const auto& stop : base)
         if (stop.at > edge)
             stops.push_back (stop);
     if (stops.size () > layers::kMaxStops) {
         stops.resize (3);
         for (size_t i = 1; i <= layers::kMaxStops - 3; ++i) {
             const float at = edge + (1 - edge) * float (i) / float (layers::kMaxStops - 3);
-            stops.push_back ({ at, RampAt (colormap.stops, at) });
+            stops.push_back ({ at, RampAt (base, at) });
         }
     }
     return stops;
+}
+
+uint32_t RampTextColor (const layers::Colormap& colormap, double value, double minimum, double maximum)
+{
+    float t = float (std::clamp ((value - minimum) / (maximum > minimum ? maximum - minimum : 1.0), 0.0, 1.0));
+    if (colormap.bands > 0) {
+        const float k = (std::min) (std::floor (t * colormap.bands), float (colormap.bands - 1));
+        t = colormap.bands > 1 ? k / float (colormap.bands - 1) : 0.5f;
+    }
+    const uint32_t fill = RampAt (RampStops (colormap), t);
+    uint32_t text = 0xFFu;
+    for (int shift : { 8, 16, 24 })
+        text |= uint32_t (std::lround (float ((fill >> shift) & 0xFFu) * 0.72f)) << shift;
+    return text;
 }
 
 } // namespace overlayscene

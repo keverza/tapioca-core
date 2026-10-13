@@ -57,6 +57,8 @@ void Engine::Impl::Reconcile (const std::vector<const layers::Panel*>& panels, c
                 case layers::ItemKind::Ramp:
                     if (!item.colormap.cutoffControl.empty ())
                         Hold (state, item.colormap.cutoffControl, item.colormap.cutoff);
+                    if (!item.colormap.greenControl.empty ())
+                        Hold (state, item.colormap.greenControl, item.colormap.green);
                     break;
                 case layers::ItemKind::Combo:
                     Hold (state, item.id, double (item.selected));
@@ -143,6 +145,13 @@ std::vector<Change> TakeRampCutoffs (State& state)
     return pending;
 }
 
+std::vector<Change> TakeRampGreens (State& state)
+{
+    std::vector<Change> pending;
+    pending.swap (state.rampGreens);
+    return pending;
+}
+
 void Engine::Impl::HoverTint (const Hover& hover)
 {
     const ImGuiWindow* window = ImGui::GetCurrentContext ()->HoveredWindow;
@@ -169,27 +178,35 @@ void Engine::Impl::Ramp (const layers::Panel& panel, const layers::PanelItem& it
 {
     double band[2] = {};
     const std::string& control = item.colormap.cutoffControl;
-    if (control.empty ()) {
+    const std::string& greenControl = item.colormap.greenControl;
+    if (control.empty () && greenControl.empty ()) {
         if (items::Ramp (panel, item, width, scale, band))
             highlight = { true, layer, band[0], band[1] };
         return;
     }
-    State::Held& held = state.values[control];
-    const double previous = held.current;
-    bool released = false;
-    items::Ramp (panel, item, width, scale, band, &held.current, &released);
-    if (previous != held.current || released) {
-        Change change { "rampCutoff",
+    double* cutoff = control.empty () ? nullptr : &state.values[control].current;
+    double* green = greenControl.empty () ? nullptr : &state.values[greenControl].current;
+    const double previousCutoff = cutoff != nullptr ? *cutoff : 0;
+    const double previousGreen = green != nullptr ? *green : 0;
+    bool cutoffReleased = false, greenReleased = false;
+    items::Ramp (panel, item, width, scale, band, cutoff, &cutoffReleased, green, &greenReleased);
+    const auto queue = [&] (const char* kind, const std::string& id, double value, bool released,
+                            std::vector<Change>& pending) {
+        Change change { kind,
                         key,
                         panel.title,
-                        control,
+                        id,
                         int32_t (index),
-                        held.current,
-                        items::Number (held.current, item.decimals) + " " + item.unit,
+                        value,
+                        items::Number (value, item.decimals) + " " + item.unit,
                         released };
         changes.push_back (change);
-        store->rampCutoffs.push_back (std::move (change));
-    }
+        pending.push_back (std::move (change));
+    };
+    if (cutoff != nullptr && (previousCutoff != *cutoff || cutoffReleased))
+        queue ("rampCutoff", control, *cutoff, cutoffReleased, store->rampCutoffs);
+    if (green != nullptr && (previousGreen != *green || greenReleased))
+        queue ("rampGreen", greenControl, *green, greenReleased, store->rampGreens);
 }
 
 void Engine::Impl::SitePlan (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,

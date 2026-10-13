@@ -117,6 +117,56 @@ TEST (OverlayHudWidgets, APhysicallyReleasedCutoffGripStopsEvenWhenItsReleaseEve
     EXPECT_DOUBLE_EQ (hud.Value ("cutoff"), stopped) << "the released grip no longer follows the mouse";
 }
 
+TEST (OverlayHudWidgets, TopGreenGripIsIndependentClampedAndStopsAfterAMissedRelease)
+{
+    Watched host;
+    layers::Panel panel;
+    panel.widthPixels = 220;
+    layers::PanelItem ramp;
+    ramp.kind = layers::ItemKind::Ramp;
+    ramp.heightPixels = 10;
+    layers::PresetStops ("clearance", ramp.colormap.stops);
+    ramp.colormap.autoRange = false;
+    ramp.colormap.max = 4;
+    ramp.colormap.hasCutoff = true;
+    ramp.colormap.cutoff = 2.2;
+    ramp.colormap.cutoffControl = "cutoff";
+    ramp.colormap.hasGreen = true;
+    ramp.colormap.green = 3.2;
+    ramp.colormap.greenControl = "green";
+    panel.items = { ramp };
+    host.Lay ({ &panel }, At (600, 600));
+    hud::Input press = At (kLeft + 150, kTop + 5);
+    press.buttons = { { 0, true } };
+    press.hasButtonState = true;
+    press.buttonsDown = 1;
+    host.Lay ({ &panel }, press);
+    EXPECT_DOUBLE_EQ (host.Value ("green"), 3);
+    EXPECT_DOUBLE_EQ (host.Value ("cutoff"), 2.2);
+    EXPECT_TRUE (hud::TakeRampCutoffs (*host.state).empty ());
+    auto pending = hud::TakeRampGreens (*host.state);
+    ASSERT_FALSE (pending.empty ());
+    EXPECT_EQ (pending.back ().kind, "rampGreen");
+    press.buttons.clear ();
+    press.x = kLeft + 5;
+    host.Lay ({ &panel }, press);
+    EXPECT_DOUBLE_EQ (host.Value ("green"), 2.2) << "green cannot cross below the red cutoff";
+    auto release = press;
+    release.buttonsDown = 0;
+    host.Lay ({ &panel }, release);
+    pending = hud::TakeRampGreens (*host.state);
+    ASSERT_FALSE (pending.empty ());
+    EXPECT_TRUE (pending.back ().final);
+    release.x = kLeft + 195;
+    host.Lay ({ &panel }, release);
+    EXPECT_DOUBLE_EQ (host.Value ("green"), 2.2);
+    Watched second;
+    second.state = host.state;
+    second.engine.UseState (host.state);
+    second.Lay ({ &panel }, At (600, 600));
+    EXPECT_DOUBLE_EQ (second.Value ("green"), 2.2);
+}
+
 TEST (OverlayHudWidgets, ACheckboxHoldsTheUsersValueUntilTheLayerSaysANewOne)
 {
     Watched hud;

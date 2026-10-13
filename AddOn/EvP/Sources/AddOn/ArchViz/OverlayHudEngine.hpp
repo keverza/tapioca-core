@@ -72,6 +72,7 @@ struct State {
     std::set<std::string> hidden; // layer names
     bool hover = false;           // hover mode (OverlayHud.hpp `Hover`)
     std::vector<Change> rampCutoffs;
+    std::vector<Change> rampGreens;
     uint64_t revision = 0;
     // The floating panel the titled panels are tabs of: open or closed to the dock, the tab
     // shown (a panel key, or kSettingsKey), and -- once the user has dragged it -- where

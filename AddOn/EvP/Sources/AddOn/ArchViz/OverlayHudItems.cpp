@@ -165,18 +165,34 @@ float CutoffLabelLeft (float left, float width, float grip, float textWidth, flo
 }
 
 bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float width, float scale, double band[2],
-           double* cutoff, bool* released)
+           double* cutoff, bool* released, double* green, bool* greenReleased)
 {
     if (!item.text.empty ())
         ImGui::TextUnformatted (item.text.c_str ());
-    const float w = cutoff != nullptr         ? (std::max) (width, ImGui::GetContentRegionAvail ().x)
+    const bool editable = cutoff != nullptr || green != nullptr;
+    const float w = editable                  ? (std::max) (width, ImGui::GetContentRegionAvail ().x)
                     : item.widthPixels > 0.0f ? item.widthPixels * scale
                                               : width;
     const float h = (item.heightPixels > 0.0f ? item.heightPixels : 12.0f) * scale;
     const float numberRow = (std::max) (12 * scale, ImGui::GetFontSize () + 3 * scale);
-    const ImVec2 p = ImGui::GetCursorScreenPos ();
+    const ImVec2 start = ImGui::GetCursorScreenPos ();
+    const ImVec2 p (start.x, start.y + (green != nullptr ? numberRow : 0));
     ImDrawList* draw = ImGui::GetWindowDrawList ();
     layers::Colormap colormap = item.colormap;
+    if (green != nullptr) {
+        ImGui::InvisibleButton ("##ramp.green", ImVec2 (w, numberRow));
+        if (ImGui::IsItemActive () && ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+            const double t = std::clamp (double ((ImGui::GetIO ().MousePos.x - p.x) / (std::max) (w, 1.0f)), 0.0, 1.0);
+            *green = std::clamp (std::round ((colormap.min + t * (colormap.max - colormap.min)) * 100) / 100,
+                                 cutoff != nullptr    ? *cutoff
+                                 : colormap.hasCutoff ? colormap.cutoff
+                                                      : colormap.min,
+                                 colormap.max);
+        }
+        if (greenReleased != nullptr)
+            *greenReleased = ImGui::IsItemDeactivated ();
+        ImGui::SetCursorScreenPos (p);
+    }
     if (cutoff != nullptr) {
         ImGui::InvisibleButton ("##ramp.cutoff", ImVec2 (w, h + numberRow));
         if (ImGui::IsItemActive () && ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
@@ -188,6 +204,12 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
             *released = ImGui::IsItemDeactivated ();
         colormap.cutoff = *cutoff;
     }
+    if (green != nullptr) {
+        *green = (std::max) (*green, colormap.hasCutoff ? colormap.cutoff : colormap.min);
+        colormap.green = *green;
+    }
+    if (colormap.hasGreen && colormap.hasCutoff)
+        colormap.green = (std::max) (colormap.green, colormap.cutoff);
     const std::vector<layers::ColourStop> stops = overlayscene::RampStops (colormap);
     if (item.colormap.bands > 0) {
         const uint32_t bands = item.colormap.bands;
@@ -209,6 +231,20 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
                              Packed (stops.back ().rgba));
     }
     draw->AddRect (p, ImVec2 (p.x + w, p.y + h), Packed (WithAlpha (panel.textRgba, 0.45f)));
+    if (green != nullptr) {
+        const float edge = std::clamp (p.x + w * float ((*green - colormap.min) / (colormap.max - colormap.min)),
+                                       p.x + 5 * scale, p.x + w - 5 * scale);
+        draw->AddRectFilled (ImVec2 (edge - 5 * scale, p.y - 9 * scale), ImVec2 (edge + 5 * scale, p.y + 3 * scale),
+                             Packed (0x1A9850FFu), 2 * scale);
+        draw->AddRect (ImVec2 (edge - 5 * scale, p.y - 9 * scale), ImVec2 (edge + 5 * scale, p.y + 3 * scale),
+                       Packed (0xFFFFFFFFu), 2 * scale);
+        const std::string number = Number (*green, item.decimals);
+        const float rawWidth = ImGui::CalcTextSize (number.c_str ()).x;
+        const float fontSize = ImGui::GetFontSize () * (std::min) (1.0f, (w - 4 * scale) / (std::max) (rawWidth, 1.0f));
+        const float textWidth = rawWidth * fontSize / ImGui::GetFontSize ();
+        const float left = CutoffLabelLeft (p.x + 2 * scale, w - 4 * scale, edge, textWidth, 9 * scale);
+        draw->AddText (ImGui::GetFont (), fontSize, ImVec2 (left, start.y), Packed (panel.textRgba), number.c_str ());
+    }
     if (cutoff != nullptr) {
         const float edge =
             std::clamp (p.x + w * float ((colormap.cutoff - colormap.min) / (colormap.max - colormap.min)),
@@ -250,8 +286,10 @@ bool Ramp (const layers::Panel& panel, const layers::PanelItem& item, float widt
         draw->AddText (ImVec2 (left, p.y + h + (cutoff != nullptr ? numberRow : 0) + 4 * scale), textColour,
                        label.c_str ());
     }
+    if (green != nullptr && cutoff == nullptr)
+        ImGui::SetCursorScreenPos (p);
     ImGui::Dummy (ImVec2 (w, (cutoff != nullptr ? 4.0f * scale : h + 4.0f * scale) + font));
-    if (cutoff != nullptr) {
+    if (editable) {
         return false;
     }
 

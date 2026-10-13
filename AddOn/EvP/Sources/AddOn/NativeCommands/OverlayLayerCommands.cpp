@@ -301,6 +301,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
               "additionalProperties":false,"required":["at","color"]}},
             "min":{"type":"number"},"max":{"type":"number"},
             "cutoff":{"type":"number"},"cutoffControl":{"type":"string","minLength":1,"maxLength":64},
+            "green":{"type":"number"},"greenControl":{"type":"string","minLength":1,"maxLength":64},
             "bands":{"type":"integer","minimum":0,"maximum":64},
             "isolines":{"type":"object","properties":{
                 "step":{"type":"number","exclusiveMinimum":0},"color":{"$ref":"#Color"},
@@ -378,6 +379,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
             "min":{"type":"number"},"max":{"type":"number"},
             "bands":{"type":"integer","minimum":0,"maximum":64},
             "cutoff":{"type":"number"},"cutoffControl":{"type":"string","minLength":1,"maxLength":64},
+            "green":{"type":"number"},"greenControl":{"type":"string","minLength":1,"maxLength":64},
             "isolines":{"type":"object","properties":{
                 "step":{"type":"number","exclusiveMinimum":0},"color":{"$ref":"#Color"},
                 "widthPixels":{"type":"number","minimum":0.25,"maximum":16}},
@@ -453,6 +455,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
                   "additionalProperties":false,"required":["at","color"]}},
                 "min":{"type":"number"},"max":{"type":"number"},
                 "cutoff":{"type":"number"},"cutoffControl":{"type":"string","minLength":1,"maxLength":64},
+                "green":{"type":"number"},"greenControl":{"type":"string","minLength":1,"maxLength":64},
                 "bands":{"type":"integer","minimum":0,"maximum":64}},
               "additionalProperties":false},
             "ticks":{"type":"integer","minimum":2,"maximum":32},

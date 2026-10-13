@@ -95,6 +95,12 @@ std::string ValidateColormap (const Colormap& colormap)
         return "a cutoff needs an explicit range and a finite value inside it";
     if (!colormap.cutoffControl.empty () && (!colormap.hasCutoff || colormap.cutoffControl.size () > kMaxControlId))
         return "a cutoff control needs a cutoff and an id of at most 64 bytes";
+    if (colormap.hasGreen &&
+        (colormap.autoRange || !std::isfinite (colormap.green) || colormap.green < colormap.min ||
+         colormap.green > colormap.max || (colormap.hasCutoff && colormap.green < colormap.cutoff)))
+        return "a green anchor needs an explicit range and a value at or above the cutoff inside it";
+    if (!colormap.greenControl.empty () && (!colormap.hasGreen || colormap.greenControl.size () > kMaxControlId))
+        return "a green control needs a green anchor and an id of at most 64 bytes";
     return std::string ();
 }
 
@@ -580,6 +586,41 @@ bool SetRampCutoff (const std::string& name, const std::string& control, double 
             const double next = std::clamp (value, map.min, map.max);
             changed = changed || next != map.cutoff;
             map.cutoff = next;
+            if (map.hasGreen && map.green < next) {
+                map.green = next;
+                changed = true;
+            }
+        };
+        for (auto& mesh : layer.meshes)
+            update (mesh.colormap);
+        for (auto& legend : layer.legends)
+            update (legend.colormap);
+        for (auto& panel : layer.panels)
+            for (auto& item : panel.items)
+                if (item.kind == ItemKind::Ramp)
+                    update (item.colormap);
+        if (changed)
+            Set (std::move (layer));
+        return changed;
+    }
+    return false;
+}
+
+bool SetRampGreen (const std::string& name, const std::string& control, double value)
+{
+    if (!std::isfinite (value) || control.empty ())
+        return false;
+    for (const auto& existing : g_layers) {
+        if (existing->name != name)
+            continue;
+        Layer layer = *existing;
+        bool changed = false;
+        const auto update = [&] (Colormap& map) {
+            if (!map.hasGreen || map.greenControl != control)
+                return;
+            const double next = std::clamp (value, map.hasCutoff ? map.cutoff : map.min, map.max);
+            changed = changed || next != map.green;
+            map.green = next;
         };
         for (auto& mesh : layer.meshes)
             update (mesh.colormap);

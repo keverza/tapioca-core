@@ -141,6 +141,11 @@ bool ReadColormap (const GS::ObjectState& item, layers::Colormap& colormap, std:
     }
     colormap.cutoffControl = StringValue (item, "cutoffControl");
     GS::ObjectState isolines;
+    if (item.Contains ("green")) {
+        colormap.hasGreen = true;
+        ReadDouble (item, "green", colormap.green);
+    }
+    colormap.greenControl = StringValue (item, "greenControl");
     if (item.Get ("isolines", isolines)) {
         ReadDouble (isolines, "step", colormap.isolineStep);
         if (!ReadColour (isolines, "color", colormap.isolineRgba, error))
