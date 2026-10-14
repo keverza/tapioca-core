@@ -557,9 +557,7 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
         e.owner = ImGui::GetCurrentContext ();
         e.moved = false;
         e.liveSince = c.planner.Revision ();
-        if (e.tool != Tool::Select)
-            e.drag = Drag::Rect;
-        else if (at.arrow >= 0) {
+        if (at.arrow >= 0) {
             e.held = e.selected;
             e.axis = at.arrows[at.arrow].dir;
             e.drag = Drag::Arrow;
@@ -584,14 +582,7 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
             }
         if (!down) {
             const bool off = !Inside (e.input.owned, e.at);
-            if (e.drag == Drag::Rect) {
-                if (e.moved) {
-                    const fs::Ring rect = fe::Rectangle (e.base, e.from, e.at, fe::kStep);
-                    Commit (e, c,
-                            e.tool == Tool::Cut ? fe::CutRect (e.baseDesign, rect) : fe::AddRect (e.baseDesign, rect));
-                }
-            }
-            else if (e.held.kind == Kind::Flat && e.drag == Drag::Arrow && !e.moved) {
+            if (e.held.kind == Kind::Flat && e.drag == Drag::Arrow && !e.moved) {
                 // A flat's arrow clicked: it changes places with the neighbour there.
                 if (const int other = Beside (e.base, e.held.index, e.axis); other >= 0)
                     Commit (e, c, fe::SwapFlats (e.base, e.baseDesign, e.held.index, other));
@@ -625,10 +616,8 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
                 e.selected = {}; // walls and ends move again from where they now are
         }
     }
-    if (hovered && ImGui::IsKeyPressed (ImGuiKey_Escape)) {
+    if (hovered && ImGui::IsKeyPressed (ImGuiKey_Escape))
         e.drag = Drag::None;
-        e.tool = Tool::Select;
-    }
     if (hovered && e.have && (ImGui::IsKeyPressed (ImGuiKey_Delete) || ImGui::IsKeyPressed (ImGuiKey_Backspace))) {
         if (e.selected.kind == Kind::Stair)
             Commit (e, c, fe::RemoveStair (s, e.input.design, e.selected.index));
@@ -686,10 +675,7 @@ void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float 
         return;
     const fs::Vec d = Delta (e);
     const bool off = !Inside (e.input.owned, e.at);
-    if (e.drag == Drag::Rect)
-        Ring (draw, v, fe::Rectangle (e.base, e.from, e.at, fe::kStep),
-              e.tool == Tool::Cut ? kRed : IM_COL32 (44, 122, 82, 255), 2.5f * scale);
-    else if (e.held.kind == Kind::Stair && e.held.index >= 0 && e.held.index < int (e.base.cores.size ())) {
+    if (e.held.kind == Kind::Stair && e.held.index >= 0 && e.held.index < int (e.base.cores.size ())) {
         const fs::Vec to = StairTo (e), from = e.base.cores[e.held.index].centre;
         fs::Ring moved = e.base.cores[e.held.index].shape;
         for (auto& p : moved)

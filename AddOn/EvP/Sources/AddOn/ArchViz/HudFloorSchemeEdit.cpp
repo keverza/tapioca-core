@@ -139,17 +139,6 @@ void NextControl (float width)
     if (ImGui::GetItemRectMax ().x + ImGui::GetStyle ().ItemSpacing.x + width <= right)
         ImGui::SameLine ();
 }
-bool Toggle (const char* label, bool on, const char* tip)
-{
-    if (on)
-        ImGui::PushStyleColor (ImGuiCol_Button, ImGui::GetStyleColorVec4 (ImGuiCol_ButtonActive));
-    const bool pressed = ImGui::SmallButton (label);
-    if (on)
-        ImGui::PopStyleColor ();
-    if (ImGui::IsItemHovered () && tip)
-        ImGui::SetTooltip ("%s", tip);
-    return pressed;
-}
 std::vector<double> RoomSteps (const floorprogramme::Programme& p)
 {
     std::vector<double> out;
@@ -312,11 +301,6 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
             }
         }
         ImGui::Separator ();
-        if (ImGui::MenuItem ("Draw a rectangle onto the floor"))
-            e.tool = Tool::Draw;
-        if (ImGui::MenuItem ("Cut a rectangle out"))
-            e.tool = Tool::Cut;
-        ImGui::Separator ();
         const bool unique = draft.designs.unique.contains (floor.story);
         if (ImGui::MenuItem (unique ? "Share with identical floors" : "Make this floor unique"))
             Change (e, c, { e.key }, [&] {
@@ -372,12 +356,6 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
     if (ImGui::SmallButton ("Redo") || (focused && ImGui::IsKeyChordPressed (ImGuiMod_Ctrl | ImGuiKey_Y)))
         UndoRedo (e, c, false);
     ImGui::EndDisabled ();
-    NextControl (40 * scale);
-    if (Toggle ("Draw", e.tool == Tool::Draw, "Drag a rectangle onto the floor, square to its wing, in 0.4 m steps."))
-        e.tool = e.tool == Tool::Draw ? Tool::Select : Tool::Draw;
-    NextControl (36 * scale);
-    if (Toggle ("Cut", e.tool == Tool::Cut, "Drag a rectangle out of the floor."))
-        e.tool = e.tool == Tool::Cut ? Tool::Select : Tool::Cut;
     NextControl (130 * scale);
     int flats = int (s.flats.size ());
     ImGui::BeginDisabled (!e.have);

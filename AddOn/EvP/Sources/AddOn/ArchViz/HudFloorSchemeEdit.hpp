@@ -10,7 +10,9 @@
 // Squares above the plan -- flats of 1 to 5 rooms, a stair -- drag onto it, a red wall showing
 // where a flat would go. A right click opens what can be done there: a flat's rooms, split,
 // join, lock; a stair's size; the floor's flat count, access, unique or shared design, reset.
-// Draw and Cut add rectangles to the silhouette or take them out, the slab's own contour dashed.
+// The slab's own contour is dashed under the plan. (Draw and Cut, which added rectangles to the
+// silhouette or took them out, are gone: user, 2026-10-14, "too messy". Designs that hold such
+// rectangles still plan with them.)
 //
 // Every edit is a design (FloorSchemeEdit.hpp) the planner regenerates off the UI thread
 // (FloorPlanner.hpp), the newest first, so the canvas never waits; undo and redo swap designs,

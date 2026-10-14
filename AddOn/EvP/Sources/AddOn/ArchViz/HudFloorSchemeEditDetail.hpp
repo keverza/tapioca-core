@@ -23,8 +23,7 @@ struct Target {
     std::optional<fe::Wall> wall;
     std::optional<fe::End> end;
 };
-enum class Tool : uint8_t { Select, Draw, Cut };
-enum class Drag : uint8_t { None, Body, Arrow, Rect };
+enum class Drag : uint8_t { None, Body, Arrow };
 // One building's design as undo keeps it.
 struct Snapshot {
     fe::Designs designs;
@@ -55,7 +54,6 @@ struct Editor {
     std::vector<Fill> fills, around;
     std::string colours;        // repaint without planning again when Programme colours change
     std::vector<fs::Ring> real; // the slab's own contour, dashed
-    Tool tool = Tool::Select;
     Target selected, menu;
     fs::Vec selectedAt, menuAt; // where they were picked: a new scheme finds them there again
     // A gesture: the scheme and design it started from (indices stay valid), where, what it holds.
