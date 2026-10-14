@@ -15,6 +15,7 @@ namespace {
 constexpr double kLivingPrefLarge = 4.0, kLivingMax = 4.5, kBedroomPref = 2.7, kBedroomMax = 3.3;
 constexpr double kAlcoveMin = 1.5, kAlcovePref = 1.8, kAlcoveMax = 2.4, kHalf = kPartyWall / 2;
 constexpr double kServiceDepth = 2.4, kMiddle = 2.2;
+constexpr double kTie = 1e-6; // m: two distances closer than this are equal
 
 struct Ctx {
     Flat& flat;
@@ -156,9 +157,10 @@ void Straight (Ctx& c, int corner, bool hall = true)
     const double depth = b.H ();
     const double rd = std::clamp (depth - kServiceDepth, (std::min) (depth, kLivingMin + 0.1), 6.0);
     const double back = depth - rd;
-    // Living room toward the corner, else above the door; the alcove beside it.
+    // Living room toward the corner, else above the door; the alcove beside it. A centred door is
+    // a tie, however the frame rounds it: the living room goes to u0.
     const double doorU = DoorCentre (c);
-    const bool livingLow = corner == 0 || (corner < 0 && doorU - b.u0 <= b.u1 - doorU);
+    const bool livingLow = corner == 0 || (corner < 0 && doorU - b.u0 <= b.u1 - doorU + kTie);
     std::vector<RoomKind> kinds { RoomKind::Living };
     if (half)
         kinds.push_back (RoomKind::Alcove);
