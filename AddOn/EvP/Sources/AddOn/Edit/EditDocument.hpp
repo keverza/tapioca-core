@@ -5,31 +5,12 @@
 // so a committed element can be found again and a re-opened definition edited in
 // place. Pure C++ (no Archicad, ImGui or Win32) so every tool built on it runs in the
 // offline suite. Units are metres, coordinates are world, Z is absolute.
+#include "Edit/EditTypes.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace geomsrv::edit {
-
-struct Vec3 {
-    double x = 0.0, y = 0.0, z = 0.0;
-};
-Vec3 operator+ (Vec3 a, Vec3 b);
-Vec3 operator- (Vec3 a, Vec3 b);
-Vec3 operator* (Vec3 a, double s);
-bool operator== (Vec3 a, Vec3 b);
-double Dot (Vec3 a, Vec3 b);
-Vec3 Cross (Vec3 a, Vec3 b);
-double Length (Vec3 a);
-double Distance (Vec3 a, Vec3 b);
-double DistanceXY (Vec3 a, Vec3 b);
-Vec3 Lerp (Vec3 a, Vec3 b, double t);
-// A zero or non-finite input returns false and leaves `out` untouched.
-bool Normalize (Vec3 a, Vec3& out);
-bool Finite (Vec3 a);
-
-using Id = uint64_t;
-constexpr Id kNoId = 0;
 
 enum class Kind : uint8_t { Polyline, Extrusion };
 enum class Part : uint8_t { Entity, Vertex, Segment, Face };
