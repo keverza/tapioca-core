@@ -145,12 +145,12 @@ void Engine::Impl::LayoutChoices (const layers::Panel& panel, const layers::Pane
                                   PanelState& state, float width, float scale)
 {
     const float gap = 8.0f * scale;
-    const float w =
-        (std::max) (80.0f * scale, (width - gap * float (item.choices.size () - 1)) / float (item.choices.size ()));
+    const size_t columns = (std::min) (size_t (2), item.choices.size ());
+    const float w = (std::max) (80.0f * scale, (width - gap * float (columns - 1)) / float (columns));
     const float h = (item.heightPixels > 0 ? item.heightPixels : 200.0f) * scale;
     auto& held = state.values[item.id];
     for (size_t choiceIndex = 0; choiceIndex < item.choices.size (); ++choiceIndex) {
-        if (choiceIndex != 0)
+        if (choiceIndex % columns != 0)
             ImGui::SameLine (0, gap);
         ImGui::PushID (int (choiceIndex));
         const auto& choice = item.choices[choiceIndex];

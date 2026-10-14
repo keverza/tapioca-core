@@ -57,7 +57,7 @@ TEST (OverlayHudWidgets, LayoutThumbnailClickSelectsOnlyItsLayerAndPersists)
     item.kind = layers::ItemKind::LayoutChoices;
     item.id = "layouts";
     item.heightPixels = 200;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         layers::LayoutChoice choice;
         choice.text = "Layout " + std::to_string (i);
         choice.layer = "choice-" + std::to_string (i);
@@ -71,7 +71,7 @@ TEST (OverlayHudWidgets, LayoutThumbnailClickSelectsOnlyItsLayerAndPersists)
     watched.Lay ({ &panel }, At (800, 600));
     EXPECT_DOUBLE_EQ (watched.Value ("layouts"), 0);
     const auto revision = hud::Revision (*watched.state);
-    watched.Click ({ &panel }, kLeft + 240, kTop + 100);
+    watched.Click ({ &panel }, kLeft + 360, kTop + 100);
     EXPECT_DOUBLE_EQ (watched.Value ("layouts"), 1);
     EXPECT_TRUE (hud::LayerShown (*watched.state, "choice-1"));
     EXPECT_FALSE (hud::LayerShown (*watched.state, "choice-0"));
@@ -81,6 +81,10 @@ TEST (OverlayHudWidgets, LayoutThumbnailClickSelectsOnlyItsLayerAndPersists)
     EXPECT_EQ (watched.heard.back ().kind, "layoutChoice");
     watched.Lay ({ &panel }, At (800, 600));
     EXPECT_DOUBLE_EQ (watched.Value ("layouts"), 1) << "same sent default must not reset a user's click";
+    watched.Click ({ &panel }, kLeft + 360, kTop + 200 + 12 + 100);
+    EXPECT_DOUBLE_EQ (watched.Value ("layouts"), 3) << "fourth card is the second column of the second row";
+    EXPECT_TRUE (hud::LayerShown (*watched.state, "choice-3"));
+    EXPECT_FALSE (hud::LayerShown (*watched.state, "choice-1"));
     layers::Layer layer;
     layer.name = "choices";
     layer.panels = { panel };
