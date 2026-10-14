@@ -721,11 +721,13 @@ set (EVP_PREVIEW_SOURCES
 # with no Archicad, ImGui or Win32 header, so every editing rule is tested here.
 set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp")
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp")
 
 set (EVP_TEST_SOURCES
     test_editdocument.cpp
     test_editsession.cpp
+    test_editsnap.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp
