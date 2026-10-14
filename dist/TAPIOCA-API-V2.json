@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 249,
+      "nativeRegistry": 250,
       "dispatcherLocal": 19,
-      "total": 268
+      "total": 269
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1629,6 +1629,19 @@
           "layer": {
             "type": "string"
           },
+          "floorPlan": {
+            "type": "boolean"
+          },
+          "floorInd": {
+            "type": "integer",
+            "minimum": -32768,
+            "maximum": 32767
+          },
+          "pen": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          },
           "databaseAnchorElementId": {
             "type": "object",
             "properties": {
@@ -2145,6 +2158,17 @@
             "minItems": 6,
             "items": {
               "type": "number"
+            }
+          },
+          "holes": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "array",
+              "minItems": 6,
+              "items": {
+                "type": "number"
+              }
             }
           },
           "arcs": {
@@ -17888,6 +17912,14 @@
           "indexSpace": {
             "const": "ModelerAPI-1-based"
           },
+          "inventoryScope": {
+            "type": "string",
+            "enum": [
+              "element",
+              "queryBounds"
+            ],
+            "description": "With a complete contour query, faces lists only geometric candidates; it is not a whole-element inventory."
+          },
           "status": {
             "enum": [
               "enumerated",
@@ -17917,6 +17949,7 @@
           "captureStamp",
           "unit",
           "indexSpace",
+          "inventoryScope",
           "status",
           "reason",
           "faces"
@@ -22128,6 +22161,11 @@
           "y": {
             "type": "number"
           },
+          "floorInd": {
+            "type": "integer",
+            "minimum": -32768,
+            "maximum": 32767
+          },
           "mode": {
             "type": "string",
             "enum": [
@@ -24674,6 +24712,95 @@
       }
     },
     {
+      "name": "Tapioca.RoofSlopeEditor",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "state"
+            ]
+          },
+          "sourceGuid": {
+            "type": "string"
+          },
+          "outline": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 20000,
+              "items": {
+                "$ref": "#Point2D"
+              }
+            }
+          },
+          "slopePercent": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100
+          },
+          "maxArea": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 200
+          },
+          "textHeight": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 5
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "rectangles": {
+            "type": "integer"
+          },
+          "triangles": {
+            "type": "integer"
+          },
+          "slabTopZ": {
+            "type": "number"
+          },
+          "faces": {
+            "type": "integer"
+          },
+          "maxAspect": {
+            "type": "number"
+          },
+          "maxSpan": {
+            "type": "number"
+          },
+          "maxBorderRise": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "active",
+          "locked"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "Tapioca.RunCloudCompare",
       "implementation": "native-registry",
       "inputScheme": {
@@ -26604,6 +26731,14 @@
               "both"
             ]
           },
+          "lifetime": {
+            "type": "string",
+            "enum": [
+              "project",
+              "command"
+            ],
+            "description": "Command previews are cleared before the next palette run; all layers end with the project."
+          },
           "occlusion": {
             "type": "string",
             "enum": [
@@ -26808,6 +26943,55 @@
                     "type": "number"
                   }
                 },
+                "cellLabels": {
+                  "type": "boolean",
+                  "description": "Native close-zoom values for every visible measured plan cell."
+                },
+                "hoverCells": {
+                  "type": "array",
+                  "maxItems": 8192,
+                  "description": "Semantic per-cell measured samples; triangle indices are explicit.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "triangles": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4096,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "center": {
+                        "$ref": "#Point3D"
+                      },
+                      "from": {
+                        "$ref": "#Point3D"
+                      },
+                      "to": {
+                        "$ref": "#Point3D"
+                      },
+                      "normal": {
+                        "$ref": "#Point3D"
+                      },
+                      "floorGuid": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "triangles",
+                      "center",
+                      "from",
+                      "to",
+                      "normal",
+                      "floorGuid"
+                    ]
+                  }
+                },
                 "colormap": {
                   "type": "object",
                   "properties": {
@@ -26855,6 +27039,22 @@
                     "max": {
                       "type": "number"
                     },
+                    "cutoff": {
+                      "type": "number"
+                    },
+                    "cutoffControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "green": {
+                      "type": "number"
+                    },
+                    "greenControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
                     "bands": {
                       "type": "integer",
                       "minimum": 0,
@@ -26900,6 +27100,12 @@
                       "type": "number",
                       "minimum": 0,
                       "maximum": 1
+                    },
+                    "occludedOpacity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Fraction of normal mesh alpha retained behind opaque host geometry when occlusion is fade; defaults to 0.3."
                     },
                     "occlusion": {
                       "type": "string",
@@ -26952,6 +27158,14 @@
             "items": {
               "type": "object",
               "properties": {
+                "views": {
+                  "type": "string",
+                  "enum": [
+                    "2d",
+                    "3d",
+                    "both"
+                  ]
+                },
                 "text": {
                   "type": "string",
                   "minLength": 1,
@@ -26987,6 +27201,12 @@
                   "type": "number",
                   "minimum": 0,
                   "maximum": 8
+                },
+                "minProjectedPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 256,
+                  "description": "For model-sized text, hide until its world-size em projects this many pixels."
                 },
                 "background": {
                   "$ref": "#Color"
@@ -27107,6 +27327,18 @@
                   "minimum": 4,
                   "maximum": 128
                 },
+                "textSizeMetres": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000,
+                  "description": "Positive makes dimension text model-sized; 0 keeps it screen-sized."
+                },
+                "textMinProjectedPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 256,
+                  "description": "Hide model-sized dimension text until it projects this many pixels."
+                },
                 "textColor": {
                   "$ref": "#Color"
                 },
@@ -27225,6 +27457,22 @@
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 64
+                    },
+                    "cutoff": {
+                      "type": "number"
+                    },
+                    "cutoffControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "green": {
+                      "type": "number"
+                    },
+                    "greenControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
                     },
                     "isolines": {
                       "type": "object",
@@ -27457,8 +27705,66 @@
                           "combo",
                           "tab",
                           "button",
-                          "sitePlan"
+                          "sitePlan",
+                          "layoutChoices"
                         ]
+                      },
+                      "choices": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "layer": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            "count": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 5000
+                            },
+                            "paths": {
+                              "type": "array",
+                              "minItems": 1,
+                              "maxItems": 10000,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "xy": {
+                                    "type": "array",
+                                    "minItems": 6,
+                                    "maxItems": 60000,
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "color": {
+                                    "$ref": "#Color"
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "xy"
+                                ]
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "text",
+                            "layer",
+                            "count",
+                            "paths"
+                          ]
+                        }
                       },
                       "id": {
                         "type": "string",
@@ -27628,6 +27934,22 @@
                           },
                           "max": {
                             "type": "number"
+                          },
+                          "cutoff": {
+                            "type": "number"
+                          },
+                          "cutoffControl": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "green": {
+                            "type": "number"
+                          },
+                          "greenControl": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
                           },
                           "bands": {
                             "type": "integer",

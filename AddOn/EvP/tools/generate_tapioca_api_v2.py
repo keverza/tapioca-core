@@ -266,7 +266,9 @@ from typing import Any
 # picker in SurfaceInspectorCommands.cpp, a new SurfaceInspector domain provider.
 # +1 for immutable InspectSurfaceSourceFace; it inspects source provenance,
 # not exposed fragments, and never assumes native/ModelerAPI index equality.
-EXPECTED_REGISTRY_COMMANDS = 249
+# 249 -> 250: the constant was not raised when RoofSlopeEditor landed, and the generated
+# surface had not been regenerated since (other schemas had drifted with it).
+EXPECTED_REGISTRY_COMMANDS = 250
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -288,7 +290,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 263 -> 264 with SetViewpointStudy.
 # 265 -> 267 with the two Stage A exposed-surface Inspector commands
 # (GetExposedSurfaceQuantities + PickPolygon).
-EXPECTED_TOTAL_COMMANDS = 268
+# 268 -> 269 with the same verb.
+EXPECTED_TOTAL_COMMANDS = 269
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'
