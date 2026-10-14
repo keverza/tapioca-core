@@ -137,6 +137,7 @@ struct Room {
     Ring shape;
     RoomKind kind = RoomKind::Living;
     double width = 0, depth = 0;
+    int extends = -1; // a further box of the room at this index in roomList (an L-shaped room is two)
 };
 struct Opening {
     Vec a, b;                         // on the room's wall
@@ -231,8 +232,10 @@ struct Side {
 // windows and entrance from what lies beyond its outline. The rooms face the side with the most
 // facade -- the side along `axis` when at least half of it is facade (a zero axis: any side). The
 // door opens onto a corridor, else a lobby, else a stair's landing: on the side opposite the rooms,
-// else on an end; none of them, no door. False, with the rooms left to the user (`manual`), when
-// the flat is not a rectangle or has no facade a window fits in.
+// else on an end; none of them, no door. A flat of any other outline (an L, a notch, a slanted end)
+// has its rooms laid in its largest rectangle along that facade, then each room grows over the
+// strip beyond it as wide as itself; what no room takes is left to the flat's rest. False, with
+// the rooms left to the user (`manual`), when no such rectangle has facade a window fits in.
 bool PlanRooms (Flat& flat, const std::vector<Side>& sides);
 // Every hard rule on a finished scheme; appends Error diagnostics and returns their count.
 size_t Check (Scheme& scheme, const Options& options = {});

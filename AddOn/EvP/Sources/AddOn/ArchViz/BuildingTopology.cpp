@@ -1,4 +1,5 @@
 #include "ArchViz/BuildingTopologyDetail.hpp"
+#include <cstddef>
 
 // Cells of each floor: a flat's rooms grown to the centre lines of the walls between them, the
 // floor's circulation, stairs and unassigned pieces as the scheme drew them (already on centre
@@ -169,6 +170,25 @@ bool TileRooms (const fs::Flat& flat, std::vector<Tile>& out)
             }
         }
         out.push_back ({ std::move (ring), -1 });
+    }
+    // A further box of a room (an L-shaped room, Room::extends) is one cell with it.
+    for (size_t k = 0; k < out.size ();) {
+        const int room = out[k].room;
+        const int main = room >= 0 ? rooms[room].extends : -1;
+        const auto owner =
+            std::find_if (out.begin (), out.end (), [&] (const Tile& t) { return main >= 0 && t.room == main; });
+        if (owner == out.end ()) {
+            ++k;
+            continue;
+        }
+        const auto joined =
+            cp::Union ({ ToPath (owner->shape), ToPath (out[k].shape) }, cp::FillRule::NonZero, kPrecision);
+        if (joined.size () != 1) {
+            ++k;
+            continue;
+        }
+        owner->shape = Counter (FromPath (cp::SimplifyPath (joined.front (), 1e-4)));
+        out.erase (out.begin () + static_cast<std::ptrdiff_t> (k));
     }
     // The tiles must cover the flat once: no overlap, nothing lost.
     cp::PathsD all;

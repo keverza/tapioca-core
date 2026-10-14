@@ -415,19 +415,9 @@ struct Along {
     double facade = 0;
     double access[kWays] = {}, lo[kWays] = { 1e18, 1e18, 1e18 }, hi[kWays] = { -1e18, -1e18, -1e18 };
 };
-} // namespace
-
-bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
+// Rooms of a rectangular flat with corners `r`; false (nothing laid) without facade a window fits in.
+bool Rectangle (Flat& flat, const std::array<Vec, 4>& r, const std::vector<Side>& sides)
 {
-    auto manual = [&flat] {
-        flat.manual = true;
-        flat.roomList.clear ();
-        flat.windows.clear ();
-        return false;
-    };
-    std::array<Vec, 4> r;
-    if (!Corners (flat.shape, r))
-        return manual ();
     std::array<Vec, 4> d;
     std::array<double, 4> length {};
     std::array<Along, 4> along;
@@ -473,7 +463,7 @@ bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
             if (along[k].facade > most)
                 front = static_cast<int> (k), most = along[k].facade;
     if (front < 0 || most < kMinFacade)
-        return manual ();
+        return false;
     const Vec df = d[front];
     Frame f;
     f.o = r[0];
@@ -532,5 +522,184 @@ bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
     if (!entrance)
         flat.door = {};
     return true;
+}
+// The rooms laid in rectangle `inner` grow over the rest of `shape` where that rest is a strip as
+// wide as the room beyond its side (the room's walls produced straight, as the mould's strips): a
+// room stays a box, so the flat's cells still tile it, and whatever no room takes this way (a
+// slanted wedge, a corner) is left for the flat's rest. Openings on a side that moves move with it.
+void Grow (Flat& flat, const Ring& shape, const Ring& inner)
+{
+    const Vec u = Unit (flat.axis), v { -u.y, u.x };
+    auto local = [&] (Vec p) { return Vec { Dot (p, u), Dot (p, v) }; };
+    auto boxOf = [&] (const Ring& ring) {
+        Box b { 1e18, 1e18, -1e18, -1e18 };
+        for (const auto& p : ring) {
+            const Vec q = local (p);
+            b.u0 = (std::min) (b.u0, q.x), b.u1 = (std::max) (b.u1, q.x);
+            b.v0 = (std::min) (b.v0, q.y), b.v1 = (std::max) (b.v1, q.y);
+        }
+        return b;
+    };
+    auto path = [] (const Box& b) {
+        return cp::PathD { { b.u0, b.v0 }, { b.u1, b.v0 }, { b.u1, b.v1 }, { b.u0, b.v1 } };
+    };
+    cp::PathD outline;
+    for (const auto& p : Counter (shape)) {
+        const Vec q = local (p);
+        outline.emplace_back (q.x, q.y);
+    }
+    const Box r = boxOf (inner);
+    auto rest = cp::Difference ({ outline }, { path (r) }, cp::FillRule::NonZero, kPrecision);
+    std::vector<Box> rooms;
+    for (const auto& room : flat.roomList)
+        rooms.push_back (boxOf (room.shape));
+    std::vector<int> extends (rooms.size (), -1); // a further box of that room
+    // Openings on a room side: that side moves `by` along `dir` (0 +u, 1 -u, 2 +v, 3 -v).
+    auto follow = [&] (const Box& b, int dir, double by) {
+        const bool alongU = dir < 2;
+        const double side = dir == 0 ? b.u1 : dir == 1 ? b.u0 : dir == 2 ? b.v1 : b.v0;
+        const double lo = alongU ? b.v0 : b.u0, hi = alongU ? b.v1 : b.u1;
+        const double sign = dir % 2 == 0 ? 1.0 : -1.0;
+        const Vec step = alongU ? Vec { u.x * sign * by, u.y * sign * by } : Vec { v.x * sign * by, v.y * sign * by };
+        auto on = [&] (Vec p) {
+            const Vec q = local (p);
+            const double at = alongU ? q.x : q.y, across = alongU ? q.y : q.x;
+            return std::abs (at - side) < 0.05 && across > lo - 0.05 && across < hi + 0.05;
+        };
+        auto move = [&] (Opening& o) {
+            if (on (o.a) && on (o.b))
+                o.a = { o.a.x + step.x, o.a.y + step.y }, o.b = { o.b.x + step.x, o.b.y + step.y };
+        };
+        move (flat.door);
+        for (auto& w : flat.windows)
+            move (w);
+    };
+    bool grew = true;
+    for (int pass = 0; pass < 3 && grew && !rest.empty (); ++pass) {
+        grew = false;
+        for (size_t i = 0; i < rooms.size (); ++i)
+            for (int dir = 0; dir < 4; ++dir) {
+                Box& b = rooms[i];
+                const bool alongU = dir < 2;
+                const double sign = dir % 2 == 0 ? 1.0 : -1.0;
+                const double side = dir == 0 ? b.u1 : dir == 1 ? b.u0 : dir == 2 ? b.v1 : b.v0;
+                const double edge = dir == 0 ? r.u1 : dir == 1 ? r.u0 : dir == 2 ? r.v1 : r.v0;
+                // The strip starts where the rectangle ends, or at a side that already grew past it.
+                const double start = sign > 0 ? (std::max) (side, edge) : (std::min) (side, edge);
+                if (std::abs (start - side) > 0.25)
+                    continue; // a room inside the rectangle: another one stands between it and the rest
+                const double lo = alongU ? b.v0 : b.u0, hi = alongU ? b.v1 : b.u1;
+                const double s0 = (std::min) (start, start + sign * 100), s1 = (std::max) (start, start + sign * 100);
+                const Box band = alongU ? Box { s0, lo, s1, hi } : Box { lo, s0, hi, s1 };
+                for (const auto& piece : cp::Intersect (rest, { path (band) }, cp::FillRule::NonZero, kPrecision)) {
+                    const auto bounds = cp::GetBounds (piece);
+                    const double ylo = (std::min) (bounds.top, bounds.bottom),
+                                 yhi = (std::max) (bounds.top, bounds.bottom);
+                    const double a0 = alongU ? bounds.left : ylo, a1 = alongU ? bounds.right : yhi;
+                    const double c0 = alongU ? ylo : bounds.left, c1 = alongU ? yhi : bounds.right;
+                    const double nearSide = sign > 0 ? a0 : a1, depth = a1 - a0;
+                    const bool box = std::abs (nearSide - start) < 1e-4 &&
+                                     std::abs (std::abs (cp::Area (piece)) - (c1 - c0) * depth) < 1e-3 * (1 + depth);
+                    if (!box || depth < 0.05 || c1 - c0 < kHallMin)
+                        continue;
+                    const double far = sign > 0 ? a1 : a0;
+                    rest = cp::Difference (rest, { piece }, cp::FillRule::NonZero, kPrecision);
+                    grew = true;
+                    if (std::abs (c0 - lo) < 1e-4 && std::abs (c1 - hi) < 1e-4) {
+                        // As wide as the room: the room grows, its openings on that side with it.
+                        follow (b, dir, std::abs (far - side));
+                        (dir == 0 ? b.u1 : dir == 1 ? b.u0 : dir == 2 ? b.v1 : b.v0) = far;
+                        break;
+                    }
+                    // Narrower: a further box of the room, from its side out to the strip's end.
+                    const double from = side;
+                    const Box part = alongU ? Box { (std::min) (from, far), c0, (std::max) (from, far), c1 }
+                                            : Box { c0, (std::min) (from, far), c1, (std::max) (from, far) };
+                    rooms.push_back (part);
+                    extends.push_back (extends[i] >= 0 ? extends[i] : static_cast<int> (i));
+                    break;
+                }
+            }
+    }
+    auto at = [&] (double s, double t) { return Vec { s * u.x + t * v.x, s * u.y + t * v.y }; };
+    for (size_t i = 0; i < rooms.size (); ++i) {
+        const Box& b = rooms[i];
+        if (i >= flat.roomList.size ()) {
+            Room part = flat.roomList[extends[i]];
+            part.extends = extends[i];
+            flat.roomList.push_back (std::move (part));
+        }
+        flat.roomList[i].shape = Counter ({ at (b.u0, b.v0), at (b.u1, b.v0), at (b.u1, b.v1), at (b.u0, b.v1) });
+        flat.roomList[i].width = b.W (), flat.roomList[i].depth = b.H ();
+    }
+}
+} // namespace
+
+bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
+{
+    auto manual = [&flat] {
+        flat.manual = true;
+        flat.roomList.clear ();
+        flat.windows.clear ();
+        return false;
+    };
+    std::array<Vec, 4> r;
+    if (Corners (flat.shape, r))
+        return Rectangle (flat, r, sides) || manual ();
+    // Any other outline: the rooms in its largest rectangle along the facade they face, grown over
+    // the rest. The facade direction is the flat's axis when facade runs that way, else the one
+    // with the most facade.
+    const Ring shape = Counter (flat.shape);
+    if (shape.size () < 3 || Area (shape) < 1.0)
+        return manual ();
+    std::vector<std::pair<Vec, double>> directions; // a facade direction (modulo a half turn), its length
+    for (const auto& s : sides) {
+        const double length = std::hypot (s.b.x - s.a.x, s.b.y - s.a.y);
+        if (s.kind != Side::Facade || length < 1e-6)
+            continue;
+        const Vec d = Unit ({ s.b.x - s.a.x, s.b.y - s.a.y });
+        auto it = std::find_if (directions.begin (), directions.end (),
+                                [&] (const auto& e) { return std::abs (Cross (e.first, d)) < 1e-3; });
+        if (it == directions.end ())
+            directions.push_back ({ d, length });
+        else
+            it->second += length;
+    }
+    std::sort (directions.begin (), directions.end (),
+               [] (const auto& a, const auto& b) { return a.second > b.second; });
+    if (std::hypot (flat.axis.x, flat.axis.y) > 0.5) {
+        const Vec axis = Unit (flat.axis);
+        const auto it = std::find_if (directions.begin (), directions.end (), [&] (const auto& e) {
+            return std::abs (Cross (e.first, axis)) < 1e-3 && e.second >= kMinFacade;
+        });
+        if (it != directions.end ())
+            std::rotate (directions.begin (), it, std::next (it));
+    }
+    // The facade direction first, then across it: the largest rectangle along it may not reach it.
+    for (const auto& [d, length] : directions) {
+        if (length < kMinFacade)
+            break;
+        for (const double turn : { 0.0, std::acos (-1.0) / 2 }) {
+            Frame frame;
+            Box box;
+            if (!Inscribed ({ ToPath (shape) }, std::atan2 (d.y, d.x) + turn, kLivingMin + 0.1, RoomFrontage (1).min,
+                            frame, box))
+                continue;
+            Flat inner = flat;
+            inner.shape = ToRing (frame, box);
+            std::array<Vec, 4> corners;
+            if (!Corners (inner.shape, corners) || !Rectangle (inner, corners, sides))
+                continue;
+            Grow (inner, shape, inner.shape);
+            flat.roomList = std::move (inner.roomList);
+            flat.windows = std::move (inner.windows);
+            flat.door = inner.door;
+            flat.axis = inner.axis, flat.corner = inner.corner, flat.through = inner.through;
+            flat.frontage = inner.frontage, flat.depth = inner.depth;
+            flat.manual = false;
+            return true;
+        }
+    }
+    return manual ();
 }
 } // namespace geomsrv::archviz::floorscheme

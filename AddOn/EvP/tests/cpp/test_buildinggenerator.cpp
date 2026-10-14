@@ -207,10 +207,16 @@ TEST (BuildingGenerator, AUnitWithoutCirculationHasNoEntrance)
     })) << Codes (found);
 }
 
-TEST (BuildingGenerator, AUnitThatIsNoRectangleLeavesItsRoomsToTheUser)
+TEST (BuildingGenerator, AUnitWithoutFacadeLeavesItsRoomsToTheUser)
 {
-    const auto g = bg::PlanUnit (LevelAt (0, 0, { { { 0, 0 }, { 10, 0 }, { 10, 4 }, { 4, 4 }, { 4, 10 }, { 0, 10 } } }),
-                                 fp::Default (), 2);
+    // An L walled in all round by other flats.
+    auto level = LevelAt (0, 0, { { { 0, 0 }, { 10, 0 }, { 10, 4 }, { 4, 4 }, { 4, 10 }, { 0, 10 } } });
+    level.context = { { bt::CellKind::Flat, Rect (-5, -5, 15, 0) },
+                      { bt::CellKind::Flat, Rect (-5, 0, 0, 15) },
+                      { bt::CellKind::Flat, Rect (10, 0, 15, 15) },
+                      { bt::CellKind::Flat, Rect (0, 10, 10, 15) },
+                      { bt::CellKind::Flat, Rect (4, 4, 10, 10) } };
+    const auto g = bg::PlanUnit (level, fp::Default (), 2);
     ASSERT_EQ (g.complex.units.size (), 1u);
     EXPECT_FALSE (g.complex.units.front ().roomsKnown);
     EXPECT_TRUE (g.schemes.front ().flats.front ().manual);
@@ -220,6 +226,79 @@ TEST (BuildingGenerator, AUnitThatIsNoRectangleLeavesItsRoomsToTheUser)
     auto again = g;
     EXPECT_FALSE (bg::ReplanUnit (again, 0));
     EXPECT_EQ (again.diagnostics.size (), 1u);
+}
+
+namespace {
+// The unit's cells: they cover it once, and how much of it its rooms take.
+struct Tiling {
+    double cells = 0, rooms = 0, rest = 0;
+    double lowest = 1e18; // of any room cell
+};
+Tiling Tile (const bt::Complex& c, int unit)
+{
+    Tiling t;
+    for (int id : c.units[unit].cells) {
+        const auto& cell = c.cells[id];
+        t.cells += cell.area;
+        (cell.kind == bt::CellKind::Room ? t.rooms : t.rest) += cell.area;
+        if (cell.kind == bt::CellKind::Room)
+            for (const auto& p : cell.shape)
+                t.lowest = (std::min) (t.lowest, p.y);
+    }
+    return t;
+}
+} // namespace
+
+// User, 2026-10-14: non-rectangular units. An L: its rooms in the bar, the arm taken by the room
+// beside it, walls produced straight.
+TEST (BuildingGenerator, AnLShapedUnitGrowsARoomIntoItsArm)
+{
+    const fs::Ring l { { 0, -3 }, { 4, -3 }, { 4, 0 }, { 9.9, 0 }, { 9.9, 7.5 }, { 0, 7.5 } };
+    auto level = LevelAt (0, 0, { l });
+    level.context = { { bt::CellKind::Corridor, Rect (4, -1.8, 20, 0) },
+                      { bt::CellKind::Flat, Rect (9.9, 0, 16, 7.5) } };
+    const size_t threeRooms = 3; // 65-75 m2
+    ASSERT_EQ (fp::Default ().types[threeRooms].rooms, 3);
+    const auto g = bg::PlanUnit (level, fp::Default (), threeRooms);
+    EXPECT_TRUE (g.diagnostics.empty ()) << Codes (g.diagnostics);
+    ASSERT_EQ (g.complex.units.size (), 1u);
+    EXPECT_TRUE (g.complex.units.front ().roomsKnown);
+    EXPECT_FALSE (g.schemes.front ().flats.front ().manual);
+    const auto t = Tile (g.complex, 0);
+    EXPECT_NEAR (t.cells, std::abs (fs::Area (l)), 0.05) << "its cells tile it";
+    EXPECT_LT (t.lowest, -2.9) << "a room reaches the end of the arm";
+    EXPECT_LT (t.rest, 0.1 * t.cells) << "little is left over";
+    // The arm is part of a room, not a room of its own: a 3R keeps one living room and two
+    // bedrooms, one of them L-shaped.
+    std::map<fs::RoomKind, int> rooms;
+    bool shaped = false;
+    for (int id : g.complex.units.front ().cells) {
+        const auto& cell = g.complex.cells[id];
+        if (cell.kind == bt::CellKind::Room)
+            ++rooms[cell.room], shaped = shaped || cell.shape.size () > 4;
+    }
+    EXPECT_EQ (rooms[fs::RoomKind::Living], 1);
+    EXPECT_EQ (rooms[fs::RoomKind::Bedroom], 2);
+    EXPECT_TRUE (shaped);
+    EXPECT_TRUE (bt::Check (g.complex).empty ()) << Codes (bt::Check (g.complex));
+}
+
+// A slanted end: the rooms stay rectangles, the wedge is the flat's rest.
+TEST (BuildingGenerator, ASlantedEndIsLeftToTheFlatsRest)
+{
+    const fs::Ring trapezoid { { 0, 0 }, { 8, 0 }, { 9.5, 7.5 }, { 0, 7.5 } };
+    auto level = LevelAt (0, 0, { trapezoid });
+    level.context = { { bt::CellKind::Corridor, Rect (-5, -1.8, 15, 0) } };
+    const auto g = bg::PlanUnit (level, fp::Default (), 3);
+    ASSERT_EQ (g.complex.units.size (), 1u);
+    EXPECT_TRUE (g.complex.units.front ().roomsKnown);
+    const auto t = Tile (g.complex, 0);
+    EXPECT_NEAR (t.cells, std::abs (fs::Area (trapezoid)), 0.05);
+    EXPECT_GE (t.rest, 1.5 * 7.5 / 2 - 0.05) << "the wedge";
+    EXPECT_LE (t.rest, 1.5 * 7.5 / 2 + 0.1 * 7.5 + 0.05) << "and at most the wall strip beside it";
+    for (const auto& room : g.schemes.front ().flats.front ().roomList)
+        EXPECT_EQ (room.shape.size (), 4u);
+    EXPECT_TRUE (bt::Check (g.complex).empty ()) << Codes (bt::Check (g.complex));
 }
 
 // Replanning a flat from the walls the complex gives it is the generator's own room plan.
