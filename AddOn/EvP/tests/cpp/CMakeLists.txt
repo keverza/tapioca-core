@@ -722,12 +722,14 @@ set (EVP_PREVIEW_SOURCES
 set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp")
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditTracker.cpp")
 
 set (EVP_TEST_SOURCES
     test_editdocument.cpp
     test_editsession.cpp
     test_editsnap.cpp
+    test_edittracker.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp

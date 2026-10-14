@@ -1,0 +1,436 @@
+#include "Edit/EditTracker.hpp"
+#include <cmath>
+#include <cstdlib>
+
+namespace geomsrv::edit {
+
+const char* QuantityName (Quantity quantity)
+{
+    switch (quantity) {
+        case Quantity::X:
+            return "X";
+        case Quantity::Y:
+            return "Y";
+        case Quantity::Z:
+            return "Z";
+        case Quantity::Length:
+            return "Length";
+        case Quantity::Angle:
+            return "Angle";
+        case Quantity::Elevation:
+            return "Elevation";
+        case Quantity::Slope:
+            return "Slope";
+        case Quantity::Width:
+            return "Width";
+        case Quantity::Distance:
+            return "Distance";
+        case Quantity::Height:
+            return "Height";
+    }
+    return "";
+}
+
+const char* QuantityUnit (Quantity quantity)
+{
+    switch (quantity) {
+        case Quantity::Angle:
+            return "deg";
+        case Quantity::Slope:
+            return "%";
+        default:
+            return "m";
+    }
+}
+
+bool ParseNumber (const std::string& text, double& value)
+{
+    size_t i = 0;
+    while (i < text.size () && text[i] == ' ')
+        ++i;
+    size_t end = text.size ();
+    while (end > i && text[end - 1] == ' ')
+        --end;
+    std::string clean;
+    bool digit = false, point = false;
+    for (size_t k = i; k < end; ++k) {
+        const char c = text[k];
+        if ((c == '-' || c == '+') && clean.empty ())
+            clean += c;
+        else if (c >= '0' && c <= '9') {
+            clean += c;
+            digit = true;
+        }
+        else if ((c == '.' || c == ',') && !point) {
+            clean += '.';
+            point = true;
+        }
+        else
+            return false;
+    }
+    if (!digit)
+        return false;
+    value = std::strtod (clean.c_str (), nullptr);
+    return std::isfinite (value);
+}
+
+void Tracker::Show (const std::vector<TrackerItem>& next, size_t defaultItem)
+{
+    bool same = next.size () == items.size () && state != TrackerState::Hidden;
+    for (size_t i = 0; same && i < next.size (); ++i)
+        same = next[i].quantity == items[i].quantity;
+    if (same) {
+        for (size_t i = 0; i < next.size (); ++i) {
+            items[i].value = next[i].value;
+            items[i].editable = next[i].editable;
+        }
+        return;
+    }
+    items = next;
+    text.clear ();
+    state = items.empty () ? TrackerState::Hidden : TrackerState::Showing;
+    focus = defaultItem < items.size () ? defaultItem : 0;
+    if (!items.empty () && !items[focus].editable)
+        Advance (1);
+}
+
+void Tracker::Hide ()
+{
+    items.clear ();
+    text.clear ();
+    state = TrackerState::Hidden;
+    focus = 0;
+}
+
+void Tracker::Advance (int step)
+{
+    const size_t n = items.size ();
+    for (size_t k = 1; k <= n; ++k) {
+        const size_t i = (focus + n + static_cast<size_t> (step > 0 ? k : n - k)) % n;
+        if (items[i].editable) {
+            focus = i;
+            return;
+        }
+    }
+}
+
+Tracker::Event Tracker::Key (const TrackerKey& key)
+{
+    using K = TrackerKey::Kind;
+    Event event;
+    event.item = focus;
+    if (state == TrackerState::Hidden)
+        return event;
+    if (state == TrackerState::Showing) {
+        const bool starts = key.kind == K::Char && ((key.c >= '0' && key.c <= '9') || key.c == '-' || key.c == '+' ||
+                                                    key.c == '.' || key.c == ',');
+        if (starts && items[focus].editable) {
+            state = TrackerState::Editing;
+            text = std::string (1, key.c);
+        }
+        else if (key.kind == K::Tab || key.kind == K::BackTab)
+            Advance (key.kind == K::Tab ? 1 : -1);
+        else if (key.kind == K::Escape)
+            event.outcome = Outcome::CancelGesture;
+        return event;
+    }
+    switch (key.kind) {
+        case K::Char:
+            text += key.c;
+            break;
+        case K::Backspace:
+            if (!text.empty ())
+                text.pop_back ();
+            if (text.empty ())
+                state = TrackerState::Showing;
+            break;
+        case K::Escape:
+            text.clear ();
+            state = TrackerState::Showing;
+            break;
+        case K::Enter:
+        case K::Tab:
+        case K::BackTab: {
+            double value = 0.0;
+            if (!ParseNumber (text, value)) {
+                event.outcome = Outcome::Invalid;
+                return event;
+            }
+            event.value = value;
+            text.clear ();
+            state = TrackerState::Showing;
+            if (key.kind == K::Enter) {
+                event.outcome = Outcome::Commit;
+                return event;
+            }
+            items[focus].locked = true;
+            items[focus].lockedValue = value;
+            event.outcome = Outcome::Locked;
+            Advance (key.kind == K::Tab ? 1 : -1);
+            break;
+        }
+    }
+    return event;
+}
+
+TrackerState Tracker::State () const
+{
+    return state;
+}
+
+size_t Tracker::Focus () const
+{
+    return focus;
+}
+
+const std::string& Tracker::Text () const
+{
+    return text;
+}
+
+const std::vector<TrackerItem>& Tracker::Items () const
+{
+    return items;
+}
+
+std::optional<double> Tracker::Locked (Quantity quantity) const
+{
+    for (const auto& item : items)
+        if (item.quantity == quantity && item.locked)
+            return item.lockedValue;
+    return std::nullopt;
+}
+
+namespace {
+
+constexpr double kPi = 3.14159265358979323846;
+
+// Resolves a segment ref to its entity and end indices; `pivot` is the end that
+// stays put (the start, unless only the start is locked).
+bool SegmentOf (Document& doc, const Ref& ref, Entity*& entity, size_t& pivot, size_t& moving, bool& forward, bool z,
+                std::string& error)
+{
+    entity = Find (doc, ref.entity);
+    const int index = entity != nullptr && ref.part == Part::Segment ? SegmentIndex (*entity, ref.item) : -1;
+    if (index < 0) {
+        error = "the dimension's segment no longer exists";
+        return false;
+    }
+    SegmentEnds (*entity, static_cast<size_t> (index), pivot, moving);
+    const auto locked = [&] (size_t i) { return z ? entity->vertices[i].lockZ : entity->vertices[i].lockXY; };
+    forward = !locked (moving);
+    if (!forward)
+        std::swap (pivot, moving);
+    if (locked (moving)) {
+        error = "both ends of the segment are locked";
+        return false;
+    }
+    return true;
+}
+
+bool SegmentOf (const Document& doc, const Ref& ref, Vec3& a, Vec3& b)
+{
+    const Entity* e = Find (doc, ref.entity);
+    const int index = e != nullptr && ref.part == Part::Segment ? SegmentIndex (*e, ref.item) : -1;
+    if (index < 0)
+        return false;
+    size_t from = 0, to = 0;
+    SegmentEnds (*e, static_cast<size_t> (index), from, to);
+    a = e->vertices[from].p;
+    b = e->vertices[to].p;
+    return true;
+}
+
+Vertex* VertexOf (Document& doc, const Ref& ref)
+{
+    Entity* e = Find (doc, ref.entity);
+    const int index = e != nullptr && ref.part == Part::Vertex ? VertexIndex (*e, ref.item) : -1;
+    return index < 0 ? nullptr : &e->vertices[static_cast<size_t> (index)];
+}
+
+} // namespace
+
+std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
+{
+    std::vector<Dimension> out;
+    const Entity* e = Find (doc, ref.entity);
+    if (e == nullptr || !Exists (doc, ref))
+        return out;
+    switch (ref.part) {
+        case Part::Segment:
+            for (Quantity q : { Quantity::Length, Quantity::Slope, Quantity::Angle })
+                out.push_back ({ ref, q });
+            if (e->segments[static_cast<size_t> (SegmentIndex (*e, ref.item))].width > 0.0)
+                out.push_back ({ ref, Quantity::Width });
+            break;
+        case Part::Vertex:
+            for (Quantity q : { Quantity::Elevation, Quantity::X, Quantity::Y })
+                out.push_back ({ ref, q });
+            break;
+        case Part::Face:
+        case Part::Entity:
+            if (e->kind == Kind::Extrusion)
+                out.push_back ({ { ref.entity, Part::Entity, 0 }, Quantity::Height });
+            break;
+    }
+    return out;
+}
+
+bool ReadDimension (const Document& doc, const Dimension& d, double& value)
+{
+    if (d.ref.part == Part::Segment) {
+        Vec3 a, b;
+        if (!SegmentOf (doc, d.ref, a, b))
+            return false;
+        const double plan = DistanceXY (a, b);
+        switch (d.quantity) {
+            case Quantity::Length:
+                value = plan;
+                return true;
+            case Quantity::Distance:
+                value = Distance (a, b);
+                return true;
+            case Quantity::Slope:
+                if (plan < kMinSegment)
+                    return false; // vertical: slope is undefined, not infinite
+                value = 100.0 * (b.z - a.z) / plan;
+                return true;
+            case Quantity::Angle:
+                value = std::atan2 (b.y - a.y, b.x - a.x) * 180.0 / kPi;
+                return true;
+            case Quantity::Width: {
+                const Entity* e = Find (doc, d.ref.entity);
+                value = e->segments[static_cast<size_t> (SegmentIndex (*e, d.ref.item))].width;
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+    if (d.ref.part == Part::Vertex) {
+        Vec3 p;
+        if (!PointOf (doc, d.ref, p))
+            return false;
+        switch (d.quantity) {
+            case Quantity::X:
+                value = p.x;
+                return true;
+            case Quantity::Y:
+                value = p.y;
+                return true;
+            case Quantity::Z:
+            case Quantity::Elevation:
+                value = p.z;
+                return true;
+            default:
+                return false;
+        }
+    }
+    const Entity* e = Find (doc, d.ref.entity);
+    if (e != nullptr && d.quantity == Quantity::Height && e->kind == Kind::Extrusion) {
+        value = e->height;
+        return true;
+    }
+    return false;
+}
+
+Operation WriteDimension (const Dimension& d, double value)
+{
+    return [d, value] (Document& doc, std::string& error) {
+        if (!std::isfinite (value)) {
+            error = "not a number";
+            return false;
+        }
+        if (d.ref.part == Part::Segment) {
+            const bool z = d.quantity == Quantity::Slope;
+            Entity* e = nullptr;
+            size_t pivot = 0, moving = 0;
+            bool forward = true; // the fixed end is the segment's start
+            if (d.quantity == Quantity::Width) {
+                e = Find (doc, d.ref.entity);
+                const int i = e != nullptr ? SegmentIndex (*e, d.ref.item) : -1;
+                if (i < 0 || value < 0.0) {
+                    error = i < 0 ? "the dimension's segment no longer exists" : "a width cannot be negative";
+                    return false;
+                }
+                e->segments[static_cast<size_t> (i)].width = value;
+                return true;
+            }
+            if (!SegmentOf (doc, d.ref, e, pivot, moving, forward, z, error))
+                return false;
+            Vertex& m = e->vertices[moving];
+            const Vec3 p = e->vertices[pivot].p;
+            const double plan = DistanceXY (p, m.p);
+            switch (d.quantity) {
+                case Quantity::Length:
+                    if (!(value > kMinSegment) || plan < kMinSegment) {
+                        error = "a length must be positive";
+                        return false;
+                    }
+                    m.p.x = p.x + (m.p.x - p.x) * value / plan;
+                    m.p.y = p.y + (m.p.y - p.y) * value / plan;
+                    return true;
+                case Quantity::Distance: {
+                    const double full = Distance (p, m.p);
+                    if (!(value > kMinSegment) || full < kMinSegment) {
+                        error = "a distance must be positive";
+                        return false;
+                    }
+                    if (m.lockZ && std::abs (m.p.z - p.z) > 0.0) {
+                        error = "the moving end's elevation is locked";
+                        return false;
+                    }
+                    m.p = p + (m.p - p) * (value / full);
+                    return true;
+                }
+                case Quantity::Slope: {
+                    if (plan < kMinSegment) {
+                        error = "a vertical segment has no slope";
+                        return false;
+                    }
+                    // A slope reads start to end, whichever end stays put.
+                    m.p.z = p.z + (forward ? 1.0 : -1.0) * value / 100.0 * plan;
+                    return true;
+                }
+                case Quantity::Angle: {
+                    double radians = value * kPi / 180.0;
+                    if (!forward)
+                        radians += kPi; // turning about the end: the start lies opposite
+                    m.p.x = p.x + plan * std::cos (radians);
+                    m.p.y = p.y + plan * std::sin (radians);
+                    return true;
+                }
+                default:
+                    error = "that dimension cannot be typed on a segment";
+                    return false;
+            }
+        }
+        if (d.ref.part == Part::Vertex) {
+            Vertex* v = VertexOf (doc, d.ref);
+            if (v == nullptr) {
+                error = "the dimension's vertex no longer exists";
+                return false;
+            }
+            const bool z = d.quantity == Quantity::Z || d.quantity == Quantity::Elevation;
+            if ((z && v->lockZ) || (!z && v->lockXY)) {
+                error = "that vertex is locked";
+                return false;
+            }
+            (d.quantity == Quantity::X ? v->p.x : d.quantity == Quantity::Y ? v->p.y : v->p.z) = value;
+            return true;
+        }
+        Entity* e = Find (doc, d.ref.entity);
+        if (e != nullptr && d.quantity == Quantity::Height && e->kind == Kind::Extrusion) {
+            if (!(value > kMinSegment)) {
+                error = "a height must be positive";
+                return false;
+            }
+            e->height = value;
+            return true;
+        }
+        error = "that dimension cannot be typed here";
+        return false;
+    };
+}
+
+} // namespace geomsrv::edit
