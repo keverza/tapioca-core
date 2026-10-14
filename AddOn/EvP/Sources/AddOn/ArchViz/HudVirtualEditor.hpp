@@ -40,7 +40,8 @@ struct Session {
     edit::GizmoMode gizmo = edit::GizmoMode::Move;
     uint32_t filter = edit::kPickAll;
     double pathWidth = 1.5;
-    std::string role; // the starting command's word for what it edits
+    std::string role;  // the starting command's word for what it edits
+    std::string owner; // the palette command that opened it: its own later runs keep it
 
     // The gesture in progress.
     Drag drag = Drag::None;

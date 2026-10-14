@@ -516,8 +516,9 @@ bool SetRampGreen (const std::string& layer, const std::string& control, double 
 bool Clear (const std::string& name);
 // Every caller layer; the reserved ones stay.
 void ClearAll ();
-// Only opt-in transient previews; unrelated caller/reserved layers remain.
-bool ClearCommandScoped ();
+// Only opt-in transient previews; unrelated caller/reserved layers remain, and so does
+// `keep` when named (an editing session that outlives its command's runs).
+bool ClearCommandScoped (const std::string& keep = {});
 // Every layer, reserved ones too: a project close (§8).
 void ClearEverything ();
 // Every layer, in the order they were first set -- the draw order.

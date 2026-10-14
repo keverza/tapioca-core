@@ -107,6 +107,16 @@ TEST (HudVirtualEditor, StartingPublishesTheLayerAndBorrowsTheLock)
     EXPECT_FALSE (hud::VirtualEditorActive (*d.view.state));
 }
 
+TEST (HudVirtualEditor, TheCommandThatOpenedItOwnsIt)
+{
+    Drive d (Corner ());
+    EXPECT_FALSE (hud::VirtualEditorOwnedBy (*d.view.state, "")); // no owner recorded
+    d.S ().owner = "Commands/VirtualEditor/command.py";
+    EXPECT_TRUE (hud::VirtualEditorOwnedBy (*d.view.state, "Commands/VirtualEditor/command.py"));
+    EXPECT_FALSE (hud::VirtualEditorOwnedBy (*d.view.state, "Commands/Other/command.py"));
+    EXPECT_FALSE (hud::VirtualEditorOwnedBy (*d.view.state, ""));
+}
+
 TEST (HudVirtualEditor, DraggingAVertexIsOneUndoableGesture)
 {
     Drive d (Corner ());

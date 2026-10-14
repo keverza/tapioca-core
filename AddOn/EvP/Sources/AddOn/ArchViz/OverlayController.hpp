@@ -265,8 +265,13 @@ std::vector<std::shared_ptr<const overlaylayers::Layer>> ShownLayers ();
 // a verb, a project closing: the renderers brought into line, both views' HUDs laid out.
 void FollowHudState ();
 // Command boundaries release a roof's borrowed lock and command-owned layers
-// before the next Run, even when no renderer/idle poll is active.
-void ClearCommandPreviews ();
+// before the next Run, even when no renderer/idle poll is active. `next` is the command
+// about to run (its catalog path): a virtual editor that command opened survives its own
+// runs with its layer, so its "Report" and "Close" find it. Empty releases everything.
+void ClearCommandPreviews (const std::string& next = {});
+// The command the palette last started (its catalog path), for a session to record as
+// its owner; empty before the first run.
+const std::string& RunningCommand ();
 void SetOverlayVisible (bool visible);
 void SetLayerVisible (const std::string& layer, bool visible);
 // The HUD's text size, the nearest step (0.8 to 2), laid out again in both views. MAIN

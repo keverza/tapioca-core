@@ -213,6 +213,7 @@ class VirtualEditorCommand : public MainThreadCommand {
                     EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8), "opening the virtual editor"));
             hud::StartVirtualEditor (*state, std::move (doc), role, std::move (context));
             auto& session = *hud::VirtualEditor (*state);
+            session.owner = archviz::overlaycontrol::RunningCommand ();
             GS::UniString tool;
             if (params.Get ("tool", tool))
                 session.tool = tool == "polyline" ? eh::Tool::Polyline

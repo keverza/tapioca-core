@@ -61,6 +61,11 @@ edithud::Session* VirtualEditor (State& state)
     return state.virtualEditor.get ();
 }
 
+bool VirtualEditorOwnedBy (const State& state, const std::string& command)
+{
+    return state.virtualEditor && !command.empty () && state.virtualEditor->owner == command;
+}
+
 bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear)
 {
     clear = false;

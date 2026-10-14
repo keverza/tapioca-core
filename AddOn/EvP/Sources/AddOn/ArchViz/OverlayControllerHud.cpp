@@ -314,13 +314,27 @@ void FollowHudState ()
     overlayinput::RequestLayout (overlayinput::View::Plan);
 }
 
-void ClearCommandPreviews ()
+namespace {
+std::string g_runningCommand;
+}
+
+void ClearCommandPreviews (const std::string& next)
 {
-    overlayhud::StopRoofEditor (*guesttext::HudState ());
-    overlayhud::StopVirtualEditor (*guesttext::HudState ());
-    overlayinput::EnableRoofEditKeys (false);
-    if (overlaylayers::ClearCommandScoped ())
+    g_runningCommand = next;
+    overlayhud::State& state = *guesttext::HudState ();
+    const bool keepEditor = !next.empty () && overlayhud::VirtualEditorOwnedBy (state, next);
+    overlayhud::StopRoofEditor (state);
+    if (!keepEditor) {
+        overlayhud::StopVirtualEditor (state);
+        overlayinput::EnableRoofEditKeys (false);
+    }
+    if (overlaylayers::ClearCommandScoped (keepEditor ? editlayers::kLayer : ""))
         PublishLayers ();
+}
+
+const std::string& RunningCommand ()
+{
+    return g_runningCommand;
 }
 
 void SetOverlayVisible (bool visible)

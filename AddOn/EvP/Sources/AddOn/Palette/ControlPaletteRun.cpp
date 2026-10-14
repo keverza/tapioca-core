@@ -184,12 +184,12 @@ void ControlPalette::RefreshRunGate ()
             commandStatus.SetText (message);
     }
 }
-void ControlPalette::ForgetCommandPreviews ()
+void ControlPalette::ForgetCommandPreviews (const GS::UniString& next)
 {
     // OVERLAY-INVARIANTS.md §8: the hidden/disabled band cannot rely on its poll.
     evp::preview::RetainedPreviewStore::Get ().Clear ();
     preview.ForgetContext ();
-    geomsrv::archviz::overlaycontrol::ClearCommandPreviews ();
+    geomsrv::archviz::overlaycontrol::ClearCommandPreviews (next.ToCStr (0, MaxUSize, CC_UTF8).Get ());
     evp::StartupTrace ("Command/project boundary: transient preview geometry released");
 }
 
@@ -219,8 +219,9 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     }
 
     // OVERLAY-INVARIANTS.md §8: previous command previews are not project data.
-    // Clear before workflow/Python branching, without changing navigation or intent.
-    ForgetCommandPreviews ();
+    // Clear before workflow/Python branching, without changing navigation or intent. An
+    // editing session this same command opened stays: its Report and Close act on it.
+    ForgetCommandPreviews (info->path);
 
     // Running is a decision — the browse it came from is over. Collapsing here also
     // keeps the run's status line and results from opening below a list that is

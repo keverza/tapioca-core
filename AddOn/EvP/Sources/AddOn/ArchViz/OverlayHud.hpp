@@ -354,6 +354,8 @@ bool VirtualEditorActive (const State& state);
 const edithud::Session* VirtualEditor (const State& state);
 edithud::Session* VirtualEditor (State& state);
 bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear);
+// The open virtual editor was started by the palette command `command` (its catalog path).
+bool VirtualEditorOwnedBy (const State& state, const std::string& command);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);
 void SelectKey (State& state, const std::string& key);

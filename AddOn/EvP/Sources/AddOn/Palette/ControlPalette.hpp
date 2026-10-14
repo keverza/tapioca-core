@@ -79,7 +79,8 @@ class ControlPalette final : public DG::Palette,
     void Show (bool focusSearch = false);
     void Hide ();
     // Main-thread command/project boundary; drops copied preview geometry even hidden.
-    void ForgetCommandPreviews ();
+    // `next` is the command about to run, whose own editing session is kept.
+    void ForgetCommandPreviews (const GS::UniString& next = GS::UniString ());
 
     void SetCommandStatus (const GS::UniString& text);
 

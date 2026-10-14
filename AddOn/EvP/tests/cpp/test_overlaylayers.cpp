@@ -148,6 +148,22 @@ TEST (OverlayLayers, CommandBoundaryClearsOnlyOptInTransientLayers)
     EXPECT_EQ (ol::Generation (), generation);
 }
 
+TEST (OverlayLayers, CommandBoundaryCanKeepTheSessionThatOutlivesItsRuns)
+{
+    Fresh fresh;
+    for (const char* name : { "editor-session", "temporary-preview" }) {
+        ol::Layer transient = Square (name);
+        transient.lifetime = ol::LayerLifetime::Command;
+        ol::Set (std::move (transient));
+    }
+    EXPECT_TRUE (ol::ClearCommandScoped ("editor-session"));
+    const auto remaining = ol::Layers ();
+    ASSERT_EQ (remaining.size (), 1u);
+    EXPECT_EQ (remaining[0]->name, "editor-session");
+    EXPECT_TRUE (ol::ClearCommandScoped ());
+    EXPECT_TRUE (ol::Layers ().empty ());
+}
+
 TEST (OverlayLayers, ProjectBoundaryDropsTheStyledCopyCacheAsWell)
 {
     Fresh fresh;
