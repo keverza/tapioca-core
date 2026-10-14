@@ -147,7 +147,7 @@ std::string ValidatePanel (const Panel& panel)
         const std::string at = "item " + std::to_string (k) + ": ";
         const bool control = item.kind == ItemKind::Checkbox || item.kind == ItemKind::Slider ||
                              item.kind == ItemKind::Combo || item.kind == ItemKind::Button ||
-                             item.kind == ItemKind::SitePlan;
+                             item.kind == ItemKind::SitePlan || item.kind == ItemKind::LayoutChoices;
         if (control && (item.id.empty () || item.id.size () > kMaxControlId))
             return at + "a checkbox, slider, dropdown or button needs its id, at most 64 bytes: its value and "
                         "its events are named by it";
@@ -155,6 +155,28 @@ std::string ValidatePanel (const Panel& panel)
             return at + "the tab bar's id is at most 64 bytes";
         if (control && !ids.insert (item.id).second)
             return at + "two controls of one panel share the id \"" + item.id + "\"";
+        if (item.kind == ItemKind::LayoutChoices) {
+            if (item.choices.empty () || item.choices.size () > 4 || item.selected >= item.choices.size ())
+                return at + "layoutChoices needs 1..4 choices and a valid selected index";
+            size_t numbers = 0;
+            std::set<std::string> targets;
+            for (const auto& choice : item.choices) {
+                if (choice.text.empty () || choice.text.size () > 128 || choice.layer.empty () ||
+                    choice.layer.size () > 64 || Reserved (choice.layer) || choice.count > 5000 ||
+                    !targets.insert (choice.layer).second || choice.paths.empty () || choice.paths.size () > 10000)
+                    return at + "invalid layout choice label, count, unique target layer or paths";
+                for (const auto& path : choice.paths) {
+                    if (path.xy.size () < 6 || path.xy.size () % 2 != 0)
+                        return at + "layout thumbnail paths need at least three XY points";
+                    numbers += path.xy.size ();
+                    for (double value : path.xy)
+                        if (!std::isfinite (value))
+                            return at + "layout thumbnail coordinates must be finite";
+                }
+            }
+            if (numbers > 120000)
+                return at + "layout thumbnails exceed the 120000-number panel budget";
+        }
         if (item.kind == ItemKind::SitePlan) {
             const size_t count = item.outlineXY.size () / 2;
             if (item.id.size () > 44 || count < 3 || count > 256 || item.outlineXY.size () % 2 != 0 ||

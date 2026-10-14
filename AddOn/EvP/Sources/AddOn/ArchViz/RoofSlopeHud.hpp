@@ -17,6 +17,9 @@ struct NumberEdit {
 struct Session {
     roofslope::Editor editor;
     bool previousLock = false, close = false, footprint = false;
+    bool bakeRequested = false, baking = false;
+    std::string sourceGuid;
+    uint64_t sourceStamp = 0;
     uint64_t token = 0;
     int drag = 0, corner = -1, ring = -1, vertex = -1;
     roofslope::Vec anchor, last;
@@ -38,5 +41,6 @@ void OnView (Session& session, const overlayhud::Input& view, bool hovered, floa
 void Panel (Session& session);
 bool Answer (Session& session, const NumberEdit& edit, double value);
 bool DeleteSelection (Session& session);
+bool RequestBake (Session& session);
 } // namespace geomsrv::archviz::roofhud
 #endif

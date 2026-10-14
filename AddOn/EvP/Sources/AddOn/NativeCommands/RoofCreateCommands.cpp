@@ -78,6 +78,13 @@ public:
         GS::UniString mode ("plane");
         params.Get ("mode", mode);
         const bool polyMode = (mode == "poly");
+        GS::Array<GS::Array<double>> holes;
+        params.Get ("holes", holes);
+        if (polyMode && !holes.IsEmpty ())
+            return NativeCommandResult::Failure ("holes are supported only for a single-plane roof");
+        for (const auto& hole : holes)
+            if (hole.GetSize () < 6 || hole.GetSize () % 2 != 0)
+                return NativeCommandResult::Failure ("each hole needs at least three XY pairs");
 
         API_Element element = {};
         element.header.type    = API_RoofID;
@@ -127,7 +134,9 @@ public:
                 if (std::fabs (arcs[i]) > 1e-12) arcSegs.Push (i);
         }
         const Int32  nArcs    = static_cast<Int32> (arcSegs.GetSize ());
-        const Int32  nCoords  = distinct + 1;   // +1: Archicad closes the ring by repeating pt 1
+        Int32 nCoords = distinct + 1;
+        for (const auto& hole : holes)
+            nCoords += Int32 (hole.GetSize () / 2) + 1;
         const double pitchRad = pitchDeg * (3.14159265358979323846 / 180.0);
 
         // Winding: roofs are stricter than meshes about contour orientation, so let the
@@ -187,7 +196,7 @@ public:
             coordsH = reinterpret_cast<API_Coord**> (
                 BMAllocateHandle ((nCoords + 1) * sizeof (API_Coord), ALLOCATE_CLEAR, 0));
             pendsH = reinterpret_cast<Int32**> (
-                BMAllocateHandle (2 * sizeof (Int32), ALLOCATE_CLEAR, 0));
+                BMAllocateHandle ((holes.GetSize () + 2) * sizeof (Int32), ALLOCATE_CLEAR, 0));
             parcsH = reinterpret_cast<API_PolyArc**> (
                 BMAllocateHandle (nArcs * sizeof (API_PolyArc), ALLOCATE_CLEAR, 0));
             if (coordsH == nullptr || pendsH == nullptr || (nArcs > 0 && parcsH == nullptr))
@@ -197,8 +206,28 @@ public:
                 (*coordsH)[i + 1].x = ox[i];
                 (*coordsH)[i + 1].y = oy[i];
             }
-            (*coordsH)[nCoords] = (*coordsH)[1];   // close the ring
-            (*pendsH)[1] = nCoords;
+            (*coordsH)[distinct + 1] = (*coordsH)[1];
+            (*pendsH)[1] = distinct + 1;
+            Int32 cursor = distinct + 2, ringIndex = 2;
+            double outerArea = 0;
+            for (Int32 i = 0; i < distinct; ++i) {
+                const Int32 j = (i + 1) % distinct;
+                outerArea += ox[i] * oy[j] - ox[j] * oy[i];
+            }
+            for (const auto& hole : holes) {
+                const Int32 count = Int32 (hole.GetSize () / 2), start = cursor;
+                double area = 0;
+                for (Int32 i = 0; i < count; ++i) {
+                    const Int32 j = (i + 1) % count;
+                    area += hole[i * 2] * hole[j * 2 + 1] - hole[j * 2] * hole[i * 2 + 1];
+                }
+                for (Int32 i = 0; i < count; ++i) {
+                    const Int32 j = area * outerArea > 0 ? count - 1 - i : i;
+                    (*coordsH)[cursor++] = { hole[j * 2], hole[j * 2 + 1] };
+                }
+                (*coordsH)[cursor++] = (*coordsH)[start];
+                (*pendsH)[ringIndex++] = cursor - 1;
+            }
             for (USize k = 0; k < arcSegs.GetSize (); ++k) {
                 const Int32 seg = arcSegs[k];
                 (*parcsH)[k].begIndex = seg + 1;
@@ -247,7 +276,7 @@ public:
             // best-understood roof — the first thing to get landing before multi-plane.
             API_PlaneRoofData& plane = element.roof.u.planeRoof;
             plane.poly.nCoords   = nCoords;
-            plane.poly.nSubPolys = 1;
+            plane.poly.nSubPolys = Int32 (holes.GetSize ()) + 1;
             plane.poly.nArcs     = nArcs;
             plane.angle          = pitchRad;
 
@@ -303,7 +332,7 @@ public:
 
 const NativeCommandRegistration RoofCreateCommandRegistrations[] = {
     { "CreateRoof", &MakeRegisteredNativeCommand<CreateRoofCommand>, false,
-      R"json({"type":"object","properties":{"outline":{"type":"array","minItems":6,"items":{"type":"number"}},"arcs":{"type":"array","items":{"type":"number"}},"base":{"type":"number"},"floorInd":{"type":"integer"},"pitch":{"type":"number"},"mode":{"type":"string","enum":["plane","poly"]},"riseLeft":{"type":"boolean"},"baseLine":{"type":"array","minItems":4,"maxItems":4,"items":{"type":"number"}},"planeHeight":{"type":"number"},"overhang":{"type":"number"},"polyContour":{"type":"boolean"},"structure":{"type":"string","enum":["basic","composite"]},"attrName":{"type":"string"},"winding":{"type":"string","enum":["asis","cw","ccw"]}},"additionalProperties":false,"required":["outline"]})json",
+      R"json({"type":"object","properties":{"outline":{"type":"array","minItems":6,"items":{"type":"number"}},"holes":{"type":"array","maxItems":1000,"items":{"type":"array","minItems":6,"items":{"type":"number"}}},"arcs":{"type":"array","items":{"type":"number"}},"base":{"type":"number"},"floorInd":{"type":"integer"},"pitch":{"type":"number"},"mode":{"type":"string","enum":["plane","poly"]},"riseLeft":{"type":"boolean"},"baseLine":{"type":"array","minItems":4,"maxItems":4,"items":{"type":"number"}},"planeHeight":{"type":"number"},"overhang":{"type":"number"},"polyContour":{"type":"boolean"},"structure":{"type":"string","enum":["basic","composite"]},"attrName":{"type":"string"},"winding":{"type":"string","enum":["asis","cw","ccw"]}},"additionalProperties":false,"required":["outline"]})json",
       R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["elementId","floorInd"]})json" },
 };
 

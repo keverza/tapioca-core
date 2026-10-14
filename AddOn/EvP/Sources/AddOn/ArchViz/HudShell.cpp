@@ -57,17 +57,6 @@ uint32_t Contrast (uint32_t rgba)
 
 int PushLook (const layers::Panel& panel, float scale)
 {
-    if (panel.defaultImGuiStyle) {
-        ImGuiStyle defaults;
-        ImGui::StyleColorsDark (&defaults);
-        defaults.ScaleAllSizes (scale);
-        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, defaults.WindowPadding);
-        ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding, defaults.WindowRounding);
-        ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, defaults.WindowBorderSize);
-        for (int i = 0; i < ImGuiCol_COUNT; ++i)
-            ImGui::PushStyleColor (ImGuiCol (i), defaults.Colors[i]);
-        return ImGuiCol_COUNT;
-    }
     ImGui::PushStyleVar (
         ImGuiStyleVar_WindowPadding,
         ImVec2 (float (graphicssettings::Number ("ui.size.WindowPadding.x", panel.paddingPixels)) * scale,

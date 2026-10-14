@@ -489,6 +489,9 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
             case layers::ItemKind::SitePlan:
                 SitePlan (panel, item, i, state, width, scale);
                 break;
+            case layers::ItemKind::LayoutChoices:
+                LayoutChoices (panel, item, i, state, width, scale);
+                break;
             case layers::ItemKind::Tab:
                 break; // above
         }
@@ -596,7 +599,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     io.DisplaySize = view;
     io.DeltaTime = delta;
     const float ui = scale * hudshell::FontScaleOfStep (store->fontStep);
-    hudshell::BaseStyle (ui, store->roofEditor != nullptr);
+    hudshell::BaseStyle (ui);
     ImGui::NewFrame ();
     windows.assign (panels.size () + 2, nullptr);
     highlight = Layout::Highlight {};

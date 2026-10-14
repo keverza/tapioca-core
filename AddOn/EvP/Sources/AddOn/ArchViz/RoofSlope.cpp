@@ -1,4 +1,5 @@
 #include "ArchViz/RoofSlope.hpp"
+#include "ArchViz/HudShell.hpp"
 #include <clipper2/clipper.h>
 #include <clipper2/clipper.triangulation.h>
 #include <algorithm>
@@ -596,6 +597,69 @@ bool RemoveDivider (Data& d, int cell, int side, std::string& error)
     error = "This edge is a footprint boundary or meets several neighbours. Use virtual footprint grips.";
     return false;
 }
+bool AddDivider (Data& d, int cell, int side, Vec at, std::string& error)
+{
+    if (cell < 0 || size_t (cell) >= d.cells.size () || side < 0 || side > 3 || !std::isfinite (at.x) ||
+        !std::isfinite (at.y)) {
+        error = "Right-click a rectangle edge to add a perpendicular divider.";
+        return false;
+    }
+    const auto& selected = d.cells[cell];
+    auto controls = selected.rim;
+    controls.push_back (selected.drain);
+    for (int n : controls)
+        if (d.nodes[n].lockXY || d.nodes[n].lockZ) {
+            error = "Unlock this rectangle before subdividing it.";
+            return false;
+        }
+    const int axis = 1 - side % 2;
+    const double value = axis == 0 ? at.x : at.y;
+    auto first = selected.box, second = selected.box;
+    if (value <= first[axis] + kMinSpan || value >= first[axis + 2] - kMinSpan) {
+        error = "Add the divider away from the edge endpoints (more than 10 mm).";
+        return false;
+    }
+    first[axis + 2] = second[axis] = value;
+    std::vector<Box> boxes;
+    for (size_t i = 0; i < d.cells.size (); ++i)
+        if (i != size_t (cell))
+            boxes.push_back (d.cells[i].box);
+    for (auto child : { first, second }) {
+        const int longAxis = child[2] - child[0] >= child[3] - child[1] ? 0 : 1;
+        const double length = child[longAxis + 2] - child[longAxis];
+        const double width = child[3 - longAxis] - child[1 - longAxis];
+        const int count = int (std::ceil (length / (width * kMaxAspect)));
+        if (count > 1000) {
+            error = "This cut would create too many narrow cells.";
+            return false;
+        }
+        for (int i = 0; i < count; ++i) {
+            auto box = child;
+            box[longAxis] += length * i / count;
+            box[longAxis + 2] = child[longAxis] + length * (i + 1) / count;
+            boxes.push_back (box);
+        }
+    }
+    Data candidate = d;
+    auto previous = d.nodes;
+    // The old drain becomes a ridge if a new crossing coincides with it.
+    previous[selected.drain].z = d.ridgeZ;
+    for (const auto& box : boxes)
+        for (const auto& p : Rect (box))
+            for (size_t i = 0; i < selected.rim.size (); ++i) {
+                const auto &a = d.nodes[selected.rim[i]], &b = d.nodes[selected.rim[(i + 1) % selected.rim.size ()]];
+                const Vec xy { p.x, p.y };
+                const double length = Distance (a.xy, b.xy);
+                const double t =
+                    ((xy.x - a.xy.x) * (b.xy.x - a.xy.x) + (xy.y - a.xy.y) * (b.xy.y - a.xy.y)) / (length * length);
+                if (t > 1e-6 && t < 1 - 1e-6 && std::abs (Cross (a.xy, b.xy, xy)) / length < kTolerance)
+                    previous.push_back ({ xy, a.z + t * (b.z - a.z) });
+            }
+    if (!Populate (candidate, boxes, previous, d.cells, error))
+        return false;
+    d = std::move (candidate);
+    return true;
+}
 bool EditOutline (Data& d, int ring, int vertex, Vec at, bool insert, bool remove, std::string& error)
 {
     for (const auto& n : d.nodes)
@@ -812,12 +876,17 @@ overlaylayers::Layer Layer (const Data& d)
         ol::Text text;
         text.text = Number (slope * 100, 2) + "%";
         text.at[0] = wc.x, text.at[1] = wc.y, text.at[2] = z + 0.01;
-        text.planar = true, text.sizeMetres = d.textHeight;
+        text.planar = true, text.sizeMetres = (std::max) (0.30, d.textHeight);
         text.rgba = 0x37523DFF, text.haloRgba = 0, text.haloPixels = 0;
         text.font = "tapioca:roof-inter";
         const double cs = std::cos (d.bearing), sn = std::sin (d.bearing);
-        text.direction[0] = cs, text.direction[1] = sn, text.direction[2] = t.gx;
         const double gx = t.gx * cs - t.gy * sn, gy = t.gx * sn + t.gy * cs;
+        // Model-space text runs along the actual fall arrow, kept upright in plan.
+        const double sign = gx > 0 || (std::abs (gx) < 1e-9 && gy > 0) ? 1 : -1;
+        text.direction[0] = sign * gx / slope, text.direction[1] = sign * gy / slope;
+        text.direction[2] = sign * slope;
+        text.at[0] -= text.direction[1] * text.sizeMetres * 0.7;
+        text.at[1] += text.direction[0] * text.sizeMetres * 0.7;
         const double normal = std::sqrt (1 + gx * gx + gy * gy);
         text.normal[0] = -gx / normal, text.normal[1] = -gy / normal, text.normal[2] = 1 / normal;
         layer.texts.push_back (text);
@@ -842,24 +911,15 @@ overlaylayers::Layer Layer (const Data& d)
 }
 overlaylayers::Panel PanelStyle ()
 {
-    overlaylayers::Panel panel;
+    // OVERLAY-INVARIANTS.md: change editor content, not the shared HUD's look.
+    auto panel = hudshell::PlainLook ();
     panel.title = "Roof slopes";
     panel.widthPixels = 360;
-    panel.sizePixels = 16;
-    panel.defaultImGuiStyle = true;
     return panel;
 }
 overlaylayers::Panel EditorStyle ()
 {
-    overlaylayers::Panel panel;
-    panel.theme = overlaylayers::PanelTheme::Light;
-    panel.font = "tapioca:roof-inter";
-    panel.textRgba = 0x1C211DFF;
-    panel.backgroundRgba = 0xF9FCF9FF;
-    panel.accentRgba = 0x5A7F62FF;
-    panel.roundingPixels = 2;
-    panel.paddingPixels = 8;
-    return panel;
+    return hudshell::PlainLook ();
 }
 void Editor::Begin ()
 {

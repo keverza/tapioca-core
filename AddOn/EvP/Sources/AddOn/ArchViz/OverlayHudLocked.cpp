@@ -26,7 +26,7 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
         if (store->roofEditor && LayerShown (*store, roofslope::kLayer)) {
             const auto style = roofslope::EditorStyle ();
             const int colours = hudshell::PushLook (style, ui);
-            ImGui::PushFont (FontFor (style.font), 16 * ui);
+            ImGui::PushFont (FontFor (style.font), style.sizePixels * ui);
             roofhud::OnView (*store->roofEditor, input, input.pointer && ImGui::IsWindowHovered (), ui);
             ImGui::PopFont ();
             ImGui::PopStyleColor (colours);

@@ -338,13 +338,14 @@ enum class ItemKind : uint8_t {
     Stack = 11,    // `values` as shares of one bar, `colors` and `labels` each
     Bars = 12,     // `values` as a histogram, `colors` and `labels` each, `text` its caption
     // ---- controls: the add-on holds their values and reports each change (OverlayHudEvents)
-    Checkbox = 13, // `text` beside a box, `checked` how it starts
-    Slider = 14,   // `text` over a bar from `min` to `max`, `number` where it starts, `step` 0: any
-    Combo = 15,    // a dropdown: `text` over it, `labels` its options, `selected` the one it starts on
-    Tab = 16,      // a tab of the panel's one tab bar, `text` its title: the items after it, up to
-                   // the next tab, are its page; the first tab's `id` and `selected` are the bar's
-    Button = 17,   // `text` on it; each press is reported
-    SitePlan = 18, // fitted XY parcel/inset diagram with endpoint/edge context menus
+    Checkbox = 13,      // `text` beside a box, `checked` how it starts
+    Slider = 14,        // `text` over a bar from `min` to `max`, `number` where it starts, `step` 0: any
+    Combo = 15,         // a dropdown: `text` over it, `labels` its options, `selected` the one it starts on
+    Tab = 16,           // a tab of the panel's one tab bar, `text` its title: the items after it, up to
+                        // the next tab, are its page; the first tab's `id` and `selected` are the bar's
+    Button = 17,        // `text` on it; each press is reported
+    SitePlan = 18,      // fitted XY parcel/inset diagram with endpoint/edge context menus
+    LayoutChoices = 19, // fitted selectable thumbnails; a choice shows its target overlay layer
 };
 
 // A control's `id` names its value and its events: at most this long, one per panel.
@@ -352,6 +353,18 @@ constexpr size_t kMaxControlId = 64;
 // A dropdown's options, a panel's tabs.
 constexpr size_t kMaxOptions = 64;
 constexpr size_t kMaxTabs = 16;
+
+struct ChoicePath {
+    std::vector<double> xy;
+    uint32_t rgba = 0x36C987FFu;
+};
+
+struct LayoutChoice {
+    std::string text;
+    std::string layer;
+    uint32_t count = 0;
+    std::vector<ChoicePath> paths;
+};
 
 struct PanelItem {
     ItemKind kind = ItemKind::Text;
@@ -395,6 +408,7 @@ struct PanelItem {
     std::vector<uint32_t> setbackModes; // Default, Custom, None
     std::vector<uint32_t> referenceVertices;
     bool editable = true;
+    std::vector<LayoutChoice> choices;
 };
 
 // A panel's look: the dark glass the HUD began with, or the light card of the design.
@@ -425,7 +439,6 @@ struct Panel {
     std::string font; // as a text's; ImGui rasterises it (OverlayHud.hpp)
     bool collapsed = false;
     PanelTheme theme = PanelTheme::Dark;
-    bool defaultImGuiStyle = false; // native editor HUD: no document/CSS theme overrides
     // Where in the HUD it goes: empty -- a tab of its own when titled, fixed to its anchor
     // when not -- or "stats", a card on the HUD's own Stats page, under its title.
     std::string tab;

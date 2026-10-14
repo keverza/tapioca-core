@@ -457,25 +457,26 @@ bool ReadLegend (const GS::ObjectState& item, const std::vector<layers::Mesh>& m
 bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::string& error)
 {
     const std::string kind = StringValue (item, "kind");
-    out.kind = kind == "row"         ? layers::ItemKind::Row
-               : kind == "separator" ? layers::ItemKind::Separator
-               : kind == "spacing"   ? layers::ItemKind::Spacing
-               : kind == "progress"  ? layers::ItemKind::Progress
-               : kind == "swatch"    ? layers::ItemKind::Swatch
-               : kind == "ramp"      ? layers::ItemKind::Ramp
-               : kind == "plot"      ? layers::ItemKind::Plot
-               : kind == "table"     ? layers::ItemKind::Table
-               : kind == "section"   ? layers::ItemKind::Section
-               : kind == "metrics"   ? layers::ItemKind::Metrics
-               : kind == "stack"     ? layers::ItemKind::Stack
-               : kind == "bars"      ? layers::ItemKind::Bars
-               : kind == "checkbox"  ? layers::ItemKind::Checkbox
-               : kind == "slider"    ? layers::ItemKind::Slider
-               : kind == "combo"     ? layers::ItemKind::Combo
-               : kind == "tab"       ? layers::ItemKind::Tab
-               : kind == "button"    ? layers::ItemKind::Button
-               : kind == "sitePlan"  ? layers::ItemKind::SitePlan
-                                     : layers::ItemKind::Text;
+    out.kind = kind == "row"             ? layers::ItemKind::Row
+               : kind == "separator"     ? layers::ItemKind::Separator
+               : kind == "spacing"       ? layers::ItemKind::Spacing
+               : kind == "progress"      ? layers::ItemKind::Progress
+               : kind == "swatch"        ? layers::ItemKind::Swatch
+               : kind == "ramp"          ? layers::ItemKind::Ramp
+               : kind == "plot"          ? layers::ItemKind::Plot
+               : kind == "table"         ? layers::ItemKind::Table
+               : kind == "section"       ? layers::ItemKind::Section
+               : kind == "metrics"       ? layers::ItemKind::Metrics
+               : kind == "stack"         ? layers::ItemKind::Stack
+               : kind == "bars"          ? layers::ItemKind::Bars
+               : kind == "checkbox"      ? layers::ItemKind::Checkbox
+               : kind == "slider"        ? layers::ItemKind::Slider
+               : kind == "combo"         ? layers::ItemKind::Combo
+               : kind == "tab"           ? layers::ItemKind::Tab
+               : kind == "button"        ? layers::ItemKind::Button
+               : kind == "sitePlan"      ? layers::ItemKind::SitePlan
+               : kind == "layoutChoices" ? layers::ItemKind::LayoutChoices
+                                         : layers::ItemKind::Text;
     if (item.Contains ("text"))
         out.text = StringValue (item, "text");
     if (item.Contains ("value"))
@@ -500,6 +501,26 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
     ReadDouble (item, "number", out.number);
     ReadDouble (item, "step", out.step);
     ReadCount (item, "selected", out.selected);
+    GS::Array<GS::ObjectState> choices;
+    if (item.Get ("choices", choices)) {
+        for (const auto& record : choices) {
+            layers::LayoutChoice choice;
+            choice.text = StringValue (record, "text");
+            choice.layer = StringValue (record, "layer");
+            ReadCount (record, "count", choice.count);
+            GS::Array<GS::ObjectState> paths;
+            if (record.Get ("paths", paths)) {
+                for (const auto& pathRecord : paths) {
+                    layers::ChoicePath path;
+                    ReadNumbers (pathRecord, "xy", path.xy);
+                    if (!ReadColour (pathRecord, "color", path.rgba, error))
+                        return false;
+                    choice.paths.push_back (std::move (path));
+                }
+            }
+            out.choices.push_back (std::move (choice));
+        }
+    }
     ReadNumbers (item, "outlineXY", out.outlineXY);
     ReadNumbers (item, "offsetXY", out.offsetXY);
     ReadNumbers (item, "setbackDistances", out.setbackDistances);

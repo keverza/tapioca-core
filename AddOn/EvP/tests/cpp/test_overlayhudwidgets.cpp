@@ -48,6 +48,47 @@ TEST (OverlayHudWidgets, CutoffNumberFitsBesideGripAtBothExtremes)
     }
 }
 
+TEST (OverlayHudWidgets, LayoutThumbnailClickSelectsOnlyItsLayerAndPersists)
+{
+    Watched watched;
+    layers::Panel panel;
+    panel.widthPixels = 500;
+    layers::PanelItem item;
+    item.kind = layers::ItemKind::LayoutChoices;
+    item.id = "layouts";
+    item.heightPixels = 200;
+    for (int i = 0; i < 3; ++i) {
+        layers::LayoutChoice choice;
+        choice.text = "Layout " + std::to_string (i);
+        choice.layer = "choice-" + std::to_string (i);
+        choice.count = 100 + i;
+        layers::ChoicePath path;
+        path.xy = { 0, 0, 10, 0, 10, 20, 0, 20 };
+        choice.paths.push_back (path);
+        item.choices.push_back (choice);
+    }
+    panel.items = { item };
+    watched.Lay ({ &panel }, At (800, 600));
+    EXPECT_DOUBLE_EQ (watched.Value ("layouts"), 0);
+    const auto revision = hud::Revision (*watched.state);
+    watched.Click ({ &panel }, kLeft + 240, kTop + 100);
+    EXPECT_DOUBLE_EQ (watched.Value ("layouts"), 1);
+    EXPECT_TRUE (hud::LayerShown (*watched.state, "choice-1"));
+    EXPECT_FALSE (hud::LayerShown (*watched.state, "choice-0"));
+    EXPECT_FALSE (hud::LayerShown (*watched.state, "choice-2"));
+    EXPECT_GT (hud::Revision (*watched.state), revision);
+    ASSERT_FALSE (watched.heard.empty ());
+    EXPECT_EQ (watched.heard.back ().kind, "layoutChoice");
+    watched.Lay ({ &panel }, At (800, 600));
+    EXPECT_DOUBLE_EQ (watched.Value ("layouts"), 1) << "same sent default must not reset a user's click";
+    layers::Layer layer;
+    layer.name = "choices";
+    layer.panels = { panel };
+    EXPECT_TRUE (layers::Validate (layer).empty ());
+    layer.panels[0].items[0].selected = 4;
+    EXPECT_NE (layers::Validate (layer).find ("layoutChoices"), std::string::npos);
+}
+
 TEST (OverlayHudWidgets, AGradientHandleQueuesNativeCutoffAndSharesItsValueAcrossViews)
 {
     Watched first;

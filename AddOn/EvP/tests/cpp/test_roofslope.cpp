@@ -472,13 +472,48 @@ TEST (RoofSlope, DeleteChangesOnlyTheVirtualFootprintAndCanBeUndone)
     EXPECT_FALSE (rh::DeleteSelection (s));
     EXPECT_EQ (s.editor.data.outline[0].size (), 4u);
 }
-TEST (RoofSlope, FloatingPanelKeepsDefaultImGuiAndCssIsOnlyTheEditingCanvas)
+TEST (RoofSlope, PanelAndEditingCanvasKeepTheSharedTapiocaLook)
 {
-    const auto panel = rs::PanelStyle (), canvas = rs::EditorStyle ();
-    EXPECT_TRUE (panel.defaultImGuiStyle);
-    EXPECT_TRUE (panel.font.empty ());
-    EXPECT_FALSE (canvas.defaultImGuiStyle);
-    EXPECT_EQ (canvas.font, "tapioca:roof-inter");
+    const auto& shared = geomsrv::archviz::hudshell::PlainLook ();
+    for (const auto& look : { rs::PanelStyle (), rs::EditorStyle () }) {
+        EXPECT_EQ (look.theme, shared.theme);
+        EXPECT_EQ (look.font, shared.font);
+        EXPECT_EQ (look.textRgba, shared.textRgba);
+        EXPECT_EQ (look.backgroundRgba, shared.backgroundRgba);
+        EXPECT_EQ (look.borderRgba, shared.borderRgba);
+        EXPECT_EQ (look.accentRgba, shared.accentRgba);
+        EXPECT_FLOAT_EQ (look.sizePixels, shared.sizePixels);
+        EXPECT_FLOAT_EQ (look.roundingPixels, shared.roundingPixels);
+        EXPECT_FLOAT_EQ (look.paddingPixels, shared.paddingPixels);
+    }
+    EXPECT_EQ (rs::PanelStyle ().title, "Roof slopes");
+    EXPECT_FLOAT_EQ (rs::PanelStyle ().widthPixels, 360);
+}
+TEST (RoofSlope, OpeningAndClosingTheEditorDoNotRecolourTheHud)
+{
+    hudtest::Watched view;
+    const auto data = Plan ({ { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } } });
+    const auto layer = rs::Layer (data);
+    geomsrv::archviz::overlaylayers::Set (layer);
+    auto input = hudtest::At (950, 700);
+    input.planar = true;
+    input.plan[0] = 20, input.plan[2] = 600, input.plan[4] = -20, input.plan[5] = 500;
+    const auto frame = [&] () {
+        hud::Layout out;
+        std::string error;
+        EXPECT_TRUE (
+            view.engine.Build ({ &layer.panels[0] }, { std::string (rs::kLayer) + "#0" }, 1, input, {}, out, error))
+            << error;
+        float bounds[4] {};
+        EXPECT_TRUE (hudtest::Box (out.host, geomsrv::archviz::hudshell::PlainLook ().backgroundRgba, bounds));
+    };
+    frame ();
+    ASSERT_TRUE (hud::StartRoofEditor (*view.state, data));
+    frame ();
+    frame ();
+    hud::StopRoofEditor (*view.state);
+    frame ();
+    geomsrv::archviz::overlaylayers::Clear (rs::kLayer);
 }
 TEST (RoofSlope, CapturedRoofGeometryEditsFitAnInteractiveFrameBudget)
 {

@@ -76,6 +76,9 @@ public:
 
         element.levelDimension.loc.x = x;
         element.levelDimension.loc.y = y;
+        GS::Int32 requestedFloor = 0;
+        if (params.Get ("floorInd", requestedFloor))
+            element.header.floorInd = short (requestedFloor);
 
         if (associative) {
             const API_Guid parentGuid = APIGuidFromString (parentGuidStr.ToCStr ());
@@ -774,7 +777,7 @@ public:
 
 const NativeCommandRegistration CreateCommandRegistrations[] = {
     { "PlaceLevelDimension", &MakeRegisteredNativeCommand<PlaceLevelDimensionCommand>, false,
-      R"json({"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"mode":{"type":"string","enum":["static","associative"]},"value":{"type":"number"},"parent":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]},"text":{"type":"string"}},"additionalProperties":false,"required":["x","y"]})json",
+      R"json({"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"floorInd":{"type":"integer","minimum":-32768,"maximum":32767},"mode":{"type":"string","enum":["static","associative"]},"value":{"type":"number"},"parent":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]},"text":{"type":"string"}},"additionalProperties":false,"required":["x","y"]})json",
       R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]})json" },
     { "CreateMesh", &MakeRegisteredNativeCommand<CreateMeshCommand>, false,
       R"json({"type":"object","properties":{"outline":{"type":"array","minItems":6,"items":{"type":"number"}},"polyZ":{"type":"array","items":{"type":"number"}},"baseLevel":{"type":"number"},"ridgeCoords":{"type":"array","items":{"type":"number"}},"ridgeCounts":{"type":"array","items":{"type":"integer","minimum":0}},"skirtLevel":{"type":"number"},"skirt":{"type":"string","enum":["SolidBodyWithSkirt","WithSkirt","SurfaceOnlyWithoutSkirt"]},"floorInd":{"type":"integer"},"onFloorPlan":{"type":"boolean"},"layer":{"type":"string"}},"additionalProperties":false,"required":["outline"]})json",

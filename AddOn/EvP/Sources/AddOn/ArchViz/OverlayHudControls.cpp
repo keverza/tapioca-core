@@ -61,6 +61,7 @@ void Engine::Impl::Reconcile (const std::vector<const layers::Panel*>& panels, c
                         Hold (state, item.colormap.greenControl, item.colormap.green);
                     break;
                 case layers::ItemKind::Combo:
+                case layers::ItemKind::LayoutChoices:
                     Hold (state, item.id, double (item.selected));
                     break;
                 case layers::ItemKind::SitePlan:
@@ -135,6 +136,74 @@ void Engine::Impl::Control (const layers::Panel& panel, const layers::PanelItem&
         }
         default:
             break;
+    }
+}
+
+// BOUND BY OVERLAY-INVARIANTS.md: local ImGui diagrams only. Choice visibility
+// uses the existing shared HUD state, never a camera, renderer or ACAPI call.
+void Engine::Impl::LayoutChoices (const layers::Panel& panel, const layers::PanelItem& item, size_t index,
+                                  PanelState& state, float width, float scale)
+{
+    const float gap = 8.0f * scale;
+    const float w =
+        (std::max) (80.0f * scale, (width - gap * float (item.choices.size () - 1)) / float (item.choices.size ()));
+    const float h = (item.heightPixels > 0 ? item.heightPixels : 200.0f) * scale;
+    auto& held = state.values[item.id];
+    for (size_t choiceIndex = 0; choiceIndex < item.choices.size (); ++choiceIndex) {
+        if (choiceIndex != 0)
+            ImGui::SameLine (0, gap);
+        ImGui::PushID (int (choiceIndex));
+        const auto& choice = item.choices[choiceIndex];
+        const ImVec2 origin = ImGui::GetCursorScreenPos ();
+        const ImVec2 end (origin.x + w, origin.y + h);
+        if (ImGui::InvisibleButton ("##layout.choice", ImVec2 (w, h))) {
+            held.current = double (choiceIndex);
+            for (size_t i = 0; i < item.choices.size (); ++i)
+                SetLayerShown (*store, item.choices[i].layer, i == choiceIndex);
+            changes.push_back (
+                { "layoutChoice", key, panel.title, item.id, int32_t (index), held.current, choice.text, true });
+        }
+        const bool selected = size_t (held.current) == choiceIndex;
+        ImDrawList* draw = ImGui::GetWindowDrawList ();
+        draw->AddRectFilled (origin, end, selected ? IM_COL32 (230, 241, 255, 255) : IM_COL32 (244, 246, 249, 255),
+                             5 * scale);
+        draw->AddRect (origin, end, selected ? IM_COL32 (40, 120, 225, 255) : IM_COL32 (170, 180, 190, 255), 5 * scale,
+                       0, selected ? 2.0f : 1.0f);
+        draw->PushClipRect (origin, end, true);
+        draw->AddText (ImVec2 (origin.x + 8 * scale, origin.y + 6 * scale), IM_COL32 (30, 45, 65, 255),
+                       choice.text.c_str ());
+        const std::string count = std::to_string (choice.count) + " spaces";
+        draw->AddText (ImVec2 (origin.x + 8 * scale, end.y - 23 * scale), IM_COL32 (30, 45, 65, 255), count.c_str ());
+        bool first = true;
+        double minX = 0, maxX = 0, minY = 0, maxY = 0;
+        for (const auto& path : choice.paths)
+            for (size_t k = 0; k + 1 < path.xy.size (); k += 2) {
+                const double x = path.xy[k], y = path.xy[k + 1];
+                if (first) {
+                    minX = maxX = x;
+                    minY = maxY = y;
+                    first = false;
+                }
+                minX = (std::min) (minX, x);
+                maxX = (std::max) (maxX, x);
+                minY = (std::min) (minY, y);
+                maxY = (std::max) (maxY, y);
+            }
+        const double factor = (std::min) ((w - 16 * scale) / (std::max) (maxX - minX, 1e-9),
+                                          (h - 60 * scale) / (std::max) (maxY - minY, 1e-9));
+        for (const auto& path : choice.paths) {
+            std::vector<ImVec2> points;
+            points.reserve (path.xy.size () / 2);
+            for (size_t k = 0; k + 1 < path.xy.size (); k += 2)
+                points.emplace_back (origin.x + w * 0.5f + float ((path.xy[k] - (minX + maxX) * 0.5) * factor),
+                                     origin.y + h * 0.5f - float ((path.xy[k + 1] - (minY + maxY) * 0.5) * factor));
+            const uint32_t c = path.rgba;
+            draw->AddPolyline (points.data (), int (points.size ()),
+                               IM_COL32 ((c >> 24) & 255, (c >> 16) & 255, (c >> 8) & 255, c & 255), ImDrawFlags_Closed,
+                               1.0f * scale);
+        }
+        draw->PopClipRect ();
+        ImGui::PopID ();
     }
 }
 

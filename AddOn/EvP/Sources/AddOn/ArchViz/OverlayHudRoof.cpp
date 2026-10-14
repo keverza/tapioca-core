@@ -36,18 +36,22 @@ void Engine::Impl::RoofEditActions (const Input& input)
                 session.close = true;
         }
         else {
+            if (session.baking || session.bakeRequested)
+                continue;
             session.editor.Undo (action == Input::EditAction::Undo);
             session.drag = 0;
         }
     }
 }
-bool StartRoofEditor (State& state, roofslope::Data data)
+bool StartRoofEditor (State& state, roofslope::Data data, std::string sourceGuid, uint64_t sourceStamp)
 {
     StopRoofEditor (state);
     auto session = std::make_shared<roofhud::Session> ();
     session->token = state.revision + 1;
     session->previousLock = state.editLocked;
     session->editor.data = std::move (data);
+    session->sourceGuid = std::move (sourceGuid);
+    session->sourceStamp = sourceStamp;
     for (size_t i = 0; i < session->editor.data.cells.size (); ++i)
         if (session->editor.data.cells[i].drainInside) {
             session->editor.selectedCell = int (i);

@@ -217,6 +217,7 @@ bool OntoPlane (const overlayhud::Input& v, const rs::Data& d, float px, float p
 
 void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
 {
+    hovered = hovered && !s.baking && !s.bakeRequested;
     auto& e = s.editor;
     if (s.drag && s.dragPlanar != v.planar)
         e.Cancel (), s.drag = 0;
@@ -521,6 +522,49 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (hovered && ImGui::IsMouseClicked (1)) {
         if (s.drag)
             e.Cancel (), s.drag = 0;
+        // Pick the whole projected edge, not just its midpoint grip. Closest-point
+        // search uses the current projection, including its perspective division.
+        double edgeDistance = 6 * scale;
+        for (int ci = 0; ci < int (d.cells.size ()) && !s.footprint; ++ci)
+            for (int side = 0; side < 4; ++side) {
+                const int ai = side == 0 ? 3 : side == 1 ? 0 : side == 2 ? 1 : 2;
+                const auto& a = d.nodes[d.cells[ci].rim[ai]];
+                const auto& b = d.nodes[d.cells[ci].rim[(ai + 1) % 4]];
+                auto sample = [&] (double t, ImVec2& p) {
+                    return Project (v, d, { a.xy.x + t * (b.xy.x - a.xy.x), a.xy.y + t * (b.xy.y - a.xy.y) },
+                                    a.z + t * (b.z - a.z), p);
+                };
+                double low = 0, high = 1;
+                bool valid = true;
+                for (int i = 0; i < 24; ++i) {
+                    const double left = (2 * low + high) / 3, right = (low + 2 * high) / 3;
+                    ImVec2 p, q;
+                    if (!sample (left, p) || !sample (right, q)) {
+                        valid = false;
+                        break;
+                    }
+                    if (Distance (p, mouse) < Distance (q, mouse))
+                        high = right;
+                    else
+                        low = left;
+                }
+                const double t = (low + high) / 2;
+                ImVec2 p;
+                if (valid && sample (t, p) && Distance (p, mouse) < edgeDistance) {
+                    edgeDistance = Distance (p, mouse);
+                    hit = { 3,
+                            ci,
+                            -1,
+                            side,
+                            -1,
+                            -1,
+                            -1,
+                            -1,
+                            { a.xy.x + t * (b.xy.x - a.xy.x), a.xy.y + t * (b.xy.y - a.xy.y) },
+                            a.z + t * (b.z - a.z),
+                            edgeDistance };
+                }
+            }
         if (hit.kind) {
             e.selectedCell = hit.cell, e.selectedNode = hit.node, e.selectedSide = hit.side;
             s.ring = hit.ring, s.vertex = hit.vertex, s.last = hit.at;
@@ -529,6 +573,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         ImGui::OpenPopup ("##roofSlopeMenu");
     }
     if (ImGui::BeginPopup ("##roofSlopeMenu")) {
+        ImGui::BeginDisabled (s.baking || s.bakeRequested);
         if (e.selectedNode >= 0) {
             const auto& node = d.nodes[e.selectedNode];
             if (ImGui::MenuItem ("Set elevation", nullptr, false, !node.lockZ))
@@ -554,14 +599,28 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     Edit (s, std::move (copy), error);
                 }
         }
-        if (e.selectedSide >= 0 && ImGui::MenuItem ("Delete virtual divider"))
-            DeleteSelection (s);
+        if (!s.footprint && e.selectedSide >= 0) {
+            if (ImGui::MenuItem ("Add edge")) {
+                auto copy = d;
+                std::string error;
+                rs::AddDivider (copy, e.selectedCell, e.selectedSide, s.last, error);
+                if (Edit (s, std::move (copy), error)) {
+                    e.selectedCell = e.selectedNode = e.selectedSide = -1;
+                    e.message = "Edge added; long children balanced into near-square cells. Source slab unchanged.";
+                }
+            }
+            if (ImGui::MenuItem ("Delete edge"))
+                DeleteSelection (s);
+        }
         if (ImGui::MenuItem ("Undo", nullptr, false, !e.undo.empty ()))
             e.Undo (true);
         if (ImGui::MenuItem ("Redo", nullptr, false, !e.redo.empty ()))
             e.Undo (false);
-        if (ImGui::MenuItem ("Finish editing"))
+        ImGui::EndDisabled ();
+        if (ImGui::MenuItem ("Cancel"))
             s.close = true;
+        if (ImGui::MenuItem ("Bake", nullptr, false, !s.baking && !s.bakeRequested))
+            RequestBake (s);
         ImGui::EndPopup ();
     }
 }
@@ -576,14 +635,24 @@ void Panel (Session& s)
     ImGui::Text ("Cell envelope < %.2f m2", d.cap);
     ImGui::TextWrapped (
         "Four corners + X, clipped to slab. Select a face for live dimensions. Drag a midpoint to resize the grid.");
+    ImGui::BeginDisabled (s.baking || s.bakeRequested);
     if (ImGui::SmallButton ("Undo"))
         e.Undo (true);
     ImGui::SameLine ();
     if (ImGui::SmallButton ("Redo"))
         e.Undo (false);
+    ImGui::EndDisabled ();
     ImGui::SameLine ();
-    if (ImGui::SmallButton ("Finish"))
+    if (ImGui::SmallButton ("Cancel"))
         s.close = true;
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (s.baking || s.bakeRequested);
+    if (ImGui::SmallButton ("Bake"))
+        RequestBake (s);
+    ImGui::EndDisabled ();
+    ImGui::TextWrapped ("Bake creates Roofs, slope symbols and associative level dimensions in one Undo step. "
+                        "Preview Z defines roof reference planes; Roof tool material/thickness defaults are retained.");
+    ImGui::BeginDisabled (s.baking || s.bakeRequested);
     ImGui::Checkbox ("Virtual footprint grips", &s.footprint);
     if (s.footprint)
         ImGui::TextWrapped ("Outline edits replan cells and reset manual heights. The source slab is not edited.");
@@ -621,7 +690,8 @@ void Panel (Session& s)
         ImGui::TextWrapped ("Review: %s", e.message.c_str ());
     }
     ImGui::TextWrapped ("Locked: overlay models, Archicad navigates. Wheel zooms; middle drag pans/orbits. Proposed "
-                        "drains only. No bake or hydraulic certification.");
+                        "drains only; no hydraulic certification.");
+    ImGui::EndDisabled ();
 }
 bool Answer (Session& s, const NumberEdit& edit, double value)
 {
@@ -677,5 +747,22 @@ bool DeleteSelection (Session& s)
     s.editor.selectedCell = s.editor.selectedNode = s.editor.selectedSide = -1;
     s.ring = s.vertex = -1;
     return applied;
+}
+bool RequestBake (Session& s)
+{
+    if (s.baking || s.bakeRequested || s.close)
+        return false;
+    if (s.sourceGuid.empty () || s.number || s.editor.gesture) {
+        s.editor.message = "Complete the active edit and open the editor from a source slab before Bake.";
+        return false;
+    }
+    for (const auto& cell : s.editor.data.cells)
+        if (!cell.drainInside) {
+            s.editor.message = "Move every proposed drain onto the roof before Bake.";
+            return false;
+        }
+    s.bakeRequested = true;
+    s.editor.message = "Bake requested; Cancel is still available until model creation begins.";
+    return true;
 }
 } // namespace geomsrv::archviz::roofhud

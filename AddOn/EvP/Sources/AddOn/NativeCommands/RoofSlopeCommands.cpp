@@ -36,6 +36,11 @@ class RoofSlopeEditorCommand : public MainThreadCommand {
                 return NativeCommandResult::Failure (
                     EVP_FAIL ("Source slab or its story datum is unavailable.", "opening roof slopes"));
             const double top = reading.slabs.front ().top;
+            API_Elem_Head sourceHead {};
+            sourceHead.guid = APIGuidFromString (source.ToCStr ());
+            if (ACAPI_Element_GetHeader (&sourceHead) != NoError)
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("Source slab changed while opening the editor.", "opening roof slopes"));
             if (params.Contains ("slopePercent"))
                 ReadFiniteNumber (params, "slopePercent", percent);
             if (params.Contains ("maxArea"))
@@ -65,7 +70,8 @@ class RoofSlopeEditorCommand : public MainThreadCommand {
             if (!error.empty ())
                 return NativeCommandResult::Failure (
                     EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8), "publishing roof slopes"));
-            hud::StartRoofEditor (*state, std::move (data));
+            hud::StartRoofEditor (*state, std::move (data), source.ToCStr (0, MaxUSize, CC_UTF8).Get (),
+                                  uint64_t (sourceHead.modiStamp));
             archviz::overlaylayers::Set (std::move (layer));
         }
         const bool roofKeys = hud::RoofEditorActive (*state) && hud::EditLocked (*state) &&

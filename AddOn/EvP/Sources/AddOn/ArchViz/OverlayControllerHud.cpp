@@ -26,6 +26,7 @@
 #include "ArchViz/TextPrompt.hpp"
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/HudFloorPlanFiles.hpp"
+#include "ArchViz/RoofSlopeBake.hpp"
 #include "Palette/ProgrammeDialog.hpp"
 
 #include <algorithm>
@@ -85,6 +86,7 @@ void FollowHudState ()
     massingslicesmodel::Poll ();
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
     bool recoloured = false;
+    roofslopebake::Follow (state);
     overlaylayers::Layer roof;
     bool clearRoof = false;
     if (overlayhud::FollowRoofEditor (*state, roof, clearRoof)) {

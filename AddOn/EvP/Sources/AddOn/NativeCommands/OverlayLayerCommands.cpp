@@ -427,7 +427,15 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "items":{"type":"array","maxItems":200,"items":{"type":"object","properties":{
             "kind":{"type":"string","enum":["text","row","separator","spacing","progress","swatch","ramp","plot",
                                             "table","section","metrics","stack","bars","checkbox","slider","combo",
-                                             "tab","button","sitePlan"]},
+                                              "tab","button","sitePlan","layoutChoices"]},
+            "choices":{"type":"array","minItems":1,"maxItems":4,"items":{"type":"object","properties":{
+                "text":{"type":"string","minLength":1,"maxLength":128},
+                "layer":{"type":"string","minLength":1,"maxLength":64},
+                "count":{"type":"integer","minimum":0,"maximum":5000},
+                "paths":{"type":"array","minItems":1,"maxItems":10000,"items":{"type":"object","properties":{
+                    "xy":{"type":"array","minItems":6,"maxItems":60000,"items":{"type":"number"}},
+                    "color":{"$ref":"#Color"}},"additionalProperties":false,"required":["xy"]}}},
+                "additionalProperties":false,"required":["text","layer","count","paths"]}},
             "id":{"type":"string","minLength":1,"maxLength":64,"description":"A control's name in its value and its events (Tapioca.OverlayHudEvents); the first tab's names the tab bar."},
             "checked":{"type":"boolean","description":"A checkbox: how it starts."},
             "number":{"type":"number","description":"A slider: where it starts, between min and max."},

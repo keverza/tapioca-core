@@ -69,7 +69,7 @@ __all__ = [
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
-_INTEGER_KEYS = {"indices", "triangles", "ticks", "decimals", "bands", "mesh", "storeys", "selected", "perRow"}
+_INTEGER_KEYS = {"indices", "triangles", "ticks", "decimals", "bands", "mesh", "storeys", "selected", "perRow", "count"}
 
 _ANCHORS = ("top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right")
 
@@ -442,6 +442,21 @@ class Panel:
             "table",
             columns=[str(c) for c in columns] if columns else None,
             rows=[[str(cell) for cell in row] for row in rows],
+        )
+
+    def layout_choices(self, id, choices, selected=0, height=200):
+        """Native selectable XY thumbnails. Each choice has text/count/layer/paths;
+        clicking shows that layer and hides the other choice layers, with no Python loop.
+        The held control value is the selected index. Requires an updated addon.
+        """
+        records = []
+        for choice in choices:
+            record = dict(choice)
+            record["count"] = int(record["count"])
+            record["paths"] = [_coloured(path) for path in record["paths"]]
+            records.append(record)
+        return self._add(
+            "layoutChoices", id=str(id), choices=records, selected=int(selected), heightPixels=float(height)
         )
 
     def site_plan(

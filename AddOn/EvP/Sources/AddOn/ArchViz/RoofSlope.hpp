@@ -60,6 +60,9 @@ bool MoveDrain (Data& data, int cell, Vec xy, std::string& error);
 // collapsed cells, locked nodes and a cap/coverage violation instead of warping a box.
 bool MoveDivider (Data& data, int cell, int side, double value, std::string& error);
 bool RemoveDivider (Data& data, int cell, int side, std::string& error);
+// Adds a perpendicular cut through a picked edge, balancing children as needed
+// to retain near-square envelopes. Locked controls and stale/degenerate cuts fail.
+bool AddDivider (Data& data, int cell, int side, Vec at, std::string& error);
 bool EditOutline (Data& data, int ring, int vertex, Vec at, bool insert, bool remove, std::string& error);
 bool LiftCell (Data& data, int cell, double delta, std::string& error);
 bool Reorient (Data& data, double bearing, std::string& error);

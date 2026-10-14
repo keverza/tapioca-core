@@ -33,6 +33,40 @@ def test_colours_read_every_way_a_script_writes_them():
         overlay.colour("#12345")
 
 
+def test_layout_choice_thumbnail_matches_strict_native_item_schema(monkeypatch):
+    source = (Path(__file__).resolve().parents[1] / "Sources/AddOn/NativeCommands/OverlayLayerCommands.cpp").read_text(
+        encoding="utf-8"
+    )
+    declaration = source[
+        source.index("constexpr const char kSetOverlayLayerInput") : source.index(
+            "constexpr const char kSetOverlayLayerOutput"
+        )
+    ]
+    schema = json.loads("".join(re.findall(r'R"json\((.*?)\)json"', declaration, re.S)))
+    item_schema = schema["properties"]["panels"]["items"]["properties"]["items"]["items"]
+    item_schema["$defs"] = {"color": {"$anchor": "Color", "type": "string"}}
+    panel = overlay.Panel().layout_choices(
+        "layout",
+        [
+            {
+                "text": "0° aisles",
+                "layer": "candidate-a",
+                "count": 181,
+                "paths": [{"xy": [0, 0, 10, 0, 10, 20, 0, 20], "color": "#36C987"}],
+            }
+        ],
+    )
+    seen = _capture(monkeypatch)
+    overlay.set_layer("choice-panel", panels=[panel])
+    item = seen[0][1]["panels"][0]["items"][0]
+    jsonschema.validate(item, item_schema)
+    assert type(item["choices"][0]["count"]) is int
+    assert item["choices"][0]["paths"][0]["color"] == "36C987FF"
+    item["choices"][0]["unregistered"] = True
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(item, item_schema)
+
+
 def test_a_panel_is_its_items_in_order():
     panel = (
         overlay.Panel(title="Sun study", anchor="top-right", width=260)

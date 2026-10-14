@@ -336,7 +336,7 @@ bool HudOpen (const State& state);
 bool EditLocked (const State& state);
 void SetEditLocked (State& state, bool locked);
 // Roof sessions own only their command-scoped layer and temporarily borrow the dock lock.
-bool StartRoofEditor (State& state, roofslope::Data data);
+bool StartRoofEditor (State& state, roofslope::Data data, std::string sourceGuid = {}, uint64_t sourceStamp = 0);
 void StopRoofEditor (State& state);
 bool RoofEditorActive (const State& state);
 const roofslope::Data* RoofEditorData (const State& state);
