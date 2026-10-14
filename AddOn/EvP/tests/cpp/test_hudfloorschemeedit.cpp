@@ -771,3 +771,21 @@ TEST (HudFloorSchemeEdit, AnEditThatCannotBeMadeIsSaidUnderTheTools)
     EXPECT_LT (notice.w, floor.y) << "under the tools, above the plan";
     EXPECT_EQ (planner.Latest (bp::FloorId ("A", 0))->scheme.flats.size (), flats);
 }
+
+// User, 2026-10-14: "Wall selection hitbox needs to larger." A wall between two flats is picked
+// within 12 pixels of it; further in, the flat.
+TEST (HudFloorSchemeEdit, AWallIsPickedWithinTwelvePixels)
+{
+    fs::Scheme s;
+    for (double x0 : { 0.0, 6.0 }) {
+        fs::Flat flat;
+        flat.shape = { { x0, 0 }, { x0 + 6, 0 }, { x0 + 6, 7 }, { x0, 7 } };
+        flat.band = 0;
+        flat.axis = { 1, 0 };
+        s.flats.push_back (flat);
+    }
+    const double px = 0.1; // ten pixels a metre
+    EXPECT_EQ (hf::detail::HitAt (s, { 6 + 1.0, 3.5 }, px).kind, hf::Kind::Wall) << "10 px off the wall";
+    EXPECT_EQ (hf::detail::HitAt (s, { 6 - 1.1, 3.5 }, px).kind, hf::Kind::Wall) << "11 px, the other side";
+    EXPECT_EQ (hf::detail::HitAt (s, { 6 + 1.5, 3.5 }, px).kind, hf::Kind::Flat) << "15 px: the flat";
+}

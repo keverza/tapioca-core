@@ -107,16 +107,16 @@ std::vector<Fill> Fills (const fs::Scheme& s, const floorprogramme::Programme& p
 }
 
 // ---- what is where ------------------------------------------------------------------------
-Target HitAt (const fs::Scheme& s, fs::Vec m, double tolerance)
+Target HitAt (const fs::Scheme& s, fs::Vec m, double px)
 {
     if (const int core = fe::CoreAt (s, m); core >= 0)
         return { Kind::Stair, core, {}, {} };
-    if (auto end = fe::EndAt (s, m, tolerance))
+    if (auto end = fe::EndAt (s, m, kEndReach * px))
         return { Kind::End, end->corridor, {}, end };
-    if (auto wall = fe::WallAt (s, m, tolerance * 0.8))
+    if (auto wall = fe::WallAt (s, m, kWallReach * px))
         return { Kind::Wall, -1, wall, {} };
     for (size_t i = 0; i < s.party.size (); ++i)
-        if (Distance (m, s.party[i][0], s.party[i][1]) < tolerance)
+        if (Distance (m, s.party[i][0], s.party[i][1]) < kPartyReach * px)
             return { Kind::Party, int (i), {}, {} };
     if (const int flat = fe::FlatAt (s, m); flat >= 0)
         return { Kind::Flat, flat, {}, {} };
@@ -548,7 +548,7 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
         if (std::hypot (at.arrows[i].at.x - mouse.x, at.arrows[i].at.y - mouse.y) < 9 * px)
             at.arrow = int (i);
     if (hovered && e.have)
-        at.hover = HitAt (s, mouse, 6 * px);
+        at.hover = HitAt (s, mouse, px);
     const auto& hover = at.hover;
 
     // Gestures on the left button.

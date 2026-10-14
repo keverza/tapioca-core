@@ -107,6 +107,12 @@ struct Pointing {
 };
 
 namespace detail {
+// How far from what the pointer picks, in pixels (user, 2026-10-14: "Wall selection hitbox needs to
+// larger"): a wall between flats, a wall against the next building, a corridor's end.
+constexpr double kWallReach = 12, kPartyReach = 10, kEndReach = 6;
+// What is under `m` on scheme `s`, a pixel being `px` metres: a stair, a corridor end, a wall, a
+// party wall, a flat, in that order.
+Target HitAt (const fs::Scheme& s, fs::Vec m, double px);
 // The pointer over view `v` (`hovered`: it is the HUD's here): hover, the selection's arrows,
 // gestures and their commits, the right-click menu opened, the cursor.
 Pointing Interact (Editor& e, Context& c, const View& v, bool hovered);
