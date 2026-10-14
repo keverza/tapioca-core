@@ -130,9 +130,187 @@ void AddEntity (const edit::Entity& e, uint32_t rgba, float width, layers::Layer
         layer.polylines.push_back (Line ({ v.p, v.p + Vec3 { 0.0, 0.0, e.height } }, false, rgba, width));
 }
 
+std::string Percent (double value)
+{
+    return FormatValue (edit::Quantity::Slope, value);
+}
+
+layers::Text Label (const std::string& text, Vec3 at, const Style& style, float dy, uint32_t rgba)
+{
+    layers::Text t;
+    t.text = text;
+    t.at[0] = at.x;
+    t.at[1] = at.y;
+    t.at[2] = at.z;
+    t.offsetPixels[1] = dy;
+    t.sizePixels = style.textPixels;
+    t.rgba = rgba;
+    t.behind = layers::Behind::Show;
+    return t;
+}
+
+layers::Polyline Arrow (Vec3 from, Vec3 to, uint32_t rgba)
+{
+    layers::Polyline a = Line ({ from, to }, false, rgba, 1.5f);
+    a.endArrow = layers::Terminator::Arrow;
+    a.behind = layers::Behind::Show;
+    return a;
+}
+
+// The centre at a station, through the outline's own samples.
+bool CentreAt (const edit::PathOutline& o, double station, Vec3& out)
+{
+    for (size_t i = 0; i + 1 < o.stations.size (); ++i)
+        if (station <= o.stations[i + 1] + 1.0e-9) {
+            const double span = o.stations[i + 1] - o.stations[i];
+            out = Lerp (o.centre[i], o.centre[i + 1], span > 0.0 ? (station - o.stations[i]) / span : 0.0);
+            return true;
+        }
+    return false;
+}
+
+void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer)
+{
+    edit::PathOutline o;
+    std::string error;
+    if (!edit::Outline (path, style.pathStep, o, error) || o.stations.size () < 2)
+        return;
+    // The walking surface as a strip between the edges.
+    layers::Mesh surface;
+    const uint32_t n = static_cast<uint32_t> (o.stations.size ());
+    for (uint32_t i = 0; i < n; ++i) {
+        Push (surface.points, o.left[i]);
+        Push (surface.points, o.right[i]);
+    }
+    for (uint32_t i = 0; i + 1 < n; ++i) {
+        const uint32_t l0 = 2 * i, r0 = l0 + 1, l1 = l0 + 2, r1 = l0 + 3;
+        surface.indices.insert (surface.indices.end (), { l0, r0, r1, l0, r1, l1 });
+    }
+    surface.rgba = style.pathSurface;
+    surface.style.shading = layers::Shading::Flat;
+    surface.styled = true;
+    layer.meshes.push_back (std::move (surface));
+    layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
+    layer.polylines.push_back (Line (o.left, false, style.pathEdge, 1.5f));
+    layer.polylines.push_back (Line (o.right, false, style.pathEdge, 1.5f));
+
+    // Control polygon and points: the plan handles.
+    layers::Polyline polygon = Line (o.points, false, style.controlPolygon, 1.0f);
+    polygon.dashMetres = { 0.4f, 0.25f };
+    layer.polylines.push_back (std::move (polygon));
+    layers::PointSet points;
+    points.rgba = style.geometry;
+    points.sizePixels = style.vertexPixels;
+    for (const auto& p : o.points)
+        Push (points.points, p);
+    layer.points.push_back (std::move (points));
+
+    // Grade breaks with their elevations; fixed ones in their own colour.
+    layers::PointSet free, fixed;
+    free.rgba = style.gradeBreak;
+    fixed.rgba = style.fixedBreak;
+    free.sizePixels = fixed.sizePixels = style.vertexPixels + 1.0f;
+    for (size_t i = 0; i < path.profile.size () && i < o.breaks.size (); ++i) {
+        const auto& b = path.profile[i];
+        Push (b.fixed ? fixed.points : free.points, o.breaks[i]);
+        std::string text = FormatValue (edit::Quantity::Elevation, b.z);
+        if (b.fixed)
+            text += " fixed";
+        layer.texts.push_back (Label (text, o.breaks[i], style, 16.0f, b.fixed ? style.fixedBreak : style.text));
+    }
+    if (!free.points.empty ())
+        layer.points.push_back (std::move (free));
+    if (!fixed.points.empty ())
+        layer.points.push_back (std::move (fixed));
+
+    // A downhill arrow and the grade over the middle of each tangent.
+    for (size_t i = 0; i + 1 < path.profile.size (); ++i) {
+        const double s0 = path.profile[i].station, s1 = path.profile[i + 1].station;
+        const double grade = edit::TangentGrade (path.profile, i) * 100.0;
+        Vec3 a, b, mid;
+        if (!CentreAt (o, s0 + (s1 - s0) * 0.4, a) || !CentreAt (o, s0 + (s1 - s0) * 0.6, b) ||
+            !CentreAt (o, (s0 + s1) * 0.5, mid))
+            continue;
+        if (std::abs (grade) > 1.0e-9)
+            layer.polylines.push_back (grade > 0.0 ? Arrow (b, a, style.text) : Arrow (a, b, style.text));
+        layer.texts.push_back (Label (Percent (std::abs (grade)), mid, style, -14.0f, style.text));
+    }
+
+    // Crossfall: arrows from the high side towards the falling edge(s) in each range.
+    for (size_t r = 0; r < path.sections.size (); ++r) {
+        const auto& section = path.sections[r];
+        const double end = r + 1 < path.sections.size () ? path.sections[r + 1].station : o.stations.back ();
+        const double s = (section.station + end) * 0.5;
+        size_t k = 0;
+        while (k + 1 < o.stations.size () && o.stations[k] < s)
+            ++k;
+        const Vec3 c = o.centre[k], l = o.left[k], rt = o.right[k];
+        const auto toward = [&] (Vec3 edge) { return Lerp (c, edge, 0.8); };
+        if (section.fall == edit::Fall::Crown) {
+            layer.polylines.push_back (Arrow (c, toward (l), style.fall));
+            layer.polylines.push_back (Arrow (c, toward (rt), style.fall));
+        }
+        else if (section.fall == edit::Fall::Left)
+            layer.polylines.push_back (Arrow (toward (rt), toward (l), style.fall));
+        else
+            layer.polylines.push_back (Arrow (toward (l), toward (rt), style.fall));
+        layer.texts.push_back (Label (Percent (section.crossfall), Lerp (c, l, 0.5), style, 0.0f, style.fall));
+    }
+}
+
+// A selected or hovered part of a path.
+void AddPathRef (const edit::Path& path, const edit::Ref& ref, uint32_t rgba, const Style& style, layers::Layer& layer)
+{
+    edit::PathOutline o;
+    std::string error;
+    if (!edit::Outline (path, style.pathStep, o, error))
+        return;
+    const auto marker = [&] (Vec3 at) {
+        layers::PointSet p;
+        Push (p.points, at);
+        p.rgba = rgba;
+        p.sizePixels = style.vertexPixels + 4.0f;
+        layer.points.push_back (std::move (p));
+    };
+    switch (ref.part) {
+        case edit::Part::Entity:
+            layer.polylines.push_back (Line (o.centre, false, rgba, style.selectedWidth));
+            break;
+        case edit::Part::PathPoint:
+            for (size_t i = 0; i < path.points.size () && i < o.points.size (); ++i)
+                if (path.points[i].id == ref.item)
+                    marker (o.points[i]);
+            break;
+        case edit::Part::Break:
+            for (size_t i = 0; i < path.profile.size () && i < o.breaks.size (); ++i)
+                if (path.profile[i].id == ref.item)
+                    marker (o.breaks[i]);
+            break;
+        case edit::Part::Range: {
+            std::vector<Vec3> left, right;
+            for (size_t i = 0; i < o.stations.size (); ++i)
+                if (o.range[i] == ref.item) {
+                    left.push_back (o.left[i]);
+                    right.push_back (o.right[i]);
+                }
+            if (left.size () >= 2) {
+                layer.polylines.push_back (Line (left, false, rgba, style.selectedWidth));
+                layer.polylines.push_back (Line (right, false, rgba, style.selectedWidth));
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 // The geometry a reference stands for, drawn in `rgba`.
 void AddRef (const edit::Document& doc, const edit::Ref& ref, uint32_t rgba, const Style& style, layers::Layer& layer)
 {
+    if (const edit::Path* path = edit::FindPath (doc, ref.entity)) {
+        AddPathRef (*path, ref, rgba, style, layer);
+        return;
+    }
     const edit::Entity* e = edit::Find (doc, ref.entity);
     if (e == nullptr || !edit::Exists (doc, ref))
         return;
@@ -201,7 +379,7 @@ void AddDimension (const edit::Document& doc, const edit::Dimension& d, const St
     text.behind = layers::Behind::Show;
     Vec3 at;
     edit::PointOf (doc, d.ref, at);
-    if (d.quantity == edit::Quantity::Slope) {
+    if (d.quantity == edit::Quantity::Slope && d.ref.part == edit::Part::Segment) {
         // A slope arrow points downhill over the middle of the segment.
         const bool down = b.z <= a.z;
         const Vec3 high = down ? a : b, low = down ? b : a;
@@ -306,6 +484,8 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     }
     if (!vertices.points.empty ())
         layer.points.push_back (std::move (vertices));
+    for (const auto& p : doc.paths)
+        AddPath (p, style, layer);
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
             AddRef (doc, ref, style.selected, style, layer);

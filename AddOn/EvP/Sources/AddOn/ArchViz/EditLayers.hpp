@@ -1,11 +1,13 @@
 #ifndef EVP_ARCHVIZ_EDITLAYERS_HPP
 #define EVP_ARCHVIZ_EDITLAYERS_HPP
 
-// The virtual editor drawn as one overlay layer: its geometry, what is selected and
-// hovered, the snap marker with its guides and hint, live dimensions, and the gizmo.
-// Rebuilt from the session whenever its revision or the feedback changes; the layer is
-// command-scoped, so it disappears with the editing command. Both overlays draw it
-// through their own transforms; nothing here knows a camera.
+// The virtual editor drawn as one overlay layer: its geometry and paths (surface,
+// centreline, edges, control polygon, grade breaks, downhill grade arrows with their
+// percentages, crossfall arrows, elevations), what is selected and hovered, the snap
+// marker with its guides and hint, live dimensions, and the gizmo. Rebuilt from the
+// session whenever its revision or the feedback changes; the layer is command-scoped,
+// so it disappears with the editing command. Both overlays draw it through their own
+// transforms; nothing here knows a camera.
 #include "ArchViz/OverlayLayers.hpp"
 #include "Edit/EditGizmo.hpp"
 #include "Edit/EditSnap.hpp"
@@ -23,6 +25,9 @@ struct Style {
     uint32_t axis[3] = { 0xE5484DFFu, 0x46A758FFu, 0x3E63DDFFu };
     uint32_t activeHandle = 0xFFD60AFFu;
     uint32_t text = 0xFFFFFFFFu;
+    uint32_t pathSurface = 0xC9A66B70u, pathEdge = 0xC9A66BFFu, controlPolygon = 0x9AA4B1FFu;
+    uint32_t gradeBreak = 0x2D9CDBFFu, fixedBreak = 0xE5484DFFu, fall = 0x5AC8FAFFu;
+    double pathStep = 0.5; // metres between drawn path samples
     float lineWidth = 2.0f, selectedWidth = 3.5f, vertexPixels = 7.0f;
     float textPixels = 12.0f;
 };

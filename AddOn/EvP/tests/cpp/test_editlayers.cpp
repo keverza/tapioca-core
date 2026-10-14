@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
 
 namespace ed = geomsrv::edit;
@@ -87,4 +88,57 @@ TEST (EditLayers, SelectionSnapDimensionsAndGizmoAreDrawn)
     for (const auto& p : layer.polylines)
         active |= p.rgba == el::Style {}.activeHandle && p.widthPixels > 3.0f;
     EXPECT_TRUE (active);
+}
+
+TEST (EditLayers, PathsDrawSurfaceGradesCrossfallAndFixedPoints)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 100.0 }, { 40, 0, 102.0 } }, 2.0);
+    std::string error;
+    ASSERT_TRUE (ed::FixElevationAt (doc, path, 40.0, 102.0, "door", error)) << error;
+    const auto layer = el::Build (doc, {});
+    ASSERT_EQ (layer.meshes.size (), 1u);
+    EXPECT_FALSE (layer.meshes[0].indices.empty ());
+    bool grade = false, fixed = false, crossfall = false;
+    for (const auto& t : layer.texts) {
+        grade |= t.text == "5.0 %";
+        fixed |= t.text == "+102.00 m fixed";
+        crossfall |= t.text == "2.0 %" && t.rgba == el::Style {}.fall;
+    }
+    EXPECT_TRUE (grade);
+    EXPECT_TRUE (fixed);
+    EXPECT_TRUE (crossfall);
+    // One downhill grade arrow (pointing back towards the start) and two crown arrows.
+    std::vector<const layers::Polyline*> arrows;
+    for (const auto& p : layer.polylines)
+        if (p.endArrow == layers::Terminator::Arrow)
+            arrows.push_back (&p);
+    ASSERT_EQ (arrows.size (), 3u);
+    const auto* downhill = arrows[0];
+    EXPECT_LT (downhill->points[3], downhill->points[0]); // x decreases: water runs to the start
+    bool red = false;
+    for (const auto& p : layer.points)
+        red |= p.rgba == el::Style {}.fixedBreak;
+    EXPECT_TRUE (red);
+}
+
+TEST (EditLayers, SelectedPathPartsAreHighlighted)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2.0);
+    ed::Selection sel;
+    sel.Set ({ { path, ed::Part::Range, ed::FindPath (doc, path)->sections[0].id } });
+    el::Feedback f;
+    f.selection = &sel;
+    const auto layer = el::Build (doc, f);
+    size_t highlighted = 0;
+    for (const auto& p : layer.polylines)
+        highlighted += p.rgba == el::Style {}.selected ? 1 : 0;
+    EXPECT_EQ (highlighted, 2u); // both edges of the range
+    f.dimensions = ed::DimensionsFor (doc, sel.Items ()[0]);
+    const auto withDims = el::Build (doc, f);
+    bool width = false;
+    for (const auto& t : withDims.texts)
+        width |= t.text == "2.00 m";
+    EXPECT_TRUE (width);
 }
