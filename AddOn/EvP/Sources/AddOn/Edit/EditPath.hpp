@@ -99,5 +99,45 @@ bool Restation (std::vector<GradeBreak>& breaks, double oldLength, double newLen
 std::vector<GradeBreak> ProfileFromSamples (const std::vector<std::pair<double, double>>& samples, double tolerance,
                                             Id& nextId);
 
+// ---- cross-section ranges ---------------------------------------------------------
+
+// Which way the surface sheds water across the path.
+enum class Fall : uint8_t { Crown, Left, Right };
+
+// A cross-section template that applies from `station` to the next range's station.
+// Widths are measured from the centreline in plan; crossfall, cut and fill slopes are
+// percentages (50 % is 1:2). The shoulder runs out level-with-the-edge before grading.
+struct Section {
+    Id id = kNoId;
+    double station = 0.0;
+    double widthLeft = 0.75, widthRight = 0.75;
+    double crossfall = 2.0;
+    Fall fall = Fall::Crown;
+    double shoulder = 0.0;
+    double cutSlope = 50.0, fillSlope = 33.0;
+    bool operator== (const Section&) const = default;
+};
+// The first range starts at 0, ranges ascend inside the path, and every range is
+// wider than nothing, with crossfalls and slopes a surface can carry.
+bool ValidateSections (const std::vector<Section>& sections, double length, std::string& error);
+// The range in force at a station (the last that starts at or before it).
+const Section* SectionAt (const std::vector<Section>& sections, double station);
+// Heights of the left and right edges relative to the centreline.
+void EdgeDrops (const Section& section, double& left, double& right);
+
+// A new range from `station` on, copying the one in force there.
+bool SplitSection (std::vector<Section>& sections, double station, Id id, std::string& error);
+// The range ends; the one before it carries on. The first range stays.
+bool DeleteSection (std::vector<Section>& sections, Id id, std::string& error);
+bool MoveSection (std::vector<Section>& sections, Id id, double station, std::string& error);
+// Negative keeps that side as it is.
+bool SetWidth (std::vector<Section>& sections, Id id, double left, double right, std::string& error);
+bool SetWidthEverywhere (std::vector<Section>& sections, double left, double right, std::string& error);
+// A dragged edge: a positive offset is the left edge, a negative one the right.
+bool SetWidthFromOffset (std::vector<Section>& sections, Id id, double offset, std::string& error);
+bool SetCrossfall (std::vector<Section>& sections, Id id, double percent, Fall fall, std::string& error);
+// Ranges keep their share of the length when the plan changes it.
+void RestationSections (std::vector<Section>& sections, double oldLength, double newLength);
+
 } // namespace geomsrv::edit
 #endif
