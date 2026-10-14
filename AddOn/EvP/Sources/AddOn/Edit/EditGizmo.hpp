@@ -7,6 +7,7 @@
 // onto the handle's line, plane or ring in world metres; a typed value produces the
 // same Transform a drag would.
 #include "Edit/EditSession.hpp"
+#include "Edit/EditSelection.hpp"
 #include "Edit/EditTracker.hpp"
 #include <vector>
 
@@ -63,6 +64,18 @@ struct DragResult {
 DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, const Ray& now);
 // The Transform a typed value means on that handle: metres, degrees or a factor.
 DragResult FromValue (const Frame& frame, const Handle& handle, double value);
+
+// Each handle drawn as world-space polylines, `size` metres across (the host picks
+// the size from its metres-per-pixel so the gizmo keeps one screen size). A centre is
+// one point; a ring is a closed circle.
+struct HandleShape {
+    std::vector<Vec3> points;
+    bool closed = false;
+};
+std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handle, double size);
+// The handle nearest the cursor within `radius` pixels, or -1.
+int PickHandle (const Frame& frame, const std::vector<Handle>& handles, double size, const PickView& view, double x,
+                double y, double radius);
 
 // Applies a Transform to the selected items. Entities move whole; vertices, segments
 // and faces move only their own vertices (the stretch); a non-zero `extrude` pushes a

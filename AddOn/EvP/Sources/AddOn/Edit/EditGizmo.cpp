@@ -1,4 +1,5 @@
 #include "Edit/EditGizmo.hpp"
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <set>
@@ -248,6 +249,89 @@ DragResult FromValue (const Frame& frame, const Handle& handle, double value)
             return Refuse ("that handle takes no typed value");
     }
     return r;
+}
+
+std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handle, double size)
+{
+    const Vec3 o = frame.origin;
+    const int a = handle.axis >= 0 && handle.axis < 3 ? handle.axis : 2;
+    const Vec3 axis = frame.axes[a], u = frame.axes[(a + 1) % 3], v = frame.axes[(a + 2) % 3];
+    switch (handle.kind) {
+        case HandleKind::Centre:
+            return { { { o }, false } };
+        case HandleKind::Axis:
+        case HandleKind::Face:
+            return { { { o, o + axis * size }, false } };
+        case HandleKind::ScaleAxis: {
+            const Vec3 tip = o + axis * (size * 0.7);
+            const double b = size * 0.06;
+            return { { { o, tip }, false },
+                     { { tip + u * b + v * b, tip - u * b + v * b, tip - u * b - v * b, tip + u * b - v * b }, true } };
+        }
+        case HandleKind::Plane: {
+            const double lo = size * 0.25, hi = size * 0.45;
+            return { { { o + u * lo + v * lo, o + u * hi + v * lo, o + u * hi + v * hi, o + u * lo + v * hi }, true } };
+        }
+        case HandleKind::ScaleUniform: {
+            const double b = size * 0.15;
+            return { { { o + u * b + v * b, o - u * b + v * b, o - u * b - v * b, o + u * b - v * b }, true } };
+        }
+        case HandleKind::Ring: {
+            HandleShape ring;
+            ring.closed = true;
+            for (int k = 0; k < 48; ++k) {
+                const double t = 2.0 * kPi * k / 48.0;
+                ring.points.push_back (o + u * (0.8 * size * std::cos (t)) + v * (0.8 * size * std::sin (t)));
+            }
+            return { ring };
+        }
+    }
+    return {};
+}
+
+int PickHandle (const Frame& frame, const std::vector<Handle>& handles, double size, const PickView& view, double x,
+                double y, double radius)
+{
+    int best = -1;
+    double bestDistance = radius;
+    for (size_t h = 0; h < handles.size (); ++h) {
+        if (!handles[h].movable)
+            continue;
+        for (const auto& shape : HandleGeometry (frame, handles[h], size)) {
+            std::vector<std::pair<double, double>> s;
+            for (const auto& p : shape.points) {
+                double sx = 0.0, sy = 0.0;
+                if (!view.toScreen || !view.toScreen (p, sx, sy))
+                    break;
+                s.push_back ({ sx, sy });
+            }
+            if (s.size () != shape.points.size ())
+                continue;
+            // A handle seen end-on collapses to a point on screen and cannot be dragged.
+            double extent = 0.0;
+            for (const auto& q : s)
+                extent = std::max (extent, std::hypot (q.first - s[0].first, q.second - s[0].second));
+            if (s.size () > 1 && extent < 2.0)
+                continue;
+            const auto consider = [&] (double d) {
+                if (d < bestDistance || (best < 0 && d <= bestDistance)) {
+                    bestDistance = d;
+                    best = static_cast<int> (h);
+                }
+            };
+            if (s.size () == 1)
+                consider (std::hypot (s[0].first - x, s[0].second - y));
+            const size_t edges = shape.closed ? s.size () : s.size () - 1;
+            for (size_t i = 0; i < edges && s.size () > 1; ++i) {
+                const auto [ax, ay] = s[i];
+                const auto [bx, by] = s[(i + 1) % s.size ()];
+                const double dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+                const double t = len2 > 0.0 ? std::clamp (((x - ax) * dx + (y - ay) * dy) / len2, 0.0, 1.0) : 0.0;
+                consider (std::hypot (ax + dx * t - x, ay + dy * t - y));
+            }
+        }
+    }
+    return best;
 }
 
 Operation TransformOperation (const std::vector<Ref>& selection, const Transform& t)

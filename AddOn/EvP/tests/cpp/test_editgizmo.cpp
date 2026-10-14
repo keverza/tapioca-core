@@ -199,3 +199,27 @@ TEST (EditGizmo, SegmentFrameIsPathLocal)
     EXPECT_NEAR (f.axes[1].x, -1.0, 1e-12); // left of the direction of travel
     EXPECT_FALSE (ed::SegmentFrame ({ 0, 0, 0 }, { 0, 0, 3 }, f));
 }
+
+TEST (EditGizmo, HandlesHaveGeometryAndCanBePicked)
+{
+    ed::Frame f;
+    f.origin = { 1, 1, 0 };
+    const auto handles = ed::Handles (ed::GizmoMode::Move);
+    const auto shapes = ed::HandleGeometry (f, handles[1], 2.0); // X axis
+    ASSERT_EQ (shapes.size (), 1u);
+    EXPECT_NEAR (shapes[0].points[1].x, 3.0, 1e-12);
+    ed::PickView plan;
+    plan.toScreen = [] (ed::Vec3 p, double& x, double& y) {
+        x = p.x * 100.0;
+        y = p.y * 100.0;
+        return true;
+    };
+    EXPECT_EQ (ed::PickHandle (f, handles, 2.0, plan, 250, 102, 6), 1);  // on the X axis
+    EXPECT_EQ (ed::PickHandle (f, handles, 2.0, plan, 102, 250, 6), 2);  // on the Y axis
+    EXPECT_EQ (ed::PickHandle (f, handles, 2.0, plan, 100, 100, 6), 0);  // the centre
+    EXPECT_EQ (ed::PickHandle (f, handles, 2.0, plan, 600, 600, 6), -1); // nothing
+    const auto ring = ed::HandleGeometry (f, ed::Handles (ed::GizmoMode::Rotate)[3], 1.0);
+    ASSERT_EQ (ring.size (), 1u);
+    EXPECT_TRUE (ring[0].closed);
+    EXPECT_NEAR (ed::Distance (ring[0].points[0], f.origin), 0.8, 1e-12);
+}
