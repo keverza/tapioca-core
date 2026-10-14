@@ -66,6 +66,41 @@ void Commit (Editor& e, Context& c, fe::Design next)
         draft.designs.floors[bp::DesignStory (plan->second, draft, *floor)] = std::move (next);
     });
 }
+void Notice (Editor& e, std::string text)
+{
+    e.notice = std::move (text);
+    e.noticeAt = ImGui::GetTime ();
+}
+std::string Fresh (const Editor& e)
+{
+    return !e.notice.empty () && ImGui::GetTime () - e.noticeAt < kNoticeSeconds ? e.notice : std::string ();
+}
+bool Apply (Editor& e, Context& c, const fe::Design& from, fe::Design next, const std::string& why)
+{
+    if (next == from) {
+        Notice (e, why.empty () ? "That changes nothing here." : why);
+        return false;
+    }
+    e.notice.clear ();
+    Commit (e, c, std::move (next));
+    if (!why.empty ()) // made only in part (a count the floor stops short of)
+        Notice (e, why);
+    return true;
+}
+void NoticeAt (const Editor& e, ImDrawList* draw, ImVec2 at, float scale)
+{
+    const auto text = Fresh (e);
+    if (text.empty ())
+        return;
+    const float wrap = 420 * scale;
+    const ImVec2 size = ImGui::CalcTextSize (text.c_str (), nullptr, false, wrap);
+    const ImVec2 pad { 8 * scale, 5 * scale };
+    const ImVec2 lo { at.x, at.y - size.y - 2 * pad.y }, hi { at.x + size.x + 2 * pad.x, at.y };
+    draw->AddRectFilled (lo, hi, IM_COL32 (40, 34, 26, 230), 4 * scale);
+    draw->AddRect (lo, hi, IM_COL32 (230, 160, 60, 255), 4 * scale, 0, scale);
+    draw->AddText (nullptr, 0, { lo.x + pad.x, lo.y + pad.y }, IM_COL32 (255, 226, 180, 255), text.c_str (), nullptr,
+                   wrap);
+}
 void UndoRedo (Editor& e, Context& c, bool undo)
 {
     auto& from = undo ? e.undo : e.redo;
@@ -118,8 +153,10 @@ void PushParty (Editor& e, Context& c, const std::array<fs::Vec, 2>& wall, doubl
         return;
     const fs::Vec n = Outward (wall), m { (wall[0].x + wall[1].x) / 2, (wall[0].y + wall[1].y) / 2 };
     const auto neighbour = NeighbourAt (c, e.key, floor->z, { m.x + n.x * 0.3, m.y + n.y * 0.3 });
-    if (!neighbour.floor)
+    if (!neighbour.floor) {
+        Notice (e, "There is no building beyond this wall to give floor to or take it from.");
         return;
+    }
     const auto mine = e.input.owned;
     const auto theirs = bp::InputFor (c.plans, c.drafts, neighbour.key, *neighbour.floor, c.programme, {}, c.options);
     Change (e, c, { e.key, neighbour.key }, [&] {
@@ -225,12 +262,12 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
         ImGui::Separator ();
         const bool locked = fe::Locked (s, full, flat);
         ImGui::BeginDisabled (locked);
+        std::string why;
         if (ImGui::MenuItem ("Split here"))
-            Commit (e, c, fe::SplitFlat (s, full, flat, e.menuAt));
-        if (ImGui::MenuItem ("Join with its neighbour")) {
-            Commit (e, c, fe::RemoveFlat (s, full, flat));
+            Apply (e, c, full, fe::SplitFlat (s, full, flat, e.menuAt, &why), why);
+        if (ImGui::MenuItem ("Join with its neighbour") &&
+            Apply (e, c, full, fe::RemoveFlat (s, full, flat, &why), why))
             e.selected = {};
-        }
         ImGui::EndDisabled ();
         if (ImGui::MenuItem (locked ? "Unlock" : "Lock"))
             Commit (e, c, fe::SetLocked (s, full, flat, !locked));
@@ -273,10 +310,9 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
         if (ImGui::MenuItem ("Rotate"))
             resize (s.cores[stair].depth, s.cores[stair].width);
         ImGui::Separator ();
-        if (ImGui::MenuItem ("Remove stair")) {
-            Commit (e, c, fe::RemoveStair (s, full, stair));
+        std::string why;
+        if (ImGui::MenuItem ("Remove stair") && Apply (e, c, full, fe::RemoveStair (s, full, stair, &why), why))
             e.selected = {};
-        }
     }
     else {
         int flats = int (s.flats.size ());
@@ -284,8 +320,10 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
         ImGui::TextUnformatted ("Flats");
         ImGui::SameLine ();
         ImGui::SetNextItemWidth (7 * ImGui::GetFontSize ());
-        if (ImGui::InputInt ("##flats", &flats, 1, 1) && flats > 0 && flats != int (s.flats.size ()))
-            Commit (e, c, fe::SetCount (s, full, flats));
+        if (ImGui::InputInt ("##flats", &flats, 1, 1) && flats > 0 && flats != int (s.flats.size ())) {
+            std::string why;
+            Apply (e, c, full, fe::SetCount (s, full, flats, &why), why);
+        }
         if (const int wing = fe::WingAt (s, e.menuAt); wing >= 0) {
             fs::Access now = fs::Access::Auto;
             for (const auto& a : full.pins.access)
@@ -360,9 +398,17 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
     int flats = int (s.flats.size ());
     ImGui::BeginDisabled (!e.have);
     ImGui::SetNextItemWidth (90 * scale);
-    if (ImGui::InputInt ("flats", &flats, 1, 1) && e.have && flats > 0 && flats != int (s.flats.size ()))
-        Commit (e, c, fe::SetCount (s, e.input.design, flats));
+    if (ImGui::InputInt ("flats", &flats, 1, 1) && e.have && flats > 0 && flats != int (s.flats.size ())) {
+        std::string why;
+        Apply (e, c, e.input.design, fe::SetCount (s, e.input.design, flats, &why), why);
+    }
     ImGui::EndDisabled ();
+    // Why the last edit could not be made (user, 2026-10-14: no silent failure).
+    if (const auto notice = Fresh (e); !notice.empty ()) {
+        ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.86f, 0.52f, 0.13f, 1));
+        ImGui::TextWrapped ("%s", notice.c_str ());
+        ImGui::PopStyleColor ();
+    }
     // Save and Discard: every building the edits changed (a party wall moves two).
     std::vector<std::string> dirty;
     for (auto& [name, d] : drafts)

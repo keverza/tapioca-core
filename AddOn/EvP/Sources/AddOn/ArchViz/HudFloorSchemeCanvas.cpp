@@ -245,21 +245,23 @@ fs::Vec EndAxis (const Editor& e)
     const auto arrows = Arrows (e.base, e.held, 0);
     return arrows.empty () ? fs::Vec { 1, 0 } : arrows.front ().dir;
 }
-// The design the held gesture makes, from the scheme it started on.
-std::optional<fe::Design> Gesture (const Editor& e, const floorprogramme::Programme& programme)
+// The design the held gesture makes, from the scheme it started on; why it cannot, in `why`.
+std::optional<fe::Design> Gesture (const Editor& e, const floorprogramme::Programme& programme,
+                                   std::string* why = nullptr)
 {
     const fs::Vec d = Delta (e);
     switch (e.held.kind) {
         case Kind::Stair:
             if (e.held.index < 0 || e.held.index >= int (e.base.cores.size ()))
                 return std::nullopt;
-            return fe::MoveStair (e.base, e.baseDesign, e.held.index, StairTo (e));
+            return fe::MoveStair (e.base, e.baseDesign, e.held.index, StairTo (e), why);
         case Kind::Wall:
             if (!e.held.wall)
                 return std::nullopt;
             return fe::MoveWall (e.base, e.baseDesign, *e.held.wall,
                                  fe::SnapWall (e.base, *e.held.wall, e.held.wall->a,
-                                               { e.held.wall->a.x + d.x, e.held.wall->a.y + d.y }, programme));
+                                               { e.held.wall->a.x + d.x, e.held.wall->a.y + d.y }, programme),
+                                 why);
         case Kind::End: {
             if (!e.held.end)
                 return std::nullopt;
@@ -582,35 +584,37 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
             }
         if (!down) {
             const bool off = !Inside (e.input.owned, e.at);
+            std::string why;
             if (e.held.kind == Kind::Flat && e.drag == Drag::Arrow && !e.moved) {
                 // A flat's arrow clicked: it changes places with the neighbour there.
                 if (const int other = Beside (e.base, e.held.index, e.axis); other >= 0)
-                    Commit (e, c, fe::SwapFlats (e.base, e.baseDesign, e.held.index, other));
+                    Apply (e, c, e.baseDesign, fe::SwapFlats (e.base, e.baseDesign, e.held.index, other, &why), why);
             }
             else if (e.held.kind == Kind::Flat && e.moved) {
                 // Dropped on another flat: they change places; off the floor: it goes.
                 const int other = fe::FlatAt (e.base, e.at);
                 if (off) {
-                    Commit (e, c, fe::RemoveFlat (e.base, e.baseDesign, e.held.index));
-                    e.selected = {};
+                    if (Apply (e, c, e.baseDesign, fe::RemoveFlat (e.base, e.baseDesign, e.held.index, &why), why))
+                        e.selected = {};
                 }
                 else if (other >= 0 && other != e.held.index) {
-                    Commit (e, c, fe::SwapFlats (e.base, e.baseDesign, e.held.index, other));
-                    e.selectedAt = e.at;
+                    if (Apply (e, c, e.baseDesign, fe::SwapFlats (e.base, e.baseDesign, e.held.index, other, &why),
+                               why))
+                        e.selectedAt = e.at;
                 }
+                else if (other < 0)
+                    Notice (e, "Drop the flat on another flat to change places, or off the floor to remove it.");
             }
             else if (e.held.kind == Kind::Stair && e.moved && off && e.drag == Drag::Body) {
-                Commit (e, c, fe::RemoveStair (e.base, e.baseDesign, e.held.index));
-                e.selected = {};
+                if (Apply (e, c, e.baseDesign, fe::RemoveStair (e.base, e.baseDesign, e.held.index, &why), why))
+                    e.selected = {};
             }
             else if (e.held.kind == Kind::Party && e.moved)
                 PushParty (e, c, e.base.party[e.held.index], PartyDistance (e));
             else if (e.moved)
-                if (auto next = Gesture (e, c.programme)) {
-                    Commit (e, c, std::move (*next));
-                    if (e.held.kind == Kind::Stair)
+                if (auto next = Gesture (e, c.programme, &why))
+                    if (Apply (e, c, e.baseDesign, std::move (*next), why) && e.held.kind == Kind::Stair)
                         e.selectedAt = StairTo (e);
-                }
             e.drag = Drag::None;
             if (e.selected.kind != Kind::Flat && e.selected.kind != Kind::Stair)
                 e.selected = {}; // walls and ends move again from where they now are
@@ -619,11 +623,14 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
     if (hovered && ImGui::IsKeyPressed (ImGuiKey_Escape))
         e.drag = Drag::None;
     if (hovered && e.have && (ImGui::IsKeyPressed (ImGuiKey_Delete) || ImGui::IsKeyPressed (ImGuiKey_Backspace))) {
+        std::string why;
+        bool removed = false;
         if (e.selected.kind == Kind::Stair)
-            Commit (e, c, fe::RemoveStair (s, e.input.design, e.selected.index));
+            removed = Apply (e, c, e.input.design, fe::RemoveStair (s, e.input.design, e.selected.index, &why), why);
         else if (e.selected.kind == Kind::Flat)
-            Commit (e, c, fe::RemoveFlat (s, e.input.design, e.selected.index));
-        e.selected = {};
+            removed = Apply (e, c, e.input.design, fe::RemoveFlat (s, e.input.design, e.selected.index, &why), why);
+        if (removed)
+            e.selected = {};
     }
     // The right button: what can be done there.
     if (hovered && e.have && ImGui::IsMouseClicked (ImGuiMouseButton_Right)) {
@@ -731,15 +738,24 @@ void Canvas (Editor& e, Context& c, float scale)
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload (
                 kPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
             const double value = *static_cast<const double*> (payload->Data);
+            std::string why;
             if (value < 0) {
                 stairDrop = mouse;
-                if (payload->IsDelivery () && Inside (e.input.owned, mouse))
-                    Commit (e, c, fe::AddStair (s, e.input.design, mouse));
+                if (payload->IsDelivery ()) {
+                    if (Inside (e.input.owned, mouse))
+                        Apply (e, c, e.input.design, fe::AddStair (s, e.input.design, mouse, &why), why);
+                    else
+                        Notice (e, "A stair goes inside the floor: drop it on the plan.");
+                }
             }
             else {
-                insertion = fe::Insert (s, mouse, value);
-                if (payload->IsDelivery () && insertion)
-                    Commit (e, c, fe::InsertFlat (s, e.input.design, mouse, value));
+                insertion = fe::Insert (s, mouse, value, &why);
+                if (payload->IsDelivery ()) {
+                    if (insertion)
+                        Apply (e, c, e.input.design, fe::InsertFlat (s, e.input.design, mouse, value, &why), why);
+                    else
+                        Notice (e, why);
+                }
             }
         }
         ImGui::EndDragDropTarget ();

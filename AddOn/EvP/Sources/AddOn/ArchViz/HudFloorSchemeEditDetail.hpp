@@ -67,7 +67,12 @@ struct Editor {
     bool menuOpen = false;  // its right-click menu is open (on the view, while locked)
     uint64_t liveSince = 0; // planner revision when the gesture began: newer live schemes are its
     std::vector<Step> undo, redo;
+    // Why the last edit could not be made, in a sentence (user, 2026-10-14: no silent failure):
+    // under the tools, and on the view while locked. Cleared by the next edit that is made.
+    std::string notice;
+    double noticeAt = -1; // ImGui time it was said
 };
+constexpr double kNoticeSeconds = 8.0;
 struct Context {
     bp::Planner& planner;
     const std::map<std::string, bp::Plan>& plans;
@@ -125,6 +130,14 @@ void Canvas (Editor& e, Context& c, float scale);
 // HudFloorSchemeEdit.cpp: the shown floor's design becomes `next` (one undo step); a party wall
 // pushed `distance` out of the building, or pulled in.
 void Commit (Editor& e, Context& c, fe::Design next);
+// `next`, made from `from`, committed; when it changes nothing, `why` (or a plain "nothing to
+// change") on the notice line instead. True when committed.
+bool Apply (Editor& e, Context& c, const fe::Design& from, fe::Design next, const std::string& why);
+void Notice (Editor& e, std::string text);
+// The notice while it is fresh, else empty.
+std::string Fresh (const Editor& e);
+// The notice in a box at `at` (its lower left corner) on a view, for the locked view.
+void NoticeAt (const Editor& e, ImDrawList* draw, ImVec2 at, float scale);
 void UndoRedo (Editor& e, Context& c, bool undo);
 // The editor of building `key` on `floor`, brought up to date with the planner and the drafts.
 Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp::Floor& floor);

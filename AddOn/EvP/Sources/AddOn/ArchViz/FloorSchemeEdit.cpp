@@ -1,6 +1,8 @@
 #include "ArchViz/FloorSchemeEdit.hpp"
 #include "ArchViz/FloorSchemeDetail.hpp"
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
 
 namespace geomsrv::archviz::floorscheme::edit {
 namespace {
@@ -8,6 +10,20 @@ using namespace detail;
 constexpr size_t kUndo = 200;
 // A flat no narrower than the smallest flat type's rooms (a 1.5R: living room and alcove).
 const double kNarrowest = RoomFrontage (1.5).min;
+
+// `d` unchanged, and why it could not change in `why` (printf style).
+Design Refuse (Design d, std::string* why, const char* format, ...)
+{
+    if (why) {
+        char text[256];
+        va_list args;
+        va_start (args, format);
+        std::vsnprintf (text, sizeof (text), format, args);
+        va_end (args);
+        *why = text;
+    }
+    return d;
+}
 
 bool In (const Ring& ring, Vec p)
 {
@@ -397,10 +413,10 @@ std::optional<End> EndAt (const Scheme& s, Vec p, double tolerance)
     return best;
 }
 
-Design MoveStair (const Scheme& s, Design d, int core, Vec to)
+Design MoveStair (const Scheme& s, Design d, int core, Vec to, std::string* why)
 {
     if (core < 0 || core >= static_cast<int> (s.cores.size ()))
-        return d;
+        return Refuse (std::move (d), why, "There is no stair there to move.");
     const Vec from = s.cores[core].centre;
     d = PinStairs (s, std::move (d), WingAt (s, from));
     const size_t i = Nearest (d.pins.cores, from);
@@ -410,60 +426,68 @@ Design MoveStair (const Scheme& s, Design d, int core, Vec to)
         d.pins.cores.push_back ({ to });
     return d;
 }
-Design AddStair (const Scheme& s, Design d, Vec at)
+Design AddStair (const Scheme& s, Design d, Vec at, std::string* why)
 {
     const int wing = WingAt (s, at);
     if (wing < 0)
-        return d;
+        return Refuse (std::move (d), why, "A stair goes inside one of the floor's wings: drop it on the floor.");
     int count = 1;
     for (const auto& core : s.cores)
         count += In (s.wings[wing].rect, core.centre);
     return SpaceStairs (s, std::move (d), wing, count, &at);
 }
-Design RemoveStair (const Scheme& s, Design d, int core)
+Design RemoveStair (const Scheme& s, Design d, int core, std::string* why)
 {
     if (core < 0 || core >= static_cast<int> (s.cores.size ()))
-        return d;
+        return Refuse (std::move (d), why, "There is no stair there to remove.");
     const int wing = WingAt (s, s.cores[core].centre);
     if (wing < 0)
-        return d;
+        return Refuse (std::move (d), why, "This stair stands in no wing of the floor: it cannot be removed here.");
     int count = -1;
     for (const auto& c : s.cores)
         count += In (s.wings[wing].rect, c.centre);
-    return count < 1 ? d : SpaceStairs (s, std::move (d), wing, count, nullptr);
+    if (count < 1)
+        return Refuse (std::move (d), why, "This is its wing's only stair: every flat must reach a stair.");
+    return SpaceStairs (s, std::move (d), wing, count, nullptr);
 }
-Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to)
+Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why)
 {
     if (wall.low < 0 || wall.high < 0)
-        return d;
+        return Refuse (std::move (d), why, "Only a wall between two flats of one band moves.");
     auto f = Freeze (s, s.flats[wall.low].band);
     if (!f)
-        return d;
+        return Refuse (std::move (d), why, "Only a wall between two flats of one band moves.");
     const auto it = std::find (f->flats.begin (), f->flats.end (), wall.high);
     if (it == f->flats.begin () || it == f->flats.end ())
-        return d;
+        return Refuse (std::move (d), why, "Only a wall between two flats of one band moves.");
     const size_t k = static_cast<size_t> (it - f->flats.begin ());
     const double lo = f->lo[k - 1] + kNarrowest, hi = f->hi[k] - kNarrowest;
     if (lo > hi)
-        return d;
+        return Refuse (std::move (d), why, "Both flats are at their narrowest (%.1f m): the wall cannot move.",
+                       kNarrowest);
     const double u = std::clamp (f->U (to), lo, hi);
     f->hi[k - 1] = f->lo[k] = u;
     return Write (s, std::move (d), *f);
 }
-Design SplitFlat (const Scheme& s, Design d, int flat, Vec at)
+Design SplitFlat (const Scheme& s, Design d, int flat, Vec at, std::string* why)
 {
-    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()) || Locked (s, d, flat))
-        return d;
+    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()))
+        return Refuse (std::move (d), why, "There is no flat there to split.");
+    if (Locked (s, d, flat))
+        return Refuse (std::move (d), why, "The flat is locked: unlock it to split it.");
     auto f = Freeze (s, s.flats[flat].band);
     if (!f)
-        return d;
+        return Refuse (std::move (d), why,
+                       "Only a flat in a row of flats splits; this one ends a corridor or a section.");
     const auto it = std::find (f->flats.begin (), f->flats.end (), flat);
     if (it == f->flats.end ())
-        return d;
+        return Refuse (std::move (d), why,
+                       "Only a flat in a row of flats splits; this one ends a corridor or a section.");
     const size_t k = static_cast<size_t> (it - f->flats.begin ());
     const auto [lo, hi] = SplitRange (s, *f, k, kNarrowest + 0.2);
     if (lo > hi)
-        return d; // too narrow for two flats that each reach the corridor
+        return Refuse (std::move (d), why, "Too narrow for two flats of %.1f m that each have a door on the corridor.",
+                       kNarrowest + 0.2);
     const double u = std::clamp (f->U (at), lo, hi);
     f->lo.insert (f->lo.begin () + static_cast<std::ptrdiff_t> (k) + 1, u);
     f->hi.insert (f->hi.begin () + static_cast<std::ptrdiff_t> (k), u);
@@ -472,16 +496,21 @@ Design SplitFlat (const Scheme& s, Design d, int flat, Vec at)
     f->flats.insert (f->flats.begin () + static_cast<std::ptrdiff_t> (k), -1);
     return Write (s, std::move (d), *f);
 }
-Design RemoveFlat (const Scheme& s, Design d, int flat)
+Design RemoveFlat (const Scheme& s, Design d, int flat, std::string* why)
 {
-    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()) || Locked (s, d, flat))
-        return d;
+    if (flat < 0 || flat >= static_cast<int> (s.flats.size ()))
+        return Refuse (std::move (d), why, "There is no flat there to remove.");
+    if (Locked (s, d, flat))
+        return Refuse (std::move (d), why, "The flat is locked: unlock it to remove it.");
     auto f = Freeze (s, s.flats[flat].band);
-    if (!f || f->flats.size () < 2)
-        return d; // the band's only flat stays
+    if (!f)
+        return Refuse (std::move (d), why,
+                       "A flat at a corridor's end or in a section has no neighbour in a row to take its floor.");
+    if (f->flats.size () < 2)
+        return Refuse (std::move (d), why, "The only flat of its row stays: its floor would be left empty.");
     const auto it = std::find (f->flats.begin (), f->flats.end (), flat);
     if (it == f->flats.end ())
-        return d;
+        return Refuse (std::move (d), why, "There is no flat there to remove.");
     const size_t k = static_cast<size_t> (it - f->flats.begin ());
     // It joins its narrower neighbour: the wall between them goes.
     const bool before =
@@ -581,20 +610,22 @@ Ring Rectangle (const Scheme& s, Vec a, Vec b, double grid)
     auto at = [&] (double p, double q) { return Vec { o.x + u.x * p + v.x * q, o.y + u.y * p + v.y * q }; };
     return Counter ({ at (a0, a1), at (b0, a1), at (b0, b1), at (a0, b1) });
 }
-Design SwapFlats (const Scheme& s, Design d, int a, int b)
+Design SwapFlats (const Scheme& s, Design d, int a, int b, std::string* why)
 {
     const int n = static_cast<int> (s.flats.size ());
-    if (a < 0 || b < 0 || a >= n || b >= n || a == b || Locked (s, d, a) || Locked (s, d, b))
-        return d;
+    if (a < 0 || b < 0 || a >= n || b >= n || a == b)
+        return Refuse (std::move (d), why, "Drop the flat on another flat to change places with it.");
+    if (Locked (s, d, a) || Locked (s, d, b))
+        return Refuse (std::move (d), why, "A locked flat keeps its place: unlock it first.");
     const auto& fa = s.flats[a];
     const auto& fb = s.flats[b];
     if (fa.band >= 0 && fa.band == fb.band) {
         auto f = Freeze (s, fa.band);
         if (!f)
-            return d;
+            return Refuse (std::move (d), why, "These flats cannot change places.");
         const size_t ka = Index (*f, a), kb = Index (*f, b);
         if (ka >= f->flats.size () || kb >= f->flats.size ())
-            return d;
+            return Refuse (std::move (d), why, "These flats cannot change places.");
         std::vector<double> widths;
         for (size_t k = 0; k < f->lo.size (); ++k)
             widths.push_back (f->hi[k] - f->lo[k]);
@@ -628,23 +659,31 @@ Design SwapFlats (const Scheme& s, Design d, int a, int b)
     d = SetRooms (s, std::move (d), a, rb);
     return SetRooms (s, std::move (d), b, ra);
 }
-std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms)
+std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms, std::string* why)
 {
-    const int flat = FlatAt (s, at);
-    if (flat < 0 || s.flats[flat].band < 0)
+    const auto refuse = [why] (const char* text) -> std::optional<Insertion> {
+        if (why)
+            *why = text;
         return std::nullopt;
+    };
+    const int flat = FlatAt (s, at);
+    if (flat < 0)
+        return refuse ("Drop a new flat onto a flat: it splits off from it.");
+    if (s.flats[flat].band < 0)
+        return refuse (
+            "A flat at a corridor's end or in a section does not split: drop the new flat on a row of flats.");
     const int band = s.flats[flat].band;
     const auto f = Freeze (s, band);
     if (!f)
-        return std::nullopt;
+        return refuse ("Drop a new flat onto a flat in a row of flats.");
     const size_t k = Index (*f, flat);
     if (k >= f->flats.size ())
-        return std::nullopt;
+        return refuse ("Drop a new flat onto a flat in a row of flats.");
     const double lo = f->lo[k], hi = f->hi[k];
     // A little over the narrowest: a span right at a minimum reads as too short for a flat.
     const auto [from, to] = SplitRange (s, *f, k, kNarrowest + 0.2);
     if (from > to)
-        return std::nullopt;
+        return refuse ("The flat there is too narrow to give room for another with a door on the corridor.");
     const double w = RoomFrontage (rooms).pref;
     // At the nearer end, but never the band's own end: a corner stays with the larger flat.
     const bool first = k == 0 && f->flats.size () > 1, last = k + 1 == f->flats.size () && f->flats.size () > 1;
@@ -662,14 +701,16 @@ std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms)
     out.region = Counter ({ across (u0, -half), across (u1, -half), across (u1, half), across (u0, half) });
     return out;
 }
-Design InsertFlat (const Scheme& s, Design d, Vec at, double rooms)
+Design InsertFlat (const Scheme& s, Design d, Vec at, double rooms, std::string* why)
 {
-    const auto ins = Insert (s, at, rooms);
-    if (!ins || Locked (s, d, ins->flat))
+    const auto ins = Insert (s, at, rooms, why);
+    if (!ins)
         return d;
+    if (Locked (s, d, ins->flat))
+        return Refuse (std::move (d), why, "The flat there is locked: unlock it to put a flat in beside it.");
     auto f = Freeze (s, s.flats[ins->flat].band);
     if (!f)
-        return d;
+        return Refuse (std::move (d), why, "Drop a new flat onto a flat in a row of flats.");
     const size_t k = Index (*f, ins->flat);
     const double wall = f->U ({ (ins->a.x + ins->b.x) / 2, (ins->a.y + ins->b.y) / 2 });
     const bool low = std::abs (wall - f->lo[k]) < std::abs (wall - f->hi[k]);
@@ -682,7 +723,7 @@ Design InsertFlat (const Scheme& s, Design d, Vec at, double rooms)
     f->flats.insert (f->flats.begin () + i + 1, -1);
     return Write (s, std::move (d), *f);
 }
-Design SetCount (const Scheme& s, Design d, int total)
+Design SetCount (const Scheme& s, Design d, int total, std::string* why)
 {
     std::vector<Frozen> bands;
     for (size_t b = 0; b < s.bands.size (); ++b)
@@ -701,8 +742,13 @@ Design SetCount (const Scheme& s, Design d, int total)
                     widest = bands[b].hi[k] - bands[b].lo[k], bi = b, ki = k,
                     mid = std::clamp ((bands[b].lo[k] + bands[b].hi[k]) / 2, lo, hi);
             }
-        if (bi == bands.size ())
-            break; // nothing wide enough to split
+        if (bi == bands.size ()) {
+            Refuse ({}, why,
+                    "%d flats is as many as the floor takes now: no flat is wide enough to split into two of %.1f m "
+                    "with a door on the corridor.",
+                    now, kNarrowest + 0.2);
+            break;
+        }
         auto& f = bands[bi];
         const auto i = static_cast<std::ptrdiff_t> (ki);
         f.lo.insert (f.lo.begin () + i + 1, mid);
@@ -730,8 +776,12 @@ Design SetCount (const Scheme& s, Design d, int total)
                     narrowest = f.hi[k] - f.lo[k], bi = b, ki = k, ji = j;
             }
         }
-        if (bi == bands.size ())
+        if (bi == bands.size ()) {
+            Refuse ({}, why,
+                    "%d flats is as few as the floor takes now: no two unlocked neighbours in a row are left to join.",
+                    now);
             break;
+        }
         auto& f = bands[bi];
         const size_t keep = (std::min) (ki, ji);
         const auto i = static_cast<std::ptrdiff_t> (keep);

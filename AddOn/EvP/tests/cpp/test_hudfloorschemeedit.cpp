@@ -698,3 +698,76 @@ TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvase
     EXPECT_EQ (planner.Revision (), 0u) << "selection dimensions do not queue a planning job";
     EXPECT_TRUE (drafts.empty ()) << "selection dimensions do not dirty the design";
 }
+
+// User, 2026-10-14: no silent failure. A flat dragged off the floor that cannot go (it ends the
+// corridor) stays, and the Plan view says why under its tools.
+TEST (HudFloorSchemeEdit, AnEditThatCannotBeMadeIsSaidUnderTheTools)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 1000, 1400 };
+    io.DeltaTime = 1.0f / 60;
+    ASSERT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 36) } };
+    std::map<std::string, bp::Draft> drafts;
+    bp::Planner planner;
+    hf::EditorPtr editor;
+    ImVec4 floor {}, notice {};
+    const ImU32 orange = ImGui::ColorConvertFloat4ToU32 (ImVec4 (0.86f, 0.52f, 0.13f, 1));
+    const auto frame = [&] (ImVec2 mouse, bool down) {
+        io.MousePos = mouse;
+        io.MouseDown[0] = down;
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 960, 1380 });
+        ImGui::Begin ("Plan", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+        hf::PlanView (editor, planner, plans, drafts, "A", fp::Default (), {}, 1);
+        floor = Bounds (IM_COL32 (236, 238, 232, 255));
+        notice = Bounds (orange);
+        ImGui::End ();
+        ImGui::Render ();
+    };
+    const fs::Scheme* scheme = nullptr;
+    for (int n = 0; n < 400 && !scheme; ++n) {
+        frame ({ 5, 5 }, false);
+        if (const auto* planned = planner.Latest (bp::FloorId ("A", 0)))
+            scheme = &planned->scheme;
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+    ASSERT_NE (scheme, nullptr);
+    frame ({ 5, 5 }, false);
+    int cap = -1;
+    for (size_t i = 0; i < scheme->flats.size (); ++i)
+        if (scheme->flats[i].band < 0)
+            cap = int (i);
+    ASSERT_GE (cap, 0) << "the bar has a flat at a corridor's end";
+    const size_t flats = scheme->flats.size ();
+    const double k = (floor.z - floor.x) / 36.0;
+    const auto screen = [&] (fs::Vec p) { return ImVec2 (floor.x + float (p.x * k), floor.w - float (p.y * k)); };
+    fs::Vec mid;
+    for (const auto& p : scheme->flats[cap].shape)
+        mid.x += p.x / scheme->flats[cap].shape.size (), mid.y += p.y / scheme->flats[cap].shape.size ();
+    EXPECT_GT (notice.x, notice.z) << "nothing to say yet";
+    frame (screen (mid), false);
+    frame (screen (mid), true);
+    for (int n = 1; n <= 8; ++n)
+        frame (screen ({ mid.x, mid.y - 4.0 * n }), true); // off the floor, below it
+    frame (screen ({ mid.x, mid.y - 32 }), false);
+    ASSERT_NE (editor, nullptr);
+    EXPECT_FALSE (editor->notice.empty ()) << "the refusal is said";
+    EXPECT_FALSE (bp::Dirty (drafts["A"])) << "nothing changed";
+    frame ({ 5, 5 }, false);
+    EXPECT_LT (notice.x, notice.z) << "the reason is drawn";
+    EXPECT_LT (notice.w, floor.y) << "under the tools, above the plan";
+    EXPECT_EQ (planner.Latest (bp::FloorId ("A", 0))->scheme.flats.size (), flats);
+}

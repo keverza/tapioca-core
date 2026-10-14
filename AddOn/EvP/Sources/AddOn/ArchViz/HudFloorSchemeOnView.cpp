@@ -26,6 +26,16 @@ std::vector<Shown> ShownFloors (const std::map<std::string, bp::Plan>& plans, st
     }
     return out;
 }
+// Why the last edit could not be made, at the view's lower left, for whichever building said it.
+void Notices (const std::map<std::string, EditorPtr>& editors, ImDrawList* draw, float scale)
+{
+    const ImVec2 origin = ImGui::GetWindowPos (), size = ImGui::GetWindowSize ();
+    for (const auto& [key, editor] : editors)
+        if (editor && !Fresh (*editor).empty ()) {
+            NoticeAt (*editor, draw, { origin.x + 16 * scale, origin.y + size.y - 16 * scale }, scale);
+            return;
+        }
+}
 // Even-odd: a projected flat is a simple ring on screen.
 bool Within (const std::vector<ImVec2>& ring, ImVec2 p)
 {
@@ -86,6 +96,7 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
             hudshell::OwnCursor ();
             ImGui::SetMouseCursor (ImGuiMouseCursor_Arrow);
         }
+        Notices (editors, draw, scale);
         return;
     }
     if (!onto.project)
@@ -154,5 +165,6 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
         e.menuOpen = ImGui::IsPopupOpen ("##planMenu");
         ImGui::PopID ();
     }
+    Notices (editors, draw, scale);
 }
 } // namespace geomsrv::archviz::hudfloorscheme

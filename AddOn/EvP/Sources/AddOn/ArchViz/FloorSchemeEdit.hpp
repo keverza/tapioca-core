@@ -75,22 +75,25 @@ struct End {
 std::optional<End> EndAt (const Scheme& s, Vec p, double tolerance);
 
 // --- edits: each returns the next design ------------------------------------------------
+// An edit that cannot be made returns the design unchanged and, given `why`, says why there in a
+// sentence for the user (user, 2026-10-14: "silent failure is bad UI/UX").
+//
 // Stairs: a moved stair goes where it is dropped, the wing's others pinned where they are; adding
 // or taking one away spaces the wing's stairs evenly again, an added one where it is dropped
 // (never below one stair per 500 m2).
-Design MoveStair (const Scheme& s, Design d, int core, Vec to);
-Design AddStair (const Scheme& s, Design d, Vec at);
-Design RemoveStair (const Scheme& s, Design d, int core);
+Design MoveStair (const Scheme& s, Design d, int core, Vec to, std::string* why = nullptr);
+Design AddStair (const Scheme& s, Design d, Vec at, std::string* why = nullptr);
+Design RemoveStair (const Scheme& s, Design d, int core, std::string* why = nullptr);
 // Flats of a band: its walls and flats are pinned as they are, then one wall moves, a flat is
 // split in two at `at`, or a flat joins its smaller neighbour.
-Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to);
-Design SplitFlat (const Scheme& s, Design d, int flat, Vec at);
-Design RemoveFlat (const Scheme& s, Design d, int flat);
+Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why = nullptr);
+Design SplitFlat (const Scheme& s, Design d, int flat, Vec at, std::string* why = nullptr);
+Design RemoveFlat (const Scheme& s, Design d, int flat, std::string* why = nullptr);
 Design SetRooms (const Scheme& s, Design d, int flat, double rooms);
 Design MoveEnd (Design d, const End& end, Vec to);
 // Two flats change places: in one band with their widths, across bands (the corridor) their room
 // counts.
-Design SwapFlats (const Scheme& s, Design d, int a, int b);
+Design SwapFlats (const Scheme& s, Design d, int a, int b, std::string* why = nullptr);
 // A flat of `rooms` put in at `at`: the band flat there gives it a preferred frontage at the end
 // nearer `at`. `Insertion` is where its wall would go (across the band) and the flat it makes.
 struct Insertion {
@@ -98,10 +101,11 @@ struct Insertion {
     Vec a, b;    // the new party wall, across the band
     Ring region; // the new flat
 };
-std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms);
-Design InsertFlat (const Scheme& s, Design d, Vec at, double rooms);
+std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms, std::string* why = nullptr);
+Design InsertFlat (const Scheme& s, Design d, Vec at, double rooms, std::string* why = nullptr);
 // The floor's flats made `total`: the widest flats split, the narrowest join; locked ones stay.
-Design SetCount (const Scheme& s, Design d, int total);
+// As near `total` as the floor allows; `why` says where it stopped short.
+Design SetCount (const Scheme& s, Design d, int total, std::string* why = nullptr);
 Design SetLocked (const Scheme& s, Design d, int flat, bool locked);
 bool Locked (const Scheme& s, const Design& d, int flat);
 Design SetAccess (const Scheme& s, Design d, int wing, Access access);

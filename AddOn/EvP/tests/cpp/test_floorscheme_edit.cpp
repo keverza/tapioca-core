@@ -370,3 +370,42 @@ TEST (FloorSchemeEdit, DraggedWallsAndStairsMoveInStepsAndSnapToProgrammeSizes)
     const fs::Vec s = fe::Stepped (f.scheme, c, { c.x + 1.13, c.y - 0.31 });
     EXPECT_NEAR (std::abs (s.x - c.x) + std::abs (s.y - c.y), 1.6, 1e-9) << "1.2 along and 0.4 across";
 }
+
+// User, 2026-10-14: "There needs to be text line to say if user interaction is invalid, silent
+// failure is bad UI/UX." An edit that cannot be made leaves the design as it was and says why.
+TEST (FloorSchemeEdit, AnEditThatCannotBeMadeSaysWhy)
+{
+    Floor f ({ Rect (0, 0, 60, 16) });
+    ASSERT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    int cap = -1, row = -1;
+    for (size_t i = 0; i < f.scheme.flats.size (); ++i)
+        (f.scheme.flats[i].band < 0 ? cap : row) = static_cast<int> (i);
+    ASSERT_GE (cap, 0) << "the bar has corridor-end flats";
+    ASSERT_GE (row, 0);
+    std::string why;
+    EXPECT_EQ (fe::RemoveFlat (f.scheme, f.session.design, cap, &why), f.session.design);
+    EXPECT_NE (why.find ("corridor's end"), std::string::npos) << why;
+    // A locked flat neither splits nor goes.
+    f.Apply (fe::SetLocked (f.scheme, f.session.design, row, true));
+    const int locked = fe::FlatAt (f.scheme, Mid (f.scheme.flats[row].shape));
+    ASSERT_GE (locked, 0);
+    why.clear ();
+    EXPECT_EQ (fe::SplitFlat (f.scheme, f.session.design, locked, Mid (f.scheme.flats[locked].shape), &why),
+               f.session.design);
+    EXPECT_NE (why.find ("locked"), std::string::npos) << why;
+    // A count past what the floor takes is made as far as it goes, and says where it stopped.
+    why.clear ();
+    const auto many = fe::SetCount (f.scheme, f.session.design, 500, &why);
+    EXPECT_FALSE (many == f.session.design) << "the floor still took more flats";
+    EXPECT_NE (why.find ("as many as the floor takes"), std::string::npos) << why;
+    // Nothing under the drop: a flat put in says where it must go.
+    why.clear ();
+    EXPECT_FALSE (fe::Insert (f.scheme, { -50, -50 }, 2, &why).has_value ());
+    EXPECT_FALSE (why.empty ());
+    // An edit that can be made says nothing.
+    why.clear ();
+    const int other = fe::FlatAt (f.scheme, Mid (f.scheme.flats[row == 0 ? 1 : 0].shape));
+    fe::SplitFlat (f.scheme, f.session.design, other, Mid (f.scheme.flats[other].shape), &why);
+    if (f.scheme.flats[other].band >= 0)
+        EXPECT_TRUE (why.empty () || why.find ("narrow") != std::string::npos) << why;
+}
