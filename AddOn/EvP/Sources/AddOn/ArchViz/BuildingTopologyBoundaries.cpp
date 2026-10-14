@@ -96,7 +96,11 @@ int FaceFor (const Complex& complex, const std::vector<int>& cells, Vec a, Vec b
 namespace detail {
 void AddFaces (Complex& complex, int floor, const FloorInput& input)
 {
-    const auto& cells = complex.floors[floor].cells;
+    // Context cells meet the floor's cells like any other; walls between two of them, or from one
+    // out to whatever lies beyond, are beyond the planned part and not made.
+    std::vector<int> cells = complex.floors[floor].cells;
+    cells.insert (cells.end (), complex.floors[floor].context.begin (), complex.floors[floor].context.end ());
+    auto context = [&] (int cell) { return complex.cells[cell].context; };
     std::vector<Edge> edges;
     for (int id : cells) {
         const auto& ring = complex.cells[id].shape;
@@ -117,7 +121,8 @@ void AddFaces (Complex& complex, int floor, const FloorInput& input)
         for (size_t k = i + 1; k < edges.size (); ++k) {
             auto& e = edges[i];
             auto& g = edges[k];
-            if (e.cell == g.cell || e.x0 > g.x1 || g.x0 > e.x1 || e.y0 > g.y1 || g.y0 > e.y1)
+            if (e.cell == g.cell || (context (e.cell) && context (g.cell)) || e.x0 > g.x1 || g.x0 > e.x1 ||
+                e.y0 > g.y1 || g.y0 > e.y1)
                 continue;
             if (std::abs (Cross (e.u, g.u)) > kParallel)
                 continue;
@@ -148,6 +153,8 @@ void AddFaces (Complex& complex, int floor, const FloorInput& input)
         if (cp::Area (path) < 0)
             holes.push_back (path);
     for (auto& e : edges) {
+        if (context (e.cell))
+            continue;
         std::sort (e.covered.begin (), e.covered.end ());
         std::vector<std::pair<double, double>> open;
         double from = 0;
@@ -240,4 +247,38 @@ void AddFaces (Complex& complex, int floor, const FloorInput& input)
     }
 }
 } // namespace detail
+
+std::vector<fs::Side> Sides (const Complex& complex, int unit)
+{
+    std::vector<fs::Side> out;
+    if (unit < 0 || unit >= static_cast<int> (complex.units.size ()))
+        return out;
+    for (int cell : complex.units[unit].cells)
+        for (int id : complex.cells[cell].faces) {
+            const auto& f = complex.faces[id];
+            const int other = f.cells[0] == cell ? f.cells[1] : f.cells[0];
+            if (other >= 0 && complex.cells[other].unit == unit)
+                continue; // a wall inside the flat
+            fs::Side side;
+            side.a = f.a, side.b = f.b;
+            if (f.beyond == Beyond::Outside || f.beyond == Beyond::Courtyard)
+                side.kind = fs::Side::Facade;
+            else if (other >= 0)
+                switch (complex.cells[other].kind) {
+                    case CellKind::Corridor:
+                        side.kind = fs::Side::Corridor;
+                        break;
+                    case CellKind::Lobby:
+                        side.kind = fs::Side::Lobby;
+                        break;
+                    case CellKind::Core:
+                        side.kind = fs::Side::Stair;
+                        break;
+                    default:
+                        break;
+                }
+            out.push_back (side);
+        }
+    return out;
+}
 } // namespace geomsrv::archviz::buildingtopology

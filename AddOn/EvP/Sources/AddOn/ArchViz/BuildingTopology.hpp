@@ -12,6 +12,9 @@
 //              and thickness; a wall is a face, never a cell
 //   apertures  the generator's windows and entrance doors, on the face they open
 //   units      flats: their cells, type and rooms; floors: their cells and units
+//   context    cells around a part of a floor planned on its own (a unit: the corridor its door
+//              opens onto, the flats beside it); its walls are classified against them, nothing
+//              else counts them
 //
 // Clear (inside the walls) geometry is derived from cells and face thickness (`Clear`), so the
 // preview, the areas and a later bake all use one rule. Read-only: built from finished schemes,
@@ -67,6 +70,7 @@ struct Cell {
     Ring shape;     // counter-clockwise, on wall centre lines
     double area = 0;
     std::vector<int> faces;
+    bool context = false; // around the planned part (FloorInput::context): in no unit, floor or check
 };
 struct Face {
     int floor = -1;
@@ -96,6 +100,7 @@ struct Floor {
     double z = 0, height = 0;
     std::vector<Ring> outline; // the scheme's: outer rings counter-clockwise, holes clockwise
     std::vector<int> cells, units;
+    std::vector<int> context; // cells around the planned part, not in `cells`
 };
 struct Diagnostic {
     std::string code, text;
@@ -111,15 +116,28 @@ struct Complex {
     std::vector<Diagnostic> diagnostics; // partition and matching problems; nothing is repaired
 };
 
+// Floor around a part of a floor planned on its own, as a cell of `kind` on wall centre lines:
+// the corridor or stair a unit's door opens onto, a flat or unassigned floor beside it.
+struct Context {
+    CellKind kind = CellKind::Corridor;
+    Ring shape;
+};
 // One planned floor of the building, lowest first.
 struct FloorInput {
     int story = 0;
     double z = 0, height = 0;
     const floorscheme::Scheme* scheme = nullptr;
     std::vector<Ring> party; // other buildings' floor at this elevation (FloorInput::party of the planner)
+    std::vector<Context> context;
 };
 // `stack`: the building's stairs (Options::holdCores pins); each Core cell is matched to one.
 Complex Build (const std::vector<FloorInput>& floors, const std::vector<floorscheme::Pins::Core>& stack = {});
+// What lies beyond `unit`'s outline, read off its faces: facade to open air or a courtyard, a
+// corridor, a lobby or a stair, blind to anything else -- for laying its rooms again
+// (floorscheme::PlanRooms).
+std::vector<floorscheme::Side> Sides (const Complex& complex, int unit);
+// The rest of `unit`'s floor as context: to plan that unit on its own among what surrounds it.
+std::vector<Context> Around (const Complex& complex, int unit);
 
 // The wall a face is: Facade and BuildingParty walls stand inside the outline (the whole thickness,
 // half of a party wall, is the cell's); the others are centred on the face.
@@ -171,8 +189,10 @@ struct UnitFigures {
     double frontage = 0;  // facade to open air or a courtyard
     double partyWall = 0; // shared with other flats
     int windows = 0;
-    bool entrance = false;     // its door is on a wall it shares with circulation or a stair
-    bool reachesStair = false; // from that door to a stair of the stack
+    bool entrance = false; // its door is on a wall it shares with circulation or a stair
+    // From that door to a stair of the stack, or to context circulation (it leads to one beyond
+    // the planned part).
+    bool reachesStair = false;
 };
 UnitFigures Figures (const Complex& complex, int unit);
 // The rules a plan must keep, from the graphs: every flat has an entrance and reaches a stair;

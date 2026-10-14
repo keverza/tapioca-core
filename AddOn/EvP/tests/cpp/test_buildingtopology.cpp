@@ -350,3 +350,46 @@ TEST (BuildingTopology, AnInnerBedroomHasNoDaylightAndAFlatWithoutADoorNoEntranc
     EXPECT_EQ (count ("room.no_daylight"), 1);
     EXPECT_EQ (count ("unit.no_entrance"), 5) << "none of these flats has a door";
 }
+
+// A part of a floor on its own: what surrounds it classifies its walls and is never counted.
+TEST (BuildingTopology, ContextClassifiesThePartsWallsAndIsNeverCounted)
+{
+    // One flat; a corridor below it, a stair to the east, a flat to the west, open air above.
+    const auto s = Flats ({ Rect (0, 0, 6, 8) }, { Rect (0, 0, 6, 8) });
+    const bt::FloorInput input { 0,
+                                 0,
+                                 3,
+                                 &s,
+                                 {},
+                                 { { bt::CellKind::Corridor, Rect (-6, -2, 12, 0) },
+                                   { bt::CellKind::Core, Reversed (Rect (6, 0, 10, 8)) },
+                                   { bt::CellKind::Flat, Rect (-6, 0, 0, 8) } } };
+    const auto c = bt::Build ({ input });
+    EXPECT_TRUE (c.diagnostics.empty ()) << Codes (c);
+    ASSERT_EQ (c.floors[0].cells.size (), 1u);
+    ASSERT_EQ (c.floors[0].context.size (), 3u);
+    for (int id : c.floors[0].context)
+        EXPECT_TRUE (c.cells[id].context && c.cells[id].unit < 0);
+    std::map<bt::FaceClass, double> walls;
+    for (const auto& f : c.faces)
+        walls[f.kind] += Length (f);
+    EXPECT_EQ (c.faces.size (), 4u) << "only the flat's walls: none between or beyond the context";
+    EXPECT_NEAR (walls[bt::FaceClass::Facade], 6, 1e-6);
+    EXPECT_NEAR (walls[bt::FaceClass::UnitCorridor], 6, 1e-6);
+    EXPECT_NEAR (walls[bt::FaceClass::CoreWall], 8, 1e-6);
+    EXPECT_NEAR (walls[bt::FaceClass::UnitParty], 8, 1e-6);
+    // The floor is the flat: its slab stops inside the walls it shares with the context.
+    EXPECT_NEAR (Area (bt::Union (c, c.floors[0].cells)), 48, 1e-6);
+    EXPECT_NEAR (Area (bt::Plate (c, 0)), (6 - 0.2) * (8 - 0.6), 1e-4);
+    // What lies beyond the flat, as its rooms would be laid against it.
+    std::map<fs::Side::Kind, double> sides;
+    for (const auto& side : bt::Sides (c, 0))
+        sides[side.kind] += std::hypot (side.b.x - side.a.x, side.b.y - side.a.y);
+    EXPECT_NEAR (sides[fs::Side::Facade], 6, 1e-6);
+    EXPECT_NEAR (sides[fs::Side::Corridor], 6, 1e-6);
+    EXPECT_NEAR (sides[fs::Side::Stair], 8, 1e-6);
+    EXPECT_NEAR (sides[fs::Side::Blind], 8, 1e-6);
+    // Around the flat is everything else on its floor.
+    const auto around = bt::Around (c, 0);
+    EXPECT_EQ (around.size (), 3u);
+}

@@ -122,9 +122,11 @@ struct Read {
 Read ReadGraphs (const Complex& complex)
 {
     Read r { Access (complex), Exterior (complex), {} };
+    // Circulation around a part planned on its own leads to a stair beyond it.
     std::vector<int> stairs;
     for (size_t i = 0; i < complex.cells.size (); ++i)
-        if (complex.cells[i].kind == CellKind::Core)
+        if (complex.cells[i].kind == CellKind::Core ||
+            (complex.cells[i].context && Circulation (complex.cells[i].kind)))
             stairs.push_back (static_cast<int> (i));
     r.fromStairs = Reachable (complex, r.access, stairs);
     return r;
@@ -184,9 +186,9 @@ std::vector<Diagnostic> Check (const Complex& complex)
     // Living rooms, bedrooms and alcoves need open air or a courtyard beyond a wall.
     for (size_t i = 0; i < complex.cells.size (); ++i) {
         const auto& cell = complex.cells[i];
-        const bool habitable =
-            cell.kind == CellKind::Room && (cell.room == fs::RoomKind::Living || cell.room == fs::RoomKind::Bedroom ||
-                                            cell.room == fs::RoomKind::Alcove);
+        const bool habitable = !cell.context && cell.kind == CellKind::Room &&
+                               (cell.room == fs::RoomKind::Living || cell.room == fs::RoomKind::Bedroom ||
+                                cell.room == fs::RoomKind::Alcove);
         if (habitable && r.exterior.at[i].empty ())
             out.push_back ({ "room.no_daylight", "A living room, bedroom or alcove with no facade.", cell.floor,
                              at (static_cast<int> (i)) });

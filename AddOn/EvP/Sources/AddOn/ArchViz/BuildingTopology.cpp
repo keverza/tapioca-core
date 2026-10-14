@@ -242,6 +242,18 @@ void AddCells (Complex& complex, int floor, const FloorInput& input, const std::
     }
     for (const auto& u : s.unassigned)
         add (CellKind::Unassigned, u.shape, -1);
+    // Around a part planned on its own: cells its walls are classified against, kept out of the
+    // floor's cells so no area, union or check counts them.
+    for (const auto& around : input.context) {
+        Cell cell;
+        cell.kind = around.kind, cell.floor = floor, cell.context = true;
+        cell.shape = Counter (around.shape);
+        cell.area = std::abs (fs::Area (cell.shape));
+        if (cell.shape.size () < 3 || cell.area < 1e-4)
+            continue;
+        complex.floors[floor].context.push_back (static_cast<int> (complex.cells.size ()));
+        complex.cells.push_back (std::move (cell));
+    }
 }
 } // namespace detail
 
@@ -289,6 +301,18 @@ double Share (const Complex& complex, int face, int cell)
     if (cell < 0 || (f.cells[0] != cell && f.cells[1] != cell))
         return 0;
     return f.kind == FaceClass::Facade ? f.thickness : f.thickness / 2;
+}
+std::vector<Context> Around (const Complex& complex, int unit)
+{
+    std::vector<Context> out;
+    if (unit < 0 || unit >= static_cast<int> (complex.units.size ()))
+        return out;
+    const auto& floor = complex.floors[complex.units[unit].floor];
+    for (const auto* ids : { &floor.cells, &floor.context })
+        for (int id : *ids)
+            if (complex.cells[id].context || complex.cells[id].unit != unit)
+                out.push_back ({ complex.cells[id].kind, complex.cells[id].shape });
+    return out;
 }
 std::vector<Ring> Union (const Complex& complex, const std::vector<int>& cells)
 {
