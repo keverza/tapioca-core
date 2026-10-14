@@ -35,6 +35,31 @@ struct Footpath {
         EXPECT_TRUE (ed::Validate (doc, why)) << why;
     }
 };
+// Two non-adjacent segments of an edge cross in plan.
+bool FoldsOver (const std::vector<ed::Vec3>& e)
+{
+    for (size_t i = 0; i + 1 < e.size (); ++i)
+        for (size_t j = i + 2; j + 1 < e.size (); ++j) {
+            const double rx = e[i + 1].x - e[i].x, ry = e[i + 1].y - e[i].y;
+            const double sx = e[j + 1].x - e[j].x, sy = e[j + 1].y - e[j].y;
+            const double den = rx * sy - ry * sx;
+            if (std::abs (den) < 1.0e-12)
+                continue;
+            const double qx = e[j].x - e[i].x, qy = e[j].y - e[i].y;
+            const double u = (qx * sy - qy * sx) / den, v = (qx * ry - qy * rx) / den;
+            if (u > 1.0e-6 && u < 1.0 - 1.0e-6 && v > 1.0e-6 && v < 1.0 - 1.0e-6)
+                return true;
+        }
+    return false;
+}
+
+bool Holds (const std::vector<ed::Vec3>& edge, ed::Vec3 p)
+{
+    for (const auto& q : edge)
+        if (ed::DistanceXY (p, q) < 1.0e-6)
+            return true;
+    return false;
+}
 } // namespace
 
 TEST (EditPath, NewPathIsAValidDefinition)
@@ -288,4 +313,51 @@ TEST (EditPath, PathsSnapAndPick)
     sel.Marquee (f.doc, plan, -20, -20, 900, 700, ed::kPickEntity, false);
     ASSERT_EQ (sel.Items ().size (), 1u);
     EXPECT_EQ (sel.Items ()[0].entity, f.path);
+}
+
+TEST (EditPath, SharpCornerIsMitredAndItsEdgesNeverCross)
+{
+    // The live run's footpath: a sharp left turn at (25, -10), 1.8 m wide.
+    ed::Document doc;
+    const ed::Id id = ed::AddPath (doc, { { 0, -10, 0 }, { 25, -10, 0 }, { 25, 5, 0 } }, 1.8);
+    ed::PathOutline o;
+    std::string error;
+    ASSERT_TRUE (ed::Outline (*ed::FindPath (doc, id), 0.5, o, error)) << error;
+    EXPECT_FALSE (FoldsOver (o.left));
+    EXPECT_FALSE (FoldsOver (o.right));
+    EXPECT_TRUE (Holds (o.right, { 25.9, -10.9, 0 })); // the outer mitre
+    EXPECT_TRUE (Holds (o.left, { 24.1, -9.1, 0 }));   // the inner corner
+    for (const auto& p : o.left)                       // nothing of the inner edge runs past its corner
+        EXPECT_TRUE (p.x <= 24.1 + 1.0e-9 && p.y >= -9.1 - 1.0e-9) << p.x << ", " << p.y;
+    EXPECT_EQ (o.left.size (), o.stations.size ());
+    EXPECT_EQ (o.right.size (), o.stations.size ());
+}
+
+TEST (EditPath, BendTighterThanTheWidthHasItsFoldCutOut)
+{
+    ed::Document doc;
+    const ed::Id id = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 }, { 20, 20, 0 } }, 4.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, id, ed::FindPath (doc, id)->points[1].id, 1.0, error)) << error;
+    ed::PathOutline o;
+    ASSERT_TRUE (ed::Outline (*ed::FindPath (doc, id), 0.25, o, error)) << error;
+    EXPECT_FALSE (FoldsOver (o.left)); // 2 m to the left of a 1 m arc
+    EXPECT_FALSE (FoldsOver (o.right));
+}
+
+TEST (EditPath, HairpinCornerIsBevelled)
+{
+    ed::Document doc;
+    const ed::Id id = ed::AddPath (doc, { { 0, 0, 0 }, { 30, 0, 0 }, { 10, 6, 0 } }, 1.0);
+    ed::PathOutline o;
+    std::string error;
+    ASSERT_TRUE (ed::Outline (*ed::FindPath (doc, id), 0.5, o, error)) << error;
+    size_t atCorner = 0;
+    for (size_t i = 0; i < o.stations.size (); ++i)
+        if (std::abs (o.stations[i] - 30.0) < 1.0e-6) {
+            ++atCorner; // each leg's own outer offset, half a width from the corner: no mitre spike
+            EXPECT_NEAR (ed::DistanceXY (o.right[i], { 30, 0, 0 }), 0.5, 1.0e-9);
+        }
+    EXPECT_EQ (atCorner, 2u);
+    EXPECT_FALSE (FoldsOver (o.right));
 }

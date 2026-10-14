@@ -165,7 +165,10 @@ struct StationFrame {
 bool Evaluate (const Path& path, const AlignmentGeometry& geometry, double station, StationFrame& out);
 // A path sampled for drawing, snapping and picking: the centreline and both edges at
 // the same stations, with the range in force at each. A range boundary is sampled on
-// both sides so a change of width shows as a step, not a slant.
+// both sides so a change of width shows as a step, not a slant. The edges never cross
+// themselves: at a sharp corner the inner edge stops where its offset lines meet and the
+// outer one is mitred (bevelled when very sharp, by a second sample at that station),
+// and a bend tighter than the width has its folded inner edge cut out.
 struct PathOutline {
     std::vector<double> stations;
     std::vector<Vec3> centre, left, right;
