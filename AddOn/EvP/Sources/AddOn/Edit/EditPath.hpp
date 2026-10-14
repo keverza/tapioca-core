@@ -56,5 +56,48 @@ bool StationOf (const AlignmentGeometry& geometry, Vec3 point, double& station, 
 // Stations where an element starts or ends, ascending.
 std::vector<double> ElementStations (const AlignmentGeometry& geometry);
 
+// ---- vertical profile -------------------------------------------------------------
+
+// A grade break: an elevation at a station where the grade changes, smoothed by a
+// symmetric parabolic vertical curve `curve` metres long centred on it. A fixed break
+// is a reference elevation (an entrance threshold, a street level) that edits keep.
+// An anchored break follows the station of a control point as the plan changes;
+// `binding` names the host item a fixed elevation came from, for re-checking later.
+struct GradeBreak {
+    Id id = kNoId;
+    double station = 0.0, z = 0.0, curve = 0.0;
+    bool fixed = false;
+    Id anchor = kNoId;
+    std::string binding;
+    bool operator== (const GradeBreak&) const = default;
+};
+// Breaks ascend from station 0 to `length`, the end breaks carry no curve, and
+// neighbouring curves do not overlap.
+bool ValidateProfile (const std::vector<GradeBreak>& breaks, double length, std::string& error);
+// Elevation and grade (a fraction: 0.05 is 5 %) at a station, curves included.
+bool Elevation (const std::vector<GradeBreak>& breaks, double station, double& z, double* grade = nullptr);
+// Grade of the tangent from break i to break i + 1, as a fraction.
+double TangentGrade (const std::vector<GradeBreak>& breaks, size_t i);
+
+bool SetBreakElevation (std::vector<GradeBreak>& breaks, Id id, double z, std::string& error);
+// Sets the tangent from break i to i + 1 to `percent`. The fixed end stays put; with
+// neither fixed the start stays, as the user's first click does.
+bool SetGrade (std::vector<GradeBreak>& breaks, size_t i, double percent, std::string& error);
+// A new break on the existing tangent, so the profile's shape does not change.
+bool InsertBreak (std::vector<GradeBreak>& breaks, double station, Id id, std::string& error);
+bool DeleteBreak (std::vector<GradeBreak>& breaks, Id id, std::string& error);
+bool MoveBreak (std::vector<GradeBreak>& breaks, Id id, double station, std::string& error);
+bool SetCurve (std::vector<GradeBreak>& breaks, Id id, double length, std::string& error);
+// The curve length a minimum K value asks for: K metres per percent of grade change.
+double CurveForK (const std::vector<GradeBreak>& breaks, size_t i, double k);
+// After the plan changes length: the end break moves to the new end, anchored breaks
+// go to their anchors' stations, and the rest keep their share of the length.
+bool Restation (std::vector<GradeBreak>& breaks, double oldLength, double newLength,
+                const std::vector<std::pair<Id, double>>& anchorStations, std::string& error);
+// Breaks that follow sampled heights within `tolerance` metres (Douglas-Peucker),
+// the starting profile for a path laid on terrain. Ids are handed out from `nextId`.
+std::vector<GradeBreak> ProfileFromSamples (const std::vector<std::pair<double, double>>& samples, double tolerance,
+                                            Id& nextId);
+
 } // namespace geomsrv::edit
 #endif

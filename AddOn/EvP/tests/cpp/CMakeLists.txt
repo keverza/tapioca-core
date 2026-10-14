@@ -729,7 +729,8 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmo.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathAlignment.cpp")
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathAlignment.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathProfile.cpp")
 
 set (EVP_TEST_SOURCES
     test_editdocument.cpp
@@ -741,6 +742,7 @@ set (EVP_TEST_SOURCES
     test_editpolyline.cpp
     test_editlayers.cpp
     test_editpathalignment.cpp
+    test_editpathprofile.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp
