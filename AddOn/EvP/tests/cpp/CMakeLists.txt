@@ -487,6 +487,7 @@ set (EVP_ARCHVIZ_SOURCES
     # ArchViz/OverlayLayers.cpp is the arbitrary geometry callers put on both overlays,
     # prepared for each; a wrong vertex is a picture in someone else's view.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayers.cpp"
     # ArchViz/OverlayText.cpp and OverlayScene.cpp are what the Diligent guest draws on
     # the overlays -- labels laid out around their anchors, dimensions, styled meshes,
     # heatmaps and legends -- prepared without a device, so the placement is tested
@@ -736,6 +737,7 @@ set (EVP_TEST_SOURCES
     test_editgizmo.cpp
     test_editselection.cpp
     test_editpolyline.cpp
+    test_editlayers.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp
