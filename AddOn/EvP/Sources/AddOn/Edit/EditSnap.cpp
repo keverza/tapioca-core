@@ -180,6 +180,26 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
                     { centre, SnapKind::Centre, { e.id, solid ? Part::Face : Part::Entity, solid ? 1u : 0u }, {} });
         }
     }
+    // Paths: control points and grade breaks are endpoints, the centreline and both
+    // edges are edges. A path any exclusion names is moving and is skipped whole.
+    for (const auto& path : doc.paths) {
+        bool moving = false;
+        for (const auto& r : query.exclude)
+            moving |= r.entity == path.id;
+        PathOutline o;
+        std::string error;
+        if (moving || !Outline (path, query.pathStep, o, error))
+            continue;
+        for (size_t i = 0; i < o.points.size (); ++i)
+            points.push_back ({ o.points[i], SnapKind::Endpoint, { path.id, Part::PathPoint, path.points[i].id }, {} });
+        for (size_t i = 0; i < o.breaks.size (); ++i)
+            points.push_back ({ o.breaks[i], SnapKind::Endpoint, { path.id, Part::Break, path.profile[i].id }, {} });
+        for (size_t i = 0; i + 1 < o.stations.size (); ++i) {
+            segments.push_back ({ o.centre[i], o.centre[i + 1], { path.id, Part::Entity, 0 }, {} });
+            segments.push_back ({ o.left[i], o.left[i + 1], { path.id, Part::Range, o.range[i] }, {} });
+            segments.push_back ({ o.right[i], o.right[i + 1], { path.id, Part::Range, o.range[i] }, {} });
+        }
+    }
     for (const auto& p : context.points)
         points.push_back ({ p.p, SnapKind::Endpoint, {}, p.source });
     for (const auto& s : context.segments) {

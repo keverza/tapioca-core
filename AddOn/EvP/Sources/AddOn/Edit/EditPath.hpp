@@ -163,6 +163,18 @@ struct StationFrame {
     Vec3 leftEdge, rightEdge;
 };
 bool Evaluate (const Path& path, const AlignmentGeometry& geometry, double station, StationFrame& out);
+// A path sampled for drawing, snapping and picking: the centreline and both edges at
+// the same stations, with the range in force at each. A range boundary is sampled on
+// both sides so a change of width shows as a step, not a slant.
+struct PathOutline {
+    std::vector<double> stations;
+    std::vector<Vec3> centre, left, right;
+    std::vector<Id> range;
+    std::vector<Vec3> points; // control points at their profile height
+    std::vector<Vec3> breaks; // grade breaks on the centreline
+};
+bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& error);
+
 // Stations to draw or build a surface at: every `maxStep` metres at most, plus every
 // element end, grade break, vertical-curve end and range start.
 std::vector<double> SampleStations (const Path& path, const AlignmentGeometry& geometry, double maxStep);

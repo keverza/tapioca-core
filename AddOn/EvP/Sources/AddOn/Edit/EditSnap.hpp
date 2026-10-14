@@ -84,6 +84,7 @@ struct SnapQuery {
     bool keepPlane = true;       // project the snapped point back onto the plane
     double grid = 0.0;           // spacing in metres; 0 disables the grid
     double extensionReach = 0.0; // 0 means 25 tolerances
+    double pathStep = 1.0;       // metres between path samples snapped along
     // Moving items must not snap to themselves: a vertex ref also drops the
     // segments that touch it, an entity ref drops the whole entity.
     std::vector<Ref> exclude;

@@ -163,6 +163,51 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
         if ((filter & kPickEntity) && entityBest >= 0.0)
             hits.push_back ({ { e.id, Part::Entity, 0 }, entityBest });
     }
+    for (const auto& path : doc.paths) {
+        PathOutline o;
+        std::string error;
+        if (!Outline (path, 0.5, o, error))
+            continue;
+        const auto near = [&] (Vec3 q, double& d) {
+            S2 s;
+            if (!Project (view, q, s))
+                return false;
+            d = std::hypot (s.x - p.x, s.y - p.y);
+            return d <= radius;
+        };
+        double d = 0.0;
+        if (filter & kPickVertex) {
+            for (size_t i = 0; i < o.points.size (); ++i)
+                if (near (o.points[i], d))
+                    hits.push_back ({ { path.id, Part::PathPoint, path.points[i].id }, d });
+            for (size_t i = 0; i < o.breaks.size (); ++i)
+                if (near (o.breaks[i], d))
+                    hits.push_back ({ { path.id, Part::Break, path.profile[i].id }, d });
+        }
+        double centreBest = -1.0;
+        for (size_t i = 0; i + 1 < o.stations.size (); ++i) {
+            S2 a, b;
+            if ((filter & kPickSegment))
+                for (const auto* edge : { &o.left, &o.right })
+                    if (Project (view, (*edge)[i], a) && Project (view, (*edge)[i + 1], b)) {
+                        const double e = SegmentDistance (a, b, p);
+                        const Ref r { path.id, Part::Range, o.range[i] };
+                        auto it =
+                            std::find_if (hits.begin (), hits.end (), [&] (const PickHit& h) { return h.ref == r; });
+                        if (e <= radius && it == hits.end ())
+                            hits.push_back ({ r, e });
+                        else if (e <= radius)
+                            it->distance = std::min (it->distance, e);
+                    }
+            if (Project (view, o.centre[i], a) && Project (view, o.centre[i + 1], b)) {
+                const double c = SegmentDistance (a, b, p);
+                if (c <= radius && (centreBest < 0.0 || c < centreBest))
+                    centreBest = c;
+            }
+        }
+        if ((filter & kPickEntity) && centreBest >= 0.0)
+            hits.push_back ({ { path.id, Part::Entity, 0 }, centreBest });
+    }
     std::stable_sort (hits.begin (), hits.end (), [] (const PickHit& a, const PickHit& b) {
         const int ra = Rank (a.ref.part), rb = Rank (b.ref.part);
         return ra != rb ? ra < rb : a.distance < b.distance;
@@ -317,6 +362,22 @@ void Selection::Marquee (const Document& doc, const PickView& view, double x0, d
             if (hit)
                 found.push_back ({ e.id, Part::Entity, 0 });
         }
+    }
+    for (const auto& path : doc.paths) {
+        PathOutline o;
+        std::string error;
+        if (!Outline (path, 0.5, o, error))
+            continue;
+        if (filter & kPickVertex) {
+            for (size_t i = 0; i < o.points.size (); ++i)
+                if (chain ({ o.points[i] }, false))
+                    found.push_back ({ path.id, Part::PathPoint, path.points[i].id });
+            for (size_t i = 0; i < o.breaks.size (); ++i)
+                if (chain ({ o.breaks[i] }, false))
+                    found.push_back ({ path.id, Part::Break, path.profile[i].id });
+        }
+        if ((filter & kPickEntity) && chain (o.centre, false))
+            found.push_back ({ path.id, Part::Entity, 0 });
     }
     if (!additive)
         items.clear ();

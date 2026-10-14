@@ -34,6 +34,39 @@ bool Evaluate (const Path& path, const AlignmentGeometry& g, double station, Sta
     return true;
 }
 
+bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& error)
+{
+    out = {};
+    AlignmentGeometry g;
+    if (!ValidatePath (path, g, error))
+        return false;
+    std::vector<double> stations = SampleStations (path, g, maxStep);
+    for (size_t i = 1; i < path.sections.size (); ++i)
+        stations.push_back (std::max (0.0, path.sections[i].station - 1.0e-3));
+    std::sort (stations.begin (), stations.end ());
+    for (double s : stations) {
+        StationFrame f;
+        if (!Evaluate (path, g, s, f))
+            continue;
+        out.stations.push_back (s);
+        out.centre.push_back (f.centre);
+        out.left.push_back (f.leftEdge);
+        out.right.push_back (f.rightEdge);
+        out.range.push_back (f.section.id);
+    }
+    for (double s : g.pointStations) {
+        StationFrame f;
+        if (Evaluate (path, g, s, f))
+            out.points.push_back (f.centre);
+    }
+    for (const auto& b : path.profile) {
+        StationFrame f;
+        if (Evaluate (path, g, b.station, f))
+            out.breaks.push_back ({ f.centre.x, f.centre.y, b.z });
+    }
+    return true;
+}
+
 std::vector<double> SampleStations (const Path& path, const AlignmentGeometry& g, double maxStep)
 {
     std::vector<double> s = ElementStations (g);

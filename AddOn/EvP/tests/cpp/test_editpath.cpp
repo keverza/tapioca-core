@@ -1,5 +1,6 @@
 #include "Edit/EditGizmo.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 
@@ -231,4 +232,60 @@ TEST (EditPath, RefsAndValidationCoverPaths)
     std::string error;
     EXPECT_FALSE (ed::Validate (broken, error));
     EXPECT_NE (error.find ("duplicate"), std::string::npos);
+}
+
+TEST (EditPath, OutlineStepsAtARangeBoundary)
+{
+    Footpath f;
+    std::string error;
+    ed::Id wide = 0;
+    ASSERT_TRUE (ed::SplitPathSection (f.doc, f.path, 20.0, error, &wide)) << error;
+    ASSERT_TRUE (ed::SetPathWidth (f.doc, f.path, wide, 2.0, 2.0, error));
+    ed::PathOutline o;
+    ASSERT_TRUE (ed::Outline (f.P (), 1.0, o, error)) << error;
+    ASSERT_EQ (o.points.size (), 3u);
+    ASSERT_EQ (o.breaks.size (), 2u);
+    size_t at = 0;
+    while (o.stations[at] < 20.0 - 1e-6)
+        ++at;
+    EXPECT_NEAR (o.left[at - 1].y, 1.0, 1e-9); // just before: the old width
+    EXPECT_NEAR (o.left[at].y, 2.0, 1e-9);     // at the boundary: the new one
+    EXPECT_EQ (o.range[at], wide);
+}
+
+TEST (EditPath, PathsSnapAndPick)
+{
+    Footpath f;
+    ed::SnapQuery q;
+    q.cursor = { 0.05, 0.03, 0 };
+    q.tolerance = 0.1;
+    const auto start = ed::Snap (f.doc, {}, q);
+    EXPECT_EQ (start.kind, ed::SnapKind::Endpoint);
+    EXPECT_EQ (start.source.entity, f.path);
+    q.cursor = { 10, 0.98, 0 };
+    const auto edge = ed::Snap (f.doc, {}, q);
+    EXPECT_EQ (edge.kind, ed::SnapKind::Nearest);
+    EXPECT_EQ (edge.source.part, ed::Part::Range);
+    q.exclude = { { f.path, ed::Part::PathPoint, f.P ().points[0].id } };
+    q.cursor = { 0.05, 0.03, 0 };
+    EXPECT_FALSE (ed::Snap (f.doc, {}, q).snapped); // a moving path does not snap to itself
+
+    ed::PickView plan;
+    plan.toScreen = [] (ed::Vec3 p, double& x, double& y) {
+        x = p.x * 20.0;
+        y = p.y * 20.0;
+        return true;
+    };
+    const auto hits = ed::Pick (f.doc, plan, 200, 19, ed::kPickAll, 6);
+    ASSERT_FALSE (hits.empty ());
+    EXPECT_EQ (hits[0].ref.part, ed::Part::Range); // the left edge at y = 1
+    const auto centre = ed::Pick (f.doc, plan, 200, 1, ed::kPickEntity, 6);
+    ASSERT_EQ (centre.size (), 1u);
+    EXPECT_EQ (centre[0].ref.entity, f.path);
+    const auto corner = ed::Pick (f.doc, plan, 0, 0, ed::kPickVertex, 6);
+    ASSERT_EQ (corner.size (), 2u); // the first control point and the first grade break
+    ed::Selection sel;
+    sel.Marquee (f.doc, plan, -20, -20, 900, 700, ed::kPickEntity, false);
+    ASSERT_EQ (sel.Items ().size (), 1u);
+    EXPECT_EQ (sel.Items ()[0].entity, f.path);
 }
