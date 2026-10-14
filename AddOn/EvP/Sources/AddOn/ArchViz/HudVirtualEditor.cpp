@@ -219,6 +219,34 @@ void Note (Session& s, const Map& m, Vec3 p, ImVec2 offset, const std::string& t
     s.canvas.list->AddText (at, colour, text.c_str ());
 }
 
+void FinishDrawing (Session& s)
+{
+    if (s.drawing.size () < 2) {
+        s.drawing.clear ();
+        return;
+    }
+    auto points = s.drawing;
+    s.drawing.clear ();
+    const bool closed = points.size () > 3 && edit::Distance (points.front (), points.back ()) < 1.0e-6;
+    if (closed)
+        points.pop_back ();
+    edit::Id created = edit::kNoId;
+    const Tool tool = s.tool;
+    const double width = s.pathWidth;
+    const std::string role = s.role;
+    const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string&) {
+        created =
+            tool == Tool::Path ? edit::AddPath (d, points, width, role) : edit::AddPolyline (d, points, closed, role);
+        return true;
+    });
+    if (!ok) {
+        s.message = s.edits.Message ();
+        return;
+    }
+    s.selection.Set ({ { created, edit::Part::Entity, 0 } });
+    s.message.clear ();
+}
+
 } // namespace detail
 
 namespace {
@@ -316,34 +344,6 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     s.snap = edit::Snap (Doc (s), context, q);
     out = s.snap.point;
     return true;
-}
-
-void FinishDrawing (Session& s)
-{
-    if (s.drawing.size () < 2) {
-        s.drawing.clear ();
-        return;
-    }
-    auto points = s.drawing;
-    s.drawing.clear ();
-    const bool closed = points.size () > 3 && edit::Distance (points.front (), points.back ()) < 1.0e-6;
-    if (closed)
-        points.pop_back ();
-    edit::Id created = edit::kNoId;
-    const Tool tool = s.tool;
-    const double width = s.pathWidth;
-    const std::string role = s.role;
-    const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string&) {
-        created =
-            tool == Tool::Path ? edit::AddPath (d, points, width, role) : edit::AddPolyline (d, points, closed, role);
-        return true;
-    });
-    if (!ok) {
-        s.message = s.edits.Message ();
-        return;
-    }
-    s.selection.Set ({ { created, edit::Part::Entity, 0 } });
-    s.message.clear ();
 }
 
 void Escape (Session& s)
@@ -504,6 +504,9 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                         case 'S':
                             s.gizmo = edit::GizmoMode::Scale;
                             break;
+                        case 'T':
+                            s.gizmo = edit::GizmoMode::Stretch;
+                            break;
                         case 'E':
                             s.gizmo = edit::GizmoMode::Extrude;
                             break;
@@ -615,6 +618,53 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (hovered && ImGui::IsMouseDoubleClicked (0) && s.tool != Tool::Select)
         FinishDrawing (s);
+
+    // A right click opens the menu for what is under the pointer, selecting it first -- also
+    // while the menu is open elsewhere: the click that closes it opens it again here.
+    const bool rightHere = v.pointer && ImGui::IsWindowHovered (ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+    if ((hovered || (s.menu.open && rightHere)) && ImGui::IsMouseClicked (ImGuiMouseButton_Right) &&
+        s.drag == Drag::None) {
+        const auto under = edit::Pick (Doc (s), pick, mouse.x, mouse.y, s.filter, radius);
+        Vec3 at, on;
+        const double z = !s.drawing.empty ()                                                  ? s.drawing.back ().z
+                         : !under.empty () && edit::PointOf (Doc (s), under.front ().ref, on) ? on.z
+                                                                                              : s.workZ;
+        if (!m.Onto (mouse.x, mouse.y, z, on, at))
+            at = on;
+        if (s.tool != Tool::Select && !s.drawing.empty ())
+            OpenMenu (s, MenuTarget::Drawing, {}, at);
+        else if (under.empty ())
+            OpenMenu (s, MenuTarget::View, {}, at);
+        else {
+            const edit::Ref ref = under.front ().ref;
+            if (!s.selection.Contains (ref))
+                s.selection.Set ({ ref });
+            const bool path = edit::FindPath (Doc (s), ref.entity) != nullptr;
+            MenuTarget target = MenuTarget::Object;
+            switch (ref.part) {
+                case edit::Part::Vertex:
+                    target = MenuTarget::Vertex;
+                    break;
+                case edit::Part::Segment:
+                    target = MenuTarget::Segment;
+                    break;
+                case edit::Part::PathPoint:
+                    target = MenuTarget::PathPoint;
+                    break;
+                case edit::Part::Break:
+                    target = MenuTarget::GradeBreak;
+                    break;
+                case edit::Part::Range:
+                    target = MenuTarget::Range;
+                    break;
+                default:
+                    target = path ? MenuTarget::Path : MenuTarget::Object;
+                    break;
+            }
+            OpenMenu (s, target, ref, at);
+        }
+    }
+    Menu (s);
 
     // Move.
     if (ImGui::IsMouseDown (0) && s.drag == Drag::Part) {

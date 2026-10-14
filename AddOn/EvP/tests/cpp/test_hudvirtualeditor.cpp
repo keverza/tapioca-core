@@ -76,6 +76,21 @@ struct Drive {
         input.buttons = { { 0, false } };
         Frame ();
     }
+    void RightClick (float x, float y)
+    {
+        At (x, y);
+        input.buttons = { { 1, true } };
+        Frame ();
+        input.buttons = { { 1, false } };
+        Frame ();
+    }
+    bool Offers (const std::string& id)
+    {
+        for (const auto& item : eh::MenuItems (S ()))
+            if (item.id == id)
+                return item.enabled;
+        return false;
+    }
     void Key (uint32_t code)
     {
         input.keys = { { code, true } };
@@ -236,4 +251,64 @@ TEST (HudVirtualEditor, StartingReplacesARoofSessionAndTheReverse)
     Drive d (Corner ());
     EXPECT_TRUE (hud::VirtualEditorActive (*d.view.state));
     EXPECT_FALSE (hud::RoofEditorActive (*d.view.state));
+}
+
+TEST (HudVirtualEditor, RightClickMenuFollowsWhatIsUnderThePointer)
+{
+    Drive d (Corner ());
+    // On the empty view: tools, selection and closing the editor.
+    d.RightClick (300, 200);
+    ASSERT_TRUE (d.S ().menu.open);
+    EXPECT_EQ (d.S ().menu.target, eh::MenuTarget::View);
+    EXPECT_TRUE (d.Offers ("close"));
+    EXPECT_TRUE (d.Offers ("select.all"));
+    EXPECT_FALSE (d.Offers ("undo")); // nothing done yet
+    EXPECT_FALSE (d.Offers ("segment.insert"));
+    // On a segment: it is selected and the menu is the segment's.
+    d.RightClick (700, 500);
+    EXPECT_EQ (d.S ().menu.target, eh::MenuTarget::Segment);
+    EXPECT_EQ (d.S ().selection.Kind (), ed::SelectionKind::Segment);
+    EXPECT_TRUE (d.Offers ("segment.insert"));
+    EXPECT_FALSE (d.Offers ("close"));
+    // On a vertex: its own actions.
+    d.RightClick (800, 300);
+    EXPECT_EQ (d.S ().menu.target, eh::MenuTarget::Vertex);
+    EXPECT_TRUE (d.Offers ("action.delete-vertex"));
+    EXPECT_FALSE (d.Offers ("segment.insert"));
+}
+
+TEST (HudVirtualEditor, MenuItemsEditAndUndo)
+{
+    Drive d (Corner ());
+    d.RightClick (660, 500); // a third of the way along the first segment
+    ASSERT_EQ (d.S ().menu.target, eh::MenuTarget::Segment);
+    eh::RunMenuItem (d.S (), "segment.insert");
+    ASSERT_EQ (d.D ().entities[0].vertices.size (), 4u);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 3.0, 1e-6); // where the pointer was, not the middle
+    EXPECT_TRUE (d.Offers ("undo"));
+    eh::RunMenuItem (d.S (), "undo");
+    EXPECT_EQ (d.D ().entities[0].vertices.size (), 3u);
+    EXPECT_TRUE (d.Offers ("redo"));
+    d.RightClick (300, 200);
+    eh::RunMenuItem (d.S (), "select.all");
+    EXPECT_EQ (d.S ().selection.Items ().size (), 1u);
+    eh::RunMenuItem (d.S (), "close");
+    EXPECT_TRUE (d.S ().close);
+}
+
+TEST (HudVirtualEditor, PathMenusOfferThePathsOwnEdits)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 2.0);
+    Drive d (std::move (doc));
+    d.RightClick (700, 500); // on the centreline at x = 5
+    ASSERT_TRUE (d.S ().menu.open);
+    const auto target = d.S ().menu.target;
+    EXPECT_TRUE (target == eh::MenuTarget::Path || target == eh::MenuTarget::Range) << int (target);
+    EXPECT_TRUE (d.Offers ("path.splitRange"));
+    const size_t breaks = d.D ().paths[0].profile.size ();
+    if (target == eh::MenuTarget::Path) {
+        eh::RunMenuItem (d.S (), "path.insertBreak");
+        EXPECT_EQ (d.D ().paths[0].profile.size (), breaks + 1);
+    }
 }

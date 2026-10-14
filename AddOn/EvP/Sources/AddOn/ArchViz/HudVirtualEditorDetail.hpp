@@ -51,6 +51,8 @@ void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::str
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 
 const edit::Document& Doc (const Session& s);
+// Ends the line a drawing tool is placing: a polyline or a path, selected.
+void FinishDrawing (Session& s);
 void History (Session& s, bool undo);
 void DeleteSelection (Session& s);
 

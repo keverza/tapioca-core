@@ -31,6 +31,20 @@ namespace geomsrv::archviz::edithud {
 enum class Tool : uint8_t { Select, Polyline, Path };
 enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent };
 
+// What a right click landed on, which decides what its menu offers.
+enum class MenuTarget : uint8_t { View, Drawing, Vertex, Segment, Object, Path, PathPoint, GradeBreak, Range };
+struct MenuItem {
+    std::string id, label, shortcut;
+    bool enabled = true, checked = false;
+    bool ruleAfter = false; // a separator follows
+};
+struct ContextMenu {
+    MenuTarget target = MenuTarget::View;
+    edit::Ref ref; // the item under the pointer (now the selection)
+    edit::Vec3 at; // the model point under the pointer: where "here" is
+    bool open = false;
+};
+
 struct Session {
     edit::Session edits;
     edit::Selection selection;
@@ -70,6 +84,7 @@ struct Session {
     std::vector<edit::Ref> publishedSelection;
     std::string message;
     roofcanvas::Frame canvas;
+    ContextMenu menu;
 
     explicit Session (edit::Document doc = {}) : edits (std::move (doc))
     {
@@ -88,6 +103,13 @@ void Panel (Session& session);
 // The layer to publish when the document or the selection moved on; false when the
 // published one is current.
 bool Follow (Session& session, overlaylayers::Layer& layer);
+
+// The right-click menu: the items for what it was opened on, and what one of them does.
+std::vector<MenuItem> MenuItems (const Session& session);
+void RunMenuItem (Session& session, const std::string& id);
+// Opens it on `target` (inside the locked view's window) and draws it while open.
+void OpenMenu (Session& session, MenuTarget target, edit::Ref ref, edit::Vec3 at);
+void Menu (Session& session);
 
 // The path the profile canvas shows: the selected one, else the only one.
 const edit::Path* ProfilePath (const Session& session);
