@@ -699,9 +699,9 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
             pinned.push_back (q.x);
     }
     std::sort (pinned.begin (), pinned.end ());
-    const int fewest = (std::max) (
-        1,
-        static_cast<int> (std::ceil (length * depth * c.o.grossFactor / (c.o.sectionArea + c.o.sectionSlack) - 1e-9)));
+    const int fewest =
+        (std::max) (1, static_cast<int> (
+                           std::ceil (length * depth * c.o.grossFactor / (c.o.sectionArea + c.o.sectionSlack) - 1e-9)));
     // A stack is the building's: its stairs make the sections even when they are fewer than the
     // floor area asks for; the stair that is missing is added to the building, never to one floor.
     if (c.o.holdCores && !pinned.empty () && pinned.size () < static_cast<size_t> (fewest))
@@ -746,10 +746,15 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
                 end = -1;
             else if (b - a < 2 * c.o.minCap + w + 5.0)
                 end = highOk ? 1 : lowOk ? -1 : 0;
-            // A pinned stair: in the band of a full section when one fits, else at its nearer end.
+            // A pinned stair: in the band of a full section when one fits, else at its nearer end. A
+            // held stack stair stays the kind it was planned as: one deeper than the band takes the
+            // corridor's end.
             if (const auto* pin = PinIn (c, f, { a, 0, b, depth }, 0)) {
                 const double at = f.Local (pin->centre).x;
-                if (b - a >= 2 * c.o.minCap + w + 5.0)
+                const bool corridorEnd = pin->depth > c0 + c.o.corridor / 2;
+                if (c.o.holdCores)
+                    end = corridorEnd ? (at - a < b - at ? -1 : 1) : 0;
+                else if (b - a >= 2 * c.o.minCap + w + 5.0)
                     end = 0;
                 else
                     end = at - a < b - at ? (lowOk ? -1 : end) : (highOk ? 1 : end);
@@ -801,17 +806,20 @@ Layout Circulate (const cp::PathsD& outline, Skeleton& sk, const floorprogramme:
     for (const auto& k : Corners (sk, access, o.corridor)) {
         if (endUse[k.parent][k.parentEnd] >= 0 || endUse[k.child][k.childEnd] >= 0)
             continue;
-        // A user stair away from this corner turns the L back into straight runs.
-        bool pinnedAway = false;
+        // A user stair away from this corner, with none left at it, turns the L back into straight
+        // runs. Stairs of the wings' other sections are away from the corner too: while one stands
+        // at the corner the L stays (a held stack keeps the corners it was planned with).
+        bool pinnedAway = false, pinnedNear = false;
         for (const auto& pin : pins.cores) {
             const auto& wa = sk.wings[k.parent];
             const auto& wb = sk.wings[k.child];
             const bool inside = Inside ({ ToPath (wa.rect) }, pin.centre) || Inside ({ ToPath (wb.rect) }, pin.centre);
             const auto q = CornerFrame (sk, k).Local (pin.centre);
-            pinnedAway =
-                pinnedAway || (inside && std::hypot (q.x - wb.depth, q.y - wa.depth) > CoreSlack (o) + o.coreWidth);
+            const bool near = std::hypot (q.x - wb.depth, q.y - wa.depth) <= CoreSlack (o) + o.coreWidth;
+            pinnedAway = pinnedAway || (inside && !near);
+            pinnedNear = pinnedNear || (inside && near);
         }
-        if (pinnedAway)
+        if (pinnedAway && !pinnedNear)
             continue;
         endUse[k.parent][k.parentEnd] = endUse[k.child][k.childEnd] = static_cast<int> (chosen.size ());
         chosen.push_back (k);

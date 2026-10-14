@@ -86,6 +86,39 @@ bool AsDivided (const fs::Flat& f)
 }
 } // namespace
 
+// The stack held on every floor of every typology, not only a bar: the floor the stack was planned
+// on and the floors that hold it plan the same corners and sections round the same stairs.
+TEST (BuildingGenerator, EveryTypologyHoldsItsStairStack)
+{
+    fs::Ring court = Rect (14, 14, 36, 36);
+    std::reverse (court.begin (), court.end ());
+    const std::vector<std::pair<const char*, std::vector<fs::Ring>>> cases {
+        { "L", { Rect (0, 0, 48, 16), Rect (0, 16, 16, 48) } },
+        { "O", { Rect (0, 0, 50, 50), court } },
+        { "T", { Rect (0, 0, 60, 16), Rect (22, 16, 38, 40) } },
+        { "U", { Rect (0, 0, 56, 16), Rect (0, 16, 16, 40), Rect (40, 16, 56, 40) } },
+        { "stepped", { Rect (0, 0, 30, 16), Rect (30, 4, 60, 20) } },
+    };
+    for (const auto& [name, outline] : cases) {
+        const auto g = bg::PlanMass ({ LevelAt (0, 0, outline), LevelAt (1, 3, outline), LevelAt (2, 6, outline) },
+                                     fp::Default ());
+        ASSERT_FALSE (g.stack.empty ()) << name;
+        for (size_t i = 0; i < g.schemes.size (); ++i) {
+            std::string errors;
+            for (const auto& d : g.schemes[i].diagnostics)
+                if (d.level == fs::Diagnostic::Error)
+                    errors += d.code + " ";
+            EXPECT_TRUE (errors.empty ()) << name << " level " << i << ": " << errors;
+            EXPECT_EQ (g.schemes[i].cores.size (), g.stack.size ()) << name << " level " << i;
+        }
+        // Every stair runs ground to top and every flat reaches one. (Daylight is the generator's
+        // own: the stepped bar's jog leaves two rooms dark on a single floor too.)
+        for (const auto& d : bt::Check (g.complex))
+            EXPECT_TRUE (d.code != "core.broken_stack" && d.code != "unit.unreachable" && d.code != "unit.no_entrance")
+                << name << ": " << d.code;
+    }
+}
+
 // User, 2026-10-10: "stair core must be same position from ground to top floor".
 TEST (BuildingGenerator, AMassHoldsOneStairStackOnEveryLevel)
 {
