@@ -56,6 +56,11 @@ const edithud::Session* VirtualEditor (const State& state)
     return state.virtualEditor.get ();
 }
 
+edithud::Session* VirtualEditor (State& state)
+{
+    return state.virtualEditor.get ();
+}
+
 bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear)
 {
     clear = false;

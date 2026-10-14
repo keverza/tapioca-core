@@ -352,6 +352,7 @@ bool StartVirtualEditor (State& state, edit::Document doc, std::string role = {}
 void StopVirtualEditor (State& state);
 bool VirtualEditorActive (const State& state);
 const edithud::Session* VirtualEditor (const State& state);
+edithud::Session* VirtualEditor (State& state);
 bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);

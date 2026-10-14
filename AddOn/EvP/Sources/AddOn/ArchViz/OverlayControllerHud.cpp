@@ -101,13 +101,13 @@ void FollowHudState ()
     }
     // The virtual editor follows exactly as the roof does: its layer when the document or the
     // selection moved, and the same scoped keyboard ownership while it has the locked view.
-    overlaylayers::Layer edits;
-    bool clearEdits = false;
-    if (overlayhud::FollowVirtualEditor (*state, edits, clearEdits)) {
-        if (clearEdits)
+    overlaylayers::Layer editorLayer;
+    bool clearEditorLayer = false;
+    if (overlayhud::FollowVirtualEditor (*state, editorLayer, clearEditorLayer)) {
+        if (clearEditorLayer)
             overlaylayers::Clear (editlayers::kLayer);
         else
-            overlaylayers::Set (std::move (edits));
+            overlaylayers::Set (std::move (editorLayer));
         PublishLayers ();
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
