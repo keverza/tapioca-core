@@ -39,6 +39,8 @@ void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
                     Vertex v { c.x - origin.x, c.y - origin.y, c.u, c.v, hudshell::Unpacked (c.col), uint32_t (slot) };
                     if (panel < 0 && store->roofEditor)
                         roofcanvas::Bind (store->roofEditor->canvas, list, int (command.IdxOffset + e), v);
+                    else if (panel < 0 && store->virtualEditor)
+                        roofcanvas::Bind (store->virtualEditor->canvas, list, int (command.IdxOffset + e), v);
                     into.vertices.push_back (v);
                 }
             }

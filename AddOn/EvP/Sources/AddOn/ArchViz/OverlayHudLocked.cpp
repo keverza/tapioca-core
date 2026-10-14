@@ -1,3 +1,4 @@
+#include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 
 namespace geomsrv::archviz::overlayhud {
@@ -32,7 +33,16 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
             ImGui::PopStyleColor (colours);
             ImGui::PopStyleVar (hudshell::kLookVars);
         }
-        else if (!store->roofEditor) {
+        else if (store->virtualEditor && LayerShown (*store, editlayers::kLayer)) {
+            const auto style = roofslope::EditorStyle ();
+            const int colours = hudshell::PushLook (style, ui);
+            ImGui::PushFont (FontFor (style.font), style.sizePixels * ui);
+            edithud::OnView (*store->virtualEditor, input, input.pointer && ImGui::IsWindowHovered (), ui);
+            ImGui::PopFont ();
+            ImGui::PopStyleColor (colours);
+            ImGui::PopStyleVar (hudshell::kLookVars);
+        }
+        else if (!store->roofEditor && !store->virtualEditor) {
             hudfloorscheme::ViewOnto onto;
             onto.planar = input.planar;
             std::copy (std::begin (input.plan), std::end (input.plan), onto.plan);

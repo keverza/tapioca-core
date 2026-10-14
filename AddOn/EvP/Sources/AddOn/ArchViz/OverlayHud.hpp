@@ -71,6 +71,8 @@
 #include "ArchViz/HudSection.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/RoofSlopeHud.hpp"
+#include "Edit/EditDocument.hpp"
+#include "Edit/EditSnap.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
 #include "ArchViz/StorySliceOverlayContent.hpp" // the storey slices' controls, on Settings
@@ -87,6 +89,9 @@ namespace geomsrv {
 namespace archviz {
 namespace massingslices {
 struct Result;
+}
+namespace edithud {
+struct Session;
 }
 namespace overlayhud {
 
@@ -341,6 +346,13 @@ void StopRoofEditor (State& state);
 bool RoofEditorActive (const State& state);
 const roofslope::Data* RoofEditorData (const State& state);
 bool FollowRoofEditor (State& state, overlaylayers::Layer& layer, bool& clear);
+// The virtual editor (HudVirtualEditor.hpp), in the same pattern: it borrows the dock's lock,
+// owns only the command-scoped "virtual-editor" layer, and replaces a roof session.
+bool StartVirtualEditor (State& state, edit::Document doc, std::string role = {}, edit::SnapContext context = {});
+void StopVirtualEditor (State& state);
+bool VirtualEditorActive (const State& state);
+const edithud::Session* VirtualEditor (const State& state);
+bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);
 void SelectKey (State& state, const std::string& key);

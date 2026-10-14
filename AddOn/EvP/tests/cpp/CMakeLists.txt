@@ -539,6 +539,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeCanvas.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeReport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudRoof.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudVirtualEditor.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
@@ -750,6 +752,7 @@ set (EVP_TEST_SOURCES
     test_editpathsection.cpp
     test_editpath.cpp
     test_editprofileview.cpp
+    test_hudvirtualeditor.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp

@@ -3,6 +3,7 @@
 // the engine's (OverlayHudEngine.hpp), apart from the frame and the panels. See
 // OverlayHud.hpp's notes on the host.
 
+#include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
 #include "ArchViz/GraphicsSettingsUi.hpp"
@@ -401,6 +402,8 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
                 layer = LayerOf (k);
                 if (layer == roofslope::kLayer && store->roofEditor)
                     roofhud::Panel (*store->roofEditor);
+                else if (layer == editlayers::kLayer && store->virtualEditor)
+                    edithud::Panel (*store->virtualEditor);
                 else
                     Items (*panels[i], StateOf (k, *panels[i]), ui);
                 return;
