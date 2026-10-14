@@ -188,9 +188,11 @@ void AddCells (Complex& complex, int floor, const FloorInput& input, const std::
     if (!input.scheme)
         return;
     const auto& s = *input.scheme;
+    const double z0 = input.z, z1 = input.z + input.height;
     auto add = [&] (CellKind kind, const Ring& shape, int unit, fs::RoomKind room = fs::RoomKind::Living) {
         Cell cell;
         cell.kind = kind, cell.room = room, cell.floor = floor, cell.unit = unit;
+        cell.z0 = z0, cell.z1 = z1;
         cell.shape = Counter (shape);
         cell.area = std::abs (fs::Area (cell.shape));
         if (cell.shape.size () < 3 || cell.area < 1e-4)
@@ -247,6 +249,7 @@ void AddCells (Complex& complex, int floor, const FloorInput& input, const std::
     for (const auto& around : input.context) {
         Cell cell;
         cell.kind = around.kind, cell.floor = floor, cell.context = true;
+        cell.z0 = z0, cell.z1 = z1;
         cell.shape = Counter (around.shape);
         cell.area = std::abs (fs::Area (cell.shape));
         if (cell.shape.size () < 3 || cell.area < 1e-4)
@@ -270,6 +273,7 @@ Complex Build (const std::vector<FloorInput>& floors, const std::vector<fs::Pins
         AddCells (complex, id, input, stack);
         AddFaces (complex, id, input);
     }
+    AddSlabs (complex);
     return complex;
 }
 
@@ -287,8 +291,14 @@ double Thickness (FaceClass kind)
             return floorprogramme::kFacade;
         case FaceClass::BuildingParty:
             return floorprogramme::kFacade; // one wall for both buildings, half each
+        case FaceClass::Slab:
+        case FaceClass::Roof:
+        case FaceClass::Ground:
+        case FaceClass::Underside:
+            return floorprogramme::kSlab;
         case FaceClass::Open:
         case FaceClass::Unknown:
+        case FaceClass::Shaft:
             return 0;
     }
     return 0;
@@ -300,7 +310,83 @@ double Share (const Complex& complex, int face, int cell)
     const auto& f = complex.faces[face];
     if (cell < 0 || (f.cells[0] != cell && f.cells[1] != cell))
         return 0;
+    if (f.horizontal) // the slab below a floor's level is in the top of the cell under it
+        return (f.kind == FaceClass::Slab || f.kind == FaceClass::Roof) && f.cells[0] == cell ? f.thickness : 0;
     return f.kind == FaceClass::Facade ? f.thickness : f.thickness / 2;
+}
+double Volume (const Complex& complex, int cell)
+{
+    if (cell < 0 || cell >= static_cast<int> (complex.cells.size ()))
+        return 0;
+    const auto& c = complex.cells[cell];
+    return c.area * (c.z1 - c.z0);
+}
+double FaceArea (const Complex& complex, int face)
+{
+    if (face < 0 || face >= static_cast<int> (complex.faces.size ()))
+        return 0;
+    const auto& f = complex.faces[face];
+    if (f.horizontal)
+        return std::abs (RegionArea (f.region));
+    return std::hypot (f.b.x - f.a.x, f.b.y - f.a.y) * (f.z1 - f.z0);
+}
+namespace {
+// Each face of `cells` once, with whether its other side is one of them.
+template <typename Take> std::vector<int> FacesOf (const Complex& complex, const std::vector<int>& cells, Take take)
+{
+    std::vector<char> in (complex.cells.size (), 0), seen (complex.faces.size (), 0);
+    for (int id : cells)
+        if (id >= 0 && id < static_cast<int> (complex.cells.size ()))
+            in[id] = 1;
+    std::vector<int> out;
+    for (int id : cells) {
+        if (id < 0 || id >= static_cast<int> (complex.cells.size ()))
+            continue;
+        for (int face : complex.cells[id].faces) {
+            if (seen[face])
+                continue;
+            seen[face] = 1;
+            const auto& f = complex.faces[face];
+            const int other = f.cells[0] == id ? f.cells[1] : f.cells[0];
+            if (take (other >= 0 && in[other]))
+                out.push_back (face);
+        }
+    }
+    return out;
+}
+} // namespace
+std::vector<int> Boundary (const Complex& complex, const std::vector<int>& cells)
+{
+    return FacesOf (complex, cells, [] (bool inside) { return !inside; });
+}
+std::vector<int> Internal (const Complex& complex, const std::vector<int>& cells)
+{
+    return FacesOf (complex, cells, [] (bool inside) { return inside; });
+}
+std::vector<int> Shared (const Complex& complex, int a, int b)
+{
+    std::vector<int> out;
+    if (a < 0 || a >= static_cast<int> (complex.cells.size ()) || a == b)
+        return out;
+    for (int face : complex.cells[a].faces) {
+        const auto& f = complex.faces[face];
+        if ((f.cells[0] == a && f.cells[1] == b) || (f.cells[1] == a && f.cells[0] == b))
+            out.push_back (face);
+    }
+    return out;
+}
+std::vector<int> Neighbours (const Complex& complex, int cell)
+{
+    std::vector<int> out;
+    if (cell < 0 || cell >= static_cast<int> (complex.cells.size ()))
+        return out;
+    for (int face : complex.cells[cell].faces) {
+        const auto& f = complex.faces[face];
+        const int other = f.cells[0] == cell ? f.cells[1] : f.cells[0];
+        if (other >= 0 && std::find (out.begin (), out.end (), other) == out.end ())
+            out.push_back (other);
+    }
+    return out;
 }
 std::vector<Context> Around (const Complex& complex, int unit)
 {

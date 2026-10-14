@@ -548,6 +548,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopologyBoundaries.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopologyClear.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopologyAccess.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopologyIds.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopologyExport.cpp"
     # The generator from a whole mass, one floor outline or one unit, into that complex.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingGenerator.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudFloorProgramme.cpp"

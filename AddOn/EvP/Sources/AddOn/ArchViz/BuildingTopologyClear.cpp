@@ -25,8 +25,8 @@ std::vector<Ring> Clear (const Complex& complex, const std::vector<int>& cells)
         for (int face : complex.cells[id].faces) {
             const auto& f = complex.faces[face];
             const int other = f.cells[0] == id ? f.cells[1] : f.cells[0];
-            if (other >= 0 && in[other])
-                continue; // between two cells of the set: not its wall
+            if (f.horizontal || (other >= 0 && in[other]))
+                continue; // a slab (in plan the cell is all of it), or between two cells of the set
             const double share = Share (complex, face, id);
             if (share <= 0)
                 continue;

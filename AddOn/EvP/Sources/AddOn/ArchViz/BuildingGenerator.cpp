@@ -80,7 +80,9 @@ void Rebuild (Generated& generated)
         const auto& level = generated.levels[i];
         floors.push_back ({ level.story, level.z, level.height, &generated.schemes[i], level.party, level.context });
     }
+    const auto before = std::move (generated.complex);
     generated.complex = bt::Build (floors, generated.stack);
+    bt::Reconcile (before, generated.complex, generated.nextId);
 }
 
 Generated PlanMass (std::vector<Level> levels, const fp::Programme& programme,

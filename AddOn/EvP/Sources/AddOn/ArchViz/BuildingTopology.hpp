@@ -7,14 +7,19 @@
 // their rooms as overlapping cells"). A flat, a floor and the building are not cells: they are
 // sets of cells, so their geometry is always the union of their children and cannot disagree.
 //
-//   cells      on wall centre lines; a flat whose rooms are unknown or do not tile it is one cell
-//   faces      one per stretch of wall, the cells either side (or what lies outside), its class
-//              and thickness; a wall is a face, never a cell
+//   cells      solids: a footprint on wall centre lines raised from the floor's level to the next
+//              floor's (`z0`, `z1`); a flat whose rooms are unknown or do not tile it is one cell
+//   faces      vertical: one per stretch of wall, its height the storey's; horizontal: one per
+//              patch of slab two stacked cells share, or a cell's roof, ground or underside. Each
+//              has the cells either side (or what lies beyond), its class and thickness; a wall
+//              or slab is a face, never a cell
 //   apertures  the generator's windows and entrance doors, on the face they open
 //   units      flats: their cells, type and rooms; floors: their cells and units
 //   context    cells around a part of a floor planned on its own (a unit: the corridor its door
 //              opens onto, the flats beside it); its walls are classified against them, nothing
 //              else counts them
+//   ids        units and cells keep their id while a rebuild finds them again (`Reconcile`); a
+//              split or merge gives new ids that name what they came from. Faces are rebuilt.
 //
 // Clear (inside the walls) geometry is derived from cells and face thickness (`Clear`), so the
 // preview, the areas and a later bake all use one rule. Read-only: built from finished schemes,
@@ -30,6 +35,8 @@ using floorscheme::Vec;
 
 constexpr double kContact = 0.05;   // m: shorter shared stretches are a corner touch, not a wall
 constexpr double kCollinear = 1e-3; // m: two cells' edges further apart than this are not one wall
+constexpr double kPatch = 0.01;     // m2: a smaller patch of slab is a touch, not a face
+constexpr double kStacked = 0.05;   // m: a floor this near the top of the one below stands on it
 
 enum class CellKind : uint8_t {
     Room,     // a room of a flat (`room` says which)
@@ -47,6 +54,7 @@ enum class Beyond : uint8_t {
     Courtyard, // a hole of the floor
     Neighbour, // another building's floor at this elevation
     Gap,       // floor inside the outline no cell takes: the scheme left it unaccounted
+    Ground,    // below the lowest floor
 };
 enum class FaceClass : uint8_t {
     Internal,      // between two rooms of one flat
@@ -58,6 +66,12 @@ enum class FaceClass : uint8_t {
     Facade,        // to open air or a courtyard
     BuildingParty, // to another building
     Unknown,       // to a gap
+    // Horizontal (user, 2026-10-10: a 0.3 m slab below each floor's level):
+    Slab,      // between a cell and the one above it
+    Shaft,     // between a stack stair and itself one floor up: its opening, no slab
+    Roof,      // a cell's top to open air
+    Ground,    // the lowest floor's bottom
+    Underside, // a cell's bottom over open air (an overhang)
 };
 enum class ApertureKind : uint8_t { Window, Door };
 
@@ -69,16 +83,22 @@ struct Cell {
     int stack = -1; // Core cells: the building stack stair it is
     Ring shape;     // counter-clockwise, on wall centre lines
     double area = 0;
+    double z0 = 0, z1 = 0; // its solid: the floor's level to the next floor's
     std::vector<int> faces;
-    bool context = false; // around the planned part (FloorInput::context): in no unit, floor or check
+    bool context = false;              // around the planned part (FloorInput::context): in no unit, floor or check
+    uint64_t id = 0;                   // kept across rebuilds (`Reconcile`); 0 for context
+    std::vector<uint64_t> derivedFrom; // the ids it replaced when it is new (a split, a merge)
 };
 struct Face {
     int floor = -1;
-    Vec a, b;                  // along the boundary of `cells[0]` (counter-clockwise for it)
-    int cells[2] = { -1, -1 }; // cells[1] is -1 when `beyond` is not Cell
+    bool horizontal = false;
+    Vec a, b;                  // vertical: along the boundary of `cells[0]` (counter-clockwise for it)
+    double z0 = 0, z1 = 0;     // vertical: from the floor's level to the next; horizontal: its level twice
+    std::vector<Ring> region;  // horizontal: the patch, outer rings counter-clockwise, holes clockwise
+    int cells[2] = { -1, -1 }; // cells[1] is -1 when `beyond` is not Cell; horizontal: [0] below, [1] above
     Beyond beyond = Beyond::Cell;
     FaceClass kind = FaceClass::Unknown;
-    double thickness = 0; // the whole wall
+    double thickness = 0; // the whole wall or slab
     std::vector<int> apertures;
 };
 struct Aperture {
@@ -94,6 +114,8 @@ struct Unit {
     double rooms = 0;
     bool roomsKnown = false; // its rooms tile it; else one Flat cell
     std::vector<int> cells;
+    uint64_t id = 0; // kept across rebuilds (`Reconcile`)
+    std::vector<uint64_t> derivedFrom;
 };
 struct Floor {
     int story = 0;
@@ -140,12 +162,39 @@ std::vector<floorscheme::Side> Sides (const Complex& complex, int unit);
 std::vector<Context> Around (const Complex& complex, int unit);
 
 // The wall a face is: Facade and BuildingParty walls stand inside the outline (the whole thickness,
-// half of a party wall, is the cell's); the others are centred on the face.
+// half of a party wall, is the cell's); the others are centred on the face. A slab or roof lies
+// in the top of the cell below it; a ground slab or an underside below its cell.
 double Thickness (FaceClass kind);
 // How much of face `face`'s wall lies inside cell `cell` (0 when the cell is not on it).
 double Share (const Complex& complex, int face, int cell);
 // Union of `cells` on wall centre lines: a flat, a floor, the building's footprint.
 std::vector<Ring> Union (const Complex& complex, const std::vector<int>& cells);
+
+// Cells as solids, the way the reference cell complexes answer them: a cell's volume and a face's
+// area; the faces a set of cells shares with everything else (its envelope: facade, party walls,
+// roofs, slabs to other cells) and the faces between two of its cells; the faces two cells share;
+// the cells across any face of one, beside it or above and below.
+double Volume (const Complex& complex, int cell);
+double FaceArea (const Complex& complex, int face);
+std::vector<int> Boundary (const Complex& complex, const std::vector<int>& cells);
+std::vector<int> Internal (const Complex& complex, const std::vector<int>& cells);
+std::vector<int> Shared (const Complex& complex, int a, int b);
+std::vector<int> Neighbours (const Complex& complex, int cell);
+
+// BuildingTopologyIds.cpp: `after`'s units and cells take the ids of `before`'s they are (the
+// same story, the same kind of space, at least kSame of their joint area common); the others get
+// new ids from `next`, naming in `derivedFrom` what they overlap (a split, a merge, a moved
+// wall that took most of a flat). With an empty `before` every id is new, in order, so planning
+// the same input twice gives the same ids.
+constexpr double kSame = 0.6;
+void Reconcile (const Complex& before, Complex& after, uint64_t& next);
+int UnitById (const Complex& complex, uint64_t id); // -1 when none
+int CellById (const Complex& complex, uint64_t id);
+
+// BuildingTopologyExport.cpp: the complex as JSON (tapioca.cell-complex, version 1) -- floors,
+// cells as solids, vertical and horizontal faces with their classes, apertures, units, ids and
+// the three graphs -- for an offline viewer or a fixture. World metres. `indent` 0: one line.
+std::string ToJson (const Complex& complex, size_t indent = 1);
 
 // BuildingTopologyClear.cpp: what lies inside the walls (user, 2026-10-10: facade 0.5 m inside the
 // massing, partitions 0.2 m, a 0.3 m slab below each floor's level).
@@ -165,21 +214,23 @@ Span ClearSpan (const Floor& floor);
 // truth. Sharing a wall is not a way through it: only doors, open circulation and stairs are.
 struct Link {
     int from = -1, to = -1; // cells; `to` is -1 for a link to open air or a courtyard (Exterior)
-    int face = -1;          // the face it crosses; -1 for a stair between floors
+    int face = -1;          // the face it crosses; -1 for a stair between floors with no shaft face
     int aperture = -1;      // the door or window that makes it, if one does
-    double length = 0;      // the shared wall (Adjacency, Exterior)
+    double length = 0;      // the shared wall (Adjacency, Exterior); 0 across a slab
+    double area = 0;        // the shared face
 };
 struct Graph {
     std::vector<Link> links;
     std::vector<std::vector<int>> at; // each cell's links
 };
-// Cells that share a wall longer than kContact (corner touches are no wall).
+// Cells that share a wall longer than kContact (corner touches are no wall), or a slab patch of
+// more than kPatch with the cell above.
 Graph Adjacency (const Complex& complex);
 // Ways through: entrance doors, open faces between corridors and lobbies, a stair's side onto
-// circulation, and each stack stair to itself on the next floor up.
+// circulation, and each stack stair to itself on the next floor up (through its shaft face).
 Graph Access (const Complex& complex);
 // Cells with facade to open air or a courtyard (a neighbouring building is blind), with their
-// windows.
+// windows. Walls only: a roof is no facade for a window.
 Graph Exterior (const Complex& complex);
 // Cells reachable from `from` over `graph`, `from` included.
 std::vector<char> Reachable (const Complex& complex, const Graph& graph, const std::vector<int>& from);

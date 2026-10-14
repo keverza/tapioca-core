@@ -1,6 +1,7 @@
 // A building's planned floors as one cell complex (BuildingTopology.hpp): cells that tile each
 // floor without overlap, flats as sets of room cells, one face per stretch of wall.
 #include "ArchViz/BuildingTopology.hpp"
+#include "NodeGraph/Json.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
@@ -324,7 +325,11 @@ TEST (BuildingTopology, AStairMissingOnAFloorBreaksTheStack)
     const auto whole = bt::Build ({ { 0, 0, 3, &ground, {} }, { 1, 3, 3, &ground, {} } }, pins.cores);
     size_t vertical = 0;
     for (const auto& link : bt::Access (whole).links)
-        vertical += link.face < 0;
+        if (whole.cells[link.from].floor != whole.cells[link.to].floor) {
+            ++vertical;
+            ASSERT_GE (link.face, 0) << "through the stair's shaft face";
+            EXPECT_EQ (whole.faces[link.face].kind, bt::FaceClass::Shaft);
+        }
     EXPECT_EQ (vertical, pins.cores.size ()) << "each stair to itself one floor up";
     EXPECT_TRUE (bt::Check (whole).empty ());
     const auto broken = bt::Build ({ { 0, 0, 3, &ground, {} }, { 1, 3, 3, &top, {} } }, pins.cores);
@@ -373,7 +378,10 @@ TEST (BuildingTopology, ContextClassifiesThePartsWallsAndIsNeverCounted)
     std::map<bt::FaceClass, double> walls;
     for (const auto& f : c.faces)
         walls[f.kind] += Length (f);
-    EXPECT_EQ (c.faces.size (), 4u) << "only the flat's walls: none between or beyond the context";
+    const auto walled =
+        std::count_if (c.faces.begin (), c.faces.end (), [] (const bt::Face& f) { return !f.horizontal; });
+    EXPECT_EQ (walled, 4) << "only the flat's walls: none between or beyond the context";
+    EXPECT_EQ (c.faces.size (), 6u) << "and its ground and roof: the context has no slab";
     EXPECT_NEAR (walls[bt::FaceClass::Facade], 6, 1e-6);
     EXPECT_NEAR (walls[bt::FaceClass::UnitCorridor], 6, 1e-6);
     EXPECT_NEAR (walls[bt::FaceClass::CoreWall], 8, 1e-6);
@@ -392,4 +400,210 @@ TEST (BuildingTopology, ContextClassifiesThePartsWallsAndIsNeverCounted)
     // Around the flat is everything else on its floor.
     const auto around = bt::Around (c, 0);
     EXPECT_EQ (around.size (), 3u);
+}
+
+namespace {
+// Area of the horizontal faces of `kind`, at elevation `z`.
+double Slabs (const bt::Complex& c, bt::FaceClass kind, double z)
+{
+    double sum = 0;
+    for (size_t i = 0; i < c.faces.size (); ++i)
+        if (c.faces[i].horizontal && c.faces[i].kind == kind && std::abs (c.faces[i].z0 - z) < 1e-9)
+            sum += bt::FaceArea (c, static_cast<int> (i));
+    return sum;
+}
+} // namespace
+
+// Cells are solids: a slab between two stacked cells is one face both of them have.
+TEST (BuildingTopology, CellsAreSolidsAndASlabIsAFaceTheCellsAboveAndBelowShare)
+{
+    const auto lower = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 10, 4) });
+    const auto upper = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 4, 4), Rect (4, 0, 10, 4) });
+    const auto c = bt::Build ({ { 0, 0, 3, &lower, {} }, { 1, 3, 3, &upper, {} } });
+    EXPECT_TRUE (c.diagnostics.empty ()) << Codes (c);
+    ASSERT_EQ (c.cells.size (), 3u);
+    EXPECT_NEAR (c.cells[0].z0, 0, 1e-9);
+    EXPECT_NEAR (c.cells[0].z1, 3, 1e-9);
+    EXPECT_NEAR (bt::Volume (c, 0), 10 * 4 * 3, 1e-6);
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Ground, 0), 40, 1e-6);
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Slab, 3), 40, 1e-6) << "two patches, one under each flat above";
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Roof, 6), 40, 1e-6);
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Roof, 3), 0, 1e-9) << "the lower floor is covered";
+    for (int above : { 1, 2 }) {
+        const auto shared = bt::Shared (c, 0, above);
+        ASSERT_EQ (shared.size (), 1u);
+        const auto& slab = c.faces[shared.front ()];
+        EXPECT_TRUE (slab.horizontal);
+        EXPECT_EQ (slab.cells[0], 0) << "below";
+        EXPECT_EQ (slab.cells[1], above) << "above";
+        EXPECT_NEAR (slab.thickness, fp::kSlab, 1e-9);
+        EXPECT_NEAR (bt::Share (c, shared.front (), 0), fp::kSlab, 1e-9) << "in the top of the cell below";
+        EXPECT_NEAR (bt::Share (c, shared.front (), above), 0, 1e-9);
+    }
+    auto neighbours = bt::Neighbours (c, 0);
+    std::sort (neighbours.begin (), neighbours.end ());
+    EXPECT_EQ (neighbours, (std::vector<int> { 1, 2 }));
+    // The building as one set: its envelope is facade, ground and roof; inside, the slab and the
+    // party wall between the upper flats.
+    const std::vector<int> all { 0, 1, 2 };
+    double envelope = 0;
+    for (int face : bt::Boundary (c, all))
+        envelope += bt::FaceArea (c, face);
+    EXPECT_NEAR (envelope, 2 * (10 + 4) * 6 + 40 + 40, 1e-6);
+    double inside = 0;
+    for (int face : bt::Internal (c, all))
+        inside += bt::FaceArea (c, face);
+    EXPECT_NEAR (inside, 40 + 4 * 3, 1e-6);
+    // Walls have the storey's height; plans stay inside the walls, whatever lies above.
+    for (const auto& f : c.faces)
+        if (!f.horizontal)
+            EXPECT_NEAR (f.z1 - f.z0, 3, 1e-9);
+    EXPECT_NEAR (Area (bt::Plate (c, 0)), 9 * 3, 1e-4);
+}
+
+TEST (BuildingTopology, ASetbackLeavesATerraceRoofAndAnOverhangAnUnderside)
+{
+    const auto lower = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 10, 4) });
+    const auto upper = Flats ({ Rect (2, 0, 14, 4) }, { Rect (2, 0, 14, 4) });
+    const auto c = bt::Build ({ { 0, 0, 3, &lower, {} }, { 1, 3, 3, &upper, {} } });
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Slab, 3), 8 * 4, 1e-6);
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Roof, 3), 2 * 4, 1e-6) << "a terrace";
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Underside, 3), 4 * 4, 1e-6) << "an overhang";
+    EXPECT_NEAR (Slabs (c, bt::FaceClass::Roof, 6), 12 * 4, 1e-6);
+    for (const auto& f : c.faces)
+        if (f.horizontal && f.kind == bt::FaceClass::Underside)
+            EXPECT_EQ (f.beyond, bt::Beyond::Outside);
+    // A floor that does not stand on the one below shares no slab with it.
+    const auto apart = bt::Build ({ { 0, 0, 3, &lower, {} }, { 1, 4, 3, &upper, {} } });
+    EXPECT_NEAR (Slabs (apart, bt::FaceClass::Slab, 3), 0, 1e-9);
+    EXPECT_NEAR (Slabs (apart, bt::FaceClass::Roof, 3), 40, 1e-6);
+    EXPECT_NEAR (Slabs (apart, bt::FaceClass::Underside, 4), 48, 1e-6);
+    // Floor above that no cell takes is a gap, never a roof.
+    auto missing = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 4, 4), Rect (4, 0, 10, 4) });
+    missing.flats.pop_back ();
+    const auto gap = bt::Build ({ { 0, 0, 3, &lower, {} }, { 1, 3, 3, &missing, {} } });
+    EXPECT_NEAR (Slabs (gap, bt::FaceClass::Unknown, 3), 24, 1e-6);
+    EXPECT_NEAR (Slabs (gap, bt::FaceClass::Roof, 3), 0, 1e-9);
+}
+
+// The stair of the stack on consecutive floors shares an open shaft face, which the access
+// graph's stair link crosses; slabs give adjacency, never access, and roofs are no facade.
+TEST (BuildingTopology, AStackStairSharesItsShaftWithItselfOneFloorUp)
+{
+    const auto free = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default ());
+    fs::Pins pins;
+    for (const auto& core : free.cores)
+        pins.cores.push_back ({ core.centre, core.width, core.depth });
+    fs::Options held;
+    held.holdCores = true;
+    const auto floor = fs::Generate ({ Rect (0, 0, 60, 16) }, fp::Default (), pins, held);
+    const auto c = bt::Build ({ { 0, 0, 3, &floor, {} }, { 1, 3, 3, &floor, {} } }, pins.cores);
+    size_t shafts = 0;
+    for (const auto& f : c.faces)
+        if (f.kind == bt::FaceClass::Shaft) {
+            ++shafts;
+            EXPECT_EQ (c.cells[f.cells[0]].stack, c.cells[f.cells[1]].stack);
+            EXPECT_EQ (f.thickness, 0) << "an opening, no slab";
+        }
+    EXPECT_EQ (shafts, pins.cores.size ());
+    size_t slabLinks = 0;
+    for (const auto& link : bt::Adjacency (c).links)
+        slabLinks += link.face >= 0 && c.faces[link.face].horizontal;
+    EXPECT_GT (slabLinks, 0u) << "cells above and below are adjacent";
+    for (const auto& link : bt::Access (c).links)
+        if (link.face >= 0 && c.faces[link.face].horizontal)
+            EXPECT_EQ (c.faces[link.face].kind, bt::FaceClass::Shaft) << "only a stair goes through a slab";
+    for (const auto& link : bt::Exterior (c).links)
+        EXPECT_FALSE (c.faces[link.face].horizontal);
+    // Every cell's solid is closed by its walls and slabs: its faces' plan areas match.
+    for (size_t i = 0; i < c.cells.size (); ++i) {
+        double top = 0, bottom = 0;
+        for (int face : c.cells[i].faces) {
+            const auto& f = c.faces[face];
+            if (!f.horizontal)
+                continue;
+            const bool below = f.cells[0] == static_cast<int> (i) &&
+                               (f.kind == bt::FaceClass::Slab || f.kind == bt::FaceClass::Shaft ||
+                                f.kind == bt::FaceClass::Roof || f.kind == bt::FaceClass::Unknown) &&
+                               std::abs (f.z0 - c.cells[i].z1) < 1e-9;
+            (below ? top : bottom) += bt::FaceArea (c, face);
+        }
+        EXPECT_NEAR (top, c.cells[i].area, 1e-3) << "cell " << i;
+        EXPECT_NEAR (bottom, c.cells[i].area, 1e-3) << "cell " << i;
+    }
+    EXPECT_TRUE (bt::Check (c).empty ());
+}
+
+// Ids outlive a rebuild: a moved wall keeps both flats; a split or a merge gives new ids that name
+// what they came from.
+TEST (BuildingTopology, IdsOutliveARebuildAndASplitNamesItsParent)
+{
+    const auto two = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 5, 4), Rect (5, 0, 10, 4) });
+    uint64_t next = 1;
+    auto before = bt::Build ({ { 0, 0, 3, &two, {} } });
+    bt::Reconcile ({}, before, next);
+    EXPECT_EQ (before.units[0].id, 1u);
+    EXPECT_EQ (before.units[1].id, 2u);
+    EXPECT_EQ (before.cells[0].id, 3u) << "units first, then cells, in order";
+    const uint64_t a = before.units[0].id, b = before.units[1].id;
+    // A party wall moved by a metre.
+    const auto moved = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 6, 4), Rect (6, 0, 10, 4) });
+    auto after = bt::Build ({ { 0, 0, 3, &moved, {} } });
+    bt::Reconcile (before, after, next);
+    EXPECT_EQ (after.units[0].id, a);
+    EXPECT_EQ (after.units[1].id, b);
+    EXPECT_EQ (after.cells[0].id, before.cells[0].id);
+    EXPECT_TRUE (after.units[0].derivedFrom.empty ());
+    // The second flat split in two.
+    const auto split = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 5, 4), Rect (5, 0, 7.5, 4), Rect (7.5, 0, 10, 4) });
+    auto halves = bt::Build ({ { 0, 0, 3, &split, {} } });
+    bt::Reconcile (before, halves, next);
+    EXPECT_EQ (halves.units[0].id, a);
+    for (int u : { 1, 2 }) {
+        EXPECT_NE (halves.units[u].id, b);
+        EXPECT_EQ (halves.units[u].derivedFrom, (std::vector<uint64_t> { b }));
+    }
+    EXPECT_NE (halves.units[1].id, halves.units[2].id);
+    EXPECT_EQ (bt::UnitById (halves, a), 0);
+    EXPECT_EQ (bt::UnitById (halves, b), -1);
+    // Both joined.
+    const auto one = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 10, 4) });
+    auto merged = bt::Build ({ { 0, 0, 3, &one, {} } });
+    bt::Reconcile (before, merged, next);
+    auto from = merged.units[0].derivedFrom;
+    std::sort (from.begin (), from.end ());
+    EXPECT_EQ (from, (std::vector<uint64_t> { a, b }));
+    // The same flat one story up is another flat.
+    auto higher = bt::Build ({ { 1, 3, 3, &two, {} } });
+    bt::Reconcile (before, higher, next);
+    EXPECT_NE (higher.units[0].id, a);
+    EXPECT_TRUE (higher.units[0].derivedFrom.empty ());
+}
+
+TEST (BuildingTopology, TheExportIsJsonWithEveryCellFaceAndId)
+{
+    namespace js = evp::nodegraph::json;
+    const auto lower = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 10, 4) });
+    const auto upper = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 4, 4), Rect (4, 0, 10, 4) });
+    auto c = bt::Build ({ { 0, 0, 3, &lower, {} }, { 1, 3, 3, &upper, {} } });
+    uint64_t next = 1;
+    bt::Reconcile ({}, c, next);
+    const auto parsed = js::Parse (bt::ToJson (c));
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+    const auto* doc = parsed.value.AsObject ();
+    ASSERT_NE (doc, nullptr);
+    std::string format;
+    ASSERT_TRUE (doc->at ("format").AsString (format));
+    EXPECT_EQ (format, "tapioca.cell-complex");
+    EXPECT_EQ (doc->at ("cells").AsArray ()->size (), c.cells.size ());
+    EXPECT_EQ (doc->at ("faces").AsArray ()->size (), c.faces.size ());
+    EXPECT_EQ (doc->at ("flats").AsArray ()->size (), c.units.size ());
+    size_t regions = 0;
+    for (const auto& face : *doc->at ("faces").AsArray ())
+        regions += face.AsObject ()->count ("region");
+    EXPECT_EQ (regions, static_cast<size_t> (std::count_if (c.faces.begin (), c.faces.end (),
+                                                            [] (const bt::Face& f) { return f.horizontal; })));
+    int64_t id = 0;
+    ASSERT_TRUE (doc->at ("flats").AsArray ()->front ().AsObject ()->at ("id").AsInteger (id));
+    EXPECT_EQ (static_cast<uint64_t> (id), c.units.front ().id);
 }

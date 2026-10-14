@@ -40,6 +40,7 @@ struct Generated {
     std::vector<floorscheme::Pins::Core> stack;            // the building's stairs, held on every level
     buildingtopology::Complex complex;                     // from the schemes (`Rebuild`)
     std::vector<buildingtopology::Diagnostic> diagnostics; // the planning's own; the complex keeps its
+    uint64_t nextId = 1; // the next new unit or cell id: ids outlive every rebuild (Reconcile)
 };
 
 // The floor every one of `levels` has, within `within` (the lead level's outline): where the
@@ -70,7 +71,8 @@ bool ReplanFloor (Generated& generated, int level, const floorprogramme::Program
 bool ReplanUnit (Generated& generated, int unit);
 // Unit `unit` becomes programme type `type`, and its rooms are laid for that type's room count.
 bool RetypeUnit (Generated& generated, int unit, const floorprogramme::Programme& programme, size_t type);
-// The complex again from the levels and schemes, after a caller changed a scheme itself.
+// The complex again from the levels and schemes, after a caller changed a scheme itself. Units
+// and cells found again keep their ids (buildingtopology::Reconcile).
 void Rebuild (Generated& generated);
 } // namespace geomsrv::archviz::buildinggenerator
 #endif

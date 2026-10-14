@@ -334,3 +334,59 @@ TEST (BuildingGenerator, NothingToPlanIsTold)
     EXPECT_FALSE (bg::ReplanFloor (copy, 3, fp::Default ()));
     EXPECT_FALSE (bg::RetypeUnit (copy, 0, fp::Default (), 0));
 }
+
+// Stable ids (handoff 10.7): a part planned again leaves every other id as it was, and the flat
+// it changed keeps its own; its rooms are found again or name the rooms they replace.
+TEST (BuildingGenerator, ReplanningAndRetypingKeepTheIds)
+{
+    const auto programme = fp::Default ();
+    auto g = bg::PlanFloor (LevelAt (0, 0, { Rect (0, 0, 60, 16) }), programme);
+    auto ids = [] (const bt::Complex& c) {
+        std::vector<uint64_t> units, cells;
+        for (const auto& u : c.units)
+            units.push_back (u.id);
+        for (const auto& cell : c.cells)
+            cells.push_back (cell.id);
+        return std::make_pair (units, cells);
+    };
+    const auto first = ids (g.complex);
+    for (uint64_t id : first.first)
+        EXPECT_NE (id, 0u);
+    int unit = -1;
+    for (size_t u = 0; u < g.complex.units.size () && unit < 0; ++u)
+        if (g.complex.units[u].roomsKnown && g.complex.units[u].rooms >= 2 &&
+            AsDivided (g.schemes.front ().flats[g.complex.units[u].flat]))
+            unit = static_cast<int> (u);
+    ASSERT_GE (unit, 0);
+    ASSERT_TRUE (bg::ReplanUnit (g, unit));
+    EXPECT_EQ (ids (g.complex), first) << "the same rooms: the same ids";
+    const uint64_t flat = g.complex.units[unit].id;
+    std::vector<uint64_t> others;
+    for (const auto& cell : g.complex.cells)
+        if (cell.unit != unit)
+            others.push_back (cell.id);
+    ASSERT_TRUE (bg::RetypeUnit (g, unit, programme, 0));
+    EXPECT_EQ (g.complex.units[unit].id, flat) << "a retyped flat is the same flat";
+    std::vector<uint64_t> after;
+    for (const auto& cell : g.complex.cells)
+        if (cell.unit != unit)
+            after.push_back (cell.id);
+    EXPECT_EQ (after, others);
+    for (int id : g.complex.units[unit].cells) {
+        const auto& cell = g.complex.cells[id];
+        const bool kept = std::find (first.second.begin (), first.second.end (), cell.id) != first.second.end ();
+        EXPECT_TRUE (kept || !cell.derivedFrom.empty ()) << "a new room names the rooms it replaces";
+    }
+}
+
+TEST (BuildingGenerator, TheSameMassPlannedTwiceHasTheSameIds)
+{
+    const std::vector<bg::Level> levels { LevelAt (0, 0, { Rect (0, 0, 60, 16) }),
+                                          LevelAt (1, 3, { Rect (0, 0, 40, 16) }) };
+    const auto a = bg::PlanMass (levels, fp::Default ());
+    const auto b = bg::PlanMass (levels, fp::Default ());
+    ASSERT_EQ (a.complex.cells.size (), b.complex.cells.size ());
+    for (size_t i = 0; i < a.complex.cells.size (); ++i)
+        EXPECT_EQ (a.complex.cells[i].id, b.complex.cells[i].id);
+    EXPECT_EQ (a.nextId, b.nextId);
+}

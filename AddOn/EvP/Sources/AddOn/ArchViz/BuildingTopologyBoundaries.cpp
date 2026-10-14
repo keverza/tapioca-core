@@ -59,6 +59,8 @@ int AddFace (Complex& complex, Face face)
 {
     face.kind = Classify (complex, face);
     face.thickness = Thickness (face.kind);
+    const auto& floor = complex.floors[face.floor];
+    face.z0 = floor.z, face.z1 = floor.z + floor.height;
     const int id = static_cast<int> (complex.faces.size ());
     for (int cell : face.cells)
         if (cell >= 0)
@@ -77,7 +79,7 @@ int FaceFor (const Complex& complex, const std::vector<int>& cells, Vec a, Vec b
     for (int cell : cells)
         for (int id : complex.cells[cell].faces) {
             const auto& f = complex.faces[id];
-            if (!accept (f))
+            if (f.horizontal || !accept (f))
                 continue;
             const Vec u = Direction ({ f.b.x - f.a.x, f.b.y - f.a.y });
             const double length = std::hypot (f.b.x - f.a.x, f.b.y - f.a.y);
@@ -246,6 +248,122 @@ void AddFaces (Complex& complex, int floor, const FloorInput& input)
         place (ApertureKind::Door, flat.door, face, cell);
     }
 }
+
+namespace {
+// A point just inside `outer` (counter-clockwise), off the middle of its first usable edge.
+Vec Interior (const Ring& outer)
+{
+    const auto path = ToPath (outer);
+    for (size_t i = 0; i < outer.size (); ++i) {
+        const Vec a = outer[i], b = outer[(i + 1) % outer.size ()];
+        const double length = std::hypot (b.x - a.x, b.y - a.y);
+        if (length < 0.05)
+            continue;
+        const Vec p { (a.x + b.x) / 2 - (b.y - a.y) / length * 0.01, (a.y + b.y) / 2 + (b.x - a.x) / length * 0.01 };
+        if (Winding (path, p) != 0)
+            return p;
+    }
+    return outer.empty () ? Vec {} : outer.front ();
+}
+} // namespace
+
+void AddSlabs (Complex& complex)
+{
+    static const std::vector<int> none;
+    const int floors = static_cast<int> (complex.floors.size ());
+    auto paths = [&] (const std::vector<int>& ids) {
+        cp::PathsD out;
+        for (int id : ids)
+            out.push_back (ToPath (complex.cells[id].shape));
+        return cp::Union (out, cp::FillRule::NonZero, kPrecision);
+    };
+    std::vector<std::array<double, 4>> bounds (complex.cells.size ()); // x0, y0, x1, y1
+    for (size_t i = 0; i < complex.cells.size (); ++i) {
+        auto& b = bounds[i];
+        b = { 1e18, 1e18, -1e18, -1e18 };
+        for (const auto& p : complex.cells[i].shape)
+            b[0] = (std::min) (b[0], p.x), b[1] = (std::min) (b[1], p.y), b[2] = (std::max) (b[2], p.x),
+            b[3] = (std::max) (b[3], p.y);
+    }
+    auto overlap = [&] (int a, int b) {
+        const auto &p = bounds[a], &q = bounds[b];
+        return p[0] < q[2] && q[0] < p[2] && p[1] < q[3] && q[1] < p[3];
+    };
+    // `first` is the cell below when there are two, else the face's one cell.
+    auto add = [&] (int first, int second, double z, FaceClass kind, Beyond beyond, std::vector<Ring> region,
+                    int floor) {
+        Face face;
+        face.floor = floor, face.horizontal = true, face.z0 = face.z1 = z;
+        face.region = std::move (region);
+        face.cells[0] = first, face.cells[1] = second;
+        face.beyond = beyond, face.kind = kind, face.thickness = Thickness (kind);
+        const int id = static_cast<int> (complex.faces.size ());
+        for (int cell : face.cells)
+            if (cell >= 0)
+                complex.cells[cell].faces.push_back (id);
+        complex.faces.push_back (std::move (face));
+    };
+    auto stacked = [&] (int lower, int upper) {
+        const auto &l = complex.floors[lower], &u = complex.floors[upper];
+        return std::abs (l.z + l.height - u.z) <= kStacked;
+    };
+    for (int f = 0; f < floors; ++f) {
+        const auto& floor = complex.floors[f];
+        // Tops: a slab patch under every cell above, the rest a roof (or floor of the storey above
+        // that no cell takes).
+        const bool up = f + 1 < floors && stacked (f, f + 1);
+        const auto& above = up ? complex.floors[f + 1].cells : none;
+        const auto aboveAll = paths (above);
+        const auto aboveOutline = up ? ToPaths (complex.floors[f + 1].outline) : cp::PathsD {};
+        const double top = floor.z + floor.height;
+        for (int a : floor.cells) {
+            const cp::PathsD own { ToPath (complex.cells[a].shape) };
+            for (int b : above) {
+                if (!overlap (a, b))
+                    continue;
+                const auto common =
+                    cp::Intersect (own, { ToPath (complex.cells[b].shape) }, cp::FillRule::NonZero, kPrecision);
+                for (auto& region : Regions (common)) {
+                    if (RegionArea (region) <= kPatch)
+                        continue;
+                    const auto &lower = complex.cells[a], &upper = complex.cells[b];
+                    const bool shaft = lower.kind == CellKind::Core && upper.kind == CellKind::Core &&
+                                       lower.stack >= 0 && lower.stack == upper.stack;
+                    add (a, b, top, shaft ? FaceClass::Shaft : FaceClass::Slab, Beyond::Cell, std::move (region), f);
+                }
+            }
+            const auto rest =
+                aboveAll.empty () ? own : cp::Difference (own, aboveAll, cp::FillRule::NonZero, kPrecision);
+            for (auto& region : Regions (rest)) {
+                if (RegionArea (region) <= kPatch)
+                    continue;
+                const bool gap = up && Inside (aboveOutline, Interior (region.front ()));
+                add (a, -1, top, gap ? FaceClass::Unknown : FaceClass::Roof, gap ? Beyond::Gap : Beyond::Outside,
+                     std::move (region), f);
+            }
+        }
+        // Bottoms over no cell below: the ground under the lowest floor, else an underside.
+        const bool down = f > 0 && stacked (f - 1, f);
+        const auto belowAll = down ? paths (complex.floors[f - 1].cells) : cp::PathsD {};
+        const auto belowOutline = down ? ToPaths (complex.floors[f - 1].outline) : cp::PathsD {};
+        for (int b : floor.cells) {
+            const cp::PathsD own { ToPath (complex.cells[b].shape) };
+            const auto rest =
+                belowAll.empty () ? own : cp::Difference (own, belowAll, cp::FillRule::NonZero, kPrecision);
+            for (auto& region : Regions (rest)) {
+                if (RegionArea (region) <= kPatch)
+                    continue;
+                if (f == 0) {
+                    add (b, -1, floor.z, FaceClass::Ground, Beyond::Ground, std::move (region), f);
+                    continue;
+                }
+                const bool gap = down && Inside (belowOutline, Interior (region.front ()));
+                add (b, -1, floor.z, gap ? FaceClass::Unknown : FaceClass::Underside,
+                     gap ? Beyond::Gap : Beyond::Outside, std::move (region), f);
+            }
+        }
+    }
+}
 } // namespace detail
 
 std::vector<fs::Side> Sides (const Complex& complex, int unit)
@@ -257,8 +375,8 @@ std::vector<fs::Side> Sides (const Complex& complex, int unit)
         for (int id : complex.cells[cell].faces) {
             const auto& f = complex.faces[id];
             const int other = f.cells[0] == cell ? f.cells[1] : f.cells[0];
-            if (other >= 0 && complex.cells[other].unit == unit)
-                continue; // a wall inside the flat
+            if (f.horizontal || (other >= 0 && complex.cells[other].unit == unit))
+                continue; // a slab, or a wall inside the flat
             fs::Side side;
             side.a = f.a, side.b = f.b;
             if (f.beyond == Beyond::Outside || f.beyond == Beyond::Courtyard)

@@ -41,8 +41,11 @@ Graph Adjacency (const Complex& complex)
     auto g = Empty (complex);
     for (size_t i = 0; i < complex.faces.size (); ++i) {
         const auto& f = complex.faces[i];
-        if (f.beyond == Beyond::Cell && f.cells[1] >= 0 && Length (f) > kContact)
-            Add (g, { f.cells[0], f.cells[1], static_cast<int> (i), -1, Length (f) });
+        if (f.beyond != Beyond::Cell || f.cells[1] < 0)
+            continue;
+        const int face = static_cast<int> (i);
+        if (f.horizontal ? FaceArea (complex, face) > kPatch : Length (f) > kContact)
+            Add (g, { f.cells[0], f.cells[1], face, -1, f.horizontal ? 0 : Length (f), FaceArea (complex, face) });
     }
     return g;
 }
@@ -51,7 +54,7 @@ Graph Access (const Complex& complex)
     auto g = Empty (complex);
     for (size_t i = 0; i < complex.faces.size (); ++i) {
         const auto& f = complex.faces[i];
-        if (f.beyond != Beyond::Cell || f.cells[1] < 0)
+        if (f.horizontal || f.beyond != Beyond::Cell || f.cells[1] < 0)
             continue;
         const int face = static_cast<int> (i);
         const auto& a = complex.cells[f.cells[0]];
@@ -64,9 +67,10 @@ Graph Access (const Complex& complex)
         const bool landing =
             (a.kind == CellKind::Core && Circulation (b.kind)) || (b.kind == CellKind::Core && Circulation (a.kind));
         if (door >= 0 || open || landing)
-            Add (g, { f.cells[0], f.cells[1], face, door, Length (f) });
+            Add (g, { f.cells[0], f.cells[1], face, door, Length (f), FaceArea (complex, face) });
     }
-    // A stack stair to itself on the next floor up (floors are lowest first).
+    // A stack stair to itself on the next floor up (floors are lowest first), through the shaft
+    // face they share when the floors are stacked.
     std::map<int, std::map<int, int>> stairs; // stack stair: floor -> cell
     for (size_t i = 0; i < complex.cells.size (); ++i)
         if (complex.cells[i].kind == CellKind::Core && complex.cells[i].stack >= 0)
@@ -74,8 +78,13 @@ Graph Access (const Complex& complex)
     for (const auto& [stair, floors] : stairs)
         for (auto it = floors.begin (); it != floors.end (); ++it) {
             const auto next = std::next (it);
-            if (next != floors.end () && next->first == it->first + 1)
-                Add (g, { it->second, next->second, -1, -1, 0 });
+            if (next == floors.end () || next->first != it->first + 1)
+                continue;
+            int shaft = -1;
+            for (int face : Shared (complex, it->second, next->second))
+                if (complex.faces[face].kind == FaceClass::Shaft)
+                    shaft = face;
+            Add (g, { it->second, next->second, shaft, -1, 0, shaft >= 0 ? FaceArea (complex, shaft) : 0 });
         }
     return g;
 }
@@ -84,13 +93,13 @@ Graph Exterior (const Complex& complex)
     auto g = Empty (complex);
     for (size_t i = 0; i < complex.faces.size (); ++i) {
         const auto& f = complex.faces[i];
-        if (f.beyond != Beyond::Outside && f.beyond != Beyond::Courtyard)
+        if (f.horizontal || (f.beyond != Beyond::Outside && f.beyond != Beyond::Courtyard))
             continue;
         int window = -1;
         for (int ap : f.apertures)
             if (complex.apertures[ap].kind == ApertureKind::Window)
                 window = ap;
-        Add (g, { f.cells[0], -1, static_cast<int> (i), window, Length (f) });
+        Add (g, { f.cells[0], -1, static_cast<int> (i), window, Length (f), FaceArea (complex, static_cast<int> (i)) });
     }
     return g;
 }

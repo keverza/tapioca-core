@@ -94,9 +94,38 @@ inline bool Inside (const cp::PathsD& paths, Vec p)
     return w != 0;
 }
 
+// Each outer ring of `paths` (counter-clockwise) with the holes inside it (clockwise), as regions.
+inline std::vector<std::vector<Ring>> Regions (const cp::PathsD& paths)
+{
+    std::vector<std::vector<Ring>> out;
+    for (const auto& path : paths)
+        if (cp::Area (path) > 0)
+            out.push_back ({ FromPath (path) });
+    for (const auto& path : paths) {
+        if (cp::Area (path) >= 0 || path.empty ())
+            continue;
+        for (auto& region : out)
+            if (Winding (ToPath (region.front ()), { path.front ().x, path.front ().y }) != 0) {
+                region.push_back (FromPath (path));
+                break;
+            }
+    }
+    return out;
+}
+inline double RegionArea (const std::vector<Ring>& region)
+{
+    double sum = 0;
+    for (const auto& ring : region)
+        sum += floorscheme::Area (ring);
+    return sum;
+}
+
 // BuildingTopology.cpp: one floor's cells, appended to the complex.
 void AddCells (Complex& complex, int floor, const FloorInput& input, const std::vector<floorscheme::Pins::Core>& stack);
 // BuildingTopologyBoundaries.cpp: one floor's faces and apertures, from its cells.
 void AddFaces (Complex& complex, int floor, const FloorInput& input);
+// BuildingTopologyBoundaries.cpp: the horizontal faces, once every floor has its cells: slab
+// patches between stacked cells, and the roofs, ground and undersides no cell above or below takes.
+void AddSlabs (Complex& complex);
 } // namespace geomsrv::archviz::buildingtopology::detail
 #endif
