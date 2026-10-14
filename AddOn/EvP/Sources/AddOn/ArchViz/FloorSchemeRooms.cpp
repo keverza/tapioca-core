@@ -1,4 +1,6 @@
 #include "ArchViz/FloorSchemeDetail.hpp"
+#include <cstddef>
+#include <tuple>
 
 // T6: rooms of one flat, drawn in its slot frame (facade at v1). Three layouts, from the
 // user's sketches (2026-10-10):
@@ -361,3 +363,174 @@ void LayRooms (Flat& flat, const Slot& slot, Box b, int corner, DoorAt door)
     }
 }
 } // namespace geomsrv::archviz::floorscheme::detail
+
+// The same rooms for a flat on its own: its slot is read off its outline and what lies beyond each
+// side (facade at v1 as the bands have it), so a flat replanned from its walls gets the rooms its
+// band gave it.
+namespace geomsrv::archviz::floorscheme {
+namespace {
+using namespace detail;
+constexpr double kOnSide = 0.05;   // m: a stretch this near a side of the flat lies on it
+constexpr double kMinFacade = 1.2; // m: the shortest facade a window fits in (0.6 m and 0.3 m each side)
+constexpr double kDoorWidth = 0.9;
+
+double Cross (Vec a, Vec b)
+{
+    return a.x * b.y - a.y * b.x;
+}
+// `ring`'s corners counter-clockwise, repeated and collinear points dropped; false when it is not
+// a rectangle.
+bool Corners (const Ring& ring, std::array<Vec, 4>& out)
+{
+    Ring r;
+    for (const auto& p : Counter (ring))
+        if (r.empty () || std::hypot (p.x - r.back ().x, p.y - r.back ().y) > 1e-6)
+            r.push_back (p);
+    while (r.size () > 1 && std::hypot (r.front ().x - r.back ().x, r.front ().y - r.back ().y) <= 1e-6)
+        r.pop_back ();
+    for (size_t i = 0; r.size () > 4 && i < r.size ();) {
+        const Vec a = r[(i + r.size () - 1) % r.size ()], b = r[i], c = r[(i + 1) % r.size ()];
+        const Vec d1 = Unit ({ b.x - a.x, b.y - a.y }), d2 = Unit ({ c.x - b.x, c.y - b.y });
+        if (std::abs (Cross (d1, d2)) < 1e-6 && Dot (d1, d2) > 0)
+            r.erase (r.begin () + static_cast<std::ptrdiff_t> (i));
+        else
+            ++i;
+    }
+    if (r.size () != 4)
+        return false;
+    for (size_t i = 0; i < 4; ++i) {
+        const Vec a = r[i], b = r[(i + 1) % 4], c = r[(i + 2) % 4];
+        const Vec d1 = Unit ({ b.x - a.x, b.y - a.y }), d2 = Unit ({ c.x - b.x, c.y - b.y });
+        if (std::abs (Dot (d1, d2)) > 1e-4 || Cross (d1, d2) <= 0)
+            return false;
+        out[i] = a;
+    }
+    return true;
+}
+// What lies beyond one side of the rectangle: its facade, and per way in (a corridor, a lobby, a
+// stair's landing: Side::Corridor on) how much there is and where it runs (distance from the
+// side's first corner).
+constexpr int kWays = 3;
+struct Along {
+    double facade = 0;
+    double access[kWays] = {}, lo[kWays] = { 1e18, 1e18, 1e18 }, hi[kWays] = { -1e18, -1e18, -1e18 };
+};
+} // namespace
+
+bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
+{
+    auto manual = [&flat] {
+        flat.manual = true;
+        flat.roomList.clear ();
+        flat.windows.clear ();
+        return false;
+    };
+    std::array<Vec, 4> r;
+    if (!Corners (flat.shape, r))
+        return manual ();
+    std::array<Vec, 4> d;
+    std::array<double, 4> length {};
+    std::array<Along, 4> along;
+    for (size_t k = 0; k < 4; ++k) {
+        const Vec e { r[(k + 1) % 4].x - r[k].x, r[(k + 1) % 4].y - r[k].y };
+        length[k] = std::hypot (e.x, e.y);
+        d[k] = Unit (e);
+    }
+    for (const auto& s : sides) {
+        const Vec sd = Unit ({ s.b.x - s.a.x, s.b.y - s.a.y });
+        if (std::hypot (s.b.x - s.a.x, s.b.y - s.a.y) < 1e-6)
+            continue;
+        for (size_t k = 0; k < 4; ++k) {
+            const Vec wa { s.a.x - r[k].x, s.a.y - r[k].y }, wb { s.b.x - r[k].x, s.b.y - r[k].y };
+            if (std::abs (Cross (d[k], sd)) > 1e-3 || std::abs (Cross (d[k], wa)) > kOnSide ||
+                std::abs (Cross (d[k], wb)) > kOnSide)
+                continue;
+            const double t0 = std::clamp ((std::min) (Dot (wa, d[k]), Dot (wb, d[k])), 0.0, length[k]);
+            const double t1 = std::clamp ((std::max) (Dot (wa, d[k]), Dot (wb, d[k])), 0.0, length[k]);
+            if (t1 - t0 < 1e-6)
+                continue;
+            if (s.kind == Side::Facade)
+                along[k].facade += t1 - t0;
+            else if (s.kind >= Side::Corridor && s.kind < Side::Corridor + kWays) {
+                const int way = s.kind - Side::Corridor;
+                along[k].access[way] += t1 - t0;
+                along[k].lo[way] = (std::min) (along[k].lo[way], t0);
+                along[k].hi[way] = (std::max) (along[k].hi[way], t1);
+            }
+            break;
+        }
+    }
+    // The facade the rooms face: v1 of the slot.
+    const bool preferred = std::hypot (flat.axis.x, flat.axis.y) > 0.5;
+    const Vec axis = preferred ? Unit (flat.axis) : Vec {};
+    int front = -1;
+    double most = 0;
+    for (size_t k = 0; k < 4 && preferred; ++k)
+        if (std::abs (Cross (d[k], axis)) < 1e-3 && along[k].facade >= 0.5 * length[k] && along[k].facade > most)
+            front = static_cast<int> (k), most = along[k].facade;
+    if (front < 0)
+        for (size_t k = 0; k < 4; ++k)
+            if (along[k].facade > most)
+                front = static_cast<int> (k), most = along[k].facade;
+    if (front < 0 || most < kMinFacade)
+        return manual ();
+    const Vec df = d[front];
+    Frame f;
+    f.o = r[0];
+    f.u = preferred && std::abs (Cross (df, axis)) < 1e-3 && Dot (df, axis) < 0 ? Vec { -df.x, -df.y } : df;
+    f.v = { df.y, -df.x }; // out through the facade: right of a counter-clockwise side
+    Box b { 1e18, 1e18, -1e18, -1e18 };
+    for (const auto& p : r) {
+        const Vec q = f.Local (p);
+        b.u0 = (std::min) (b.u0, q.x), b.u1 = (std::max) (b.u1, q.x);
+        b.v0 = (std::min) (b.v0, q.y), b.v1 = (std::max) (b.v1, q.y);
+    }
+    const int back = (front + 2) % 4;
+    auto middle = [&] (int k) {
+        return f.Local ({ (r[k].x + r[(k + 1) % 4].x) / 2, (r[k].y + r[(k + 1) % 4].y) / 2 }).x;
+    };
+    const int lowEnd = middle ((front + 1) % 4) < middle ((front + 3) % 4) ? (front + 1) % 4 : (front + 3) % 4;
+    const int highEnd = (lowEnd + 2) % 4;
+    // Where a way in runs along side `k`, in the frame: along u for the back, along v for an end.
+    auto range = [&] (int k, int way, bool alongU) {
+        const double lo = along[k].lo[way], hi = along[k].hi[way];
+        const Vec q0 = f.Local ({ r[k].x + d[k].x * lo, r[k].y + d[k].y * lo });
+        const Vec q1 = f.Local ({ r[k].x + d[k].x * hi, r[k].y + d[k].y * hi });
+        return alongU ? std::pair { (std::min) (q0.x, q1.x), (std::max) (q0.x, q1.x) }
+                      : std::pair { (std::min) (q0.y, q1.y), (std::max) (q0.y, q1.y) };
+    };
+    Slot slot;
+    slot.frame = f;
+    slot.box = b;
+    slot.through = along[back].facade >= 0.5 * b.W ();
+    slot.cornerLo = along[lowEnd].facade >= 0.5 * b.H ();
+    slot.cornerHi = along[highEnd].facade >= 0.5 * b.H ();
+    // The door: on a corridor (the back, else an end), as the bands have it; failing one, on a
+    // lobby, then on a stair's landing (a section's flats).
+    DoorAt door;
+    bool entrance = false;
+    for (int way = 0; way < kWays && !entrance; ++way) {
+        entrance = true;
+        if (along[back].access[way] >= kDoorWidth)
+            std::tie (door.lo, door.hi) = range (back, way, true);
+        else if ((std::max) (along[lowEnd].access[way], along[highEnd].access[way]) >= kDoorWidth) {
+            const bool low = along[lowEnd].access[way] >= along[highEnd].access[way];
+            door.side = low ? 1 : 2;
+            std::tie (door.lo, door.hi) = range (low ? lowEnd : highEnd, way, false);
+        }
+        else
+            entrance = false;
+    }
+    slot.door = door.side, slot.doorLo = door.lo, slot.doorHi = door.hi;
+    flat.manual = false;
+    flat.axis = f.u;
+    flat.corner = slot.cornerLo || slot.cornerHi;
+    flat.through = slot.through;
+    flat.frontage = b.W (), flat.depth = b.H ();
+    flat.door = {};
+    LayRooms (flat, slot, b, slot.cornerLo ? 0 : slot.cornerHi ? 1 : -1, door);
+    if (!entrance)
+        flat.door = {};
+    return true;
+}
+} // namespace geomsrv::archviz::floorscheme

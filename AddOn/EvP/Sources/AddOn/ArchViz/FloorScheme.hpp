@@ -216,6 +216,24 @@ double MaxFlat (const floorprogramme::Programme& programme, const Options& optio
 // overlap: they are planned as one massing); `programme` is the whole massing's.
 Scheme Generate (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins = {},
                  const Options& options = {});
+// What lies beyond a stretch of one flat's outline, for laying its rooms on their own.
+struct Side {
+    enum Kind : uint8_t {
+        Blind,    // another flat, unassigned floor or another building: neither window nor door
+        Facade,   // open air or a courtyard: windows
+        Corridor, // the entrance, where there is one
+        Lobby,    // circulation at a corridor's turn: the entrance when no corridor reaches the flat
+        Stair,    // a stair's landing: the entrance when neither does (a section's flats)
+    } kind = Blind;
+    Vec a, b;
+};
+// T6 on its own (a flat replanned inside its floor, or a unit planned by itself): `flat`'s rooms,
+// windows and entrance from what lies beyond its outline. The rooms face the side with the most
+// facade -- the side along `axis` when at least half of it is facade (a zero axis: any side). The
+// door opens onto a corridor, else a lobby, else a stair's landing: on the side opposite the rooms,
+// else on an end; none of them, no door. False, with the rooms left to the user (`manual`), when
+// the flat is not a rectangle or has no facade a window fits in.
+bool PlanRooms (Flat& flat, const std::vector<Side>& sides);
 // Every hard rule on a finished scheme; appends Error diagnostics and returns their count.
 size_t Check (Scheme& scheme, const Options& options = {});
 // The building's stair stack on this floor: every stack stair inside the floor stands on one of
