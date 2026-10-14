@@ -5,6 +5,7 @@
 // view's mapping between model metres and pixels, model-anchored drawing, and the edits
 // they can all start (undo, redo, delete). Not an interface: only HudVirtualEditor*.cpp
 // include it.
+#include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include <imgui.h>
@@ -12,13 +13,17 @@
 
 namespace geomsrv::archviz::edithud::detail {
 
-inline const ImU32 kAccent = IM_COL32 (255, 176, 32, 255);
-inline const ImU32 kSnap = IM_COL32 (255, 214, 10, 255);
-inline const ImU32 kGuide = IM_COL32 (180, 110, 240, 255);
-inline const ImU32 kHover = IM_COL32 (255, 255, 255, 255);
+// The layer's palette (EditLayers.hpp Style): nothing white on Archicad's white plan.
+inline const ImU32 kAccent = IM_COL32 (245, 158, 11, 255);
+inline const ImU32 kSnap = IM_COL32 (255, 122, 0, 255);
+inline const ImU32 kGuide = IM_COL32 (155, 93, 229, 255);
+inline const ImU32 kHover = IM_COL32 (14, 98, 201, 255);
 inline const ImU32 kInk = IM_COL32 (30, 34, 40, 255);
-inline const ImU32 kPaper = IM_COL32 (245, 247, 250, 235);
-inline const ImU32 kAxis[3] = { IM_COL32 (229, 72, 77, 255), IM_COL32 (70, 167, 88, 255), IM_COL32 (62, 99, 221, 255) };
+inline const ImU32 kPaper = IM_COL32 (247, 248, 250, 235);
+inline const ImU32 kRule = IM_COL32 (91, 101, 115, 255); // dimension lines
+inline const ImU32 kShadow = IM_COL32 (20, 24, 30, 70);  // under strokes, so they read on any ground
+inline const ImU32 kAxis[3] = { IM_COL32 (224, 64, 79, 255), IM_COL32 (94, 165, 36, 255),
+                                IM_COL32 (47, 111, 228, 255) };
 
 // Model metres to and from this view's pixels: the plan's transform or the 3D projection
 // the input layer handed over. Nothing else is known about the camera, and nothing is guessed.
@@ -41,6 +46,9 @@ roofcanvas::Anchor At (edit::Vec3 p, ImVec2 s);
 void Line (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, float width);
 void Dot (Session& s, const Map& m, edit::Vec3 p, float radius, ImU32 colour, bool filled = true);
 void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::string& text, ImU32 colour);
+
+// The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
+void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 
 const edit::Document& Doc (const Session& s);
 void History (Session& s, bool undo);

@@ -18,15 +18,18 @@ namespace geomsrv::archviz::editlayers {
 
 constexpr char kLayer[] = "virtual-editor";
 
+// ⚠️ NOTHING WHITE (the user, 2026-10-14: Archicad's plan is white, and white lines and
+// text were illegible on it). Text is dark ink on a light pill, which reads on the white
+// plan and on a dark 3D background alike; strokes are mid-to-dark colours.
 struct Style {
-    uint32_t geometry = 0x3FA7F5FFu, selected = 0xFFB020FFu, hover = 0xFFFFFFFFu;
-    uint32_t solid = 0x3FA7F540u;
-    uint32_t guide = 0xB46EF0FFu, snap = 0xFFD60AFFu;
-    uint32_t axis[3] = { 0xE5484DFFu, 0x46A758FFu, 0x3E63DDFFu };
-    uint32_t activeHandle = 0xFFD60AFFu;
-    uint32_t text = 0xFFFFFFFFu;
-    uint32_t pathSurface = 0xC9A66B70u, pathEdge = 0xC9A66BFFu, controlPolygon = 0x9AA4B1FFu;
-    uint32_t gradeBreak = 0x2D9CDBFFu, fixedBreak = 0xE5484DFFu, fall = 0x5AC8FAFFu;
+    uint32_t geometry = 0x2B8FE0FFu, selected = 0xF59E0BFFu, hover = 0x0E62C9FFu;
+    uint32_t solid = 0x2B8FE03Cu;
+    uint32_t guide = 0x9B5DE5FFu, snap = 0xFF7A00FFu;
+    uint32_t axis[3] = { 0xE0404FFFu, 0x5EA524FFu, 0x2F6FE4FFu };
+    uint32_t activeHandle = 0xFF7A00FFu;
+    uint32_t text = 0x1E2228FFu, paper = 0xF7F8FAEBu, dimension = 0x5B6573FFu;
+    uint32_t pathSurface = 0xC9A66B70u, pathEdge = 0xA8834AFFu, controlPolygon = 0x7D8796FFu;
+    uint32_t gradeBreak = 0x1F7FC4FFu, fixedBreak = 0xD93A49FFu, fall = 0x0F7F84FFu;
     double pathStep = 0.5; // metres between drawn path samples
     float lineWidth = 2.0f, selectedWidth = 3.5f, vertexPixels = 7.0f;
     float textPixels = 12.0f;
@@ -49,6 +52,30 @@ struct Feedback {
 
 // "4.20 m", "2.0 %", "53.1°": what a dimension label says.
 std::string FormatValue (edit::Quantity quantity, double value);
+
+// A live dimension as the locked view draws it for the selection: what it says and the
+// model point it hangs from; a length also has the line it measures. A flat slope says
+// nothing, and what the layer already labels (a grade break's height, a range's
+// crossfall) is not said twice.
+struct LiveLabel {
+    edit::Quantity quantity = edit::Quantity::Length;
+    std::string text;
+    edit::Vec3 at;
+    bool line = false;
+    edit::Vec3 from, to;
+};
+std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Ref& ref);
+
+// A label's rectangle on screen, in pixels.
+struct Box {
+    float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+};
+bool Overlaps (const Box& a, const Box& b, float margin = 3.0f);
+// Where a `w` by `h` label goes: centred `away` pixels from (ax, ay) along the unit screen
+// direction (dx, dy), then further out step by step -- or on the other side -- until it
+// covers nothing in `taken` (the gizmo, the tracker, labels already placed). The chosen
+// box is added to `taken`.
+Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken);
 
 // Triangles of a counter-clockwise plan polygon (ear clipping), as index triples.
 std::vector<uint32_t> TriangulateXY (const std::vector<edit::Vec3>& polygon);

@@ -729,6 +729,22 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         Note (s, m, s.snap.point, { 14 * scale, -22 * scale }, s.snap.hint, kInk);
     }
 
+    // The live dimensions, clear of the gizmo and of the tracker beside the pointer.
+    {
+        std::vector<editlayers::Box> taken;
+        ImVec2 o;
+        if (gizmo && m.Screen (frame.origin, o)) {
+            const float r = (kGizmoPixels + 12.0f) * scale;
+            taken.push_back ({ o.x - r, o.y - r, o.x + r, o.y + r });
+        }
+        if (hovered) {
+            const float rows = float (std::max<size_t> (s.tracker.Items ().size (), 1));
+            taken.push_back ({ mouse.x + 12 * scale, mouse.y + 14 * scale, mouse.x + 200 * scale,
+                               mouse.y + 20 * scale + rows * (ImGui::GetTextLineHeight () + 6) });
+        }
+        DrawDimensions (s, m, taken, scale);
+    }
+
     // The gizmo.
     if (gizmo && s.drag != Drag::Part) {
         const edit::Frame f = s.drag == Drag::Handle && s.handle >= 0 ? s.frame : frame;

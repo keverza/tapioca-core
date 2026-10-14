@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -68,6 +69,98 @@ std::vector<uint32_t> TriangulateXY (const std::vector<Vec3>& polygon)
     if (ring.size () == 3)
         out.insert (out.end (), { ring[0], ring[1], ring[2] });
     return out;
+}
+
+std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Ref& ref)
+{
+    std::vector<LiveLabel> out;
+    for (const auto& d : edit::DimensionsFor (doc, ref)) {
+        double value = 0.0;
+        if (!edit::ReadDimension (doc, d, value))
+            continue;
+        LiveLabel l;
+        l.quantity = d.quantity;
+        edit::PointOf (doc, d.ref, l.at);
+        const edit::Entity* e = edit::Find (doc, d.ref.entity);
+        const bool segment = e != nullptr && d.ref.part == edit::Part::Segment;
+        const bool onPath = edit::FindPath (doc, d.ref.entity) != nullptr;
+        size_t from = 0, to = 0;
+        if (segment)
+            edit::SegmentEnds (*e, static_cast<size_t> (edit::SegmentIndex (*e, d.ref.item)), from, to);
+        switch (d.quantity) {
+            case edit::Quantity::Length:
+            case edit::Quantity::Distance:
+                if (segment) {
+                    l.line = true;
+                    l.from = e->vertices[from].p;
+                    l.to = e->vertices[to].p;
+                    l.at = edit::Lerp (l.from, l.to, 0.5);
+                }
+                l.text = FormatValue (d.quantity, value);
+                break;
+            case edit::Quantity::Slope:
+                if (onPath || std::abs (value) < 0.05)
+                    continue; // flat says nothing; a range's crossfall is on the layer
+                l.text = FormatValue (d.quantity, value);
+                break;
+            case edit::Quantity::Angle:
+                if (segment)
+                    l.at = e->vertices[from].p;
+                l.text = FormatValue (d.quantity, value);
+                break;
+            case edit::Quantity::Height:
+                if (e != nullptr && !e->vertices.empty ())
+                    l.at = e->vertices.front ().p + Vec3 { 0.0, 0.0, e->height * 0.5 };
+                l.text = "H " + FormatValue (d.quantity, value);
+                break;
+            case edit::Quantity::Width:
+                l.text = "W " + FormatValue (d.quantity, value);
+                break;
+            case edit::Quantity::Radius:
+                l.text = "R " + FormatValue (d.quantity, value);
+                break;
+            case edit::Quantity::Elevation:
+            case edit::Quantity::Z:
+                if (onPath)
+                    continue; // a grade break's height is on the layer
+                l.text = "Z " + FormatValue (d.quantity, value);
+                break;
+            default:
+                continue; // plan coordinates are the tracker's
+        }
+        out.push_back (std::move (l));
+    }
+    return out;
+}
+
+bool Overlaps (const Box& a, const Box& b, float margin)
+{
+    return a.x0 < b.x1 + margin && b.x0 < a.x1 + margin && a.y0 < b.y1 + margin && b.y0 < a.y1 + margin;
+}
+
+Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken)
+{
+    const auto at = [&] (float distance) {
+        const float cx = ax + dx * distance, cy = ay + dy * distance;
+        return Box { cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f };
+    };
+    const float step = std::max (6.0f, h * 0.75f);
+    Box chosen = at (away);
+    bool found = false;
+    for (int k = 0; k < 16 && !found; ++k)
+        for (const float side : { 1.0f, -1.0f }) {
+            const Box b = at (side * (away + step * float (k)));
+            bool free = true;
+            for (const Box& t : taken)
+                free = free && !Overlaps (b, t);
+            if (free) {
+                chosen = b;
+                found = true;
+                break;
+            }
+        }
+    taken.push_back (chosen);
+    return chosen;
 }
 
 namespace {
@@ -145,6 +238,8 @@ layers::Text Label (const std::string& text, Vec3 at, const Style& style, float 
     t.offsetPixels[1] = dy;
     t.sizePixels = style.textPixels;
     t.rgba = rgba;
+    t.backgroundRgba = style.paper;
+    t.haloRgba = 0;
     t.behind = layers::Behind::Show;
     return t;
 }
@@ -233,7 +328,7 @@ void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer)
             continue;
         if (std::abs (grade) > 1.0e-9)
             layer.polylines.push_back (grade > 0.0 ? Arrow (b, a, style.text) : Arrow (a, b, style.text));
-        layer.texts.push_back (Label (Percent (std::abs (grade)), mid, style, -14.0f, style.text));
+        layer.texts.push_back (Label (Percent (std::abs (grade)), mid, style, -18.0f, style.text));
     }
 
     // Crossfall: arrows from the high side towards the falling edge(s) in each range.
@@ -254,7 +349,9 @@ void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer)
             layer.polylines.push_back (Arrow (toward (rt), toward (l), style.fall));
         else
             layer.polylines.push_back (Arrow (toward (l), toward (rt), style.fall));
-        layer.texts.push_back (Label (Percent (section.crossfall), Lerp (c, l, 0.5), style, 0.0f, style.fall));
+        // On the falling side's arrow and below it, clear of the grade above the centreline.
+        const Vec3 label = section.fall == edit::Fall::Right ? Lerp (c, rt, 0.55) : Lerp (c, l, 0.55);
+        layer.texts.push_back (Label (Percent (section.crossfall), label, style, 16.0f, style.fall));
     }
 }
 
@@ -366,7 +463,10 @@ void AddDimension (const edit::Document& doc, const edit::Dimension& d, const St
             dim.to[i] = i == 0 ? b.x : i == 1 ? b.y : b.z;
         }
         dim.text = label;
-        dim.rgba = style.text;
+        dim.rgba = style.dimension;
+        dim.textRgba = style.text;
+        dim.haloRgba = style.paper;
+        dim.haloPixels = 2.0f;
         dim.textSizePixels = style.textPixels;
         dim.behind = layers::Behind::Show;
         layer.dimensions.push_back (std::move (dim));
@@ -376,6 +476,8 @@ void AddDimension (const edit::Document& doc, const edit::Dimension& d, const St
     text.text = label;
     text.sizePixels = style.textPixels;
     text.rgba = style.text;
+    text.backgroundRgba = style.paper;
+    text.haloRgba = 0;
     text.behind = layers::Behind::Show;
     Vec3 at;
     edit::PointOf (doc, d.ref, at);
@@ -432,7 +534,9 @@ void AddSnap (const edit::SnapResult& snap, const Style& style, layers::Layer& l
         hint.offsetPixels[1] = -14.0f;
         hint.align = layers::Align::Left;
         hint.sizePixels = style.textPixels;
-        hint.rgba = style.snap;
+        hint.rgba = style.text;
+        hint.backgroundRgba = style.paper;
+        hint.haloRgba = 0;
         hint.behind = layers::Behind::Show;
         layer.texts.push_back (std::move (hint));
     }

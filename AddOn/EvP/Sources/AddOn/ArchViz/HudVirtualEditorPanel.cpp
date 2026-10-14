@@ -204,8 +204,8 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     shown.hover = {}; // hover is the view's transient feedback, not the layer's
     editlayers::Feedback f;
     f.selection = &shown;
-    if (!s.selection.Items ().empty ())
-        f.dimensions = edit::DimensionsFor (doc, s.selection.Items ().front ());
+    // The live dimensions are the view's (HudVirtualEditorDraw.cpp): placed in pixels, they
+    // can stand clear of the gizmo and the tracker, which model-anchored text cannot know.
     layer = editlayers::Build (doc, f);
     auto panel = hudshell::PlainLook ();
     panel.title = kPanelTitle;

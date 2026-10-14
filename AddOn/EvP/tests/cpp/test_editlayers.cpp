@@ -142,3 +142,48 @@ TEST (EditLayers, SelectedPathPartsAreHighlighted)
         width |= t.text == "2.00 m";
     EXPECT_TRUE (width);
 }
+
+TEST (EditLayers, LiveDimensionsSayOnlyWhatIsWorthSaying)
+{
+    ed::Document doc;
+    const ed::Id flat = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 3, 1 } }, false);
+    const auto& e = *ed::Find (doc, flat);
+    const auto first = el::LiveDimensions (doc, { flat, ed::Part::Segment, e.segments[0].id });
+    ASSERT_EQ (first.size (), 2u); // length and angle: a flat slope says nothing
+    EXPECT_EQ (first[0].text, "4.00 m");
+    EXPECT_TRUE (first[0].line);
+    EXPECT_EQ (first[1].quantity, ed::Quantity::Angle);
+    const auto second = el::LiveDimensions (doc, { flat, ed::Part::Segment, e.segments[1].id });
+    ASSERT_EQ (second.size (), 3u);
+    EXPECT_EQ (second[1].text, "33.3 %");
+    const auto vertex = el::LiveDimensions (doc, { flat, ed::Part::Vertex, e.vertices[2].id });
+    ASSERT_EQ (vertex.size (), 1u); // its height; plan coordinates are the tracker's
+    EXPECT_EQ (vertex[0].text, "Z +1.00 m");
+}
+
+TEST (EditLayers, LabelsAreLaidOutClearOfWhatIsTaken)
+{
+    std::vector<el::Box> taken { { 90, 90, 110, 110 } }; // the gizmo
+    const el::Box a = el::PlaceLabel (100, 100, 40, 16, 0, -1, 0, taken);
+    EXPECT_FALSE (el::Overlaps (a, taken[0]));
+    EXPECT_LT (a.y1, 100.0f); // pushed out the way it was asked to go
+    const el::Box b = el::PlaceLabel (100, 100, 40, 16, 0, -1, 0, taken);
+    EXPECT_FALSE (el::Overlaps (b, taken[0]));
+    EXPECT_FALSE (el::Overlaps (b, a));
+    EXPECT_EQ (taken.size (), 3u);
+}
+
+TEST (EditLayers, NothingIsDrawnWhite)
+{
+    // Archicad's plan is white: every stroke and text colour must stand off it.
+    const el::Style style;
+    const auto light = [] (uint32_t rgba) {
+        const int r = int (rgba >> 24), g = int ((rgba >> 16) & 0xFF), b = int ((rgba >> 8) & 0xFF);
+        return r + g + b > 3 * 225;
+    };
+    for (uint32_t c : { style.geometry, style.selected, style.hover, style.guide, style.snap, style.activeHandle,
+                        style.text, style.dimension, style.pathEdge, style.controlPolygon, style.gradeBreak,
+                        style.fixedBreak, style.fall, style.axis[0], style.axis[1], style.axis[2] })
+        EXPECT_FALSE (light (c)) << std::hex << c;
+    EXPECT_TRUE (light (style.paper)); // only the pills under text are light
+}

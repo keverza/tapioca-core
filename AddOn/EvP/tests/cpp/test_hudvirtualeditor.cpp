@@ -154,9 +154,12 @@ TEST (HudVirtualEditor, TypedLengthOnASelectedSegment)
     d.Key (0x0D);
     EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 12.0, 1e-9);
     EXPECT_NEAR (d.D ().entities[0].vertices[0].p.x, 0.0, 1e-9);
-    // The layer labels the new length.
-    ASSERT_FALSE (d.layer.dimensions.empty ());
-    EXPECT_EQ (d.layer.dimensions[0].text, "12.00 m");
+    // The view labels the new length; the layer carries no dimension of its own.
+    EXPECT_TRUE (d.layer.dimensions.empty ());
+    const auto labels = el::LiveDimensions (d.D (), d.S ().selection.Items ().front ());
+    ASSERT_FALSE (labels.empty ());
+    EXPECT_EQ (labels[0].text, "12.00 m");
+    EXPECT_TRUE (labels[0].line);
 }
 
 TEST (HudVirtualEditor, GizmoAxisMovesTheSelection)
