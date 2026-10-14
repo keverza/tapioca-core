@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 250,
+      "nativeRegistry": 252,
       "dispatcherLocal": 19,
-      "total": 269
+      "total": 271
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -3672,6 +3672,122 @@
           "selectionBridgeMode",
           "debugView"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.EditorState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "layerShown": {
+            "type": "boolean"
+          },
+          "tool": {
+            "type": "string",
+            "enum": [
+              "select",
+              "polyline",
+              "path"
+            ]
+          },
+          "gizmo": {
+            "type": "string",
+            "enum": [
+              "move",
+              "rotate",
+              "scale",
+              "stretch",
+              "extrude"
+            ]
+          },
+          "drag": {
+            "type": "string",
+            "enum": [
+              "none",
+              "part",
+              "handle",
+              "marquee",
+              "profileBreak",
+              "profileTangent"
+            ]
+          },
+          "gesture": {
+            "type": "boolean"
+          },
+          "selection": {
+            "type": "integer"
+          },
+          "selectionKind": {
+            "type": "string",
+            "enum": [
+              "none",
+              "vertex",
+              "segment",
+              "face",
+              "entity",
+              "mixed",
+              "pathPoint",
+              "break",
+              "range"
+            ]
+          },
+          "hovering": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "publishedRevision": {
+            "type": "integer"
+          },
+          "undoDepth": {
+            "type": "integer"
+          },
+          "tracker": {
+            "type": "string",
+            "enum": [
+              "hidden",
+              "showing",
+              "editing"
+            ]
+          },
+          "drawing": {
+            "type": "integer"
+          },
+          "entities": {
+            "type": "integer"
+          },
+          "paths": {
+            "type": "integer"
+          },
+          "snapPoints": {
+            "type": "integer"
+          },
+          "snapSegments": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "locked",
+          "layerShown"
+        ],
+        "additionalProperties": false
       }
     },
     {
@@ -33955,6 +34071,335 @@
           "pinned",
           "verifies"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.VirtualEditor",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "state"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string",
+            "enum": [
+              "select",
+              "polyline",
+              "path"
+            ]
+          },
+          "polylines": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 20000,
+                  "items": {
+                    "$ref": "#Point3D"
+                  }
+                },
+                "closed": {
+                  "type": "boolean"
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "boxes": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "outline": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 20000,
+                  "items": {
+                    "$ref": "#Point3D"
+                  }
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "outline",
+                "height"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "paths": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2000,
+                  "items": {
+                    "$ref": "#Point3D"
+                  }
+                },
+                "width": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 100
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "snapPoints": {
+            "type": "array",
+            "maxItems": 100000,
+            "items": {
+              "$ref": "#Point3D"
+            }
+          },
+          "snapSegments": {
+            "type": "array",
+            "maxItems": 100000,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "$ref": "#Point3D"
+              }
+            }
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "undoDepth": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "document": {
+            "type": "object",
+            "properties": {
+              "polylines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "polyline",
+                        "extrusion"
+                      ]
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#Point3D"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "kind",
+                    "role",
+                    "closed",
+                    "height",
+                    "points"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "length": {
+                      "type": "number"
+                    },
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "radius": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y",
+                          "radius"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "profile": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "station": {
+                            "type": "number"
+                          },
+                          "z": {
+                            "type": "number"
+                          },
+                          "curve": {
+                            "type": "number"
+                          },
+                          "fixed": {
+                            "type": "boolean"
+                          },
+                          "binding": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "station",
+                          "z",
+                          "curve",
+                          "fixed",
+                          "binding"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sections": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "station": {
+                            "type": "number"
+                          },
+                          "widthLeft": {
+                            "type": "number"
+                          },
+                          "widthRight": {
+                            "type": "number"
+                          },
+                          "crossfall": {
+                            "type": "number"
+                          },
+                          "fall": {
+                            "type": "string",
+                            "enum": [
+                              "crown",
+                              "left",
+                              "right"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "station",
+                          "widthLeft",
+                          "widthRight",
+                          "crossfall",
+                          "fall"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "role",
+                    "length",
+                    "points",
+                    "profile",
+                    "sections"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "polylines",
+              "paths"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "active",
+          "locked"
+        ],
+        "additionalProperties": false
       }
     },
     {

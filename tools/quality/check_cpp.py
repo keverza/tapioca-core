@@ -382,6 +382,16 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayController.hpp"),
     ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayInput.hpp"),
     ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/SlabSliceSource.hpp"),
+    # VirtualEditor and EditorState are the same kind of read-only boundary adapter:
+    # seed geometry and snap context into the virtual editor, the shared HUD lock and
+    # its owned overlay layer, and a report of the session. No modelling, camera,
+    # rendering or native element writes live in the commands.
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/EditLayers.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/HudVirtualEditor.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayController.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayGuestText.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayHud.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayInput.hpp"),
     # The layer verbs' parameters, read into the same store the verbs fill: split out
     # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),
