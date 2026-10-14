@@ -733,7 +733,8 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathProfile.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathSection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathModel.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathEdit.cpp")
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
 
 set (EVP_TEST_SOURCES
     test_editdocument.cpp
@@ -748,6 +749,7 @@ set (EVP_TEST_SOURCES
     test_editpathprofile.cpp
     test_editpathsection.cpp
     test_editpath.cpp
+    test_editprofileview.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp
