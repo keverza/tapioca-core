@@ -9,6 +9,7 @@
 // its design, and the building's stairs pinned on every floor so they stack.
 //
 // MAIN THREAD for the Planner's calls; the generator runs on worker threads with copies.
+#include "ArchViz/BuildingGenerator.hpp"
 #include "ArchViz/HudBuildingPlan.hpp"
 #include <chrono>
 #include <deque>
@@ -87,8 +88,9 @@ class Planner {
 const Floor* LeadFloor (const Plan& plan);
 // The floor every floor of `plan` has, within `owned` (the lead floor's silhouette): where the
 // stack's stairs are planned, so each stands on every floor from the ground to the top (user,
-// 2026-10-10). `owned` itself when less than kMinCommon is common.
-constexpr double kMinCommon = 50.0; // m2
+// 2026-10-10). `owned` itself when less than kMinCommon is common (buildinggenerator::Common, the
+// rule a whole mass is planned by).
+constexpr double kMinCommon = buildinggenerator::kMinCommon; // m2
 std::vector<floorscheme::Ring> Common (const Plan& plan, const std::vector<floorscheme::Ring>& owned);
 // The id the floor the stack is planned on is kept under, and the stack: that floor's stairs as
 // planned, which every floor holds (Options::holdCores). False while it is not planned yet. A

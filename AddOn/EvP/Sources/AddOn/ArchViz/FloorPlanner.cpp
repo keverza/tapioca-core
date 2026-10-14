@@ -235,33 +235,12 @@ bool Planner::Busy () const
 }
 std::vector<fs::Ring> Common (const Plan& plan, const std::vector<fs::Ring>& owned)
 {
-    namespace cp = Clipper2Lib;
-    const auto paths = [] (const std::vector<fs::Ring>& rings) {
-        cp::PathsD out;
-        for (const auto& r : rings) {
-            cp::PathD path;
-            for (const auto& p : r)
-                path.emplace_back (p.x, p.y);
-            out.push_back (std::move (path));
-        }
-        return out;
-    };
-    auto common = cp::Union (paths (owned), cp::FillRule::NonZero, 6);
-    for (const auto& floor : plan.floors)
-        common = cp::Intersect (common, cp::Union (paths (FloorRings (floor)), cp::FillRule::NonZero, 6),
-                                cp::FillRule::NonZero, 6);
     // Too little floor in common to plan a stair: the lead floor's own (CheckStack reports the
     // floors the stack misses).
-    if (std::abs (cp::Area (common)) < kMinCommon)
-        return owned;
-    std::vector<fs::Ring> out;
-    for (const auto& path : common) {
-        fs::Ring ring;
-        for (const auto& p : path)
-            ring.push_back ({ p.x, p.y });
-        out.push_back (std::move (ring));
-    }
-    return out;
+    std::vector<std::vector<fs::Ring>> floors;
+    for (const auto& floor : plan.floors)
+        floors.push_back (FloorRings (floor));
+    return buildinggenerator::Common (floors, owned, kMinCommon);
 }
 std::string StackId (const std::string& key, const Plan& plan)
 {
