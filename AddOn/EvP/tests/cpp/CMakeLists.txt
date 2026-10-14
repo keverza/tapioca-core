@@ -717,7 +717,13 @@ set (EVP_PREVIEW_SOURCES
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayBinding.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/PlanTransformMath.cpp")
 
+# The virtual editor's kernel: documents, gestures, snapping, numbers and handles
+# with no Archicad, ImGui or Win32 header, so every editing rule is tested here.
+set (EVP_EDIT_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp")
+
 set (EVP_TEST_SOURCES
+    test_editdocument.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp
@@ -1012,6 +1018,7 @@ add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                 ${EVP_GRASSHOPPER_SOURCES}
                                  ${EVP_NODEGRAPH_SOURCES}
                                  ${EVP_SUNSTUDY_SOURCES}
+                                 ${EVP_EDIT_SOURCES}
                                  ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"

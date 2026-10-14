@@ -147,6 +147,11 @@ TIER_ASSIGNMENTS = {
     # still needs an explicit assignment because the tier scan covers every folder.
     "ArchViz/task-history": "features",
     "Diagnostics": "features",
+    # The virtual editor's kernel: documents, gestures, snapping, typed numbers
+    # and handles. Services tier for the same reason as SunStudy/: no DevKit, no
+    # DG, no ImGui, and the in-view host, the panel host and every tool (path,
+    # grading, roof, massing) are its clients, so it cannot live under any one.
+    "Edit": "services",
     "Geometry": "services",
     # The Grasshopper worker's supervisor and transport: an external process
     # lifecycle owned on behalf of whatever UI eventually drives it, in the same
