@@ -185,9 +185,9 @@ void Republish ()
     archviz::overlayinput::RequestLayout (archviz::overlayinput::View::Plan);
 }
 
-void Stop (hud::State& state)
+void Stop (hud::State& state, const char* reason)
 {
-    hud::StopVirtualEditor (state);
+    hud::StopVirtualEditor (state, reason);
     archviz::overlaylayers::Clear (el::kLayer);
 }
 
@@ -202,7 +202,7 @@ class VirtualEditorCommand : public MainThreadCommand {
             s != nullptr && (action == "state" || action == "stop"))
             result.Add ("document", Export (s->edits.Doc ()));
         if (action == "stop")
-            Stop (*state);
+            Stop (*state, "Tapioca.VirtualEditor stop");
         else if (action == "start") {
             const std::string role = Role (params, "");
             edit::Document doc;
@@ -223,7 +223,7 @@ class VirtualEditorCommand : public MainThreadCommand {
             eh::Follow (session, layer);
             error = archviz::overlaylayers::Validate (layer);
             if (!error.empty ()) {
-                Stop (*state);
+                Stop (*state, "its layer was refused");
                 return NativeCommandResult::Failure (
                     EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8), "publishing the virtual editor"));
             }
@@ -232,7 +232,7 @@ class VirtualEditorCommand : public MainThreadCommand {
         const bool keys = hud::VirtualEditorActive (*state) && hud::EditLocked (*state) && hud::ContentShown (*state) &&
                           hud::LayerShown (*state, el::kLayer);
         if (keys && !archviz::overlayinput::EnableRoofEditKeys (true)) {
-            Stop (*state);
+            Stop (*state, "keyboard ownership was refused");
             Republish ();
             return NativeCommandResult::Failure (
                 EVP_FAIL ("Could not acquire scoped keyboard ownership; the virtual editor was refused.",

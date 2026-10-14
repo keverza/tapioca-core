@@ -45,7 +45,7 @@ void Engine::Impl::RoofEditActions (const Input& input)
 }
 bool StartRoofEditor (State& state, roofslope::Data data, std::string sourceGuid, uint64_t sourceStamp)
 {
-    StopVirtualEditor (state); // one editor owns the locked view at a time
+    StopVirtualEditor (state, "the roof editor took the view"); // one editor owns the locked view at a time
     StopRoofEditor (state);
     auto session = std::make_shared<roofhud::Session> ();
     session->token = state.revision + 1;

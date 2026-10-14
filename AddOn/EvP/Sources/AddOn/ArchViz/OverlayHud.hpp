@@ -349,7 +349,8 @@ bool FollowRoofEditor (State& state, overlaylayers::Layer& layer, bool& clear);
 // The virtual editor (HudVirtualEditor.hpp), in the same pattern: it borrows the dock's lock,
 // owns only the command-scoped "virtual-editor" layer, and replaces a roof session.
 bool StartVirtualEditor (State& state, edit::Document doc, std::string role = {}, edit::SnapContext context = {});
-void StopVirtualEditor (State& state);
+// `reason` goes to archviz.log with the session's last state.
+void StopVirtualEditor (State& state, const char* reason = "stopped");
 bool VirtualEditorActive (const State& state);
 const edithud::Session* VirtualEditor (const State& state);
 edithud::Session* VirtualEditor (State& state);

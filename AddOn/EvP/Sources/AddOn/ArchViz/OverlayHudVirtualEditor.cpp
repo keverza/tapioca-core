@@ -1,3 +1,4 @@
+#include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 
@@ -16,7 +17,7 @@ void Engine::Impl::VirtualEditActions (const Input& input)
 bool StartVirtualEditor (State& state, edit::Document doc, std::string role, edit::SnapContext context)
 {
     StopRoofEditor (state); // one editor owns the locked view at a time
-    StopVirtualEditor (state);
+    StopVirtualEditor (state, "opened again");
     auto session = std::make_shared<edithud::Session> (std::move (doc));
     session->token = state.revision + 1;
     session->previousLock = state.editLocked;
@@ -34,13 +35,24 @@ bool StartVirtualEditor (State& state, edit::Document doc, std::string role, edi
     state.host.open = true;
     state.host.selected = std::string (editlayers::kLayer) + "#0";
     ++state.revision;
+    const auto& d = state.virtualEditor->edits.Doc ();
+    ArchVizLog ("VIRTUAL EDITOR  opened: " + std::to_string (d.entities.size ()) + " objects, " +
+                std::to_string (d.paths.size ()) + " paths, " +
+                std::to_string (state.virtualEditor->context.points.size ()) + " snap points; the view's lock " +
+                (state.virtualEditor->previousLock ? "was already on" : "borrowed"));
     return true;
 }
 
-void StopVirtualEditor (State& state)
+void StopVirtualEditor (State& state, const char* reason)
 {
     if (!state.virtualEditor)
         return;
+    const auto& s = *state.virtualEditor;
+    ArchVizLog (std::string ("VIRTUAL EDITOR  closed (") + reason + "): revision " +
+                std::to_string (s.edits.Doc ().revision) + ", " + std::to_string (s.edits.UndoDepth ()) +
+                " undo steps, " + std::to_string (s.edits.Doc ().entities.size ()) + " objects, " +
+                std::to_string (s.edits.Doc ().paths.size ()) + " paths; the view's lock returned " +
+                (s.previousLock ? "on" : "off"));
     state.editLocked = state.virtualEditor->previousLock;
     state.virtualEditor.reset ();
     ++state.revision;
@@ -77,7 +89,7 @@ bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear
     auto& s = *state.virtualEditor;
     if (!exists || s.close) {
         clear = exists;
-        StopVirtualEditor (state);
+        StopVirtualEditor (state, exists ? "Done or Esc in the editor" : "its layer was removed");
         return clear;
     }
     // Hide, unlock or a view switch cannot leave an unfinished gesture behind.

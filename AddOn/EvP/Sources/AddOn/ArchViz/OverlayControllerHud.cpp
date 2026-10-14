@@ -118,7 +118,7 @@ void FollowHudState ()
                             overlayhud::ContentShown (*state) && overlayhud::LayerShown (*state, editlayers::kLayer);
     if (!overlayinput::EnableRoofEditKeys (roofKeys || editorKeys)) {
         overlayhud::StopRoofEditor (*state);
-        overlayhud::StopVirtualEditor (*state);
+        overlayhud::StopVirtualEditor (*state, "keyboard ownership was refused");
         overlaylayers::Clear (roofslope::kLayer);
         overlaylayers::Clear (editlayers::kLayer);
         PublishLayers ();
@@ -325,7 +325,7 @@ void ClearCommandPreviews (const std::string& next)
     const bool keepEditor = !next.empty () && overlayhud::VirtualEditorOwnedBy (state, next);
     overlayhud::StopRoofEditor (state);
     if (!keepEditor) {
-        overlayhud::StopVirtualEditor (state);
+        overlayhud::StopVirtualEditor (state, next.empty () ? "a project boundary" : "another command ran");
         overlayinput::EnableRoofEditKeys (false);
     }
     if (overlaylayers::ClearCommandScoped (keepEditor ? editlayers::kLayer : ""))
