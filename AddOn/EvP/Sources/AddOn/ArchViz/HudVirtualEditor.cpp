@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHud.hpp"
@@ -10,18 +11,83 @@
 
 namespace geomsrv::archviz::edithud {
 
+namespace detail {
+
+const edit::Document& Doc (const Session& s)
+{
+    return s.edits.Doc ();
+}
+
+void History (Session& s, bool undo)
+{
+    if (s.drag != Drag::None)
+        return;
+    if (!(undo ? s.edits.Undo () : s.edits.Redo ()))
+        s.message = undo ? "Nothing to undo." : "Nothing to redo.";
+    s.selection.Prune (Doc (s));
+}
+
+void DeleteSelection (Session& s)
+{
+    const auto items = s.selection.Items ();
+    if (items.empty () || s.drag != Drag::None)
+        return;
+    const bool ok = s.edits.Apply ([items] (edit::Document& d, std::string& error) {
+        for (const auto& r : items) {
+            if (edit::FindPath (d, r.entity) != nullptr) {
+                bool done = true;
+                switch (r.part) {
+                    case edit::Part::Entity:
+                        d.paths.erase (std::remove_if (d.paths.begin (), d.paths.end (),
+                                                       [&] (const edit::Path& p) { return p.id == r.entity; }),
+                                       d.paths.end ());
+                        break;
+                    case edit::Part::PathPoint:
+                        done = edit::DeletePathPoint (d, r.entity, r.item, error);
+                        break;
+                    case edit::Part::Break:
+                        done = edit::DeletePathBreak (d, r.entity, r.item, error);
+                        break;
+                    case edit::Part::Range:
+                        done = edit::DeletePathSection (d, r.entity, r.item, error);
+                        break;
+                    default:
+                        break;
+                }
+                if (!done)
+                    return false;
+                continue;
+            }
+            if (r.part == edit::Part::Entity)
+                d.entities.erase (std::remove_if (d.entities.begin (), d.entities.end (),
+                                                  [&] (const edit::Entity& e) { return e.id == r.entity; }),
+                                  d.entities.end ());
+            else if (r.part == edit::Part::Vertex) {
+                if (!edit::DeleteVertex (d, r.entity, r.item, error))
+                    return false;
+            }
+            else {
+                error = "Delete removes vertices, path parts or whole objects.";
+                return false;
+            }
+        }
+        return true;
+    });
+    if (ok)
+        s.selection.Clear ();
+    else
+        s.message = s.edits.Message ();
+}
+
+} // namespace detail
+
 namespace {
+
+using namespace detail;
 
 using edit::Vec3;
 namespace rc = roofcanvas;
 
-const ImU32 kAccent = IM_COL32 (255, 176, 32, 255);
-const ImU32 kSnap = IM_COL32 (255, 214, 10, 255);
-const ImU32 kGuide = IM_COL32 (180, 110, 240, 255);
-const ImU32 kHover = IM_COL32 (255, 255, 255, 255);
-const ImU32 kInk = IM_COL32 (30, 34, 40, 255);
-const ImU32 kPaper = IM_COL32 (245, 247, 250, 235);
-const ImU32 kAxis[3] = { IM_COL32 (229, 72, 77, 255), IM_COL32 (70, 167, 88, 255), IM_COL32 (62, 99, 221, 255) };
 constexpr float kPickPixels = 8.0f, kGizmoPixels = 70.0f, kSnapPixels = 10.0f;
 
 // Model metres to and from this view's pixels: the plan's transform or the 3D projection
@@ -169,11 +235,6 @@ void Note (Session& s, const Map& m, Vec3 p, ImVec2 offset, const std::string& t
     s.canvas.list->AddText (at, colour, text.c_str ());
 }
 
-const edit::Document& Doc (const Session& s)
-{
-    return s.edits.Doc ();
-}
-
 // The items a press on `ref` moves: the selection when it holds `ref`, otherwise `ref`.
 std::vector<edit::Ref> Moving (const Session& s, const edit::Ref& ref)
 {
@@ -305,67 +366,6 @@ void Escape (Session& s)
         s.selection.Clear ();
     else
         s.close = true;
-}
-
-void History (Session& s, bool undo)
-{
-    if (s.drag != Drag::None)
-        return;
-    if (!(undo ? s.edits.Undo () : s.edits.Redo ()))
-        s.message = undo ? "Nothing to undo." : "Nothing to redo.";
-    s.selection.Prune (Doc (s));
-}
-
-void DeleteSelection (Session& s)
-{
-    const auto items = s.selection.Items ();
-    if (items.empty () || s.drag != Drag::None)
-        return;
-    const bool ok = s.edits.Apply ([items] (edit::Document& d, std::string& error) {
-        for (const auto& r : items) {
-            if (edit::FindPath (d, r.entity) != nullptr) {
-                bool done = true;
-                switch (r.part) {
-                    case edit::Part::Entity:
-                        d.paths.erase (std::remove_if (d.paths.begin (), d.paths.end (),
-                                                       [&] (const edit::Path& p) { return p.id == r.entity; }),
-                                       d.paths.end ());
-                        break;
-                    case edit::Part::PathPoint:
-                        done = edit::DeletePathPoint (d, r.entity, r.item, error);
-                        break;
-                    case edit::Part::Break:
-                        done = edit::DeletePathBreak (d, r.entity, r.item, error);
-                        break;
-                    case edit::Part::Range:
-                        done = edit::DeletePathSection (d, r.entity, r.item, error);
-                        break;
-                    default:
-                        break;
-                }
-                if (!done)
-                    return false;
-                continue;
-            }
-            if (r.part == edit::Part::Entity)
-                d.entities.erase (std::remove_if (d.entities.begin (), d.entities.end (),
-                                                  [&] (const edit::Entity& e) { return e.id == r.entity; }),
-                                  d.entities.end ());
-            else if (r.part == edit::Part::Vertex) {
-                if (!edit::DeleteVertex (d, r.entity, r.item, error))
-                    return false;
-            }
-            else {
-                error = "Delete removes vertices, path parts or whole objects.";
-                return false;
-            }
-        }
-        return true;
-    });
-    if (ok)
-        s.selection.Clear ();
-    else
-        s.message = s.edits.Message ();
 }
 
 void TrackerEvent (Session& s, const edit::Tracker::Event& event)
@@ -796,209 +796,6 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                                                                                              : ImGuiMouseCursor_Arrow);
     }
     draw->PopClipRect ();
-}
-
-void Panel (Session& s)
-{
-    const auto& doc = Doc (s);
-    ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
-                 s.selection.Items ().size ());
-    if (ImGui::RadioButton ("Select (V)", s.tool == Tool::Select))
-        s.tool = Tool::Select, s.drawing.clear ();
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Polyline (L)", s.tool == Tool::Polyline))
-        s.tool = Tool::Polyline;
-    ImGui::SameLine ();
-    if (ImGui::RadioButton ("Path (P)", s.tool == Tool::Path))
-        s.tool = Tool::Path;
-    const char* modes[] = { "Move (G)", "Rotate (R)", "Scale (S)", "Stretch", "Extrude (E)" };
-    for (int i = 0; i < 5; ++i) {
-        if (i > 0)
-            ImGui::SameLine ();
-        if (ImGui::RadioButton (modes[i], int (s.gizmo) == i))
-            s.gizmo = edit::GizmoMode (i);
-    }
-    ImGui::BeginDisabled (s.drag != Drag::None);
-    if (ImGui::SmallButton ("Undo"))
-        History (s, true);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Redo"))
-        History (s, false);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Delete"))
-        DeleteSelection (s);
-    ImGui::SameLine ();
-    if (ImGui::SmallButton ("Done"))
-        s.close = true;
-    // Context actions for what is selected.
-    static const std::vector<edit::Action> table = edit::PolylineActions ();
-    const auto actions = edit::Applicable (table, s.selection, edit::ViewKind::Plan);
-    for (size_t i = 0; i < actions.size (); ++i) {
-        if (i > 0)
-            ImGui::SameLine ();
-        if (ImGui::SmallButton (actions[i]->label.c_str ())) {
-            const auto op = actions[i]->make (doc, s.selection.Items ());
-            if (op && !s.edits.Apply (op))
-                s.message = s.edits.Message ();
-            s.selection.Prune (Doc (s));
-        }
-    }
-    ImGui::EndDisabled ();
-
-    const edit::Path* path = ProfilePath (s);
-    if (path != nullptr) {
-        s.profilePath = path->id;
-        ImGui::Separator ();
-        ImGui::Text ("Path profile  (%zu breaks, %zu ranges)", path->profile.size (), path->sections.size ());
-        // Path actions on the selected part.
-        const auto& items = s.selection.Items ();
-        const edit::Ref* part = items.size () == 1 && items[0].entity == path->id ? &items[0] : nullptr;
-        if (part != nullptr && part->part == edit::Part::Break)
-            for (const auto& b : path->profile)
-                if (b.id == part->item) {
-                    if (ImGui::SmallButton (b.fixed ? "Unfix elevation" : "Fix elevation")) {
-                        const edit::Id id = path->id, bid = b.id;
-                        const double station = b.station, z = b.z;
-                        const bool fixed = b.fixed;
-                        s.edits.Apply ([=] (edit::Document& d, std::string& e) {
-                            return fixed ? edit::UnfixBreak (d, id, bid, e)
-                                         : edit::FixElevationAt (d, id, station, z, "", e);
-                        });
-                    }
-                    break;
-                }
-        if (part != nullptr && part->part == edit::Part::Range)
-            for (const auto& r : path->sections)
-                if (r.id == part->item) {
-                    const char* falls[] = { "Crown", "Falls left", "Falls right" };
-                    for (int i = 0; i < 3; ++i) {
-                        if (i > 0)
-                            ImGui::SameLine ();
-                        if (ImGui::RadioButton (falls[i], int (r.fall) == i)) {
-                            const edit::Id id = path->id, rid = r.id;
-                            const double cf = r.crossfall;
-                            s.edits.Apply ([=] (edit::Document& d, std::string& e) {
-                                return edit::SetPathCrossfall (d, id, rid, cf, edit::Fall (i), e);
-                            });
-                        }
-                    }
-                    break;
-                }
-
-        // The profile canvas: stations right, elevations up, exaggerated to fit.
-        const float width = std::max (200.0f, ImGui::GetContentRegionAvail ().x);
-        const float height = 150.0f;
-        ImGui::InvisibleButton ("##profile", { width, height });
-        const ImVec2 min = ImGui::GetItemRectMin ();
-        const bool over = ImGui::IsItemHovered ();
-        ImDrawList* list = ImGui::GetWindowDrawList ();
-        edit::ProfileView& frozen = s.profileView;
-        const bool dragging = s.drag == Drag::ProfileBreak || s.drag == Drag::ProfileTangent;
-        const edit::ProfileView view = dragging ? frozen : edit::FitProfile (*path, min.x, min.y, width, height, 14.0);
-        list->AddRectFilled (min, { min.x + width, min.y + height }, IM_COL32 (250, 251, 252, 255), 4.0f);
-        const auto drawing = edit::DrawProfile (*path, 1.0);
-        const auto screen = [&] (double station, double z) {
-            double x = 0.0, y = 0.0;
-            edit::ProfileToScreen (view, station, z, x, y);
-            return ImVec2 { float (x), float (y) };
-        };
-        for (const auto& c : drawing.curves)
-            list->AddRectFilled ({ screen (c.from, 0).x, min.y + 4 }, { screen (c.to, 0).x, min.y + height - 4 },
-                                 IM_COL32 (62, 99, 221, 24));
-        for (size_t i = 0; i + 1 < drawing.line.size (); ++i)
-            list->AddLine (screen (drawing.line[i].first, drawing.line[i].second),
-                           screen (drawing.line[i + 1].first, drawing.line[i + 1].second), kInk, 2.0f);
-        for (const auto& g : drawing.grades) {
-            char text[24];
-            std::snprintf (text, sizeof text, "%.1f %%", g.percent);
-            const ImVec2 at = screen (g.station, g.z);
-            list->AddText ({ at.x - 14, at.y - 18 }, kInk, text);
-        }
-        for (const auto& b : drawing.breaks) {
-            const ImVec2 at = screen (b.station, b.z);
-            const bool chosen = part != nullptr && part->part == edit::Part::Break && part->item == b.id;
-            if (b.fixed)
-                list->AddRectFilled ({ at.x - 5, at.y - 5 }, { at.x + 5, at.y + 5 }, kAxis[0]);
-            else
-                list->AddCircleFilled (at, 5.0f, kAxis[2]);
-            if (chosen)
-                list->AddCircle (at, 8.0f, kAccent, 0, 2.0f);
-        }
-        const ImVec2 mouse = ImGui::GetIO ().MousePos;
-        if (over && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
-            const auto hits = edit::PickProfile (*path, view, mouse.x, mouse.y, 7.0);
-            if (!hits.empty () && s.edits.Begin ()) {
-                frozen = view;
-                s.profileIndex = hits.front ().index;
-                s.profileStartY = mouse.y;
-                s.profileStartZ = path->profile[hits.front ().index].z;
-                if (hits.front ().kind == edit::ProfileHit::Kind::Break) {
-                    s.drag = Drag::ProfileBreak;
-                    s.selection.Set ({ { path->id, edit::Part::Break, path->profile[s.profileIndex].id } });
-                }
-                else
-                    s.drag = Drag::ProfileTangent;
-            }
-        }
-        if (over && ImGui::IsMouseDoubleClicked (0) && s.drag == Drag::None) {
-            double station = 0.0, z = 0.0;
-            edit::ProfileFromScreen (view, mouse.x, mouse.y, station, z);
-            const edit::Id id = path->id;
-            if (!s.edits.Apply (
-                    [=] (edit::Document& d, std::string& e) { return edit::InsertPathBreak (d, id, station, e); }))
-                s.message = s.edits.Message ();
-        }
-        if (dragging && ImGui::IsMouseDown (0)) {
-            const edit::Path* before = edit::FindPath (s.edits.Before (), path->id);
-            double station = 0.0, z = 0.0;
-            edit::ProfileFromScreen (frozen, mouse.x, mouse.y, station, z);
-            edit::Operation op;
-            if (before != nullptr && s.drag == Drag::ProfileBreak && s.profileIndex < before->profile.size ()) {
-                std::string hint;
-                edit::SnapBreak (*before, s.profileIndex, station, z, {}, hint);
-                op = edit::DragBreak (before->id, before->profile[s.profileIndex].id, station, z);
-                if (!hint.empty ())
-                    s.message = "Grade " + hint;
-            }
-            else if (before != nullptr) {
-                double s0 = 0.0, z0 = 0.0;
-                edit::ProfileFromScreen (frozen, mouse.x, s.profileStartY, s0, z0);
-                op = edit::DragTangent (before->id, s.profileIndex, std::round ((z - z0) * 100.0) / 100.0);
-            }
-            if (op && !s.edits.Move (op))
-                s.message = s.edits.Message ();
-        }
-        if (dragging && ImGui::IsMouseReleased (0)) {
-            s.edits.End ();
-            s.drag = Drag::None;
-        }
-        ImGui::TextDisabled ("Drag breaks and tangents; double-click adds a break. Grades snap to 0.5 %%.");
-    }
-    if (!s.message.empty ()) {
-        ImGui::Separator ();
-        ImGui::TextWrapped ("%s", s.message.c_str ());
-    }
-}
-
-bool Follow (Session& s, overlaylayers::Layer& layer)
-{
-    const auto& doc = Doc (s);
-    if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection)
-        return false;
-    edit::Selection shown = s.selection;
-    shown.hover = {}; // hover is the view's transient feedback, not the layer's
-    editlayers::Feedback f;
-    f.selection = &shown;
-    if (!s.selection.Items ().empty ())
-        f.dimensions = edit::DimensionsFor (doc, s.selection.Items ().front ());
-    layer = editlayers::Build (doc, f);
-    auto panel = hudshell::PlainLook ();
-    panel.title = kPanelTitle;
-    panel.widthPixels = 400;
-    layer.panels.push_back (panel);
-    s.publishedRevision = doc.revision;
-    s.publishedSelection = s.selection.Items ();
-    return true;
 }
 
 } // namespace geomsrv::archviz::edithud
