@@ -161,6 +161,20 @@ PlanFile ExportPlan (const Plan& plan, const Draft& draft, const Floor& shown, c
                                       { "depth", Number (core.depth) },
                                       { "corners", V::Array (std::move (corners)) } }));
     }
+    // The planned floors as one cell complex (BuildingTopology.hpp), for the offline 3D viewer.
+    // The stack is the stairs every planned floor holds; neighbouring buildings are not exported,
+    // so walls against them read as facade here.
+    std::vector<buildingtopology::FloorInput> planned;
+    for (const auto& floor : plan.floors)
+        if (const auto scheme = schemes.find (floor.story); scheme != schemes.end () && scheme->second)
+            planned.push_back ({ floor.story, floor.z, floor.height, scheme->second, {} });
+    std::vector<floorscheme::Pins::Core> stack;
+    if (!planned.empty ())
+        for (const auto& core : planned.front ().scheme->cores)
+            stack.push_back ({ core.centre, core.width, core.depth });
+    auto complex = buildingtopology::Build (planned, stack);
+    uint64_t ids = 1;
+    buildingtopology::Reconcile ({}, complex, ids);
     for (size_t t = 0; t < draft.programme.types.size (); ++t) {
         const auto& type = draft.programme.types[t];
         programme.push_back (V::Object ({ { "name", V::String (floorprogramme::Name (draft.programme, t)) },
@@ -181,6 +195,7 @@ PlanFile ExportPlan (const Plan& plan, const Draft& draft, const Floor& shown, c
                      { "module", Number (kModule) },
                      { "program", V::String (floorprogramme::Brief (draft.programme, "\n")) },
                      { "slices", V::Array (std::move (slices)) },
+                     { "cellComplex", js::Parse (buildingtopology::ToJson (complex, 0), 16).value },
                      { "plan", V::Object ({ { "format", V::String ("tapioca.floor-plan.typology") },
                                             { "version", V::Integer (2) },
                                             { "exported", V::String (stamp) },

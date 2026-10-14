@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <fstream>
 #include <map>
 #include <tuple>
 
@@ -494,6 +496,39 @@ TEST (BuildingGenerator, LevelsAreTheProjectsStories)
     const auto g = bg::PlanMass (levels, fp::Default ());
     EXPECT_EQ (g.complex.floors.size (), 3u);
     EXPECT_TRUE (bt::Check (g.complex).empty ()) << Codes (bt::Check (g.complex));
+}
+
+// Sample buildings as tapioca.cell-complex JSON for the offline 3D viewer; set CELLCOMPLEX_DUMP to
+// a folder to write them.
+TEST (BuildingGenerator, ViewerDump)
+{
+    const char* dir = std::getenv ("CELLCOMPLEX_DUMP");
+    if (!dir)
+        GTEST_SKIP () << "CELLCOMPLEX_DUMP not set";
+    auto write = [&] (const std::string& name, const bt::Complex& complex) {
+        std::ofstream (std::string (dir) + "/" + name + ".json") << bt::ToJson (complex, 0);
+    };
+    const std::vector<bg::Story> stories { { 0, 0 }, { 1, 3 }, { 2, 6 }, { 3, 9 }, { 4, 12 } };
+    // A bar of three storeys and a fourth set back, from the project's stories.
+    write ("mass-setback",
+           bg::PlanMass (bg::StoryLevels (stories, 0, 12,
+                                          [] (double z) {
+                                              return std::vector<fs::Ring> { z < 8 ? Rect (0, 0, 60, 16)
+                                                                                   : Rect (0, 0, 40, 16) };
+                                          }),
+                         fp::Default ())
+               .complex);
+    const std::vector<fs::Ring> l { Rect (0, 0, 48, 16), Rect (0, 16, 16, 48) };
+    write ("l-floor", bg::PlanFloor (LevelAt (0, 0, l), fp::Default ()).complex);
+    fs::Ring court = Rect (14, 14, 36, 36);
+    std::reverse (court.begin (), court.end ());
+    write ("courtyard-floor", bg::PlanFloor (LevelAt (0, 0, { Rect (0, 0, 50, 50), court }), fp::Default ()).complex);
+    // A known defect, kept visible: the stair stack held on an L moves its arm's stair.
+    write ("defect-l-held-stack", bg::PlanMass ({ LevelAt (0, 0, l), LevelAt (1, 3, l) }, fp::Default ()).complex);
+    auto unit = LevelAt (0, 0, { { { 0, -3 }, { 4, -3 }, { 4, 0 }, { 9.9, 0 }, { 9.9, 7.5 }, { 0, 7.5 } } });
+    unit.context = { { bt::CellKind::Corridor, Rect (4, -1.8, 20, 0) },
+                     { bt::CellKind::Flat, Rect (9.9, 0, 16, 7.5) } };
+    write ("unit-l", bg::PlanUnit (unit, fp::Default (), 3).complex);
 }
 
 TEST (BuildingGenerator, TheSameMassPlannedTwiceHasTheSameIds)
