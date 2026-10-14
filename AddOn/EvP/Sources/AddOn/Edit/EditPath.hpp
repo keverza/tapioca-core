@@ -139,5 +139,33 @@ bool SetCrossfall (std::vector<Section>& sections, Id id, double percent, Fall f
 // Ranges keep their share of the length when the plan changes it.
 void RestationSections (std::vector<Section>& sections, double oldLength, double newLength);
 
+// ---- the path ---------------------------------------------------------------------
+
+struct Path {
+    Id id = kNoId;
+    std::string role; // the owning tool's word for it ("footpath", "ramp", ...)
+    std::vector<ControlPoint> points;
+    std::vector<GradeBreak> profile;
+    std::vector<Section> sections;
+    bool operator== (const Path&) const = default;
+};
+// Builds the alignment and checks the profile and ranges against its length.
+bool ValidatePath (const Path& path, AlignmentGeometry& geometry, std::string& error);
+
+// Everything about a path at one station, in world metres.
+struct StationFrame {
+    double station = 0.0;
+    Vec3 centre;        // on the profile
+    Vec3 tangent, left; // plan unit vectors
+    double grade = 0.0; // fraction, positive rising along the path
+    double curvature = 0.0;
+    Section section; // the range in force
+    Vec3 leftEdge, rightEdge;
+};
+bool Evaluate (const Path& path, const AlignmentGeometry& geometry, double station, StationFrame& out);
+// Stations to draw or build a surface at: every `maxStep` metres at most, plus every
+// element end, grade break, vertical-curve end and range start.
+std::vector<double> SampleStations (const Path& path, const AlignmentGeometry& geometry, double maxStep);
+
 } // namespace geomsrv::edit
 #endif

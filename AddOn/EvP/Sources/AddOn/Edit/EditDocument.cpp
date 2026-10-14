@@ -36,6 +36,62 @@ const Entity* Find (const Document& doc, Id entity)
     return nullptr;
 }
 
+Path* FindPath (Document& doc, Id path)
+{
+    for (auto& p : doc.paths)
+        if (p.id == path)
+            return &p;
+    return nullptr;
+}
+
+const Path* FindPath (const Document& doc, Id path)
+{
+    for (const auto& p : doc.paths)
+        if (p.id == path)
+            return &p;
+    return nullptr;
+}
+
+namespace {
+
+bool PathPart (const Path& path, const Ref& ref, double& station)
+{
+    AlignmentGeometry g;
+    std::string error;
+    if (!BuildAlignment (path.points, g, error))
+        return false;
+    switch (ref.part) {
+        case Part::Entity:
+            station = g.length * 0.5;
+            return true;
+        case Part::PathPoint:
+            for (size_t i = 0; i < path.points.size (); ++i)
+                if (path.points[i].id == ref.item) {
+                    station = g.pointStations[i];
+                    return true;
+                }
+            return false;
+        case Part::Break:
+            for (const auto& b : path.profile)
+                if (b.id == ref.item) {
+                    station = b.station;
+                    return true;
+                }
+            return false;
+        case Part::Range:
+            for (const auto& r : path.sections)
+                if (r.id == ref.item) {
+                    station = r.station;
+                    return true;
+                }
+            return false;
+        default:
+            return false;
+    }
+}
+
+} // namespace
+
 int VertexIndex (const Entity& entity, Id vertex)
 {
     for (size_t i = 0; i < entity.vertices.size (); ++i)
@@ -173,6 +229,10 @@ Id AddExtrusion (Document& doc, const std::vector<Vec3>& profile, double height,
 
 bool Exists (const Document& doc, const Ref& ref)
 {
+    if (const Path* path = FindPath (doc, ref.entity)) {
+        double station = 0.0;
+        return PathPart (*path, ref, station);
+    }
     const Entity* e = Find (doc, ref.entity);
     if (e == nullptr)
         return false;
@@ -185,6 +245,10 @@ bool Exists (const Document& doc, const Ref& ref)
             return SegmentIndex (*e, ref.item) >= 0;
         case Part::Face:
             return ref.item < FaceCount (*e);
+        case Part::PathPoint:
+        case Part::Break:
+        case Part::Range:
+            return false; // path parts on an entity
     }
     return false;
 }
@@ -199,6 +263,17 @@ static Vec3 Centroid (const std::vector<Vec3>& points)
 
 bool PointOf (const Document& doc, const Ref& ref, Vec3& point)
 {
+    if (const Path* path = FindPath (doc, ref.entity)) {
+        AlignmentGeometry g;
+        std::string error;
+        double station = 0.0;
+        StationFrame frame;
+        if (!PathPart (*path, ref, station) || !BuildAlignment (path->points, g, error) ||
+            !Evaluate (*path, g, station, frame))
+            return false;
+        point = frame.centre;
+        return true;
+    }
     if (!Exists (doc, ref))
         return false;
     const Entity& e = *Find (doc, ref.entity);
@@ -222,6 +297,10 @@ bool PointOf (const Document& doc, const Ref& ref, Vec3& point)
         case Part::Face:
             point = Centroid (FacePolygon (e, ref.item));
             return true;
+        case Part::PathPoint:
+        case Part::Break:
+        case Part::Range:
+            return false;
     }
     return false;
 }
@@ -279,6 +358,25 @@ bool Validate (const Document& doc, std::string& error)
                 error = "extrusion " + std::to_string (e.id) + " profile is not counter-clockwise";
                 return false;
             }
+        }
+    }
+    for (const auto& p : doc.paths) {
+        if (!claim (p.id, "path"))
+            return false;
+        for (const auto& c : p.points)
+            if (!claim (c.id, "control point"))
+                return false;
+        for (const auto& b : p.profile)
+            if (!claim (b.id, "grade break"))
+                return false;
+        for (const auto& r : p.sections)
+            if (!claim (r.id, "cross-section range"))
+                return false;
+        AlignmentGeometry g;
+        std::string why;
+        if (!ValidatePath (p, g, why)) {
+            error = "path " + std::to_string (p.id) + ": " + why;
+            return false;
         }
     }
     return true;

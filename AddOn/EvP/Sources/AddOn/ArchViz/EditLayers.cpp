@@ -160,6 +160,10 @@ void AddRef (const edit::Document& doc, const edit::Ref& ref, uint32_t rgba, con
         case edit::Part::Face:
             layer.polylines.push_back (Line (edit::FacePolygon (*e, ref.item), true, rgba, style.selectedWidth));
             break;
+        case edit::Part::PathPoint:
+        case edit::Part::Break:
+        case edit::Part::Range:
+            break; // drawn with their path
     }
 }
 

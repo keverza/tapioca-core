@@ -1,4 +1,5 @@
 #include "Edit/EditTracker.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <cmath>
 #include <cstdlib>
 
@@ -27,6 +28,8 @@ const char* QuantityName (Quantity quantity)
             return "Distance";
         case Quantity::Height:
             return "Height";
+        case Quantity::Radius:
+            return "Radius";
     }
     return "";
 }
@@ -250,8 +253,96 @@ Vertex* VertexOf (Document& doc, const Ref& ref)
 
 } // namespace
 
+namespace {
+
+// On a path: a control point shows its corner radius, a grade break its elevation,
+// and a range its total width and crossfall.
+std::vector<Dimension> PathDimensions (const Document& doc, const Ref& ref)
+{
+    std::vector<Dimension> out;
+    if (!Exists (doc, ref))
+        return out;
+    switch (ref.part) {
+        case Part::PathPoint:
+            out.push_back ({ ref, Quantity::Radius });
+            break;
+        case Part::Break:
+            out.push_back ({ ref, Quantity::Elevation });
+            break;
+        case Part::Range:
+            out.push_back ({ ref, Quantity::Width });
+            out.push_back ({ ref, Quantity::Slope });
+            break;
+        default:
+            break;
+    }
+    return out;
+}
+
+bool ReadPath (const Path& p, const Dimension& d, double& value)
+{
+    for (const auto& c : p.points)
+        if (d.ref.part == Part::PathPoint && c.id == d.ref.item && d.quantity == Quantity::Radius) {
+            value = c.radius;
+            return true;
+        }
+    for (const auto& b : p.profile)
+        if (d.ref.part == Part::Break && b.id == d.ref.item && d.quantity == Quantity::Elevation) {
+            value = b.z;
+            return true;
+        }
+    for (const auto& r : p.sections)
+        if (d.ref.part == Part::Range && r.id == d.ref.item) {
+            if (d.quantity == Quantity::Width) {
+                value = r.widthLeft + r.widthRight;
+                return true;
+            }
+            if (d.quantity == Quantity::Slope) {
+                value = r.crossfall;
+                return true;
+            }
+        }
+    return false;
+}
+
+bool WritePath (Document& doc, const Dimension& d, double value, std::string& error)
+{
+    const Path* p = FindPath (doc, d.ref.entity);
+    if (p == nullptr) {
+        error = "the path no longer exists";
+        return false;
+    }
+    if (d.ref.part == Part::PathPoint && d.quantity == Quantity::Radius)
+        return SetPathRadius (doc, d.ref.entity, d.ref.item, value, error);
+    if (d.ref.part == Part::Break && d.quantity == Quantity::Elevation)
+        return SetPathElevation (doc, d.ref.entity, d.ref.item, value, error);
+    if (d.ref.part == Part::Range)
+        for (const auto& r : p->sections) {
+            if (r.id != d.ref.item)
+                continue;
+            if (d.quantity == Quantity::Slope)
+                return SetPathCrossfall (doc, d.ref.entity, r.id, value, r.fall, error);
+            if (d.quantity == Quantity::Width) {
+                if (!(value > 0.0)) {
+                    error = "a width must be positive";
+                    return false;
+                }
+                // Both sides keep their share of the total.
+                const double total = r.widthLeft + r.widthRight;
+                return SetPathWidth (doc, d.ref.entity, r.id, value * r.widthLeft / total, value * r.widthRight / total,
+                                     error);
+            }
+        }
+    error = "that dimension cannot be typed on a path";
+    return false;
+}
+
+} // namespace
+
 std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
 {
+    if (FindPath (doc, ref.entity) != nullptr)
+        return PathDimensions (doc, ref);
     std::vector<Dimension> out;
     const Entity* e = Find (doc, ref.entity);
     if (e == nullptr || !Exists (doc, ref))
@@ -272,12 +363,18 @@ std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
             if (e->kind == Kind::Extrusion)
                 out.push_back ({ { ref.entity, Part::Entity, 0 }, Quantity::Height });
             break;
+        case Part::PathPoint:
+        case Part::Break:
+        case Part::Range:
+            break;
     }
     return out;
 }
 
 bool ReadDimension (const Document& doc, const Dimension& d, double& value)
 {
+    if (const Path* p = FindPath (doc, d.ref.entity))
+        return ReadPath (*p, d, value);
     if (d.ref.part == Part::Segment) {
         Vec3 a, b;
         if (!SegmentOf (doc, d.ref, a, b))
@@ -341,6 +438,8 @@ Operation WriteDimension (const Dimension& d, double value)
             error = "not a number";
             return false;
         }
+        if (FindPath (doc, d.ref.entity) != nullptr)
+            return WritePath (doc, d, value, error);
         if (d.ref.part == Part::Segment) {
             const bool z = d.quantity == Quantity::Slope;
             Entity* e = nullptr;

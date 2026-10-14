@@ -37,7 +37,7 @@ struct PickHit {
 std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, double y, uint32_t filter,
                            double radius);
 
-enum class SelectionKind : uint8_t { None, Vertex, Segment, Face, Entity, Mixed };
+enum class SelectionKind : uint8_t { None, Vertex, Segment, Face, Entity, Mixed, PathPoint, Break, Range };
 
 class Selection {
   public:

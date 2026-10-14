@@ -5,6 +5,7 @@
 // so a committed element can be found again and a re-opened definition edited in
 // place. Pure C++ (no Archicad, ImGui or Win32) so every tool built on it runs in the
 // offline suite. Units are metres, coordinates are world, Z is absolute.
+#include "Edit/EditPath.hpp"
 #include "Edit/EditTypes.hpp"
 #include <cstdint>
 #include <string>
@@ -13,7 +14,9 @@
 namespace geomsrv::edit {
 
 enum class Kind : uint8_t { Polyline, Extrusion };
-enum class Part : uint8_t { Entity, Vertex, Segment, Face };
+// A path's own parts: its plan control points, its grade breaks and its
+// cross-section ranges. `Entity` on a path's id means the whole path.
+enum class Part : uint8_t { Entity, Vertex, Segment, Face, PathPoint, Break, Range };
 
 struct Vertex {
     Id id = kNoId;
@@ -40,14 +43,15 @@ struct Entity {
 };
 struct Document {
     std::vector<Entity> entities;
-    Id nextId = 1; // never reused, so a deleted id cannot alias a later one
+    std::vector<Path> paths; // ids share one space with the entities
+    Id nextId = 1;           // never reused, so a deleted id cannot alias a later one
     uint64_t revision = 0;
 };
 
 struct Ref {
     Id entity = kNoId;
     Part part = Part::Entity;
-    Id item = kNoId; // vertex id, segment id, or face index; unused for Part::Entity
+    Id item = kNoId; // the part's id, or a face index; unused for Part::Entity
 };
 bool operator== (const Ref& a, const Ref& b);
 bool operator!= (const Ref& a, const Ref& b);
@@ -57,6 +61,8 @@ constexpr double kMinSegment = 1.0e-6; // shorter is a duplicate vertex, not a s
 Id NewId (Document& doc);
 Entity* Find (Document& doc, Id entity);
 const Entity* Find (const Document& doc, Id entity);
+Path* FindPath (Document& doc, Id path);
+const Path* FindPath (const Document& doc, Id path);
 int VertexIndex (const Entity& entity, Id vertex);
 int SegmentIndex (const Entity& entity, Id segment);
 size_t SegmentCount (const Entity& entity);
@@ -77,10 +83,13 @@ Id AddExtrusion (Document& doc, const std::vector<Vec3>& profile, double height,
 void Normalize (Document& doc, Entity& entity);
 
 bool Exists (const Document& doc, const Ref& ref);
-// The point a reference stands for: a vertex, a segment midpoint, a face or entity centroid.
+// The point a reference stands for: a vertex, a segment midpoint, a face or entity
+// centroid; on a path, the point on its profile at the part's station (a whole path
+// stands for its middle).
 bool PointOf (const Document& doc, const Ref& ref, Vec3& point);
 // Unique ids, matching segment counts, finite coordinates, enough vertices, no
-// zero-length segment, flat profiles and positive heights for extrusions.
+// zero-length segment, flat profiles and positive heights for extrusions, and paths
+// whose alignment, profile and ranges agree.
 bool Validate (const Document& doc, std::string& error);
 double SignedAreaXY (const std::vector<Vertex>& vertices);
 

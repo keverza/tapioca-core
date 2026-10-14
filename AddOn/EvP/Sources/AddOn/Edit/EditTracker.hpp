@@ -12,7 +12,7 @@
 
 namespace geomsrv::edit {
 
-enum class Quantity : uint8_t { X, Y, Z, Length, Angle, Elevation, Slope, Width, Distance, Height };
+enum class Quantity : uint8_t { X, Y, Z, Length, Angle, Elevation, Slope, Width, Distance, Height, Radius };
 const char* QuantityName (Quantity quantity);
 const char* QuantityUnit (Quantity quantity); // "m", "deg" or "%"
 

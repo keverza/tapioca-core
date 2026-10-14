@@ -57,6 +57,11 @@ int Rank (Part part)
             return 2;
         case Part::Entity:
             return 3;
+        case Part::PathPoint:
+        case Part::Break:
+            return 0; // points, like vertices
+        case Part::Range:
+            return 1; // picked by its edges, like segments
     }
     return 4;
 }
@@ -192,6 +197,12 @@ SelectionKind Selection::Kind () const
             return SelectionKind::Face;
         case Part::Entity:
             return SelectionKind::Entity;
+        case Part::PathPoint:
+            return SelectionKind::PathPoint;
+        case Part::Break:
+            return SelectionKind::Break;
+        case Part::Range:
+            return SelectionKind::Range;
     }
     return SelectionKind::Mixed;
 }

@@ -1,4 +1,5 @@
 #include "Edit/EditGizmo.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -341,7 +342,12 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
             return true; // the pivot moved; the geometry did not
         std::map<Id, std::set<size_t>> moved;
         std::map<Id, std::vector<size_t>> faces;
+        std::vector<Ref> pathParts;
         for (const auto& ref : selection) {
+            if (FindPath (doc, ref.entity) != nullptr) {
+                pathParts.push_back (ref);
+                continue;
+            }
             Entity* e = Find (doc, ref.entity);
             if (e == nullptr || !Exists (doc, ref)) {
                 error = "a selected item no longer exists";
@@ -375,6 +381,10 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                         set.insert ((ref.item - 1) % n);
                     }
                     break;
+                case Part::PathPoint:
+                case Part::Break:
+                case Part::Range:
+                    break; // only on paths, handled above
             }
         }
         for (auto& [id, indices] : moved) {
@@ -390,6 +400,14 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                 }
                 v.p = p;
             }
+        }
+        if (!pathParts.empty ()) {
+            if (t.angle != 0.0 || !(t.scale == Vec3 { 1.0, 1.0, 1.0 }) || t.extrude != 0.0) {
+                error = "paths move with the gizmo; shape them with their own handles";
+                return false;
+            }
+            if (!TransformPathParts (doc, pathParts, t.translate, error))
+                return false;
         }
         for (auto& [id, list] : faces) {
             Entity& e = *Find (doc, id);

@@ -5,6 +5,8 @@ namespace geomsrv::edit {
 
 static bool SameContent (const Document& a, const Document& b)
 {
+    if (a.paths != b.paths)
+        return false;
     if (a.entities.size () != b.entities.size ())
         return false;
     for (size_t i = 0; i < a.entities.size (); ++i) {
