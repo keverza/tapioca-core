@@ -22,7 +22,7 @@ struct Frame {
 };
 // Path-local frame: X along the segment in plan, Z up, Y to its left.
 bool SegmentFrame (Vec3 a, Vec3 b, Frame& frame);
-// X along the face's outward normal for a side face, Z for the top; origin at its centre.
+// Axis 2 along the face's outward normal (the face handle drags along it); origin at its centre.
 bool FaceFrame (const Entity& entity, size_t face, Frame& frame);
 
 struct Handle {
