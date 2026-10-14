@@ -790,10 +790,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             y += size.y + 6;
         }
     }
+    // One cursor per state, said every frame so nothing of Archicad's shows between them: a
+    // crosshair while a drawing tool places points, the move cross on a handle and through any
+    // drag, the arrow otherwise.
     if (hovered) {
-        hudshell::OwnCursor ();
-        ImGui::SetMouseCursor (s.hoverHandle >= 0 || s.selection.hover.entity != edit::kNoId ? ImGuiMouseCursor_Hand
-                                                                                             : ImGuiMouseCursor_Arrow);
+        const bool dragging = s.drag == Drag::Part || s.drag == Drag::Handle;
+        hudshell::OwnCursor (s.tool != Tool::Select && s.drag == Drag::None);
+        ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 ? ImGuiMouseCursor_ResizeAll : ImGuiMouseCursor_Arrow);
     }
     draw->PopClipRect ();
 }

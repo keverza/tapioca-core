@@ -20730,6 +20730,9 @@
               "handsShown": {
                 "type": "string"
               },
+              "cursorsReasserted": {
+                "type": "string"
+              },
               "mouseHook": {
                 "type": "boolean"
               },
@@ -20769,6 +20772,7 @@
               "cursorPlan",
               "cursorsSet",
               "handsShown",
+              "cursorsReasserted",
               "mouseHook",
               "buttonsEaten",
               "buttonsLate",

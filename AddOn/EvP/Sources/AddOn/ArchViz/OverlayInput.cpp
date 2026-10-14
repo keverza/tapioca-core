@@ -146,6 +146,7 @@ HCURSOR g_moveCursor = nullptr;
 HCURSOR g_sizeWECursor = nullptr;
 HCURSOR g_sizeNSCursor = nullptr;
 HCURSOR s_textCursor = nullptr;
+HCURSOR g_crossCursor = nullptr;
 
 bool ResolveSubclassing ()
 {
@@ -190,19 +191,16 @@ bool OwnsPointer (const Target& target)
 // ⚠️ AN ARROW OVER THE HUD, A HAND OVER WHAT IT CAN PRESS (the user, 2026-09-29) -- never
 // the tool's cursor Archicad would show over the model there. False when the pointer is
 // not the HUD's: Archicad's cursor stands.
-bool ShowCursor (const Target& target)
+// The cursor the HUD asks for on `target` now: a canvas's own, else a hand on what it can press.
+HCURSOR DesiredCursor (const Target& target, Cursor& desired)
 {
-    if (!OwnsPointer (target))
-        return false;
-    // The cursor the HUD asked for: a canvas's own, else a hand on what it can press.
     POINT point = {};
     RECT client = {};
     const bool overRegion =
         ::GetCursorPos (&point) && ::ScreenToClient (target.canvas, &point) &&
         ::GetClientRect (target.canvas, &client) &&
         target.map.Hit (float (point.x), float (point.y), float (client.right), float (client.bottom)) >= 0;
-    const Cursor desired =
-        CursorFor (target.map, overRegion, g_router.GetOwner () == Owner::Hud && PhysicalButtons () != 0);
+    desired = CursorFor (target.map, overRegion, g_router.GetOwner () == Owner::Hud && PhysicalButtons () != 0);
     HCURSOR cursor = g_arrowCursor;
     switch (desired) {
         case Cursor::Hand:
@@ -220,14 +218,41 @@ bool ShowCursor (const Target& target)
         case Cursor::Text:
             cursor = s_textCursor;
             break;
+        case Cursor::Cross:
+            cursor = g_crossCursor;
+            break;
         default:
             break;
     }
-    ::SetCursor (cursor != nullptr ? cursor : g_arrowCursor);
+    return cursor != nullptr ? cursor : g_arrowCursor;
+}
+
+bool ShowCursor (const Target& target)
+{
+    if (!OwnsPointer (target))
+        return false;
+    Cursor desired = Cursor::Arrow;
+    ::SetCursor (DesiredCursor (target, desired));
     ++g_stats.cursorsSet;
     if (desired == Cursor::Hand)
         ++g_stats.handsShown;
     return true;
+}
+
+// ⚠️ ARCHICAD SETS ITS TOOL CURSOR OUTSIDE WM_SETCURSOR TOO (the user, 2026-10-14: on the locked
+// view the virtual editor's cursor flickered between the arrow and a crosshair). After anything
+// the canvas handled, a locked view whose pointer is the HUD's gets the HUD's cursor back --
+// counted, so a live run says whether, and how often, Archicad replaced it.
+void ReassertCursor (const Target& target)
+{
+    if (!target.map.locked || !OwnsPointer (target))
+        return;
+    Cursor desired = Cursor::Arrow;
+    const HCURSOR cursor = DesiredCursor (target, desired);
+    if (::GetCursor () == cursor)
+        return;
+    ::SetCursor (cursor);
+    ++g_stats.cursorsReasserted;
 }
 
 LRESULT CALLBACK CanvasProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR)
@@ -259,7 +284,11 @@ LRESULT CALLBACK CanvasProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
             return 0;
         }
     }
-    return g_defSubclass (window, message, wParam, lParam);
+    const LRESULT result = g_defSubclass (window, message, wParam, lParam);
+    if (message != WM_SETCURSOR)
+        if (const Target* const target = TargetFor (window); target != nullptr)
+            ReassertCursor (*target);
+    return result;
 }
 
 // ⚠️ ONLY A CANVAS OF THIS THREAD. A window is subclassed from its own thread or not at
@@ -290,6 +319,8 @@ void Subclass (Target& target, View view)
         g_sizeNSCursor = ::LoadCursorW (nullptr, IDC_SIZENS);
     if (!s_textCursor)
         s_textCursor = ::LoadCursorW (nullptr, IDC_IBEAM);
+    if (g_crossCursor == nullptr)
+        g_crossCursor = ::LoadCursorW (nullptr, IDC_CROSS);
     target.subclassed = g_setSubclass (target.canvas, &CanvasProc, kSubclassId + UINT_PTR (view), 0) != FALSE;
     if (!target.subclassed)
         ArchVizLog ("OVERLAY INPUT  SetWindowSubclass refused the canvas: Archicad's cursor stays over the HUD");

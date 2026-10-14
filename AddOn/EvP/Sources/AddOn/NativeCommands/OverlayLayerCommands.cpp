@@ -243,6 +243,7 @@ class OverlayLayersCommand : public MainThreadCommand {
         inputRecord.Add ("cursorPlan", input.cursorPlan);
         inputRecord.Add ("cursorsSet", Text (input.cursorsSet));
         inputRecord.Add ("handsShown", Text (input.handsShown));
+        inputRecord.Add ("cursorsReasserted", Text (input.cursorsReasserted));
         inputRecord.Add ("mouseHook", input.mouseHook);
         inputRecord.Add ("buttonsEaten", Text (input.buttonsEaten));
         inputRecord.Add ("buttonsLate", Text (input.buttonsLate));
@@ -569,7 +570,7 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
         "lastRefreshMicroseconds":{"type":"integer","minimum":0},"maxRefreshMicroseconds":{"type":"integer","minimum":0},
         "canvasOnThread3D":{"type":"boolean"},"canvasOnThreadPlan":{"type":"boolean"},
         "cursor3D":{"type":"boolean"},"cursorPlan":{"type":"boolean"},
-        "cursorsSet":{"type":"string"},"handsShown":{"type":"string"},
+        "cursorsSet":{"type":"string"},"handsShown":{"type":"string"},"cursorsReasserted":{"type":"string"},
         "mouseHook":{"type":"boolean"},"buttonsEaten":{"type":"string"},"buttonsLate":{"type":"string"},
         "contextMenusSwallowed":{"type":"string"}},
       "additionalProperties":false,
@@ -577,7 +578,7 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
                   "takenMoves","passedOverHud","declinedHidden","refreshes","changes","redraws",
                   "lastRedrawMicroseconds","maxRedrawMicroseconds","lastRefreshMicroseconds",
                   "maxRefreshMicroseconds","canvasOnThread3D","canvasOnThreadPlan","cursor3D","cursorPlan",
-                  "cursorsSet","handsShown","mouseHook","buttonsEaten","buttonsLate",
+                  "cursorsSet","handsShown","cursorsReasserted","mouseHook","buttonsEaten","buttonsLate",
                   "contextMenusSwallowed"]}},
   "additionalProperties":false,"required":["layers","generation","guest","input"]})json";
 

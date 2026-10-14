@@ -32,6 +32,8 @@ TEST (OverlayHitMap, LockedCanvasDoesNotInheritAStalePanelHandButKeepsEditingAnd
     EXPECT_EQ (input::CursorFor (map, false, true), input::Cursor::Hand);
     map.cursor = uint8_t (input::Cursor::Move);
     EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Move);
+    map.cursor = uint8_t (input::Cursor::Cross);
+    EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Cross);
     map.locked = false;
     map.cursor = uint8_t (input::Cursor::Hand);
     EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Hand);
