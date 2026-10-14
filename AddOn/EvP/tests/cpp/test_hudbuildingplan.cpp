@@ -312,3 +312,40 @@ TEST (HudBuildingPlan, SelectionHasOneEditableSection)
     }
     EXPECT_EQ (bands, 2); // Two floors, once each; no read-only second diagram.
 }
+
+// User, 2026-10-14: the floors a plan is planned on are the project's stories, never the massing's
+// own floor heights; the massing keeps its rows for its areas.
+TEST (HudBuildingPlan, FloorsAreTheProjectsStoriesWhateverTheMassingsFloorHeights)
+{
+    auto tall = Slab ("lower", 0, 0);
+    tall.slab.top = 9;
+    geomsrv::archviz::ProjectStoreys storeys;
+    storeys.levels = { 0, 3.5, 7 };
+    storeys.indices = { 0, 1, 2 };
+    storeys.names = { "Ground", "First", "Second" };
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ tall }, storeys, nullptr, result, error)) << error;
+    EXPECT_FALSE (ms::FollowsStories ({ tall })) << "its own 3 m floor heights";
+    std::vector<double> massing;
+    for (const auto& row : result.rows)
+        massing.push_back (row.z);
+    EXPECT_EQ (massing, (std::vector<double> { 0, 3, 6 }));
+    ms::Result stories;
+    ASSERT_TRUE (ms::BuildStories ({ tall }, storeys, nullptr, stories, error)) << error;
+    EXPECT_TRUE (stories.followsStories);
+    result.stories = std::make_shared<const ms::Result> (std::move (stories));
+    const auto preview = Preview (result);
+    std::vector<double> z, height;
+    std::vector<int> story;
+    for (const auto& floor : preview.plan.floors)
+        z.push_back (floor.z), height.push_back (floor.height), story.push_back (floor.story);
+    EXPECT_EQ (z, (std::vector<double> { 0, 3.5, 7 }));
+    EXPECT_EQ (story, (std::vector<int> { 0, 1, 2 }));
+    ASSERT_EQ (height.size (), 3u);
+    EXPECT_NEAR (height[0], 3.5, 1e-9);
+    EXPECT_NEAR (height[2], 2, 1e-9) << "the top story up to the mass's top";
+    // Without the project's stories the plan keeps the massing's floors.
+    result.stories.reset ();
+    EXPECT_EQ (Preview (result).plan.floors.size (), 3u);
+}

@@ -52,6 +52,12 @@ struct Result {
     bool hasCoverage = false;
     std::vector<CoveragePatch> coverage;
     std::string note;
+    // Floor planning's levels are the project's stories, never the massing's own floor heights
+    // (user, 2026-10-14). True when every source already matches the stories (these rows are
+    // the stories); otherwise `stories` holds the same sources cut at the story levels, or is
+    // empty when the project has fewer than two stories.
+    bool followsStories = false;
+    std::shared_ptr<const Result> stories;
 };
 constexpr char kHighlightLayer[] = "tapioca.massing.functionVolumes";
 constexpr char kUnbuiltProjectedLayer[] = "tapioca.massing.unbuilt.terrain";
@@ -95,5 +101,11 @@ bool Intersect (const std::vector<SliceChain>& slab, const overlaylayers::Mesh& 
                 std::vector<SliceChain>& outlines, double& area, std::string& error);
 bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, const massingcalculation::Result* envelope,
             Result& result, std::string& error, const storysliceoverlay::Controls& display = {});
+// True when every source's height source is "Match Archicad stories".
+bool FollowsStories (const std::vector<Input>& slabs);
+// `Build` with every source cut at the project's story levels, whatever its own height source:
+// the floors a floor plan is planned on. Fails, like that mode, with fewer than two stories.
+bool BuildStories (const std::vector<Input>& slabs, const ProjectStoreys& storeys,
+                   const massingcalculation::Result* envelope, Result& result, std::string& error);
 } // namespace geomsrv::archviz::massingslices
 #endif

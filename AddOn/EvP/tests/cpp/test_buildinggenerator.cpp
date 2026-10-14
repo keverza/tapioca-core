@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <tuple>
 
 namespace bg = geomsrv::archviz::buildinggenerator;
 namespace bt = geomsrv::archviz::buildingtopology;
@@ -456,6 +457,43 @@ TEST (BuildingGenerator, ReplanningAndRetypingKeepTheIds)
         const bool kept = std::find (first.second.begin (), first.second.end (), cell.id) != first.second.end ();
         EXPECT_TRUE (kept || !cell.derivedFrom.empty ()) << "a new room names the rooms it replaces";
     }
+}
+
+// User, 2026-10-14: "Levels should come from archicad project story settings not other way around."
+TEST (BuildingGenerator, LevelsAreTheProjectsStories)
+{
+    // Stories out of order; the mass from 0 to 12 m, set back above 6 m.
+    const std::vector<bg::Story> stories { { 2, 6.5 }, { 0, 0 }, { 4, 13 }, { 1, 3 }, { 3, 10 } };
+    std::vector<double> asked;
+    auto cut = [&] (double z) {
+        asked.push_back (z);
+        return std::vector<fs::Ring> { z < 6 ? Rect (0, 0, 60, 16) : Rect (0, 0, 40, 16) };
+    };
+    const auto levels = bg::StoryLevels (stories, 0, 12, cut);
+    ASSERT_EQ (levels.size (), 3u) << "the 2 m storey from 10 to 12 m is no level";
+    const std::vector<std::tuple<int, double, double>> want { { 0, 0, 3 }, { 1, 3, 3.5 }, { 2, 6.5, 3.5 } };
+    for (size_t i = 0; i < want.size (); ++i) {
+        EXPECT_EQ (levels[i].story, std::get<0> (want[i]));
+        EXPECT_NEAR (levels[i].z, std::get<1> (want[i]), 1e-9);
+        EXPECT_NEAR (levels[i].height, std::get<2> (want[i]), 1e-9);
+    }
+    EXPECT_NEAR (Area (levels[2].outline), 40 * 16, 1e-9) << "cut at the story's level";
+    // A mass standing between two story levels starts in the story below it.
+    const auto raised = bg::StoryLevels (stories, 0.5, 9, cut);
+    ASSERT_FALSE (raised.empty ());
+    EXPECT_EQ (raised.front ().story, 0);
+    EXPECT_NEAR (raised.front ().z, 0.5, 1e-9);
+    EXPECT_NEAR (raised.front ().height, 2.5, 1e-9);
+    EXPECT_EQ (bg::StoryLevels (stories, 1, 9, cut).front ().story, 1) << "a 2 m first storey is no level";
+    // Where the mass has no floor, no level.
+    const auto holed = bg::StoryLevels (stories, 0, 12, [] (double z) {
+        return z == 3 ? std::vector<fs::Ring> {} : std::vector<fs::Ring> { Rect (0, 0, 60, 16) };
+    });
+    EXPECT_EQ (holed.size (), 2u);
+    // And the levels plan as a mass: one stack inside the setback.
+    const auto g = bg::PlanMass (levels, fp::Default ());
+    EXPECT_EQ (g.complex.floors.size (), 3u);
+    EXPECT_TRUE (bt::Check (g.complex).empty ()) << Codes (bt::Check (g.complex));
 }
 
 TEST (BuildingGenerator, TheSameMassPlannedTwiceHasTheSameIds)

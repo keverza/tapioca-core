@@ -122,7 +122,11 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
     Plan plan;
     plan.key = preview.building.key;
     plan.guids = preview.building.guids;
-    if (!slices.complete || preview.section.floors.empty ()) {
+    // The floors are the project's stories (user, 2026-10-14): the sources cut at the story levels
+    // when their own floor heights differ (massingslices::Result::stories).
+    const auto& cut = slices.stories ? *slices.stories : slices;
+    const auto section = slices.stories ? hudsection::Filter (slices.stories->section, plan.guids) : preview.section;
+    if (!slices.complete || section.floors.empty ()) {
         plan.note = "Plan awaits the complete current building slices.";
         return plan;
     }
@@ -144,16 +148,16 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
     if (plan.mixed)
         plan.saved.clear (), plan.savedDesigns.clear ();
     size_t points = 0;
-    for (const auto& row : preview.section.floors) {
+    for (const auto& row : section.floors) {
         Floor floor;
         floor.story = row.storey;
         floor.z = row.base;
         floor.areaM2 = row.areaM2;
         for (const auto& part : row.parts) {
-            const auto source = std::find_if (slices.rows.begin (), slices.rows.end (), [&] (const auto& item) {
+            const auto source = std::find_if (cut.rows.begin (), cut.rows.end (), [&] (const auto& item) {
                 return item.guid == part.guid && item.story == part.sourceStory && std::abs (item.z - row.base) < 1e-6;
             });
-            if (source == slices.rows.end ()) {
+            if (source == cut.rows.end ()) {
                 plan.floors.clear ();
                 plan.note = "Plan awaits every current floor contour; no partial building shown.";
                 return plan;

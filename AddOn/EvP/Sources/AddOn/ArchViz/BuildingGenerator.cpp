@@ -73,6 +73,37 @@ std::vector<Ring> Common (const std::vector<std::vector<Ring>>& levels, const st
     return out;
 }
 
+std::vector<Level> StoryLevels (std::vector<Story> stories, double bottom, double top,
+                                const std::function<std::vector<Ring> (double z)>& cut)
+{
+    std::vector<Level> out;
+    if (stories.empty () || !(top > bottom) || !cut)
+        return out;
+    std::stable_sort (stories.begin (), stories.end (), [] (const Story& a, const Story& b) { return a.z < b.z; });
+    // The bottom is a level in the story it lies in (below every story: the one under the first).
+    int first = stories.front ().index - 1;
+    for (const auto& story : stories)
+        if (story.z <= bottom + 1e-6)
+            first = story.index;
+    std::vector<Story> marks { { first, bottom } };
+    for (const auto& story : stories)
+        if (story.z > bottom + 1e-6 && story.z < top - 1e-6)
+            marks.push_back (story);
+    for (size_t k = 0; k < marks.size (); ++k) {
+        const double height = (k + 1 < marks.size () ? marks[k + 1].z : top) - marks[k].z;
+        if (height < kMinStorey - 1e-6)
+            continue;
+        auto outline = cut (marks[k].z);
+        if (outline.empty ())
+            continue;
+        Level level;
+        level.story = marks[k].index, level.z = marks[k].z, level.height = height;
+        level.outline = std::move (outline);
+        out.push_back (std::move (level));
+    }
+    return out;
+}
+
 void Rebuild (Generated& generated)
 {
     std::vector<bt::FloorInput> floors;

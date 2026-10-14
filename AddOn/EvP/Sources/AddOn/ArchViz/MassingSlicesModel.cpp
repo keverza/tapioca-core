@@ -246,6 +246,20 @@ void Update ()
     const auto skipped = result.note;
     if (error.empty ())
         massingslices::Build (inputs, storeys, envelope ? &envelope->result : nullptr, result, error, s_display);
+    // Floor plans are planned on the project's stories (user, 2026-10-14): sources with their own
+    // floor heights are cut again at the story levels for the planner; the massing keeps its rows.
+    if (error.empty () && !inputs.empty ()) {
+        result.followsStories = massingslices::FollowsStories (inputs);
+        if (!result.followsStories && storeys.levels.size () >= 2) {
+            massingslices::Result stories;
+            std::string storiesError;
+            if (massingslices::BuildStories (inputs, storeys, envelope ? &envelope->result : nullptr, stories,
+                                             storiesError))
+                result.stories = std::make_shared<const massingslices::Result> (std::move (stories));
+            else
+                ArchVizLog ("MASSING SLICES  story cut for floor plans refused: " + storiesError);
+        }
+    }
     if (facadeMissing && error.empty ()) {
         result.hasFacade = false;
         result.facadeArea = 0;

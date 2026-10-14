@@ -16,12 +16,15 @@
 // the complex. The complex is rebuilt from the schemes after every change, so the two never
 // disagree. Pure C++/Clipper2: no ImGui, no Archicad; callers run it off the UI thread on copies.
 #include "ArchViz/BuildingTopology.hpp"
+#include <functional>
 
 namespace geomsrv::archviz::buildinggenerator {
 using floorscheme::Ring;
 
 // m2: less floor than this common to every level, and the stack is planned on the lead level.
 constexpr double kMinCommon = 50.0;
+// m: a storey lower than this (massing.floorHeight's minimum) is no level to plan.
+constexpr double kMinStorey = 2.2;
 
 // One level of what is planned.
 struct Level {
@@ -43,6 +46,18 @@ struct Generated {
     uint64_t nextId = 1; // the next new unit or cell id: ids outlive every rebuild (Reconcile)
 };
 
+// One of the project's stories (Archicad's story settings): its number and level, world Z.
+struct Story {
+    int index = 0;
+    double z = 0;
+};
+// The levels of a mass from `bottom` to `top`, which come from the project's stories, never the
+// other way round (user, 2026-10-14): a level at the bottom, in the story it lies in, then one at
+// every story level inside the mass; each as high as to the next level (the last to the top),
+// its outline `cut` at its level (the counted floor there). A level lower than kMinStorey, or
+// where the cut is empty, is left out.
+std::vector<Level> StoryLevels (std::vector<Story> stories, double bottom, double top,
+                                const std::function<std::vector<Ring> (double z)>& cut);
 // The floor every one of `levels` has, within `within` (the lead level's outline): where the
 // stack's stairs are planned. `within` itself when less than `minArea` is common.
 std::vector<Ring> Common (const std::vector<std::vector<Ring>>& levels, const std::vector<Ring>& within,

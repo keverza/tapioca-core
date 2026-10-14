@@ -539,4 +539,26 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     result = std::move (out);
     return true;
 }
+bool FollowsStories (const std::vector<Input>& slabs)
+{
+    return std::all_of (slabs.begin (), slabs.end (), [] (const Input& input) {
+        const auto* mode = meta::FindProperty (input.metadata, "massing.heightMode");
+        return mode && mode->value.s == "archicad";
+    });
+}
+bool BuildStories (const std::vector<Input>& slabs, const ProjectStoreys& storeys,
+                   const massingcalculation::Result* envelope, Result& result, std::string& error)
+{
+    std::vector<Input> cut = slabs;
+    for (auto& input : cut) {
+        meta::Property mode;
+        mode.key = "massing.heightMode";
+        mode.value = meta::Value::Option ("archicad");
+        meta::SetProperty (input.metadata, std::move (mode));
+    }
+    if (!Build (cut, storeys, envelope, result, error))
+        return false;
+    result.followsStories = true;
+    return true;
+}
 } // namespace geomsrv::archviz::massingslices
