@@ -89,6 +89,23 @@ void Polygon (ImDrawList* list, const std::vector<ImVec2>& p, ImU32 fill, ImU32 
 
 } // namespace
 
+void DashedLine (Session& s, const Map& m, Vec3 a, Vec3 b, ImU32 colour, float width)
+{
+    ImVec2 pa, pb;
+    if (!m.Screen (a, pa) || !m.Screen (b, pb))
+        return;
+    const float dx = pb.x - pa.x, dy = pb.y - pa.y, length = std::hypot (dx, dy);
+    if (length < 1.0f)
+        return;
+    rc::Scope scope (s.canvas, { At (a, pa), At (b, pb) });
+    const float dash = 6.0f * width, gap = 4.0f * width;
+    for (float t = 0.0f; t < length; t += dash + gap) {
+        const float e = std::min (t + dash, length);
+        s.canvas.list->AddLine ({ pa.x + dx * t / length, pa.y + dy * t / length },
+                                { pa.x + dx * e / length, pa.y + dy * e / length }, colour, width);
+    }
+}
+
 void DrawGizmo (Session& s, const Map& m, const edit::Frame& f, edit::GizmoMode mode, double size, int active,
                 bool dragging, float scale)
 {

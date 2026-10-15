@@ -151,6 +151,8 @@ bool RightClickClaimed ();
 // sets (ImGui::SetMouseCursor: arrow, hand, move) is shown. Per ImGui context and frame.
 // `crosshair`: a drawing tool's precise cross instead of ImGui's cursor (ImGui has none).
 void OwnCursor (bool crosshair = false);
+// ...or for one of the input layer's own cursors by its number (overlayinput::Cursor): the pen.
+void OwnCursorAs (uint8_t cursor);
 bool CursorOwned ();
 // The cursor to show (overlayinput::Cursor): the canvas's own when it claimed the pointer this
 // frame, else a hand where `hand` (something pressable is under the pointer), else an arrow.

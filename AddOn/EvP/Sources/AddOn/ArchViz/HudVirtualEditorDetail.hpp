@@ -45,6 +45,7 @@ struct Map {
 roofcanvas::Anchor At (edit::Vec3 p, ImVec2 s);
 void Line (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, float width);
 void Dot (Session& s, const Map& m, edit::Vec3 p, float radius, ImU32 colour, bool filled = true);
+void DashedLine (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, float width);
 void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::string& text, ImU32 colour);
 
 // Drafting aids (HudVirtualEditorSnap.cpp): the session's snap settings and references

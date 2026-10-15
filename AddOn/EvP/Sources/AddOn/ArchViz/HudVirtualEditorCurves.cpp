@@ -215,15 +215,38 @@ void PenPreview (Session& s, const Map& m, Vec3 hover, float scale)
     for (size_t i = 0; i + 1 < s.drawing.size (); ++i)
         curve (s.drawing[i], s.drawHandles[i], s.drawHandles[i + 1] * -1.0, s.drawing[i + 1], kAccent, 2.5f * scale);
     if (!s.drawing.empty () && !s.penDown)
-        curve (s.drawing.back (), s.drawHandles.back (), {}, hover, kAccent, 1.5f * scale);
-    for (size_t i = 0; i < s.drawing.size (); ++i) {
-        const Vec3 h = s.drawHandles[i];
+        curve (s.drawing.back (), s.drawHandles.back (), {}, hover, IM_COL32 (245, 158, 11, 150), 1.0f * scale);
+    // The working anchor's handles only: the one being placed, or the last one placed.
+    if (!s.drawing.empty ()) {
+        const Vec3 p = s.drawing.back (), h = s.drawHandles.back ();
         if (std::hypot (h.x, h.y) > 1.0e-12) {
-            Line (s, m, s.drawing[i] - h, s.drawing[i] + h, kRule, 1.0f * scale);
-            Dot (s, m, s.drawing[i] + h, kHandleDot * scale, kHover);
-            Dot (s, m, s.drawing[i] - h, kHandleDot * scale, kHover);
+            Line (s, m, p - h, p + h, kRule, 1.0f * scale);
+            Dot (s, m, p + h, kHandleDot * scale, kHover);
+            Dot (s, m, p - h, kHandleDot * scale, kHover);
         }
-        Dot (s, m, s.drawing[i], 4.0f * scale, kAccent);
+    }
+    // Anchors: squares at corners, circles at smooth points; the last one filled.
+    for (size_t i = 0; i < s.drawing.size (); ++i) {
+        ImVec2 q;
+        if (!m.Screen (s.drawing[i], q))
+            continue;
+        const bool smooth = std::hypot (s.drawHandles[i].x, s.drawHandles[i].y) > 1.0e-12;
+        const bool last = i + 1 == s.drawing.size ();
+        const float r = 3.5f * scale;
+        rc::Scope scope (s.canvas, { At (s.drawing[i], q) });
+        auto* list = s.canvas.list;
+        if (smooth) {
+            list->AddCircleFilled (q, r + 1.0f, kPaper);
+            if (last)
+                list->AddCircleFilled (q, r, kAccent);
+            list->AddCircle (q, r, kAccent, 0, 1.5f * scale);
+        }
+        else {
+            list->AddRectFilled ({ q.x - r - 1, q.y - r - 1 }, { q.x + r + 1, q.y + r + 1 }, kPaper);
+            if (last)
+                list->AddRectFilled ({ q.x - r, q.y - r }, { q.x + r, q.y + r }, kAccent);
+            list->AddRect ({ q.x - r, q.y - r }, { q.x + r, q.y + r }, kAccent, 0.0f, 0, 1.5f * scale);
+        }
     }
 }
 

@@ -522,3 +522,21 @@ TEST (HudVirtualEditor, AClickOnAnEdgeNeverMovesIt)
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
     EXPECT_EQ (d.S ().selection.Kind (), ed::SelectionKind::Segment);
 }
+
+TEST (HudVirtualEditor, AClosedPenShapeJoinsSmoothly)
+{
+    Drive d (ed::Document {});
+    d.S ().tool = eh::Tool::Curve;
+    d.S ().snapModes = ed::kSnapEndpoint; // the first anchor closes
+    for (auto [x, y] : { std::pair { 600.f, 500.f }, std::pair { 800.f, 500.f }, std::pair { 700.f, 380.f } }) {
+        d.Press (x, y);
+        d.Release (x, y);
+    }
+    d.Press (600, 500); // back on the first anchor
+    d.Release (600, 500);
+    ASSERT_EQ (d.D ().entities.size (), 1u);
+    const auto& e = d.D ().entities[0];
+    EXPECT_TRUE (e.closed);
+    EXPECT_TRUE (e.vertices[0].smooth); // the curve runs on through it
+    EXPECT_GT (std::hypot (e.vertices[0].out.x, e.vertices[0].out.y), 0.0);
+}

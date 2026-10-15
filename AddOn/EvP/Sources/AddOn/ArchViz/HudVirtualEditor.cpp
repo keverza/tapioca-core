@@ -2,6 +2,7 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
@@ -241,8 +242,15 @@ void FinishDrawing (Session& s)
     const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string&) {
         created =
             tool == Tool::Path ? edit::AddPath (d, points, width, role) : edit::AddPolyline (d, points, closed, role);
-        if (tool == Tool::Curve)
+        if (tool == Tool::Curve) {
             ApplyPenHandles (d, created, handles); // the pen's smooth anchors keep their handles
+            // Closed, the curve runs on through its first anchor: tangent, not a corner.
+            const edit::Entity* e = edit::Find (d, created);
+            if (closed && e != nullptr && !handles.empty () && std::hypot (handles[0].x, handles[0].y) < 1.0e-12) {
+                std::string why;
+                edit::SetSmooth (d, created, e->vertices.front ().id, true, why);
+            }
+        }
         return true;
     });
     if (!ok) {
@@ -888,10 +896,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             Dot (s, m, p, 7.0f * scale, kHover, false);
     }
 
-    // Snap marker, its guides and its hint.
-    if (s.snap.snapped && (s.drag != Drag::None || s.tool != Tool::Select)) {
+    // Snap marker, its guides and its hint: guides are the quietest thing drawn -- thin,
+    // dashed, translucent -- under the geometry they help place, and not while the pen pulls a
+    // handle (the handle is the gesture then).
+    if (s.snap.snapped && (s.drag != Drag::None || s.tool != Tool::Select) && !(s.tool == Tool::Curve && s.penDown)) {
         for (const auto& g : s.snap.guides)
-            Line (s, m, g.from, g.to, kGuide, 1.25f * scale);
+            DashedLine (s, m, g.from, g.to, IM_COL32 (155, 93, 229, 150), 1.0f * scale);
         Dot (s, m, s.snap.point, 5.0f * scale, kSnap);
         Note (s, m, s.snap.point, { 14 * scale, -22 * scale }, s.snap.hint, kInk);
     }
@@ -964,6 +974,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         const bool dragging = s.drag == Drag::Part || s.drag == Drag::Handle || s.drag == Drag::Corner ||
                               s.drag == Drag::Bezier || s.drag == Drag::Bend;
         hudshell::OwnCursor (s.tool != Tool::Select && s.drag == Drag::None);
+        if (s.tool == Tool::Curve && s.drag == Drag::None) {
+            // The pen; over the first anchor of a shape that can close, the pen that closes.
+            ImVec2 first;
+            const bool closes = s.drawing.size () >= 2 && m.Screen (s.drawing.front (), first) &&
+                                std::hypot (first.x - mouse.x, first.y - mouse.y) < kSnapPixels * scale;
+            hudshell::OwnCursorAs (uint8_t (closes ? overlayinput::Cursor::PenClose : overlayinput::Cursor::Pen));
+        }
         ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 || s.hoverCorner >= 0 || s.hoverBezier >= 0
                                    ? ImGuiMouseCursor_ResizeAll
                                    : ImGuiMouseCursor_Arrow);
