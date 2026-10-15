@@ -22,6 +22,13 @@ void Engine::SetOwnPages (OwnPages pages)
     // building picked as they were. Unlocked, the pages say what there is, as before.
     const bool keep = impl_->store->editLocked && pages.selection.count == 0 && pages.buildings.empty () &&
                       pages.floorPlans.empty () && !impl_->store->floorPlanSnapshots.empty ();
+    // The Selection tab keeps their buildings too: a flat picked on the locked view opens it on
+    // their floors (user, 2026-10-15: "Clicking unit did not open selection tab with full floor
+    // interface").
+    if (keep) {
+        pages.buildings = impl_->own.buildings;
+        pages.section = impl_->own.section;
+    }
     if (!keep) {
         impl_->store->floorPlanSnapshots.clear ();
         if (pages.floorPlansKnown)
@@ -115,10 +122,15 @@ void Engine::Impl::StatsPage (const std::vector<const layers::Panel*>& panels, c
 void Engine::Impl::SelectionPage (float ui)
 {
     hudshell::SelectionList (own.selection, *look, ui);
+    // Locked with nothing selected, the buildings being edited are kept (SetOwnPages): their
+    // floors, without element metadata to edit.
+    if (own.selection.count == 0) {
+        for (const auto& preview : own.buildings)
+            BuildingDiagram (preview, ui);
+        return;
+    }
     // ⚠️ SAID, NOT WRITTEN: the owner writes an edit from the message loop, in one undo step,
     // and lays the HUD out again with what the elements then hold (SelectionMetadata.hpp).
-    if (own.selection.count == 0)
-        return;
     std::vector<hudmeta::Edit> edits;
     auto metadata = own.metadata;
     if (!own.buildings.empty ())

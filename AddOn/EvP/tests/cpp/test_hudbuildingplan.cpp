@@ -349,3 +349,35 @@ TEST (HudBuildingPlan, FloorsAreTheProjectsStoriesWhateverTheMassingsFloorHeight
     result.stories.reset ();
     EXPECT_EQ (Preview (result).plan.floors.size (), 3u);
 }
+
+// User, 2026-10-15: "Clicking unit did not open selection tab with full floor interface." Locked,
+// with Archicad's selection gone, the Selection tab still shows the buildings being edited -- their
+// section and Plan view -- for the flat picked on the view.
+TEST (HudBuildingPlan, LockedTheSelectionTabKeepsTheBuildingsBeingEdited)
+{
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab ("lower", 0, 0), Slab ("upper", 3, 20) }, {}, nullptr, result, error));
+    hudtest::Watched gui;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    pages.selection.known = true;
+    pages.selection.count = 1;
+    pages.buildings = { Preview (result) };
+    gui.engine.SetOwnPages (pages);
+    hud::SetEditLocked (*gui.state, true);
+    hud::OwnPages none;
+    none.standalone = true;
+    none.selection.known = true;
+    none.selection.count = 0;
+    gui.engine.SetOwnPages (none);
+    hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
+    const auto layout = gui.Lay ({}, hudtest::At (600, 600));
+    bool floors = false;
+    for (float y = 60; y < 16 + layout.host.height && !floors; y += 2) {
+        gui.Lay ({}, hudtest::At (16 + layout.host.width * 0.6f, y));
+        floors = !gui.state->hoveredFloors.Empty ();
+    }
+    EXPECT_TRUE (floors) << "the building's section is on the Selection tab";
+    EXPECT_TRUE (gui.state->buildingPlans.contains ("building:Tower"));
+}
