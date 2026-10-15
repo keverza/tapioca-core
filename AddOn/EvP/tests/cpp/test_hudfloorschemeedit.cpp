@@ -979,6 +979,27 @@ TEST (HudFloorSchemeEdit, ABlockFromTheLockedPaletteDroppedOnThePlanPutsAFlatIn)
     EXPECT_TRUE (bp::Dirty (drafts["A"])) << "the flat put in is the building's design";
 }
 
+// User, 2026-10-15: "The room toolbar in locked overlay mode should be thinner width same as the
+// blue tab." Each block is the width it is given -- the dock's tab -- and the six stand in one column.
+TEST (HudFloorSchemeEdit, TheLockedPalettesBlocksAreTheWidthTheyAreGiven)
+{
+    OnViewFrame frame;
+    ImVec2 size {};
+    frame ({ 10, 10 }, false, false, [&] (bool) {
+        ImGui::SetNextWindowPos ({ 900, 100 });
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0, 0));
+        ImGui::Begin ("##column", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::PopStyleVar ();
+        const ImVec2 at = ImGui::GetCursorScreenPos ();
+        hf::LockedPalette (fp::Default (), 1, 26);
+        const ImVec2 end = ImGui::GetItemRectMax ();
+        size = { end.x - at.x, end.y - at.y };
+        ImGui::End ();
+    });
+    EXPECT_FLOAT_EQ (size.x, 26) << "as wide as the tab";
+    EXPECT_GE (size.y, 6 * 26) << "six blocks, one above the other";
+}
+
 // User, 2026-10-14: "Some animation would be when a drag dropping unit like how they shift and reflow
 // like amebae, bubbles or voronoi." A floor planned again flows: each flat from the outline it
 // overlaps most, a new flat growing from its middle, a flat gone shrinking away; settled after

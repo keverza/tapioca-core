@@ -308,15 +308,16 @@ double PartyDistance (const Editor& e)
 // The palette above the plan: flats of 1 to 5 rooms and a stair, each a square to drag onto it.
 } // namespace geomsrv::archviz::hudfloorscheme::detail
 namespace geomsrv::archviz::hudfloorscheme {
-void LockedPalette (const floorprogramme::Programme& programme, float scale)
+void LockedPalette (const floorprogramme::Programme& programme, float scale, float width)
 {
-    detail::Palette (programme, scale, true);
+    detail::Palette (programme, scale, true, width);
 }
 } // namespace geomsrv::archviz::hudfloorscheme
 namespace geomsrv::archviz::hudfloorscheme::detail {
-void Palette (const floorprogramme::Programme& programme, float scale, bool vertical)
+void Palette (const floorprogramme::Programme& programme, float scale, bool vertical, float side)
 {
-    const float side = ImGui::GetFrameHeight () * (vertical ? 1.4f : 1.0f);
+    if (side <= 0)
+        side = ImGui::GetFrameHeight () * (vertical ? 1.4f : 1.0f);
     for (int k = 0; k <= 5; ++k) {
         const double value = k == 5 ? kStairPayload : double (k + 1);
         if (k > 0 && !vertical)

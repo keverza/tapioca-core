@@ -48,14 +48,24 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
     // The blocks to add, one above the other under the dock, to drag onto the plan (user,
     // 2026-10-14: "If overlay is locked below the mini panel show vertical column of the unit block
     // to add").
-    if (!store->roofEditor && input.planar && dockMax.y > dockMin.y) {
-        ImGui::SetNextWindowPos (ImVec2 (view.x, dockMax.y + kDockGap * ui), ImGuiCond_Always, ImVec2 (1.0f, 0.0f));
-        const ImGuiWindowFlags column = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+    // The column is the dock's tab's width, flush under it, and has no panel behind its blocks
+    // (user, 2026-10-15: "thinner width same as the blue tab. and no black background").
+    if (!store->roofEditor && input.planar && dockMax.y > dockMin.y && dockMax.x > dockMin.x) {
+        const float width = dockMax.x - dockMin.x;
+        ImGui::SetNextWindowPos (ImVec2 (dockMin.x, dockMax.y + kDockGap * ui));
+        const ImGuiWindowFlags column = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
                                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-                                        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar;
-        if (ImGui::Begin ("###tapioca.lockedPalette", nullptr, column))
-            hudfloorscheme::LockedPalette (store->massingProgramme, ui);
+                                        ImGuiWindowFlags_NoNav;
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0.0f, 0.0f));
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
+        const bool open = ImGui::Begin ("###tapioca.lockedPalette", nullptr, column);
+        ImGui::PopStyleVar (2); // the window's own; its tooltips keep the look's padding
+        if (open) {
+            ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0.0f, 0.0f));
+            hudfloorscheme::LockedPalette (store->massingProgramme, ui, width);
+            ImGui::PopStyleVar ();
+        }
         ImGui::End ();
     }
 }

@@ -153,7 +153,8 @@ Target Again (const fs::Scheme& s, const Target& t, fs::Vec at);
 void Dropped (Editor& e, Context& c, fs::Vec at, std::optional<fe::Insertion>& insertion,
               std::optional<fs::Vec>& stairDrop);
 // The blocks to drag onto a plan: in a row above the canvas, or one above the other (`vertical`).
-void Palette (const floorprogramme::Programme& programme, float scale, bool vertical = false);
+// `side`: each block's, square; 0 for the frame height's.
+void Palette (const floorprogramme::Programme& programme, float scale, bool vertical = false, float side = 0);
 // Two centred lines, bounded by the actual flat polygon rather than its frontage.
 std::pair<std::string, std::string> FlatLabel (const fs::Flat& flat);
 bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 size, float padding);
