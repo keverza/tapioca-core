@@ -1,5 +1,6 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/EditLayers.hpp"
+#include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 
 // The virtual editor's lifecycle on the HUD's state, in the roof editor's pattern: a
@@ -28,6 +29,7 @@ bool StartVirtualEditor (State& state, edit::Document doc, std::string role, edi
             session->workZ = e.vertices.front ().p.z;
             break;
         }
+    session->cursorBase = overlayinput::GetStats ().cursorsReasserted;
     state.virtualEditor = std::move (session);
     state.editLocked = true;
     state.shown = true;
@@ -48,9 +50,11 @@ void StopVirtualEditor (State& state, const char* reason)
     if (!state.virtualEditor)
         return;
     const auto& s = *state.virtualEditor;
-    ArchVizLog (std::string ("VIRTUAL EDITOR  closed (") + reason + "): revision " +
-                std::to_string (s.edits.Doc ().revision) + ", " + std::to_string (s.edits.UndoDepth ()) +
-                " undo steps, " + std::to_string (s.edits.Doc ().entities.size ()) + " objects, " +
+    const uint64_t replaced = overlayinput::GetStats ().cursorsReasserted - s.cursorBase;
+    ArchVizLog (std::string ("VIRTUAL EDITOR  closed (") + reason + "): Archicad replaced the cursor " +
+                std::to_string (replaced) + " times; revision " + std::to_string (s.edits.Doc ().revision) + ", " +
+                std::to_string (s.edits.UndoDepth ()) + " undo steps, " +
+                std::to_string (s.edits.Doc ().entities.size ()) + " objects, " +
                 std::to_string (s.edits.Doc ().paths.size ()) + " paths; the view's lock returned " +
                 (s.previousLock ? "on" : "off"));
     state.editLocked = state.virtualEditor->previousLock;
@@ -91,6 +95,16 @@ bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear
         clear = exists;
         StopVirtualEditor (state, exists ? "Done or Esc in the editor" : "its layer was removed");
         return clear;
+    }
+    // Each drag says, as it ends, whether Archicad fought the HUD for the cursor through it.
+    const uint64_t replaced = overlayinput::GetStats ().cursorsReasserted;
+    if (s.drag != edithud::Drag::None && !s.dragWatched)
+        s.dragWatched = true, s.dragCursorBase = replaced;
+    else if (s.drag == edithud::Drag::None && s.dragWatched) {
+        s.dragWatched = false;
+        if (replaced > s.dragCursorBase)
+            ArchVizLog ("VIRTUAL EDITOR  drag: Archicad replaced the HUD's cursor " +
+                        std::to_string (replaced - s.dragCursorBase) + " times, each put back");
     }
     // Hide, unlock or a view switch cannot leave an unfinished gesture behind.
     if (!state.editLocked || !state.shown || !LayerShown (state, editlayers::kLayer)) {

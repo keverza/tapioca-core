@@ -151,7 +151,8 @@ struct Stats {
     bool subclassed[2] = { false, false };
     uint64_t cursorsSet = 0;
     uint64_t handsShown = 0;
-    // ...and the times Archicad had replaced it on a locked view the HUD owns, put back.
+    // ...and the times Archicad had replaced it on a locked view the HUD owns, put back (after a
+    // canvas message, or at the thread's next message).
     uint64_t cursorsReasserted = 0;
     // The buttons: whether the mouse hook is in, the presses and releases it ate -- nothing
     // of Archicad's heard those -- and the ones only the message hook saw (posted, not from

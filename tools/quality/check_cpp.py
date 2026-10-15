@@ -37,6 +37,14 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
+    "ArchViz/OverlayInput.cpp": (
+        1007,
+        "A DEBT FOR ONE COMMIT. The cursor over the HUD -- resolving the subclass, choosing, "
+        "showing and re-asserting the cursor, the canvas subclass itself -- is one unit and "
+        "belongs in ArchViz/OverlayInputCursor; that split is the NEXT structural commit. "
+        "The entry exists because the cursor repair it follows is a user-visible fix, and "
+        "section 13 of OVERLAY-INVARIANTS.md forbids carrying a refactor in a repair",
+    ),
     "ArchViz/Dxgi/InjectionRenderer.cpp": (
         1030,
         "THE SEAM IS NAMED AND THIS IS A DEBT, NOT A LICENCE. The ~22 session counters, "

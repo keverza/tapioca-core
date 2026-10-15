@@ -589,6 +589,14 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
         const HWND window = message->hwnd;
         if (g_timing && removing)
             g_meter.Wake (Micros ());
+        // ⚠️ AND AT EVERY MESSAGE THE THREAD TAKES (the user, 2026-10-15: the cursor still glitched
+        // through drags). Archicad also sets its cursor handling messages that are not the canvas's
+        // -- its timers, its idle -- which the canvas subclass never sees; whatever the previous
+        // message set is undone before the next one runs.
+        if (removing)
+            for (const Target& target : g_targets)
+                if (target.subclassed)
+                    ReassertCursor (target);
         if (original >= WM_MOUSEFIRST && original <= WM_MOUSELAST)
             Consider (*message, removing);
         else if (original == WM_MOUSEHOVER) {

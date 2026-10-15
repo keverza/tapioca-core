@@ -86,6 +86,9 @@ struct Session {
 
     // Lifecycle.
     uint64_t token = 0;
+    // The cursor's fight with Archicad, for the log: at the start, and at the drag's start.
+    uint64_t cursorBase = 0, dragCursorBase = 0;
+    bool dragWatched = false;
     bool previousLock = false, close = false;
     uint64_t publishedRevision = UINT64_MAX;
     std::vector<edit::Ref> publishedSelection;
