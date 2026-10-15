@@ -327,11 +327,13 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
                    PieceFits (c, f, { wanted + w, coreLo, a1, coreHi }, up);
         };
         if (!fits (capLo, capHi)) {
+            // Only caps a flat fills: Options::minCap is under the smallest flat of some programmes,
+            // and a cap no flat takes leaves the corridor's end in floor nobody owns.
             double best = 1e18, bestLo = capLo, bestHi = capHi;
             for (double lo = c.o.minCap; lo <= c.o.maxCap + 2 + 1e-9; lo += 0.2)
                 for (double hi = c.o.minCap; hi <= c.o.maxCap + 2 + 1e-9; hi += 0.2) {
                     const double change = std::abs (lo - capLo) + std::abs (hi - capHi);
-                    if (change < best && fits (lo, hi))
+                    if (change < best && c.Fits (lo) && c.Fits (hi) && fits (lo, hi))
                         best = change, bestLo = lo, bestHi = hi;
                 }
             capLo = bestLo, capHi = bestHi;

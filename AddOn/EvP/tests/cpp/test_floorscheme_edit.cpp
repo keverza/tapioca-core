@@ -735,9 +735,11 @@ TEST (FloorSchemeEdit, AStairZonesDivisionMovesAndTheZonesFollow)
     EXPECT_NEAR (line[0].x, line[1].x, 1e-6) << "across the wing";
     const double was = line[0].x;
     EXPECT_EQ (fe::DivisionAt (f.scheme, { was, 8 }, 0.3), 0);
-    // Moved 3 m, as far as the stairs let it.
+    // Moved 3 m either way, as far as the stairs let it. Toward the first stair, the second zone's
+    // pinned stair once had its cap search pick a 5 m corridor-end flat no flat fills, leaving the
+    // corridor's end in floor nobody owned (corridor.open_end).
     double moved = was;
-    for (const double by : { 3.0 }) {
+    for (const double by : { 3.0, -3.0 }) {
         Floor g ({ Rect (0, 0, 60, 16) });
         std::string why;
         const auto next = fe::MoveDivision (g.scheme, g.session.design, 0, { was + by, 8 }, &why);
