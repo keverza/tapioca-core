@@ -37,9 +37,18 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
             onto.planar = input.planar;
             std::copy (std::begin (input.plan), std::end (input.plan), onto.plan);
             onto.project = input.project;
+            // The panels' look -- the menu a right click opens, the tips -- not ImGui's dark
+            // default (user, 2026-10-15: "Right click menu in overlay locked mode should also be
+            // same background as in the imGUI - white").
+            const layers::Panel& panel = look ? *look : hudshell::PlainLook ();
+            const int colours = hudshell::PushLook (panel, ui);
+            ImGui::PushFont (FontFor (panel.font), panel.sizePixels * ui);
             hudfloorscheme::OnView (store->planEditors, store->floorPlanner, store->floorPlanSnapshots,
                                     store->buildingPlans, store->massingProgramme, store->massingCoefficients, onto,
                                     input.pointer && ImGui::IsWindowHovered (), ui);
+            ImGui::PopFont ();
+            ImGui::PopStyleColor (colours);
+            ImGui::PopStyleVar (hudshell::kLookVars);
         }
     }
     // Behind every panel, whenever it was made.
