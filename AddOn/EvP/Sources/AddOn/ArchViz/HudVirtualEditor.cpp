@@ -430,6 +430,9 @@ edit::Frame GizmoFrame (const Session& s)
         for (int i = 0; i < 3; ++i)
             f.axes[i] = local.axes[i];
     }
+    // Stretch grips stand on the sides of the selection's box, centred on it.
+    if (s.gizmo == edit::GizmoMode::Stretch)
+        edit::FitBox (Doc (s), items, f);
     return f;
 }
 

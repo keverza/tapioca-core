@@ -78,6 +78,67 @@ Frame SelectionFrame (const Document& doc, const std::vector<Ref>& items, Vec3 o
     return f;
 }
 
+namespace {
+
+// The vertex positions a selection covers: a whole entity's, a part's own.
+std::vector<Vec3> SelectedPoints (const Document& doc, const std::vector<Ref>& items)
+{
+    std::vector<Vec3> out;
+    for (const auto& r : items) {
+        const Entity* e = Find (doc, r.entity);
+        if (e == nullptr || !Exists (doc, r))
+            continue;
+        switch (r.part) {
+            case Part::Entity:
+                for (const auto& v : e->vertices)
+                    out.push_back (v.p);
+                break;
+            case Part::Vertex:
+                out.push_back (e->vertices[static_cast<size_t> (VertexIndex (*e, r.item))].p);
+                break;
+            case Part::Segment: {
+                size_t from = 0, to = 0;
+                SegmentEnds (*e, static_cast<size_t> (SegmentIndex (*e, r.item)), from, to);
+                out.push_back (e->vertices[from].p);
+                out.push_back (e->vertices[to].p);
+                break;
+            }
+            case Part::Face:
+                for (const auto& p : FacePolygon (*e, r.item))
+                    out.push_back (p);
+                break;
+            default:
+                break;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+bool FitBox (const Document& doc, const std::vector<Ref>& items, Frame& frame)
+{
+    const auto points = SelectedPoints (doc, items);
+    if (points.empty ())
+        return false;
+    double lo[3], hi[3];
+    for (int a = 0; a < 3; ++a)
+        lo[a] = hi[a] = Dot (points.front () - frame.origin, frame.axes[a]);
+    for (const auto& p : points)
+        for (int a = 0; a < 3; ++a) {
+            const double c = Dot (p - frame.origin, frame.axes[a]);
+            lo[a] = std::min (lo[a], c);
+            hi[a] = std::max (hi[a], c);
+        }
+    Vec3 centre = frame.origin;
+    for (int a = 0; a < 3; ++a) {
+        centre = centre + frame.axes[a] * ((lo[a] + hi[a]) * 0.5);
+        frame.half[a] = (hi[a] - lo[a]) * 0.5;
+    }
+    frame.origin = centre;
+    return true;
+}
+
 std::vector<Handle> Handles (GizmoMode mode)
 {
     std::vector<Handle> h;
@@ -104,8 +165,12 @@ std::vector<Handle> Handles (GizmoMode mode)
                 add (HandleKind::ScaleAxis, a, true, 0, Quantity::Distance);
             break;
         case GizmoMode::Stretch:
-            for (int a = 0; a < 3; ++a)
-                add (HandleKind::Axis, a, true, 0, Quantity::Distance);
+            // A grip on each side of the selection's box in plan.
+            for (int a = 0; a < 2; ++a)
+                for (const int side : { 1, -1 }) {
+                    add (HandleKind::Side, a, true, 0, Quantity::Width);
+                    h.back ().side = side;
+                }
             break;
         case GizmoMode::Extrude:
             add (HandleKind::Face, 2, true, 0, Quantity::Distance);
@@ -233,6 +298,19 @@ DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, con
             r.value = angle * 180.0 / kPi;
             break;
         }
+        case HandleKind::Side: {
+            double t0 = 0.0, t1 = 0.0;
+            if (!LineParameter (frame.origin, axis, start, t0) || !LineParameter (frame.origin, axis, now, t1))
+                return Refuse ("the grip points into the view");
+            const int a = handle.axis >= 0 && handle.axis < 3 ? handle.axis : 2;
+            r.transform.stretchAxis = a;
+            r.transform.stretchSide = handle.side;
+            r.transform.stretchBy = t1 - t0;
+            r.value = 2.0 * frame.half[a] + handle.side * (t1 - t0);
+            if (frame.half[a] > 1.0e-9 && r.value < 1.0e-3)
+                return Refuse ("that side would cross the other");
+            break;
+        }
         case HandleKind::ScaleAxis: {
             double t0 = 0.0, t1 = 0.0;
             if (!LineParameter (frame.origin, axis, start, t0) || !LineParameter (frame.origin, axis, now, t1))
@@ -278,6 +356,17 @@ DragResult FromValue (const Frame& frame, const Handle& handle, double value)
         case HandleKind::Face:
             r.transform.extrude = value;
             break;
+        case HandleKind::Side: {
+            // The width wanted along the grip's axis; a selection with no width moves by it.
+            const int a = handle.axis >= 0 && handle.axis < 3 ? handle.axis : 2;
+            const bool flat = frame.half[a] <= 1.0e-9;
+            if (!flat && !(value > 1.0e-3))
+                return Refuse ("a width must be positive");
+            r.transform.stretchAxis = a;
+            r.transform.stretchSide = handle.side;
+            r.transform.stretchBy = flat ? value * handle.side : (value - 2.0 * frame.half[a]) * handle.side;
+            break;
+        }
         case HandleKind::Ring:
             r.transform.rotationAxis = axis;
             r.transform.angle = value * kPi / 180.0;
@@ -315,6 +404,15 @@ std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handl
             const double b = size * 0.06;
             return { { { o, tip }, false },
                      { { tip + u * b + v * b, tip - u * b + v * b, tip - u * b - v * b, tip + u * b - v * b }, true } };
+        }
+        case HandleKind::Side: {
+            const double reach = (frame.half[a] > 1.0e-9 ? frame.half[a] : size * 0.4) + size * 0.15;
+            const Vec3 at = o + axis * (reach * handle.side);
+            const Vec3 across = frame.axes[a == 0 ? 1 : 0];
+            const double b = size * 0.07;
+            return { { { at + axis * b + across * b, at - axis * b + across * b, at - axis * b - across * b,
+                         at + axis * b - across * b },
+                       true } };
         }
         case HandleKind::Plane: {
             const double lo = size * 0.25, hi = size * 0.45;
@@ -434,11 +532,22 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                     break; // only on paths, handled above
             }
         }
+        // A stretch moves the vertices on its side of the pivot; a selection with no extent
+        // across that axis moves whole.
+        const bool stretch = t.stretchAxis >= 0 && t.stretchAxis < 3;
+        const Vec3 stretchDir = stretch ? t.scaleFrame.axes[t.stretchAxis] : Vec3 {};
+        bool flat = true;
+        if (stretch)
+            for (auto& [id, indices] : moved)
+                for (size_t i : indices)
+                    flat = flat && std::abs (Dot (Find (doc, id)->vertices[i].p - t.pivot, stretchDir)) <= 1.0e-9;
         for (auto& [id, indices] : moved) {
             Entity& e = *Find (doc, id);
             for (size_t i : indices) {
                 Vertex& v = e.vertices[i];
-                const Vec3 p = Apply (t, v.p);
+                if (stretch && !flat && Dot (v.p - t.pivot, stretchDir) * t.stretchSide <= 1.0e-9)
+                    continue; // the other side stays
+                const Vec3 p = stretch ? v.p + stretchDir * t.stretchBy : Apply (t, v.p);
                 const bool xy = std::abs (p.x - v.p.x) > 1.0e-12 || std::abs (p.y - v.p.y) > 1.0e-12;
                 const bool z = std::abs (p.z - v.p.z) > 1.0e-12;
                 if ((xy && v.lockXY) || (z && v.lockZ)) {
@@ -449,7 +558,7 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
             }
         }
         if (!pathParts.empty ()) {
-            if (t.angle != 0.0 || !(t.scale == Vec3 { 1.0, 1.0, 1.0 }) || t.extrude != 0.0) {
+            if (t.angle != 0.0 || !(t.scale == Vec3 { 1.0, 1.0, 1.0 }) || t.extrude != 0.0 || t.stretchAxis >= 0) {
                 error = "paths move with the gizmo; shape them with their own handles";
                 return false;
             }

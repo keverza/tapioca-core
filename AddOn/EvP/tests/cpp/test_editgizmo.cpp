@@ -260,3 +260,61 @@ TEST (EditGizmo, FrameRidesItsTransform)
     EXPECT_NEAR (m.axes[0].y, 1.0, 1e-12); // X turned a quarter
     EXPECT_NEAR (m.axes[1].x, -1.0, 1e-12);
 }
+
+TEST (EditGizmo, StretchGripsMoveOneSideAndReadTheWidth)
+{
+    ed::Id e = 0;
+    ed::Session s (Square (e)); // 2 x 2 at the origin
+    const std::vector<ed::Ref> all { { e, ed::Part::Entity, 0 } };
+    ed::Frame f;
+    ASSERT_TRUE (ed::FitBox (s.Doc (), all, f));
+    EXPECT_NEAR (f.origin.x, 1.0, 1e-12);
+    EXPECT_NEAR (f.half[0], 1.0, 1e-12);
+    const auto grips = ed::Handles (ed::GizmoMode::Stretch);
+    ASSERT_EQ (grips.size (), 4u);
+    const ed::Handle right = grips[0], left = grips[1];
+    EXPECT_EQ (right.side, 1);
+    EXPECT_EQ (left.side, -1);
+    EXPECT_EQ (right.quantity, ed::Quantity::Width);
+
+    // Dragging the right grip 1.5 m out: the right side moves, the left stays, width 3.5.
+    const auto r = ed::Drag (f, right, Down (2.2, 1), Down (3.7, 1));
+    ASSERT_TRUE (r.ok) << r.error;
+    EXPECT_NEAR (r.value, 3.5, 1e-9);
+    ASSERT_TRUE (s.Apply (ed::TransformOperation (all, r.transform)));
+    const auto& v = ed::Find (s.Doc (), e)->vertices;
+    EXPECT_NEAR (v[0].p.x, 0.0, 1e-9);
+    EXPECT_NEAR (v[1].p.x, 3.5, 1e-9);
+    EXPECT_NEAR (v[2].p.x, 3.5, 1e-9);
+    EXPECT_NEAR (v[3].p.x, 0.0, 1e-9);
+
+    // A typed width on the left grip: the right side stays.
+    ASSERT_TRUE (ed::FitBox (s.Doc (), all, f));
+    const auto typed = ed::FromValue (f, left, 5.0);
+    ASSERT_TRUE (typed.ok) << typed.error;
+    ASSERT_TRUE (s.Apply (ed::TransformOperation (all, typed.transform)));
+    EXPECT_NEAR (ed::Find (s.Doc (), e)->vertices[0].p.x, -1.5, 1e-9);
+    EXPECT_NEAR (ed::Find (s.Doc (), e)->vertices[1].p.x, 3.5, 1e-9);
+
+    // Dragging a side past the other is refused, not mirrored.
+    ASSERT_TRUE (ed::FitBox (s.Doc (), all, f));
+    EXPECT_FALSE (ed::Drag (f, right, Down (3.5, 1), Down (-3.0, 1)).ok);
+}
+
+TEST (EditGizmo, StretchingASegmentSidewaysPushesTheWholeEdge)
+{
+    ed::Id e = 0;
+    ed::Session s (Square (e));
+    const ed::Entity& sq = *ed::Find (s.Doc (), e);
+    const std::vector<ed::Ref> edge { { e, ed::Part::Segment, sq.segments[1].id } }; // x = 2, vertical
+    ed::Frame f = ed::SelectionFrame (s.Doc (), edge, {});
+    ASSERT_TRUE (ed::FitBox (s.Doc (), edge, f));
+    // Axis 1 of a segment's frame is across it; this edge has no width that way.
+    const auto grips = ed::Handles (ed::GizmoMode::Stretch);
+    const auto r = ed::FromValue (f, grips[3], 0.5); // axis 1, side -1: a quarter right of travel
+    ASSERT_TRUE (r.ok) << r.error;
+    ASSERT_TRUE (s.Apply (ed::TransformOperation (edge, r.transform)));
+    EXPECT_NEAR (ed::Find (s.Doc (), e)->vertices[1].p.x, 2.5, 1e-9);
+    EXPECT_NEAR (ed::Find (s.Doc (), e)->vertices[2].p.x, 2.5, 1e-9);
+    EXPECT_NEAR (ed::Find (s.Doc (), e)->vertices[0].p.x, 0.0, 1e-9);
+}

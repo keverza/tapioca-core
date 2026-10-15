@@ -14,12 +14,13 @@
 namespace geomsrv::edit {
 
 enum class GizmoMode : uint8_t { Move, Rotate, Scale, Stretch, Extrude };
-enum class HandleKind : uint8_t { Centre, Axis, Plane, Ring, ScaleAxis, ScaleUniform, Face };
+enum class HandleKind : uint8_t { Centre, Axis, Plane, Ring, ScaleAxis, ScaleUniform, Face, Side };
 
 // Orthonormal axes at the pivot: world, the working plane, or path-local.
 struct Frame {
     Vec3 origin;
     Vec3 axes[3] = { { 1.0, 0.0, 0.0 }, { 0.0, 1.0, 0.0 }, { 0.0, 0.0, 1.0 } };
+    double half[3] = { 0.0, 0.0, 0.0 }; // the selection's half-size along each axis (FitBox)
 };
 // Path-local frame: X along the segment in plan, Z up, Y to its left.
 bool SegmentFrame (Vec3 a, Vec3 b, Frame& frame);
@@ -30,6 +31,9 @@ bool FaceFrame (const Entity& entity, size_t face, Frame& frame);
 // first of equal ones, so a turned square keeps its axes). World axes for paths and for a
 // selection spanning several entities.
 Frame SelectionFrame (const Document& doc, const std::vector<Ref>& items, Vec3 origin);
+// The selection's box along `frame`'s axes: the origin moves to its centre and `half` holds
+// its half-sizes. False when nothing selected has a vertex.
+bool FitBox (const Document& doc, const std::vector<Ref>& items, Frame& frame);
 
 struct Handle {
     uint32_t index = 0;
@@ -39,6 +43,7 @@ struct Handle {
     bool movable = true;
     uint32_t group = 0; // handles that highlight and update together
     Quantity quantity = Quantity::Distance;
+    int side = 0; // a Side grip: +1 or -1 along its axis
 };
 std::vector<Handle> Handles (GizmoMode mode);
 
@@ -55,6 +60,11 @@ struct Transform {
     Vec3 scale { 1.0, 1.0, 1.0 };
     double extrude = 0.0;  // metres along a face's normal
     bool relocate = false; // a centre drag: move the pivot, not the geometry
+    // A stretch: the selected vertices on the `side` of the pivot along scaleFrame's axis
+    // `stretchAxis` move `stretchBy` metres along it; the rest stay. A selection with no
+    // extent on that axis moves whole (a segment pushed sideways). Not part of Apply.
+    int stretchAxis = -1, stretchSide = 0;
+    double stretchBy = 0.0;
 };
 Vec3 Apply (const Transform& transform, Vec3 p);
 // The frame a transform carries along: its origin moved, its axes turned.
