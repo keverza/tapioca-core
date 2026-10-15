@@ -47,6 +47,17 @@ void Line (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, f
 void Dot (Session& s, const Map& m, edit::Vec3 p, float radius, ImU32 colour, bool filled = true);
 void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::string& text, ImU32 colour);
 
+// Drafting aids (HudVirtualEditorSnap.cpp): the session's snap settings and references
+// into a query; an edge a snap landed on kept as a reference; the point a drag grabs an
+// item by (its own vertex under the pointer, else where it was pressed); and a moved
+// item's edges snapping flush to parallel ones, correcting `t` -- false when none did.
+void PrepareSnap (const Session& s, edit::SnapQuery& q);
+void Acquire (Session& s, const edit::SnapResult& snap);
+edit::Vec3 GrabPoint (const Session& s, const Map& m, ImVec2 mouse, const edit::Ref& pressed, edit::Vec3 onPlane,
+                      float scale);
+bool FlushEdges (Session& s, const Map& m, ImVec2 mouse, const std::vector<edit::Ref>& moving, double z,
+                 const std::vector<edit::Ref>& exclude, float scale, edit::Transform& t);
+
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered

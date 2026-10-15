@@ -55,6 +55,13 @@ struct Session {
     edit::GizmoMode gizmo = edit::GizmoMode::Move;
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
     bool fromEnd = false;  // a typed length or angle keeps the segment's end, not its start (F)
+    // Snapping: which snaps are on (edit::SnapMode), the construction angle step, whether a
+    // moved item's edges snap flush to others, and the edges the work has touched lately --
+    // parallels and squares run to them.
+    uint32_t snapModes = edit::kSnapAll;
+    double angleStep = 15.0;
+    bool edgeSnap = true;
+    std::vector<std::pair<edit::Vec3, edit::Vec3>> references;
     // A pivot dragged off the selection's centre stays put for that selection and travels
     // with it.
     std::optional<edit::Vec3> pivot;
@@ -80,8 +87,10 @@ struct Session {
     float startX = 0.0f, startY = 0.0f;
     bool dragPlanar = false;
     edit::SnapResult snap;
-    std::vector<edit::Vec3> drawing; // points placed by a drawing tool
-    double workZ = 0.0;              // the working plane's height when nothing gives one
+    bool wholeGrab = false;               // the press grabbed a selected object by its own part
+    std::vector<edit::PickHit> pressHits; // what was under that press, for the click it may be
+    std::vector<edit::Vec3> drawing;      // points placed by a drawing tool
+    double workZ = 0.0;                   // the working plane's height when nothing gives one
 
     // The profile canvas.
     edit::Id profilePath = edit::kNoId;
@@ -119,6 +128,12 @@ void Panel (Session& session);
 // The layer to publish when the document or the selection moved on; false when the
 // published one is current.
 bool Follow (Session& session, overlaylayers::Layer& layer);
+
+// The snap groups the panel and the menu switch together.
+constexpr uint32_t kSnapPoints =
+    edit::kSnapEndpoint | edit::kSnapMidpoint | edit::kSnapCentre | edit::kSnapIntersection;
+constexpr uint32_t kSnapEdges = edit::kSnapNearest | edit::kSnapPerpendicular | edit::kSnapExtension;
+constexpr uint32_t kSnapGuides = edit::kSnapAxis | edit::kSnapParallel | edit::kSnapAngle;
 
 // The right-click menu: the items for what it was opened on, and what one of them does.
 std::vector<MenuItem> MenuItems (const Session& session);

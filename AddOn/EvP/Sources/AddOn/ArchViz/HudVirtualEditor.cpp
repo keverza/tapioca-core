@@ -330,7 +330,9 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     q.anchor = anchor;
     q.plane.origin = { 0.0, 0.0, z };
     q.exclude = exclude;
+    PrepareSnap (s, q);
     s.snap = edit::Snap (Doc (s), context, q);
+    Acquire (s, s.snap);
     out = s.snap.point;
     return true;
 }
@@ -347,7 +349,7 @@ void Escape (Session& s)
         s.snap = {};
     }
     else if (!s.drawing.empty ())
-        s.drawing.clear ();
+        s.drawing.clear (), s.references.clear ();
     else if (!s.selection.Items ().empty ())
         s.selection.Clear ();
     else
@@ -632,9 +634,18 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 s.drag = Drag::None, s.message = "That handle cannot be dragged in this view.";
         }
         else if (!hits.empty ()) {
-            s.selection.Click (hits, mouse.x, mouse.y, shift);
-            if (!shift && s.selection.Items ().size () == 1) {
-                const edit::Ref pressed = s.selection.Items ().front ();
+            // An object already selected whole is dragged whole from wherever it is pressed --
+            // its own corner included, which becomes the base point. A click there without a
+            // drag still picks the corner (at release).
+            const edit::Ref hit = hits.front ().ref;
+            const edit::Ref whole { hit.entity, edit::Part::Entity, 0 };
+            s.wholeGrab = !shift && hit.part != edit::Part::Entity && edit::Find (Doc (s), hit.entity) != nullptr &&
+                          s.selection.Contains (whole);
+            s.pressHits = hits;
+            if (!s.wholeGrab)
+                s.selection.Click (hits, mouse.x, mouse.y, shift);
+            if (!shift && (s.wholeGrab || s.selection.Items ().size () == 1)) {
+                const edit::Ref pressed = s.wholeGrab ? whole : s.selection.Items ().front ();
                 const edit::Entity* e = edit::Find (Doc (s), pressed.entity);
                 if (pressed.part == edit::Part::Face && e != nullptr) {
                     // A face pushes or pulls along its normal: the face handle, taken directly.
@@ -653,6 +664,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     s.startX = mouse.x, s.startY = mouse.y;
                     if (!m.Onto (mouse.x, mouse.y, s.anchor.z, s.anchor, s.startCursor) || !s.edits.Begin (pressed))
                         s.drag = Drag::None;
+                    // A whole item moves from a base point: its own vertex under the pointer, or
+                    // the place it was pressed -- so a corner can be put on a corner.
+                    else if (pressed.part == edit::Part::Entity && e != nullptr)
+                        s.anchor = GrabPoint (s, m, mouse, pressed, s.startCursor, scale), s.startCursor = s.anchor;
                 }
             }
         }
@@ -732,11 +747,14 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     op = edit::DragBreak (path->id, s.target.item, station, z);
             }
             else {
-                // Pressing on an item lifted off its grab point moves by the pointer's travel.
+                // Pressing on an item lifted off its grab point moves by the pointer's travel;
+                // with no point to snap to, its edges may still snap flush to others.
                 edit::Transform t;
                 t.translate = { at.x - s.anchor.x, at.y - s.anchor.y, 0.0 };
-                if (!s.snap.snapped)
+                if (!s.snap.snapped) {
                     t.translate = { at.x - s.startCursor.x, at.y - s.startCursor.y, 0.0 };
+                    FlushEdges (s, m, mouse, moving, s.anchor.z, Exclusions (Doc (s), moving), scale, t);
+                }
                 op = edit::TransformOperation (moving, t);
             }
             if (op && !s.edits.Move (op))
@@ -781,6 +799,14 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         s.snap = {};
         s.message = "Type the value, Enter applies, Esc cancels.";
     }
+    if (ImGui::IsMouseReleased (0) && s.drag == Drag::Part && s.wholeGrab &&
+        std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
+        s.edits.Cancel (); // a click on a selected object's corner picks the corner
+        s.selection.Click (s.pressHits, s.startX, s.startY, false);
+        s.drag = Drag::None;
+    }
+    if (ImGui::IsMouseReleased (0))
+        s.wholeGrab = false;
     if (ImGui::IsMouseReleased (0)) {
         if (s.drag == Drag::Part || s.drag == Drag::Handle) {
             s.edits.End ();

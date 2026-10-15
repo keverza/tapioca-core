@@ -377,3 +377,44 @@ TEST (HudVirtualEditor, ClickingAGumballHandleAsksForItsNumber)
     d.Key (0x1B); // Esc gives the number up
     EXPECT_EQ (d.S ().typedHandle, -1);
 }
+
+TEST (HudVirtualEditor, DragsMoveFromABasePointAndSnapFlush)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 2, 0 }, { 0, 2, 0 } }, true); // a 4 x 2 box
+    ed::AddPolyline (doc, { { -5, 6, 0 }, { 15, 6, 0 } }, false);                        // a line at y = 6
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    // Grab the selected box by its corner (4, 2) and drop that corner on the line's end (15, 6).
+    d.Press (600 + 80, 500 - 40);
+    d.At (600 + 300 - 3, 500 - 120 + 2); // near (15, 6)
+    d.Release (600 + 300 - 3, 500 - 120 + 2);
+    const auto& v = d.D ().entities[0].vertices;
+    EXPECT_NEAR (v[2].p.x, 15.0, 1e-6);
+    EXPECT_NEAR (v[2].p.y, 6.0, 1e-6);
+
+    // Dragged near the line with no point to snap to (guides off, so no axis through the
+    // grab), the box's top edge lands flush on it.
+    d.S ().snapModes &= ~eh::kSnapGuides;
+    d.Press (600 + 20 * 13, 500 - 20 * 5); // inside the moved box, away from its corners
+    d.At (600 + 20 * 3, 500 - 20 * 4.8f);  // its top would sit 0.2 m below the line
+    d.Release (600 + 20 * 3, 500 - 20 * 4.8f);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.y, 6.0, 1e-6);
+    // A click without a drag on the selected box's corner picks that corner.
+    d.Press (600 + 20 * 15, 500 - 20 * 6);
+    d.Release (600 + 20 * 15, 500 - 20 * 6);
+    EXPECT_EQ (d.S ().selection.Kind (), ed::SelectionKind::Vertex);
+}
+
+TEST (HudVirtualEditor, SnapGroupsSwitchFromTheMenu)
+{
+    Drive d (Corner ());
+    d.RightClick (300, 200);
+    EXPECT_TRUE (d.Offers ("snap.guides"));
+    eh::RunMenuItem (d.S (), "snap.guides");
+    EXPECT_EQ (d.S ().snapModes & eh::kSnapGuides, 0u);
+    eh::RunMenuItem (d.S (), "snap.guides");
+    EXPECT_EQ (d.S ().snapModes & eh::kSnapGuides, eh::kSnapGuides);
+    eh::RunMenuItem (d.S (), "snap.flush");
+    EXPECT_FALSE (d.S ().edgeSnap);
+}

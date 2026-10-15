@@ -169,6 +169,12 @@ std::vector<MenuItem> MenuItems (const Session& s)
             Rule (items);
             items.push_back (Item ("select.all", "Select all", {}, !doc.entities.empty () || !doc.paths.empty ()));
             items.push_back (Item ("select.none", "Deselect", "Esc", !s.selection.Items ().empty ()));
+            Rule (items);
+            items.push_back (Item ("snap.points", "Snap to points", {}, true, (s.snapModes & kSnapPoints) != 0));
+            items.push_back (Item ("snap.edges", "Snap to edges", {}, true, (s.snapModes & kSnapEdges) != 0));
+            items.push_back (
+                Item ("snap.guides", "Axes, angles and parallels", {}, true, (s.snapModes & kSnapGuides) != 0));
+            items.push_back (Item ("snap.flush", "Edges snap flush to edges", {}, true, s.edgeSnap));
             break;
     }
     AddHistory (s, items);
@@ -214,6 +220,12 @@ void RunMenuItem (Session& s, const std::string& id)
         s.drawing.pop_back ();
     else if (id == "draw.cancel")
         s.drawing.clear ();
+    else if (id == "snap.points" || id == "snap.edges" || id == "snap.guides") {
+        const uint32_t group = id == "snap.points" ? kSnapPoints : id == "snap.edges" ? kSnapEdges : kSnapGuides;
+        s.snapModes = (s.snapModes & group) != 0 ? s.snapModes & ~group : s.snapModes | group;
+    }
+    else if (id == "snap.flush")
+        s.edgeSnap = !s.edgeSnap;
     else if (id == "segment.flip")
         s.fromEnd = !s.fromEnd;
     else if (id == "gizmo.local")

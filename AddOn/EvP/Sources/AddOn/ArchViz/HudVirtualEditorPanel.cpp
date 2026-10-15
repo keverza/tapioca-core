@@ -33,6 +33,29 @@ void Panel (Session& s)
         if (ImGui::RadioButton (modes[i], int (s.gizmo) == i))
             s.gizmo = edit::GizmoMode (i);
     }
+    // Snapping, in the groups a drafter thinks in.
+    const auto group = [&] (const char* label, uint32_t bits) {
+        bool on = (s.snapModes & bits) != 0;
+        if (ImGui::Checkbox (label, &on))
+            s.snapModes = on ? s.snapModes | bits : s.snapModes & ~bits;
+    };
+    ImGui::TextUnformatted ("Snap");
+    ImGui::SameLine ();
+    group ("Points", kSnapPoints);
+    ImGui::SameLine ();
+    group ("Edges", kSnapEdges);
+    ImGui::SameLine ();
+    group ("Guides", kSnapGuides);
+    ImGui::SameLine ();
+    ImGui::Checkbox ("Flush", &s.edgeSnap);
+    if (ImGui::IsItemHovered ())
+        ImGui::SetTooltip ("A moved object's edges snap flush to parallel edges");
+    if ((s.snapModes & edit::kSnapAngle) != 0) {
+        float step = float (s.angleStep);
+        ImGui::SetNextItemWidth (120.0f);
+        if (ImGui::SliderFloat ("Angle step", &step, 5.0f, 45.0f, "%.0f deg"))
+            s.angleStep = std::round (step);
+    }
     if (ImGui::RadioButton ("Local axes", s.localAxes))
         s.localAxes = true;
     ImGui::SameLine ();
