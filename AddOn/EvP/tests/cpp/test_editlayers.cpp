@@ -187,3 +187,18 @@ TEST (EditLayers, NothingIsDrawnWhite)
         EXPECT_FALSE (light (c)) << std::hex << c;
     EXPECT_TRUE (light (style.paper)); // only the pills under text are light
 }
+
+TEST (EditLayers, LiveLengthSaysWhichEndItKeeps)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    const ed::Ref seg { e, ed::Part::Segment, ed::Find (doc, e)->segments[0].id };
+    const auto start = el::LiveDimensions (doc, seg);
+    ASSERT_FALSE (start.empty ());
+    ASSERT_TRUE (start[0].ends);
+    EXPECT_NEAR (start[0].fixed.x, 0.0, 1e-12);
+    EXPECT_NEAR (start[0].moving.x, 4.0, 1e-12);
+    const auto end = el::LiveDimensions (doc, seg, true);
+    EXPECT_NEAR (end[0].fixed.x, 4.0, 1e-12);
+    EXPECT_EQ (end[1].text.substr (0, 5), "180.0"); // the angle reads from the kept end
+}

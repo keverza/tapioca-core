@@ -74,16 +74,20 @@ std::vector<uint32_t> TriangulateXY (const std::vector<Vec3>& polygon)
     return out;
 }
 
-std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Ref& ref)
+std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Ref& ref, bool fromEnd)
 {
     std::vector<LiveLabel> out;
-    for (const auto& d : edit::DimensionsFor (doc, ref)) {
+    for (auto d : edit::DimensionsFor (doc, ref)) {
+        d.fromEnd = fromEnd;
         double value = 0.0;
         if (!edit::ReadDimension (doc, d, value))
             continue;
         LiveLabel l;
         l.quantity = d.quantity;
         edit::PointOf (doc, d.ref, l.at);
+        bool fixedIsStart = true;
+        if (d.quantity == edit::Quantity::Length || d.quantity == edit::Quantity::Angle)
+            l.ends = edit::SegmentEndsFor (doc, d, l.fixed, l.moving, fixedIsStart);
         const edit::Entity* e = edit::Find (doc, d.ref.entity);
         const bool segment = e != nullptr && d.ref.part == edit::Part::Segment;
         const bool onPath = edit::FindPath (doc, d.ref.entity) != nullptr;
@@ -107,8 +111,8 @@ std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Re
                 l.text = FormatValue (d.quantity, value);
                 break;
             case edit::Quantity::Angle:
-                if (segment)
-                    l.at = e->vertices[from].p;
+                if (l.ends)
+                    l.at = l.fixed; // the arc is drawn about the end that stays
                 l.text = FormatValue (d.quantity, value);
                 break;
             case edit::Quantity::Height:

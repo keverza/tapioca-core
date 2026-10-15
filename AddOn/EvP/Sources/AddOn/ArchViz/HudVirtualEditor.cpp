@@ -429,6 +429,8 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         return items;
     }
     dims = edit::DimensionsFor (Doc (s), s.selection.Items ().front ());
+    for (auto& d : dims)
+        d.fromEnd = s.fromEnd;
     for (const auto& d : dims) {
         double value = 0.0;
         edit::ReadDimension (Doc (s), d, value);
@@ -542,6 +544,9 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                             break;
                         case 'T':
                             s.gizmo = edit::GizmoMode::Stretch;
+                            break;
+                        case 'F':
+                            s.fromEnd = !s.fromEnd; // the other end of the segment stays
                             break;
                         case 'E':
                             s.gizmo = edit::GizmoMode::Extrude;

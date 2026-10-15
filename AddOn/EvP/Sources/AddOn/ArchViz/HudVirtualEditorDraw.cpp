@@ -217,7 +217,63 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
     const bool haveCentre = ShapeCentre (s, m, ref, centre);
     const float pad = 5.0f, lineHeight = ImGui::GetTextLineHeight ();
     ImVec2 outward { 0.0f, -1.0f }; // where labels without a line of their own go
-    for (const auto& l : editlayers::LiveDimensions (Doc (s), ref)) {
+    bool endsDrawn = false;
+    for (const auto& l : editlayers::LiveDimensions (Doc (s), ref, s.fromEnd)) {
+        // Which end a typed length or angle keeps: a pin there, an arrow at the end it moves.
+        if (l.ends && !endsDrawn) {
+            endsDrawn = true;
+            ImVec2 a, b;
+            if (m.Screen (l.fixed, a) && m.Screen (l.moving, b)) {
+                const float dx = b.x - a.x, dy = b.y - a.y, len = std::hypot (dx, dy);
+                rc::Scope scope (s.canvas, { At (l.fixed, a), At (l.moving, b) });
+                auto* list = s.canvas.list;
+                const float r = 5.0f * scale;
+                list->AddRectFilled ({ a.x - r - 1.5f, a.y - r - 1.5f }, { a.x + r + 1.5f, a.y + r + 1.5f }, kPaper,
+                                     2.0f);
+                list->AddRectFilled ({ a.x - r, a.y - r }, { a.x + r, a.y + r }, kInk, 1.5f);
+                if (len > 1.0f) {
+                    const ImVec2 u { dx / len, dy / len }, n { -u.y, u.x };
+                    const float head = 11.0f * scale, half = 5.0f * scale;
+                    const ImVec2 tip { b.x + u.x * (head + 3.0f * scale), b.y + u.y * (head + 3.0f * scale) };
+                    const ImVec2 base { b.x + u.x * 3.0f * scale, b.y + u.y * 3.0f * scale };
+                    list->AddTriangleFilled (tip, { base.x + n.x * half, base.y + n.y * half },
+                                             { base.x - n.x * half, base.y - n.y * half }, kAccent);
+                }
+            }
+        }
+        // The angle as an arc about the fixed end, from a dashed reference due east.
+        if (l.quantity == edit::Quantity::Angle && l.ends) {
+            ImVec2 a;
+            if (m.Screen (l.fixed, a)) {
+                const double mpp = m.MetresPerPixel (a.x, a.y, l.fixed.z, l.fixed);
+                const double radius = 30.0 * scale * mpp;
+                const double to = std::atan2 (l.moving.y - l.fixed.y, l.moving.x - l.fixed.x);
+                std::vector<ImVec2> arc;
+                const int steps = 24;
+                for (int k = 0; k <= steps; ++k) {
+                    const double t = to * k / steps;
+                    ImVec2 q;
+                    if (m.Screen (l.fixed + Vec3 { radius * std::cos (t), radius * std::sin (t), 0.0 }, q))
+                        arc.push_back (q);
+                }
+                ImVec2 east;
+                if (arc.size () > 1 && m.Screen (l.fixed + Vec3 { radius * 1.4, 0.0, 0.0 }, east)) {
+                    rc::Scope scope (s.canvas, { At (l.fixed, a) });
+                    s.canvas.list->AddLine (a, east, Alpha (kRule, 150), 1.0f * scale);
+                    s.canvas.list->AddPolyline (arc.data (), int (arc.size ()), kAccent, 0, 1.75f * scale);
+                    const Vec3 mid = l.fixed + Vec3 { radius * 1.45 * std::cos (to * 0.5),
+                                                      radius * 1.45 * std::sin (to * 0.5), 0.0 };
+                    ImVec2 q;
+                    if (m.Screen (mid, q)) {
+                        const ImVec2 size = ImGui::CalcTextSize (l.text.c_str ());
+                        const auto box = editlayers::PlaceLabel (
+                            q.x, q.y, size.x + 10.0f, ImGui::GetTextLineHeight () + 4.0f, 0.0f, 0.0f, 0.0f, taken);
+                        Pill (s, l.fixed, a, box, l.text);
+                    }
+                    continue;
+                }
+            }
+        }
         const ImVec2 size = ImGui::CalcTextSize (l.text.c_str ());
         const float w = size.x + 2.0f * pad, h = lineHeight + 4.0f;
         ImVec2 at;

@@ -156,9 +156,12 @@ TEST (EditDimension, LockedStartMakesTheEndThePivot)
     double v = 0;
     ASSERT_TRUE (ed::ReadDimension (l.doc, { l.seg, ed::Quantity::Slope }, v));
     EXPECT_NEAR (v, 4.0, 1e-9);
-    ASSERT_TRUE (ed::WriteDimension ({ l.seg, ed::Quantity::Angle }, 0.0) (l.doc, error)) << error;
+    // An angle is the direction from the end that stays: due west of the locked end.
+    ASSERT_TRUE (ed::WriteDimension ({ l.seg, ed::Quantity::Angle }, 180.0) (l.doc, error)) << error;
     EXPECT_NEAR (l.P (0).y, 4.0, 1e-9);
     EXPECT_NEAR (l.P (0).x, -7.0, 1e-9);
+    ASSERT_TRUE (ed::ReadDimension (l.doc, { l.seg, ed::Quantity::Angle }, v));
+    EXPECT_NEAR (std::abs (v), 180.0, 1e-9);
     ed::Find (l.doc, l.e)->vertices[0].lockXY = true;
     EXPECT_FALSE (ed::WriteDimension ({ l.seg, ed::Quantity::Length }, 2.0) (l.doc, error));
     EXPECT_NE (error.find ("locked"), std::string::npos);
@@ -212,4 +215,33 @@ TEST (EditDimension, TypingRunsThroughTheSessionLikeADrag)
     double v = 0;
     ASSERT_TRUE (ed::ReadDimension (s.Doc (), { l.seg, ed::Quantity::Length }, v));
     EXPECT_DOUBLE_EQ (v, 5.0);
+}
+
+TEST (EditDimension, TheUserChoosesWhichEndStays)
+{
+    Line l; // (0, 0) to (3, 4)
+    std::string error;
+    ed::Dimension length { l.seg, ed::Quantity::Length };
+    length.fromEnd = true;
+    ASSERT_TRUE (ed::WriteDimension (length, 10.0) (l.doc, error)) << error;
+    EXPECT_NEAR (l.P (1).x, 3.0, 1e-12); // the end held
+    EXPECT_NEAR (l.P (0).x, -3.0, 1e-12);
+    EXPECT_NEAR (l.P (0).y, -4.0, 1e-12);
+    ed::Vec3 fixed, moving;
+    bool fixedIsStart = true;
+    ASSERT_TRUE (ed::SegmentEndsFor (l.doc, length, fixed, moving, fixedIsStart));
+    EXPECT_FALSE (fixedIsStart);
+    EXPECT_NEAR (fixed.x, 3.0, 1e-12);
+    ed::Dimension angle { l.seg, ed::Quantity::Angle };
+    angle.fromEnd = true;
+    double v = 0;
+    ASSERT_TRUE (ed::ReadDimension (l.doc, angle, v));
+    EXPECT_NEAR (v, 53.130102354 - 180.0, 1e-6); // from the end, back towards the start
+    ASSERT_TRUE (ed::WriteDimension (angle, -90.0) (l.doc, error)) << error;
+    EXPECT_NEAR (l.P (0).x, 3.0, 1e-9); // the start swung about the end, due south of it
+    EXPECT_NEAR (l.P (0).y, 4.0 - 10.0, 1e-9);
+    // A locked end stays whatever was asked.
+    ed::Find (l.doc, l.e)->vertices[0].lockXY = true;
+    ASSERT_TRUE (ed::SegmentEndsFor (l.doc, length, fixed, moving, fixedIsStart));
+    EXPECT_TRUE (fixedIsStart);
 }

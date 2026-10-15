@@ -214,8 +214,20 @@ constexpr double kPi = 3.14159265358979323846;
 
 // Resolves a segment ref to its entity and end indices; `pivot` is the end that
 // stays put (the start, unless only the start is locked).
+// Which end of segment `index` stays: the asked one, unless the other is locked.
+void FixedEnd (const Entity& e, size_t index, bool fromEnd, bool z, size_t& pivot, size_t& moving, bool& forward)
+{
+    SegmentEnds (e, index, pivot, moving);
+    const auto locked = [&] (size_t i) { return z ? e.vertices[i].lockZ : e.vertices[i].lockXY; };
+    forward = !fromEnd;
+    if (locked (forward ? moving : pivot))
+        forward = !forward;
+    if (!forward)
+        std::swap (pivot, moving);
+}
+
 bool SegmentOf (Document& doc, const Ref& ref, Entity*& entity, size_t& pivot, size_t& moving, bool& forward, bool z,
-                std::string& error)
+                std::string& error, bool fromEnd = false)
 {
     entity = Find (doc, ref.entity);
     const int index = entity != nullptr && ref.part == Part::Segment ? SegmentIndex (*entity, ref.item) : -1;
@@ -223,11 +235,8 @@ bool SegmentOf (Document& doc, const Ref& ref, Entity*& entity, size_t& pivot, s
         error = "the dimension's segment no longer exists";
         return false;
     }
-    SegmentEnds (*entity, static_cast<size_t> (index), pivot, moving);
+    FixedEnd (*entity, static_cast<size_t> (index), fromEnd, z, pivot, moving, forward);
     const auto locked = [&] (size_t i) { return z ? entity->vertices[i].lockZ : entity->vertices[i].lockXY; };
-    forward = !locked (moving);
-    if (!forward)
-        std::swap (pivot, moving);
     if (locked (moving)) {
         error = "both ends of the segment are locked";
         return false;
@@ -375,6 +384,19 @@ std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
     return out;
 }
 
+bool SegmentEndsFor (const Document& doc, const Dimension& d, Vec3& fixed, Vec3& moving, bool& fixedIsStart)
+{
+    const Entity* e = Find (doc, d.ref.entity);
+    const int index = e != nullptr && d.ref.part == Part::Segment ? SegmentIndex (*e, d.ref.item) : -1;
+    if (index < 0)
+        return false;
+    size_t pivot = 0, other = 0;
+    FixedEnd (*e, static_cast<size_t> (index), d.fromEnd, d.quantity == Quantity::Slope, pivot, other, fixedIsStart);
+    fixed = e->vertices[pivot].p;
+    moving = e->vertices[other].p;
+    return true;
+}
+
 bool ReadDimension (const Document& doc, const Dimension& d, double& value)
 {
     if (const Path* p = FindPath (doc, d.ref.entity))
@@ -396,9 +418,14 @@ bool ReadDimension (const Document& doc, const Dimension& d, double& value)
                     return false; // vertical: slope is undefined, not infinite
                 value = 100.0 * (b.z - a.z) / plan;
                 return true;
-            case Quantity::Angle:
-                value = std::atan2 (b.y - a.y, b.x - a.x) * 180.0 / kPi;
+            case Quantity::Angle: {
+                Vec3 fixed, moving;
+                bool forward = true;
+                if (!SegmentEndsFor (doc, d, fixed, moving, forward))
+                    return false;
+                value = std::atan2 (moving.y - fixed.y, moving.x - fixed.x) * 180.0 / kPi;
                 return true;
+            }
             case Quantity::Width: {
                 const Entity* e = Find (doc, d.ref.entity);
                 value = e->segments[static_cast<size_t> (SegmentIndex (*e, d.ref.item))].width;
@@ -459,7 +486,7 @@ Operation WriteDimension (const Dimension& d, double value)
                 e->segments[static_cast<size_t> (i)].width = value;
                 return true;
             }
-            if (!SegmentOf (doc, d.ref, e, pivot, moving, forward, z, error))
+            if (!SegmentOf (doc, d.ref, e, pivot, moving, forward, z, error, d.fromEnd))
                 return false;
             Vertex& m = e->vertices[moving];
             const Vec3 p = e->vertices[pivot].p;
@@ -496,9 +523,8 @@ Operation WriteDimension (const Dimension& d, double value)
                     return true;
                 }
                 case Quantity::Angle: {
-                    double radians = value * kPi / 180.0;
-                    if (!forward)
-                        radians += kPi; // turning about the end: the start lies opposite
+                    // The direction from the end that stays to the end that moves, as read.
+                    const double radians = value * kPi / 180.0;
                     m.p.x = p.x + plan * std::cos (radians);
                     m.p.y = p.y + plan * std::sin (radians);
                     return true;

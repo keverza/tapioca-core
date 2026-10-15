@@ -54,6 +54,7 @@ struct Session {
     Tool tool = Tool::Select;
     edit::GizmoMode gizmo = edit::GizmoMode::Move;
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
+    bool fromEnd = false;  // a typed length or angle keeps the segment's end, not its start (F)
     // A pivot dragged off the selection's centre stays put for that selection and travels
     // with it.
     std::optional<edit::Vec3> pivot;

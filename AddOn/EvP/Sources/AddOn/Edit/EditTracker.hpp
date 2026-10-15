@@ -74,7 +74,14 @@ class Tracker {
 struct Dimension {
     Ref ref;
     Quantity quantity = Quantity::Length;
+    // A segment's end stays put and its start moves (default: the start stays). A locked
+    // end always stays. The angle is the direction from the end that stays to the one that
+    // moves, so the arc drawn at the fixed end reads what is typed.
+    bool fromEnd = false;
 };
+// The segment a dimension measures, as its edit sees it: the end that stays and the one
+// that moves (`fixedIsStart` false when the end stays). False when the segment is gone.
+bool SegmentEndsFor (const Document& doc, const Dimension& dimension, Vec3& fixed, Vec3& moving, bool& fixedIsStart);
 // The dimensions worth showing for a selected item, in display order.
 std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref);
 bool ReadDimension (const Document& doc, const Dimension& dimension, double& value);

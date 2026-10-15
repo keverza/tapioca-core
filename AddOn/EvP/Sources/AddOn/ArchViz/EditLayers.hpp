@@ -63,8 +63,12 @@ struct LiveLabel {
     edit::Vec3 at;
     bool line = false;
     edit::Vec3 from, to;
+    // A segment's length or angle: the end a typed value keeps and the end it moves.
+    bool ends = false;
+    edit::Vec3 fixed, moving;
 };
-std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Ref& ref);
+// `fromEnd`: the segment's end stays put (edit::Dimension::fromEnd).
+std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Ref& ref, bool fromEnd = false);
 
 // A label's rectangle on screen, in pixels.
 struct Box {

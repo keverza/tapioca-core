@@ -108,6 +108,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             break;
         case MenuTarget::Segment:
             items.push_back (Item ("segment.insert", "Insert vertex here"));
+            items.push_back (Item ("segment.flip", "Keep the other end fixed", "F"));
             AddActions (s, items, { "insert-vertex" });
             break;
         case MenuTarget::Object: {
@@ -213,6 +214,8 @@ void RunMenuItem (Session& s, const std::string& id)
         s.drawing.pop_back ();
     else if (id == "draw.cancel")
         s.drawing.clear ();
+    else if (id == "segment.flip")
+        s.fromEnd = !s.fromEnd;
     else if (id == "gizmo.local")
         s.localAxes = !s.localAxes;
     else if (id.rfind ("gizmo.", 0) == 0)
