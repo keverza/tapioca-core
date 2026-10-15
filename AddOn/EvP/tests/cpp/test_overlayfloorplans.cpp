@@ -3,6 +3,7 @@
 // under the top floor's slab, flats and circulation inside their walls, party walls -- published
 // only when something changed, kept through deselection.
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/HudFloorSchemeEditDetail.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
@@ -358,4 +359,42 @@ TEST (OverlayFloorPlans, ArchicadsStoreyIsTheFloorEveryBuildingShows)
     hud::SetPlanStorey (*state, 0);
     EXPECT_EQ (state->buildingPlans[tower.key].story, 0);
     EXPECT_EQ (state->buildingPlans[low.key].story, 0);
+}
+
+// User, 2026-10-15: "if zoomed in in overlay show segment length alligned to line like we have for
+// area display." The selected flat's sides carry their lengths on the plan and in 3D: lying on the
+// floor along each side, hidden until zoomed in.
+TEST (OverlayFloorPlans, TheSelectedFlatsSidesCarryTheirLengthsWhenZoomedIn)
+{
+    namespace hf = geomsrv::archviz::hudfloorscheme;
+    auto state = hud::NewState ();
+    const auto plan = Tower ();
+    state->floorPlanSnapshots[plan.key] = plan;
+    state->previewUnits = true;
+    layers::Layer stairs, units, onPlan;
+    ASSERT_TRUE (Planned (*state, stairs, units, 0));
+    const auto* planned = state->floorPlanner.Latest (bp::FloorId (plan.key, 0));
+    ASSERT_NE (planned, nullptr);
+    auto& editor = state->planEditors[plan.key];
+    editor.reset (new hf::Editor);
+    editor->key = plan.key;
+    editor->story = 0;
+    editor->scheme = planned->scheme;
+    editor->selected = { hf::Kind::Flat, 0, {}, {} };
+    hud::SetPlanStorey (*state, 0);
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    ASSERT_GE (onPlan.texts.size (), 4u) << "a length on each side";
+    for (const auto& t : onPlan.texts) {
+        EXPECT_TRUE (t.planar);
+        EXPECT_GT (t.minProjectedPixels, 0) << "only zoomed in";
+        EXPECT_NEAR (t.at[2], 0.05, 1e-9) << "on its floor";
+        EXPECT_GT (std::stod (t.text), 0.6);
+        EXPECT_GE (t.direction[0], -1e-9) << "reads left to right";
+    }
+    EXPECT_EQ (units.texts.size (), onPlan.texts.size ()) << "and in 3D";
+    EXPECT_TRUE (layers::Validate (onPlan).empty ());
+    // Nothing selected: no lengths.
+    editor->selected = {};
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    EXPECT_TRUE (onPlan.texts.empty ());
 }

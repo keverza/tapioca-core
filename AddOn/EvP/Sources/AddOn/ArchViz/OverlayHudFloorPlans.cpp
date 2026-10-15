@@ -3,6 +3,8 @@
 #include <clipper2/clipper.h>
 #include <clipper2/clipper.triangulation.h>
 #include <climits>
+#include <cmath>
+#include <cstdio>
 #include <sstream>
 #include <iomanip>
 
@@ -10,7 +12,8 @@ namespace geomsrv::archviz::overlayhud {
 namespace {
 namespace fs = floorscheme;
 namespace bt = buildingtopology;
-constexpr uint32_t kPlanFillAlpha = 0x59; // a flat's fill: its colour at 35 %
+constexpr uint32_t kPlanFillAlpha = 0x59;  // a flat's fill: its colour at 35 %
+constexpr double kEdgeLabelShortest = 0.6; // m: a side shorter carries no length
 
 void Line (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba, float width)
 {
@@ -22,6 +25,43 @@ void Line (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t
     for (const auto& p : ring)
         poly.points.insert (poly.points.end (), { p.x, p.y, z });
     layer.polylines.push_back (std::move (poly));
+}
+// Each side of `ring` its length, lying on the floor along it just inside, as the slices' areas lie
+// on them; readable only zoomed in (user, 2026-10-15: "if zoomed in in overlay show segment length
+// alligned to line like we have for area display").
+void EdgeLengths (overlaylayers::Layer& layer, const fs::Ring& ring, double z)
+{
+    double area = 0;
+    for (size_t i = 0; i < ring.size (); ++i)
+        area += ring[i].x * ring[(i + 1) % ring.size ()].y - ring[(i + 1) % ring.size ()].x * ring[i].y;
+    const double inward = area >= 0 ? 1.0 : -1.0; // the left of an anticlockwise side is inside
+    for (size_t i = 0; i < ring.size (); ++i) {
+        const auto& a = ring[i];
+        const auto& b = ring[(i + 1) % ring.size ()];
+        const double dx = b.x - a.x, dy = b.y - a.y, length = std::hypot (dx, dy);
+        if (length < kEdgeLabelShortest)
+            continue;
+        overlaylayers::Text t;
+        char text[32];
+        std::snprintf (text, sizeof (text), "%.2f", length);
+        t.text = text;
+        t.planar = true;
+        t.at[0] = (a.x + b.x) / 2 - inward * dy / length * 0.3;
+        t.at[1] = (a.y + b.y) / 2 + inward * dx / length * 0.3;
+        t.at[2] = z;
+        // Read upright: along the side, left to right on the plan.
+        const bool flip = dx < -1e-9 || (std::abs (dx) <= 1e-9 && dy < 0);
+        t.direction[0] = (flip ? -dx : dx) / length;
+        t.direction[1] = (flip ? -dy : dy) / length;
+        t.direction[2] = 0;
+        t.sizeMetres = 0.28;
+        t.sizePixels = 32.0f; // the layout's resolution only
+        t.minProjectedPixels = 9;
+        t.rgba = 0xFFFFFFFFu;
+        t.haloRgba = 0x1A1E20E0u;
+        t.behind = overlaylayers::Behind::Show;
+        layer.texts.push_back (std::move (t));
+    }
 }
 // A ring filled, flat at `z`: triangulated, so an L or a notched flat fills only itself.
 void Fill (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba)
@@ -275,8 +315,11 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             }
             for (const auto& ring : rings) {
                 Line (units, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
-                if (onPlan && floor.story == state.planStorey)
+                EdgeLengths (units, ring, floor.z + 0.05);
+                if (onPlan && floor.story == state.planStorey) {
                     Line (*onPlan, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
+                    EdgeLengths (*onPlan, ring, floor.z + 0.05);
+                }
             }
         }
     }
