@@ -24,6 +24,9 @@ struct Target {
     std::optional<fe::End> end;
 };
 enum class Drag : uint8_t { None, Body, Arrow };
+// Where the pointer edits a floor: the Plan view's canvas, or the view itself while locked. One
+// editor serves both, so a gesture belongs to the surface it began on.
+enum class Surface : uint8_t { Canvas, View };
 // One building's design as undo keeps it.
 struct Snapshot {
     fe::Designs designs;
@@ -58,6 +61,7 @@ struct Editor {
     fs::Vec selectedAt, menuAt; // where they were picked: a new scheme finds them there again
     // A gesture: the scheme and design it started from (indices stay valid), where, what it holds.
     Drag drag = Drag::None;
+    Surface dragOn = Surface::Canvas; // the surface the gesture began on: only it carries it on
     Target held;
     fs::Scheme base;
     fe::Design baseDesign;
@@ -117,9 +121,13 @@ constexpr ImU32 kGhostFill = IM_COL32 (255, 255, 255, 46), kGhostLine = IM_COL32
 Target HitAt (const fs::Scheme& s, fs::Vec m, double px);
 // The pointer over view `v` (`hovered`: it is the HUD's here): hover, the selection's arrows,
 // gestures and their commits, the right-click menu opened, the cursor.
-Pointing Interact (Editor& e, Context& c, const View& v, bool hovered);
+Pointing Interact (Editor& e, Context& c, const View& v, bool hovered, Surface on = Surface::Canvas);
 // The hovered and selected outlines, the arrows, and the held gesture's ghost.
-void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, const Pointing& at);
+// On the view the selected flat is the overlay's own white outline (TakeFloorPlanLayers), drawn
+// with the transform read at the plan's Present; an ImGui copy drawn through the HUD's earlier read
+// would lag behind navigation (OVERLAY-INVARIANTS.md finding 14), so the view leaves it out.
+void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, const Pointing& at,
+            Surface on = Surface::Canvas);
 bool Inside (const std::vector<fs::Ring>& rings, fs::Vec p);
 fs::Vec Mid (const fs::Ring& r);
 fs::Vec Outward (const std::array<fs::Vec, 2>& wall); // out of the building, across a party wall

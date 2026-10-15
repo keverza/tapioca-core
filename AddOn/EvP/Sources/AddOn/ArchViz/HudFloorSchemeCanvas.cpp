@@ -535,7 +535,7 @@ void Dimension (ImDrawList* draw, const View& view, const AlignedDimension& dime
     }
 }
 
-Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
+Pointing Interact (Editor& e, Context& c, const View& v, bool hovered, Surface on)
 {
     Pointing at;
     const fs::Vec mouse = v.W (ImGui::GetIO ().MousePos);
@@ -559,6 +559,7 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
         e.owner = ImGui::GetCurrentContext ();
         e.moved = false;
         e.liveSince = c.planner.Revision ();
+        e.dragOn = on;
         if (at.arrow >= 0) {
             e.held = e.selected;
             e.axis = at.arrows[at.arrow].dir;
@@ -570,7 +571,9 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
             e.drag = hover.kind == Kind::None ? Drag::None : Drag::Body;
         }
     }
-    if (e.drag != Drag::None && e.owner == ImGui::GetCurrentContext ()) {
+    // Carried on only on the surface it began on: over the other (the panel's canvas while it was
+    // begun on the view) its transform would read the pointer elsewhere and draw a second outline.
+    if (e.drag != Drag::None && e.owner == ImGui::GetCurrentContext () && e.dragOn == on) {
         e.at = mouse;
         e.moved = e.moved || std::hypot (e.at.x - e.from.x, e.at.y - e.from.y) > 4 * px;
         const bool down = ImGui::IsMouseDown (ImGuiMouseButton_Left);
@@ -665,7 +668,7 @@ void Ghost (ImDrawList* draw, const View& v, const fs::Ring& ring, float scale)
     for (size_t i = 0; i < ring.size (); ++i)
         Dashed (draw, v.P (ring[i]), v.P (ring[(i + 1) % ring.size ()]), kGhostLine, 1.5f * scale, 5 * scale);
 }
-void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, const Pointing& at)
+void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, const Pointing& at, Surface on)
 {
     const auto& s = e.scheme;
     // The hovered and the selected.
@@ -682,20 +685,21 @@ void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float 
             draw->AddLine (v.P (s.party[t.index][0]), v.P (s.party[t.index][1]), colour, width + 2 * scale);
     };
     // A flat or stair being dragged leaves a ghost where it was; anything else selected stays solid.
-    const bool dragged = e.drag != Drag::None && e.moved && (e.held.kind == Kind::Flat || e.held.kind == Kind::Stair);
+    const bool mine = e.drag != Drag::None && e.dragOn == on; // the gesture is this surface's
+    const bool dragged = mine && e.moved && (e.held.kind == Kind::Flat || e.held.kind == Kind::Stair);
     if (e.drag == Drag::None)
         outline (at.hover, IM_COL32 (255, 255, 255, 170), 2 * scale);
     if (dragged && e.held.kind == Kind::Flat && e.held.index >= 0 && e.held.index < int (e.base.flats.size ()))
         Ghost (draw, v, e.base.flats[e.held.index].shape, scale);
     else if (dragged && e.held.kind == Kind::Stair && e.held.index >= 0 && e.held.index < int (e.base.cores.size ()))
         Ghost (draw, v, e.base.cores[e.held.index].shape, scale);
-    else
+    else if (on == Surface::Canvas || e.selected.kind != Kind::Flat)
         outline (e.selected, IM_COL32 (255, 255, 255, 255), 3 * scale);
     if (e.drag == Drag::None)
         for (size_t i = 0; i < at.arrows.size (); ++i)
             Pointer (draw, v, at.arrows[i], (int (i) == at.arrow ? 9.0f : 7.0f) * scale, kAccent);
     // The gesture, drawn at once while the worker catches up.
-    if (e.drag == Drag::None || !e.moved)
+    if (!mine || !e.moved)
         return;
     const fs::Vec d = Delta (e);
     const bool off = !Inside (e.input.owned, e.at);

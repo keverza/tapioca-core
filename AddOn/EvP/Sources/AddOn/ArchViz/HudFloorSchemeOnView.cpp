@@ -81,8 +81,8 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
                 continue;
             ImGui::PushID (s.key.c_str ());
             auto& e = Refresh (editor, c, s.key, *s.floor);
-            const Pointing at = mine ? Interact (e, c, v, hovered) : Pointing {};
-            Marks (e, c, v, draw, scale, at);
+            const Pointing at = mine ? Interact (e, c, v, hovered, Surface::View) : Pointing {};
+            Marks (e, c, v, draw, scale, at, Surface::View);
             if (mine && focused && ImGui::IsKeyChordPressed (ImGuiMod_Ctrl | ImGuiKey_Z))
                 UndoRedo (e, c, true);
             if (mine && focused && ImGui::IsKeyChordPressed (ImGuiMod_Ctrl | ImGuiKey_Y))

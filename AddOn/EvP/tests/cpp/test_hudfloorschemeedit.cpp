@@ -858,3 +858,60 @@ TEST (HudFloorSchemeEdit, ADraggedFlatLeavesADashedGhostWhereItWas)
     frame ({ 5, 5 }, false);
     EXPECT_GT (ghost.x, ghost.z) << "let go, the ghost goes";
 }
+
+// User, 2026-10-14: the selected contour lagged behind navigation, and a flat moved on the locked
+// view drew a second outline over the panel's canvas. On the view the selected flat is left to the
+// overlay's own outline (drawn with the transform read at the plan's Present); a gesture begun on
+// the view is carried on, and drawn, there only.
+TEST (HudFloorSchemeEdit, TheLockedViewLeavesTheSelectionToTheOverlayAndKeepsItsGesture)
+{
+    OnViewFrame frame;
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 36) } };
+    std::map<std::string, bp::Draft> drafts;
+    std::map<std::string, hf::EditorPtr> editors;
+    bp::Planner planner;
+    const auto programme = fp::Default ();
+    const auto onto = Plan ();
+    ImVec4 solid {};
+    const auto view = [&] (ImVec2 mouse, bool left) {
+        frame (mouse, left, false, [&] (bool hovered) {
+            hf::OnView (editors, planner, plans, drafts, programme, {}, onto, hovered, 1);
+            solid = Bounds (IM_COL32 (255, 255, 255, 255));
+        });
+    };
+    const fs::Scheme* scheme = nullptr;
+    for (int n = 0; n < 400 && !scheme; ++n) {
+        view (OnPlan ({ 18, 8 }), false);
+        if (const auto* planned = planner.Latest (bp::FloorId ("A", 0)))
+            scheme = &planned->scheme;
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+    ASSERT_NE (scheme, nullptr);
+    view (OnPlan ({ 18, 8 }), false);
+    fs::Vec mid;
+    for (const auto& p : scheme->flats.front ().shape)
+        mid.x += p.x / scheme->flats.front ().shape.size (), mid.y += p.y / scheme->flats.front ().shape.size ();
+    view (OnPlan (mid), false);
+    view (OnPlan (mid), true);
+    view (OnPlan (mid), false);
+    ASSERT_TRUE (hf::Selected (editors["A"]).has_value ());
+    view (OnPlan ({ -20, -20 }), false);
+    EXPECT_GT (solid.x, solid.z) << "no ImGui copy of the selected flat on the view";
+    // A drag begun on the view; the canvas surface, with its own transform, leaves it alone.
+    view (OnPlan (mid), false);
+    view (OnPlan (mid), true);
+    view (OnPlan ({ mid.x + 2, mid.y }), true);
+    auto& e = *editors["A"];
+    ASSERT_NE (e.drag, hf::Drag::None);
+    const fs::Vec at = e.at;
+    fs::Options options;
+    hf::Context c { planner, plans, drafts, programme, options };
+    hf::View canvas; // a fit of its own: the same pointer is somewhere else on it
+    canvas.m[0] = 3, canvas.m[2] = 40, canvas.m[4] = -3, canvas.m[5] = 300;
+    frame (OnPlan ({ mid.x + 5, mid.y }), true, false,
+           [&] (bool) { hf::detail::Interact (e, c, canvas, true, hf::Surface::Canvas); });
+    EXPECT_EQ (e.at, at) << "the canvas did not take the view's gesture";
+    EXPECT_NE (e.drag, hf::Drag::None);
+    view (OnPlan ({ mid.x + 2, mid.y }), false);
+    EXPECT_EQ (e.drag, hf::Drag::None) << "let go on the view, where it began";
+}
