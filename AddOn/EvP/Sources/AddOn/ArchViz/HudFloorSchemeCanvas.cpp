@@ -14,7 +14,8 @@ constexpr char kPayload[] = "tapioca.plan.palette";
 constexpr double kStairPayload = -1;
 const ImU32 kInk = IM_COL32 (30, 40, 45, 255), kAccent = IM_COL32 (255, 186, 0, 255),
             kRed = IM_COL32 (214, 48, 49, 255), kParty = IM_COL32 (40, 44, 48, 255),
-            kReal = IM_COL32 (47, 93, 138, 255), kDivision = IM_COL32 (122, 72, 160, 230);
+            kReal = IM_COL32 (47, 93, 138, 255), kDivision = IM_COL32 (122, 72, 160, 230),
+            kGrid = IM_COL32 (196, 74, 64, 190); // the main walls' axes
 
 // ---- geometry -----------------------------------------------------------------------------
 cp::PathD Path (const fs::Ring& ring)
@@ -892,6 +893,25 @@ void Canvas (Editor& e, Context& c, float scale)
     }
     for (const auto& w : shown->party)
         draw->AddLine (v.P (w[0]), v.P (w[1]), kParty, 5 * scale);
+    // The building's main walls (Scheme::grid), as a structural grid: thin dashed axes across the
+    // wing, 1.5 m past it, numbered in a bubble at one end (user, 2026-10-15: "grid lines of main walls").
+    for (size_t i = 0; i < shown->grid.size (); ++i) {
+        const auto& g = shown->grid[i];
+        const double dx = g[1].x - g[0].x, dy = g[1].y - g[0].y, len = std::hypot (dx, dy);
+        if (len < 1e-6)
+            continue;
+        const fs::Vec a { g[0].x - dx / len * 1.5, g[0].y - dy / len * 1.5 },
+            b { g[1].x + dx / len * 1.5, g[1].y + dy / len * 1.5 };
+        Dashed (draw, v.P (a), v.P (b), kGrid, 1.0f * scale, 9 * scale);
+        char label[8];
+        std::snprintf (label, sizeof (label), "%zu", i + 1);
+        const ImVec2 at = v.P (b);
+        const float r = 7 * scale;
+        draw->AddCircleFilled (at, r, IM_COL32_WHITE);
+        draw->AddCircle (at, r, kGrid, 0, scale);
+        const ImVec2 t = ImGui::CalcTextSize (label);
+        draw->AddText (nullptr, ImGui::GetFontSize () * 0.8f, { at.x - t.x * 0.4f, at.y - t.y * 0.4f }, kGrid, label);
+    }
     // The typology's blocks: where a wing's stair zones meet, dashed (user, 2026-10-14: "Show
     // typology block division lines ... to manually move or edit how big the stair core zone
     // has to be"). Dragged like a wall.

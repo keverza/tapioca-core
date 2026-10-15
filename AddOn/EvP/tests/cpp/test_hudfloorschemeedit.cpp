@@ -1121,3 +1121,46 @@ TEST (HudFloorSchemeEdit, AMorphSettlesInRealTimeWhicheverHudStampedIt)
     editors["a"]->morphStart = hf::detail::Now () - hf::kMorphSeconds - 0.01;
     EXPECT_FALSE (hf::Animating (editors)) << "settled after kMorphSeconds";
 }
+
+// User, 2026-10-15: "generator should create grid lines of main walls." The Plan view draws the
+// building's main walls as a structural grid: axes across the wing, past its facades.
+TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 1000, 1400 };
+    io.DeltaTime = 1.0f / 60;
+    ASSERT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 60) } };
+    std::map<std::string, bp::Draft> drafts;
+    bp::Planner planner;
+    hf::EditorPtr editor;
+    ImVec4 floor {}, grid {};
+    for (int n = 0; n < 400 && (n == 0 || grid.z < 0); ++n) {
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 960, 1380 });
+        ImGui::Begin ("Plan", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+        hf::PlanView (editor, planner, plans, drafts, "A", fp::Default (), {}, 1);
+        floor = Bounds (IM_COL32 (236, 238, 232, 255));
+        grid = Bounds (IM_COL32 (196, 74, 64, 190));
+        ImGui::End ();
+        ImGui::Render ();
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+    ASSERT_GT (grid.z, 0) << "no main walls drawn";
+    EXPECT_LT (grid.y, floor.y) << "past the facade";
+    EXPECT_GT (grid.w, floor.w) << "past the other facade";
+    EXPECT_GT (grid.x, floor.x) << "inside the wing's length";
+    EXPECT_LT (grid.z, floor.z);
+}
