@@ -1112,8 +1112,9 @@ TEST (HudFloorSchemeEdit, AMorphSettlesInRealTimeWhicheverHudStampedIt)
 }
 
 // User, 2026-10-15: "generator should create grid lines of main walls ... Do not show full grid
-// lines in miniGUI. There show only thicker line segments outside building." The Plan view marks
-// each main wall outside both facades, and draws nothing of it across the floor.
+// lines in miniGUI. There show only thicker line segments outside building"; later: "Remove grid
+// number and bubble ... Leave only thickened black line outside of plan." The Plan view marks each
+// main wall black outside both facades, draws nothing of it across the floor, and numbers none.
 TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
 {
     auto* previous = ImGui::GetCurrentContext ();
@@ -1143,8 +1144,8 @@ TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
         ImGui::Begin ("Plan", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
         hf::PlanView (editor, planner, plans, drafts, "A", fp::Default (), {}, 1);
         floor = Bounds (IM_COL32 (236, 238, 232, 255));
-        grid = Bounds (IM_COL32 (196, 74, 64, 190));
-        inside = Bounds (IM_COL32 (196, 74, 64, 190), { floor.x + 1, floor.y + 1, floor.z - 1, floor.w - 1 });
+        grid = Bounds (IM_COL32 (0, 0, 0, 255));
+        inside = Bounds (IM_COL32 (0, 0, 0, 255), { floor.x + 1, floor.y + 1, floor.z - 1, floor.w - 1 });
         ImGui::End ();
         ImGui::Render ();
         std::this_thread::sleep_for (std::chrono::milliseconds (5));
@@ -1155,5 +1156,5 @@ TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
     EXPECT_GT (grid.x, floor.x) << "inside the wing's length";
     EXPECT_LT (grid.z, floor.z);
     EXPECT_LT (inside.z, 0) << "nothing across the floor";
-    EXPECT_GT ((std::max) (floor.y - grid.y, grid.w - floor.w), 30) << "the numbers well clear of the facade";
+    EXPECT_LE ((std::max) (floor.y - grid.y, grid.w - floor.w), 18) << "a mark, no bubble beyond it";
 }
