@@ -924,3 +924,57 @@ TEST (HudFloorSchemeEdit, TheLockedViewLeavesTheSelectionToTheOverlayAndKeepsIts
     view (OnPlan ({ mid.x + 2, mid.y }), false);
     EXPECT_EQ (e.drag, hf::Drag::None) << "let go on the view, where it began";
 }
+
+// User, 2026-10-14: "If overlay is locked below the mini panel show vertical column of the unit block
+// to add." A block dragged from the locked palette onto a flat of the locked plan puts a flat in
+// beside it, as on the Plan view's canvas.
+TEST (HudFloorSchemeEdit, ABlockFromTheLockedPaletteDroppedOnThePlanPutsAFlatIn)
+{
+    OnViewFrame frame;
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 60) } };
+    std::map<std::string, bp::Draft> drafts;
+    std::map<std::string, hf::EditorPtr> editors;
+    bp::Planner planner;
+    const auto programme = fp::Default ();
+    const auto onto = Plan ();
+    ImVec2 swatch {};
+    const auto view = [&] (ImVec2 mouse, bool left) {
+        frame (mouse, left, false, [&] (bool hovered) {
+            hf::OnView (editors, planner, plans, drafts, programme, {}, onto, hovered, 1);
+            ImGui::SetNextWindowPos ({ 900, 100 });
+            ImGui::Begin ("##palette", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize);
+            const ImVec2 at = ImGui::GetCursorScreenPos ();
+            hf::LockedPalette (programme, 1);
+            swatch = { at.x + 6, at.y + 6 }; // inside the first block: a one-room flat
+            ImGui::End ();
+        });
+    };
+    const fs::Scheme* scheme = nullptr;
+    for (int n = 0; n < 400 && !scheme; ++n) {
+        view (OnPlan ({ 18, 8 }), false); // over the building: its editor plans it
+        if (const auto* planned = planner.Latest (bp::FloorId ("A", 0)))
+            scheme = &planned->scheme;
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+    ASSERT_NE (scheme, nullptr);
+    view (OnPlan ({ 18, 8 }), false);
+    // The widest flat of a row: room beside it for one more.
+    int wide = -1;
+    for (size_t i = 0; i < scheme->flats.size (); ++i)
+        if (scheme->flats[i].band >= 0 && (wide < 0 || scheme->flats[i].frontage > scheme->flats[wide].frontage))
+            wide = int (i);
+    ASSERT_GE (wide, 0);
+    fs::Vec mid;
+    for (const auto& p : scheme->flats[wide].shape)
+        mid.x += p.x / scheme->flats[wide].shape.size (), mid.y += p.y / scheme->flats[wide].shape.size ();
+    EXPECT_FALSE (bp::Dirty (drafts["A"]));
+    view (swatch, false);
+    view (swatch, true);
+    const ImVec2 to = OnPlan (mid);
+    for (int k = 1; k <= 12; ++k)
+        view ({ swatch.x + (to.x - swatch.x) * k / 12, swatch.y + (to.y - swatch.y) * k / 12 }, true);
+    view (to, false);
+    ASSERT_NE (editors["A"], nullptr);
+    EXPECT_TRUE (editors["A"]->notice.empty ()) << editors["A"]->notice;
+    EXPECT_TRUE (bp::Dirty (drafts["A"])) << "the flat put in is the building's design";
+}

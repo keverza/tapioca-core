@@ -45,5 +45,18 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
     // Behind every panel, whenever it was made.
     ImGui::BringWindowToDisplayBack (ImGui::GetCurrentWindow ());
     ImGui::End ();
+    // The blocks to add, one above the other under the dock, to drag onto the plan (user,
+    // 2026-10-14: "If overlay is locked below the mini panel show vertical column of the unit block
+    // to add").
+    if (!store->roofEditor && input.planar && dockMax.y > dockMin.y) {
+        ImGui::SetNextWindowPos (ImVec2 (view.x, dockMax.y + kDockGap * ui), ImGuiCond_Always, ImVec2 (1.0f, 0.0f));
+        const ImGuiWindowFlags column = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
+                                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                                        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar;
+        if (ImGui::Begin ("###tapioca.lockedPalette", nullptr, column))
+            hudfloorscheme::LockedPalette (store->massingProgramme, ui);
+        ImGui::End ();
+    }
 }
 } // namespace geomsrv::archviz::overlayhud

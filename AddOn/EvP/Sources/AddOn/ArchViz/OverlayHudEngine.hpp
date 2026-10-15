@@ -203,6 +203,7 @@ struct Engine::Impl {
     bool hostScrolls = false;
     // The dock's width this frame: how far the view's right column moves in.
     float inset = 0.0f;
+    ImVec2 dockMin, dockMax; // the dock's rectangle this frame: the locked palette stands under it
     // Which tab each tab bar showed in this context's last frame, by panel key and bar id,
     // and the one it shows in this one; whether a dropdown is open.
     std::map<std::string, int> shownTabs;

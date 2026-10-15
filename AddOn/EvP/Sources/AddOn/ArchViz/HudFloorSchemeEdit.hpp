@@ -56,12 +56,16 @@ struct ViewOnto {
 // ⚠️ THE FLOOR PLAN EDITED ON THE VIEW ITSELF while the dock's lock is on (the user, 2026-10-10),
 // in the HUD's window over the whole view (`hovered`: the pointer is there, not on a panel). In
 // the plan each building's shown floor takes the Plan view's gestures -- select, arrows, drag,
-// right click -- through the plan's transform; in 3D a flat clicked is selected (its building's
-// Plan view turns to its floor) and a right click opens its menu.
+// right click, a block dropped from LockedPalette -- through the plan's transform; in 3D a flat clicked is selected
+// (its building's Plan view turns to its floor) and a right click opens its menu.
 void OnView (std::map<std::string, EditorPtr>& editors, buildingplan::Planner& planner,
              const std::map<std::string, buildingplan::Plan>& plans, std::map<std::string, buildingplan::Draft>& drafts,
              const floorprogramme::Programme& programme, const massingareas::Coefficients& coefficients,
              const ViewOnto& onto, bool hovered, float scale);
+// The flats of 1 to 5 rooms and a stair, one above the other, to drag onto the locked plan view (user,
+// 2026-10-14: "If overlay is locked below the mini panel show vertical column of the unit block to
+// add"), in the current window. OnView takes the drop as the Plan view's canvas does.
+void LockedPalette (const floorprogramme::Programme& programme, float scale);
 
 // The flat selected in a Plan view, for the overlay to draw it highlighted.
 struct Selection {

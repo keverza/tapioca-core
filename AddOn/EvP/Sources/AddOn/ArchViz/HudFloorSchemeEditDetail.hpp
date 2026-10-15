@@ -135,7 +135,13 @@ Fill Triangles (const std::vector<fs::Ring>& rings, ImU32 colour);
 std::vector<Fill> Fills (const fs::Scheme& s, const floorprogramme::Programme& programme);
 // The selection found again in a new scheme, where it was picked.
 Target Again (const fs::Scheme& s, const Target& t, fs::Vec at);
-void Palette (const floorprogramme::Programme& programme, float scale);
+// The palette's payload over `at` on `e`'s floor, inside a drag-drop target this frame: what it would
+// make (`insertion`, or a stair at `stairDrop`), and on delivery the edit made or, on the notice line,
+// why not. The Plan view's canvas and the locked view both take drops through it.
+void Dropped (Editor& e, Context& c, fs::Vec at, std::optional<fe::Insertion>& insertion,
+              std::optional<fs::Vec>& stairDrop);
+// The blocks to drag onto a plan: in a row above the canvas, or one above the other (`vertical`).
+void Palette (const floorprogramme::Programme& programme, float scale, bool vertical = false);
 // Two centred lines, bounded by the actual flat polygon rather than its frontage.
 std::pair<std::string, std::string> FlatLabel (const fs::Flat& flat);
 bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 size, float padding);

@@ -1,5 +1,6 @@
 #include "ArchViz/HudFloorSchemeEditDetail.hpp"
 #include "ArchViz/HudShell.hpp"
+#include <imgui_internal.h> // BeginDragDropTargetCustom: the whole view takes a dropped block
 #include <algorithm>
 #include <optional>
 
@@ -91,6 +92,32 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
             Menu (e, c, c.drafts[s.key], *s.plan, *s.floor, asked);
             e.menuOpen = ImGui::IsPopupOpen ("##planMenu");
             ImGui::PopID ();
+        }
+        // A block dragged from LockedPalette: dropped on the building under the pointer, as on the
+        // Plan view's canvas; while it is held, what it would make.
+        if (ImGui::GetDragDropPayload ()) {
+            const ImVec2 origin = ImGui::GetWindowPos (), size = ImGui::GetWindowSize ();
+            if (ImGui::BeginDragDropTargetCustom (ImRect (origin, { origin.x + size.x, origin.y + size.y }),
+                                                  ImGui::GetID ("##lockedDrop"))) {
+                for (const auto& s : shown)
+                    if (Inside (bp::FloorRings (*s.floor), v.W (mouse))) {
+                        auto& e = Refresh (editors[s.key], c, s.key, *s.floor);
+                        std::optional<fe::Insertion> insertion;
+                        std::optional<fs::Vec> stair;
+                        Dropped (e, c, v.W (mouse), insertion, stair);
+                        if (insertion) {
+                            std::vector<ImVec2> points;
+                            for (const auto& p : insertion->region)
+                                points.push_back (v.P (p));
+                            draw->AddConvexPolyFilled (points.data (), int (points.size ()),
+                                                       IM_COL32 (214, 48, 49, 50));
+                            draw->AddLine (v.P (insertion->a), v.P (insertion->b), IM_COL32 (214, 48, 49, 255),
+                                           3 * scale);
+                        }
+                        break;
+                    }
+                ImGui::EndDragDropTarget ();
+            }
         }
         if (hovered && active.empty ()) {
             hudshell::OwnCursor ();

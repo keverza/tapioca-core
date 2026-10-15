@@ -281,13 +281,23 @@ double PartyDistance (const Editor& e)
 }
 
 // The palette above the plan: flats of 1 to 5 rooms and a stair, each a square to drag onto it.
-void Palette (const floorprogramme::Programme& programme, float scale)
+} // namespace geomsrv::archviz::hudfloorscheme::detail
+namespace geomsrv::archviz::hudfloorscheme {
+void LockedPalette (const floorprogramme::Programme& programme, float scale)
 {
-    const float side = ImGui::GetFrameHeight ();
+    detail::Palette (programme, scale, true);
+}
+} // namespace geomsrv::archviz::hudfloorscheme
+namespace geomsrv::archviz::hudfloorscheme::detail {
+void Palette (const floorprogramme::Programme& programme, float scale, bool vertical)
+{
+    const float side = ImGui::GetFrameHeight () * (vertical ? 1.4f : 1.0f);
     for (int k = 0; k <= 5; ++k) {
         const double value = k == 5 ? kStairPayload : double (k + 1);
-        if (k > 0)
+        if (k > 0 && !vertical)
             ImGui::SameLine (0, 4 * scale);
+        else if (k > 0)
+            ImGui::Dummy ({ 0, 4 * scale });
         ImGui::PushID (k);
         ImGui::InvisibleButton ("##swatch", { side, side });
         const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
@@ -744,6 +754,35 @@ void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float 
     }
 }
 
+void Dropped (Editor& e, Context& c, fs::Vec at, std::optional<fe::Insertion>& insertion,
+              std::optional<fs::Vec>& stairDrop)
+{
+    const ImGuiPayload* payload = ImGui::AcceptDragDropPayload (
+        kPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+    if (!payload)
+        return;
+    const auto& s = e.scheme;
+    const double value = *static_cast<const double*> (payload->Data);
+    std::string why;
+    if (value < 0) {
+        stairDrop = at;
+        if (payload->IsDelivery ()) {
+            if (Inside (e.input.owned, at))
+                Apply (e, c, e.input.design, fe::AddStair (s, e.input.design, at, &why), why);
+            else
+                Notice (e, "A stair goes inside the floor: drop it on the plan.");
+        }
+    }
+    else {
+        insertion = fe::Insert (s, at, value, &why);
+        if (payload->IsDelivery ()) {
+            if (insertion)
+                Apply (e, c, e.input.design, fe::InsertFlat (s, e.input.design, at, value, &why), why);
+            else
+                Notice (e, why);
+        }
+    }
+}
 void Canvas (Editor& e, Context& c, float scale)
 {
     std::vector<fs::Ring> all = e.input.owned;
@@ -761,29 +800,7 @@ void Canvas (Editor& e, Context& c, float scale)
     std::optional<fe::Insertion> insertion;
     std::optional<fs::Vec> stairDrop;
     if (e.have && ImGui::BeginDragDropTarget ()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload (
-                kPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
-            const double value = *static_cast<const double*> (payload->Data);
-            std::string why;
-            if (value < 0) {
-                stairDrop = mouse;
-                if (payload->IsDelivery ()) {
-                    if (Inside (e.input.owned, mouse))
-                        Apply (e, c, e.input.design, fe::AddStair (s, e.input.design, mouse, &why), why);
-                    else
-                        Notice (e, "A stair goes inside the floor: drop it on the plan.");
-                }
-            }
-            else {
-                insertion = fe::Insert (s, mouse, value, &why);
-                if (payload->IsDelivery ()) {
-                    if (insertion)
-                        Apply (e, c, e.input.design, fe::InsertFlat (s, e.input.design, mouse, value, &why), why);
-                    else
-                        Notice (e, why);
-                }
-            }
-        }
+        Dropped (e, c, mouse, insertion, stairDrop);
         ImGui::EndDragDropTarget ();
     }
     const Pointing at = Interact (e, c, v, hovered);

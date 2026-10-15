@@ -263,6 +263,7 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
     ImGui::PopFont ();
     ImGui::PopStyleVar (3);
     inset = window->Size.x + kDockGap * scale;
+    dockMin = window->Pos, dockMax = ImVec2 (window->Pos.x + window->Size.x, window->Pos.y + window->Size.y);
 }
 
 void Engine::Impl::Opening (bool open, const std::string& title)
