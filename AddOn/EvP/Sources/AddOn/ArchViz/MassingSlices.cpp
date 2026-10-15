@@ -186,53 +186,55 @@ bool CutEnvelopes (const std::vector<overlaylayers::Mesh>& meshes, double z, std
     return true;
 }
 // ⚠️ OVERLAPS COUNT ONCE (the user, 2026-10-10): slabs overlapping at one elevation are a union,
-// not a sum. Each row keeps only the floor no earlier row at its elevation already covers, so any
-// sum of rows -- a building's floor, the site's total -- is the union's area. A row's chains stay
-// whole for display; its areas, volumes and section part become its exclusive share. `place`
+// not a sum. And floors closer than kStacked one above the other cannot both be floors where they
+// overlap in plan (user, 2026-10-14: "Slices still show up as duplicates. Even if they are not same
+// level they should not overlap if headroom is less than 3.0m"). Each row keeps only the floor no
+// earlier row within kStacked of its elevation covers: its chains, areas, volumes, its envelope
+// warning and its section part become that share, so the overlap is drawn and counted once. `place`
 // maps each row to its slab's section floor.
-void CountOverlapsOnce (Result& out, std::vector<hudsection::Slab>& masses,
-                        const std::vector<std::pair<size_t, size_t>>& place)
+constexpr double kStacked = 3.0;
+bool CountOverlapsOnce (Result& out, std::vector<hudsection::Slab>& masses,
+                        const std::vector<std::pair<size_t, size_t>>& place,
+                        std::vector<storysliceoverlay::Slice>& outside, std::string& error)
 {
-    const auto paths = [] (const std::vector<SliceChain>& chains) {
-        cp::PathsD out;
-        for (const auto& chain : chains) {
-            cp::PathD path;
-            for (size_t i = 0; i < chain.Count (); ++i)
-                path.emplace_back (chain.xy[i * 2], chain.xy[i * 2 + 1]);
-            out.push_back (std::move (path));
-        }
-        return out;
-    };
-    // Clean (non-overlapping, oriented) union per elevation, to the millimetre.
-    std::map<int64_t, cp::PathsD> covered;
-    const auto exclusive = [&] (const std::vector<SliceChain>& chains, const cp::PathsD& before) {
-        if (chains.empty ())
-            return 0.0;
-        if (before.empty ())
-            return std::abs (cp::Area (cp::Union (paths (chains), cp::FillRule::EvenOdd, 6)));
-        return std::abs (cp::Area (cp::Difference (paths (chains), before, cp::FillRule::EvenOdd, 6)));
-    };
+    std::vector<std::vector<SliceChain>> whole (out.rows.size ()); // each row's footprint before its share
     out.rawArea = out.allowedArea = out.excludedArea = 0;
     out.rawVolume = out.allowedVolume = 0;
     out.rawFirstFloorArea = out.firstFloorArea = 0;
     for (size_t r = 0; r < out.rows.size (); ++r) {
         auto& row = out.rows[r];
-        auto& before = covered[int64_t (std::llround (row.z * 1000))];
-        const double footprint =
-            std::abs (cp::Area (cp::Union (paths (row.footprintChains), cp::FillRule::EvenOdd, 6)));
-        if (!before.empty ()) {
-            const double raw = exclusive (row.rawChains, before);
-            const double kept = footprint > 1e-9 ? exclusive (row.footprintChains, before) / footprint : 1.0;
-            row.rawArea = raw;
-            row.excludedArea = exclusive (row.lowChains, before);
-            if (row.clipped)
-                row.allowedArea = exclusive (row.chains, before);
-            row.rawVolume *= kept;
-            row.allowedVolume *= kept;
+        whole[r] = row.footprintChains;
+        // What earlier rows within kStacked cover, as one clean union.
+        std::vector<SliceChain> before;
+        double area = 0;
+        for (size_t q = 0; q < r; ++q) {
+            if (whole[q].empty () || std::abs (out.rows[q].z - row.z) >= kStacked - 1e-6)
+                continue;
+            const auto earlier = before;
+            if (!ClipContours (earlier.empty () ? whole[q] : earlier, earlier.empty () ? earlier : whole[q], before,
+                               area, error, cp::ClipType::Union))
+                return false;
         }
-        // The row's own rings by even-odd (holes), then joined to what is there.
-        before = cp::Union (cp::Union (paths (row.footprintChains), cp::FillRule::EvenOdd, 6), before,
-                            cp::FillRule::NonZero, 6);
+        if (!before.empty () && !row.footprintChains.empty ()) {
+            double footprint = 0, kept = 0, allowed = 0, unused = 0;
+            if (!ClipContours (row.footprintChains, {}, whole[r], footprint, error, cp::ClipType::Union) ||
+                !ClipContours (row.footprintChains, before, row.footprintChains, kept, error,
+                               cp::ClipType::Difference) ||
+                !ClipContours (row.rawChains, before, row.rawChains, row.rawArea, error, cp::ClipType::Difference) ||
+                !ClipContours (row.lowChains, before, row.lowChains, row.excludedArea, error,
+                               cp::ClipType::Difference) ||
+                !ClipContours (row.chains, before, row.chains, allowed, error, cp::ClipType::Difference) ||
+                !ClipContours (row.highlightChains, before, row.highlightChains, unused, error,
+                               cp::ClipType::Difference) ||
+                (r < outside.size () && !ClipContours (outside[r].chains, before, outside[r].chains, outside[r].areaM2,
+                                                       error, cp::ClipType::Difference)))
+                return false;
+            if (row.clipped)
+                row.allowedArea = allowed;
+            const double share = footprint > 1e-9 ? kept / footprint : 1.0;
+            row.rawVolume *= share;
+            row.allowedVolume *= share;
+        }
         out.rawArea += row.rawArea;
         out.allowedArea += row.allowedArea;
         out.excludedArea += row.excludedArea;
@@ -248,6 +250,7 @@ void CountOverlapsOnce (Result& out, std::vector<hudsection::Slab>& masses,
                 masses[mass].floors[floor].areaM2 = out.clipped ? row.allowedArea : row.rawArea;
         }
     }
+    return true;
 }
 } // namespace
 
@@ -276,7 +279,9 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     using Cut = std::pair<std::vector<SliceChain>, std::vector<SliceChain>>;
     std::map<double, Cut> cuts;
     std::vector<hudsection::Slab> masses;
-    std::vector<std::pair<size_t, size_t>> place; // each row's slab and floor in `masses`
+    std::vector<std::pair<size_t, size_t>> place;   // each row's slab and floor in `masses`
+    std::vector<storysliceoverlay::Slice> outsides; // each row's part outside the envelope, drawn red
+    std::vector<std::string> names;
     size_t bodyWork = 0;
     size_t envelopeWork = 0;
     size_t retainedPoints = 0;
@@ -506,11 +511,15 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
             mass.floors.push_back ({ row.z, summary.floors[i].height, out.clipped ? row.allowedArea : row.rawArea });
             mass.storeys.push_back (row.story);
             slice.name = (building ? building->value.s : input.slab.id) + " S" + std::to_string (row.story);
-            Append (out.layer, RowDisplay (row, outside, slice.name, display));
+            outsides.push_back (outside), names.push_back (slice.name);
         }
         masses.push_back (std::move (mass));
     }
-    CountOverlapsOnce (out, masses, place);
+    // Rows are drawn once their overlaps are shared out: each overlap once.
+    if (!CountOverlapsOnce (out, masses, place, outsides, error))
+        return false;
+    for (size_t r = 0; r < out.rows.size (); ++r)
+        Append (out.layer, RowDisplay (out.rows[r], outsides[r], names[r], display));
     out.section = hudsection::Build (masses, storeys, schema, "massing.function");
     for (auto& floor : out.section.floors)
         floor.label = "Floor " + std::to_string (floor.storey);
@@ -526,7 +535,8 @@ bool Build (const std::vector<Input>& slabs, const ProjectStoreys& storeys, cons
     std::string facadeError;
     out.hasFacade = Facade (slabs, out.facadeArea, facadeError);
     if (!slabs.empty ())
-        out.note = out.clipped ? "Story slices intersected with the allowed envelope; overlapping slabs count once."
+        out.note = out.clipped ? "Story slices intersected with the allowed envelope; overlapping slabs (within 3 m of "
+                                 "each other's level) count once."
                                : "Showing slab story slices; allowed areas wait for the envelope.";
     if (!out.hasFacade)
         out.note += " Facade area unavailable: " + facadeError;

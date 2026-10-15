@@ -698,6 +698,60 @@ TEST (MassingSlices, OverlappingSlabsAtOneElevationCountTheirOverlapOnce)
         EXPECT_NEAR (floor.areaM2, 150, 1e-6) << floor.label;
 }
 
+namespace {
+double ChainsArea (const std::vector<SliceChain>& chains)
+{
+    double sum = 0;
+    for (const auto& c : chains) {
+        double a = 0;
+        const size_t n = c.Count ();
+        for (size_t i = 0; i < n; ++i) {
+            const size_t j = (i + 1) % n;
+            a += c.xy[i * 2] * c.xy[j * 2 + 1] - c.xy[j * 2] * c.xy[i * 2 + 1];
+        }
+        sum += a / 2;
+    }
+    return std::abs (sum);
+}
+} // namespace
+
+// User, 2026-10-14: "Overlapping slices Boolean union did not land. Slices still show up as
+// duplicates. Even if they are not same level they should not overlap if headroom is less than
+// 3.0m." A later slab's floor keeps only what no earlier floor within 3 m of its level covers: its
+// chains (what is drawn) as well as its areas.
+TEST (MassingSlices, FloorsWithinThreeMetresShareTheirOverlapOnceAndDrawItOnce)
+{
+    auto a = Slab (6), b = Slab (6);
+    b.slab.guid = "other";
+    b.slab.outer.xy = Ring (5, 0, 15, 10).xy;
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 4u);
+    for (const auto& row : result.rows) {
+        const double expected = row.guid == "slab" ? 100 : 50;
+        EXPECT_NEAR (ChainsArea (row.footprintChains), expected, 1e-6) << row.guid << " at " << row.z;
+        EXPECT_NEAR (ChainsArea (row.rawChains), expected, 1e-6) << row.guid << " at " << row.z;
+    }
+
+    // 1.5 m higher: floors at 1.5 and 4.5 m over floors at 0 and 3 m. They overlap within 3 m, so
+    // the later slab keeps its own half only.
+    b.slab.bottom = 1.5, b.slab.top = 7.5;
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    ASSERT_EQ (result.rows.size (), 4u);
+    EXPECT_NEAR (result.rawArea, 300, 1e-6);
+    for (const auto& row : result.rows)
+        if (row.guid == "other")
+            EXPECT_NEAR (ChainsArea (row.footprintChains), 50, 1e-6) << row.z;
+
+    // 3 m higher: the floors are a storey apart, both whole where they do not share a level.
+    b.slab.bottom = 3.0, b.slab.top = 9.0;
+    ASSERT_TRUE (ms::Build ({ a, b }, {}, nullptr, result, error)) << error;
+    for (const auto& row : result.rows)
+        if (row.guid == "other" && row.z > 5)
+            EXPECT_NEAR (ChainsArea (row.footprintChains), 100, 1e-6) << "6 m: nothing within 3 m below";
+}
+
 // User, 2026-10-10: a story slice is the floor's slab -- 0.5 m inside the massing for the facade
 // wall, 0.3 m thick below the floor's level -- and a floor's highlight stands inside the facade
 // from its level to the next slab's underside. Areas stay the counted contour's.
