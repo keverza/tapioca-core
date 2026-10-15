@@ -1,5 +1,6 @@
 #include "ArchViz/FloorSchemeEdit.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <sstream>
 
@@ -518,4 +519,69 @@ TEST (FloorSchemeEdit, AFlatWithoutARowJoinsTheFlatBesideIt)
         EXPECT_EQ (g.scheme.flats.size (), flats);
     }
     EXPECT_GT (removed, 0) << "a corridor-end flat can be removed";
+}
+
+// User, 2026-10-14: "I was not able to increase unit count to make them all 1R. Decrease count to
+// minimum." The most flats is every row flat the smallest type the programme has; the fewest joins
+// every row and then the flats with no row to close over them.
+TEST (FloorSchemeEdit, TheMostFlatsAreAllTheSmallestAndTheFewestAreFewerThanRowsAllow)
+{
+    const auto programme = fp::Default ();
+    double fewest = 1e9;
+    for (const auto& type : programme.types)
+        fewest = (std::min) (fewest, type.rooms);
+    EXPECT_DOUBLE_EQ (fe::Narrowest (programme), fs::RoomFrontage (fewest).min);
+
+    Floor f ({ Rect (0, 0, 60, 16) });
+    const size_t flats = f.scheme.flats.size ();
+    std::string why;
+    f.Apply (fe::SetCount (f.scheme, f.session.design, 500, &why, fe::Narrowest (programme)));
+    EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    EXPECT_NE (why.find ("as many as the floor takes"), std::string::npos) << why;
+    EXPECT_GT (f.scheme.flats.size (), flats + 2) << Report (f.scheme);
+    // Every flat of a row between its ends is the smallest type; the ends may be wider, reaching
+    // the corridor by a door.
+    for (size_t b = 0; b < f.scheme.bands.size (); ++b) {
+        std::vector<const fs::Flat*> row;
+        for (const auto& flat : f.scheme.flats)
+            if (flat.band == static_cast<int> (b))
+                row.push_back (&flat);
+        std::sort (row.begin (), row.end (), [&] (const fs::Flat* x, const fs::Flat* y) {
+            const fs::Vec a = Mid (x->shape), c = Mid (y->shape);
+            return a.x + a.y < c.x + c.y;
+        });
+        for (size_t k = 1; k + 1 < row.size (); ++k)
+            EXPECT_DOUBLE_EQ (row[k]->rooms, fewest) << row[k]->frontage << " m wide in row " << b;
+    }
+    // And no row takes one more.
+    const auto again = fe::SetCount (f.scheme, f.session.design, 500, nullptr, fe::Narrowest (programme));
+    EXPECT_TRUE (again == f.session.design) << "Max twice adds a flat";
+
+    // The fewest from there: back to flats no larger than the largest the programme has.
+    const double most = fs::MaxFlat (programme, f.session.options);
+    const size_t many = f.scheme.flats.size ();
+    why.clear ();
+    f.Apply (fe::SetCount (f.scheme, f.session.design, 1, &why, fe::Narrowest (programme), most));
+    EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    EXPECT_NE (why.find ("over the largest flat"), std::string::npos) << why;
+    EXPECT_LE (f.scheme.flats.size (), flats) << Report (f.scheme);
+    EXPECT_LT (f.scheme.flats.size (), many);
+    for (const auto& flat : f.scheme.flats)
+        if (flat.band >= 0)
+            EXPECT_LE (flat.net, most + 8) << flat.frontage << " m wide";
+
+    // With no limit, past one flat a row: the flats with no row join the flats beside them.
+    Floor g ({ Rect (0, 0, 60, 16) });
+    int rows = 0;
+    for (const auto& band : g.scheme.bands)
+        rows += band.flats > 0;
+    g.Apply (fe::SetCount (g.scheme, g.session.design, 1, nullptr, fe::Narrowest (programme)));
+    EXPECT_LT (static_cast<int> (g.scheme.flats.size ()), rows) << "past one flat a row: " << Report (g.scheme);
+    const size_t joins = g.session.design.pins.joins.size ();
+    EXPECT_GT (joins, 0u);
+    // One more undoes the latest join.
+    const size_t fewestFlats = g.scheme.flats.size ();
+    g.Apply (fe::SetCount (g.scheme, g.session.design, int (fewestFlats) + 1, nullptr, fe::Narrowest (programme)));
+    EXPECT_EQ (g.session.design.pins.joins.size (), joins - 1);
+    EXPECT_EQ (g.scheme.flats.size (), fewestFlats + 1) << Report (g.scheme);
 }

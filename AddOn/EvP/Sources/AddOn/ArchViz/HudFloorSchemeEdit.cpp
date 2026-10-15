@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <tuple>
 
 namespace geomsrv::archviz::hudfloorscheme {
 void EditorDeleter::operator() (Editor* editor) const
@@ -170,6 +171,7 @@ void PushParty (Editor& e, Context& c, const std::array<fs::Vec, 2>& wall, doubl
 }
 
 // ---- small widgets ------------------------------------------------------------------------
+constexpr int kMostFlats = 500; // "Max": more than any floor takes, so SetCount stops where the floor does
 void NextControl (float width)
 {
     const float right = ImGui::GetCursorScreenPos ().x + ImGui::GetContentRegionAvail ().x;
@@ -322,7 +324,10 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
         ImGui::SetNextItemWidth (7 * ImGui::GetFontSize ());
         if (ImGui::InputInt ("##flats", &flats, 1, 1) && flats > 0 && flats != int (s.flats.size ())) {
             std::string why;
-            Apply (e, c, full, fe::SetCount (s, full, flats, &why), why);
+            Apply (
+                e, c, full,
+                fe::SetCount (s, full, flats, &why, fe::Narrowest (c.programme), fs::MaxFlat (c.programme, c.options)),
+                why);
         }
         if (const int wing = fe::WingAt (s, e.menuAt); wing >= 0) {
             fs::Access now = fs::Access::Auto;
@@ -400,7 +405,24 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
     ImGui::SetNextItemWidth (90 * scale);
     if (ImGui::InputInt ("flats", &flats, 1, 1) && e.have && flats > 0 && flats != int (s.flats.size ())) {
         std::string why;
-        Apply (e, c, e.input.design, fe::SetCount (s, e.input.design, flats, &why), why);
+        Apply (
+            e, c, e.input.design,
+            fe::SetCount (s, e.input.design, flats, &why, fe::Narrowest (programme), fs::MaxFlat (programme, options)),
+            why);
+    }
+    // The fewest flats and the most -- every one the smallest the programme has (user, 2026-10-14:
+    // "increase unit count to make them all 1R. Decrease count to minimum").
+    for (const auto& [label, count, tip] : { std::tuple { "Min", 1, "As few flats as the floor takes" },
+                                             std::tuple { "Max", kMostFlats, "As many flats as the floor takes" } }) {
+        NextControl (36 * scale);
+        if (ImGui::SmallButton (label) && e.have) {
+            std::string why;
+            Apply (e, c, e.input.design,
+                   fe::SetCount (s, e.input.design, count, &why, fe::Narrowest (programme),
+                                 fs::MaxFlat (programme, options)),
+                   why);
+        }
+        ImGui::SetItemTooltip ("%s", tip);
     }
     ImGui::EndDisabled ();
     // Why the last edit could not be made (user, 2026-10-14: no silent failure).

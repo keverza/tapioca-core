@@ -106,9 +106,17 @@ struct Insertion {
 };
 std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms, std::string* why = nullptr);
 Design InsertFlat (const Scheme& s, Design d, Vec at, double rooms, std::string* why = nullptr);
-// The floor's flats made `total`: the widest flats split, the narrowest join; locked ones stay.
-// As near `total` as the floor allows; `why` says where it stopped short.
-Design SetCount (const Scheme& s, Design d, int total, std::string* why = nullptr);
+// The narrowest flat the programme has: the frontage its fewest rooms need.
+double Narrowest (const floorprogramme::Programme& programme);
+// The floor's flats made `total`; locked ones stay. More: the latest joins undone, then a row's
+// unlocked flats laid again with one more, none narrower than `narrowest` (0: a 1.5R); at the most a
+// row is laid evenly, so between its ends every flat is the smallest the programme has. Fewer: the
+// narrowest flat in a row joins its narrower neighbour, then flats with no row to close over them
+// join the flat beside them (Pins::Join) -- none past `most` m2 net (0: no limit), so the fewest is
+// every flat the largest the programme has. As near `total` as the floor allows; `why` says where
+// it stopped short.
+Design SetCount (const Scheme& s, Design d, int total, std::string* why = nullptr, double narrowest = 0,
+                 double most = 0);
 Design SetLocked (const Scheme& s, Design d, int flat, bool locked);
 bool Locked (const Scheme& s, const Design& d, int flat);
 Design SetAccess (const Scheme& s, Design d, int wing, Access access);
