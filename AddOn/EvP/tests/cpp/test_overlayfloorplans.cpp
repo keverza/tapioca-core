@@ -62,39 +62,51 @@ bool Planned (hud::State& state, layers::Layer& stairs, layers::Layer& units, si
 }
 } // namespace
 
-TEST (OverlayFloorPlans, EveryFloorsSchemeIsDrawnOnceItIsPlannedAndNotRebuiltUntilSomethingChanges)
+// User, 2026-10-15: "Replace Show units and Show main walls with Show Cell Complex ... Show proposed
+// stair cores becomes only higlight stair core cell." Every floor's cells are solids from the floor to under the next
+// slab, the stack's stair cells highlighted apart from the rest; published once each floor is planned, not again until
+// something changed.
+TEST (OverlayFloorPlans, EveryFloorsCellsAreDrawnOnceItIsPlannedAndNotRebuiltUntilSomethingChanges)
 {
     auto state = hud::NewState ();
     const auto plan = Tower ();
     state->floorPlanSnapshots[plan.key] = plan;
-    state->previewStairs = state->previewUnits = true;
+    state->previewStairs = state->previewCells = true;
     layers::Layer stairs, units;
     ASSERT_TRUE (Planned (*state, stairs, units, 1));
     EXPECT_EQ (stairs.name, bp::kStairsLayer);
     EXPECT_EQ (units.name, bp::kUnitsLayer);
-    // The one stair, a shaft from the ground floor's level to under the top floor's 0.3 m slab,
-    // 0.1 m inside its walls (a 4.5 m stair shows 4.3 m).
-    const auto& shaft = stairs.meshes.front ();
-    ASSERT_EQ (shaft.points.size (), 24u);
-    EXPECT_DOUBLE_EQ (shaft.points[2], 0.0);
-    EXPECT_NEAR (shaft.points[14], 3 * 3 - fp::kSlab, 1e-9);
-    EXPECT_EQ (shaft.indices.size (), 36u);
+    // The stair's cell on each floor, on its centre lines, from the floor's level to under its slab.
+    const auto& cores = stairs.meshes.front ();
+    ASSERT_EQ (cores.vertexRgba.size (), cores.points.size () / 3);
+    for (const uint32_t rgba : cores.vertexRgba)
+        EXPECT_EQ (rgba, 0x8E3B2FFFu) << "the inspector's stair colour";
+    EXPECT_EQ (cores.style.edgeRgba, 0x2448C9FFu) << "highlighted";
+    std::set<long long> levels;
     double x0 = 1e18, x1 = -1e18, y0 = 1e18, y1 = -1e18;
-    for (size_t i = 0; i < shaft.points.size (); i += 3)
-        x0 = (std::min) (x0, shaft.points[i]), x1 = (std::max) (x1, shaft.points[i]),
-        y0 = (std::min) (y0, shaft.points[i + 1]), y1 = (std::max) (y1, shaft.points[i + 1]);
-    const double w = x1 - x0, d = y1 - y0;
-    EXPECT_NEAR ((std::min) (w, d), 4.5 - 0.2, 1e-3) << "inside the stair's walls, not on their centre lines";
-    // Flats inside their walls: no outline reaches the massing's edge (the facade is 0.5 m thick).
-    for (const auto& line : units.polylines)
-        for (size_t i = 0; i < line.points.size (); i += 3) {
-            EXPECT_GE (line.points[i], 0.5 - 1e-6);
-            EXPECT_LE (line.points[i], 36 - 0.5 + 1e-6);
-            EXPECT_GE (line.points[i + 1], 0.5 - 1e-6);
-            EXPECT_LE (line.points[i + 1], 16 - 0.5 + 1e-6);
-        }
+    for (size_t i = 0; i < cores.points.size (); i += 3) {
+        levels.insert (std::llround (cores.points[i + 2] * 100));
+        x0 = (std::min) (x0, cores.points[i]), x1 = (std::max) (x1, cores.points[i]);
+        y0 = (std::min) (y0, cores.points[i + 1]), y1 = (std::max) (y1, cores.points[i + 1]);
+    }
+    EXPECT_EQ (levels, (std::set<long long> { 2, 270, 302, 570, 602, 870 })) << "three floors, each under its slab";
+    EXPECT_NEAR ((std::min) (x1 - x0, y1 - y0), 4.5, 1e-3) << "the cell, on its walls' centre lines";
+    // The rest: one lit solid mesh, each cell its space's colour, inside the massing.
+    ASSERT_EQ (units.meshes.size (), 1u);
+    const auto& cells = units.meshes.front ();
+    EXPECT_EQ (cells.style.shading, layers::Shading::Lit);
+    EXPECT_EQ (cells.style.edgeRgba, 0x1D242759u) << "ink edges at 35 %";
+    EXPECT_GT (std::count (cells.vertexRgba.begin (), cells.vertexRgba.end (), 0xEAD9A6FFu), 0) << "a corridor";
+    EXPECT_EQ (std::count (cells.vertexRgba.begin (), cells.vertexRgba.end (), 0x8E3B2FFFu), 0)
+        << "the stair is highlighted, not among them";
+    for (size_t i = 0; i < cells.points.size (); i += 3) {
+        EXPECT_GE (cells.points[i], -1e-6);
+        EXPECT_LE (cells.points[i], 36 + 1e-6);
+        EXPECT_GE (cells.points[i + 1], -1e-6);
+        EXPECT_LE (cells.points[i + 1], 16 + 1e-6);
+    }
     EXPECT_TRUE (layers::Validate (stairs).empty ());
-    EXPECT_GT (units.polylines.size (), 3u);
+    EXPECT_TRUE (layers::Validate (units).empty ());
     EXPECT_FALSE (hud::TakeFloorPlanLayers (*state, stairs, units)) << "nothing changed: nothing published";
     // A programme edit on the Massing tab reaches every building's floors.
     ASSERT_TRUE (fp::SetShare (state->massingProgramme, 1, 0.5));
@@ -105,10 +117,22 @@ TEST (OverlayFloorPlans, EveryFloorsSchemeIsDrawnOnceItIsPlannedAndNotRebuiltUnt
     }
     EXPECT_TRUE (republished);
     EXPECT_EQ (state->buildingPlans.at (plan.key).programme, state->massingProgramme);
-    state->previewStairs = state->previewUnits = false;
+    // The stairs alone: only their cells.
+    state->previewCells = false;
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
+    EXPECT_EQ (stairs.meshes.size (), 1u);
+    EXPECT_TRUE (units.meshes.empty ());
+    // Cells without the highlight: the stair among them, in its colour.
+    state->previewCells = true;
+    state->previewStairs = false;
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
     EXPECT_TRUE (stairs.meshes.empty ());
-    EXPECT_TRUE (units.polylines.empty ());
+    ASSERT_EQ (units.meshes.size (), 1u);
+    const auto& all = units.meshes.front ().vertexRgba;
+    EXPECT_GT (std::count (all.begin (), all.end (), 0x8E3B2FFFu), 0);
+    state->previewCells = false;
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
+    EXPECT_TRUE (stairs.meshes.empty () && units.meshes.empty ());
 }
 
 TEST (OverlayFloorPlans, DesignsSurviveDeselectionButClearWhenTheBuildingGoes)
@@ -134,25 +158,6 @@ TEST (OverlayFloorPlans, DesignsSurviveDeselectionButClearWhenTheBuildingGoes)
     EXPECT_TRUE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
     EXPECT_TRUE (stairs.meshes.empty ());
     EXPECT_TRUE (gui.state->buildingPlans.empty ());
-}
-
-TEST (OverlayFloorPlans, ProgrammeColourEditsRepaintImmediatelyWithoutRegeneratingFloors)
-{
-    auto state = hud::NewState ();
-    const auto plan = Tower ();
-    state->floorPlanSnapshots[plan.key] = plan;
-    state->previewStairs = state->previewUnits = true;
-    layers::Layer stairs, units;
-    ASSERT_TRUE (Planned (*state, stairs, units, 1));
-    const auto revision = state->floorPlanner.Revision ();
-    for (size_t i = 0; i < state->massingProgramme.types.size (); ++i)
-        ASSERT_TRUE (fp::SetColour (state->massingProgramme, i, 0x123456FFu));
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
-    EXPECT_TRUE (std::any_of (units.polylines.begin (), units.polylines.end (),
-                              [] (const auto& line) { return line.rgba == 0x123456FFu; }));
-    EXPECT_FALSE (state->floorPlanner.Busy ());
-    EXPECT_EQ (state->floorPlanner.Revision (), revision);
-    EXPECT_FALSE (hud::TakeFloorPlanLayers (*state, stairs, units)) << "One colour edit, one republish";
 }
 
 TEST (OverlayFloorPlans, ProgrammeFromTheProjectIsAdoptedUnlessAnUnsavedEditIsWaiting)
@@ -193,14 +198,14 @@ TEST (OverlayFloorPlans, ProgrammeFromTheProjectIsAdoptedUnlessAnUnsavedEditIsWa
 }
 
 // User, 2026-10-14: "Floor Plan overlay show all stories. units are visible but needs to solid fill
-// not just outline." On the floor plan, the units are the floor at the plan's storey, filled under
-// their outlines; 3D keeps every floor's outlines.
-TEST (OverlayFloorPlans, ThePlanShowsItsStoreysUnitsFilledAnd3DShowsEveryFloor)
+// not just outline." On the floor plan, the cells are the floor's at the plan's storey, filled under
+// their outlines; 3D keeps every floor.
+TEST (OverlayFloorPlans, ThePlanShowsItsStoreysCellsFilledAnd3DShowsEveryFloor)
 {
     auto state = hud::NewState ();
     const auto plan = Tower ();
     state->floorPlanSnapshots[plan.key] = plan;
-    state->previewUnits = true;
+    state->previewCells = true;
     layers::Layer stairs, units, onPlan;
     ASSERT_TRUE (Planned (*state, stairs, units, 0));
     const auto levels = [] (const layers::Layer& layer) {
@@ -218,16 +223,24 @@ TEST (OverlayFloorPlans, ThePlanShowsItsStoreysUnitsFilledAnd3DShowsEveryFloor)
     EXPECT_EQ (onPlan.name, bp::kPlanUnitsLayer);
     EXPECT_EQ (onPlan.views, layers::Views::TwoD);
     EXPECT_EQ (units.views, layers::Views::ThreeD);
+    EXPECT_EQ (stairs.views, layers::Views::ThreeD);
     EXPECT_EQ (levels (onPlan), (std::set<long long> { 30 })) << "the plan's storey alone, at 3 m";
-    EXPECT_EQ (levels (units).size (), 3u) << "3D: every floor";
-    ASSERT_FALSE (onPlan.meshes.empty ()) << "flats filled";
+    EXPECT_EQ (levels (units), (std::set<long long> { 0, 27, 30, 57, 60, 87 })) << "3D: every floor";
+    ASSERT_FALSE (onPlan.meshes.empty ()) << "cells filled";
     for (const auto& mesh : onPlan.meshes)
-        EXPECT_EQ (mesh.rgba & 0xFFu, 0x59u) << "a fill shows the plan through it";
+        EXPECT_EQ (mesh.rgba & 0xFFu, 0x99u) << "a fill shows the plan through it";
     EXPECT_TRUE (layers::Validate (onPlan).empty ());
     // Another storey on the plan: its floor instead.
     hud::SetPlanStorey (*state, 2);
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
     EXPECT_EQ (levels (onPlan), (std::set<long long> { 60 }));
+    // The stairs highlighted: their cell on the plan stronger, in the accent's outline.
+    state->previewStairs = true;
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    EXPECT_TRUE (std::any_of (onPlan.polylines.begin (), onPlan.polylines.end (),
+                              [] (const auto& line) { return line.rgba == 0x2448C9FFu; }));
+    EXPECT_TRUE (std::any_of (onPlan.meshes.begin (), onPlan.meshes.end (),
+                              [] (const auto& mesh) { return mesh.rgba == 0x8E3B2FE6u; }));
     // The plan overlay not running: nothing on the plan.
     hud::SetPlanStorey (*state, INT_MIN);
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
@@ -268,33 +281,6 @@ TEST (OverlayFloorPlans, LockedADeselectionKeepsTheFloorsBeingEdited)
     EXPECT_TRUE (gui.state->floorPlanSnapshots.empty ());
 }
 
-// User, 2026-10-14: "In 3d locked mode units are selectable, but should have solid transparent fill
-// not just contour." In 3D the floor each building's Plan view shows -- the one edited -- is filled;
-// the other floors stay outlines.
-TEST (OverlayFloorPlans, In3DTheEditedFloorIsFilled)
-{
-    auto state = hud::NewState ();
-    const auto plan = Tower ();
-    state->floorPlanSnapshots[plan.key] = plan;
-    state->previewUnits = true;
-    layers::Layer stairs, units, onPlan;
-    ASSERT_TRUE (Planned (*state, stairs, units, 0));
-    const auto filled = [] (const layers::Layer& layer) {
-        std::set<long long> out;
-        for (const auto& mesh : layer.meshes)
-            for (size_t i = 2; i < mesh.points.size (); i += 3)
-                out.insert (std::llround (mesh.points[i] * 10));
-        return out;
-    };
-    for (const int story : { 2, 0 }) {
-        state->buildingPlans[plan.key].story = story; // picked in the building section
-        ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan)) << story;
-        EXPECT_EQ (filled (units), (std::set<long long> { story * 30 })) << "only the edited floor";
-        for (const auto& mesh : units.meshes)
-            EXPECT_EQ (mesh.rgba & 0xFFu, 0x59u) << "transparent";
-    }
-}
-
 // User, 2026-10-15: "Selecting a unit in overlay locked mode open up selection tab same as if
 // selecting slab"; later: "still only switched tab, but does not open editing options for the
 // slab." A flat clicked on the locked plan opens the HUD on the Selection tab, where its building's
@@ -312,7 +298,7 @@ TEST (OverlayFloorPlans, AFlatPickedOnTheLockedPlanOpensTheSelectionTab)
     hud::SetEditLocked (*gui.state, true);
     hud::SetHudOpen (*gui.state, false);
     hud::SelectKey (*gui.state, hud::kStatsKey);
-    gui.state->previewUnits = true;
+    gui.state->previewCells = true;
     layers::Layer stairs, units;
     ASSERT_TRUE (Planned (*gui.state, stairs, units, 0));
     // The plan: 10 pixels a metre, y up, its origin at (100, 600).
@@ -379,7 +365,7 @@ TEST (OverlayFloorPlans, TheSelectedFloorsFlatsCarryTheirSidesLengthsWhenZoomedI
     auto state = hud::NewState ();
     const auto plan = Tower ();
     state->floorPlanSnapshots[plan.key] = plan;
-    state->previewUnits = true;
+    state->previewCells = true;
     layers::Layer stairs, units, onPlan;
     ASSERT_TRUE (Planned (*state, stairs, units, 0));
     const auto* planned = state->floorPlanner.Latest (bp::FloorId (plan.key, 0));
@@ -408,44 +394,4 @@ TEST (OverlayFloorPlans, TheSelectedFloorsFlatsCarryTheirSidesLengthsWhenZoomedI
     editor->selected = {};
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
     EXPECT_TRUE (onPlan.texts.empty ());
-}
-
-// User, 2026-10-15: "GridLines may be shown in overlay through show toggle in Massing Tab." With
-// the toggle on, the plan shows each main wall's axis and number at its storey, and 3D each main wall
-// standing from the lowest floor to the top; off, nothing of them.
-TEST (OverlayFloorPlans, TheMainWallsShowOnTheOverlayWhenToggled)
-{
-    auto state = hud::NewState ();
-    const auto plan = Tower ();
-    state->floorPlanSnapshots[plan.key] = plan;
-    state->previewGrid = true;
-    layers::Layer stairs, units, onPlan;
-    ASSERT_TRUE (Planned (*state, stairs, units, 0));
-    hud::SetPlanStorey (*state, 1);
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
-    const uint32_t grid = 0xC44A40E0u;
-    size_t axes = 0, frames = 0;
-    for (const auto& line : onPlan.polylines)
-        if (line.rgba == grid && !line.closed) {
-            ++axes;
-            EXPECT_NEAR (line.points[2], 3.06, 1e-9) << "at the plan's storey";
-        }
-    for (const auto& line : units.polylines)
-        if (line.rgba == grid) {
-            ++frames;
-            ASSERT_EQ (line.points.size (), 12u);
-            EXPECT_NEAR (line.points[2], 0, 1e-9) << "from the lowest floor";
-            EXPECT_NEAR (line.points[8], 9, 1e-9) << "to the top";
-        }
-    EXPECT_GE (axes, 1u);
-    EXPECT_EQ (frames, axes) << "one standing wall per axis";
-    EXPECT_EQ (onPlan.texts.size (), axes) << "each numbered";
-    EXPECT_EQ (onPlan.texts.front ().text, "1");
-    EXPECT_TRUE (layers::Validate (onPlan).empty ());
-    EXPECT_TRUE (layers::Validate (units).empty ());
-    state->previewGrid = false;
-    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
-    for (const auto* layer : { &onPlan, &units })
-        for (const auto& line : layer->polylines)
-            EXPECT_NE (line.rgba, grid);
 }

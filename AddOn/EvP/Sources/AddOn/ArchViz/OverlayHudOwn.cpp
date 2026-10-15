@@ -402,11 +402,13 @@ void Engine::Impl::MassingPage ()
     if (ImGui::Checkbox ("Highlight headroom below 1.6m", &store->showLowHeadroom))
         changes.push_back (
             { "lowHeadroom", {}, "Massing", "headroom < 1.6 m", -1, store->showLowHeadroom ? 1.0 : 0.0, {}, true });
-    const bool stairsChanged = ImGui::Checkbox ("Show proposed stair cores (all floors)", &store->previewStairs);
-    const bool unitsChanged =
-        ImGui::Checkbox ("Show units (3D: every floor; plan: its story, filled)", &store->previewUnits);
-    const bool gridChanged = ImGui::Checkbox ("Show main walls (grid)", &store->previewGrid);
-    if (stairsChanged || unitsChanged || gridChanged) {
+    // The cell complex as the inspector shows it, in place of the units and main walls (user,
+    // 2026-10-15: "Replace Show units and Show main walls with Show Cell Complex ... Show proposed
+    // stair cores becomes only higlight stair core cell").
+    const bool stairsChanged = ImGui::Checkbox ("Highlight stair core cells", &store->previewStairs);
+    const bool cellsChanged =
+        ImGui::Checkbox ("Show cell complex (3D: every floor; plan: its story)", &store->previewCells);
+    if (stairsChanged || cellsChanged) {
         ShowLayer (buildingplan::kStairsLayer, true);
         ShowLayer (buildingplan::kUnitsLayer, true);
         ShowLayer (buildingplan::kPlanUnitsLayer, true);

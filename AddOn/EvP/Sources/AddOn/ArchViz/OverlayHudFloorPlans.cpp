@@ -12,8 +12,48 @@ namespace geomsrv::archviz::overlayhud {
 namespace {
 namespace fs = floorscheme;
 namespace bt = buildingtopology;
-constexpr uint32_t kPlanFillAlpha = 0x59;  // a flat's fill: its colour at 35 %
+constexpr uint32_t kPlanFillAlpha = 0x99;  // a cell's fill on the plan: its colour at 60 %
 constexpr double kEdgeLabelShortest = 0.6; // m: a side shorter carries no length
+// The cell complex as its inspector draws it (user, 2026-10-15: "Show Cell Complex ... cells as in
+// Cell Complex Inspector"): a space's colour as an architect's plan gives it, an ink edge at 35 %,
+// and the inspector's accent round a highlighted stair.
+constexpr uint32_t kCellEdge = 0x1D242759u, kCoreHighlight = 0x2448C9FFu;
+uint32_t CellRgba (const bt::Cell& cell)
+{
+    switch (cell.kind) {
+        case bt::CellKind::Room:
+            switch (cell.room) {
+                case fs::RoomKind::Living:
+                    return 0xD9A441FFu;
+                case fs::RoomKind::Bedroom:
+                    return 0x7FA7C7FFu;
+                case fs::RoomKind::Alcove:
+                    return 0xA3BFD8FFu;
+                case fs::RoomKind::Hall:
+                    return 0xC5BFB2FFu;
+                case fs::RoomKind::Bath:
+                    return 0x5FAE9FFFu;
+                case fs::RoomKind::Wc:
+                    return 0x8CC4B9FFu;
+                case fs::RoomKind::Storage:
+                    return 0xA99A8BFFu;
+            }
+            return 0xD5CDC0FFu;
+        case bt::CellKind::FlatRest:
+            return 0xD5CDC0FFu;
+        case bt::CellKind::Flat:
+            return 0xCF9F98FFu;
+        case bt::CellKind::Corridor:
+            return 0xEAD9A6FFu;
+        case bt::CellKind::Lobby:
+            return 0xE7C97CFFu;
+        case bt::CellKind::Core:
+            return 0x8E3B2FFFu;
+        case bt::CellKind::Unassigned:
+            return 0xB9BEC1FFu;
+    }
+    return 0xB9BEC1FFu;
+}
 
 void Line (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba, float width)
 {
@@ -64,62 +104,6 @@ void EdgeLengths (overlaylayers::Layer& layer, const fs::Ring& ring, double z)
         layer.texts.push_back (std::move (t));
     }
 }
-// The building's main walls (floorscheme::MainWalls of its stack floor; user, 2026-10-15: "GridLines
-// may be shown in overlay through show toggle in Massing Tab"). On the plan, at `z`: an axis 1.5 m
-// past both facades, dashed, numbered in a circle beyond one end. In 3D, from `z0` to `z1`: each a
-// dashed frame standing from the lowest floor to the top, as the wall does.
-constexpr uint32_t kGridRgba = 0xC44A40E0u;
-void PlanGrid (overlaylayers::Layer& layer, const std::vector<std::array<fs::Vec, 2>>& grid, double z)
-{
-    for (size_t i = 0; i < grid.size (); ++i) {
-        const auto& g = grid[i];
-        const double dx = g[1].x - g[0].x, dy = g[1].y - g[0].y, len = std::hypot (dx, dy);
-        if (len < 1e-6)
-            continue;
-        const fs::Vec u { dx / len, dy / len };
-        overlaylayers::Polyline axis;
-        axis.rgba = kGridRgba;
-        axis.widthPixels = 1.5f;
-        axis.dashMetres = { 0.8f, 0.25f };
-        axis.behind = overlaylayers::Behind::Show;
-        axis.points = { g[0].x - u.x * 1.5, g[0].y - u.y * 1.5, z, g[1].x + u.x * 1.5, g[1].y + u.y * 1.5, z };
-        layer.polylines.push_back (std::move (axis));
-        const fs::Vec c { g[1].x + u.x * 2.1, g[1].y + u.y * 2.1 };
-        overlaylayers::Polyline bubble;
-        bubble.closed = true;
-        bubble.rgba = kGridRgba;
-        bubble.widthPixels = 1.5f;
-        bubble.behind = overlaylayers::Behind::Show;
-        for (int k = 0; k < 24; ++k) {
-            const double a = k * 2 * 3.14159265358979 / 24;
-            bubble.points.insert (bubble.points.end (), { c.x + 0.5 * std::cos (a), c.y + 0.5 * std::sin (a), z });
-        }
-        layer.polylines.push_back (std::move (bubble));
-        overlaylayers::Text number;
-        number.text = std::to_string (i + 1);
-        number.planar = true;
-        number.at[0] = c.x, number.at[1] = c.y, number.at[2] = z;
-        number.sizeMetres = 0.5;
-        number.sizePixels = 32.0f;
-        number.rgba = kGridRgba | 0xFFu;
-        number.haloPixels = 0;
-        number.behind = overlaylayers::Behind::Show;
-        layer.texts.push_back (std::move (number));
-    }
-}
-void FramedGrid (overlaylayers::Layer& layer, const std::vector<std::array<fs::Vec, 2>>& grid, double z0, double z1)
-{
-    for (const auto& g : grid) {
-        overlaylayers::Polyline frame;
-        frame.closed = true;
-        frame.rgba = kGridRgba;
-        frame.widthPixels = 1.5f;
-        frame.dashMetres = { 0.8f, 0.25f };
-        frame.behind = overlaylayers::Behind::Show;
-        frame.points = { g[0].x, g[0].y, z0, g[1].x, g[1].y, z0, g[1].x, g[1].y, z1, g[0].x, g[0].y, z1 };
-        layer.polylines.push_back (std::move (frame));
-    }
-}
 // A ring filled, flat at `z`: triangulated, so an L or a notched flat fills only itself.
 void Fill (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba)
 {
@@ -145,35 +129,50 @@ void Fill (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t
     if (!mesh.indices.empty ())
         layer.meshes.push_back (std::move (mesh));
 }
-// A convex counter-clockwise ring raised from z0 to z1: bottom and top fans, then the sides.
-bool Prism (overlaylayers::Layer& layer, const fs::Ring& ring, double z0, double z1)
+// A counter-clockwise ring raised from z0 to z1 into `mesh`, coloured `rgba`: its caps
+// triangulated over its own corners (so their seams are no edge), its sides quads. Each cap and the
+// sides have their own corners, so the mesh's feature edges are the solid's outline.
+void Solid (overlaylayers::Mesh& mesh, const fs::Ring& ring, double z0, double z1, uint32_t rgba)
 {
+    namespace cp = Clipper2Lib;
     const uint32_t n = static_cast<uint32_t> (ring.size ());
     if (n < 3 || z1 <= z0)
-        return false;
-    for (uint32_t i = 0; i < n; ++i) {
-        const auto& a = ring[i];
-        const auto& b = ring[(i + 1) % n];
-        const auto& c = ring[(i + 2) % n];
-        if ((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) < -1e-9)
-            return false; // not convex: a fan would cover the notch
-    }
-    overlaylayers::Mesh box;
-    box.rgba = 0x969696FFu;
-    box.styled = true;
-    box.style.shading = overlaylayers::Shading::Lit;
-    box.style.behind = overlaylayers::Behind::Show;
-    for (double z : { z0, z1 })
+        return;
+    cp::PathD path;
+    for (const auto& p : ring)
+        path.emplace_back (p.x, p.y);
+    cp::PathsD triangles;
+    if (cp::Triangulate ({ path }, 4, triangles, false) != cp::TriangulateResult::success)
+        return;
+    const auto corner = [&] (const cp::PointD& q) {
+        uint32_t best = 0;
+        double nearest = 1e300;
+        for (uint32_t i = 0; i < n; ++i)
+            if (const double d = std::hypot (ring[i].x - q.x, ring[i].y - q.y); d < nearest)
+                nearest = d, best = i;
+        return best;
+    };
+    const auto put = [&] (double z) {
+        const uint32_t base = static_cast<uint32_t> (mesh.points.size () / 3);
         for (const auto& p : ring)
-            box.points.insert (box.points.end (), { p.x, p.y, z });
-    for (uint32_t i = 1; i + 1 < n; ++i)
-        box.indices.insert (box.indices.end (), { 0, i + 1, i, n, n + i, n + i + 1 });
+            mesh.points.insert (mesh.points.end (), { p.x, p.y, z });
+        mesh.vertexRgba.insert (mesh.vertexRgba.end (), n, rgba);
+        return base;
+    };
+    const uint32_t bottom = put (z0), top = put (z1);
+    for (const auto& t : triangles) {
+        if (t.size () != 3)
+            continue;
+        uint32_t a = corner (t[0]), b = corner (t[1]), c = corner (t[2]);
+        if ((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[1].y - t[0].y) * (t[2].x - t[0].x) < 0)
+            std::swap (b, c); // counter-clockwise from above
+        mesh.indices.insert (mesh.indices.end (), { top + a, top + b, top + c, bottom + a, bottom + c, bottom + b });
+    }
+    const uint32_t low = put (z0), high = put (z1);
     for (uint32_t i = 0; i < n; ++i) {
         const uint32_t k = (i + 1) % n;
-        box.indices.insert (box.indices.end (), { i, k, n + k, i, n + k, n + i });
+        mesh.indices.insert (mesh.indices.end (), { low + i, low + k, high + k, low + i, high + k, high + i });
     }
-    layer.meshes.push_back (std::move (box));
-    return true;
 }
 // A building's planned floors as one cell complex (BuildingTopology.hpp), the floors not yet
 // planned left out.
@@ -199,10 +198,10 @@ bt::Complex ComplexOf (State& state, const std::string& key, const buildingplan:
 }
 } // namespace
 
-// The floors' schemes on the overlay, inside their walls (user, 2026-10-10): every building's
-// flats and circulation clear of the 0.5 m facade and 0.2 m partitions at their floor's level, its
-// party walls, each stack stair as one shaft from the lowest floor to under the top floor's slab,
-// and the flat selected in a Plan view white.
+// The floors' schemes on the overlay as their cell complex (BuildingTopology.hpp; user, 2026-10-15):
+// each cell a solid from its floor to under the next slab, coloured by its space, the stack's stair
+// cells highlighted on their own toggle, and the flat selected in a Plan view white inside its walls
+// with its floor's side lengths.
 // Planned off the UI thread (FloorPlanner.hpp): asked when what a floor is planned from changes,
 // published when a scheme arrives or the selection moves.
 // ⚠️ THE PLAN'S STOREY IS THE FLOOR SHOWN (user, 2026-10-15: "Selected slabs story and actual
@@ -236,7 +235,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             asked << floor.story << '@' << floor.z << floor.outlineKey.size () << floor.outlineKey.substr (0, 64);
     }
     const bool arrived = state.floorPlanner.Poll ();
-    const bool wanted = state.previewStairs || state.previewUnits || state.previewGrid;
+    const bool wanted = state.previewStairs || state.previewCells;
     if (wanted && (arrived || asked.str () != state.floorPlanAsked)) {
         state.floorPlanAsked = asked.str ();
         for (const auto& [key, plan] : state.floorPlanSnapshots)
@@ -248,9 +247,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         if (auto s = hudfloorscheme::Selected (editor))
             selected.push_back (std::move (*s));
     std::ostringstream signature;
-    signature << std::setprecision (17) << state.previewStairs << state.previewUnits << state.previewGrid << ':'
-              << state.floorPlanner.Revision () << ':' << floorprogramme::ColoursKey (state.massingProgramme) << ':'
-              << (onPlan ? state.planStorey : INT_MIN);
+    signature << std::setprecision (17) << state.previewStairs << state.previewCells << ':'
+              << state.floorPlanner.Revision () << ':' << (onPlan ? state.planStorey : INT_MIN);
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         const auto* shown = Displayed (plan, state.buildingPlans[key]);
         signature << '|' << key << ':' << plan.floors.size () << '@' << (shown ? shown->story : INT_MIN);
@@ -271,102 +269,49 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         *onPlan = {};
         onPlan->name = kPlanUnitsLayer;
         onPlan->views = overlaylayers::Views::TwoD;
-        units.views = overlaylayers::Views::ThreeD;
+        units.views = stairs.views = overlaylayers::Views::ThreeD;
     }
+    // The cell complex (user, 2026-10-15: "Replace Show units and Show main walls with Show Cell
+    // Complex"): in 3D every floor's cells, solids from the floor to under the next slab; on the plan
+    // its storey's, filled. The stairs' toggle highlights the stack's stair cells, alone or among
+    // the rest ("Show proposed stair cores becomes only higlight stair core cell").
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
+        if (!state.previewCells && !state.previewStairs)
+            break;
         const auto complex = ComplexOf (state, key, plan, options);
-        if (state.previewGrid && !plan.floors.empty ()) {
-            std::vector<fs::Pins::Core> stack;
-            std::vector<std::array<fs::Vec, 2>> grid;
-            Stack (state.floorPlanner, key, plan, stack, &grid);
-            double z0 = 1e18, z1 = -1e18;
-            for (const auto& floor : plan.floors) {
-                z0 = (std::min) (z0, floor.z), z1 = (std::max) (z1, floor.z + floor.height);
-                if (onPlan && floor.story == state.planStorey)
-                    PlanGrid (*onPlan, grid, floor.z + 0.06);
-            }
-            FramedGrid (units, grid, z0, z1);
+        overlaylayers::Mesh cells, cores;
+        for (auto* mesh : { &cells, &cores }) {
+            mesh->styled = true;
+            mesh->style.shading = overlaylayers::Shading::Lit;
+            mesh->style.behind = overlaylayers::Behind::Show;
+            mesh->style.edgeRgba = kCellEdge;
         }
-        if (state.previewStairs) {
-            // A stack stair from its lowest floor to its highest: the shaft never moves. A stair
-            // the stack does not have (CheckStack reported it) stands on its floor alone.
-            std::map<int, std::pair<int, int>> shafts; // stack stair: lowest and highest cell
-            for (size_t i = 0; i < complex.cells.size (); ++i) {
-                const auto& cell = complex.cells[i];
-                if (cell.kind != bt::CellKind::Core)
-                    continue;
-                const int id = static_cast<int> (i);
-                const auto& floor = complex.floors[cell.floor];
-                const double z = floor.z;
-                if (cell.stack < 0) {
-                    const auto ring = bt::Clear (complex, { id });
-                    if (ring.size () == 1)
-                        Prism (stairs, ring.front (), bt::ClearSpan (floor).z0, bt::ClearSpan (floor).z1);
-                    continue;
-                }
-                auto [it, fresh] = shafts.try_emplace (cell.stack, id, id);
-                if (!fresh) {
-                    if (z < complex.floors[complex.cells[it->second.first].floor].z)
-                        it->second.first = id;
-                    if (z > complex.floors[complex.cells[it->second.second].floor].z)
-                        it->second.second = id;
-                }
-            }
-            for (const auto& [stair, ends] : shafts) {
-                const auto ring = bt::Clear (complex, { ends.first });
-                if (ring.size () == 1)
-                    Prism (stairs, ring.front (), bt::ClearSpan (complex.floors[complex.cells[ends.first].floor]).z0,
-                           bt::ClearSpan (complex.floors[complex.cells[ends.second].floor]).z1);
+        cores.style.edgeRgba = kCoreHighlight;
+        cores.style.edgeWidthPixels = 2.5f;
+        for (const auto& cell : complex.cells) {
+            if (cell.context || cell.floor < 0)
+                continue;
+            const bool core = cell.kind == bt::CellKind::Core;
+            const bool highlighted = core && state.previewStairs;
+            if (!highlighted && !state.previewCells)
+                continue;
+            const auto& floor = complex.floors[cell.floor];
+            const auto span = bt::ClearSpan (floor);
+            const uint32_t rgba = CellRgba (cell);
+            Solid (highlighted ? cores : cells, cell.shape, span.z0 + 0.02, span.z1, rgba);
+            if (onPlan && floor.story == state.planStorey) {
+                const double z = floor.z + 0.02;
+                Fill (*onPlan, cell.shape, z, (rgba & 0xFFFFFF00u) | (highlighted ? 0xE6u : kPlanFillAlpha));
+                Line (*onPlan, cell.shape, z, highlighted ? kCoreHighlight : (kCellEdge & 0xFFFFFF00u) | 0x99u,
+                      highlighted ? 3.0f : 1.0f);
             }
         }
-        if (!state.previewUnits)
-            continue;
-        // The floor its Plan view shows -- picked in the building section -- is the one edited on the
-        // locked view: in 3D its flats are filled (user, 2026-10-14: "In 3d locked mode units are
-        // selectable, but should have solid transparent fill not just contour").
-        const auto* edited = Displayed (plan, state.buildingPlans[key]);
-        for (size_t f = 0; f < complex.floors.size (); ++f) {
-            const auto& floor = complex.floors[f];
-            const double z = floor.z + 0.02;
-            const bool filled = edited && floor.story == edited->story;
-            // The plan's storey goes to the plan as well, its flats filled under their outlines.
-            overlaylayers::Layer* here = onPlan && floor.story == state.planStorey ? onPlan : nullptr;
-            for (int u : floor.units) {
-                const uint32_t colour =
-                    floorprogramme::Colour (state.massingProgramme, complex.units[u].type, complex.units[u].rooms);
-                for (const auto& ring : bt::Clear (complex, complex.units[u].cells)) {
-                    if (filled)
-                        Fill (units, ring, z, (colour & 0xFFFFFF00u) | kPlanFillAlpha);
-                    Line (units, ring, z, colour, 2.0f);
-                    if (here) {
-                        Fill (*here, ring, z, (colour & 0xFFFFFF00u) | kPlanFillAlpha);
-                        Line (*here, ring, z, colour, 2.0f);
-                    }
-                }
-            }
-            for (int id : floor.cells) {
-                const auto kind = complex.cells[id].kind;
-                if (kind == bt::CellKind::Corridor || kind == bt::CellKind::Lobby)
-                    for (const auto& ring : bt::Clear (complex, { id })) {
-                        Line (units, ring, z, 0xD6C49AFFu, 2.0f);
-                        if (here)
-                            Line (*here, ring, z, 0xD6C49AFFu, 2.0f);
-                    }
-            }
-            const auto* planned = state.floorPlanner.Latest (FloorId (key, floor.story));
-            for (const auto& w : planned ? planned->scheme.party : std::vector<std::array<fs::Vec, 2>> {}) {
-                overlaylayers::Polyline wall;
-                wall.rgba = 0x282C30FFu;
-                wall.widthPixels = 5.0f;
-                wall.behind = overlaylayers::Behind::Show;
-                wall.points = { w[0].x, w[0].y, z, w[1].x, w[1].y, z };
-                if (here)
-                    here->polylines.push_back (wall);
-                units.polylines.push_back (std::move (wall));
-            }
-        }
+        if (!cells.indices.empty ())
+            units.meshes.push_back (std::move (cells));
+        if (!cores.indices.empty ())
+            stairs.meshes.push_back (std::move (cores));
     }
-    // The flat selected in a Plan view, white over the rest, whether outlines are shown or not:
+    // The flat selected in a Plan view, white over the rest, whether the cells are shown or not:
     // inside its walls, as the outlines are. Its floor's flats carry their sides' lengths, every
     // one of them (user, 2026-10-15: "show unit segment lenghts but for whole floor of units not
     // just one selection").

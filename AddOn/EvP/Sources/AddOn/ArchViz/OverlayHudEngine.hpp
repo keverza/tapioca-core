@@ -113,8 +113,8 @@ struct State {
     std::string floorPlanAsked; // what the overlay last asked the planner for
     bool editLocked = false;    // the dock's lock: the view's clicks edit the floor plan
     std::shared_ptr<roofhud::Session> roofEditor;
-    bool previewStairs = false, previewUnits = false;
-    bool previewGrid = false; // the buildings' main walls (Massing tab, user 2026-10-15)
+    // Massing tab: the buildings' cell complexes, and their stair cells highlighted (user, 2026-10-15)
+    bool previewStairs = false, previewCells = false;
     std::string floorPlanPublished;
     int planStorey = INT_MIN; // the floor plan overlay's storey while it runs (SetPlanStorey), else INT_MIN
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.

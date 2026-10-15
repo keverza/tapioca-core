@@ -368,8 +368,9 @@ std::vector<hudmeta::Edit> TakeMetadataEdits (State& state);
 std::vector<hudmassing::Request> TakeMassingRequests (State& state);
 std::vector<massingbake::Kind> TakeMassingBakes (State& state);
 // Pure snapshot assembly; owner publishes returned layers outside ImGui/render locks. Given `onPlan`,
-// `units` is drawn in 3D only (every floor) and `onPlan` on the floor plan only: each building's floor
-// at the plan's storey (SetPlanStorey), its flats filled; none while the storey is unknown.
+// `units` (the cells) and `stairs` (the highlighted stair cells) are drawn in 3D only (every floor)
+// and `onPlan` on the floor plan only: each building's floor at the plan's storey (SetPlanStorey), its
+// cells filled; none while the storey is unknown.
 bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylayers::Layer& units,
                           overlaylayers::Layer* onPlan = nullptr);
 // The storey the floor plan overlay shows, read by its owner each turn; INT_MIN when it is not running.
