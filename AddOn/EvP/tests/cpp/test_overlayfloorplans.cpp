@@ -362,9 +362,11 @@ TEST (OverlayFloorPlans, ArchicadsStoreyIsTheFloorEveryBuildingShows)
 }
 
 // User, 2026-10-15: "if zoomed in in overlay show segment length alligned to line like we have for
-// area display." The selected flat's sides carry their lengths on the plan and in 3D: lying on the
-// floor along each side, hidden until zoomed in.
-TEST (OverlayFloorPlans, TheSelectedFlatsSidesCarryTheirLengthsWhenZoomedIn)
+// area display"; later: "for whole floor of units not just one selection ... Text label should be
+// black - same color as are label." With a flat selected, every flat of its floor carries its
+// sides' lengths on the plan and in 3D: black, lying on the floor along each side, hidden until
+// zoomed in.
+TEST (OverlayFloorPlans, TheSelectedFloorsFlatsCarryTheirSidesLengthsWhenZoomedIn)
 {
     namespace hf = geomsrv::archviz::hudfloorscheme;
     auto state = hud::NewState ();
@@ -383,8 +385,10 @@ TEST (OverlayFloorPlans, TheSelectedFlatsSidesCarryTheirLengthsWhenZoomedIn)
     editor->selected = { hf::Kind::Flat, 0, {}, {} };
     hud::SetPlanStorey (*state, 0);
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
-    ASSERT_GE (onPlan.texts.size (), 4u) << "a length on each side";
+    ASSERT_GE (planned->scheme.flats.size (), 2u);
+    ASSERT_GE (onPlan.texts.size (), 4 * planned->scheme.flats.size ()) << "a length on each side of every flat";
     for (const auto& t : onPlan.texts) {
+        EXPECT_EQ (t.rgba, 0x202020FFu) << "black, as the areas are";
         EXPECT_TRUE (t.planar);
         EXPECT_GT (t.minProjectedPixels, 0) << "only zoomed in";
         EXPECT_NEAR (t.at[2], 0.05, 1e-9) << "on its floor";

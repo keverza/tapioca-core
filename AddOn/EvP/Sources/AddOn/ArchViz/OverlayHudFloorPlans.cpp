@@ -57,8 +57,9 @@ void EdgeLengths (overlaylayers::Layer& layer, const fs::Ring& ring, double z)
         t.sizeMetres = 0.28;
         t.sizePixels = 32.0f; // the layout's resolution only
         t.minProjectedPixels = 9;
-        t.rgba = 0xFFFFFFFFu;
-        t.haloRgba = 0x1A1E20E0u;
+        // Black on a white halo, as the slices' areas are (StorySliceOverlayContent.hpp).
+        t.rgba = 0x202020FFu;
+        t.haloRgba = 0xFFFFFFD0u;
         t.behind = overlaylayers::Behind::Show;
         layer.texts.push_back (std::move (t));
     }
@@ -366,7 +367,9 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         }
     }
     // The flat selected in a Plan view, white over the rest, whether outlines are shown or not:
-    // inside its walls, as the outlines are.
+    // inside its walls, as the outlines are. Its floor's flats carry their sides' lengths, every
+    // one of them (user, 2026-10-15: "show unit segment lenghts but for whole floor of units not
+    // just one selection").
     for (const auto& s : selected) {
         const auto plan = state.floorPlanSnapshots.find (s.building);
         if (plan == state.floorPlanSnapshots.end ())
@@ -374,20 +377,27 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         for (const auto& floor : plan->second.floors) {
             if (floor.story != s.story)
                 continue;
-            std::vector<fs::Ring> rings { s.flat };
+            overlaylayers::Layer* here = onPlan && floor.story == state.planStorey ? onPlan : nullptr;
+            std::vector<fs::Ring> rings { s.flat }, measured { s.flat };
             if (const auto* planned = state.floorPlanner.Latest (FloorId (s.building, floor.story))) {
                 const auto complex = bt::Build ({ { floor.story, floor.z, floor.height, &planned->scheme, {} } });
-                for (const auto& unit : complex.units)
+                measured.clear ();
+                for (const auto& unit : complex.units) {
+                    const auto clear = bt::Clear (complex, unit.cells);
                     if (planned->scheme.flats[unit.flat].shape == s.flat)
-                        rings = bt::Clear (complex, unit.cells);
+                        rings = clear;
+                    measured.insert (measured.end (), clear.begin (), clear.end ());
+                }
             }
             for (const auto& ring : rings) {
                 Line (units, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
+                if (here)
+                    Line (*here, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
+            }
+            for (const auto& ring : measured) {
                 EdgeLengths (units, ring, floor.z + 0.05);
-                if (onPlan && floor.story == state.planStorey) {
-                    Line (*onPlan, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
-                    EdgeLengths (*onPlan, ring, floor.z + 0.05);
-                }
+                if (here)
+                    EdgeLengths (*here, ring, floor.z + 0.05);
             }
         }
     }
