@@ -1012,15 +1012,18 @@ TEST (HudFloorSchemeEdit, ABlockFromTheLockedPaletteDroppedOnThePlanPutsAFlatIn)
     }
     ASSERT_NE (scheme, nullptr);
     view (OnPlan ({ 18, 8 }), false);
-    // The widest flat of a row: room beside it for one more.
+    // The widest flat of a row with room beside it for one more, a door on the corridor included.
     int wide = -1;
-    for (size_t i = 0; i < scheme->flats.size (); ++i)
-        if (scheme->flats[i].band >= 0 && (wide < 0 || scheme->flats[i].frontage > scheme->flats[wide].frontage))
-            wide = int (i);
-    ASSERT_GE (wide, 0);
     fs::Vec mid;
-    for (const auto& p : scheme->flats[wide].shape)
-        mid.x += p.x / scheme->flats[wide].shape.size (), mid.y += p.y / scheme->flats[wide].shape.size ();
+    for (size_t i = 0; i < scheme->flats.size (); ++i) {
+        fs::Vec at;
+        for (const auto& p : scheme->flats[i].shape)
+            at.x += p.x / scheme->flats[i].shape.size (), at.y += p.y / scheme->flats[i].shape.size ();
+        if (scheme->flats[i].band >= 0 && fs::edit::Insert (*scheme, at, 1) &&
+            (wide < 0 || scheme->flats[i].frontage > scheme->flats[wide].frontage))
+            wide = int (i), mid = at;
+    }
+    ASSERT_GE (wide, 0);
     EXPECT_FALSE (bp::Dirty (drafts["A"]));
     view (swatch, false);
     view (swatch, true);

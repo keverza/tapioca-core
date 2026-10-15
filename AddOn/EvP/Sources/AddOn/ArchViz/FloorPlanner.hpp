@@ -96,9 +96,12 @@ std::vector<floorscheme::Ring> Common (const Plan& plan, const std::vector<floor
 // planned, which every floor holds (Options::holdCores). False while it is not planned yet. A
 // saved stair is a pin there, so the stack is where the generator built it, not where it was
 // dragged across the corridor.
+// `grid`, when given: the main walls of that floor (floorscheme::MainWalls), which every floor is
+// planned to (Options::grid) so they stand from the ground to the top like the stairs (user,
+// 2026-10-15).
 std::string StackId (const std::string& key, const Plan& plan);
-bool Stack (const Planner& planner, const std::string& key, const Plan& plan,
-            std::vector<floorscheme::Pins::Core>& out);
+bool Stack (const Planner& planner, const std::string& key, const Plan& plan, std::vector<floorscheme::Pins::Core>& out,
+            std::vector<std::array<floorscheme::Vec, 2>>* grid = nullptr);
 // Every floor of `key` asked of `planner`, the shown story first, after the floor all floors share
 // (`Common`) is planned with the saved stairs as pins and its stairs (`Stack`) held on every
 // floor. The newest scheme of the shown story, or null while it has none.

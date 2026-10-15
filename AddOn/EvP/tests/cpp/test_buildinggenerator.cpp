@@ -606,3 +606,49 @@ TEST (BuildingGenerator, TheSameMassPlannedTwiceHasTheSameIds)
         EXPECT_EQ (a.complex.cells[i].id, b.complex.cells[i].id);
     EXPECT_EQ (a.nextId, b.nextId);
 }
+
+// User, 2026-10-15: "main wall should go from bottom to top similar to stairs core." A mass's levels
+// are planned to the main walls of the floor every level has, as they hold its stairs: more of their
+// party walls stand on one line from the ground to the top than when each level is planned free.
+TEST (BuildingGenerator, EveryLevelIsPlannedToTheSharedFloorsMainWalls)
+{
+    const auto programme = fp::Default ();
+    const std::vector<bg::Level> levels { LevelAt (0, 0, { Rect (0, 0, 60, 16) }),
+                                          LevelAt (1, 3, { Rect (0, 0, 60, 16) }),
+                                          LevelAt (2, 6, { Rect (0, 0, 52, 16) }) };
+    const auto g = bg::PlanMass (levels, programme);
+    ASSERT_FALSE (g.grid.empty ());
+    std::vector<double> xs;
+    for (const auto& line : g.grid)
+        xs.push_back (line[0].x);
+    // Party walls between band flats standing on a main wall, over every level.
+    const auto on = [&] (const fs::Scheme& s) {
+        int n = 0;
+        for (const auto& f : s.flats) {
+            if (f.band < 0)
+                continue;
+            double lo = 1e18, hi = -1e18;
+            for (const auto& q : f.shape)
+                lo = (std::min) (lo, q.x), hi = (std::max) (hi, q.x);
+            for (const double x : { lo, hi })
+                n += std::any_of (xs.begin (), xs.end (), [&] (double gx) { return std::abs (gx - x) < 0.01; });
+        }
+        return n;
+    };
+    int held = 0, free = 0;
+    for (size_t i = 0; i < g.schemes.size (); ++i) {
+        EXPECT_TRUE (g.schemes[i].ok) << "level " << i;
+        EXPECT_EQ (g.schemes[i].grid.size (), g.grid.size ()) << "level " << i << " planned to them";
+        held += on (g.schemes[i]);
+        fs::Pins pins;
+        pins.cores = g.stack;
+        fs::Options o;
+        o.holdCores = true;
+        free += on (fs::Generate (g.levels[i].outline, programme, pins, o));
+    }
+    EXPECT_GT (held, free);
+    // Replanned, a level keeps them.
+    auto again = g;
+    ASSERT_TRUE (bg::ReplanFloor (again, 2, programme, {}));
+    EXPECT_EQ (again.schemes[2].grid.size (), g.grid.size ());
+}

@@ -137,14 +137,20 @@ Generated PlanMass (std::vector<Level> levels, const fp::Programme& programme,
     Level shared = out.levels[lead];
     shared.outline = Common (outlines, shared.outline);
     shared.pins.cores = stairs;
-    out.stack = Cores (Plan (shared, programme, {}, options));
+    const auto sharedScheme = Plan (shared, programme, {}, options);
+    out.stack = Cores (sharedScheme);
+    // Its main walls, every level planned to them: they stand from the ground to the top like the
+    // stairs (user, 2026-10-15).
+    out.grid = fs::MainWalls (sharedScheme);
+    auto held = options;
+    held.grid = out.grid;
     if (out.stack.empty ())
         out.diagnostics.push_back ({ "stack.none",
                                      "The floor every level has got no stair: each level plans its own.",
                                      static_cast<int> (lead),
                                      {} });
     for (const auto& level : out.levels)
-        out.schemes.push_back (Plan (level, programme, out.stack, options));
+        out.schemes.push_back (Plan (level, programme, out.stack, held));
     Rebuild (out);
     return out;
 }
@@ -209,7 +215,9 @@ bool ReplanFloor (Generated& generated, int level, const fp::Programme& programm
 {
     if (level < 0 || level >= static_cast<int> ((std::min) (generated.levels.size (), generated.schemes.size ())))
         return false;
-    generated.schemes[level] = Plan (generated.levels[level], programme, generated.stack, options);
+    auto held = options;
+    held.grid = generated.grid;
+    generated.schemes[level] = Plan (generated.levels[level], programme, generated.stack, held);
     Rebuild (generated);
     return generated.schemes[level].ok;
 }

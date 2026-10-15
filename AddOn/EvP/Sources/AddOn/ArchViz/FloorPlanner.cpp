@@ -147,6 +147,9 @@ void Sign (FloorInput& in)
     std::ostringstream signature;
     signature << std::setprecision (9) << floorprogramme::Key (in.programme) << '|' << in.options.grossFactor << '|'
               << in.options.north << '|' << in.options.holdCores << '|';
+    for (const auto& g : in.options.grid)
+        signature << g[0].x << ',' << g[0].y << ',' << g[1].x << ',' << g[1].y << ';';
+    signature << '|';
     Write (signature, in.owned);
     signature << '|';
     Write (signature, in.party);
@@ -247,14 +250,19 @@ std::string StackId (const std::string& key, const Plan& plan)
     const Floor* lead = LeadFloor (plan);
     return FloorId (key, lead ? lead->story : 0) + "#auto";
 }
-bool Stack (const Planner& planner, const std::string& key, const Plan& plan, std::vector<fs::Pins::Core>& out)
+bool Stack (const Planner& planner, const std::string& key, const Plan& plan, std::vector<fs::Pins::Core>& out,
+            std::vector<std::array<fs::Vec, 2>>* grid)
 {
     out.clear ();
+    if (grid)
+        grid->clear ();
     const auto* planned = planner.Latest (StackId (key, plan));
     if (!planned)
         return false;
     for (const auto& core : planned->scheme.cores)
         out.push_back ({ core.centre, core.width, core.depth });
+    if (grid)
+        *grid = fs::MainWalls (planned->scheme);
     return true;
 }
 const Floor* LeadFloor (const Plan& plan)
@@ -285,12 +293,13 @@ const Planner::Planned* WantFloors (Planner& planner, const std::map<std::string
     Sign (reference);
     planner.Want (StackId (key, plan->second), std::move (reference), true);
     std::vector<fs::Pins::Core> stairs;
-    if (!Stack (planner, key, plan->second, stairs))
+    auto held = options;
+    if (!Stack (planner, key, plan->second, stairs, &held.grid))
         return nullptr; // the stairs first
     const Planner::Planned* shown = nullptr;
     for (const auto& floor : plan->second.floors) {
         const auto* got =
-            planner.Want (FloorId (key, floor.story), InputFor (plans, drafts, key, floor, programme, stairs, options),
+            planner.Want (FloorId (key, floor.story), InputFor (plans, drafts, key, floor, programme, stairs, held),
                           floor.story == shownStory);
         if (floor.story == shownStory)
             shown = got;

@@ -41,6 +41,7 @@ struct Generated {
     std::vector<Level> levels;                             // lowest first
     std::vector<floorscheme::Scheme> schemes;              // one per level: complex floor i is level i
     std::vector<floorscheme::Pins::Core> stack;            // the building's stairs, held on every level
+    std::vector<std::array<floorscheme::Vec, 2>> grid;     // its main walls, planned to on every level
     buildingtopology::Complex complex;                     // from the schemes (`Rebuild`)
     std::vector<buildingtopology::Diagnostic> diagnostics; // the planning's own; the complex keeps its
     uint64_t nextId = 1; // the next new unit or cell id: ids outlive every rebuild (Reconcile)

@@ -589,9 +589,23 @@ void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots,
         // The building's main walls cut the band too (Options::grid; the reference's cut by grid):
         // the flats fill the bays between them, a wall inside a bay going anywhere. A main wall is
         // taken where both parts still divide into whole flats that reach the corridor, and no
-        // fewer of them than the span holds uncut (user: profit before the mix); a span a
-        // flat-count pin holds keeps its count.
-        if (!o.grid.empty ()) {
+        // fewer of them than the span holds uncut (user: profit before the mix). A band the user
+        // edited -- a wall, a count, a room count, a join or a give pinned in it -- keeps the walls
+        // the edit made: the main walls neither cut nor move them.
+        bool edited = false;
+        const auto in = [&] (Vec at) { edited = edited || Contains (slot, at, 0.3); };
+        for (const auto& pin : pins.walls)
+            in (pin.at);
+        for (const auto& pin : pins.counts)
+            in (pin.at);
+        for (const auto& pin : pins.rooms)
+            in (pin.at);
+        for (const auto& pin : pins.joins)
+            in (pin.from), in (pin.into);
+        for (const auto& pin : pins.gives)
+            in (pin.into);
+        b.grid = edited ? nullptr : &o.grid;
+        if (!o.grid.empty () && !edited) {
             const auto lines = GridAcross (o.grid, slot);
             std::vector<double> cut { edges.front () };
             for (size_t k = 0; k + 1 < edges.size (); ++k) {

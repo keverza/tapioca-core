@@ -215,8 +215,9 @@ Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp
     c.planner.Poll ();
     const auto* planned = bp::WantFloors (c.planner, c.plans, c.drafts, key, c.programme, floor.story, c.options);
     std::vector<fs::Pins::Core> stairs;
-    bp::Stack (c.planner, key, plan, stairs);
-    e.input = bp::InputFor (c.plans, c.drafts, key, floor, c.programme, stairs, c.options);
+    auto held = c.options; // the stairs and the main walls every floor stands on (WantFloors)
+    bp::Stack (c.planner, key, plan, stairs, &held.grid);
+    e.input = bp::InputFor (c.plans, c.drafts, key, floor, c.programme, stairs, held);
     if (e.key != key || e.story != floor.story) {
         e.key = key, e.story = floor.story;
         e.selected = e.menu = {};

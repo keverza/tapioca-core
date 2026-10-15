@@ -234,3 +234,28 @@ TEST (FloorPlanner, ExportIsAStorySlicesFixtureWithTheStairsProgrammeAndEveryFlo
         EXPECT_GT (net, 0);
     }
 }
+
+// User, 2026-10-15: "main wall should go from bottom to top similar to stairs core." Every floor of
+// a building is planned to the main walls of the floor they all share, as it holds that floor's
+// stairs; a scheme of the stack carries them too.
+TEST (FloorPlanner, EveryFloorIsPlannedToTheStacksMainWalls)
+{
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 60, 3) } };
+    std::map<std::string, bp::Draft> drafts;
+    bp::Planner planner;
+    for (int round = 0; round < 2; ++round) {
+        bp::WantFloors (planner, plans, drafts, "A", fp::Default (), 0);
+        Settle (planner);
+    }
+    std::vector<fs::Pins::Core> stairs;
+    std::vector<std::array<fs::Vec, 2>> grid;
+    ASSERT_TRUE (bp::Stack (planner, "A", plans.at ("A"), stairs, &grid));
+    ASSERT_FALSE (grid.empty ());
+    for (int story = 0; story < 3; ++story) {
+        const auto* floor = planner.Latest (bp::FloorId ("A", story));
+        ASSERT_NE (floor, nullptr) << story;
+        ASSERT_EQ (floor->scheme.grid.size (), grid.size ()) << story;
+        for (size_t i = 0; i < grid.size (); ++i)
+            EXPECT_NEAR (floor->scheme.grid[i][0].x, grid[i][0].x, 1e-9) << story;
+    }
+}
