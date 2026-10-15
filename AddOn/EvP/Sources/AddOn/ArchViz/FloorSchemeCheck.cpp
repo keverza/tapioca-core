@@ -6,6 +6,72 @@
 namespace geomsrv::archviz::floorscheme {
 using namespace detail;
 
+namespace detail {
+// A flat's rooms: the hall meets the circulation, a 1.5R's windows are 1.6 m apart, every room is
+// inside the flat and no narrower than its kind allows. Check runs it on every flat.
+void RoomRules (const Scheme& s, const Flat& f, const Options& o,
+                const std::function<void (const char*, const std::string&, Vec)>& fail)
+{
+    const Vec at = Centroid (f.shape);
+    // The hall is the entrance: it meets the corridor, landing or lobby.
+    bool hallDoor = false, hasHall = false;
+    for (const auto& r : f.roomList) {
+        if (r.kind != RoomKind::Hall)
+            continue;
+        hasHall = true;
+        double reach = 0;
+        // Rooms are drawn inside their walls: the circulation grows by a wall's thickness.
+        auto wall = [] (const Ring& ring) {
+            const auto grown = cp::InflatePaths ({ ToPath (ring) }, kPartyWall / 2 + 0.01, cp::JoinType::Miter,
+                                                 cp::EndType::Polygon, 2.0, kPrecision);
+            return grown.empty () ? ring : FromPath (grown.front ());
+        };
+        for (const auto& c : s.corridors)
+            reach += Touch (r.shape, wall (c.shape));
+        for (const auto& c : s.cores)
+            reach += Touch (r.shape, wall (c.shape));
+        for (const auto& l : s.lobbies)
+            reach += Touch (r.shape, wall (l));
+        hallDoor = hallDoor || reach >= 0.9;
+    }
+    if (hasHall && !hallDoor)
+        fail ("hall.no_door", "A flat's hall does not meet the corridor or landing.", at);
+    // A 1.5R needs 1.6 m of wall between its living-room and alcove windows.
+    bool alcove = false;
+    for (const auto& r : f.roomList)
+        alcove = alcove || r.kind == RoomKind::Alcove;
+    if (alcove)
+        for (size_t i = 0; i < f.windows.size (); ++i)
+            for (size_t j = 0; j < f.windows.size (); ++j) {
+                const auto& a = f.windows[i];
+                const auto& b = f.windows[j];
+                if (a.kind != RoomKind::Living || b.kind != RoomKind::Alcove)
+                    continue;
+                double gap = 1e18;
+                for (const Vec p : { a.a, a.b })
+                    for (const Vec q : { b.a, b.b })
+                        gap = (std::min) (gap, std::hypot (p.x - q.x, p.y - q.y));
+                if (gap < o.windowGap - 1e-6)
+                    fail ("window.gap", "A 1.5R's two windows are closer than 1.6 m.", at);
+            }
+    for (const auto& r : f.roomList)
+        if (!Inside ({ ToPath (f.shape) }, Centroid (r.shape)))
+            fail ("room.outside", "A room lies outside its flat.", Centroid (r.shape));
+    for (const auto& r : f.roomList) {
+        const double width = (std::min) (r.width, r.depth);
+        const double min = r.kind == RoomKind::Living    ? kLivingMin
+                           : r.kind == RoomKind::Bedroom ? kBedroomMin
+                           : r.kind == RoomKind::Wc      ? kWcMin
+                           : r.kind == RoomKind::Bath    ? 1.5
+                           : r.kind == RoomKind::Hall    ? kHallMin
+                           : r.kind == RoomKind::Storage ? kStorageMin
+                                                         : 0.0;
+        if (width < min - 1e-6)
+            fail ("room.narrow", "A room is narrower than its minimum width.", Centroid (r.shape));
+    }
+}
+} // namespace detail
+
 size_t Check (Scheme& s, const Options& o)
 {
     const auto outline = ToPaths (s.outline);
@@ -117,62 +183,7 @@ size_t Check (Scheme& s, const Options& o)
         for (const auto& c : s.corridors)
             if (Overlap (f.shape, c.shape) > 0.01)
                 fail ("flat.over_corridor", "A flat crosses a corridor.", at);
-        // The hall is the entrance: it meets the corridor, landing or lobby.
-        bool hallDoor = false, hasHall = false;
-        for (const auto& r : f.roomList) {
-            if (r.kind != RoomKind::Hall)
-                continue;
-            hasHall = true;
-            double reach = 0;
-            // Rooms are drawn inside their walls: the circulation grows by a wall's thickness.
-            auto wall = [] (const Ring& ring) {
-                const auto grown = cp::InflatePaths ({ ToPath (ring) }, kPartyWall / 2 + 0.01, cp::JoinType::Miter,
-                                                     cp::EndType::Polygon, 2.0, kPrecision);
-                return grown.empty () ? ring : FromPath (grown.front ());
-            };
-            for (const auto& c : s.corridors)
-                reach += Touch (r.shape, wall (c.shape));
-            for (const auto& c : s.cores)
-                reach += Touch (r.shape, wall (c.shape));
-            for (const auto& l : s.lobbies)
-                reach += Touch (r.shape, wall (l));
-            hallDoor = hallDoor || reach >= 0.9;
-        }
-        if (hasHall && !hallDoor)
-            fail ("hall.no_door", "A flat's hall does not meet the corridor or landing.", at);
-        // A 1.5R needs 1.6 m of wall between its living-room and alcove windows.
-        bool alcove = false;
-        for (const auto& r : f.roomList)
-            alcove = alcove || r.kind == RoomKind::Alcove;
-        if (alcove)
-            for (size_t i = 0; i < f.windows.size (); ++i)
-                for (size_t j = 0; j < f.windows.size (); ++j) {
-                    const auto& a = f.windows[i];
-                    const auto& b = f.windows[j];
-                    if (a.kind != RoomKind::Living || b.kind != RoomKind::Alcove)
-                        continue;
-                    double gap = 1e18;
-                    for (const Vec p : { a.a, a.b })
-                        for (const Vec q : { b.a, b.b })
-                            gap = (std::min) (gap, std::hypot (p.x - q.x, p.y - q.y));
-                    if (gap < o.windowGap - 1e-6)
-                        fail ("window.gap", "A 1.5R's two windows are closer than 1.6 m.", at);
-                }
-        for (const auto& r : f.roomList)
-            if (!Inside ({ ToPath (f.shape) }, Centroid (r.shape)))
-                fail ("room.outside", "A room lies outside its flat.", Centroid (r.shape));
-        for (const auto& r : f.roomList) {
-            const double width = (std::min) (r.width, r.depth);
-            const double min = r.kind == RoomKind::Living    ? kLivingMin
-                               : r.kind == RoomKind::Bedroom ? kBedroomMin
-                               : r.kind == RoomKind::Wc      ? kWcMin
-                               : r.kind == RoomKind::Bath    ? 1.5
-                               : r.kind == RoomKind::Hall    ? kHallMin
-                               : r.kind == RoomKind::Storage ? kStorageMin
-                                                             : 0.0;
-            if (width < min - 1e-6)
-                fail ("room.narrow", "A room is narrower than its minimum width.", Centroid (r.shape));
-        }
+        RoomRules (s, f, o, fail);
     }
     for (const auto& u : s.unassigned)
         if (std::abs (Area (u.shape)) >= 2.0)

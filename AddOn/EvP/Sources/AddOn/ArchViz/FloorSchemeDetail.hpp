@@ -5,6 +5,7 @@
 // (u along a wing, v across it) as axis-aligned boxes; Clipper works in world XY.
 #include "ArchViz/FloorScheme.hpp"
 #include <clipper2/clipper.h>
+#include <functional>
 #include <algorithm>
 #include <cmath>
 
@@ -104,6 +105,10 @@ double FacadeAlong (const cp::PathsD& outline, Vec a, Vec b, Vec outward, const 
 double Area (const cp::PathsD& paths);
 
 // Shared by Generate and Check (FloorScheme.cpp, FloorSchemeCheck.cpp).
+// A flat's rooms against the hard rules (hall at the circulation, a 1.5R's window gap, rooms inside
+// and wide enough): `fail` is called for each broken one.
+void RoomRules (const Scheme& s, const Flat& f, const Options& o,
+                const std::function<void (const char*, const std::string&, Vec)>& fail);
 double Overlap (const Ring& a, const Ring& b);
 // Boundary shared by two touching polygons, from the overlap of a thin band around `a`.
 double Touch (const Ring& a, const Ring& b, double band = 0.05);
