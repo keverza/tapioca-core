@@ -58,6 +58,10 @@ edit::Vec3 GrabPoint (const Session& s, const Map& m, ImVec2 mouse, const edit::
 bool FlushEdges (Session& s, const Map& m, ImVec2 mouse, const std::vector<edit::Ref>& moving, double z,
                  const std::vector<edit::Ref>& exclude, float scale, edit::Transform& t);
 
+// Live-corner grips (HudVirtualEditorCorners.cpp): hover, drag, click and double click,
+// and their drawing. True when they took the pointer this frame.
+bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
+
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered

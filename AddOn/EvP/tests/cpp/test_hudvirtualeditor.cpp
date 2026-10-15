@@ -3,6 +3,7 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditShape.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 
@@ -417,4 +418,35 @@ TEST (HudVirtualEditor, SnapGroupsSwitchFromTheMenu)
     EXPECT_EQ (d.S ().snapModes & eh::kSnapGuides, eh::kSnapGuides);
     eh::RunMenuItem (d.S (), "snap.flush");
     EXPECT_FALSE (d.S ().edgeSnap);
+}
+
+TEST (HudVirtualEditor, CornerGripsRoundEveryCornerOfASelectedObject)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    // The grip of the corner at (10, 0) sits 16 px (0.8 m) up its bisector, at (9.43, 0.57).
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f;
+    d.At (gx, gy);
+    ASSERT_GE (d.S ().hoverCorner, 0);
+    // Dragged far up the bisector: every corner takes the radius, clamped to the 3 m the
+    // 6 m sides allow two corners each.
+    d.Press (gx, gy);
+    d.At (gx - 34, gy - 34);
+    d.Release (gx - 34, gy - 34);
+    for (const auto& v : d.D ().entities[0].vertices)
+        EXPECT_NEAR (v.radius, 3.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // A double click on a grip: its first click picks that corner, the second makes it sharp.
+    const ed::Vec3 grip = ed::CornerGripAt (d.D ().entities[0], 1, 0.8);
+    const float hx = 600 + 20 * float (grip.x), hy = 500 - 20 * float (grip.y);
+    d.At (hx, hy);
+    ASSERT_GE (d.S ().hoverCorner, 0);
+    d.input.buttons = { { 0, true }, { 0, false }, { 0, true }, { 0, false } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().selection.Kind (), ed::SelectionKind::Vertex);
+    EXPECT_DOUBLE_EQ (d.D ().entities[0].vertices[1].radius, 0.0);
+    EXPECT_NEAR (d.D ().entities[0].vertices[0].radius, 3.0, 1e-9);
 }

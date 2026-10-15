@@ -596,10 +596,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     else if (!hovered && s.drag == Drag::None)
         s.selection.hover = {}, s.hoverHandle = -1;
 
+    // Live-corner grips first: they sit over the geometry and the gizmo.
+    const bool gripTook = CornerGrips (s, m, mouse, hovered && s.tool == Tool::Select, scale);
+
     // Press. A handle waiting for its number gives way to whatever is pressed next.
     if (s.typedHandle >= 0 && s.typedMode != s.gizmo)
         s.typedHandle = -1;
-    if (hovered && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
+    if (!gripTook && hovered && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
         s.typedHandle = -1;
         if (s.tool != Tool::Select) {
             const double z = s.drawing.empty () ? s.workZ : s.drawing.back ().z;
@@ -936,9 +939,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // crosshair while a drawing tool places points, the move cross on a handle and through any
     // drag, the arrow otherwise.
     if (hovered) {
-        const bool dragging = s.drag == Drag::Part || s.drag == Drag::Handle;
+        const bool dragging = s.drag == Drag::Part || s.drag == Drag::Handle || s.drag == Drag::Corner;
         hudshell::OwnCursor (s.tool != Tool::Select && s.drag == Drag::None);
-        ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 ? ImGuiMouseCursor_ResizeAll : ImGuiMouseCursor_Arrow);
+        ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 || s.hoverCorner >= 0 ? ImGuiMouseCursor_ResizeAll
+                                                                                    : ImGuiMouseCursor_Arrow);
     }
     draw->PopClipRect ();
 }
