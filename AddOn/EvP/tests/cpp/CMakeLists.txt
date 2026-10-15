@@ -593,6 +593,7 @@ set (EVP_ARCHVIZ_SOURCES
     # The hooks and the canvas themselves: plain Win32, a window of the test's own thread for the
     # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
     # Independent sun-analysis compute device; no renderer, window or ACAPI.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyGpuTraversal.cpp"
@@ -1043,6 +1044,7 @@ endif ()
 # The HUD's input layer calls the wide Win32 API through its macros (IDC_ARROW), as the add-on
 # builds it: with UNICODE.
 set_source_files_properties ("${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+                             "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
                              PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_SCENE_TEXT_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
