@@ -45,8 +45,10 @@ void Engine::Impl::StoryDiagram (const massingbuildings::Preview& preview, float
     const auto before = run;
     hudsection::Run hover;
     int pickedStorey = (std::numeric_limits<int>::min) ();
+    // The floor the building's Plan view shows and edits: bold in the section.
+    const auto* shown = buildingplan::Displayed (preview.plan, store->buildingPlans[building.key]);
     for (auto& edit : hudsection::Diagram (preview.section, run, *look, ui, store->massingCoefficients, true, &hover,
-                                           &pickedStorey)) {
+                                           &pickedStorey, shown ? shown->story : (std::numeric_limits<int>::min) ())) {
         changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, edit.number, edit.text, true });
         store->metadataEdits.push_back (std::move (edit));
     }

@@ -9,6 +9,7 @@
 #include "Metadata/TapiocaMetadata.hpp"
 
 #include <gtest/gtest.h>
+#include <limits>
 #include <imgui_internal.h>
 
 #include <cmath>
@@ -330,4 +331,44 @@ TEST (HudSection, ARightClickAssignsAValueToThePickedFloors)
     EXPECT_DOUBLE_EQ (edits[1].to, 2.0);
     EXPECT_EQ (edits[0].text, "residential");
     EXPECT_EQ (edits[0].action, hm::Edit::Action::Set);
+}
+
+// User, 2026-10-14: "In section GUI make the selected floor text bold." The floor the Plan view shows
+// is drawn at full ink, twice a pixel apart (the font has no bold); the others stay muted.
+TEST (HudSection, TheShownFloorsLabelIsBold)
+{
+    auto* context = ImGui::CreateContext ();
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
+    io.DisplaySize = { 1000, 1000 };
+    io.DeltaTime = 1.0f / 60;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const auto section = hs::Build (Building (), Storeys (10), meta::DefaultSchema ());
+    ASSERT_GT (section.floors.size (), 2u);
+    const auto look = shell::PlainLook ();
+    const auto strong = shell::Packed (look.textRgba);
+    const auto drawn = [&] (int bold) {
+        hs::Run run;
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowSize ({ 500, 600 });
+        ImGui::Begin ("section-bold");
+        hs::Diagram (section, run, look, 1, {}, true, nullptr, nullptr, bold);
+        const auto* draw = ImGui::GetWindowDrawList ();
+        std::pair<size_t, size_t> out { draw->VtxBuffer.Size, 0 };
+        for (const auto& vertex : draw->VtxBuffer)
+            out.second += vertex.col == strong;
+        ImGui::End ();
+        ImGui::Render ();
+        return out;
+    };
+    const auto plain = drawn ((std::numeric_limits<int>::min) ());
+    const int storey = section.floors[1].storey;
+    const auto bold = drawn (storey);
+    const size_t glyphs = section.floors[1].label.size ();
+    EXPECT_GE (bold.first, plain.first + 4 * glyphs - 8) << "the label drawn a second time";
+    EXPECT_GE (bold.second, plain.second + 2 * 4 * (glyphs - 2)) << "both copies at full ink";
+    ImGui::DestroyContext (context);
 }

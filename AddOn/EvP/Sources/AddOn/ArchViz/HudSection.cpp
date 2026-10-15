@@ -221,7 +221,7 @@ std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, con
 
 std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const layers::Panel& look, float scale,
                                     const massingareas::Coefficients& coefficients, bool editable, Run* hover,
-                                    int* pickedStorey)
+                                    int* pickedStorey, int boldStorey)
 {
     std::vector<hudmeta::Edit> edits;
     if (hover)
@@ -296,7 +296,15 @@ std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const laye
     for (size_t i = 0; i < count; ++i) {
         const Floor& floor = section.floors[i];
         const float y0 = std::floor (origin.y + float (count - 1 - i) * (row + gap)), y1 = y0 + row;
-        draw->AddText (ImVec2 (origin.x, std::floor (y0 + (row - em) * 0.5f)), muted, floor.label.c_str ());
+        const ImVec2 caption (origin.x, std::floor (y0 + (row - em) * 0.5f));
+        if (floor.storey == boldStorey) { // full ink, drawn twice a pixel apart: the font has no bold
+            const ImU32 strong = hudshell::Packed (look.textRgba);
+            draw->AddText (caption, strong, floor.label.c_str ());
+            draw->AddText (ImVec2 (caption.x + (std::max) (1.0f, std::floor (scale)), caption.y), strong,
+                           floor.label.c_str ());
+        }
+        else
+            draw->AddText (caption, muted, floor.label.c_str ());
         const float share = section.widestM2 > 0.0 ? float (floor.areaM2 / section.widestM2) : 1.0f;
         const float w = std::floor (bars * (std::max) (kNarrowest, (std::min) (share, 1.0f)));
         const float x0 = std::floor (origin.x + labels + (bars - w) * 0.5f);

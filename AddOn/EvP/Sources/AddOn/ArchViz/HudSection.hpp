@@ -116,10 +116,12 @@ hudshell::Card BuildingAreas (const Section& section, const massingareas::Coeffi
 std::vector<hudmeta::Edit> RunEdits (const Section& section, const Run& run, const std::string& value, bool clear);
 
 // The section drawn in `look`; `run` the floors picked, kept by the caller and changed here.
-// What the user assigned in this frame.
+// What the user assigned in this frame. `boldStorey`'s label is bold: the floor the building's Plan
+// view shows and edits (user, 2026-10-14: "In section GUI make the selected floor text bold").
 std::vector<hudmeta::Edit> Diagram (const Section& section, Run& run, const overlaylayers::Panel& look, float scale,
                                     const massingareas::Coefficients& coefficients = {}, bool editable = true,
-                                    Run* hover = nullptr, int* pickedStorey = nullptr);
+                                    Run* hover = nullptr, int* pickedStorey = nullptr,
+                                    int boldStorey = (std::numeric_limits<int>::min) ());
 
 } // namespace hudsection
 } // namespace archviz
