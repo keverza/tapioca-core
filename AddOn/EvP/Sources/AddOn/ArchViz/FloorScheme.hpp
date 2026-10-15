@@ -102,12 +102,17 @@ struct Pins {
         int flats = 1; // flats in the band, or the span between pinned walls, under `at`
         bool operator== (const Count&) const = default;
     };
+    struct Join {
+        Vec from, into; // the flat under `from` is joined to the flat beside it under `into`
+        bool operator== (const Join&) const = default;
+    };
     std::vector<Core> cores;
     std::vector<AccessAt> access;
     std::vector<Wall> walls;
     std::vector<Rooms> rooms;
     std::vector<End> ends;
     std::vector<Count> counts;
+    std::vector<Join> joins; // applied in order, after division
     bool operator== (const Pins&) const = default;
 };
 

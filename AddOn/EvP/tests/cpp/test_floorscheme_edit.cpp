@@ -383,8 +383,8 @@ TEST (FloorSchemeEdit, AnEditThatCannotBeMadeSaysWhy)
     ASSERT_GE (cap, 0) << "the bar has corridor-end flats";
     ASSERT_GE (row, 0);
     std::string why;
-    EXPECT_EQ (fe::RemoveFlat (f.scheme, f.session.design, cap, &why), f.session.design);
-    EXPECT_NE (why.find ("corridor's end"), std::string::npos) << why;
+    EXPECT_EQ (fe::RemoveFlat (f.scheme, f.session.design, int (f.scheme.flats.size ()), &why), f.session.design);
+    EXPECT_NE (why.find ("no flat there"), std::string::npos) << why;
     // A locked flat neither splits nor goes.
     f.Apply (fe::SetLocked (f.scheme, f.session.design, row, true));
     const int locked = fe::FlatAt (f.scheme, Mid (f.scheme.flats[row].shape));
@@ -464,4 +464,58 @@ TEST (FloorSchemeEdit, ARoomCountNeverMovesWithoutItsWidth)
             }
         }
     EXPECT_GT (made, 0) << "some swap across the corridor is still made";
+}
+
+// User, 2026-10-14: "I was not able to delete some units." A flat at a corridor's end, and the only
+// flat of its row, have no row to close over them: each joins the flat it shares the longest wall
+// with, one flat of both areas whose rooms are laid again.
+TEST (FloorSchemeEdit, AFlatWithoutARowJoinsTheFlatBesideIt)
+{
+    Floor f ({ Rect (0, 0, 60, 16) });
+    ASSERT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    const double most = fs::MaxFlat (f.session.programme, f.session.options);
+    std::vector<int> rowless;
+    for (size_t i = 0; i < f.scheme.flats.size (); ++i) {
+        int shared = 0;
+        for (const auto& other : f.scheme.flats)
+            shared += f.scheme.flats[i].band >= 0 && other.band == f.scheme.flats[i].band;
+        if (f.scheme.flats[i].band < 0 || shared == 1)
+            rowless.push_back (static_cast<int> (i));
+    }
+    ASSERT_FALSE (rowless.empty ()) << "the bar has corridor-end flats";
+    int removed = 0;
+    for (const int i : rowless) {
+        Floor g ({ Rect (0, 0, 60, 16) });
+        const auto& gone = g.scheme.flats[i];
+        const fs::Vec at = Mid (gone.shape);
+        const double net = g.scheme.net;
+        std::string why;
+        const auto next = fe::RemoveFlat (g.scheme, g.session.design, i, &why, most);
+        if (next == g.session.design) {
+            EXPECT_FALSE (why.empty ()) << "a flat that stays says why";
+            continue;
+        }
+        ++removed;
+        const size_t flats = g.scheme.flats.size ();
+        g.Apply (next);
+        EXPECT_EQ (g.scheme.flats.size (), flats - 1) << Report (g.scheme);
+        EXPECT_EQ (Errors (g.scheme), 0u) << Report (g.scheme);
+        EXPECT_NEAR (g.scheme.net, net, 1.0) << "the floor it had goes to the flat beside it";
+        const int joined = fe::FlatAt (g.scheme, at);
+        ASSERT_GE (joined, 0) << "its floor is a flat's";
+        const auto& flat = g.scheme.flats[joined];
+        // Over the largest flat it is still made, as asked, and says so.
+        EXPECT_EQ (flat.net > most + 0.5, why.find ("over the largest flat") != std::string::npos)
+            << flat.net << " m2: " << why;
+        EXPECT_FALSE (flat.roomList.empty () && !flat.manual) << "its rooms are laid, or left to the user";
+        // Its type follows its area: no large flat named for a small count.
+        const auto& type = g.session.programme.types[flat.type];
+        EXPECT_EQ (flat.rooms, type.rooms);
+        EXPECT_GE (flat.net, type.minM2 - 0.5) << flat.net << " m2 as " << flat.rooms << "R";
+        // The design keeps the join: it reads back, and is undone like any edit.
+        ASSERT_TRUE (g.session.Undo ());
+        g.scheme = fe::Run (g.session.floor, g.session.programme, g.session.design);
+        EXPECT_EQ (g.scheme.flats.size (), flats);
+    }
+    EXPECT_GT (removed, 0) << "a corridor-end flat can be removed";
 }

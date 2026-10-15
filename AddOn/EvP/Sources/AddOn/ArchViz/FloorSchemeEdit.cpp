@@ -11,18 +11,30 @@ constexpr size_t kUndo = 200;
 // A flat no narrower than the smallest flat type's rooms (a 1.5R: living room and alcove).
 const double kNarrowest = RoomFrontage (1.5).min;
 
-// `d` unchanged, and why it could not change in `why` (printf style).
-Design Refuse (Design d, std::string* why, const char* format, ...)
+void Say (std::string* why, const char* format, va_list args)
 {
     if (why) {
         char text[256];
-        va_list args;
-        va_start (args, format);
         std::vsnprintf (text, sizeof (text), format, args);
-        va_end (args);
         *why = text;
     }
+}
+// `d` unchanged, and why it could not change in `why` (printf style).
+Design Refuse (Design d, std::string* why, const char* format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    Say (why, format, args);
+    va_end (args);
     return d;
+}
+// An edit made, with a word on it in `why` (printf style).
+void Remark (std::string* why, const char* format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    Say (why, format, args);
+    va_end (args);
 }
 
 bool In (const Ring& ring, Vec p)
@@ -206,6 +218,29 @@ size_t Nearest (const std::vector<Pins::Core>& pins, Vec p)
         if (dd < near)
             near = dd, best = i;
     }
+    return best;
+}
+// A point well inside `r` (an L's vertex mean can lie outside it): of a grid over its bounds, the
+// one farthest from its outline.
+Vec Within (const Ring& r)
+{
+    constexpr int kGrid = 24;
+    double x0 = 1e18, y0 = 1e18, x1 = -1e18, y1 = -1e18;
+    for (const auto& p : r)
+        x0 = (std::min) (x0, p.x), y0 = (std::min) (y0, p.y), x1 = (std::max) (x1, p.x), y1 = (std::max) (y1, p.y);
+    Vec best = Centroid (r);
+    double far = -1;
+    for (int i = 0; i < kGrid; ++i)
+        for (int j = 0; j < kGrid; ++j) {
+            const Vec p { x0 + (x1 - x0) * (i + 0.5) / kGrid, y0 + (y1 - y0) * (j + 0.5) / kGrid };
+            if (!In (r, p))
+                continue;
+            double near = 1e18;
+            for (size_t k = 0; k < r.size (); ++k)
+                near = (std::min) (near, Distance (p, r[k], r[(k + 1) % r.size ()]));
+            if (near > far)
+                far = near, best = p;
+        }
     return best;
 }
 } // namespace
@@ -496,21 +531,44 @@ Design SplitFlat (const Scheme& s, Design d, int flat, Vec at, std::string* why)
     f->flats.insert (f->flats.begin () + static_cast<std::ptrdiff_t> (k), -1);
     return Write (s, std::move (d), *f);
 }
-Design RemoveFlat (const Scheme& s, Design d, int flat, std::string* why)
+Design RemoveFlat (const Scheme& s, Design d, int flat, std::string* why, double most)
 {
     if (flat < 0 || flat >= static_cast<int> (s.flats.size ()))
         return Refuse (std::move (d), why, "There is no flat there to remove.");
     if (Locked (s, d, flat))
         return Refuse (std::move (d), why, "The flat is locked: unlock it to remove it.");
     auto f = Freeze (s, s.flats[flat].band);
-    if (!f)
-        return Refuse (std::move (d), why,
-                       "A flat at a corridor's end or in a section has no neighbour in a row to take its floor.");
-    if (f->flats.size () < 2)
-        return Refuse (std::move (d), why, "The only flat of its row stays: its floor would be left empty.");
-    const auto it = std::find (f->flats.begin (), f->flats.end (), flat);
-    if (it == f->flats.end ())
-        return Refuse (std::move (d), why, "There is no flat there to remove.");
+    const auto it = f ? std::find (f->flats.begin (), f->flats.end (), flat) : std::vector<int>::iterator {};
+    if (!f || f->flats.size () < 2 || it == f->flats.end ()) {
+        // No row to close over it (a corridor's end, a section's flat, its row's only flat): it
+        // joins the unlocked flat it shares the longest wall with, of its own section first (user,
+        // 2026-10-14: "I was not able to delete some units").
+        const auto& gone = s.flats[flat];
+        int best = -1;
+        double longest = 0.5;
+        bool same = false;
+        for (size_t i = 0; i < s.flats.size (); ++i) {
+            const int other = static_cast<int> (i);
+            if (other == flat || Locked (s, d, other) || !Near (gone.shape, s.flats[i].shape, 0.2))
+                continue;
+            const double shared = Touch (gone.shape, s.flats[i].shape, 0.1);
+            const bool mine = s.flats[i].section == gone.section;
+            if (shared > 0.5 && ((mine && !same) || (mine == same && shared > longest)))
+                best = other, longest = shared, same = mine;
+        }
+        if (best < 0)
+            return Refuse (std::move (d), why,
+                           "No unlocked flat shares a wall with this one to take its floor: it stays.");
+        // Over the largest flat it is still made, as asked, and says so: a corridor's end flat and
+        // the row beside it are often sized to the largest already.
+        const double joined = gone.net + s.flats[best].net;
+        if (most > 0 && joined > most + 0.5)
+            Remark (why, "Joined to the flat beside it: %.0f m2, over the largest flat (%.0f m2). Split it or undo.",
+                    joined, most);
+        std::erase_if (d.pins.rooms, [&] (const Pins::Rooms& r) { return In (gone.shape, r.at); });
+        d.pins.joins.push_back ({ Within (gone.shape), Within (s.flats[best].shape) });
+        return d;
+    }
     const size_t k = static_cast<size_t> (it - f->flats.begin ());
     // It joins its narrower neighbour: the wall between them goes.
     const bool before =

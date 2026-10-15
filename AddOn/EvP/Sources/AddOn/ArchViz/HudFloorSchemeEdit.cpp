@@ -266,7 +266,7 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
         if (ImGui::MenuItem ("Split here"))
             Apply (e, c, full, fe::SplitFlat (s, full, flat, e.menuAt, &why), why);
         if (ImGui::MenuItem ("Join with its neighbour") &&
-            Apply (e, c, full, fe::RemoveFlat (s, full, flat, &why), why))
+            Apply (e, c, full, fe::RemoveFlat (s, full, flat, &why, fs::MaxFlat (c.programme, c.options)), why))
             e.selected = {};
         ImGui::EndDisabled ();
         if (ImGui::MenuItem (locked ? "Unlock" : "Lock"))

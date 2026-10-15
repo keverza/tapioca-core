@@ -699,8 +699,8 @@ TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvase
     EXPECT_TRUE (drafts.empty ()) << "selection dimensions do not dirty the design";
 }
 
-// User, 2026-10-14: no silent failure. A flat dragged off the floor that cannot go (it ends the
-// corridor) stays, and the Plan view says why under its tools.
+// User, 2026-10-14: no silent failure. A flat dropped on the corridor (neither on a flat to change
+// places with nor off the floor) stays, and the Plan view says why under its tools.
 TEST (HudFloorSchemeEdit, AnEditThatCannotBeMadeIsSaidUnderTheTools)
 {
     auto* previous = ImGui::GetCurrentContext ();
@@ -757,12 +757,15 @@ TEST (HudFloorSchemeEdit, AnEditThatCannotBeMadeIsSaidUnderTheTools)
     fs::Vec mid;
     for (const auto& p : scheme->flats[cap].shape)
         mid.x += p.x / scheme->flats[cap].shape.size (), mid.y += p.y / scheme->flats[cap].shape.size ();
+    ASSERT_FALSE (scheme->corridors.empty ());
+    const auto& axis = scheme->corridors.front ().axis;
+    const fs::Vec hall { (axis.front ().x + axis.back ().x) / 2, (axis.front ().y + axis.back ().y) / 2 };
     EXPECT_GT (notice.x, notice.z) << "nothing to say yet";
     frame (screen (mid), false);
     frame (screen (mid), true);
     for (int n = 1; n <= 8; ++n)
-        frame (screen ({ mid.x, mid.y - 4.0 * n }), true); // off the floor, below it
-    frame (screen ({ mid.x, mid.y - 32 }), false);
+        frame (screen ({ mid.x + (hall.x - mid.x) * n / 8, mid.y + (hall.y - mid.y) * n / 8 }), true);
+    frame (screen (hall), false);
     ASSERT_NE (editor, nullptr);
     EXPECT_FALSE (editor->notice.empty ()) << "the refusal is said";
     EXPECT_FALSE (bp::Dirty (drafts["A"])) << "nothing changed";

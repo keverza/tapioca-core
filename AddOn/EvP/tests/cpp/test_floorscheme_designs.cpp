@@ -26,6 +26,7 @@ fe::Designs Sample ()
     d.pins.rooms = { { { 5.8, 3.55 }, 1.5 } };
     d.pins.ends = { { { 4.2, 8 } } };
     d.pins.counts = { { { 8.4, 3.55 }, 2 } };
+    d.pins.joins = { { { 4.75, 10.67 }, { 17.27, 12.45 } } };
     fe::Designs designs;
     designs.floors[0] = d;
     designs.floors[3] = fe::Design {};

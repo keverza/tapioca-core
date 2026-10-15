@@ -88,7 +88,10 @@ Design RemoveStair (const Scheme& s, Design d, int core, std::string* why = null
 // split in two at `at`, or a flat joins its smaller neighbour.
 Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why = nullptr);
 Design SplitFlat (const Scheme& s, Design d, int flat, Vec at, std::string* why = nullptr);
-Design RemoveFlat (const Scheme& s, Design d, int flat, std::string* why = nullptr);
+// A flat in a row joins its narrower neighbour there; any other (a corridor's end, a section's flat,
+// its row's only one) joins the flat it shares the longest wall with (Pins::Join); when the two are
+// over `most` m2 net (0: no limit) it is still made, and `why` says so.
+Design RemoveFlat (const Scheme& s, Design d, int flat, std::string* why = nullptr, double most = 0);
 Design SetRooms (const Scheme& s, Design d, int flat, double rooms);
 Design MoveEnd (Design d, const End& end, Vec to);
 // Two flats change places: in one band with their widths, across bands (the corridor) their room

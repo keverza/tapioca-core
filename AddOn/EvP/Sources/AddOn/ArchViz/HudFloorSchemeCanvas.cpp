@@ -597,7 +597,10 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered, Surface o
                 // Dropped on another flat: they change places; off the floor: it goes.
                 const int other = fe::FlatAt (e.base, e.at);
                 if (off) {
-                    if (Apply (e, c, e.baseDesign, fe::RemoveFlat (e.base, e.baseDesign, e.held.index, &why), why))
+                    if (Apply (e, c, e.baseDesign,
+                               fe::RemoveFlat (e.base, e.baseDesign, e.held.index, &why,
+                                               fs::MaxFlat (c.programme, c.options)),
+                               why))
                         e.selected = {};
                 }
                 else if (other >= 0 && other != e.held.index) {
@@ -631,7 +634,9 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered, Surface o
         if (e.selected.kind == Kind::Stair)
             removed = Apply (e, c, e.input.design, fe::RemoveStair (s, e.input.design, e.selected.index, &why), why);
         else if (e.selected.kind == Kind::Flat)
-            removed = Apply (e, c, e.input.design, fe::RemoveFlat (s, e.input.design, e.selected.index, &why), why);
+            removed = Apply (
+                e, c, e.input.design,
+                fe::RemoveFlat (s, e.input.design, e.selected.index, &why, fs::MaxFlat (c.programme, c.options)), why);
         if (removed)
             e.selected = {};
     }

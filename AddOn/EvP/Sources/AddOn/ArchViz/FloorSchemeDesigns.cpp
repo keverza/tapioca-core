@@ -66,6 +66,10 @@ V Write (const Design& d)
         o["counts"] = List (p.counts, [] (const Pins::Count& c) {
             return V::Array ({ Number (c.at.x), Number (c.at.y), V::Integer (c.flats) });
         });
+    if (!p.joins.empty ())
+        o["joins"] = List (p.joins, [] (const Pins::Join& j) {
+            return V::Array ({ Number (j.from.x), Number (j.from.y), Number (j.into.x), Number (j.into.y) });
+        });
     return V::Object (std::move (o));
 }
 
@@ -173,13 +177,22 @@ bool Read (const V& value, Design& d)
                      }) &&
            ReadList (value.Find ("ends"), p.ends,
                      [] (const V& item, Pins::End& e) { return ReadPoint (item, e.at); }) &&
-           ReadList (value.Find ("counts"), p.counts, [] (const V& item, Pins::Count& c) {
-               const auto* array = item.AsArray ();
-               int64_t flats = 0;
-               if (!array || array->size () != 3 || !(*array)[0].AsDouble (c.at.x) || !(*array)[1].AsDouble (c.at.y) ||
-                   !(*array)[2].AsInteger (flats) || flats < 1 || flats > 64)
+           ReadList (value.Find ("counts"), p.counts,
+                     [] (const V& item, Pins::Count& c) {
+                         const auto* array = item.AsArray ();
+                         int64_t flats = 0;
+                         if (!array || array->size () != 3 || !(*array)[0].AsDouble (c.at.x) ||
+                             !(*array)[1].AsDouble (c.at.y) || !(*array)[2].AsInteger (flats) || flats < 1 ||
+                             flats > 64)
+                             return false;
+                         c.flats = static_cast<int> (flats);
+                         return true;
+                     }) &&
+           ReadList (value.Find ("joins"), p.joins, [] (const V& item, Pins::Join& j) {
+               double n[4];
+               if (!Numbers (item, 4, n))
                    return false;
-               c.flats = static_cast<int> (flats);
+               j = { { n[0], n[1] }, { n[2], n[3] } };
                return true;
            });
 }

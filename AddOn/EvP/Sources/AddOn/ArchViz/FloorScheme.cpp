@@ -743,6 +743,111 @@ std::vector<std::array<Vec, 2>> PartyWalls (const cp::PathsD& outline, const cp:
         }
     return out;
 }
+// What lies beyond each stretch of `ring`'s outline on the planned floor, for laying its rooms:
+// open air (not a neighbouring building) is facade; a corridor, lobby or stair is the way in.
+std::vector<Side> SidesOf (const Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const Ring& ring)
+{
+    constexpr double kStep = 0.25, kOut = 0.15;
+    auto kind = [&] (Vec p) {
+        if (!Inside (outline, p))
+            return Inside (blind, p) ? Side::Blind : Side::Facade;
+        for (const auto& c : s.corridors)
+            if (Inside ({ ToPath (c.shape) }, p))
+                return Side::Corridor;
+        for (const auto& l : s.lobbies)
+            if (Inside ({ ToPath (l) }, p))
+                return Side::Lobby;
+        for (const auto& c : s.cores)
+            if (Inside ({ ToPath (c.shape) }, p))
+                return Side::Stair;
+        return Side::Blind;
+    };
+    std::vector<Side> out;
+    const Ring r = Counter (ring);
+    for (size_t i = 0; i < r.size (); ++i) {
+        const Vec a = r[i], b = r[(i + 1) % r.size ()];
+        const double length = std::hypot (b.x - a.x, b.y - a.y);
+        if (length < 1e-3)
+            continue;
+        const Vec d = Unit ({ b.x - a.x, b.y - a.y }), n { d.y, -d.x }; // out of a counter-clockwise ring
+        const int steps = (std::max) (1, static_cast<int> (std::ceil (length / kStep)));
+        for (int k = 0; k < steps; ++k) {
+            const double t0 = length * k / steps, t1 = length * (k + 1) / steps, t = (t0 + t1) / 2;
+            const auto here = kind ({ a.x + d.x * t + n.x * kOut, a.y + d.y * t + n.y * kOut });
+            const Vec p0 { a.x + d.x * t0, a.y + d.y * t0 }, p1 { a.x + d.x * t1, a.y + d.y * t1 };
+            if (k > 0 && out.back ().kind == here)
+                out.back ().b = p1;
+            else
+                out.push_back ({ here, p0, p1 });
+        }
+    }
+    return out;
+}
+// The type a flat of net area `net` fits best, and whether it is within that type's range.
+std::pair<size_t, bool> TypeFor (const floorprogramme::Programme& programme, double net, size_t fallback)
+{
+    size_t pick = fallback;
+    double miss = 1e18;
+    for (size_t t = 0; t < programme.types.size (); ++t) {
+        const auto& type = programme.types[t];
+        const double m = net < type.minM2 ? type.minM2 - net : net > type.maxM2 ? net - type.maxM2 : 0;
+        if (m < miss)
+            miss = m, pick = t;
+    }
+    return { pick, miss <= 0.5 };
+}
+// The user's joins (Pins::Join): the flat under `from` and the flat beside it under `into` become
+// one, of the type its area fits (or the room count pinned in it), its rooms laid again. A join
+// that would leave a hole or a fold, or finds no two flats, is noted and left out.
+void Joins (Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const floorprogramme::Programme& programme,
+            const Pins& pins)
+{
+    auto at = [&] (Vec p) {
+        for (size_t i = 0; i < s.flats.size (); ++i)
+            if (Inside ({ ToPath (s.flats[i].shape) }, p))
+                return static_cast<int> (i);
+        return -1;
+    };
+    for (const auto& pin : pins.joins) {
+        const int from = at (pin.from), into = at (pin.into);
+        if (from < 0 || into < 0 || from == into) {
+            Note (s, Diagnostic::Warning, "edit.join", "A joined flat is no longer beside the flat it joined.",
+                  pin.from);
+            continue;
+        }
+        Flat gone = s.flats[from];
+        Flat& kept = s.flats[into];
+        Ring shape = kept.shape;
+        if (!Join (shape, ToPath (Counter (gone.shape)))) {
+            Note (s, Diagnostic::Warning, "edit.join", "These flats cannot be one flat: they do not share a wall.",
+                  pin.from);
+            continue;
+        }
+        kept.shape = std::move (shape);
+        kept.gross += gone.gross, kept.net += gone.net;
+        kept.cap = kept.cap || gone.cap, kept.corner = kept.corner || gone.corner;
+        kept.through = kept.through || gone.through;
+        if (gone.band >= 0 && gone.band < static_cast<int> (s.bands.size ()))
+            --s.bands[gone.band].flats;
+        if (gone.type < s.counts.size ())
+            --s.counts[gone.type];
+        // The type its area fits, unless a room count is pinned inside it.
+        auto [type, fits] = TypeFor (programme, kept.net, kept.type);
+        for (const auto& r : pins.rooms)
+            if (Inside ({ ToPath (kept.shape) }, r.at))
+                for (size_t t = 0; t < programme.types.size (); ++t)
+                    if (std::abs (programme.types[t].rooms - r.rooms) < 1e-6)
+                        type = t,
+                        fits = kept.net >= programme.types[t].minM2 - 0.5 && kept.net <= programme.types[t].maxM2 + 0.5;
+        if (type != kept.type && type < s.counts.size () && kept.type < s.counts.size ())
+            --s.counts[kept.type], ++s.counts[type];
+        kept.type = type, kept.rooms = programme.types[type].rooms, kept.inRange = fits;
+        kept.roomList.clear (), kept.windows.clear ();
+        kept.manual = false;
+        PlanRooms (kept, SidesOf (s, outline, blind, kept.shape));
+        s.flats.erase (s.flats.begin () + from);
+    }
+}
 Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
              const Options& options)
 {
@@ -797,6 +902,7 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
     const auto blind = ToPaths (options.party);
     Mould (paths, &blind, s, MaxFlat (programme, options));
     Rework (paths, s, programme, pins, options);
+    Joins (s, paths, blind, programme, pins);
     Tidy (s);
     s.party = PartyWalls (paths, blind);
     // A flat whose rooms are left to the user takes the type its area fits.
