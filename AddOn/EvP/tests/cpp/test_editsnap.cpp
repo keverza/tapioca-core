@@ -1,5 +1,6 @@
 #include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 
 namespace ed = geomsrv::edit;
 
@@ -180,4 +181,71 @@ TEST (EditSnap, VerticalWorkingPlaneSnapsToATopCorner)
     EXPECT_EQ (r.kind, ed::SnapKind::Endpoint);
     EXPECT_NEAR (r.point.x, 4.0, 1e-12);
     EXPECT_NEAR (r.point.z, 3.0, 1e-12);
+}
+
+TEST (EditSnap, ParallelAndSquareToATouchedEdge)
+{
+    ed::Document doc;
+    ed::SnapContext ctx;
+    ed::SnapQuery q = At (3.0, 3.1, 0.2);
+    q.anchor = ed::Vec3 { 0, 0, 0 };
+    q.modes = ed::kSnapParallel;
+    q.references = { { { 10, 0, 0 }, { 14, 4, 0 } } }; // an edge at 45 degrees, far away
+    auto r = ed::Snap (doc, ctx, q);
+    ASSERT_EQ (r.kind, ed::SnapKind::Parallel);
+    ExpectAt (r, 3.05, 3.05);
+    ASSERT_EQ (r.guides.size (), 2u); // the line through the anchor and the edge it follows
+    EXPECT_NEAR (r.guides[1].from.x, 10.0, 1e-12);
+    q.cursor = { -3.0, 3.1, 0 }; // square to it
+    r = ed::Snap (doc, ctx, q);
+    ASSERT_EQ (r.kind, ed::SnapKind::Parallel);
+    ExpectAt (r, -3.05, 3.05);
+    EXPECT_EQ (r.hint, "Square to edge");
+}
+
+TEST (EditSnap, ConstructionAnglesThroughTheAnchor)
+{
+    ed::Document doc;
+    ed::SnapContext ctx;
+    ed::SnapQuery q = At (5.0, 2.95, 0.1);
+    q.anchor = ed::Vec3 { 0, 0, 0 };
+    q.modes = ed::kSnapAngle;
+    q.angleStep = 30.0;
+    const auto r = ed::Snap (doc, ctx, q);
+    ASSERT_EQ (r.kind, ed::SnapKind::Angle);
+    EXPECT_NEAR (std::atan2 (r.point.y, r.point.x) * 180.0 / std::acos (-1.0), 30.0, 1e-9);
+    EXPECT_EQ (r.hint.substr (0, 2), "30");
+    q.angleStep = 0.0;
+    EXPECT_FALSE (ed::Snap (doc, ctx, q).snapped);
+}
+
+TEST (EditSnap, EdgeSnapsReportTheirEdge)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    ed::SnapContext ctx;
+    const auto mid = ed::Snap (doc, ctx, At (2.03, 0.02));
+    ASSERT_EQ (mid.kind, ed::SnapKind::Midpoint);
+    ASSERT_TRUE (mid.onEdge);
+    EXPECT_NEAR (mid.edgeTo.x, 4.0, 1e-12);
+}
+
+TEST (EditSnap, MovedEdgesSnapFlushToParallelEdges)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false); // a wall line along y = 0
+    ed::SnapContext ctx;
+    ed::SnapQuery q = At (0, 0, 0.3);
+    // A box's bottom edge, moved to y = 0.2 and a little along: it closes the gap.
+    ed::Vec3 translate { 1.0, 0.2, 0.0 };
+    ed::SnapResult r;
+    ASSERT_TRUE (ed::SnapEdges (doc, ctx, q, { { { 2, 0.2, 0 }, { 5, 0.2, 0 } } }, translate, r));
+    EXPECT_NEAR (translate.y, 0.0, 1e-12);
+    EXPECT_NEAR (translate.x, 1.0, 1e-12); // along the edge, the move is the user's
+    EXPECT_EQ (r.hint, "Edge to edge");
+    // Out of reach, or not parallel: no snap.
+    translate = { 0, 1.0, 0 };
+    EXPECT_FALSE (ed::SnapEdges (doc, ctx, q, { { { 2, 1.0, 0 }, { 5, 1.0, 0 } } }, translate, r));
+    translate = { 0, 0.1, 0 };
+    EXPECT_FALSE (ed::SnapEdges (doc, ctx, q, { { { 2, 0.1, 0 }, { 5, 1.1, 0 } } }, translate, r));
 }

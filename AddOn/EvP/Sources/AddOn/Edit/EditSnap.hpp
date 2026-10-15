@@ -26,7 +26,9 @@ enum SnapMode : uint32_t {
     kSnapExtension = 1u << 7,
     kSnapGrid = 1u << 8,
     kSnapTerrain = 1u << 9,
-    kSnapAll = (1u << 10) - 1,
+    kSnapParallel = 1u << 10, // parallel and square to the edges the gesture has touched
+    kSnapAngle = 1u << 11,    // construction angles through the anchor (SnapQuery::angleStep)
+    kSnapAll = (1u << 12) - 1,
 };
 
 // Ordered by priority: within the tolerance, an earlier kind always wins over a
@@ -40,6 +42,8 @@ enum class SnapKind : uint8_t {
     Perpendicular,
     Nearest,
     Axis,
+    Parallel, // along, or square to, an edge the gesture touched
+    Angle,    // a construction angle through the anchor
     Extension,
     Grid,
     Terrain, // nothing else in reach: the cursor dropped onto the terrain
@@ -88,6 +92,10 @@ struct SnapQuery {
     // Moving items must not snap to themselves: a vertex ref also drops the
     // segments that touch it, an entity ref drops the whole entity.
     std::vector<Ref> exclude;
+    // Edges the gesture has touched, most recent first: lines through the anchor run
+    // parallel and square to each (the host keeps them; a few are plenty).
+    std::vector<std::pair<Vec3, Vec3>> references;
+    double angleStep = 15.0; // degrees between construction angles; 0 disables them
 };
 
 struct SnapResult {
@@ -98,9 +106,20 @@ struct SnapResult {
     std::string contextSource; // the host item, when it is not
     std::vector<Guide> guides;
     std::string hint;
+    // The edge the snap lies on (on edge, its middle, a perpendicular foot or extension):
+    // the host can keep it as a reference for parallels.
+    bool onEdge = false;
+    Vec3 edgeFrom, edgeTo;
 };
 
 SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuery& query);
+
+// Edges of something being moved: `edges` are where they would be at `translate`. When one
+// lies within `query.tolerance` of a parallel target edge, `translate` is corrected so the
+// two run flush (collinear in plan), the target drawn as the guide; false when none is in
+// reach. Targets are gathered as Snap gathers them, `query.exclude` dropping the moving item.
+bool SnapEdges (const Document& doc, const SnapContext& context, const SnapQuery& query,
+                const std::vector<std::pair<Vec3, Vec3>>& edges, Vec3& translate, SnapResult& result);
 
 } // namespace geomsrv::edit
 #endif

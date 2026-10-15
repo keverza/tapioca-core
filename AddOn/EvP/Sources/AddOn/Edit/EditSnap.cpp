@@ -1,6 +1,7 @@
 #include "Edit/EditSnap.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace geomsrv::edit {
 
@@ -23,6 +24,10 @@ const char* SnapKindName (SnapKind kind)
             return "On edge";
         case SnapKind::Axis:
             return "Axis";
+        case SnapKind::Parallel:
+            return "Parallel";
+        case SnapKind::Angle:
+            return "Angle";
         case SnapKind::Extension:
             return "Extension";
         case SnapKind::Grid:
@@ -126,6 +131,8 @@ struct Candidate {
     std::string context;
     std::vector<Guide> guides;
     std::string hint;
+    bool onEdge = false;
+    Vec3 edgeFrom, edgeTo;
 };
 
 bool Excluded (const std::vector<Ref>& exclude, Id entity, Id vertex)
@@ -240,8 +247,10 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
             best = std::move (c);
     };
 
-    // Notable points.
+    // Notable points. A middle is offered with its edge, below, so it can name the edge.
     for (const auto& p : points) {
+        if (p.kind == SnapKind::Midpoint)
+            continue;
         const uint32_t mode = p.kind == SnapKind::Endpoint   ? kSnapEndpoint
                               : p.kind == SnapKind::Midpoint ? kSnapMidpoint
                                                              : kSnapCentre;
@@ -267,7 +276,24 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                          s.ref,
                          s.context,
                          {},
-                         SnapKindName (SnapKind::Nearest) });
+                         SnapKindName (SnapKind::Nearest),
+                         true,
+                         s.a,
+                         s.b });
+            // Its middle, when that is the snap, names the edge it halves too.
+            if (has (kSnapMidpoint)) {
+                const Vec3 mid = Lerp (s.a, s.b, 0.5);
+                offer ({ SnapKind::Midpoint,
+                         mid,
+                         Dist (frame.To (mid), cursor),
+                         s.ref,
+                         s.context,
+                         {},
+                         SnapKindName (SnapKind::Midpoint),
+                         true,
+                         s.a,
+                         s.b });
+            }
         }
         if (query.anchor && has (kSnapPerpendicular)) {
             const double f = LineParameter (a, b, frame.To (*query.anchor));
@@ -279,7 +305,10 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                          s.ref,
                          s.context,
                          { { *query.anchor, foot, SnapKind::Perpendicular } },
-                         SnapKindName (SnapKind::Perpendicular) });
+                         SnapKindName (SnapKind::Perpendicular),
+                         true,
+                         s.a,
+                         s.b });
             }
         }
         // The segment's extension past the end nearer the cursor.
@@ -293,7 +322,16 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                 const Guide g { pastEnd ? s.b : s.a, p, SnapKind::Extension };
                 if (d <= tol)
                     lines.push_back ({ s.a, s.b, false, g, s.ref, s.context });
-                offer ({ SnapKind::Extension, p, d, s.ref, s.context, { g }, SnapKindName (SnapKind::Extension) });
+                offer ({ SnapKind::Extension,
+                         p,
+                         d,
+                         s.ref,
+                         s.context,
+                         { g },
+                         SnapKindName (SnapKind::Extension),
+                         true,
+                         s.a,
+                         s.b });
             }
         }
     }
@@ -312,6 +350,54 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
             if (d <= tol)
                 lines.push_back ({ a, b, false, g, {}, {} });
             offer ({ SnapKind::Axis, p, d, {}, {}, { g }, names[i] });
+        }
+    }
+
+    // Parallel and square to the edges the gesture touched, through the anchor; each one's
+    // edge is drawn with it, so it is plain what the line runs parallel to.
+    if (query.anchor && has (kSnapParallel)) {
+        const Vec3 a = *query.anchor;
+        for (const auto& [ra, rb] : query.references) {
+            const P2 p0 = frame.To (ra), p1 = frame.To (rb);
+            const double dx = p1.x - p0.x, dy = p1.y - p0.y, len = std::hypot (dx, dy);
+            if (len < 1.0e-9)
+                continue;
+            for (const bool square : { false, true }) {
+                const Vec3 dir =
+                    square ? frame.u * (-dy / len) + frame.v * (dx / len) : frame.u * (dx / len) + frame.v * (dy / len);
+                const Vec3 b = a + dir;
+                const double t = LineParameter (frame.To (a), frame.To (b), cursor);
+                if (std::isnan (t))
+                    continue;
+                const Vec3 p = Lerp (a, b, t);
+                const double d = Dist (frame.To (p), cursor);
+                const Guide g { a, p, SnapKind::Parallel };
+                if (d <= tol)
+                    lines.push_back ({ a, b, false, g, {}, {} });
+                offer ({ SnapKind::Parallel,
+                         p,
+                         d,
+                         {},
+                         {},
+                         { g, { ra, rb, SnapKind::Parallel } },
+                         square ? "Square to edge" : "Parallel to edge" });
+            }
+        }
+    }
+
+    // Construction angles through the anchor, beyond the axes; no crossings of their own.
+    if (query.anchor && has (kSnapAngle) && query.angleStep > 0.0 && query.angleStep < 90.0) {
+        const Vec3 a = *query.anchor;
+        for (double deg = query.angleStep; deg < 180.0 - 1.0e-9; deg += query.angleStep) {
+            if (std::abs (std::remainder (deg, 90.0)) < 1.0e-9)
+                continue; // the axes are the axis guides'
+            const double r = deg * 3.14159265358979323846 / 180.0;
+            const Vec3 b = a + frame.u * std::cos (r) + frame.v * std::sin (r);
+            const double t = LineParameter (frame.To (a), frame.To (b), cursor);
+            const Vec3 p = Lerp (a, b, t);
+            char hint[16];
+            std::snprintf (hint, sizeof hint, "%.0f\xC2\xB0", t >= 0.0 ? deg : deg - 180.0);
+            offer ({ SnapKind::Angle, p, Dist (frame.To (p), cursor), {}, {}, { { a, p, SnapKind::Angle } }, hint });
         }
     }
 
@@ -344,6 +430,9 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
         result.contextSource = best->context;
         result.guides = std::move (best->guides);
         result.hint = best->hint;
+        result.onEdge = best->onEdge;
+        result.edgeFrom = best->edgeFrom;
+        result.edgeTo = best->edgeTo;
         if (!best->context.empty ())
             result.hint += " \xC2\xB7 " + best->context;
     }
@@ -371,6 +460,60 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
         }
     }
     return result;
+}
+
+bool SnapEdges (const Document& doc, const SnapContext& context, const SnapQuery& query,
+                const std::vector<std::pair<Vec3, Vec3>>& edges, Vec3& translate, SnapResult& result)
+{
+    const double tol = query.tolerance;
+    if (!(tol > 0.0) || edges.empty ())
+        return false;
+    Frame frame;
+    frame.origin = query.plane.origin;
+    PlaneAxes (query.plane, frame.u, frame.v);
+    std::vector<Pt> points;
+    std::vector<Seg> targets;
+    Gather (doc, context, query, points, targets);
+    constexpr double kParallel = 0.017; // about a degree
+    double best = tol;
+    bool found = false;
+    for (const auto& [ma, mb] : edges) {
+        const P2 a = frame.To (ma), b = frame.To (mb);
+        const double mx = b.x - a.x, my = b.y - a.y, ml = std::hypot (mx, my);
+        if (ml < 1.0e-9)
+            continue;
+        const double nx = -my / ml, ny = mx / ml; // the moving edge's normal in the plane
+        for (const auto& t : targets) {
+            const P2 c = frame.To (t.a), d = frame.To (t.b);
+            const double tx = d.x - c.x, ty = d.y - c.y, tl = std::hypot (tx, ty);
+            if (tl < 1.0e-9 || std::abs (mx * ty - my * tx) / (ml * tl) > kParallel)
+                continue;
+            // Signed distance between the two lines along the normal, and some overlap along them.
+            const double gap = (c.x - a.x) * nx + (c.y - a.y) * ny;
+            const double ux = mx / ml, uy = my / ml;
+            const double s0 = (c.x - a.x) * ux + (c.y - a.y) * uy, s1 = (d.x - a.x) * ux + (d.y - a.y) * uy;
+            if (std::max (s0, s1) < -tol || std::min (s0, s1) > ml + tol)
+                continue; // side by side, not along each other
+            if (std::abs (gap) < best) {
+                best = std::abs (gap);
+                found = true;
+                translate = translate + frame.u * (gap * nx) + frame.v * (gap * ny);
+                result = {};
+                result.snapped = true;
+                result.kind = SnapKind::Nearest;
+                result.source = t.ref;
+                result.contextSource = t.context;
+                result.guides = { { t.a, t.b, SnapKind::Nearest } };
+                result.hint = t.context.empty () ? "Edge to edge" : "Edge to edge \xC2\xB7 " + t.context;
+                result.onEdge = true;
+                result.edgeFrom = t.a;
+                result.edgeTo = t.b;
+            }
+        }
+        if (found)
+            break; // one edge flush is the snap; the correction moved every edge alike
+    }
+    return found;
 }
 
 } // namespace geomsrv::edit
