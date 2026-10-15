@@ -631,6 +631,60 @@ TEST (HudFloorSchemeEdit, OnTheLocked3DViewAFlatIsPickedOnTheFloorThePlanViewSho
     }
 }
 
+// User, 2026-10-15: "Switching between stories on floor plan is still very messy ... do not allow
+// display or editing of other floor in locked overlay editor. It should only show and allow edits of
+// that floor only." On the plan the floor edited is Archicad's storey's, whatever the section picked;
+// on a storey where the building has no floor nothing of it is shown or edited.
+TEST (HudFloorSchemeEdit, OnTheLockedPlanOnlyArchicadsStoreysFloorIsEdited)
+{
+    OnViewFrame frame;
+    auto tower = Building ("A", 0, 36);
+    auto upper = tower.floors.front ();
+    upper.story = 1, upper.z = 3;
+    tower.floors.push_back (upper);
+    const std::map<std::string, bp::Plan> plans { { "A", tower } };
+    std::map<std::string, bp::Draft> drafts;
+    std::map<std::string, hf::EditorPtr> editors;
+    bp::Planner planner;
+    const auto programme = fp::Default ();
+    for (int round = 0; round < 2; ++round)
+        for (int n = 0; n < 400; ++n) {
+            bp::WantFloors (planner, plans, drafts, "A", programme, 0);
+            planner.Poll ();
+            if (!planner.Busy () && planner.Latest (bp::FloorId ("A", 1)))
+                break;
+            std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        }
+    const auto* planned = planner.Latest (bp::FloorId ("A", 0));
+    ASSERT_NE (planned, nullptr);
+    fs::Vec mid;
+    const auto& flat = planned->scheme.flats.front ().shape;
+    for (const auto& p : flat)
+        mid.x += p.x / flat.size (), mid.y += p.y / flat.size ();
+    auto onto = Plan ();
+    const auto view = [&] (ImVec2 mouse, bool left) {
+        frame (mouse, left, false,
+               [&] (bool hovered) { hf::OnView (editors, planner, plans, drafts, programme, {}, onto, hovered, 1); });
+    };
+    drafts["A"].story = 1; // the section picked floor 1...
+    onto.storey = 0;       // ...but Archicad shows storey 0
+    for (int n = 0; n < 3; ++n)
+        view (OnPlan (mid), false);
+    view (OnPlan (mid), true);
+    view (OnPlan (mid), false);
+    const auto selected = hf::Selected (editors["A"]);
+    ASSERT_TRUE (selected.has_value ());
+    EXPECT_EQ (selected->story, 0) << "the floor on Archicad's storey is the one edited";
+    // A storey the building has no floor on: nothing of it is picked.
+    editors.clear ();
+    onto.storey = 7;
+    for (int n = 0; n < 3; ++n)
+        view (OnPlan (mid), false);
+    view (OnPlan (mid), true);
+    view (OnPlan (mid), false);
+    EXPECT_FALSE (hf::Selected (editors["A"]).has_value ());
+}
+
 TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvasesAtEveryAngle)
 {
     OnViewFrame frame;

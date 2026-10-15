@@ -205,7 +205,8 @@ struct LegendBar {
 struct Change {
     // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; "metadata" (a
     // field of the Selection page: `id` its key, `value` and `text` what it was set to); "floors"
-    // (the building section's run: `text` its storeys, "" for none); "display" (Settings' Displays:
+    // (the building section's run: `text` its storeys, "" for none); "goToStory" (a floor picked in
+    // a building's section on the Floor Plan: `value` the storey Archicad goes to); "display" (Settings' Displays:
     // `id` and `text` what changed, "slices on", "slices line"); or a control's: "checkbox",
     // "slider", "combo", "tab", "button"
     std::string kind;

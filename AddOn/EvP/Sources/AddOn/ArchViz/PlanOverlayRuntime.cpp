@@ -750,6 +750,28 @@ bool Running ()
     return g_running;
 }
 
+bool GoToStorey (short storey, std::string& error)
+{
+    if (!g_running) {
+        error = "the plan overlay is not running";
+        return false;
+    }
+    API_StoryCmdType command = {};
+    command.action = APIStory_GoTo;
+    command.index = storey;
+    GSErrCode err = NoError;
+    {
+        const OwnAcapi own;
+        err = ACAPI_ProjectSetting_ChangeStorySettings (&command);
+    }
+    if (err != NoError) {
+        error = "ACAPI_ProjectSetting_ChangeStorySettings (APIStory_GoTo " + std::to_string (storey) + ") returned " +
+                std::to_string (err);
+        return false;
+    }
+    return true;
+}
+
 Status GetStatus ()
 {
     Status status;

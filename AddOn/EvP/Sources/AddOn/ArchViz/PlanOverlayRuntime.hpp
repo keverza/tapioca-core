@@ -88,6 +88,13 @@ struct Status {
 };
 Status GetStatus ();
 
+// MAIN THREAD, from the message loop -- never inside a HUD's layout: Archicad's active storey
+// becomes `storey`, a floor picked in a building's section while the plan overlay runs (user,
+// 2026-10-15: "Selected slabs story and actual archicad story should be linked"). Bracketed as
+// the session's own call: the go-to redraws the plan, and its Present must not read inside it
+// (OVERLAY-INVARIANTS.md §11). The session's tick then reports the storey like any other change.
+bool GoToStorey (short storey, std::string& error);
+
 } // namespace planruntime
 } // namespace archviz
 } // namespace geomsrv

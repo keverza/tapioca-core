@@ -2,6 +2,7 @@
 #include "ArchViz/HudShell.hpp"
 #include <imgui_internal.h> // BeginDragDropTargetCustom: the whole view takes a dropped block
 #include <algorithm>
+#include <climits>
 #include <optional>
 
 // The floor plans edited on the view itself while the dock's lock is on (HudFloorSchemeEdit.hpp
@@ -15,14 +16,22 @@ struct Shown {
     const bp::Plan* plan = nullptr;
     const bp::Floor* floor = nullptr;
 };
-// Each building's floor as its Plan view shows it.
-std::vector<Shown> ShownFloors (const std::map<std::string, bp::Plan>& plans, std::map<std::string, bp::Draft>& drafts)
+// Each building's floor as its Plan view shows it; with `storey`, its floor on that storey alone.
+std::vector<Shown> ShownFloors (const std::map<std::string, bp::Plan>& plans, std::map<std::string, bp::Draft>& drafts,
+                                int storey)
 {
     std::vector<Shown> out;
     for (const auto& [key, plan] : plans) {
         auto& draft = drafts[key];
         bp::Sync (plan, draft);
-        if (const auto* floor = bp::Displayed (plan, draft))
+        const bp::Floor* floor = nullptr;
+        if (storey == INT_MIN)
+            floor = bp::Displayed (plan, draft);
+        else
+            for (const auto& f : plan.floors)
+                if (f.story == storey)
+                    floor = &f;
+        if (floor)
             out.push_back ({ key, &plan, floor });
     }
     return out;
@@ -59,7 +68,7 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
     Context c { planner, plans, drafts, programme, options };
     auto* draw = ImGui::GetWindowDrawList ();
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
-    const auto shown = ShownFloors (plans, drafts);
+    const auto shown = ShownFloors (plans, drafts, onto.planar ? onto.storey : INT_MIN);
     const bool focused = ImGui::IsWindowFocused ();
     if (onto.planar) {
         View v;

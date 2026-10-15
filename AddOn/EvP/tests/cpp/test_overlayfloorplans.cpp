@@ -334,3 +334,28 @@ TEST (OverlayFloorPlans, AFlatPickedOnTheLockedPlanOpensTheSelectionTab)
     EXPECT_EQ (hud::SelectedKey (*gui.state), hud::kSelectionKey);
     EXPECT_TRUE (hud::HudOpen (*gui.state));
 }
+
+// User, 2026-10-15: "Selected slabs story and actual archicad story should be linked." Archicad's
+// storey changing on the plan turns every building with a floor there to it; a building with none
+// there keeps its own.
+TEST (OverlayFloorPlans, ArchicadsStoreyIsTheFloorEveryBuildingShows)
+{
+    auto state = hud::NewState ();
+    const auto tower = Tower ();
+    auto low = Tower ();
+    low.key = "building:Low";
+    low.floors.resize (1);
+    state->floorPlanSnapshots[tower.key] = tower;
+    state->floorPlanSnapshots[low.key] = low;
+    state->buildingPlans[low.key].story = 0;
+    hud::SetPlanStorey (*state, 2);
+    EXPECT_EQ (state->buildingPlans[tower.key].story, 2);
+    EXPECT_EQ (state->buildingPlans[low.key].story, 0) << "no floor on storey 2";
+    // Picked in the section afterwards, the floor holds until Archicad's storey changes again.
+    state->buildingPlans[tower.key].story = 1;
+    hud::SetPlanStorey (*state, 2);
+    EXPECT_EQ (state->buildingPlans[tower.key].story, 1);
+    hud::SetPlanStorey (*state, 0);
+    EXPECT_EQ (state->buildingPlans[tower.key].story, 0);
+    EXPECT_EQ (state->buildingPlans[low.key].story, 0);
+}

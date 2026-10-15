@@ -51,6 +51,10 @@ Asked PlanView (EditorPtr& editor, buildingplan::Planner& planner,
 struct ViewOnto {
     bool planar = false;
     double plan[6] = {};
+    // On the plan, Archicad's storey: only each building's floor there is shown and edited (user,
+    // 2026-10-15: "do not allow display or editing of other floor in locked overlay editor"); a
+    // building with no floor there has none. INT_MIN: the floor its Plan view shows.
+    int storey = INT_MIN;
     std::function<bool (double x, double y, double z, float& px, float& py)> project;
 };
 // ⚠️ THE FLOOR PLAN EDITED ON THE VIEW ITSELF while the dock's lock is on (the user, 2026-10-10),

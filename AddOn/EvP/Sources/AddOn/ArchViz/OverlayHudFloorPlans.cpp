@@ -108,8 +108,16 @@ bt::Complex ComplexOf (State& state, const std::string& key, const buildingplan:
 // and the flat selected in a Plan view white.
 // Planned off the UI thread (FloorPlanner.hpp): asked when what a floor is planned from changes,
 // published when a scheme arrives or the selection moves.
+// ⚠️ THE PLAN'S STOREY IS THE FLOOR SHOWN (user, 2026-10-15: "Selected slabs story and actual
+// archicad story should be linked"): when Archicad's storey changes, every building with a floor
+// there shows and edits that floor -- in its Plan view, on the plan and in 3D.
 void SetPlanStorey (State& state, int storey)
 {
+    if (storey != INT_MIN && storey != state.planStorey)
+        for (const auto& [key, plan] : state.floorPlanSnapshots)
+            if (std::any_of (plan.floors.begin (), plan.floors.end (),
+                             [&] (const buildingplan::Floor& f) { return f.story == storey; }))
+                state.buildingPlans[key].story = storey;
     state.planStorey = storey;
 }
 bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylayers::Layer& units,

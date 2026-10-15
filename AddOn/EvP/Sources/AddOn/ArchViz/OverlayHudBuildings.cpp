@@ -63,6 +63,11 @@ void Engine::Impl::StoryDiagram (const massingbuildings::Preview& preview, float
     }
     if (pickedStorey != (std::numeric_limits<int>::min) ()) {
         store->buildingPlans[building.key].story = pickedStorey;
+        // On the Floor Plan the storey is Archicad's: a floor picked here takes Archicad there
+        // (user, 2026-10-15: "Selected slabs story and actual archicad story should be linked"),
+        // from the message loop; the overlay follows when the plan reports the storey.
+        if (store->planStorey != INT_MIN && pickedStorey != store->planStorey)
+            changes.push_back ({ "goToStory", {}, "Selection", building.key, -1, double (pickedStorey), {}, true });
     }
 }
 // The building's Plan view, a section of its own: its floor among the others at the elevation.

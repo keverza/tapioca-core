@@ -11,6 +11,7 @@
 #include "ArchViz/OverlayHudEvents.hpp"
 #include "ArchViz/OverlayText.hpp"
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/PlanOverlayRuntime.hpp" // GoToStorey: a floor picked in the HUD on the Floor Plan
 #include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/SceneTextFont.hpp"
 
@@ -127,6 +128,17 @@ overlayhud::Engine* Hud (overlayinput::View view)
         overlayhudevents::Push (std::move (event));
         // Automatic requests can originate in a heartbeat/initial layout, not a
         // pointer refresh. Always drain them later, outside layout and ImGui's lock.
+        // A floor picked in a building's section on the Floor Plan: Archicad goes to its storey.
+        if (change.kind == "goToStory") {
+            const short storey = short (change.value);
+            selectionmetadata::Later ([storey] () {
+                std::string error;
+                if (planruntime::GoToStorey (storey, error))
+                    ArchVizLog ("PLAN OVERLAY  a floor picked in the HUD: going to storey " + std::to_string (storey));
+                else
+                    ArchVizLog ("PLAN OVERLAY  going to storey " + std::to_string (storey) + " refused: " + error);
+            });
+        }
         if (change.kind == "metadata" || change.kind.rfind ("massing", 0) == 0) {
             selectionmetadata::Later ([] () { overlaycontrol::FollowHudState (); });
         }
