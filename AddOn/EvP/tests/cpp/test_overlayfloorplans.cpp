@@ -264,3 +264,30 @@ TEST (OverlayFloorPlans, LockedADeselectionKeepsTheFloorsBeingEdited)
     gui.engine.SetOwnPages (none);
     EXPECT_TRUE (gui.state->floorPlanSnapshots.empty ());
 }
+
+// User, 2026-10-14: "In 3d locked mode units are selectable, but should have solid transparent fill
+// not just contour." In 3D the floor each building's Plan view shows -- the one edited -- is filled;
+// the other floors stay outlines.
+TEST (OverlayFloorPlans, In3DTheEditedFloorIsFilled)
+{
+    auto state = hud::NewState ();
+    const auto plan = Tower ();
+    state->floorPlanSnapshots[plan.key] = plan;
+    state->previewUnits = true;
+    layers::Layer stairs, units, onPlan;
+    ASSERT_TRUE (Planned (*state, stairs, units, 0));
+    const auto filled = [] (const layers::Layer& layer) {
+        std::set<long long> out;
+        for (const auto& mesh : layer.meshes)
+            for (size_t i = 2; i < mesh.points.size (); i += 3)
+                out.insert (std::llround (mesh.points[i] * 10));
+        return out;
+    };
+    for (const int story : { 2, 0 }) {
+        state->buildingPlans[plan.key].story = story; // picked in the building section
+        ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan)) << story;
+        EXPECT_EQ (filled (units), (std::set<long long> { story * 30 })) << "only the edited floor";
+        for (const auto& mesh : units.meshes)
+            EXPECT_EQ (mesh.rgba & 0xFFu, 0x59u) << "transparent";
+    }
+}

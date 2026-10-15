@@ -10,7 +10,7 @@ namespace geomsrv::archviz::overlayhud {
 namespace {
 namespace fs = floorscheme;
 namespace bt = buildingtopology;
-constexpr uint32_t kPlanFillAlpha = 0x59; // a flat's fill on the plan: its colour at 35 %
+constexpr uint32_t kPlanFillAlpha = 0x59; // a flat's fill: its colour at 35 %
 
 void Line (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba, float width)
 {
@@ -146,8 +146,10 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
     signature << std::setprecision (17) << state.previewStairs << state.previewUnits << ':'
               << state.floorPlanner.Revision () << ':' << floorprogramme::ColoursKey (state.massingProgramme) << ':'
               << (onPlan ? state.planStorey : INT_MIN);
-    for (const auto& [key, plan] : state.floorPlanSnapshots)
-        signature << '|' << key << ':' << plan.floors.size ();
+    for (const auto& [key, plan] : state.floorPlanSnapshots) {
+        const auto* shown = Displayed (plan, state.buildingPlans[key]);
+        signature << '|' << key << ':' << plan.floors.size () << '@' << (shown ? shown->story : INT_MIN);
+    }
     for (const auto& s : selected)
         signature << '|' << s.building << '#' << s.story << '@' << s.flat.front ().x << ',' << s.flat.front ().y;
     const auto published = signature.str ();
@@ -202,15 +204,22 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         }
         if (!state.previewUnits)
             continue;
+        // The floor its Plan view shows -- picked in the building section -- is the one edited on the
+        // locked view: in 3D its flats are filled (user, 2026-10-14: "In 3d locked mode units are
+        // selectable, but should have solid transparent fill not just contour").
+        const auto* edited = Displayed (plan, state.buildingPlans[key]);
         for (size_t f = 0; f < complex.floors.size (); ++f) {
             const auto& floor = complex.floors[f];
             const double z = floor.z + 0.02;
+            const bool filled = edited && floor.story == edited->story;
             // The plan's storey goes to the plan as well, its flats filled under their outlines.
             overlaylayers::Layer* here = onPlan && floor.story == state.planStorey ? onPlan : nullptr;
             for (int u : floor.units) {
                 const uint32_t colour =
                     floorprogramme::Colour (state.massingProgramme, complex.units[u].type, complex.units[u].rooms);
                 for (const auto& ring : bt::Clear (complex, complex.units[u].cells)) {
+                    if (filled)
+                        Fill (units, ring, z, (colour & 0xFFFFFF00u) | kPlanFillAlpha);
                     Line (units, ring, z, colour, 2.0f);
                     if (here) {
                         Fill (*here, ring, z, (colour & 0xFFFFFF00u) | kPlanFillAlpha);

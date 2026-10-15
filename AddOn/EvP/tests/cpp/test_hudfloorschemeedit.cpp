@@ -581,7 +581,10 @@ TEST (HudFloorSchemeEdit, OnTheLockedPlanAFlatIsSelectedAndAStairDragged)
 
 // In 3D the view selects: a flat picked through the camera is selected, its building's Plan view
 // turned to its floor -- the highest floor under the pointer.
-TEST (HudFloorSchemeEdit, OnTheLocked3DViewAFlatPickedTurnsThePlanViewToItsFloor)
+// User, 2026-10-14: "editable show be per floor. Select a floor in Building section GUI to keep it
+// editable." On the locked 3D view a flat is picked on the floor the building's Plan view shows --
+// the one picked in the section -- even where a higher floor lies over it on the screen.
+TEST (HudFloorSchemeEdit, OnTheLocked3DViewAFlatIsPickedOnTheFloorThePlanViewShows)
 {
     OnViewFrame frame;
     auto tower = Building ("A", 0, 36);
@@ -616,13 +619,16 @@ TEST (HudFloorSchemeEdit, OnTheLocked3DViewAFlatPickedTurnsThePlanViewToItsFloor
         frame (mouse, left, false,
                [&] (bool hovered) { hf::OnView (editors, planner, plans, drafts, programme, {}, onto, hovered, 1); });
     };
-    view (OnPlan (mid), false);
-    view (OnPlan (mid), true);
-    view (OnPlan (mid), false);
-    EXPECT_EQ (drafts["A"].story, 1) << "the Plan view turns to the floor picked";
-    const auto selected = hf::Selected (editors["A"]);
-    ASSERT_TRUE (selected.has_value ());
-    EXPECT_EQ (selected->story, 1);
+    for (const int story : { 1, 0 }) {
+        drafts["A"].story = story; // picked in the building section
+        view (OnPlan (mid), false);
+        view (OnPlan (mid), true);
+        view (OnPlan (mid), false);
+        EXPECT_EQ (drafts["A"].story, story) << "the floor stays the section's";
+        const auto selected = hf::Selected (editors["A"]);
+        ASSERT_TRUE (selected.has_value ());
+        EXPECT_EQ (selected->story, story) << "picked on the shown floor, under floor 1 when it is 0";
+    }
 }
 
 TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvasesAtEveryAngle)

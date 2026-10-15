@@ -101,7 +101,10 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
     }
     if (!onto.project)
         return;
-    // 3D: every planned floor's flats through the camera; the highest under the pointer is picked.
+    // 3D: each building's floor its Plan view shows -- the one picked in the building section, filled
+    // on the view -- is the one edited (user, 2026-10-14: "editable show be per floor. Select a floor in
+    // Building section GUI to keep it editable"): its flats through the camera, the highest under the
+    // pointer picked.
     struct Pick {
         std::string key;
         const bp::Floor* floor = nullptr;
@@ -110,23 +113,23 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
     };
     std::optional<Pick> pick;
     if (hovered)
-        for (const auto& [key, plan] : plans)
-            for (const auto& floor : plan.floors) {
-                const auto* planned = planner.Latest (bp::FloorId (key, floor.story));
-                if (!planned || (pick && floor.z <= pick->floor->z))
-                    continue;
-                for (const auto& f : planned->scheme.flats) {
-                    std::vector<ImVec2> screen;
-                    for (const auto& p : f.shape) {
-                        float x = 0, y = 0;
-                        if (!onto.project (p.x, p.y, floor.z + 0.05, x, y))
-                            break;
-                        screen.push_back ({ x, y });
-                    }
-                    if (screen.size () == f.shape.size () && screen.size () >= 3 && Within (screen, mouse))
-                        pick = Pick { key, &floor, Mid (f.shape), std::move (screen) };
+        for (const auto& s : shown) {
+            const auto& floor = *s.floor;
+            const auto* planned = planner.Latest (bp::FloorId (s.key, floor.story));
+            if (!planned || (pick && floor.z <= pick->floor->z))
+                continue;
+            for (const auto& f : planned->scheme.flats) {
+                std::vector<ImVec2> screen;
+                for (const auto& p : f.shape) {
+                    float x = 0, y = 0;
+                    if (!onto.project (p.x, p.y, floor.z + 0.05, x, y))
+                        break;
+                    screen.push_back ({ x, y });
                 }
+                if (screen.size () == f.shape.size () && screen.size () >= 3 && Within (screen, mouse))
+                    pick = Pick { s.key, &floor, Mid (f.shape), std::move (screen) };
             }
+        }
     if (hovered) {
         hudshell::OwnCursor ();
         ImGui::SetMouseCursor (pick ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
