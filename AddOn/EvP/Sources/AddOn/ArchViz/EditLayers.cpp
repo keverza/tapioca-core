@@ -98,6 +98,13 @@ std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Re
         switch (d.quantity) {
             case edit::Quantity::Length:
             case edit::Quantity::Distance:
+                if (segment && edit::SegmentCurved (*e, static_cast<size_t> (edit::SegmentIndex (*e, d.ref.item)))) {
+                    // Along a curve: the label at its middle, no straight dimension line.
+                    l.at = edit::SegmentPoint (*e, static_cast<size_t> (edit::SegmentIndex (*e, d.ref.item)), 0.5);
+                    l.ends = false;
+                    l.text = "arc " + FormatValue (d.quantity, value);
+                    break;
+                }
                 if (segment) {
                     l.line = true;
                     l.from = e->vertices[from].p;
@@ -428,13 +435,11 @@ void AddRef (const edit::Document& doc, const edit::Ref& ref, uint32_t rgba, con
         case edit::Part::Entity:
             AddEntity (*e, rgba, style.selectedWidth, layer);
             break;
-        case edit::Part::Segment: {
-            size_t from = 0, to = 0;
-            edit::SegmentEnds (*e, static_cast<size_t> (edit::SegmentIndex (*e, ref.item)), from, to);
+        case edit::Part::Segment: // as drawn: a curve along its curve
             layer.polylines.push_back (
-                Line ({ e->vertices[from].p, e->vertices[to].p }, false, rgba, style.selectedWidth));
+                Line (edit::SegmentPoints (*e, static_cast<size_t> (edit::SegmentIndex (*e, ref.item))), false, rgba,
+                      style.selectedWidth));
             break;
-        }
         case edit::Part::Vertex: {
             layers::PointSet p;
             Vec3 at;

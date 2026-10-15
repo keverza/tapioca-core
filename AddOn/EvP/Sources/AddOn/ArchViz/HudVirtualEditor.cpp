@@ -4,6 +4,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditShape.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
@@ -877,10 +878,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         const edit::Entity* e = edit::Find (Doc (s), hover.entity);
         if (hover.part == edit::Part::Segment && e != nullptr) {
             const int i = edit::SegmentIndex (*e, hover.item);
-            size_t from = 0, to = 0;
-            if (i >= 0) {
-                edit::SegmentEnds (*e, size_t (i), from, to);
-                Line (s, m, e->vertices[from].p, e->vertices[to].p, kHover, 4.0f * scale);
+            if (i >= 0) { // as drawn: a curve along its curve
+                const auto points = edit::SegmentPoints (*e, size_t (i));
+                for (size_t k = 0; k + 1 < points.size (); ++k)
+                    Line (s, m, points[k], points[k + 1], kHover, 4.0f * scale);
             }
         }
         else if (edit::PointOf (Doc (s), hover, p))

@@ -219,3 +219,18 @@ TEST (EditShape, CurvesTurnWithTheGizmoAndEndRoundings)
     std::string error;
     EXPECT_FALSE (ed::SetCornerRadius (doc, e, { ed::Find (doc, e)->vertices[1].id }, 0.5, error));
 }
+
+TEST (EditShape, ACurvedSegmentMeasuresAlongItsCurve)
+{
+    Curve c;
+    const ed::Ref seg { c.e, ed::Part::Segment, c.E ().segments[0].id };
+    const auto dims = ed::DimensionsFor (c.doc, seg);
+    ASSERT_EQ (dims.size (), 1u); // its length; direction and fall are the handles'
+    double length = 0;
+    ASSERT_TRUE (ed::ReadDimension (c.doc, dims[0], length));
+    EXPECT_GT (length, 11.0); // longer than its 10 m chord
+    EXPECT_LT (length, 14.0);
+    std::string error;
+    EXPECT_FALSE (ed::WriteDimension (dims[0], 12.0) (c.doc, error));
+    EXPECT_NE (error.find ("handles"), std::string::npos);
+}

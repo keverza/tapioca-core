@@ -363,8 +363,12 @@ std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
         return out;
     switch (ref.part) {
         case Part::Segment:
-            for (Quantity q : { Quantity::Length, Quantity::Slope, Quantity::Angle })
-                out.push_back ({ ref, q });
+            // A curve has a length along it; its direction and fall are its handles'.
+            if (SegmentCurved (*e, static_cast<size_t> (SegmentIndex (*e, ref.item))))
+                out.push_back ({ ref, Quantity::Length });
+            else
+                for (Quantity q : { Quantity::Length, Quantity::Slope, Quantity::Angle })
+                    out.push_back ({ ref, q });
             if (e->segments[static_cast<size_t> (SegmentIndex (*e, ref.item))].width > 0.0)
                 out.push_back ({ ref, Quantity::Width });
             break;
@@ -413,9 +417,20 @@ bool ReadDimension (const Document& doc, const Dimension& d, double& value)
             return false;
         const double plan = DistanceXY (a, b);
         switch (d.quantity) {
-            case Quantity::Length:
+            case Quantity::Length: {
+                const Entity* e = Find (doc, d.ref.entity);
+                const size_t i = static_cast<size_t> (SegmentIndex (*e, d.ref.item));
+                if (SegmentCurved (*e, i)) {
+                    // Along the curve, in plan.
+                    const auto points = SegmentPoints (*e, i, 64);
+                    value = 0.0;
+                    for (size_t k = 0; k + 1 < points.size (); ++k)
+                        value += DistanceXY (points[k], points[k + 1]);
+                    return true;
+                }
                 value = plan;
                 return true;
+            }
             case Quantity::Distance:
                 value = Distance (a, b);
                 return true;
@@ -499,6 +514,10 @@ Operation WriteDimension (const Dimension& d, double value)
             }
             if (!SegmentOf (doc, d.ref, e, pivot, moving, forward, z, error, d.fromEnd))
                 return false;
+            if (SegmentCurved (*e, static_cast<size_t> (SegmentIndex (*e, d.ref.item)))) {
+                error = "a curve is shaped by its handles: drag them, or make the segment straight";
+                return false;
+            }
             Vertex& m = e->vertices[moving];
             const Vec3 p = e->vertices[pivot].p;
             const double plan = DistanceXY (p, m.p);
