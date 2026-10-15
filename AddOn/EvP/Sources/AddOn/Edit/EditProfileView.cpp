@@ -145,7 +145,8 @@ Operation DragBreak (Id path, Id gradeBreak, double station, double z)
             error = "the grade break no longer exists";
             return false;
         }
-        const bool moveStation = !end && b->anchor == kNoId && std::abs (station - b->station) > 1.0e-9;
+        const bool moveStation =
+            !end && b->anchor == kNoId && b->crossing == kNoId && std::abs (station - b->station) > 1.0e-9;
         const bool moveZ = !b->fixed && std::abs (z - b->z) > 1.0e-12;
         if (moveStation && !MovePathBreak (doc, path, gradeBreak, station, error))
             return false;

@@ -30,7 +30,8 @@ struct Style {
     uint32_t text = 0x1E2228FFu, paper = 0xF7F8FAEBu, dimension = 0x5B6573FFu;
     uint32_t pathSurface = 0xC9A66B70u, pathEdge = 0xA8834AFFu, controlPolygon = 0x7D8796FFu;
     uint32_t gradeBreak = 0x1F7FC4FFu, fixedBreak = 0xD93A49FFu, fall = 0x0F7F84FFu;
-    double pathStep = 0.5; // metres between drawn path samples
+    uint32_t junctionBreak = 0x7A3FC4FFu; // a grade break shared with a crossing path
+    double pathStep = 0.5;                // metres between drawn path samples
     float lineWidth = 2.0f, selectedWidth = 3.5f, vertexPixels = 7.0f;
     float textPixels = 12.0f;
 };

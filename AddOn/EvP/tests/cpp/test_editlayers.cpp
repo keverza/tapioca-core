@@ -181,9 +181,10 @@ TEST (EditLayers, NothingIsDrawnWhite)
         const int r = int (rgba >> 24), g = int ((rgba >> 16) & 0xFF), b = int ((rgba >> 8) & 0xFF);
         return r + g + b > 3 * 225;
     };
-    for (uint32_t c : { style.geometry, style.selected, style.hover, style.guide, style.snap, style.activeHandle,
-                        style.text, style.dimension, style.pathEdge, style.controlPolygon, style.gradeBreak,
-                        style.fixedBreak, style.fall, style.axis[0], style.axis[1], style.axis[2] })
+    for (uint32_t c :
+         { style.geometry, style.selected, style.hover, style.guide, style.snap, style.activeHandle, style.text,
+           style.dimension, style.pathEdge, style.controlPolygon, style.gradeBreak, style.fixedBreak, style.fall,
+           style.junctionBreak, style.axis[0], style.axis[1], style.axis[2] })
         EXPECT_FALSE (light (c)) << std::hex << c;
     EXPECT_TRUE (light (style.paper)); // only the pills under text are light
 }

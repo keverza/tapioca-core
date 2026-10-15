@@ -306,8 +306,13 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
         std::string text = FormatValue (edit::Quantity::Elevation, b.z);
         if (b.fixed)
             text += " fixed";
-        out.push_back (
-            { o.breaks[i], leftAt (b.station) * -1.0, text, b.fixed ? style.fixedBreak : style.text, 16.0f });
+        else if (b.crossing != edit::kNoId)
+            text += " junction";
+        out.push_back ({ o.breaks[i], leftAt (b.station) * -1.0, text,
+                         b.fixed                     ? style.fixedBreak
+                         : b.crossing != edit::kNoId ? style.junctionBreak
+                                                     : style.text,
+                         16.0f });
     }
     for (size_t i = 0; i + 1 < path.profile.size (); ++i) {
         const double s0 = path.profile[i].station, s1 = path.profile[i + 1].station;
@@ -348,18 +353,18 @@ void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Sty
     layer.points.push_back (std::move (points));
 
     // Grade breaks with their elevations; fixed ones in their own colour.
-    layers::PointSet free, fixed;
+    layers::PointSet free, fixed, junction;
     free.rgba = style.gradeBreak;
     fixed.rgba = style.fixedBreak;
-    free.sizePixels = fixed.sizePixels = style.vertexPixels + 1.0f;
+    junction.rgba = style.junctionBreak;
+    free.sizePixels = fixed.sizePixels = junction.sizePixels = style.vertexPixels + 1.0f;
     for (size_t i = 0; i < path.profile.size () && i < o.breaks.size (); ++i) {
         const auto& b = path.profile[i];
-        Push (b.fixed ? fixed.points : free.points, o.breaks[i]);
+        Push (b.fixed ? fixed.points : b.crossing != edit::kNoId ? junction.points : free.points, o.breaks[i]);
     }
-    if (!free.points.empty ())
-        layer.points.push_back (std::move (free));
-    if (!fixed.points.empty ())
-        layer.points.push_back (std::move (fixed));
+    for (auto* set : { &free, &fixed, &junction })
+        if (!set->points.empty ())
+            layer.points.push_back (std::move (*set));
 
     // A downhill arrow and the grade over the middle of each tangent.
     for (size_t i = 0; i + 1 < path.profile.size (); ++i) {

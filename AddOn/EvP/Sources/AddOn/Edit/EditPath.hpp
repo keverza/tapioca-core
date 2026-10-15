@@ -62,13 +62,16 @@ std::vector<double> ElementStations (const AlignmentGeometry& geometry);
 // symmetric parabolic vertical curve `curve` metres long centred on it. A fixed break
 // is a reference elevation (an entrance threshold, a street level) that edits keep.
 // An anchored break follows the station of a control point as the plan changes;
-// `binding` names the host item a fixed elevation came from, for re-checking later.
+// `binding` names the host item a fixed elevation came from, for re-checking later. A
+// crossing break is where this path crosses or meets path `crossing`: it stays at the
+// junction, and its height and the other path's there agree (EditPathCrossing.hpp).
 struct GradeBreak {
     Id id = kNoId;
     double station = 0.0, z = 0.0, curve = 0.0;
     bool fixed = false;
     Id anchor = kNoId;
     std::string binding;
+    Id crossing = kNoId;
     bool operator== (const GradeBreak&) const = default;
 };
 // Breaks ascend from station 0 to `length`, the end breaks carry no curve, and

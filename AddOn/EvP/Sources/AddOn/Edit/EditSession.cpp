@@ -1,4 +1,5 @@
 #include "Edit/EditSession.hpp"
+#include "Edit/EditPathCrossing.hpp"
 #include <algorithm>
 
 namespace geomsrv::edit {
@@ -37,6 +38,9 @@ bool Session::Begin (const Ref& ref)
 bool Session::Accept (Document candidate, const std::string& refusal)
 {
     std::string error = refusal;
+    // Paths that cross or meet share a height there, whichever of them the edit touched.
+    if (error.empty ())
+        LinkCrossings (candidate, before);
     if (error.empty ())
         Validate (candidate, error);
     if (!error.empty ()) {

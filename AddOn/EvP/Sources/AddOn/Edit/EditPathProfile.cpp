@@ -116,7 +116,9 @@ bool SetGrade (std::vector<GradeBreak>& b, size_t i, double percent, std::string
         error = "both ends of this stretch are fixed";
         return false;
     }
-    if (to.fixed)
+    // A fixed end stays; else a junction (shared with another path) does; else the start.
+    const bool keepEnd = to.fixed || (!from.fixed && from.crossing == kNoId && to.crossing != kNoId);
+    if (keepEnd)
         from.z = to.z - rise;
     else
         to.z = from.z + rise;
@@ -162,6 +164,10 @@ bool DeleteBreak (std::vector<GradeBreak>& b, Id id, std::string& error)
         error = "a fixed elevation cannot be removed; unfix it first";
         return false;
     }
+    if (b[static_cast<size_t> (i)].crossing != kNoId) {
+        error = "paths that cross share a grade break there: it goes when they part";
+        return false;
+    }
     b.erase (b.begin () + i);
     return CheckOrder (b, error);
 }
@@ -175,6 +181,10 @@ bool MoveBreak (std::vector<GradeBreak>& b, Id id, double station, std::string& 
     }
     if (b[static_cast<size_t> (i)].anchor != kNoId) {
         error = "that grade break follows a control point";
+        return false;
+    }
+    if (b[static_cast<size_t> (i)].crossing != kNoId) {
+        error = "that grade break stays where the paths cross";
         return false;
     }
     b[static_cast<size_t> (i)].station = station;
