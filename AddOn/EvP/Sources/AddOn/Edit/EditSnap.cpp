@@ -105,6 +105,7 @@ struct Seg {
     Vec3 a, b;
     Ref ref;
     std::string context;
+    int run = -1; // a piece of a drawn curve: the curve's number (unique in the gather), -1 straight
 };
 
 struct Pt {
@@ -122,6 +123,7 @@ struct Line {
     Guide guide;  // what to draw when the line takes part in a snap
     Ref ref;
     std::string context;
+    int run = -1; // as Seg::run: two pieces of one curve do not cross
 };
 
 struct Candidate {
@@ -152,6 +154,7 @@ bool Excluded (const std::vector<Ref>& exclude, Id entity, Id vertex)
 void Gather (const Document& doc, const SnapContext& context, const SnapQuery& query, std::vector<Pt>& points,
              std::vector<Seg>& segments)
 {
+    int runBase = 0; // each entity's curves numbered apart from the next one's
     for (const auto& e : doc.entities) {
         if (Excluded (query.exclude, e.id, kNoId))
             continue;
@@ -166,7 +169,33 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
                 segments.push_back ({ v.p, v.p + up, { e.id, Part::Vertex, v.id }, {} });
             }
         }
-        for (size_t i = 0; i < e.segments.size (); ++i) {
+        // ⚠️ A ROUNDED OUTLINE IS SNAPPED AS DRAWN (the user, 2026-10-15: guides caught each piece of
+        // a fillet as a straight edge). Its straight runs are edges with their middles, its arcs and
+        // curves are curves -- on them, never their pieces' middles, extensions or crossings -- and
+        // an arc's centre and tangent points are points. The anchors' chords are not drawn: gone.
+        if (Rounded (e)) {
+            const auto f = Features (e);
+            for (const auto& edge : f.edges) {
+                if (edge.segment >= e.segments.size ())
+                    continue;
+                size_t from = 0, to = 0;
+                SegmentEnds (e, edge.segment, from, to);
+                if (Excluded (query.exclude, e.id, e.vertices[from].id) ||
+                    Excluded (query.exclude, e.id, e.vertices[to].id))
+                    continue;
+                const Ref ref = edge.run < 0 ? Ref { e.id, Part::Segment, e.segments[edge.segment].id }
+                                             : Ref { e.id, Part::Entity, 0 };
+                segments.push_back ({ edge.a, edge.b, ref, {}, edge.run < 0 ? -1 : runBase + edge.run });
+                if (edge.run < 0 && DistanceXY (edge.a, edge.b) > kMinSegment)
+                    points.push_back ({ Lerp (edge.a, edge.b, 0.5), SnapKind::Midpoint, ref, {} });
+            }
+            for (const auto& c : f.centres)
+                points.push_back ({ c, SnapKind::Centre, { e.id, Part::Entity, 0 }, {} });
+            for (const auto& t : f.tangentPoints)
+                points.push_back ({ t, SnapKind::Endpoint, { e.id, Part::Entity, 0 }, "tangent point" });
+            runBase += 1000;
+        }
+        for (size_t i = 0; i < e.segments.size () && !Rounded (e); ++i) {
             size_t from = 0, to = 0;
             SegmentEnds (e, i, from, to);
             if (Excluded (query.exclude, e.id, e.vertices[from].id) ||
@@ -180,17 +209,6 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
                 segments.push_back ({ a + up, b + up, { e.id, Part::Face, 1 }, {} });
                 points.push_back ({ Lerp (a, b, 0.5) + up, SnapKind::Midpoint, ref, {} });
             }
-        }
-        // A rounded outline: its arcs and the straight runs between them are its edges.
-        if (std::any_of (e.vertices.begin (), e.vertices.end (),
-                         [] (const Vertex& v) {
-                             return v.radius > 0.0 || std::hypot (v.in.x, v.in.y) > 0.0 ||
-                                    std::hypot (v.out.x, v.out.y) > 0.0;
-                         }) &&
-            !Excluded (query.exclude, e.id, kNoId)) {
-            const auto shape = Shape (e);
-            for (size_t i = 0; i + 1 < shape.size () + (e.closed ? 1 : 0); ++i)
-                segments.push_back ({ shape[i], shape[(i + 1) % shape.size ()], { e.id, Part::Entity, 0 }, {} });
         }
         if (e.closed) {
             Vec3 centre;
@@ -213,10 +231,15 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
             points.push_back ({ o.points[i], SnapKind::Endpoint, { path.id, Part::PathPoint, path.points[i].id }, {} });
         for (size_t i = 0; i < o.breaks.size (); ++i)
             points.push_back ({ o.breaks[i], SnapKind::Endpoint, { path.id, Part::Break, path.profile[i].id }, {} });
+        // Bends are curves: their sampled pieces are snapped along, not as edges of their own.
+        const auto centreRuns = CurveRuns (o.centre, false, runBase);
+        const auto leftRuns = CurveRuns (o.left, false, runBase + 1000);
+        const auto rightRuns = CurveRuns (o.right, false, runBase + 2000);
+        runBase += 3000;
         for (size_t i = 0; i + 1 < o.stations.size (); ++i) {
-            segments.push_back ({ o.centre[i], o.centre[i + 1], { path.id, Part::Entity, 0 }, {} });
-            segments.push_back ({ o.left[i], o.left[i + 1], { path.id, Part::Range, o.range[i] }, {} });
-            segments.push_back ({ o.right[i], o.right[i + 1], { path.id, Part::Range, o.range[i] }, {} });
+            segments.push_back ({ o.centre[i], o.centre[i + 1], { path.id, Part::Entity, 0 }, {}, centreRuns[i] });
+            segments.push_back ({ o.left[i], o.left[i + 1], { path.id, Part::Range, o.range[i] }, {}, leftRuns[i] });
+            segments.push_back ({ o.right[i], o.right[i + 1], { path.id, Part::Range, o.range[i] }, {}, rightRuns[i] });
         }
     }
     for (const auto& p : context.points)
@@ -279,8 +302,17 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
             continue; // seen edge-on: it is a point in this projection
         const double clamped = std::clamp (t, 0.0, 1.0);
         const double near = Dist (At (a, b, clamped), cursor);
+        // On a curve, the edge it reports is the tangent there, a few tolerances long.
+        Vec3 ea = s.a, eb = s.b;
+        if (s.run >= 0) {
+            Vec3 d;
+            if (Normalize (s.b - s.a, d)) {
+                const Vec3 at = Lerp (s.a, s.b, clamped);
+                ea = at - d * (5.0 * tol), eb = at + d * (5.0 * tol);
+            }
+        }
         if (near <= tol) {
-            lines.push_back ({ s.a, s.b, true, { s.a, s.b, SnapKind::Nearest }, s.ref, s.context });
+            lines.push_back ({ s.a, s.b, true, { s.a, s.b, SnapKind::Nearest }, s.ref, s.context, s.run });
             if (has (kSnapNearest))
                 offer ({ SnapKind::Nearest,
                          Lerp (s.a, s.b, clamped),
@@ -290,10 +322,11 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                          {},
                          SnapKindName (SnapKind::Nearest),
                          true,
-                         s.a,
-                         s.b });
-            // Its middle, when that is the snap, names the edge it halves too.
-            if (has (kSnapMidpoint)) {
+                         ea,
+                         eb });
+            // Its middle, when that is the snap, names the edge it halves too -- a straight
+            // edge's: a curve's pieces have no middles worth a snap.
+            if (has (kSnapMidpoint) && s.run < 0) {
                 const Vec3 mid = Lerp (s.a, s.b, 0.5);
                 offer ({ SnapKind::Midpoint,
                          mid,
@@ -323,8 +356,8 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                          s.b });
             }
         }
-        // The segment's extension past the end nearer the cursor.
-        if (has (kSnapExtension)) {
+        // The segment's extension past the end nearer the cursor -- a straight segment's.
+        if (has (kSnapExtension) && s.run < 0) {
             const double reach = query.extensionReach > 0.0 ? query.extensionReach : 25.0 * tol;
             const bool pastEnd = t > 1.0 && Dist (b, cursor) <= reach;
             const bool pastStart = t < 0.0 && Dist (a, cursor) <= reach;
@@ -419,6 +452,8 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
         for (size_t i = 0; i < lines.size (); ++i)
             for (size_t j = i + 1; j < lines.size (); ++j) {
                 const Line &l = lines[i], &m = lines[j];
+                if (l.run >= 0 && l.run == m.run)
+                    continue; // two pieces of one curve: where they meet is just how it is drawn
                 double t = 0.0, s = 0.0;
                 if (!Cross2 (frame.To (l.a), frame.To (l.b), frame.To (m.a), frame.To (m.b), t, s))
                     continue;

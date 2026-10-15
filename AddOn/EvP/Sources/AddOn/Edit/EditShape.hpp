@@ -62,6 +62,26 @@ double DrawnRadius (const Entity& entity, size_t i);
 // `maxAngle` radians a step. Closed when the entity is (the first point is not repeated).
 std::vector<Vec3> Shape (const Entity& entity, double maxAngle = 0.15);
 
+// The outline as snapping and guides see it: straight pieces (with the segment they are
+// part of), the pieces of each arc or curve (`run` names which, the same for all of one
+// curve, -1 when straight), and the arcs' centres and tangent points. A curve is one thing:
+// its pieces are how it is drawn, not edges of their own.
+struct ShapeEdge {
+    Vec3 a, b;
+    int run = -1;
+    size_t segment = 0; // the entity's segment the piece lies on
+};
+struct ShapeFeatures {
+    std::vector<ShapeEdge> edges;
+    std::vector<Vec3> centres, tangentPoints;
+};
+ShapeFeatures Features (const Entity& entity, double maxAngle = 0.15);
+// An entity drawn otherwise than its straight segments: a live corner or a curve.
+bool Rounded (const Entity& entity);
+// Pieces of a polyline sampled from curves (a path's edges): a piece turning a little from a
+// neighbour belongs to a curve; consecutive such pieces share a run number, straight ones -1.
+std::vector<int> CurveRuns (const std::vector<Vec3>& points, bool closed, int firstRun = 0);
+
 // A corner's grip: on its bisector at the arc's middle, or `minInset` metres into a
 // sharp corner. RadiusFromGrip inverts it: the radius whose arc's middle is where `p`
 // falls on the bisector (0 inside `minInset`).

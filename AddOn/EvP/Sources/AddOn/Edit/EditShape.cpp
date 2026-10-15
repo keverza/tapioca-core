@@ -333,6 +333,98 @@ std::vector<Vec3> Shape (const Entity& e, double maxAngle)
     return out;
 }
 
+bool Rounded (const Entity& e)
+{
+    for (const auto& v : e.vertices)
+        if (v.radius > 0.0 || Set (v.in) || Set (v.out))
+            return true;
+    return false;
+}
+
+ShapeFeatures Features (const Entity& e, double maxAngle)
+{
+    ShapeFeatures f;
+    const size_t n = e.vertices.size ();
+    if (n < 2)
+        return f;
+    int run = 0;
+    // Each vertex: where the outline leaves it (a tangent point after a rounding) and where
+    // it arrives (one before).
+    std::vector<Vec3> leave (n), arrive (n);
+    for (size_t i = 0; i < n; ++i) {
+        leave[i] = arrive[i] = e.vertices[i].p;
+        const double r = DrawnRadius (e, i);
+        CornerGeometry c;
+        if (!(r > 0.0) || !CornerOf (e, i, c))
+            continue;
+        const double t = TangentLength (c, r);
+        arrive[i] = { c.corner.x + c.toPrev.x * t, c.corner.y + c.toPrev.y * t, c.corner.z };
+        leave[i] = { c.corner.x + c.toNext.x * t, c.corner.y + c.toNext.y * t, c.corner.z };
+        f.tangentPoints.push_back (arrive[i]);
+        f.tangentPoints.push_back (leave[i]);
+        const Vec3 centre = c.corner + c.bisector * (r / std::sin (c.half));
+        f.centres.push_back ({ centre.x, centre.y, c.corner.z });
+        // The arc's pieces, one run.
+        const double a1 = std::atan2 (arrive[i].y - centre.y, arrive[i].x - centre.x);
+        const double sweep = std::remainder (std::atan2 (leave[i].y - centre.y, leave[i].x - centre.x) - a1,
+                                             2.0 * 3.14159265358979323846);
+        const int steps = std::max (2, int (std::ceil (std::abs (sweep) / (maxAngle > 0.0 ? maxAngle : 0.15))));
+        Vec3 last = arrive[i];
+        for (int k = 1; k <= steps; ++k) {
+            const double a = a1 + sweep * k / steps;
+            const Vec3 p =
+                k == steps ? leave[i] : Vec3 { centre.x + r * std::cos (a), centre.y + r * std::sin (a), c.corner.z };
+            f.edges.push_back ({ last, p, run, i });
+            last = p;
+        }
+        ++run;
+    }
+    for (size_t i = 0; i < SegmentCount (e); ++i) {
+        size_t from = 0, to = 0;
+        SegmentEnds (e, i, from, to);
+        if (!SegmentCurved (e, i)) {
+            f.edges.push_back ({ leave[from], arrive[to], -1, i });
+            continue;
+        }
+        const auto points = SegmentPoints (e, i);
+        for (size_t k = 0; k + 1 < points.size (); ++k)
+            f.edges.push_back ({ points[k], points[k + 1], run, i });
+        ++run;
+    }
+    return f;
+}
+
+std::vector<int> CurveRuns (const std::vector<Vec3>& points, bool closed, int firstRun)
+{
+    const size_t pieces = points.size () < 2 ? 0 : points.size () - (closed ? 0 : 1);
+    std::vector<int> runs (pieces, -1);
+    const auto direction = [&] (size_t i) {
+        const Vec3 a = points[i], b = points[(i + 1) % points.size ()];
+        return std::atan2 (b.y - a.y, b.x - a.x);
+    };
+    // A piece bends from its neighbour by a sliver: a sampled curve, not a corner.
+    const auto bends = [&] (size_t i, size_t j) {
+        const double turn = std::abs (std::remainder (direction (j) - direction (i), 2.0 * 3.14159265358979323846));
+        return turn > 1.0e-6 && turn < 0.35;
+    };
+    // A piece of a curve bends from the pieces on both its sides; a straight lead-in bends
+    // only into the curve.
+    std::vector<bool> curved (pieces, false);
+    for (size_t i = 0; i < pieces; ++i) {
+        const bool hasPrev = closed || i > 0, hasNext = closed || i + 1 < pieces;
+        curved[i] =
+            pieces > 2 && hasPrev && hasNext && bends ((i + pieces - 1) % pieces, i) && bends (i, (i + 1) % pieces);
+    }
+    int run = firstRun - 1;
+    for (size_t i = 0; i < pieces; ++i)
+        if (curved[i]) {
+            if (i == 0 || !curved[i - 1])
+                ++run;
+            runs[i] = run;
+        }
+    return runs;
+}
+
 Vec3 CornerGripAt (const Entity& e, size_t i, double minInset)
 {
     CornerGeometry c;

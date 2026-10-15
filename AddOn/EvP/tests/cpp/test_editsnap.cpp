@@ -1,3 +1,4 @@
+#include "Edit/EditShape.hpp"
 #include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
@@ -248,4 +249,45 @@ TEST (EditSnap, MovedEdgesSnapFlushToParallelEdges)
     EXPECT_FALSE (ed::SnapEdges (doc, ctx, q, { { { 2, 1.0, 0 }, { 5, 1.0, 0 } } }, translate, r));
     translate = { 0, 0.1, 0 };
     EXPECT_FALSE (ed::SnapEdges (doc, ctx, q, { { { 2, 0.1, 0 }, { 5, 1.1, 0 } } }, translate, r));
+}
+
+TEST (EditSnap, ARoundedCornerIsSnappedAsAnArc)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, false);
+    ed::Find (doc, e)->vertices[1].radius = 4.0; // arc from (6, 0) to (10, 4) about (6, 4)
+    ed::SnapContext ctx;
+    // On the arc: an edge snap, never a middle of one of its drawn pieces or a crossing of two.
+    const double a = 3.14159265358979323846 * 1.6; // a point on the arc
+    const ed::Vec3 on { 6 + 4 * std::cos (a), 4 + 4 * std::sin (a), 0 };
+    auto r = ed::Snap (doc, ctx, At (on.x + 0.02, on.y - 0.01, 0.1));
+    ASSERT_TRUE (r.snapped);
+    EXPECT_EQ (r.kind, ed::SnapKind::Nearest);
+    ASSERT_TRUE (r.onEdge);
+    // The edge it reports is the arc's tangent there: square to the radius.
+    const ed::Vec3 d = r.edgeTo - r.edgeFrom, radial = r.point - ed::Vec3 { 6, 4, 0 };
+    EXPECT_NEAR ((d.x * radial.x + d.y * radial.y) / (std::hypot (d.x, d.y) * std::hypot (radial.x, radial.y)), 0.0,
+                 0.08); // a drawn piece's direction: within half its 0.15 rad sweep of the true tangent
+    // The arc's centre and its tangent points are points to snap to; the anchors' hidden
+    // chord past the tangent point is not an edge.
+    EXPECT_EQ (ed::Snap (doc, ctx, At (6.03, 4.02)).kind, ed::SnapKind::Centre);
+    const auto t = ed::Snap (doc, ctx, At (6.02, 0.03));
+    EXPECT_EQ (t.kind, ed::SnapKind::Endpoint);
+    ExpectAt (t, 6.0, 0.0);
+    EXPECT_FALSE (ed::Snap (doc, ctx, At (9.0, 0.02)).snapped); // the corner's chord, not drawn
+}
+
+TEST (EditSnap, SampledBendsFormRuns)
+{
+    std::vector<ed::Vec3> pts { { 0, 0, 0 }, { 5, 0, 0 } };
+    for (int k = 1; k <= 8; ++k) {
+        const double a = -3.14159265358979323846 / 2 + 3.14159265358979323846 / 2 * k / 8;
+        pts.push_back ({ 5 + 3 * std::cos (a), 3 + 3 * std::sin (a), 0 });
+    }
+    pts.push_back ({ 8, 10, 0 });
+    const auto runs = ed::CurveRuns (pts, false);
+    ASSERT_EQ (runs.size (), pts.size () - 1);
+    EXPECT_EQ (runs.front (), -1); // the straight lead-in
+    EXPECT_EQ (runs[3], 0);        // inside the bend
+    EXPECT_EQ (runs[5], 0);
 }
