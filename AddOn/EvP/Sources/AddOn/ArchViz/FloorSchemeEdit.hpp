@@ -65,6 +65,9 @@ int WingAt (const Scheme& s, Vec p);
 struct Wall {
     int low = -1, high = -1; // the flats before and after it along `axis`
     Vec a, b, axis;
+    // Between flats of different slots (a corridor's end flat and a row's, flats of two rows):
+    // moving it gives the strip it sweeps to the flat it moves away from (Pins::Give).
+    bool seam = false;
 };
 std::optional<Wall> WallAt (const Scheme& s, Vec p, double tolerance);
 struct End {

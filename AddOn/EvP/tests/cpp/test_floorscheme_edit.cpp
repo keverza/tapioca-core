@@ -1,6 +1,7 @@
 #include "ArchViz/FloorSchemeEdit.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <optional>
 #include <cmath>
 #include <sstream>
 
@@ -122,7 +123,8 @@ TEST (FloorSchemeEdit, AWallMovesAndItsNeighboursStay)
         const auto& r = f.scheme.flats[i].shape;
         for (size_t k = 0; k < r.size () && !wall; ++k) {
             const fs::Vec a = r[k], b = r[(k + 1) % r.size ()];
-            wall = fe::WallAt (f.scheme, { (a.x + b.x) / 2, (a.y + b.y) / 2 }, 0.3);
+            if (auto w = fe::WallAt (f.scheme, { (a.x + b.x) / 2, (a.y + b.y) / 2 }, 0.3); w && !w->seam)
+                wall = w;
         }
     }
     ASSERT_TRUE (wall.has_value ());
@@ -669,4 +671,52 @@ TEST (FloorSchemeEdit, AStairTurnsAndKeepsItsSize)
     std::string why;
     EXPECT_EQ (fe::ResizeStair (f.scheme, f.session.design, 0, 1.0, 4.0, &why), f.session.design);
     EXPECT_FALSE (why.empty ());
+}
+
+// User, 2026-10-14: "I was not able to move corner unit wall to make it L-shaped." The wall between a
+// corridor's end flat and the row's end flat beside it moves: the strip it sweeps goes to the flat it
+// moves away from, and the flat that gives it is an L.
+TEST (FloorSchemeEdit, AWallBetweenTwoSlotsMovesAndLeavesAnL)
+{
+    Floor f ({ Rect (0, 0, 60, 16) });
+    std::optional<fe::Wall> seam;
+    for (size_t i = 0; i < f.scheme.flats.size () && !seam; ++i) {
+        const auto& cap = f.scheme.flats[i];
+        if (cap.band >= 0)
+            continue;
+        for (size_t k = 0; k < cap.shape.size () && !seam; ++k) {
+            const fs::Vec a = cap.shape[k], b = cap.shape[(k + 1) % cap.shape.size ()];
+            const auto wall = fe::WallAt (f.scheme, { (a.x + b.x) / 2, (a.y + b.y) / 2 }, 0.3);
+            if (wall && wall->seam && wall->low == int (i) && f.scheme.flats[wall->high].band >= 0)
+                seam = wall;
+        }
+    }
+    ASSERT_TRUE (seam.has_value ()) << "a corridor's end flat beside a row's flat";
+    const auto& giver = f.scheme.flats[seam->high];
+    const size_t corners = giver.shape.size ();
+    const double net = f.scheme.net, gave = giver.net;
+    fs::Vec far = giver.shape.front ();
+    for (const auto& p : giver.shape) // the corner of the giving flat farthest from the seam
+        if (std::hypot (p.x - seam->a.x, p.y - seam->a.y) > std::hypot (far.x - seam->a.x, far.y - seam->a.y))
+            far = p;
+    const fs::Vec inside { far.x + (seam->a.x - far.x) * 0.05, far.y + (seam->a.y - far.y) * 0.05 };
+    std::string why;
+    const fs::Vec to { seam->a.x + seam->axis.x * 2.0, seam->a.y + seam->axis.y * 2.0 };
+    f.Apply (fe::MoveWall (f.scheme, f.session.design, *seam, to, &why));
+    EXPECT_TRUE (why.empty ()) << why;
+    EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    EXPECT_NEAR (f.scheme.net, net, 1.0) << "the floor changes flats, none is lost";
+    const int now = fe::FlatAt (f.scheme, inside);
+    ASSERT_GE (now, 0);
+    EXPECT_GT (f.scheme.flats[now].shape.size (), corners) << "an L";
+    EXPECT_LT (f.scheme.flats[now].net, gave - 5.0);
+    // Pushed right through the corridor's end flat, nothing of it would be left; nearly through the
+    // row's flat, a sliver would be: it stays and says why.
+    Floor g ({ Rect (0, 0, 60, 16) });
+    for (const double t : { -20.0, 6.9 }) {
+        why.clear ();
+        const fs::Vec push { seam->a.x + seam->axis.x * t, seam->a.y + seam->axis.y * t };
+        EXPECT_EQ (fe::MoveWall (g.scheme, g.session.design, *seam, push, &why), g.session.design) << t;
+        EXPECT_FALSE (why.empty ()) << t;
+    }
 }

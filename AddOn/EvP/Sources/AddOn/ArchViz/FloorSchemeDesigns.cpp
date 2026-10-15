@@ -70,6 +70,13 @@ V Write (const Design& d)
         o["joins"] = List (p.joins, [] (const Pins::Join& j) {
             return V::Array ({ Number (j.from.x), Number (j.from.y), Number (j.into.x), Number (j.into.y) });
         });
+    if (!p.gives.empty ())
+        o["gives"] = List (p.gives, [] (const Pins::Give& g) {
+            js::JsonArray n { Number (g.into.x), Number (g.into.y) };
+            for (const auto& q : g.region)
+                n.push_back (Number (q.x)), n.push_back (Number (q.y));
+            return V::Array (std::move (n));
+        });
     return V::Object (std::move (o));
 }
 
@@ -188,11 +195,26 @@ bool Read (const V& value, Design& d)
                          c.flats = static_cast<int> (flats);
                          return true;
                      }) &&
-           ReadList (value.Find ("joins"), p.joins, [] (const V& item, Pins::Join& j) {
-               double n[4];
-               if (!Numbers (item, 4, n))
+           ReadList (value.Find ("joins"), p.joins,
+                     [] (const V& item, Pins::Join& j) {
+                         double n[4];
+                         if (!Numbers (item, 4, n))
+                             return false;
+                         j = { { n[0], n[1] }, { n[2], n[3] } };
+                         return true;
+                     }) &&
+           ReadList (value.Find ("gives"), p.gives, [] (const V& item, Pins::Give& g) {
+               // The flat it goes to, then the region: x y pairs, three corners at least.
+               const auto* array = item.AsArray ();
+               if (!array || array->size () < 8 || array->size () % 2 != 0 || array->size () > 2 * 256 + 2)
                    return false;
-               j = { { n[0], n[1] }, { n[2], n[3] } };
+               std::vector<double> n (array->size ());
+               for (size_t i = 0; i < n.size (); ++i)
+                   if (!(*array)[i].AsDouble (n[i]) || !std::isfinite (n[i]) || std::abs (n[i]) > 1e9)
+                       return false;
+               g.into = { n[0], n[1] };
+               for (size_t i = 2; i < n.size (); i += 2)
+                   g.region.push_back ({ n[i], n[i + 1] });
                return true;
            });
 }

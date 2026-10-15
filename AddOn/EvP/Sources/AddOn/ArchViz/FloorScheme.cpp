@@ -796,11 +796,35 @@ std::pair<size_t, bool> TypeFor (const floorprogramme::Programme& programme, dou
     }
     return { pick, miss <= 0.5 };
 }
+// A flat whose outline the user changed: the type its area fits (or the room count pinned in it),
+// its rooms laid again from what lies beyond its outline, and checked (RoomRules).
+void Refit (Scheme& s, Flat& f, const cp::PathsD& outline, const cp::PathsD& blind,
+            const floorprogramme::Programme& programme, const Pins& pins, const Options& o)
+{
+    auto [type, fits] = TypeFor (programme, f.net, f.type);
+    for (const auto& r : pins.rooms)
+        if (Inside ({ ToPath (f.shape) }, r.at))
+            for (size_t t = 0; t < programme.types.size (); ++t)
+                if (std::abs (programme.types[t].rooms - r.rooms) < 1e-6)
+                    type = t, fits = f.net >= programme.types[t].minM2 - 0.5 && f.net <= programme.types[t].maxM2 + 0.5;
+    if (type != f.type && type < s.counts.size () && f.type < s.counts.size ())
+        --s.counts[f.type], ++s.counts[type];
+    f.type = type, f.rooms = programme.types[type].rooms, f.inRange = fits;
+    f.roomList.clear (), f.windows.clear ();
+    f.manual = false;
+    // Rooms that would break a hard rule (an L's hall away from the corridor, a room too narrow
+    // for its kind) are left to the user instead.
+    bool broken = false;
+    if (PlanRooms (f, SidesOf (s, outline, blind, f.shape)))
+        RoomRules (s, f, o, [&] (const char*, const std::string&, Vec) { broken = true; });
+    if (broken)
+        f.manual = true, f.roomList.clear (), f.windows.clear (), f.door = {};
+}
 // The user's joins (Pins::Join): the flat under `from` and the flat beside it under `into` become
 // one, of the type its area fits (or the room count pinned in it), its rooms laid again. A join
 // that would leave a hole or a fold, or finds no two flats, is noted and left out.
 void Joins (Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const floorprogramme::Programme& programme,
-            const Pins& pins)
+            const Pins& pins, const Options& o)
 {
     auto at = [&] (Vec p) {
         for (size_t i = 0; i < s.flats.size (); ++i)
@@ -831,21 +855,51 @@ void Joins (Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const
             --s.bands[gone.band].flats;
         if (gone.type < s.counts.size ())
             --s.counts[gone.type];
-        // The type its area fits, unless a room count is pinned inside it.
-        auto [type, fits] = TypeFor (programme, kept.net, kept.type);
-        for (const auto& r : pins.rooms)
-            if (Inside ({ ToPath (kept.shape) }, r.at))
-                for (size_t t = 0; t < programme.types.size (); ++t)
-                    if (std::abs (programme.types[t].rooms - r.rooms) < 1e-6)
-                        type = t,
-                        fits = kept.net >= programme.types[t].minM2 - 0.5 && kept.net <= programme.types[t].maxM2 + 0.5;
-        if (type != kept.type && type < s.counts.size () && kept.type < s.counts.size ())
-            --s.counts[kept.type], ++s.counts[type];
-        kept.type = type, kept.rooms = programme.types[type].rooms, kept.inRange = fits;
-        kept.roomList.clear (), kept.windows.clear ();
-        kept.manual = false;
-        PlanRooms (kept, SidesOf (s, outline, blind, kept.shape));
+        Refit (s, kept, outline, blind, programme, pins, o);
         s.flats.erase (s.flats.begin () + from);
+    }
+}
+// The user's moved walls between flats of different slots (Pins::Give): the region goes from the
+// flats it covers to the flat under `into`. A give that would leave a flat in pieces or under
+// 15 m2, or that does not join the flat it goes to, is noted and left out.
+void Gives (Scheme& s, const cp::PathsD& outline, const cp::PathsD& blind, const floorprogramme::Programme& programme,
+            const Pins& pins, const Options& o)
+{
+    constexpr double kSmallest = 15.0;
+    for (const auto& give : pins.gives) {
+        int into = -1;
+        for (size_t i = 0; i < s.flats.size () && into < 0; ++i)
+            if (Inside ({ ToPath (s.flats[i].shape) }, give.into))
+                into = static_cast<int> (i);
+        if (into < 0 || give.region.size () < 3) {
+            Note (s, Diagnostic::Warning, "edit.give", "A moved wall's flat is no longer there.", give.into);
+            continue;
+        }
+        const cp::PathsD region { ToPath (Counter (give.region)) };
+        for (size_t j = 0; j < s.flats.size (); ++j) {
+            if (static_cast<int> (j) == into)
+                continue;
+            const cp::PathsD flat { ToPath (Counter (s.flats[j].shape)) };
+            const auto piece = cp::Intersect (flat, region, cp::FillRule::NonZero, kPrecision);
+            const double area = detail::Area (piece);
+            if (area < 0.5)
+                continue;
+            const auto rest = cp::Difference (flat, region, cp::FillRule::NonZero, kPrecision);
+            Ring grown = s.flats[into].shape;
+            if (rest.size () != 1 || cp::Area (rest.front ()) < kSmallest || piece.size () != 1 ||
+                !Join (grown, piece.front ())) {
+                Note (s, Diagnostic::Warning, "edit.give",
+                      "A moved wall would leave a flat in pieces or too small: it stays where it was.", give.into);
+                continue;
+            }
+            auto& loser = s.flats[j];
+            loser.shape = Counter (FromPath (cp::SimplifyPath (rest.front (), 1e-3)));
+            loser.gross -= area, loser.net -= area;
+            s.flats[into].shape = std::move (grown);
+            s.flats[into].gross += area, s.flats[into].net += area;
+            Refit (s, loser, outline, blind, programme, pins, o);
+            Refit (s, s.flats[into], outline, blind, programme, pins, o);
+        }
     }
 }
 Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& programme, const Pins& pins,
@@ -902,7 +956,8 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
     const auto blind = ToPaths (options.party);
     Mould (paths, &blind, s, MaxFlat (programme, options));
     Rework (paths, s, programme, pins, options);
-    Joins (s, paths, blind, programme, pins);
+    Joins (s, paths, blind, programme, pins, options);
+    Gives (s, paths, blind, programme, pins, options);
     Tidy (s);
     s.party = PartyWalls (paths, blind);
     // A flat whose rooms are left to the user takes the type its area fits.

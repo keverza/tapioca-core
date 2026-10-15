@@ -106,6 +106,11 @@ struct Pins {
         Vec from, into; // the flat under `from` is joined to the flat beside it under `into`
         bool operator== (const Join&) const = default;
     };
+    struct Give {
+        Ring region; // floor of the flat beside it that goes...
+        Vec into;    // ...to the flat under `into`: a wall between them moved
+        bool operator== (const Give&) const = default;
+    };
     std::vector<Core> cores;
     std::vector<AccessAt> access;
     std::vector<Wall> walls;
@@ -113,6 +118,7 @@ struct Pins {
     std::vector<End> ends;
     std::vector<Count> counts;
     std::vector<Join> joins; // applied in order, after division
+    std::vector<Give> gives; // applied in order, after the joins
     bool operator== (const Pins&) const = default;
 };
 

@@ -8,7 +8,8 @@ using namespace detail;
 
 namespace detail {
 // A flat's rooms: the hall meets the circulation, a 1.5R's windows are 1.6 m apart, every room is
-// inside the flat and no narrower than its kind allows. Check runs it on every flat.
+// inside the flat and no narrower than its kind allows. Check runs it on every flat; a flat whose
+// outline the user changed (a join, a moved wall between slots) runs it on its new rooms (Refit).
 void RoomRules (const Scheme& s, const Flat& f, const Options& o,
                 const std::function<void (const char*, const std::string&, Vec)>& fail)
 {

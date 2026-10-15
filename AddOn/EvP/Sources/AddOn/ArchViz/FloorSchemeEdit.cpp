@@ -330,6 +330,50 @@ std::optional<Wall> WallAt (const Scheme& s, Vec p, double tolerance)
                 }
         }
     }
+    if (best)
+        return best;
+    // Else a seam: the stretch of a flat's edge with another flat of another slot beyond it (user,
+    // 2026-10-14: "I was not able to move corner unit wall to make it L-shaped").
+    constexpr double kBeyond = 0.15, kSample = 0.1;
+    for (size_t i = 0; i < s.flats.size (); ++i) {
+        const auto& f = s.flats[i];
+        const Vec mine = Centroid (f.shape);
+        for (size_t k = 0; k < f.shape.size (); ++k) {
+            const Vec a = f.shape[k], b = f.shape[(k + 1) % f.shape.size ()];
+            const double length = std::hypot (b.x - a.x, b.y - a.y);
+            if (length < 0.5 || Distance (p, a, b) >= near)
+                continue;
+            const Vec d { (b.x - a.x) / length, (b.y - a.y) / length }, mid { (a.x + b.x) / 2, (a.y + b.y) / 2 };
+            Vec n { d.y, -d.x };
+            if (Dot ({ mid.x - mine.x, mid.y - mine.y }, n) < 0)
+                n = { -n.x, -n.y };
+            // The flat beyond where the pointer is, and how far along this edge it runs.
+            const double t = std::clamp (Dot ({ p.x - a.x, p.y - a.y }, d), 0.0, length);
+            const auto beyond = [&] (double u) {
+                return Vec { a.x + d.x * u + n.x * kBeyond, a.y + d.y * u + n.y * kBeyond };
+            };
+            int other = -1;
+            for (size_t j = 0; j < s.flats.size () && other < 0; ++j)
+                if (j != i && In (s.flats[j].shape, beyond (t)))
+                    other = static_cast<int> (j);
+            if (other < 0 || (f.band >= 0 && f.band == s.flats[other].band))
+                continue;
+            double lo = t, hi = t;
+            while (lo - kSample >= 0 && In (s.flats[other].shape, beyond (lo - kSample)))
+                lo -= kSample;
+            while (hi + kSample <= length && In (s.flats[other].shape, beyond (hi + kSample)))
+                hi += kSample;
+            if (hi - lo < 0.5)
+                continue;
+            near = Distance (p, a, b);
+            best = Wall { static_cast<int> (i),
+                          other,
+                          { a.x + d.x * lo, a.y + d.y * lo },
+                          { a.x + d.x * hi, a.y + d.y * hi },
+                          n,
+                          true };
+        }
+    }
     return best;
 }
 std::optional<End> EndAt (const Scheme& s, Vec p, double tolerance)
@@ -422,10 +466,59 @@ Design RemoveStair (const Scheme& s, Design d, int core, std::string* why)
                        count, count == 1 ? "" : "s", o.maxDeadEnd);
     return SpaceStairs (s, std::move (d), wing, count, nullptr);
 }
+namespace {
+// A seam moved: the strip it sweeps, as far as it lies in the flat it moves into, goes to the flat it
+// moves away from. The flat that gives keeps one piece of at least 15 m2 and its door on the
+// circulation; neither flat is locked.
+Design MoveSeam (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why)
+{
+    constexpr double kSmallest = 15.0, kNarrowStrip = 1.5;
+    const Vec axis = Unit (wall.axis);
+    const double t = Dot ({ to.x - wall.a.x, to.y - wall.a.y }, axis);
+    if (std::abs (t) < 0.05)
+        return Refuse (std::move (d), why, "The wall is where it was.");
+    const int gainer = t > 0 ? wall.low : wall.high, loser = t > 0 ? wall.high : wall.low;
+    if (Locked (s, d, gainer) || Locked (s, d, loser))
+        return Refuse (std::move (d), why, "A locked flat keeps its walls: unlock it to move this one.");
+    const Ring strip = Counter ({ wall.a,
+                                  wall.b,
+                                  { wall.b.x + axis.x * t, wall.b.y + axis.y * t },
+                                  { wall.a.x + axis.x * t, wall.a.y + axis.y * t } });
+    const cp::PathsD flat { ToPath (Counter (s.flats[loser].shape)) };
+    const auto piece = cp::Intersect (flat, { ToPath (strip) }, cp::FillRule::NonZero, kPrecision);
+    const auto rest = cp::Difference (flat, { ToPath (strip) }, cp::FillRule::NonZero, kPrecision);
+    if (piece.size () != 1 || detail::Area (piece) < 0.5)
+        return Refuse (std::move (d), why, "There is no floor of the next flat there to take.");
+    if (rest.size () != 1 || cp::Area (rest.front ()) < kSmallest)
+        return Refuse (std::move (d), why, "The flat beyond would be left in pieces or under %.0f m2.", kSmallest);
+    // Nor a strip of it narrower than a room: opening it by that much loses no floor.
+    const auto opened = cp::InflatePaths (
+        cp::InflatePaths (rest, -kNarrowStrip / 2, cp::JoinType::Miter, cp::EndType::Polygon, 2.0, kPrecision),
+        kNarrowStrip / 2, cp::JoinType::Miter, cp::EndType::Polygon, 2.0, kPrecision);
+    if (cp::Area (rest.front ()) - detail::Area (opened) > 1.0)
+        return Refuse (std::move (d), why, "The flat beyond would keep a strip narrower than %.1f m.", kNarrowStrip);
+    // The flat that gives still opens off a corridor, a lobby or a stair by a door's width.
+    const Ring left = Counter (FromPath (rest.front ()));
+    double door = 0;
+    for (const auto& c : s.corridors)
+        door = (std::max) (door, Touch (left, c.shape, 0.1));
+    for (const auto& l : s.lobbies)
+        door = (std::max) (door, Touch (left, l, 0.1));
+    for (const auto& c : s.cores)
+        door = (std::max) (door, Touch (left, c.shape, 0.1));
+    if (door < kDoor)
+        return Refuse (std::move (d), why, "The flat beyond would lose its door on the corridor: the wall stays.");
+    d.pins.gives.push_back ({ Counter (FromPath (piece.front ())), Within (s.flats[gainer].shape) });
+    return d;
+}
+} // namespace
 Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why)
 {
-    if (wall.low < 0 || wall.high < 0)
-        return Refuse (std::move (d), why, "Only a wall between two flats of one band moves.");
+    const int n = static_cast<int> (s.flats.size ());
+    if (wall.low < 0 || wall.high < 0 || wall.low >= n || wall.high >= n)
+        return Refuse (std::move (d), why, "There is no wall between two flats there.");
+    if (wall.seam)
+        return MoveSeam (s, std::move (d), wall, to, why);
     auto f = Freeze (s, s.flats[wall.low].band);
     if (!f)
         return Refuse (std::move (d), why, "Only a wall between two flats of one band moves.");
@@ -757,6 +850,8 @@ Vec SnapWall (const Scheme& s, const Wall& wall, Vec from, Vec to, const floorpr
     const Vec axis = Unit (wall.axis);
     const double t = Dot ({ to.x - from.x, to.y - from.y }, axis);
     double best = std::round (t / step) * step, near = step / 2;
+    if (wall.seam) // across slots: steps only, the flats' frontages are not along it
+        return { from.x + axis.x * best, from.y + axis.y * best };
     const int n = static_cast<int> (s.flats.size ());
     for (const auto& [flat, sign] : { std::pair { wall.low, 1.0 }, std::pair { wall.high, -1.0 } }) {
         if (flat < 0 || flat >= n)
