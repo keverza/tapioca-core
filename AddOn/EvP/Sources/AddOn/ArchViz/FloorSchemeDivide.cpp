@@ -547,14 +547,24 @@ void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots,
                 cuts.push_back (std::clamp (slot.frame.Local (pin.at).x, slot.box.u0, slot.box.u1));
         std::sort (cuts.begin (), cuts.end ());
         std::vector<double> edges { slot.box.u0 };
+        // Whether the span from `a` to `z` meets the corridor over a door's width.
+        const auto reaches = [&] (double a, double z) {
+            return (std::min) (z, slot.doorHi) - (std::max) (a, slot.doorLo) >= 1.2 - 1e-6;
+        };
         for (double cut : cuts) {
             double best = cut;
+            // Moved to leave whole flats only where the flats either side still reach the corridor
+            // as they did at the pin: a flat sized to have its door there keeps it.
+            const bool before = reaches (edges.back (), cut), after = reaches (cut, slot.box.u1);
+            const auto keeps = [&] (double at) {
+                return (!before || reaches (edges.back (), at)) && (!after || reaches (at, slot.box.u1));
+            };
             for (double d = 0; d <= kPinTolerance + 1e-9; d += 0.1) {
-                if (Fillable (p, cut - d - edges.back ())) {
+                if (Fillable (p, cut - d - edges.back ()) && keeps (cut - d)) {
                     best = cut - d;
                     break;
                 }
-                if (Fillable (p, cut + d - edges.back ())) {
+                if (Fillable (p, cut + d - edges.back ()) && keeps (cut + d)) {
                     best = cut + d;
                     break;
                 }

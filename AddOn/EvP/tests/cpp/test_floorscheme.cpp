@@ -711,3 +711,32 @@ TEST (FloorScheme, PartyWallsStandOnTheMainWallsOfTheSharedFloor)
                  std::none_of (aligned.diagnostics.begin (), aligned.diagnostics.end (),
                                [] (const fs::Diagnostic& d) { return d.level == fs::Diagnostic::Error; }));
 }
+
+// A pinned wall moved to leave whole flats never takes the flat before it off the corridor: a
+// flat-count edit sized the row's first flat to reach the corridor by a door at 32.8 m, and the
+// wall slid to 32.5 m, where the flat had no door and the span went unassigned.
+TEST (FloorScheme, APinnedWallMovesOnlyWhereTheFlatsStillReachTheCorridor)
+{
+    const auto p = fp::Default ();
+    const auto free = fs::Generate ({ Rect (0, 0, 60, 16) }, p);
+    ASSERT_TRUE (free.ok);
+    fs::Pins pins;
+    for (const auto& c : free.cores)
+        pins.cores.push_back ({ c.centre, c.width, c.depth });
+    for (const double x : { 32.8, 38.962, 49.005 })
+        pins.walls.push_back ({ { x, 3.55 } });
+    for (const double x : { 28.6, 35.881, 43.983, 54.502 })
+        pins.counts.push_back ({ { x, 3.55 }, 1 });
+    fs::Options o;
+    o.holdCores = true;
+    const auto s = fs::Generate ({ Rect (0, 0, 60, 16) }, p, pins, o);
+    EXPECT_TRUE (s.unassigned.empty ()) << s.unassigned.front ().reason;
+    int row = 0;
+    for (const auto& f : s.flats) {
+        double x = 0, y = 0;
+        for (const auto& q : f.shape)
+            x += q.x / f.shape.size (), y += q.y / f.shape.size ();
+        row += f.band >= 0 && y < 7.1 && x > 24;
+    }
+    EXPECT_EQ (row, 4) << "the four flats the counts ask for";
+}
