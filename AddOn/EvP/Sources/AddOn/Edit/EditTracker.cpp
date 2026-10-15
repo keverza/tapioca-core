@@ -287,6 +287,9 @@ std::vector<Dimension> PathDimensions (const Document& doc, const Ref& ref)
             out.push_back ({ ref, Quantity::Width });
             out.push_back ({ ref, Quantity::Slope });
             break;
+        case Part::Entity:
+            out.push_back ({ ref, Quantity::Radius }); // the whole path: its kerb radius
+            break;
         default:
             break;
     }
@@ -295,6 +298,10 @@ std::vector<Dimension> PathDimensions (const Document& doc, const Ref& ref)
 
 bool ReadPath (const Path& p, const Dimension& d, double& value)
 {
+    if (d.ref.part == Part::Entity && d.quantity == Quantity::Radius) {
+        value = p.edgeRadius;
+        return true;
+    }
     for (const auto& c : p.points)
         if (d.ref.part == Part::PathPoint && c.id == d.ref.item && d.quantity == Quantity::Radius) {
             value = c.radius;
@@ -328,6 +335,8 @@ bool WritePath (Document& doc, const Dimension& d, double value, std::string& er
     }
     if (d.ref.part == Part::PathPoint && d.quantity == Quantity::Radius)
         return SetPathRadius (doc, d.ref.entity, d.ref.item, value, error);
+    if (d.ref.part == Part::Entity && d.quantity == Quantity::Radius)
+        return SetPathEdgeRadius (doc, d.ref.entity, value, error);
     if (d.ref.part == Part::Break && d.quantity == Quantity::Elevation)
         return SetPathElevation (doc, d.ref.entity, d.ref.item, value, error);
     if (d.ref.part == Part::Range)

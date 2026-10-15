@@ -114,6 +114,10 @@ void SharpCorners (const Path& path, const AlignmentGeometry& g, PathOutline& o)
 
 bool ValidatePath (const Path& path, AlignmentGeometry& geometry, std::string& error)
 {
+    if (!(path.edgeRadius >= 0.0) || !std::isfinite (path.edgeRadius)) {
+        error = "an edge radius cannot be negative";
+        return false;
+    }
     if (!BuildAlignment (path.points, geometry, error))
         return false;
     if (!ValidateProfile (path.profile, geometry.length, error))

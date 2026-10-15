@@ -96,6 +96,16 @@ void Panel (Session& s)
         s.profilePath = path->id;
         ImGui::Separator ();
         ImGui::Text ("Path profile  (%zu breaks, %zu ranges)", path->profile.size (), path->sections.size ());
+        // Its kerb radius: its outside corners and its junctions with other paths rounded.
+        float kerb = float (path->edgeRadius);
+        ImGui::SetNextItemWidth (140.0f);
+        if (ImGui::DragFloat ("Kerb radius", &kerb, 0.05f, 0.0f, 20.0f, "%.2f m") && s.drag == Drag::None) {
+            const edit::Id id = path->id;
+            const double r = std::max (0.0, double (kerb));
+            if (!s.edits.Apply (
+                    [id, r] (edit::Document& d, std::string& e) { return edit::SetPathEdgeRadius (d, id, r, e); }))
+                s.message = s.edits.Message ();
+        }
         // Path actions on the selected part.
         const auto& items = s.selection.Items ();
         const edit::Ref* part = items.size () == 1 && items[0].entity == path->id ? &items[0] : nullptr;

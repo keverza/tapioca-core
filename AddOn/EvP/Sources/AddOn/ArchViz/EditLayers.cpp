@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
@@ -284,31 +285,10 @@ bool CentreAt (const edit::PathOutline& o, double station, Vec3& out)
     return false;
 }
 
-void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer)
+// A path's marks over its surface: control polygon and points, grade breaks with their
+// heights, grade arrows and percentages, crossfall arrows.
+void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Style& style, layers::Layer& layer)
 {
-    edit::PathOutline o;
-    std::string error;
-    if (!edit::Outline (path, style.pathStep, o, error) || o.stations.size () < 2)
-        return;
-    // The walking surface as a strip between the edges.
-    layers::Mesh surface;
-    const uint32_t n = static_cast<uint32_t> (o.stations.size ());
-    for (uint32_t i = 0; i < n; ++i) {
-        Push (surface.points, o.left[i]);
-        Push (surface.points, o.right[i]);
-    }
-    for (uint32_t i = 0; i + 1 < n; ++i) {
-        const uint32_t l0 = 2 * i, r0 = l0 + 1, l1 = l0 + 2, r1 = l0 + 3;
-        surface.indices.insert (surface.indices.end (), { l0, r0, r1, l0, r1, l1 });
-    }
-    surface.rgba = style.pathSurface;
-    surface.style.shading = layers::Shading::Flat;
-    surface.styled = true;
-    layer.meshes.push_back (std::move (surface));
-    layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
-    layer.polylines.push_back (Line (o.left, false, style.pathEdge, 1.5f));
-    layer.polylines.push_back (Line (o.right, false, style.pathEdge, 1.5f));
-
     // Control polygon and points: the plan handles.
     layers::Polyline polygon = Line (o.points, false, style.controlPolygon, 1.0f);
     polygon.dashMetres = { 0.4f, 0.25f };
@@ -373,6 +353,60 @@ void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer)
         const Vec3 label = section.fall == edit::Fall::Right ? Lerp (c, rt, 0.55) : Lerp (c, l, 0.55);
         layer.texts.push_back (Label (Percent (section.crossfall), label, style, 16.0f, style.fall));
     }
+}
+
+// The paths paved as one area: crossings and junctions united, corners rounded by their
+// kerb radii, the surface triangulated with the paths' heights.
+bool AddPaved (const edit::Document& doc, const Style& style, layers::Layer& layer)
+{
+    const auto paved = edit::Pave (doc.paths, style.pathStep);
+    if (paved.rings.empty ())
+        return false;
+    if (!paved.triangles.empty ()) {
+        layers::Mesh surface;
+        for (const auto& p : paved.vertices)
+            Push (surface.points, p);
+        surface.indices = paved.triangles;
+        surface.rgba = style.pathSurface;
+        surface.style.shading = layers::Shading::Flat;
+        surface.styled = true;
+        layer.meshes.push_back (std::move (surface));
+    }
+    for (const auto& ring : paved.rings)
+        layer.polylines.push_back (Line (ring, true, style.pathEdge, 1.5f));
+    return true;
+}
+
+void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, bool paved)
+{
+    edit::PathOutline o;
+    std::string error;
+    if (!edit::Outline (path, style.pathStep, o, error) || o.stations.size () < 2)
+        return;
+    if (paved) {
+        layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
+        AddPathMarks (path, o, style, layer);
+        return;
+    }
+    // The walking surface as a strip between the edges.
+    layers::Mesh surface;
+    const uint32_t n = static_cast<uint32_t> (o.stations.size ());
+    for (uint32_t i = 0; i < n; ++i) {
+        Push (surface.points, o.left[i]);
+        Push (surface.points, o.right[i]);
+    }
+    for (uint32_t i = 0; i + 1 < n; ++i) {
+        const uint32_t l0 = 2 * i, r0 = l0 + 1, l1 = l0 + 2, r1 = l0 + 3;
+        surface.indices.insert (surface.indices.end (), { l0, r0, r1, l0, r1, l1 });
+    }
+    surface.rgba = style.pathSurface;
+    surface.style.shading = layers::Shading::Flat;
+    surface.styled = true;
+    layer.meshes.push_back (std::move (surface));
+    layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
+    layer.polylines.push_back (Line (o.left, false, style.pathEdge, 1.5f));
+    layer.polylines.push_back (Line (o.right, false, style.pathEdge, 1.5f));
+    AddPathMarks (path, o, style, layer);
 }
 
 // A selected or hovered part of a path.
@@ -606,8 +640,9 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     }
     if (!vertices.points.empty ())
         layer.points.push_back (std::move (vertices));
+    const bool paved = !doc.paths.empty () && AddPaved (doc, style, layer);
     for (const auto& p : doc.paths)
-        AddPath (p, style, layer);
+        AddPath (p, style, layer, paved);
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
             AddRef (doc, ref, style.selected, style, layer);

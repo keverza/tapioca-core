@@ -46,6 +46,8 @@ bool ProfileFromSurface (Document& doc, Id path, const std::function<bool (doubl
 bool SplitPathSection (Document& doc, Id path, double station, std::string& error, Id* created = nullptr);
 bool DeletePathSection (Document& doc, Id path, Id range, std::string& error);
 bool SetPathWidth (Document& doc, Id path, Id range, double left, double right, std::string& error);
+// The path's kerb radius (Path::edgeRadius).
+bool SetPathEdgeRadius (Document& doc, Id path, double radius, std::string& error);
 // A dragged edge: the plan point's offset from the centreline becomes that side's width
 // in the range in force where the point lies.
 bool SetPathWidthFromPoint (Document& doc, Id path, Vec3 point, std::string& error);

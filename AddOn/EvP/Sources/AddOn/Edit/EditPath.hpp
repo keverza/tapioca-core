@@ -147,6 +147,9 @@ struct Path {
     std::vector<ControlPoint> points;
     std::vector<GradeBreak> profile;
     std::vector<Section> sections;
+    // The kerb radius: its edges' outside corners, and the re-entrant corners where it meets
+    // another path, are rounded by it when the paths are paved (EditPathNetwork.hpp). 0: sharp.
+    double edgeRadius = 0.0;
     bool operator== (const Path&) const = default;
 };
 // Builds the alignment and checks the profile and ranges against its length.

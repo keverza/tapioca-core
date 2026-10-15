@@ -355,6 +355,21 @@ bool DeletePathSection (Document& doc, Id path, Id range, std::string& error)
         doc, path, [&] (Path& p, std::string& why) { return DeleteSection (p.sections, range, why); }, error);
 }
 
+bool SetPathEdgeRadius (Document& doc, Id path, double radius, std::string& error)
+{
+    return EditPath (
+        doc, path,
+        [radius] (Path& p, std::string& why) {
+            if (!(radius >= 0.0) || !std::isfinite (radius)) {
+                why = "an edge radius cannot be negative";
+                return false;
+            }
+            p.edgeRadius = radius;
+            return true;
+        },
+        error);
+}
+
 bool SetPathWidth (Document& doc, Id path, Id range, double left, double right, std::string& error)
 {
     return EditPath (
