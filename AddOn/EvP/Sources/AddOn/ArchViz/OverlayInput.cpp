@@ -270,6 +270,24 @@ void TimePress (HWND window, bool taken)
     g_meter.Press (target, name, Micros ());
 }
 
+// ⚠️ A PRESS THE HUD EATS STILL ACTIVATES ARCHICAD (the user, 2026-10-15: on the locked view a
+// click did not bring Archicad in front of other applications, and keys then went elsewhere).
+// Windows activates a window and focuses it as part of the click it delivers; an eaten click
+// delivers none, so the HUD does what it would have: the canvas's top-level window comes to the
+// front and the canvas takes the keyboard. This thread received the input, so the foreground
+// change is allowed.
+void Activate (const Target& target)
+{
+    if (target.canvas == nullptr)
+        return;
+    const HWND root = ::GetAncestor (target.canvas, GA_ROOT);
+    if (root != nullptr && ::GetForegroundWindow () != root && ::SetForegroundWindow (root))
+        ++g_stats.activations;
+    const HWND focus = ::GetFocus ();
+    if (focus != target.canvas && (focus == nullptr || !::IsChild (target.canvas, focus)))
+        ::SetFocus (target.canvas);
+}
+
 // ⚠️ THE CHAIN IS CALLED ON EVERY PATH BUT ONE: a button message the HUD takes is eaten --
 // the hook returns nonzero and Windows discards it, as the WH_MOUSE contract allows.
 LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
@@ -313,6 +331,8 @@ LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
         if (taken) {
             ++g_stats.buttonsEaten;
             g_passed.valid = false;
+            if (event.kind == EventKind::Press)
+                Activate (*target);
             return 1;
         }
         g_passed.valid = true;

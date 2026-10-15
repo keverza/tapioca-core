@@ -161,6 +161,8 @@ struct Stats {
     uint64_t buttonsEaten = 0;
     uint64_t buttonsLate = 0;
     uint64_t contextMenusSwallowed = 0;
+    // Presses the HUD ate that brought Archicad to the front, as the click would have.
+    uint64_t activations = 0;
 };
 Stats GetStats ();
 
