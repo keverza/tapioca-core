@@ -110,6 +110,8 @@ namespace detail {
 // How far from what the pointer picks, in pixels (user, 2026-10-14: "Wall selection hitbox needs to
 // larger"): a wall between flats, a wall against the next building, a corridor's end.
 constexpr double kWallReach = 12, kPartyReach = 10, kEndReach = 6;
+// Where a dragged flat or stair was: a ghost, dashed (user, 2026-10-14).
+constexpr ImU32 kGhostFill = IM_COL32 (255, 255, 255, 46), kGhostLine = IM_COL32 (255, 255, 255, 150);
 // What is under `m` on scheme `s`, a pixel being `px` metres: a stair, a corridor end, a wall, a
 // party wall, a flat, in that order.
 Target HitAt (const fs::Scheme& s, fs::Vec m, double px);

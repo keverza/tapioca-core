@@ -655,6 +655,16 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered)
     return at;
 }
 
+// Where a dragged flat or stair was, ghostly: a faint fill and a dashed outline (user, 2026-10-14).
+void Ghost (ImDrawList* draw, const View& v, const fs::Ring& ring, float scale)
+{
+    const Fill fill = Triangles ({ ring }, kGhostFill);
+    for (size_t i = 0; i + 2 < fill.triangles.size (); i += 3)
+        draw->AddTriangleFilled (v.P (fill.triangles[i]), v.P (fill.triangles[i + 1]), v.P (fill.triangles[i + 2]),
+                                 kGhostFill);
+    for (size_t i = 0; i < ring.size (); ++i)
+        Dashed (draw, v.P (ring[i]), v.P (ring[(i + 1) % ring.size ()]), kGhostLine, 1.5f * scale, 5 * scale);
+}
 void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float scale, const Pointing& at)
 {
     const auto& s = e.scheme;
@@ -671,9 +681,16 @@ void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float 
         else if (t.kind == Kind::Party && t.index >= 0 && t.index < int (s.party.size ()))
             draw->AddLine (v.P (s.party[t.index][0]), v.P (s.party[t.index][1]), colour, width + 2 * scale);
     };
+    // A flat or stair being dragged leaves a ghost where it was; anything else selected stays solid.
+    const bool dragged = e.drag != Drag::None && e.moved && (e.held.kind == Kind::Flat || e.held.kind == Kind::Stair);
     if (e.drag == Drag::None)
         outline (at.hover, IM_COL32 (255, 255, 255, 170), 2 * scale);
-    outline (e.selected, IM_COL32 (255, 255, 255, 255), 3 * scale);
+    if (dragged && e.held.kind == Kind::Flat && e.held.index >= 0 && e.held.index < int (e.base.flats.size ()))
+        Ghost (draw, v, e.base.flats[e.held.index].shape, scale);
+    else if (dragged && e.held.kind == Kind::Stair && e.held.index >= 0 && e.held.index < int (e.base.cores.size ()))
+        Ghost (draw, v, e.base.cores[e.held.index].shape, scale);
+    else
+        outline (e.selected, IM_COL32 (255, 255, 255, 255), 3 * scale);
     if (e.drag == Drag::None)
         for (size_t i = 0; i < at.arrows.size (); ++i)
             Pointer (draw, v, at.arrows[i], (int (i) == at.arrow ? 9.0f : 7.0f) * scale, kAccent);

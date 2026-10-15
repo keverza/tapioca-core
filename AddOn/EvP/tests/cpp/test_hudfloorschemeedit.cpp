@@ -789,3 +789,72 @@ TEST (HudFloorSchemeEdit, AWallIsPickedWithinTwelvePixels)
     EXPECT_EQ (hf::detail::HitAt (s, { 6 - 1.1, 3.5 }, px).kind, hf::Kind::Wall) << "11 px, the other side";
     EXPECT_EQ (hf::detail::HitAt (s, { 6 + 1.5, 3.5 }, px).kind, hf::Kind::Flat) << "15 px: the flat";
 }
+
+// User, 2026-10-14: "When dragging unit or stair the selected previous position should dashed and
+// ghostly." While a flat is held its old place shows faint and dashed; let go, the ghost goes.
+TEST (HudFloorSchemeEdit, ADraggedFlatLeavesADashedGhostWhereItWas)
+{
+    auto* previous = ImGui::GetCurrentContext ();
+    auto* context = ImGui::CreateContext ();
+    const auto cleanup = [previous] (ImGuiContext* value) {
+        ImGui::DestroyContext (value);
+        ImGui::SetCurrentContext (previous);
+    };
+    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
+    auto& io = ImGui::GetIO ();
+    io.IniFilename = nullptr;
+    io.DisplaySize = { 1000, 1400 };
+    io.DeltaTime = 1.0f / 60;
+    ASSERT_NE (io.Fonts->AddFontFromFileTTF (EVP_SCENE_TEXT_FONT, 14), nullptr);
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    const std::map<std::string, bp::Plan> plans { { "A", Building ("A", 0, 36) } };
+    std::map<std::string, bp::Draft> drafts;
+    bp::Planner planner;
+    hf::EditorPtr editor;
+    ImVec4 floor {}, ghost {};
+    const auto frame = [&] (ImVec2 mouse, bool down) {
+        io.MousePos = mouse;
+        io.MouseDown[0] = down;
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 960, 1380 });
+        ImGui::Begin ("Plan", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+        hf::PlanView (editor, planner, plans, drafts, "A", fp::Default (), {}, 1);
+        floor = Bounds (IM_COL32 (236, 238, 232, 255));
+        ghost = Bounds (hf::detail::kGhostLine);
+        ImGui::End ();
+        ImGui::Render ();
+    };
+    const fs::Scheme* scheme = nullptr;
+    for (int n = 0; n < 400 && !scheme; ++n) {
+        frame ({ 5, 5 }, false);
+        if (const auto* planned = planner.Latest (bp::FloorId ("A", 0)))
+            scheme = &planned->scheme;
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+    ASSERT_NE (scheme, nullptr);
+    frame ({ 5, 5 }, false);
+    const double k = (floor.z - floor.x) / 36.0;
+    const auto screen = [&] (fs::Vec p) { return ImVec2 (floor.x + float (p.x * k), floor.w - float (p.y * k)); };
+    const auto& shape = scheme->flats.front ().shape;
+    fs::Vec mid, lo { 1e9, 1e9 }, hi { -1e9, -1e9 };
+    for (const auto& p : shape) {
+        mid.x += p.x / shape.size (), mid.y += p.y / shape.size ();
+        lo = { (std::min) (lo.x, p.x), (std::min) (lo.y, p.y) },
+        hi = { (std::max) (hi.x, p.x), (std::max) (hi.y, p.y) };
+    }
+    frame (screen (mid), false);
+    frame (screen (mid), true);
+    EXPECT_GT (ghost.x, ghost.z) << "no ghost before it moves";
+    for (int n = 1; n <= 6; ++n)
+        frame (screen ({ mid.x + 0.5 * n, mid.y }), true);
+    ASSERT_LT (ghost.x, ghost.z) << "a ghost while it is held";
+    EXPECT_NEAR (ghost.x, screen (lo).x, 3);
+    EXPECT_NEAR (ghost.z, screen (hi).x, 3);
+    EXPECT_NEAR (ghost.y, screen (hi).y, 3) << "where the flat was, not where the pointer is";
+    frame (screen (mid), false);
+    frame ({ 5, 5 }, false);
+    EXPECT_GT (ghost.x, ghost.z) << "let go, the ghost goes";
+}
