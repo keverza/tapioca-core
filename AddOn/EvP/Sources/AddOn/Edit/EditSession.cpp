@@ -3,27 +3,12 @@
 
 namespace geomsrv::edit {
 
+// What a gesture changed, ignoring the bookkeeping (revision, id counter): every field
+// of every entity and path, through their defaulted comparisons, so a field added to the
+// model is compared without this function knowing it.
 static bool SameContent (const Document& a, const Document& b)
 {
-    if (a.paths != b.paths)
-        return false;
-    if (a.entities.size () != b.entities.size ())
-        return false;
-    for (size_t i = 0; i < a.entities.size (); ++i) {
-        const Entity &x = a.entities[i], &y = b.entities[i];
-        if (x.id != y.id || x.kind != y.kind || x.closed != y.closed || x.height != y.height || x.role != y.role ||
-            x.vertices.size () != y.vertices.size () || x.segments.size () != y.segments.size ())
-            return false;
-        for (size_t v = 0; v < x.vertices.size (); ++v)
-            if (x.vertices[v].id != y.vertices[v].id || !(x.vertices[v].p == y.vertices[v].p) ||
-                x.vertices[v].lockXY != y.vertices[v].lockXY || x.vertices[v].lockZ != y.vertices[v].lockZ)
-                return false;
-        for (size_t g = 0; g < x.segments.size (); ++g)
-            if (x.segments[g].id != y.segments[g].id || x.segments[g].width != y.segments[g].width ||
-                x.segments[g].tag != y.segments[g].tag)
-                return false;
-    }
-    return true;
+    return a.paths == b.paths && a.entities == b.entities;
 }
 
 Session::Session (Document start, size_t undoCap)

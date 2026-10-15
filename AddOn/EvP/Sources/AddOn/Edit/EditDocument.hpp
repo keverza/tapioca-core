@@ -22,6 +22,7 @@ struct Vertex {
     Id id = kNoId;
     Vec3 p;
     bool lockXY = false, lockZ = false;
+    bool operator== (const Vertex&) const = default;
 };
 // Segment i joins vertex i to vertex i + 1 (wrapping on a closed entity). Its id
 // survives edits that keep the segment, so attributes such as width follow it.
@@ -29,6 +30,7 @@ struct Segment {
     Id id = kNoId;
     double width = 0.0;
     uint32_t tag = 0;
+    bool operator== (const Segment&) const = default;
 };
 // An Extrusion is a closed, horizontal profile lifted by `height`. Its faces are
 // 0 bottom, 1 top and 2 + i the side over segment i.
@@ -40,6 +42,7 @@ struct Entity {
     std::vector<Segment> segments;
     double height = 0.0;
     std::string role; // the owning tool's word for it ("centerline", "platform", ...)
+    bool operator== (const Entity&) const = default;
 };
 struct Document {
     std::vector<Entity> entities;
