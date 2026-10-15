@@ -202,3 +202,36 @@ TEST (EditLayers, LiveLengthSaysWhichEndItKeeps)
     EXPECT_NEAR (end[0].fixed.x, 4.0, 1e-12);
     EXPECT_EQ (end[1].text.substr (0, 5), "180.0"); // the angle reads from the kept end
 }
+
+TEST (EditLayers, ALabelWithNoFreePlaceIsLeftOut)
+{
+    // Everything round the anchor is taken: the label is refused, not stacked on another.
+    std::vector<el::Box> taken { { -1000, -1000, 1000, 1000 } };
+    bool found = true;
+    el::PlaceLabel (0, 0, 40, 16, 0, -1, 0, taken, &found);
+    EXPECT_FALSE (found);
+    EXPECT_EQ (taken.size (), 1u);
+    el::PlaceLabel (5000, 5000, 40, 16, 0, -1, 0, taken, &found);
+    EXPECT_TRUE (found);
+    EXPECT_EQ (taken.size (), 2u);
+}
+
+TEST (EditLayers, PathLabelsGoToTheViewWhenItPlacesThem)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 1.5);
+    const auto labels = el::PathLabels (doc);
+    // Two break heights, one grade, one crossfall; the grade stands off to the left of the
+    // path, the crossfall towards its falling edge.
+    ASSERT_EQ (labels.size (), 4u);
+    size_t percents = 0;
+    for (const auto& l : labels) {
+        EXPECT_NEAR (std::hypot (l.side.x, l.side.y), 1.0, 1e-9);
+        percents += l.text.find ('%') != std::string::npos;
+    }
+    EXPECT_EQ (percents, 2u);
+    el::Feedback inView;
+    inView.labelsInView = true;
+    EXPECT_TRUE (el::Build (doc, inView).texts.empty ());
+    EXPECT_EQ (el::Build (doc, {}).texts.size (), labels.size ());
+}

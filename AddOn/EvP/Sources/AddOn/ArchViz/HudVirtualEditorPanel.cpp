@@ -244,6 +244,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     edit::Selection shown = s.selection;
     shown.hover = {}; // hover is the view's transient feedback, not the layer's
     editlayers::Feedback f;
+    f.labelsInView = true; // placed with the dimensions, clear of them (DrawPathLabels)
     f.selection = &shown;
     // The live dimensions are the view's (HudVirtualEditorDraw.cpp): placed in pixels, they
     // can stand clear of the gizmo and the tracker, which model-anchored text cannot know.

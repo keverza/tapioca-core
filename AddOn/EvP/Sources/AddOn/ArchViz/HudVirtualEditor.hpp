@@ -12,6 +12,7 @@
 // here reads the model or a camera: the plan arrives as the view's transform and 3D as
 // the projection the input layer hands over (§12, §14), and a session's state dies with
 // its session (§8).
+#include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/RoofSlopeCanvas.hpp"
 #include "Edit/EditGizmo.hpp"
@@ -123,6 +124,9 @@ struct Session {
     bool dragWatched = false;
     bool previousLock = false, close = false;
     uint64_t publishedRevision = UINT64_MAX;
+    // The paths' labels the view places (EditLayers PathLabels), for `marksRevision`.
+    std::vector<editlayers::MarkLabel> marks;
+    uint64_t marksRevision = UINT64_MAX;
     std::vector<edit::Ref> publishedSelection;
     std::string message;
     roofcanvas::Frame canvas;

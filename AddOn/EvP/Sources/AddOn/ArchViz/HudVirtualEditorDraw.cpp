@@ -21,12 +21,19 @@ ImVec2 Add (ImVec2 a, ImVec2 b, float k = 1.0f)
 }
 
 // A value on a light pill: dark ink that reads on Archicad's white plan and on 3D alike.
-void Pill (Session& s, Vec3 anchor, ImVec2 anchorScreen, const editlayers::Box& box, const std::string& text)
+void Pill (Session& s, Vec3 anchor, ImVec2 anchorScreen, const editlayers::Box& box, const std::string& text,
+           ImU32 ink = kInk)
 {
     rc::Scope scope (s.canvas, { At (anchor, anchorScreen) });
     s.canvas.list->AddRectFilled ({ box.x0, box.y0 }, { box.x1, box.y1 }, kPaper, 4.0f);
     s.canvas.list->AddRect ({ box.x0, box.y0 }, { box.x1, box.y1 }, IM_COL32 (91, 101, 115, 90), 4.0f, 0, 1.0f);
-    s.canvas.list->AddText ({ box.x0 + 5.0f, box.y0 + 2.0f }, kInk, text.c_str ());
+    s.canvas.list->AddText ({ box.x0 + 5.0f, box.y0 + 2.0f }, ink, text.c_str ());
+}
+
+// The layer's 0xRRGGBBAA as ImGui's colour.
+ImU32 FromRgba (uint32_t c)
+{
+    return IM_COL32 ((c >> 24) & 0xFF, (c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
 }
 
 // The selection's centre on screen: dimension lines stand outside the shape.
@@ -335,6 +342,35 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
         const float away = (l.quantity == edit::Quantity::Slope ? 24.0f + h : 16.0f) * scale;
         const auto box = editlayers::PlaceLabel (at.x, at.y, w, h, dir.x, dir.y, away + w * 0.25f, taken);
         Pill (s, l.at, at, box, l.text);
+    }
+}
+
+void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale)
+{
+    const auto& doc = Doc (s);
+    if (s.marksRevision != doc.revision) {
+        s.marks = editlayers::PathLabels (doc);
+        s.marksRevision = doc.revision;
+    }
+    const float h = ImGui::GetTextLineHeight () + 4.0f;
+    for (const auto& l : s.marks) {
+        ImVec2 at, toward;
+        if (!m.Screen (l.at, at))
+            continue;
+        // Off towards its side on screen, a metre's worth of direction.
+        ImVec2 dir { 0.0f, l.dy < 0.0f ? -1.0f : 1.0f };
+        if (m.Screen (l.at + l.side, toward)) {
+            const float dx = toward.x - at.x, dy = toward.y - at.y, d = std::hypot (dx, dy);
+            if (d > 1.0e-3f)
+                dir = { dx / d, dy / d };
+        }
+        const float w = ImGui::CalcTextSize (l.text.c_str ()).x + 10.0f;
+        bool found = false;
+        const auto box = editlayers::PlaceLabel (
+            at.x, at.y, w, h, dir.x, dir.y, 10.0f * scale + 0.5f * std::abs (dir.x * w) + 0.5f * std::abs (dir.y * h),
+            taken, &found);
+        if (found)
+            Pill (s, l.at, at, box, l.text, FromRgba (l.rgba));
     }
 }
 

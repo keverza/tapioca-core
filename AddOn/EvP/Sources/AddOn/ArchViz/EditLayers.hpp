@@ -44,6 +44,9 @@ struct GizmoView {
 };
 
 struct Feedback {
+    // The view places the paths' labels itself (PathLabels), clear of each other and of
+    // its own; the layer then leaves them out.
+    bool labelsInView = false;
     const edit::Selection* selection = nullptr;
     const edit::SnapResult* snap = nullptr;
     std::vector<edit::Dimension> dimensions;
@@ -78,8 +81,21 @@ bool Overlaps (const Box& a, const Box& b, float margin = 3.0f);
 // Where a `w` by `h` label goes: centred `away` pixels from (ax, ay) along the unit screen
 // direction (dx, dy), then further out step by step -- or on the other side -- until it
 // covers nothing in `taken` (the gizmo, the tracker, labels already placed). The chosen
-// box is added to `taken`.
-Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken);
+// box is added to `taken`. With `found`, a label with no free place is not added and
+// `found` says so: the caller leaves it out rather than draw it over another.
+Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken,
+                bool* found = nullptr);
+
+// A path's own label -- a grade break's height, a tangent's grade, a range's crossfall --
+// for a view that places it in pixels (PlaceLabel): it hangs from `at` and stands off
+// towards the plan direction `side`. `dy` is where the layer puts it when it draws it.
+struct MarkLabel {
+    edit::Vec3 at, side;
+    std::string text;
+    uint32_t rgba = 0;
+    float dy = 0.0f;
+};
+std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style = {});
 
 // Triangles of a counter-clockwise plan polygon (ear clipping), as index triples.
 std::vector<uint32_t> TriangulateXY (const std::vector<edit::Vec3>& polygon);

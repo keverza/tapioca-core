@@ -73,6 +73,9 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
+// The paths' labels (heights, grades, crossfalls) after them: each beside its mark, clear of
+// everything placed so far -- a label with no free place is left out, never drawn over another.
+void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered
 // or, while `dragging`, held -- then it alone is drawn, with a guide along its axis.
 void DrawGizmo (Session& s, const Map& m, const edit::Frame& frame, edit::GizmoMode mode, double size, int active,

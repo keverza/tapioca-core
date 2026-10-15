@@ -156,7 +156,8 @@ bool Overlaps (const Box& a, const Box& b, float margin)
     return a.x0 < b.x1 + margin && b.x0 < a.x1 + margin && a.y0 < b.y1 + margin && b.y0 < a.y1 + margin;
 }
 
-Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken)
+Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken,
+                bool* found)
 {
     const auto at = [&] (float distance) {
         const float cx = ax + dx * distance, cy = ay + dy * distance;
@@ -164,8 +165,8 @@ Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float 
     };
     const float step = std::max (6.0f, h * 0.75f);
     Box chosen = at (away);
-    bool found = false;
-    for (int k = 0; k < 16 && !found; ++k)
+    bool placed = false;
+    for (int k = 0; k < 16 && !placed; ++k)
         for (const float side : { 1.0f, -1.0f }) {
             const Box b = at (side * (away + step * float (k)));
             bool free = true;
@@ -173,11 +174,14 @@ Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float 
                 free = free && !Overlaps (b, t);
             if (free) {
                 chosen = b;
-                found = true;
+                placed = true;
                 break;
             }
         }
-    taken.push_back (chosen);
+    if (found != nullptr)
+        *found = placed;
+    if (placed || found == nullptr)
+        taken.push_back (chosen);
     return chosen;
 }
 
@@ -285,9 +289,52 @@ bool CentreAt (const edit::PathOutline& o, double station, Vec3& out)
     return false;
 }
 
+// A path's labels: each grade break's height, each tangent's grade over its middle, each
+// range's crossfall on its falling side.
+void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const Style& style,
+                     std::vector<MarkLabel>& out)
+{
+    const auto leftAt = [&] (double station) {
+        size_t k = 0;
+        while (k + 1 < o.stations.size () && o.stations[k] < station)
+            ++k;
+        Vec3 n;
+        return edit::Normalize (o.left[k] - o.right[k], n) ? Vec3 { n.x, n.y, 0.0 } : Vec3 { 0.0, 1.0, 0.0 };
+    };
+    for (size_t i = 0; i < path.profile.size () && i < o.breaks.size (); ++i) {
+        const auto& b = path.profile[i];
+        std::string text = FormatValue (edit::Quantity::Elevation, b.z);
+        if (b.fixed)
+            text += " fixed";
+        out.push_back (
+            { o.breaks[i], leftAt (b.station) * -1.0, text, b.fixed ? style.fixedBreak : style.text, 16.0f });
+    }
+    for (size_t i = 0; i + 1 < path.profile.size (); ++i) {
+        const double s0 = path.profile[i].station, s1 = path.profile[i + 1].station;
+        Vec3 mid;
+        if (CentreAt (o, (s0 + s1) * 0.5, mid))
+            out.push_back ({ mid, leftAt ((s0 + s1) * 0.5),
+                             Percent (std::abs (edit::TangentGrade (path.profile, i) * 100.0)), style.text, -18.0f });
+    }
+    for (size_t r = 0; r < path.sections.size (); ++r) {
+        const auto& section = path.sections[r];
+        const double end = r + 1 < path.sections.size () ? path.sections[r + 1].station : o.stations.back ();
+        const double s = (section.station + end) * 0.5;
+        size_t k = 0;
+        while (k + 1 < o.stations.size () && o.stations[k] < s)
+            ++k;
+        const Vec3 c = o.centre[k], edge = section.fall == edit::Fall::Right ? o.right[k] : o.left[k];
+        Vec3 side;
+        if (!edit::Normalize (Vec3 { edge.x - c.x, edge.y - c.y, 0.0 }, side))
+            side = { 0.0, 1.0, 0.0 };
+        out.push_back ({ Lerp (c, edge, 0.55), side, Percent (section.crossfall), style.fall, 16.0f });
+    }
+}
+
 // A path's marks over its surface: control polygon and points, grade breaks with their
 // heights, grade arrows and percentages, crossfall arrows.
-void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Style& style, layers::Layer& layer)
+void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Style& style, layers::Layer& layer,
+                   bool labels)
 {
     // Control polygon and points: the plan handles.
     layers::Polyline polygon = Line (o.points, false, style.controlPolygon, 1.0f);
@@ -308,10 +355,6 @@ void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Sty
     for (size_t i = 0; i < path.profile.size () && i < o.breaks.size (); ++i) {
         const auto& b = path.profile[i];
         Push (b.fixed ? fixed.points : free.points, o.breaks[i]);
-        std::string text = FormatValue (edit::Quantity::Elevation, b.z);
-        if (b.fixed)
-            text += " fixed";
-        layer.texts.push_back (Label (text, o.breaks[i], style, 16.0f, b.fixed ? style.fixedBreak : style.text));
     }
     if (!free.points.empty ())
         layer.points.push_back (std::move (free));
@@ -328,7 +371,6 @@ void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Sty
             continue;
         if (std::abs (grade) > 1.0e-9)
             layer.polylines.push_back (grade > 0.0 ? Arrow (b, a, style.text) : Arrow (a, b, style.text));
-        layer.texts.push_back (Label (Percent (std::abs (grade)), mid, style, -18.0f, style.text));
     }
 
     // Crossfall: arrows from the high side towards the falling edge(s) in each range.
@@ -349,10 +391,13 @@ void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Sty
             layer.polylines.push_back (Arrow (toward (rt), toward (l), style.fall));
         else
             layer.polylines.push_back (Arrow (toward (l), toward (rt), style.fall));
-        // On the falling side's arrow and below it, clear of the grade above the centreline.
-        const Vec3 label = section.fall == edit::Fall::Right ? Lerp (c, rt, 0.55) : Lerp (c, l, 0.55);
-        layer.texts.push_back (Label (Percent (section.crossfall), label, style, 16.0f, style.fall));
     }
+    if (!labels)
+        return;
+    std::vector<MarkLabel> marks;
+    PathMarkLabels (path, o, style, marks);
+    for (const auto& l : marks)
+        layer.texts.push_back (Label (l.text, l.at, style, l.dy, l.rgba));
 }
 
 // The paths paved as one area: crossings and junctions united, corners rounded by their
@@ -377,7 +422,7 @@ bool AddPaved (const edit::Document& doc, const Style& style, layers::Layer& lay
     return true;
 }
 
-void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, bool paved)
+void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, bool paved, bool labels)
 {
     edit::PathOutline o;
     std::string error;
@@ -385,7 +430,7 @@ void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, 
         return;
     if (paved) {
         layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
-        AddPathMarks (path, o, style, layer);
+        AddPathMarks (path, o, style, layer, labels);
         return;
     }
     // The walking surface as a strip between the edges.
@@ -406,7 +451,7 @@ void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, 
     layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
     layer.polylines.push_back (Line (o.left, false, style.pathEdge, 1.5f));
     layer.polylines.push_back (Line (o.right, false, style.pathEdge, 1.5f));
-    AddPathMarks (path, o, style, layer);
+    AddPathMarks (path, o, style, layer, labels);
 }
 
 // A selected or hovered part of a path.
@@ -622,6 +667,18 @@ void AddGizmo (const GizmoView& g, const Style& style, layers::Layer& layer)
 
 } // namespace
 
+std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style)
+{
+    std::vector<MarkLabel> out;
+    for (const auto& path : doc.paths) {
+        edit::PathOutline o;
+        std::string error;
+        if (edit::Outline (path, style.pathStep, o, error) && o.stations.size () >= 2)
+            PathMarkLabels (path, o, style, out);
+    }
+    return out;
+}
+
 layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& style, const std::string& name)
 {
     layers::Layer layer;
@@ -642,7 +699,7 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
         layer.points.push_back (std::move (vertices));
     const bool paved = !doc.paths.empty () && AddPaved (doc, style, layer);
     for (const auto& p : doc.paths)
-        AddPath (p, style, layer, paved);
+        AddPath (p, style, layer, paved, !f.labelsInView);
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
             AddRef (doc, ref, style.selected, style, layer);

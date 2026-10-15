@@ -919,7 +919,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             taken.push_back ({ mouse.x + 12 * scale, mouse.y + 14 * scale, mouse.x + 200 * scale,
                                mouse.y + 20 * scale + rows * (ImGui::GetTextLineHeight () + 6) });
         }
+        if (s.snap.snapped && !s.snap.hint.empty () && m.Screen (s.snap.point, o)) {
+            const ImVec2 size = ImGui::CalcTextSize (s.snap.hint.c_str ());
+            taken.push_back (
+                { o.x + 11 * scale, o.y - 24 * scale, o.x + 17 * scale + size.x, o.y - 20 * scale + size.y });
+        }
         DrawDimensions (s, m, taken, scale);
+        DrawPathLabels (s, m, taken, scale);
     }
 
     // The gizmo.
