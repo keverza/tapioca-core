@@ -3,6 +3,7 @@
 #include <clipper2/clipper.h>
 #include <clipper2/clipper.triangulation.h>
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 
@@ -893,24 +894,30 @@ void Canvas (Editor& e, Context& c, float scale)
     }
     for (const auto& w : shown->party)
         draw->AddLine (v.P (w[0]), v.P (w[1]), kParty, 5 * scale);
-    // The building's main walls (Scheme::grid), as a structural grid: thin dashed axes across the
-    // wing, 1.5 m past it, numbered in a bubble at one end (user, 2026-10-15: "grid lines of main walls").
+    // The building's main walls (Scheme::grid): a thick mark outside each facade where one meets
+    // it, numbered in a bubble well clear of the building -- never a line across the small plan
+    // (user, 2026-10-15: "Do not show full grid lines in miniGUI ... only thicker line segments
+    // outside building. Grid numbers should have larger offset from building").
     for (size_t i = 0; i < shown->grid.size (); ++i) {
-        const auto& g = shown->grid[i];
-        const double dx = g[1].x - g[0].x, dy = g[1].y - g[0].y, len = std::hypot (dx, dy);
-        if (len < 1e-6)
+        const ImVec2 a = v.P (shown->grid[i][0]), b = v.P (shown->grid[i][1]);
+        const float len = std::hypot (b.x - a.x, b.y - a.y);
+        if (len < 1)
             continue;
-        const fs::Vec a { g[0].x - dx / len * 1.5, g[0].y - dy / len * 1.5 },
-            b { g[1].x + dx / len * 1.5, g[1].y + dy / len * 1.5 };
-        Dashed (draw, v.P (a), v.P (b), kGrid, 1.0f * scale, 9 * scale);
+        const ImVec2 u { (b.x - a.x) / len, (b.y - a.y) / len };
+        const auto out = [&] (ImVec2 p, float sign, float d) {
+            return ImVec2 (p.x + sign * u.x * d * scale, p.y + sign * u.y * d * scale);
+        };
+        draw->AddLine (out (a, -1, 4), out (a, -1, 16), kGrid, 3 * scale);
+        draw->AddLine (out (b, 1, 4), out (b, 1, 16), kGrid, 3 * scale);
         char label[8];
         std::snprintf (label, sizeof (label), "%zu", i + 1);
-        const ImVec2 at = v.P (b);
         const float r = 7 * scale;
+        const ImVec2 at = out (b, 1, 16 + 7 + 6);
         draw->AddCircleFilled (at, r, IM_COL32_WHITE);
         draw->AddCircle (at, r, kGrid, 0, scale);
-        const ImVec2 t = ImGui::CalcTextSize (label);
-        draw->AddText (nullptr, ImGui::GetFontSize () * 0.8f, { at.x - t.x * 0.4f, at.y - t.y * 0.4f }, kGrid, label);
+        const float size = ImGui::GetFontSize () * 0.8f;
+        const ImVec2 t = ImGui::GetFont ()->CalcTextSizeA (size, FLT_MAX, 0, label);
+        draw->AddText (nullptr, size, { at.x - t.x / 2, at.y - t.y / 2 }, kGrid, label);
     }
     // The typology's blocks: where a wing's stair zones meet, dashed (user, 2026-10-14: "Show
     // typology block division lines ... to manually move or edit how big the stair core zone

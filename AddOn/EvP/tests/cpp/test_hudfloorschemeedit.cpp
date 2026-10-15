@@ -1122,8 +1122,9 @@ TEST (HudFloorSchemeEdit, AMorphSettlesInRealTimeWhicheverHudStampedIt)
     EXPECT_FALSE (hf::Animating (editors)) << "settled after kMorphSeconds";
 }
 
-// User, 2026-10-15: "generator should create grid lines of main walls." The Plan view draws the
-// building's main walls as a structural grid: axes across the wing, past its facades.
+// User, 2026-10-15: "generator should create grid lines of main walls ... Do not show full grid
+// lines in miniGUI. There show only thicker line segments outside building." The Plan view marks
+// each main wall outside both facades, and draws nothing of it across the floor.
 TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
 {
     auto* previous = ImGui::GetCurrentContext ();
@@ -1145,7 +1146,7 @@ TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
     std::map<std::string, bp::Draft> drafts;
     bp::Planner planner;
     hf::EditorPtr editor;
-    ImVec4 floor {}, grid {};
+    ImVec4 floor {}, grid {}, inside {};
     for (int n = 0; n < 400 && (n == 0 || grid.z < 0); ++n) {
         ImGui::NewFrame ();
         ImGui::SetNextWindowPos ({ 0, 0 });
@@ -1154,6 +1155,7 @@ TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
         hf::PlanView (editor, planner, plans, drafts, "A", fp::Default (), {}, 1);
         floor = Bounds (IM_COL32 (236, 238, 232, 255));
         grid = Bounds (IM_COL32 (196, 74, 64, 190));
+        inside = Bounds (IM_COL32 (196, 74, 64, 190), { floor.x + 1, floor.y + 1, floor.z - 1, floor.w - 1 });
         ImGui::End ();
         ImGui::Render ();
         std::this_thread::sleep_for (std::chrono::milliseconds (5));
@@ -1163,4 +1165,6 @@ TEST (HudFloorSchemeEdit, ThePlanViewDrawsTheMainWallsAsAGrid)
     EXPECT_GT (grid.w, floor.w) << "past the other facade";
     EXPECT_GT (grid.x, floor.x) << "inside the wing's length";
     EXPECT_LT (grid.z, floor.z);
+    EXPECT_LT (inside.z, 0) << "nothing across the floor";
+    EXPECT_GT ((std::max) (floor.y - grid.y, grid.w - floor.w), 30) << "the numbers well clear of the facade";
 }
