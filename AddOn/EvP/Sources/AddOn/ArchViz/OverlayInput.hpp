@@ -163,6 +163,8 @@ struct Stats {
     uint64_t contextMenusSwallowed = 0;
     // Presses the HUD ate that brought Archicad to the front, as the click would have.
     uint64_t activations = 0;
+    // Keys taken because the pointer was on the locked view while the focus was elsewhere.
+    uint64_t keysByPointer = 0;
 };
 Stats GetStats ();
 

@@ -12,6 +12,8 @@
 #include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 
 #include <chrono>
+#include <cwchar>
+#include <cwctype>
 #include <cstdio>
 
 namespace geomsrv {
@@ -355,6 +357,17 @@ void Left (const MSG& message)
     target->wasOver = false;
 }
 
+// A window that takes typed text: an edit control, plain or rich, by its class.
+bool TextField (HWND window)
+{
+    wchar_t name[64] = {};
+    if (window == nullptr || ::GetClassNameW (window, name, 64) == 0)
+        return false;
+    for (wchar_t* c = name; *c; ++c)
+        *c = wchar_t (::towlower (*c));
+    return std::wcsstr (name, L"edit") != nullptr;
+}
+
 bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16string& text, bool take)
 {
     if (!s_roofEditKeys || !window)
@@ -373,6 +386,17 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
                     break;
                 }
     }
+    // ⚠️ AND OVER THE LOCKED VIEW, WHEREVER THE FOCUS IS (the user, 2026-10-15: keys sometimes went
+    // to Archicad -- the focus stays in the palette that started the editor). The pointer on a
+    // locked view the HUD owns makes its keys the HUD's, unless the focus is a text field being
+    // typed into.
+    if (!target && !TextField (window))
+        for (auto& candidate : g_targets)
+            if (candidate.canvas && candidate.map.locked && state::OwnsPointer (candidate)) {
+                target = &candidate;
+                ++g_stats.keysByPointer;
+                break;
+            }
     if (!target || !target->map.locked || !target->owner.shown || !target->owner.shown ())
         return false; // unrelated palettes, modal dialogs and unlocked canvases pass
     if (take) {
