@@ -226,10 +226,13 @@ void FinishDrawing (Session& s)
         return;
     }
     auto points = s.drawing;
+    auto handles = s.drawHandles;
+    handles.resize (points.size ());
     s.drawing.clear ();
+    s.drawHandles.clear ();
     const bool closed = points.size () > 3 && edit::Distance (points.front (), points.back ()) < 1.0e-6;
     if (closed)
-        points.pop_back ();
+        points.pop_back (), handles.pop_back ();
     edit::Id created = edit::kNoId;
     const Tool tool = s.tool;
     const double width = s.pathWidth;
@@ -237,6 +240,8 @@ void FinishDrawing (Session& s)
     const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string&) {
         created =
             tool == Tool::Path ? edit::AddPath (d, points, width, role) : edit::AddPolyline (d, points, closed, role);
+        if (tool == Tool::Curve)
+            ApplyPenHandles (d, created, handles); // the pen's smooth anchors keep their handles
         return true;
     });
     if (!ok) {
@@ -535,6 +540,9 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                         case 'P':
                             s.tool = Tool::Path;
                             break;
+                        case 'B':
+                            s.tool = Tool::Curve; // the pen: clicks for corners, drags for curves
+                            break;
                         case 'G':
                             s.gizmo = edit::GizmoMode::Move;
                             break;
@@ -597,7 +605,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         s.selection.hover = {}, s.hoverHandle = -1;
 
     // Live-corner grips first: they sit over the geometry and the gizmo.
-    const bool gripTook = CornerGrips (s, m, mouse, hovered && s.tool == Tool::Select, scale);
+    bool gripTook = CornerGrips (s, m, mouse, hovered && s.tool == Tool::Select, scale);
+    gripTook = CurveHandles (s, m, mouse, hovered && !gripTook, pick, scale) || gripTook;
 
     // Press. A handle waiting for its number gives way to whatever is pressed next.
     if (s.typedHandle >= 0 && s.typedMode != s.gizmo)
@@ -683,6 +692,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (hovered && ImGui::IsMouseDoubleClicked (0) && s.tool != Tool::Select)
         FinishDrawing (s);
+    if (hovered)
+        PenDrag (s, m, mouse); // the pen's press past the threshold pulls out handles
 
     // A right click opens the menu for what is under the pointer, selecting it first -- also
     // while the menu is open elsewhere: the click that closes it opens it again here.
@@ -840,12 +851,16 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 if (edit::Normalize (Vec3 { p.x - anchor->x, p.y - anchor->y, 0.0 }, dir))
                     s.snap.point = *anchor + dir * *length;
             }
-            for (size_t i = 0; i + 1 < s.drawing.size (); ++i)
-                Line (s, m, s.drawing[i], s.drawing[i + 1], kAccent, 2.5f * scale);
-            if (!s.drawing.empty ())
-                Line (s, m, s.drawing.back (), s.snap.point, kAccent, 1.5f * scale);
-            for (const auto& q : s.drawing)
-                Dot (s, m, q, 4.0f * scale, kAccent);
+            if (s.tool == Tool::Curve)
+                PenPreview (s, m, s.snap.point, scale);
+            else {
+                for (size_t i = 0; i + 1 < s.drawing.size (); ++i)
+                    Line (s, m, s.drawing[i], s.drawing[i + 1], kAccent, 2.5f * scale);
+                if (!s.drawing.empty ())
+                    Line (s, m, s.drawing.back (), s.snap.point, kAccent, 1.5f * scale);
+                for (const auto& q : s.drawing)
+                    Dot (s, m, q, 4.0f * scale, kAccent);
+            }
         }
     }
 
@@ -939,10 +954,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // crosshair while a drawing tool places points, the move cross on a handle and through any
     // drag, the arrow otherwise.
     if (hovered) {
-        const bool dragging = s.drag == Drag::Part || s.drag == Drag::Handle || s.drag == Drag::Corner;
+        const bool dragging = s.drag == Drag::Part || s.drag == Drag::Handle || s.drag == Drag::Corner ||
+                              s.drag == Drag::Bezier || s.drag == Drag::Bend;
         hudshell::OwnCursor (s.tool != Tool::Select && s.drag == Drag::None);
-        ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 || s.hoverCorner >= 0 ? ImGuiMouseCursor_ResizeAll
-                                                                                    : ImGuiMouseCursor_Arrow);
+        ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 || s.hoverCorner >= 0 || s.hoverBezier >= 0
+                                   ? ImGuiMouseCursor_ResizeAll
+                                   : ImGuiMouseCursor_Arrow);
     }
     draw->PopClipRect ();
 }

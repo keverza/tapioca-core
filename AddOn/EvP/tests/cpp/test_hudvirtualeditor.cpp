@@ -450,3 +450,60 @@ TEST (HudVirtualEditor, CornerGripsRoundEveryCornerOfASelectedObject)
     EXPECT_DOUBLE_EQ (d.D ().entities[0].vertices[1].radius, 0.0);
     EXPECT_NEAR (d.D ().entities[0].vertices[0].radius, 3.0, 1e-9);
 }
+
+TEST (HudVirtualEditor, ThePenPlacesCornersAndPullsOutCurves)
+{
+    Drive d (ed::Document {});
+    d.S ().tool = eh::Tool::Curve;
+    d.S ().snapModes = 0; // the gesture alone
+    d.Press (600, 500);   // (0, 0): a click, a corner
+    d.Release (600, 500);
+    d.Press (800, 500); // (10, 0): dragged up 3 m, a smooth anchor
+    d.At (800, 440);
+    d.Release (800, 440);
+    d.Press (1000, 500); // (20, 0)
+    d.Release (1000, 500);
+    d.Key (0x0D); // Enter finishes
+    ASSERT_EQ (d.D ().entities.size (), 1u);
+    const auto& v = d.D ().entities[0].vertices;
+    ASSERT_EQ (v.size (), 3u);
+    EXPECT_FALSE (v[0].smooth);
+    EXPECT_TRUE (v[1].smooth);
+    EXPECT_NEAR (v[1].out.y, 3.0, 1e-9);
+    EXPECT_NEAR (v[1].in.y, -3.0, 1e-9);
+    EXPECT_TRUE (ed::SegmentCurved (d.D ().entities[0], 0));
+}
+
+TEST (HudVirtualEditor, AnchorHandlesDragAndCurvedSegmentsBend)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 20, 0, 0 } }, false);
+    std::string error;
+    EXPECT_TRUE (ed::SetSmooth (doc, e, ed::Find (doc, e)->vertices[1].id, true, error)) << error;
+    Drive d (std::move (doc));
+    // The middle anchor selected: its leaving handle ends at (13.33, 0).
+    d.S ().selection.Set ({ { e, ed::Part::Vertex, d.D ().entities[0].vertices[1].id } });
+    const float hx = 600 + 20 * (10 + 10.0f / 3.0f), hy = 500;
+    d.At (hx, hy);
+    ASSERT_GE (d.S ().hoverBezier, 0);
+    d.Press (hx, hy);
+    d.At (hx, hy - 60); // up 3 m
+    d.Release (hx, hy - 60);
+    const auto& v = d.D ().entities[0].vertices[1];
+    EXPECT_NEAR (v.out.y, 3.0, 1e-9);
+    // Smooth: the other handle turns into line with it, opposite, at its own length.
+    const double outLength = std::hypot (v.out.x, v.out.y), inLength = std::hypot (v.in.x, v.in.y);
+    EXPECT_NEAR (inLength, 10.0 / 3.0, 1e-9);
+    EXPECT_NEAR (v.in.x / inLength, -v.out.x / outLength, 1e-9);
+    EXPECT_NEAR (v.in.y / inLength, -v.out.y / outLength, 1e-9);
+    // A press on the curved first segment bends it.
+    const ed::Vec3 mid = ed::SegmentPoint (d.D ().entities[0], 0, 0.5);
+    const float mx = 600 + 20 * float (mid.x), my = 500 - 20 * float (mid.y);
+    d.S ().selection.Clear ();
+    d.Press (mx, my);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Bend);
+    d.At (mx, my - 40); // 2 m further
+    d.Release (mx, my - 40);
+    const ed::Vec3 bent = ed::SegmentPoint (d.D ().entities[0], 0, d.S ().bendT);
+    EXPECT_GT (bent.y, mid.y + 1.5);
+}

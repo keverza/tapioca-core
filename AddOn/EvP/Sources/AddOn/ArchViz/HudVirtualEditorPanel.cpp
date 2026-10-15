@@ -26,6 +26,9 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Path (P)", s.tool == Tool::Path))
         s.tool = Tool::Path;
+    ImGui::SameLine ();
+    if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
+        s.tool = Tool::Curve;
     const char* modes[] = { "Move (G)", "Rotate (R)", "Scale (S)", "Stretch (T)", "Extrude (E)" };
     for (int i = 0; i < 5; ++i) {
         if (i > 0)

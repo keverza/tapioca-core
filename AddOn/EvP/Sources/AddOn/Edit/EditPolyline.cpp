@@ -754,6 +754,48 @@ std::vector<Action> PolylineActions (const ActionDefaults& d)
                                return true;
                            });
                        } });
+    const auto anchors = [] (const Document& doc, const Refs& refs, bool smooth) {
+        bool any = false; // something to change: a corner to smooth, or handles to retract
+        for (const auto& r : refs)
+            if (const Entity* e = Find (doc, r.entity))
+                for (const auto& v : e->vertices)
+                    if (v.id == r.item)
+                        any = any || (smooth ? !v.smooth
+                                             : (v.smooth || std::hypot (v.in.x, v.in.y) > 0.0 ||
+                                                std::hypot (v.out.x, v.out.y) > 0.0));
+        if (!any)
+            return Operation {};
+        return Operation ([refs, smooth] (Document& x, std::string& error) {
+            for (const auto& r : refs)
+                if (!SetSmooth (x, r.entity, r.item, smooth, error))
+                    return false;
+            return true;
+        });
+    };
+    table.push_back ({ "smooth", "Smooth point", vertex, 0xFu, 1, 0,
+                       [anchors] (const Document& doc, const Refs& refs) { return anchors (doc, refs, true); } });
+    table.push_back ({ "corner", "Corner point", vertex, 0xFu, 1, 0,
+                       [anchors] (const Document& doc, const Refs& refs) { return anchors (doc, refs, false); } });
+    const auto segments = [] (const Document& doc, const Refs& refs, bool curved) {
+        bool any = false;
+        for (const auto& r : refs)
+            if (const Entity* e = Find (doc, r.entity)) {
+                const int i = SegmentIndex (*e, r.item);
+                any = any || (i >= 0 && SegmentCurved (*e, size_t (i)) != curved);
+            }
+        if (!any)
+            return Operation {};
+        return Operation ([refs, curved] (Document& x, std::string& error) {
+            for (const auto& r : refs)
+                if (!SetSegmentCurved (x, r.entity, r.item, curved, error))
+                    return false;
+            return true;
+        });
+    };
+    table.push_back ({ "curve", "Make curve", segment, 0xFu, 1, 0,
+                       [segments] (const Document& doc, const Refs& refs) { return segments (doc, refs, true); } });
+    table.push_back ({ "straighten", "Make straight", segment, 0xFu, 1, 0,
+                       [segments] (const Document& doc, const Refs& refs) { return segments (doc, refs, false); } });
     table.push_back ({ "chamfer", "Chamfer", vertex, 0xFu, 1, 0, [d] (const Document&, const Refs& refs) {
                           return Operation ([refs, d] (Document& x, std::string& error) {
                               for (const auto& r : refs)

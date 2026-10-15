@@ -29,8 +29,8 @@ struct Input;
 
 namespace geomsrv::archviz::edithud {
 
-enum class Tool : uint8_t { Select, Polyline, Path };
-enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner };
+enum class Tool : uint8_t { Select, Polyline, Path, Curve };
+enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner, Bezier, Bend };
 
 // What a right click landed on, which decides what its menu offers.
 enum class MenuTarget : uint8_t { View, Drawing, Vertex, Segment, Object, Path, PathPoint, GradeBreak, Range };
@@ -87,6 +87,17 @@ struct Session {
     float startX = 0.0f, startY = 0.0f;
     bool dragPlanar = false;
     edit::SnapResult snap;
+    // Curves: the pen's handles for the points it placed (parallel to `drawing`) and its
+    // press; an anchor's handle hovered or dragged; a curved segment being bent.
+    std::vector<edit::Vec3> drawHandles;
+    float penX = 0.0f, penY = 0.0f;
+    bool penDown = false;
+    int hoverBezier = -1;
+    edit::Id bezierEntity = edit::kNoId, bezierVertex = edit::kNoId;
+    bool bezierOut = true;
+    edit::Id bendEntity = edit::kNoId, bendSegment = edit::kNoId;
+    double bendT = 0.5;
+    edit::Vec3 bendStart;
     // A live corner's grip: hovered, and the corners a drag of it sets.
     int hoverCorner = -1;
     edit::Id cornerEntity = edit::kNoId;

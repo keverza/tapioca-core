@@ -58,6 +58,14 @@ edit::Vec3 GrabPoint (const Session& s, const Map& m, ImVec2 mouse, const edit::
 bool FlushEdges (Session& s, const Map& m, ImVec2 mouse, const std::vector<edit::Ref>& moving, double z,
                  const std::vector<edit::Ref>& exclude, float scale, edit::Transform& t);
 
+// Curves (HudVirtualEditorCurves.cpp): the handles of the selected anchors, dragged, and
+// curved segments bent -- true when they took the pointer; the pen's handle-pulling drag,
+// its preview through `hover`, and its handles put on the polyline it made.
+bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const edit::PickView& pick, float scale);
+void PenDrag (Session& s, const Map& m, ImVec2 mouse);
+void PenPreview (Session& s, const Map& m, edit::Vec3 hover, float scale);
+void ApplyPenHandles (edit::Document& d, edit::Id created, const std::vector<edit::Vec3>& handles);
+
 // Live-corner grips (HudVirtualEditorCorners.cpp): hover, drag, click and double click,
 // and their drawing. True when they took the pointer this frame.
 bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);

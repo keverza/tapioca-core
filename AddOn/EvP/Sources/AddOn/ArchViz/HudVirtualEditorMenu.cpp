@@ -98,7 +98,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
         case MenuTarget::Drawing: {
             const size_t n = s.drawing.size ();
             items.push_back (Item ("draw.finish", "Finish", "Enter", n >= 2));
-            if (s.tool == Tool::Polyline)
+            if (s.tool == Tool::Polyline || s.tool == Tool::Curve)
                 items.push_back (Item ("draw.close", "Close outline", {}, n >= 3));
             items.push_back (Item ("draw.back", "Remove last point", "Backspace", n >= 1));
             items.push_back (Item ("draw.cancel", "Cancel drawing", "Esc"));
@@ -167,6 +167,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("tool.select", "Select", "V", true, s.tool == Tool::Select));
             items.push_back (Item ("tool.polyline", "Draw polyline", "L", true, s.tool == Tool::Polyline));
             items.push_back (Item ("tool.path", "Draw path", "P", true, s.tool == Tool::Path));
+            items.push_back (Item ("tool.curve", "Draw curves (pen)", "B", true, s.tool == Tool::Curve));
             Rule (items);
             items.push_back (Item ("select.all", "Select all", {}, !doc.entities.empty () || !doc.paths.empty ()));
             items.push_back (Item ("select.none", "Deselect", "Esc", !s.selection.Items ().empty ()));
@@ -201,6 +202,8 @@ void RunMenuItem (Session& s, const std::string& id)
         s.tool = Tool::Polyline;
     else if (id == "tool.path")
         s.tool = Tool::Path;
+    else if (id == "tool.curve")
+        s.tool = Tool::Curve;
     else if (id == "select.none")
         s.selection.Clear ();
     else if (id == "select.all") {

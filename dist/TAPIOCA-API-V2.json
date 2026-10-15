@@ -3699,7 +3699,8 @@
             "enum": [
               "select",
               "polyline",
-              "path"
+              "path",
+              "curve"
             ]
           },
           "gizmo": {
@@ -3720,7 +3721,10 @@
               "handle",
               "marquee",
               "profileBreak",
-              "profileTangent"
+              "profileTangent",
+              "corner",
+              "bezier",
+              "bend"
             ]
           },
           "gesture": {
@@ -34099,7 +34103,8 @@
             "enum": [
               "select",
               "polyline",
-              "path"
+              "path",
+              "curve"
             ]
           },
           "polylines": {
