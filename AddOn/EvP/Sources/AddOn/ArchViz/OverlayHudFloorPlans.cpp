@@ -63,6 +63,62 @@ void EdgeLengths (overlaylayers::Layer& layer, const fs::Ring& ring, double z)
         layer.texts.push_back (std::move (t));
     }
 }
+// The building's main walls (floorscheme::MainWalls of its stack floor; user, 2026-10-15: "GridLines
+// may be shown in overlay through show toggle in Massing Tab"). On the plan, at `z`: an axis 1.5 m
+// past both facades, dashed, numbered in a circle beyond one end. In 3D, from `z0` to `z1`: each a
+// dashed frame standing from the lowest floor to the top, as the wall does.
+constexpr uint32_t kGridRgba = 0xC44A40E0u;
+void PlanGrid (overlaylayers::Layer& layer, const std::vector<std::array<fs::Vec, 2>>& grid, double z)
+{
+    for (size_t i = 0; i < grid.size (); ++i) {
+        const auto& g = grid[i];
+        const double dx = g[1].x - g[0].x, dy = g[1].y - g[0].y, len = std::hypot (dx, dy);
+        if (len < 1e-6)
+            continue;
+        const fs::Vec u { dx / len, dy / len };
+        overlaylayers::Polyline axis;
+        axis.rgba = kGridRgba;
+        axis.widthPixels = 1.5f;
+        axis.dashMetres = { 0.8f, 0.25f };
+        axis.behind = overlaylayers::Behind::Show;
+        axis.points = { g[0].x - u.x * 1.5, g[0].y - u.y * 1.5, z, g[1].x + u.x * 1.5, g[1].y + u.y * 1.5, z };
+        layer.polylines.push_back (std::move (axis));
+        const fs::Vec c { g[1].x + u.x * 2.1, g[1].y + u.y * 2.1 };
+        overlaylayers::Polyline bubble;
+        bubble.closed = true;
+        bubble.rgba = kGridRgba;
+        bubble.widthPixels = 1.5f;
+        bubble.behind = overlaylayers::Behind::Show;
+        for (int k = 0; k < 24; ++k) {
+            const double a = k * 2 * 3.14159265358979 / 24;
+            bubble.points.insert (bubble.points.end (), { c.x + 0.5 * std::cos (a), c.y + 0.5 * std::sin (a), z });
+        }
+        layer.polylines.push_back (std::move (bubble));
+        overlaylayers::Text number;
+        number.text = std::to_string (i + 1);
+        number.planar = true;
+        number.at[0] = c.x, number.at[1] = c.y, number.at[2] = z;
+        number.sizeMetres = 0.5;
+        number.sizePixels = 32.0f;
+        number.rgba = kGridRgba | 0xFFu;
+        number.haloPixels = 0;
+        number.behind = overlaylayers::Behind::Show;
+        layer.texts.push_back (std::move (number));
+    }
+}
+void FramedGrid (overlaylayers::Layer& layer, const std::vector<std::array<fs::Vec, 2>>& grid, double z0, double z1)
+{
+    for (const auto& g : grid) {
+        overlaylayers::Polyline frame;
+        frame.closed = true;
+        frame.rgba = kGridRgba;
+        frame.widthPixels = 1.5f;
+        frame.dashMetres = { 0.8f, 0.25f };
+        frame.behind = overlaylayers::Behind::Show;
+        frame.points = { g[0].x, g[0].y, z0, g[1].x, g[1].y, z0, g[1].x, g[1].y, z1, g[0].x, g[0].y, z1 };
+        layer.polylines.push_back (std::move (frame));
+    }
+}
 // A ring filled, flat at `z`: triangulated, so an L or a notched flat fills only itself.
 void Fill (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba)
 {
@@ -179,7 +235,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             asked << floor.story << '@' << floor.z << floor.outlineKey.size () << floor.outlineKey.substr (0, 64);
     }
     const bool arrived = state.floorPlanner.Poll ();
-    const bool wanted = state.previewStairs || state.previewUnits;
+    const bool wanted = state.previewStairs || state.previewUnits || state.previewGrid;
     if (wanted && (arrived || asked.str () != state.floorPlanAsked)) {
         state.floorPlanAsked = asked.str ();
         for (const auto& [key, plan] : state.floorPlanSnapshots)
@@ -191,7 +247,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         if (auto s = hudfloorscheme::Selected (editor))
             selected.push_back (std::move (*s));
     std::ostringstream signature;
-    signature << std::setprecision (17) << state.previewStairs << state.previewUnits << ':'
+    signature << std::setprecision (17) << state.previewStairs << state.previewUnits << state.previewGrid << ':'
               << state.floorPlanner.Revision () << ':' << floorprogramme::ColoursKey (state.massingProgramme) << ':'
               << (onPlan ? state.planStorey : INT_MIN);
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
@@ -218,6 +274,18 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
     }
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         const auto complex = ComplexOf (state, key, plan, options);
+        if (state.previewGrid && !plan.floors.empty ()) {
+            std::vector<fs::Pins::Core> stack;
+            std::vector<std::array<fs::Vec, 2>> grid;
+            Stack (state.floorPlanner, key, plan, stack, &grid);
+            double z0 = 1e18, z1 = -1e18;
+            for (const auto& floor : plan.floors) {
+                z0 = (std::min) (z0, floor.z), z1 = (std::max) (z1, floor.z + floor.height);
+                if (onPlan && floor.story == state.planStorey)
+                    PlanGrid (*onPlan, grid, floor.z + 0.06);
+            }
+            FramedGrid (units, grid, z0, z1);
+        }
         if (state.previewStairs) {
             // A stack stair from its lowest floor to its highest: the shaft never moves. A stair
             // the stack does not have (CheckStack reported it) stands on its floor alone.

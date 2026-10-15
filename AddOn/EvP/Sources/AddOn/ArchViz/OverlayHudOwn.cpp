@@ -405,7 +405,8 @@ void Engine::Impl::MassingPage ()
     const bool stairsChanged = ImGui::Checkbox ("Show proposed stair cores (all floors)", &store->previewStairs);
     const bool unitsChanged =
         ImGui::Checkbox ("Show units (3D: every floor; plan: its story, filled)", &store->previewUnits);
-    if (stairsChanged || unitsChanged) {
+    const bool gridChanged = ImGui::Checkbox ("Show main walls (grid)", &store->previewGrid);
+    if (stairsChanged || unitsChanged || gridChanged) {
         ShowLayer (buildingplan::kStairsLayer, true);
         ShowLayer (buildingplan::kUnitsLayer, true);
         ShowLayer (buildingplan::kPlanUnitsLayer, true);

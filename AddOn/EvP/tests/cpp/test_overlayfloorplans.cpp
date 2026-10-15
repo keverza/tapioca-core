@@ -398,3 +398,43 @@ TEST (OverlayFloorPlans, TheSelectedFlatsSidesCarryTheirLengthsWhenZoomedIn)
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
     EXPECT_TRUE (onPlan.texts.empty ());
 }
+
+// User, 2026-10-15: "GridLines may be shown in overlay through show toggle in Massing Tab." With
+// the toggle on, the plan shows each main wall's axis and number at its storey, and 3D each main wall
+// standing from the lowest floor to the top; off, nothing of them.
+TEST (OverlayFloorPlans, TheMainWallsShowOnTheOverlayWhenToggled)
+{
+    auto state = hud::NewState ();
+    const auto plan = Tower ();
+    state->floorPlanSnapshots[plan.key] = plan;
+    state->previewGrid = true;
+    layers::Layer stairs, units, onPlan;
+    ASSERT_TRUE (Planned (*state, stairs, units, 0));
+    hud::SetPlanStorey (*state, 1);
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    const uint32_t grid = 0xC44A40E0u;
+    size_t axes = 0, frames = 0;
+    for (const auto& line : onPlan.polylines)
+        if (line.rgba == grid && !line.closed) {
+            ++axes;
+            EXPECT_NEAR (line.points[2], 3.06, 1e-9) << "at the plan's storey";
+        }
+    for (const auto& line : units.polylines)
+        if (line.rgba == grid) {
+            ++frames;
+            ASSERT_EQ (line.points.size (), 12u);
+            EXPECT_NEAR (line.points[2], 0, 1e-9) << "from the lowest floor";
+            EXPECT_NEAR (line.points[8], 9, 1e-9) << "to the top";
+        }
+    EXPECT_GE (axes, 1u);
+    EXPECT_EQ (frames, axes) << "one standing wall per axis";
+    EXPECT_EQ (onPlan.texts.size (), axes) << "each numbered";
+    EXPECT_EQ (onPlan.texts.front ().text, "1");
+    EXPECT_TRUE (layers::Validate (onPlan).empty ());
+    EXPECT_TRUE (layers::Validate (units).empty ());
+    state->previewGrid = false;
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    for (const auto* layer : { &onPlan, &units })
+        for (const auto& line : layer->polylines)
+            EXPECT_NE (line.rgba, grid);
+}
