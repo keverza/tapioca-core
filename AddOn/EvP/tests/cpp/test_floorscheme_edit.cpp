@@ -66,7 +66,7 @@ TEST (FloorSchemeEdit, RectanglesAddToAndCutFromTheSilhouette)
     EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
 }
 
-TEST (FloorSchemeEdit, StairsMoveAddAndGoDownToTheAreaMinimum)
+TEST (FloorSchemeEdit, StairsMoveAddAndGoDownToTheEscapeMinimum)
 {
     Floor f ({ Rect (0, 0, 60, 16) });
     ASSERT_EQ (f.scheme.cores.size (), 2u);
@@ -82,9 +82,36 @@ TEST (FloorSchemeEdit, StairsMoveAddAndGoDownToTheAreaMinimum)
     EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
     f.Apply (fe::RemoveStair (f.scheme, f.session.design, fe::CoreAt (f.scheme, f.scheme.cores[1].centre)));
     EXPECT_EQ (f.scheme.cores.size (), 2u);
-    // 960 m2 needs two stairs: taking another away leaves two.
-    f.Apply (fe::RemoveStair (f.scheme, f.session.design, 0));
-    EXPECT_EQ (f.scheme.cores.size (), 2u);
+    // User, 2026-10-14: "I was not able to remove stairs even if would result in better plan." 960 m2
+    // is over one stair's floor, but one stair reaches every flat of a 60 m bar: it goes, and the
+    // scheme says the floor per stair is over.
+    std::string why;
+    f.Apply (fe::RemoveStair (f.scheme, f.session.design, 0, &why));
+    EXPECT_TRUE (why.empty ()) << why;
+    EXPECT_EQ (f.scheme.cores.size (), 1u) << Report (f.scheme);
+    EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    EXPECT_TRUE (std::any_of (f.scheme.diagnostics.begin (), f.scheme.diagnostics.end (),
+                              [] (const fs::Diagnostic& d) { return d.code == "core.area"; }));
+    // The last stair of a wing stays, and says why.
+    why.clear ();
+    EXPECT_EQ (fe::RemoveStair (f.scheme, f.session.design, 0, &why), f.session.design);
+    EXPECT_NE (why.find ("only stair"), std::string::npos) << why;
+
+    // A 150 m bar: stairs go down to as many as keep every flat within reach of one, then stay.
+    Floor g ({ Rect (0, 0, 150, 16) });
+    size_t left = g.scheme.cores.size ();
+    for (int n = 0; n < 8 && why.find ("this one stays") == std::string::npos; ++n) {
+        why.clear ();
+        const auto next = fe::RemoveStair (g.scheme, g.session.design, 0, &why);
+        if (next == g.session.design)
+            break;
+        g.Apply (next);
+        EXPECT_EQ (g.scheme.cores.size (), left - 1) << Report (g.scheme);
+        left = g.scheme.cores.size ();
+    }
+    EXPECT_NE (why.find ("from a stair"), std::string::npos) << why;
+    EXPECT_GE (g.scheme.cores.size (), 3u) << "150 m of bar needs three stairs within reach";
+    EXPECT_EQ (Errors (g.scheme), 0u) << Report (g.scheme);
 }
 
 TEST (FloorSchemeEdit, AWallMovesAndItsNeighboursStay)

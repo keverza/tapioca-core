@@ -403,6 +403,13 @@ Design RemoveStair (const Scheme& s, Design d, int core, std::string* why)
         count += In (s.wings[wing].rect, c.centre);
     if (count < 1)
         return Refuse (std::move (d), why, "This is its wing's only stair: every flat must reach a stair.");
+    // As many as keep every flat within the escape distance of one (the generator's own minimum).
+    const Options o;
+    const double reach = 2 * o.maxDeadEnd + o.coreWidth + 2 * o.maxCap;
+    if (s.wings[wing].length > count * reach + 1e-6)
+        return Refuse (std::move (d), why,
+                       "With %d stair%s left, a flat would be over %.0f m of corridor from a stair: this one stays.",
+                       count, count == 1 ? "" : "s", o.maxDeadEnd);
     return SpaceStairs (s, std::move (d), wing, count, nullptr);
 }
 Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why)

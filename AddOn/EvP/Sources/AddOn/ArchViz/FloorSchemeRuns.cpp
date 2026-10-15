@@ -699,14 +699,24 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
             pinned.push_back (q.x);
     }
     std::sort (pinned.begin (), pinned.end ());
-    const int fewest =
+    // The fewest stairs the user may keep: every flat within reach of one (the escape distance). The
+    // floor per stair is advice, said when it is over (user, 2026-10-14: "I was not able to remove
+    // stairs even if would result in better plan").
+    const int byArea =
         (std::max) (1, static_cast<int> (
                            std::ceil (length * depth * c.o.grossFactor / (c.o.sectionArea + c.o.sectionSlack) - 1e-9)));
+    const int fewest =
+        (std::max) (1, static_cast<int> (std::ceil (length / (2 * c.o.maxDeadEnd + w + 2 * c.o.maxCap) - 1e-9)));
     // A stack is the building's: its stairs make the sections even when they are fewer than the
     // floor area asks for; the stair that is missing is added to the building, never to one floor.
-    if (c.o.holdCores && !pinned.empty () && pinned.size () < static_cast<size_t> (fewest))
+    if (c.o.holdCores && !pinned.empty () && pinned.size () < static_cast<size_t> (byArea))
         c.notes.push_back ({ Diagnostic::Warning, "core.missing",
                              "This wing is over one stair's floor per stair: the building needs another stair.",
+                             f.World ((p.s0 + p.s1) / 2, depth / 2) });
+    else if (!pinned.empty () && pinned.size () >= static_cast<size_t> (fewest) &&
+             pinned.size () < static_cast<size_t> (byArea))
+        c.notes.push_back ({ Diagnostic::Warning, "core.area",
+                             "This wing is over one stair's floor per stair, as its stairs were left.",
                              f.World ((p.s0 + p.s1) / 2, depth / 2) });
     if (!pinned.empty () && (pinned.size () >= static_cast<size_t> (fewest) || c.o.holdCores) &&
         pinned.size () != static_cast<size_t> (n)) {
