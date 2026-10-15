@@ -33,6 +33,11 @@ void Panel (Session& s)
         if (ImGui::RadioButton (modes[i], int (s.gizmo) == i))
             s.gizmo = edit::GizmoMode (i);
     }
+    if (ImGui::RadioButton ("Local axes", s.localAxes))
+        s.localAxes = true;
+    ImGui::SameLine ();
+    if (ImGui::RadioButton ("World axes", !s.localAxes))
+        s.localAxes = false;
     ImGui::BeginDisabled (s.drag != Drag::None);
     if (ImGui::SmallButton ("Undo"))
         History (s, true);

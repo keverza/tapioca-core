@@ -313,17 +313,6 @@ bool GizmoShown (const Session& s)
            s.selection.Kind () != edit::SelectionKind::Range && s.selection.Kind () != edit::SelectionKind::Break;
 }
 
-edit::Frame GizmoFrame (const Session& s)
-{
-    edit::Frame f;
-    Centre (s, f.origin);
-    const auto& items = s.selection.Items ();
-    if (s.gizmo == edit::GizmoMode::Extrude && items.size () == 1 && items[0].part == edit::Part::Face)
-        if (const edit::Entity* e = edit::Find (Doc (s), items[0].entity))
-            edit::FaceFrame (*e, items[0].item, f);
-    return f;
-}
-
 // The point the pointer is on, snapped, at height z.
 bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::optional<Vec3> anchor,
               const std::vector<edit::Ref>& exclude, float scale, Vec3& out)
@@ -422,6 +411,26 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         items.push_back ({ d.quantity, value });
     }
     return items;
+}
+
+edit::Frame GizmoFrame (const Session& s)
+{
+    edit::Frame f;
+    Centre (s, f.origin);
+    const auto& items = s.selection.Items ();
+    if (s.pivot && s.pivotFor == items)
+        f.origin = *s.pivot;
+    if (s.gizmo == edit::GizmoMode::Extrude && items.size () == 1 && items[0].part == edit::Part::Face)
+        if (const edit::Entity* e = edit::Find (Doc (s), items[0].entity)) {
+            edit::FaceFrame (*e, items[0].item, f);
+            return f;
+        }
+    if (s.localAxes) {
+        const edit::Frame local = edit::SelectionFrame (Doc (s), items, f.origin);
+        for (int i = 0; i < 3; ++i)
+            f.axes[i] = local.axes[i];
+    }
+    return f;
 }
 
 const edit::Path* ProfilePath (const Session& s)
@@ -578,6 +587,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             s.drag = Drag::Handle;
             s.handle = s.hoverHandle;
             s.frame = frame;
+            s.dragTransform = {};
             s.dragPlanar = v.planar;
             if (m.RayAt (mouse.x, mouse.y, frame.origin.z, frame.origin, s.startRay) && s.edits.Begin ())
                 s.message.clear ();
@@ -710,6 +720,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             else if (!s.edits.Move (edit::TransformOperation (refs, r.transform)))
                 s.message = s.edits.Message ();
             else {
+                s.dragTransform = r.transform;
                 char text[48];
                 std::snprintf (text, sizeof text, "%.2f %s", r.value, edit::QuantityUnit (h.quantity));
                 s.snap = {};
@@ -725,6 +736,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         if (s.drag == Drag::Part || s.drag == Drag::Handle) {
             s.edits.End ();
             s.snap = {};
+        }
+        // A dragged pivot stays where it was put; one already set travels with its selection.
+        if (s.drag == Drag::Handle && s.handle >= 0 &&
+            (s.dragTransform.relocate || (s.pivot && s.pivotFor == s.selection.Items ()))) {
+            s.pivot = edit::Moved (s.frame, s.dragTransform).origin;
+            s.pivotFor = s.selection.Items ();
         }
         else if (s.drag == Drag::Marquee && std::hypot (mouse.x - s.startX, mouse.y - s.startY) > 3.0f)
             s.selection.Marquee (Doc (s), pick, s.startX, s.startY, mouse.x, mouse.y, s.filter, shift);
@@ -797,7 +814,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
 
     // The gizmo.
     if (gizmo && s.drag != Drag::Part) {
-        const edit::Frame f = s.drag == Drag::Handle && s.handle >= 0 ? s.frame : frame;
+        // Through a drag the gumball rides what it moves: carried and turned with it.
+        const edit::Frame f = s.drag == Drag::Handle && s.handle >= 0 ? edit::Moved (s.frame, s.dragTransform) : frame;
         for (const auto& h : handles) {
             const bool active = int (h.index) == (s.drag == Drag::Handle ? s.handle : s.hoverHandle);
             const ImU32 colour = active ? kSnap : h.axis >= 0 && h.axis < 3 ? kAxis[h.axis] : kHover;

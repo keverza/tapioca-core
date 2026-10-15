@@ -25,6 +25,11 @@ struct Frame {
 bool SegmentFrame (Vec3 a, Vec3 b, Frame& frame);
 // Axis 2 along the face's outward normal (the face handle drags along it); origin at its centre.
 bool FaceFrame (const Entity& entity, size_t face, Frame& frame);
+// The axes of what is selected, at `origin`, so the gumball turns with the shape: a
+// segment's own direction; for an entity or parts of one, its longest edge in plan (the
+// first of equal ones, so a turned square keeps its axes). World axes for paths and for a
+// selection spanning several entities.
+Frame SelectionFrame (const Document& doc, const std::vector<Ref>& items, Vec3 origin);
 
 struct Handle {
     uint32_t index = 0;
@@ -52,6 +57,8 @@ struct Transform {
     bool relocate = false; // a centre drag: move the pivot, not the geometry
 };
 Vec3 Apply (const Transform& transform, Vec3 p);
+// The frame a transform carries along: its origin moved, its axes turned.
+Frame Moved (const Frame& frame, const Transform& transform);
 
 struct DragResult {
     bool ok = false;

@@ -223,3 +223,40 @@ TEST (EditGizmo, HandlesHaveGeometryAndCanBePicked)
     EXPECT_TRUE (ring[0].closed);
     EXPECT_NEAR (ed::Distance (ring[0].points[0], f.origin), 0.8, 1e-12);
 }
+
+TEST (EditGizmo, SelectionFrameTurnsWithTheShape)
+{
+    ed::Document doc;
+    const double c = std::cos (0.5), s = std::sin (0.5); // a 4 x 2 rectangle turned 0.5 rad
+    const ed::Id e = ed::AddPolyline (
+        doc, { { 0, 0, 0 }, { 4 * c, 4 * s, 0 }, { 4 * c - 2 * s, 4 * s + 2 * c, 0 }, { -2 * s, 2 * c, 0 } }, true);
+    const auto& entity = *ed::Find (doc, e);
+    const ed::Frame f = ed::SelectionFrame (doc, { { e, ed::Part::Entity, 0 } }, { 1, 1, 0 });
+    EXPECT_NEAR (f.axes[0].x, c, 1e-12); // along the long side
+    EXPECT_NEAR (f.axes[0].y, s, 1e-12);
+    EXPECT_NEAR (f.axes[2].z, 1.0, 1e-12);
+    EXPECT_NEAR (f.origin.x, 1.0, 1e-12);
+    const ed::Frame side = ed::SelectionFrame (doc, { { e, ed::Part::Segment, entity.segments[1].id } }, {});
+    EXPECT_NEAR (side.axes[0].x, -s, 1e-12); // a segment's own direction
+    EXPECT_NEAR (side.axes[0].y, c, 1e-12);
+    // Two entities, or a path: the world's.
+    const ed::Id other = ed::AddPolyline (doc, { { 9, 9, 0 }, { 10, 9, 0 } }, false);
+    const ed::Frame both = ed::SelectionFrame (doc, { { e, ed::Part::Entity, 0 }, { other, ed::Part::Entity, 0 } }, {});
+    EXPECT_NEAR (both.axes[0].x, 1.0, 1e-12);
+}
+
+TEST (EditGizmo, FrameRidesItsTransform)
+{
+    ed::Frame f;
+    f.origin = { 1, 0, 0 };
+    ed::Transform t;
+    t.pivot = { 0, 0, 0 };
+    t.angle = std::acos (-1.0) / 2.0;
+    t.translate = { 0, 0, 2 };
+    const ed::Frame m = ed::Moved (f, t);
+    EXPECT_NEAR (m.origin.x, 0.0, 1e-12);
+    EXPECT_NEAR (m.origin.y, 1.0, 1e-12);
+    EXPECT_NEAR (m.origin.z, 2.0, 1e-12);
+    EXPECT_NEAR (m.axes[0].y, 1.0, 1e-12); // X turned a quarter
+    EXPECT_NEAR (m.axes[1].x, -1.0, 1e-12);
+}

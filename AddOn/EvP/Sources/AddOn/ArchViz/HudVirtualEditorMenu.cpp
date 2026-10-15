@@ -119,6 +119,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             for (int i = 0; i < 5; ++i)
                 if (i < 4 || (e != nullptr && e->kind == edit::Kind::Extrusion))
                     items.push_back (Item ("gizmo." + std::to_string (i), modes[i], keys[i], true, int (s.gizmo) == i));
+            items.push_back (Item ("gizmo.local", "Axes along the shape", {}, true, s.localAxes));
             AddActions (s, items, {});
             break;
         }
@@ -212,6 +213,8 @@ void RunMenuItem (Session& s, const std::string& id)
         s.drawing.pop_back ();
     else if (id == "draw.cancel")
         s.drawing.clear ();
+    else if (id == "gizmo.local")
+        s.localAxes = !s.localAxes;
     else if (id.rfind ("gizmo.", 0) == 0)
         s.gizmo = edit::GizmoMode (std::stoi (id.substr (6)));
     else if (id == "segment.insert") {

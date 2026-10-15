@@ -42,6 +42,42 @@ bool FaceFrame (const Entity& entity, size_t face, Frame& frame)
     return true;
 }
 
+Frame SelectionFrame (const Document& doc, const std::vector<Ref>& items, Vec3 origin)
+{
+    Frame world;
+    world.origin = origin;
+    if (items.empty () || FindPath (doc, items.front ().entity) != nullptr)
+        return world;
+    for (const auto& r : items)
+        if (r.entity != items.front ().entity)
+            return world;
+    const Entity* e = Find (doc, items.front ().entity);
+    if (e == nullptr || e->vertices.size () < 2)
+        return world;
+    size_t from = 0, to = 0;
+    if (items.size () == 1 && items.front ().part == Part::Segment) {
+        const int i = SegmentIndex (*e, items.front ().item);
+        if (i < 0)
+            return world;
+        SegmentEnds (*e, static_cast<size_t> (i), from, to);
+    }
+    else {
+        double best = -1.0;
+        for (size_t i = 0; i < SegmentCount (*e); ++i) {
+            size_t a = 0, b = 0;
+            SegmentEnds (*e, i, a, b);
+            const double length = DistanceXY (e->vertices[a].p, e->vertices[b].p);
+            if (length > best + 1.0e-9 * std::max (1.0, best))
+                best = length, from = a, to = b;
+        }
+    }
+    Frame f;
+    if (!SegmentFrame (e->vertices[from].p, e->vertices[to].p, f))
+        return world;
+    f.origin = origin;
+    return f;
+}
+
 std::vector<Handle> Handles (GizmoMode mode)
 {
     std::vector<Handle> h;
@@ -96,6 +132,17 @@ Vec3 Apply (const Transform& t, Vec3 p)
     if (t.angle != 0.0 && Normalize (t.rotationAxis, axis))
         d = Rotate (d, axis, t.angle);
     return t.pivot + d + t.translate;
+}
+
+Frame Moved (const Frame& frame, const Transform& t)
+{
+    Frame out = frame;
+    out.origin = Apply (t, frame.origin);
+    Vec3 axis;
+    if (t.angle != 0.0 && Normalize (t.rotationAxis, axis))
+        for (auto& a : out.axes)
+            a = Rotate (a, axis, t.angle);
+    return out;
 }
 
 namespace {

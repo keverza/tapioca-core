@@ -312,3 +312,32 @@ TEST (HudVirtualEditor, PathMenusOfferThePathsOwnEdits)
         EXPECT_EQ (d.D ().paths[0].profile.size (), breaks + 1);
     }
 }
+
+TEST (HudVirtualEditor, GumballFollowsTheShapeAndKeepsAMovedPivot)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 6, 6, 0 }, { 4, 8, 0 }, { -2, 2, 0 } }, true); // turned 45 degrees
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    ed::Frame f = eh::GizmoFrame (d.S ());
+    EXPECT_NEAR (f.axes[0].x, std::sqrt (0.5), 1e-9);
+    EXPECT_NEAR (f.axes[0].y, std::sqrt (0.5), 1e-9);
+    d.S ().localAxes = false;
+    EXPECT_NEAR (eh::GizmoFrame (d.S ()).axes[0].x, 1.0, 1e-12);
+
+    // Dragging the centre moves the pivot, not the shape, and the pivot stays.
+    d.S ().localAxes = true;
+    f = eh::GizmoFrame (d.S ());
+    const float x = 600 + 20 * float (f.origin.x), y = 500 - 20 * float (f.origin.y);
+    d.At (x, y);
+    ASSERT_EQ (d.S ().hoverHandle, 0); // the centre
+    d.Press (x, y);
+    d.At (x + 40, y);
+    d.Release (x + 40, y);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 6.0, 1e-9);
+    const ed::Frame moved = eh::GizmoFrame (d.S ());
+    EXPECT_NEAR (moved.origin.x, f.origin.x + 2.0, 1e-6);
+    EXPECT_NEAR (moved.origin.y, f.origin.y, 1e-6);
+    d.S ().selection.Clear (); // another selection has its own centre
+    EXPECT_NEAR (eh::GizmoFrame (d.S ()).origin.x, 0.0, 1e-9);
+}

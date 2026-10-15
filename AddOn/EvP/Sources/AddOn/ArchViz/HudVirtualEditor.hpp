@@ -19,6 +19,7 @@
 #include "Edit/EditProfileView.hpp"
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditTracker.hpp"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,11 @@ struct Session {
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;
     edit::GizmoMode gizmo = edit::GizmoMode::Move;
+    bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
+    // A pivot dragged off the selection's centre stays put for that selection and travels
+    // with it.
+    std::optional<edit::Vec3> pivot;
+    std::vector<edit::Ref> pivotFor;
     uint32_t filter = edit::kPickAll;
     double pathWidth = 1.5;
     std::string role;  // the starting command's word for what it edits
@@ -62,6 +68,7 @@ struct Session {
     edit::Ref target;
     int handle = -1, hoverHandle = -1;
     edit::Frame frame;
+    edit::Transform dragTransform; // the handle drag's transform so far: the gumball rides it
     edit::Ray startRay;
     edit::Vec3 anchor, startCursor;
     float startX = 0.0f, startY = 0.0f;
@@ -110,6 +117,9 @@ void RunMenuItem (Session& session, const std::string& id);
 // Opens it on `target` (inside the locked view's window) and draws it while open.
 void OpenMenu (Session& session, MenuTarget target, edit::Ref ref, edit::Vec3 at);
 void Menu (Session& session);
+
+// Where the gumball stands and how it is turned for the current selection and mode.
+edit::Frame GizmoFrame (const Session& session);
 
 // The path the profile canvas shows: the selected one, else the only one.
 const edit::Path* ProfilePath (const Session& session);
