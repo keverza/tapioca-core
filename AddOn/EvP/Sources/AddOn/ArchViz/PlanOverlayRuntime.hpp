@@ -95,6 +95,14 @@ Status GetStatus ();
 // (OVERLAY-INVARIANTS.md §11). The session's tick then reports the storey like any other change.
 bool GoToStorey (short storey, std::string& error);
 
+// MAIN THREAD, from the message loop -- never inside a HUD's layout: Archicad's selection becomes
+// `guids`, the slabs of a floor whose flat was picked on the locked view (user, 2026-10-15:
+// "Selecting UNIT in locked mode ... does not open editing options for the slab"). Bracketed as
+// the session's own call whether or not the plan overlay runs: selecting redraws the plan, and its
+// Present must not read inside it (OVERLAY-INVARIANTS.md §11). Nothing is done when Archicad
+// already selects exactly those; false with `error` when none could be selected.
+bool SelectElements (const std::vector<std::string>& guids, std::string& error);
+
 } // namespace planruntime
 } // namespace archviz
 } // namespace geomsrv

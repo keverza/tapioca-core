@@ -206,7 +206,9 @@ struct Change {
     // "hud", "panel", "section", "fontScale", "position", "overlay", "layer", "hover"; "metadata" (a
     // field of the Selection page: `id` its key, `value` and `text` what it was set to); "floors"
     // (the building section's run: `text` its storeys, "" for none); "goToStory" (a floor picked in
-    // a building's section on the Floor Plan: `value` the storey Archicad goes to); "display" (Settings' Displays:
+    // a building's section on the Floor Plan: `value` the storey Archicad goes to); "selectSlabs" (a
+    // flat picked on the locked view: `text` its floor's slab guids, comma separated, for Archicad to
+    // select); "display" (Settings' Displays:
     // `id` and `text` what changed, "slices on", "slices line"); or a control's: "checkbox",
     // "slider", "combo", "tab", "button"
     std::string kind;

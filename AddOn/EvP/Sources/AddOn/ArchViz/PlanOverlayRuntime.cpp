@@ -26,6 +26,7 @@
 #include "ArchViz/PlanOverlayContent.hpp"
 #include "ArchViz/PlanViewCamera.hpp"
 #include "ArchViz/PlanViewTransform.hpp"
+#include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 
 #ifndef NOMINMAX
@@ -767,6 +768,34 @@ bool GoToStorey (short storey, std::string& error)
     if (err != NoError) {
         error = "ACAPI_ProjectSetting_ChangeStorySettings (APIStory_GoTo " + std::to_string (storey) + ") returned " +
                 std::to_string (err);
+        return false;
+    }
+    return true;
+}
+
+bool SelectElements (const std::vector<std::string>& guids, std::string& error)
+{
+    const OwnAcapi own;
+    std::vector<std::string> wanted = guids, now = selectionmetadata::SelectedGuids ();
+    std::sort (wanted.begin (), wanted.end ());
+    std::sort (now.begin (), now.end ());
+    if (wanted == now)
+        return true;
+    GS::Array<API_Neig> neigs;
+    for (const auto& guid : wanted) {
+        const API_Guid id = APIGuidFromString (guid.c_str ());
+        API_Neig neig = {};
+        if (ACAPI_Selection_SetSelectedElementNeig (&id, &neig) == NoError)
+            neigs.Push (neig);
+    }
+    if (neigs.IsEmpty ()) {
+        error = "none of the " + std::to_string (guids.size ()) + " element(s) can be selected";
+        return false;
+    }
+    ACAPI_Selection_DeselectAll ();
+    const GSErrCode err = ACAPI_Selection_Select (neigs, true);
+    if (err != NoError) {
+        error = "ACAPI_Selection_Select returned " + std::to_string (err);
         return false;
     }
     return true;

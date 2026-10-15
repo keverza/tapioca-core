@@ -1,18 +1,42 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include <iomanip>
+#include <map>
 #include <sstream>
 
 namespace geomsrv::archviz::overlayhud {
 namespace {
-// The flats selected in the buildings' editors, as one string: equal when nothing was picked.
-std::string Picked (const std::map<std::string, hudfloorscheme::EditorPtr>& editors)
+// The flat selected in each building's editor, by building: equal when nothing was picked.
+std::map<std::string, std::string> Picked (const std::map<std::string, hudfloorscheme::EditorPtr>& editors)
 {
-    std::ostringstream out;
-    out << std::setprecision (9);
+    std::map<std::string, std::string> picked;
     for (const auto& [key, editor] : editors)
-        if (const auto s = hudfloorscheme::Selected (editor))
-            out << s->building << '#' << s->story << '@' << s->flat.front ().x << ',' << s->flat.front ().y << ';';
-    return out.str ();
+        if (const auto s = hudfloorscheme::Selected (editor)) {
+            std::ostringstream out;
+            out << std::setprecision (9) << s->story << '@' << s->flat.front ().x << ',' << s->flat.front ().y;
+            picked[key] = out.str ();
+        }
+    return picked;
+}
+// The slabs of the floor a flat was just picked on: what Archicad selects, so the Selection tab is
+// the one a slab picked there opens -- its metadata to edit, its building's plan (user, 2026-10-15:
+// "Selecting UNIT in locked mode still only switched tab, but does not open editing options for
+// the slab"). Empty when nothing new was picked or the floor's slabs are not known.
+std::vector<std::string> SlabsPicked (const State& state, const std::map<std::string, std::string>& before,
+                                      const std::map<std::string, std::string>& after)
+{
+    for (const auto& [key, flat] : after) {
+        const auto was = before.find (key);
+        if (was != before.end () && was->second == flat)
+            continue;
+        const auto s = hudfloorscheme::Selected (state.planEditors.at (key));
+        const auto plan = state.floorPlanSnapshots.find (key);
+        if (!s || plan == state.floorPlanSnapshots.end ())
+            continue;
+        for (const auto& floor : plan->second.floors)
+            if (floor.story == s->story && !floor.guids.empty ())
+                return floor.guids;
+    }
+    return {};
 }
 } // namespace
 
@@ -59,16 +83,22 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
             const layers::Panel& panel = look ? *look : hudshell::PlainLook ();
             const int colours = hudshell::PushLook (panel, ui);
             ImGui::PushFont (FontFor (panel.font), panel.sizePixels * ui);
-            const std::string before = Picked (store->planEditors);
+            const auto before = Picked (store->planEditors);
             hudfloorscheme::OnView (store->planEditors, store->floorPlanner, store->floorPlanSnapshots,
                                     store->buildingPlans, store->massingProgramme, store->massingCoefficients, onto,
                                     input.pointer && ImGui::IsWindowHovered (), ui);
             // A flat picked on the view opens the Selection tab, as a slab picked in Archicad does
-            // (user, 2026-10-15): its building's plan is there, the flat selected in it.
-            if (const std::string after = Picked (store->planEditors); !after.empty () && after != before) {
+            // (user, 2026-10-15): its building's plan is there, the flat selected in it, and its
+            // floor's slabs are selected in Archicad for the tab to edit them.
+            if (const auto after = Picked (store->planEditors); !after.empty () && after != before) {
                 store->host.known = true;
                 store->host.open = true;
                 store->host.selected = kSelectionKey;
+                std::string slabs;
+                for (const auto& guid : SlabsPicked (*store, before, after))
+                    slabs += (slabs.empty () ? "" : ",") + guid;
+                if (!slabs.empty ())
+                    changes.push_back ({ "selectSlabs", {}, "Selection", "picked flat's floor", -1, 1, slabs, true });
             }
             ImGui::PopFont ();
             ImGui::PopStyleColor (colours);

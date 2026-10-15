@@ -15,6 +15,7 @@
 #include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/SceneTextFont.hpp"
 
+#include <algorithm>
 #include <map>
 #include <cstdlib>
 #include <memory>
@@ -137,6 +138,22 @@ overlayhud::Engine* Hud (overlayinput::View view)
                     ArchVizLog ("PLAN OVERLAY  a floor picked in the HUD: going to storey " + std::to_string (storey));
                 else
                     ArchVizLog ("PLAN OVERLAY  going to storey " + std::to_string (storey) + " refused: " + error);
+            });
+        }
+        // A flat picked on the locked view: Archicad selects its floor's slabs, and the Selection
+        // tab follows that selection as it follows any other.
+        if (change.kind == "selectSlabs") {
+            std::vector<std::string> guids;
+            for (size_t at = 0; at < change.text.size ();) {
+                const size_t comma = (std::min) (change.text.find (',', at), change.text.size ());
+                if (comma > at)
+                    guids.push_back (change.text.substr (at, comma - at));
+                at = comma + 1;
+            }
+            selectionmetadata::Later ([guids] () {
+                std::string error;
+                if (!planruntime::SelectElements (guids, error))
+                    ArchVizLog ("OVERLAY HUD  selecting the picked flat's slabs refused: " + error);
             });
         }
         if (change.kind == "metadata" || change.kind.rfind ("massing", 0) == 0) {

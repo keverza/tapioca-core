@@ -57,7 +57,8 @@ struct Floor {
     std::vector<std::vector<SliceChain>> contours, physical;
     std::vector<SliceChain> outline; // Unioned counted boundary, including holes; no internal source seams.
     bool outlineKnown = false;
-    std::string outlineKey; // Canonical world boundary identity, assembled once with the immutable snapshot.
+    std::string outlineKey;         // Canonical world boundary identity, assembled once with the immutable snapshot.
+    std::vector<std::string> guids; // the slabs it is cut from, as the section's parts list them
 };
 struct Plan {
     std::string key;

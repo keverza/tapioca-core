@@ -6,6 +6,7 @@
 #include "ArchViz/HudFloorSchemeEditDetail.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <climits>
 #include <cmath>
@@ -38,6 +39,7 @@ bp::Plan Tower ()
         floor.areaM2 = 576;
         floor.contours = { { Chain (0, 0, 36, 16) } };
         floor.outlineKey = "tower";
+        floor.guids = { "slab-" + std::to_string (k) };
         plan.floors.push_back (floor);
     }
     plan.saved = { { { 6, 8 } } };
@@ -294,8 +296,9 @@ TEST (OverlayFloorPlans, In3DTheEditedFloorIsFilled)
 }
 
 // User, 2026-10-15: "Selecting a unit in overlay locked mode open up selection tab same as if
-// selecting slab." A flat clicked on the locked plan opens the HUD on the Selection tab, where its
-// building's plan shows it selected.
+// selecting slab"; later: "still only switched tab, but does not open editing options for the
+// slab." A flat clicked on the locked plan opens the HUD on the Selection tab, where its building's
+// plan shows it selected, and asks Archicad to select its floor's slabs -- the tab then edits them.
 TEST (OverlayFloorPlans, AFlatPickedOnTheLockedPlanOpensTheSelectionTab)
 {
     hudtest::Watched gui;
@@ -334,6 +337,10 @@ TEST (OverlayFloorPlans, AFlatPickedOnTheLockedPlanOpensTheSelectionTab)
     gui.Lay ({}, at (float (x), float (y), { { 0, false } }));
     EXPECT_EQ (hud::SelectedKey (*gui.state), hud::kSelectionKey);
     EXPECT_TRUE (hud::HudOpen (*gui.state));
+    const auto asked = std::count_if (gui.heard.begin (), gui.heard.end (), [] (const hud::Change& c) {
+        return c.kind == "selectSlabs" && c.text == "slab-0";
+    });
+    EXPECT_EQ (asked, 1) << "its floor's slab selected in Archicad, once";
 }
 
 // User, 2026-10-15: "Selected slabs story and actual archicad story should be linked." Archicad's

@@ -381,3 +381,16 @@ TEST (HudBuildingPlan, LockedTheSelectionTabKeepsTheBuildingsBeingEdited)
     EXPECT_TRUE (floors) << "the building's section is on the Selection tab";
     EXPECT_TRUE (gui.state->buildingPlans.contains ("building:Tower"));
 }
+
+// User, 2026-10-15: "Selecting UNIT in locked mode ... does not open editing options for the slab."
+// Each floor knows the slabs it is cut from, for a flat picked on it to select them in Archicad.
+TEST (HudBuildingPlan, EachFloorKnowsTheSlabsItIsCutFrom)
+{
+    ms::Result result;
+    std::string error;
+    ASSERT_TRUE (ms::Build ({ Slab ("lower", 0, 0), Slab ("upper", 3, 0) }, {}, nullptr, result, error)) << error;
+    const auto plan = Preview (result).plan;
+    ASSERT_EQ (plan.floors.size (), 2u) << plan.note;
+    EXPECT_EQ (plan.floors[0].guids, std::vector<std::string> { "lower" });
+    EXPECT_EQ (plan.floors[1].guids, std::vector<std::string> { "upper" });
+}
