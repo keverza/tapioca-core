@@ -198,6 +198,21 @@ const Pins::Core* PinIn (const Ctx& c, const Frame& f, Box b, double margin)
     }
     return best;
 }
+// A corridor's stair along the corridor: the pinned stair's own width (user, 2026-10-14: "Add
+// ability to rotate stair core"), else the Options'. A stair deeper than the band it stands in is
+// said; its core fills the band.
+namespace {
+double CoreAlong (Ctx& c, const Pins::Core* pin, double band)
+{
+    if (!pin || pin->width <= 0)
+        return c.o.coreWidth;
+    if (!c.o.holdCores && pin->depth > band + 0.1)
+        c.notes.push_back ({ Diagnostic::Warning, "core.too_deep",
+                             "This stair is deeper than the band it stands in: rotate it, or choose another size.",
+                             pin->centre });
+    return pin->width;
+}
+} // namespace
 // Cap lengths from corridor-end pins near this section's ends.
 void EndPins (const Ctx& c, const Frame& f, Box section, double c0, double c1, double& capLo, double& capHi)
 {
@@ -240,9 +255,10 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     if (coreEnd != 0) {
         // A short section: the stair takes the corridor end at its inner end (-1: s0, +1: s1),
         // so only the other end needs a cap.
-        const double corr = c.o.corridor, w = c.o.coreWidth;
+        const double corr = c.o.corridor;
         const double c0 = (depth - corr) / 2, c1 = c0 + corr;
         const double coreLo = up ? c0 : 0, coreHi = up ? depth : c1;
+        const double w = CoreAlong (c, PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o)), coreHi - coreLo);
         const double cap0 = Clip ((std::max) (up ? depth - c1 : c0, RoomFrontage (2).pref), c.o.minCap, c.o.maxCap);
         const double coreU = coreEnd > 0 ? s1 - w : s0;
         // Cap length so the band beside the corridor takes whole flats (or none).
@@ -296,8 +312,8 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
     EndPins (c, f, { s0, 0, s1, depth }, c0, c1, capLo, capHi);
     const int id = AddSection (c, run, (s1 - s0) * depth, 'C');
     double e0 = s0 + capLo, e1 = s1 - capHi;
-    const double w = c.o.coreWidth;
     const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o));
+    const double w = CoreAlong (c, pin, band);
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
     // A stair the user put somewhere stays there when other cap lengths make the bands either
     // side of it whole flats: the nearest caps to the usual that do.
@@ -392,7 +408,7 @@ void CentreSection (Ctx& c, const Frame& f, double depth, double s0, double s1, 
 // the corridor runs to it from both caps (two straight corridors meeting at the stair).
 void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1, bool up, int run)
 {
-    const double corr = c.o.corridor, w = c.o.coreWidth;
+    const double corr = c.o.corridor;
     const double c0 = up ? depth - corr : 0, c1 = up ? depth : corr;
     // Caps take the full depth: no wider than a flat of the largest size.
     const double widest = (MaxFlat (c.programme, c.o) + kPartyWall * depth) / (depth - floorprogramme::kFacade);
@@ -401,6 +417,7 @@ void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1,
     const int id = AddSection (c, run, (s1 - s0) * depth, 'O');
     const double e0 = s0 + capLo, e1 = s1 - capHi;
     const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o));
+    const double w = CoreAlong (c, pin, depth);
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
     const bool held = pin && c.o.holdCores; // a stack stair never moves
     double uc = held ? wanted : Clip (wanted, e0, e1 - w);

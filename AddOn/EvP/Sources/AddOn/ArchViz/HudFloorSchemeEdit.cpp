@@ -288,31 +288,14 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
     else if (stair >= 0) {
         ImGui::TextDisabled ("Stair %.1f x %.1f m", s.cores[stair].width, s.cores[stair].depth);
         // A size is the building's: its stairs become its own, on every floor.
-        const auto resize = [&] (double width, double depth) {
-            auto next = full;
-            const fs::Vec at = s.cores[stair].centre;
-            size_t near = next.pins.cores.size ();
-            double best = 1e18;
-            for (size_t i = 0; i < next.pins.cores.size (); ++i) {
-                const double d = std::hypot (next.pins.cores[i].centre.x - at.x, next.pins.cores[i].centre.y - at.y);
-                if (d < best)
-                    best = d, near = i;
-            }
-            if (near == next.pins.cores.size ()) {
-                next.pins.cores.push_back ({ at, 0, 0 });
-                near = next.pins.cores.size () - 1;
-            }
-            next.pins.cores[near].width = width, next.pins.cores[near].depth = depth;
-            Commit (e, c, std::move (next));
-        };
-        if (ImGui::MenuItem ("4.5 x 4.2 m: stair round a lift"))
-            resize (bp::kStairWidth, bp::kStairDepth);
-        if (ImGui::MenuItem ("9.0 x 2.5 m: straight stair"))
-            resize (9.0, 2.5);
-        if (ImGui::MenuItem ("Rotate"))
-            resize (s.cores[stair].depth, s.cores[stair].width);
-        ImGui::Separator ();
         std::string why;
+        if (ImGui::MenuItem ("4.5 x 4.2 m: stair round a lift"))
+            Apply (e, c, full, fe::ResizeStair (s, full, stair, bp::kStairWidth, bp::kStairDepth, &why), why);
+        if (ImGui::MenuItem ("9.0 x 2.5 m: straight stair"))
+            Apply (e, c, full, fe::ResizeStair (s, full, stair, 9.0, 2.5, &why), why);
+        if (ImGui::MenuItem ("Rotate"))
+            Apply (e, c, full, fe::RotateStair (s, full, stair, &why), why);
+        ImGui::Separator ();
         if (ImGui::MenuItem ("Remove stair") && Apply (e, c, full, fe::RemoveStair (s, full, stair, &why), why))
             e.selected = {};
     }

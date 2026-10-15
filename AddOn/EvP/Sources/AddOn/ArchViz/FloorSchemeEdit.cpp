@@ -106,44 +106,68 @@ Design Write (const Scheme& s, Design d, const Frozen& f)
     return d;
 }
 namespace {
+// A pin at `at` of the size of the stair pinned nearest it, within `reach`, before: a stair keeps
+// the size the user gave it (user, 2026-10-14: "rotate stair core").
+Pins::Core Sized (const std::vector<Pins::Core>& before, Vec at, double reach)
+{
+    Pins::Core pin { at };
+    double near = reach;
+    for (const auto& p : before)
+        if (const double dd = std::hypot (p.centre.x - at.x, p.centre.y - at.y); dd < near)
+            near = dd, pin.width = p.width, pin.depth = p.depth;
+    return pin;
+}
+std::vector<Pins::Core> PinsIn (const Ring& rect, const std::vector<Pins::Core>& pins)
+{
+    std::vector<Pins::Core> out;
+    for (const auto& p : pins)
+        if (In (rect, p.centre))
+            out.push_back (p);
+    return out;
+}
 // Every stair of the wing pinned where it stands, so editing one leaves the others in place.
 Design PinStairs (const Scheme& s, Design d, int wing)
 {
     if (wing < 0)
         return d;
     const Ring& rect = s.wings[wing].rect;
+    const auto before = PinsIn (rect, d.pins.cores);
     std::erase_if (d.pins.cores, [&] (const Pins::Core& c) { return In (rect, c.centre); });
     for (const auto& core : s.cores)
         if (In (rect, core.centre))
-            d.pins.cores.push_back ({ core.centre });
+            d.pins.cores.push_back (Sized (before, core.centre, 3.0));
     return d;
 }
 // The wing's stairs pinned `count` to it, one in the middle of each of `count` equal stretches,
-// and the one at `keep` (when given) in its stretch instead.
+// and the one at `keep` (when given) in its stretch instead. Each stands on the corridor's side the
+// stair nearest it stands on, its size with it.
 Design SpaceStairs (const Scheme& s, Design d, int wing, int count, const Vec* keep)
 {
     const auto& w = s.wings[wing];
+    const auto before = PinsIn (w.rect, d.pins.cores);
     std::erase_if (d.pins.cores, [&] (const Pins::Core& c) { return In (w.rect, c.centre); });
-    const Vec dir = Unit ({ w.b.x - w.a.x, w.b.y - w.a.y });
+    const Vec dir = Unit ({ w.b.x - w.a.x, w.b.y - w.a.y }), n { -dir.y, dir.x };
     const int held = keep ? static_cast<int> (std::floor (Dot ({ keep->x - w.a.x, keep->y - w.a.y }, dir) /
                                                           (std::max) (1e-9, w.length) * count))
                           : -1;
     for (int k = 0; k < count; ++k) {
         if (keep && k == std::clamp (held, 0, count - 1)) {
-            d.pins.cores.push_back ({ *keep });
+            d.pins.cores.push_back (Sized (before, *keep, 3.0));
             continue;
         }
         const double t = w.length * (k + 0.5) / count;
-        // Beside the corridor on the side the stairs are now, else the centre line.
+        // Beside the corridor on the side of the stair nearest along the wing, else the centre line.
         Vec at { w.a.x + dir.x * t, w.a.y + dir.y * t };
+        double near = 1e18;
         for (const auto& core : s.cores)
             if (In (w.rect, core.centre)) {
-                const Vec n { -dir.y, dir.x };
-                const double off = Dot ({ core.centre.x - w.a.x, core.centre.y - w.a.y }, n);
-                at = { w.a.x + dir.x * t + n.x * off, w.a.y + dir.y * t + n.y * off };
-                break;
+                const Vec q { core.centre.x - w.a.x, core.centre.y - w.a.y };
+                if (const double along = std::abs (Dot (q, dir) - t); along < near) {
+                    near = along;
+                    at = { w.a.x + dir.x * t + n.x * Dot (q, n), w.a.y + dir.y * t + n.y * Dot (q, n) };
+                }
             }
-        d.pins.cores.push_back ({ at });
+        d.pins.cores.push_back (Sized (before, at, 1e18));
     }
     return d;
 }
@@ -338,6 +362,34 @@ Design MoveStair (const Scheme& s, Design d, int core, Vec to, std::string* why)
     else
         d.pins.cores.push_back ({ to });
     return d;
+}
+Design ResizeStair (const Scheme& s, Design d, int core, double width, double depth, std::string* why)
+{
+    if (core < 0 || core >= static_cast<int> (s.cores.size ()))
+        return Refuse (std::move (d), why, "There is no stair there to resize.");
+    if (!(width >= 2.0 && width <= 12.0 && depth >= 2.0 && depth <= 12.0))
+        return Refuse (std::move (d), why, "A stair is 2-12 m each way.");
+    const Vec at = s.cores[core].centre;
+    d = PinStairs (s, std::move (d), WingAt (s, at));
+    size_t i = Nearest (d.pins.cores, at);
+    if (i == d.pins.cores.size ())
+        d.pins.cores.push_back ({ at }), i = d.pins.cores.size () - 1;
+    d.pins.cores[i].width = width, d.pins.cores[i].depth = depth;
+    return d;
+}
+Design RotateStair (const Scheme& s, Design d, int core, std::string* why)
+{
+    if (core < 0 || core >= static_cast<int> (s.cores.size ()))
+        return Refuse (std::move (d), why, "There is no stair there to rotate.");
+    const Options o;
+    double width = o.coreWidth, depth = o.coreDepth;
+    if (const size_t i = Nearest (d.pins.cores, s.cores[core].centre); i < d.pins.cores.size ()) {
+        const auto& pin = d.pins.cores[i];
+        if (std::hypot (pin.centre.x - s.cores[core].centre.x, pin.centre.y - s.cores[core].centre.y) < 3.0 &&
+            pin.width > 0 && pin.depth > 0)
+            width = pin.width, depth = pin.depth;
+    }
+    return ResizeStair (s, std::move (d), core, depth, width, why);
 }
 Design AddStair (const Scheme& s, Design d, Vec at, std::string* why)
 {

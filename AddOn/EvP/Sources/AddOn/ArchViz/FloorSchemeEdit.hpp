@@ -80,10 +80,15 @@ std::optional<End> EndAt (const Scheme& s, Vec p, double tolerance);
 //
 // Stairs: a moved stair goes where it is dropped, the wing's others pinned where they are; adding
 // or taking one away spaces the wing's stairs evenly again, an added one where it is dropped
-// (never below one stair per 500 m2).
+// (never fewer than keep every flat within the escape distance of one; each keeps its size).
 Design MoveStair (const Scheme& s, Design d, int core, Vec to, std::string* why = nullptr);
 Design AddStair (const Scheme& s, Design d, Vec at, std::string* why = nullptr);
 Design RemoveStair (const Scheme& s, Design d, int core, std::string* why = nullptr);
+// The stair's size (`width` along the corridor, `depth` across it), or turned a quarter: its width
+// and depth change places (user, 2026-10-14: "Add ability to rotate stair core"). A stair without a
+// size of its own is the Options' 4.5 x 4.2 m. The wing's other stairs are pinned where they stand.
+Design ResizeStair (const Scheme& s, Design d, int core, double width, double depth, std::string* why = nullptr);
+Design RotateStair (const Scheme& s, Design d, int core, std::string* why = nullptr);
 // Flats of a band: its walls and flats are pinned as they are, then one wall moves, a flat is
 // split in two at `at`, or a flat joins its smaller neighbour.
 Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why = nullptr);

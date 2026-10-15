@@ -632,3 +632,41 @@ TEST (FloorSchemeEdit, AStairMovesToTheOtherSideOfTheCorridor)
     EXPECT_EQ (across, 1) << "the moved stair is across the corridor";
     EXPECT_EQ (stayed, 1) << "the other stays where it was";
 }
+
+// User, 2026-10-14: "Add ability to rotate stair core though right click menu." A stair's size is
+// its own: the core takes its width along the corridor, a quarter turn swaps width and depth, and
+// moving or re-spacing the stairs keeps it.
+TEST (FloorSchemeEdit, AStairTurnsAndKeepsItsSize)
+{
+    Floor f ({ Rect (0, 0, 60, 16) });
+    ASSERT_EQ (f.scheme.cores.size (), 2u);
+    const auto core = [&] (fs::Vec near) { return fe::CoreAt (f.scheme, near) >= 0 ? fe::CoreAt (f.scheme, near) : 0; };
+    const fs::Vec at = f.scheme.cores[0].centre;
+    const double before = f.scheme.cores[0].width;
+    EXPECT_NEAR (before, fs::Options {}.coreWidth, 1e-6);
+
+    // A quarter turn: 4.5 x 4.2 becomes 4.2 x 4.5, the core 4.2 along the corridor.
+    f.Apply (fe::RotateStair (f.scheme, f.session.design, 0));
+    EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    EXPECT_NEAR (f.scheme.cores[core (at)].width, fs::Options {}.coreDepth, 0.05) << Report (f.scheme);
+
+    // A straight stair: 9 m along the corridor.
+    f.Apply (fe::ResizeStair (f.scheme, f.session.design, core (at), 9.0, 2.5));
+    EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    const int straight = core (at);
+    EXPECT_NEAR (f.scheme.cores[straight].width, 9.0, 0.05) << Report (f.scheme);
+
+    // Moved along the corridor, it keeps its size.
+    const fs::Vec moved { f.scheme.cores[straight].centre.x + 1.0, f.scheme.cores[straight].centre.y };
+    f.Apply (fe::MoveStair (f.scheme, f.session.design, straight, moved));
+    EXPECT_NEAR (f.scheme.cores[core (moved)].width, 9.0, 0.05) << Report (f.scheme);
+
+    // Turned, 9 m across does not fit a 7 m band: it says so.
+    f.Apply (fe::RotateStair (f.scheme, f.session.design, core (moved)));
+    EXPECT_TRUE (std::any_of (f.scheme.diagnostics.begin (), f.scheme.diagnostics.end (), [] (const fs::Diagnostic& d) {
+        return d.code == "core.too_deep";
+    })) << Report (f.scheme);
+    std::string why;
+    EXPECT_EQ (fe::ResizeStair (f.scheme, f.session.design, 0, 1.0, 4.0, &why), f.session.design);
+    EXPECT_FALSE (why.empty ());
+}
