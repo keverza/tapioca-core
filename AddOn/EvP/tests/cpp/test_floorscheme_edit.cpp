@@ -409,3 +409,59 @@ TEST (FloorSchemeEdit, AnEditThatCannotBeMadeSaysWhy)
     if (f.scheme.flats[other].band >= 0)
         EXPECT_TRUE (why.empty () || why.find ("narrow") != std::string::npos) << why;
 }
+
+// User, 2026-10-14: "Sometimes after drag and drop room becomes large like 5R but color and name is
+// like 1.5R." Across the corridor a flat takes the other's room count with its width; where its row
+// cannot give or take the difference it keeps its own width, and only if that suits the count.
+TEST (FloorSchemeEdit, ARoomCountNeverMovesWithoutItsWidth)
+{
+    // A small flat across the corridor from a wide flat alone in its row: the wide one cannot narrow
+    // and cannot hold the small count, so the swap is refused rather than mislabelled.
+    Floor h ({ Rect (0, 0, 60, 16) });
+    const auto alone = [&] (int flat) {
+        int shared = 0;
+        for (const auto& f : h.scheme.flats)
+            shared += f.band == h.scheme.flats[flat].band;
+        return shared == 1;
+    };
+    int p = -1, q = -1;
+    for (size_t i = 0; i < h.scheme.flats.size () && p < 0; ++i)
+        for (size_t j = 0; j < h.scheme.flats.size (); ++j) {
+            const auto& fi = h.scheme.flats[i];
+            const auto& fj = h.scheme.flats[j];
+            if (fi.band >= 0 && fj.band >= 0 && Mid (fi.shape).y < 8 && Mid (fj.shape).y > 8 && alone (int (j)) &&
+                fj.frontage > fs::RoomFrontage (fi.rooms).max + 0.5) {
+                p = int (i), q = int (j);
+                break;
+            }
+        }
+    ASSERT_GE (p, 0) << Report (h.scheme);
+    std::string why;
+    EXPECT_EQ (fe::SwapFlats (h.scheme, h.session.design, p, q, &why), h.session.design);
+    EXPECT_NE (why.find ("cannot hold"), std::string::npos) << why;
+
+    // A swap that is made leaves both flats' widths suiting their new counts.
+    int made = 0;
+    for (size_t i = 0; i < h.scheme.flats.size (); ++i)
+        for (size_t j = 0; j < h.scheme.flats.size (); ++j) {
+            const auto& fi = h.scheme.flats[i];
+            const auto& fj = h.scheme.flats[j];
+            if (fi.band < 0 || fj.band < 0 || Mid (fi.shape).y > 8 || Mid (fj.shape).y < 8 || fi.rooms == fj.rooms)
+                continue;
+            const auto next = fe::SwapFlats (h.scheme, h.session.design, int (i), int (j));
+            if (next == h.session.design)
+                continue;
+            ++made;
+            Floor k ({ Rect (0, 0, 60, 16) });
+            k.Apply (next);
+            for (const auto& at : { Mid (fi.shape), Mid (fj.shape) }) {
+                const int now = fe::FlatAt (k.scheme, at);
+                ASSERT_GE (now, 0) << Report (k.scheme);
+                const auto& f = k.scheme.flats[now];
+                const auto suits = fs::RoomFrontage (f.rooms);
+                EXPECT_GE (f.frontage, suits.min - 0.6) << f.rooms << "R, " << Report (k.scheme);
+                EXPECT_LE (f.frontage, suits.max + 0.6) << f.rooms << "R, " << Report (k.scheme);
+            }
+        }
+    EXPECT_GT (made, 0) << "some swap across the corridor is still made";
+}

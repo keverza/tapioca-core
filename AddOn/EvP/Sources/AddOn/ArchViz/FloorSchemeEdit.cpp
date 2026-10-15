@@ -635,29 +635,50 @@ Design SwapFlats (const Scheme& s, Design d, int a, int b, std::string* why)
         Relay (*f, widths);
         return Write (s, std::move (d), *f);
     }
-    // Across the corridor, or in another section: each takes the other's room count and, where a
-    // neighbour in its band can give or take the difference, its width.
+    // Across the corridor, or in another section: each takes the other's room count and its width,
+    // a neighbour in its row giving or taking the difference. A room count without its width would
+    // leave a wide flat named for few rooms (user, 2026-10-14: "large like 5R but color and name
+    // like 1.5R"). Where a width cannot follow -- the flat ends a corridor or a section, or its
+    // neighbours are locked or too narrow -- it keeps its own, and the swap stands only if that width
+    // suits the new count; else nothing changes and it says why.
+    constexpr double kSameWidth = 0.2, kSuits = 0.5;
     const double ra = fa.rooms, rb = fb.rooms, wa = fa.frontage, wb = fb.frontage;
-    const auto place = [&] (Design next, int flat, double rooms, double width) {
+    double misfit = 0, misfitRooms = 0;
+    const auto place = [&] (Design next, int flat, double rooms, double width) -> std::optional<Design> {
+        const double own = s.flats[flat].frontage;
+        const auto keep = [&] () -> std::optional<Design> {
+            const Frontage suits = RoomFrontage (rooms);
+            if (own < suits.min - kSuits || own > suits.max + kSuits) {
+                misfit = own, misfitRooms = rooms;
+                return std::nullopt;
+            }
+            return SetRooms (s, std::move (next), flat, rooms);
+        };
         auto f = Freeze (s, s.flats[flat].band);
-        if (!f)
-            return SetRooms (s, std::move (next), flat, rooms);
-        const size_t k = Index (*f, flat);
-        if (k >= f->flats.size ())
-            return SetRooms (s, std::move (next), flat, rooms);
+        const size_t k = f ? Index (*f, flat) : 0;
+        if (!f || k >= f->flats.size ()) // its own slot: no width to give or take
+            return keep ();
         const double delta = width - (f->hi[k] - f->lo[k]);
         const double least = kNarrowest + 0.2;
-        if (k + 1 < f->lo.size () && !Locked (s, next, f->flats[k + 1]) && f->hi[k + 1] - f->hi[k] - delta >= least)
-            f->hi[k] += delta, f->lo[k + 1] += delta;
-        else if (k > 0 && !Locked (s, next, f->flats[k - 1]) && f->lo[k] - delta - f->lo[k - 1] >= least)
-            f->lo[k] -= delta, f->hi[k - 1] -= delta;
+        if (std::abs (delta) > kSameWidth) {
+            if (k + 1 < f->lo.size () && !Locked (s, next, f->flats[k + 1]) && f->hi[k + 1] - f->hi[k] - delta >= least)
+                f->hi[k] += delta, f->lo[k + 1] += delta;
+            else if (k > 0 && !Locked (s, next, f->flats[k - 1]) && f->lo[k] - delta - f->lo[k - 1] >= least)
+                f->lo[k] -= delta, f->hi[k - 1] -= delta;
+            else
+                return keep ();
+        }
         f->rooms[k] = rooms;
         return Write (s, std::move (next), *f);
     };
-    if (fa.band >= 0 && fb.band >= 0)
-        return place (place (std::move (d), a, rb, wb), b, ra, wa);
-    d = SetRooms (s, std::move (d), a, rb);
-    return SetRooms (s, std::move (d), b, ra);
+    auto first = place (d, a, rb, wb);
+    auto both = first ? place (std::move (*first), b, ra, wa) : std::nullopt;
+    if (!both)
+        return Refuse (std::move (d), why,
+                       "These flats cannot change places: a %.1f m wide flat cannot hold %gR, and its neighbours "
+                       "cannot give or take the difference (locked, too narrow, or it ends a corridor or a section).",
+                       misfit, misfitRooms);
+    return std::move (*both);
 }
 std::optional<Insertion> Insert (const Scheme& s, Vec at, double rooms, std::string* why)
 {
