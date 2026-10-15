@@ -54,6 +54,12 @@ bool SetPathCrossfall (Document& doc, Id path, Id range, double percent, Fall fa
 // The gizmo on path parts: control points move in plan, grade breaks move in Z, a
 // whole path moves its plan and lifts its free breaks.
 bool TransformPathParts (Document& doc, const std::vector<Ref>& refs, Vec3 translate, std::string& error);
+// Turns or scales whole paths and control points in plan: each control point goes where
+// `map` sends it, corner radii are multiplied by `radiusFactor` (a uniform scale keeps the
+// shape), and no height changes -- the profile follows by station. Grade breaks and ranges
+// refuse: they are placed along the path, not in plan.
+bool MapPathParts (Document& doc, const std::vector<Ref>& refs, const std::function<Vec3 (Vec3)>& map,
+                   double radiusFactor, std::string& error);
 
 } // namespace geomsrv::edit
 #endif

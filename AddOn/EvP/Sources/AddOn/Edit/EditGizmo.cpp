@@ -576,11 +576,28 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
             }
         }
         if (!pathParts.empty ()) {
-            if (t.angle != 0.0 || !(t.scale == Vec3 { 1.0, 1.0, 1.0 }) || t.extrude != 0.0 || t.stretchAxis >= 0) {
-                error = "paths move with the gizmo; shape them with their own handles";
+            if (t.extrude != 0.0 || t.stretchAxis >= 0) {
+                error = "paths are shaped by their own handles: points, breaks and edges";
                 return false;
             }
-            if (!TransformPathParts (doc, pathParts, t.translate, error))
+            if (t.angle != 0.0 || !(t.scale == Vec3 { 1.0, 1.0, 1.0 })) {
+                // Turned or scaled in plan about the pivot; heights stay the profile's.
+                Vec3 axis;
+                if (t.angle != 0.0 && (!Normalize (t.rotationAxis, axis) || std::abs (axis.z) < 0.999)) {
+                    error = "a path turns about the vertical; tilt it with its grades";
+                    return false;
+                }
+                if (t.scale.z != 1.0 && t.scale.x == 1.0 && t.scale.y == 1.0) {
+                    error = "a path's heights are its profile's: change its grades instead";
+                    return false;
+                }
+                const double factor = std::abs (t.scale.x - t.scale.y) < 1.0e-12 ? std::abs (t.scale.x) : 1.0;
+                Transform plan = t;
+                plan.translate.z = 0.0;
+                if (!MapPathParts (doc, pathParts, [plan] (Vec3 p) { return Apply (plan, p); }, factor, error))
+                    return false;
+            }
+            else if (!TransformPathParts (doc, pathParts, t.translate, error))
                 return false;
         }
         for (auto& [id, list] : faces) {

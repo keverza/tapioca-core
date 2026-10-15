@@ -216,9 +216,10 @@ TEST (EditPath, GizmoMovesPathPartsThroughTheSession)
     const ed::Id start = f.P ().profile.front ().id;
     ASSERT_TRUE (s.Apply (ed::TransformOperation ({ { f.path, ed::Part::Break, start } }, up))) << s.Message ();
     EXPECT_DOUBLE_EQ (ed::FindPath (s.Doc (), f.path)->profile.front ().z, 100.5);
-    ed::Transform turn;
+    ed::Transform turn; // a whole path turns in plan too (GizmoTurnsAndScalesAWholePathInPlan)
     turn.angle = 0.3;
-    EXPECT_FALSE (s.Apply (ed::TransformOperation ({ { f.path, ed::Part::Entity, 0 } }, turn)));
+    ASSERT_TRUE (s.Apply (ed::TransformOperation ({ { f.path, ed::Part::Entity, 0 } }, turn))) << s.Message ();
+    ASSERT_TRUE (s.Undo ());
     ASSERT_TRUE (s.Undo ());
     ASSERT_TRUE (s.Undo ());
     EXPECT_DOUBLE_EQ (ed::FindPath (s.Doc (), f.path)->points[1].p.x, 40.0);
@@ -360,4 +361,41 @@ TEST (EditPath, HairpinCornerIsBevelled)
         }
     EXPECT_EQ (atCorner, 2u);
     EXPECT_FALSE (FoldsOver (o.right));
+}
+
+TEST (EditPath, GizmoTurnsAndScalesAWholePathInPlan)
+{
+    Footpath f; // 40 m east, 30 m north, a 5 m bend, heights 100.0 to 101.4
+    ed::Session s (f.doc);
+    const std::vector<ed::Ref> whole { { f.path, ed::Part::Entity, 0 } };
+    const double length = f.G ().length;
+    const auto before = f.P ().profile;
+    ed::Transform turn;
+    turn.pivot = { 0, 0, 0 };
+    turn.angle = std::acos (-1.0) / 2.0; // a quarter turn about Z
+    ASSERT_TRUE (s.Apply (ed::TransformOperation (whole, turn))) << s.Message ();
+    const ed::Path& p = *ed::FindPath (s.Doc (), f.path);
+    EXPECT_NEAR (p.points[1].p.x, 0.0, 1e-9);
+    EXPECT_NEAR (p.points[1].p.y, 40.0, 1e-9);
+    EXPECT_NEAR (p.points[1].radius, 5.0, 1e-12);
+    ASSERT_EQ (p.profile.size (), before.size ());
+    for (size_t i = 0; i < before.size (); ++i) // heights and stations untouched
+        EXPECT_NEAR (p.profile[i].z, before[i].z, 1e-12);
+    ed::AlignmentGeometry g;
+    std::string why;
+    ASSERT_TRUE (ed::BuildAlignment (p.points, g, why));
+    EXPECT_NEAR (g.length, length, 1e-9);
+
+    ed::Transform twice;
+    twice.pivot = { 0, 0, 0 };
+    twice.scale = { 2, 2, 1 };
+    ASSERT_TRUE (s.Apply (ed::TransformOperation (whole, twice))) << s.Message ();
+    EXPECT_NEAR (ed::FindPath (s.Doc (), f.path)->points[1].radius, 10.0, 1e-9); // the bend keeps its shape
+
+    ed::Transform tilt;
+    tilt.rotationAxis = { 1, 0, 0 };
+    tilt.angle = 0.3;
+    EXPECT_FALSE (s.Apply (ed::TransformOperation (whole, tilt)));
+    const ed::Ref brk { f.path, ed::Part::Break, ed::FindPath (s.Doc (), f.path)->profile[1].id };
+    EXPECT_FALSE (s.Apply (ed::TransformOperation ({ brk }, turn)));
 }

@@ -430,4 +430,46 @@ bool TransformPathParts (Document& doc, const std::vector<Ref>& refs, Vec3 t, st
     return true;
 }
 
+bool MapPathParts (Document& doc, const std::vector<Ref>& refs, const std::function<Vec3 (Vec3)>& map,
+                   double radiusFactor, std::string& error)
+{
+    std::map<Id, std::vector<Ref>> byPath;
+    for (const auto& r : refs) {
+        if (r.part != Part::Entity && r.part != Part::PathPoint) {
+            error = "turn or scale the whole path or its control points; grade breaks and ranges sit along it";
+            return false;
+        }
+        byPath[r.entity].push_back (r);
+    }
+    for (const auto& [id, parts] : byPath) {
+        const bool ok = EditPath (
+            doc, id,
+            [&] (Path& p, std::string& why) {
+                const bool whole =
+                    std::any_of (parts.begin (), parts.end (), [] (const Ref& r) { return r.part == Part::Entity; });
+                for (auto& c : p.points) {
+                    if (!whole &&
+                        std::none_of (parts.begin (), parts.end (), [&] (const Ref& r) { return r.item == c.id; }))
+                        continue;
+                    const Vec3 to = map (c.p);
+                    if (!Finite (to)) {
+                        why = "the transform is not finite";
+                        return false;
+                    }
+                    if (c.lockXY && (std::abs (to.x - c.p.x) > 1.0e-12 || std::abs (to.y - c.p.y) > 1.0e-12)) {
+                        why = "a control point is locked";
+                        return false;
+                    }
+                    c.p = { to.x, to.y, c.p.z };
+                    c.radius *= radiusFactor;
+                }
+                return true;
+            },
+            error);
+        if (!ok)
+            return false;
+    }
+    return true;
+}
+
 } // namespace geomsrv::edit
