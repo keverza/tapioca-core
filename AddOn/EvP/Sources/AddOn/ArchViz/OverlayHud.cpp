@@ -801,6 +801,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
                      (!impl_->store->roofEditor || LayerShown (*impl_->store, roofslope::kLayer));
         out.popup = impl_->popup;
         out.hoverTint = impl_->tinted;
+        out.animating = hudfloorscheme::Animating (impl_->store->planEditors);
         for (size_t i = 0; i < panels.size (); ++i) {
             Built& built = out.panels[i];
             if (impl_->windows[i] != nullptr) {

@@ -823,11 +823,33 @@ void Canvas (Editor& e, Context& c, float scale)
             shown = &live->scheme;
             fill (Fills (live->scheme, c.programme));
         }
-    if (shown == &s)
+    // A scheme just planned: the flats flow to it -- the floor and what is unassigned under them,
+    // the circulation over them -- and settle before their outlines, rooms and labels show.
+    const double now = ImGui::GetTime ();
+    const bool flowing = shown == &s && Flowing (e, now);
+    if (shown == &s && !flowing)
         fill (e.fills);
+    else if (flowing) {
+        const size_t flats0 = (std::min) (e.fills.size (), 1 + s.unassigned.size ()),
+                     flats1 = (std::min) (e.fills.size (), flats0 + s.flats.size ());
+        fill ({ e.fills.begin (), e.fills.begin () + static_cast<std::ptrdiff_t> (flats0) });
+        const double t = (now - e.morphStart) / kMorphSeconds;
+        for (const auto& m : e.morphs) {
+            std::vector<ImVec2> points;
+            for (const auto& p : Between (m, t))
+                points.push_back (v.P (p));
+            if (points.size () < 3)
+                continue;
+            draw->AddConcavePolyFilled (points.data (), int (points.size ()), m.colour);
+            draw->AddPolyline (points.data (), int (points.size ()), kInk, ImDrawFlags_Closed, 1.3f * scale);
+        }
+        fill ({ e.fills.begin () + static_cast<std::ptrdiff_t> (flats1), e.fills.end () });
+    }
     const double px = v.Pixel ();
     const bool rooms = px <= 1.0 / 7;
     for (const auto& f : shown->flats) {
+        if (flowing)
+            break;
         if (rooms)
             for (const auto& r : f.roomList)
                 Ring (draw, v, r.shape, IM_COL32 (40, 50, 55, 70), 1);
@@ -840,8 +862,8 @@ void Canvas (Editor& e, Context& c, float scale)
             Dashed (draw, v.P (r[i]), v.P (r[(i + 1) % r.size ()]), kReal, 1.3f * scale, 5 * scale);
     for (const auto& p : shown->culled)
         Ring (draw, v, p.shape, IM_COL32 (120, 120, 120, 200), 1.2f * scale);
-    // Labels where they fit, a padlock on locked flats.
-    for (size_t i = 0; i < shown->flats.size (); ++i) {
+    // Labels where they fit, a padlock on locked flats: once the flats have settled.
+    for (size_t i = 0; i < shown->flats.size () && !flowing; ++i) {
         const auto& f = shown->flats[i];
         const ImU32 ink = Ink (floorprogramme::Colour (c.programme, f.type, f.rooms));
         const auto [roomText, areaText] = FlatLabel (f);

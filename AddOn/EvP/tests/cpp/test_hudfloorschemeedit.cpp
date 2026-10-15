@@ -978,3 +978,46 @@ TEST (HudFloorSchemeEdit, ABlockFromTheLockedPaletteDroppedOnThePlanPutsAFlatIn)
     EXPECT_TRUE (editors["A"]->notice.empty ()) << editors["A"]->notice;
     EXPECT_TRUE (bp::Dirty (drafts["A"])) << "the flat put in is the building's design";
 }
+
+// User, 2026-10-14: "Some animation would be when a drag dropping unit like how they shift and reflow
+// like amebae, bubbles or voronoi." A floor planned again flows: each flat from the outline it
+// overlaps most, a new flat growing from its middle, a flat gone shrinking away; settled after
+// kMorphSeconds.
+TEST (HudFloorSchemeEdit, FlatsFlowFromWhereTheyWereToWhereTheyArePlanned)
+{
+    const auto area = [] (const std::vector<fs::Vec>& r) {
+        double a = 0;
+        for (size_t i = 0; i < r.size (); ++i)
+            a += r[i].x * r[(i + 1) % r.size ()].y - r[(i + 1) % r.size ()].x * r[i].y;
+        return std::abs (a) / 2;
+    };
+    fs::Scheme after;
+    fs::Flat grown, fresh;
+    grown.shape = { { 0, 0 }, { 6, 0 }, { 6, 7 }, { 0, 7 } };     // was 5 m wide
+    fresh.shape = { { 20, 0 }, { 26, 0 }, { 26, 7 }, { 20, 7 } }; // nothing there before
+    after.flats = { grown, fresh };
+    const std::vector<std::pair<fs::Ring, ImU32>> before {
+        { { { 0, 0 }, { 5, 0 }, { 5, 7 }, { 0, 7 } }, 1u },    // the flat that grew
+        { { { 40, 0 }, { 45, 0 }, { 45, 7 }, { 40, 7 } }, 2u } // a flat no longer there
+    };
+    const auto morphs = hf::detail::Morphs (before, after, fp::Default ());
+    ASSERT_EQ (morphs.size (), 3u);
+    EXPECT_NEAR (area (hf::detail::Between (morphs[0], 0)), 35, 0.5);
+    EXPECT_NEAR (area (hf::detail::Between (morphs[0], 1)), 42, 0.5);
+    const double half = area (hf::detail::Between (morphs[0], 0.5));
+    EXPECT_GT (half, 35.5);
+    EXPECT_LT (half, 42);
+    EXPECT_NEAR (area (hf::detail::Between (morphs[1], 0)), 0, 1e-6) << "a new flat grows from a point";
+    EXPECT_NEAR (area (hf::detail::Between (morphs[1], 1)), 42, 0.5);
+    EXPECT_EQ (morphs[2].colour, 2u) << "the flat gone keeps its colour";
+    EXPECT_NEAR (area (hf::detail::Between (morphs[2], 1)), 0, 1e-6) << "and shrinks away";
+    // Flowing for kMorphSeconds, then the scheme's flats as they are.
+    hf::Editor e;
+    e.scheme = after;
+    e.morphs = morphs;
+    e.morphStart = 10;
+    EXPECT_TRUE (hf::detail::Flowing (e, 10 + hf::kMorphSeconds / 2));
+    EXPECT_EQ (hf::detail::Showing (e, fp::Default (), 10 + hf::kMorphSeconds / 2).size (), 3u);
+    EXPECT_FALSE (hf::detail::Flowing (e, 10 + hf::kMorphSeconds + 0.01));
+    EXPECT_EQ (hf::detail::Showing (e, fp::Default (), 10 + hf::kMorphSeconds + 0.01).size (), 2u);
+}

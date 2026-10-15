@@ -6,6 +6,7 @@
 #include "ArchViz/OverlaySceneBuilder.hpp"
 
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayInput.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -236,6 +237,9 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     draft_.hand = layout.hand;
     draft_.cursor = layout.cursor;
     draft_.locked = layout.locked;
+    // Still moving: the next layout comes without waiting for the pointer, until it settles.
+    if (layout.animating)
+        overlayinput::RequestLayout (Plan () ? overlayinput::View::Plan : overlayinput::View::ThreeD);
     if (layout.hoverTint) {
         AddHoverTint (input.hover.tintModel, input.hover.hasMeasuredCell);
         if (Plan () && input.hover.hasMeasuredCell && !input.overHud && !planHoverLabelShown_) {

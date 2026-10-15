@@ -67,6 +67,10 @@ void OnView (std::map<std::string, EditorPtr>& editors, buildingplan::Planner& p
 // add"), in the current window. OnView takes the drop as the Plan view's canvas does.
 void LockedPalette (const floorprogramme::Programme& programme, float scale);
 
+// True while a Plan view's flats are still flowing to a scheme just planned: the owner lays the HUD
+// out again until they settle.
+bool Animating (const std::map<std::string, EditorPtr>& editors);
+
 // The flat selected in a Plan view, for the overlay to draw it highlighted.
 struct Selection {
     std::string building;

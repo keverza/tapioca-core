@@ -256,6 +256,9 @@ struct Layout {
     // Hover mode's item is tinted in this layout: the mode on, an item under the pointer, the
     // pointer on neither the HUD nor a legend. The stream adds `Input::hover.tintModel`.
     bool hoverTint = false;
+    // Something in this layout is still moving (a Plan view's flats flowing to a new scheme): the
+    // owner lays the HUD out again soon, without waiting for the pointer.
+    bool animating = false;
 };
 
 // Where each change goes: the views' engines hand them to the event ring with their view.

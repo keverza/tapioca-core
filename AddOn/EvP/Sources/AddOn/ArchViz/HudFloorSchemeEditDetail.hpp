@@ -47,6 +47,12 @@ struct Arrow {
 struct AlignedDimension {
     fs::Vec a, b, outward; // measured world endpoints; screen-sized offset towards outward
 };
+// A flat's outline flowing from where it was to where it is, both resampled to one count of points
+// along their perimeters (HudFloorSchemeMorph.cpp).
+struct Morph {
+    std::vector<fs::Vec> from, to;
+    ImU32 colour = 0;
+};
 struct Editor {
     std::string key;
     int story = INT_MIN;
@@ -75,7 +81,12 @@ struct Editor {
     // under the tools, and on the view while locked. Cleared by the next edit that is made.
     std::string notice;
     double noticeAt = -1; // ImGui time it was said
+    // The flats flowing to a scheme just planned (user, 2026-10-14: reflow "like amebae, bubbles"),
+    // from the ImGui time it arrived; the canvas draws them for kMorphSeconds.
+    std::vector<Morph> morphs;
+    double morphStart = -1;
 };
+constexpr double kMorphSeconds = 0.35;
 constexpr double kNoticeSeconds = 8.0;
 struct Context {
     bp::Planner& planner;
@@ -149,6 +160,17 @@ bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 s
 std::optional<std::array<AlignedDimension, 2>> FlatDimensions (const fs::Scheme& scheme, int flat);
 std::string DimensionText (const AlignedDimension& dimension, const char* name);
 void Canvas (Editor& e, Context& c, float scale);
+// HudFloorSchemeMorph.cpp: the morphs from what was shown (`before`, each outline and its colour) to
+// `after`'s flats -- each new flat from the outline it overlaps most, else growing from its middle; an
+// outline no new flat took shrinking to its middle.
+std::vector<Morph> Morphs (const std::vector<std::pair<fs::Ring, ImU32>>& before, const fs::Scheme& after,
+                           const floorprogramme::Programme& programme);
+// The outline `t` of the way (0 to 1, eased out).
+std::vector<fs::Vec> Between (const Morph& m, double t);
+bool Flowing (const Editor& e, double now);
+// What the editor shows at `now`: its morphs part way, or its scheme's flats.
+std::vector<std::pair<fs::Ring, ImU32>> Showing (const Editor& e, const floorprogramme::Programme& programme,
+                                                 double now);
 // HudFloorSchemeEdit.cpp: the shown floor's design becomes `next` (one undo step); a party wall
 // pushed `distance` out of the building, or pulled in.
 void Commit (Editor& e, Context& c, fe::Design next);

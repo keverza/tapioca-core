@@ -222,9 +222,16 @@ Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp
         e.drag = Drag::None;
         e.have = false;
         e.revision = 0;
+        e.morphs.clear (), e.morphStart = -1; // another floor: nothing flows from this one
     }
     e.real = bp::FloorRings (floor);
     if (planned && planned->revision != e.revision) {
+        // The flats flow from what is shown now to where they are planned.
+        if (e.have && ImGui::GetCurrentContext ()) {
+            const double now = ImGui::GetTime ();
+            e.morphs = Morphs (Showing (e, c.programme, now), planned->scheme, c.programme);
+            e.morphStart = now;
+        }
         e.scheme = planned->scheme;
         e.revision = planned->revision;
         e.have = true;
