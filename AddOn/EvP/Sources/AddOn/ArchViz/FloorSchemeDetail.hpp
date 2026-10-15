@@ -169,6 +169,12 @@ struct DoorAt {
 void LayRooms (Flat& flat, const Slot& slot, Box b, int corner, DoorAt door);
 // T5-T6: flats and rooms in every slot, counted against the programme.
 // `resume` continues the counts already in `scheme` (a second pass on leftover floor).
+// FloorSchemeGrid.cpp: where main walls cross `slot`'s band, u in its frame, ascending.
+std::vector<double> GridAcross (const std::vector<std::array<Vec, 2>>& grid, const Slot& slot);
+// The walls between consecutive `widths` (from `u0`) moved onto the nearest of `lines` within
+// kGridSnap, when both flats stay inside their `ranges` (min, max width). How many stand on one.
+int SnapToGrid (const std::vector<double>& lines, double u0, std::vector<double>& widths,
+                const std::vector<std::pair<double, double>>& ranges);
 void Divide (const floorprogramme::Programme& programme, const std::vector<Slot>& slots, Scheme& scheme,
              const Pins& pins, const Options& options, bool resume = false);
 } // namespace geomsrv::archviz::floorscheme::detail

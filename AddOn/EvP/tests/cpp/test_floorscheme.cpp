@@ -647,3 +647,67 @@ TEST (FloorScheme, ReviewDump)
     }
     out << "]";
 }
+
+// User, 2026-10-15: "generator should create grid lines of main walls and try to align unit
+// partition walls. A new walls may be anywhere but main wall should go from bottom to top similar to
+// stairs core." The floor every floor shares gives the main walls: lines across the wing at its
+// party walls and stair sides, one where the two rows' walls are close. A floor planned to them --
+// here a shorter one, as an upper floor set back -- puts its party walls on them where its flats
+// can be as wide.
+TEST (FloorScheme, PartyWallsStandOnTheMainWallsOfTheSharedFloor)
+{
+    const auto p = fp::Default ();
+    const auto shared = fs::Generate ({ Rect (0, 0, 60, 16) }, p);
+    ASSERT_TRUE (shared.ok);
+    const auto grid = fs::MainWalls (shared);
+    ASSERT_GE (grid.size (), 3u);
+    std::vector<double> xs;
+    for (const auto& g : grid) {
+        EXPECT_NEAR (g[0].x, g[1].x, 1e-6) << "across the wing";
+        EXPECT_NEAR (std::abs (g[1].y - g[0].y), 16, 1.0) << "the wing's depth long";
+        xs.push_back (g[0].x);
+    }
+    std::sort (xs.begin (), xs.end ());
+    for (size_t i = 1; i < xs.size (); ++i)
+        EXPECT_GT (xs[i] - xs[i - 1], fs::kGridMerge) << "close walls are one main wall";
+    // How many of a floor's party walls between band flats stand on a main wall.
+    const auto onGrid = [&] (const fs::Scheme& s) {
+        int on = 0, all = 0;
+        for (const auto& f : s.flats) {
+            if (f.band < 0)
+                continue;
+            double lo = 1e18, hi = -1e18;
+            for (const auto& q : f.shape)
+                lo = (std::min) (lo, q.x), hi = (std::max) (hi, q.x);
+            for (const double x : { lo, hi }) {
+                if (x < 0.6 || x > 57.4) // the gables
+                    continue;
+                ++all;
+                on += std::any_of (xs.begin (), xs.end (), [&] (double g) { return std::abs (g - x) < 0.01; });
+            }
+        }
+        return std::pair { on, all };
+    };
+    // The stair stack held, as on every floor of a building.
+    fs::Pins stack;
+    for (const auto& c : shared.cores)
+        stack.cores.push_back ({ c.centre, c.width, c.depth });
+    fs::Options free, held;
+    free.holdCores = held.holdCores = true;
+    held.grid = grid;
+    const auto upper = fs::Generate ({ Rect (0, 0, 58, 16) }, p, stack, free);
+    const auto aligned = fs::Generate ({ Rect (0, 0, 58, 16) }, p, stack, held);
+    ASSERT_TRUE (upper.ok);
+    ASSERT_TRUE (aligned.ok);
+    const auto [freeOn, freeAll] = onGrid (upper);
+    (void) freeAll;
+    const auto [heldOn, heldAll] = onGrid (aligned);
+    EXPECT_GT (heldOn, freeOn) << "planned to the main walls, more party walls stand on them";
+    EXPECT_GE (aligned.flats.size (), upper.flats.size ()) << "no flat given up for a main wall";
+    EXPECT_GE (heldOn, 2 * freeOn) << "twice as many as a floor planned free of them";
+    EXPECT_EQ (aligned.grid.size (), grid.size ());
+    EXPECT_GT (aligned.onGrid, 0);
+    EXPECT_TRUE (aligned.diagnostics.empty () ||
+                 std::none_of (aligned.diagnostics.begin (), aligned.diagnostics.end (),
+                               [] (const fs::Diagnostic& d) { return d.level == fs::Diagnostic::Error; }));
+}

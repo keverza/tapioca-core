@@ -281,8 +281,9 @@ struct Builder {
     const Pins& pins;
     Scheme& scheme;
     Tally tally;
-    double cap = 90.0;         // largest net area of a flat
-    cp::PathsD outline, taken; // the floor; circulation and every band
+    double cap = 90.0;                                     // largest net area of a flat
+    cp::PathsD outline, taken;                             // the floor; circulation and every band
+    const std::vector<std::array<Vec, 2>>* grid = nullptr; // the main walls (Options::grid)
 };
 // Depth of free floor beyond both long sides of `span`, out to the outline (as the mould's
 // strips reach, 3.5 m), every kBeyondStep.
@@ -376,8 +377,9 @@ bool Contains (const Slot& s, Vec p, double margin)
     const auto q = s.frame.Local (p);
     return q.x >= s.box.u0 - margin && q.x <= s.box.u1 + margin && q.y >= s.box.v0 - margin && q.y <= s.box.v1 + margin;
 }
-// Divide one free band [u0, u1] of `slot`.
-bool DivideSpan (Builder& b, const Slot& slot, Box span, int count, bool cornerLo, bool cornerHi)
+// Divide one free band [u0, u1] of `slot`; with `dry`, nothing is emitted and `*dry` is how many
+// flats it would hold.
+bool DivideSpan (Builder& b, const Slot& slot, Box span, int count, bool cornerLo, bool cornerHi, size_t* dry = nullptr)
 {
     Slot part = slot;
     part.box = span;
@@ -395,8 +397,27 @@ bool DivideSpan (Builder& b, const Slot& slot, Box span, int count, bool cornerL
               Gable (b, slot, span, true), count, cornerLo, cornerHi, minFirst, minLast);
     if (plan.fits.empty ())
         return false;
+    if (dry) {
+        *dry = plan.fits.size ();
+        return true;
+    }
     auto order = plan.fits;
-    const auto& widths = plan.widths;
+    auto widths = plan.widths;
+    // The party walls onto the building's main walls, each flat keeping a width its type allows.
+    if (b.grid && !b.grid->empty () && widths.size () > 1) {
+        // At least its rooms' width (and the end flats their reach to the corridor door), at most
+        // its type's width -- or the width it has, when the band left it wider.
+        std::vector<std::pair<double, double>> ranges;
+        for (size_t k = 0; k < order.size (); ++k) {
+            double lo = fits[order[k]].roomLo;
+            if (k == 0)
+                lo = (std::max) (lo, minFirst);
+            if (k + 1 == order.size ())
+                lo = (std::max) (lo, minLast);
+            ranges.push_back ({ lo, (std::max) (fits[order[k]].hi, widths[k]) });
+        }
+        b.scheme.onGrid += SnapToGrid (GridAcross (*b.grid, part), span.u0, widths, ranges);
+    }
     // A room-count pin retypes the flat under it when its width allows that many rooms.
     double u = span.u0;
     for (size_t k = 0; k < order.size (); ++k) {
@@ -431,7 +452,8 @@ bool DivideSpan (Builder& b, const Slot& slot, Box span, int count, bool cornerL
 void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots, Scheme& scheme, const Pins& pins,
              const Options& o, bool resume)
 {
-    Builder b { p, pins, scheme, {}, MaxFlat (p, o), ToPaths (scheme.outline), {} };
+    Builder b { p, pins, scheme, {}, MaxFlat (p, o), ToPaths (scheme.outline), {}, &o.grid };
+    scheme.grid = o.grid;
     for (const auto& c : scheme.corridors)
         b.taken.push_back (ToPath (c.shape));
     for (const auto& c : scheme.cores)
@@ -544,18 +566,54 @@ void Divide (const floorprogramme::Programme& p, const std::vector<Slot>& slots,
             edges.push_back (best);
         }
         edges.push_back (slot.box.u1);
+        // A flat-count pin holds the span between pinned walls (or the band) it lies in.
+        const auto counted = [&] (double u0, double u1) {
+            int count = 0;
+            for (const auto& pin : pins.counts) {
+                const auto q = slot.frame.Local (pin.at);
+                if (Contains (slot, pin.at, 0) && q.x >= u0 - 1e-6 && q.x <= u1 + 1e-6)
+                    count = (std::max) (1, pin.flats);
+            }
+            return count;
+        };
+        // The building's main walls cut the band too (Options::grid; the reference's cut by grid):
+        // the flats fill the bays between them, a wall inside a bay going anywhere. A main wall is
+        // taken where both parts still divide into whole flats that reach the corridor, and no
+        // fewer of them than the span holds uncut (user: profit before the mix); a span a
+        // flat-count pin holds keeps its count.
+        if (!o.grid.empty ()) {
+            const auto lines = GridAcross (o.grid, slot);
+            std::vector<double> cut { edges.front () };
+            for (size_t k = 0; k + 1 < edges.size (); ++k) {
+                const double end = edges[k + 1];
+                if (counted (edges[k], end) == 0)
+                    for (const double g : lines) {
+                        const double at = cut.back ();
+                        if (g <= at + 0.3 || g >= end - 0.3)
+                            continue;
+                        const bool first = at == edges.front (), last = end == edges.back ();
+                        size_t whole = 0, before = 0, after = 0;
+                        if (DivideSpan (b, slot, { at, slot.box.v0, end, slot.box.v1 }, 0, first && slot.cornerLo,
+                                        last && slot.cornerHi, &whole) &&
+                            DivideSpan (b, slot, { at, slot.box.v0, g, slot.box.v1 }, 0, first && slot.cornerLo, false,
+                                        &before) &&
+                            DivideSpan (b, slot, { g, slot.box.v0, end, slot.box.v1 }, 0, false, last && slot.cornerHi,
+                                        &after) &&
+                            before + after >= whole) {
+                            cut.push_back (g);
+                            ++scheme.onGrid;
+                        }
+                    }
+                cut.push_back (end);
+            }
+            edges = cut;
+        }
         for (size_t k = 0; k + 1 < edges.size (); ++k) {
             const Box span { edges[k], slot.box.v0, edges[k + 1], slot.box.v1 };
             if (span.W () < 0.3)
                 continue;
             const bool lo = k == 0 && slot.cornerLo, hi = k + 2 == edges.size () && slot.cornerHi;
-            // A flat-count pin holds the span between pinned walls (or the band) it lies in.
-            int count = 0;
-            for (const auto& pin : pins.counts) {
-                const auto q = slot.frame.Local (pin.at);
-                if (Contains (slot, pin.at, 0) && q.x >= span.u0 - 1e-6 && q.x <= span.u1 + 1e-6)
-                    count = (std::max) (1, pin.flats);
-            }
+            const int count = counted (span.u0, span.u1);
             if (!DivideSpan (b, slot, span, count, lo, hi))
                 scheme.unassigned.push_back ({ ToRing (slot.frame, span), "band too short for a whole flat" });
         }

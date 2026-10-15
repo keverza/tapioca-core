@@ -70,6 +70,10 @@ struct Options {
     // same position from ground to top floor"): each stands exactly where pinned, never moved by
     // `kPinTolerance`, and a stair the stack does not have is an error (`CheckStack`).
     bool holdCores = false;
+    // The building's main walls (MainWalls of the floor every floor shares): lines across its wings,
+    // standing from the ground to the top like the stairs. Party walls between flats snap to one
+    // within kGridSnap when both flats keep a width their type allows; other walls go anywhere.
+    std::vector<std::array<Vec, 2>> grid;
 };
 
 // User guidance; every point is world XY.
@@ -205,6 +209,10 @@ struct Scheme {
     // Where a straight wing's stair sections meet -- the typology's blocks, each a stair's zone -- a
     // line across the wing (user, 2026-10-14: "Show typology block division lines").
     std::vector<std::array<Vec, 2>> divisions;
+    // The main walls the floor was planned to (Options::grid), and how many party walls between
+    // flats stand on one.
+    std::vector<std::array<Vec, 2>> grid;
+    int onGrid = 0;
     std::vector<Corridor> corridors;
     std::vector<Ring> lobbies; // circulation at an L turn beside the core
     std::vector<Core> cores;
@@ -219,6 +227,13 @@ struct Scheme {
     double gross = 0, net = 0, circulation = 0;
     bool ok = false; // no error diagnostic
 };
+
+// FloorSchemeGrid.cpp: the main walls of `s` -- a line across its wing, the wing's depth long, at
+// every party wall between band flats and every stair side, walls closer than kGridMerge being one
+// (at the stair's side when one is among them, else their middle) and none within kGridEnd of a
+// wing's end. Planned on the floor every floor shares, they are Options::grid for every floor.
+constexpr double kGridMerge = 1.0, kGridSnap = 1.2, kGridEnd = 0.5; // m
+std::vector<std::array<Vec, 2>> MainWalls (const Scheme& s);
 
 // Frontage of a flat with `rooms` rooms on the facade, party wall included:
 // living + (n - 1) x (wall + bedroom) + party wall; a half room is a sleeping alcove.

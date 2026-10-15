@@ -545,6 +545,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeDivide.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeGrid.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRooms.cpp"
     # A building's planned floors as one cell complex: rooms, walls, openings.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingTopology.cpp"
