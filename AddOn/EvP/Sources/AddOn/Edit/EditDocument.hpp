@@ -25,6 +25,11 @@ struct Vertex {
     // A live corner: rounded by an arc of this radius tangent to both legs, and kept as
     // the radius -- the vertex stays the corner's anchor (EditShape.hpp). 0 is sharp.
     double radius = 0.0;
+    // Bezier handles, as plan offsets from `p` (zero: none): `out` shapes the segment that
+    // leaves this vertex, `in` the one that arrives. A segment with either of its facing
+    // handles set is a cubic. A smooth vertex keeps its two handles in line.
+    Vec3 in, out;
+    bool smooth = false;
     bool operator== (const Vertex&) const = default;
 };
 // Segment i joins vertex i to vertex i + 1 (wrapping on a closed entity). Its id

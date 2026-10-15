@@ -2,17 +2,45 @@
 #define EVP_EDIT_EDITSHAPE_HPP
 
 // The drawn shape of a polyline or an extrusion's profile. Its vertices are anchors; a
-// live corner (Vertex::radius) is rounded by an arc tangent to both legs and stays a
+// segment whose handles are set (Vertex::in/out) is a cubic Bezier; a live corner
+// (Vertex::radius) between straight legs is rounded by an arc tangent to both and stays a
 // radius -- editable, never turned into points until the user bakes it. Everything that
-// shows, fills or snaps to the outline reads it from here, so they cannot disagree.
+// shows, fills, picks or snaps to the outline reads it from here, so they cannot disagree.
 #include "Edit/EditDocument.hpp"
 #include <vector>
 
 namespace geomsrv::edit {
 
+// ---- curves -------------------------------------------------------------------------
+
+// Segment `i` (vertex i to the next) is a cubic: one of its facing handles is set.
+bool SegmentCurved (const Entity& entity, size_t segment);
+// Its point at `t` in [0, 1]; heights run linearly between its ends.
+Vec3 SegmentPoint (const Entity& entity, size_t segment, double t);
+// `pieces` + 1 points along it, ends included.
+std::vector<Vec3> SegmentPoints (const Entity& entity, size_t segment, int pieces = 24);
+// The parameter of its point nearest `p` in plan.
+double NearestOnSegment (const Entity& entity, size_t segment, Vec3 p);
+
+// One handle of a vertex, as an offset from it. On a smooth vertex the other handle turns
+// to stay in line, at its own length (its mirror when it has none); `independent` makes
+// the vertex a corner first, leaving the other where it is.
+bool SetHandle (Document& doc, Id entity, Id vertex, bool out, Vec3 offset, bool independent, std::string& error);
+// Smooth: handles along the line from the previous to the next vertex, a third of the way
+// to each; corner: handles retracted.
+bool SetSmooth (Document& doc, Id entity, Id vertex, bool smooth, std::string& error);
+// A straight segment gets handles a third along its chord (a curve to shape); a curved
+// one loses its facing handles.
+bool SetSegmentCurved (Document& doc, Id entity, Id segment, bool curved, std::string& error);
+// Bends a segment from the point at `t` by `move`: its two inner controls shift together
+// by move / (3 t (1 - t)), so that point follows the pointer.
+bool BendSegment (Document& doc, Id entity, Id segment, double t, Vec3 move, std::string& error);
+
+// ---- live corners --------------------------------------------------------------------
+
 // Vertex `i` as a corner: unit plan directions to its neighbours, the unit bisector into
 // the corner, half the angle between the legs and the legs' plan lengths. False at an
-// open end, and where the legs are degenerate or run straight on.
+// open end, where a leg is curved, and where the legs are degenerate or run straight on.
 struct CornerGeometry {
     size_t prev = 0, at = 0, next = 0;
     Vec3 corner, toPrev, toNext, bisector;

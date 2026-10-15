@@ -10,10 +10,222 @@ namespace {
 constexpr double kStraight = 1.0e-6; // legs this close to opposite run straight on: no corner
 } // namespace
 
+namespace {
+
+bool Set (Vec3 v)
+{
+    return std::hypot (v.x, v.y) > 1.0e-12;
+}
+
+Vec3 Plan (Vec3 v)
+{
+    return { v.x, v.y, 0.0 };
+}
+
+Vec3 Cubic (Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, double t)
+{
+    const double u = 1.0 - t;
+    return p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t);
+}
+
+Vertex* VertexById (Entity& e, Id id)
+{
+    const int i = VertexIndex (e, id);
+    return i < 0 ? nullptr : &e.vertices[size_t (i)];
+}
+
+bool Editable (Document& doc, Id entity, Id vertex, Entity*& e, Vertex*& v, std::string& error)
+{
+    e = Find (doc, entity);
+    v = e != nullptr ? VertexById (*e, vertex) : nullptr;
+    if (v == nullptr) {
+        error = "that vertex no longer exists";
+        return false;
+    }
+    if (v->lockXY) {
+        error = "that vertex is locked";
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool SegmentCurved (const Entity& e, size_t i)
+{
+    size_t from = 0, to = 0;
+    if (i >= SegmentCount (e))
+        return false;
+    SegmentEnds (e, i, from, to);
+    return Set (e.vertices[from].out) || Set (e.vertices[to].in);
+}
+
+Vec3 SegmentPoint (const Entity& e, size_t i, double t)
+{
+    size_t from = 0, to = 0;
+    SegmentEnds (e, i, from, to);
+    const Vertex &a = e.vertices[from], &b = e.vertices[to];
+    if (!SegmentCurved (e, i))
+        return Lerp (a.p, b.p, t);
+    const Vec3 p = Cubic (Plan (a.p), Plan (a.p + a.out), Plan (b.p + b.in), Plan (b.p), t);
+    return { p.x, p.y, a.p.z + (b.p.z - a.p.z) * t };
+}
+
+std::vector<Vec3> SegmentPoints (const Entity& e, size_t i, int pieces)
+{
+    std::vector<Vec3> out;
+    const int n = SegmentCurved (e, i) ? std::max (pieces, 1) : 1;
+    for (int k = 0; k <= n; ++k)
+        out.push_back (SegmentPoint (e, i, double (k) / n));
+    return out;
+}
+
+double NearestOnSegment (const Entity& e, size_t i, Vec3 p)
+{
+    // Coarse samples, then a few halvings about the best.
+    double best = 0.0, bestD = std::numeric_limits<double>::infinity ();
+    constexpr int kSamples = 48;
+    for (int k = 0; k <= kSamples; ++k) {
+        const double t = double (k) / kSamples, d = DistanceXY (SegmentPoint (e, i, t), p);
+        if (d < bestD)
+            bestD = d, best = t;
+    }
+    double step = 1.0 / kSamples;
+    for (int it = 0; it < 20; ++it) {
+        step *= 0.5;
+        for (const double t : { best - step, best + step })
+            if (t >= 0.0 && t <= 1.0) {
+                const double d = DistanceXY (SegmentPoint (e, i, t), p);
+                if (d < bestD)
+                    bestD = d, best = t;
+            }
+    }
+    return best;
+}
+
+bool SetHandle (Document& doc, Id entity, Id vertex, bool out, Vec3 offset, bool independent, std::string& error)
+{
+    Entity* e = nullptr;
+    Vertex* v = nullptr;
+    if (!Editable (doc, entity, vertex, e, v, error))
+        return false;
+    if (!Finite (offset)) {
+        error = "the handle is not finite";
+        return false;
+    }
+    if (independent)
+        v->smooth = false;
+    Vec3& moved = out ? v->out : v->in;
+    Vec3& other = out ? v->in : v->out;
+    moved = Plan (offset);
+    const double length = std::hypot (moved.x, moved.y);
+    if (v->smooth && length > 1.0e-12) {
+        const double keep = Set (other) ? std::hypot (other.x, other.y) : length;
+        other = moved * (-keep / length);
+    }
+    return true;
+}
+
+bool SetSmooth (Document& doc, Id entity, Id vertex, bool smooth, std::string& error)
+{
+    Entity* e = nullptr;
+    Vertex* v = nullptr;
+    if (!Editable (doc, entity, vertex, e, v, error))
+        return false;
+    if (!smooth) {
+        v->in = v->out = {};
+        v->smooth = false;
+        return true;
+    }
+    const size_t n = e->vertices.size (), i = size_t (VertexIndex (*e, vertex));
+    const bool hasPrev = e->closed || i > 0, hasNext = e->closed || i + 1 < n;
+    const Vec3 prev = hasPrev ? e->vertices[(i + n - 1) % n].p : v->p;
+    const Vec3 next = hasNext ? e->vertices[(i + 1) % n].p : v->p;
+    Vec3 dir;
+    if (!Normalize (Plan (next - prev), dir)) {
+        error = "a smooth point needs neighbours on either side";
+        return false;
+    }
+    v->in = dir * (-DistanceXY (v->p, prev) / 3.0);
+    v->out = dir * (DistanceXY (v->p, next) / 3.0);
+    v->smooth = true;
+    v->radius = 0.0; // a smooth point is no corner
+    return true;
+}
+
+bool SetSegmentCurved (Document& doc, Id entity, Id segment, bool curved, std::string& error)
+{
+    Entity* e = Find (doc, entity);
+    const int i = e != nullptr ? SegmentIndex (*e, segment) : -1;
+    if (i < 0) {
+        error = "that segment no longer exists";
+        return false;
+    }
+    size_t from = 0, to = 0;
+    SegmentEnds (*e, size_t (i), from, to);
+    Vertex &a = e->vertices[from], &b = e->vertices[to];
+    if ((a.lockXY || b.lockXY) && curved != SegmentCurved (*e, size_t (i))) {
+        error = "an end of that segment is locked";
+        return false;
+    }
+    if (!curved) {
+        a.out = b.in = {};
+        return true;
+    }
+    if (SegmentCurved (*e, size_t (i)))
+        return true;
+    const Vec3 chord = Plan (b.p - a.p);
+    a.out = chord * (1.0 / 3.0);
+    b.in = chord * (-1.0 / 3.0);
+    a.radius = b.radius = 0.0; // a curved leg ends any rounding
+    return true;
+}
+
+bool BendSegment (Document& doc, Id entity, Id segment, double t, Vec3 move, std::string& error)
+{
+    Entity* e = Find (doc, entity);
+    const int i = e != nullptr ? SegmentIndex (*e, segment) : -1;
+    if (i < 0) {
+        error = "that segment no longer exists";
+        return false;
+    }
+    t = std::clamp (t, 0.05, 0.95);
+    size_t from = 0, to = 0;
+    SegmentEnds (*e, size_t (i), from, to);
+    Vertex &a = e->vertices[from], &b = e->vertices[to];
+    if (a.lockXY || b.lockXY) {
+        error = "an end of that segment is locked";
+        return false;
+    }
+    if (!SegmentCurved (*e, size_t (i))) {
+        const Vec3 chord = Plan (b.p - a.p);
+        a.out = chord * (1.0 / 3.0);
+        b.in = chord * (-1.0 / 3.0);
+    }
+    const Vec3 shift = Plan (move) * (1.0 / (3.0 * t * (1.0 - t)));
+    a.out = a.out + shift;
+    b.in = b.in + shift;
+    a.radius = b.radius = 0.0;
+    // A smooth end keeps its other handle in line.
+    for (auto [v, out] : { std::pair<Vertex*, bool> { &a, true }, std::pair<Vertex*, bool> { &b, false } })
+        if (v->smooth) {
+            Vec3& moved = out ? v->out : v->in;
+            Vec3& other = out ? v->in : v->out;
+            const double length = std::hypot (moved.x, moved.y), keep = std::hypot (other.x, other.y);
+            if (length > 1.0e-12 && keep > 1.0e-12)
+                other = moved * (-keep / length);
+        }
+    return true;
+}
+
 bool CornerOf (const Entity& e, size_t i, CornerGeometry& c)
 {
     const size_t n = e.vertices.size ();
     if (n < 3 || i >= n || (!e.closed && (i == 0 || i + 1 >= n)))
+        return false;
+    // Only between straight legs: a curve ends a rounding.
+    if (Set (e.vertices[i].in) || Set (e.vertices[i].out) || Set (e.vertices[(i + n - 1) % n].out) ||
+        Set (e.vertices[(i + 1) % n].in))
         return false;
     c.at = i;
     c.prev = (i + n - 1) % n;
@@ -89,11 +301,19 @@ std::vector<Vec3> Shape (const Entity& e, double maxAngle)
     const size_t n = e.vertices.size ();
     if (!(maxAngle > 0.0))
         maxAngle = 0.15;
+    const auto curve = [&] (size_t i) {
+        // A curved segment leaving vertex i: its points between its ends.
+        if (i < SegmentCount (e) && SegmentCurved (e, i)) {
+            const auto points = SegmentPoints (e, i);
+            out.insert (out.end (), points.begin () + 1, points.end () - 1);
+        }
+    };
     for (size_t i = 0; i < n; ++i) {
         const double r = DrawnRadius (e, i);
         CornerGeometry c;
         if (!(r > 0.0) || !CornerOf (e, i, c)) {
             out.push_back (e.vertices[i].p);
+            curve (i);
             continue;
         }
         const double t = TangentLength (c, r);

@@ -1,4 +1,5 @@
 #include "Edit/EditSelection.hpp"
+#include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -81,9 +82,12 @@ std::vector<Edge> Edges (const Entity& e)
         size_t from = 0, to = 0;
         SegmentEnds (e, i, from, to);
         const Ref ref { e.id, Part::Segment, e.segments[i].id };
-        out.push_back ({ e.vertices[from].p, e.vertices[to].p, ref });
-        if (e.kind == Kind::Extrusion)
-            out.push_back ({ e.vertices[from].p + up, e.vertices[to].p + up, ref });
+        const auto points = SegmentPoints (e, i); // a curve, piece by piece
+        for (size_t k = 0; k + 1 < points.size (); ++k) {
+            out.push_back ({ points[k], points[k + 1], ref });
+            if (e.kind == Kind::Extrusion)
+                out.push_back ({ points[k] + up, points[k + 1] + up, ref });
+        }
     }
     if (e.kind == Kind::Extrusion)
         for (const auto& v : e.vertices)

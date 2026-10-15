@@ -572,6 +572,12 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                     error = "a selected vertex is locked";
                     return false;
                 }
+                if (!stretch)
+                    for (Vec3* h : { &v.in, &v.out })
+                        if (std::hypot (h->x, h->y) > 0.0) {
+                            const Vec3 to = Apply (t, v.p + *h) - Apply (t, v.p);
+                            *h = { to.x, to.y, 0.0 };
+                        }
                 v.p = p;
                 if (!stretch && std::abs (t.scale.x - t.scale.y) < 1.0e-12)
                     v.radius *= std::abs (t.scale.x); // a uniform scale keeps a rounded corner's shape

@@ -1,3 +1,4 @@
+#include "Edit/EditGizmo.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditSession.hpp"
 #include "Edit/EditShape.hpp"
@@ -118,4 +119,103 @@ TEST (EditShape, RadiusIsATypedDimensionAndFilletStaysLive)
     EXPECT_GT (e.vertices.size (), 10u);
     for (const auto& vx : e.vertices)
         EXPECT_DOUBLE_EQ (vx.radius, 0.0);
+}
+
+namespace {
+// A 10 m line bent into a curve by handles at both ends.
+struct Curve {
+    ed::Document doc;
+    ed::Id e = 0;
+    Curve ()
+    {
+        e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+        auto& v = ed::Find (doc, e)->vertices;
+        v[0].out = { 3, 4, 0 };
+        v[1].in = { -3, 4, 0 };
+    }
+    const ed::Entity& E () const
+    {
+        return *ed::Find (doc, e);
+    }
+};
+} // namespace
+
+TEST (EditShape, HandlesMakeASegmentACubic)
+{
+    Curve c;
+    ASSERT_TRUE (ed::SegmentCurved (c.E (), 0));
+    const ed::Vec3 mid = ed::SegmentPoint (c.E (), 0, 0.5);
+    EXPECT_NEAR (mid.x, 5.0, 1e-12);
+    EXPECT_NEAR (mid.y, 3.0, 1e-12); // (0 + 3*4 + 3*4 + 0) / 8
+    const auto shape = ed::Shape (c.E ());
+    EXPECT_EQ (shape.size (), 25u); // both ends and the curve between
+    EXPECT_NEAR (ed::NearestOnSegment (c.E (), 0, { 5, 10, 0 }), 0.5, 1e-6);
+}
+
+TEST (EditShape, InsertingOnACurveKeepsItsShape)
+{
+    Curve c;
+    const ed::Vec3 before = ed::SegmentPoint (c.E (), 0, 0.25);
+    std::string error;
+    ASSERT_TRUE (ed::InsertVertex (c.doc, c.e, c.E ().segments[0].id, ed::SegmentPoint (c.E (), 0, 0.5), error))
+        << error;
+    ASSERT_EQ (c.E ().vertices.size (), 3u);
+    EXPECT_TRUE (c.E ().vertices[1].smooth);
+    // The old t = 0.25 is the first half's t = 0.5.
+    const ed::Vec3 after = ed::SegmentPoint (c.E (), 0, 0.5);
+    EXPECT_NEAR (after.x, before.x, 1e-9);
+    EXPECT_NEAR (after.y, before.y, 1e-9);
+}
+
+TEST (EditShape, SmoothHandlesStayInLine)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 6, 0, 0 }, { 12, 3, 0 } }, false);
+    const ed::Id mid = ed::Find (doc, e)->vertices[1].id;
+    std::string error;
+    ASSERT_TRUE (ed::SetSmooth (doc, e, mid, true, error)) << error;
+    const auto& v = ed::Find (doc, e)->vertices[1];
+    EXPECT_TRUE (v.smooth);
+    EXPECT_NEAR (std::hypot (v.in.x, v.in.y), 2.0, 1e-9); // a third of the way back
+    // Moving one handle turns the other, keeping its length.
+    ASSERT_TRUE (ed::SetHandle (doc, e, mid, true, { 0, 4, 0 }, false, error)) << error;
+    EXPECT_NEAR (ed::Find (doc, e)->vertices[1].in.x, 0.0, 1e-12);
+    EXPECT_NEAR (ed::Find (doc, e)->vertices[1].in.y, -2.0, 1e-12);
+    // Independent: the other stays and the point becomes a corner.
+    ASSERT_TRUE (ed::SetHandle (doc, e, mid, true, { 4, 0, 0 }, true, error)) << error;
+    EXPECT_FALSE (ed::Find (doc, e)->vertices[1].smooth);
+    EXPECT_NEAR (ed::Find (doc, e)->vertices[1].in.y, -2.0, 1e-12);
+    ASSERT_TRUE (ed::SetSmooth (doc, e, mid, false, error)) << error;
+    EXPECT_FALSE (ed::SegmentCurved (*ed::Find (doc, e), 0));
+}
+
+TEST (EditShape, BendingASegmentMovesItsPointWithThePointer)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    std::string error;
+    ASSERT_TRUE (ed::BendSegment (doc, e, ed::Find (doc, e)->segments[0].id, 0.5, { 0, 3, 0 }, error)) << error;
+    const ed::Vec3 mid = ed::SegmentPoint (*ed::Find (doc, e), 0, 0.5);
+    EXPECT_NEAR (mid.x, 5.0, 1e-9);
+    EXPECT_NEAR (mid.y, 3.0, 1e-9);
+    ASSERT_TRUE (ed::SetSegmentCurved (doc, e, ed::Find (doc, e)->segments[0].id, false, error));
+    EXPECT_FALSE (ed::SegmentCurved (*ed::Find (doc, e), 0));
+}
+
+TEST (EditShape, CurvesTurnWithTheGizmoAndEndRoundings)
+{
+    Curve c;
+    ed::Session s (c.doc);
+    ed::Transform turn;
+    turn.angle = std::acos (-1.0) / 2.0;
+    ASSERT_TRUE (s.Apply (ed::TransformOperation ({ { c.e, ed::Part::Entity, 0 } }, turn))) << s.Message ();
+    const auto& v = ed::Find (s.Doc (), c.e)->vertices;
+    EXPECT_NEAR (v[0].out.x, -4.0, 1e-9); // (3, 4) turned a quarter
+    EXPECT_NEAR (v[0].out.y, 3.0, 1e-9);
+    // A corner next to a curved leg cannot be rounded.
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 5, 0, 0 }, { 5, 5, 0 } }, false);
+    ed::Find (doc, e)->vertices[0].out = { 1, 1, 0 };
+    std::string error;
+    EXPECT_FALSE (ed::SetCornerRadius (doc, e, { ed::Find (doc, e)->vertices[1].id }, 0.5, error));
 }

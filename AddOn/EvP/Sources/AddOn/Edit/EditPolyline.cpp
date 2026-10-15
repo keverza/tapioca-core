@@ -134,6 +134,24 @@ bool InsertVertex (Document& doc, Id entity, Id segment, Vec3 at, std::string& e
         at.z = e->vertices.front ().p.z;
     const size_t at1 = static_cast<size_t> (k) + 1;
     Vertex v { NewId (doc), at };
+    if (SegmentCurved (*e, static_cast<size_t> (k))) {
+        // De Casteljau at the nearest point: both halves keep the curve exactly.
+        size_t from = 0, to = 0;
+        SegmentEnds (*e, static_cast<size_t> (k), from, to);
+        Vertex &a = e->vertices[from], &b = e->vertices[to];
+        const double t = NearestOnSegment (*e, static_cast<size_t> (k), at);
+        const Vec3 p0 = a.p, p1 = a.p + a.out, p2 = b.p + b.in, p3 = b.p;
+        const Vec3 q0 = Lerp (p0, p1, t), q1 = Lerp (p1, p2, t), q2 = Lerp (p2, p3, t);
+        const Vec3 r0 = Lerp (q0, q1, t), r1 = Lerp (q1, q2, t), s = Lerp (r0, r1, t);
+        const Vec3 on = SegmentPoint (*e, static_cast<size_t> (k), t);
+        a.out = q0 - p0;
+        b.in = q2 - p3;
+        a.out.z = b.in.z = 0.0;
+        v.p = on;
+        v.in = { r0.x - s.x, r0.y - s.y, 0.0 };
+        v.out = { r1.x - s.x, r1.y - s.y, 0.0 };
+        v.smooth = true;
+    }
     const Segment second = CopyAttributes (e->segments[static_cast<size_t> (k)], doc);
     e->vertices.insert (e->vertices.begin () + static_cast<std::ptrdiff_t> (at1), v);
     e->segments.insert (e->segments.begin () + static_cast<std::ptrdiff_t> (at1), second);
