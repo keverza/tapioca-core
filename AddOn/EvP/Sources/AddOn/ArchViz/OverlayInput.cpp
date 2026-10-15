@@ -78,7 +78,8 @@ struct Passed {
 // The buttons down, as the button messages said: the mouse hook's are given no key state.
 uint32_t g_down = 0;
 HWND g_window = nullptr;
-// The click meter: armed on demand, its idle hook installed with the message hook.
+// The click meter: armed on demand. The idle hook, installed with the message hook, serves it
+// and the cursor's repair.
 bool g_timing = false;
 HHOOK g_idleHook = nullptr;
 overlayclicks::Meter g_meter;
@@ -447,22 +448,33 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
 }
 
 // The thread is about to go idle: the busy stretch the meter is timing ends.
+// ⚠️ AND IT IS WHEN ARCHICAD SETS ITS CURSOR MOST (the user, 2026-10-15: the cursor still glitched,
+// and the log counted 2098 repairs in a session against about one a drag). Its idle processing
+// runs after the queue empties, so the repair at the next message came only when the pointer next
+// moved; until then Archicad's cursor showed. The thread about to wait is the last moment before
+// the screen settles: the HUD's cursor goes back there, counted with the rest.
 LRESULT CALLBACK IdleProc (int code, WPARAM wParam, LPARAM lParam)
 {
-    if (code == HC_ACTION && g_timing)
-        g_meter.Idle (Micros ());
+    if (code == HC_ACTION) {
+        if (g_timing)
+            g_meter.Idle (Micros ());
+        for (const Target& target : g_targets)
+            if (target.subclassed)
+                ReassertCursor (target);
+    }
     return ::CallNextHookEx (g_idleHook, code, wParam, lParam);
 }
 
-// With the message hook, while the meter is armed.
+// With the message hook: the cursor's repair needs it always, the click meter while armed.
 void FollowIdleHook ()
 {
-    const bool wanted = g_timing && g_hook != nullptr;
+    const bool wanted = g_hook != nullptr;
     if (wanted && g_idleHook == nullptr) {
         g_idleHook = ::SetWindowsHookExW (WH_FOREGROUNDIDLE, &IdleProc, nullptr, ::GetCurrentThreadId ());
         if (g_idleHook == nullptr)
             ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_FOREGROUNDIDLE) failed with GetLastError " +
-                        std::to_string (::GetLastError ()) + ": clicks are not timed");
+                        std::to_string (::GetLastError ()) +
+                        ": clicks are not timed, and Archicad's idle cursor shows over the HUD");
     }
     else if (!wanted && g_idleHook != nullptr) {
         ::UnhookWindowsHookEx (g_idleHook);
