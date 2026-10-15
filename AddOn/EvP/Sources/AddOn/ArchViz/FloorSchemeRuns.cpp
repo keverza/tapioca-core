@@ -735,6 +735,15 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
     cuts.push_back (p.s1);
     for (size_t k = 0; k + 1 < cuts.size (); ++k) {
         const double a = cuts[k], b = cuts[k + 1];
+        // A centre corridor's stair pinned across the corridor takes that side, its caps with it (user,
+        // 2026-10-14: "I was not able to move stair to other corridor side").
+        bool side = up;
+        if (access == Access::Centre)
+            if (const auto* pin = PinIn (c, f, { a, 0, b, depth }, 0)) {
+                const double v = f.Local (pin->centre).y;
+                if (std::abs (v - depth / 2) > c.o.corridor / 2)
+                    side = v > depth / 2;
+            }
         if (access == Access::Centre && b - a < 2 * c.o.maxCap + w + 5.0) {
             // Short: the stair takes the corridor's end at a gable, where it has a window. Never at
             // an end beside another section: the flat there would sit between two stairs (user,
@@ -743,10 +752,10 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
             const bool lowGable = SideFacade (c, f, { a, 0, b, depth }, 3) >= 0.5 * depth;
             const bool highGable = SideFacade (c, f, { a, 0, b, depth }, 1) >= 0.5 * depth;
             const double c0 = (depth - c.o.corridor) / 2;
-            const Box core { 0, up ? c0 : 0, w, up ? depth : c0 + c.o.corridor };
+            const Box core { 0, side ? c0 : 0, w, side ? depth : c0 + c.o.corridor };
             auto window = [&] (double u0) {
                 const Box k { u0, core.v0, u0 + w, core.v1 };
-                return SideFacade (c, f, k, up ? 2 : 0) + SideFacade (c, f, k, u0 <= a + 1e-6 ? 3 : 1);
+                return SideFacade (c, f, k, side ? 2 : 0) + SideFacade (c, f, k, u0 <= a + 1e-6 ? 3 : 1);
             };
             const bool highOk = window (b - w) >= c.o.stairWindow, lowOk = window (a) >= c.o.stairWindow;
             int end = 0;
@@ -769,11 +778,11 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
                 else
                     end = at - a < b - at ? (lowOk ? -1 : end) : (highOk ? 1 : end);
             }
-            CentreSection (c, f, depth, a, b, up, run, end);
+            CentreSection (c, f, depth, a, b, side, run, end);
             continue;
         }
         if (access == Access::Centre)
-            CentreSection (c, f, depth, cuts[k], cuts[k + 1], up, run);
+            CentreSection (c, f, depth, cuts[k], cuts[k + 1], side, run);
         else if (access == Access::OneSide)
             OneSideSection (c, f, depth, cuts[k], cuts[k + 1], up, run);
         else

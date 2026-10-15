@@ -612,3 +612,23 @@ TEST (FloorSchemeEdit, TheMostFlatsAreAllTheSmallestAndTheFewestAreFewerThanRows
     EXPECT_EQ (g.session.design.pins.joins.size (), joins - 1);
     EXPECT_EQ (g.scheme.flats.size (), fewestFlats + 1) << Report (g.scheme);
 }
+
+// User, 2026-10-14: "I was not able to move stair to other corridor side." A stair dropped across
+// the corridor stands there, the section's caps with it.
+TEST (FloorSchemeEdit, AStairMovesToTheOtherSideOfTheCorridor)
+{
+    Floor f ({ Rect (0, 0, 60, 16) });
+    ASSERT_EQ (f.scheme.cores.size (), 2u);
+    const fs::Vec from = f.scheme.cores[0].centre, to { from.x, 16 - from.y };
+    ASSERT_GT (std::abs (from.y - 8), 1.0) << "the stair stands on one side of the corridor";
+    f.Apply (fe::MoveStair (f.scheme, f.session.design, 0, to));
+    EXPECT_EQ (Errors (f.scheme), 0u) << Report (f.scheme);
+    ASSERT_EQ (f.scheme.cores.size (), 2u);
+    int across = 0, stayed = 0;
+    for (const auto& c : f.scheme.cores) {
+        across += std::abs (c.centre.x - from.x) < 3 && (c.centre.y - 8) * (from.y - 8) < 0;
+        stayed += std::abs (c.centre.x - from.x) >= 3 && (c.centre.y - 8) * (from.y - 8) > 0;
+    }
+    EXPECT_EQ (across, 1) << "the moved stair is across the corridor";
+    EXPECT_EQ (stayed, 1) << "the other stays where it was";
+}
