@@ -24,6 +24,8 @@ constexpr double kStairWidth = 4.5, kStairDepth = 4.2;
 constexpr double kMinCore = 2.0, kMaxCore = 12.0;
 constexpr char kStairsLayer[] = "tapioca.massing.proposedStairs";
 constexpr char kUnitsLayer[] = "tapioca.massing.proposedUnits";
+// The units on the floor plan: the floor at the plan's story only, filled (user, 2026-10-14).
+constexpr char kPlanUnitsLayer[] = "tapioca.massing.proposedUnitsPlan";
 struct Point {
     double x = 0, y = 0;
     bool operator== (const Point&) const = default;

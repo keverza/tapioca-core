@@ -17,6 +17,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayHudModel.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
+#include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/MassingModel.hpp"
 #include "ArchViz/MassingHybrid.hpp"
@@ -30,6 +31,7 @@
 #include "Palette/ProgrammeDialog.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -126,10 +128,14 @@ void FollowHudState ()
         surfaceswitch::Request (surfaceswitch::Surface::Viewer);
     if (overlayhud::TakeLogsRequest (*state))
         hudconsole::OpenLogs ();
-    overlaylayers::Layer stairs, units;
-    if (overlayhud::TakeFloorPlanLayers (*state, stairs, units)) {
+    overlaylayers::Layer stairs, units, planUnits;
+    // The floor plan shows its own storey's units (user, 2026-10-14); its storey is the plan
+    // session's, read here on the main thread like the rest of this turn.
+    overlayhud::SetPlanStorey (*state, planruntime::Running () ? planruntime::GetStatus ().storey : INT_MIN);
+    if (overlayhud::TakeFloorPlanLayers (*state, stairs, units, &planUnits)) {
         overlaylayers::Set (std::move (stairs));
         overlaylayers::Set (std::move (units));
+        overlaylayers::Set (std::move (planUnits));
         PublishLayers ();
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);

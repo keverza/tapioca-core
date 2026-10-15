@@ -382,10 +382,12 @@ void Engine::Impl::MassingPage ()
         changes.push_back (
             { "lowHeadroom", {}, "Massing", "headroom < 1.6 m", -1, store->showLowHeadroom ? 1.0 : 0.0, {}, true });
     const bool stairsChanged = ImGui::Checkbox ("Show proposed stair cores (all floors)", &store->previewStairs);
-    const bool unitsChanged = ImGui::Checkbox ("Show unit outlines (all floors)", &store->previewUnits);
+    const bool unitsChanged =
+        ImGui::Checkbox ("Show units (3D: every floor; plan: its story, filled)", &store->previewUnits);
     if (stairsChanged || unitsChanged) {
         ShowLayer (buildingplan::kStairsLayer, true);
         ShowLayer (buildingplan::kUnitsLayer, true);
+        ShowLayer (buildingplan::kPlanUnitsLayer, true);
         changes.push_back ({ "massingPlanPreview", {}, "Massing", "floor scheme overlays", -1, 1, {}, true });
     }
     if (store->markLargeFloors)

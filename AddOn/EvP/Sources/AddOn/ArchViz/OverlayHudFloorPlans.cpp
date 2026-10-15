@@ -1,5 +1,8 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/BuildingTopology.hpp"
+#include <clipper2/clipper.h>
+#include <clipper2/clipper.triangulation.h>
+#include <climits>
 #include <sstream>
 #include <iomanip>
 
@@ -7,6 +10,7 @@ namespace geomsrv::archviz::overlayhud {
 namespace {
 namespace fs = floorscheme;
 namespace bt = buildingtopology;
+constexpr uint32_t kPlanFillAlpha = 0x59; // a flat's fill on the plan: its colour at 35 %
 
 void Line (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba, float width)
 {
@@ -18,6 +22,31 @@ void Line (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t
     for (const auto& p : ring)
         poly.points.insert (poly.points.end (), { p.x, p.y, z });
     layer.polylines.push_back (std::move (poly));
+}
+// A ring filled, flat at `z`: triangulated, so an L or a notched flat fills only itself.
+void Fill (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba)
+{
+    namespace cp = Clipper2Lib;
+    cp::PathD path;
+    for (const auto& p : ring)
+        path.emplace_back (p.x, p.y);
+    cp::PathsD triangles;
+    if (ring.size () < 3 || cp::Triangulate ({ path }, 4, triangles, false) != cp::TriangulateResult::success)
+        return;
+    overlaylayers::Mesh mesh;
+    mesh.rgba = rgba;
+    mesh.styled = true;
+    mesh.style.behind = overlaylayers::Behind::Show;
+    for (const auto& t : triangles) {
+        if (t.size () != 3)
+            continue;
+        const uint32_t base = static_cast<uint32_t> (mesh.points.size () / 3);
+        for (const auto& q : t)
+            mesh.points.insert (mesh.points.end (), { q.x, q.y, z });
+        mesh.indices.insert (mesh.indices.end (), { base, base + 1, base + 2 });
+    }
+    if (!mesh.indices.empty ())
+        layer.meshes.push_back (std::move (mesh));
 }
 // A convex counter-clockwise ring raised from z0 to z1: bottom and top fans, then the sides.
 bool Prism (overlaylayers::Layer& layer, const fs::Ring& ring, double z0, double z1)
@@ -79,7 +108,12 @@ bt::Complex ComplexOf (State& state, const std::string& key, const buildingplan:
 // and the flat selected in a Plan view white.
 // Planned off the UI thread (FloorPlanner.hpp): asked when what a floor is planned from changes,
 // published when a scheme arrives or the selection moves.
-bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylayers::Layer& units)
+void SetPlanStorey (State& state, int storey)
+{
+    state.planStorey = storey;
+}
+bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylayers::Layer& units,
+                          overlaylayers::Layer* onPlan)
 {
     using namespace buildingplan;
     fs::Options options;
@@ -110,7 +144,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             selected.push_back (std::move (*s));
     std::ostringstream signature;
     signature << std::setprecision (17) << state.previewStairs << state.previewUnits << ':'
-              << state.floorPlanner.Revision () << ':' << floorprogramme::ColoursKey (state.massingProgramme);
+              << state.floorPlanner.Revision () << ':' << floorprogramme::ColoursKey (state.massingProgramme) << ':'
+              << (onPlan ? state.planStorey : INT_MIN);
     for (const auto& [key, plan] : state.floorPlanSnapshots)
         signature << '|' << key << ':' << plan.floors.size ();
     for (const auto& s : selected)
@@ -123,6 +158,14 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
     units = {};
     stairs.name = kStairsLayer;
     units.name = kUnitsLayer;
+    // User, 2026-10-14: "Floor Plan overlay show all stories. units are visible but needs to solid
+    // fill not just outline." The plan draws its own storey's floor, filled; 3D keeps every floor.
+    if (onPlan) {
+        *onPlan = {};
+        onPlan->name = kPlanUnitsLayer;
+        onPlan->views = overlaylayers::Views::TwoD;
+        units.views = overlaylayers::Views::ThreeD;
+    }
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         const auto complex = ComplexOf (state, key, plan, options);
         if (state.previewStairs) {
@@ -162,17 +205,27 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         for (size_t f = 0; f < complex.floors.size (); ++f) {
             const auto& floor = complex.floors[f];
             const double z = floor.z + 0.02;
-            for (int u : floor.units)
-                for (const auto& ring : bt::Clear (complex, complex.units[u].cells))
-                    Line (
-                        units, ring, z,
-                        floorprogramme::Colour (state.massingProgramme, complex.units[u].type, complex.units[u].rooms),
-                        2.0f);
+            // The plan's storey goes to the plan as well, its flats filled under their outlines.
+            overlaylayers::Layer* here = onPlan && floor.story == state.planStorey ? onPlan : nullptr;
+            for (int u : floor.units) {
+                const uint32_t colour =
+                    floorprogramme::Colour (state.massingProgramme, complex.units[u].type, complex.units[u].rooms);
+                for (const auto& ring : bt::Clear (complex, complex.units[u].cells)) {
+                    Line (units, ring, z, colour, 2.0f);
+                    if (here) {
+                        Fill (*here, ring, z, (colour & 0xFFFFFF00u) | kPlanFillAlpha);
+                        Line (*here, ring, z, colour, 2.0f);
+                    }
+                }
+            }
             for (int id : floor.cells) {
                 const auto kind = complex.cells[id].kind;
                 if (kind == bt::CellKind::Corridor || kind == bt::CellKind::Lobby)
-                    for (const auto& ring : bt::Clear (complex, { id }))
+                    for (const auto& ring : bt::Clear (complex, { id })) {
                         Line (units, ring, z, 0xD6C49AFFu, 2.0f);
+                        if (here)
+                            Line (*here, ring, z, 0xD6C49AFFu, 2.0f);
+                    }
             }
             const auto* planned = state.floorPlanner.Latest (FloorId (key, floor.story));
             for (const auto& w : planned ? planned->scheme.party : std::vector<std::array<fs::Vec, 2>> {}) {
@@ -181,6 +234,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                 wall.widthPixels = 5.0f;
                 wall.behind = overlaylayers::Behind::Show;
                 wall.points = { w[0].x, w[0].y, z, w[1].x, w[1].y, z };
+                if (here)
+                    here->polylines.push_back (wall);
                 units.polylines.push_back (std::move (wall));
             }
         }
@@ -201,8 +256,11 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                     if (planned->scheme.flats[unit.flat].shape == s.flat)
                         rings = bt::Clear (complex, unit.cells);
             }
-            for (const auto& ring : rings)
+            for (const auto& ring : rings) {
                 Line (units, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
+                if (onPlan && floor.story == state.planStorey)
+                    Line (*onPlan, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
+            }
         }
     }
     return true;

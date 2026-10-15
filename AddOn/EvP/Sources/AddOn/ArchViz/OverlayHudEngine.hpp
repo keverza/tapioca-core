@@ -17,6 +17,7 @@
 #include "ArchViz/HudFloorSchemeEdit.hpp"
 #include "ArchViz/RoofSlopeHud.hpp"
 
+#include <climits>
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiWindow: which draw list is whose
 
@@ -114,6 +115,7 @@ struct State {
     std::shared_ptr<roofhud::Session> roofEditor;
     bool previewStairs = false, previewUnits = false;
     std::string floorPlanPublished;
+    int planStorey = INT_MIN; // the floor plan overlay's storey while it runs (SetPlanStorey), else INT_MIN
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
     // The flat programme the plan view fills and scores against; HUD-session state like the
     // coefficients. Typed rows wait for the owner's native prompt.

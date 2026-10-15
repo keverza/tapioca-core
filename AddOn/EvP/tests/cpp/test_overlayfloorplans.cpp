@@ -6,6 +6,9 @@
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <chrono>
+#include <climits>
+#include <cmath>
+#include <set>
 #include <thread>
 
 namespace bp = geomsrv::archviz::buildingplan;
@@ -184,4 +187,46 @@ TEST (OverlayFloorPlans, ProgrammeFromTheProjectIsAdoptedUnlessAnUnsavedEditIsWa
     pages.massing.programme = fp::Default ();
     gui.engine.SetOwnPages (pages);
     EXPECT_EQ (state.massingProgramme, fp::Default ());
+}
+
+// User, 2026-10-14: "Floor Plan overlay show all stories. units are visible but needs to solid fill
+// not just outline." On the floor plan, the units are the floor at the plan's storey, filled under
+// their outlines; 3D keeps every floor's outlines.
+TEST (OverlayFloorPlans, ThePlanShowsItsStoreysUnitsFilledAnd3DShowsEveryFloor)
+{
+    auto state = hud::NewState ();
+    const auto plan = Tower ();
+    state->floorPlanSnapshots[plan.key] = plan;
+    state->previewUnits = true;
+    layers::Layer stairs, units, onPlan;
+    ASSERT_TRUE (Planned (*state, stairs, units, 0));
+    const auto levels = [] (const layers::Layer& layer) {
+        std::set<long long> out;
+        for (const auto& line : layer.polylines)
+            for (size_t i = 2; i < line.points.size (); i += 3)
+                out.insert (std::llround (line.points[i] * 10));
+        for (const auto& mesh : layer.meshes)
+            for (size_t i = 2; i < mesh.points.size (); i += 3)
+                out.insert (std::llround (mesh.points[i] * 10));
+        return out;
+    };
+    hud::SetPlanStorey (*state, 1);
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    EXPECT_EQ (onPlan.name, bp::kPlanUnitsLayer);
+    EXPECT_EQ (onPlan.views, layers::Views::TwoD);
+    EXPECT_EQ (units.views, layers::Views::ThreeD);
+    EXPECT_EQ (levels (onPlan), (std::set<long long> { 30 })) << "the plan's storey alone, at 3 m";
+    EXPECT_EQ (levels (units).size (), 3u) << "3D: every floor";
+    ASSERT_FALSE (onPlan.meshes.empty ()) << "flats filled";
+    for (const auto& mesh : onPlan.meshes)
+        EXPECT_EQ (mesh.rgba & 0xFFu, 0x59u) << "a fill shows the plan through it";
+    EXPECT_TRUE (layers::Validate (onPlan).empty ());
+    // Another storey on the plan: its floor instead.
+    hud::SetPlanStorey (*state, 2);
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    EXPECT_EQ (levels (onPlan), (std::set<long long> { 60 }));
+    // The plan overlay not running: nothing on the plan.
+    hud::SetPlanStorey (*state, INT_MIN);
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    EXPECT_TRUE (onPlan.polylines.empty () && onPlan.meshes.empty ());
 }
