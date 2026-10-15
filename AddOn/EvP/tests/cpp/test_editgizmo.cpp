@@ -318,3 +318,23 @@ TEST (EditGizmo, StretchingASegmentSidewaysPushesTheWholeEdge)
     EXPECT_NEAR (ed::Find (s.Doc (), e)->vertices[2].p.x, 2.5, 1e-9);
     EXPECT_NEAR (ed::Find (s.Doc (), e)->vertices[0].p.x, 0.0, 1e-9);
 }
+
+TEST (EditGizmo, HandlesSeenEdgeOnAreNeitherDrawnNorPicked)
+{
+    EXPECT_TRUE (ed::FacesTheView ({ { 5, 5 } }, false));                                     // the centre
+    EXPECT_TRUE (ed::FacesTheView ({ { 0, 0 }, { 40, 0 } }, false));                          // an axis across the view
+    EXPECT_FALSE (ed::FacesTheView ({ { 0, 0 }, { 0.5, 0.5 } }, false));                      // an axis into the view
+    EXPECT_TRUE (ed::FacesTheView ({ { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } }, true));    // a plane face-on
+    EXPECT_FALSE (ed::FacesTheView ({ { 0, 0 }, { 10, 0 }, { 10, 0.2 }, { 0, 0.2 } }, true)); // ...side-on
+    // In plan the planes and rings about X and Y are side-on: a pick on their line finds nothing.
+    ed::Frame f;
+    ed::PickView plan;
+    plan.toScreen = [] (ed::Vec3 p, double& x, double& y) {
+        x = p.x * 100.0;
+        y = p.y * 100.0;
+        return true;
+    };
+    const auto rotate = ed::Handles (ed::GizmoMode::Rotate);
+    EXPECT_EQ (ed::PickHandle (f, rotate, 1.0, plan, 0, 60, 4), -1) << "the X ring is a line in plan";
+    EXPECT_EQ (ed::PickHandle (f, rotate, 1.0, plan, 80, 0, 4), 3) << "the Z ring faces the plan";
+}

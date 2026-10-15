@@ -435,6 +435,27 @@ std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handl
     return {};
 }
 
+bool FacesTheView (const std::vector<std::pair<double, double>>& s, bool closed)
+{
+    if (s.size () <= 1)
+        return true; // a point is a point from anywhere
+    double extent = 0.0;
+    for (const auto& q : s)
+        extent = std::max (extent, std::hypot (q.first - s[0].first, q.second - s[0].second));
+    if (extent < 2.0)
+        return false;
+    if (!closed || s.size () < 3)
+        return true;
+    // A closed shape side-on has almost no area for its size.
+    double area = 0.0;
+    for (size_t i = 0; i < s.size (); ++i) {
+        const auto& a = s[i];
+        const auto& b = s[(i + 1) % s.size ()];
+        area += a.first * b.second - b.first * a.second;
+    }
+    return std::abs (area) * 0.5 >= 0.08 * extent * extent;
+}
+
 int PickHandle (const Frame& frame, const std::vector<Handle>& handles, double size, const PickView& view, double x,
                 double y, double radius)
 {
@@ -453,11 +474,8 @@ int PickHandle (const Frame& frame, const std::vector<Handle>& handles, double s
             }
             if (s.size () != shape.points.size ())
                 continue;
-            // A handle seen end-on collapses to a point on screen and cannot be dragged.
-            double extent = 0.0;
-            for (const auto& q : s)
-                extent = std::max (extent, std::hypot (q.first - s[0].first, q.second - s[0].second));
-            if (s.size () > 1 && extent < 2.0)
+            // A handle seen edge-on is not drawn, so it cannot be dragged either.
+            if (!FacesTheView (s, shape.closed))
                 continue;
             const auto consider = [&] (double d) {
                 if (d < bestDistance || (best < 0 && d <= bestDistance)) {

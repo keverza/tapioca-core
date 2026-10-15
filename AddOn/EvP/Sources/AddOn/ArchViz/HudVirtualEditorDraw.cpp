@@ -48,7 +48,165 @@ bool ShapeCentre (const Session& s, const Map& m, const edit::Ref& ref, ImVec2& 
     return true;
 }
 
+ImU32 Lighter (ImU32 c)
+{
+    const auto mix = [] (unsigned v) { return unsigned (v + (255u - v) * 0.4f); };
+    return IM_COL32 (mix (c & 0xFF), mix ((c >> 8) & 0xFF), mix ((c >> 16) & 0xFF), (c >> 24) & 0xFF);
+}
+
+ImU32 Alpha (ImU32 c, unsigned a)
+{
+    return (c & 0x00FFFFFFu) | (a << 24);
+}
+
+void Dashed (ImDrawList* list, ImVec2 a, ImVec2 b, ImU32 colour, float width, float dash, float gap)
+{
+    const float dx = b.x - a.x, dy = b.y - a.y, length = std::hypot (dx, dy);
+    if (length < 1.0f)
+        return;
+    for (float t = 0.0f; t < length; t += dash + gap) {
+        const float e = std::min (t + dash, length);
+        list->AddLine ({ a.x + dx * t / length, a.y + dy * t / length },
+                       { a.x + dx * e / length, a.y + dy * e / length }, colour, width);
+    }
+}
+
+// A stroke with a soft dark shadow under it, so it reads on white and on dark alike.
+void Stroke (ImDrawList* list, ImVec2 a, ImVec2 b, ImU32 colour, float width)
+{
+    list->AddLine (a, b, kShadow, width + 2.0f);
+    list->AddLine (a, b, colour, width);
+}
+
+void Polygon (ImDrawList* list, const std::vector<ImVec2>& p, ImU32 fill, ImU32 outline, float width)
+{
+    if (p.size () < 3)
+        return;
+    list->AddConvexPolyFilled (p.data (), int (p.size ()), fill);
+    list->AddPolyline (p.data (), int (p.size ()), kShadow, ImDrawFlags_Closed, width + 1.5f);
+    list->AddPolyline (p.data (), int (p.size ()), outline, ImDrawFlags_Closed, width);
+}
+
 } // namespace
+
+void DrawGizmo (Session& s, const Map& m, const edit::Frame& f, edit::GizmoMode mode, double size, int active,
+                bool dragging, float scale)
+{
+    using K = edit::HandleKind;
+    auto* list = s.canvas.list;
+    ImVec2 o;
+    if (!m.Screen (f.origin, o))
+        return;
+    // Stretch: the box its grips stand on, dashed, under them.
+    if (mode == edit::GizmoMode::Stretch && !dragging) {
+        Vec3 corner[4];
+        for (int k = 0; k < 4; ++k)
+            corner[k] = f.origin + f.axes[0] * (f.half[0] * ((k == 1 || k == 2) ? 1.0 : -1.0)) +
+                        f.axes[1] * (f.half[1] * (k >= 2 ? 1.0 : -1.0));
+        for (int k = 0; k < 4; ++k) {
+            ImVec2 a, b;
+            if (!m.Screen (corner[k], a) || !m.Screen (corner[(k + 1) % 4], b))
+                continue;
+            rc::Scope scope (s.canvas, { At (corner[k], a), At (corner[(k + 1) % 4], b) });
+            Dashed (list, a, b, kRule, 1.0f * scale, 5.0f * scale, 4.0f * scale);
+        }
+    }
+    for (const auto& h : edit::Handles (mode)) {
+        const bool on = int (h.index) == active;
+        if (dragging && !on)
+            continue; // a held handle alone, as the move is read off it
+        const bool axial = h.axis >= 0 && h.axis < 3 && h.kind != K::Centre && h.kind != K::ScaleUniform;
+        const ImU32 base = axial ? kAxis[h.axis] : kRule;
+        const ImU32 colour = dragging ? kAccent : on ? Lighter (base) : base;
+        const float width = (on ? 3.5f : 2.5f) * scale;
+        const Vec3 axis = h.axis >= 0 && h.axis < 3 ? f.axes[h.axis] : f.axes[2];
+        // Held, a line handle shows the line it runs on.
+        if (dragging && (h.kind == K::Axis || h.kind == K::ScaleAxis || h.kind == K::Side || h.kind == K::Face)) {
+            const Vec3 a3 = f.origin - axis * (size * 12.0), b3 = f.origin + axis * (size * 12.0);
+            ImVec2 a, b;
+            if (m.Screen (a3, a) && m.Screen (b3, b)) {
+                rc::Scope scope (s.canvas, { At (a3, a), At (b3, b) });
+                Dashed (list, a, b, Alpha (base, 150), 1.25f * scale, 8.0f * scale, 5.0f * scale);
+            }
+        }
+        for (const auto& shape : edit::HandleGeometry (f, h, size)) {
+            std::vector<ImVec2> p;
+            std::vector<std::pair<double, double>> screen;
+            for (const auto& q : shape.points) {
+                ImVec2 at;
+                if (!m.Screen (q, at))
+                    break;
+                p.push_back (at);
+                screen.push_back ({ at.x, at.y });
+            }
+            if (p.size () != shape.points.size () || !edit::FacesTheView (screen, shape.closed))
+                continue; // seen edge-on: neither drawn nor picked
+            switch (h.kind) {
+                case K::Centre: {
+                    rc::Scope scope (s.canvas, { At (shape.points[0], p[0]) });
+                    const float r = (on ? 8.0f : 6.5f) * scale;
+                    list->AddCircleFilled (p[0], r + 1.5f, kShadow);
+                    list->AddCircleFilled (p[0], r, on ? Lighter (kAccent) : kPaper);
+                    list->AddCircle (p[0], r, dragging ? kAccent : kRule, 0, 2.0f * scale);
+                    break;
+                }
+                case K::Axis:
+                case K::Face: {
+                    // A shaft clear of the centre and a filled head, as an arrow reads.
+                    const Vec3 a3 = f.origin + axis * (size * 0.2), t3 = f.origin + axis * (size * 0.8);
+                    const Vec3 e3 = shape.points.back ();
+                    ImVec2 a, t, e;
+                    if (!m.Screen (a3, a) || !m.Screen (t3, t) || !m.Screen (e3, e))
+                        break;
+                    const float dx = e.x - t.x, dy = e.y - t.y, len = std::hypot (dx, dy);
+                    if (len < 1.0f)
+                        break;
+                    const float half = std::max (4.5f * scale, len * 0.38f);
+                    const ImVec2 n { -dy / len * half, dx / len * half };
+                    rc::Scope scope (s.canvas, { At (a3, a), At (t3, t), At (e3, e) });
+                    Stroke (list, a, t, colour, width);
+                    Polygon (list, { e, { t.x + n.x, t.y + n.y }, { t.x - n.x, t.y - n.y } }, colour, colour, 1.0f);
+                    break;
+                }
+                case K::ScaleAxis:
+                    if (shape.points.size () == 2) {
+                        const Vec3 a3 = f.origin + axis * (size * 0.2);
+                        ImVec2 a;
+                        if (!m.Screen (a3, a))
+                            break;
+                        rc::Scope scope (s.canvas, { At (a3, a), At (shape.points[1], p[1]) });
+                        Stroke (list, a, p[1], colour, width);
+                    }
+                    else {
+                        rc::Scope scope (s.canvas, { At (shape.points[0], p[0]) });
+                        Polygon (list, p, colour, Lighter (colour), 1.0f); // the cube at its end
+                    }
+                    break;
+                case K::Plane: {
+                    rc::Scope scope (s.canvas, { At (shape.points[0], p[0]), At (shape.points[2], p[2]) });
+                    Polygon (list, p, Alpha (colour, on ? 150 : 80), colour, 1.5f * scale);
+                    break;
+                }
+                case K::ScaleUniform: {
+                    rc::Scope scope (s.canvas, { At (f.origin, o) });
+                    Polygon (list, p, Alpha (colour, on ? 120 : 50), colour, 2.0f * scale);
+                    break;
+                }
+                case K::Side: {
+                    rc::Scope scope (s.canvas, { At (shape.points[0], p[0]), At (shape.points[2], p[2]) });
+                    Polygon (list, p, colour, on || dragging ? kInk : Lighter (colour), 1.5f * scale);
+                    break;
+                }
+                case K::Ring: {
+                    rc::Scope scope (s.canvas, { At (f.origin, o) });
+                    list->AddPolyline (p.data (), int (p.size ()), kShadow, ImDrawFlags_Closed, width + 2.0f);
+                    list->AddPolyline (p.data (), int (p.size ()), colour, ImDrawFlags_Closed, width);
+                    break;
+                }
+            }
+        }
+    }
+}
 
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale)
 {

@@ -49,6 +49,10 @@ void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::str
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
+// The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered
+// or, while `dragging`, held -- then it alone is drawn, with a guide along its axis.
+void DrawGizmo (Session& s, const Map& m, const edit::Frame& frame, edit::GizmoMode mode, double size, int active,
+                bool dragging, float scale);
 
 const edit::Document& Doc (const Session& s);
 // Ends the line a drawing tool is placing: a polyline or a path, selected.

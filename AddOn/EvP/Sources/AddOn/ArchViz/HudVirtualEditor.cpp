@@ -818,22 +818,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // The gizmo.
     if (gizmo && s.drag != Drag::Part) {
         // Through a drag the gumball rides what it moves: carried and turned with it.
-        const edit::Frame f = s.drag == Drag::Handle && s.handle >= 0 ? edit::Moved (s.frame, s.dragTransform) : frame;
-        for (const auto& h : handles) {
-            const bool active = int (h.index) == (s.drag == Drag::Handle ? s.handle : s.hoverHandle);
-            const ImU32 colour = active ? kSnap : h.axis >= 0 && h.axis < 3 ? kAxis[h.axis] : kHover;
-            for (const auto& shape : edit::HandleGeometry (f, h, gizmoSize)) {
-                if (shape.points.size () == 1) {
-                    Dot (s, m, shape.points[0], 5.0f * scale, colour);
-                    continue;
-                }
-                const size_t n = shape.points.size (), edges = shape.closed ? n : n - 1;
-                for (size_t i = 0; i < edges; ++i)
-                    Line (s, m, shape.points[i], shape.points[(i + 1) % n], colour, (active ? 4.0f : 2.5f) * scale);
-                if (h.kind == edit::HandleKind::Axis || h.kind == edit::HandleKind::Face)
-                    Dot (s, m, shape.points.back (), 4.0f * scale, colour);
-            }
-        }
+        const bool dragging = s.drag == Drag::Handle;
+        const edit::Frame f = dragging && s.handle >= 0 ? edit::Moved (s.frame, s.dragTransform) : frame;
+        DrawGizmo (s, m, f, s.gizmo, gizmoSize, dragging ? s.handle : s.hoverHandle, dragging, scale);
     }
 
     // The marquee, in screen pixels: left to right solid (contained), right to left dashed-thin (touched).

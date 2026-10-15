@@ -90,6 +90,9 @@ struct HandleShape {
     bool closed = false;
 };
 std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handle, double size);
+// A handle shape as it projects, in pixels: false when it is seen edge-on -- a line into
+// the view, a plane or a ring side-on. Such a shape is neither drawn nor picked.
+bool FacesTheView (const std::vector<std::pair<double, double>>& screen, bool closed);
 // The handle nearest the cursor within `radius` pixels, or -1.
 int PickHandle (const Frame& frame, const std::vector<Handle>& handles, double size, const PickView& view, double x,
                 double y, double radius);
