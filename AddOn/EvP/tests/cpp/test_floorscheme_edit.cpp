@@ -762,3 +762,29 @@ TEST (FloorSchemeEdit, AStairZonesDivisionMovesAndTheZonesFollow)
     }
     EXPECT_NE (moved, was) << "the division moved";
 }
+
+// A flat-count edit holds every row's flats, not only the row it laid again: planned again, the
+// floor's mix must not take a flat back from an untouched row (with the floor planned to its main
+// walls, one more flat in a row cost another row one -- the count unchanged).
+TEST (FloorSchemeEdit, ACountChangedHoldsEveryRowsFlats)
+{
+    Floor f ({ Rect (0, 0, 60, 16) });
+    const int flats = int (f.scheme.flats.size ());
+    const auto d = fe::SetCount (f.scheme, f.session.design, flats + 1);
+    for (size_t b = 0; b < f.scheme.bands.size (); ++b) {
+        bool row = false, held = false;
+        for (const auto& flat : f.scheme.flats)
+            if (flat.band == int (b)) {
+                row = true;
+                held =
+                    held || std::any_of (d.pins.counts.begin (), d.pins.counts.end (), [&] (const fs::Pins::Count& c) {
+                        return fe::FlatAt (f.scheme, c.at) >= 0 &&
+                               f.scheme.flats[fe::FlatAt (f.scheme, c.at)].band == int (b);
+                    });
+            }
+        EXPECT_TRUE (!row || held) << "row " << b << " holds its count";
+    }
+    // Nothing asked, nothing pinned.
+    const auto same = fe::SetCount (f.scheme, f.session.design, flats);
+    EXPECT_TRUE (same.pins.counts.empty ());
+}

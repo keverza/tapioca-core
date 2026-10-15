@@ -239,8 +239,11 @@ Design SetCount (const Scheme& s, Design d, int total, std::string* why, double 
         joins.push_back ({ Within (s.flats[gone].shape), Within (s.flats[into].shape) });
         group[root (gone)] = root (into), --now;
     }
+    // A count changed holds every row's flats as they are: a row laid again with one more must not
+    // cost another row one when the floor is planned again (the mix rebalancing the untouched rows).
+    const bool changed = now != static_cast<int> (s.flats.size ());
     for (size_t b = 0; b < bands.size (); ++b)
-        if (touched[b])
+        if (touched[b] || changed)
             d = Write (s, std::move (d), bands[b]);
     for (const auto& j : joins) {
         const int gone = FlatAt (s, j.from);
