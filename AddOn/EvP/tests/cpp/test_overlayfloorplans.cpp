@@ -230,3 +230,37 @@ TEST (OverlayFloorPlans, ThePlanShowsItsStoreysUnitsFilledAnd3DShowsEveryFloor)
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
     EXPECT_TRUE (onPlan.polylines.empty () && onPlan.meshes.empty ());
 }
+
+// User, 2026-10-14: "Deselected with escape slab loses ability to edit in plan overlay and have to
+// exit the locked mode to reselect." The floors come from the selected massing; locked, Archicad
+// cannot be clicked to select again, so a deselection keeps the floors and their designs. Unlocked,
+// a deselection that brings no floors leaves none, as before.
+TEST (OverlayFloorPlans, LockedADeselectionKeepsTheFloorsBeingEdited)
+{
+    hudtest::Watched gui;
+    hud::OwnPages selected;
+    const auto plan = Tower ();
+    selected.floorPlansKnown = true;
+    selected.floorPlans = { plan };
+    selected.selection.known = true;
+    selected.selection.count = 1;
+    gui.engine.SetOwnPages (selected);
+    gui.state->buildingPlans[plan.key].designs.unique = { 1 };
+    hud::SetEditLocked (*gui.state, true);
+    hud::OwnPages none; // what the pages say once the slab is deselected: no massing, no floors
+    none.selection.known = true;
+    none.selection.count = 0;
+    gui.engine.SetOwnPages (none);
+    EXPECT_EQ (gui.state->floorPlanSnapshots.size (), 1u) << "locked: the floors stay to edit";
+    EXPECT_EQ (gui.state->buildingPlans.at (plan.key).designs.unique.size (), 1u);
+    // A new selection while locked (a building picked elsewhere) is taken as it comes.
+    auto other = plan;
+    other.key = "building:Other";
+    selected.floorPlans = { other };
+    gui.engine.SetOwnPages (selected);
+    EXPECT_TRUE (gui.state->floorPlanSnapshots.contains (other.key));
+    // Unlocked, a deselection with no floors leaves none.
+    hud::SetEditLocked (*gui.state, false);
+    gui.engine.SetOwnPages (none);
+    EXPECT_TRUE (gui.state->floorPlanSnapshots.empty ());
+}

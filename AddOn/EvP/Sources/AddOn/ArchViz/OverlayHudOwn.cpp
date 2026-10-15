@@ -15,14 +15,23 @@ namespace overlayhud {
 
 void Engine::SetOwnPages (OwnPages pages)
 {
-    impl_->store->floorPlanSnapshots.clear ();
-    if (pages.floorPlansKnown)
-        for (const auto& plan : pages.floorPlans)
-            impl_->store->floorPlanSnapshots[plan.key] = plan;
-    else
-        for (const auto& preview : pages.buildings)
-            impl_->store->floorPlanSnapshots[preview.building.key] = preview.plan;
-    if (!pages.buildings.empty () || pages.selection.count == 0) {
+    // ⚠️ LOCKED, NOTHING SELECTED KEEPS THE FLOORS BEING EDITED (user, 2026-10-14: "Deselected with
+    // escape slab loses ability to edit in plan overlay and have to exit the locked mode to
+    // reselect"). The floors come from the selected massing; while the view is the HUD's, Archicad
+    // cannot be clicked to select again, so a deselection leaves the floors, their designs and the
+    // building picked as they were. Unlocked, the pages say what there is, as before.
+    const bool keep = impl_->store->editLocked && pages.selection.count == 0 && pages.buildings.empty () &&
+                      pages.floorPlans.empty () && !impl_->store->floorPlanSnapshots.empty ();
+    if (!keep) {
+        impl_->store->floorPlanSnapshots.clear ();
+        if (pages.floorPlansKnown)
+            for (const auto& plan : pages.floorPlans)
+                impl_->store->floorPlanSnapshots[plan.key] = plan;
+        else
+            for (const auto& preview : pages.buildings)
+                impl_->store->floorPlanSnapshots[preview.building.key] = preview.plan;
+    }
+    if (!keep && (!pages.buildings.empty () || pages.selection.count == 0)) {
         const auto has = [&] (const std::string& key) {
             return std::any_of (pages.buildings.begin (), pages.buildings.end (),
                                 [&] (const auto& preview) { return preview.building.key == key; });
