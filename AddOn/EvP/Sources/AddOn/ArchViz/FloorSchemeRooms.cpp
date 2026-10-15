@@ -633,6 +633,16 @@ void Grow (Flat& flat, const Ring& shape, const Ring& inner)
         flat.roomList[i].width = b.W (), flat.roomList[i].depth = b.H ();
     }
 }
+// Every room inside `shape`: a room count wider than the facade it is laid along runs past it.
+bool Contained (const Flat& flat, const Ring& shape)
+{
+    const cp::PathsD outline { ToPath (Counter (shape)) };
+    for (const auto& room : flat.roomList)
+        if (detail::Area (
+                cp::Difference ({ ToPath (Counter (room.shape)) }, outline, cp::FillRule::NonZero, kPrecision)) > 0.05)
+            return false;
+    return true;
+}
 } // namespace
 
 bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
@@ -645,7 +655,7 @@ bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
     };
     std::array<Vec, 4> r;
     if (Corners (flat.shape, r))
-        return Rectangle (flat, r, sides) || manual ();
+        return (Rectangle (flat, r, sides) && Contained (flat, flat.shape)) || manual ();
     // Any other outline: the rooms in its largest rectangle along the facade they face, grown over
     // the rest. The facade direction is the flat's axis when facade runs that way, else the one
     // with the most facade.
@@ -691,6 +701,8 @@ bool PlanRooms (Flat& flat, const std::vector<Side>& sides)
             if (!Corners (inner.shape, corners) || !Rectangle (inner, corners, sides))
                 continue;
             Grow (inner, shape, inner.shape);
+            if (!Contained (inner, shape))
+                continue;
             flat.roomList = std::move (inner.roomList);
             flat.windows = std::move (inner.windows);
             flat.door = inner.door;

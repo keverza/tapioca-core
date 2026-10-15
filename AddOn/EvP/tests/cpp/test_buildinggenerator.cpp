@@ -337,6 +337,37 @@ TEST (BuildingGenerator, ASlantedEndIsLeftToTheFlatsRest)
     EXPECT_TRUE (bt::Check (g.complex).empty ()) << Codes (bt::Check (g.complex));
 }
 
+// More rooms than any rectangle of the outline holds along its facade: no room is laid past the
+// outline -- another rectangle takes them, or they are left to the user.
+TEST (BuildingGenerator, RoomsThatDoNotFitTheFacadeAreNotLaidPastIt)
+{
+    const fs::Ring t { { 0, 0 },     { 11.64, 0 },  { 11.64, 7.1 }, { 7.1, 7.1 },
+                       { 7.1, 8.9 }, { 7.15, 8.9 }, { 7.15, 16 },   { 0, 16 } };
+    // A corridor's end flat joined to the row flat beside it (FloorScheme Pins::Join), five rooms.
+    fs::Flat flat;
+    flat.shape = t;
+    flat.rooms = 5;
+    flat.axis = { 1, 0 };
+    using K = fs::Side;
+    const std::vector<fs::Side> sides { { K::Facade, { 0, 0 }, { 11.64, 0 } },
+                                        { K::Blind, { 11.64, 0 }, { 11.64, 7.1 } },
+                                        { K::Corridor, { 11.64, 7.1 }, { 7.1, 7.1 } },
+                                        { K::Corridor, { 7.1, 7.1 }, { 7.1, 8.9 } },
+                                        { K::Blind, { 7.15, 8.9 }, { 7.15, 16 } },
+                                        { K::Facade, { 7.15, 16 }, { 0, 16 } },
+                                        { K::Facade, { 0, 16 }, { 0, 0 } } };
+    fs::PlanRooms (flat, sides);
+    EXPECT_TRUE (flat.manual || !flat.roomList.empty ());
+    for (const auto& room : flat.roomList)
+        for (const auto& p : room.shape) {
+            EXPECT_GE (p.x, -0.05);
+            EXPECT_LE (p.x, 11.69) << "a room past the outline";
+            EXPECT_GE (p.y, -0.05);
+            EXPECT_LE (p.y, 16.05);
+            EXPECT_FALSE (p.x > 7.2 && p.y > 7.15) << "a room in the neighbour's floor at " << p.x << "," << p.y;
+        }
+}
+
 // Replanning a flat from the walls the complex gives it is the generator's own room plan.
 TEST (BuildingGenerator, ReplanningAUnitInItsFloorGivesTheGeneratorsRooms)
 {
