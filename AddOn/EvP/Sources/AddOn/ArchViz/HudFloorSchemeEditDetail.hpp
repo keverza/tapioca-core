@@ -81,9 +81,9 @@ struct Editor {
     // Why the last edit could not be made, in a sentence (user, 2026-10-14: no silent failure):
     // under the tools, and on the view while locked. Cleared by the next edit that is made.
     std::string notice;
-    double noticeAt = -1; // ImGui time it was said
+    double noticeAt = -1; // detail::Now () when it was said
     // The flats flowing to a scheme just planned (user, 2026-10-14: reflow "like amebae, bubbles"),
-    // from the ImGui time it arrived; the canvas draws them for kMorphSeconds.
+    // from detail::Now () when it arrived; the canvas draws them for kMorphSeconds.
     std::vector<Morph> morphs;
     double morphStart = -1;
 };
@@ -168,6 +168,12 @@ std::vector<Morph> Morphs (const std::vector<std::pair<fs::Ring, ImU32>>& before
                            const floorprogramme::Programme& programme);
 // The outline `t` of the way (0 to 1, eased out).
 std::vector<fs::Vec> Between (const Morph& m, double t);
+// Seconds on the process's steady clock: what an editor's morph and notice are timed by. Never
+// ImGui::GetTime: that is one HUD's clock, from when its context was made, and the editors are
+// shared by the 3D and the Plan HUD -- a morph stamped by the older HUD's clock was "still flowing"
+// for the younger one until it caught up, minutes, asking for a layout every frame meanwhile.
+double Now ();
+// A morph flows for kMorphSeconds after it starts, and never before.
 bool Flowing (const Editor& e, double now);
 // What the editor shows at `now`: its morphs part way, or its scheme's flats.
 std::vector<std::pair<fs::Ring, ImU32>> Showing (const Editor& e, const floorprogramme::Programme& programme,

@@ -70,11 +70,12 @@ void Commit (Editor& e, Context& c, fe::Design next)
 void Notice (Editor& e, std::string text)
 {
     e.notice = std::move (text);
-    e.noticeAt = ImGui::GetTime ();
+    e.noticeAt = Now ();
 }
 std::string Fresh (const Editor& e)
 {
-    return !e.notice.empty () && ImGui::GetTime () - e.noticeAt < kNoticeSeconds ? e.notice : std::string ();
+    const double since = Now () - e.noticeAt;
+    return !e.notice.empty () && since >= 0 && since < kNoticeSeconds ? e.notice : std::string ();
 }
 bool Apply (Editor& e, Context& c, const fe::Design& from, fe::Design next, const std::string& why)
 {
@@ -227,8 +228,8 @@ Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp
     e.real = bp::FloorRings (floor);
     if (planned && planned->revision != e.revision) {
         // The flats flow from what is shown now to where they are planned.
-        if (e.have && ImGui::GetCurrentContext ()) {
-            const double now = ImGui::GetTime ();
+        if (e.have) {
+            const double now = Now ();
             e.morphs = Morphs (Showing (e, c.programme, now), planned->scheme, c.programme);
             e.morphStart = now;
         }

@@ -1021,3 +1021,25 @@ TEST (HudFloorSchemeEdit, FlatsFlowFromWhereTheyWereToWhereTheyArePlanned)
     EXPECT_FALSE (hf::detail::Flowing (e, 10 + hf::kMorphSeconds + 0.01));
     EXPECT_EQ (hf::detail::Showing (e, fp::Default (), 10 + hf::kMorphSeconds + 0.01).size (), 2u);
 }
+
+// User, 2026-10-15: "Switching between 2D floor plan and 3d takes very long ... it should not freeze
+// archicad for 1 minute." The editors are shared by the 3D and the Plan HUD, each with its own ImGui
+// context and clock; a morph stamped by the older clock was still flowing on the younger one's until
+// it caught up -- the 8-minute PULSE gap of 14:16:29 -- and the HUD asked for a layout every frame,
+// starving Archicad's timers. A morph is timed by one steady clock and never flows before its start.
+TEST (HudFloorSchemeEdit, AMorphSettlesInRealTimeWhicheverHudStampedIt)
+{
+    hf::Editor e;
+    e.morphs.resize (1);
+    e.morphStart = 500;
+    EXPECT_FALSE (hf::detail::Flowing (e, 12)) << "stamped by a clock 488 s ahead: not flowing";
+    std::map<std::string, hf::EditorPtr> editors;
+    editors["a"].reset (new hf::Editor);
+    editors["a"]->morphs.resize (1);
+    editors["a"]->morphStart = hf::detail::Now () + 500;
+    EXPECT_FALSE (hf::Animating (editors)) << "a start in the future asks for no layouts";
+    editors["a"]->morphStart = hf::detail::Now ();
+    EXPECT_TRUE (hf::Animating (editors)) << "no ImGui context needed: the clock is the process's";
+    editors["a"]->morphStart = hf::detail::Now () - hf::kMorphSeconds - 0.01;
+    EXPECT_FALSE (hf::Animating (editors)) << "settled after kMorphSeconds";
+}

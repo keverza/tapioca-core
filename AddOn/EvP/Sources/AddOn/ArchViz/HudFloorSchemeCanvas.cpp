@@ -859,7 +859,7 @@ void Canvas (Editor& e, Context& c, float scale)
         }
     // A scheme just planned: the flats flow to it -- the floor and what is unassigned under them,
     // the circulation over them -- and settle before their outlines, rooms and labels show.
-    const double now = ImGui::GetTime ();
+    const double now = Now ();
     const bool flowing = shown == &s && Flowing (e, now);
     if (shown == &s && !flowing)
         fill (e.fills);

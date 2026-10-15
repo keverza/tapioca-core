@@ -1,5 +1,6 @@
 #include "ArchViz/HudFloorSchemeEditDetail.hpp"
 #include "ArchViz/HudShell.hpp"
+#include <chrono>
 #include <clipper2/clipper.h>
 
 // A floor's flats flowing from where they were to where they are when the floor is planned again
@@ -139,9 +140,15 @@ std::vector<fs::Vec> Between (const Morph& m, double t)
         out[i] = { m.from[i].x + (m.to[i].x - m.from[i].x) * e, m.from[i].y + (m.to[i].y - m.from[i].y) * e };
     return out;
 }
+double Now ()
+{
+    using clock = std::chrono::steady_clock;
+    static const clock::time_point origin = clock::now ();
+    return std::chrono::duration<double> (clock::now () - origin).count ();
+}
 bool Flowing (const Editor& e, double now)
 {
-    return !e.morphs.empty () && e.morphStart >= 0 && now - e.morphStart < kMorphSeconds;
+    return !e.morphs.empty () && e.morphStart >= 0 && now >= e.morphStart && now - e.morphStart < kMorphSeconds;
 }
 std::vector<std::pair<fs::Ring, ImU32>> Showing (const Editor& e, const floorprogramme::Programme& programme,
                                                  double now)
@@ -161,9 +168,7 @@ std::vector<std::pair<fs::Ring, ImU32>> Showing (const Editor& e, const floorpro
 
 bool Animating (const std::map<std::string, EditorPtr>& editors)
 {
-    if (!ImGui::GetCurrentContext ())
-        return false;
-    const double now = ImGui::GetTime ();
+    const double now = detail::Now ();
     return std::any_of (editors.begin (), editors.end (),
                         [&] (const auto& entry) { return entry.second && detail::Flowing (*entry.second, now); });
 }
