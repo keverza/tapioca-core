@@ -160,9 +160,9 @@ std::vector<Handle> Handles (GizmoMode mode)
             break;
         case GizmoMode::Scale:
             add (HandleKind::Centre, -1, false, 2, Quantity::Distance);
-            add (HandleKind::ScaleUniform, 2, true, 1, Quantity::Distance);
+            add (HandleKind::ScaleUniform, 2, true, 1, Quantity::Factor);
             for (int a = 0; a < 3; ++a)
-                add (HandleKind::ScaleAxis, a, true, 0, Quantity::Distance);
+                add (HandleKind::ScaleAxis, a, true, 0, Quantity::Factor);
             break;
         case GizmoMode::Stretch:
             // A grip on each side of the selection's box in plan.

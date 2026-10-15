@@ -339,6 +339,8 @@ void Escape (Session& s)
 {
     if (s.tracker.State () == edit::TrackerState::Editing)
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });
+    else if (s.typedHandle >= 0)
+        s.typedHandle = -1, s.message.clear ();
     else if (s.drag != Drag::None) {
         s.edits.Cancel ();
         s.drag = Drag::None;
@@ -365,6 +367,19 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
     }
     if (event.outcome != O::Commit)
         return;
+    if (s.typedHandle >= 0) {
+        // The clicked handle's number: the same transform a drag of that size would make.
+        const edit::Handle h = edit::Handles (s.gizmo)[size_t (s.typedHandle)];
+        const auto r = edit::FromValue (s.typedFrame, h, event.value);
+        s.typedHandle = -1;
+        if (!r.ok)
+            s.message = r.error;
+        else if (!s.edits.Apply (edit::TransformOperation (s.selection.Items (), r.transform)))
+            s.message = s.edits.Message ();
+        else
+            s.message.clear ();
+        return;
+    }
     if (!s.drawing.empty ()) {
         // A typed length places the next point along the pointer's current direction.
         const Vec3 last = s.drawing.back ();
@@ -404,6 +419,15 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
     }
     if (s.selection.Items ().empty ())
         return items;
+    if (s.typedHandle >= 0 && size_t (s.typedHandle) < edit::Handles (s.gizmo).size ()) {
+        const edit::Handle h = edit::Handles (s.gizmo)[size_t (s.typedHandle)];
+        const int a = h.axis >= 0 && h.axis < 3 ? h.axis : 2;
+        const double now = h.quantity == edit::Quantity::Factor ? 1.0
+                           : h.kind == edit::HandleKind::Side   ? 2.0 * s.typedFrame.half[a]
+                                                                : 0.0;
+        items.push_back ({ h.quantity, now });
+        return items;
+    }
     dims = edit::DimensionsFor (Doc (s), s.selection.Items ().front ());
     for (const auto& d : dims) {
         double value = 0.0;
@@ -565,8 +589,11 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     else if (!hovered && s.drag == Drag::None)
         s.selection.hover = {}, s.hoverHandle = -1;
 
-    // Press.
+    // Press. A handle waiting for its number gives way to whatever is pressed next.
+    if (s.typedHandle >= 0 && s.typedMode != s.gizmo)
+        s.typedHandle = -1;
     if (hovered && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
+        s.typedHandle = -1;
         if (s.tool != Tool::Select) {
             const double z = s.drawing.empty () ? s.workZ : s.drawing.back ().z;
             Vec3 p;
@@ -591,6 +618,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             s.handle = s.hoverHandle;
             s.frame = frame;
             s.dragTransform = {};
+            s.typedHandle = -1;
+            s.startX = mouse.x, s.startY = mouse.y;
             s.dragPlanar = v.planar;
             if (m.RayAt (mouse.x, mouse.y, frame.origin.z, frame.origin, s.startRay) && s.edits.Begin ())
                 s.message.clear ();
@@ -734,7 +763,19 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
     }
 
-    // Release.
+    // Release. A handle clicked without a drag asks for its number instead.
+    if (ImGui::IsMouseReleased (0) && s.drag == Drag::Handle && s.handle >= 0 &&
+        std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f &&
+        edit::Handles (s.gizmo)[size_t (s.handle)].focusable) {
+        s.edits.Cancel ();
+        s.typedHandle = s.handle;
+        s.typedMode = s.gizmo;
+        s.typedFrame = s.frame;
+        s.dragTransform = {};
+        s.drag = Drag::None;
+        s.snap = {};
+        s.message = "Type the value, Enter applies, Esc cancels.";
+    }
     if (ImGui::IsMouseReleased (0)) {
         if (s.drag == Drag::Part || s.drag == Drag::Handle) {
             s.edits.End ();
@@ -820,7 +861,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         // Through a drag the gumball rides what it moves: carried and turned with it.
         const bool dragging = s.drag == Drag::Handle;
         const edit::Frame f = dragging && s.handle >= 0 ? edit::Moved (s.frame, s.dragTransform) : frame;
-        DrawGizmo (s, m, f, s.gizmo, gizmoSize, dragging ? s.handle : s.hoverHandle, dragging, scale);
+        const int lit = dragging ? s.handle : s.typedHandle >= 0 ? s.typedHandle : s.hoverHandle;
+        DrawGizmo (s, m, s.typedHandle >= 0 ? s.typedFrame : f, s.gizmo, gizmoSize, lit, dragging, scale);
     }
 
     // The marquee, in screen pixels: left to right solid (contained), right to left dashed-thin (touched).

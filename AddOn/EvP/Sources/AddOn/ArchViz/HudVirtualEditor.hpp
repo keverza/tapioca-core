@@ -69,6 +69,11 @@ struct Session {
     int handle = -1, hoverHandle = -1;
     edit::Frame frame;
     edit::Transform dragTransform; // the handle drag's transform so far: the gumball rides it
+    // A gumball handle clicked without a drag: the tracker asks for its number (a distance,
+    // an angle, a factor or a width) and Enter applies it about `typedFrame`.
+    int typedHandle = -1;
+    edit::GizmoMode typedMode = edit::GizmoMode::Move;
+    edit::Frame typedFrame;
     edit::Ray startRay;
     edit::Vec3 anchor, startCursor;
     float startX = 0.0f, startY = 0.0f;

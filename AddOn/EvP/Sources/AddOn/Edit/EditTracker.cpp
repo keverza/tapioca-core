@@ -30,6 +30,8 @@ const char* QuantityName (Quantity quantity)
             return "Height";
         case Quantity::Radius:
             return "Radius";
+        case Quantity::Factor:
+            return "Scale";
     }
     return "";
 }
@@ -41,6 +43,8 @@ const char* QuantityUnit (Quantity quantity)
             return "deg";
         case Quantity::Slope:
             return "%";
+        case Quantity::Factor:
+            return "x";
         default:
             return "m";
     }

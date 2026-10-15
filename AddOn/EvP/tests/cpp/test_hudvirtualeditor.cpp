@@ -341,3 +341,39 @@ TEST (HudVirtualEditor, GumballFollowsTheShapeAndKeepsAMovedPivot)
     d.S ().selection.Clear (); // another selection has its own centre
     EXPECT_NEAR (eh::GizmoFrame (d.S ()).origin.x, 0.0, 1e-9);
 }
+
+TEST (HudVirtualEditor, ClickingAGumballHandleAsksForItsNumber)
+{
+    Drive d (Corner ());
+    d.Press (800, 300); // the vertex at (10, 10)
+    d.Release (800, 300);
+    d.At (840, 300); // on the X arrow
+    ASSERT_GE (d.S ().hoverHandle, 0);
+    d.Press (840, 300);
+    d.Release (840, 300); // a click, not a drag
+    ASSERT_GE (d.S ().typedHandle, 0);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u); // nothing moved yet
+    ASSERT_FALSE (d.S ().tracker.Items ().empty ());
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Distance);
+    d.input.characters = u"2.5";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.5, 1e-9);
+    EXPECT_EQ (d.S ().typedHandle, -1);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // Rotate: a click on the ring asks for degrees.
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    d.S ().gizmo = ed::GizmoMode::Rotate;
+    const ed::Frame f = eh::GizmoFrame (d.S ());
+    const double r = 0.8 * 70.0 / 20.0; // the ring: 0.8 of the gizmo's 70 px, at 20 px a metre
+    const float x = 600 + 20 * float (f.origin.x + r), y = 500 - 20 * float (f.origin.y);
+    d.At (x, y);
+    ASSERT_GE (d.S ().hoverHandle, 0);
+    d.Press (x, y);
+    d.Release (x, y);
+    ASSERT_GE (d.S ().typedHandle, 0);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Angle);
+    d.Key (0x1B); // Esc gives the number up
+    EXPECT_EQ (d.S ().typedHandle, -1);
+}

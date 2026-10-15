@@ -22,6 +22,9 @@ std::string FormatValue (edit::Quantity quantity, double value)
         case edit::Quantity::Elevation:
             std::snprintf (text, sizeof text, "%+.2f m", value);
             break;
+        case edit::Quantity::Factor:
+            std::snprintf (text, sizeof text, "x%.3f", value);
+            break;
         default:
             std::snprintf (text, sizeof text, "%.2f m", value);
             break;
