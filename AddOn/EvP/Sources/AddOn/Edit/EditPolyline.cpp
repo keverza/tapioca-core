@@ -1,4 +1,5 @@
 #include "Edit/EditPolyline.hpp"
+#include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -681,14 +682,60 @@ std::vector<Action> PolylineActions (const ActionDefaults& d)
                               return true;
                           });
                       } });
-    table.push_back ({ "fillet", "Fillet", vertex, 0xFu, 1, 0, [d] (const Document&, const Refs& refs) {
+    // A fillet is a live corner: it keeps its radius, editable by its grip or by a typed
+    // value, until it is baked into points.
+    table.push_back ({ "fillet", "Round corner", vertex, 0xFu, 1, 0, [d] (const Document&, const Refs& refs) {
                           return Operation ([refs, d] (Document& x, std::string& error) {
                               for (const auto& r : refs)
-                                  if (!Fillet (x, r.entity, r.item, d.filletRadius, 8, error))
+                                  if (!SetCornerRadius (x, r.entity, { r.item }, d.filletRadius, error))
                                       return false;
                               return true;
                           });
                       } });
+    table.push_back ({ "sharpen", "Sharp corner", vertex, 0xFu, 1, 0, [] (const Document& doc, const Refs& refs) {
+                          bool any = false;
+                          for (const auto& r : refs)
+                              if (const Entity* e = Find (doc, r.entity))
+                                  for (const auto& v : e->vertices)
+                                      any = any || (v.id == r.item && v.radius > 0.0);
+                          if (!any)
+                              return Operation {};
+                          return Operation ([refs] (Document& x, std::string& error) {
+                              for (const auto& r : refs)
+                                  if (!SetCornerRadius (x, r.entity, { r.item }, 0.0, error))
+                                      return false;
+                              return true;
+                          });
+                      } });
+    table.push_back ({ "bake-corners", "Turn rounded corners into points", entity, 0xFu, 1, 0,
+                       [] (const Document& doc, const Refs& refs) {
+                           bool any = false;
+                           for (const auto& r : refs)
+                               if (const Entity* e = Find (doc, r.entity))
+                                   for (const auto& v : e->vertices)
+                                       any = any || v.radius > 0.0;
+                           if (!any)
+                               return Operation {};
+                           return Operation ([refs] (Document& x, std::string& error) {
+                               for (const auto& r : refs) {
+                                   std::vector<std::pair<Id, double>> rounded;
+                                   if (const Entity* e = Find (x, r.entity))
+                                       for (size_t i = 0; i < e->vertices.size (); ++i)
+                                           if (e->vertices[i].radius > 0.0)
+                                               rounded.push_back ({ e->vertices[i].id, DrawnRadius (*e, i) });
+                                   for (const auto& [id, radius] : rounded) {
+                                       Entity* e = Find (x, r.entity);
+                                       const int i = VertexIndex (*e, id);
+                                       if (i < 0)
+                                           continue;
+                                       e->vertices[size_t (i)].radius = 0.0;
+                                       if (radius > 0.0 && !Fillet (x, r.entity, id, radius, 8, error))
+                                           return false;
+                                   }
+                               }
+                               return true;
+                           });
+                       } });
     table.push_back ({ "chamfer", "Chamfer", vertex, 0xFu, 1, 0, [d] (const Document&, const Refs& refs) {
                           return Operation ([refs, d] (Document& x, std::string& error) {
                               for (const auto& r : refs)

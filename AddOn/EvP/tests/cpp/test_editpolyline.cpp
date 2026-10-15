@@ -268,7 +268,7 @@ TEST (EditPolyline, ActionTableRunsThroughTheSession)
     std::vector<std::string> ids;
     for (const auto* a : ed::Applicable (table, sel, ed::ViewKind::Plan))
         ids.push_back (a->id);
-    EXPECT_EQ (ids, (std::vector<std::string> { "delete-vertex", "fillet", "chamfer", "split" }));
+    EXPECT_EQ (ids, (std::vector<std::string> { "delete-vertex", "fillet", "sharpen", "chamfer", "split" }));
     ASSERT_TRUE (s.Undo ());
     EXPECT_EQ (ed::Find (s.Doc (), e)->vertices.size (), 3u);
 }

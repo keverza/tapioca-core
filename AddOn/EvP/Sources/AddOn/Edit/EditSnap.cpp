@@ -1,4 +1,5 @@
 #include "Edit/EditSnap.hpp"
+#include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -179,6 +180,13 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
                 segments.push_back ({ a + up, b + up, { e.id, Part::Face, 1 }, {} });
                 points.push_back ({ Lerp (a, b, 0.5) + up, SnapKind::Midpoint, ref, {} });
             }
+        }
+        // A rounded outline: its arcs and the straight runs between them are its edges.
+        if (std::any_of (e.vertices.begin (), e.vertices.end (), [] (const Vertex& v) { return v.radius > 0.0; }) &&
+            !Excluded (query.exclude, e.id, kNoId)) {
+            const auto shape = Shape (e);
+            for (size_t i = 0; i + 1 < shape.size () + (e.closed ? 1 : 0); ++i)
+                segments.push_back ({ shape[i], shape[(i + 1) % shape.size ()], { e.id, Part::Entity, 0 }, {} });
         }
         if (e.closed) {
             Vec3 centre;

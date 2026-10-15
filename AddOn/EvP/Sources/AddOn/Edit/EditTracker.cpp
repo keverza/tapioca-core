@@ -1,5 +1,6 @@
 #include "Edit/EditTracker.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditShape.hpp"
 #include <cmath>
 #include <cstdlib>
 
@@ -367,10 +368,15 @@ std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
             if (e->segments[static_cast<size_t> (SegmentIndex (*e, ref.item))].width > 0.0)
                 out.push_back ({ ref, Quantity::Width });
             break;
-        case Part::Vertex:
+        case Part::Vertex: {
             for (Quantity q : { Quantity::Elevation, Quantity::X, Quantity::Y })
                 out.push_back ({ ref, q });
+            CornerGeometry c;
+            const int i = VertexIndex (*e, ref.item);
+            if (i >= 0 && CornerOf (*e, size_t (i), c))
+                out.push_back ({ ref, Quantity::Radius }); // a corner can be rounded
             break;
+        }
         case Part::Face:
         case Part::Entity:
             if (e->kind == Kind::Extrusion)
@@ -439,6 +445,11 @@ bool ReadDimension (const Document& doc, const Dimension& d, double& value)
         Vec3 p;
         if (!PointOf (doc, d.ref, p))
             return false;
+        if (d.quantity == Quantity::Radius) {
+            const Entity* e = Find (doc, d.ref.entity);
+            value = e->vertices[size_t (VertexIndex (*e, d.ref.item))].radius;
+            return true;
+        }
         switch (d.quantity) {
             case Quantity::X:
                 value = p.x;
@@ -535,6 +546,8 @@ Operation WriteDimension (const Dimension& d, double value)
             }
         }
         if (d.ref.part == Part::Vertex) {
+            if (d.quantity == Quantity::Radius)
+                return SetCornerRadius (doc, d.ref.entity, { d.ref.item }, value, error);
             Vertex* v = VertexOf (doc, d.ref);
             if (v == nullptr) {
                 error = "the dimension's vertex no longer exists";

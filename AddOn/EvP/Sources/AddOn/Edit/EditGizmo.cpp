@@ -573,6 +573,8 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                     return false;
                 }
                 v.p = p;
+                if (!stretch && std::abs (t.scale.x - t.scale.y) < 1.0e-12)
+                    v.radius *= std::abs (t.scale.x); // a uniform scale keeps a rounded corner's shape
             }
         }
         if (!pathParts.empty ()) {

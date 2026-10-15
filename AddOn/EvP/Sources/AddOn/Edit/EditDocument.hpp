@@ -22,6 +22,9 @@ struct Vertex {
     Id id = kNoId;
     Vec3 p;
     bool lockXY = false, lockZ = false;
+    // A live corner: rounded by an arc of this radius tangent to both legs, and kept as
+    // the radius -- the vertex stays the corner's anchor (EditShape.hpp). 0 is sharp.
+    double radius = 0.0;
     bool operator== (const Vertex&) const = default;
 };
 // Segment i joins vertex i to vertex i + 1 (wrapping on a closed entity). Its id

@@ -49,7 +49,8 @@ void AddActions (const Session& s, std::vector<MenuItem>& items, std::initialize
         if (!any)
             Rule (items);
         any = true;
-        items.push_back (Item ("action." + a->id, a->label));
+        // An action with nothing to do here (a sharp corner made sharp) is shown, greyed.
+        items.push_back (Item ("action." + a->id, a->label, {}, bool (a->make (Doc (s), s.selection.Items ()))));
     }
 }
 

@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -124,6 +125,8 @@ std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Re
                 l.text = "W " + FormatValue (d.quantity, value);
                 break;
             case edit::Quantity::Radius:
+                if (d.ref.part == edit::Part::Vertex && !(value > 0.0))
+                    continue; // a sharp corner: its grip says it can be rounded
                 l.text = "R " + FormatValue (d.quantity, value);
                 break;
             case edit::Quantity::Elevation:
@@ -188,11 +191,12 @@ layers::Polyline Line (const std::vector<Vec3>& points, bool closed, uint32_t rg
     return line;
 }
 
+// The outline as drawn (its live corners rounded), lifted.
 std::vector<Vec3> Ring (const edit::Entity& e, double lift)
 {
-    std::vector<Vec3> out;
-    for (const auto& v : e.vertices)
-        out.push_back (v.p + Vec3 { 0.0, 0.0, lift });
+    std::vector<Vec3> out = edit::Shape (e);
+    for (auto& p : out)
+        p = p + Vec3 { 0.0, 0.0, lift };
     return out;
 }
 
@@ -226,8 +230,10 @@ void AddEntity (const edit::Entity& e, uint32_t rgba, float width, layers::Layer
     if (e.kind != edit::Kind::Extrusion)
         return;
     layer.polylines.push_back (Line (Ring (e, e.height), true, rgba, width));
-    for (const auto& v : e.vertices)
-        layer.polylines.push_back (Line ({ v.p, v.p + Vec3 { 0.0, 0.0, e.height } }, false, rgba, width));
+    for (size_t i = 0; i < e.vertices.size (); ++i) // a rounded corner has no edge up its side
+        if (!(edit::DrawnRadius (e, i) > 0.0))
+            layer.polylines.push_back (
+                Line ({ e.vertices[i].p, e.vertices[i].p + Vec3 { 0.0, 0.0, e.height } }, false, rgba, width));
 }
 
 std::string Percent (double value)
