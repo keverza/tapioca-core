@@ -507,3 +507,18 @@ TEST (HudVirtualEditor, AnchorHandlesDragAndCurvedSegmentsBend)
     const ed::Vec3 bent = ed::SegmentPoint (d.D ().entities[0], 0, d.S ().bendT);
     EXPECT_GT (bent.y, mid.y + 1.5);
 }
+
+TEST (HudVirtualEditor, AClickOnAnEdgeNeverMovesIt)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    ed::AddPolyline (doc, { { 4.2, 0.5, 0 }, { 4.2, 5, 0 } }, false); // an end in snap reach, not pick reach
+    Drive d (std::move (doc));
+    const auto before = d.D ().entities[0].vertices;
+    d.Press (600 + 84, 500 - 1); // on the edge, 0.45 m (9 px) below the other line's end
+    d.At (600 + 85, 500 - 1);    // a pixel of jitter
+    d.Release (600 + 85, 500 - 1);
+    EXPECT_EQ (d.D ().entities[0].vertices, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_EQ (d.S ().selection.Kind (), ed::SelectionKind::Segment);
+}

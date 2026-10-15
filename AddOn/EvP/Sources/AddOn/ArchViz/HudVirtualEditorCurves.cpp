@@ -120,6 +120,7 @@ bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const e
                         s.bendEntity = r.entity, s.bendSegment = r.item;
                         s.bendT = edit::NearestOnSegment (*e, size_t (i), at);
                         s.bendStart = at;
+                        s.startX = mouse.x, s.startY = mouse.y;
                         took = true;
                     }
                 }
@@ -142,7 +143,7 @@ bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const e
                 };
             }
         }
-        else {
+        else if (std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= kThreshold) { // a click does not bend
             Vec3 at;
             if (m.Onto (mouse.x, mouse.y, s.bendStart.z, s.bendStart, at))
                 op = [id = s.bendEntity, seg = s.bendSegment, t = s.bendT,

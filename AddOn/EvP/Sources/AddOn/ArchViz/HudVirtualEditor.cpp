@@ -261,7 +261,7 @@ using namespace detail;
 using edit::Vec3;
 namespace rc = roofcanvas;
 
-constexpr float kPickPixels = 8.0f, kGizmoPixels = 70.0f, kSnapPixels = 10.0f;
+constexpr float kPickPixels = 8.0f, kGizmoPixels = 70.0f, kSnapPixels = 10.0f, kDragPixels = 3.0f;
 
 // The items a press on `ref` moves: the selection when it holds `ref`, otherwise `ref`.
 std::vector<edit::Ref> Moving (const Session& s, const edit::Ref& ref)
@@ -671,6 +671,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 }
                 else if (edit::PointOf (Doc (s), pressed, s.anchor)) {
                     s.drag = Drag::Part;
+                    s.dragStarted = false;
                     s.target = pressed;
                     s.dragPlanar = v.planar;
                     s.startX = mouse.x, s.startY = mouse.y;
@@ -743,7 +744,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     Menu (s);
 
     // Move.
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part) {
+    // ⚠️ NOTHING MOVES UNTIL THE POINTER HAS (the user, 2026-10-15: just clicking an edge moved it --
+    // the press snapped the grab point onto something nearby and the item jumped there). A drag
+    // starts 3 px from its press; a press released inside that is a click.
+    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && !s.dragStarted)
+        s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= kDragPixels;
+    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted) {
         const auto moving = Moving (s, s.target);
         Vec3 at;
         if (Pointer (s, m, mouse, s.anchor.z, s.anchor, s.anchor, Exclusions (Doc (s), moving), scale, at)) {

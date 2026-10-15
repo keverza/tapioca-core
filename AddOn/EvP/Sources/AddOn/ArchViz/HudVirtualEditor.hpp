@@ -104,6 +104,7 @@ struct Session {
     size_t cornerIndex = 0;
     std::vector<edit::Id> cornerSet;
     bool wholeGrab = false;               // the press grabbed a selected object by its own part
+    bool dragStarted = false;             // the pointer has left the press by the drag threshold
     std::vector<edit::PickHit> pressHits; // what was under that press, for the click it may be
     std::vector<edit::Vec3> drawing;      // points placed by a drawing tool
     double workZ = 0.0;                   // the working plane's height when nothing gives one
