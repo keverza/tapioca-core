@@ -161,6 +161,8 @@ bool LabelFits (const fs::Ring& shape, const View& view, ImVec2 middle, ImVec2 s
 // Actual polygon extents along the facade and across it, not the generator's nominal sizes.
 std::optional<std::array<AlignedDimension, 2>> FlatDimensions (const fs::Scheme& scheme, int flat);
 std::string DimensionText (const AlignedDimension& dimension, const char* name);
+// "L x D m": the two dimensions' lengths, along the facade first, for the canvas's corner.
+std::string SizeText (const std::array<AlignedDimension, 2>& dimensions);
 void Canvas (Editor& e, Context& c, float scale);
 // HudFloorSchemeMorph.cpp: the morphs from what was shown (`before`, each outline and its colour) to
 // `after`'s flats -- each new flat from the outline it overlaps most, else growing from its middle; an

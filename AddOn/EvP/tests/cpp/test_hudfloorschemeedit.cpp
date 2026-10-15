@@ -94,6 +94,7 @@ TEST (HudFloorSchemeEdit, SelectedUnitDimensionsMeasureFinalShapeAndPutLengthAtT
     ASSERT_TRUE (dims.has_value ());
     EXPECT_EQ (hf::detail::DimensionText ((*dims)[0], "L"), "L 6.40 m");
     EXPECT_EQ (hf::detail::DimensionText ((*dims)[1], "D"), "D 7.20 m");
+    EXPECT_EQ (hf::detail::SizeText (*dims), "6.40 \xC3\x97 7.20 m");
     EXPECT_NEAR ((*dims)[0].a.y, 0, 1e-9);
     EXPECT_NEAR ((*dims)[0].b.y, 0, 1e-9);
     EXPECT_LT ((*dims)[0].outward.y, 0) << "outside, not towards the corridor";
@@ -685,7 +686,10 @@ TEST (HudFloorSchemeEdit, OnTheLockedPlanOnlyArchicadsStoreysFloorIsEdited)
     EXPECT_FALSE (hf::Selected (editors["A"]).has_value ());
 }
 
-TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvasesAtEveryAngle)
+// User, 2026-10-15: "Instead of alligned dimension in miniGUI corner in dark grey text write LxD m
+// unit size. As dimension cover too much in small preview." The selected flat's size is written in
+// the canvas's lower right corner, inside it at every panel width, scale and building angle.
+TEST (HudFloorSchemeEdit, TheSelectedFlatsSizeIsWrittenInTheCanvasCorner)
 {
     OnViewFrame frame;
     bp::Planner planner;
@@ -694,7 +698,7 @@ TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvase
     const auto programme = fp::Default ();
     const fs::Options options;
     hf::Context c { planner, plans, drafts, programme, options };
-    const ImU32 dimensionColour = IM_COL32 (255, 219, 112, 255);
+    const ImU32 dimensionColour = IM_COL32 (255, 219, 112, 255), sizeInk = IM_COL32 (72, 78, 82, 255);
     for (float panelWidth : { 240.0f, 600.0f })
         for (float scale : { 1.0f, 1.5f })
             for (double length : { 20.0, 1000.0 })
@@ -721,33 +725,18 @@ TEST (HudFloorSchemeEdit, SelectedDimensionsStayInsideNarrowAndLargeFloorCanvase
                             ImGui::SetWindowSize ({ panelWidth, 1200 });
                             hf::detail::Canvas (editor, c, scale);
                             const auto lo = ImGui::GetItemRectMin (), hi = ImGui::GetItemRectMax ();
-                            const auto bounds = Bounds (dimensionColour);
+                            EXPECT_LT (Bounds (dimensionColour).z, Bounds (dimensionColour).x)
+                                << "no dimension lines over the small plan";
+                            const auto size = Bounds (sizeInk);
                             if (!expected) {
-                                EXPECT_LT (bounds.z, bounds.x);
+                                EXPECT_LT (size.z, size.x);
                                 return;
                             }
-                            ASSERT_GT (bounds.z, bounds.x)
-                                << panelWidth << "/" << scale << "/" << length << "/" << angle;
-                            EXPECT_GE (bounds.x, lo.x);
-                            EXPECT_GE (bounds.y, lo.y);
-                            EXPECT_LE (bounds.z, hi.x);
-                            EXPECT_LE (bounds.w, hi.y);
-                            int glyphVertices = 0;
-                            std::vector<ImVec2> glyphUvs;
-                            for (char letter : std::string ("LD67.0m")) {
-                                const auto* glyph = ImGui::GetFontBaked ()->FindGlyph (ImWchar (letter));
-                                ASSERT_NE (glyph, nullptr);
-                                for (float x : { glyph->U0, glyph->U1 })
-                                    for (float y : { glyph->V0, glyph->V1 })
-                                        glyphUvs.push_back ({ x, y });
-                            }
-                            for (const auto& vertex : ImGui::GetWindowDrawList ()->VtxBuffer)
-                                if (vertex.col == dimensionColour &&
-                                    std::any_of (glyphUvs.begin (), glyphUvs.end (), [&] (ImVec2 uv) {
-                                        return uv.x == vertex.uv.x && uv.y == vertex.uv.y;
-                                    }))
-                                    ++glyphVertices;
-                            EXPECT_EQ (glyphVertices, 48) << "all glyphs in L 6.00 m and D 7.00 m survive rotation";
+                            ASSERT_GT (size.z, size.x) << panelWidth << "/" << scale << "/" << length << "/" << angle;
+                            EXPECT_GE (size.x, (lo.x + hi.x) / 2) << "in the canvas's right half";
+                            EXPECT_GE (size.y, (lo.y + hi.y) / 2) << "in its lower half";
+                            EXPECT_LE (size.z, hi.x);
+                            EXPECT_LE (size.w, hi.y);
                         });
                     };
                     canvas ({}, false);

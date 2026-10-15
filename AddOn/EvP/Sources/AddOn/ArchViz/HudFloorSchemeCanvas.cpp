@@ -16,7 +16,8 @@ constexpr double kStairPayload = -1;
 const ImU32 kInk = IM_COL32 (30, 40, 45, 255), kAccent = IM_COL32 (255, 186, 0, 255),
             kRed = IM_COL32 (214, 48, 49, 255), kParty = IM_COL32 (40, 44, 48, 255),
             kReal = IM_COL32 (47, 93, 138, 255), kDivision = IM_COL32 (122, 72, 160, 230),
-            kGrid = IM_COL32 (196, 74, 64, 190); // the main walls' axes
+            kGrid = IM_COL32 (196, 74, 64, 190), // the main walls' axes
+    kSizeInk = IM_COL32 (72, 78, 82, 255);       // the selected flat's size
 
 // ---- geometry -----------------------------------------------------------------------------
 cp::PathD Path (const fs::Ring& ring)
@@ -522,55 +523,12 @@ std::string DimensionText (const AlignedDimension& dimension, const char* name)
     return text;
 }
 
-void Dimension (ImDrawList* draw, const View& view, const AlignedDimension& dimension, const char* name, float scale)
+std::string SizeText (const std::array<AlignedDimension, 2>& d)
 {
-    const ImVec2 a = view.P (dimension.a), b = view.P (dimension.b);
-    const float span = std::hypot (b.x - a.x, b.y - a.y);
-    if (span < 1e-3f)
-        return;
-    const ImVec2 d { (b.x - a.x) / span, (b.y - a.y) / span };
-    ImVec2 n { -d.y, d.x };
-    const ImVec2 outside = view.P ({ dimension.a.x + dimension.outward.x, dimension.a.y + dimension.outward.y });
-    if ((outside.x - a.x) * n.x + (outside.y - a.y) * n.y < 0)
-        n = { -n.x, -n.y };
-    const auto shift = [&] (ImVec2 p, float offset) { return ImVec2 { p.x + n.x * offset, p.y + n.y * offset }; };
-    const ImVec2 x = shift (a, 18 * scale), y = shift (b, 18 * scale);
-    const ImU32 colour = IM_COL32 (255, 219, 112, 255), halo = IM_COL32 (26, 30, 32, 235);
-    const auto line = [&] (ImVec2 from, ImVec2 to) {
-        draw->AddLine (from, to, halo, 3 * scale);
-        draw->AddLine (from, to, colour, scale);
-    };
-    line (shift (a, 3 * scale), shift (a, 23 * scale));
-    line (shift (b, 3 * scale), shift (b, 23 * scale));
-    line (x, y);
-    for (const ImVec2 p : { x, y }) {
-        const ImVec2 tick { (d.x + n.x) * 3 * scale, (d.y + n.y) * 3 * scale };
-        line ({ p.x - tick.x, p.y - tick.y }, { p.x + tick.x, p.y + tick.y });
-    }
-    const auto text = DimensionText (dimension, name);
-    const ImVec2 size = ImGui::CalcTextSize (text.c_str ());
-    const ImVec2 middle = shift ({ (x.x + y.x) / 2, (x.y + y.y) / 2 }, size.y / 2 + 4 * scale);
-    // ImGui lays out horizontal glyphs. Rotate just these vertices, keeping text upright on
-    // either facade and at every building angle; no font, input or overlay-renderer changes.
-    const float sign = d.x < -1e-6f || (std::abs (d.x) <= 1e-6f && d.y > 0) ? -1.0f : 1.0f;
-    const ImVec2 along { sign * d.x, sign * d.y }, across { -along.y, along.x };
-    const auto rotate = [&] (float px, float py) {
-        return ImVec2 { middle.x + along.x * px + across.x * py, middle.y + along.y * px + across.y * py };
-    };
-    const float halfWidth = size.x / 2 + 3 * scale, halfHeight = size.y / 2 + 2 * scale;
-    const ImVec2 box[] = { rotate (-halfWidth, -halfHeight), rotate (halfWidth, -halfHeight),
-                           rotate (halfWidth, halfHeight), rotate (-halfWidth, halfHeight) };
-    draw->AddConvexPolyFilled (box, 4, halo);
-    const int first = draw->VtxBuffer.Size;
-    // Lay out at the clip centre: clipping a horizontal source caption at its final anchor
-    // would discard glyphs that fit after rotation (especially a vertical facade at an edge).
-    const ImVec2 clipLo = draw->GetClipRectMin (), clipHi = draw->GetClipRectMax ();
-    const ImVec2 source { (clipLo.x + clipHi.x) / 2, (clipLo.y + clipHi.y) / 2 };
-    draw->AddText ({ source.x - size.x / 2, source.y - size.y / 2 }, colour, text.c_str ());
-    for (int i = first; i < draw->VtxBuffer.Size; ++i) {
-        auto& p = draw->VtxBuffer[i].pos;
-        p = rotate (p.x - source.x, p.y - source.y);
-    }
+    char text[64];
+    std::snprintf (text, sizeof (text), "%.2f \xC3\x97 %.2f m", std::hypot (d[0].b.x - d[0].a.x, d[0].b.y - d[0].a.y),
+                   std::hypot (d[1].b.x - d[1].a.x, d[1].b.y - d[1].a.y));
+    return text;
 }
 
 Pointing Interact (Editor& e, Context& c, const View& v, bool hovered, Surface on)
@@ -951,10 +909,14 @@ void Canvas (Editor& e, Context& c, float scale)
             draw->AddCircleFilled (v.P (d.at), 4 * scale, kRed);
     Marks (e, c, v, draw, scale, at);
     const Target selected = shown == &s ? e.selected : Again (*shown, e.selected, e.selectedAt);
+    // The selected flat's size, along the facade by across, in the canvas's lower right corner --
+    // dimension lines covered too much of the small plan (user, 2026-10-15: "Instead of alligned
+    // dimension in miniGUI corner in dark grey text write LxD m unit size").
     if (selected.kind == Kind::Flat)
         if (const auto dimensions = FlatDimensions (*shown, selected.index)) {
-            Dimension (draw, v, (*dimensions)[0], "L", scale);
-            Dimension (draw, v, (*dimensions)[1], "D", scale);
+            const auto text = SizeText (*dimensions);
+            const ImVec2 size = ImGui::CalcTextSize (text.c_str ());
+            draw->AddText ({ end.x - size.x - 6 * scale, end.y - size.y - 4 * scale }, kSizeInk, text.c_str ());
         }
     // The palette over the plan: the new flat's wall in red across its band, the flat it makes.
     if (insertion) {
