@@ -146,6 +146,7 @@ Design SpaceStairs (const Scheme& s, Design d, int wing, int count, const Vec* k
     const auto& w = s.wings[wing];
     const auto before = PinsIn (w.rect, d.pins.cores);
     std::erase_if (d.pins.cores, [&] (const Pins::Core& c) { return In (w.rect, c.centre); });
+    std::erase_if (d.pins.cuts, [&] (const Pins::Cut& c) { return In (w.rect, c.at); }); // planned again
     const Vec dir = Unit ({ w.b.x - w.a.x, w.b.y - w.a.y }), n { -dir.y, dir.x };
     const int held = keep ? static_cast<int> (std::floor (Dot ({ keep->x - w.a.x, keep->y - w.a.y }, dir) /
                                                           (std::max) (1e-9, w.length) * count))
@@ -376,6 +377,15 @@ std::optional<Wall> WallAt (const Scheme& s, Vec p, double tolerance)
     }
     return best;
 }
+int DivisionAt (const Scheme& s, Vec p, double tolerance)
+{
+    int best = -1;
+    double near = tolerance;
+    for (size_t i = 0; i < s.divisions.size (); ++i)
+        if (const double dd = Distance (p, s.divisions[i][0], s.divisions[i][1]); dd < near)
+            near = dd, best = static_cast<int> (i);
+    return best;
+}
 std::optional<End> EndAt (const Scheme& s, Vec p, double tolerance)
 {
     std::optional<End> best;
@@ -400,6 +410,8 @@ Design MoveStair (const Scheme& s, Design d, int core, Vec to, std::string* why)
         return Refuse (std::move (d), why, "There is no stair there to move.");
     const Vec from = s.cores[core].centre;
     d = PinStairs (s, std::move (d), WingAt (s, from));
+    if (const int wing = WingAt (s, from); wing >= 0) // its zones follow the stairs again
+        std::erase_if (d.pins.cuts, [&] (const Pins::Cut& c) { return In (s.wings[wing].rect, c.at); });
     const size_t i = Nearest (d.pins.cores, from);
     if (i < d.pins.cores.size ())
         d.pins.cores[i].centre = to;
@@ -434,6 +446,55 @@ Design RotateStair (const Scheme& s, Design d, int core, std::string* why)
             width = pin.width, depth = pin.depth;
     }
     return ResizeStair (s, std::move (d), core, depth, width, why);
+}
+Design MoveDivision (const Scheme& s, Design d, int division, Vec to, std::string* why)
+{
+    if (division < 0 || division >= static_cast<int> (s.divisions.size ()))
+        return Refuse (std::move (d), why, "There is no division between stair zones there.");
+    const auto& line = s.divisions[division];
+    const Vec mid { (line[0].x + line[1].x) / 2, (line[0].y + line[1].y) / 2 };
+    const int wing = WingAt (s, mid);
+    if (wing < 0)
+        return Refuse (std::move (d), why, "This division stands in no wing of the floor.");
+    const auto& w = s.wings[wing];
+    const Vec dir = Unit ({ w.b.x - w.a.x, w.b.y - w.a.y });
+    const auto along = [&] (Vec p) { return Dot ({ p.x - w.a.x, p.y - w.a.y }, dir); };
+    // The wing's divisions and stairs in order along it: section k holds stair k.
+    std::vector<std::pair<double, int>> lines;
+    for (size_t i = 0; i < s.divisions.size (); ++i) {
+        const Vec m { (s.divisions[i][0].x + s.divisions[i][1].x) / 2,
+                      (s.divisions[i][0].y + s.divisions[i][1].y) / 2 };
+        if (WingAt (s, m) == wing)
+            lines.push_back ({ along (m), static_cast<int> (i) });
+    }
+    std::sort (lines.begin (), lines.end ());
+    std::vector<std::pair<double, double>> stairs; // each stair's extent along the wing
+    for (const auto& core : s.cores)
+        if (In (w.rect, core.centre)) {
+            double lo = 1e18, hi = -1e18;
+            for (const auto& p : core.shape)
+                lo = (std::min) (lo, along (p)), hi = (std::max) (hi, along (p));
+            stairs.push_back ({ lo, hi });
+        }
+    std::sort (stairs.begin (), stairs.end ());
+    const size_t k = static_cast<size_t> (
+        std::find_if (lines.begin (), lines.end (), [&] (const auto& l) { return l.second == division; }) -
+        lines.begin ());
+    double lo = (k == 0 ? 0.0 : lines[k - 1].first) + kShortestZone,
+           hi = (k + 1 == lines.size () ? w.length : lines[k + 1].first) - kShortestZone;
+    if (stairs.size () == lines.size () + 1)
+        lo = (std::max) (lo, stairs[k].second + 0.5), hi = (std::min) (hi, stairs[k + 1].first - 0.5);
+    if (lo > hi)
+        return Refuse (std::move (d), why,
+                       "These stair zones are as small as they go: each keeps its stair and %.0f m.", kShortestZone);
+    const double u = std::clamp (along (to), lo, hi);
+    d = PinStairs (s, std::move (d), wing);
+    std::erase_if (d.pins.cuts, [&] (const Pins::Cut& c) { return In (w.rect, c.at); });
+    for (const auto& [at, i] : lines) {
+        const double place = i == division ? u : at;
+        d.pins.cuts.push_back ({ { w.a.x + dir.x * place, w.a.y + dir.y * place } });
+    }
+    return d;
 }
 Design AddStair (const Scheme& s, Design d, Vec at, std::string* why)
 {

@@ -76,6 +76,8 @@ struct End {
     Vec at;
 };
 std::optional<End> EndAt (const Scheme& s, Vec p, double tolerance);
+// The division (Scheme::divisions) within `tolerance` of `p`, nearest first; -1 when none.
+int DivisionAt (const Scheme& s, Vec p, double tolerance);
 
 // --- edits: each returns the next design ------------------------------------------------
 // An edit that cannot be made returns the design unchanged and, given `why`, says why there in a
@@ -92,6 +94,13 @@ Design RemoveStair (const Scheme& s, Design d, int core, std::string* why = null
 // size of its own is the Options' 4.5 x 4.2 m. The wing's other stairs are pinned where they stand.
 Design ResizeStair (const Scheme& s, Design d, int core, double width, double depth, std::string* why = nullptr);
 Design RotateStair (const Scheme& s, Design d, int core, std::string* why = nullptr);
+// A division between two of a wing's stair sections moved along the wing to `to` (user, 2026-10-14:
+// "manually move or edit how big the stair core zone has to be"): the wing's divisions and stairs
+// pinned where they are, this one where it goes -- between the two sections' stairs, each section at
+// least kShortestZone long. The zone that grows takes more flats and its corridor runs on to them.
+// Adding, removing or moving a stair plans the wing's divisions again.
+constexpr double kShortestZone = 12.0;
+Design MoveDivision (const Scheme& s, Design d, int division, Vec to, std::string* why = nullptr);
 // Flats of a band: its walls and flats are pinned as they are, then one wall moves, a flat is
 // split in two at `at`, or a flat joins its smaller neighbour.
 Design MoveWall (const Scheme& s, Design d, const Wall& wall, Vec to, std::string* why = nullptr);

@@ -720,3 +720,43 @@ TEST (FloorSchemeEdit, AWallBetweenTwoSlotsMovesAndLeavesAnL)
         EXPECT_FALSE (why.empty ()) << t;
     }
 }
+
+// User, 2026-10-14: "Show typology block division lines (the earlier stages of generator) to
+// manually move or edit how big the stair core zone has to be. within such zone if more units are
+// added you may extend corridor to reach them." A two-stair bar has one division between its stair
+// zones; moved along the wing it stays where it was put, each zone keeping its stair, and the zone
+// that grows takes the floor. A stair edit plans the zones again.
+TEST (FloorSchemeEdit, AStairZonesDivisionMovesAndTheZonesFollow)
+{
+    Floor f ({ Rect (0, 0, 60, 16) });
+    ASSERT_EQ (f.scheme.cores.size (), 2u);
+    ASSERT_EQ (f.scheme.divisions.size (), 1u) << "two stair zones, one division";
+    const auto& line = f.scheme.divisions.front ();
+    EXPECT_NEAR (line[0].x, line[1].x, 1e-6) << "across the wing";
+    const double was = line[0].x;
+    EXPECT_EQ (fe::DivisionAt (f.scheme, { was, 8 }, 0.3), 0);
+    // Moved 3 m, as far as the stairs let it.
+    double moved = was;
+    for (const double by : { 3.0 }) {
+        Floor g ({ Rect (0, 0, 60, 16) });
+        std::string why;
+        const auto next = fe::MoveDivision (g.scheme, g.session.design, 0, { was + by, 8 }, &why);
+        if (next == g.session.design)
+            continue;
+        g.Apply (next);
+        EXPECT_EQ (Errors (g.scheme), 0u) << Report (g.scheme);
+        ASSERT_EQ (g.scheme.divisions.size (), 1u);
+        ASSERT_EQ (g.scheme.cores.size (), 2u);
+        moved = g.scheme.divisions.front ()[0].x;
+        EXPECT_GT ((moved - was) * by, 0.5) << "it moved the way it was dragged";
+        // Each zone keeps its stair: one stair either side of the division.
+        int below = 0;
+        for (const auto& core : g.scheme.cores)
+            below += core.centre.x < moved;
+        EXPECT_EQ (below, 1);
+        // A stair moved plans the zones again: the division leaves where it was put.
+        g.Apply (fe::MoveStair (g.scheme, g.session.design, 0, g.scheme.cores[0].centre));
+        EXPECT_TRUE (g.session.design.pins.cuts.empty ());
+    }
+    EXPECT_NE (moved, was) << "the division moved";
+}

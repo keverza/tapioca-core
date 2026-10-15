@@ -147,6 +147,7 @@ struct Slot {
 // T2-T4: circulation and the slots between it and the facade.
 struct Layout {
     std::vector<Section> sections;
+    std::vector<std::array<Vec, 2>> divisions; // Scheme::divisions
     std::vector<Corridor> corridors;
     std::vector<Ring> lobbies;
     std::vector<Core> cores;

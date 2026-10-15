@@ -14,7 +14,7 @@ constexpr char kPayload[] = "tapioca.plan.palette";
 constexpr double kStairPayload = -1;
 const ImU32 kInk = IM_COL32 (30, 40, 45, 255), kAccent = IM_COL32 (255, 186, 0, 255),
             kRed = IM_COL32 (214, 48, 49, 255), kParty = IM_COL32 (40, 44, 48, 255),
-            kReal = IM_COL32 (47, 93, 138, 255);
+            kReal = IM_COL32 (47, 93, 138, 255), kDivision = IM_COL32 (122, 72, 160, 230);
 
 // ---- geometry -----------------------------------------------------------------------------
 cp::PathD Path (const fs::Ring& ring)
@@ -113,6 +113,9 @@ Target HitAt (const fs::Scheme& s, fs::Vec m, double px)
         return { Kind::Stair, core, {}, {} };
     if (auto end = fe::EndAt (s, m, kEndReach * px))
         return { Kind::End, end->corridor, {}, end };
+    // A division before the walls: it lies on the wall between the two zones' flats.
+    if (const int division = fe::DivisionAt (s, m, kDivisionReach * px); division >= 0)
+        return { Kind::Division, division, {}, {} };
     if (auto wall = fe::WallAt (s, m, kWallReach * px))
         return { Kind::Wall, -1, wall, {} };
     for (size_t i = 0; i < s.party.size (); ++i)
@@ -121,6 +124,11 @@ Target HitAt (const fs::Scheme& s, fs::Vec m, double px)
     if (const int flat = fe::FlatAt (s, m); flat >= 0)
         return { Kind::Flat, flat, {}, {} };
     return {};
+}
+fs::Vec DivisionMid (const fs::Scheme& s, int division)
+{
+    const auto& l = s.divisions[division];
+    return { (l[0].x + l[1].x) / 2, (l[0].y + l[1].y) / 2 };
 }
 // The wing frame at a point: along its axis.
 fs::Vec WingAxis (const fs::Scheme& s, fs::Vec p)
@@ -192,6 +200,12 @@ std::vector<Arrow> Arrows (const fs::Scheme& s, const Target& t, double gap)
                 pair ({ (w[0].x + w[1].x) / 2, (w[0].y + w[1].y) / 2 }, Outward (w));
             }
             break;
+        case Kind::Division:
+            if (t.index >= 0 && t.index < int (s.divisions.size ())) {
+                const fs::Vec mid = DivisionMid (s, t.index);
+                pair (mid, WingAxis (s, mid));
+            }
+            break;
         case Kind::Flat: {
             // Arrows to change places with the neighbour on either side along the band.
             if (t.index < 0 || t.index >= int (s.flats.size ()))
@@ -235,6 +249,13 @@ double Stepped (double t)
 {
     return std::round (t / fe::kStep) * fe::kStep;
 }
+// Where a held division goes: along its wing, in steps.
+fs::Vec DivisionTo (const Editor& e)
+{
+    const fs::Vec mid = DivisionMid (e.base, e.held.index), u = WingAxis (e.base, mid);
+    const double t = Stepped (Dot (Delta (e), u));
+    return { mid.x + u.x * t, mid.y + u.y * t };
+}
 fs::Vec StairTo (const Editor& e)
 {
     const fs::Vec c = e.base.cores[e.held.index].centre, d = Delta (e);
@@ -262,6 +283,10 @@ std::optional<fe::Design> Gesture (const Editor& e, const floorprogramme::Progra
                                  fe::SnapWall (e.base, *e.held.wall, e.held.wall->a,
                                                { e.held.wall->a.x + d.x, e.held.wall->a.y + d.y }, programme),
                                  why);
+        case Kind::Division:
+            if (e.held.index < 0 || e.held.index >= int (e.base.divisions.size ()))
+                return std::nullopt;
+            return fe::MoveDivision (e.base, e.baseDesign, e.held.index, DivisionTo (e), why);
         case Kind::End: {
             if (!e.held.end)
                 return std::nullopt;
@@ -663,7 +688,8 @@ Pointing Interact (Editor& e, Context& c, const View& v, bool hovered, Surface o
     if (hovered) {
         hudshell::OwnCursor ();
         const Kind kind = hover.kind;
-        if (e.drag != Drag::None || at.arrow >= 0 || kind == Kind::Wall || kind == Kind::End || kind == Kind::Party)
+        if (e.drag != Drag::None || at.arrow >= 0 || kind == Kind::Wall || kind == Kind::End || kind == Kind::Party ||
+            kind == Kind::Division)
             ImGui::SetMouseCursor (ImGuiMouseCursor_ResizeAll);
         else if (kind == Kind::Flat || kind == Kind::Stair)
             ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);
@@ -698,6 +724,8 @@ void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float 
             draw->AddCircle (v.P (t.end->at), 7 * scale, colour, 0, width);
         else if (t.kind == Kind::Party && t.index >= 0 && t.index < int (s.party.size ()))
             draw->AddLine (v.P (s.party[t.index][0]), v.P (s.party[t.index][1]), colour, width + 2 * scale);
+        else if (t.kind == Kind::Division && t.index >= 0 && t.index < int (s.divisions.size ()))
+            draw->AddLine (v.P (s.divisions[t.index][0]), v.P (s.divisions[t.index][1]), colour, width);
     };
     // A flat or stair being dragged leaves a ghost where it was; anything else selected stays solid.
     const bool mine = e.drag != Drag::None && e.dragOn == on; // the gesture is this surface's
@@ -744,6 +772,12 @@ void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float 
         const fs::Vec u = EndAxis (e);
         const double t = Stepped (Dot (d, u));
         draw->AddCircleFilled (v.P ({ e.held.end->at.x + u.x * t, e.held.end->at.y + u.y * t }), 6 * scale, kAccent);
+    }
+    else if (e.held.kind == Kind::Division && e.held.index >= 0 && e.held.index < int (e.base.divisions.size ())) {
+        const fs::Vec mid = DivisionMid (e.base, e.held.index), to = DivisionTo (e);
+        const auto& l = e.base.divisions[e.held.index];
+        draw->AddLine (v.P ({ l[0].x + to.x - mid.x, l[0].y + to.y - mid.y }),
+                       v.P ({ l[1].x + to.x - mid.x, l[1].y + to.y - mid.y }), kAccent, 3 * scale);
     }
     else if (e.held.kind == Kind::Party && e.held.index >= 0 && e.held.index < int (e.base.party.size ())) {
         const auto& w = e.base.party[e.held.index];
@@ -857,6 +891,11 @@ void Canvas (Editor& e, Context& c, float scale)
     }
     for (const auto& w : shown->party)
         draw->AddLine (v.P (w[0]), v.P (w[1]), kParty, 5 * scale);
+    // The typology's blocks: where a wing's stair zones meet, dashed (user, 2026-10-14: "Show
+    // typology block division lines ... to manually move or edit how big the stair core zone
+    // has to be"). Dragged like a wall.
+    for (const auto& l : shown->divisions)
+        Dashed (draw, v.P (l[0]), v.P (l[1]), kDivision, 2 * scale, 7 * scale);
     for (const auto& r : e.real)
         for (size_t i = 0; i < r.size (); ++i)
             Dashed (draw, v.P (r[i]), v.P (r[(i + 1) % r.size ()]), kReal, 1.3f * scale, 5 * scale);

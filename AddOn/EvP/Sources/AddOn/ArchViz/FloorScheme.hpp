@@ -111,6 +111,10 @@ struct Pins {
         Vec into;    // ...to the flat under `into`: a wall between them moved
         bool operator== (const Give&) const = default;
     };
+    struct Cut {
+        Vec at; // a wing's sections meet here, across its centre line (Scheme::divisions)
+        bool operator== (const Cut&) const = default;
+    };
     std::vector<Core> cores;
     std::vector<AccessAt> access;
     std::vector<Wall> walls;
@@ -119,6 +123,7 @@ struct Pins {
     std::vector<Count> counts;
     std::vector<Join> joins; // applied in order, after division
     std::vector<Give> gives; // applied in order, after the joins
+    std::vector<Cut> cuts;   // a wing's, honoured when there is one for each place its sections meet
     bool operator== (const Pins&) const = default;
 };
 
@@ -197,6 +202,9 @@ struct Scheme {
     std::string typology;      // T1, e.g. "L 90", "U", "O", "T", "+", "X 60"
     std::vector<Wing> wings;
     std::vector<Section> sections;
+    // Where a straight wing's stair sections meet -- the typology's blocks, each a stair's zone -- a
+    // line across the wing (user, 2026-10-14: "Show typology block division lines").
+    std::vector<std::array<Vec, 2>> divisions;
     std::vector<Corridor> corridors;
     std::vector<Ring> lobbies; // circulation at an L turn beside the core
     std::vector<Core> cores;

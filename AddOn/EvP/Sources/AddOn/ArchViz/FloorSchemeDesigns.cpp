@@ -70,6 +70,8 @@ V Write (const Design& d)
         o["joins"] = List (p.joins, [] (const Pins::Join& j) {
             return V::Array ({ Number (j.from.x), Number (j.from.y), Number (j.into.x), Number (j.into.y) });
         });
+    if (!p.cuts.empty ())
+        o["cuts"] = List (p.cuts, [] (const Pins::Cut& c) { return Point (c.at); });
     if (!p.gives.empty ())
         o["gives"] = List (p.gives, [] (const Pins::Give& g) {
             js::JsonArray n { Number (g.into.x), Number (g.into.y) };
@@ -203,6 +205,8 @@ bool Read (const V& value, Design& d)
                          j = { { n[0], n[1] }, { n[2], n[3] } };
                          return true;
                      }) &&
+           ReadList (value.Find ("cuts"), p.cuts,
+                     [] (const V& item, Pins::Cut& c) { return ReadPoint (item, c.at); }) &&
            ReadList (value.Find ("gives"), p.gives, [] (const V& item, Pins::Give& g) {
                // The flat it goes to, then the region: x y pairs, three corners at least.
                const auto* array = item.AsArray ();

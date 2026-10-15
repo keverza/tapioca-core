@@ -15,7 +15,8 @@ namespace bp = buildingplan;
 namespace fs = floorscheme;
 namespace fe = floorscheme::edit;
 
-enum class Kind : uint8_t { None, Flat, Stair, Wall, End, Party };
+// Division: where two stair zones of a wing meet (Scheme::divisions), `index` into them.
+enum class Kind : uint8_t { None, Flat, Stair, Wall, End, Party, Division };
 // What is under the pointer, selected, or held: indices into the scheme it was found in.
 struct Target {
     Kind kind = Kind::None;
@@ -124,7 +125,7 @@ struct Pointing {
 namespace detail {
 // How far from what the pointer picks, in pixels (user, 2026-10-14: "Wall selection hitbox needs to
 // larger"): a wall between flats, a wall against the next building, a corridor's end.
-constexpr double kWallReach = 12, kPartyReach = 10, kEndReach = 6;
+constexpr double kWallReach = 12, kPartyReach = 10, kEndReach = 6, kDivisionReach = 8;
 // Where a dragged flat or stair was: a ghost, dashed (user, 2026-10-14).
 constexpr ImU32 kGhostFill = IM_COL32 (255, 255, 255, 46), kGhostLine = IM_COL32 (255, 255, 255, 150);
 // What is under `m` on scheme `s`, a pixel being `px` metres: a stair, a corridor end, a wall, a

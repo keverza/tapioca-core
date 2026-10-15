@@ -750,6 +750,22 @@ void Straight (Ctx& c, const Skeleton& sk, Portion p, Access access, int run)
         for (int k = 1; k < n; ++k)
             cuts.push_back (p.s0 + length * k / n);
     cuts.push_back (p.s1);
+    // Where the user moved them (Pins::Cut; user, 2026-10-14: "manually move or edit how big the
+    // stair core zone has to be"): one for each place the sections meet, else they are the plan's.
+    std::vector<double> moved;
+    for (const auto& pin : c.pins.cuts) {
+        const auto q = f.Local (pin.at);
+        if (q.x > p.s0 + 1.0 && q.x < p.s1 - 1.0 && q.y >= -0.01 && q.y <= depth + 0.01)
+            moved.push_back (q.x);
+    }
+    std::sort (moved.begin (), moved.end ());
+    if (!moved.empty () && moved.size () + 2 == cuts.size ()) {
+        cuts = { p.s0 };
+        cuts.insert (cuts.end (), moved.begin (), moved.end ());
+        cuts.push_back (p.s1);
+    }
+    for (size_t k = 1; k + 1 < cuts.size (); ++k)
+        c.out.divisions.push_back ({ f.World (cuts[k], 0), f.World (cuts[k], depth) });
     for (size_t k = 0; k + 1 < cuts.size (); ++k) {
         const double a = cuts[k], b = cuts[k + 1];
         // A centre corridor's stair pinned across the corridor takes that side, its caps with it (user,

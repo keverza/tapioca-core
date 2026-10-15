@@ -936,6 +936,7 @@ Scheme Plan (const std::vector<Ring>& outline, const floorprogramme::Programme& 
     }
     s.wings = skeleton.wings;
     s.sections = layout.sections;
+    s.divisions = layout.divisions;
     s.corridors = layout.corridors;
     s.lobbies = layout.lobbies;
     s.cores = layout.cores;
