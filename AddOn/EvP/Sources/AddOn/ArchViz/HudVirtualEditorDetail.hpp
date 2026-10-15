@@ -86,6 +86,9 @@ const edit::Document& Doc (const Session& s);
 void FinishDrawing (Session& s);
 void History (Session& s, bool undo);
 void DeleteSelection (Session& s);
+// After an action: the selection keeps what still exists; when nothing does (a polyline
+// that became a path), what the action made -- ids from `since` on -- is selected whole.
+void SelectMade (Session& s, edit::Id since);
 
 } // namespace geomsrv::archviz::edithud::detail
 #endif

@@ -84,9 +84,10 @@ void Panel (Session& s)
             ImGui::SameLine ();
         if (ImGui::SmallButton (actions[i]->label.c_str ())) {
             const auto op = actions[i]->make (doc, s.selection.Items ());
+            const edit::Id since = doc.nextId;
             if (op && !s.edits.Apply (op))
                 s.message = s.edits.Message ();
-            s.selection.Prune (Doc (s));
+            SelectMade (s, since);
         }
     }
     ImGui::EndDisabled ();

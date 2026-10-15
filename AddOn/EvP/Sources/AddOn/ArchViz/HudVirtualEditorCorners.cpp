@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -10,7 +11,8 @@
 // arc's middle or just inside a sharp corner. Dragging one along the bisector sets the
 // radius -- every corner of an object selected whole, or the selected corners -- clamped
 // to what fits; a click picks the corner (its radius can then be typed); a double click
-// makes it sharp again.
+// makes it sharp again. A path's bends are the same: its centreline is lines and arcs, a
+// control point's radius the arc's (EditPathEdit Centreline).
 namespace geomsrv::archviz::edithud::detail {
 
 using edit::Vec3;
@@ -27,26 +29,47 @@ struct Grip {
     ImVec2 screen;
 };
 
-// The corners whose grips show: all of an object selected whole, else the selected corners
-// of one object.
-bool Corners (const Session& s, edit::Id& entity, std::vector<size_t>& corners)
+// The outline whose corners are rounded: an object's own, or a path's centreline.
+bool ShapeOf (const edit::Document& doc, edit::Id id, edit::Entity& shape)
+{
+    if (const edit::Path* p = edit::FindPath (doc, id)) {
+        shape = edit::Centreline (*p);
+        return true;
+    }
+    if (const edit::Entity* e = edit::Find (doc, id)) {
+        shape = *e;
+        return true;
+    }
+    return false;
+}
+
+// Sets the radius of corners `ids` of `id`: an object's live corners or a path's bends.
+bool SetRadius (edit::Document& d, edit::Id id, const std::vector<edit::Id>& ids, double r, std::string& e)
+{
+    return edit::FindPath (d, id) != nullptr ? edit::SetPathRadii (d, id, ids, r, e)
+                                             : edit::SetCornerRadius (d, id, ids, r, e);
+}
+
+// The corners whose grips show: all of an object or a path selected whole, else the selected
+// corners (vertices, a path's control points) of one of them.
+bool Corners (const Session& s, edit::Id& entity, edit::Entity& shape, std::vector<size_t>& corners)
 {
     corners.clear ();
     const auto& items = s.selection.Items ();
     if (items.empty () || s.tool != Tool::Select)
         return false;
     entity = items.front ().entity;
-    const edit::Entity* e = edit::Find (Doc (s), entity);
-    if (e == nullptr)
+    if (!ShapeOf (Doc (s), entity, shape))
         return false;
     for (const auto& r : items) {
         if (r.entity != entity)
             return false;
-        for (size_t i = 0; i < e->vertices.size (); ++i) {
+        for (size_t i = 0; i < shape.vertices.size (); ++i) {
             edit::CornerGeometry c;
-            const bool wanted = r.part == edit::Part::Entity || r.part == edit::Part::Face ||
-                                (r.part == edit::Part::Vertex && e->vertices[i].id == r.item);
-            if (wanted && edit::CornerOf (*e, i, c) &&
+            const bool picked =
+                (r.part == edit::Part::Vertex || r.part == edit::Part::PathPoint) && shape.vertices[i].id == r.item;
+            const bool wanted = r.part == edit::Part::Entity || r.part == edit::Part::Face || picked;
+            if (wanted && edit::CornerOf (shape, i, c) &&
                 std::find (corners.begin (), corners.end (), i) == corners.end ())
                 corners.push_back (i);
         }
@@ -66,10 +89,10 @@ std::vector<Grip> Grips (const Session& s, const Map& m, float scale)
 {
     std::vector<Grip> out;
     edit::Id entity = edit::kNoId;
+    edit::Entity e;
     std::vector<size_t> corners;
-    if (!Corners (s, entity, corners))
+    if (!Corners (s, entity, e, corners))
         return out;
-    const edit::Entity& e = *edit::Find (Doc (s), entity);
     for (size_t i : corners) {
         Grip g { entity, i, edit::CornerGripAt (e, i, Inset (m, e.vertices[i].p, scale)), {} };
         if (m.Screen (g.at, g.screen))
@@ -101,33 +124,35 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
     // A double click on a grip makes its corners sharp.
     if (hovered && hot != nullptr && s.drag == Drag::None && ImGui::IsMouseDoubleClicked (0)) {
         edit::Id entity = edit::kNoId;
+        edit::Entity shape;
         std::vector<size_t> corners;
-        Corners (s, entity, corners);
+        Corners (s, entity, shape, corners);
         std::vector<edit::Id> ids;
         for (size_t i : corners)
-            ids.push_back (edit::Find (Doc (s), entity)->vertices[i].id);
-        if (!s.edits.Apply ([entity, ids] (edit::Document& d, std::string& e) {
-                return edit::SetCornerRadius (d, entity, ids, 0.0, e);
-            }))
+            ids.push_back (shape.vertices[i].id);
+        if (!s.edits.Apply (
+                [entity, ids] (edit::Document& d, std::string& e) { return SetRadius (d, entity, ids, 0.0, e); }))
             s.message = s.edits.Message ();
         return true;
     }
     // Press: the corners being set are those whose grips show.
     if (hovered && hot != nullptr && s.drag == Drag::None && ImGui::IsMouseClicked (0) && s.edits.Begin ()) {
         edit::Id entity = edit::kNoId;
+        edit::Entity shape;
         std::vector<size_t> corners;
-        Corners (s, entity, corners);
+        Corners (s, entity, shape, corners);
         s.drag = Drag::Corner;
         s.cornerEntity = entity;
         s.cornerIndex = hot->index;
         s.cornerSet.clear ();
         for (size_t i : corners)
-            s.cornerSet.push_back (edit::Find (Doc (s), entity)->vertices[i].id);
+            s.cornerSet.push_back (shape.vertices[i].id);
         s.startX = mouse.x, s.startY = mouse.y;
         took = true;
     }
     if (s.drag == Drag::Corner && ImGui::IsMouseDown (0)) {
-        const edit::Entity* before = edit::Find (s.edits.Before (), s.cornerEntity);
+        edit::Entity shape;
+        const edit::Entity* before = ShapeOf (s.edits.Before (), s.cornerEntity, shape) ? &shape : nullptr;
         Vec3 at;
         if (before != nullptr && s.cornerIndex < before->vertices.size () &&
             m.Onto (mouse.x, mouse.y, before->vertices[s.cornerIndex].p.z, before->vertices[s.cornerIndex].p, at)) {
@@ -140,9 +165,8 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
             r = std::min (std::round (r * 100.0) / 100.0, edit::MaxRadius (*before, set)); // to the centimetre, as fits
             const edit::Id entity = s.cornerEntity;
             const auto ids = s.cornerSet;
-            if (!s.edits.Move ([entity, ids, r] (edit::Document& d, std::string& e) {
-                    return edit::SetCornerRadius (d, entity, ids, r, e);
-                }))
+            if (!s.edits.Move (
+                    [entity, ids, r] (edit::Document& d, std::string& e) { return SetRadius (d, entity, ids, r, e); }))
                 s.message = s.edits.Message ();
             char text[32];
             std::snprintf (text, sizeof text, "R %.2f m", r);
@@ -157,8 +181,12 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         if (std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
             // A click: the corner is picked, its radius ready to type.
             s.edits.Cancel ();
-            if (const edit::Entity* e = edit::Find (Doc (s), s.cornerEntity); e && s.cornerIndex < e->vertices.size ())
-                s.selection.Set ({ { s.cornerEntity, edit::Part::Vertex, e->vertices[s.cornerIndex].id } });
+            edit::Entity shape;
+            if (ShapeOf (Doc (s), s.cornerEntity, shape) && s.cornerIndex < shape.vertices.size ())
+                s.selection.Set (
+                    { { s.cornerEntity,
+                        edit::FindPath (Doc (s), s.cornerEntity) ? edit::Part::PathPoint : edit::Part::Vertex,
+                        shape.vertices[s.cornerIndex].id } });
         }
         else
             s.edits.End ();

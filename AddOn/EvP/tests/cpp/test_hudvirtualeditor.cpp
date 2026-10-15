@@ -540,3 +540,45 @@ TEST (HudVirtualEditor, AClosedPenShapeJoinsSmoothly)
     EXPECT_TRUE (e.vertices[0].smooth); // the curve runs on through it
     EXPECT_GT (std::hypot (e.vertices[0].out.x, e.vertices[0].out.y), 0.0);
 }
+
+TEST (HudVirtualEditor, APathsBendHasACornerGrip)
+{
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, 1.5);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { p, ed::Part::Entity, 0 } });
+    // The sharp bend's grip sits 16 px (0.8 m) up its bisector from (10, 0).
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f;
+    d.At (gx, gy);
+    ASSERT_GE (d.S ().hoverCorner, 0);
+    // Dragged 24 px each way from the corner, 1.70 m in: the middle of a 4.10 m arc, as
+    // r (1 / sin 45 - 1) puts it (to the centimetre).
+    const float in = 24.0f;
+    d.Press (gx, gy);
+    d.At (600 + 200 - in, 500 - in);
+    d.Release (600 + 200 - in, 500 - in);
+    EXPECT_NEAR (ed::FindPath (d.D (), p)->points[1].radius, 4.10, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, AnOpenPolylineOffersToBecomeAPath)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, false);
+    ed::AddPolyline (doc, { { 20, 0, 0 }, { 25, 0, 0 }, { 25, 5, 0 } }, true);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { e, ed::Part::Entity, 0 } });
+    d.S ().menu.target = eh::MenuTarget::Object;
+    d.S ().menu.ref = { e, ed::Part::Entity, 0 };
+    ASSERT_TRUE (d.Offers ("action.make-path"));
+    eh::RunMenuItem (d.S (), "action.make-path");
+    ASSERT_EQ (d.D ().paths.size (), 1u);
+    // What it made is selected, ready for its grips.
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].entity, d.D ().paths[0].id);
+    // A closed outline has no ends to be a path's: the menu does not offer it.
+    const ed::Id closed = d.D ().entities[0].id;
+    d.S ().selection.Set ({ { closed, ed::Part::Entity, 0 } });
+    d.S ().menu.ref = { closed, ed::Part::Entity, 0 };
+    EXPECT_FALSE (d.Offers ("action.make-path"));
+}

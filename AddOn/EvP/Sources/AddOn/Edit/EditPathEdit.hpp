@@ -23,6 +23,16 @@ bool MovePathPoint (Document& doc, Id path, Id point, Vec3 to, std::string& erro
 bool InsertPathPoint (Document& doc, Id path, double station, std::string& error, Id* created = nullptr);
 bool DeletePathPoint (Document& doc, Id path, Id point, std::string& error);
 bool SetPathRadius (Document& doc, Id path, Id point, double radius, std::string& error);
+// Sets the bend radius of each of `points` at once (a whole path's bends, dragged together).
+bool SetPathRadii (Document& doc, Id path, const std::vector<Id>& points, double radius, std::string& error);
+// A path's centreline as an open polyline: its control points as vertices (same ids, at
+// their profile heights) and their radii as live corners, so the live-corner geometry
+// (EditShape.hpp: grips, the largest radius that fits) applies to its bends unchanged.
+Entity Centreline (const Path& path);
+// A path along an open polyline of lines and rounded corners, `width` wide: its corners'
+// radii become the path's bends, its heights the profile (a break where a vertex is off the
+// grade). The polyline goes. kNoId and why when it is closed or has curves.
+Id PathFromPolyline (Document& doc, Id entity, double width, std::string& error);
 
 bool SetPathElevation (Document& doc, Id path, Id gradeBreak, double z, std::string& error);
 // The grade of the stretch that contains `station`, in percent.

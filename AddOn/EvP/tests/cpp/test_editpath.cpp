@@ -1,5 +1,6 @@
 #include "Edit/EditGizmo.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditShape.hpp"
 #include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
@@ -398,4 +399,58 @@ TEST (EditPath, GizmoTurnsAndScalesAWholePathInPlan)
     EXPECT_FALSE (s.Apply (ed::TransformOperation (whole, tilt)));
     const ed::Ref brk { f.path, ed::Part::Break, ed::FindPath (s.Doc (), f.path)->profile[1].id };
     EXPECT_FALSE (s.Apply (ed::TransformOperation ({ brk }, turn)));
+}
+
+TEST (EditPath, ACentrelineIsAPolylineWithLiveCorners)
+{
+    Footpath f;
+    const ed::Entity line = ed::Centreline (f.P ());
+    ASSERT_EQ (line.vertices.size (), 3u);
+    EXPECT_FALSE (line.closed);
+    EXPECT_EQ (line.vertices[1].id, f.P ().points[1].id);
+    EXPECT_DOUBLE_EQ (line.vertices[1].radius, 5.0);
+    EXPECT_NEAR (line.vertices[0].p.z, 100.0, 1e-9); // at its profile height
+    // So its bend has a corner's grip and the largest radius that fits: the 30 m leg.
+    ed::CornerGeometry c;
+    ASSERT_TRUE (ed::CornerOf (line, 1, c));
+    EXPECT_NEAR (ed::MaxRadius (line, { 1 }), 30.0, 1e-9);
+    EXPECT_NEAR (ed::RadiusFromGrip (line, 1, ed::CornerGripAt (line, 1, 0.1), 0.1), 5.0, 1e-9);
+    ASSERT_TRUE (ed::SetPathRadii (f.doc, f.path, { f.P ().points[1].id }, 12.0, f.error)) << f.error;
+    EXPECT_DOUBLE_EQ (f.P ().points[1].radius, 12.0);
+    EXPECT_FALSE (ed::SetPathRadii (f.doc, f.path, { f.P ().points[0].id }, 1.0, f.error)); // an end
+}
+
+TEST (EditPath, AnOpenPolylineBecomesAPathAlongIt)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 1 }, { 20, 0, 3 }, { 20, 20, 2 } }, false, "walk");
+    std::string error;
+    ASSERT_TRUE (ed::SetCornerRadius (doc, e, { ed::Find (doc, e)->vertices[1].id }, 4.0, error)) << error;
+    const ed::Id p = ed::PathFromPolyline (doc, e, 2.0, error);
+    ASSERT_NE (p, ed::kNoId) << error;
+    EXPECT_EQ (ed::Find (doc, e), nullptr); // the polyline went
+    const ed::Path& path = *ed::FindPath (doc, p);
+    EXPECT_EQ (path.role, "walk");
+    ASSERT_EQ (path.points.size (), 3u);
+    EXPECT_DOUBLE_EQ (path.points[1].radius, 4.0); // its corner became the bend
+    EXPECT_DOUBLE_EQ (path.sections[0].widthLeft, 1.0);
+    // Its heights: the ends, and the corner that rose above the grade between them.
+    ASSERT_EQ (path.profile.size (), 3u);
+    EXPECT_DOUBLE_EQ (path.profile[1].z, 3.0);
+    EXPECT_TRUE (ed::Validate (doc, error)) << error;
+}
+
+TEST (EditPath, OnlyAnOpenLineOfStraightsAndArcsBecomesAPath)
+{
+    ed::Document doc;
+    const ed::Id closed = ed::AddPolyline (doc, { { 0, 0, 0 }, { 5, 0, 0 }, { 5, 5, 0 } }, true);
+    std::string error;
+    EXPECT_EQ (ed::PathFromPolyline (doc, closed, 1.5, error), ed::kNoId);
+    EXPECT_NE (error.find ("closed"), std::string::npos);
+    const ed::Id curved = ed::AddPolyline (doc, { { 0, 10, 0 }, { 5, 10, 0 }, { 10, 10, 0 } }, false);
+    ASSERT_TRUE (ed::SetSegmentCurved (doc, curved, ed::Find (doc, curved)->segments[0].id, true, error)) << error;
+    EXPECT_EQ (ed::PathFromPolyline (doc, curved, 1.5, error), ed::kNoId);
+    EXPECT_NE (error.find ("lines and arcs"), std::string::npos);
+    EXPECT_TRUE (doc.paths.empty ());
+    EXPECT_EQ (doc.entities.size (), 2u);
 }

@@ -10,6 +10,23 @@
 // ImGui; Menu only draws them and RunMenuItem does what one says.
 namespace geomsrv::archviz::edithud {
 
+void detail::SelectMade (Session& s, edit::Id since)
+{
+    const auto& doc = Doc (s);
+    s.selection.Prune (doc);
+    if (!s.selection.Items ().empty ())
+        return;
+    std::vector<edit::Ref> made;
+    for (const auto& p : doc.paths)
+        if (p.id >= since)
+            made.push_back ({ p.id, edit::Part::Entity, edit::kNoId });
+    for (const auto& e : doc.entities)
+        if (e.id >= since)
+            made.push_back ({ e.id, edit::Part::Entity, edit::kNoId });
+    if (!made.empty ())
+        s.selection.Set (made);
+}
+
 namespace {
 
 using namespace detail;
@@ -122,7 +139,10 @@ std::vector<MenuItem> MenuItems (const Session& s)
                 if (i < 4 || (e != nullptr && e->kind == edit::Kind::Extrusion))
                     items.push_back (Item ("gizmo." + std::to_string (i), modes[i], keys[i], true, int (s.gizmo) == i));
             items.push_back (Item ("gizmo.local", "Axes along the shape", {}, true, s.localAxes));
-            AddActions (s, items, {});
+            if (e != nullptr && e->kind == edit::Kind::Polyline && !e->closed)
+                AddActions (s, items, {});
+            else
+                AddActions (s, items, { "make-path" }); // a path has two ends
             break;
         }
         case MenuTarget::Path:
@@ -259,9 +279,10 @@ void RunMenuItem (Session& s, const std::string& id)
         for (const auto& a : Actions ())
             if ("action." + a.id == id) {
                 const auto op = a.make (doc, s.selection.Items ());
+                const edit::Id since = doc.nextId;
                 if (op && !s.edits.Apply (op))
                     s.message = s.edits.Message ();
-                s.selection.Prune (Doc (s));
+                SelectMade (s, since);
                 break;
             }
     }

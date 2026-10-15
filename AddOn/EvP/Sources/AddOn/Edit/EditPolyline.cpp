@@ -1,4 +1,5 @@
 #include "Edit/EditPolyline.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
@@ -725,6 +726,21 @@ std::vector<Action> PolylineActions (const ActionDefaults& d)
                               return true;
                           });
                       } });
+    // A centreline drawn as a polyline -- lines and rounded corners -- becomes a path.
+    table.push_back (
+        { "make-path", "Make a path along it", entity, 0xFu, 1, 0, [d] (const Document& doc, const Refs& refs) {
+             for (const auto& r : refs) {
+                 const Entity* e = Find (doc, r.entity);
+                 if (e == nullptr || e->kind != Kind::Polyline || r.part != Part::Entity)
+                     return Operation {};
+             }
+             return Operation ([refs, d] (Document& x, std::string& error) {
+                 for (const auto& r : refs)
+                     if (PathFromPolyline (x, r.entity, d.pathWidth, error) == kNoId)
+                         return false;
+                 return true;
+             });
+         } });
     table.push_back ({ "bake-corners", "Turn rounded corners into points", entity, 0xFu, 1, 0,
                        [] (const Document& doc, const Refs& refs) {
                            bool any = false;

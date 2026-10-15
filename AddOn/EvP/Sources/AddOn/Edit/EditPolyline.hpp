@@ -48,6 +48,7 @@ struct ActionDefaults {
     double chamferDistance = 0.5;
     double mergeTolerance = 0.01;
     double joinTolerance = 0.01;
+    double pathWidth = 1.5; // a path made along a polyline
 };
 // The shape editor's context actions, ready for `Applicable`.
 std::vector<Action> PolylineActions (const ActionDefaults& defaults = {});

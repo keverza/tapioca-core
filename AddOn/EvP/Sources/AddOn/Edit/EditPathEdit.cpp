@@ -1,4 +1,5 @@
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -161,6 +162,99 @@ bool SetPathRadius (Document& doc, Id path, Id point, double radius, std::string
             return true;
         },
         error);
+}
+
+bool SetPathRadii (Document& doc, Id path, const std::vector<Id>& points, double radius, std::string& error)
+{
+    return EditPath (
+        doc, path,
+        [&] (Path& p, std::string& why) {
+            for (Id point : points) {
+                const int i = PointIndex (p, point);
+                if (i <= 0 || i + 1 >= static_cast<int> (p.points.size ())) {
+                    why = i < 0 ? "the control point no longer exists" : "the ends of a path have no corner";
+                    return false;
+                }
+                p.points[static_cast<size_t> (i)].radius = radius;
+            }
+            return true;
+        },
+        error);
+}
+
+Entity Centreline (const Path& path)
+{
+    Entity e;
+    e.id = path.id;
+    e.role = path.role;
+    AlignmentGeometry g;
+    std::string error;
+    const bool built = BuildAlignment (path.points, g, error);
+    for (size_t i = 0; i < path.points.size (); ++i) {
+        Vertex v;
+        v.id = path.points[i].id;
+        v.p = path.points[i].p;
+        v.radius = path.points[i].radius;
+        double z = 0.0;
+        if (built && Elevation (path.profile, g.pointStations[i], z))
+            v.p.z = z;
+        e.vertices.push_back (v);
+    }
+    e.segments.resize (e.vertices.size () > 1 ? e.vertices.size () - 1 : 0);
+    return e;
+}
+
+Id PathFromPolyline (Document& doc, Id entity, double width, std::string& error)
+{
+    const Entity* found = Find (doc, entity);
+    if (found == nullptr || found->kind != Kind::Polyline) {
+        error = "only a polyline can become a path";
+        return kNoId;
+    }
+    if (found->closed) {
+        error = "a path has two ends: this outline is closed";
+        return kNoId;
+    }
+    for (size_t i = 0; i + 1 < found->vertices.size (); ++i)
+        if (SegmentCurved (*found, i)) {
+            error = "a path's centreline is lines and arcs: make its curves straight, or round its corners instead";
+            return kNoId;
+        }
+    const Entity line = *found;
+    std::vector<Vec3> points;
+    for (const auto& v : line.vertices)
+        points.push_back (v.p);
+    const Id made = AddPath (doc, points, width, line.role);
+    Path& p = *FindPath (doc, made);
+    AlignmentGeometry sharp, g;
+    const bool built = BuildAlignment (p.points, sharp, error);
+    for (size_t i = 0; i < line.vertices.size (); ++i)
+        p.points[i].radius = DrawnRadius (line, i);
+    // Its arcs cut the corners short: the profile and the range end where it now does.
+    if (!built || !BuildAlignment (p.points, g, error) || !Restation (p.profile, sharp.length, g.length, {}, error)) {
+        doc.paths.pop_back ();
+        return kNoId;
+    }
+    RestationSections (p.sections, sharp.length, g.length);
+    // A vertex off the grade between the ends keeps its height as a grade break.
+    for (size_t i = 1; i + 1 < line.vertices.size (); ++i) {
+        double z = 0.0;
+        if (!Elevation (p.profile, g.pointStations[i], z) || std::abs (z - line.vertices[i].p.z) < 1.0e-3)
+            continue;
+        const Id id = NewId (doc);
+        std::string why;
+        if (InsertBreak (p.profile, g.pointStations[i], id, why))
+            SetBreakElevation (p.profile, id, line.vertices[i].p.z, why);
+    }
+    doc.entities.erase (std::remove_if (doc.entities.begin (), doc.entities.end (),
+                                        [entity] (const Entity& e) { return e.id == entity; }),
+                        doc.entities.end ());
+    if (!ValidatePath (p, g, error)) {
+        doc.paths.pop_back ();
+        doc.entities.push_back (line);
+        return kNoId;
+    }
+    return made;
 }
 
 bool SetPathElevation (Document& doc, Id path, Id gradeBreak, double z, std::string& error)
