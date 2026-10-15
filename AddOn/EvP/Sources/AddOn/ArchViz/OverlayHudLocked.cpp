@@ -1,6 +1,21 @@
 #include "ArchViz/OverlayHudEngine.hpp"
+#include <iomanip>
+#include <sstream>
 
 namespace geomsrv::archviz::overlayhud {
+namespace {
+// The flats selected in the buildings' editors, as one string: equal when nothing was picked.
+std::string Picked (const std::map<std::string, hudfloorscheme::EditorPtr>& editors)
+{
+    std::ostringstream out;
+    out << std::setprecision (9);
+    for (const auto& [key, editor] : editors)
+        if (const auto s = hudfloorscheme::Selected (editor))
+            out << s->building << '#' << s->story << '@' << s->flat.front ().x << ',' << s->flat.front ().y << ';';
+    return out.str ();
+}
+} // namespace
+
 bool EditLocked (const State& state)
 {
     return state.editLocked;
@@ -43,9 +58,17 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
             const layers::Panel& panel = look ? *look : hudshell::PlainLook ();
             const int colours = hudshell::PushLook (panel, ui);
             ImGui::PushFont (FontFor (panel.font), panel.sizePixels * ui);
+            const std::string before = Picked (store->planEditors);
             hudfloorscheme::OnView (store->planEditors, store->floorPlanner, store->floorPlanSnapshots,
                                     store->buildingPlans, store->massingProgramme, store->massingCoefficients, onto,
                                     input.pointer && ImGui::IsWindowHovered (), ui);
+            // A flat picked on the view opens the Selection tab, as a slab picked in Archicad does
+            // (user, 2026-10-15): its building's plan is there, the flat selected in it.
+            if (const std::string after = Picked (store->planEditors); !after.empty () && after != before) {
+                store->host.known = true;
+                store->host.open = true;
+                store->host.selected = kSelectionKey;
+            }
             ImGui::PopFont ();
             ImGui::PopStyleColor (colours);
             ImGui::PopStyleVar (hudshell::kLookVars);

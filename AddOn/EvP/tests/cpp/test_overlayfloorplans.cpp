@@ -291,3 +291,46 @@ TEST (OverlayFloorPlans, In3DTheEditedFloorIsFilled)
             EXPECT_EQ (mesh.rgba & 0xFFu, 0x59u) << "transparent";
     }
 }
+
+// User, 2026-10-15: "Selecting a unit in overlay locked mode open up selection tab same as if
+// selecting slab." A flat clicked on the locked plan opens the HUD on the Selection tab, where its
+// building's plan shows it selected.
+TEST (OverlayFloorPlans, AFlatPickedOnTheLockedPlanOpensTheSelectionTab)
+{
+    hudtest::Watched gui;
+    hud::OwnPages own;
+    own.standalone = true;
+    own.floorPlansKnown = true;
+    own.floorPlans = { Tower () };
+    own.selection.known = true;
+    own.selection.count = 1;
+    gui.engine.SetOwnPages (own);
+    hud::SetEditLocked (*gui.state, true);
+    hud::SetHudOpen (*gui.state, false);
+    hud::SelectKey (*gui.state, hud::kStatsKey);
+    gui.state->previewUnits = true;
+    layers::Layer stairs, units;
+    ASSERT_TRUE (Planned (*gui.state, stairs, units, 0));
+    // The plan: 10 pixels a metre, y up, its origin at (100, 600).
+    const auto at = [] (float x, float y, std::vector<hud::Input::Button> buttons = {}) {
+        auto input = hudtest::At (100 + 10 * x, 600 - 10 * y, std::move (buttons));
+        input.planar = true;
+        const double m[6] = { 10, 0, 100, 0, -10, 600 };
+        std::copy (std::begin (m), std::end (m), input.plan);
+        return input;
+    };
+    const auto* planned = gui.state->floorPlanner.Latest (bp::FloorId ("building:Tower", 0));
+    ASSERT_NE (planned, nullptr);
+    ASSERT_FALSE (planned->scheme.flats.empty ());
+    double x = 0, y = 0;
+    for (const auto& p : planned->scheme.flats.front ().shape)
+        x += p.x / planned->scheme.flats.front ().shape.size (),
+            y += p.y / planned->scheme.flats.front ().shape.size ();
+    for (int n = 0; n < 3; ++n)
+        gui.Lay ({}, at (float (x), float (y)));
+    EXPECT_NE (hud::SelectedKey (*gui.state), hud::kSelectionKey) << "hovering picks nothing";
+    gui.Lay ({}, at (float (x), float (y), { { 0, true } }));
+    gui.Lay ({}, at (float (x), float (y), { { 0, false } }));
+    EXPECT_EQ (hud::SelectedKey (*gui.state), hud::kSelectionKey);
+    EXPECT_TRUE (hud::HudOpen (*gui.state));
+}
