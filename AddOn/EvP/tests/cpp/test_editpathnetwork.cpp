@@ -179,3 +179,20 @@ TEST (EditPathNetwork, ACrossingHasFourJunctionCorners)
         }
     EXPECT_EQ (junctions, 4u);
 }
+
+TEST (EditPathNetwork, ASharpBendsEdgeCornersAreKerbCorners)
+{
+    // An L: its four end corners and, at the bend, the outside and the inside corner of its
+    // edges -- both its bend point's.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { -20, 0, 0 }, { 0, 0, 0 }, { 0, 20, 0 } }, 2.0);
+    const ed::Id bend = ed::FindPath (doc, a)->points[1].id;
+    const auto paved = ed::Pave (doc.paths, 0.5, false);
+    size_t atBend = 0;
+    for (const auto& c : paved.corners) {
+        EXPECT_NE (c.key.point, ed::kNoId) << c.at.x << ", " << c.at.y;
+        atBend += c.key.point == bend;
+    }
+    EXPECT_EQ (paved.corners.size (), 6u);
+    EXPECT_EQ (atBend, 2u);
+}

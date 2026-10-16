@@ -662,3 +662,39 @@ TEST (HudVirtualEditor, KerbGripsShowAtACrossingFromEitherPath)
     d.At (h.x, h.y);
     EXPECT_LT (d.S ().hoverKerb, 0);
 }
+
+TEST (HudVirtualEditor, KerbGripsShowOnEveryCornerOfThePavedArea)
+{
+    // An L, and a straight path across its upright leg. With only the straight path selected,
+    // the L's bend corners -- the outside and the inside one of its edges -- show grips too,
+    // and one dragged is filleted alone.
+    ed::Document doc;
+    const ed::Id l = ed::AddPath (doc, { { 0, 0, 0 }, { 12, 0, 0 }, { 12, 18, 0 } }, 2.0);
+    const ed::Id across = ed::AddPath (doc, { { 6, 10, 0 }, { 20, 10, 0 } }, 2.0);
+    const ed::Id apart = ed::AddPath (doc, { { 2, -6, 0 }, { 10, -6, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { across, ed::Part::Entity, 0 } });
+    const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+    const ed::Id bend = ed::FindPath (d.D (), l)->points[1].id;
+    const ed::PavedCorner* inside = nullptr;
+    const auto paved = ed::Pave (d.D ().paths, 0.5, false);
+    for (const auto& c : paved.corners) {
+        const ImVec2 g = screen (ed::KerbGripAt (c, 0.8));
+        d.At (g.x, g.y);
+        EXPECT_EQ (d.S ().hoverKerb >= 0, !c.Involves (apart)) << c.at.x << ", " << c.at.y;
+        if (c.key.point == bend && !c.convex)
+            inside = &c;
+    }
+    ASSERT_NE (inside, nullptr);
+    const ImVec2 g = screen (ed::KerbGripAt (*inside, 0.8)),
+                 to = screen (ed::KerbGripAt (*inside, 0.8) + inside->bisector * 1.5);
+    d.At (g.x, g.y);
+    d.Press (g.x, g.y);
+    d.At (to.x, to.y);
+    d.Release (to.x, to.y);
+    const ed::Path& pl = *ed::FindPath (d.D (), l);
+    ASSERT_EQ (pl.kerbs.size (), 1u);
+    EXPECT_TRUE (pl.kerbs[0].Same (inside->key));
+    EXPECT_GT (pl.kerbs[0].radius, 1.0);
+    EXPECT_DOUBLE_EQ (pl.edgeRadius, 0.0);
+}

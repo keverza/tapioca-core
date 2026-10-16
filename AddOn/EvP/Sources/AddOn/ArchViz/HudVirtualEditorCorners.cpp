@@ -214,33 +214,10 @@ namespace {
 
 const ImU32 kKerb = IM_COL32 (168, 131, 74, 255); // the paved edge's colour
 
-// The paths whose kerb grips show: each with anything of it selected -- itself, a control
-// point, a grade break, a range -- so a junction's corners show from either path.
-std::vector<edit::Id> KerbPaths (const Session& s)
-{
-    std::vector<edit::Id> out;
-    if (s.tool != Tool::Select)
-        return out;
-    for (const auto& r : s.selection.Items ())
-        if (edit::FindPath (Doc (s), r.entity) != nullptr &&
-            std::find (out.begin (), out.end (), r.entity) == out.end ())
-            out.push_back (r.entity);
-    return out;
-}
-
 bool Shown (const std::vector<edit::Id>& paths, const edit::PavedCorner& c)
 {
     for (edit::Id id : paths)
         if (c.Involves (id))
-            return true;
-    return false;
-}
-
-// Whether path `id` is selected whole: its own corners' grips then set its kerb radius.
-bool SelectedWhole (const Session& s, edit::Id id)
-{
-    for (const auto& r : s.selection.Items ())
-        if (r.entity == id && r.part == edit::Part::Entity)
             return true;
     return false;
 }
@@ -252,6 +229,39 @@ const std::vector<edit::PavedCorner>& PavedCorners (Session& s)
         s.pavedRevision = Doc (s).revision;
     }
     return s.paved.corners;
+}
+
+// The paths whose kerb grips show: every path paved together with one that has anything of it
+// selected -- itself, a control point, a grade break, a range. The paths a junction joins are
+// one paved area, and its corners are all filleted from any of them.
+std::vector<edit::Id> KerbPaths (Session& s)
+{
+    std::vector<edit::Id> out;
+    if (s.tool != Tool::Select)
+        return out;
+    for (const auto& r : s.selection.Items ())
+        if (edit::FindPath (Doc (s), r.entity) != nullptr &&
+            std::find (out.begin (), out.end (), r.entity) == out.end ())
+            out.push_back (r.entity);
+    const auto& corners = PavedCorners (s);
+    for (bool grew = !out.empty (); grew;) {
+        grew = false;
+        for (const auto& c : corners)
+            if (c.key.other != edit::kNoId && Shown (out, c))
+                for (edit::Id id : { c.path, c.key.other })
+                    if (std::find (out.begin (), out.end (), id) == out.end ())
+                        out.push_back (id), grew = true;
+    }
+    return out;
+}
+
+// Whether path `id` is selected whole: its own corners' grips then set its kerb radius.
+bool SelectedWhole (const Session& s, edit::Id id)
+{
+    for (const auto& r : s.selection.Items ())
+        if (r.entity == id && r.part == edit::Part::Entity)
+            return true;
+    return false;
 }
 
 // What a gesture on corner `c` sets to `r`: the path's own radius, or that corner alone.
