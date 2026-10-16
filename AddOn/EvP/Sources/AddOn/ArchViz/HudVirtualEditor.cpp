@@ -897,6 +897,19 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             Dot (s, m, p, 7.0f * scale, kHover, false);
     }
 
+    // The live dimensions and path labels, clear of the gizmo and of each other. Nothing that
+    // follows the pointer moves them: the snap hint and the typed value draw over them.
+    {
+        std::vector<editlayers::Box> taken;
+        ImVec2 o;
+        if (gizmo && m.Screen (frame.origin, o)) {
+            const float r = (kGizmoPixels + 12.0f) * scale;
+            taken.push_back ({ o.x - r, o.y - r, o.x + r, o.y + r });
+        }
+        DrawDimensions (s, m, taken, scale);
+        DrawPathLabels (s, m, taken, scale);
+    }
+
     // Snap marker, its guides and its hint: guides are the quietest thing drawn -- thin,
     // dashed, translucent -- under the geometry they help place, and not while the pen pulls a
     // handle (the handle is the gesture then).
@@ -905,28 +918,6 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             DashedLine (s, m, g.from, g.to, IM_COL32 (155, 93, 229, 150), 1.0f * scale);
         Dot (s, m, s.snap.point, 5.0f * scale, kSnap);
         Note (s, m, s.snap.point, { 14 * scale, -22 * scale }, s.snap.hint, kInk);
-    }
-
-    // The live dimensions, clear of the gizmo and of the tracker beside the pointer.
-    {
-        std::vector<editlayers::Box> taken;
-        ImVec2 o;
-        if (gizmo && m.Screen (frame.origin, o)) {
-            const float r = (kGizmoPixels + 12.0f) * scale;
-            taken.push_back ({ o.x - r, o.y - r, o.x + r, o.y + r });
-        }
-        if (hovered) {
-            const float rows = float (std::max<size_t> (s.tracker.Items ().size (), 1));
-            taken.push_back ({ mouse.x + 12 * scale, mouse.y + 14 * scale, mouse.x + 200 * scale,
-                               mouse.y + 20 * scale + rows * (ImGui::GetTextLineHeight () + 6) });
-        }
-        if (s.snap.snapped && !s.snap.hint.empty () && m.Screen (s.snap.point, o)) {
-            const ImVec2 size = ImGui::CalcTextSize (s.snap.hint.c_str ());
-            taken.push_back (
-                { o.x + 11 * scale, o.y - 24 * scale, o.x + 17 * scale + size.x, o.y - 20 * scale + size.y });
-        }
-        DrawDimensions (s, m, taken, scale);
-        DrawPathLabels (s, m, taken, scale);
     }
 
     // The gizmo.
@@ -949,10 +940,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                        0.0f, 0, crossing ? 1.0f : 1.5f);
     }
 
-    // The tracker beside the pointer.
+    // The tracker: its values are the panel's; beside the pointer only while one is typed.
     std::vector<edit::Dimension> dims;
     s.tracker.Show (TrackerFields (s, dims));
-    if (hovered && s.tracker.State () != edit::TrackerState::Hidden) {
+    if (hovered && s.tracker.State () == edit::TrackerState::Editing) {
         float y = mouse.y + 20 * scale;
         for (size_t i = 0; i < s.tracker.Items ().size (); ++i) {
             const auto& item = s.tracker.Items ()[i];

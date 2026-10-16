@@ -92,6 +92,22 @@ void Panel (Session& s)
     }
     ImGui::EndDisabled ();
 
+    // What is selected, measured: the tracker's values (type a number over the view to set one).
+    if (s.tracker.State () != edit::TrackerState::Hidden && !s.tracker.Items ().empty ()) {
+        ImGui::Separator ();
+        for (size_t i = 0; i < s.tracker.Items ().size (); ++i) {
+            const auto& item = s.tracker.Items ()[i];
+            const bool typing = s.tracker.State () == edit::TrackerState::Editing && i == s.tracker.Focus ();
+            const std::string value =
+                typing ? s.tracker.Text () + "_"
+                       : editlayers::FormatValue (item.quantity, item.locked ? item.lockedValue : item.value);
+            ImGui::Text ("%s  %s%s", edit::QuantityName (item.quantity), value.c_str (),
+                         item.locked ? "  (locked)" : "");
+            if (i + 1 < s.tracker.Items ().size ())
+                ImGui::SameLine (0.0f, 18.0f);
+        }
+    }
+
     const edit::Path* path = ProfilePath (s);
     if (path != nullptr) {
         s.profilePath = path->id;

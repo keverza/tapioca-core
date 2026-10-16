@@ -698,3 +698,26 @@ TEST (HudVirtualEditor, KerbGripsShowOnEveryCornerOfThePavedArea)
     EXPECT_GT (pl.kerbs[0].radius, 1.0);
     EXPECT_DOUBLE_EQ (pl.edgeRadius, 0.0);
 }
+
+TEST (HudVirtualEditor, NothingFollowsThePointerButWhatIsTyped)
+{
+    // A path selected, its labels and dimensions shown: moving the pointer over empty view
+    // moves nothing -- no label steps aside, and the selection's values are the panel's, not a
+    // box beside the pointer.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 100 }, { 20, 0, 101 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    const auto frame = [&] (float x, float y) {
+        d.input.x = x, d.input.y = y;
+        return d.Frame ().overlay.vertices;
+    };
+    frame (700, 160);
+    const auto here = frame (700, 160), there = frame (760, 200);
+    ASSERT_FALSE (here.empty ());
+    ASSERT_EQ (here.size (), there.size ());
+    for (size_t i = 0; i < here.size (); ++i) {
+        EXPECT_FLOAT_EQ (here[i].x, there[i].x) << i;
+        EXPECT_FLOAT_EQ (here[i].y, there[i].y) << i;
+    }
+}
