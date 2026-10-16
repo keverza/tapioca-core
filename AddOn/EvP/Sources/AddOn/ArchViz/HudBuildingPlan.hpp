@@ -59,6 +59,10 @@ struct Floor {
     bool outlineKnown = false;
     std::string outlineKey;         // Canonical world boundary identity, assembled once with the immutable snapshot.
     std::vector<std::string> guids; // the slabs it is cut from, as the section's parts list them
+    // Its use, as the building section colours it (its first part with a value): "Programs" on the
+    // overlay (user, 2026-10-16). Empty and alpha 0 when none is assigned.
+    std::string programme;
+    uint32_t programmeRgba = 0;
 };
 struct Plan {
     std::string key;

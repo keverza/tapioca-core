@@ -410,8 +410,18 @@ void Engine::Impl::MassingPage ()
     // 2026-10-15: "Replace Show units and Show main walls with Show Cell Complex ... Show proposed
     // stair cores becomes only higlight stair core cell").
     const bool stairsChanged = ImGui::Checkbox ("Highlight stair core cells", &store->previewStairs);
-    const bool cellsChanged =
-        ImGui::Checkbox ("Show cell complex (3D: every floor; plan: its story)", &store->previewCells);
+    bool cellsChanged = ImGui::Checkbox ("Show cell complex (3D: every floor; plan: its story)", &store->previewCells);
+    // The presets of a massing study's preview (user, 2026-10-16: "same color for each floor per
+    // programme ... Colors per unit room count ... colors by space type ... Unique units ... Story
+    // Heights ... Buildings").
+    if (store->previewCells) {
+        int by = int (store->cellColours);
+        ImGui::SetNextItemWidth (14.0f * ImGui::GetFontSize ());
+        if (ImGui::Combo ("Colour cells by", &by, kCellColourNames, IM_ARRAYSIZE (kCellColourNames))) {
+            store->cellColours = CellColours (by);
+            cellsChanged = true;
+        }
+    }
     if (stairsChanged || cellsChanged) {
         ShowLayer (buildingplan::kStairsLayer, true);
         ShowLayer (buildingplan::kUnitsLayer, true);

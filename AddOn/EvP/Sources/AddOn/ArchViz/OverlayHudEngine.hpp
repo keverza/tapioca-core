@@ -30,14 +30,12 @@
 #include <string>
 #include <vector>
 
-namespace geomsrv::archviz::buildingtopology {
-struct Complex;
-}
 namespace geomsrv {
 namespace archviz {
 namespace overlayhud {
 
 namespace layers = overlaylayers;
+struct FloorCells; // a building's cell complex, and its flats and cells inside their walls (OverlayHudFloorPlans.cpp)
 
 // The host's own tabs (HudShell.hpp): Stats and Selection before the panels', Settings and
 // Debug after them; without `OwnPages::standalone`, Settings alone.
@@ -55,6 +53,18 @@ using hudshell::kFontStepDefault;
 using hudshell::kFontSteps;
 
 // What the user did to each panel, by its key (OverlayHud.hpp's third note).
+// What the cell complex's units are coloured by on the overlay (Massing tab).
+enum class CellColours : uint8_t {
+    UnitMix,      // each flat its programme type's colour, circulation neutral
+    Programs,     // each floor its use's colour, as the building section colours it
+    SpaceTypes,   // each cell its space: rooms by kind, corridor, lobby, stair (the inspector's)
+    UniqueUnits,  // flats of one size and room count one colour
+    StoryHeights, // each floor height one colour
+    Buildings,    // each building one colour
+};
+constexpr const char* kCellColourNames[] = { "Unit mix",     "Programs",      "Space types",
+                                             "Unique units", "Story heights", "Buildings" };
+
 struct State {
     // A control's value: what its layer last said (`sent`) and what it is now (`current`)
     // -- the user's, until the layer says something new.
@@ -116,12 +126,14 @@ struct State {
     std::string floorPlanAsked; // what the overlay last asked the planner for
     bool editLocked = false;    // the dock's lock: the view's clicks edit the floor plan
     std::shared_ptr<roofhud::Session> roofEditor;
-    // Massing tab: the buildings' cell complexes, and their stair cells highlighted (user, 2026-10-15)
+    // Massing tab: the buildings' cell complexes, and their stair cells highlighted (user, 2026-10-15),
+    // coloured by one of the presets (user, 2026-10-16: "different graphics override presets").
     bool previewStairs = false, previewCells = false;
+    CellColours cellColours = CellColours::UnitMix;
     std::string floorPlanPublished;
     // Each building's cell complex as the overlay last built it, and from what (TakeFloorPlanLayers):
     // a selection or a storey changed draws them again without building them again.
-    std::map<std::string, std::shared_ptr<const buildingtopology::Complex>> floorComplexes;
+    std::map<std::string, std::shared_ptr<const FloorCells>> floorComplexes;
     std::string floorComplexesFrom;
     int planStorey = INT_MIN; // the floor plan overlay's storey while it runs (SetPlanStorey), else INT_MIN
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.

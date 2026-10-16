@@ -10,6 +10,7 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <map>
 #include <set>
 #include <thread>
 
@@ -90,13 +91,14 @@ TEST (OverlayFloorPlans, EveryFloorsCellsAreDrawnOnceItIsPlannedAndNotRebuiltUnt
         y0 = (std::min) (y0, cores.points[i + 1]), y1 = (std::max) (y1, cores.points[i + 1]);
     }
     EXPECT_EQ (levels, (std::set<long long> { 2, 270, 302, 570, 602, 870 })) << "three floors, each under its slab";
-    EXPECT_NEAR ((std::min) (x1 - x0, y1 - y0), 4.5, 1e-3) << "the cell, on its walls' centre lines";
+    EXPECT_NEAR ((std::min) (x1 - x0, y1 - y0), 4.5 - 0.2, 1e-3) << "inside its walls";
     // The rest: one lit solid mesh, each cell its space's colour, inside the massing.
     ASSERT_EQ (units.meshes.size (), 1u);
     const auto& cells = units.meshes.front ();
     EXPECT_EQ (cells.style.shading, layers::Shading::Lit);
     EXPECT_EQ (cells.style.edgeRgba, 0x1D242759u) << "ink edges at 35 %";
-    EXPECT_GT (std::count (cells.vertexRgba.begin (), cells.vertexRgba.end (), 0xEAD9A6FFu), 0) << "a corridor";
+    EXPECT_GT (std::count (cells.vertexRgba.begin (), cells.vertexRgba.end (), 0xE4E6E6FFu), 0)
+        << "circulation neutral beside the flats (unit mix)";
     EXPECT_EQ (std::count (cells.vertexRgba.begin (), cells.vertexRgba.end (), 0x8E3B2FFFu), 0)
         << "the stair is highlighted, not among them";
     for (size_t i = 0; i < cells.points.size (); i += 3) {
@@ -129,7 +131,7 @@ TEST (OverlayFloorPlans, EveryFloorsCellsAreDrawnOnceItIsPlannedAndNotRebuiltUnt
     EXPECT_TRUE (stairs.meshes.empty ());
     ASSERT_EQ (units.meshes.size (), 1u);
     const auto& all = units.meshes.front ().vertexRgba;
-    EXPECT_GT (std::count (all.begin (), all.end (), 0x8E3B2FFFu), 0);
+    EXPECT_GT (std::count (all.begin (), all.end (), 0xB8BCBEFFu), 0) << "neutral among the flats";
     state->previewCells = false;
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
     EXPECT_TRUE (stairs.meshes.empty () && units.meshes.empty ());
@@ -225,7 +227,9 @@ TEST (OverlayFloorPlans, ThePlanShowsItsStoreysCellsFilledAnd3DShowsEveryFloor)
     EXPECT_EQ (units.views, layers::Views::ThreeD);
     EXPECT_EQ (stairs.views, layers::Views::ThreeD);
     EXPECT_EQ (levels (onPlan), (std::set<long long> { 30 })) << "the plan's storey alone, at 3 m";
-    EXPECT_EQ (levels (units), (std::set<long long> { 0, 27, 30, 57, 60, 87 })) << "3D: every floor";
+    EXPECT_EQ (levels (units), (std::set<long long> { 0, 27, 30, 57, 60, 87, 90 }))
+        << "3D: every floor, and its slab's wireframe to the top";
+    EXPECT_TRUE (units.solid) << "its solids hide each other";
     ASSERT_FALSE (onPlan.meshes.empty ()) << "cells filled";
     for (const auto& mesh : onPlan.meshes)
         EXPECT_EQ (mesh.rgba & 0xFFu, 0x99u) << "a fill shows the plan through it";
@@ -448,4 +452,84 @@ TEST (OverlayFloorPlans, ArchicadsEscapeWhileLockedDeselectsTheFlat)
     EXPECT_EQ (gui.state->floorPlanSnapshots.size (), 1u) << "locked: the floors stay";
     EXPECT_FALSE (hf::Selected (editors["a"]).has_value ());
     EXPECT_FALSE (hf::Selected (editors["b"]).has_value ());
+}
+
+// User, 2026-10-16: "Preview should be similar to ... Wireframe of main slab visible and for cells
+// different graphics override presets"; "in floor plan view show unit as one color and inner walls
+// thin lines similar like in mini GUI". Each preset colours the flats by what it names; the plan
+// fills each flat one colour and draws its inner walls thin; the slabs stand as a wireframe.
+TEST (OverlayFloorPlans, TheCellsAreColouredByTheMassingTabsPreset)
+{
+    auto state = hud::NewState ();
+    auto tower = Tower (), low = Tower ();
+    low.key = "building:Low";
+    for (auto& floor : low.floors) {
+        for (auto& contour : floor.contours)
+            for (auto& chain : contour)
+                for (size_t i = 0; i < chain.xy.size (); i += 2)
+                    chain.xy[i] += 60;
+        floor.outlineKey = "low";
+        floor.programme = "Commercial";
+        floor.programmeRgba = 0x336699FFu;
+    }
+    low.floors.pop_back (); // two floors
+    state->floorPlanSnapshots[tower.key] = tower;
+    state->floorPlanSnapshots[low.key] = low;
+    state->previewCells = true;
+    layers::Layer stairs, units, onPlan;
+    ASSERT_TRUE (Planned (*state, stairs, units, 0));
+    hud::SetPlanStorey (*state, 0);
+    // The colours of the flats of a building, through the preset.
+    const auto colours = [&] (hud::CellColours by) {
+        state->cellColours = by;
+        EXPECT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+        std::map<int, std::set<uint32_t>> out; // by mesh: one per building in key order, Low first
+        for (size_t m = 0; m < units.meshes.size (); ++m)
+            for (const uint32_t rgba : units.meshes[m].vertexRgba)
+                if (rgba != 0xE4E6E6FFu && rgba != 0xB8BCBEFFu)
+                    out[int (m)].insert (rgba);
+        return out;
+    };
+    auto by = colours (hud::CellColours::Buildings);
+    ASSERT_EQ (by.size (), 2u);
+    EXPECT_EQ (by[0].size (), 1u) << "one building, one colour";
+    EXPECT_NE (by[0], by[1]);
+    by = colours (hud::CellColours::Programs);
+    EXPECT_EQ (by[0], (std::set<uint32_t> { 0x336699FFu })) << "the section's use";
+    EXPECT_EQ (by[1], (std::set<uint32_t> { 0xA9BCD0FFu })) << "none assigned: one neutral use colour";
+    by = colours (hud::CellColours::StoryHeights);
+    EXPECT_EQ (by[0], by[1]) << "the same floor height, the same colour";
+    by = colours (hud::CellColours::UniqueUnits);
+    EXPECT_GE (by[0].size (), 1u);
+    by = colours (hud::CellColours::UnitMix);
+    const auto* first = state->floorPlanner.Latest (bp::FloorId (tower.key, 0));
+    ASSERT_NE (first, nullptr);
+    ASSERT_FALSE (first->scheme.flats.empty ());
+    const auto& flat = first->scheme.flats.front ();
+    EXPECT_TRUE (by[1].contains (fp::Colour (state->massingProgramme, flat.type, flat.rooms) | 0xFFu))
+        << "a flat in its programme type's colour";
+    by = colours (hud::CellColours::SpaceTypes);
+    EXPECT_TRUE (std::any_of (units.meshes.back ().vertexRgba.begin (), units.meshes.back ().vertexRgba.end (),
+                              [] (uint32_t rgba) { return rgba == 0xEAD9A6FFu; }))
+        << "the corridor in its own colour";
+    // The plan: each flat filled, its outline, and its inner walls thin where its rooms are known.
+    state->cellColours = hud::CellColours::UnitMix;
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
+    const auto* planned = state->floorPlanner.Latest (bp::FloorId (tower.key, 0));
+    ASSERT_NE (planned, nullptr);
+    const bool rooms = std::any_of (planned->scheme.flats.begin (), planned->scheme.flats.end (),
+                                    [] (const auto& f) { return f.roomList.size () > 1; });
+    const auto inner = std::count_if (onPlan.polylines.begin (), onPlan.polylines.end (),
+                                      [] (const auto& line) { return line.rgba == 0x1D24276Eu; });
+    if (rooms)
+        EXPECT_GT (inner, 0) << "inner walls thin";
+    for (const auto& line : onPlan.polylines)
+        if (line.rgba == 0x1D24276Eu)
+            EXPECT_FLOAT_EQ (line.widthPixels, 1.0f);
+    // The slabs' wireframe: each floor's outline at its level and top, its corners between.
+    const auto wire = std::count_if (units.polylines.begin (), units.polylines.end (),
+                                     [] (const auto& line) { return line.rgba == 0x3C4248B0u; });
+    EXPECT_GE (wire, (3 + 2) * (2 + 4)) << "five floors, two outlines and four corners each";
+    EXPECT_TRUE (layers::Validate (units).empty ());
+    EXPECT_TRUE (layers::Validate (onPlan).empty ());
 }

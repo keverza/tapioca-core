@@ -4,6 +4,7 @@
 #include <clipper2/clipper.triangulation.h>
 #include <climits>
 #include <cmath>
+#include <map>
 #include <cstdio>
 #include <memory>
 #include <sstream>
@@ -12,6 +13,7 @@
 namespace geomsrv::archviz::overlayhud {
 namespace {
 namespace fs = floorscheme;
+namespace fp = floorprogramme;
 namespace bt = buildingtopology;
 constexpr uint32_t kPlanFillAlpha = 0x99;  // a cell's fill on the plan: its colour at 60 %
 constexpr double kEdgeLabelShortest = 0.6; // m: a side shorter carries no length
@@ -54,6 +56,44 @@ uint32_t CellRgba (const bt::Cell& cell)
             return 0xB9BEC1FFu;
     }
     return 0xB9BEC1FFu;
+}
+
+// The presets' colours (CellColours): a palette for what has no colour of its own, circulation
+// and stairs neutral beside the flats, and the floors' slabs as a wireframe around them (user,
+// 2026-10-16: "Preview should be similar to ... Wireframe of main slab visible").
+constexpr uint32_t kPalette[] = { 0xE8A3B4FFu, 0xA8C58AFFu, 0x5EC2E0FFu, 0xBEA74AFFu, 0xD4836EFFu, 0xC6A8E8FFu,
+                                  0xF0C36AFFu, 0x7FB8A8FFu, 0x9AA7D9FFu, 0xD9A06BFFu, 0x8FD0C1FFu, 0xE5B7D8FFu };
+constexpr uint32_t kNeutral = 0xE4E6E6FFu, kCoreNeutral = 0xB8BCBEFFu, kNoProgramme = 0xA9BCD0FFu;
+constexpr uint32_t kSlabWire = 0x3C4248B0u, kUnitInk = 0x1D2427CCu, kInnerWall = 0x1D24276Eu;
+uint32_t Paletted (size_t index)
+{
+    return kPalette[index % (sizeof (kPalette) / sizeof (kPalette[0]))];
+}
+double SignedArea (const fs::Ring& ring)
+{
+    double a = 0;
+    for (size_t i = 0; i < ring.size (); ++i)
+        a += ring[i].x * ring[(i + 1) % ring.size ()].y - ring[(i + 1) % ring.size ()].x * ring[i].y;
+    return a / 2;
+}
+// A flat's look for "Unique units": its room count, and its area inside its walls and its sides'
+// lengths to 0.1 m, longest first -- the same flat turned or mirrored is the same.
+std::string Signature (const bt::Unit& unit, const std::vector<fs::Ring>& rings)
+{
+    double area = 0;
+    std::vector<long long> sides;
+    for (const auto& ring : rings) {
+        area += std::abs (SignedArea (ring));
+        for (size_t i = 0; i < ring.size (); ++i)
+            sides.push_back (std::llround (
+                std::hypot (ring[(i + 1) % ring.size ()].x - ring[i].x, ring[(i + 1) % ring.size ()].y - ring[i].y) *
+                10));
+    }
+    std::sort (sides.rbegin (), sides.rend ());
+    std::string out = std::to_string (std::llround (unit.rooms * 2)) + ':' + std::to_string (std::llround (area * 10));
+    for (long long side : sides)
+        out += ',' + std::to_string (side);
+    return out;
 }
 
 void Line (overlaylayers::Layer& layer, const fs::Ring& ring, double z, uint32_t rgba, float width)
@@ -199,6 +239,15 @@ bt::Complex ComplexOf (State& state, const std::string& key, const buildingplan:
 }
 } // namespace
 
+// What the overlay draws a building from, kept while it stands (State::floorComplexes): its cell
+// complex, and each flat and each cell inside its walls -- clipping them each time the selection or
+// the preset changed cost 10-50 ms (user, 2026-10-16: "navigation stutters").
+struct FloorCells {
+    std::string from; // what it was built from: the building's floors' planned schemes and what was asked
+    bt::Complex complex;
+    std::vector<std::vector<fs::Ring>> units, cells;
+};
+
 // The floors' schemes on the overlay as their cell complex (BuildingTopology.hpp; user, 2026-10-15):
 // each cell a solid from its floor to under the next slab, coloured by its space, the stack's stair
 // cells highlighted on their own toggle, and the flat selected in a Plan view white inside its walls
@@ -248,7 +297,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         if (auto s = hudfloorscheme::Selected (editor))
             selected.push_back (std::move (*s));
     std::ostringstream signature;
-    signature << std::setprecision (17) << state.previewStairs << state.previewCells << ':'
+    signature << std::setprecision (17) << state.previewStairs << state.previewCells << int (state.cellColours) << ':'
               << state.floorPlanner.Revision () << ':' << (onPlan ? state.planStorey : INT_MIN);
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         const auto* shown = Displayed (plan, state.buildingPlans[key]);
@@ -273,23 +322,100 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         units.views = stairs.views = overlaylayers::Views::ThreeD;
     }
     // The cell complex (user, 2026-10-15: "Replace Show units and Show main walls with Show Cell
-    // Complex"): in 3D every floor's cells, solids from the floor to under the next slab; on the plan
-    // its storey's, filled. The stairs' toggle highlights the stack's stair cells, alone or among
-    // the rest ("Show proposed stair cores becomes only higlight stair core cell").
-    // Built again only when what they are built from changed: the planner's results or what it was
-    // asked (user, 2026-10-16: a selection rebuilt every building's complex, 30-50 ms on the UI thread).
-    const std::string from = std::to_string (state.floorPlanner.Revision ()) + '|' + asked.str ();
-    if (from != state.floorComplexesFrom) {
+    // Complex"): in 3D every floor, each flat a solid inside its walls from the floor to under the next
+    // slab, circulation and stairs beside them, the floors' slabs a wireframe round them; on the plan
+    // its storey's, each flat one colour with its inner walls thin (user, 2026-10-16: "in floor plan
+    // view show unit as one color and inner walls thin lines similar like in mini GUI"). Coloured by
+    // the Massing tab's preset. The stairs' toggle highlights the stack's stair cells, alone or among
+    // the rest. Solid layers: their solids hide each other, hidden edges dashed (Layer::solid).
+    units.solid = stairs.solid = true;
+    // Each building's built again only when what it is built from changed: its floors' planned
+    // schemes, or what the planner was asked (user, 2026-10-16: a selection rebuilt every building's
+    // complex, 30-50 ms on the UI thread; a scheme arriving for one floor rebuilt them all).
+    if (asked.str () != state.floorComplexesFrom) {
         state.floorComplexes.clear ();
-        state.floorComplexesFrom = from;
+        state.floorComplexesFrom = asked.str ();
     }
+    std::erase_if (state.floorComplexes,
+                   [&] (const auto& held) { return !state.floorPlanSnapshots.contains (held.first); });
+    const bool drawn = state.previewCells || state.previewStairs;
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
-        if (!state.previewCells && !state.previewStairs)
-            break;
+        std::string from;
+        for (const auto& floor : plan.floors)
+            if (const auto* planned = state.floorPlanner.Latest (FloorId (key, floor.story)))
+                from += ',' + std::to_string (planned->revision);
+            else
+                from += ",-";
+        if (const auto* stack = state.floorPlanner.Latest (StackId (key, plan)))
+            from += '#' + std::to_string (stack->revision);
         auto& held = state.floorComplexes[key];
-        if (!held)
-            held = std::make_shared<const bt::Complex> (ComplexOf (state, key, plan, options));
-        const auto& complex = *held;
+        if (held && held->from != from)
+            held.reset ();
+        if (drawn && !held) {
+            auto built = std::make_shared<FloorCells> ();
+            built->from = from;
+            built->complex = ComplexOf (state, key, plan, options);
+            for (const auto& unit : built->complex.units)
+                built->units.push_back (bt::Clear (built->complex, unit.cells));
+            for (size_t id = 0; id < built->complex.cells.size (); ++id)
+                built->cells.push_back (built->complex.cells[id].context ? std::vector<fs::Ring> {}
+                                                                         : bt::Clear (built->complex, { int (id) }));
+            held = std::move (built);
+        }
+    }
+    // Each flat inside its walls, once; and what "Unique units" and "Story heights" key their
+    // colours by, over every building, in a stable order.
+    std::map<std::string, size_t> looks;
+    std::map<long long, size_t> heights;
+    for (const auto& [key, held] : state.floorComplexes) {
+        if (!held || !state.previewCells)
+            continue;
+        for (size_t u = 0; u < held->units.size (); ++u)
+            looks.emplace (Signature (held->complex.units[u], held->units[u]), 0);
+        for (const auto& floor : held->complex.floors)
+            heights.emplace (std::llround (floor.height * 100), 0);
+    }
+    size_t next = 0;
+    for (auto& [look, index] : looks)
+        index = next++;
+    next = 0;
+    for (auto& [height, index] : heights)
+        index = next++;
+    size_t building = 0;
+    for (const auto& [key, plan] : state.floorPlanSnapshots) {
+        const size_t index = building++;
+        const auto found = state.floorComplexes.find (key);
+        if (!drawn || found == state.floorComplexes.end () || !found->second)
+            continue;
+        const auto& complex = found->second->complex;
+        const auto& rings = found->second->units;
+        const auto& clear = found->second->cells;
+        const auto programmeOf = [&] (int story) {
+            for (const auto& floor : plan.floors)
+                if (floor.story == story && (floor.programmeRgba & 0xFFu) != 0)
+                    return floor.programmeRgba | 0xFFu;
+            return kNoProgramme;
+        };
+        // What a flat, or a cell no flat holds, is coloured on this floor.
+        const auto colourOf = [&] (const bt::Floor& floor, const bt::Unit* unit, const std::vector<fs::Ring>* rings,
+                                   const bt::Cell* cell) -> uint32_t {
+            if (state.cellColours == CellColours::SpaceTypes && cell)
+                return CellRgba (*cell);
+            if (!unit)
+                return cell && cell->kind == bt::CellKind::Core ? kCoreNeutral : kNeutral;
+            switch (state.cellColours) {
+                case CellColours::Programs:
+                    return programmeOf (floor.story);
+                case CellColours::UniqueUnits:
+                    return Paletted (looks[Signature (*unit, *rings)]);
+                case CellColours::StoryHeights:
+                    return Paletted (heights[std::llround (floor.height * 100)]);
+                case CellColours::Buildings:
+                    return Paletted (index);
+                default:
+                    return floorprogramme::Colour (state.massingProgramme, unit->type, unit->rooms) | 0xFFu;
+            }
+        };
         overlaylayers::Mesh cells, cores;
         for (auto* mesh : { &cells, &cores }) {
             mesh->styled = true;
@@ -299,22 +425,85 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         }
         cores.style.edgeRgba = kCoreHighlight;
         cores.style.edgeWidthPixels = 2.5f;
-        for (const auto& cell : complex.cells) {
-            if (cell.context || cell.floor < 0)
+        // The flats: one solid each, or a solid a room under "Space types"; on the plan one fill,
+        // its outline and its inner walls thin.
+        for (size_t u = 0; u < complex.units.size () && state.previewCells; ++u) {
+            const auto& unit = complex.units[u];
+            const auto& floor = complex.floors[unit.floor];
+            const auto span = bt::ClearSpan (floor);
+            overlaylayers::Layer* here = onPlan && floor.story == state.planStorey ? onPlan : nullptr;
+            const double z = floor.z + 0.02;
+            if (state.cellColours == CellColours::SpaceTypes)
+                for (int id : unit.cells) {
+                    const uint32_t rgba = CellRgba (complex.cells[id]);
+                    for (const auto& ring : clear[id]) {
+                        Solid (cells, ring, span.z0 + 0.02, span.z1, rgba);
+                        if (here)
+                            Fill (*here, ring, z, (rgba & 0xFFFFFF00u) | kPlanFillAlpha);
+                    }
+                }
+            else {
+                const uint32_t rgba = colourOf (floor, &unit, &rings[u], nullptr);
+                for (const auto& ring : rings[u]) {
+                    Solid (cells, ring, span.z0 + 0.02, span.z1, rgba);
+                    if (here)
+                        Fill (*here, ring, z, (rgba & 0xFFFFFF00u) | kPlanFillAlpha);
+                }
+            }
+            if (!here)
                 continue;
-            const bool core = cell.kind == bt::CellKind::Core;
-            const bool highlighted = core && state.previewStairs;
+            for (const auto& ring : rings[u])
+                Line (*here, ring, z, kUnitInk, 1.3f);
+            // Its inner walls: the faces between two of its own rooms, on their centre lines.
+            for (int id : unit.cells)
+                for (int f : complex.cells[id].faces) {
+                    const auto& face = complex.faces[f];
+                    if (face.horizontal || face.kind != bt::FaceClass::Internal || face.cells[0] != id)
+                        continue;
+                    overlaylayers::Polyline wall;
+                    wall.rgba = kInnerWall;
+                    wall.widthPixels = 1.0f;
+                    wall.behind = overlaylayers::Behind::Show;
+                    wall.points = { face.a.x, face.a.y, z, face.b.x, face.b.y, z };
+                    here->polylines.push_back (std::move (wall));
+                }
+        }
+        // Circulation, the stairs and floor no flat takes.
+        for (size_t id = 0; id < complex.cells.size (); ++id) {
+            const auto& cell = complex.cells[id];
+            if (cell.context || cell.floor < 0 || cell.unit >= 0)
+                continue;
+            const bool highlighted = cell.kind == bt::CellKind::Core && state.previewStairs;
             if (!highlighted && !state.previewCells)
                 continue;
             const auto& floor = complex.floors[cell.floor];
             const auto span = bt::ClearSpan (floor);
-            const uint32_t rgba = CellRgba (cell);
-            Solid (highlighted ? cores : cells, cell.shape, span.z0 + 0.02, span.z1, rgba);
-            if (onPlan && floor.story == state.planStorey) {
+            const uint32_t rgba = highlighted ? CellRgba (cell) : colourOf (floor, nullptr, nullptr, &cell);
+            const bool here = onPlan && floor.story == state.planStorey;
+            for (const auto& ring : clear[id]) {
+                Solid (highlighted ? cores : cells, ring, span.z0 + 0.02, span.z1, rgba);
+                if (!here)
+                    continue;
                 const double z = floor.z + 0.02;
-                Fill (*onPlan, cell.shape, z, (rgba & 0xFFFFFF00u) | (highlighted ? 0xE6u : kPlanFillAlpha));
-                Line (*onPlan, cell.shape, z, highlighted ? kCoreHighlight : (kCellEdge & 0xFFFFFF00u) | 0x99u,
-                      highlighted ? 3.0f : 1.0f);
+                Fill (*onPlan, ring, z, (rgba & 0xFFFFFF00u) | (highlighted ? 0xE6u : kPlanFillAlpha));
+                Line (*onPlan, ring, z, highlighted ? kCoreHighlight : kUnitInk, highlighted ? 3.0f : 1.0f);
+            }
+        }
+        // The floors' slabs: each floor's outline at its level and its top, and its corners.
+        for (const auto& floor : complex.floors) {
+            if (!state.previewCells)
+                break;
+            for (const auto& ring : floor.outline) {
+                for (const double z : { floor.z, floor.z + floor.height })
+                    Line (units, ring, z, kSlabWire, 1.0f);
+                for (const auto& p : ring) {
+                    overlaylayers::Polyline edge;
+                    edge.rgba = kSlabWire;
+                    edge.widthPixels = 1.0f;
+                    edge.behind = overlaylayers::Behind::Show;
+                    edge.points = { p.x, p.y, floor.z, p.x, p.y, floor.z + floor.height };
+                    units.polylines.push_back (std::move (edge));
+                }
             }
         }
         if (!cells.indices.empty ())
@@ -335,6 +524,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                 continue;
             overlaylayers::Layer* here = onPlan && floor.story == state.planStorey ? onPlan : nullptr;
             std::vector<fs::Ring> rings { s.flat }, measured { s.flat };
+            // In 3D on its solid's top, where the solids leave it seen (Layer::solid).
+            const double top = floor.z + floor.height - fp::kSlab + 0.02;
             if (const auto* planned = state.floorPlanner.Latest (FloorId (s.building, floor.story))) {
                 const auto complex = bt::Build ({ { floor.story, floor.z, floor.height, &planned->scheme, {} } });
                 measured.clear ();
@@ -346,12 +537,12 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                 }
             }
             for (const auto& ring : rings) {
-                Line (units, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
+                Line (units, ring, top, 0xFFFFFFFFu, 5.0f);
                 if (here)
                     Line (*here, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
             }
             for (const auto& ring : measured) {
-                EdgeLengths (units, ring, floor.z + 0.05);
+                EdgeLengths (units, ring, top + 0.01);
                 if (here)
                     EdgeLengths (*here, ring, floor.z + 0.05);
             }

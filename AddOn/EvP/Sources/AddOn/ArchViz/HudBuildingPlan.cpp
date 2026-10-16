@@ -177,6 +177,8 @@ Plan Build (const massingslices::Result& slices, const massingbuildings::Preview
             floor.contours.push_back (source->chains);
             if (std::find (floor.guids.begin (), floor.guids.end (), part.guid) == floor.guids.end ())
                 floor.guids.push_back (part.guid);
+            if (floor.programme.empty () && !part.value.empty ())
+                floor.programme = part.value, floor.programmeRgba = part.rgba;
             floor.height = (std::max) (floor.height, source->floorHeight);
             floor.physical.push_back (source->rawChains);
         }
