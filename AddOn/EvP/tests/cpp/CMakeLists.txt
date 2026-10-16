@@ -491,6 +491,7 @@ set (EVP_ARCHVIZ_SOURCES
     # ArchViz/OverlayLayers.cpp is the arbitrary geometry callers put on both overlays,
     # prepared for each; a wrong vertex is a picture in someone else's view.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayers.cpp"
     # ArchViz/OverlayText.cpp and OverlayScene.cpp are what the Diligent guest draws on
     # the overlays -- labels laid out around their anchors, dimensions, styled meshes,
     # heatmaps and legends -- prepared without a device, so the placement is tested
@@ -546,6 +547,15 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeCanvas.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeReport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudRoof.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudVirtualEditor.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPanel.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDraw.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMenu.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorSnap.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorCorners.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorCurves.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLabels.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeSkeleton.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeRuns.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/FloorSchemeCorners.cpp"
@@ -596,6 +606,7 @@ set (EVP_ARCHVIZ_SOURCES
     # The hooks and the canvas themselves: plain Win32, a window of the test's own thread for the
     # canvas; its log lines go nowhere (ArchVizLogStub.cpp).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
     # Independent sun-analysis compute device; no renderer, window or ACAPI.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyGpuTraversal.cpp"
@@ -726,7 +737,47 @@ set (EVP_PREVIEW_SOURCES
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayBinding.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/PlanTransformMath.cpp")
 
+# The virtual editor's kernel: documents, gestures, snapping, numbers and handles
+# with no Archicad, ImGui or Win32 header, so every editing rule is tested here.
+set (EVP_EDIT_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditTypes.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditTracker.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmo.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathNetwork.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathContours.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathCrossing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathAlignment.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathProfile.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathSection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathModel.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
+
 set (EVP_TEST_SOURCES
+    test_editdocument.cpp
+    test_editsession.cpp
+    test_editsnap.cpp
+    test_editshape.cpp
+    test_editpathnetwork.cpp
+    test_editpathcontours.cpp
+    test_editpathcrossing.cpp
+    test_edittracker.cpp
+    test_editgizmo.cpp
+    test_editselection.cpp
+    test_editpolyline.cpp
+    test_editlayers.cpp
+    test_editpathalignment.cpp
+    test_editpathprofile.cpp
+    test_editpathsection.cpp
+    test_editpath.cpp
+    test_editprofileview.cpp
+    test_hudvirtualeditor.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp
@@ -1016,6 +1067,7 @@ endif ()
 # The HUD's input layer calls the wide Win32 API through its macros (IDC_ARROW), as the add-on
 # builds it: with UNICODE.
 set_source_files_properties ("${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
+                             "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
                              PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_SCENE_TEXT_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
@@ -1023,6 +1075,7 @@ add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                 ${EVP_GRASSHOPPER_SOURCES}
                                  ${EVP_NODEGRAPH_SOURCES}
                                  ${EVP_SUNSTUDY_SOURCES}
+                                 ${EVP_EDIT_SOURCES}
                                  ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"

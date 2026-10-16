@@ -455,6 +455,14 @@ TEST (HudCursor, ACanvasThatClaimsThePointerShowsItsOwnCursor)
     EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::SizeWE));
     ImGui::SetMouseCursor (ImGuiMouseCursor_TextInput);
     EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::Text));
+    shell::OwnCursor (true);
+    EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Cross)) << "a drawing tool's crosshair";
+    shell::OwnCursor ();
+    EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::Text)) << "claimed again without it: ImGui's";
+    shell::OwnCursorAs (uint8_t (Cursor::Pen));
+    EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Pen)) << "the pen, by number";
+    shell::OwnCursor ();
+    EXPECT_EQ (shell::CursorOf (false), uint8_t (Cursor::Text)) << "and forgotten when claimed plainly";
     ImGui::EndFrame ();
     ImGui::NewFrame ();
     EXPECT_EQ (shell::CursorOf (true), uint8_t (Cursor::Hand)) << "a claim lasts its frame";

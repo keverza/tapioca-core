@@ -81,7 +81,17 @@ struct HitMap {
 // ⚠️ THE POINTER SAYS WHAT A PRESS WILL DO (the user, 2026-10-10: over the plan canvas it kept
 // switching between a hand and an arrow): an arrow, a hand on what can be pressed, a move cross
 // on what drags, sizing arrows across a wall.
-enum class Cursor : uint8_t { Arrow = 0, Hand = 1, Move = 2, SizeWE = 3, SizeNS = 4, Text = 5 };
+enum class Cursor : uint8_t {
+    Arrow = 0,
+    Hand = 1,
+    Move = 2,
+    SizeWE = 3,
+    SizeNS = 4,
+    Text = 5,
+    Cross = 6,
+    Pen = 7,
+    PenClose = 8
+};
 Cursor CursorFor (const HitMap& map, bool overRegion, bool hudGesture);
 
 enum class Button : uint8_t { Left = 0, Right = 1, Middle = 2, X1 = 3, X2 = 4 };

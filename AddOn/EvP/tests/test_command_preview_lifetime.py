@@ -24,16 +24,19 @@ def test_transient_lifetime_is_explicit_and_backward_compatible():
 def test_run_clears_before_workflow_or_python_launch():
     source = (ROOT / "Palette/ControlPaletteRun.cpp").read_text(encoding="utf-8")
     body = source[source.index("void ControlPalette::RunSelected") :]
-    assert body.index("ForgetCommandPreviews ()") < body.index("IsWorkflowCommand (info)")
+    # The run names the command about to start, so an editing session it opened survives it.
+    assert body.index("ForgetCommandPreviews (info->path)") < body.index("IsWorkflowCommand (info)")
     cleanup = source[
         source.index("void ControlPalette::ForgetCommandPreviews") : source.index("void ControlPalette::RunSelected")
     ]
     assert "RetainedPreviewStore::Get ().Clear ()" in cleanup
     assert "preview.ForgetContext ()" in cleanup
-    assert "ClearCommandPreviews ()" in cleanup
+    assert "ClearCommandPreviews (next." in cleanup
     controller = (ROOT / "ArchViz/OverlayControllerHud.cpp").read_text(encoding="utf-8")
-    assert "ClearCommandScoped ()" in controller
-    assert "StopRoofEditor" in controller
+    clear = controller[controller.index("void ClearCommandPreviews (const std::string& next)") :]
+    assert "ClearCommandScoped (keepEditor ? editlayers::kLayer : \"\")" in clear
+    assert "StopRoofEditor" in clear
+    assert "VirtualEditorOwnedBy (state, next)" in clear
 
 
 def test_new_open_close_release_hidden_palette_copies_and_store():

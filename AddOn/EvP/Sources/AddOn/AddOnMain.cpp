@@ -39,7 +39,8 @@
 #include "Server/ServerState.hpp"
 #include "Server/HttpServer.hpp"
 #include "NativeCommands/PlanOverlayCommands.hpp" // ShutdownPlanOverlay — Win32 windows we own
-#include "ArchViz/ViewportOverlayWindow.hpp"      // the 3D overlay, same hazard
+#include "NativeCommands/TestCommands.hpp"
+#include "ArchViz/ViewportOverlayWindow.hpp" // the 3D overlay, same hazard
 #include "NativeCommands/GraphCaptureService.hpp"
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "NativeCommands/SurfaceInspectorCommands.hpp"
@@ -157,6 +158,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
         case APINotify_New:
         case APINotify_NewAndReset:
         case APINotify_Open:
+            geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
             if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
@@ -185,6 +187,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Close:
+            geomsrv::ResetTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
             if (ControlPalette::HasInstance ()) {
                 ControlPalette::GetInstance ().Hide ();
@@ -205,6 +208,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Quit:
+            geomsrv::ShutdownTestJobs ();
             geomsrv::ResetSurfaceInspectorState ();
             geomsrv::sunfollow::Shutdown ();
             geomsrv::archviz::visibilitystudy::Shutdown ();
@@ -632,6 +636,7 @@ GSErrCode Initialize (void)
 
 GSErrCode FreeData (void)
 {
+    geomsrv::ShutdownTestJobs ();
     // Retire posted interactions before the main-thread gate and this module go away.
     geomsrv::ResetSurfaceInspectorState ();
     geomsrv::sunfollow::Shutdown (); // never join a calculation thread under loader-lock destruction

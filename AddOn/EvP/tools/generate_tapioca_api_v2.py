@@ -268,7 +268,11 @@ from typing import Any
 # not exposed fragments, and never assumes native/ModelerAPI index equality.
 # +2 for GetSnapshotSurfaces / CalculateSurfaceFragments. The current tree also
 # contains ClearGhOverlaySession from the independent overlay-session work.
-EXPECTED_REGISTRY_COMMANDS = 252
+# The virtual-editor branch raised the same stale count independently (it named
+# RoofSlopeEditor as the verb the bump had missed), so the merge counts it once:
+# 252 -> 254 with VirtualEditor and its read-only EditorState diagnostic, 254 -> 260
+# with the six read-only live-test bridge adapters (2026-10-16).
+EXPECTED_REGISTRY_COMMANDS = 260
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -290,7 +294,10 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 263 -> 264 with SetViewpointStudy.
 # 265 -> 267 with the two Stage A exposed-surface Inspector commands
 # (GetExposedSurfaceQuantities + PickPolygon).
-EXPECTED_TOTAL_COMMANDS = 271
+# 268 -> 271 with GetSnapshotSurfaces / CalculateSurfaceFragments and the same
+# stale registry verb; 271 -> 273 with VirtualEditor and EditorState, 273 -> 279 with
+# the same six live-test adapters.
+EXPECTED_TOTAL_COMMANDS = 279
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

@@ -465,6 +465,8 @@ double s_claimedPress = -1;
 // Who claimed the pointer, the same way.
 const ImGuiContext* g_cursorBy = nullptr;
 int g_cursorFrame = -1;
+bool g_crosshair = false;
+uint8_t g_cursorAs = 0; // an input-layer cursor asked for by number; 0: none
 
 } // namespace
 
@@ -481,10 +483,18 @@ bool RightClickClaimed ()
            (ImGui::IsMouseDown (ImGuiMouseButton_Right) || ImGui::IsMouseReleased (ImGuiMouseButton_Right));
 }
 
-void OwnCursor ()
+void OwnCursor (bool crosshair)
 {
     g_cursorBy = ImGui::GetCurrentContext ();
     g_cursorFrame = ImGui::GetFrameCount ();
+    g_crosshair = crosshair;
+    g_cursorAs = 0;
+}
+
+void OwnCursorAs (uint8_t cursor)
+{
+    OwnCursor ();
+    g_cursorAs = cursor;
 }
 
 bool CursorOwned ()
@@ -497,6 +507,10 @@ uint8_t CursorOf (bool hand)
     using overlayinput::Cursor;
     if (!CursorOwned ())
         return uint8_t (hand ? Cursor::Hand : Cursor::Arrow);
+    if (g_cursorAs != 0)
+        return g_cursorAs;
+    if (g_crosshair)
+        return uint8_t (Cursor::Cross);
     switch (ImGui::GetMouseCursor ()) {
         case ImGuiMouseCursor_TextInput:
             return uint8_t (Cursor::Text);

@@ -762,6 +762,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
     impl_->RoofEditActions (input);
+    impl_->VirtualEditActions (input);
     uint32_t unsampled = 0;
     // Each control's value as its layer says it now.
     impl_->Reconcile (panels, keys);

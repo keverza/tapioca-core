@@ -9,6 +9,7 @@
 // THREAD. Every entry point is MAIN THREAD.
 
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/EditLayers.hpp"
 
 #include "ArchViz/OverlayClickTiming.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
@@ -100,11 +101,28 @@ void FollowHudState ()
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
     }
+    // The virtual editor follows exactly as the roof does: its layer when the document or the
+    // selection moved, and the same scoped keyboard ownership while it has the locked view.
+    overlaylayers::Layer editorLayer;
+    bool clearEditorLayer = false;
+    if (overlayhud::FollowVirtualEditor (*state, editorLayer, clearEditorLayer)) {
+        if (clearEditorLayer)
+            overlaylayers::Clear (editlayers::kLayer);
+        else
+            overlaylayers::Set (std::move (editorLayer));
+        PublishLayers ();
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    }
     const bool roofKeys = overlayhud::RoofEditorActive (*state) && overlayhud::EditLocked (*state) &&
                           overlayhud::ContentShown (*state) && overlayhud::LayerShown (*state, roofslope::kLayer);
-    if (!overlayinput::EnableRoofEditKeys (roofKeys)) {
+    const bool editorKeys = overlayhud::VirtualEditorActive (*state) && overlayhud::EditLocked (*state) &&
+                            overlayhud::ContentShown (*state) && overlayhud::LayerShown (*state, editlayers::kLayer);
+    if (!overlayinput::EnableRoofEditKeys (roofKeys || editorKeys)) {
         overlayhud::StopRoofEditor (*state);
+        overlayhud::StopVirtualEditor (*state, "keyboard ownership was refused");
         overlaylayers::Clear (roofslope::kLayer);
+        overlaylayers::Clear (editlayers::kLayer);
         PublishLayers ();
         overlayinput::RequestLayout (overlayinput::View::ThreeD);
         overlayinput::RequestLayout (overlayinput::View::Plan);
@@ -302,12 +320,27 @@ void FollowHudState ()
     overlayinput::RequestLayout (overlayinput::View::Plan);
 }
 
-void ClearCommandPreviews ()
+namespace {
+std::string g_runningCommand;
+}
+
+void ClearCommandPreviews (const std::string& next)
 {
-    overlayhud::StopRoofEditor (*guesttext::HudState ());
-    overlayinput::EnableRoofEditKeys (false);
-    if (overlaylayers::ClearCommandScoped ())
+    g_runningCommand = next;
+    overlayhud::State& state = *guesttext::HudState ();
+    const bool keepEditor = !next.empty () && overlayhud::VirtualEditorOwnedBy (state, next);
+    overlayhud::StopRoofEditor (state);
+    if (!keepEditor) {
+        overlayhud::StopVirtualEditor (state, next.empty () ? "a project boundary" : "another command ran");
+        overlayinput::EnableRoofEditKeys (false);
+    }
+    if (overlaylayers::ClearCommandScoped (keepEditor ? editlayers::kLayer : ""))
         PublishLayers ();
+}
+
+const std::string& RunningCommand ()
+{
+    return g_runningCommand;
 }
 
 void SetOverlayVisible (bool visible)

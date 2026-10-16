@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 249,
+      "nativeRegistry": 260,
       "dispatcherLocal": 19,
-      "total": 268
+      "total": 279
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -493,6 +493,416 @@
           "metadataCancelled",
           "retainedBytes"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.CalculateSurfaceFragments",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "coverScopeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "faces": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 512,
+            "items": {
+              "$ref": "#/$defs/face"
+            }
+          },
+          "covers": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/$defs/body"
+            }
+          },
+          "surfaceAttributeIndices": {
+            "type": "array",
+            "maxItems": 512,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshotId",
+          "captureStamp",
+          "coverScopeId",
+          "faces",
+          "covers"
+        ],
+        "$defs": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 38
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/elementId"
+              },
+              "sourceBody": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "elementId",
+              "sourceBody"
+            ]
+          },
+          "face": {
+            "type": "object",
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/elementId"
+              },
+              "sourceBody": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "sourcePgon": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "elementId",
+              "sourceBody",
+              "sourcePgon"
+            ]
+          }
+        }
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "algorithmVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "coverScopeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unit": {
+            "const": "m2"
+          },
+          "coordinateUnit": {
+            "const": "m"
+          },
+          "indexSpace": {
+            "const": "ModelerAPI-1-based"
+          },
+          "classification": {
+            "const": "explicitSourceFaces-contactOnly"
+          },
+          "areas": {
+            "$ref": "#/$defs/areas"
+          },
+          "covers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/body"
+            }
+          },
+          "faces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/faceAreas"
+            }
+          },
+          "fragments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/fragment"
+            }
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "surfaceAttributeIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "areas": {
+                  "$ref": "#/$defs/areas"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "surfaceAttributeIndex",
+                "areas"
+              ]
+            }
+          },
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#/$defs/elementId"
+                },
+                "areas": {
+                  "$ref": "#/$defs/areas"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "areas"
+              ]
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "properties": {
+              "candidateCoverPairs": {
+                "$ref": "#/$defs/count"
+              },
+              "sectionCount": {
+                "$ref": "#/$defs/count"
+              },
+              "work": {
+                "$ref": "#/$defs/count"
+              },
+              "outputTriangles": {
+                "$ref": "#/$defs/count"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "candidateCoverPairs",
+              "sectionCount",
+              "work",
+              "outputTriangles"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshotId",
+          "captureStamp",
+          "algorithmVersion",
+          "coverScopeId",
+          "unit",
+          "coordinateUnit",
+          "indexSpace",
+          "classification",
+          "areas",
+          "covers",
+          "faces",
+          "fragments",
+          "surfaces",
+          "elements",
+          "statistics"
+        ],
+        "$defs": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "areas": {
+            "type": "object",
+            "properties": {
+              "grossGeometricArea": {
+                "type": "number",
+                "minimum": 0
+              },
+              "exposedArea": {
+                "type": "number",
+                "minimum": 0
+              },
+              "selectedExposedArea": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "grossGeometricArea",
+              "exposedArea",
+              "selectedExposedArea"
+            ]
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/elementId"
+              },
+              "sourceBody": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "elementId",
+              "sourceBody"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/elementId"
+              },
+              "sourceBody": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "sourcePgon": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "elementId",
+              "sourceBody",
+              "sourcePgon"
+            ]
+          },
+          "faceAreas": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/source"
+              },
+              "materialPoolIndex": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "surfaceAttributeIndex": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "areas": {
+                "$ref": "#/$defs/areas"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "materialPoolIndex",
+              "surfaceAttributeIndex",
+              "areas"
+            ]
+          },
+          "fragment": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/source"
+              },
+              "materialPoolIndex": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "surfaceAttributeIndex": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "areaM2": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "loops": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "array",
+                  "minItems": 9,
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              },
+              "points": {
+                "type": "array",
+                "minItems": 9,
+                "items": {
+                  "type": "number"
+                }
+              },
+              "triangles": {
+                "type": "array",
+                "minItems": 3,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "materialPoolIndex",
+              "surfaceAttributeIndex",
+              "selected",
+              "areaM2",
+              "loops",
+              "points",
+              "triangles"
+            ]
+          }
+        }
       }
     },
     {
@@ -1629,6 +2039,19 @@
           "layer": {
             "type": "string"
           },
+          "floorPlan": {
+            "type": "boolean"
+          },
+          "floorInd": {
+            "type": "integer",
+            "minimum": -32768,
+            "maximum": 32767
+          },
+          "pen": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          },
           "databaseAnchorElementId": {
             "type": "object",
             "properties": {
@@ -2145,6 +2568,17 @@
             "minItems": 6,
             "items": {
               "type": "number"
+            }
+          },
+          "holes": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "array",
+              "minItems": 6,
+              "items": {
+                "type": "number"
+              }
             }
           },
           "arcs": {
@@ -3648,6 +4082,126 @@
           "selectionBridgeMode",
           "debugView"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.EditorState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "layerShown": {
+            "type": "boolean"
+          },
+          "tool": {
+            "type": "string",
+            "enum": [
+              "select",
+              "polyline",
+              "path",
+              "curve"
+            ]
+          },
+          "gizmo": {
+            "type": "string",
+            "enum": [
+              "move",
+              "rotate",
+              "scale",
+              "stretch",
+              "extrude"
+            ]
+          },
+          "drag": {
+            "type": "string",
+            "enum": [
+              "none",
+              "part",
+              "handle",
+              "marquee",
+              "profileBreak",
+              "profileTangent",
+              "corner",
+              "bezier",
+              "bend"
+            ]
+          },
+          "gesture": {
+            "type": "boolean"
+          },
+          "selection": {
+            "type": "integer"
+          },
+          "selectionKind": {
+            "type": "string",
+            "enum": [
+              "none",
+              "vertex",
+              "segment",
+              "face",
+              "entity",
+              "mixed",
+              "pathPoint",
+              "break",
+              "range"
+            ]
+          },
+          "hovering": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "publishedRevision": {
+            "type": "integer"
+          },
+          "undoDepth": {
+            "type": "integer"
+          },
+          "tracker": {
+            "type": "string",
+            "enum": [
+              "hidden",
+              "showing",
+              "editing"
+            ]
+          },
+          "drawing": {
+            "type": "integer"
+          },
+          "entities": {
+            "type": "integer"
+          },
+          "paths": {
+            "type": "integer"
+          },
+          "snapPoints": {
+            "type": "integer"
+          },
+          "snapSegments": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "locked",
+          "layerShown"
+        ],
+        "additionalProperties": false
       }
     },
     {
@@ -11707,6 +12261,75 @@
       }
     },
     {
+      "name": "Tapioca.GetSnapshotSurfaces",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshotId",
+          "captureStamp"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "scope": {
+            "const": "capturedProjectSurfaceCatalog"
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "surfaceAttributeIndex": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "guid": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "surfaceAttributeIndex",
+                "name",
+                "guid"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshotId",
+          "captureStamp",
+          "scope",
+          "surfaces"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GetStatus",
       "implementation": "native-registry",
       "inputScheme": {
@@ -17888,6 +18511,14 @@
           "indexSpace": {
             "const": "ModelerAPI-1-based"
           },
+          "inventoryScope": {
+            "type": "string",
+            "enum": [
+              "element",
+              "queryBounds"
+            ],
+            "description": "With a complete contour query, faces lists only geometric candidates; it is not a whole-element inventory."
+          },
           "status": {
             "enum": [
               "enumerated",
@@ -17917,6 +18548,7 @@
           "captureStamp",
           "unit",
           "indexSpace",
+          "inventoryScope",
           "status",
           "reason",
           "faces"
@@ -20581,6 +21213,9 @@
               "handsShown": {
                 "type": "string"
               },
+              "cursorsReasserted": {
+                "type": "string"
+              },
               "mouseHook": {
                 "type": "boolean"
               },
@@ -20620,6 +21255,7 @@
               "cursorPlan",
               "cursorsSet",
               "handsShown",
+              "cursorsReasserted",
               "mouseHook",
               "buttonsEaten",
               "buttonsLate",
@@ -22127,6 +22763,11 @@
           },
           "y": {
             "type": "number"
+          },
+          "floorInd": {
+            "type": "integer",
+            "minimum": -32768,
+            "maximum": 32767
           },
           "mode": {
             "type": "string",
@@ -24674,6 +25315,95 @@
       }
     },
     {
+      "name": "Tapioca.RoofSlopeEditor",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "state"
+            ]
+          },
+          "sourceGuid": {
+            "type": "string"
+          },
+          "outline": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 20000,
+              "items": {
+                "$ref": "#Point2D"
+              }
+            }
+          },
+          "slopePercent": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100
+          },
+          "maxArea": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 200
+          },
+          "textHeight": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 5
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "rectangles": {
+            "type": "integer"
+          },
+          "triangles": {
+            "type": "integer"
+          },
+          "slabTopZ": {
+            "type": "number"
+          },
+          "faces": {
+            "type": "integer"
+          },
+          "maxAspect": {
+            "type": "number"
+          },
+          "maxSpan": {
+            "type": "number"
+          },
+          "maxBorderRise": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "active",
+          "locked"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "Tapioca.RunCloudCompare",
       "implementation": "native-registry",
       "inputScheme": {
@@ -26604,6 +27334,14 @@
               "both"
             ]
           },
+          "lifetime": {
+            "type": "string",
+            "enum": [
+              "project",
+              "command"
+            ],
+            "description": "Command previews are cleared before the next palette run; all layers end with the project."
+          },
           "occlusion": {
             "type": "string",
             "enum": [
@@ -26808,6 +27546,65 @@
                     "type": "number"
                   }
                 },
+                "cellLabels": {
+                  "type": "boolean",
+                  "description": "Native close-zoom values for every visible measured plan cell."
+                },
+                "planStoreys": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "description": "Storey indices whose floor plan shows this mesh; absent is every storey. 3D ignores it.",
+                  "items": {
+                    "type": "integer",
+                    "minimum": -32768,
+                    "maximum": 32767
+                  }
+                },
+                "hoverCells": {
+                  "type": "array",
+                  "maxItems": 8192,
+                  "description": "Semantic per-cell measured samples; triangle indices are explicit.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "triangles": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4096,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "center": {
+                        "$ref": "#Point3D"
+                      },
+                      "from": {
+                        "$ref": "#Point3D"
+                      },
+                      "to": {
+                        "$ref": "#Point3D"
+                      },
+                      "normal": {
+                        "$ref": "#Point3D"
+                      },
+                      "floorGuid": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "triangles",
+                      "center",
+                      "from",
+                      "to",
+                      "normal",
+                      "floorGuid"
+                    ]
+                  }
+                },
                 "colormap": {
                   "type": "object",
                   "properties": {
@@ -26855,6 +27652,22 @@
                     "max": {
                       "type": "number"
                     },
+                    "cutoff": {
+                      "type": "number"
+                    },
+                    "cutoffControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "green": {
+                      "type": "number"
+                    },
+                    "greenControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
                     "bands": {
                       "type": "integer",
                       "minimum": 0,
@@ -26900,6 +27713,12 @@
                       "type": "number",
                       "minimum": 0,
                       "maximum": 1
+                    },
+                    "occludedOpacity": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Fraction of normal mesh alpha retained behind opaque host geometry when occlusion is fade; defaults to 0.3."
                     },
                     "occlusion": {
                       "type": "string",
@@ -26952,6 +27771,14 @@
             "items": {
               "type": "object",
               "properties": {
+                "views": {
+                  "type": "string",
+                  "enum": [
+                    "2d",
+                    "3d",
+                    "both"
+                  ]
+                },
                 "text": {
                   "type": "string",
                   "minLength": 1,
@@ -26987,6 +27814,12 @@
                   "type": "number",
                   "minimum": 0,
                   "maximum": 8
+                },
+                "minProjectedPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 256,
+                  "description": "For model-sized text, hide until its world-size em projects this many pixels."
                 },
                 "background": {
                   "$ref": "#Color"
@@ -27107,6 +27940,18 @@
                   "minimum": 4,
                   "maximum": 128
                 },
+                "textSizeMetres": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000,
+                  "description": "Positive makes dimension text model-sized; 0 keeps it screen-sized."
+                },
+                "textMinProjectedPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 256,
+                  "description": "Hide model-sized dimension text until it projects this many pixels."
+                },
                 "textColor": {
                   "$ref": "#Color"
                 },
@@ -27225,6 +28070,22 @@
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 64
+                    },
+                    "cutoff": {
+                      "type": "number"
+                    },
+                    "cutoffControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "green": {
+                      "type": "number"
+                    },
+                    "greenControl": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
                     },
                     "isolines": {
                       "type": "object",
@@ -27378,6 +28239,12 @@
                   "minimum": 0,
                   "maximum": 4000
                 },
+                "pageWidthPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 4000,
+                  "description": "Width of this selected caller tab only; own pages keep their existing width."
+                },
                 "sizePixels": {
                   "type": "number",
                   "minimum": 6,
@@ -27457,8 +28324,66 @@
                           "combo",
                           "tab",
                           "button",
-                          "sitePlan"
+                          "sitePlan",
+                          "layoutChoices"
                         ]
+                      },
+                      "choices": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "layer": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            "count": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 5000
+                            },
+                            "paths": {
+                              "type": "array",
+                              "minItems": 1,
+                              "maxItems": 10000,
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "xy": {
+                                    "type": "array",
+                                    "minItems": 6,
+                                    "maxItems": 60000,
+                                    "items": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "color": {
+                                    "$ref": "#Color"
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "xy"
+                                ]
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "text",
+                            "layer",
+                            "count",
+                            "paths"
+                          ]
+                        }
                       },
                       "id": {
                         "type": "string",
@@ -27628,6 +28553,22 @@
                           },
                           "max": {
                             "type": "number"
+                          },
+                          "cutoff": {
+                            "type": "number"
+                          },
+                          "cutoffControl": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          },
+                          "green": {
+                            "type": "number"
+                          },
+                          "greenControl": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
                           },
                           "bands": {
                             "type": "integer",
@@ -29744,6 +30685,320 @@
           "token",
           "idleMs"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.TestCapture",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supported",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestGetDiagnostics",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "buildHash": {
+            "type": "string"
+          },
+          "workerBusy": {
+            "type": "boolean"
+          },
+          "retainedJobs": {
+            "type": "integer"
+          },
+          "gateQueueDepth": {
+            "type": "integer"
+          },
+          "gateTimeouts": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildHash",
+          "workerBusy",
+          "retainedJobs",
+          "gateQueueDepth",
+          "gateTimeouts",
+          "scope"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestGetStatus",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "elapsedMs": {
+            "type": "number"
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "unclipped_slab_prisms"
+                ]
+              },
+              "rawAreaM2": {
+                "type": "number"
+              },
+              "rawVolumeM3": {
+                "type": "number"
+              },
+              "floorCount": {
+                "type": "integer"
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string"
+                    },
+                    "story": {
+                      "type": "integer"
+                    },
+                    "z": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "areaM2": {
+                      "type": "number"
+                    },
+                    "volumeM3": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "guid",
+                    "story",
+                    "z",
+                    "height",
+                    "areaM2",
+                    "volumeM3"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "basis",
+              "rawAreaM2",
+              "rawVolumeM3",
+              "floorCount",
+              "rows"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "jobId",
+          "state",
+          "progress",
+          "elapsedMs",
+          "errorMessage"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestPing",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "buildHash": {
+            "type": "string"
+          },
+          "protocolVersion": {
+            "type": "integer"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "workflows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "captureSupported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "buildHash",
+          "protocolVersion",
+          "ready",
+          "workflows",
+          "captureSupported"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestReset",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "workerBusy": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workerBusy"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestRunWorkflow",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": "string",
+            "enum": [
+              "massing_feasibility"
+            ]
+          },
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "elementGuids": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "required": [
+              "elementGuids"
+            ],
+            "additionalProperties": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview"
+            ]
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "workflow",
+          "inputs",
+          "mode",
+          "seed"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": false
       }
     },
     {
@@ -33633,6 +34888,336 @@
           "pinned",
           "verifies"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.VirtualEditor",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "state"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string",
+            "enum": [
+              "select",
+              "polyline",
+              "path",
+              "curve"
+            ]
+          },
+          "polylines": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 20000,
+                  "items": {
+                    "$ref": "#Point3D"
+                  }
+                },
+                "closed": {
+                  "type": "boolean"
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "boxes": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "outline": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 20000,
+                  "items": {
+                    "$ref": "#Point3D"
+                  }
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "outline",
+                "height"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "paths": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2000,
+                  "items": {
+                    "$ref": "#Point3D"
+                  }
+                },
+                "width": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 100
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "snapPoints": {
+            "type": "array",
+            "maxItems": 100000,
+            "items": {
+              "$ref": "#Point3D"
+            }
+          },
+          "snapSegments": {
+            "type": "array",
+            "maxItems": 100000,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "$ref": "#Point3D"
+              }
+            }
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "undoDepth": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "document": {
+            "type": "object",
+            "properties": {
+              "polylines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "polyline",
+                        "extrusion"
+                      ]
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#Point3D"
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "kind",
+                    "role",
+                    "closed",
+                    "height",
+                    "points"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "length": {
+                      "type": "number"
+                    },
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "radius": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y",
+                          "radius"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "profile": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "station": {
+                            "type": "number"
+                          },
+                          "z": {
+                            "type": "number"
+                          },
+                          "curve": {
+                            "type": "number"
+                          },
+                          "fixed": {
+                            "type": "boolean"
+                          },
+                          "binding": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "station",
+                          "z",
+                          "curve",
+                          "fixed",
+                          "binding"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sections": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "station": {
+                            "type": "number"
+                          },
+                          "widthLeft": {
+                            "type": "number"
+                          },
+                          "widthRight": {
+                            "type": "number"
+                          },
+                          "crossfall": {
+                            "type": "number"
+                          },
+                          "fall": {
+                            "type": "string",
+                            "enum": [
+                              "crown",
+                              "left",
+                              "right"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "station",
+                          "widthLeft",
+                          "widthRight",
+                          "crossfall",
+                          "fall"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "role",
+                    "length",
+                    "points",
+                    "profile",
+                    "sections"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "polylines",
+              "paths"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "active",
+          "locked"
+        ],
+        "additionalProperties": false
       }
     },
     {

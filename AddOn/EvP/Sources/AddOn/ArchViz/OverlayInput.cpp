@@ -6,22 +6,51 @@
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayInputEvents.hpp"
 #include "ArchViz/OverlayInputKeyboard.hpp"
+#include "ArchViz/OverlayInputState.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudConsole.hpp" // the Debug tab's console: what the user checks when something fails
 
-#include <commctrl.h>
-
 #include <chrono>
+#include <cwchar>
+#include <cwctype>
 #include <cstdio>
 
 namespace geomsrv {
 namespace archviz {
 namespace overlayinput {
 
+// The state the cursor shares (OverlayInputState.hpp): one latch, since the views never run
+// together and a gesture is one pointer's; the counters; the two views' targets.
+namespace state {
+Target targets[2];
+Router router;
+Stats stats;
+
+View ViewOf (const Target& target)
+{
+    return &target == &targets[0] ? View::ThreeD : View::Plan;
+}
+
+// The attached canvas a message is for: its own window, or a child of it.
+Target* TargetFor (HWND window)
+{
+    for (Target& target : targets)
+        if (target.canvas != nullptr && (window == target.canvas || ::IsChild (target.canvas, window)))
+            return &target;
+    return nullptr;
+}
+} // namespace state
+
 namespace {
 using events::EventOf;
 using events::PhysicalButtons;
+using state::ReassertCursor;
+using state::ShowCursor;
+using state::Subclass;
+using state::TargetFor;
+using state::Unsubclass;
+using state::ViewOf;
 
 // The window the hook posts to; a view's refresh is WM_APP + 1 with the view in wParam,
 // its paced redraw a timer of id 1 + view.
@@ -30,29 +59,6 @@ constexpr UINT kRefreshMessage = WM_APP + 1;
 constexpr UINT_PTR kRedrawTimer = 1;
 // At most one redraw a view this often for the HUD: about sixty a second.
 constexpr uint64_t kRedrawMs = 16; // hover feedback follows the pointer at up to 60 Hz
-
-struct Target {
-    HWND canvas = nullptr;
-    HudOwner owner;
-    HitMap map;
-    // The pointer, in the canvas's client pixels, and whether it is over the canvas.
-    bool inside = false;
-    float x = 0.0f;
-    float y = 0.0f;
-    bool wasOver = false; // over the HUD at the last message: leaving it redraws the hover
-    std::vector<overlayhud::Input::Button> buttons;
-    std::vector<overlayhud::Input::EditAction> editActions;
-    std::vector<overlayhud::Input::Key> keys;
-    std::u16string characters;
-    float wheel = 0.0f; // notches turned over a page that scrolls, since the last layout took them
-    bool refreshPending = false;
-    bool timerArmed = false;
-    uint64_t lastRedrawMs = 0;
-    // The canvas belongs to this thread (the hook sees its messages only then), and its
-    // WM_SETCURSOR is answered by the subclass below.
-    bool ownThread = false;
-    bool subclassed = false;
-};
 
 HHOOK g_hook = nullptr;
 // ⚠️ THE BUTTONS ARE DECIDED A STEP EARLIER, BY A THREAD-LOCAL WH_MOUSE HOOK (the user,
@@ -72,27 +78,23 @@ struct Passed {
 // The buttons down, as the button messages said: the mouse hook's are given no key state.
 uint32_t g_down = 0;
 HWND g_window = nullptr;
-// The click meter: armed on demand, its idle hook installed with the message hook.
+// The click meter: armed on demand. The idle hook, installed with the message hook, serves it
+// and the cursor's repair.
 bool g_timing = false;
 HHOOK g_idleHook = nullptr;
 overlayclicks::Meter g_meter;
 ATOM g_windowClass = 0;
-Target g_targets[2];
+using state::Target;
+Target (&g_targets)[2] = state::targets;
 Target* s_gestureTarget = nullptr; // observe the owning canvas's release even on another window
 Target* s_keyboardTarget = nullptr;
-// One latch: the views never run together, and a gesture is one pointer's.
-Router g_router;
-Stats g_stats;
+Router& g_router = state::router;
+Stats& g_stats = state::stats;
 bool s_roofEditKeys = false;
 
 Target& TargetOf (View view)
 {
     return g_targets[view == View::ThreeD ? 0 : 1];
-}
-
-View ViewOf (const Target& target)
-{
-    return &target == &g_targets[0] ? View::ThreeD : View::Plan;
 }
 
 bool AnyAttached ()
@@ -118,188 +120,6 @@ uint32_t Since (std::chrono::steady_clock::time_point started)
 {
     return uint32_t (
         std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
-}
-
-// The attached canvas a message is for: its own window, or a child of it.
-Target* TargetFor (HWND window)
-{
-    for (Target& target : g_targets)
-        if (target.canvas != nullptr && (window == target.canvas || ::IsChild (target.canvas, window)))
-            return &target;
-    return nullptr;
-}
-
-// ---- the cursor over the HUD ------------------------------------------------------------
-// Resolved from the comctl32 Archicad has already loaded, as PlanFrameSession's: the add-on
-// gains no import for it.
-using SetSubclassFn = BOOL (WINAPI*) (HWND, SUBCLASSPROC, UINT_PTR, DWORD_PTR);
-using RemoveSubclassFn = BOOL (WINAPI*) (HWND, SUBCLASSPROC, UINT_PTR);
-using DefSubclassFn = LRESULT (WINAPI*) (HWND, UINT, WPARAM, LPARAM);
-SetSubclassFn g_setSubclass = nullptr;
-RemoveSubclassFn g_removeSubclass = nullptr;
-DefSubclassFn g_defSubclass = nullptr;
-// One id per view: removing one view's never removes the other's.
-constexpr UINT_PTR kSubclassId = 0x54485544; // 'THUD'
-HCURSOR g_arrowCursor = nullptr;
-HCURSOR g_handCursor = nullptr;
-HCURSOR g_moveCursor = nullptr;
-HCURSOR g_sizeWECursor = nullptr;
-HCURSOR g_sizeNSCursor = nullptr;
-HCURSOR s_textCursor = nullptr;
-
-bool ResolveSubclassing ()
-{
-    if (g_setSubclass != nullptr && g_removeSubclass != nullptr && g_defSubclass != nullptr)
-        return true;
-    const HMODULE comctl = ::GetModuleHandleW (L"comctl32.dll");
-    if (comctl == nullptr)
-        return false;
-    g_setSubclass = reinterpret_cast<SetSubclassFn> (::GetProcAddress (comctl, "SetWindowSubclass"));
-    g_removeSubclass = reinterpret_cast<RemoveSubclassFn> (::GetProcAddress (comctl, "RemoveWindowSubclass"));
-    g_defSubclass = reinterpret_cast<DefSubclassFn> (::GetProcAddress (comctl, "DefSubclassProc"));
-    if (g_setSubclass != nullptr && g_removeSubclass != nullptr && g_defSubclass != nullptr)
-        return true;
-    g_setSubclass = nullptr;
-    g_removeSubclass = nullptr;
-    g_defSubclass = nullptr;
-    return false;
-}
-
-// The HUD owns what is under the pointer now: the canvas itself is there -- not a palette
-// floating over it -- and a region of the last layout, or a gesture the HUD holds.
-bool OwnsPointer (const Target& target)
-{
-    if (target.owner.shown == nullptr || !target.owner.shown ())
-        return false;
-    if (g_router.GetOwner () != Owner::None)
-        return g_router.GetOwner () == Owner::Hud;
-    POINT screen = {};
-    if (!::GetCursorPos (&screen))
-        return false;
-    const HWND under = ::WindowFromPoint (screen);
-    if (under != target.canvas && !::IsChild (target.canvas, under))
-        return false;
-    POINT point = screen;
-    RECT client = {};
-    if (!::ScreenToClient (target.canvas, &point) || !::GetClientRect (target.canvas, &client))
-        return false;
-    return target.map.Owns (float (point.x), float (point.y), float (client.right - client.left),
-                            float (client.bottom - client.top));
-}
-
-// ⚠️ AN ARROW OVER THE HUD, A HAND OVER WHAT IT CAN PRESS (the user, 2026-09-29) -- never
-// the tool's cursor Archicad would show over the model there. False when the pointer is
-// not the HUD's: Archicad's cursor stands.
-bool ShowCursor (const Target& target)
-{
-    if (!OwnsPointer (target))
-        return false;
-    // The cursor the HUD asked for: a canvas's own, else a hand on what it can press.
-    POINT point = {};
-    RECT client = {};
-    const bool overRegion =
-        ::GetCursorPos (&point) && ::ScreenToClient (target.canvas, &point) &&
-        ::GetClientRect (target.canvas, &client) &&
-        target.map.Hit (float (point.x), float (point.y), float (client.right), float (client.bottom)) >= 0;
-    const Cursor desired =
-        CursorFor (target.map, overRegion, g_router.GetOwner () == Owner::Hud && PhysicalButtons () != 0);
-    HCURSOR cursor = g_arrowCursor;
-    switch (desired) {
-        case Cursor::Hand:
-            cursor = g_handCursor;
-            break;
-        case Cursor::Move:
-            cursor = g_moveCursor;
-            break;
-        case Cursor::SizeWE:
-            cursor = g_sizeWECursor;
-            break;
-        case Cursor::SizeNS:
-            cursor = g_sizeNSCursor;
-            break;
-        case Cursor::Text:
-            cursor = s_textCursor;
-            break;
-        default:
-            break;
-    }
-    ::SetCursor (cursor != nullptr ? cursor : g_arrowCursor);
-    ++g_stats.cursorsSet;
-    if (desired == Cursor::Hand)
-        ++g_stats.handsShown;
-    return true;
-}
-
-LRESULT CALLBACK CanvasProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR)
-{
-    if (message == WM_NCDESTROY) {
-        // The canvas is going: the subclass goes with it.
-        g_removeSubclass (window, &CanvasProc, id);
-        for (Target& target : g_targets)
-            if (target.canvas == window)
-                target.subclassed = false;
-        return g_defSubclass (window, message, wParam, lParam);
-    }
-    if (message == WM_SETCURSOR && LOWORD (lParam) == HTCLIENT) {
-        const Target* const target = TargetFor (window);
-        if (target != nullptr && ShowCursor (*target))
-            return TRUE;
-    }
-    if (message == WM_MOUSEHOVER) {
-        const Target* const target = TargetFor (window);
-        if (target != nullptr && target->map.locked && target->owner.shown != nullptr && target->owner.shown ())
-            return 0; // a stationary native preselection/info-tag timer has no role on the locked canvas
-    }
-    // ⚠️ AND NO CONTEXT MENU OF ARCHICAD'S OVER THE HUD, however it was asked for: a right
-    // click there is the HUD's (its own menu). The keyboard's (lParam -1) is Archicad's.
-    if (message == WM_CONTEXTMENU && lParam != LPARAM (-1)) {
-        const Target* const target = TargetFor (window);
-        if (target != nullptr && OwnsPointer (*target)) {
-            ++g_stats.contextMenusSwallowed;
-            return 0;
-        }
-    }
-    return g_defSubclass (window, message, wParam, lParam);
-}
-
-// ⚠️ ONLY A CANVAS OF THIS THREAD. A window is subclassed from its own thread or not at
-// all -- and one of another thread posts its mouse messages to that thread's queue,
-// where the hook never sees them: said once, and counted.
-void Subclass (Target& target, View view)
-{
-    DWORD process = 0;
-    target.ownThread = ::GetWindowThreadProcessId (target.canvas, &process) == ::GetCurrentThreadId ();
-    if (!target.ownThread) {
-        ArchVizLog (std::string ("OVERLAY INPUT  the ") + ViewName (view) +
-                    " canvas belongs to another thread: the HUD sees none of its mouse messages");
-        return;
-    }
-    if (!ResolveSubclassing ()) {
-        ArchVizLog ("OVERLAY INPUT  comctl32 has no SetWindowSubclass here: Archicad's cursor stays over the HUD");
-        return;
-    }
-    if (g_arrowCursor == nullptr)
-        g_arrowCursor = ::LoadCursorW (nullptr, IDC_ARROW);
-    if (g_handCursor == nullptr)
-        g_handCursor = ::LoadCursorW (nullptr, IDC_HAND);
-    if (g_moveCursor == nullptr)
-        g_moveCursor = ::LoadCursorW (nullptr, IDC_SIZEALL);
-    if (g_sizeWECursor == nullptr)
-        g_sizeWECursor = ::LoadCursorW (nullptr, IDC_SIZEWE);
-    if (g_sizeNSCursor == nullptr)
-        g_sizeNSCursor = ::LoadCursorW (nullptr, IDC_SIZENS);
-    if (!s_textCursor)
-        s_textCursor = ::LoadCursorW (nullptr, IDC_IBEAM);
-    target.subclassed = g_setSubclass (target.canvas, &CanvasProc, kSubclassId + UINT_PTR (view), 0) != FALSE;
-    if (!target.subclassed)
-        ArchVizLog ("OVERLAY INPUT  SetWindowSubclass refused the canvas: Archicad's cursor stays over the HUD");
-}
-
-void Unsubclass (Target& target)
-{
-    if (target.subclassed && target.canvas != nullptr && ::IsWindow (target.canvas) && g_removeSubclass != nullptr)
-        g_removeSubclass (target.canvas, &CanvasProc, kSubclassId + UINT_PTR (ViewOf (target)));
-    target.subclassed = false;
 }
 
 // Ask for the view's HUD to be laid out again, unless that is already asked. From the
@@ -453,6 +273,24 @@ void TimePress (HWND window, bool taken)
     g_meter.Press (target, name, Micros ());
 }
 
+// ⚠️ A PRESS THE HUD EATS STILL ACTIVATES ARCHICAD (the user, 2026-10-15: on the locked view a
+// click did not bring Archicad in front of other applications, and keys then went elsewhere).
+// Windows activates a window and focuses it as part of the click it delivers; an eaten click
+// delivers none, so the HUD does what it would have: the canvas's top-level window comes to the
+// front and the canvas takes the keyboard. This thread received the input, so the foreground
+// change is allowed.
+void Activate (const Target& target)
+{
+    if (target.canvas == nullptr)
+        return;
+    const HWND root = ::GetAncestor (target.canvas, GA_ROOT);
+    if (root != nullptr && ::GetForegroundWindow () != root && ::SetForegroundWindow (root))
+        ++g_stats.activations;
+    const HWND focus = ::GetFocus ();
+    if (focus != target.canvas && (focus == nullptr || !::IsChild (target.canvas, focus)))
+        ::SetFocus (target.canvas);
+}
+
 // ⚠️ THE CHAIN IS CALLED ON EVERY PATH BUT ONE: a button message the HUD takes is eaten --
 // the hook returns nonzero and Windows discards it, as the WH_MOUSE contract allows.
 LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
@@ -496,6 +334,8 @@ LRESULT CALLBACK MouseProc (int code, WPARAM wParam, LPARAM lParam)
         if (taken) {
             ++g_stats.buttonsEaten;
             g_passed.valid = false;
+            if (event.kind == EventKind::Press)
+                Activate (*target);
             return 1;
         }
         g_passed.valid = true;
@@ -518,6 +358,17 @@ void Left (const MSG& message)
     target->wasOver = false;
 }
 
+// A window that takes typed text: an edit control, plain or rich, by its class.
+bool TextField (HWND window)
+{
+    wchar_t name[64] = {};
+    if (window == nullptr || ::GetClassNameW (window, name, 64) == 0)
+        return false;
+    for (wchar_t* c = name; *c; ++c)
+        *c = wchar_t (::towlower (*c));
+    return std::wcsstr (name, L"edit") != nullptr;
+}
+
 bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16string& text, bool take)
 {
     if (!s_roofEditKeys || !window)
@@ -536,6 +387,17 @@ bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16str
                     break;
                 }
     }
+    // ⚠️ AND OVER THE LOCKED VIEW, WHEREVER THE FOCUS IS (the user, 2026-10-15: keys sometimes went
+    // to Archicad -- the focus stays in the palette that started the editor). The pointer on a
+    // locked view the HUD owns makes its keys the HUD's, unless the focus is a text field being
+    // typed into.
+    if (!target && !TextField (window))
+        for (auto& candidate : g_targets)
+            if (candidate.canvas && candidate.map.locked && state::OwnsPointer (candidate)) {
+                target = &candidate;
+                ++g_stats.keysByPointer;
+                break;
+            }
     if (!target || !target->map.locked || !target->owner.shown || !target->owner.shown ())
         return false; // unrelated palettes, modal dialogs and unlocked canvases pass
     if (take) {
@@ -558,6 +420,14 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
         const HWND window = message->hwnd;
         if (g_timing && removing)
             g_meter.Wake (Micros ());
+        // ⚠️ AND AT EVERY MESSAGE THE THREAD TAKES (the user, 2026-10-15: the cursor still glitched
+        // through drags). Archicad also sets its cursor handling messages that are not the canvas's
+        // -- its timers, its idle -- which the canvas subclass never sees; whatever the previous
+        // message set is undone before the next one runs.
+        if (removing)
+            for (const Target& target : g_targets)
+                if (target.subclassed)
+                    ReassertCursor (target);
         if (original >= WM_MOUSEFIRST && original <= WM_MOUSELAST)
             Consider (*message, removing);
         else if (original == WM_MOUSEHOVER) {
@@ -578,22 +448,33 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
 }
 
 // The thread is about to go idle: the busy stretch the meter is timing ends.
+// ⚠️ AND IT IS WHEN ARCHICAD SETS ITS CURSOR MOST (the user, 2026-10-15: the cursor still glitched,
+// and the log counted 2098 repairs in a session against about one a drag). Its idle processing
+// runs after the queue empties, so the repair at the next message came only when the pointer next
+// moved; until then Archicad's cursor showed. The thread about to wait is the last moment before
+// the screen settles: the HUD's cursor goes back there, counted with the rest.
 LRESULT CALLBACK IdleProc (int code, WPARAM wParam, LPARAM lParam)
 {
-    if (code == HC_ACTION && g_timing)
-        g_meter.Idle (Micros ());
+    if (code == HC_ACTION) {
+        if (g_timing)
+            g_meter.Idle (Micros ());
+        for (const Target& target : g_targets)
+            if (target.subclassed)
+                ReassertCursor (target);
+    }
     return ::CallNextHookEx (g_idleHook, code, wParam, lParam);
 }
 
-// With the message hook, while the meter is armed.
+// With the message hook: the cursor's repair needs it always, the click meter while armed.
 void FollowIdleHook ()
 {
-    const bool wanted = g_timing && g_hook != nullptr;
+    const bool wanted = g_hook != nullptr;
     if (wanted && g_idleHook == nullptr) {
         g_idleHook = ::SetWindowsHookExW (WH_FOREGROUNDIDLE, &IdleProc, nullptr, ::GetCurrentThreadId ());
         if (g_idleHook == nullptr)
             ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_FOREGROUNDIDLE) failed with GetLastError " +
-                        std::to_string (::GetLastError ()) + ": clicks are not timed");
+                        std::to_string (::GetLastError ()) +
+                        ": clicks are not timed, and Archicad's idle cursor shows over the HUD");
     }
     else if (!wanted && g_idleHook != nullptr) {
         ::UnhookWindowsHookEx (g_idleHook);
@@ -720,7 +601,7 @@ void Uninstall ()
     keyboard::Stop ();
     // Resolved procedures belong to comctl32, not to this session. Resolve again
     // on the next attach instead of retaining addresses across module teardown.
-    g_setSubclass = nullptr, g_removeSubclass = nullptr, g_defSubclass = nullptr;
+    state::ForgetSubclassing ();
     if (g_mouseHook != nullptr) {
         ::UnhookWindowsHookEx (g_mouseHook);
         g_mouseHook = nullptr;

@@ -1,5 +1,10 @@
 # EvP Testing Plan
 
+For the opt-in Archicad 29 connectivity and numeric massing runner, see
+[Live testing bootstrap](live-testing.md).
+For an owned process that opens a copied PLN, tests both transports and quits,
+see [Automated live workflow](automated-live-workflow.md).
+
 *How to test a Python-hosting C++ Archicad add-on when **you cannot run Archicad** and
 the host is the biggest source of the hardest bugs. Written against this repo's actual
 seams, not a generic checklist. Read `../../historical source docs/evp-command-system-plan.md` §4–5 first — this doc

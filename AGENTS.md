@@ -35,3 +35,18 @@ the public command roots before syncing them.
 The scanner is a safety gate: a command it cannot parse silently disappears
 from the palette. Keep annotation arguments literal and do not place UI code in
 Python.
+
+## Automated live validation (opt-in)
+
+Read `docs/guides/automated-live-workflow.md` before controlling Archicad.
+With Archicad closed and saved fixture inputs prepared, run:
+
+```powershell
+python tools/live_session.py --project <source.pln> --fixture <expected-metrics.json>
+```
+
+The runner owns its launched PID, tests a copied PLN through Tapir and Tapioca
+HTTP, and quits only that verified process. Never bypass its existing-instance
+guard, force-kill an application, or replace expected metrics with observed
+results. Check the session report's shutdown and source-hash assertions as well
+as the nested pytest report. Use `tools/live_test.py` for attach-only testing.

@@ -222,9 +222,10 @@ struct InputCounts {
     bool cursorPlan = false;
     uint64_t cursorsSet = 0; // the HUD's arrow or hand shown
     uint64_t handsShown = 0;
-    bool mouseHook = false;    // the buttons decided before Windows tells the canvas's parent
-    uint64_t buttonsEaten = 0; // presses and releases on the HUD nothing of Archicad's heard
-    uint64_t buttonsLate = 0;  // button messages only the message hook saw
+    uint64_t cursorsReasserted = 0; // Archicad's cursor replaced the HUD's on a locked view
+    bool mouseHook = false;         // the buttons decided before Windows tells the canvas's parent
+    uint64_t buttonsEaten = 0;      // presses and releases on the HUD nothing of Archicad's heard
+    uint64_t buttonsLate = 0;       // button messages only the message hook saw
     uint64_t contextMenusSwallowed = 0;
 };
 InputCounts Input ();
@@ -265,8 +266,13 @@ std::vector<std::shared_ptr<const overlaylayers::Layer>> ShownLayers ();
 // a verb, a project closing: the renderers brought into line, both views' HUDs laid out.
 void FollowHudState ();
 // Command boundaries release a roof's borrowed lock and command-owned layers
-// before the next Run, even when no renderer/idle poll is active.
-void ClearCommandPreviews ();
+// before the next Run, even when no renderer/idle poll is active. `next` is the command
+// about to run (its catalog path): a virtual editor that command opened survives its own
+// runs with its layer, so its "Report" and "Close" find it. Empty releases everything.
+void ClearCommandPreviews (const std::string& next = {});
+// The command the palette last started (its catalog path), for a session to record as
+// its owner; empty before the first run.
+const std::string& RunningCommand ();
 void SetOverlayVisible (bool visible);
 void SetLayerVisible (const std::string& layer, bool visible);
 // The HUD's text size, the nearest step (0.8 to 2), laid out again in both views. MAIN

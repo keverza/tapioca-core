@@ -147,6 +147,11 @@ TIER_ASSIGNMENTS = {
     # still needs an explicit assignment because the tier scan covers every folder.
     "ArchViz/task-history": "features",
     "Diagnostics": "features",
+    # The virtual editor's kernel: documents, gestures, snapping, typed numbers
+    # and handles. Services tier for the same reason as SunStudy/: no DevKit, no
+    # DG, no ImGui, and the in-view host, the panel host and every tool (path,
+    # grading, roof, massing) are its clients, so it cannot live under any one.
+    "Edit": "services",
     "Geometry": "services",
     # The Grasshopper worker's supervisor and transport: an external process
     # lifecycle owned on behalf of whatever UI eventually drives it, in the same
@@ -221,6 +226,10 @@ LOCAL_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"')
 # They are intentionally file-specific: a new sideways feature include must be
 # added here with its reason, rather than silently weakening the tier rule.
 BOUNDARY_INCLUDE_EXCEPTIONS = {
+    # Read-only live-test adapter: copy explicit slab inputs through the production
+    # reader, then call the same pure massing calculator as the UI. No renderer control.
+    ("NativeCommands/TestCommands.cpp", "ArchViz/SlabSliceSource.hpp"),
+    ("NativeCommands/TestCommands.cpp", "ArchViz/MassingSlices.hpp"),
     # The main-thread HUD owner opens the native Programme table after layout; widgets
     # queue immutable requests and never construct DG controls under the ImGui lock.
     ("ArchViz/OverlayControllerHud.cpp", "Palette/ProgrammeDialog.hpp"),
@@ -377,6 +386,16 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayController.hpp"),
     ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/OverlayInput.hpp"),
     ("NativeCommands/RoofSlopeCommands.cpp", "ArchViz/SlabSliceSource.hpp"),
+    # VirtualEditor and EditorState are the same kind of read-only boundary adapter:
+    # seed geometry and snap context into the virtual editor, the shared HUD lock and
+    # its owned overlay layer, and a report of the session. No modelling, camera,
+    # rendering or native element writes live in the commands.
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/EditLayers.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/HudVirtualEditor.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayController.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayGuestText.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayHud.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayInput.hpp"),
     # The layer verbs' parameters, read into the same store the verbs fill: split out
     # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),

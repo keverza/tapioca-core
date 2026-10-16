@@ -695,11 +695,12 @@ void ClearEverything ()
     (void) Layers ();
 }
 
-bool ClearCommandScoped ()
+bool ClearCommandScoped (const std::string& keep)
 {
     // OVERLAY-INVARIANTS.md §8: release the prior run's geometry, not overlay intent.
-    const auto end = std::remove_if (g_layers.begin (), g_layers.end (),
-                                     [] (const auto& layer) { return layer->lifetime == LayerLifetime::Command; });
+    const auto end = std::remove_if (g_layers.begin (), g_layers.end (), [&] (const auto& layer) {
+        return layer->lifetime == LayerLifetime::Command && (keep.empty () || layer->name != keep);
+    });
     if (end == g_layers.end ())
         return false;
     g_layers.erase (end, g_layers.end ());

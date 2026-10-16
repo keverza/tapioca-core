@@ -1,0 +1,4 @@
+# External runner only; never added to the shipped Archicad Python environment.
+archicad==29.3000
+pytest>=7,<10
+psutil>=6,<8

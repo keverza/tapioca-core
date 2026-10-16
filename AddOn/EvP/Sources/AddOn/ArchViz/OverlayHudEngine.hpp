@@ -16,6 +16,7 @@
 #include "ArchViz/HudFloorProgramme.hpp"
 #include "ArchViz/HudFloorSchemeEdit.hpp"
 #include "ArchViz/RoofSlopeHud.hpp"
+#include "ArchViz/HudVirtualEditor.hpp"
 
 #include <climits>
 #include <imgui.h>
@@ -126,6 +127,7 @@ struct State {
     std::string floorPlanAsked; // what the overlay last asked the planner for
     bool editLocked = false;    // the dock's lock: the view's clicks edit the floor plan
     std::shared_ptr<roofhud::Session> roofEditor;
+    std::shared_ptr<edithud::Session> virtualEditor;
     // Massing tab: the buildings' cell complexes, and their stair cells highlighted (user, 2026-10-15),
     // coloured by one of the presets (user, 2026-10-16: "different graphics override presets").
     bool previewStairs = false, previewCells = false;
@@ -306,6 +308,7 @@ struct Engine::Impl {
     // floor plan is edited on the view (hudfloorscheme::OnView).
     void LockedView (const Input& input, float ui, ImVec2 view);
     void RoofEditActions (const Input& input);
+    void VirtualEditActions (const Input& input);
     void KeyboardInput (const Input& input);
     void RoofFonts ();
     void MassingPage ();
