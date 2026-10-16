@@ -792,6 +792,8 @@ std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style
     }
     // Each rounded kerb corner's radius, from its fillet's centre to its middle.
     for (const auto& c : edit::Pave (doc.paths, style.pathStep, false).corners) {
+        if (c.key.radius < 0.005)
+            continue; // "R 0.00 m" says nothing
         const double r = c.key.radius;
         if (!(r > 0.0) || !(c.half > 1.0e-6))
             continue;
