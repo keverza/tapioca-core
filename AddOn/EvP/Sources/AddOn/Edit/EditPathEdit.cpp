@@ -459,6 +459,10 @@ bool SetPathEdgeRadius (Document& doc, Id path, double radius, std::string& erro
                 return false;
             }
             p.edgeRadius = radius;
+            // Every one of its own corners: those set apart join the rest.
+            p.kerbs.erase (std::remove_if (p.kerbs.begin (), p.kerbs.end (),
+                                           [] (const KerbCorner& k) { return k.other == kNoId; }),
+                           p.kerbs.end ());
             return true;
         },
         error);

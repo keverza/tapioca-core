@@ -87,3 +87,70 @@ TEST (EditPathNetwork, ThePavedSurfaceCarriesThePathsHeights)
         EXPECT_NEAR (v.z, centre, 0.05) << v.x << ", " << v.y; // a 2 % crossfall over 1 m: 2 cm
     }
 }
+
+TEST (EditPathNetwork, EveryCornerOfTheAreaIsAKerbCorner)
+{
+    // The tee: A's four end corners, B's two far ones -- each its own path's -- and the two
+    // re-entrant corners where B's sides meet A's left edge.
+    const auto paths = Cross (0.0, true);
+    const auto paved = ed::Pave (paths, 0.5, false);
+    EXPECT_TRUE (paved.triangles.empty ()); // the outline and its corners only
+    ASSERT_EQ (paved.corners.size (), 8u);
+    size_t junctions = 0, outside = 0;
+    for (const auto& c : paved.corners) {
+        if (c.key.other != ed::kNoId) {
+            ++junctions;
+            EXPECT_EQ (c.path, paths[0].id); // kept on the older path
+            EXPECT_EQ (c.key.other, paths[1].id);
+            EXPECT_EQ (c.key.side, ed::KerbSide::Left);
+            EXPECT_FALSE (c.convex);
+            EXPECT_NEAR (c.at.y, 1.0, 1e-3);
+        }
+        else
+            EXPECT_NE (c.key.point, ed::kNoId);
+        outside += c.convex;
+    }
+    EXPECT_EQ (junctions, 2u);
+    EXPECT_EQ (outside, 6u);
+}
+
+TEST (EditPathNetwork, ACornerSetApartIsRoundedAlone)
+{
+    ed::Document doc;
+    doc.paths = Cross (0.0, true);
+    const auto sharp = ed::Pave (doc.paths);
+    const ed::PavedCorner* junction = nullptr;
+    for (const auto& c : sharp.corners)
+        if (c.key.other != ed::kNoId)
+            junction = &c;
+    ASSERT_NE (junction, nullptr);
+    std::string error;
+    ASSERT_TRUE (ed::SetKerbRadius (doc, junction->path, junction->key, 1.0, error)) << error;
+    const auto round = ed::Pave (doc.paths);
+    // One 1 m fillet: (1 - pi / 4) m2 more, and the corner reports its radius.
+    EXPECT_NEAR (std::abs (Area (round.rings[0])) - std::abs (Area (sharp.rings[0])), 1.0 - 3.14159265 / 4.0, 0.01);
+    size_t rounded = 0;
+    for (const auto& c : round.corners)
+        rounded += c.key.radius > 0.0;
+    EXPECT_EQ (rounded, 1u);
+    // The path's own radius sets its own corners; the junction keeps what it was given.
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, doc.paths[0].id, 0.5, error)) << error;
+    ASSERT_EQ (doc.paths[0].kerbs.size (), 1u);
+    for (const auto& c : ed::Pave (doc.paths).corners)
+        if (c.key.other != ed::kNoId)
+            EXPECT_NEAR (c.key.radius, c.key.Same (junction->key) ? 1.0 : 0.5, 1e-12);
+}
+
+TEST (EditPathNetwork, AKerbGripSetsTheRadiusItShows)
+{
+    auto paths = Cross (0.0, true);
+    paths[0].edgeRadius = 0.6;
+    const auto paved = ed::Pave (paths, 0.5, false), sharp = ed::Pave (Cross (0.0, true), 0.5, false);
+    for (const auto& c : paved.corners) {
+        const ed::Vec3 grip = ed::KerbGripAt (c, 0.05);
+        EXPECT_NEAR (ed::KerbRadiusFromGrip (c, grip, 0.05), c.key.radius, 1e-9);
+        // On its arc's middle: an outside corner's inside the sharp area, a re-entrant one's
+        // in the notch it fills.
+        EXPECT_EQ (Inside (sharp.rings[0], grip.x, grip.y), c.convex) << grip.x << ", " << grip.y;
+    }
+}

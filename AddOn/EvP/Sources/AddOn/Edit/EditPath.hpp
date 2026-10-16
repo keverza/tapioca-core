@@ -144,15 +144,33 @@ void RestationSections (std::vector<Section>& sections, double oldLength, double
 
 // ---- the path ---------------------------------------------------------------------
 
+// Which side of a path a kerb corner is on: along its left or right edge, or across its
+// start or end.
+enum class KerbSide : uint8_t { Left, Right, Start, End };
+// A kerb corner whose radius is set apart from its path's edge radius. A path's own corner
+// is at one of its control points (an end's, or a sharp bend's) on one side; a junction's
+// is where its side meets path `other`'s (kept on the path with the lower id).
+struct KerbCorner {
+    Id point = kNoId, other = kNoId;
+    KerbSide side = KerbSide::Left, otherSide = KerbSide::Left;
+    double radius = 0.0;
+    bool operator== (const KerbCorner&) const = default;
+    bool Same (const KerbCorner& k) const
+    {
+        return point == k.point && other == k.other && side == k.side && otherSide == k.otherSide;
+    }
+};
+
 struct Path {
     Id id = kNoId;
     std::string role; // the owning tool's word for it ("footpath", "ramp", ...)
     std::vector<ControlPoint> points;
     std::vector<GradeBreak> profile;
     std::vector<Section> sections;
-    // The kerb radius: its edges' outside corners, and the re-entrant corners where it meets
-    // another path, are rounded by it when the paths are paved (EditPathNetwork.hpp). 0: sharp.
+    // The kerb radius: its own corners are rounded by it when the paths are paved, and its
+    // junctions with another path by the larger of the two (EditPathNetwork.hpp). 0: sharp.
     double edgeRadius = 0.0;
+    std::vector<KerbCorner> kerbs; // corners set apart
     bool operator== (const Path&) const = default;
 };
 // Builds the alignment and checks the profile and ranges against its length.

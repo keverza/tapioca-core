@@ -118,6 +118,11 @@ bool ValidatePath (const Path& path, AlignmentGeometry& geometry, std::string& e
         error = "an edge radius cannot be negative";
         return false;
     }
+    for (const auto& k : path.kerbs)
+        if (!(k.radius >= 0.0) || !std::isfinite (k.radius)) {
+            error = "a kerb radius cannot be negative";
+            return false;
+        }
     if (!BuildAlignment (path.points, geometry, error))
         return false;
     if (!ValidateProfile (path.profile, geometry.length, error))
