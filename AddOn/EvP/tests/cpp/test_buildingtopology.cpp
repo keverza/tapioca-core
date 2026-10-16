@@ -607,3 +607,27 @@ TEST (BuildingTopology, TheExportIsJsonWithEveryCellFaceAndId)
     ASSERT_TRUE (doc->at ("flats").AsArray ()->front ().AsObject ()->at ("id").AsInteger (id));
     EXPECT_EQ (static_cast<uint64_t> (id), c.units.front ().id);
 }
+
+// User, 2026-10-16: "Cell Complex sometimes fail to subtract 0.5m outside wall from cell". Two
+// cells lying over each other along the outline share no wall there: the edges run the same way,
+// and what is beyond them is still the facade.
+TEST (BuildingTopology, CellsOverlappingAlongTheOutlineKeepTheirFacade)
+{
+    auto s = Flats ({ Rect (0, 0, 10, 4) }, { Rect (0, 0, 10, 4) });
+    fs::Core core;
+    core.shape = Rect (6, 0, 10, 4); // a stair the flat was laid over
+    core.centre = { 8, 2 }, core.width = 4, core.depth = 4;
+    s.cores.push_back (core);
+    const auto c = bt::Build ({ { 0, 0, 3, &s, {} } });
+    for (const auto& f : c.faces)
+        if (!f.horizontal && f.beyond == bt::Beyond::Cell)
+            EXPECT_FALSE (std::abs (f.a.y - f.b.y) < 1e-9 && (std::abs (f.a.y) < 1e-9 || std::abs (f.a.y - 4) < 1e-9))
+                << "no wall between the two along the outline at y = " << f.a.y;
+    const auto flat = bt::Clear (c, c.units[0].cells);
+    ASSERT_FALSE (flat.empty ());
+    for (const auto& ring : flat)
+        for (const auto& p : ring) {
+            EXPECT_GE (p.y, fp::kFacade - 1e-6) << "the facade wall stands inside the flat";
+            EXPECT_LE (p.y, 4 - fp::kFacade + 1e-6);
+        }
+}

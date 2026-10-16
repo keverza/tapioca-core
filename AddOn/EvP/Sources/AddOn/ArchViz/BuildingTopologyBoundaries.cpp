@@ -126,7 +126,11 @@ void AddFaces (Complex& complex, int floor, const FloorInput& input)
             if (e.cell == g.cell || (context (e.cell) && context (g.cell)) || e.x0 > g.x1 || g.x0 > e.x1 ||
                 e.y0 > g.y1 || g.y0 > e.y1)
                 continue;
-            if (std::abs (Cross (e.u, g.u)) > kParallel)
+            // Opposite ways round: two counter-clockwise cells either side of a wall. The same way,
+            // they lie on one side of it -- overlapping -- and what is beyond is still beyond: a
+            // flat laid over a stair kept no facade wall where both met the outline (user,
+            // 2026-10-16: "Cell Complex sometimes fail to subtract 0.5m outside wall").
+            if (std::abs (Cross (e.u, g.u)) > kParallel || Dot (e.u, g.u) > 0)
                 continue;
             const Vec gb { g.a.x + g.u.x * g.length, g.a.y + g.u.y * g.length };
             const Vec wa { g.a.x - e.a.x, g.a.y - e.a.y }, wb { gb.x - e.a.x, gb.y - e.a.y };
