@@ -1,3 +1,4 @@
+#include "Edit/EditPathCrossing.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include <gtest/gtest.h>
@@ -153,4 +154,28 @@ TEST (EditPathNetwork, AKerbGripSetsTheRadiusItShows)
         // in the notch it fills.
         EXPECT_EQ (Inside (sharp.rings[0], grip.x, grip.y), c.convex) << grip.x << ", " << grip.y;
     }
+}
+
+TEST (EditPathNetwork, ACrossingHasFourJunctionCorners)
+{
+    // A slanted path across one that bends: the four corners where their sides cross are
+    // junction corners, re-entrant, kept on the older path.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { -20, 0, 0 }, { 15, 0, 0 }, { 16, 20, 0 } }, 2.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, a, ed::FindPath (doc, a)->points[1].id, 4.0, error)) << error;
+    ed::AddPath (doc, { { -4, 12, 0 }, { -1, -6, 0 } }, 2.0);
+    ed::FindPath (doc, a)->profile.back ().z = 2.0;
+    const ed::Document before = doc;
+    ed::LinkCrossings (doc, before); // with the grade break they share there
+    ASSERT_EQ (ed::FindPath (doc, a)->profile.size (), 3u);
+    const auto paved = ed::Pave (doc.paths, 0.5, false);
+    size_t junctions = 0;
+    for (const auto& c : paved.corners)
+        if (c.key.other != ed::kNoId) {
+            ++junctions;
+            EXPECT_FALSE (c.convex);
+            EXPECT_EQ (c.path, a);
+        }
+    EXPECT_EQ (junctions, 4u);
 }

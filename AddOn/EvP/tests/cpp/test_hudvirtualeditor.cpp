@@ -624,3 +624,41 @@ TEST (HudVirtualEditor, KerbGripsRoundAPathsCornersAndItsJunctions)
     EXPECT_NEAR (ed::FindPath (d.D (), a)->edgeRadius, 0.98, 1e-9);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
 }
+
+TEST (HudVirtualEditor, KerbGripsShowAtACrossingFromEitherPath)
+{
+    // A + crossing; only a control point of the newer path B is selected. The four corners
+    // where their sides cross still show grips, and one dragged is rounded alone.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    const ed::Id b = ed::AddPath (doc, { { 10, -10, 0 }, { 10, 10, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { b, ed::Part::PathPoint, ed::FindPath (d.D (), b)->points[0].id } });
+    const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+    std::vector<ed::PavedCorner> junctions;
+    for (const auto& c : ed::Pave (d.D ().paths, 0.5, false).corners)
+        if (c.key.other != ed::kNoId)
+            junctions.push_back (c);
+    ASSERT_EQ (junctions.size (), 4u);
+    for (const auto& c : junctions) {
+        const ImVec2 g = screen (ed::KerbGripAt (c, 0.8));
+        d.At (g.x, g.y);
+        EXPECT_GE (d.S ().hoverKerb, 0) << c.at.x << ", " << c.at.y;
+    }
+    const ed::PavedCorner& j = junctions[0];
+    const ImVec2 g = screen (ed::KerbGripAt (j, 0.8)), to = screen (ed::KerbGripAt (j, 0.8) + j.bisector * 2.0);
+    d.At (g.x, g.y);
+    d.Press (g.x, g.y);
+    d.At (to.x, to.y);
+    d.Release (to.x, to.y);
+    const ed::Path& pa = *ed::FindPath (d.D (), a);
+    ASSERT_EQ (pa.kerbs.size (), 1u);
+    EXPECT_TRUE (pa.kerbs[0].Same (j.key));
+    EXPECT_GT (pa.kerbs[0].radius, 1.0);
+    EXPECT_DOUBLE_EQ (pa.edgeRadius, 0.0);
+    // Nothing of a path selected: no grips.
+    d.S ().selection.Set ({});
+    const ImVec2 h = screen (ed::KerbGripAt (junctions[1], 0.8));
+    d.At (h.x, h.y);
+    EXPECT_LT (d.S ().hoverKerb, 0);
+}

@@ -214,14 +214,35 @@ namespace {
 
 const ImU32 kKerb = IM_COL32 (168, 131, 74, 255); // the paved edge's colour
 
-// The path selected whole, whose kerb grips show.
-edit::Id KerbPath (const Session& s)
+// The paths whose kerb grips show: each with anything of it selected -- itself, a control
+// point, a grade break, a range -- so a junction's corners show from either path.
+std::vector<edit::Id> KerbPaths (const Session& s)
 {
-    const auto& items = s.selection.Items ();
-    if (s.tool != Tool::Select || items.size () != 1 || items[0].part != edit::Part::Entity ||
-        edit::FindPath (Doc (s), items[0].entity) == nullptr)
-        return edit::kNoId;
-    return items[0].entity;
+    std::vector<edit::Id> out;
+    if (s.tool != Tool::Select)
+        return out;
+    for (const auto& r : s.selection.Items ())
+        if (edit::FindPath (Doc (s), r.entity) != nullptr &&
+            std::find (out.begin (), out.end (), r.entity) == out.end ())
+            out.push_back (r.entity);
+    return out;
+}
+
+bool Shown (const std::vector<edit::Id>& paths, const edit::PavedCorner& c)
+{
+    for (edit::Id id : paths)
+        if (c.Involves (id))
+            return true;
+    return false;
+}
+
+// Whether path `id` is selected whole: its own corners' grips then set its kerb radius.
+bool SelectedWhole (const Session& s, edit::Id id)
+{
+    for (const auto& r : s.selection.Items ())
+        if (r.entity == id && r.part == edit::Part::Entity)
+            return true;
+    return false;
 }
 
 const std::vector<edit::PavedCorner>& PavedCorners (Session& s)
@@ -246,8 +267,7 @@ edit::Operation KerbEdit (const edit::PavedCorner& c, bool whole, double r)
 
 const edit::PavedCorner* PickedKerb (Session& s)
 {
-    const edit::Id path = KerbPath (s);
-    if (!s.kerbPicked || path == edit::kNoId || !s.kerb.Involves (path))
+    if (!s.kerbPicked || !Shown (KerbPaths (s), s.kerb))
         return nullptr;
     for (const auto& c : PavedCorners (s))
         if (c.path == s.kerb.path && c.key.Same (s.kerb.key))
@@ -257,11 +277,11 @@ const edit::PavedCorner* PickedKerb (Session& s)
 
 bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale)
 {
-    const edit::Id path = KerbPath (s);
-    if (path == edit::kNoId || (s.kerbPicked && !s.kerb.Involves (path)))
+    const std::vector<edit::Id> paths = KerbPaths (s);
+    if (s.kerbPicked && !Shown (paths, s.kerb))
         s.kerbPicked = false;
     s.hoverKerb = s.drag == Drag::None ? -1 : s.hoverKerb;
-    if (path == edit::kNoId && s.drag != Drag::Kerb)
+    if (paths.empty () && s.drag != Drag::Kerb)
         return false;
     struct KerbGrip {
         edit::PavedCorner corner;
@@ -270,7 +290,7 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
     std::vector<KerbGrip> grips;
     for (const auto& c : PavedCorners (s)) {
         KerbGrip g { c, {} };
-        if (c.Involves (path) && m.Screen (edit::KerbGripAt (c, Inset (m, c.at, scale)), g.screen))
+        if (Shown (paths, c) && m.Screen (edit::KerbGripAt (c, Inset (m, c.at, scale)), g.screen))
             grips.push_back (g);
     }
     if (s.drag == Drag::None) {
@@ -288,7 +308,7 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
     if (hovered && hot != nullptr && (ImGui::IsMouseClicked (0) || ImGui::IsMouseDoubleClicked (0))) {
         // A picked corner is set alone; else an own corner sets the path's radius, a junction its own.
         const bool picked = s.kerbPicked && s.kerb.path == hot->corner.path && s.kerb.key.Same (hot->corner.key);
-        const bool whole = !picked && hot->corner.key.other == edit::kNoId && hot->corner.path == path;
+        const bool whole = !picked && hot->corner.key.other == edit::kNoId && SelectedWhole (s, hot->corner.path);
         if (ImGui::IsMouseDoubleClicked (0)) { // sharp again
             if (!s.edits.Apply (KerbEdit (hot->corner, whole, 0.0)))
                 s.message = s.edits.Message ();
