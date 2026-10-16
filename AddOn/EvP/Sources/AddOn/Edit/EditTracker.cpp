@@ -307,11 +307,18 @@ bool ReadPath (const Path& p, const Dimension& d, double& value)
             value = c.radius;
             return true;
         }
-    for (const auto& b : p.profile)
-        if (d.ref.part == Part::Break && b.id == d.ref.item && d.quantity == Quantity::Elevation) {
-            value = b.z;
+    for (size_t i = 0; i < p.profile.size (); ++i) {
+        if (d.ref.part != Part::Break || p.profile[i].id != d.ref.item)
+            continue;
+        if (d.quantity == Quantity::Elevation) {
+            value = p.profile[i].z;
             return true;
         }
+        if (d.quantity == Quantity::Slope && i + 1 < p.profile.size ()) { // the grade from it on
+            value = TangentGrade (p.profile, i) * 100.0;
+            return true;
+        }
+    }
     for (const auto& r : p.sections)
         if (d.ref.part == Part::Range && r.id == d.ref.item) {
             if (d.quantity == Quantity::Width) {
@@ -339,6 +346,11 @@ bool WritePath (Document& doc, const Dimension& d, double value, std::string& er
         return SetPathEdgeRadius (doc, d.ref.entity, value, error);
     if (d.ref.part == Part::Break && d.quantity == Quantity::Elevation)
         return SetPathElevation (doc, d.ref.entity, d.ref.item, value, error);
+    if (d.ref.part == Part::Break && d.quantity == Quantity::Slope) // the grade from it on, rising positive
+        for (size_t i = 0; i + 1 < p->profile.size (); ++i)
+            if (p->profile[i].id == d.ref.item)
+                return SetPathGrade (doc, d.ref.entity, (p->profile[i].station + p->profile[i + 1].station) * 0.5,
+                                     value, error);
     if (d.ref.part == Part::Range)
         for (const auto& r : p->sections) {
             if (r.id != d.ref.item)

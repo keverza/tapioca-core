@@ -35,13 +35,43 @@ void Turn (ImDrawList* list, int first, const editlayers::Box& box)
 }
 
 // A value as plain ink in its box, turned as the box is: secondary to the design, so no pill.
+// One that typing can set is kept for a click (`target`); open for typing, it stands on a
+// pill with its typed text -- selected, or with a caret after it.
 void Ink (Session& s, Vec3 anchor, ImVec2 anchorScreen, const editlayers::Box& box, const std::string& text,
-          ImU32 ink = kInk)
+          ImU32 ink = kInk, const editlayers::MarkLabel* target = nullptr)
 {
+    if (target != nullptr && target->typed)
+        s.placed.push_back ({ box, *target });
     rc::Scope scope (s.canvas, { At (anchor, anchorScreen) });
-    const int first = s.canvas.list->VtxBuffer.Size;
-    s.canvas.list->AddText ({ box.x0 + 5.0f, box.y0 + 2.0f }, ink, text.c_str ());
-    Turn (s.canvas.list, first, box);
+    auto* list = s.canvas.list;
+    const int first = list->VtxBuffer.Size;
+    if (target == nullptr || !s.labelOpen || !SameLabel (*target, s.labelTarget)) {
+        list->AddText ({ box.x0 + 5.0f, box.y0 + 2.0f }, ink, text.c_str ());
+        Turn (list, first, box);
+        return;
+    }
+    const float tw = ImGui::CalcTextSize (s.labelText.c_str ()).x, x0 = box.x0 + 5.0f;
+    editlayers::Box pill = box;
+    pill.x1 = std::max (box.x1, x0 + tw + 8.0f);
+    list->AddRectFilled ({ pill.x0, pill.y0 }, { pill.x1, pill.y1 }, kPaper, 3.0f);
+    list->AddRect ({ pill.x0, pill.y0 }, { pill.x1, pill.y1 }, kAccent, 3.0f, 0, 1.5f);
+    if (s.labelSelected && tw > 0.0f)
+        list->AddRectFilled ({ x0 - 1.0f, pill.y0 + 2.0f }, { x0 + tw + 1.0f, pill.y1 - 2.0f },
+                             IM_COL32 (179, 212, 252, 255));
+    list->AddText ({ x0, box.y0 + 2.0f }, kInk, s.labelText.c_str ());
+    if (!s.labelSelected) // the caret, after what is typed
+        list->AddLine ({ x0 + tw + 1.5f, pill.y0 + 2.5f }, { x0 + tw + 1.5f, pill.y1 - 2.5f }, kInk, 1.5f);
+    Turn (list, first, box);
+}
+
+// A label of the view as what typing over it sets: a live dimension's.
+editlayers::MarkLabel Typed (const edit::Dimension& value, const std::string& text)
+{
+    editlayers::MarkLabel t;
+    t.typed = true;
+    t.value = value;
+    t.text = text;
+    return t;
 }
 
 // The layer's 0xRRGGBBAA as ImGui's colour.
@@ -248,6 +278,7 @@ void DrawGizmo (Session& s, const Map& m, const edit::Frame& f, edit::GizmoMode 
 
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale)
 {
+    s.placed.clear (); // this frame's, for a click to open
     if (s.selection.Items ().empty () || !s.drawing.empty ())
         return;
     const edit::Ref ref = s.selection.Items ().front ();
@@ -309,7 +340,8 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
                         const auto box =
                             editlayers::PlaceAlong (q.x, q.y, size.x + 10.0f, ImGui::GetTextLineHeight () + 4.0f, ux,
                                                     uy, 0.0f, 0.0f, 0.0f, taken);
-                        Ink (s, l.fixed, a, box, l.text);
+                        const auto target = Typed (l.value, l.text);
+                        Ink (s, l.fixed, a, box, l.text, kInk, &target);
                     }
                     continue;
                 }
@@ -348,7 +380,8 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
             float ux = dx, uy = dy;
             editlayers::Upright (ux, uy);
             const auto box = editlayers::PlaceAlong (mid.x, mid.y, w, h, ux, uy, n.x, n.y, h * 0.5f, taken);
-            Ink (s, l.at, at, box, l.text);
+            const auto target = Typed (l.value, l.text);
+            Ink (s, l.at, at, box, l.text, kInk, &target);
             continue;
         }
         // A value of its own: beside its point, outside the shape, clear of the rest.
@@ -360,7 +393,8 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
         }
         const float away = (l.quantity == edit::Quantity::Slope ? 24.0f + h : 16.0f) * scale;
         const auto box = editlayers::PlaceLabel (at.x, at.y, w, h, dir.x, dir.y, away + w * 0.25f, taken);
-        Ink (s, l.at, at, box, l.text);
+        const auto target = Typed (l.value, l.text);
+        Ink (s, l.at, at, box, l.text, kInk, &target);
     }
 }
 
@@ -432,7 +466,7 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
             continue;
         if (l.line)
             DimensionLine (s, l, a, b, scale);
-        Ink (s, l.at, at, box, l.text, FromRgba (l.rgba));
+        Ink (s, l.at, at, box, l.text, FromRgba (l.rgba), &l);
     }
 }
 

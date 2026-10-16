@@ -63,6 +63,7 @@ std::string FormatValue (edit::Quantity quantity, double value);
 // nothing, and what the layer already labels (a grade break's height, a range's
 // crossfall) is not said twice.
 struct LiveLabel {
+    edit::Dimension value; // what it says, and what typing over it sets
     edit::Quantity quantity = edit::Quantity::Length;
     std::string text;
     edit::Vec3 at;

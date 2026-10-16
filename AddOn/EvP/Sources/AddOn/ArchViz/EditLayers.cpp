@@ -85,6 +85,7 @@ std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Re
         if (!edit::ReadDimension (doc, d, value))
             continue;
         LiveLabel l;
+        l.value = d;
         l.quantity = d.quantity;
         edit::PointOf (doc, d.ref, l.at);
         bool fixedIsStart = true;

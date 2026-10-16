@@ -495,8 +495,8 @@ const edit::Path* ProfilePath (const Session& s)
 
 void Keys (Session& s, const overlayhud::Input& v, bool textInput)
 {
-    if (textInput)
-        return; // an ImGui text field has the keyboard
+    if (textInput || LabelKeys (s, v))
+        return; // an ImGui text field, or a label open for typing, has the keyboard
     using K = edit::TrackerKey::Kind;
     bool escaped = false;
     const auto escape = [&] {
@@ -620,6 +620,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // Live-corner grips first: they sit over the geometry and the gizmo.
     bool gripTook = CornerGrips (s, m, mouse, hovered && s.tool == Tool::Select, scale);
     gripTook = KerbGrips (s, m, mouse, hovered && !gripTook && s.tool == Tool::Select, scale) || gripTook;
+    gripTook = LabelClick (s, mouse, hovered && !gripTook) || gripTook;
     gripTook = CurveHandles (s, m, mouse, hovered && !gripTook, pick, scale) || gripTook;
 
     // Press. A handle waiting for its number gives way to whatever is pressed next.

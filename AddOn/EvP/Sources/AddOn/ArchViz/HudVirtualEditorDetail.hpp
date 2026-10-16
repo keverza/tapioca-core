@@ -74,6 +74,15 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
 // anything of it selected: dragging an own corner's of a path selected whole sets the path's
 // kerb radius, any other's (or a picked corner's) that corner alone.
 bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
+// Labels opened for typing (HudVirtualEditorLabels.cpp). A click on a placed label opens it,
+// its value selected; a click elsewhere sets what was typed: true when the click was theirs.
+bool LabelClick (Session& s, ImVec2 mouse, bool hovered);
+// The keys while a label is open -- the number's characters, Backspace, Enter, Esc: true
+// when one is open, and they were all its.
+bool LabelKeys (Session& s, const overlayhud::Input& v);
+// Whether two labels set the same value.
+bool SameLabel (const editlayers::MarkLabel& a, const editlayers::MarkLabel& b);
+
 // The kerb corner a click picked, as it is now; null when none is.
 const edit::PavedCorner* PickedKerb (Session& s);
 // The picked kerb corner's radius, for the tracker to offer for typing; false when none is.

@@ -136,6 +136,17 @@ struct Session {
     // The paths' labels the view places (EditLayers PathLabels), for `marksRevision`.
     std::vector<editlayers::MarkLabel> marks;
     uint64_t marksRevision = UINT64_MAX;
+    // The labels as placed this frame, each with what typing over it sets, for a click to
+    // open one (HudVirtualEditorLabels.cpp); the one open, its text as typed, and whether
+    // that text is still all selected (the first key then replaces it).
+    struct PlacedLabel {
+        editlayers::Box box;
+        editlayers::MarkLabel target;
+    };
+    std::vector<PlacedLabel> placed;
+    bool labelOpen = false, labelSelected = false;
+    editlayers::MarkLabel labelTarget;
+    std::string labelText;
     std::vector<edit::Ref> publishedSelection;
     std::string message;
     roofcanvas::Frame canvas;

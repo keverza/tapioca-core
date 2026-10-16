@@ -814,3 +814,113 @@ TEST (HudVirtualEditor, AClickedKerbGripTakesATypedRadius)
     EXPECT_DOUBLE_EQ (pa.kerbs[0].radius, 2.5);
     EXPECT_DOUBLE_EQ (pa.edgeRadius, 0.0);
 }
+
+namespace {
+// The centre of the placed label that sets `quantity` of a path part (or a kerb's radius).
+bool LabelAt (Drive& d, ed::Quantity quantity, bool kerb, ImVec2& at)
+{
+    d.input.x = 1000, d.input.y = 100;
+    d.Frame ();
+    for (const auto& p : d.S ().placed)
+        if ((p.target.kerbPath != ed::kNoId) == kerb && (kerb || p.target.value.quantity == quantity)) {
+            at = { (p.box.x0 + p.box.x1) * 0.5f, (p.box.y0 + p.box.y1) * 0.5f };
+            return true;
+        }
+    return false;
+}
+} // namespace
+
+TEST (HudVirtualEditor, AClickedLabelIsTypedOver)
+{
+    // A 6 m wide path's width label, clicked: open on its value, all selected; a key replaces
+    // it, Backspace and keys edit it, Enter sets it.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, -10, 0 }, { 0, 12, 0 } }, 6.0);
+    Drive d (std::move (doc));
+    ImVec2 at;
+    ASSERT_TRUE (LabelAt (d, ed::Quantity::Width, false, at));
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    ASSERT_TRUE (d.S ().labelOpen);
+    EXPECT_TRUE (d.S ().labelSelected);
+    EXPECT_EQ (d.S ().labelText, "6.00");
+    EXPECT_TRUE (d.S ().selection.Items ().empty ()); // the click was the label's
+    d.input.characters = u"35";
+    d.Frame ();
+    EXPECT_EQ (d.S ().labelText, "35");
+    d.Key (0x08);
+    EXPECT_EQ (d.S ().labelText, "3");
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().labelOpen);
+    const auto& r = ed::FindPath (d.D (), p)->sections[0];
+    EXPECT_NEAR (r.widthLeft + r.widthRight, 3.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // Esc leaves it as it was; a click elsewhere sets what was typed.
+    ASSERT_TRUE (LabelAt (d, ed::Quantity::Width, false, at));
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    d.input.characters = u"9";
+    d.Frame ();
+    d.Key (0x1B);
+    EXPECT_FALSE (d.S ().labelOpen);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    d.input.characters = u"4";
+    d.Frame ();
+    d.Press (1000, 100);
+    d.Release (1000, 100);
+    const auto& w = ed::FindPath (d.D (), p)->sections[0];
+    EXPECT_NEAR (w.widthLeft + w.widthRight, 4.0, 1e-9);
+}
+
+TEST (HudVirtualEditor, ATypedGradeKeepsTheWayItFalls)
+{
+    // Falling 1 m over 20 m: its label says 5.0 %; 2 typed over it is a 2 % fall.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, -8, 1 }, { 0, 12, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    ImVec2 at;
+    bool found = false;
+    d.input.x = 1000, d.input.y = 100;
+    d.Frame ();
+    for (const auto& l : d.S ().placed)
+        if (l.target.value.ref.part == ed::Part::Break && l.target.value.quantity == ed::Quantity::Slope)
+            at = { (l.box.x0 + l.box.x1) * 0.5f, (l.box.y0 + l.box.y1) * 0.5f }, found = true;
+    ASSERT_TRUE (found);
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    EXPECT_EQ (d.S ().labelText, "5.0");
+    d.input.characters = u"2";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_NEAR (ed::TangentGrade (ed::FindPath (d.D (), p)->profile, 0), -0.02, 1e-9);
+}
+
+TEST (HudVirtualEditor, AKerbFilletsRadiusIsTypedOverItsLabel)
+{
+    // A tee's junction rounded 6 m: its radius dimension, clicked and typed over, sets it.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
+        if (c.key.other != ed::kNoId) {
+            std::string error;
+            ASSERT_TRUE (ed::SetKerbRadius (doc, c.path, c.key, 6.0, error)) << error;
+            break;
+        }
+    Drive d (std::move (doc));
+    ImVec2 at;
+    ASSERT_TRUE (LabelAt (d, ed::Quantity::Radius, true, at));
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    ASSERT_TRUE (d.S ().labelOpen);
+    EXPECT_EQ (d.S ().labelText, "6.00");
+    d.input.characters = u"4";
+    d.Frame ();
+    d.Key (0x0D);
+    const ed::Path& pa = *ed::FindPath (d.D (), a);
+    ASSERT_EQ (pa.kerbs.size (), 1u);
+    EXPECT_DOUBLE_EQ (pa.kerbs[0].radius, 4.0);
+}
