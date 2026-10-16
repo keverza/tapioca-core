@@ -979,3 +979,27 @@ TEST (HudVirtualEditor, ContoursShowTheGradingUntilHidden)
     EXPECT_EQ (drawn (strokes), 0u);
     EXPECT_EQ (strokes, 0u);
 }
+
+TEST (HudVirtualEditor, TheProfileHasAGridOfRoundHeights)
+{
+    // A selected path's profile in the panel: thin lines at round heights, each written in
+    // the canvas's left gutter, behind the grade line.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 110 }, { 40, 0, 112 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { p, ed::Part::Entity, 0 } });
+    d.Frame ();
+    const auto grid = geomsrv::archviz::hudshell::Unpacked (IM_COL32 (200, 205, 212, 255));
+    const auto text = geomsrv::archviz::hudshell::Unpacked (IM_COL32 (110, 118, 130, 255));
+    size_t lines = 0, written = 0;
+    float gridFrom = 1e9f, textTo = -1e9f;
+    for (const auto& v : d.Frame ().host.vertices) {
+        if (v.rgba == grid)
+            ++lines, gridFrom = std::min (gridFrom, v.x);
+        if (v.rgba == text)
+            ++written, textTo = std::max (textTo, v.x);
+    }
+    EXPECT_GE (lines, 4u * 4u); // four or more lines, a quad each
+    EXPECT_GT (written, 0u);
+    EXPECT_LT (textTo, gridFrom); // the heights in the gutter, clear of the lines
+}

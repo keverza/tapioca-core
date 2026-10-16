@@ -2,6 +2,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -12,6 +13,13 @@
 namespace geomsrv::archviz::edithud {
 
 using namespace detail;
+
+namespace {
+// The profile's grid: lines for round heights, fainter ones for round stations, its heights.
+const ImU32 kGrid = IM_COL32 (200, 205, 212, 255);
+const ImU32 kGridFaint = IM_COL32 (228, 231, 236, 255);
+const ImU32 kGridText = IM_COL32 (110, 118, 130, 255);
+} // namespace
 
 void Panel (Session& s)
 {
@@ -199,16 +207,24 @@ void Panel (Session& s)
                     break;
                 }
 
-        // The profile canvas: stations right, elevations up, exaggerated to fit.
+        // The profile canvas: stations right, elevations up, exaggerated to fit, with a gutter
+        // on the left for its grid's heights.
         const float width = std::max (200.0f, ImGui::GetContentRegionAvail ().x);
         const float height = 150.0f;
         ImGui::InvisibleButton ("##profile", { width, height });
         const ImVec2 min = ImGui::GetItemRectMin ();
         const bool over = ImGui::IsItemHovered ();
         ImDrawList* list = ImGui::GetWindowDrawList ();
+        double highest = 0.0;
+        for (const auto& b : path->profile)
+            highest = std::max (highest, std::abs (b.z));
+        char widest[32];
+        std::snprintf (widest, sizeof widest, "-%.2f", highest);
+        const float gutter = ImGui::CalcTextSize (widest).x;
         edit::ProfileView& frozen = s.profileView;
         const bool dragging = s.drag == Drag::ProfileBreak || s.drag == Drag::ProfileTangent;
-        const edit::ProfileView view = dragging ? frozen : edit::FitProfile (*path, min.x, min.y, width, height, 14.0);
+        const edit::ProfileView view =
+            dragging ? frozen : edit::FitProfile (*path, min.x + gutter, min.y, width - gutter, height, 14.0);
         list->AddRectFilled (min, { min.x + width, min.y + height }, IM_COL32 (250, 251, 252, 255), 4.0f);
         const auto drawing = edit::DrawProfile (*path, 1.0);
         const auto screen = [&] (double station, double z) {
@@ -216,6 +232,23 @@ void Panel (Session& s)
             edit::ProfileToScreen (view, station, z, x, y);
             return ImVec2 { float (x), float (y) };
         };
+        // The grid: about five round heights, thin and written in the gutter; round stations
+        // across, fainter still.
+        const float x0 = float (view.left), x1 = float (view.left + view.width);
+        const float y0 = float (view.top), y1 = float (view.top + view.height);
+        const double across = edit::NiceStep (view.stationMax - view.stationMin, 8);
+        for (const double station : edit::Levels (view.stationMin, view.stationMax, across))
+            list->AddLine ({ screen (station, 0).x, y0 }, { screen (station, 0).x, y1 }, kGridFaint, 1.0f);
+        const double up = edit::NiceStep (view.zMax - view.zMin, 5);
+        const int decimals = edit::StepDecimals (up);
+        for (const double z : edit::Levels (view.zMin, view.zMax, up)) {
+            const float y = screen (0, z).y;
+            list->AddLine ({ x0, y }, { x1, y }, kGrid, 1.0f);
+            char text[32];
+            std::snprintf (text, sizeof text, "%.*f", decimals, z);
+            const ImVec2 size = ImGui::CalcTextSize (text);
+            list->AddText ({ x0 - 4.0f - size.x, y - size.y * 0.5f }, kGridText, text);
+        }
         for (const auto& c : drawing.curves)
             list->AddRectFilled ({ screen (c.from, 0).x, min.y + 4 }, { screen (c.to, 0).x, min.y + height - 4 },
                                  IM_COL32 (62, 99, 221, 24));
