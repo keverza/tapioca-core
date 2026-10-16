@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -52,6 +53,18 @@ void Enter (Session& s)
         op = [t, value] (edit::Document& d, std::string& e) {
             return edit::SetKerbRadius (d, t.kerbPath, t.kerb, std::max (0.0, value), e);
         };
+    else if (t.value.ref.part == edit::Part::Range && t.value.quantity == edit::Quantity::Slope && value < 0.0) {
+        // A crossfall typed negative falls to the other side (a crown has none: it is kept).
+        const edit::Path* path = edit::FindPath (Doc (s), t.value.ref.entity);
+        edit::Fall fall = edit::Fall::Crown;
+        if (path != nullptr)
+            for (const auto& r : path->sections)
+                if (r.id == t.value.ref.item)
+                    fall = edit::Flipped (r.fall);
+        op = [t, value, fall] (edit::Document& d, std::string& e) {
+            return edit::SetPathCrossfall (d, t.value.ref.entity, t.value.ref.item, -value, fall, e);
+        };
+    }
     else {
         // A grade is shown unsigned: what is typed keeps the way it falls, a minus turns it.
         double now = 0.0;

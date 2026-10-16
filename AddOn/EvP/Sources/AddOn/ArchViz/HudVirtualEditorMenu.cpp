@@ -145,13 +145,27 @@ std::vector<MenuItem> MenuItems (const Session& s)
                 AddActions (s, items, { "make-path" }); // a path has two ends
             break;
         }
-        case MenuTarget::Path:
+        case MenuTarget::Path: {
+            const edit::Path* p = MenuPath (s);
+            bool all[3] = { p != nullptr, p != nullptr, p != nullptr }, sided = false;
+            if (p != nullptr)
+                for (const auto& r : p->sections) {
+                    for (int i = 0; i < 3; ++i)
+                        all[i] = all[i] && int (r.fall) == i;
+                    sided = sided || r.fall != edit::Fall::Crown;
+                }
+            items.push_back (Item ("fall.crown", "Crown", {}, p != nullptr, all[0]));
+            items.push_back (Item ("fall.left", "Falls left", {}, p != nullptr, all[1]));
+            items.push_back (Item ("fall.right", "Falls right", {}, p != nullptr, all[2]));
+            items.push_back (Item ("fall.flip", "Flip fall", {}, sided));
+            Rule (items);
             items.push_back (Item ("path.insertPoint", "Insert control point here"));
             items.push_back (Item ("path.insertBreak", "Add grade break here"));
             items.push_back (Item ("path.splitRange", "Split cross-section here"));
             Rule (items);
             items.push_back (Item ("delete", "Delete path", "Del"));
             break;
+        }
         case MenuTarget::PathPoint: {
             const edit::Path* p = MenuPath (s);
             items.push_back (Item ("delete", "Delete control point", "Del", p != nullptr && p->points.size () > 2));
@@ -178,6 +192,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("fall.crown", "Crown", {}, r != nullptr, r && r->fall == edit::Fall::Crown));
             items.push_back (Item ("fall.left", "Falls left", {}, r != nullptr, r && r->fall == edit::Fall::Left));
             items.push_back (Item ("fall.right", "Falls right", {}, r != nullptr, r && r->fall == edit::Fall::Right));
+            items.push_back (Item ("fall.flip", "Flip fall", {}, r != nullptr && r->fall != edit::Fall::Crown));
             Rule (items);
             items.push_back (Item ("path.splitRange", "Split cross-section here"));
             items.push_back (Item ("delete", "Delete cross-section", "Del", p != nullptr && p->sections.size () > 1));
@@ -319,19 +334,16 @@ void RunMenuItem (Session& s, const std::string& id)
         const edit::Path* p = MenuPath (s);
         if (p == nullptr)
             return;
+        // A range's own, from its edge; every range's, from the centreline.
+        const edit::Id path = p->id, range = s.menu.target == MenuTarget::Range ? s.menu.ref.item : edit::kNoId;
         const edit::Fall fall = id == "fall.left"    ? edit::Fall::Left
                                 : id == "fall.right" ? edit::Fall::Right
                                                      : edit::Fall::Crown;
-        for (const auto& r : p->sections)
-            if (r.id == s.menu.ref.item) {
-                const edit::Id path = p->id, rid = r.id;
-                const double crossfall = r.crossfall;
-                if (!s.edits.Apply ([=] (edit::Document& d, std::string& e) {
-                        return edit::SetPathCrossfall (d, path, rid, crossfall, fall, e);
-                    }))
-                    s.message = s.edits.Message ();
-                break;
-            }
+        const bool flip = id == "fall.flip";
+        if (!s.edits.Apply ([=] (edit::Document& d, std::string& e) {
+                return flip ? edit::FlipPathFall (d, path, range, e) : edit::SetPathFall (d, path, range, fall, e);
+            }))
+            s.message = s.edits.Message ();
     }
 }
 

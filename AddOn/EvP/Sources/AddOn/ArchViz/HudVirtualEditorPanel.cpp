@@ -189,23 +189,37 @@ void Panel (Session& s)
                     }
                     break;
                 }
-        if (part != nullptr && part->part == edit::Part::Range)
+        // How it sheds water: a picked range's fall, or every range's of the path selected whole
+        // (none of the three shown chosen while they differ); and the side flipped.
+        const bool whole = part != nullptr && part->part == edit::Part::Entity;
+        if (part != nullptr && (whole || part->part == edit::Part::Range)) {
+            const edit::Id range = whole ? edit::kNoId : part->item;
+            int fall = -1;
+            bool sided = false;
             for (const auto& r : path->sections)
-                if (r.id == part->item) {
-                    const char* falls[] = { "Crown", "Falls left", "Falls right" };
-                    for (int i = 0; i < 3; ++i) {
-                        if (i > 0)
-                            ImGui::SameLine ();
-                        if (ImGui::RadioButton (falls[i], int (r.fall) == i)) {
-                            const edit::Id id = path->id, rid = r.id;
-                            const double cf = r.crossfall;
-                            s.edits.Apply ([=] (edit::Document& d, std::string& e) {
-                                return edit::SetPathCrossfall (d, id, rid, cf, edit::Fall (i), e);
-                            });
-                        }
-                    }
-                    break;
+                if (range == edit::kNoId || r.id == range) {
+                    fall = fall == -1 || fall == int (r.fall) ? int (r.fall) : -2;
+                    sided = sided || r.fall != edit::Fall::Crown;
                 }
+            const char* falls[] = { "Crown", "Falls left", "Falls right" };
+            const edit::Id id = path->id;
+            for (int i = 0; i < 3; ++i) {
+                if (i > 0)
+                    ImGui::SameLine ();
+                if (ImGui::RadioButton (falls[i], fall == i) &&
+                    !s.edits.Apply ([=] (edit::Document& d, std::string& e) {
+                        return edit::SetPathFall (d, id, range, edit::Fall (i), e);
+                    }))
+                    s.message = s.edits.Message ();
+            }
+            ImGui::SameLine ();
+            ImGui::BeginDisabled (!sided);
+            if (ImGui::SmallButton ("Flip fall") && !s.edits.Apply ([=] (edit::Document& d, std::string& e) {
+                    return edit::FlipPathFall (d, id, range, e);
+                }))
+                s.message = s.edits.Message ();
+            ImGui::EndDisabled ();
+        }
 
         // The profile canvas: stations right, elevations up, exaggerated to fit, with a gutter
         // on the left for its grid's heights.

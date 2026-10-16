@@ -1011,3 +1011,47 @@ TEST (HudVirtualEditor, TheProfileHasAGridOfRoundHeights)
     EXPECT_GT (written, 0u);
     EXPECT_LT (textTo, gridFrom); // the heights in the gutter, clear of the lines
 }
+
+TEST (HudVirtualEditor, APathFallsToASideAndFlipsFromItsCentreline)
+{
+    // Right-clicked on its centreline, a path offers its fall for every range and, once it
+    // falls to a side, a flip.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 2.0);
+    Drive d (std::move (doc));
+    d.RightClick (700, 500);
+    ASSERT_TRUE (d.S ().menu.open);
+    ASSERT_TRUE (d.Offers ("fall.left"));
+    EXPECT_FALSE (d.Offers ("fall.flip")); // crowned: no side to flip
+    eh::RunMenuItem (d.S (), "fall.left");
+    EXPECT_EQ (ed::FindPath (d.D (), p)->sections[0].fall, ed::Fall::Left);
+    EXPECT_TRUE (d.Offers ("fall.flip"));
+    eh::RunMenuItem (d.S (), "fall.flip");
+    EXPECT_EQ (ed::FindPath (d.D (), p)->sections[0].fall, ed::Fall::Right);
+}
+
+TEST (HudVirtualEditor, ACrossfallTypedNegativeFallsTheOtherWay)
+{
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, -10, 0 }, { 0, 12, 0 } }, 6.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathFall (doc, p, ed::kNoId, ed::Fall::Left, error)) << error;
+    Drive d (std::move (doc));
+    d.input.x = 1000, d.input.y = 100;
+    d.Frame ();
+    ImVec2 at;
+    bool found = false;
+    for (const auto& l : d.S ().placed)
+        if (l.target.value.ref.part == ed::Part::Range && l.target.value.quantity == ed::Quantity::Slope)
+            at = { (l.box.x0 + l.box.x1) * 0.5f, (l.box.y0 + l.box.y1) * 0.5f }, found = true;
+    ASSERT_TRUE (found);
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    ASSERT_TRUE (d.S ().labelOpen);
+    d.input.characters = u"-3";
+    d.Frame ();
+    d.Key (0x0D);
+    const auto& r = ed::FindPath (d.D (), p)->sections[0];
+    EXPECT_EQ (r.fall, ed::Fall::Right);
+    EXPECT_NEAR (r.crossfall, 3.0, 1e-9);
+}

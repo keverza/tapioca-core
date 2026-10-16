@@ -496,6 +496,44 @@ bool SetPathCrossfall (Document& doc, Id path, Id range, double percent, Fall fa
         error);
 }
 
+bool SetPathFall (Document& doc, Id path, Id range, Fall fall, std::string& error)
+{
+    return EditPath (
+        doc, path,
+        [&] (Path& p, std::string& why) {
+            for (const auto& r : std::vector<Section> (p.sections))
+                if ((range == kNoId || r.id == range) && !SetCrossfall (p.sections, r.id, r.crossfall, fall, why))
+                    return false;
+            return true;
+        },
+        error);
+}
+
+Fall Flipped (Fall fall)
+{
+    return fall == Fall::Left ? Fall::Right : fall == Fall::Right ? Fall::Left : fall;
+}
+
+bool FlipPathFall (Document& doc, Id path, Id range, std::string& error)
+{
+    return EditPath (
+        doc, path,
+        [&] (Path& p, std::string& why) {
+            bool any = false;
+            for (const auto& r : std::vector<Section> (p.sections)) {
+                if ((range != kNoId && r.id != range) || r.fall == Fall::Crown)
+                    continue;
+                if (!SetCrossfall (p.sections, r.id, r.crossfall, Flipped (r.fall), why))
+                    return false;
+                any = true;
+            }
+            if (!any)
+                why = "a crowned path falls to both sides: choose a side first";
+            return any;
+        },
+        error);
+}
+
 bool TransformPathParts (Document& doc, const std::vector<Ref>& refs, Vec3 t, std::string& error)
 {
     std::map<Id, std::vector<Ref>> byPath;

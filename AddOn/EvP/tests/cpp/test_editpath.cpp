@@ -477,3 +477,31 @@ TEST (EditPath, ABendsControlPointStaysAtItsCorner)
         EXPECT_NEAR (at.z, z, 1e-9);
     }
 }
+
+TEST (EditPath, AFallIsSetForEveryRangeAndFlipped)
+{
+    // Two ranges, crowned: the whole path set to fall left keeps each crossfall; a flip turns
+    // every one-sided range to the right; a crown alone has no side to flip.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 2.0);
+    std::string error;
+    ASSERT_TRUE (ed::SplitPathSection (doc, p, 10.0, error)) << error;
+    const auto falls = [&] (ed::Fall f) {
+        for (const auto& r : ed::FindPath (doc, p)->sections)
+            if (r.fall != f || std::abs (r.crossfall - 2.0) > 1e-12)
+                return false;
+        return true;
+    };
+    EXPECT_FALSE (ed::FlipPathFall (doc, p, ed::kNoId, error));
+    EXPECT_FALSE (error.empty ());
+    ASSERT_TRUE (ed::SetPathFall (doc, p, ed::kNoId, ed::Fall::Left, error)) << error;
+    EXPECT_TRUE (falls (ed::Fall::Left));
+    ASSERT_TRUE (ed::FlipPathFall (doc, p, ed::kNoId, error)) << error;
+    EXPECT_TRUE (falls (ed::Fall::Right));
+    // One range alone.
+    const ed::Id first = ed::FindPath (doc, p)->sections[0].id;
+    ASSERT_TRUE (ed::FlipPathFall (doc, p, first, error)) << error;
+    EXPECT_EQ (ed::FindPath (doc, p)->sections[0].fall, ed::Fall::Left);
+    EXPECT_EQ (ed::FindPath (doc, p)->sections[1].fall, ed::Fall::Right);
+    EXPECT_EQ (ed::Flipped (ed::Fall::Crown), ed::Fall::Crown);
+}
