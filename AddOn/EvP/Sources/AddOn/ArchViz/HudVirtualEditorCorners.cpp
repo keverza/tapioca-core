@@ -286,6 +286,33 @@ const edit::PavedCorner* PickedKerb (Session& s)
     return nullptr;
 }
 
+bool KerbField (const Session& s, double& radius)
+{
+    if (!s.kerbPicked)
+        return false;
+    radius = s.kerb.key.radius;
+    if (s.pavedRevision == Doc (s).revision)
+        for (const auto& c : s.paved.corners)
+            if (c.path == s.kerb.path && c.key.Same (s.kerb.key))
+                radius = c.key.radius;
+    return true;
+}
+
+bool TypeKerb (Session& s, double radius)
+{
+    const edit::PavedCorner* k = PickedKerb (s);
+    if (k == nullptr)
+        return false;
+    const edit::PavedCorner c = *k;
+    const double r = std::clamp (radius, 0.0, c.maxRadius);
+    if (!s.edits.Apply (
+            [c, r] (edit::Document& d, std::string& e) { return edit::SetKerbRadius (d, c.path, c.key, r, e); }))
+        s.message = s.edits.Message ();
+    else
+        s.message.clear ();
+    return true;
+}
+
 bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale)
 {
     const std::vector<edit::Id> paths = KerbPaths (s);

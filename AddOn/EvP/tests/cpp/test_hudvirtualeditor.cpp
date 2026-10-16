@@ -783,3 +783,34 @@ TEST (HudVirtualEditor, DimensionsShowWhenCloseEnoughToRead)
     EXPECT_GT (drawn (6.0), 0u);
     EXPECT_EQ (drawn (1.0), 0u);
 }
+
+TEST (HudVirtualEditor, AClickedKerbGripTakesATypedRadius)
+{
+    // A tee's junction grip clicked (not dragged): the tracker offers its radius, and a number
+    // typed then sets that corner alone.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    ed::PavedCorner j;
+    for (const auto& c : ed::Pave (d.D ().paths, 0.5, false).corners)
+        if (c.key.other != ed::kNoId)
+            j = c;
+    const ed::Vec3 at = ed::KerbGripAt (j, 0.8);
+    const ImVec2 g { 600 + 20 * float (at.x), 500 - 20 * float (at.y) };
+    d.Press (g.x, g.y);
+    d.Release (g.x, g.y);
+    ASSERT_TRUE (d.S ().kerbPicked);
+    d.Frame ();
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Radius);
+    d.input.characters = u"2.5";
+    d.Frame ();
+    d.Key (0x0D);
+    const ed::Path& pa = *ed::FindPath (d.D (), a);
+    ASSERT_EQ (pa.kerbs.size (), 1u);
+    EXPECT_TRUE (pa.kerbs[0].Same (j.key));
+    EXPECT_DOUBLE_EQ (pa.kerbs[0].radius, 2.5);
+    EXPECT_DOUBLE_EQ (pa.edgeRadius, 0.0);
+}

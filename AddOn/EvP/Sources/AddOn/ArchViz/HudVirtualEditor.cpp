@@ -408,6 +408,8 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
             s.drawing.push_back (last + dir * event.value);
         return;
     }
+    if (TypeKerb (s, event.value)) // a picked kerb corner's radius
+        return;
     std::vector<edit::Dimension> dims;
     TrackerFields (s, dims);
     if (event.item >= dims.size ())
@@ -433,6 +435,10 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
     }
     if (s.selection.Items ().empty ())
         return items;
+    if (double r = 0.0; KerbField (s, r)) {
+        items.push_back ({ edit::Quantity::Radius, r });
+        return items;
+    }
     if (s.typedHandle >= 0 && size_t (s.typedHandle) < edit::Handles (s.gizmo).size ()) {
         const edit::Handle h = edit::Handles (s.gizmo)[size_t (s.typedHandle)];
         const int a = h.axis >= 0 && h.axis < 3 ? h.axis : 2;
