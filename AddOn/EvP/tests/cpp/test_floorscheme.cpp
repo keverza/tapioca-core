@@ -740,3 +740,22 @@ TEST (FloorScheme, APinnedWallMovesOnlyWhereTheFlatsStillReachTheCorridor)
     }
     EXPECT_EQ (row, 4) << "the four flats the counts ask for";
 }
+
+// User, 2026-10-16: "Fails to correctly interpret mass slab especially if touching other slabs."
+// A narrower slab touching the side of the main one is a short stepped wing: its one-sided
+// section laid both end flats at full width over each other and over its stair, and the cell
+// complex lost the facade wall where they met the outline. The ends share what the stair leaves.
+TEST (FloorScheme, AShortSteppedWingsFlatsLieBesideItsStairNeverOverIt)
+{
+    const std::vector<fs::Ring> outline {
+        { { 0, 0 }, { 20, 0 }, { 20, 3 }, { 36, 3 }, { 36, 13 }, { 20, 13 }, { 20, 16 }, { 0, 16 } }
+    };
+    fs::Pins pins;
+    pins.cores.push_back ({ { 17.75, 11.55 }, 4.5, 8.9 }); // the stack, planned on the floor above
+    fs::Options held;
+    held.holdCores = true;
+    // Held to the stack, and planned freely: no flat, stair or corridor over another.
+    for (const auto& s : { fs::Generate (outline, fp::Default (), pins, held), fs::Generate (outline, fp::Default ()) })
+        for (const auto& d : s.diagnostics)
+            EXPECT_NE (d.code, "floor.twice") << s.typology << ": " << d.text << " at " << d.at.x << ", " << d.at.y;
+}

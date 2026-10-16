@@ -416,10 +416,18 @@ void OneSideSection (Ctx& c, const Frame& f, double depth, double s0, double s1,
     const double widest = (MaxFlat (c.programme, c.o) + kPartyWall * depth) / (depth - floorprogramme::kFacade);
     double capLo = Clip ((std::min) (depth - corr, widest), c.o.minCap, c.o.maxCap), capHi = capLo;
     EndPins (c, f, { s0, 0, s1, depth }, c0, c1, capLo, capHi);
-    const int id = AddSection (c, run, (s1 - s0) * depth, 'O');
-    const double e0 = s0 + capLo, e1 = s1 - capHi;
     const auto* pin = PinIn (c, f, { s0, 0, s1, depth }, CoreSlack (c.o));
     const double w = CoreAlong (c, pin, depth);
+    // A section shorter than its two caps and the stair: the caps share what the stair leaves.
+    // They were laid at full width over each other and over the stair -- a stepped slab's short
+    // wing (user, 2026-10-16: "Fails to correctly interpret mass slab especially if touching
+    // other slabs"), a flat over its stair and its facade wall lost in the cell complex.
+    if (const double room = (std::max) (0.0, s1 - s0 - w); capLo + capHi > room) {
+        const double k = room / (capLo + capHi);
+        capLo *= k, capHi *= k;
+    }
+    const int id = AddSection (c, run, (s1 - s0) * depth, 'O');
+    const double e0 = s0 + capLo, e1 = s1 - capHi;
     const double wanted = pin ? f.Local (pin->centre).x - w / 2 : (e0 + e1 - w) / 2;
     const bool held = pin && c.o.holdCores; // a stack stair never moves
     double uc = held ? wanted : Clip (wanted, e0, e1 - w);
