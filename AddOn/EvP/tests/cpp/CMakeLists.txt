@@ -741,6 +741,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathNetwork.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathContours.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathCrossing.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathAlignment.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathProfile.cpp"
@@ -755,6 +756,7 @@ set (EVP_TEST_SOURCES
     test_editsnap.cpp
     test_editshape.cpp
     test_editpathnetwork.cpp
+    test_editpathcontours.cpp
     test_editpathcrossing.cpp
     test_edittracker.cpp
     test_editgizmo.cpp
