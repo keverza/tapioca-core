@@ -885,22 +885,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
     }
 
-    // Hover highlight.
-    if (s.drag == Drag::None && s.selection.hover.entity != edit::kNoId) {
-        Vec3 p;
-        const auto& hover = s.selection.hover;
-        const edit::Entity* e = edit::Find (Doc (s), hover.entity);
-        if (hover.part == edit::Part::Segment && e != nullptr) {
-            const int i = edit::SegmentIndex (*e, hover.item);
-            if (i >= 0) { // as drawn: a curve along its curve
-                const auto points = edit::SegmentPoints (*e, size_t (i));
-                for (size_t k = 0; k + 1 < points.size (); ++k)
-                    Line (s, m, points[k], points[k + 1], kHover, 4.0f * scale);
-            }
-        }
-        else if (edit::PointOf (Doc (s), hover, p))
-            Dot (s, m, p, 7.0f * scale, kHover, false);
-    }
+    DrawHover (s, m, scale);
 
     // The live dimensions and path labels, clear of the gizmo and of each other. Nothing that
     // follows the pointer moves them: the snap hint and the typed value draw over them.

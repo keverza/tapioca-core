@@ -1,6 +1,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditShape.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
@@ -467,6 +468,60 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
         if (l.line)
             DimensionLine (s, l, a, b, scale);
         Ink (s, l.at, at, box, l.text, FromRgba (l.rgba), &l);
+    }
+}
+
+void DrawHover (Session& s, const Map& m, float scale)
+{
+    const auto& hover = s.selection.hover;
+    if (s.drag != Drag::None || hover.entity == edit::kNoId)
+        return;
+    const auto run = [&] (const std::vector<Vec3>& p, bool closed, float width) {
+        for (size_t k = 0; k + 1 < p.size (); ++k)
+            Line (s, m, p[k], p[k + 1], kHover, width * scale);
+        if (closed && p.size () > 2)
+            Line (s, m, p.back (), p.front (), kHover, width * scale);
+    };
+    if (const edit::Path* path = edit::FindPath (Doc (s), hover.entity)) {
+        edit::PathOutline o;
+        std::string error;
+        if (!edit::Outline (*path, 0.5, o, error))
+            return;
+        if (hover.part == edit::Part::Range) {
+            std::vector<Vec3> left, right;
+            for (size_t i = 0; i < o.stations.size (); ++i)
+                if (o.range[i] == hover.item)
+                    left.push_back (o.left[i]), right.push_back (o.right[i]);
+            run (left, false, 3.5f);
+            run (right, false, 3.5f);
+            return;
+        }
+        const bool point = hover.part == edit::Part::PathPoint || hover.part == edit::Part::Break;
+        run (o.centre, false, point ? 2.0f : 3.5f); // the line it is on, quieter under a point
+        Vec3 p;
+        if (point && edit::PointOf (Doc (s), hover, p))
+            Dot (s, m, p, 7.0f * scale, kHover, false);
+        return;
+    }
+    const edit::Entity* e = edit::Find (Doc (s), hover.entity);
+    if (e == nullptr)
+        return;
+    switch (hover.part) {
+        case edit::Part::Segment:
+            if (const int i = edit::SegmentIndex (*e, hover.item); i >= 0) // as drawn: a curve along its curve
+                run (edit::SegmentPoints (*e, size_t (i)), false, 4.0f);
+            return;
+        case edit::Part::Entity:
+            run (edit::Shape (*e), e->closed, 3.0f);
+            return;
+        case edit::Part::Face:
+            run (edit::FacePolygon (*e, hover.item), true, 3.0f);
+            return;
+        default: {
+            Vec3 p;
+            if (edit::PointOf (Doc (s), hover, p))
+                Dot (s, m, p, 7.0f * scale, kHover, false);
+        }
     }
 }
 

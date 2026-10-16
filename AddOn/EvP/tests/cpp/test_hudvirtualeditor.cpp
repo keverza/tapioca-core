@@ -924,3 +924,30 @@ TEST (HudVirtualEditor, AKerbFilletsRadiusIsTypedOverItsLabel)
     ASSERT_EQ (pa.kerbs.size (), 1u);
     EXPECT_DOUBLE_EQ (pa.kerbs[0].radius, 4.0);
 }
+
+TEST (HudVirtualEditor, AHoveredPathLightsItsWholeCentreline)
+{
+    // The pointer on a path's centreline, between its points: the whole line lights, end to
+    // end -- not a dot at its middle. At its end point, the point lights with it.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    const auto lit = [&] (float x, float y, float& from, float& to) {
+        d.At (x, y);
+        from = 1e9f, to = -1e9f;
+        size_t n = 0;
+        for (const auto& v : d.Frame ().overlay.vertices)
+            if (v.rgba == geomsrv::archviz::hudshell::Unpacked (IM_COL32 (14, 98, 201, 255)))
+                from = std::min (from, v.x), to = std::max (to, v.x), ++n;
+        return n;
+    };
+    float from = 0, to = 0;
+    ASSERT_GT (lit (600 + 20 * 6.5f, 500, from, to), 0u);
+    EXPECT_EQ (d.S ().selection.hover.entity, p);
+    EXPECT_EQ (d.S ().selection.hover.part, ed::Part::Entity);
+    EXPECT_LT (from, 605.0f); // from its start...
+    EXPECT_GT (to, 995.0f);   // ...to its end
+    ASSERT_GT (lit (600 + 20 * 20.0f, 500, from, to), 0u);
+    EXPECT_EQ (d.S ().selection.hover.part, ed::Part::PathPoint);
+    EXPECT_LT (from, 605.0f); // the line, quieter, and the point
+}

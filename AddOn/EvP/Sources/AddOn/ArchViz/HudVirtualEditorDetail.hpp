@@ -95,6 +95,10 @@ bool TypeKerb (Session& s, double radius);
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The paths' labels (heights, grades, crossfalls) after them: each beside its mark, clear of
 // everything placed so far -- a label with no free place is left out, never drawn over another.
+// What the pointer is over, lit as it is: a path's centreline or a range's edges along
+// their length, an object's outline, a segment along its curve; a point -- a path's control
+// point or grade break, a vertex -- only when the pointer is at it, with its path's line.
+void DrawHover (Session& s, const Map& m, float scale);
 void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered
 // or, while `dragging`, held -- then it alone is drawn, with a guide along its axis.
