@@ -84,6 +84,9 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
             onto.planar = input.planar;
             std::copy (std::begin (input.plan), std::end (input.plan), onto.plan);
             onto.project = input.project;
+            // 3D with the cells shown: the solids are what is picked (PickCell).
+            if (!input.planar && store->previewCells && input.project && input.hasCameraDirection)
+                onto.pick = [&input, this] (float x, float y) { return PickCell (*store, input, x, y); };
             onto.storey = input.planar ? store->planStorey : INT_MIN;
             // The panels' look -- the menu a right click opens, the tips -- not ImGui's dark
             // default (user, 2026-10-15: "Right click menu in overlay locked mode should also be

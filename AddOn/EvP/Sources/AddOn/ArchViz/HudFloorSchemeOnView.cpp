@@ -148,7 +148,15 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
         std::vector<ImVec2> screen;
     };
     std::optional<Pick> pick;
-    if (hovered)
+    if (hovered && onto.pick) {
+        // The solid under the pointer, on whichever floor it is: that floor becomes its building's.
+        if (const auto hit = onto.pick (mouse.x, mouse.y))
+            if (const auto plan = plans.find (hit->key); plan != plans.end ())
+                for (const auto& floor : plan->second.floors)
+                    if (floor.story == hit->story)
+                        pick = Pick { hit->key, &floor, hit->at, {} };
+    }
+    else if (hovered)
         for (const auto& s : shown) {
             const auto& floor = *s.floor;
             const auto* planned = planner.Latest (bp::FloorId (s.key, floor.story));

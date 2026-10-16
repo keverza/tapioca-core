@@ -4,6 +4,7 @@
 #include <clipper2/clipper.triangulation.h>
 #include <climits>
 #include <cmath>
+#include <array>
 #include <map>
 #include <cstdio>
 #include <memory>
@@ -248,6 +249,96 @@ struct FloorCells {
     std::vector<std::vector<fs::Ring>> units, cells;
 };
 
+namespace {
+// A point inside a ring: its first triangle's centre (a flat's centre may be outside an L).
+fs::Vec Inside (const fs::Ring& ring)
+{
+    namespace cp = Clipper2Lib;
+    cp::PathD path;
+    for (const auto& p : ring)
+        path.emplace_back (p.x, p.y);
+    cp::PathsD triangles;
+    if (ring.size () >= 3 && cp::Triangulate ({ path }, 4, triangles, false) == cp::TriangulateResult::success &&
+        !triangles.empty () && triangles.front ().size () == 3) {
+        const auto& t = triangles.front ();
+        return { (t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3 };
+    }
+    return ring.empty () ? fs::Vec {} : ring.front ();
+}
+// Whether view pixel (x, y) is inside the projected polygon `screen` (even-odd).
+bool Covers (const std::vector<std::array<float, 2>>& screen, float x, float y)
+{
+    bool in = false;
+    for (size_t i = 0, j = screen.size () - 1; i < screen.size (); j = i++)
+        if ((screen[i][1] > y) != (screen[j][1] > y) &&
+            x < (screen[j][0] - screen[i][0]) * (y - screen[i][1]) / (screen[j][1] - screen[i][1]) + screen[i][0])
+            in = !in;
+    return in;
+}
+} // namespace
+
+std::optional<hudfloorscheme::Hit> PickCell (const State& state, const Input& input, float x, float y)
+{
+    if (!input.project || !input.hasCameraDirection || !state.previewCells)
+        return std::nullopt;
+    const double* d = input.cameraDirection;
+    // The nearest face under the pointer of every solid -- the flats', and the cells no flat holds,
+    // which hide what is behind them -- its depth the mean of its corners' along the view.
+    double nearest = 1e300;
+    std::optional<hudfloorscheme::Hit> found;
+    const auto test = [&] (const fs::Ring& ring, double z0, double z1, const std::string& key, int story, bool flat) {
+        const size_t n = ring.size ();
+        if (n < 3)
+            return;
+        std::vector<std::array<float, 2>> low (n), high (n);
+        for (size_t i = 0; i < n; ++i)
+            if (!input.project (ring[i].x, ring[i].y, z0, low[i][0], low[i][1]) ||
+                !input.project (ring[i].x, ring[i].y, z1, high[i][0], high[i][1]))
+                return; // a corner behind the eye: not pickable from here
+        double at = 1e300;
+        const auto depth = [&] (double px, double py, double pz) { return px * d[0] + py * d[1] + pz * d[2]; };
+        double mean0 = 0, mean1 = 0;
+        for (const auto& p : ring)
+            mean0 += depth (p.x, p.y, z0) / n, mean1 += depth (p.x, p.y, z1) / n;
+        if (Covers (low, x, y))
+            at = (std::min) (at, mean0);
+        if (Covers (high, x, y))
+            at = (std::min) (at, mean1);
+        for (size_t i = 0; i < n; ++i) {
+            const size_t k = (i + 1) % n;
+            if (Covers ({ low[i], low[k], high[k], high[i] }, x, y))
+                at = (std::min) (at, (depth (ring[i].x, ring[i].y, z0) + depth (ring[k].x, ring[k].y, z0) +
+                                      depth (ring[i].x, ring[i].y, z1) + depth (ring[k].x, ring[k].y, z1)) /
+                                         4);
+        }
+        if (at >= nearest)
+            return;
+        nearest = at;
+        found = flat ? std::optional<hudfloorscheme::Hit> (hudfloorscheme::Hit { key, story, Inside (ring) })
+                     : std::nullopt;
+    };
+    for (const auto& [key, held] : state.floorComplexes) {
+        if (!held)
+            continue;
+        const auto& complex = held->complex;
+        for (size_t u = 0; u < complex.units.size (); ++u) {
+            const auto& floor = complex.floors[complex.units[u].floor];
+            const auto span = bt::ClearSpan (floor);
+            for (const auto& ring : held->units[u])
+                test (ring, span.z0 + 0.02, span.z1, key, floor.story, true);
+        }
+        for (size_t id = 0; id < complex.cells.size (); ++id) {
+            const auto& cell = complex.cells[id];
+            if (cell.context || cell.floor < 0 || cell.unit >= 0)
+                continue;
+            const auto span = bt::ClearSpan (complex.floors[cell.floor]);
+            for (const auto& ring : held->cells[id])
+                test (ring, span.z0 + 0.02, span.z1, key, complex.floors[cell.floor].story, false);
+        }
+    }
+    return found;
+}
+
 // The floors' schemes on the overlay as their cell complex (BuildingTopology.hpp; user, 2026-10-15):
 // each cell a solid from its floor to under the next slab, coloured by its space, the stack's stair
 // cells highlighted on their own toggle, and the flat selected in a Plan view white inside its walls
@@ -297,8 +388,9 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         if (auto s = hudfloorscheme::Selected (editor))
             selected.push_back (std::move (*s));
     std::ostringstream signature;
-    signature << std::setprecision (17) << state.previewStairs << state.previewCells << int (state.cellColours) << ':'
-              << state.floorPlanner.Revision () << ':' << (onPlan ? state.planStorey : INT_MIN);
+    signature << std::setprecision (17) << state.previewStairs << state.previewCells << int (state.cellColours)
+              << state.cellHiddenLines << ':' << state.floorPlanner.Revision () << ':'
+              << (onPlan ? state.planStorey : INT_MIN);
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         const auto* shown = Displayed (plan, state.buildingPlans[key]);
         signature << '|' << key << ':' << plan.floors.size () << '@' << (shown ? shown->story : INT_MIN);
@@ -425,6 +517,34 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         }
         cores.style.edgeRgba = kCoreHighlight;
         cores.style.edgeWidthPixels = 2.5f;
+        // The flat selected: its solid lit and edged in the accent (user, 2026-10-16: "In locked mode 3d
+        // view selection should select cell and higlight it, not the 2d contour"); its rooms too.
+        overlaylayers::Mesh chosen = cores;
+        chosen.style.edgeWidthPixels = 3.0f;
+        std::vector<char> picked (complex.units.size (), 0);
+        for (const auto& sel : selected) {
+            if (sel.building != key)
+                continue;
+            const auto* planned = state.floorPlanner.Latest (FloorId (key, sel.story));
+            for (size_t u = 0; planned && u < complex.units.size (); ++u) {
+                const auto& unit = complex.units[u];
+                if (complex.floors[unit.floor].story == sel.story && unit.flat >= 0 &&
+                    unit.flat < int (planned->scheme.flats.size ()) &&
+                    planned->scheme.flats[unit.flat].shape == sel.flat)
+                    picked[u] = 1;
+            }
+        }
+        const auto lit = [] (uint32_t rgba) {
+            const auto mix = [&] (int shift) {
+                const uint32_t c = (rgba >> shift) & 0xFFu;
+                return (c + (255 - c) * 11 / 20) << shift;
+            };
+            return mix (24) | mix (16) | mix (8) | 0xFFu;
+        };
+        // Behind other cells, the edges dashed and faint -- or not drawn (the Massing tab's switch).
+        const auto behind = state.cellHiddenLines ? overlaylayers::Behind::Show : overlaylayers::Behind::Hide;
+        for (auto* mesh : { &cells, &cores, &chosen })
+            mesh->style.behind = behind;
         // The flats: one solid each, or a solid a room under "Space types"; on the plan one fill,
         // its outline and its inner walls thin.
         for (size_t u = 0; u < complex.units.size () && state.previewCells; ++u) {
@@ -433,19 +553,20 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             const auto span = bt::ClearSpan (floor);
             overlaylayers::Layer* here = onPlan && floor.story == state.planStorey ? onPlan : nullptr;
             const double z = floor.z + 0.02;
+            auto& into = picked[u] ? chosen : cells;
             if (state.cellColours == CellColours::SpaceTypes)
                 for (int id : unit.cells) {
-                    const uint32_t rgba = CellRgba (complex.cells[id]);
+                    const uint32_t rgba = picked[u] ? lit (CellRgba (complex.cells[id])) : CellRgba (complex.cells[id]);
                     for (const auto& ring : clear[id]) {
-                        Solid (cells, ring, span.z0 + 0.02, span.z1, rgba);
+                        Solid (into, ring, span.z0 + 0.02, span.z1, rgba);
                         if (here)
                             Fill (*here, ring, z, (rgba & 0xFFFFFF00u) | kPlanFillAlpha);
                     }
                 }
             else {
-                const uint32_t rgba = colourOf (floor, &unit, &rings[u], nullptr);
+                const uint32_t own = colourOf (floor, &unit, &rings[u], nullptr), rgba = picked[u] ? lit (own) : own;
                 for (const auto& ring : rings[u]) {
-                    Solid (cells, ring, span.z0 + 0.02, span.z1, rgba);
+                    Solid (into, ring, span.z0 + 0.02, span.z1, rgba);
                     if (here)
                         Fill (*here, ring, z, (rgba & 0xFFFFFF00u) | kPlanFillAlpha);
                 }
@@ -496,11 +617,13 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             for (const auto& ring : floor.outline) {
                 for (const double z : { floor.z, floor.z + floor.height })
                     Line (units, ring, z, kSlabWire, 1.0f);
+                for (auto it = units.polylines.end () - 2; it != units.polylines.end (); ++it)
+                    it->behind = behind;
                 for (const auto& p : ring) {
                     overlaylayers::Polyline edge;
                     edge.rgba = kSlabWire;
                     edge.widthPixels = 1.0f;
-                    edge.behind = overlaylayers::Behind::Show;
+                    edge.behind = behind;
                     edge.points = { p.x, p.y, floor.z, p.x, p.y, floor.z + floor.height };
                     units.polylines.push_back (std::move (edge));
                 }
@@ -510,6 +633,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             units.meshes.push_back (std::move (cells));
         if (!cores.indices.empty ())
             stairs.meshes.push_back (std::move (cores));
+        if (!chosen.indices.empty ())
+            units.meshes.push_back (std::move (chosen));
     }
     // The flat selected in a Plan view, white over the rest, whether the cells are shown or not:
     // inside its walls, as the outlines are. Its floor's flats carry their sides' lengths, every
@@ -537,7 +662,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                 }
             }
             for (const auto& ring : rings) {
-                Line (units, ring, top, 0xFFFFFFFFu, 5.0f);
+                if (!state.previewCells)
+                    Line (units, ring, top, 0xFFFFFFFFu, 5.0f);
                 if (here)
                     Line (*here, ring, floor.z + 0.04, 0xFFFFFFFFu, 5.0f);
             }

@@ -533,3 +533,82 @@ TEST (OverlayFloorPlans, TheCellsAreColouredByTheMassingTabsPreset)
     EXPECT_TRUE (layers::Validate (units).empty ());
     EXPECT_TRUE (layers::Validate (onPlan).empty ());
 }
+
+// User, 2026-10-16: "In locked mode 3d view selection should select cell and higlight it, not the 2d
+// contour. Because click through floor in 3D selection is BAD UI. So make cells selectable on any
+// floor"; "add a toggle to show/hide cell complex hidden lines". Seen from above, the pointer is over
+// a flat of every floor: the top one's solid is picked, its building turns to that floor, and its
+// solid is lit and edged in the accent; a corridor in front picks nothing. Hidden lines switch off.
+TEST (OverlayFloorPlans, In3DTheNearestCellIsPickedOnAnyFloorAndItsSolidHighlighted)
+{
+    namespace hf = geomsrv::archviz::hudfloorscheme;
+    hudtest::Watched gui;
+    hud::OwnPages own;
+    own.standalone = true;
+    own.floorPlansKnown = true;
+    own.floorPlans = { Tower () };
+    own.selection.known = true;
+    own.selection.count = 1;
+    gui.engine.SetOwnPages (own);
+    gui.state->previewCells = true;
+    layers::Layer stairs, units;
+    ASSERT_TRUE (Planned (*gui.state, stairs, units, 0));
+    hud::TakeFloorPlanLayers (*gui.state, stairs, units);
+    // From above: 10 pixels a metre, y up, the eye looking down.
+    const auto view = [] (float x, float y, std::vector<hud::Input::Button> buttons = {}) {
+        auto input = hudtest::At (100 + 10 * x, 600 - 10 * y, std::move (buttons));
+        input.planar = false;
+        input.hasCameraDirection = true;
+        input.cameraDirection[2] = -1;
+        input.project = [] (double px, double py, double, float& sx, float& sy) {
+            sx = float (100 + 10 * px), sy = float (600 - 10 * py);
+            return true;
+        };
+        return input;
+    };
+    const auto* planned = gui.state->floorPlanner.Latest (bp::FloorId ("building:Tower", 2));
+    ASSERT_NE (planned, nullptr);
+    const auto& flat = planned->scheme.flats.front ();
+    double x = 0, y = 0;
+    for (const auto& p : flat.shape)
+        x += p.x / flat.shape.size (), y += p.y / flat.shape.size ();
+    const auto hit =
+        hud::PickCell (*gui.state, view (float (x), float (y)), 100 + 10 * float (x), 600 - 10 * float (y));
+    ASSERT_TRUE (hit.has_value ());
+    EXPECT_EQ (hit->key, "building:Tower");
+    EXPECT_EQ (hit->story, 2) << "the top floor's solid is nearest from above";
+    // On the corridor, between the flats: nothing to pick there.
+    const auto* corridor = planned->scheme.corridors.empty () ? nullptr : &planned->scheme.corridors.front ();
+    if (corridor) {
+        double cx = 0, cy = 0;
+        for (const auto& p : corridor->shape)
+            cx += p.x / corridor->shape.size (), cy += p.y / corridor->shape.size ();
+        EXPECT_FALSE (
+            hud::PickCell (*gui.state, view (float (cx), float (cy)), 100 + 10 * float (cx), 600 - 10 * float (cy))
+                .has_value ());
+    }
+    // Locked, a click there selects that flat on that floor.
+    hud::SetEditLocked (*gui.state, true);
+    gui.state->buildingPlans["building:Tower"].story = 0;
+    gui.Lay ({}, view (float (x), float (y)));
+    gui.Lay ({}, view (float (x), float (y), { { 0, true } }));
+    gui.Lay ({}, view (float (x), float (y), { { 0, false } }));
+    const auto selected = hf::Selected (gui.state->planEditors["building:Tower"]);
+    ASSERT_TRUE (selected.has_value ());
+    EXPECT_EQ (selected->story, 2);
+    EXPECT_EQ (gui.state->buildingPlans["building:Tower"].story, 2) << "its building turned to that floor";
+    // Its solid lit and edged in the accent; no white contour in 3D.
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
+    EXPECT_TRUE (std::any_of (units.meshes.begin (), units.meshes.end (), [] (const auto& mesh) {
+        return mesh.style.edgeRgba == 0x2448C9FFu && mesh.style.edgeWidthPixels == 3.0f;
+    }));
+    for (const auto& line : units.polylines)
+        EXPECT_NE (line.rgba, 0xFFFFFFFFu);
+    // Hidden lines off: nothing of the cells drawn behind other cells.
+    gui.state->cellHiddenLines = false;
+    ASSERT_TRUE (hud::TakeFloorPlanLayers (*gui.state, stairs, units));
+    for (const auto& mesh : units.meshes)
+        EXPECT_EQ (mesh.style.behind, layers::Behind::Hide);
+    for (const auto& line : units.polylines)
+        EXPECT_EQ (line.behind, layers::Behind::Hide);
+}

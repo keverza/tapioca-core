@@ -421,6 +421,8 @@ void Engine::Impl::MassingPage ()
             store->cellColours = CellColours (by);
             cellsChanged = true;
         }
+        // User, 2026-10-16: "add a toggle to show/hide cell complex hidden lines".
+        cellsChanged |= ImGui::Checkbox ("Show hidden lines", &store->cellHiddenLines);
     }
     if (stairsChanged || cellsChanged) {
         ShowLayer (buildingplan::kStairsLayer, true);

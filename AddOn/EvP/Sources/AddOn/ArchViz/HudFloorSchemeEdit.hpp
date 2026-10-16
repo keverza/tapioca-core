@@ -48,6 +48,12 @@ Asked PlanView (EditorPtr& editor, buildingplan::Planner& planner,
 // Model metres onto a view of the overlay: the plan's transform, the same at every elevation
 // (`planar`: pixel = plan[0] x + plan[1] y + plan[2], plan[3] x + plan[4] y + plan[5]), or 3D's
 // camera (`project`, false where a point does not project).
+// What a 3D pick on the view found: the building, its floor, and a point inside the flat.
+struct Hit {
+    std::string key;
+    int story = 0;
+    floorscheme::Vec at;
+};
 struct ViewOnto {
     bool planar = false;
     double plan[6] = {};
@@ -56,6 +62,10 @@ struct ViewOnto {
     // building with no floor there has none. INT_MIN: the floor its Plan view shows.
     int storey = INT_MIN;
     std::function<bool (double x, double y, double z, float& px, float& py)> project;
+    // 3D: the flat whose solid is nearest under the pointer, on ANY floor of any building, or none
+    // (user, 2026-10-16: "click through floor in 3D selection is BAD UI. So make cells selectable on
+    // any floor"). Unset: the flats of each building's shown floor, as their outlines on it.
+    std::function<std::optional<Hit> (float x, float y)> pick;
 };
 // ⚠️ THE FLOOR PLAN EDITED ON THE VIEW ITSELF while the dock's lock is on (the user, 2026-10-10),
 // in the HUD's window over the whole view (`hovered`: the pointer is there, not on a panel). In

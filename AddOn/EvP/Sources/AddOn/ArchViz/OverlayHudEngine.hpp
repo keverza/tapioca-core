@@ -130,6 +130,7 @@ struct State {
     // coloured by one of the presets (user, 2026-10-16: "different graphics override presets").
     bool previewStairs = false, previewCells = false;
     CellColours cellColours = CellColours::UnitMix;
+    bool cellHiddenLines = true; // the cells' edges behind other cells, dashed (Massing tab)
     std::string floorPlanPublished;
     // Each building's cell complex as the overlay last built it, and from what (TakeFloorPlanLayers):
     // a selection or a storey changed draws them again without building them again.
@@ -164,6 +165,10 @@ struct State {
     Displays displays;
     bool displaysPending = false;
 };
+// 3D, the cell complex shown: the flat whose solid is nearest under view pixel (x, y), through
+// `input`'s projection and camera direction -- any floor of any building; a corridor, lobby or stair
+// in front of it hides it. None without a projection, a direction or the cells (OverlayHudFloorPlans.cpp).
+std::optional<hudfloorscheme::Hit> PickCell (const State& state, const Input& input, float x, float y);
 
 struct Engine::Impl {
     ImGuiContext* context = nullptr;
