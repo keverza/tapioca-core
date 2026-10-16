@@ -2,21 +2,29 @@
 
 namespace geomsrv {
 
-bool SnapshotAssembly::CanUpdate (const Snapshot* base, uint64_t stamp, const std::map<int32_t, double>& transparency)
+bool SnapshotAssembly::CanUpdate (const Snapshot* base, uint64_t stamp, const std::map<int32_t, double>& transparency,
+                                  const std::map<int32_t, CapturedMaterialIdentity>& materialIdentity,
+                                  const std::map<int32_t, CapturedSurface>& surfaceAttributes)
 {
     return base != nullptr && base->completeModel && base->scope == "all" && base->captureStamp != 0 &&
-           base->captureStamp + 1 == stamp && base->materialTransparency == transparency;
+           base->captureStamp + 1 == stamp && base->materialTransparency == transparency &&
+           base->materialIdentity == materialIdentity && base->surfaceAttributes == surfaceAttributes;
 }
 
 SnapshotAssembly::SnapshotAssembly (uint64_t id, uint64_t stamp, std::map<int32_t, double> transparency,
-                                    std::shared_ptr<const Snapshot> base, std::set<std::string> changed)
+                                    std::shared_ptr<const Snapshot> base, std::set<std::string> changed,
+                                    std::map<int32_t, CapturedMaterialIdentity> materialIdentity,
+                                    std::map<int32_t, CapturedSurface> surfaceAttributes)
     : result_ (std::make_shared<Snapshot> ()), base_ (std::move (base)), changed_ (std::move (changed))
 {
     result_->id = id;
     result_->captureStamp = stamp;
     result_->materialTransparency = std::move (transparency);
+    result_->materialIdentity = std::move (materialIdentity);
+    result_->surfaceAttributes = std::move (surfaceAttributes);
     if (base_ != nullptr)
-        valid_ = !changed_.empty () && CanUpdate (base_.get (), stamp, result_->materialTransparency);
+        valid_ = !changed_.empty () && CanUpdate (base_.get (), stamp, result_->materialTransparency,
+                                                  result_->materialIdentity, result_->surfaceAttributes);
 }
 
 void SnapshotAssembly::Add (Mesh mesh)

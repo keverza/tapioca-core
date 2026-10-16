@@ -348,3 +348,30 @@ TEST (OverlayLayers, AFadedLayerHandsItsPlainItemsToTheGuest)
     EXPECT_TRUE (prepared.occludedFills.empty ());
     EXPECT_TRUE (prepared.overFills.empty ());
 }
+
+TEST (OverlayLayers, OnStoreyKeepsOnlyThatStoreysMeshesAndTheLayerItselfWhenNothingGoes)
+{
+    ol::Layer layer = Square ("storeys");
+    ol::Mesh everywhere, lower, upper;
+    everywhere.points = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    everywhere.indices = { 0, 1, 2 };
+    lower = upper = everywhere;
+    lower.planStoreys = { -2, -1 };
+    upper.planStoreys = { 0 };
+    layer.meshes = { everywhere, lower, upper };
+    const auto shared = std::make_shared<const ol::Layer> (layer);
+
+    const auto below = ol::OnStorey (shared, -1);
+    ASSERT_EQ (below->meshes.size (), 2u);
+    EXPECT_TRUE (below->meshes[0].planStoreys.empty ());
+    EXPECT_EQ (below->meshes[1].planStoreys, (std::vector<int32_t> { -2, -1 }));
+    EXPECT_EQ (below->polylines.size (), 1u); // only meshes are storey-bound
+    EXPECT_EQ (ol::OnStorey (shared, 3)->meshes.size (), 1u);
+    EXPECT_EQ (shared->meshes.size (), 3u); // the stored layer is never changed
+
+    // Nothing to leave out: the very same layer, so caches keyed on it hold.
+    layer.meshes = { everywhere, upper };
+    const auto top = std::make_shared<const ol::Layer> (layer);
+    EXPECT_EQ (ol::OnStorey (top, 0), top);
+    EXPECT_EQ (ol::OnStorey (nullptr, 0), nullptr);
+}

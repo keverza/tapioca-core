@@ -187,6 +187,10 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
     ReadNumbers (item, "values", mesh.values);
     if (item.Contains ("cellLabels"))
         item.Get ("cellLabels", mesh.cellLabels);
+    GS::Array<GS::Int32> storeys;
+    if (item.Get ("planStoreys", storeys))
+        for (const GS::Int32 storey : storeys)
+            mesh.planStoreys.push_back (int32_t (storey));
     GS::ObjectState colormap;
     if (item.Get ("colormap", colormap)) {
         if (!ReadColormap (colormap, mesh.colormap, error))

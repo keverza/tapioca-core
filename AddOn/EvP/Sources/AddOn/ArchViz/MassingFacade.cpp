@@ -1,6 +1,6 @@
 #include "ArchViz/MassingSlices.hpp"
 #include "Geometry/GeometryEngine.hpp"
-#include "Geometry/SliceEngine.hpp"
+#include "Geometry/SurfaceCoverage.hpp"
 #include <clipper2/clipper.h>
 
 #include <algorithm>
@@ -12,7 +12,7 @@ namespace {
 namespace cp = Clipper2Lib;
 using V = engine::Vector3;
 constexpr double kCos70 = 0.3420201433256687;
-constexpr double kPlaneTolerance = 1e-7;
+constexpr double kPlaneTolerance = surfacecoverage::kPlaneTolerance;
 V Sub (const V& a, const V& b)
 {
     return { a.x - b.x, a.y - b.y, a.z - b.z };
@@ -199,34 +199,9 @@ bool Surfaces (const std::vector<std::shared_ptr<const Mesh>>& bodies, double& a
             work += body.TriangleCount ();
             if (work > 2000000 || std::chrono::steady_clock::now () - began > std::chrono::seconds (2))
                 return Fail (error, "Facade exposed-surface intersection budget exceeded.");
-            std::vector<double> local;
-            local.reserve (body.vertices.size ());
-            double low = 1e100, high = -1e100;
-            for (size_t k = 0; k < body.VertexCount (); ++k) {
-                const V d = Sub (Point (body, k), origin);
-                double z = engine::Dot (d, n);
-                // Exterior-side limit: coplanar vertices belong below the plane.
-                // Thus opposite shared walls cover the face, same-facing walls do not.
-                if (std::abs (z) <= kPlaneTolerance)
-                    z = -kPlaneTolerance;
-                low = (std::min) (low, z);
-                high = (std::max) (high, z);
-                local.insert (local.end (), { engine::Dot (d, u), engine::Dot (d, v), z });
-            }
-            if (low >= 0 || high <= 0)
-                continue;
-            cp::PathsD section;
-            for (const auto& loop : SliceMesh (local.data (), body.VertexCount (), body.triangles.data (),
-                                               body.TriangleCount (), 0, 1e-7)) {
-                if (!loop.closed)
-                    return Fail (error, "Open facade occluder cut; no partial area reported.");
-                cp::PathD path;
-                for (size_t k = 0; k + 1 < loop.PointCount (); ++k)
-                    path.emplace_back (loop.pts[k * 3], loop.pts[k * 3 + 1]);
-                if (path.size () >= 3)
-                    section.push_back (std::move (path));
-            }
-            const auto normalized = cp::Union (section, cp::FillRule::EvenOdd, 7);
+            cp::PathsD normalized;
+            if (!surfacecoverage::Section (body, { origin, u, v, n }, normalized, error))
+                return false;
             covered.insert (covered.end (), normalized.begin (), normalized.end ());
         }
         // Same-facing coincident surfaces are owned once, irrespective of triangulation.

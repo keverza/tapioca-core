@@ -113,6 +113,8 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                 ModelerAPI::AttributeIndex matIdx;
                 polygon.GetMaterialIndex (matIdx);
                 const int32_t material = matIdx.GetIndex ();
+                const int32_t original = matIdx.GetOriginalIndex ();
+                const int32_t surfaceAttribute = matIdx.IsValid () && original > 0 ? original : 0;
 
                 const Int32 nConvex = polygon.GetConvexPolygonCount ();
                 for (Int32 iConvex = 1; iConvex <= nConvex; ++iConvex) {
@@ -175,6 +177,7 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                         mesh.triangles.push_back (emit (corners[k]));
                         mesh.triangles.push_back (emit (corners[k + 1]));
                         mesh.triMaterial.push_back (material);
+                        mesh.triSurfaceAttribute.push_back (surfaceAttribute);
                         mesh.triWireEdges.push_back (BuildTriangleWireEdgeMask (sourceVertices, visibleEdges));
                         // Provenance at the ONE triangle-emission point. Welding
                         // preserves this order; later material grouping does not.
@@ -196,6 +199,7 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
     assert (mesh.triSourceBody.size () == mesh.TriangleCount ());
     assert (mesh.triSourcePgon.size () == mesh.TriangleCount ());
     assert (mesh.triMaterial.size () == mesh.TriangleCount ());
+    assert (mesh.triSurfaceAttribute.size () == mesh.TriangleCount ());
     assert (mesh.triWireEdges.size () == mesh.TriangleCount ());
     if (mesh.TriangleCount () == 0)
         return false;
@@ -225,6 +229,8 @@ std::shared_ptr<const Snapshot> BuildSnapshot (const ModelerAPI::Model& model, u
     snap->captureStamp = captureStamp;
 
     snap->materialTransparency = ReadMaterialTransparency (model);
+    snap->materialIdentity = ReadMaterialIdentity (model);
+    snap->surfaceAttributes = ReadSurfaceAttributes ();
     snap->completeModel = filter == nullptr;
 
     const Int32 nElements = model.GetElementCount ();
@@ -714,6 +720,41 @@ std::map<int32_t, double> ReadMaterialTransparency (const ModelerAPI::Model& mod
         catch (const GS::Exception&) {
             // Unknown stays unqualified; never acquire a different pool later.
         }
+    }
+    return result;
+}
+
+std::map<int32_t, CapturedMaterialIdentity> ReadMaterialIdentity (const ModelerAPI::Model& model)
+{
+    std::map<int32_t, CapturedMaterialIdentity> result;
+    for (Int32 index = 1; index <= model.GetMaterialCount (); ++index) {
+        try {
+            ModelerAPI::Material material;
+            model.GetMaterial (ModelerAPI::AttributeIndex (ModelerAPI::AttributeIndex::MaterialIndex, index),
+                               &material);
+            result.emplace (index, CapturedMaterialIdentity { material.GetName ().ToCStr (0, MaxUSize, CC_UTF8).Get (),
+                                                              material.GetExternalReference () });
+        }
+        catch (const GS::Exception&) {
+            // Missing identity prevents incremental pool reuse; never resolve it
+            // later against a different acquired model.
+            return {};
+        }
+    }
+    return result;
+}
+
+std::map<int32_t, CapturedSurface> ReadSurfaceAttributes ()
+{
+    GS::Array<API_Attribute> attributes;
+    if (ACAPI_Attribute_GetAttributesByType (API_MaterialID, attributes) != NoError)
+        return {};
+    std::map<int32_t, CapturedSurface> result;
+    for (const auto& attribute : attributes) {
+        const GS::UniString name (attribute.header.name);
+        result.emplace (attribute.header.index.ToInt32_Deprecated (),
+                        CapturedSurface { name.ToCStr (0, MaxUSize, CC_UTF8).Get (),
+                                          APIGuidToString (attribute.header.guid).ToCStr ().Get () });
     }
     return result;
 }

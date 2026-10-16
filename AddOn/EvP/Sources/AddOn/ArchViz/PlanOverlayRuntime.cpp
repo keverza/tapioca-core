@@ -72,6 +72,22 @@ bool g_breadcrumb = false;
 int g_ownAcapi = 0;
 short g_storey = 0;
 bool g_storeyKnown = false;
+// ⚠️ THE PLAN SHOWS ONLY ITS STOREY'S MESHES (`Mesh::planStoreys`). One filtered view
+// of the layers per store generation and storey, shared by the lines, the guest, the
+// cell values and hover, so all of them see the same meshes; the pick caches are keyed
+// on layer identity and so rebuild once per storey change, not per pointer move.
+struct StoreyView {
+    std::weak_ptr<const overlaylayers::Layer> source;
+    std::shared_ptr<const overlaylayers::Layer> shown;
+};
+std::vector<StoreyView> g_storeyViews;
+bool g_storeyViewsValid = false; // false at every Start (§8): the first views are made anew
+uint64_t g_storeyViewsSource = 0;
+bool g_storeyViewsKnown = false;
+short g_storeyViewsStorey = 0;
+// What the plan's layer and guest are told. Never reset, as `g_generation`: a new
+// session's views are always new to them.
+uint64_t g_planGeneration = 0;
 plancontent::Content g_content;
 uint64_t g_generation = 0; // never reset: a new session's content is always new to the layer
 bool g_readyLogged = false;
@@ -136,6 +152,42 @@ layer::Read ReadAtPresent (plancontent::PixelTransform& out, int32_t& error)
     }
     out = ToPhysical (transform);
     return layer::Read::Fresh;
+}
+
+// The store's generation and the storey together: a storey change is new content to the
+// plan though the store did not move.
+uint64_t PlanGeneration ()
+{
+    const uint64_t source = overlaylayers::Generation ();
+    if (!g_storeyViewsValid || source != g_storeyViewsSource || g_storeyKnown != g_storeyViewsKnown ||
+        (g_storeyKnown && g_storey != g_storeyViewsStorey)) {
+        g_storeyViewsValid = true;
+        g_storeyViewsSource = source;
+        g_storeyViewsKnown = g_storeyKnown;
+        g_storeyViewsStorey = g_storey;
+        g_storeyViews.clear ();
+        ++g_planGeneration;
+    }
+    return g_planGeneration;
+}
+
+// `layers` as the active storey's plan shows them; every layer until a storey is read.
+std::vector<std::shared_ptr<const overlaylayers::Layer>>
+OnActiveStorey (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
+{
+    PlanGeneration ();
+    if (!g_storeyKnown)
+        return layers;
+    std::vector<std::shared_ptr<const overlaylayers::Layer>> shown;
+    shown.reserve (layers.size ());
+    for (const std::shared_ptr<const overlaylayers::Layer>& layer : layers) {
+        auto view = std::find_if (g_storeyViews.begin (), g_storeyViews.end (),
+                                  [&] (const StoreyView& v) { return v.source.lock () == layer; });
+        if (view == g_storeyViews.end ())
+            view = g_storeyViews.insert (g_storeyViews.end (), { layer, overlaylayers::OnStorey (layer, g_storey) });
+        shown.push_back (view->shown);
+    }
+    return shown;
 }
 
 bool PlanInFront ()
@@ -287,6 +339,8 @@ void Teardown (const std::string& reason, bool acapi)
     }
     layer::Release ();
     dxgi::planguest::Release ();
+    g_storeyViews.clear (); // they hold the session's layers
+    g_storeyViewsValid = false;
     g_reportedGuestDraws = 0;
     g_reportedGuestCalls = 0;
     g_lastGuestError.clear ();
@@ -331,7 +385,8 @@ overlayhud::Hover HoverAt (float x, float y)
     if (std::fabs (det) < 1e-18)
         return none;
     const double px = double (x) - t.ox, py = double (y) - t.oy;
-    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaycontrol::ShownLayers ();
+    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers =
+        OnActiveStorey (overlaycontrol::ShownLayers ());
     const overlayhover::Hit hit =
         overlayhover::PickPlan (layers, (t.yy * px - t.xy * py) / det, (t.xx * py - t.yx * px) / det);
     if (!hit.found)
@@ -399,7 +454,7 @@ bool RefreshHud ()
     const overlayhud::Input input = HudInput (true);
     // The HUD is there with or without a layer: the overlay runs, its own pages say what.
     overlayhudmodel::Prepare (overlayinput::View::Plan);
-    if (!dxgi::planguest::RefreshHud (overlaylayers::Layers (), input, changed, error)) {
+    if (!dxgi::planguest::RefreshHud (OnActiveStorey (overlaylayers::Layers ()), input, changed, error)) {
         if (error != g_lastHudError)
             ArchVizLog ("PLAN OVERLAY  the HUD NOT LAID OUT for the pointer: " + error);
         g_lastHudError = error;
@@ -412,17 +467,18 @@ bool RefreshHud ()
     // Editing must publish the scene in this input turn, not at the 100 ms tick.
     // Prepare remains outside Present; only its existing shaders reproject at Present.
     if (layer::GetStats ().prepared) {
-        const uint64_t generation = overlaylayers::Generation ();
+        const uint64_t generation = PlanGeneration ();
         bool linesChanged = false, sceneChanged = false;
         if (!layer::HoldsLayers (generation) &&
-            !layer::PrepareLayers (overlaylayers::Prepare2D (overlaycontrol::ShownLayers ()), generation, linesChanged,
-                                   error))
+            !layer::PrepareLayers (overlaylayers::Prepare2D (OnActiveStorey (overlaycontrol::ShownLayers ())),
+                                   generation, linesChanged, error))
             ArchVizLog ("PLAN OVERLAY  edit lines NOT PREPARED: " + error);
         auto settled = input;
         settled.buttons.clear (), settled.editActions.clear ();
         settled.keys.clear (), settled.characters.clear ();
-        if (!dxgi::planguest::Prepare (layer::Device (), overlaycontrol::ShownLayers (), overlaylayers::Layers (),
-                                       generation, float (g_dpi), settled, sceneChanged, error) &&
+        if (!dxgi::planguest::Prepare (layer::Device (), OnActiveStorey (overlaycontrol::ShownLayers ()),
+                                       OnActiveStorey (overlaylayers::Layers ()), generation, float (g_dpi), settled,
+                                       sceneChanged, error) &&
             error != g_lastHudError)
             ArchVizLog ("PLAN OVERLAY  edit scene NOT PREPARED: " + error);
         changed = changed || linesChanged || sceneChanged;
@@ -532,10 +588,12 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
     // moved: preparing them is a walk over every point, and the tick runs ten times a
     // second whether anything changed or not.
     if (prepared == layer::Prepared::Ready) {
-        const uint64_t layersGeneration = overlaylayers::Generation ();
+        // The store's generation with the storey: the active storey's meshes only.
+        const uint64_t layersGeneration = PlanGeneration ();
         if (!layer::HoldsLayers (layersGeneration)) {
             // The layers the user shows (the HUD's Settings hides the others).
-            const overlaylayers::Prepared2D layers = overlaylayers::Prepare2D (overlaycontrol::ShownLayers ());
+            const overlaylayers::Prepared2D layers =
+                overlaylayers::Prepare2D (OnActiveStorey (overlaycontrol::ShownLayers ()));
             bool layersChanged = false;
             error.clear ();
             if (layer::PrepareLayers (layers, layersGeneration, layersChanged, error)) {
@@ -556,8 +614,9 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         bool guestChanged = false;
         error.clear ();
         overlayhudmodel::Prepare (overlayinput::View::Plan);
-        if (dxgi::planguest::Prepare (layer::Device (), overlaycontrol::ShownLayers (), overlaylayers::Layers (),
-                                      layersGeneration, float (g_dpi), HudInput (false), guestChanged, error)) {
+        if (dxgi::planguest::Prepare (layer::Device (), OnActiveStorey (overlaycontrol::ShownLayers ()),
+                                      OnActiveStorey (overlaylayers::Layers ()), layersGeneration, float (g_dpi),
+                                      HudInput (false), guestChanged, error)) {
             if (guestChanged) {
                 overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
                 const dxgi::planguest::Stats guest = dxgi::planguest::GetStats ();
@@ -586,7 +645,8 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         if (++g_hudBeats % 5 == 0 && overlayhud::HudOpen (*guesttext::HudState ())) {
             bool hudChanged = false;
             error.clear ();
-            if (dxgi::planguest::RefreshHud (overlaylayers::Layers (), HudInput (false), hudChanged, error) &&
+            if (dxgi::planguest::RefreshHud (OnActiveStorey (overlaylayers::Layers ()), HudInput (false), hudChanged,
+                                             error) &&
                 hudChanged) {
                 overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
                 if (overlayhud::SelectedKey (*guesttext::HudState ()) != hudshell::kDebugKey)
@@ -671,6 +731,8 @@ StartResult Start ()
     g_canvas = canvas.window;
     g_canvasClass = canvas.windowClass;
     g_storeyKnown = false;
+    g_storeyViews.clear ();
+    g_storeyViewsValid = false;
     g_readyLogged = false;
     g_redrawPending = false;
     g_hudBeats = 0;

@@ -865,11 +865,13 @@ def heatmap(
     hover_cells=None,
     occluded_opacity=None,
     cell_labels=None,
+    plan_storeys=None,
 ):
     """A mesh coloured by a value per vertex: flat x, y, z points, three indices per
     triangle. Smooth by default; `bands` steps it, `isolines` ({"step", "color"}) draws
     contours. `cell_labels` generates close-zoom 2D values from measured `hover_cells`;
-    only complete visible labels are uploaded, without the layer text-count limit."""
+    only complete visible labels are uploaded, without the layer text-count limit.
+    `plan_storeys` (storey indices) limits the floor plan to those storeys; 3D ignores it."""
     style = {}
     if opacity is not None:
         style["opacity"] = float(opacity)
@@ -887,6 +889,8 @@ def heatmap(
         out["style"] = style
     if cell_labels is not None:
         out["cellLabels"] = bool(cell_labels)
+    if plan_storeys is not None:
+        out["planStoreys"] = [int(storey) for storey in plan_storeys]
     if hover_cells is not None:
         out["hoverCells"] = [
             {

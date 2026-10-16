@@ -301,6 +301,9 @@ def test_per_text_views_and_native_cell_values_are_opt_in(views):
     assert overlay.heatmap(*args, cell_labels=True)["cellLabels"] is True
     assert overlay.heatmap(*args, cell_labels=False)["cellLabels"] is False
     assert "cellLabels" not in overlay.heatmap(*args)
+    assert overlay.heatmap(*args, plan_storeys=(-2, -1.0))["planStoreys"] == [-2, -1]
+    assert overlay.heatmap(*args, plan_storeys=[])["planStoreys"] == []
+    assert "planStoreys" not in overlay.heatmap(*args)
     with pytest.raises(ValueError):
         overlay.text("value", at=(0, 0, 0), views="plan")
 

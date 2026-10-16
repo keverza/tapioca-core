@@ -96,3 +96,31 @@ TEST (SnapshotAssembly, SharedPublicationDoesNotReplaceASelectionAndIdsDoNotRese
     EXPECT_EQ (store.Current (), nullptr);
     EXPECT_GT (store.NextId (), id);
 }
+
+TEST (SnapshotAssembly, OriginalSurfaceSidecarAndCatalogSurviveFullAndIncrementalCaptures)
+{
+    const std::map<int32_t, geomsrv::CapturedMaterialIdentity> materials { { 7, { "Pool A", 501 } } };
+    const std::map<int32_t, geomsrv::CapturedSurface> surfaces { { 101, { "Finish A", "surface-guid" } } };
+    SnapshotAssembly full (600, 20, { { 7, 0 } }, nullptr, {}, materials, surfaces);
+    auto mesh = evptest::MakeBox ("keep", 0, 0, 0);
+    mesh.triSurfaceAttribute.assign (12, 101);
+    full.Add (mesh);
+    const auto base = full.Finish (true);
+    ASSERT_NE (base, nullptr);
+    EXPECT_EQ (base->materialIdentity, materials);
+    EXPECT_EQ (base->surfaceAttributes, surfaces);
+    EXPECT_TRUE (SnapshotAssembly::CanUpdate (base.get (), 21, base->materialTransparency, materials, surfaces));
+    SnapshotAssembly next (601, 21, base->materialTransparency, base, { "new" }, materials, surfaces);
+    next.Add (evptest::MakeBox ("new", 5, 0, 0));
+    const auto updated = next.Finish (true);
+    ASSERT_NE (updated, nullptr);
+    EXPECT_EQ (updated->FindMesh ("keep")->triSurfaceAttribute, mesh.triSurfaceAttribute);
+    EXPECT_EQ (updated->surfaceAttributes, surfaces);
+    auto renamed = materials;
+    renamed[7].name = "Different pool";
+    EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 21, base->materialTransparency, renamed, surfaces));
+    auto replaced = surfaces;
+    replaced[101].guid = "replacement-attribute-guid";
+    EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 21, base->materialTransparency, materials, replaced));
+    EXPECT_FALSE (SnapshotAssembly::CanUpdate (base.get (), 21, base->materialTransparency));
+}

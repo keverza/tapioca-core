@@ -72,6 +72,14 @@ size_t CellGlyphs (const scene::Plan& frame)
     return size_t (std::count_if (frame.glyphs.begin (), frame.glyphs.end (),
                                   [] (const auto& v) { return (v.flags & scene::kModelQuad) != 0; }));
 }
+// The hovered value: model-anchored glyphs that are neither a cell's quad nor the HUD's.
+std::vector<scene::PlanGlyph> HoverValueGlyphs (const scene::Plan& frame)
+{
+    std::vector<scene::PlanGlyph> glyphs;
+    std::copy_if (frame.glyphs.begin (), frame.glyphs.end (), std::back_inserter (glyphs),
+                  [] (const auto& v) { return (v.flags & (scene::kScreenAnchored | scene::kModelQuad)) == 0; });
+    return glyphs;
+}
 } // namespace
 
 TEST (OverlaySceneCells, EveryVisibleCellGetsACompleteDarkerModelSizedValueOnlyAtCloseZoom)
@@ -149,10 +157,35 @@ TEST (OverlaySceneCells, CloseZoomHoverDoesNotPrintTheSameValueTwice)
     input.hover.measuredValue = 2.8;
     input.hover.tintModel = { 0, 0, 0, 1, 0, 0, 1, 1, 0 };
     const auto frame = Prepare (layer, input, &host.engine);
-    EXPECT_EQ (CellGlyphs (frame), 48u);
-    EXPECT_FALSE (std::any_of (frame.glyphs.begin (), frame.glyphs.end (), [] (const auto& glyph) {
-        return (glyph.flags & (scene::kScreenAnchored | scene::kModelQuad)) == 0;
-    }));
+    // The other cell keeps its close-zoom value; the hovered one is printed once, by the pointer.
+    EXPECT_EQ (CellGlyphs (frame), 24u);
+    EXPECT_FALSE (HoverValueGlyphs (frame).empty ());
+}
+
+TEST (OverlaySceneCells, HoveredValueSitsAboveThePointerAndFollowsIt)
+{
+    hudtest::Watched host;
+    hud::SetHoverMode (*host.state, true);
+    auto layer = Cells ();
+    layer.meshes[0].cellLabels = false; // far zoom: only the hover value is drawn
+    auto input = View (100);
+    input.pointer = true;
+    input.x = 130;
+    input.y = 470;
+    input.hover.active = input.hover.hasMeasuredCell = true;
+    input.hover.layer = layer.name;
+    input.hover.cellCenter[0] = input.hover.cellCenter[1] = 0.5;
+    input.hover.measuredValue = 2.8;
+    input.hover.tintModel = { 0, 0, 0, 1, 0, 0, 1, 1, 0 };
+    const auto first = HoverValueGlyphs (Prepare (layer, input, &host.engine));
+    ASSERT_FALSE (first.empty ());
+    // Every glyph of the value ends above the pointer's hot spot, clear of the cursor.
+    for (const auto& glyph : first)
+        EXPECT_LE (glyph.offset[1], -13.9f);
+    input.x = 170;
+    const auto moved = HoverValueGlyphs (Prepare (layer, input, &host.engine));
+    ASSERT_EQ (moved.size (), first.size ());
+    EXPECT_NE (moved[0].hi[0] + moved[0].lo[0], first[0].hi[0] + first[0].lo[0]); // anchored at the pointer
 }
 
 TEST (OverlaySceneCells, PerTextViewsDoNotLeakThreeDLabelsOntoThePlan)
@@ -192,10 +225,10 @@ TEST (OverlaySceneCells, CoincidentStoreysUseTheLastDrawnCellAndDoNotDuplicateIt
     input.hover.measuredValue = 3.1;
     input.hover.tintModel = { 0, 0, 3, 1, 0, 3, 1, 1, 3 };
     const auto frame = Prepare (layer, input, &host.engine);
-    EXPECT_EQ (CellGlyphs (frame), 48u);
-    EXPECT_FALSE (std::any_of (frame.glyphs.begin (), frame.glyphs.end (), [] (const auto& glyph) {
-        return (glyph.flags & (scene::kScreenAnchored | scene::kModelQuad)) == 0;
-    }));
+    // The hovered top cell's value moves to the pointer and keeps its place: the cell beneath
+    // it does not print there instead. Only the neighbour keeps a close-zoom value.
+    EXPECT_EQ (CellGlyphs (frame), 24u);
+    EXPECT_FALSE (HoverValueGlyphs (frame).empty ());
 }
 
 TEST (OverlaySceneCells, GreenAnchorCompressesTheRampAndDuplicateStopsMatchTheShader)

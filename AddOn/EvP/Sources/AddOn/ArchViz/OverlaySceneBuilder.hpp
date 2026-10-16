@@ -241,7 +241,7 @@ class Builder {
     float scale_;
     const FontResolver& fonts_;
     Draft draft_;
-    bool planHoverLabelShown_ = false;
+    bool planHoverLabelHidden_ = false; // the hovered cell's own value, left for the pointer's
     std::map<std::pair<int, int>, std::vector<std::array<double, 4>>> planLabelBins_;
     // Each (engine, page) a glyph used, and its index in `draft_.textPages`.
     std::map<std::pair<const overlaytext::Engine*, uint32_t>, uint32_t> pageSlots_;

@@ -754,6 +754,20 @@ uint32_t ToUnorm (uint32_t rgba)
     return red | (green << 8) | (blue << 16) | (alpha << 24);
 }
 
+std::shared_ptr<const Layer> OnStorey (const std::shared_ptr<const Layer>& layer, int32_t storey)
+{
+    const auto elsewhere = [storey] (const Mesh& mesh) {
+        return !mesh.planStoreys.empty () &&
+               std::find (mesh.planStoreys.begin (), mesh.planStoreys.end (), storey) == mesh.planStoreys.end ();
+    };
+    if (layer == nullptr || std::none_of (layer->meshes.begin (), layer->meshes.end (), elsewhere))
+        return layer;
+    auto shown = std::make_shared<Layer> (*layer);
+    shown->meshes.erase (std::remove_if (shown->meshes.begin (), shown->meshes.end (), elsewhere),
+                         shown->meshes.end ());
+    return shown;
+}
+
 Prepared2D Prepare2D (const std::vector<std::shared_ptr<const Layer>>& layers)
 {
     Prepared2D out;

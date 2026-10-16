@@ -190,6 +190,9 @@ struct Mesh {
     MeshStyle style;
     bool styled = false;     // the caller gave a style: the guest draws it
     bool cellLabels = false; // native close-zoom plan values, generated only for visible measured cells
+    // The floor plan shows the mesh only while one of these storey indices is the active
+    // one (`OnStorey`); empty is every storey. 3D ignores it: there the mesh is where it is.
+    std::vector<int32_t> planStoreys;
     // Hover mode (OverlayHover.hpp): what the HUD says over this mesh -- a title, and rows of
     // a label and a value. A mesh with `values` also says the value under the pointer.
     std::string hoverTitle;
@@ -565,6 +568,11 @@ struct Prepared2D {
 // The layers drawn in 2D, in draw order: fills first, strokes over them. A point
 // marker is four strokes of its square.
 Prepared2D Prepare2D (const std::vector<std::shared_ptr<const Layer>>& layers);
+
+// The layer as the floor plan of `storey` shows it: without the meshes whose
+// `planStoreys` leave that storey out. A layer that loses nothing is returned as it is,
+// so its identity -- and every cache keyed on it -- holds.
+std::shared_ptr<const Layer> OnStorey (const std::shared_ptr<const Layer>& layer, int32_t storey);
 
 // ---- preparation for the 3D overlay (pure) ------------------------------------
 

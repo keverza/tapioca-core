@@ -290,6 +290,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "normals":{"type":"array","minItems":9,"maxItems":300000,"description":"Packed x, y, z per vertex; stride 3.","items":{"type":"number"}},
         "values":{"type":"array","minItems":3,"maxItems":100000,"description":"One value per vertex.","items":{"type":"number"}},
         "cellLabels":{"type":"boolean","description":"Native close-zoom values for every visible measured plan cell."},
+        "planStoreys":{"type":"array","maxItems":256,"description":"Storey indices whose floor plan shows this mesh; absent is every storey. 3D ignores it.","items":{"type":"integer","minimum":-32768,"maximum":32767}},
         "hoverCells":{"type":"array","maxItems":8192,"description":"Semantic per-cell measured samples; triangle indices are explicit.","items":{"type":"object","properties":{
             "triangles":{"type":"array","minItems":1,"maxItems":4096,"items":{"type":"integer","minimum":0}},
             "center":{"$ref":"#Point3D"},"from":{"$ref":"#Point3D"},"to":{"$ref":"#Point3D"},

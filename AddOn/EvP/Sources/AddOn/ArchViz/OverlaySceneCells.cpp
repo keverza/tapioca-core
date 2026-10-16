@@ -173,13 +173,17 @@ void Builder::AddCellLabels (const layers::Layer& layer, const overlayhud::Input
                 Truncated ();
                 return;
             }
-            AddPlanarText (layer, text, label);
+            // The hovered cell's value is drawn once, above the pointer (AddHud), not here under
+            // it where the pointer covers it. Its place is still taken: a coincident cell beneath
+            // must not print its own value where the hovered one is drawn.
+            if (input.hover.hasMeasuredCell && !input.overHud && input.hover.layer == layer.name &&
+                std::equal (std::begin (cell.center), std::end (cell.center), std::begin (input.hover.cellCenter)))
+                planHoverLabelHidden_ = true;
+            else
+                AddPlanarText (layer, text, label);
             for (int x = left; x <= right; ++x)
                 for (int y = top; y <= bottom; ++y)
                     planLabelBins_[{ x, y }].push_back (screen);
-            if (input.hover.hasMeasuredCell && input.hover.layer == layer.name &&
-                std::equal (std::begin (cell.center), std::end (cell.center), std::begin (input.hover.cellCenter)))
-                planHoverLabelShown_ = true;
         }
     }
 }

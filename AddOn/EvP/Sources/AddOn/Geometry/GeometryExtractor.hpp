@@ -44,6 +44,8 @@ int32_t ModelElementCount (const ModelerAPI::Model& model);
 // MAIN THREAD: the double-precision material pool from the SAME acquired model
 // as the geometry. Used by synchronous and sliced snapshot captures.
 std::map<int32_t, double> ReadMaterialTransparency (const ModelerAPI::Model& model);
+std::map<int32_t, CapturedMaterialIdentity> ReadMaterialIdentity (const ModelerAPI::Model& model);
+std::map<int32_t, CapturedSurface> ReadSurfaceAttributes ();
 
 // One element of `model`, by its 1-BASED index, into `mesh`. False if the index
 // is out of range or the element yielded nothing drawable.

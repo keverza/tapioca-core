@@ -78,6 +78,10 @@ set (EVP_GEOM_SOURCES
     # confident wrong face, is asserted offline rather than seen on screen.
     "${GEOM_DIR}/SurfaceSourceMap.cpp"
     "${GEOM_DIR}/SurfaceSourceBoundary.cpp"
+    "${GEOM_DIR}/SurfaceCoverage.cpp"
+    "${GEOM_DIR}/ExposedSurfaceInputs.cpp"
+    "${GEOM_DIR}/ExposedSurface.cpp"
+    "${GEOM_DIR}/SurfaceAttributeMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/PolygonPickState.cpp")
 list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
@@ -749,6 +753,8 @@ set (EVP_TEST_SOURCES
     test_geometryengine.cpp
     test_meshgroups.cpp
     test_surfacesourcemap.cpp
+    test_exposed_surface.cpp
+    test_surfaceattributemap.cpp
     test_polygonpickstate.cpp
     test_elementpacket.cpp
     test_snapshotassembly.cpp

@@ -104,6 +104,8 @@ struct ModelHandle {
     double captureMilliseconds = 0.0;
     uint64_t captureStamp = 0;
     std::map<int32_t, double> transparency;
+    std::map<int32_t, CapturedMaterialIdentity> materialIdentity;
+    std::map<int32_t, CapturedSurface> surfaceAttributes;
 
     // ⚠️ SET WHEN THE ACQUIRE TIMES OUT, AND THE LAMBDA MUST CHECK IT. A gate
     // Invoke that reports a timeout may STILL RUN LATER — the contract says so
@@ -320,6 +322,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             handle->count = ModelElementCount (*model);
             handle->captureStamp = modelwatch::CaptureStamp ();
             handle->transparency = ReadMaterialTransparency (*model);
+            handle->materialIdentity = ReadMaterialIdentity (*model);
+            handle->surfaceAttributes = ReadSurfaceAttributes ();
             *materials = ReadMaterials (*model);
             if (full)
                 *substances = ReadProjectSubstances ();
@@ -360,7 +364,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                 " hostCaptureMs=" + std::to_string (handle->captureMilliseconds) +
                 " gateRoundTripMs=" + std::to_string (acquireMs) + " full=" + std::to_string (full));
 
-    if (partial && !SnapshotAssembly::CanUpdate (baseSnapshot.get (), handle->captureStamp, handle->transparency)) {
+    if (partial && (handle->materialIdentity.empty () || handle->surfaceAttributes.empty () ||
+                    !SnapshotAssembly::CanUpdate (baseSnapshot.get (), handle->captureStamp, handle->transparency,
+                                                  handle->materialIdentity, handle->surfaceAttributes))) {
         // A pool renumber or missing/intermediate baseline cannot be spliced.
         // Use this same acquired model for a complete sliced viewer/study pass.
         effectiveFilter.clear ();
@@ -369,7 +375,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         ArchVizLog ("pipeline: stage=geometry-shared-full reason=incompatible-incremental-baseline");
     }
     SnapshotAssembly assembly (MeshStore::Get ().NextId (), handle->captureStamp, handle->transparency,
-                               partial ? baseSnapshot : nullptr, effectiveFilter);
+                               partial ? baseSnapshot : nullptr, effectiveFilter, handle->materialIdentity,
+                               handle->surfaceAttributes);
 
     StorySliceAccumulator storeySlices;
     storeySlices.Begin (*storeys, wantStorySlices && full, wantPlanCut && full, planCutZ, full);

@@ -9,6 +9,7 @@
 #include "ArchViz/OverlayInput.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -16,6 +17,30 @@ namespace geomsrv {
 namespace archviz {
 namespace overlayscene {
 namespace build {
+
+namespace {
+
+// Logical pixels from the pointer's hot spot up to the hovered value's baseline: clear
+// of an arrow (which hangs below and right of it) and of a crosshair's upper arm.
+constexpr float kHoverValueLiftPixels = 14.0f;
+
+// The plan pointer in model metres, through the same pixel transform the plan draws with.
+// `at[2]` is left as it is: the plan has no depth.
+bool PointerInModel (const overlayhud::Input& input, double at[3])
+{
+    if (!input.planar || !input.pointer)
+        return false;
+    const double* t = input.plan;
+    const double det = t[0] * t[4] - t[1] * t[3];
+    if (!std::isfinite (det) || std::fabs (det) < 1e-18)
+        return false;
+    const double px = double (input.x) - t[2], py = double (input.y) - t[5];
+    at[0] = (t[4] * px - t[1] * py) / det;
+    at[1] = (t[0] * py - t[3] * px) / det;
+    return std::isfinite (at[0]) && std::isfinite (at[1]);
+}
+
+} // namespace
 
 void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, const overlayhud::Input& input,
                       const std::vector<overlayinput::Region>* legends)
@@ -240,19 +265,26 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
     // Still moving: the next layout comes without waiting for the pointer, until it settles.
     if (layout.animating)
         overlayinput::RequestLayout (Plan () ? overlayinput::View::Plan : overlayinput::View::ThreeD);
-    if (layout.hoverTint) {
+    if (layout.hoverTint)
         AddHoverTint (input.hover.tintModel, input.hover.hasMeasuredCell);
-        if (Plan () && input.hover.hasMeasuredCell && !input.overHud && !planHoverLabelShown_) {
-            layers::Text value;
-            value.text = FormatLength (input.hover.measuredValue, 2, layers::LengthUnit::Metres, false);
-            std::copy (std::begin (input.hover.cellCenter), std::end (input.hover.cellCenter), value.at);
-            value.sizePixels = 16;
-            value.rgba = input.hover.valueRgba;
-            value.backgroundRgba = 0;
-            value.haloPixels = 0;
-            value.behind = layers::Behind::Show;
-            AddText (layers::Layer (), value); // one readable value, only on the currently hovered plan cell
+    // ⚠️ ABOVE THE POINTER, NOT ON THE CELL (the user, 2026-10-16: the value sat under the
+    // pointer and the pointer covered it). Centred over the pointer's model point, its
+    // bottom lifted clear of the cursor; the cell's own close-zoom value was left out for
+    // it (AddCellLabels), so it is printed once.
+    if (Plan () && input.hover.hasMeasuredCell && !input.overHud && (layout.hoverTint || planHoverLabelHidden_)) {
+        layers::Text value;
+        value.text = FormatLength (input.hover.measuredValue, 2, layers::LengthUnit::Metres, false);
+        std::copy (std::begin (input.hover.cellCenter), std::end (input.hover.cellCenter), value.at);
+        if (PointerInModel (input, value.at)) {
+            value.baseline = layers::Baseline::Bottom;
+            value.offsetPixels[1] = -kHoverValueLiftPixels;
         }
+        value.sizePixels = 16;
+        value.rgba = input.hover.valueRgba;
+        value.backgroundRgba = 0;
+        value.haloPixels = 0;
+        value.behind = layers::Behind::Show;
+        AddText (layers::Layer (), value); // one readable value, only for the currently hovered plan cell
     }
     if (layout.highlight.active)
         draft_.highlight = { LayerKey (layout.highlight.layer), float (layout.highlight.low),
