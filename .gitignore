@@ -43,6 +43,7 @@ opencode.json
 /03 Tapir + GeometryServer
 
 .pytest_cache/
+/test-results/
 # Curated offline fixtures live in /dump/ and are intentionally trackable.
 
 # Disposable run artifacts. Logs are never task evidence by themselves; record

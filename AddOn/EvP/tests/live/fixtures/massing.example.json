@@ -1,0 +1,9 @@
+{
+  "elementGuids": ["77ee2bcc-8b47-46de-8198-a243f487bf52"],
+  "expected": {
+    "rawAreaM2": 600.0,
+    "rawVolumeM3": 1800.0,
+    "floorCount": 3
+  },
+  "absoluteTolerance": 0.000001
+}

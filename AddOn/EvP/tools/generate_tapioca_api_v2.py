@@ -269,7 +269,8 @@ from typing import Any
 # 249 -> 250: the constant was not raised when RoofSlopeEditor landed, and the generated
 # surface had not been regenerated since (other schemas had drifted with it).
 # 250 -> 252 with VirtualEditor and its read-only EditorState diagnostic.
-EXPECTED_REGISTRY_COMMANDS = 252
+# 252 -> 258 with the six read-only live-test bridge adapters (2026-10-16).
+EXPECTED_REGISTRY_COMMANDS = 258
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -293,7 +294,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # (GetExposedSurfaceQuantities + PickPolygon).
 # 268 -> 269 with the same verb.
 # 269 -> 271 with VirtualEditor and EditorState.
-EXPECTED_TOTAL_COMMANDS = 271
+# 271 -> 277 with the same six live-test adapters.
+EXPECTED_TOTAL_COMMANDS = 277
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

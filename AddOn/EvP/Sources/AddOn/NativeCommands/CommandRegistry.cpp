@@ -5,6 +5,8 @@
 #include "NativeCommands/MassingBakeCommands.hpp"
 
 #include "NativeCommands/CommandBase.hpp"
+#include "NativeCommands/TestCommands.hpp"
+#include "NativeCommands/ServerJsonInterface.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
 #include "NativeCommands/SchemaValidator.hpp"
 #include "NativeCommands/ArchVizCaptureCommands.hpp"
@@ -103,6 +105,7 @@ namespace {
 using DomainRegistrationProvider = NativeCommandRegistrations (*) ();
 
 constexpr DomainRegistrationProvider domainProviders[] = {
+    &GetTestCommandRegistrations,
     &GetSnapshotCommandRegistrations,
     &GetCaptureCommandRegistrations,
     &GetQueryCommandRegistrations,
@@ -383,7 +386,13 @@ GSErrCode InstallAddOnCommands ()
     if (err2 != NoError)
         return err2;
 
-    return InstallPlanOverlayJsonCommands ();
+    err2 = InstallPlanOverlayJsonCommands ();
+    if (err2 != NoError)
+        return err2;
+    err2 = InstallTestJsonCommands ();
+    if (err2 != NoError)
+        return err2;
+    return InstallServerJsonInterface ();
 
     // WRITES ARE DELIBERATELY NOT REGISTERED HERE (breaking change, P1 2026-07-17).
     //

@@ -85,6 +85,13 @@ set (AddOnResourcesFolder Sources/AddOnResources)
 set (PyBridgeSourcesFolder Sources/EvPPy)
 set (ResourceObjectsDir "${CMAKE_BINARY_DIR}/ResourceObjects")
 file (MAKE_DIRECTORY "${ResourceObjectsDir}")
+execute_process (COMMAND git describe --always --dirty --abbrev=12
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE TAPIOCA_TEST_BUILD_HASH OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if (NOT TAPIOCA_TEST_BUILD_HASH)
+    set (TAPIOCA_TEST_BUILD_HASH "unknown")
+endif ()
+configure_file ("cmake/TestBuildInfo.hpp.in" "${ResourceObjectsDir}/TestBuildInfo.hpp" @ONLY)
 
 # ---- Notebook browser UI ---------------------------------------------------
 find_program (NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)

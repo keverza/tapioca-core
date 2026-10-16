@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 252,
+      "nativeRegistry": 258,
       "dispatcherLocal": 19,
-      "total": 271
+      "total": 277
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -30190,6 +30190,320 @@
           "token",
           "idleMs"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.TestCapture",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "supported",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestGetDiagnostics",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "buildHash": {
+            "type": "string"
+          },
+          "workerBusy": {
+            "type": "boolean"
+          },
+          "retainedJobs": {
+            "type": "integer"
+          },
+          "gateQueueDepth": {
+            "type": "integer"
+          },
+          "gateTimeouts": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildHash",
+          "workerBusy",
+          "retainedJobs",
+          "gateQueueDepth",
+          "gateTimeouts",
+          "scope"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestGetStatus",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "elapsedMs": {
+            "type": "number"
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "unclipped_slab_prisms"
+                ]
+              },
+              "rawAreaM2": {
+                "type": "number"
+              },
+              "rawVolumeM3": {
+                "type": "number"
+              },
+              "floorCount": {
+                "type": "integer"
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string"
+                    },
+                    "story": {
+                      "type": "integer"
+                    },
+                    "z": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "areaM2": {
+                      "type": "number"
+                    },
+                    "volumeM3": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "guid",
+                    "story",
+                    "z",
+                    "height",
+                    "areaM2",
+                    "volumeM3"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "basis",
+              "rawAreaM2",
+              "rawVolumeM3",
+              "floorCount",
+              "rows"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "jobId",
+          "state",
+          "progress",
+          "elapsedMs",
+          "errorMessage"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestPing",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "buildHash": {
+            "type": "string"
+          },
+          "protocolVersion": {
+            "type": "integer"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "workflows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "captureSupported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "version",
+          "buildHash",
+          "protocolVersion",
+          "ready",
+          "workflows",
+          "captureSupported"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestReset",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "workerBusy": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workerBusy"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Tapioca.TestRunWorkflow",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": "string",
+            "enum": [
+              "massing_feasibility"
+            ]
+          },
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "elementGuids": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "required": [
+              "elementGuids"
+            ],
+            "additionalProperties": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "preview"
+            ]
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "workflow",
+          "inputs",
+          "mode",
+          "seed"
+        ],
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": false
       }
     },
     {

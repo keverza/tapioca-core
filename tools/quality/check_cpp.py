@@ -226,6 +226,10 @@ LOCAL_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"')
 # They are intentionally file-specific: a new sideways feature include must be
 # added here with its reason, rather than silently weakening the tier rule.
 BOUNDARY_INCLUDE_EXCEPTIONS = {
+    # Read-only live-test adapter: copy explicit slab inputs through the production
+    # reader, then call the same pure massing calculator as the UI. No renderer control.
+    ("NativeCommands/TestCommands.cpp", "ArchViz/SlabSliceSource.hpp"),
+    ("NativeCommands/TestCommands.cpp", "ArchViz/MassingSlices.hpp"),
     # The main-thread HUD owner opens the native Programme table after layout; widgets
     # queue immutable requests and never construct DG controls under the ImGui lock.
     ("ArchViz/OverlayControllerHud.cpp", "Palette/ProgrammeDialog.hpp"),
