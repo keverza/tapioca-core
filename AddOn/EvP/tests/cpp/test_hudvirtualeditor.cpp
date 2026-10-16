@@ -721,3 +721,33 @@ TEST (HudVirtualEditor, NothingFollowsThePointerButWhatIsTyped)
         EXPECT_FLOAT_EQ (here[i].y, there[i].y) << i;
     }
 }
+
+TEST (HudVirtualEditor, KerbGripsRideTheirFillets)
+{
+    // Both paths' kerb radius 3 m: every junction grip sits -- and is drawn -- on its fillet's middle, not at the sharp
+    // corner, and is found there.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    const ed::Id b = ed::AddPath (doc, { { 10, -10, 0 }, { 10, 10, 0 } }, 2.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, a, 3.0, error)) << error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, b, 3.0, error)) << error;
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+    for (const auto& c : ed::Pave (d.D ().paths, 0.5, false).corners) {
+        if (c.key.other == ed::kNoId)
+            continue;
+        ASSERT_NEAR (c.key.radius, 3.0, 1e-9);
+        const ed::Vec3 at = ed::KerbGripAt (c, 0.8);
+        const ImVec2 g = screen (at);
+        d.At (g.x, g.y);
+        EXPECT_GE (d.S ().hoverKerb, 0) << c.at.x << ", " << c.at.y;
+        // Drawn there too: the live view re-projects each grip from its anchor.
+        bool anchored = false;
+        d.input.x = 700, d.input.y = 160;
+        for (const auto& v : d.Frame ().overlay.vertices)
+            anchored |= v.modelAnchored && std::hypot (v.model[0] - at.x, v.model[1] - at.y) < 1e-3;
+        EXPECT_TRUE (anchored) << c.at.x << ", " << c.at.y;
+    }
+}

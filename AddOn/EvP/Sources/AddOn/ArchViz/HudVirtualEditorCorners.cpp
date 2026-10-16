@@ -21,7 +21,8 @@ namespace rc = roofcanvas;
 
 namespace {
 
-constexpr float kInsetPixels = 16.0f, kGripPixels = 5.0f, kPickPixels = 8.0f;
+constexpr float kInsetPixels = 16.0f, kGripPixels = 5.0f;
+constexpr float kPickPixels = 13.0f; // a grip is caught this far out: well beyond its drawn size
 
 struct Grip {
     edit::Id entity = edit::kNoId;
@@ -295,12 +296,13 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         return false;
     struct KerbGrip {
         edit::PavedCorner corner;
+        Vec3 at; // on its fillet's middle: what the grip is drawn and anchored at
         ImVec2 screen;
     };
     std::vector<KerbGrip> grips;
     for (const auto& c : PavedCorners (s)) {
-        KerbGrip g { c, {} };
-        if (Shown (paths, c) && m.Screen (edit::KerbGripAt (c, Inset (m, c.at, scale)), g.screen))
+        KerbGrip g { c, edit::KerbGripAt (c, Inset (m, c.at, scale)), {} };
+        if (Shown (paths, c) && m.Screen (g.at, g.screen))
             grips.push_back (g);
     }
     if (s.drag == Drag::None) {
@@ -368,7 +370,7 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         const bool lit = int (k) == s.hoverKerb || mine;
         const float r = (lit ? kGripPixels + 2.0f : kGripPixels + 0.5f) * scale;
         const ImVec2 p = g.screen;
-        rc::Scope scope (s.canvas, { At (g.corner.at, p) });
+        rc::Scope scope (s.canvas, { At (g.at, p) });
         const ImVec2 q[4] = { { p.x, p.y - r }, { p.x + r, p.y }, { p.x, p.y + r }, { p.x - r, p.y } };
         list->AddQuadFilled ({ q[0].x, q[0].y - 1.5f }, { q[1].x + 1.5f, q[1].y }, { q[2].x, q[2].y + 1.5f },
                              { q[3].x - 1.5f, q[3].y }, kShadow);
