@@ -5,14 +5,16 @@
 // of a round interval, a visual guide to how the ground falls. Each path's surface is its
 // outline -- left edge, centreline, right edge at every sample -- with the crossfall
 // carried straight from the centre to each edge; where paths cross, the ground belongs to
-// the path it lies deepest in, as the paved surface's heights do (Pave).
+// the path it lies deepest in, as the paved surface's heights do (Pave). The lines keep to
+// the paved area as its kerbs round it, and the ground a junction's rounding adds between
+// the paths is contoured too, on a fine grid of the same heights.
 #include "Edit/EditPath.hpp"
 #include <vector>
 
 namespace geomsrv::edit {
 
 struct Contour {
-    Id path = kNoId;
+    Id path = kNoId; // none on a junction's rounding, between paths
     double z = 0.0;
     std::vector<Vec3> points; // in plan at height `z`, in the order the line runs
 };

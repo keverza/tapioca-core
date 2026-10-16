@@ -1,5 +1,6 @@
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 
@@ -110,4 +111,51 @@ TEST (EditPathContours, RoundStepsAndTheirLevels)
     EXPECT_EQ (ed::StepDecimals (0.25), 2);
     EXPECT_EQ (ed::StepDecimals (0.5), 1);
     EXPECT_EQ (ed::StepDecimals (2.0), 0);
+}
+
+TEST (EditPathContours, LinesKeepToAKerbRoundedEnd)
+{
+    // The start's corners rounded 0.9 m: a level 0.5 m along, inside that rounding, stops at
+    // the kerb -- 0.906 m either side, not the full metre.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 1 } }, 2.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathCrossfall (doc, p, doc.paths[0].sections[0].id, 0.0, ed::Fall::Crown, error));
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, p, 0.9, error)) << error;
+    const auto lines = ed::PathContours (doc.paths, 0.05);
+    double reach = 0.0;
+    size_t found = 0;
+    for (const auto& c : lines)
+        if (std::abs (c.z - 0.05) < 1e-9)
+            for (const auto& q : c.points)
+                reach = std::max (reach, std::abs (q.y)), ++found;
+    ASSERT_GT (found, 0u);
+    EXPECT_NEAR (reach, 1.0 - (0.9 - std::sqrt (0.81 - 0.16)), 0.01);
+}
+
+TEST (EditPathContours, AJunctionsRoundingIsContouredToo)
+{
+    // A ramp along X with a level path running up from its middle, the junction's corners
+    // rounded 2 m: the ground those roundings add between the paths carries lines of its own,
+    // and they keep to it.
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 2 } }, 2.0);
+    ed::AddPath (doc, { { 10, 0, 1 }, { 10, 10, 1 } }, 2.0);
+    std::string error;
+    for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
+        if (c.key.other != ed::kNoId)
+            ASSERT_TRUE (ed::SetKerbRadius (doc, c.path, c.key, 2.0, error)) << error;
+    size_t between = 0;
+    for (const auto& c : ed::PathContours (doc.paths, 0.05)) {
+        if (c.path != ed::kNoId)
+            continue;
+        ++between;
+        for (const auto& q : c.points) {
+            EXPECT_GE (q.y, 1.0 - 2e-3) << q.x << ", " << q.y;                   // beyond the ramp's edge
+            EXPECT_GE (std::abs (q.x - 10.0), 1.0 - 2e-3) << q.x << ", " << q.y; // and the level path's
+            EXPECT_LE (q.y, 3.0 + 2e-3);                                         // within the rounding
+            EXPECT_DOUBLE_EQ (q.z, c.z);
+        }
+    }
+    EXPECT_GT (between, 0u);
 }

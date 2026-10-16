@@ -1,5 +1,6 @@
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathNetwork.hpp"
+#include <clipper2/clipper.h>
 #include <algorithm>
 #include <cmath>
 #include <deque>
@@ -10,6 +11,10 @@
 namespace geomsrv::edit {
 
 namespace {
+
+namespace cp = Clipper2Lib;
+
+constexpr int kPrecision = 3; // millimetres, as the paved area's
 
 // A path's surface as sampled: its outline, and its plan bounds for a quick miss.
 struct Strip {
@@ -69,12 +74,51 @@ bool Others (const std::vector<Strip>& strips, size_t own, Vec3 p)
     return false;
 }
 
-// Where a triangle edge crosses the level: the edge (its two corners) names the point, so
-// the triangles either side of it meet there.
+// Where a cell's edge crosses the level: the edge names the point, so the cells either side
+// of it meet there.
 struct Cut {
     uint64_t key = 0;
     Vec3 p;
 };
+
+// Pieces of one level joined where they share a cut, into lines.
+void Join (const std::vector<std::pair<Cut, Cut>>& pieces, Id path, double level, std::vector<Contour>& out)
+{
+    std::unordered_map<uint64_t, std::vector<size_t>> at;
+    for (size_t i = 0; i < pieces.size (); ++i) {
+        at[pieces[i].first.key].push_back (i);
+        at[pieces[i].second.key].push_back (i);
+    }
+    std::vector<bool> used (pieces.size (), false);
+    const auto next = [&] (uint64_t key, Cut& end) {
+        for (const size_t j : at[key])
+            if (!used[j]) {
+                used[j] = true;
+                end = pieces[j].first.key == key ? pieces[j].second : pieces[j].first;
+                return true;
+            }
+        return false;
+    };
+    for (size_t i = 0; i < pieces.size (); ++i) {
+        if (used[i])
+            continue;
+        used[i] = true;
+        std::deque<Vec3> line { pieces[i].first.p, pieces[i].second.p };
+        Cut end = pieces[i].second, start = pieces[i].first;
+        while (next (end.key, end))
+            line.push_back (end.p);
+        while (next (start.key, start))
+            line.push_front (start.p);
+        Contour c;
+        c.path = path;
+        c.z = level;
+        for (const Vec3& p : line)
+            if (c.points.empty () || DistanceXY (c.points.back (), p) > 1.0e-9)
+                c.points.push_back (p);
+        if (c.points.size () >= 2)
+            out.push_back (std::move (c));
+    }
+}
 
 void Trace (const std::vector<Strip>& strips, size_t own, double level, std::vector<Contour>& out)
 {
@@ -109,40 +153,102 @@ void Trace (const std::vector<Strip>& strips, size_t own, double level, std::vec
             triangle (a, b, c);
             triangle (a, c, d);
         }
-    // The pieces joined where they share a cut, into lines.
-    std::unordered_map<uint64_t, std::vector<size_t>> at;
-    for (size_t i = 0; i < pieces.size (); ++i) {
-        at[pieces[i].first.key].push_back (i);
-        at[pieces[i].second.key].push_back (i);
+    Join (pieces, strips[own].path->id, level, out);
+}
+
+// The surface's height where no path's strip is -- a junction's rounding: the path the point
+// lies deepest in, or least outside, as the paved surface takes it (Pave).
+bool Height (const std::vector<Strip>& strips, Vec3 p, double& z)
+{
+    double best = std::numeric_limits<double>::infinity ();
+    for (const auto& s : strips) {
+        double h = 0.0, beyond = 0.0;
+        if (SurfaceHeight (*s.path, s.geometry, p, h, beyond) && beyond < best)
+            best = beyond, z = h;
     }
-    std::vector<bool> used (pieces.size (), false);
-    const auto next = [&] (uint64_t key, Cut& end) {
-        for (const size_t j : at[key])
-            if (!used[j]) {
-                used[j] = true;
-                end = pieces[j].first.key == key ? pieces[j].second : pieces[j].first;
-                return true;
+    return std::isfinite (best);
+}
+
+// Ground no path's strip covers, contoured on a grid of `cell` metres (marching squares,
+// a saddle split as its centre falls) and kept to that ground.
+void TraceBetween (const std::vector<Strip>& strips, const cp::PathD& ground, const std::vector<double>& levels,
+                   double cell, std::vector<Contour>& out)
+{
+    const cp::RectD box = cp::GetBounds (ground);
+    const size_t nx = static_cast<size_t> (std::ceil (box.Width () / cell)) + 2;
+    const size_t ny = static_cast<size_t> (std::ceil (box.Height () / cell)) + 2;
+    if (nx * ny > 250000)
+        return; // a rounding this large on this grid would be too slow to draw live
+    const double x0 = box.left - 0.5 * cell, y0 = box.top - 0.5 * cell;
+    std::vector<double> z (nx * ny, 0.0);
+    std::vector<bool> known (nx * ny, false);
+    for (size_t j = 0; j < ny; ++j)
+        for (size_t i = 0; i < nx; ++i)
+            known[j * nx + i] = Height (strips, { x0 + double (i) * cell, y0 + double (j) * cell, 0.0 }, z[j * nx + i]);
+    std::vector<Contour> lines;
+    for (const double level : levels) {
+        std::vector<std::pair<Cut, Cut>> pieces;
+        for (size_t j = 0; j + 1 < ny; ++j)
+            for (size_t i = 0; i + 1 < nx; ++i) {
+                // Corners counter-clockwise from the lower left; edge k runs from corner k on.
+                const size_t c[4] = { j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i };
+                if (!known[c[0]] || !known[c[1]] || !known[c[2]] || !known[c[3]])
+                    continue;
+                bool up[4];
+                int count = 0;
+                for (int k = 0; k < 4; ++k)
+                    count += (up[k] = z[c[k]] >= level) ? 1 : 0;
+                if (count == 0 || count == 4)
+                    continue;
+                const auto cut = [&] (int k) {
+                    const size_t a = c[k], b = c[(k + 1) % 4];
+                    const double t = (level - z[a]) / (z[b] - z[a]);
+                    const Vec3 pa { x0 + double (a % nx) * cell, y0 + double (a / nx) * cell, level };
+                    const Vec3 pb { x0 + double (b % nx) * cell, y0 + double (b / nx) * cell, level };
+                    return Cut { 2 * std::min (a, b) + (b - a == 1 || a - b == 1 ? 0u : 1u), Lerp (pa, pb, t) };
+                };
+                int crossed[4], n = 0;
+                for (int k = 0; k < 4; ++k)
+                    if (up[k] != up[(k + 1) % 4])
+                        crossed[n++] = k;
+                if (n == 2) {
+                    pieces.push_back ({ cut (crossed[0]), cut (crossed[1]) });
+                    continue;
+                }
+                // A saddle: each corner on the other side from the cell's middle is cut off,
+                // across its two edges.
+                const bool middle = (z[c[0]] + z[c[1]] + z[c[2]] + z[c[3]]) * 0.25 >= level;
+                for (int k = 0; k < 4; ++k)
+                    if (up[k] != middle)
+                        pieces.push_back ({ cut ((k + 3) % 4), cut (k) });
             }
-        return false;
-    };
-    for (size_t i = 0; i < pieces.size (); ++i) {
-        if (used[i])
-            continue;
-        used[i] = true;
-        std::deque<Vec3> line { pieces[i].first.p, pieces[i].second.p };
-        Cut end = pieces[i].second, start = pieces[i].first;
-        while (next (end.key, end))
-            line.push_back (end.p);
-        while (next (start.key, start))
-            line.push_front (start.p);
-        Contour c;
-        c.path = strips[own].path->id;
-        c.z = level;
-        for (const Vec3& p : line)
-            if (c.points.empty () || DistanceXY (c.points.back (), p) > 1.0e-9)
-                c.points.push_back (p);
-        if (c.points.size () >= 2)
-            out.push_back (std::move (c));
+        Join (pieces, kNoId, level, lines);
+    }
+    // Kept to the ground between the strips.
+    cp::PathsD open;
+    for (const auto& l : lines) {
+        cp::PathD q;
+        for (const Vec3& p : l.points)
+            q.push_back ({ p.x, p.y });
+        open.push_back (q);
+    }
+    std::vector<double> heights;
+    for (const auto& l : lines)
+        heights.push_back (l.z);
+    for (size_t k = 0; k < lines.size (); ++k) {
+        cp::ClipperD clipper (kPrecision);
+        clipper.AddOpenSubject ({ open[k] });
+        clipper.AddClip ({ ground });
+        cp::PathsD closed, kept;
+        clipper.Execute (cp::ClipType::Intersection, cp::FillRule::NonZero, closed, kept);
+        for (const auto& q : kept) {
+            Contour c;
+            c.z = heights[k];
+            for (const auto& p : q)
+                c.points.push_back ({ p.x, p.y, c.z });
+            if (c.points.size () >= 2)
+                out.push_back (std::move (c));
+        }
     }
 }
 
@@ -171,9 +277,53 @@ std::vector<Contour> PathContours (const std::vector<Path>& paths, double interv
     const auto levels = Levels (lo, hi, interval);
     if (levels.size () > maxLevels)
         return out;
+    std::vector<Contour> traced;
     for (size_t i = 0; i < strips.size (); ++i)
         for (const double level : levels)
-            Trace (strips, i, level, out);
+            Trace (strips, i, level, traced);
+    // The paved area as rounded: the strips' lines are kept to it (an outside corner's
+    // rounding cuts them), and the ground it adds between them -- a junction's roundings --
+    // is contoured on its own.
+    const PavedArea paved = Pave (paths, step, false);
+    cp::PathsD area, strip;
+    for (const auto& ring : paved.rings) {
+        cp::PathD q;
+        for (const Vec3& p : ring)
+            q.push_back ({ p.x, p.y });
+        area.push_back (q);
+    }
+    for (const auto& s : strips) {
+        cp::PathD q;
+        for (const Vec3& p : s.outline.left)
+            q.push_back ({ p.x, p.y });
+        for (size_t i = s.outline.right.size (); i-- > 0;)
+            q.push_back ({ s.outline.right[i].x, s.outline.right[i].y });
+        strip.push_back (q);
+    }
+    strip = cp::Union (strip, cp::FillRule::NonZero, kPrecision);
+    for (const auto& c : traced) {
+        cp::ClipperD clipper (kPrecision);
+        cp::PathD q;
+        for (const Vec3& p : c.points)
+            q.push_back ({ p.x, p.y });
+        clipper.AddOpenSubject ({ q });
+        clipper.AddClip (area);
+        cp::PathsD closed, kept;
+        clipper.Execute (cp::ClipType::Intersection, cp::FillRule::NonZero, closed, kept);
+        for (const auto& k : kept) {
+            Contour piece;
+            piece.path = c.path;
+            piece.z = c.z;
+            for (const auto& p : k)
+                piece.points.push_back ({ p.x, p.y, c.z });
+            if (piece.points.size () >= 2)
+                out.push_back (std::move (piece));
+        }
+    }
+    const double cell = std::min (step, 0.25);
+    for (const auto& ground : cp::Difference (area, strip, cp::FillRule::NonZero, kPrecision))
+        if (cp::Area (ground) > 0.01) // not the millimetre slivers where outlines meet
+            TraceBetween (strips, ground, levels, cell, out);
     return out;
 }
 
