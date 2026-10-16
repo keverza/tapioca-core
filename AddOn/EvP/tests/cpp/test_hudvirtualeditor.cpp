@@ -614,7 +614,8 @@ TEST (HudVirtualEditor, KerbGripsRoundAPathsCornersAndItsJunctions)
     EXPECT_TRUE (pa.kerbs[0].Same (j.key));
     EXPECT_NEAR (pa.kerbs[0].radius, 2.8 / (1.0 / std::sin (j.half) - 1.0), 0.02);
     EXPECT_DOUBLE_EQ (pa.edgeRadius, 0.0);
-    // An own corner's grip sets the path's kerb radius, clamped to most of its half width.
+    // An own corner's grip -- the path selected whole -- sets that corner alone too, clamped
+    // to most of its half width: the path's radius, and so its other corners, stay as they were.
     const ed::PavedCorner own = corner (false);
     const ImVec2 h = screen (ed::KerbGripAt (own, 0.8)), out = screen (ed::KerbGripAt (own, 0.8) + own.bisector * 3.0);
     d.At (h.x, h.y);
@@ -622,7 +623,11 @@ TEST (HudVirtualEditor, KerbGripsRoundAPathsCornersAndItsJunctions)
     d.Press (h.x, h.y);
     d.At (out.x, out.y);
     d.Release (out.x, out.y);
-    EXPECT_NEAR (ed::FindPath (d.D (), a)->edgeRadius, 0.98, 1e-9);
+    const ed::Path& after = *ed::FindPath (d.D (), a);
+    EXPECT_DOUBLE_EQ (after.edgeRadius, 0.0);
+    ASSERT_EQ (after.kerbs.size (), 2u);
+    EXPECT_TRUE (after.kerbs[1].Same (own.key));
+    EXPECT_NEAR (after.kerbs[1].radius, 0.98, 1e-9);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
 }
 

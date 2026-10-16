@@ -71,8 +71,7 @@ void ApplyPenHandles (edit::Document& d, edit::Id created, const std::vector<edi
 // and their drawing. True when they took the pointer this frame.
 bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
 // Kerb grips, the same on every corner of a paved area (paths joined by junctions) with
-// anything of it selected: dragging an own corner's of a path selected whole sets the path's
-// kerb radius, any other's (or a picked corner's) that corner alone.
+// anything of it selected: dragging one sets that corner's radius alone, never another's.
 bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
 // Labels opened for typing (HudVirtualEditorLabels.cpp). A click on a placed label opens it,
 // its value selected; a click elsewhere sets what was typed: true when the click was theirs.

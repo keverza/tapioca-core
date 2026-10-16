@@ -106,10 +106,10 @@ struct Session {
     size_t cornerIndex = 0;
     std::vector<edit::Id> cornerSet;
     // A kerb corner's grip (a paved corner of the selected path): hovered; the corner picked
-    // by a click (then a drag or the panel sets it alone) or being dragged; whether the drag
-    // sets the path's own radius (all its own corners). The paved corners, per revision.
+    // by a click (then typing or the panel sets it) or being dragged -- either way that corner
+    // alone. The paved corners, per revision.
     int hoverKerb = -1;
-    bool kerbPicked = false, kerbWhole = false;
+    bool kerbPicked = false;
     edit::PavedCorner kerb;
     edit::PavedArea paved;
     uint64_t pavedRevision = UINT64_MAX;

@@ -256,21 +256,10 @@ std::vector<edit::Id> KerbPaths (Session& s)
     return out;
 }
 
-// Whether path `id` is selected whole: its own corners' grips then set its kerb radius.
-bool SelectedWhole (const Session& s, edit::Id id)
+// What a gesture on corner `c` sets to `r`: that corner alone, never its neighbours (the
+// path's own radius, for all its corners at once, is the panel's).
+edit::Operation KerbEdit (const edit::PavedCorner& c, double r)
 {
-    for (const auto& r : s.selection.Items ())
-        if (r.entity == id && r.part == edit::Part::Entity)
-            return true;
-    return false;
-}
-
-// What a gesture on corner `c` sets to `r`: the path's own radius, or that corner alone.
-edit::Operation KerbEdit (const edit::PavedCorner& c, bool whole, double r)
-{
-    if (whole)
-        return
-            [path = c.path, r] (edit::Document& d, std::string& e) { return edit::SetPathEdgeRadius (d, path, r, e); };
     return [c, r] (edit::Document& d, std::string& e) { return edit::SetKerbRadius (d, c.path, c.key, r, e); };
 }
 
@@ -345,18 +334,14 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
     const KerbGrip* hot = s.drag == Drag::None && s.hoverKerb >= 0 ? &grips[size_t (s.hoverKerb)] : nullptr;
     bool took = false;
     if (hovered && hot != nullptr && (ImGui::IsMouseClicked (0) || ImGui::IsMouseDoubleClicked (0))) {
-        // A picked corner is set alone; else an own corner sets the path's radius, a junction its own.
-        const bool picked = s.kerbPicked && s.kerb.path == hot->corner.path && s.kerb.key.Same (hot->corner.key);
-        const bool whole = !picked && hot->corner.key.other == edit::kNoId && SelectedWhole (s, hot->corner.path);
         if (ImGui::IsMouseDoubleClicked (0)) { // sharp again
-            if (!s.edits.Apply (KerbEdit (hot->corner, whole, 0.0)))
+            if (!s.edits.Apply (KerbEdit (hot->corner, 0.0)))
                 s.message = s.edits.Message ();
             return true;
         }
         if (s.edits.Begin ()) {
             s.drag = Drag::Kerb;
             s.kerb = hot->corner;
-            s.kerbWhole = whole;
             s.startX = mouse.x, s.startY = mouse.y;
             took = true;
         }
@@ -366,10 +351,10 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         if (m.Onto (mouse.x, mouse.y, s.kerb.at.z, s.kerb.at, at)) {
             double r = edit::KerbRadiusFromGrip (s.kerb, at, Inset (m, s.kerb.at, scale));
             r = std::min (std::round (r * 100.0) / 100.0, s.kerb.maxRadius); // to the centimetre, as fits
-            if (!s.edits.Move (KerbEdit (s.kerb, s.kerbWhole, r)))
+            if (!s.edits.Move (KerbEdit (s.kerb, r)))
                 s.message = s.edits.Message ();
             char text[48];
-            std::snprintf (text, sizeof text, "%s R %.2f m", s.kerbWhole ? "Kerb" : "Corner", r);
+            std::snprintf (text, sizeof text, "Corner R %.2f m", r);
             s.snap = {};
             s.snap.snapped = true;
             s.snap.point = s.kerb.at;
