@@ -135,9 +135,11 @@ std::string ValidatePanel (const Panel& panel)
     if (!panel.tab.empty () && panel.tab != "stats")
         return "tab is \"stats\" -- a card on the HUD's Stats page -- or absent";
     if (!std::isfinite (panel.offsetPixels[0]) || !std::isfinite (panel.offsetPixels[1]) ||
-        !InRange (panel.widthPixels, 0.0f, 4000.0f) || !InRange (panel.sizePixels, 6.0f, 96.0f) ||
-        !InRange (panel.roundingPixels, 0.0f, 64.0f) || !InRange (panel.paddingPixels, 0.0f, 64.0f))
-        return "offsetPixels finite, widthPixels 0 to 4000, sizePixels 6 to 96, rounding and padding 0 to 64";
+        !InRange (panel.widthPixels, 0.0f, 4000.0f) || !InRange (panel.pageWidthPixels, 0.0f, 4000.0f) ||
+        !InRange (panel.sizePixels, 6.0f, 96.0f) || !InRange (panel.roundingPixels, 0.0f, 64.0f) ||
+        !InRange (panel.paddingPixels, 0.0f, 64.0f))
+        return "offsetPixels finite, widthPixels/pageWidthPixels 0 to 4000, sizePixels 6 to 96, rounding and padding 0 "
+               "to 64";
     if (panel.items.size () > 200)
         return "at most 200 items";
     std::set<std::string> ids;

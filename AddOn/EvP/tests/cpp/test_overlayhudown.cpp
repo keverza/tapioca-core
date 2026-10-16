@@ -97,6 +97,39 @@ TEST (OverlayHudOwn, WithoutOwnPagesNoLayerIsNoHud)
     EXPECT_FLOAT_EQ (out.host.width, 0.0f);
 }
 
+TEST (OverlayHudOwn, CallerPageWidthDoesNotWidenOtherTabsOrLoseFocusOnSelection)
+{
+    Watched hud;
+    auto pages = Standalone ();
+    hud.engine.SetOwnPages (pages);
+    layers::Panel parking = Titled ("Parking Solver", 0x11AA22FFu);
+    parking.widthPixels = 220;
+    parking.pageWidthPixels = 900;
+    const auto initial = hud.Lay ({ &parking }, At (1100, 700));
+    EXPECT_EQ (hud.engine.Selected (), "hud#0");
+    EXPECT_GE (initial.host.width, 899);
+    pages.selection.known = true;
+    pages.selection.count = 1;
+    pages.selection.elements.push_back ({ "road", "Polyline", "", "Drafting", "Ground" });
+    hud.engine.SetOwnPages (pages);
+    const auto selected = hud.Lay ({ &parking }, At (1100, 700));
+    EXPECT_EQ (hud.engine.Selected (), "hud#0") << "a model selection is not a tab press";
+    EXPECT_GE (selected.host.width, 899);
+    hud::SelectKey (*hud.state, shell::kStatsKey);
+    const auto stats = hud.Lay ({ &parking }, At (1100, 700));
+    EXPECT_EQ (hud.engine.Selected (), shell::kStatsKey);
+    EXPECT_LT (stats.host.width, initial.host.width - 200);
+    for (const auto* key : { shell::kSelectionKey, shell::kSettingsKey, shell::kDebugKey }) {
+        hud::SelectKey (*hud.state, key);
+        EXPECT_LT (hud.Lay ({ &parking }, At (1100, 700)).host.width, initial.host.width - 200);
+    }
+    hud::SelectKey (*hud.state, "hud#0");
+    EXPECT_GE (hud.Lay ({ &parking }, At (1100, 700)).host.width, 899);
+    auto narrow = At (800, 700);
+    narrow.width = 800;
+    EXPECT_LE (hud.Lay ({ &parking }, narrow).host.width, 800);
+}
+
 // Stats, Selection, the caller's panel, Settings, Debug and the close button, along the row.
 // A panel that just arrived is shown -- once: the user's own choice after that is kept when
 // the layer is set again, and the next new panel is shown in its turn.

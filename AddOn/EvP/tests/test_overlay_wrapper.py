@@ -33,6 +33,28 @@ def test_colours_read_every_way_a_script_writes_them():
         overlay.colour("#12345")
 
 
+def test_page_only_width_matches_native_schema_without_changing_shared_width(monkeypatch):
+    native = Path(__file__).resolve().parents[1] / "Sources/AddOn/NativeCommands/OverlayLayerCommands.cpp"
+    source = native.read_text(encoding="utf-8")
+    declaration = source[
+        source.index("constexpr const char kSetOverlayLayerInput") : source.index(
+            "constexpr const char kSetOverlayLayerOutput"
+        )
+    ]
+    schema = json.loads("".join(re.findall(r'R"json\((.*?)\)json"', declaration, re.S)))
+    seen = _capture(monkeypatch)
+    overlay.set_layer("page-width", panels=[overlay.Panel(title="Parking Solver", width=220, page_width=900)])
+    payload = seen[0][1]
+    # Point2D is a shared native schema, not declared in this extracted fragment.
+    payload["panels"][0].pop("offsetPixels")
+    jsonschema.validate(payload, schema)
+    assert payload["panels"][0]["widthPixels"] == 220
+    assert payload["panels"][0]["pageWidthPixels"] == 900
+    payload["panels"][0]["pageWidthPixels"] = 4001
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(payload, schema)
+
+
 def test_layout_choice_thumbnail_matches_strict_native_item_schema(monkeypatch):
     source = (Path(__file__).resolve().parents[1] / "Sources/AddOn/NativeCommands/OverlayLayerCommands.cpp").read_text(
         encoding="utf-8"

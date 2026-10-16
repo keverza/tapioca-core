@@ -215,7 +215,8 @@ class Panel:
 
     The HUD has pages of its own -- Stats, Selection, Settings, Debug -- whenever the
     overlay runs; `tab="stats"` makes this panel a card on the Stats page, under its
-    title, instead of a tab of its own."""
+    title, instead of a tab of its own. `page_width` overrides the shared width only
+    while this titled tab is selected; own pages and other tabs keep their widths."""
 
     def __init__(
         self,
@@ -234,6 +235,7 @@ class Panel:
         theme=None,
         accent=None,
         tab=None,
+        page_width=None,
     ):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
@@ -254,6 +256,7 @@ class Panel:
             self._panel["tab"] = tab
         for key, value in (
             ("widthPixels", width),
+            ("pageWidthPixels", page_width),
             ("sizePixels", size),
             ("roundingPixels", rounding),
             ("paddingPixels", padding),

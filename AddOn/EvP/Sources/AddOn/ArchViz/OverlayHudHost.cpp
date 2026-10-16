@@ -364,6 +364,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     spec.ui = ui;
     spec.view = view;
     spec.inset = inset;
+    spec.pageWidthPixels = showsPanel ? panels[shown]->pageWidthPixels : 0.0f;
     // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
     // Settings.
     if (own.standalone) {

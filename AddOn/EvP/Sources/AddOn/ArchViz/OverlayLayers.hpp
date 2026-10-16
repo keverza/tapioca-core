@@ -426,8 +426,9 @@ struct Panel {
     std::string title;
     PanelAnchor anchor = PanelAnchor::TopLeft;
     float offsetPixels[2] = { 16.0f, 16.0f };
-    float widthPixels = 0.0f; // 0: as wide as its content
-    float sizePixels = 14.0f; // the font
+    float widthPixels = 0.0f;     // 0: as wide as its content
+    float pageWidthPixels = 0.0f; // optional width for this selected tab only, not the shared own pages
+    float sizePixels = 14.0f;     // the font
     uint32_t textRgba = 0xF0F0F0FFu;
     uint32_t backgroundRgba = 0x1E2228D8u;
     uint32_t borderRgba = 0; // alpha 0: none

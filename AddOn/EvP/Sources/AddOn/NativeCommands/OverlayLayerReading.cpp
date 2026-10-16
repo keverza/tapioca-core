@@ -610,6 +610,7 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
     }
     ReadPoint2 (item, "offsetPixels", panel.offsetPixels);
     ReadFloat (item, "widthPixels", panel.widthPixels);
+    ReadFloat (item, "pageWidthPixels", panel.pageWidthPixels);
     ReadFloat (item, "sizePixels", panel.sizePixels);
     ReadFloat (item, "roundingPixels", panel.roundingPixels);
     ReadFloat (item, "paddingPixels", panel.paddingPixels);

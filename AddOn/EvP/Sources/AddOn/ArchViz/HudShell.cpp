@@ -615,12 +615,16 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     for (const HostTab& tab : spec.tabs)
         row += ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
     row += ImGui::CalcTextSize (kClose, nullptr, true).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
-    const float panelWidth = float (graphicssettings::Number ("ui.panelWidth", panel.widthPixels));
-    const float width = (std::max) (std::ceil (row), panelWidth * ui);
+    const bool pageWidth = spec.pageWidthPixels > 0.0f;
+    const float panelWidth =
+        pageWidth ? spec.pageWidthPixels : float (graphicssettings::Number ("ui.panelWidth", panel.widthPixels));
+    float width = (std::max) (std::ceil (row), panelWidth * ui);
+    if (pageWidth)
+        width = (std::min) (width, (std::max) (80.0f, view.x - 2.0f * kViewMargin * scale));
     const float tallest =
         (std::max) (TallestPanel (panel, placement, scale, view.y), 2.0f * kLeastPageEm * panel.sizePixels * ui);
     ImGui::SetNextWindowSizeConstraints (ImVec2 (width, 0.0f),
-                                         ImVec2 (panel.widthPixels > 0.0f ? width : FLT_MAX, tallest));
+                                         ImVec2 (pageWidth || panel.widthPixels > 0.0f ? width : FLT_MAX, tallest));
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
                                    ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
@@ -636,7 +640,7 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     // cut off). A panel of a set width wraps every line of its pages at its content's right
     // edge. The WINDOW's edge, not a cell's: a column sized to its content measures its text,
     // and text wrapped at that column's own edge would never let it grow.
-    const bool setWidth = panel.widthPixels > 0.0f;
+    const bool setWidth = pageWidth || panel.widthPixels > 0.0f;
     const bool wrapped = result.drawn && setWidth;
     if (wrapped)
         ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + ImGui::GetContentRegionAvail ().x);

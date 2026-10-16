@@ -180,7 +180,8 @@ struct HostSpec {
     float scale = 1.0f; // the view's DPI scale: the distances from its edges
     float ui = 1.0f;    // that times the text size: everything else
     ImVec2 view = ImVec2 (0.0f, 0.0f);
-    float inset = 0.0f; // how far the view's right column moves in: the dock's width and a gap
+    float inset = 0.0f;           // how far the view's right column moves in: the dock's width and a gap
+    float pageWidthPixels = 0.0f; // selected caller page only; 0 keeps the shared/default width
     std::vector<HostTab> tabs;
 };
 

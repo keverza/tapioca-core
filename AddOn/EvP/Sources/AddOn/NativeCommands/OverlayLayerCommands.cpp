@@ -413,6 +413,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
                                           "bottom-right"]},
         "offsetPixels":{"$ref":"#Point2D"},
         "widthPixels":{"type":"number","minimum":0,"maximum":4000},
+        "pageWidthPixels":{"type":"number","minimum":0,"maximum":4000,"description":"Width of this selected caller tab only; own pages keep their existing width."},
         "sizePixels":{"type":"number","minimum":6,"maximum":96},
         "color":{"$ref":"#Color"},
         "background":{"$ref":"#Color"},
