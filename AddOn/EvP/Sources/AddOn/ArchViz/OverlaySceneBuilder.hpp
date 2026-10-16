@@ -151,6 +151,7 @@ struct Draft {
     bool hand = false;
     uint8_t cursor = 0;
     bool locked = false;
+    std::vector<std::string> inside; // the solid layers' `inside` (OverlayLayers.hpp)
 };
 
 // A panel, and whose it is: its layer and its place among that layer's panels -- what
@@ -176,8 +177,8 @@ class Builder {
 
     void AddLayer (const layers::Layer& layer);
     // OverlaySceneSolid.cpp: what a solid layer added since `fills`, `lines` and `glyphs` to the
-    // guest's solid phase (OverlayLayers.hpp `Layer::solid`).
-    void MarkSolid (size_t fills, size_t lines, size_t glyphs);
+    // guest's solid phase (OverlayLayers.hpp `Layer::solid`), and the elements it stands inside.
+    void MarkSolid (size_t fills, size_t lines, size_t glyphs, const std::vector<std::string>& inside);
     // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
     // after everything else, over it.
     // `input` is the view and the pointer (OverlayHud.hpp); `legends` the legends' bars
@@ -246,6 +247,9 @@ class Builder {
     // Each (engine, page) a glyph used, and its index in `draft_.textPages`.
     std::map<std::pair<const overlaytext::Engine*, uint32_t>, uint32_t> pageSlots_;
 };
+
+// OverlaySceneSolid.cpp: the solid layers' `inside`, sorted and once each (Scene::inside).
+std::vector<std::string> Inside (std::vector<std::string> guids);
 
 } // namespace build
 } // namespace overlayscene

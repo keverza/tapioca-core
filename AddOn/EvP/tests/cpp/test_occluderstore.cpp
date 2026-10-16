@@ -113,3 +113,29 @@ TEST (OccluderStore, RemovingTheElementBeingFilledClosesIt)
     EXPECT_FALSE (s.AddOpaque (indices, 3, kRoom));
     EXPECT_EQ (s.OpaqueIndexCount (), 0u);
 }
+
+// The solid phase draws the building without a massing's own slabs (hostocclusion::Redraw):
+// where each element's opaque indices are, in GUID order, back to back.
+TEST (OccluderStore, EachElementsOpaqueIndicesAreOneRangeInGuidOrder)
+{
+    store::Store s;
+    Triangle (s, "b", 1.0f);
+    Triangle (s, "a", 0.0f);
+    Triangle (s, "c", 2.0f);
+    const float xyz[9] = { 0, 0, 3, 1, 0, 3, 0, 1, 3 };
+    const uint32_t glass[3] = { 0, 1, 2 };
+    ASSERT_TRUE (s.Begin ("d", xyz, 3, kRoom));
+    ASSERT_TRUE (s.AddTransparent (glass, 3));
+    Flat flat;
+    std::vector<store::Range> ranges;
+    s.Assemble (flat.positions, flat.opaque, flat.transparent, &ranges);
+    ASSERT_EQ (ranges.size (), 3u) << "d holds no opaque triangle";
+    EXPECT_EQ (ranges[0].guid, "a");
+    EXPECT_EQ (ranges[1].guid, "b");
+    EXPECT_EQ (ranges[2].guid, "c");
+    for (size_t i = 0; i < ranges.size (); ++i) {
+        EXPECT_EQ (ranges[i].first, 3 * i);
+        EXPECT_EQ (ranges[i].count, 3u);
+    }
+    EXPECT_FLOAT_EQ (flat.positions[flat.opaque[ranges[1].first] * 3 + 2], 1.0f) << "b's triangle";
+}

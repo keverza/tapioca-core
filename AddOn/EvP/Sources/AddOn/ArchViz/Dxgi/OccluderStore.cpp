@@ -74,18 +74,22 @@ bool Store::Remove (const std::string& guid)
     return true;
 }
 
-void Store::Assemble (std::vector<float>& positions, std::vector<uint32_t>& opaque,
-                      std::vector<uint32_t>& transparent) const
+void Store::Assemble (std::vector<float>& positions, std::vector<uint32_t>& opaque, std::vector<uint32_t>& transparent,
+                      std::vector<Range>* ranges) const
 {
     positions.clear ();
     opaque.clear ();
     transparent.clear ();
+    if (ranges != nullptr)
+        ranges->clear ();
     positions.reserve (vertices_ * 3);
     opaque.reserve (opaque_);
     for (const auto& entry : elements_) {
         const Element& element = entry.second;
         const uint32_t base = uint32_t (positions.size () / 3);
         positions.insert (positions.end (), element.positions.begin (), element.positions.end ());
+        if (ranges != nullptr && !element.opaque.empty ())
+            ranges->push_back ({ entry.first, uint32_t (opaque.size ()), uint32_t (element.opaque.size ()) });
         for (uint32_t index : element.opaque)
             opaque.push_back (base + index);
         for (uint32_t index : element.transparent)

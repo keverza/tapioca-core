@@ -422,7 +422,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
     // its storey's, each flat one colour with its inner walls thin (user, 2026-10-16: "in floor plan
     // view show unit as one color and inner walls thin lines similar like in mini GUI"). Coloured by
     // the Massing tab's preset. The stairs' toggle highlights the stack's stair cells, alone or among
-    // the rest. Solid layers: their solids hide each other, hidden edges dashed (Layer::solid).
+    // the rest. Solid layers: their solids hide each other, hidden edges dashed; the model hides
+    // them but for their own slabs, and a slice in front of them is drawn over them (Layer::solid).
     units.solid = stairs.solid = true;
     // Each building's built again only when what it is built from changed: its floors' planned
     // schemes, or what the planner was asked (user, 2026-10-16: a selection rebuilt every building's
@@ -485,6 +486,9 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
         const auto& complex = found->second->complex;
         const auto& rings = found->second->units;
         const auto& clear = found->second->cells;
+        // Its cells stand inside its own slabs: those alone hide none of them (Layer::inside).
+        for (auto* layer : { &units, &stairs })
+            layer->inside.insert (layer->inside.end (), plan.guids.begin (), plan.guids.end ());
         const auto programmeOf = [&] (int story) {
             for (const auto& floor : plan.floors)
                 if (floor.story == story && (floor.programmeRgba & 0xFFu) != 0)

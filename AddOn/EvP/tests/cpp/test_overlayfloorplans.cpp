@@ -42,6 +42,7 @@ bp::Plan Tower ()
         floor.contours = { { Chain (0, 0, 36, 16) } };
         floor.outlineKey = "tower";
         floor.guids = { "slab-" + std::to_string (k) };
+        plan.guids.push_back (floor.guids.front ());
         plan.floors.push_back (floor);
     }
     plan.saved = { { { 6, 8 } } };
@@ -110,6 +111,11 @@ TEST (OverlayFloorPlans, EveryFloorsCellsAreDrawnOnceItIsPlannedAndNotRebuiltUnt
     }
     EXPECT_TRUE (layers::Validate (stairs).empty ());
     EXPECT_TRUE (layers::Validate (units).empty ());
+    // User, 2026-10-16: "Render Occlusion conflict Cell Complex and mass ... outside building
+    // envelope". The cells stand inside the building's own slabs, which alone hide none of them.
+    EXPECT_TRUE (units.solid && stairs.solid);
+    EXPECT_EQ (units.inside, plan.guids);
+    EXPECT_EQ (stairs.inside, plan.guids);
     EXPECT_FALSE (hud::TakeFloorPlanLayers (*state, stairs, units)) << "nothing changed: nothing published";
     // A programme edit on the Massing tab reaches every building's floors.
     ASSERT_TRUE (fp::SetShare (state->massingProgramme, 1, 0.5));

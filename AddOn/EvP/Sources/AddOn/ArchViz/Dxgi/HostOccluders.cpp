@@ -63,6 +63,8 @@ struct Snapshot {
     // Expanded {position, normalA, normalB} pairs: curved edges whose outline is
     // decided per frame. See `kCoplanarCosine`.
     std::vector<float> silhouette;
+    // Where each element's opaque triangles are in `indices`, in GUID order (Redraw).
+    std::vector<occluderstore::Range> ranges;
     bool frontCounterClockwise = true;
     bool windingKnown = false;
 };
@@ -92,6 +94,11 @@ ID3D11DepthStencilView* g_depthView = nullptr;
 D3D11_TEXTURE2D_DESC g_depthDesc = {};
 
 uint32_t g_uploadedIndices = 0;
+// RENDER THREAD: the uploaded snapshot's element ranges, and whether this frame's Prepare drew
+// the depth Redraw may draw again, with which camera slot.
+std::vector<occluderstore::Range> g_uploadedRanges;
+bool g_prepared = false;
+uint32_t g_preparedVariant = 0;
 uint32_t g_uploadedLineIndices = 0;
 uint32_t g_uploadedSilhouetteVertices = 0;
 bool g_created = false;
@@ -536,6 +543,7 @@ bool TakeAndUpload (ID3D11DeviceContext* context)
                 sizeof (float) * snapshot->silhouette.size ());
     if (ok) {
         g_uploadedIndices = uint32_t (snapshot->indices.size ());
+        g_uploadedRanges.swap (snapshot->ranges);
         g_uploadedLineIndices = uint32_t (snapshot->lineIndices.size ());
         g_uploadedSilhouetteVertices = uint32_t (snapshot->silhouette.size () / 9);
         g_stats.vertices = uint32_t (snapshot->positions.size () / 3);
@@ -639,7 +647,7 @@ void EndBatch ()
     g_batchOpen = false;
     delete g_building;
     g_building = new Snapshot ();
-    g_store.Assemble (g_building->positions, g_building->indices, g_building->transparentIndices);
+    g_store.Assemble (g_building->positions, g_building->indices, g_building->transparentIndices, &g_building->ranges);
     // ⚠️ AN EMPTY STORE IS PUBLISHED WHEN THIS BATCH EMPTIED IT -- everything hidden, removed,
     // or a full batch of nothing: the 3D window shows nothing, and keeping the previous
     // snapshot would keep drawing what is no longer there.
@@ -779,10 +787,43 @@ void Clear ()
     g_batchOpaqueIndices = 0;
 }
 
+namespace {
+// The depth-only pass's state: no target beside `g_depthView`, written LESS, no colour, no pixel
+// stage, the host's vertices and Archicad's camera windows.
+void Bind (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t variant, ID3D11Buffer* viewBuffer,
+           ID3D11Buffer* projectionBuffer)
+{
+    ID3D11RenderTargetView* const noTarget = nullptr;
+    context->OMSetRenderTargets (1, &noTarget, g_depthView);
+    context->OMSetDepthStencilState (g_writeDepth, 0);
+    context->RSSetState (g_raster);
+    const FLOAT factor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    context->OMSetBlendState (g_noColour, factor, 0xffffffffu);
+
+    const UINT stride = sizeof (float) * 3;
+    const UINT offset = 0;
+    context->IASetInputLayout (g_layout);
+    context->IASetVertexBuffers (0, 1, &g_vertexBuffer, &stride, &offset);
+    context->IASetIndexBuffer (g_indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+    context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader (g_vsVariant[variant], nullptr, 0);
+    // ⚠️ NO PIXEL SHADER. Depth-only rendering is exactly this: D3D11 runs the
+    // depth test and write with no pixel stage at all, which is both correct and
+    // the cheapest way to draw a building.
+    context->PSSetShader (nullptr, nullptr, 0);
+
+    ID3D11Buffer* const cameraBuffers[2] = { viewBuffer, projectionBuffer };
+    const UINT cameraFirst[2] = { 0, 0 };
+    const UINT cameraNum[2] = { kCameraWindowConstants, kCameraWindowConstants };
+    context1->VSSetConstantBuffers1 (1, 2, cameraBuffers, cameraFirst, cameraNum);
+}
+} // namespace
+
 ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
                                  uint32_t targetWidth, uint32_t targetHeight, uint32_t targetSamples,
                                  uint32_t targetQuality)
 {
+    g_prepared = false;
     if (context == nullptr || context1 == nullptr)
         return nullptr;
     if (!EnsurePipeline (context))
@@ -815,34 +856,45 @@ ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceConte
     // frame is not evidence about this one, and a stale occluder hides the
     // overlay along the path the camera used to be on.
     context->ClearDepthStencilView (g_depthView, D3D11_CLEAR_DEPTH, 1.0f, 0);
-
-    ID3D11RenderTargetView* const noTarget = nullptr;
-    context->OMSetRenderTargets (1, &noTarget, g_depthView);
-    context->OMSetDepthStencilState (g_writeDepth, 0);
-    context->RSSetState (g_raster);
-    const FLOAT factor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    context->OMSetBlendState (g_noColour, factor, 0xffffffffu);
-
-    const UINT stride = sizeof (float) * 3;
-    const UINT offset = 0;
-    context->IASetInputLayout (g_layout);
-    context->IASetVertexBuffers (0, 1, &g_vertexBuffer, &stride, &offset);
-    context->IASetIndexBuffer (g_indexBuffer, DXGI_FORMAT_R32_UINT, 0);
-    context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    context->VSSetShader (g_vsVariant[variant], nullptr, 0);
-    // ⚠️ NO PIXEL SHADER. Depth-only rendering is exactly this: D3D11 runs the
-    // depth test and write with no pixel stage at all, which is both correct and
-    // the cheapest way to draw a building.
-    context->PSSetShader (nullptr, nullptr, 0);
-
-    ID3D11Buffer* const cameraBuffers[2] = { viewBuffer, projectionBuffer };
-    const UINT cameraFirst[2] = { 0, 0 };
-    const UINT cameraNum[2] = { kCameraWindowConstants, kCameraWindowConstants };
-    context1->VSSetConstantBuffers1 (1, 2, cameraBuffers, cameraFirst, cameraNum);
-
+    Bind (context, context1, variant, viewBuffer, projectionBuffer);
     context->DrawIndexed (g_uploadedIndices, 0, 0);
     ++g_stats.renders;
+    g_prepared = true;
+    g_preparedVariant = variant;
     return g_depthView;
+}
+
+bool Redraw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D11DepthStencilView* view,
+             const std::vector<std::string>& elements, bool only)
+{
+    ID3D11Buffer* const viewBuffer = injection::ViewSnapshotBuffer ();
+    ID3D11Buffer* const projectionBuffer = injection::ProjectionSnapshotBuffer ();
+    if (!g_prepared || view == nullptr || view != g_depthView || context == nullptr || context1 == nullptr ||
+        viewBuffer == nullptr || projectionBuffer == nullptr || g_vsVariant[g_preparedVariant] == nullptr) {
+        ++g_stats.redrawsRefused;
+        return false;
+    }
+    if (!only)
+        context->ClearDepthStencilView (g_depthView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+    Bind (context, context1, g_preparedVariant, viewBuffer, projectionBuffer);
+    // The elements on the side asked for, each run of them one draw: the ranges are in the
+    // store's GUID order and back to back, so a few slabs left out make a few runs.
+    uint32_t first = 0, count = 0;
+    for (const occluderstore::Range& range : g_uploadedRanges) {
+        if (std::binary_search (elements.begin (), elements.end (), range.guid) != only)
+            continue;
+        if (count > 0 && range.first == first + count) {
+            count += range.count;
+            continue;
+        }
+        if (count > 0)
+            context->DrawIndexed (count, first, 0);
+        first = range.first, count = range.count;
+    }
+    if (count > 0)
+        context->DrawIndexed (count, first, 0);
+    ++g_stats.redraws;
+    return true;
 }
 
 HostGeometry GetGeometry ()
@@ -886,6 +938,8 @@ void ResetRenderCounters ()
     g_stats.skippedNoCamera = 0;
     g_stats.skippedNoGeometry = 0;
     g_stats.skippedNoDepthTarget = 0;
+    g_stats.redraws = 0;
+    g_stats.redrawsRefused = 0;
     g_stats.lastError[0] = '\0';
 }
 
@@ -909,6 +963,8 @@ void Shutdown ()
     g_created = false;
     g_createFailed = false;
     g_uploadedIndices = 0;
+    g_uploadedRanges.clear ();
+    g_prepared = false;
     g_uploadedLineIndices = 0;
     g_depthDesc = D3D11_TEXTURE2D_DESC {};
     g_stats = Stats {};

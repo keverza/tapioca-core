@@ -32,6 +32,7 @@
 
 struct ID3D11DepthStencilView;
 struct ID3D11DeviceContext;
+struct ID3D11DeviceContext1;
 struct ID3D11RenderTargetView;
 
 namespace geomsrv {
@@ -47,9 +48,11 @@ void Publish (overlayscene::Scene scene, float dpiScale);
 void PublishHud (overlayscene::Scene hud, float dpiScale);
 
 // RENDER THREAD, from the composer, inside the injection's ScopedPipelineState, with
-// the scene viewport bound and the composer's target and depth view.
+// the scene viewport bound and the composer's target and depth view. `context1` lets a solid
+// layer's phase draw the host occluder again (hostocclusion::Redraw); without it, or when
+// `depth` is not the occluder's, the solids are drawn last against a depth of their own.
 void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTargetView* target,
-           ID3D11DepthStencilView* depth);
+           ID3D11DepthStencilView* depth, ID3D11DeviceContext1* context1 = nullptr);
 
 // ⚠️ RENDER THREAD, AT PRESENT, BEFORE A CAMERA IS CHOSEN (Dxgi/PrelockHud.hpp): the HUD's stream
 // alone -- glyph quads fixed to the view, which read no camera -- into `target`, `width` x

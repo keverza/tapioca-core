@@ -465,12 +465,17 @@ struct Layer {
     // is, unless the caller says otherwise. Never `Behind::Layer`.
     Behind occlusion = Behind::Hide;
     // 3D only: SOLID -- its meshes hide each other and its own lines, as a model's
-    // solids do, and the building hides none of it. Drawn after every other layer
-    // against a depth of its own (the guest clears the private depth, then its fills
-    // write it); its lines and mesh edges drawn on, dashed and faint behind its fills
-    // ("dash" where they name "always"). Several solid layers share that depth. The
-    // plan has no depth and draws it as any other.
+    // solids do, and the building's opaque surfaces hide it but for the elements it
+    // stands `inside`. Drawn BEFORE every other layer, against the host occluder drawn
+    // without those elements, its fills writing that depth; then the elements are put
+    // back and the rest is drawn against the building and the solids together, so a
+    // slice in front of a solid is in front of it. Its lines and mesh edges drawn on,
+    // dashed and faint behind its fills ("dash" where they name "always"). Several solid
+    // layers share that depth. The plan has no depth and draws it as any other.
     bool solid = false;
+    // A solid layer's: the model elements (GUIDs as the extraction gives them) it stands
+    // inside -- a massing study's own slabs, which would hide all of it.
+    std::vector<std::string> inside;
     std::vector<Polyline> polylines;
     std::vector<PointSet> points;
     std::vector<Mesh> meshes;

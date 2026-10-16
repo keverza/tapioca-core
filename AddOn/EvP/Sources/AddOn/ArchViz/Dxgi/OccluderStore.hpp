@@ -28,6 +28,12 @@ namespace archviz {
 namespace dxgi {
 namespace occluderstore {
 
+// Where an element's opaque triangles landed in an assembled index list.
+struct Range {
+    std::string guid;
+    uint32_t first = 0, count = 0; // opaque indices
+};
+
 struct Element {
     std::vector<float> positions;      // xyz, world metres
     std::vector<uint32_t> opaque;      // into this element's own positions
@@ -63,9 +69,10 @@ class Store {
     }
 
     // Every element in GUID order, flattened: positions concatenated, each element's indices
-    // offset by where its block landed.
-    void Assemble (std::vector<float>& positions, std::vector<uint32_t>& opaque,
-                   std::vector<uint32_t>& transparent) const;
+    // offset by where its block landed; `ranges`, when given, where each element's opaque
+    // indices are, in that order (one per element holding any).
+    void Assemble (std::vector<float>& positions, std::vector<uint32_t>& opaque, std::vector<uint32_t>& transparent,
+                   std::vector<Range>* ranges = nullptr) const;
 
   private:
     void Forget (Element& element);

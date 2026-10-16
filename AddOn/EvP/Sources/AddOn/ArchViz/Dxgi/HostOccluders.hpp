@@ -50,6 +50,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 struct ID3D11Buffer;
 struct ID3D11DepthStencilView;
@@ -153,6 +154,20 @@ void Clear ();
 ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
                                  uint32_t targetWidth, uint32_t targetHeight, uint32_t targetSamples = 0,
                                  uint32_t targetQuality = 0);
+
+// RENDER THREAD, after `Prepare` returned `view` this frame, under the same guard. The same
+// depth again from part of the building: `only` false clears it to far and draws every element
+// but those `elements` names; true draws those alone over what is there. `elements` is sorted,
+// GUIDs as the extraction gives them. False -- counted, nothing drawn -- when `view` is not
+// what `Prepare` returned this frame.
+//
+// ⚠️ FOR THE OVERLAY'S SOLID PHASE (OverlayLayers.hpp `Layer::inside`): a massing study stands
+// INSIDE its own slabs, which would hide all of it, while every other opaque surface -- another
+// building's mass, the terrain -- must still hide it. So the solids are drawn against the
+// building without their slabs, and the slabs are put back for whatever is drawn after them.
+// The state it binds is `Prepare`'s; the caller restores its own after it.
+bool Redraw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D11DepthStencilView* view,
+             const std::vector<std::string>& elements, bool only);
 
 // MAIN THREAD, at the start of an overlay session. Zero ONLY the render-thread
 // refusal counters. ⚠️ THE PUBLISHED SNAPSHOT DELIBERATELY
@@ -310,6 +325,8 @@ struct Stats {
     uint64_t skippedNoCamera = 0;
     uint64_t skippedNoGeometry = 0;
     uint64_t skippedNoDepthTarget = 0; // no scene depth view to match; see Prepare
+    uint64_t redraws = 0;              // Redraw: parts of the building drawn again
+    uint64_t redrawsRefused = 0;       // Redraw: not after this frame's Prepare, or not its view
     // See `SetModelRevision`. Equal is healthy; falling behind names the stage.
     uint32_t modelRevision = 0;
     uint32_t publishedRevision = 0;

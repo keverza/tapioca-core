@@ -1152,3 +1152,27 @@ TEST (OverlayScene, ASolidLayersItemsAreDrawnInTheSolidPhaseTheirHiddenEdgesDash
     for (const auto& line : scene.lines)
         EXPECT_EQ (line.behind & scene::kSolidPhase, 0u);
 }
+
+// User, 2026-10-16: "Render Occlusion conflict Cell Complex and mass, story slices preview that
+// are outside building envelope". The solid layers' slabs, once each and sorted: what the guest
+// leaves out of the building for their phase (hostocclusion::Redraw).
+TEST (OverlayScene, TheSolidLayersSlabsAreLeftOutOfTheirOccluderOnceEachSorted)
+{
+    layers::Layer a, b, flat;
+    a.name = "a", b.name = "b", flat.name = "flat";
+    a.solid = b.solid = true;
+    a.inside = { "slab-2", "slab-1" };
+    b.inside = { "slab-1", "slab-3" };
+    flat.inside = { "slab-9" }; // not solid: stands inside nothing
+    layers::Mesh box;
+    box.points = { 0, 0, 0, 1, 0, 0, 1, 1, 0 };
+    box.indices = { 0, 1, 2 };
+    box.styled = true;
+    for (auto* layer : { &a, &b, &flat })
+        layer->meshes = { box };
+    const scene::Scene scene =
+        scene::PrepareScene ({ std::make_shared<const layers::Layer> (a), std::make_shared<const layers::Layer> (b),
+                               std::make_shared<const layers::Layer> (flat) },
+                             nullptr);
+    EXPECT_EQ (scene.inside, (std::vector<std::string> { "slab-1", "slab-2", "slab-3" }));
+}

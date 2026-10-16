@@ -37,7 +37,7 @@ void Builder::AddLayer (const layers::Layer& layer)
     for (size_t i = 0; i < layer.legends.size (); ++i)
         AddLegend (layer, layer.legends[i], uint32_t (i));
     if (layer.solid && !Plan ())
-        MarkSolid (fills, lines, glyphs);
+        MarkSolid (fills, lines, glyphs, layer.inside);
 }
 
 bool Builder::Plan () const
@@ -602,6 +602,7 @@ bool Append (Draft& into, const Draft& from)
     }
     into.fillVertices += from.fillVertices;
     into.regions.insert (into.regions.end (), from.regions.begin (), from.regions.end ());
+    into.inside.insert (into.inside.end (), from.inside.begin (), from.inside.end ());
     into.problems.textsNotLaidOut += from.problems.textsNotLaidOut;
     into.problems.dimensionsNotResolved += from.problems.dimensionsNotResolved;
     into.problems.truncated += from.problems.truncated;
@@ -885,6 +886,7 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
     out.hand = draft.hand;
     out.cursor = draft.cursor;
     out.locked = draft.locked;
+    out.inside = Inside (std::move (draft.inside));
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);

@@ -9,6 +9,7 @@
 #include "ArchViz/Dxgi/DiligentGuest.hpp"
 #include "ArchViz/Dxgi/GuestGpu.hpp"
 #include "ArchViz/Dxgi/GuestShaderSources.hpp"
+#include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
@@ -307,7 +308,7 @@ void PublishHud (overlayscene::Scene hud, float dpiScale)
 }
 
 void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTargetView* target,
-           ID3D11DepthStencilView* depth)
+           ID3D11DepthStencilView* depth, ID3D11DeviceContext1* context1)
 {
     if (Published* const fresh = g_published.exchange (nullptr, std::memory_order_acq_rel)) {
         g_current.reset (fresh);
@@ -378,14 +379,29 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
     gpu::DrawStats drawn;
     // The band of a heatmap the HUD's pointer is on travels with the HUD.
     const overlayscene::Highlight highlight = hud ? g_currentHud->scene.highlight : overlayscene::Highlight ();
+    // ⚠️ THE SOLID LAYERS FIRST, AGAINST THE BUILDING WITHOUT WHAT THEY STAND INSIDE
+    // (OverlayLayers.hpp `Layer::solid`; user, 2026-10-16: "Render Occlusion conflict Cell
+    // Complex and mass, story slices preview that are outside building envelope"). Drawn last
+    // against a cleared depth, nothing hid them: another building's mass in front, or a slice
+    // beyond their own envelope, was painted over. Now the occluder is drawn again without their
+    // own slabs, their fills write it, the slabs go back, and everything else is drawn against
+    // the building and the solids together.
+    bool solidFirst = false;
+    if (drawScene && g_content.solid && depth != nullptr &&
+        hostocclusion::Redraw (context, context1, depth, g_current->scene.inside, false)) {
+        g_guest.BeginDraw (context, target, depth); // the occluder bound its own state
+        gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, true, dpiScale, drawn, highlight, true);
+        hostocclusion::Redraw (context, context1, depth, g_current->scene.inside, true);
+        g_guest.BeginDraw (context, target, depth);
+        solidFirst = true;
+    }
     if (drawScene)
         gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn,
                    highlight);
-    // ⚠️ THE SOLID LAYERS LAST, AGAINST A DEPTH OF THEIR OWN (OverlayLayers.hpp `Layer::solid`):
-    // the occluders' depth is spent -- the host occluders clear and redraw it every frame and
-    // nothing after the guest reads it -- so it is cleared to far and the solids' fills write
-    // it: they hide each other and their own edges, and the building hides none of them.
-    if (drawScene && g_content.solid) {
+    // Without the occluder to draw again (Archicad's own depth, or none): the solids last, against
+    // a depth of their own -- cleared to far, which nothing after the guest reads -- hiding each
+    // other and their own edges, the building hiding none of them.
+    if (drawScene && g_content.solid && !solidFirst) {
         if (depth != nullptr)
             context->ClearDepthStencilView (depth, D3D11_CLEAR_DEPTH, 1.0f, 0);
         gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn,

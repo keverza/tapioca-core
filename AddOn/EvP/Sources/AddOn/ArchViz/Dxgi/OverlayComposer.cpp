@@ -214,7 +214,7 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // ⚠️ AND WHAT THE DILIGENT GUEST DRAWS LAST (§12b): texts, dimensions, legends,
     // styled and heatmap meshes, depth-styled lines -- the same camera, the same
     // target and the same occluder depth, inside this Present's guard.
-    sceneguest::Draw (context, wanted, targetView, overlayView);
+    sceneguest::Draw (context, wanted, targetView, overlayView, context1);
     composetiming::Mark (context, composetiming::Stage::Guest);
     composetiming::EndFrame (context);
 

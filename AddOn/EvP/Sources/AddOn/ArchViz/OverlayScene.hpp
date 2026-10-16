@@ -258,6 +258,9 @@ struct Scene {
     uint8_t cursor = 0;  // overlayinput::Cursor
     bool locked = false; // the dock's lock (overlayhud::Layout `locked`)
     bool solid = false;  // some of it is a solid layer's: the guest draws a solid phase
+    // The solid layers' `inside` (OverlayLayers.hpp), sorted, once each: what the host
+    // occluder leaves out for the solid phase (hostocclusion::Redraw).
+    std::vector<std::string> inside;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;
