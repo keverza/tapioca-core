@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <iomanip>
+#include <sstream>
 #include <tuple>
 
 namespace geomsrv::archviz::hudfloorscheme {
@@ -211,13 +213,32 @@ Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp
         editor.reset (new Editor);
     auto& e = *editor;
     const auto& plan = c.plans.at (key);
-    c.drafts.try_emplace (key); // the building has a draft from its first editor on, as before
+    const auto& draft = c.drafts.try_emplace (key).first->second; // a draft from its first editor on
     c.planner.Poll ();
-    const auto* planned = bp::WantFloors (c.planner, c.plans, c.drafts, key, c.programme, floor.story, c.options);
-    std::vector<fs::Pins::Core> stairs;
-    auto held = c.options; // the stairs and the main walls every floor stands on (WantFloors)
-    bp::Stack (c.planner, key, plan, stairs, &held.grid);
-    e.input = bp::InputFor (c.plans, c.drafts, key, floor, c.programme, stairs, held);
+    // ⚠️ ASKED ONLY WHEN WHAT IT IS ASKED FROM CHANGED (user, 2026-10-16: "when its activated in
+    // locked mode its navigation stutters"): the locked view refreshes every shown building's editor
+    // at each layout, and asking -- every floor's input and signature, the stack's common floor and
+    // main walls -- cost 6 ms a layout for five buildings. What the asking reads: the planner's
+    // results, the floor, the programme, this building's designs and stairs, every building's floors.
+    std::ostringstream asked;
+    asked << std::setprecision (12) << c.planner.Revision () << '|' << floor.story << '|'
+          << floorprogramme::Key (c.programme) << '|' << c.options.grossFactor << '|'
+          << fs::edit::ToJson (draft.designs) << '|';
+    for (const auto& core : draft.cores)
+        asked << core.center.x << ',' << core.center.y << ',' << core.width << ',' << core.depth << ';';
+    for (const auto& [other, p] : c.plans)
+        for (const auto& f : p.floors)
+            asked << '|' << other << '#' << f.story << '@' << f.z << '+' << f.height << f.outlineKey;
+    if (asked.str () != e.asked || e.key != key || e.story != floor.story) {
+        bp::WantFloors (c.planner, c.plans, c.drafts, key, c.programme, floor.story, c.options);
+        std::vector<fs::Pins::Core> stairs;
+        auto held = c.options; // the stairs and the main walls every floor stands on (WantFloors)
+        bp::Stack (c.planner, key, plan, stairs, &held.grid);
+        e.input = bp::InputFor (c.plans, c.drafts, key, floor, c.programme, stairs, held);
+        e.real = bp::FloorRings (floor);
+        e.asked = asked.str ();
+    }
+    const auto* planned = c.planner.Latest (bp::FloorId (key, floor.story)); // what WantFloors returns
     if (e.key != key || e.story != floor.story) {
         e.key = key, e.story = floor.story;
         e.selected = e.menu = {};
@@ -226,7 +247,6 @@ Editor& Refresh (EditorPtr& editor, Context& c, const std::string& key, const bp
         e.revision = 0;
         e.morphs.clear (), e.morphStart = -1; // another floor: nothing flows from this one
     }
-    e.real = bp::FloorRings (floor);
     if (planned && planned->revision != e.revision) {
         // The flats flow from what is shown now to where they are planned.
         if (e.have) {

@@ -171,8 +171,7 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
         ImGui::SetMouseCursor (pick ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
     }
     if (pick) {
-        draw->AddPolyline (pick->screen.data (), int (pick->screen.size ()), IM_COL32 (255, 255, 255, 200),
-                           ImDrawFlags_Closed, 2.5f * scale);
+        // No outline under the pointer: projected at the last layout, it lags a zoom (Marks says why).
         const bool left = ImGui::IsMouseClicked (ImGuiMouseButton_Left),
                    right = ImGui::IsMouseClicked (ImGuiMouseButton_Right);
         if (left || right) {

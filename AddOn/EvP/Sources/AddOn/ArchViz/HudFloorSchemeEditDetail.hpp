@@ -63,6 +63,7 @@ struct Editor {
     bool have = false;
     std::vector<Fill> fills, around;
     std::string colours;        // repaint without planning again when Programme colours change
+    std::string asked;          // what its floors were last asked from (Refresh): unchanged, nothing is asked
     std::vector<fs::Ring> real; // the slab's own contour, dashed
     Target selected, menu;
     fs::Vec selectedAt, menuAt; // where they were picked: a new scheme finds them there again

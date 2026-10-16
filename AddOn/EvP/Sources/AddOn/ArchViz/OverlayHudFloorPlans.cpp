@@ -5,6 +5,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdio>
+#include <memory>
 #include <sstream>
 #include <iomanip>
 
@@ -275,10 +276,20 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
     // Complex"): in 3D every floor's cells, solids from the floor to under the next slab; on the plan
     // its storey's, filled. The stairs' toggle highlights the stack's stair cells, alone or among
     // the rest ("Show proposed stair cores becomes only higlight stair core cell").
+    // Built again only when what they are built from changed: the planner's results or what it was
+    // asked (user, 2026-10-16: a selection rebuilt every building's complex, 30-50 ms on the UI thread).
+    const std::string from = std::to_string (state.floorPlanner.Revision ()) + '|' + asked.str ();
+    if (from != state.floorComplexesFrom) {
+        state.floorComplexes.clear ();
+        state.floorComplexesFrom = from;
+    }
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         if (!state.previewCells && !state.previewStairs)
             break;
-        const auto complex = ComplexOf (state, key, plan, options);
+        auto& held = state.floorComplexes[key];
+        if (!held)
+            held = std::make_shared<const bt::Complex> (ComplexOf (state, key, plan, options));
+        const auto& complex = *held;
         overlaylayers::Mesh cells, cores;
         for (auto* mesh : { &cells, &cores }) {
             mesh->styled = true;

@@ -30,6 +30,9 @@
 #include <string>
 #include <vector>
 
+namespace geomsrv::archviz::buildingtopology {
+struct Complex;
+}
 namespace geomsrv {
 namespace archviz {
 namespace overlayhud {
@@ -116,6 +119,10 @@ struct State {
     // Massing tab: the buildings' cell complexes, and their stair cells highlighted (user, 2026-10-15)
     bool previewStairs = false, previewCells = false;
     std::string floorPlanPublished;
+    // Each building's cell complex as the overlay last built it, and from what (TakeFloorPlanLayers):
+    // a selection or a storey changed draws them again without building them again.
+    std::map<std::string, std::shared_ptr<const buildingtopology::Complex>> floorComplexes;
+    std::string floorComplexesFrom;
     int planStorey = INT_MIN; // the floor plan overlay's storey while it runs (SetPlanStorey), else INT_MIN
     massingareas::Coefficients massingCoefficients; // Shared by plan/3D, Stats and Selection; HUD-session state.
     // The flat programme the plan view fills and scores against; HUD-session state like the

@@ -690,7 +690,12 @@ void Marks (const Editor& e, Context& c, const View& v, ImDrawList* draw, float 
     // A flat or stair being dragged leaves a ghost where it was; anything else selected stays solid.
     const bool mine = e.drag != Drag::None && e.dragOn == on; // the gesture is this surface's
     const bool dragged = mine && e.moved && (e.held.kind == Kind::Flat || e.held.kind == Kind::Stair);
-    if (e.drag == Drag::None)
+    // ⚠️ ON THE VIEW, NO FLAT OUTLINED UNDER THE POINTER: the HUD projects it with the transform of
+    // its last layout, which a zoom moves past before the next one, so it stood off its flat (user,
+    // 2026-10-16: "Selected unit is composed in wrong part of frame as it lags behind navigation
+    // especially on zoom"). The selection is the overlay's, in the model; the cursor says what picks.
+    if (e.drag == Drag::None &&
+        (on == Surface::Canvas || (at.hover.kind != Kind::Flat && at.hover.kind != Kind::Stair)))
         outline (at.hover, IM_COL32 (255, 255, 255, 170), 2 * scale);
     if (dragged && e.held.kind == Kind::Flat && e.held.index >= 0 && e.held.index < int (e.base.flats.size ()))
         Ghost (draw, v, e.base.flats[e.held.index].shape, scale);
