@@ -21,6 +21,14 @@ std::map<std::string, std::string> Picked (const std::map<std::string, hudfloors
 // the one a slab picked there opens -- its metadata to edit, its building's plan (user, 2026-10-15:
 // "Selecting UNIT in locked mode still only switched tab, but does not open editing options for
 // the slab"). Empty when nothing new was picked or the floor's slabs are not known.
+// The building whose flat was just picked; empty when none was.
+std::string PickedIn (const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& after)
+{
+    for (const auto& [key, flat] : after)
+        if (const auto was = before.find (key); was == before.end () || was->second != flat)
+            return key;
+    return {};
+}
 std::vector<std::string> SlabsPicked (const State& state, const std::map<std::string, std::string>& before,
                                       const std::map<std::string, std::string>& after)
 {
@@ -90,6 +98,11 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
             // A flat picked on the view opens the Selection tab, as a slab picked in Archicad does
             // (user, 2026-10-15): its building's plan is there, the flat selected in it, and its
             // floor's slabs are selected in Archicad for the tab to edit them.
+            // One flat selected at a time; Esc selects none (user, 2026-10-16).
+            if (const std::string in = PickedIn (before, Picked (store->planEditors)); !in.empty ())
+                hudfloorscheme::Deselect (store->planEditors, in);
+            else if (input.pointer && ImGui::IsKeyPressed (ImGuiKey_Escape, false))
+                hudfloorscheme::Deselect (store->planEditors);
             if (const auto after = Picked (store->planEditors); !after.empty () && after != before) {
                 store->host.known = true;
                 store->host.open = true;

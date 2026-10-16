@@ -28,6 +28,10 @@ void Engine::SetOwnPages (OwnPages pages)
     if (keep) {
         pages.buildings = impl_->own.buildings;
         pages.section = impl_->own.section;
+        // Escape in Archicad deselected the slabs: the flat goes with them (user, 2026-10-16: "ESC
+        // button should also clear selection").
+        if (impl_->own.selection.count > 0)
+            hudfloorscheme::Deselect (impl_->store->planEditors);
     }
     if (!keep) {
         impl_->store->floorPlanSnapshots.clear ();

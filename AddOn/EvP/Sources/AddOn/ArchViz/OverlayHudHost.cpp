@@ -237,6 +237,10 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
         const bool pressed = press.title;
         if (press.lock) {
             store->editLocked = !store->editLocked;
+            // Out of locked mode nothing stays selected (user, 2026-10-16: "When exit locked mode
+            // selection should clear up").
+            if (!store->editLocked)
+                hudfloorscheme::Deselect (store->planEditors);
             changes.push_back ({ "editLock",
                                  std::string (),
                                  std::string (),

@@ -83,5 +83,9 @@ struct Selection {
     floorscheme::Ring flat;
 };
 std::optional<Selection> Selected (const EditorPtr& editor);
+// ⚠️ ONE FLAT SELECTED AT A TIME (user, 2026-10-16: "For each building i am able to make a selection
+// and it persists, creating misleading preview"): every editor's selection but `except`'s cleared --
+// all of them when it is empty. Nothing held (a drag, an open menu) is touched.
+void Deselect (std::map<std::string, EditorPtr>& editors, const std::string& except = {});
 } // namespace geomsrv::archviz::hudfloorscheme
 #endif

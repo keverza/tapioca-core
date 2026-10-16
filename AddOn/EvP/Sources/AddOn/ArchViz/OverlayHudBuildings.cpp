@@ -84,9 +84,14 @@ void Engine::Impl::PlanSection (const massingbuildings::Preview& preview, float 
     std::map<std::string, buildingplan::Plan> alone;
     const auto& plans = store->floorPlanSnapshots.contains (building.key) ? store->floorPlanSnapshots
                                                                           : (alone[building.key] = preview.plan, alone);
+    const auto was = hudfloorscheme::Selected (store->planEditors[building.key]);
     auto asked =
         hudfloorscheme::PlanView (store->planEditors[building.key], store->floorPlanner, plans, store->buildingPlans,
                                   building.key, store->massingProgramme, store->massingCoefficients, ui);
+    // One flat selected at a time, over every building (user, 2026-10-16).
+    if (const auto now = hudfloorscheme::Selected (store->planEditors[building.key]);
+        now && (!was || was->story != now->story || was->flat != now->flat))
+        hudfloorscheme::Deselect (store->planEditors, building.key);
     for (auto& edit : asked.edits) {
         changes.push_back ({ "metadata", {}, "Selection", edit.id, -1, 0, {}, true });
         store->metadataEdits.push_back (std::move (edit));

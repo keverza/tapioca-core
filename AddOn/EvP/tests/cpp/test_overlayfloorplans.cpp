@@ -319,8 +319,18 @@ TEST (OverlayFloorPlans, AFlatPickedOnTheLockedPlanOpensTheSelectionTab)
     for (int n = 0; n < 3; ++n)
         gui.Lay ({}, at (float (x), float (y)));
     EXPECT_NE (hud::SelectedKey (*gui.state), hud::kSelectionKey) << "hovering picks nothing";
+    // A flat selected in another building before: one selection at a time (user, 2026-10-16).
+    namespace hf = geomsrv::archviz::hudfloorscheme;
+    auto& other = gui.state->planEditors["building:Other"];
+    other.reset (new hf::Editor);
+    other->key = "building:Other";
+    other->scheme = planned->scheme;
+    other->selected = { hf::Kind::Flat, 0, {}, {} };
+    ASSERT_TRUE (hf::Selected (other).has_value ());
     gui.Lay ({}, at (float (x), float (y), { { 0, true } }));
     gui.Lay ({}, at (float (x), float (y), { { 0, false } }));
+    EXPECT_FALSE (hf::Selected (other).has_value ()) << "the other building's flat deselected";
+    EXPECT_TRUE (hf::Selected (gui.state->planEditors.at ("building:Tower")).has_value ());
     EXPECT_EQ (hud::SelectedKey (*gui.state), hud::kSelectionKey);
     EXPECT_TRUE (hud::HudOpen (*gui.state));
     const auto asked = std::count_if (gui.heard.begin (), gui.heard.end (), [] (const hud::Change& c) {
@@ -394,4 +404,48 @@ TEST (OverlayFloorPlans, TheSelectedFloorsFlatsCarryTheirSidesLengthsWhenZoomedI
     editor->selected = {};
     ASSERT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units, &onPlan));
     EXPECT_TRUE (onPlan.texts.empty ());
+}
+
+// User, 2026-10-16: "When exit locked mode selection should clear up. ESC button should also clear
+// selection." Locked, Archicad's slabs deselected (its Escape) deselect the flat too; Deselect keeps
+// the one it is told to and nothing held.
+TEST (OverlayFloorPlans, ArchicadsEscapeWhileLockedDeselectsTheFlat)
+{
+    namespace hf = geomsrv::archviz::hudfloorscheme;
+    hudtest::Watched gui;
+    hud::OwnPages selected;
+    selected.floorPlansKnown = true;
+    selected.floorPlans = { Tower () };
+    selected.selection.known = true;
+    selected.selection.count = 1;
+    gui.engine.SetOwnPages (selected);
+    hud::SetEditLocked (*gui.state, true);
+    const auto flat = [] (const std::string& key) {
+        hf::EditorPtr e (new hf::Editor);
+        e->key = key;
+        e->scheme.flats.resize (1);
+        e->scheme.flats[0].shape = { { 0, 0 }, { 1, 0 }, { 1, 1 } };
+        e->selected = { hf::Kind::Flat, 0, {}, {} };
+        return e;
+    };
+    auto& editors = gui.state->planEditors;
+    editors["a"] = flat ("a");
+    editors["b"] = flat ("b");
+    hf::Deselect (editors, "a");
+    EXPECT_TRUE (hf::Selected (editors["a"]).has_value ());
+    EXPECT_FALSE (hf::Selected (editors["b"]).has_value ());
+    editors["b"] = flat ("b");
+    editors["b"]->menuOpen = true;
+    hf::Deselect (editors);
+    EXPECT_FALSE (hf::Selected (editors["a"]).has_value ());
+    EXPECT_TRUE (hf::Selected (editors["b"]).has_value ()) << "its menu open: held";
+    editors["b"]->menuOpen = false;
+    editors["a"] = flat ("a");
+    hud::OwnPages none;
+    none.selection.known = true;
+    none.selection.count = 0;
+    gui.engine.SetOwnPages (none);
+    EXPECT_EQ (gui.state->floorPlanSnapshots.size (), 1u) << "locked: the floors stay";
+    EXPECT_FALSE (hf::Selected (editors["a"]).has_value ());
+    EXPECT_FALSE (hf::Selected (editors["b"]).has_value ());
 }

@@ -495,6 +495,13 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
     return asked;
 }
 
+void Deselect (std::map<std::string, EditorPtr>& editors, const std::string& except)
+{
+    for (auto& [key, editor] : editors)
+        if (editor && key != except && editor->drag == Drag::None && !editor->menuOpen)
+            editor->selected = {};
+}
+
 std::optional<Selection> Selected (const EditorPtr& editor)
 {
     if (!editor || editor->selected.kind != Kind::Flat || editor->selected.index < 0 ||
