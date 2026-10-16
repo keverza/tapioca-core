@@ -196,3 +196,47 @@ TEST (EditPathNetwork, ASharpBendsEdgeCornersAreKerbCorners)
     EXPECT_EQ (paved.corners.size (), 6u);
     EXPECT_EQ (atBend, 2u);
 }
+
+TEST (EditPathNetwork, AFilletIsItsArcAloneAndKeepsToItsLegs)
+{
+    // A (along X) crossed at 30 degrees by B, with C parallel to A 4 m above it. The sharp
+    // corner between A's top edge and B is rounded by its own arc only -- not by filling the
+    // whole gap a 2.5 m disk cannot reach between A and C -- and that arc keeps to its half
+    // of the leg up B to the next corner (B meeting C), so the radius asked is clamped.
+    ed::Document doc;
+    const double c30 = std::cos (0.5235987755982988), s30 = std::sin (0.5235987755982988);
+    const ed::Id a = ed::AddPath (doc, { { -10, 0, 0 }, { 40, 0, 0 } }, 2.0);
+    const ed::Id b = ed::AddPath (doc, { { 15 - 20 * c30, -20 * s30, 0 }, { 15 + 20 * c30, 20 * s30, 0 } }, 2.0);
+    ed::AddPath (doc, { { -10, 6, 0 }, { 40, 6, 0 } }, 2.0);
+    const auto area = [] (const ed::PavedArea& p) {
+        double sum = 0.0;
+        for (const auto& r : p.rings)
+            sum += Area (r);
+        return sum;
+    };
+    const ed::PavedArea sharp = ed::Pave (doc.paths, 0.5, false);
+    const ed::PavedCorner* acute = nullptr;
+    for (const auto& c : sharp.corners)
+        if (c.Involves (a) && c.Involves (b) && !c.convex && c.half < 0.3 && c.at.y > 0.0)
+            acute = &c;
+    ASSERT_NE (acute, nullptr);
+    std::string error;
+    ASSERT_TRUE (ed::SetKerbRadius (doc, acute->path, acute->key, 2.5, error)) << error;
+    const ed::PavedArea round = ed::Pave (doc.paths, 0.5, false);
+    const ed::PavedCorner* now = nullptr;
+    for (const auto& c : round.corners)
+        if (c.path == acute->path && c.key.Same (acute->key))
+            now = &c;
+    ASSERT_NE (now, nullptr);
+    // The leg up B to C is 4 / sin 30 = 8 m: half of it, at this angle, takes about 1.05 m.
+    EXPECT_LT (now->key.radius, 2.5);
+    EXPECT_NEAR (now->key.radius, 0.49 * 8.0 * std::tan (now->half), 0.05);
+    // The paved area grows by that fillet and nothing else.
+    const double r = now->key.radius, h = now->half;
+    const double fillet = r * r / std::tan (h) - 0.5 * r * r * (3.14159265358979 - 2.0 * h);
+    EXPECT_NEAR (area (round) - area (sharp), fillet, 0.02);
+    // Every other corner is as it was.
+    for (const auto& c : round.corners)
+        if (!(c.path == acute->path && c.key.Same (acute->key)))
+            EXPECT_DOUBLE_EQ (c.key.radius, 0.0);
+}

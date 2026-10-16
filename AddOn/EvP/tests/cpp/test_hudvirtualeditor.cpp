@@ -586,18 +586,21 @@ TEST (HudVirtualEditor, AnOpenPolylineOffersToBecomeAPath)
 
 TEST (HudVirtualEditor, KerbGripsRoundAPathsCornersAndItsJunctions)
 {
-    // A tee: B (2 m wide) runs up from A's centreline. A is selected whole.
+    // A tee: B (2 m wide) runs up from A's centreline, its arms long enough for the radii
+    // asked (a corner keeps to half of each leg). A is selected whole.
     ed::Document doc;
-    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
-    ed::AddPath (doc, { { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 32, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 16, 0, 0 }, { 16, 16, 0 } }, 2.0);
     Drive d (std::move (doc));
     d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
     const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
-    const auto corner = [&] (bool junction) {
+    const auto corner = [&] (bool junction) { // the one of that kind nearest A's start, in view
+        ed::PavedCorner best;
+        best.at.x = 1e9;
         for (const auto& c : ed::Pave (d.D ().paths, 0.5, false).corners)
-            if ((c.key.other != ed::kNoId) == junction && c.Involves (a))
-                return c;
-        return ed::PavedCorner {};
+            if ((c.key.other != ed::kNoId) == junction && c.Involves (a) && c.at.x < best.at.x)
+                best = c;
+        return best;
     };
     // A junction's grip, 16 px (0.8 m) out along its bisector, dragged 2 m further out: that
     // corner alone takes the radius whose arc's middle is there.
@@ -612,7 +615,7 @@ TEST (HudVirtualEditor, KerbGripsRoundAPathsCornersAndItsJunctions)
     const ed::Path& pa = *ed::FindPath (d.D (), a);
     ASSERT_EQ (pa.kerbs.size (), 1u);
     EXPECT_TRUE (pa.kerbs[0].Same (j.key));
-    EXPECT_NEAR (pa.kerbs[0].radius, 2.8 / (1.0 / std::sin (j.half) - 1.0), 0.02);
+    EXPECT_NEAR (pa.kerbs[0].radius, 2.8 / (1.0 / std::sin (j.half) - 1.0), 0.12); // a pixel is 0.12 m of radius here
     EXPECT_DOUBLE_EQ (pa.edgeRadius, 0.0);
     // An own corner's grip -- the path selected whole -- sets that corner alone too, clamped
     // to most of its half width: the path's radius, and so its other corners, stay as they were.
@@ -907,8 +910,8 @@ TEST (HudVirtualEditor, AKerbFilletsRadiusIsTypedOverItsLabel)
 {
     // A tee's junction rounded 6 m: its radius dimension, clicked and typed over, sets it.
     ed::Document doc;
-    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
-    ed::AddPath (doc, { { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 32, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 16, 0, 0 }, { 16, 16, 0 } }, 2.0);
     for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
         if (c.key.other != ed::kNoId) {
             std::string error;

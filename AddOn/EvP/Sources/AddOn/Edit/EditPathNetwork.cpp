@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <map>
 
 namespace geomsrv::edit {
 
@@ -29,11 +28,6 @@ cp::PathD Polygon (const PathOutline& o)
     for (size_t i = o.right.size (); i-- > 0;)
         ring.push_back ({ o.right[i].x, o.right[i].y });
     return ring;
-}
-
-cp::PathsD Inflate (const cp::PathsD& paths, double delta)
-{
-    return cp::InflatePaths (paths, delta, cp::JoinType::Round, cp::EndType::Polygon, 2.0, kPrecision, kArcTolerance);
 }
 
 struct Source {
@@ -128,9 +122,11 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
         const size_t n = ring.size ();
         if (n < 3)
             continue;
+        // Each vertex's legs, read a little way along the outline either side, and its turn.
+        std::vector<Vec3> prevs (n), nexts (n);
+        std::vector<bool> turning (n, false);
         for (size_t i = 0; i < n; ++i) {
             const Vec3 v { ring[i].x, ring[i].y, 0.0 };
-            // Its legs, read a little way along the outline either side.
             const auto along = [&] (int dir) {
                 size_t j = i;
                 for (size_t k = 0; k + 1 < n; ++k) {
@@ -140,13 +136,33 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
                 }
                 return Vec3 { ring[j].x, ring[j].y, 0.0 };
             };
-            Vec3 toPrev, toNext;
-            if (!Normalize (along (-1) - v, toPrev) || !Normalize (along (1) - v, toNext))
+            if (!Normalize (along (-1) - v, prevs[i]) || !Normalize (along (1) - v, nexts[i]))
                 continue;
+            const Vec3 in { -prevs[i].x, -prevs[i].y, 0.0 };
+            turning[i] = std::abs (std::atan2 (in.x * nexts[i].y - in.y * nexts[i].x, Dot (in, nexts[i]))) >= kMinTurn;
+        }
+        // How far along the outline each leg runs to the next corner: a corner's rounding keeps
+        // to its own half of each leg, so it never reaches into a neighbour's.
+        std::vector<double> run (n + 1, 0.0);
+        for (size_t k = 0; k < n; ++k)
+            run[k + 1] = run[k] + std::hypot (ring[(k + 1) % n].x - ring[k].x, ring[(k + 1) % n].y - ring[k].y);
+        const auto leg = [&] (size_t i, int dir) {
+            for (size_t k = 1; k < n; ++k) {
+                const size_t j = dir > 0 ? (i + k) % n : (i + n - k) % n;
+                if (turning[j]) {
+                    const double d = dir > 0 ? run[j] - run[i] : run[i] - run[j];
+                    return d > 0.0 ? d : d + run[n];
+                }
+            }
+            return run[n] * 0.5;
+        };
+        for (size_t i = 0; i < n; ++i) {
+            if (!turning[i])
+                continue;
+            const Vec3 v { ring[i].x, ring[i].y, 0.0 };
+            const Vec3 toPrev = prevs[i], toNext = nexts[i];
             const Vec3 in { -toPrev.x, -toPrev.y, 0.0 };
             const double turn = std::atan2 (in.x * toNext.y - in.y * toNext.x, Dot (in, toNext));
-            if (std::abs (turn) < kMinTurn)
-                continue;
             PavedCorner c;
             c.convex = turn > 0.0; // the area is on the left of every ring
             c.half = std::acos (std::clamp (Dot (toPrev, toNext), -1.0, 1.0)) * 0.5;
@@ -191,7 +207,10 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
                 c.key.side = side;
                 c.key.radius = RadiusOf (*s.path, c.key, s.path->edgeRadius);
             }
-            c.maxRadius = c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant;
+            // The largest radius whose tangent points stay within its half of each leg; an
+            // outside corner's also cuts no deeper than most of the narrowest half width.
+            const double legs = 0.49 * std::min (leg (i, -1), leg (i, 1)) * std::tan (c.half);
+            c.maxRadius = std::min (legs, c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant);
             c.key.radius = std::min (c.key.radius, c.maxRadius);
             c.at = { v.x, v.y, HeightAt (sources, v) };
             out.push_back (c);
@@ -206,46 +225,35 @@ Vec3 Turned (Vec3 d, double angle)
     return { d.x * c - d.y * s, d.x * s + d.y * c, 0.0 };
 }
 
-// The wedge a corner's rounding stays in: between its legs (a little wider, for curved ones),
-// out to where its tangents reach.
-cp::PathD Wedge (const PavedCorner& c, Vec3 toPrev, Vec3 toNext, double reach)
+// A corner's rounding: the piece between its legs and an arc of its radius tangent to both,
+// built from the corner alone -- nothing else of the area shapes it.
+cp::PathD Fillet (const PavedCorner& c)
 {
-    const double spread = std::max (0.0, std::min (0.14, (3.05 - 2.0 * c.half) * 0.5));
-    const bool prevLeft = c.bisector.x * toPrev.y - c.bisector.y * toPrev.x > 0.0;
-    const Vec3 a = Turned (toPrev, prevLeft ? spread : -spread), b = Turned (toNext, prevLeft ? -spread : spread);
-    const Vec3 p[4] = { c.at, c.at + a * reach, c.at + c.bisector * (reach * 1.5), c.at + b * reach };
-    cp::PathD w;
-    for (const auto& q : p)
-        w.push_back ({ q.x, q.y });
-    if (cp::Area (w) < 0.0)
-        std::reverse (w.begin (), w.end ());
-    return w;
+    const double r = c.key.radius, t = r / std::tan (c.half);
+    const Vec3 a = c.at + Turned (c.bisector, c.half) * t, b = c.at + Turned (c.bisector, -c.half) * t;
+    const Vec3 centre = c.at + c.bisector * (r / std::sin (c.half));
+    const double from = std::atan2 (a.y - centre.y, a.x - centre.x);
+    const double sweep = std::remainder (std::atan2 (b.y - centre.y, b.x - centre.x) - from, 2.0 * kPi);
+    const double step = 2.0 * std::acos (std::clamp (1.0 - kArcTolerance / r, -1.0, 1.0));
+    const int pieces = std::clamp (int (std::ceil (std::abs (sweep) / std::max (step, 1.0e-3))), 2, 256);
+    cp::PathD piece { { c.at.x, c.at.y } };
+    for (int k = 0; k <= pieces; ++k) {
+        const double angle = from + sweep * k / pieces;
+        piece.push_back ({ centre.x + r * std::cos (angle), centre.y + r * std::sin (angle) });
+    }
+    if (cp::Area (piece) < 0.0)
+        std::reverse (piece.begin (), piece.end ());
+    return piece;
 }
 
-// Each corner rounded by its own radius: what an opening (outside corners) or a closing
-// (re-entrant ones) by that radius changes, kept to the corner's wedge.
+// Each corner rounded by its own radius: its fillet cut from an outside corner, added to a
+// re-entrant one.
 cp::PathsD Round (const cp::PathsD& sharp, const std::vector<PavedCorner>& corners)
 {
-    std::map<std::pair<double, bool>, cp::PathsD> changes;
     cp::PathsD cut, fill;
-    for (const auto& c : corners) {
-        const double r = c.key.radius;
-        if (!(r > 1.0e-4) || !(c.half > 1.0e-3))
-            continue;
-        auto found = changes.find ({ r, c.convex });
-        if (found == changes.end ()) {
-            const cp::PathsD morph = c.convex ? Inflate (Inflate (sharp, -r), r) : Inflate (Inflate (sharp, r), -r);
-            const cp::PathsD change = c.convex ? cp::Difference (sharp, morph, cp::FillRule::NonZero, kPrecision)
-                                               : cp::Difference (morph, sharp, cp::FillRule::NonZero, kPrecision);
-            found = changes.emplace (std::pair { r, c.convex }, change).first;
-        }
-        // The legs from the bisector and the half angle.
-        const Vec3 toPrev = Turned (c.bisector, c.half), toNext = Turned (c.bisector, -c.half);
-        const double reach = std::min (r / std::tan (c.half), 12.0 * r) * 1.05 + 0.01;
-        const cp::PathsD part = cp::Intersect (found->second, cp::PathsD { Wedge (c, toPrev, toNext, reach) },
-                                               cp::FillRule::NonZero, kPrecision);
-        (c.convex ? cut : fill).insert ((c.convex ? cut : fill).end (), part.begin (), part.end ());
-    }
+    for (const auto& c : corners)
+        if (c.key.radius > 1.0e-4 && c.half > 1.0e-3 && c.half < kPi * 0.5 - 1.0e-3)
+            (c.convex ? cut : fill).push_back (Fillet (c));
     if (cut.empty () && fill.empty ())
         return sharp;
     cp::PathsD area = cut.empty () ? sharp : cp::Difference (sharp, cut, cp::FillRule::NonZero, kPrecision);
