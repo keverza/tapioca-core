@@ -1,5 +1,7 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/BuildingTopology.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
+#include "ArchViz/MassingSlices.hpp"
 #include <clipper2/clipper.h>
 #include <clipper2/clipper.triangulation.h>
 #include <climits>
@@ -65,6 +67,7 @@ uint32_t CellRgba (const bt::Cell& cell)
 constexpr uint32_t kPalette[] = { 0xE8A3B4FFu, 0xA8C58AFFu, 0x5EC2E0FFu, 0xBEA74AFFu, 0xD4836EFFu, 0xC6A8E8FFu,
                                   0xF0C36AFFu, 0x7FB8A8FFu, 0x9AA7D9FFu, 0xD9A06BFFu, 0x8FD0C1FFu, 0xE5B7D8FFu };
 constexpr uint32_t kNeutral = 0xE4E6E6FFu, kCoreNeutral = 0xB8BCBEFFu, kNoProgramme = 0xA9BCD0FFu;
+constexpr uint32_t kFaded = 0xF3F4F4FFu; // what a Stats highlight leaves out
 constexpr uint32_t kSlabWire = 0x3C4248B0u, kUnitInk = 0x1D2427CCu, kInnerWall = 0x1D24276Eu;
 uint32_t Paletted (size_t index)
 {
@@ -389,7 +392,7 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             selected.push_back (std::move (*s));
     std::ostringstream signature;
     signature << std::setprecision (17) << state.previewStairs << state.previewCells << int (state.cellColours)
-              << state.cellHiddenLines << ':' << state.floorPlanner.Revision () << ':'
+              << state.cellHiddenLines << state.massingStatsFunction << ':' << state.floorPlanner.Revision () << ':'
               << (onPlan ? state.planStorey : INT_MIN);
     for (const auto& [key, plan] : state.floorPlanSnapshots) {
         const auto* shown = Displayed (plan, state.buildingPlans[key]);
@@ -488,9 +491,32 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                     return floor.programmeRgba | 0xFFu;
             return kNoProgramme;
         };
+        // ⚠️ THE STATS TAB'S HIGHLIGHT ON THE CELLS (user, 2026-10-16: "highlights from stats tab
+        // should work with cell complex. Cell complex should be first class preview"): the solids are
+        // drawn after the function volumes and hide them, so the cells answer the hover themselves --
+        // a use: its floors in its colour, the rest faded; the built footprint: each building's ground
+        // floor in the built colour. The unbuilt parcel is outside the buildings and stays as it is.
+        const std::string& hover = state.massingStatsFunction;
+        const bool built = hover == massingslices::kBuiltHover;
+        const bool use = !hover.empty () && !built && hover != massingslices::kUnbuiltHover;
+        double ground = 1e300;
+        for (const auto& floor : complex.floors)
+            ground = (std::min) (ground, floor.z);
+        const auto hovered = [&] (const bt::Floor& floor, uint32_t rgba) -> uint32_t {
+            if (built)
+                return std::abs (floor.z - ground) < 1e-6
+                           ? graphicssettings::Colour ("ui.coverage.built", 0x9AA0A6FFu) | 0xFFu
+                           : kFaded;
+            if (!use)
+                return rgba;
+            for (const auto& f : plan.floors)
+                if (f.story == floor.story && f.programme == hover)
+                    return graphicssettings::FunctionColour (hover, f.programmeRgba) | 0xFFu;
+            return kFaded;
+        };
         // What a flat, or a cell no flat holds, is coloured on this floor.
-        const auto colourOf = [&] (const bt::Floor& floor, const bt::Unit* unit, const std::vector<fs::Ring>* rings,
-                                   const bt::Cell* cell) -> uint32_t {
+        const auto ownColour = [&] (const bt::Floor& floor, const bt::Unit* unit, const std::vector<fs::Ring>* rings,
+                                    const bt::Cell* cell) -> uint32_t {
             if (state.cellColours == CellColours::SpaceTypes && cell)
                 return CellRgba (*cell);
             if (!unit)
@@ -507,6 +533,10 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
                 default:
                     return floorprogramme::Colour (state.massingProgramme, unit->type, unit->rooms) | 0xFFu;
             }
+        };
+        const auto colourOf = [&] (const bt::Floor& floor, const bt::Unit* unit, const std::vector<fs::Ring>* rings,
+                                   const bt::Cell* cell) -> uint32_t {
+            return hovered (floor, ownColour (floor, unit, rings, cell));
         };
         overlaylayers::Mesh cells, cores;
         for (auto* mesh : { &cells, &cores }) {
@@ -556,7 +586,8 @@ bool TakeFloorPlanLayers (State& state, overlaylayers::Layer& stairs, overlaylay
             auto& into = picked[u] ? chosen : cells;
             if (state.cellColours == CellColours::SpaceTypes)
                 for (int id : unit.cells) {
-                    const uint32_t rgba = picked[u] ? lit (CellRgba (complex.cells[id])) : CellRgba (complex.cells[id]);
+                    const uint32_t own = hovered (floor, CellRgba (complex.cells[id])),
+                                   rgba = picked[u] ? lit (own) : own;
                     for (const auto& ring : clear[id]) {
                         Solid (into, ring, span.z0 + 0.02, span.z1, rgba);
                         if (here)

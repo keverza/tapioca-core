@@ -4,6 +4,7 @@
 // only when something changed, kept through deselection.
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/HudFloorSchemeEditDetail.hpp"
+#include "ArchViz/GraphicsSettings.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -611,4 +612,41 @@ TEST (OverlayFloorPlans, In3DTheNearestCellIsPickedOnAnyFloorAndItsSolidHighligh
         EXPECT_EQ (mesh.style.behind, layers::Behind::Hide);
     for (const auto& line : units.polylines)
         EXPECT_EQ (line.behind, layers::Behind::Hide);
+}
+
+// User, 2026-10-16: "highlights from stats tab should work with cell complex. Cell complex should be
+// first class preview." A use hovered on the Stats tab: its floors' cells in its colour, the rest
+// faded; the built footprint: each building's ground floor in the built colour.
+TEST (OverlayFloorPlans, TheStatsTabsHighlightColoursTheCells)
+{
+    auto state = hud::NewState ();
+    auto plan = Tower ();
+    plan.floors[1].programme = "Office";
+    plan.floors[1].programmeRgba = 0x4477AAFFu;
+    state->floorPlanSnapshots[plan.key] = plan;
+    state->previewCells = true;
+    layers::Layer stairs, units;
+    ASSERT_TRUE (Planned (*state, stairs, units, 0));
+    // The colours at each floor's level, of the cells' solids.
+    const auto at = [&] () {
+        std::map<long long, std::set<uint32_t>> out;
+        EXPECT_TRUE (hud::TakeFloorPlanLayers (*state, stairs, units));
+        for (const auto& mesh : units.meshes)
+            for (size_t i = 0; i < mesh.vertexRgba.size (); ++i)
+                out[std::llround (mesh.points[i * 3 + 2] - 0.02)].insert (mesh.vertexRgba[i]);
+        return out;
+    };
+    state->massingStatsFunction = "Office";
+    auto colours = at ();
+    EXPECT_TRUE (
+        colours[3].contains (geomsrv::archviz::graphicssettings::FunctionColour ("Office", 0x4477AAFFu) | 0xFFu))
+        << "the office floor in its use's colour";
+    EXPECT_EQ (colours[0], (std::set<uint32_t> { 0xF3F4F4FFu })) << "the others faded";
+    state->massingStatsFunction = "coverage.built";
+    colours = at ();
+    EXPECT_FALSE (colours[0].contains (0xF3F4F4FFu)) << "the ground floor is the footprint";
+    EXPECT_EQ (colours[6], (std::set<uint32_t> { 0xF3F4F4FFu }));
+    state->massingStatsFunction.clear ();
+    colours = at ();
+    EXPECT_FALSE (colours[0].contains (0xF3F4F4FFu)) << "no hover, no highlight";
 }
