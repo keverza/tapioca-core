@@ -16,6 +16,7 @@
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/RoofSlopeCanvas.hpp"
 #include "Edit/EditGizmo.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditProfileView.hpp"
 #include "Edit/EditSnap.hpp"
@@ -31,7 +32,7 @@ struct Input;
 namespace geomsrv::archviz::edithud {
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve };
-enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner, Bezier, Bend };
+enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner, Bezier, Bend, Kerb };
 
 // What a right click landed on, which decides what its menu offers.
 enum class MenuTarget : uint8_t { View, Drawing, Vertex, Segment, Object, Path, PathPoint, GradeBreak, Range };
@@ -104,6 +105,14 @@ struct Session {
     edit::Id cornerEntity = edit::kNoId;
     size_t cornerIndex = 0;
     std::vector<edit::Id> cornerSet;
+    // A kerb corner's grip (a paved corner of the selected path): hovered; the corner picked
+    // by a click (then a drag or the panel sets it alone) or being dragged; whether the drag
+    // sets the path's own radius (all its own corners). The paved corners, per revision.
+    int hoverKerb = -1;
+    bool kerbPicked = false, kerbWhole = false;
+    edit::PavedCorner kerb;
+    edit::PavedArea paved;
+    uint64_t pavedRevision = UINT64_MAX;
     bool wholeGrab = false;               // the press grabbed a selected object by its own part
     bool dragStarted = false;             // the pointer has left the press by the drag threshold
     std::vector<edit::PickHit> pressHits; // what was under that press, for the click it may be

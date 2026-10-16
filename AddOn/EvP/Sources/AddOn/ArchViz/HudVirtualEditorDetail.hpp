@@ -70,6 +70,12 @@ void ApplyPenHandles (edit::Document& d, edit::Id created, const std::vector<edi
 // Live-corner grips (HudVirtualEditorCorners.cpp): hover, drag, click and double click,
 // and their drawing. True when they took the pointer this frame.
 bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
+// Kerb grips, the same on the paved area's corners of the path selected whole -- its own and
+// its junctions with other paths: dragging an own corner's sets the path's kerb radius, a
+// junction's (or a picked corner's) that corner alone.
+bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
+// The kerb corner a click picked, as it is now; null when none is.
+const edit::PavedCorner* PickedKerb (Session& s);
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);

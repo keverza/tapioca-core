@@ -582,3 +582,45 @@ TEST (HudVirtualEditor, AnOpenPolylineOffersToBecomeAPath)
     d.S ().menu.ref = { closed, ed::Part::Entity, 0 };
     EXPECT_FALSE (d.Offers ("action.make-path"));
 }
+
+TEST (HudVirtualEditor, KerbGripsRoundAPathsCornersAndItsJunctions)
+{
+    // A tee: B (2 m wide) runs up from A's centreline. A is selected whole.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { a, ed::Part::Entity, 0 } });
+    const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+    const auto corner = [&] (bool junction) {
+        for (const auto& c : ed::Pave (d.D ().paths, 0.5, false).corners)
+            if ((c.key.other != ed::kNoId) == junction && c.Involves (a))
+                return c;
+        return ed::PavedCorner {};
+    };
+    // A junction's grip, 16 px (0.8 m) out along its bisector, dragged 2 m further out: that
+    // corner alone takes the radius whose arc's middle is there.
+    const ed::PavedCorner j = corner (true);
+    ASSERT_EQ (j.path, a);
+    const ImVec2 g = screen (ed::KerbGripAt (j, 0.8)), to = screen (ed::KerbGripAt (j, 0.8) + j.bisector * 2.0);
+    d.At (g.x, g.y);
+    ASSERT_GE (d.S ().hoverKerb, 0);
+    d.Press (g.x, g.y);
+    d.At (to.x, to.y);
+    d.Release (to.x, to.y);
+    const ed::Path& pa = *ed::FindPath (d.D (), a);
+    ASSERT_EQ (pa.kerbs.size (), 1u);
+    EXPECT_TRUE (pa.kerbs[0].Same (j.key));
+    EXPECT_NEAR (pa.kerbs[0].radius, 2.8 / (1.0 / std::sin (j.half) - 1.0), 0.02);
+    EXPECT_DOUBLE_EQ (pa.edgeRadius, 0.0);
+    // An own corner's grip sets the path's kerb radius, clamped to most of its half width.
+    const ed::PavedCorner own = corner (false);
+    const ImVec2 h = screen (ed::KerbGripAt (own, 0.8)), out = screen (ed::KerbGripAt (own, 0.8) + own.bisector * 3.0);
+    d.At (h.x, h.y);
+    ASSERT_GE (d.S ().hoverKerb, 0);
+    d.Press (h.x, h.y);
+    d.At (out.x, out.y);
+    d.Release (out.x, out.y);
+    EXPECT_NEAR (ed::FindPath (d.D (), a)->edgeRadius, 0.98, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}

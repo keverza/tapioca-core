@@ -107,6 +107,21 @@ void Panel (Session& s)
                     [id, r] (edit::Document& d, std::string& e) { return edit::SetPathEdgeRadius (d, id, r, e); }))
                 s.message = s.edits.Message ();
         }
+        // A kerb corner picked on the view: its own radius, apart from the path's.
+        if (const edit::PavedCorner* k = PickedKerb (s)) {
+            float r = float (k->key.radius);
+            ImGui::SetNextItemWidth (140.0f);
+            if (ImGui::DragFloat (k->key.other != edit::kNoId ? "Junction corner" : "Corner radius", &r, 0.05f, 0.0f,
+                                  float (k->maxRadius), "%.2f m") &&
+                s.drag == Drag::None) {
+                const edit::PavedCorner c = *k;
+                const double v = std::clamp (double (r), 0.0, c.maxRadius);
+                if (!s.edits.Apply ([c, v] (edit::Document& d, std::string& e) {
+                        return edit::SetKerbRadius (d, c.path, c.key, v, e);
+                    }))
+                    s.message = s.edits.Message ();
+            }
+        }
         // Path actions on the selected part.
         const auto& items = s.selection.Items ();
         const edit::Ref* part = items.size () == 1 && items[0].entity == path->id ? &items[0] : nullptr;

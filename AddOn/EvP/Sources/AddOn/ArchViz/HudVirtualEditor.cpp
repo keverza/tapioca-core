@@ -615,6 +615,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
 
     // Live-corner grips first: they sit over the geometry and the gizmo.
     bool gripTook = CornerGrips (s, m, mouse, hovered && s.tool == Tool::Select, scale);
+    gripTook = KerbGrips (s, m, mouse, hovered && !gripTook && s.tool == Tool::Select, scale) || gripTook;
     gripTook = CurveHandles (s, m, mouse, hovered && !gripTook, pick, scale) || gripTook;
 
     // Press. A handle waiting for its number gives way to whatever is pressed next.
@@ -977,8 +978,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // crosshair while a drawing tool places points, the move cross on a handle and through any
     // drag, the arrow otherwise.
     if (hovered) {
-        const bool dragging = s.drag == Drag::Part || s.drag == Drag::Handle || s.drag == Drag::Corner ||
-                              s.drag == Drag::Bezier || s.drag == Drag::Bend;
+        const bool dragging = s.drag != Drag::None && s.drag != Drag::Marquee; // the profile's are the panel's
         hudshell::OwnCursor (s.tool != Tool::Select && s.drag == Drag::None);
         if (s.tool == Tool::Curve && s.drag == Drag::None) {
             // The pen; over the first anchor of a shape that can close, the pen that closes.
@@ -987,7 +987,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                                 std::hypot (first.x - mouse.x, first.y - mouse.y) < kSnapPixels * scale;
             hudshell::OwnCursorAs (uint8_t (closes ? overlayinput::Cursor::PenClose : overlayinput::Cursor::Pen));
         }
-        ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 || s.hoverCorner >= 0 || s.hoverBezier >= 0
+        ImGui::SetMouseCursor (dragging || s.hoverHandle >= 0 || s.hoverCorner >= 0 || s.hoverKerb >= 0 ||
+                                       s.hoverBezier >= 0
                                    ? ImGuiMouseCursor_ResizeAll
                                    : ImGuiMouseCursor_Arrow);
     }

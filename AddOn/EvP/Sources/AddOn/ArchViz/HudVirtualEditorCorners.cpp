@@ -1,6 +1,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditShape.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -205,6 +206,144 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         list->AddCircleFilled (g.screen, r, lit ? kAccent : kPaper);
         list->AddCircle (g.screen, r, lit ? kInk : kAccent, 0, 1.5f * scale);
         list->AddCircleFilled (g.screen, 1.5f * scale, lit ? kPaper : kAccent);
+    }
+    return took;
+}
+
+namespace {
+
+const ImU32 kKerb = IM_COL32 (168, 131, 74, 255); // the paved edge's colour
+
+// The path selected whole, whose kerb grips show.
+edit::Id KerbPath (const Session& s)
+{
+    const auto& items = s.selection.Items ();
+    if (s.tool != Tool::Select || items.size () != 1 || items[0].part != edit::Part::Entity ||
+        edit::FindPath (Doc (s), items[0].entity) == nullptr)
+        return edit::kNoId;
+    return items[0].entity;
+}
+
+const std::vector<edit::PavedCorner>& PavedCorners (Session& s)
+{
+    if (s.pavedRevision != Doc (s).revision) {
+        s.paved = edit::Pave (Doc (s).paths, 0.5, false);
+        s.pavedRevision = Doc (s).revision;
+    }
+    return s.paved.corners;
+}
+
+// What a gesture on corner `c` sets to `r`: the path's own radius, or that corner alone.
+edit::Operation KerbEdit (const edit::PavedCorner& c, bool whole, double r)
+{
+    if (whole)
+        return
+            [path = c.path, r] (edit::Document& d, std::string& e) { return edit::SetPathEdgeRadius (d, path, r, e); };
+    return [c, r] (edit::Document& d, std::string& e) { return edit::SetKerbRadius (d, c.path, c.key, r, e); };
+}
+
+} // namespace
+
+const edit::PavedCorner* PickedKerb (Session& s)
+{
+    const edit::Id path = KerbPath (s);
+    if (!s.kerbPicked || path == edit::kNoId || !s.kerb.Involves (path))
+        return nullptr;
+    for (const auto& c : PavedCorners (s))
+        if (c.path == s.kerb.path && c.key.Same (s.kerb.key))
+            return &c;
+    return nullptr;
+}
+
+bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale)
+{
+    const edit::Id path = KerbPath (s);
+    if (path == edit::kNoId || (s.kerbPicked && !s.kerb.Involves (path)))
+        s.kerbPicked = false;
+    s.hoverKerb = s.drag == Drag::None ? -1 : s.hoverKerb;
+    if (path == edit::kNoId && s.drag != Drag::Kerb)
+        return false;
+    struct KerbGrip {
+        edit::PavedCorner corner;
+        ImVec2 screen;
+    };
+    std::vector<KerbGrip> grips;
+    for (const auto& c : PavedCorners (s)) {
+        KerbGrip g { c, {} };
+        if (c.Involves (path) && m.Screen (edit::KerbGripAt (c, Inset (m, c.at, scale)), g.screen))
+            grips.push_back (g);
+    }
+    if (s.drag == Drag::None) {
+        float best = kPickPixels * scale;
+        for (size_t k = 0; hovered && k < grips.size (); ++k) {
+            const float d = std::hypot (grips[k].screen.x - mouse.x, grips[k].screen.y - mouse.y);
+            if (d < best)
+                best = d, s.hoverKerb = int (k);
+        }
+        if (s.hoverKerb >= 0)
+            s.hoverHandle = -1, s.selection.hover = {};
+    }
+    const KerbGrip* hot = s.drag == Drag::None && s.hoverKerb >= 0 ? &grips[size_t (s.hoverKerb)] : nullptr;
+    bool took = false;
+    if (hovered && hot != nullptr && (ImGui::IsMouseClicked (0) || ImGui::IsMouseDoubleClicked (0))) {
+        // A picked corner is set alone; else an own corner sets the path's radius, a junction its own.
+        const bool picked = s.kerbPicked && s.kerb.path == hot->corner.path && s.kerb.key.Same (hot->corner.key);
+        const bool whole = !picked && hot->corner.key.other == edit::kNoId && hot->corner.path == path;
+        if (ImGui::IsMouseDoubleClicked (0)) { // sharp again
+            if (!s.edits.Apply (KerbEdit (hot->corner, whole, 0.0)))
+                s.message = s.edits.Message ();
+            return true;
+        }
+        if (s.edits.Begin ()) {
+            s.drag = Drag::Kerb;
+            s.kerb = hot->corner;
+            s.kerbWhole = whole;
+            s.startX = mouse.x, s.startY = mouse.y;
+            took = true;
+        }
+    }
+    if (s.drag == Drag::Kerb && ImGui::IsMouseDown (0)) {
+        Vec3 at;
+        if (m.Onto (mouse.x, mouse.y, s.kerb.at.z, s.kerb.at, at)) {
+            double r = edit::KerbRadiusFromGrip (s.kerb, at, Inset (m, s.kerb.at, scale));
+            r = std::min (std::round (r * 100.0) / 100.0, s.kerb.maxRadius); // to the centimetre, as fits
+            if (!s.edits.Move (KerbEdit (s.kerb, s.kerbWhole, r)))
+                s.message = s.edits.Message ();
+            char text[48];
+            std::snprintf (text, sizeof text, "%s R %.2f m", s.kerbWhole ? "Kerb" : "Corner", r);
+            s.snap = {};
+            s.snap.snapped = true;
+            s.snap.point = s.kerb.at;
+            s.snap.hint = text;
+        }
+        took = true;
+    }
+    if (s.drag == Drag::Kerb && ImGui::IsMouseReleased (0)) {
+        if (std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
+            s.edits.Cancel (); // a click: this corner picked, to be set alone
+            s.kerbPicked = true;
+        }
+        else
+            s.edits.End ();
+        s.drag = Drag::None;
+        s.snap = {};
+        took = true;
+    }
+    // The grips: small diamonds in the kerb's colour, apart from the bends' round ones.
+    auto* list = s.canvas.list;
+    for (size_t k = 0; k < grips.size (); ++k) {
+        const auto& g = grips[k];
+        const bool mine =
+            (s.kerbPicked || s.drag == Drag::Kerb) && s.kerb.path == g.corner.path && s.kerb.key.Same (g.corner.key);
+        const bool lit = int (k) == s.hoverKerb || mine;
+        const float r = (lit ? kGripPixels + 2.0f : kGripPixels + 0.5f) * scale;
+        const ImVec2 p = g.screen;
+        rc::Scope scope (s.canvas, { At (g.corner.at, p) });
+        const ImVec2 q[4] = { { p.x, p.y - r }, { p.x + r, p.y }, { p.x, p.y + r }, { p.x - r, p.y } };
+        list->AddQuadFilled ({ q[0].x, q[0].y - 1.5f }, { q[1].x + 1.5f, q[1].y }, { q[2].x, q[2].y + 1.5f },
+                             { q[3].x - 1.5f, q[3].y }, kShadow);
+        list->AddQuadFilled (q[0], q[1], q[2], q[3], lit ? kAccent : kPaper);
+        list->AddQuad (q[0], q[1], q[2], q[3], lit ? kInk : kKerb, 1.5f * scale);
     }
     return took;
 }
