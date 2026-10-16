@@ -222,19 +222,22 @@ TEST (EditLayers, PathLabelsGoToTheViewWhenItPlacesThem)
     ed::Document doc;
     ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 1.5);
     const auto labels = el::PathLabels (doc);
-    // Two break heights, one grade, one crossfall; the grade stands off to the left of the
-    // path, the crossfall towards its falling edge.
-    ASSERT_EQ (labels.size (), 4u);
-    size_t percents = 0;
+    // Two break heights, one grade, one crossfall, and its width for the view only; the grade
+    // stands off to the left of the path, the crossfall towards its falling edge.
+    ASSERT_EQ (labels.size (), 5u);
+    size_t percents = 0, lines = 0;
     for (const auto& l : labels) {
         EXPECT_NEAR (std::hypot (l.side.x, l.side.y), 1.0, 1e-9);
+        EXPECT_TRUE (l.typed) << l.text; // every one can be typed over
         percents += l.text.find ('%') != std::string::npos;
+        lines += l.line;
     }
     EXPECT_EQ (percents, 2u);
+    EXPECT_EQ (lines, 1u);
     el::Feedback inView;
     inView.labelsInView = true;
     EXPECT_TRUE (el::Build (doc, inView).texts.empty ());
-    EXPECT_EQ (el::Build (doc, {}).texts.size (), labels.size ());
+    EXPECT_EQ (el::Build (doc, {}).texts.size (), labels.size () - lines);
 }
 
 TEST (EditLayers, TurnedLabelsOverlapAsTheyStand)
@@ -269,12 +272,49 @@ TEST (EditLayers, LabelsNeverReadUpsideDown)
 
 TEST (EditLayers, PathLabelsReadAlongWhatTheyMeasure)
 {
-    // A path running north: its heights and grade read along it, its crossfall across it.
+    // A path running north: its heights and grade read along it, its crossfall and width
+    // across it.
     ed::Document doc;
     ed::AddPath (doc, { { 0, 0, 0 }, { 0, 20, 1 } }, 1.5);
     for (const auto& l : el::PathLabels (doc)) {
-        const bool crossfall = l.rgba == el::Style {}.fall;
+        const bool crossfall = l.rgba == el::Style {}.fall || l.line; // and the width across it
         EXPECT_NEAR (std::abs (l.along.y), crossfall ? 0.0 : 1.0, 1e-9) << l.text;
         EXPECT_NEAR (std::abs (l.along.x), crossfall ? 1.0 : 0.0, 1e-9) << l.text;
     }
+}
+
+TEST (EditLayers, PathDimensionsMeasureWidthsAndRadii)
+{
+    // A 2 m path bending round a 6 m arc, kerbs rounded 0.5 m: its width across it, the
+    // bend's radius out from the arc's centre, each kerb fillet's from its own.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 }, { 20, 20, 0 } }, 2.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, p, ed::FindPath (doc, p)->points[1].id, 6.0, error)) << error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, p, 0.5, error)) << error;
+    size_t widths = 0, bends = 0, kerbs = 0;
+    for (const auto& l : el::PathLabels (doc)) {
+        if (!l.line)
+            continue;
+        const double length = std::hypot (l.to.x - l.from.x, l.to.y - l.from.y);
+        EXPECT_NEAR (length, l.extent, 1e-6) << l.text; // the line is what it measures
+        if (!l.radial) {
+            ++widths;
+            EXPECT_EQ (l.text, "2.00 m");
+            EXPECT_EQ (l.value.quantity, ed::Quantity::Width);
+        }
+        else if (l.kerbPath != ed::kNoId) {
+            ++kerbs;
+            EXPECT_EQ (l.text, "R 0.50 m");
+        }
+        else {
+            ++bends;
+            EXPECT_EQ (l.text, "R 6.00 m");
+            EXPECT_NEAR (l.from.x, 14.0, 1e-6); // the arc's centre
+            EXPECT_NEAR (l.from.y, 6.0, 1e-6);
+        }
+    }
+    EXPECT_EQ (widths, 1u);
+    EXPECT_EQ (bends, 1u);
+    EXPECT_EQ (kerbs, 4u); // the four end corners
 }

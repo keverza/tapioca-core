@@ -10,6 +10,7 @@
 // transforms; nothing here knows a camera.
 #include "ArchViz/OverlayLayers.hpp"
 #include "Edit/EditGizmo.hpp"
+#include "Edit/EditPath.hpp"
 #include "Edit/EditSnap.hpp"
 #include <string>
 #include <vector>
@@ -96,17 +97,33 @@ Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float 
 Box PlaceAlong (float ax, float ay, float w, float h, float ux, float uy, float dx, float dy, float away,
                 std::vector<Box>& taken, bool* found = nullptr);
 
-// A path's own label -- a grade break's height, a tangent's grade, a range's crossfall --
-// for a view that places it in pixels (PlaceAlong): it hangs from `at`, stands off towards
-// the plan direction `side` and reads along `along`, the way what it measures runs (the
-// path for a height or a grade, across it for a crossfall). `dy` is where the layer puts it
-// when it draws it.
+// A path's own label -- a grade break's height, a tangent's grade, a range's crossfall and
+// width, a bend's or a kerb fillet's radius -- for a view that places it in pixels
+// (PlaceAlong): it hangs from `at`, stands off towards the plan direction `side` and reads
+// along `along`, the way what it measures runs (the path for a height or a grade, across it
+// for a crossfall or a width, out from its centre for a radius). `dy` is where the layer
+// puts it when it draws it.
 struct MarkLabel {
     edit::Vec3 at, side, along;
     std::string text;
     uint32_t rgba = 0;
     float dy = 0.0f;
+    // A dimension's own line, `from` to `to`: ticked at both ends (a width across the path),
+    // or with an arrow at `to` only (a radius, from its arc's centre). Worth showing only when
+    // `extent` metres -- what it measures -- come to enough pixels to read.
+    bool line = false, radial = false;
+    edit::Vec3 from, to;
+    double extent = 0.0;
+    // What typing over it sets, when `typed`: a dimension of a path (WriteDimension; a
+    // grade, shown unsigned, keeps the way it falls), or a kerb corner's radius when
+    // `kerbPath` is set (that path keeps the corner).
+    bool typed = false;
+    edit::Dimension value;
+    edit::Id kerbPath = edit::kNoId;
+    edit::KerbCorner kerb;
 };
+// The layer's own labels for its paths (heights, grades, crossfalls), and, for the view
+// only, their dimensions (widths, bend and kerb radii).
 std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style = {});
 
 // Triangles of a counter-clockwise plan polygon (ear clipping), as index triples.

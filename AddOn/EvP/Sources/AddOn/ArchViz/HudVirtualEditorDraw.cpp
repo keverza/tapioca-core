@@ -364,6 +364,35 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
     }
 }
 
+namespace {
+
+// A path dimension's line, thin and in its colour: ticks at both ends of a width, an arrow at
+// the arc of a radius.
+void DimensionLine (Session& s, const editlayers::MarkLabel& l, ImVec2 a, ImVec2 b, float scale)
+{
+    const float dx = b.x - a.x, dy = b.y - a.y, length = std::hypot (dx, dy);
+    if (length < 1.0f)
+        return;
+    const ImVec2 u { dx / length, dy / length }, n { -u.y, u.x };
+    const ImU32 colour = FromRgba (l.rgba);
+    rc::Scope scope (s.canvas, { At (l.from, a), At (l.to, b) });
+    auto* list = s.canvas.list;
+    list->AddLine (a, b, colour, 1.0f * scale);
+    if (l.radial) {
+        const float head = 8.0f * scale, half = 3.0f * scale;
+        const ImVec2 base { b.x - u.x * head, b.y - u.y * head };
+        list->AddTriangleFilled (b, { base.x + n.x * half, base.y + n.y * half },
+                                 { base.x - n.x * half, base.y - n.y * half }, colour);
+        return;
+    }
+    const float tick = 4.0f * scale;
+    const ImVec2 slash { (n.x + u.x) * 0.7071f * tick, (n.y + u.y) * 0.7071f * tick };
+    list->AddLine (Add (a, slash, -1.0f), Add (a, slash), colour, 1.5f * scale);
+    list->AddLine (Add (b, slash, -1.0f), Add (b, slash), colour, 1.5f * scale);
+}
+
+} // namespace
+
 void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale)
 {
     const auto& doc = Doc (s);
@@ -375,6 +404,12 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
     for (const auto& l : s.marks) {
         ImVec2 at, toward, ahead;
         if (!m.Screen (l.at, at))
+            continue;
+        // A dimension with a line of its own: only where that line is longer than its label,
+        // so it shows as the view comes close enough to read it.
+        ImVec2 a, b;
+        if (l.line && (!m.Screen (l.from, a) || !m.Screen (l.to, b) ||
+                       std::hypot (b.x - a.x, b.y - a.y) < ImGui::CalcTextSize (l.text.c_str ()).x + 24.0f * scale))
             continue;
         // Off towards its side on screen, a metre's worth of direction.
         ImVec2 dir { 0.0f, l.dy < 0.0f ? -1.0f : 1.0f };
@@ -391,10 +426,13 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
         const float w = ImGui::CalcTextSize (l.text.c_str ()).x + 10.0f;
         const float across = std::abs (dir.x * ux + dir.y * uy) * w + std::abs (-dir.x * uy + dir.y * ux) * h;
         bool found = false;
-        const auto box = editlayers::PlaceAlong (at.x, at.y, w, h, ux, uy, dir.x, dir.y, 10.0f * scale + 0.5f * across,
-                                                 taken, &found);
-        if (found)
-            Ink (s, l.at, at, box, l.text, FromRgba (l.rgba));
+        const float away = l.line ? 0.5f * h + 1.0f * scale : 10.0f * scale + 0.5f * across; // beside its line
+        const auto box = editlayers::PlaceAlong (at.x, at.y, w, h, ux, uy, dir.x, dir.y, away, taken, &found);
+        if (!found)
+            continue;
+        if (l.line)
+            DimensionLine (s, l, a, b, scale);
+        Ink (s, l.at, at, box, l.text, FromRgba (l.rgba));
     }
 }
 

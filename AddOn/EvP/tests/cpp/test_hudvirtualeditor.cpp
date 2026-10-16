@@ -765,3 +765,21 @@ TEST (HudVirtualEditor, LabelsAreInkWithoutAPill)
     for (const auto& v : drawn)
         EXPECT_NE (v.rgba, geomsrv::archviz::hudshell::Unpacked (IM_COL32 (247, 248, 250, 235))) << v.x << ", " << v.y;
 }
+
+TEST (HudVirtualEditor, DimensionsShowWhenCloseEnoughToRead)
+{
+    // At 20 px a metre, a 6 m wide path's width dimension reads and is drawn; a 1 m one's
+    // would be longer than its line, so it waits for the view to come closer.
+    const auto drawn = [] (double width) {
+        ed::Document doc;
+        ed::AddPath (doc, { { 0, -10, 0 }, { 0, 12, 0 } }, width);
+        Drive d (std::move (doc));
+        d.input.x = 950, d.input.y = 160;
+        size_t n = 0;
+        for (const auto& v : d.Frame ().overlay.vertices)
+            n += v.rgba == el::Style {}.dimension;
+        return n;
+    };
+    EXPECT_GT (drawn (6.0), 0u);
+    EXPECT_EQ (drawn (1.0), 0u);
+}

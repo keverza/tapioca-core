@@ -331,34 +331,40 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
         Vec3 n;
         return edit::Normalize (o.left[k] - o.right[k], n) ? Vec3 { n.x, n.y, 0.0 } : Vec3 { 0.0, 1.0, 0.0 };
     };
+    const auto tangentAt = [&] (double station) {
+        const Vec3 n = leftAt (station);
+        return Vec3 { n.y, -n.x, 0.0 };
+    };
     for (size_t i = 0; i < path.profile.size () && i < o.breaks.size (); ++i) {
         const auto& b = path.profile[i];
-        std::string text = FormatValue (edit::Quantity::Elevation, b.z);
+        MarkLabel l;
+        l.text = FormatValue (edit::Quantity::Elevation, b.z);
         if (b.fixed)
-            text += " fixed";
+            l.text += " fixed";
         else if (b.crossing != edit::kNoId)
-            text += " junction";
-        const Vec3 n = leftAt (b.station);
-        out.push_back ({ o.breaks[i],
-                         n * -1.0,
-                         { n.y, -n.x, 0.0 },
-                         text,
-                         b.fixed                     ? style.fixedBreak
-                         : b.crossing != edit::kNoId ? style.junctionBreak
-                                                     : style.text,
-                         16.0f });
+            l.text += " junction";
+        l.at = o.breaks[i];
+        l.side = leftAt (b.station) * -1.0;
+        l.along = tangentAt (b.station);
+        l.rgba = b.fixed ? style.fixedBreak : b.crossing != edit::kNoId ? style.junctionBreak : style.text;
+        l.dy = 16.0f;
+        l.typed = true;
+        l.value = { { path.id, edit::Part::Break, b.id }, edit::Quantity::Elevation };
+        out.push_back (std::move (l));
     }
     for (size_t i = 0; i + 1 < path.profile.size (); ++i) {
         const double s0 = path.profile[i].station, s1 = path.profile[i + 1].station;
-        Vec3 mid;
-        const Vec3 n = leftAt ((s0 + s1) * 0.5);
-        if (CentreAt (o, (s0 + s1) * 0.5, mid))
-            out.push_back ({ mid,
-                             n,
-                             { n.y, -n.x, 0.0 },
-                             Percent (std::abs (edit::TangentGrade (path.profile, i) * 100.0)),
-                             style.text,
-                             -18.0f });
+        MarkLabel l;
+        if (!CentreAt (o, (s0 + s1) * 0.5, l.at))
+            continue;
+        l.side = leftAt ((s0 + s1) * 0.5);
+        l.along = tangentAt ((s0 + s1) * 0.5);
+        l.text = Percent (std::abs (edit::TangentGrade (path.profile, i) * 100.0));
+        l.rgba = style.text;
+        l.dy = -18.0f;
+        l.typed = true; // the tangent from its first break on
+        l.value = { { path.id, edit::Part::Break, path.profile[i].id }, edit::Quantity::Slope };
+        out.push_back (std::move (l));
     }
     for (size_t r = 0; r < path.sections.size (); ++r) {
         const auto& section = path.sections[r];
@@ -368,10 +374,71 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
         while (k + 1 < o.stations.size () && o.stations[k] < s)
             ++k;
         const Vec3 c = o.centre[k], edge = section.fall == edit::Fall::Right ? o.right[k] : o.left[k];
-        Vec3 side;
-        if (!edit::Normalize (Vec3 { edge.x - c.x, edge.y - c.y, 0.0 }, side))
-            side = { 0.0, 1.0, 0.0 };
-        out.push_back ({ Lerp (c, edge, 0.55), side, side, Percent (section.crossfall), style.fall, 16.0f });
+        MarkLabel l;
+        if (!edit::Normalize (Vec3 { edge.x - c.x, edge.y - c.y, 0.0 }, l.side))
+            l.side = { 0.0, 1.0, 0.0 };
+        l.along = l.side;
+        l.at = Lerp (c, edge, 0.55);
+        l.text = Percent (section.crossfall);
+        l.rgba = style.fall;
+        l.dy = 16.0f;
+        l.typed = true;
+        l.value = { { path.id, edit::Part::Range, section.id }, edit::Quantity::Slope };
+        out.push_back (std::move (l));
+    }
+}
+
+// A path's dimensions for the view: each range's width across it, a third of the way along
+// (clear of its crossfall), and each bend's radius from its arc's centre to its middle.
+void PathDimensionLabels (const edit::Path& path, const edit::PathOutline& o, const Style& style,
+                          std::vector<MarkLabel>& out)
+{
+    for (size_t r = 0; r < path.sections.size (); ++r) {
+        const auto& section = path.sections[r];
+        const double end = r + 1 < path.sections.size () ? path.sections[r + 1].station : o.stations.back ();
+        const double s = section.station + (end - section.station) / 3.0;
+        size_t k = 0;
+        while (k + 1 < o.stations.size () && o.stations[k] < s)
+            ++k;
+        MarkLabel l;
+        l.line = true;
+        l.from = o.right[k];
+        l.to = o.left[k];
+        l.at = o.centre[k];
+        if (!edit::Normalize (Vec3 { l.to.x - l.from.x, l.to.y - l.from.y, 0.0 }, l.along))
+            continue;
+        l.side = { l.along.y, -l.along.x, 0.0 }; // ahead along the path
+        l.extent = section.widthLeft + section.widthRight;
+        l.text = FormatValue (edit::Quantity::Width, l.extent);
+        l.rgba = style.dimension;
+        l.typed = true;
+        l.value = { { path.id, edit::Part::Range, section.id }, edit::Quantity::Width };
+        out.push_back (std::move (l));
+    }
+    edit::AlignmentGeometry g;
+    std::string error;
+    if (!edit::BuildAlignment (path.points, g, error))
+        return;
+    for (size_t i = 1; i + 1 < path.points.size () && i < g.pointStations.size (); ++i) {
+        edit::Placement p;
+        Vec3 mid;
+        if (!(path.points[i].radius > 0.0) || !edit::Locate (g, g.pointStations[i], p) ||
+            std::abs (p.curvature) < 1.0e-9 || !CentreAt (o, g.pointStations[i], mid))
+            continue;
+        MarkLabel l;
+        l.line = l.radial = true;
+        l.to = { p.point.x, p.point.y, mid.z }; // on the arc, not its sampled chord
+        l.from = l.to + p.left * (1.0 / p.curvature);
+        l.at = Lerp (l.from, l.to, 0.5);
+        if (!edit::Normalize (Vec3 { l.to.x - l.from.x, l.to.y - l.from.y, 0.0 }, l.along))
+            continue;
+        l.side = p.tangent;
+        l.extent = path.points[i].radius;
+        l.text = "R " + FormatValue (edit::Quantity::Radius, l.extent);
+        l.rgba = style.dimension;
+        l.typed = true;
+        l.value = { { path.id, edit::Part::PathPoint, path.points[i].id }, edit::Quantity::Radius };
+        out.push_back (std::move (l));
     }
 }
 
@@ -717,8 +784,30 @@ std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style
     for (const auto& path : doc.paths) {
         edit::PathOutline o;
         std::string error;
-        if (edit::Outline (path, style.pathStep, o, error) && o.stations.size () >= 2)
+        if (edit::Outline (path, style.pathStep, o, error) && o.stations.size () >= 2) {
             PathMarkLabels (path, o, style, out);
+            PathDimensionLabels (path, o, style, out);
+        }
+    }
+    // Each rounded kerb corner's radius, from its fillet's centre to its middle.
+    for (const auto& c : edit::Pave (doc.paths, style.pathStep, false).corners) {
+        const double r = c.key.radius;
+        if (!(r > 0.0) || !(c.half > 1.0e-6))
+            continue;
+        MarkLabel l;
+        l.line = l.radial = true;
+        l.to = edit::KerbGripAt (c, 0.0);
+        l.from = c.at + c.bisector * (r / std::sin (c.half));
+        l.at = Lerp (l.from, l.to, 0.5);
+        l.along = c.bisector * -1.0;
+        l.side = { -c.bisector.y, c.bisector.x, 0.0 };
+        l.extent = r;
+        l.text = "R " + FormatValue (edit::Quantity::Radius, r);
+        l.rgba = style.dimension;
+        l.typed = true;
+        l.kerbPath = c.path;
+        l.kerb = c.key;
+        out.push_back (std::move (l));
     }
     return out;
 }
