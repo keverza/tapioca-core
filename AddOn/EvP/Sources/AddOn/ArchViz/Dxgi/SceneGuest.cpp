@@ -197,6 +197,7 @@ bool UploadScene (const overlayscene::Scene& scene, std::vector<gpu::Page>& page
     arrays.glyphCount = scene.glyphs.size ();
     arrays.glyphStride = sizeof (overlayscene::SceneGlyph);
     arrays.dashes = &scene.dashes;
+    arrays.solid = scene.solid;
     std::string error;
     gpu::Content content;
     if (!gpu::Upload (g_guest.Device (), g_pipelines, pages, arrays, scene.fillDraws, scene.glyphDraws, scene.pages,
@@ -380,6 +381,16 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
     if (drawScene)
         gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn,
                    highlight);
+    // ⚠️ THE SOLID LAYERS LAST, AGAINST A DEPTH OF THEIR OWN (OverlayLayers.hpp `Layer::solid`):
+    // the occluders' depth is spent -- the host occluders clear and redraw it every frame and
+    // nothing after the guest reads it -- so it is cleared to far and the solids' fills write
+    // it: they hide each other and their own edges, and the building hides none of them.
+    if (drawScene && g_content.solid) {
+        if (depth != nullptr)
+            context->ClearDepthStencilView (depth, D3D11_CLEAR_DEPTH, 1.0f, 0);
+        gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn,
+                   highlight, true);
+    }
     // The HUD last, over everything.
     gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, frame, depth != nullptr, dpiScale, drawn);
     // The render thread's own time for it -- lock-free, no allocation (§11).

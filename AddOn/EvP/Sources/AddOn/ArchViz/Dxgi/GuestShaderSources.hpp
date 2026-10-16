@@ -40,7 +40,8 @@ inline constexpr const char* kCommon = R"hlsl(
 cbuffer GuestDraw
 {
     float4 Mode;          // x shading (0 flat, 1 lit, 2 ghost, 3 x-ray), y opacity,
-                          // z pass (0 near, 1 behind, 2 over, 3 all), w 1 for a fill fixed to the view
+                          // z pass (0 near, 1 behind, 2 over, 3 all), w 1 for a fill fixed to the view;
+                          // for lines, w 1 in the solid phase (OverlayLayers.hpp `Layer::solid`)
     float4 Ramp;          // x min, y 1 / (max - min), z bands (0 smooth), w stops (0: no ramp)
     float4 Iso;           // x step (0: none), y half width in physical pixels
     float4 IsoColour;
@@ -475,7 +476,10 @@ LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2,
     // eye below still interpolates a line.
     float4 ca = TowardEye (ArchicadClip (float4 (a, 1.0)), a);
     float4 cb = TowardEye (ArchicadClip (float4 (b, 1.0)), b);
-    bool draw = InPass (behind) && (ca.w > kNearW || cb.w > kNearW);
+    // A solid layer's line (kSolidPhase over `behind`) is drawn in the solid phase only, Mode.w 1.
+    bool solid = (behind & 256u) != 0u;
+    behind = behind & 255u;
+    bool draw = InPass (behind) && solid == (Mode.w > 0.5) && (ca.w > kNearW || cb.w > kNearW);
     // The part behind the eye is cut away in clip space, where it is still a line.
     float ta = 0.0, tb = 1.0;
     float span = cb.w - ca.w;

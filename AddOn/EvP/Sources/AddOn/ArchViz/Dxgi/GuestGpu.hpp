@@ -74,6 +74,9 @@ static_assert (sizeof (DrawConstants) == 960, "GuestDraw is 60 float4s");
 struct Pipelines {
     Kind kind = Kind::Plan;
     Diligent::RefCntAutoPtr<Diligent::IPipelineState> fill[kDepthModes][2]; // [depth][cull back]
+    // 3D: a solid layer's fills, tested LESS_EQUAL and WRITING depth (OverlayLayers.hpp
+    // `Layer::solid`): the one guest pipeline that writes it, into a depth cleared for it.
+    Diligent::RefCntAutoPtr<Diligent::IPipelineState> fillSolid[2]; // [cull back]
     Diligent::RefCntAutoPtr<Diligent::IPipelineState> line[kDepthModes];
     Diligent::RefCntAutoPtr<Diligent::IPipelineState> glyph[kDepthModes];
     Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> fillSrb;
@@ -109,6 +112,7 @@ struct Content {
     std::vector<overlayscene::GlyphDraw> glyphDraws;
     std::vector<uint32_t> pageSlot; // GlyphDraw::page -> index into the page cache
     std::vector<float> dashes;      // the lines' patterns, for the line draws' constants
+    bool solid = false;             // some of it is a solid layer's: `Draw` has a solid phase to draw
     uint64_t generation = 0;
 
     bool Empty () const
@@ -128,6 +132,7 @@ struct Arrays {
     size_t glyphCount = 0;
     size_t glyphStride = 0;
     const std::vector<float>* dashes = nullptr; // 8 lengths per pattern
+    bool solid = false;                         // overlayscene::Scene::solid
 };
 
 // Replaces `out` with the new content's buffers; new atlas pages join `pages`.
@@ -149,9 +154,13 @@ struct DrawStats {
 // dims the named layer's heatmaps outside its band. Call after
 // the guest's `BeginDraw`, inside the caller's ScopedPipelineState. `frame` is the
 // frame cbuffer's bytes (`pipelines.frameBytes` of them).
+// ⚠️ TWO PHASES. `solid` false draws everything but the solid layers' items; true draws only
+// them -- fills writing depth, then lines near and behind (dashed, faint), then texts -- and
+// the caller clears the depth between the two, so the building hides none of it and its
+// solids hide each other (OverlayLayers.hpp `Layer::solid`).
 void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const std::vector<Page>& pages,
            const Content& content, const void* frame, bool haveDepth, float dpiScale, DrawStats& stats,
-           const overlayscene::Highlight& highlight = overlayscene::Highlight ());
+           const overlayscene::Highlight& highlight = overlayscene::Highlight (), bool solid = false);
 
 } // namespace guestgpu
 } // namespace dxgi

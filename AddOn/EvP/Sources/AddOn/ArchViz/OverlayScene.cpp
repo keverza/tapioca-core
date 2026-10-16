@@ -22,6 +22,7 @@ namespace build {
 
 void Builder::AddLayer (const layers::Layer& layer)
 {
+    const size_t fills = draft_.fills.size (), lines = draft_.lines.size (), glyphs = draft_.glyphs.size ();
     for (const layers::Mesh& mesh : layer.meshes)
         if (layers::DrawnByGuest (mesh, layer))
             AddMesh (layer, mesh);
@@ -35,6 +36,8 @@ void Builder::AddLayer (const layers::Layer& layer)
             AddText (layer, text);
     for (size_t i = 0; i < layer.legends.size (); ++i)
         AddLegend (layer, layer.legends[i], uint32_t (i));
+    if (layer.solid && !Plan ())
+        MarkSolid (fills, lines, glyphs);
 }
 
 bool Builder::Plan () const
@@ -889,6 +892,7 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
     for (const DraftFill& fill : draft.fills) {
         FillDraw draw = fill.draw;
         draw.first = uint32_t (out.fills.size ());
+        out.solid = out.solid || draw.solid;
         for (const DraftVertex& v : fill.vertices) {
             SceneFillVertex s = {};
             for (int k = 0; k < 3; ++k) {
@@ -918,6 +922,7 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
         s.arcStart = line.arc;
         s.dashes = line.dashes;
         s.behind = line.behind;
+        out.solid = out.solid || (line.behind & kSolidPhase) != 0;
         out.lines.push_back (s);
     }
 
@@ -929,7 +934,9 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
     for (const auto& group : Group (keys)) {
         GlyphDraw draw;
         draw.first = uint32_t (out.glyphs.size ());
-        draw.behind = group.first.first;
+        draw.behind = group.first.first & ~kSolidPhase;
+        draw.solid = (group.first.first & kSolidPhase) != 0;
+        out.solid = out.solid || draw.solid;
         draw.page = group.first.second;
         for (const size_t i : group.second) {
             const DraftGlyph& glyph = draft.glyphs[i];

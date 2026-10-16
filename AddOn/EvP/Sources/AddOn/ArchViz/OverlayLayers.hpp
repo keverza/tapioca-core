@@ -460,6 +460,13 @@ struct Layer {
     // building's opaque surfaces (the host occluder). Hidden, as the reference wireframe
     // is, unless the caller says otherwise. Never `Behind::Layer`.
     Behind occlusion = Behind::Hide;
+    // 3D only: SOLID -- its meshes hide each other and its own lines, as a model's
+    // solids do, and the building hides none of it. Drawn after every other layer
+    // against a depth of its own (the guest clears the private depth, then its fills
+    // write it); its lines and mesh edges drawn on, dashed and faint behind its fills
+    // ("dash" where they name "always"). Several solid layers share that depth. The
+    // plan has no depth and draws it as any other.
+    bool solid = false;
     std::vector<Polyline> polylines;
     std::vector<PointSet> points;
     std::vector<Mesh> meshes;

@@ -64,6 +64,9 @@ constexpr uint32_t kBehindFade = 1u;
 constexpr uint32_t kBehindDash = 2u;
 constexpr uint32_t kBehindShow = 3u;
 uint32_t BehindCode (overlaylayers::Behind resolved);
+// Over a line's `behind`: it is a solid layer's (OverlayLayers.hpp `Layer::solid`), drawn in the
+// guest's solid phase only. Draws carry `solid` instead.
+constexpr uint32_t kSolidPhase = 0x100u;
 
 // ---- the floor plan -----------------------------------------------------------
 
@@ -155,6 +158,7 @@ struct FillDraw {
     uint32_t behind = kBehindShow;
     bool cullBack = false;
     bool screen = false;
+    bool solid = false; // a solid layer's: drawn in the solid phase, writing its depth
     bool heatmap = false;
     uint32_t stopCount = 0;
     float stopAt[overlaylayers::kMaxStops] = {};
@@ -185,6 +189,7 @@ struct GlyphDraw {
     uint32_t count = 0; // vertices, six per quad
     uint32_t page = 0;  // index into `pages`
     uint32_t behind = kBehindShow;
+    bool solid = false; // a solid layer's: drawn in the solid phase, after its fills
 };
 
 struct Problems {
@@ -252,6 +257,7 @@ struct Scene {
     bool hand = false;
     uint8_t cursor = 0;  // overlayinput::Cursor
     bool locked = false; // the dock's lock (overlayhud::Layout `locked`)
+    bool solid = false;  // some of it is a solid layer's: the guest draws a solid phase
     uint64_t generation = 0;
     Problems problems;
     Cost cost;

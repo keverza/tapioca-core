@@ -250,7 +250,7 @@ bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& sourc
     enum Blend { Straight, Premultiplied };
     auto build = [&] (const char* name, Diligent::IShader* vs, Diligent::IShader* ps,
                       const std::vector<LayoutElement>& layout, uint32_t depth, bool cullBack, Blend blend, bool glyph,
-                      RefCntAutoPtr<Diligent::IPipelineState>& pso) -> bool {
+                      RefCntAutoPtr<Diligent::IPipelineState>& pso, bool writes = false) -> bool {
         Diligent::GraphicsPipelineStateCreateInfo info;
         info.PSODesc.Name = name;
         Diligent::GraphicsPipelineDesc& gp = info.GraphicsPipeline;
@@ -264,9 +264,10 @@ bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& sourc
         // A mesh written with outward normals winds counter-clockwise seen from outside.
         gp.RasterizerDesc.FrontCounterClockwise = Diligent::True;
         gp.RasterizerDesc.DepthClipEnable = Diligent::True;
-        // ⚠️ TESTED, NEVER WRITTEN: an overlay must not hide another, nor the reference.
+        // ⚠️ TESTED, NEVER WRITTEN: an overlay must not hide another, nor the reference --
+        // except a solid layer's fills, into the depth the caller cleared for them alone.
         gp.DepthStencilDesc.DepthEnable = depth == kOver ? Diligent::False : Diligent::True;
-        gp.DepthStencilDesc.DepthWriteEnable = Diligent::False;
+        gp.DepthStencilDesc.DepthWriteEnable = writes ? Diligent::True : Diligent::False;
         gp.DepthStencilDesc.DepthFunc =
             depth == kBehind ? Diligent::COMPARISON_FUNC_GREATER : Diligent::COMPARISON_FUNC_LESS_EQUAL;
         gp.InputLayout.LayoutElements = layout.data ();
@@ -331,6 +332,11 @@ bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& sourc
                     out.glyph[depth]))
             return false;
     }
+    if (kind == Kind::Scene)
+        for (int cull = 0; cull < 2; ++cull)
+            if (!build ("Tapioca overlay solid fill", vsFill, psFill, fillLayout, kNear, cull != 0, Straight, false,
+                        out.fillSolid[cull], true))
+                return false;
     // ⚠️ ONE BINDING SERVES EVERY DEPTH VARIANT: they are one shader pair and one
     // resource layout with different fixed-function state, which Diligent's
     // compatibility rule is about.
@@ -363,6 +369,7 @@ bool Upload (Diligent::IRenderDevice* device, const Pipelines& pipelines, std::v
         return false;
     }
     out.lineCount = uint32_t (arrays.lineCount);
+    out.solid = arrays.solid;
     out.fillDraws = fillDraws;
     out.glyphDraws = glyphDraws;
     if (arrays.dashes != nullptr)
@@ -448,9 +455,9 @@ void BindCamera (Pipelines& pipelines, std::vector<Page>& pages, Diligent::IBuff
 
 void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const std::vector<Page>& pages,
            const Content& content, const void* frame, bool haveDepth, float dpiScale, DrawStats& stats,
-           const overlayscene::Highlight& highlight)
+           const overlayscene::Highlight& highlight, bool solid)
 {
-    if (!pipelines.ready || context == nullptr || content.Empty ())
+    if (!pipelines.ready || context == nullptr || content.Empty () || (solid && !content.solid))
         return;
     if (!Upload (context, pipelines.frame, frame, pipelines.frameBytes)) {
         ++stats.mapFailures;
@@ -472,9 +479,14 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
     if (content.fills != nullptr) {
         setVertices (content.fills);
         for (const overlayscene::FillDraw& draw : content.fillDraws) {
+            if (draw.solid != solid)
+                continue;
             uint32_t passes[2] = {};
             const bool xray = draw.shading == 3u;
-            const uint32_t count = Passes (draw.behind, haveDepth, draw.screen, xray, passes);
+            // A solid fill once, tested and writing the depth cleared for it ("near"'s look).
+            const bool writes = solid && haveDepth && pipelines.fillSolid[draw.cullBack ? 1 : 0] != nullptr;
+            const uint32_t count =
+                writes ? (passes[0] = kNear, 1u) : Passes (draw.behind, haveDepth, draw.screen, xray, passes);
             for (uint32_t p = 0; p < count; ++p) {
                 DrawConstants values =
                     Constants (float (draw.shading), draw.opacity, float (passes[p]), draw.screen ? 1.0f : 0.0f);
@@ -493,7 +505,8 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
                 }
                 if (!constants (values))
                     return;
-                context->SetPipelineState (pipelines.fill[DepthState (passes[p])][draw.cullBack ? 1 : 0]);
+                context->SetPipelineState (writes ? pipelines.fillSolid[draw.cullBack ? 1 : 0]
+                                                  : pipelines.fill[DepthState (passes[p])][draw.cullBack ? 1 : 0]);
                 context->CommitShaderResources (pipelines.fillSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
                 Diligent::DrawAttribs attribs (draw.count, Diligent::DRAW_FLAG_NONE, 1, draw.first);
                 context->Draw (attribs);
@@ -511,7 +524,8 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
         const uint32_t* passes = pipelines.kind == Kind::Plan ? plan : (haveDepth ? scene : all);
         const uint32_t count = pipelines.kind == Kind::Plan || !haveDepth ? 1u : 3u;
         for (uint32_t p = 0; p < count; ++p) {
-            DrawConstants values = Constants (0.0f, 1.0f, float (passes[p]), 0.0f);
+            // w: the phase -- the vertex shader keeps a solid layer's lines for the solid one only.
+            DrawConstants values = Constants (0.0f, 1.0f, float (passes[p]), solid ? 1.0f : 0.0f);
             std::memcpy (values.dashes, content.dashes.data (), content.dashes.size () * sizeof (float));
             if (!constants (values))
                 return;
@@ -526,7 +540,8 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
     if (content.glyphs != nullptr) {
         setVertices (content.glyphs);
         for (const overlayscene::GlyphDraw& draw : content.glyphDraws) {
-            if (draw.page >= content.pageSlot.size () || content.pageSlot[draw.page] >= pages.size ())
+            if (draw.solid != solid || draw.page >= content.pageSlot.size () ||
+                content.pageSlot[draw.page] >= pages.size ())
                 continue;
             const Page& page = pages[content.pageSlot[draw.page]];
             uint32_t passes[2] = {};

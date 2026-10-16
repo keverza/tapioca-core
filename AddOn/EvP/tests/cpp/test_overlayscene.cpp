@@ -1110,3 +1110,45 @@ TEST (OverlayScene, MergedLayersKeepTheirOwnDashPatterns)
     EXPECT_FLOAT_EQ (drawn.dashes[(drawn.lines[0].dashes & 0xFFu) * 8], 0.3f);
     EXPECT_FLOAT_EQ (drawn.dashes[(drawn.lines[1].dashes & 0xFFu) * 8], 0.7f);
 }
+
+// User, 2026-10-16: "3D blocks do not resolve occlusion with itself correctly ... Hiden wireframe
+// edges must be less visible and dashed." A solid layer's fills go to the guest's solid phase (they
+// write a depth of their own); its lines and mesh edges too, dashed behind them where they named
+// "always"; the plan has no depth and draws it as any other.
+TEST (OverlayScene, ASolidLayersItemsAreDrawnInTheSolidPhaseTheirHiddenEdgesDashed)
+{
+    layers::Layer layer;
+    layer.name = "solid";
+    layer.solid = true;
+    layers::Mesh box;
+    box.points = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 };
+    box.indices = { 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+                    1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7 };
+    box.styled = true;
+    box.style.shading = layers::Shading::Lit;
+    box.style.behind = layers::Behind::Show;
+    box.style.edgeRgba = 0x1D242759u;
+    layers::Polyline frame;
+    frame.points = { 0, 0, 0, 2, 0, 0 };
+    frame.behind = layers::Behind::Show;
+    frame.widthPixels = 1.0f;
+    frame.dashMetres = {}; // solid in front
+    layer.meshes = { box };
+    layer.polylines = { frame };
+    scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
+    EXPECT_TRUE (scene.solid);
+    ASSERT_FALSE (scene.fillDraws.empty ());
+    for (const auto& draw : scene.fillDraws)
+        EXPECT_TRUE (draw.solid);
+    ASSERT_FALSE (scene.lines.empty ());
+    for (const auto& line : scene.lines) {
+        EXPECT_EQ (line.behind, scene::kBehindDash | scene::kSolidPhase) << "dashed behind the solids";
+        EXPECT_NE (line.dashes >> 8, 255u) << "a hidden pattern";
+    }
+    // Not solid: nothing in the solid phase.
+    layer.solid = false;
+    scene = scene::PrepareScene (One (layer), nullptr);
+    EXPECT_FALSE (scene.solid);
+    for (const auto& line : scene.lines)
+        EXPECT_EQ (line.behind & scene::kSolidPhase, 0u);
+}

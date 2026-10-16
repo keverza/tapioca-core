@@ -175,6 +175,9 @@ class Builder {
     }
 
     void AddLayer (const layers::Layer& layer);
+    // OverlaySceneSolid.cpp: what a solid layer added since `fills`, `lines` and `glyphs` to the
+    // guest's solid phase (OverlayLayers.hpp `Layer::solid`).
+    void MarkSolid (size_t fills, size_t lines, size_t glyphs);
     // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
     // after everything else, over it.
     // `input` is the view and the pointer (OverlayHud.hpp); `legends` the legends' bars
