@@ -153,15 +153,45 @@ std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Re
 
 bool Overlaps (const Box& a, const Box& b, float margin)
 {
-    return a.x0 < b.x1 + margin && b.x0 < a.x1 + margin && a.y0 < b.y1 + margin && b.y0 < a.y1 + margin;
+    // Separating axes: the two boxes' own, along and across each.
+    const float acx = (a.x0 + a.x1) * 0.5f, acy = (a.y0 + a.y1) * 0.5f, bcx = (b.x0 + b.x1) * 0.5f,
+                bcy = (b.y0 + b.y1) * 0.5f;
+    const float ahw = (a.x1 - a.x0) * 0.5f, ahh = (a.y1 - a.y0) * 0.5f, bhw = (b.x1 - b.x0) * 0.5f,
+                bhh = (b.y1 - b.y0) * 0.5f;
+    const float axes[4][2] = { { a.ux, a.uy }, { -a.uy, a.ux }, { b.ux, b.uy }, { -b.uy, b.ux } };
+    for (const auto& k : axes) {
+        const float ra = ahw * std::abs (a.ux * k[0] + a.uy * k[1]) + ahh * std::abs (-a.uy * k[0] + a.ux * k[1]);
+        const float rb = bhw * std::abs (b.ux * k[0] + b.uy * k[1]) + bhh * std::abs (-b.uy * k[0] + b.ux * k[1]);
+        if (std::abs ((bcx - acx) * k[0] + (bcy - acy) * k[1]) >= ra + rb + margin)
+            return false;
+    }
+    return true;
+}
+
+void Upright (float& dx, float& dy)
+{
+    const float d = std::hypot (dx, dy);
+    if (!(d > 1.0e-6f)) {
+        dx = 1.0f, dy = 0.0f;
+        return;
+    }
+    dx /= d, dy /= d;
+    if (dx < -1.0e-3f || (std::abs (dx) <= 1.0e-3f && dy > 0.0f)) // screen y runs down
+        dx = -dx, dy = -dy;
 }
 
 Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken,
                 bool* found)
 {
+    return PlaceAlong (ax, ay, w, h, 1.0f, 0.0f, dx, dy, away, taken, found);
+}
+
+Box PlaceAlong (float ax, float ay, float w, float h, float ux, float uy, float dx, float dy, float away,
+                std::vector<Box>& taken, bool* found)
+{
     const auto at = [&] (float distance) {
         const float cx = ax + dx * distance, cy = ay + dy * distance;
-        return Box { cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f };
+        return Box { cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f, ux, uy };
     };
     const float step = std::max (6.0f, h * 0.75f);
     Box chosen = at (away);
@@ -308,7 +338,11 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
             text += " fixed";
         else if (b.crossing != edit::kNoId)
             text += " junction";
-        out.push_back ({ o.breaks[i], leftAt (b.station) * -1.0, text,
+        const Vec3 n = leftAt (b.station);
+        out.push_back ({ o.breaks[i],
+                         n * -1.0,
+                         { n.y, -n.x, 0.0 },
+                         text,
                          b.fixed                     ? style.fixedBreak
                          : b.crossing != edit::kNoId ? style.junctionBreak
                                                      : style.text,
@@ -317,9 +351,14 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
     for (size_t i = 0; i + 1 < path.profile.size (); ++i) {
         const double s0 = path.profile[i].station, s1 = path.profile[i + 1].station;
         Vec3 mid;
+        const Vec3 n = leftAt ((s0 + s1) * 0.5);
         if (CentreAt (o, (s0 + s1) * 0.5, mid))
-            out.push_back ({ mid, leftAt ((s0 + s1) * 0.5),
-                             Percent (std::abs (edit::TangentGrade (path.profile, i) * 100.0)), style.text, -18.0f });
+            out.push_back ({ mid,
+                             n,
+                             { n.y, -n.x, 0.0 },
+                             Percent (std::abs (edit::TangentGrade (path.profile, i) * 100.0)),
+                             style.text,
+                             -18.0f });
     }
     for (size_t r = 0; r < path.sections.size (); ++r) {
         const auto& section = path.sections[r];
@@ -332,7 +371,7 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
         Vec3 side;
         if (!edit::Normalize (Vec3 { edge.x - c.x, edge.y - c.y, 0.0 }, side))
             side = { 0.0, 1.0, 0.0 };
-        out.push_back ({ Lerp (c, edge, 0.55), side, Percent (section.crossfall), style.fall, 16.0f });
+        out.push_back ({ Lerp (c, edge, 0.55), side, side, Percent (section.crossfall), style.fall, 16.0f });
     }
 }
 

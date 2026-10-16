@@ -74,11 +74,17 @@ struct LiveLabel {
 // `fromEnd`: the segment's end stays put (edit::Dimension::fromEnd).
 std::vector<LiveLabel> LiveDimensions (const edit::Document& doc, const edit::Ref& ref, bool fromEnd = false);
 
-// A label's rectangle on screen, in pixels.
+// A label's rectangle on screen, in pixels, as it reads before it is turned; then turned
+// about its centre so that it reads along the unit screen direction (ux, uy).
 struct Box {
     float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+    float ux = 1.0f, uy = 0.0f;
 };
+// Whether two boxes, turned as they are, come within `margin` pixels of each other.
 bool Overlaps (const Box& a, const Box& b, float margin = 3.0f);
+// The way a label reads along screen direction (dx, dy): left to right, or bottom to top
+// when it stands upright -- never upside down. Level when the direction is none.
+void Upright (float& dx, float& dy);
 // Where a `w` by `h` label goes: centred `away` pixels from (ax, ay) along the unit screen
 // direction (dx, dy), then further out step by step -- or on the other side -- until it
 // covers nothing in `taken` (the gizmo, the tracker, labels already placed). The chosen
@@ -86,12 +92,17 @@ bool Overlaps (const Box& a, const Box& b, float margin = 3.0f);
 // `found` says so: the caller leaves it out rather than draw it over another.
 Box PlaceLabel (float ax, float ay, float w, float h, float dx, float dy, float away, std::vector<Box>& taken,
                 bool* found = nullptr);
+// The same for a label turned to read along unit screen direction (ux, uy).
+Box PlaceAlong (float ax, float ay, float w, float h, float ux, float uy, float dx, float dy, float away,
+                std::vector<Box>& taken, bool* found = nullptr);
 
 // A path's own label -- a grade break's height, a tangent's grade, a range's crossfall --
-// for a view that places it in pixels (PlaceLabel): it hangs from `at` and stands off
-// towards the plan direction `side`. `dy` is where the layer puts it when it draws it.
+// for a view that places it in pixels (PlaceAlong): it hangs from `at`, stands off towards
+// the plan direction `side` and reads along `along`, the way what it measures runs (the
+// path for a height or a grade, across it for a crossfall). `dy` is where the layer puts it
+// when it draws it.
 struct MarkLabel {
-    edit::Vec3 at, side;
+    edit::Vec3 at, side, along;
     std::string text;
     uint32_t rgba = 0;
     float dy = 0.0f;

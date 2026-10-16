@@ -236,3 +236,45 @@ TEST (EditLayers, PathLabelsGoToTheViewWhenItPlacesThem)
     EXPECT_TRUE (el::Build (doc, inView).texts.empty ());
     EXPECT_EQ (el::Build (doc, {}).texts.size (), labels.size ());
 }
+
+TEST (EditLayers, TurnedLabelsOverlapAsTheyStand)
+{
+    // Two 60 x 14 labels reading along the diagonal, 20 px apart across it: their level
+    // envelopes overlap, the labels do not. Turned across each other, they do.
+    const float k = 0.70710678f;
+    const el::Box a { -30, -7, 30, 7, k, k };
+    el::Box b { -30 - 20 * k, -7 + 20 * k, 30 - 20 * k, 7 + 20 * k, k, k };
+    EXPECT_FALSE (el::Overlaps (a, b));
+    b.ux = k, b.uy = -k;
+    EXPECT_TRUE (el::Overlaps (a, b));
+    // Placed along a direction, a label keeps it.
+    std::vector<el::Box> taken;
+    const el::Box c = el::PlaceAlong (0, 0, 60, 14, k, k, -k, k, 10, taken);
+    EXPECT_FLOAT_EQ (c.ux, k);
+    EXPECT_FLOAT_EQ (c.uy, k);
+}
+
+TEST (EditLayers, LabelsNeverReadUpsideDown)
+{
+    float x = -1.0f, y = 0.2f;
+    el::Upright (x, y);
+    EXPECT_GT (x, 0.0f); // right to left becomes left to right
+    x = 0.0f, y = 1.0f;  // straight down the screen...
+    el::Upright (x, y);
+    EXPECT_FLOAT_EQ (y, -1.0f); // ...reads bottom to top
+    x = 0.0f, y = 0.0f;
+    el::Upright (x, y);
+    EXPECT_FLOAT_EQ (x, 1.0f); // no direction: level
+}
+
+TEST (EditLayers, PathLabelsReadAlongWhatTheyMeasure)
+{
+    // A path running north: its heights and grade read along it, its crossfall across it.
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 0, 20, 1 } }, 1.5);
+    for (const auto& l : el::PathLabels (doc)) {
+        const bool crossfall = l.rgba == el::Style {}.fall;
+        EXPECT_NEAR (std::abs (l.along.y), crossfall ? 0.0 : 1.0, 1e-9) << l.text;
+        EXPECT_NEAR (std::abs (l.along.x), crossfall ? 1.0 : 0.0, 1e-9) << l.text;
+    }
+}

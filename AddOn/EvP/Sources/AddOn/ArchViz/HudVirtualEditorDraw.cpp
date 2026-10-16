@@ -6,8 +6,9 @@
 #include <cmath>
 
 // What the virtual editor draws on the locked view beyond picking feedback: the live
-// dimensions of the selection, placed so that no label sits on the gizmo, the tracker or
-// another label. Everything is anchored to model points, so the Present reprojects it.
+// dimensions of the selection and the paths' labels, placed so that no label sits on the
+// gizmo or another label. A label is secondary: plain ink, no pill, reading along what it
+// measures. Everything is anchored to model points, so the Present reprojects it.
 namespace geomsrv::archviz::edithud::detail {
 
 namespace {
@@ -20,14 +21,27 @@ ImVec2 Add (ImVec2 a, ImVec2 b, float k = 1.0f)
     return { a.x + b.x * k, a.y + b.y * k };
 }
 
-// A value on a light pill: dark ink that reads on Archicad's white plan and on 3D alike.
-void Pill (Session& s, Vec3 anchor, ImVec2 anchorScreen, const editlayers::Box& box, const std::string& text,
-           ImU32 ink = kInk)
+// Turns what was drawn from vertex `first` on about the box's centre, to read along it.
+void Turn (ImDrawList* list, int first, const editlayers::Box& box)
+{
+    if (box.ux == 1.0f && box.uy == 0.0f)
+        return;
+    const float cx = (box.x0 + box.x1) * 0.5f, cy = (box.y0 + box.y1) * 0.5f;
+    for (int i = first; i < list->VtxBuffer.Size; ++i) {
+        ImVec2& p = list->VtxBuffer[i].pos;
+        const float x = p.x - cx, y = p.y - cy;
+        p = { cx + x * box.ux - y * box.uy, cy + x * box.uy + y * box.ux };
+    }
+}
+
+// A value as plain ink in its box, turned as the box is: secondary to the design, so no pill.
+void Ink (Session& s, Vec3 anchor, ImVec2 anchorScreen, const editlayers::Box& box, const std::string& text,
+          ImU32 ink = kInk)
 {
     rc::Scope scope (s.canvas, { At (anchor, anchorScreen) });
-    s.canvas.list->AddRectFilled ({ box.x0, box.y0 }, { box.x1, box.y1 }, kPaper, 4.0f);
-    s.canvas.list->AddRect ({ box.x0, box.y0 }, { box.x1, box.y1 }, IM_COL32 (91, 101, 115, 90), 4.0f, 0, 1.0f);
+    const int first = s.canvas.list->VtxBuffer.Size;
     s.canvas.list->AddText ({ box.x0 + 5.0f, box.y0 + 2.0f }, ink, text.c_str ());
+    Turn (s.canvas.list, first, box);
 }
 
 // The layer's 0xRRGGBBAA as ImGui's colour.
@@ -290,9 +304,12 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
                     ImVec2 q;
                     if (m.Screen (mid, q)) {
                         const ImVec2 size = ImGui::CalcTextSize (l.text.c_str ());
-                        const auto box = editlayers::PlaceLabel (
-                            q.x, q.y, size.x + 10.0f, ImGui::GetTextLineHeight () + 4.0f, 0.0f, 0.0f, 0.0f, taken);
-                        Pill (s, l.fixed, a, box, l.text);
+                        float ux = a.y - q.y, uy = q.x - a.x; // along the arc there
+                        editlayers::Upright (ux, uy);
+                        const auto box =
+                            editlayers::PlaceAlong (q.x, q.y, size.x + 10.0f, ImGui::GetTextLineHeight () + 4.0f, ux,
+                                                    uy, 0.0f, 0.0f, 0.0f, taken);
+                        Ink (s, l.fixed, a, box, l.text);
                     }
                     continue;
                 }
@@ -328,8 +345,10 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
                 list->AddLine (Add (b2, slash, -1.0f), Add (b2, slash), kRule, 1.5f * scale);
             }
             const ImVec2 mid { (a2.x + b2.x) * 0.5f, (a2.y + b2.y) * 0.5f };
-            const auto box = editlayers::PlaceLabel (mid.x, mid.y, w, h, n.x, n.y, 0.0f, taken);
-            Pill (s, l.at, at, box, l.text);
+            float ux = dx, uy = dy;
+            editlayers::Upright (ux, uy);
+            const auto box = editlayers::PlaceAlong (mid.x, mid.y, w, h, ux, uy, n.x, n.y, h * 0.5f, taken);
+            Ink (s, l.at, at, box, l.text);
             continue;
         }
         // A value of its own: beside its point, outside the shape, clear of the rest.
@@ -341,7 +360,7 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
         }
         const float away = (l.quantity == edit::Quantity::Slope ? 24.0f + h : 16.0f) * scale;
         const auto box = editlayers::PlaceLabel (at.x, at.y, w, h, dir.x, dir.y, away + w * 0.25f, taken);
-        Pill (s, l.at, at, box, l.text);
+        Ink (s, l.at, at, box, l.text);
     }
 }
 
@@ -354,7 +373,7 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
     }
     const float h = ImGui::GetTextLineHeight () + 4.0f;
     for (const auto& l : s.marks) {
-        ImVec2 at, toward;
+        ImVec2 at, toward, ahead;
         if (!m.Screen (l.at, at))
             continue;
         // Off towards its side on screen, a metre's worth of direction.
@@ -364,13 +383,18 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
             if (d > 1.0e-3f)
                 dir = { dx / d, dy / d };
         }
+        // Reading the way what it measures runs.
+        float ux = 1.0f, uy = 0.0f;
+        if (m.Screen (l.at + l.along, ahead))
+            ux = ahead.x - at.x, uy = ahead.y - at.y;
+        editlayers::Upright (ux, uy);
         const float w = ImGui::CalcTextSize (l.text.c_str ()).x + 10.0f;
+        const float across = std::abs (dir.x * ux + dir.y * uy) * w + std::abs (-dir.x * uy + dir.y * ux) * h;
         bool found = false;
-        const auto box = editlayers::PlaceLabel (
-            at.x, at.y, w, h, dir.x, dir.y, 10.0f * scale + 0.5f * std::abs (dir.x * w) + 0.5f * std::abs (dir.y * h),
-            taken, &found);
+        const auto box = editlayers::PlaceAlong (at.x, at.y, w, h, ux, uy, dir.x, dir.y, 10.0f * scale + 0.5f * across,
+                                                 taken, &found);
         if (found)
-            Pill (s, l.at, at, box, l.text, FromRgba (l.rgba));
+            Ink (s, l.at, at, box, l.text, FromRgba (l.rgba));
     }
 }
 

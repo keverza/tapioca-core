@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
@@ -750,4 +751,17 @@ TEST (HudVirtualEditor, KerbGripsRideTheirFillets)
             anchored |= v.modelAnchored && std::hypot (v.model[0] - at.x, v.model[1] - at.y) < 1e-3;
         EXPECT_TRUE (anchored) << c.at.x << ", " << c.at.y;
     }
+}
+
+TEST (HudVirtualEditor, LabelsAreInkWithoutAPill)
+{
+    // A path's heights, grade and crossfall are secondary: drawn as ink, nothing under them.
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 100 }, { 0, 12, 101 } }, 2.0);
+    Drive d (std::move (doc));
+    d.input.x = 700, d.input.y = 160;
+    const auto drawn = d.Frame ().overlay.vertices;
+    ASSERT_FALSE (drawn.empty ());
+    for (const auto& v : drawn)
+        EXPECT_NE (v.rgba, geomsrv::archviz::hudshell::Unpacked (IM_COL32 (247, 248, 250, 235))) << v.x << ", " << v.y;
 }

@@ -216,9 +216,7 @@ void Note (Session& s, const Map& m, Vec3 p, ImVec2 offset, const std::string& t
         return;
     rc::Scope scope (s.canvas, { At (p, q) });
     const ImVec2 at { q.x + offset.x, q.y + offset.y };
-    const ImVec2 size = ImGui::CalcTextSize (text.c_str ());
-    s.canvas.list->AddRectFilled ({ at.x - 3, at.y - 2 }, { at.x + size.x + 3, at.y + size.y + 2 }, kPaper, 3.0f);
-    s.canvas.list->AddText (at, colour, text.c_str ());
+    s.canvas.list->AddText (at, colour, text.c_str ()); // plain ink, as every label
 }
 
 void FinishDrawing (Session& s)
