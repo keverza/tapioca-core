@@ -832,6 +832,9 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     if (!vertices.points.empty ())
         layer.points.push_back (std::move (vertices));
     const bool paved = !doc.paths.empty () && AddPaved (doc, style, layer);
+    if (f.contours != nullptr)
+        for (const auto& c : *f.contours)
+            layer.polylines.push_back (Line (c.points, false, style.contour, 1.0f));
     for (const auto& p : doc.paths)
         AddPath (p, style, layer, paved, !f.labelsInView);
     if (f.selection != nullptr) {

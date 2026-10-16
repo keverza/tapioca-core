@@ -318,3 +318,31 @@ TEST (EditLayers, PathDimensionsMeasureWidthsAndRadii)
     EXPECT_EQ (bends, 1u);
     EXPECT_EQ (kerbs, 4u); // the four end corners
 }
+
+TEST (EditLayers, ContoursDrawThinAndGreyUnderThePaths)
+{
+    // Given the paths' contour lines, the layer strokes each one thin and grey, before the
+    // paths' own centrelines; without them it draws none.
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 2.0);
+    const auto lines = ed::PathContours (doc.paths, 0.25);
+    ASSERT_FALSE (lines.empty ());
+    el::Feedback f;
+    f.contours = &lines;
+    const auto count = [] (const geomsrv::archviz::overlaylayers::Layer& layer, size_t& last) {
+        size_t n = 0;
+        for (size_t i = 0; i < layer.polylines.size (); ++i)
+            if (layer.polylines[i].rgba == el::Style {}.contour) {
+                EXPECT_LE (layer.polylines[i].widthPixels, 1.0f);
+                last = i, ++n;
+            }
+        return n;
+    };
+    size_t last = 0, centre = 0;
+    const auto layer = el::Build (doc, f);
+    EXPECT_EQ (count (layer, last), lines.size ());
+    while (centre < layer.polylines.size () && layer.polylines[centre].rgba != el::Style {}.geometry)
+        ++centre;
+    EXPECT_LT (last, centre); // the centreline is drawn over them
+    EXPECT_EQ (count (el::Build (doc, {}), last), 0u);
+}

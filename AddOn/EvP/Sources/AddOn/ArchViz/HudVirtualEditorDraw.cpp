@@ -1,10 +1,13 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditPathContours.hpp"
 #include "Edit/EditShape.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
+#include <cstdio>
 
 // What the virtual editor draws on the locked view beyond picking feedback: the live
 // dimensions of the selection and the paths' labels, placed so that no label sits on the
@@ -522,6 +525,94 @@ void DrawHover (Session& s, const Map& m, float scale)
             if (edit::PointOf (Doc (s), hover, p))
                 Dot (s, m, p, 7.0f * scale, kHover, false);
         }
+    }
+}
+
+const std::vector<edit::Contour>& Contours (Session& s)
+{
+    const auto& doc = Doc (s);
+    if (!s.contours) {
+        s.contourLines.clear ();
+        s.contoursRevision = UINT64_MAX;
+        return s.contourLines;
+    }
+    if (s.contoursRevision == doc.revision && s.contoursAsked == s.contourStep)
+        return s.contourLines;
+    s.contoursRevision = doc.revision;
+    s.contoursAsked = s.contourStep;
+    // Asked for none: about ten lines over the heights there are, never finer than 5 cm --
+    // a crown's few centimetres are not grading.
+    double interval = s.contourStep, lo = 0.0, hi = 0.0;
+    if (!(interval > 0.0))
+        interval = edit::PathHeightRange (doc.paths, lo, hi) ? std::max (edit::NiceStep (hi - lo, 10), 0.05) : 0.0;
+    s.contoursInterval = interval;
+    s.contourLines = edit::PathContours (doc.paths, interval);
+    return s.contourLines;
+}
+
+void DrawContourLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale)
+{
+    if (!s.contours)
+        return;
+    ImFont* font = ImGui::GetFont ();
+    const float size = ImGui::GetFontSize () * 0.85f, h = size + 2.0f;
+    const int decimals = edit::StepDecimals (s.contoursInterval);
+    const ImU32 ink = FromRgba (editlayers::Style {}.contourText);
+    std::vector<ImVec2> q;
+    for (const auto& c : Contours (s)) {
+        q.clear ();
+        for (const Vec3& p : c.points) {
+            ImVec2 v;
+            if (!m.Screen (p, v))
+                break;
+            q.push_back (v);
+        }
+        if (q.size () != c.points.size () || q.size () < 2)
+            continue;
+        float total = 0.0f;
+        for (size_t k = 0; k + 1 < q.size (); ++k)
+            total += std::hypot (q[k + 1].x - q[k].x, q[k + 1].y - q[k].y);
+        char text[32];
+        std::snprintf (text, sizeof text, "%.*f", decimals, c.z);
+        const float w = font->CalcTextSizeA (size, FLT_MAX, 0.0f, text).x + 6.0f;
+        if (total < w + 16.0f * scale)
+            continue; // its line too short on screen to carry it
+        // At the line's middle, reading along it, just beside it.
+        float left = total * 0.5f;
+        size_t k = 0;
+        for (; k + 2 < q.size (); ++k) {
+            const float l = std::hypot (q[k + 1].x - q[k].x, q[k + 1].y - q[k].y);
+            if (left <= l)
+                break;
+            left -= l;
+        }
+        float ux = q[k + 1].x - q[k].x, uy = q[k + 1].y - q[k].y;
+        const float l = std::hypot (ux, uy);
+        if (l < 1.0e-3f)
+            continue;
+        const float t = std::clamp (left / l, 0.0f, 1.0f);
+        const ImVec2 at { q[k].x + ux * t, q[k].y + uy * t };
+        const Vec3 anchor = edit::Lerp (c.points[k], c.points[k + 1], t);
+        ux /= l, uy /= l;
+        editlayers::Upright (ux, uy);
+        const float away = 0.5f * h + 1.0f * scale;
+        bool placed = false;
+        editlayers::Box box;
+        for (const float side : { -1.0f, 1.0f }) {
+            const float cx = at.x - uy * away * side, cy = at.y + ux * away * side;
+            box = { cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f, ux, uy };
+            placed = std::none_of (taken.begin (), taken.end (),
+                                   [&] (const editlayers::Box& b) { return editlayers::Overlaps (box, b); });
+            if (placed)
+                break;
+        }
+        if (!placed)
+            continue;
+        taken.push_back (box);
+        rc::Scope scope (s.canvas, { At (anchor, at) });
+        const int first = s.canvas.list->VtxBuffer.Size;
+        s.canvas.list->AddText (font, size, { box.x0 + 3.0f, box.y0 + 1.0f }, ink, text);
+        Turn (s.canvas.list, first, box);
     }
 }
 

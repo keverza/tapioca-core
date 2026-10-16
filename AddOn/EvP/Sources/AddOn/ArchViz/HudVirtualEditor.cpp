@@ -898,6 +898,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
         DrawDimensions (s, m, taken, scale);
         DrawPathLabels (s, m, taken, scale);
+        DrawContourLabels (s, m, taken, scale);
     }
 
     // Snap marker, its guides and its hint: guides are the quietest thing drawn -- thin,

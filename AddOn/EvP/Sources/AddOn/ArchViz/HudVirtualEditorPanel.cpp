@@ -64,6 +64,32 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("World axes", !s.localAxes))
         s.localAxes = false;
+    // The grading guide: the paths' contour lines and their heights.
+    ImGui::SameLine (0.0f, 18.0f);
+    bool shown = s.contours;
+    if (ImGui::Checkbox ("Contours", &shown))
+        s.contours = shown, s.publishedRevision = UINT64_MAX; // the layer draws them
+    if (s.contours) {
+        static const double steps[] = { 0.0, 0.05, 0.1, 0.25, 0.5, 1.0 };
+        char preview[32];
+        if (s.contourStep > 0.0)
+            std::snprintf (preview, sizeof preview, "%g m", s.contourStep);
+        else
+            std::snprintf (preview, sizeof preview, "Auto (%g m)", s.contoursInterval);
+        ImGui::SameLine ();
+        ImGui::SetNextItemWidth (110.0f);
+        if (ImGui::BeginCombo ("##contourStep", preview)) {
+            for (const double step : steps) {
+                char label[32];
+                std::snprintf (label, sizeof label, step > 0.0 ? "%g m" : "Auto", step);
+                if (ImGui::Selectable (label, step == s.contourStep))
+                    s.contourStep = step, s.publishedRevision = UINT64_MAX;
+            }
+            ImGui::EndCombo ();
+        }
+        if (ImGui::IsItemHovered ())
+            ImGui::SetTooltip ("Height between contour lines");
+    }
     ImGui::BeginDisabled (s.drag != Drag::None);
     if (ImGui::SmallButton ("Undo"))
         History (s, true);
@@ -278,6 +304,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     editlayers::Feedback f;
     f.labelsInView = true; // placed with the dimensions, clear of them (DrawPathLabels)
     f.selection = &shown;
+    f.contours = s.contours ? &Contours (s) : nullptr;
     // The live dimensions are the view's (HudVirtualEditorDraw.cpp): placed in pixels, they
     // can stand clear of the gizmo and the tracker, which model-anchored text cannot know.
     layer = editlayers::Build (doc, f);

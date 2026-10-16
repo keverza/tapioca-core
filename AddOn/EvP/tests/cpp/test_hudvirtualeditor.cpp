@@ -951,3 +951,31 @@ TEST (HudVirtualEditor, AHoveredPathLightsItsWholeCentreline)
     EXPECT_EQ (d.S ().selection.hover.part, ed::Part::PathPoint);
     EXPECT_LT (from, 605.0f); // the line, quieter, and the point
 }
+
+TEST (HudVirtualEditor, ContoursShowTheGradingUntilHidden)
+{
+    // A 4 m wide path climbing 2 m: its contour lines go to the layer and their heights are
+    // written along them in the view; the panel's toggle takes both away.
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 100 }, { 20, 0, 102 } }, 4.0);
+    Drive d (std::move (doc));
+    d.input.x = 300, d.input.y = 160;
+    const auto drawn = [&] (size_t& strokes) {
+        strokes = 0;
+        for (const auto& l : d.layer.polylines)
+            strokes += l.rgba == el::Style {}.contour;
+        size_t n = 0;
+        for (const auto& v : d.Frame ().overlay.vertices)
+            n += v.rgba == el::Style {}.contourText;
+        return n;
+    };
+    size_t strokes = 0;
+    EXPECT_GT (drawn (strokes), 0u);
+    EXPECT_GT (strokes, 0u);
+    EXPECT_DOUBLE_EQ (d.S ().contoursInterval, 0.2); // about ten over its 2 m
+    d.S ().contours = false;
+    d.S ().publishedRevision = UINT64_MAX; // as the panel's toggle does
+    d.Publish ();
+    EXPECT_EQ (drawn (strokes), 0u);
+    EXPECT_EQ (strokes, 0u);
+}

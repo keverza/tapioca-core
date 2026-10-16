@@ -100,6 +100,11 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
 // point or grade break, a vertex -- only when the pointer is at it, with its path's line.
 void DrawHover (Session& s, const Map& m, float scale);
 void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
+// The paths' contour lines as they are now (traced again when the document or the interval
+// asked changes; none when hidden), and their heights written along them, small and grey,
+// where a label fits beside its line clear of the others.
+const std::vector<edit::Contour>& Contours (Session& s);
+void DrawContourLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered
 // or, while `dragging`, held -- then it alone is drawn, with a guide along its axis.
 void DrawGizmo (Session& s, const Map& m, const edit::Frame& frame, edit::GizmoMode mode, double size, int active,

@@ -136,6 +136,13 @@ struct Session {
     // The paths' labels the view places (EditLayers PathLabels), for `marksRevision`.
     std::vector<editlayers::MarkLabel> marks;
     uint64_t marksRevision = UINT64_MAX;
+    // The paths' contour lines, a grading guide: shown or not, the interval asked (0: a round
+    // one for the heights there are), and the lines traced at `contoursInterval` for
+    // `contoursRevision` (HudVirtualEditorDraw.cpp Contours).
+    bool contours = true;
+    double contourStep = 0.0, contoursInterval = 0.0, contoursAsked = -1.0;
+    std::vector<edit::Contour> contourLines;
+    uint64_t contoursRevision = UINT64_MAX;
     // The labels as placed this frame, each with what typing over it sets, for a click to
     // open one (HudVirtualEditorLabels.cpp); the one open, its text as typed, and whether
     // that text is still all selected (the first key then replaces it).
