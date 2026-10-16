@@ -145,7 +145,10 @@ def test_native_commands_never_acquire_live_model_and_recheck_after_serializatio
 
 def test_surface_provenance_is_captured_at_the_one_triangle_emission_site():
     extractor = (ADDON / "Geometry/GeometryExtractor.cpp").read_text(encoding="utf-8")
-    assert "const int32_t original = matIdx.GetOriginalIndex ();" in extractor
+    assert "polygon.GetMaterial (&material);" in extractor
+    assert "std::max<int32_t> (material.GetExternalReference (), 0)" in extractor
+    assert "const int32_t surfaceAttribute = ReadPolygonSurfaceAttribute (polygon);" in extractor
+    assert "matIdx.GetOriginalIndex ()" not in extractor
     assert "mesh.triSurfaceAttribute.push_back (surfaceAttribute);" in extractor
     assert "snap->surfaceAttributes = ReadSurfaceAttributes ();" in extractor
     assert "ACAPI_Attribute_GetAttributesByType (API_MaterialID, attributes)" in extractor
@@ -153,3 +156,11 @@ def test_surface_provenance_is_captured_at_the_one_triangle_emission_site():
     assert "handle->surfaceAttributes = ReadSurfaceAttributes ();" in sliced
     assert "handle->materialIdentity = ReadMaterialIdentity (*model);" in sliced
     assert "handle->materialIdentity.empty ()" in sliced
+
+
+def test_material_read_failure_retains_geometry_with_unknown_surface():
+    extractor = (ADDON / "Geometry/GeometryExtractor.cpp").read_text(encoding="utf-8")
+    helper = extractor.split("int32_t ReadPolygonSurfaceAttribute", 1)[1].split("bool ExtractElement", 1)[0]
+    assert "catch (const GS::Exception&)" in helper
+    assert "return 0;" in helper
+    assert "continue;" not in helper

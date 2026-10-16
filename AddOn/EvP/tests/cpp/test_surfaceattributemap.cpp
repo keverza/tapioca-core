@@ -45,7 +45,7 @@ void Refuses (const Snapshot& snapshot, const std::vector<ex::FaceKey>& faces,
 }
 } // namespace
 
-TEST (SurfaceAttributeMap, UsesOriginalPolygonSurfaceNotPoolNameOrExternalReference)
+TEST (SurfaceAttributeMap, UsesCapturedPolygonSurfaceNotLaterPoolIdentity)
 {
     const auto snapshot = Capture ();
     ex::SurfaceSelection selection;
@@ -232,4 +232,46 @@ TEST (SurfaceAttributeMap, OriginalSurfaceFilteringSelectsOnlyTheCorrespondingEm
         }
     }
     EXPECT_DOUBLE_EQ (selectedArea, result.areas.selectedExposedArea);
+}
+
+TEST (SurfaceAttributeMap, NinePointFiveFixtureKeepsPool52SeparateFromOriginalSurface752)
+{
+    Snapshot snapshot;
+    snapshot.id = 6;
+    snapshot.captureStamp = 1;
+    snapshot.surfaceAttributes = { { 752, { "Original project finish", "attribute-752" } } };
+    snapshot.materialIdentity = { { 52, { "Captured polygon material", 752 } } };
+    Mesh mesh = evptest::MakeBox ("fixture", 0, 0, 0, 5, .2, 1.9);
+    mesh.triSourceBody.assign (12, 1);
+    mesh.triSourcePgon.assign (12, 1);
+    for (size_t i = 0; i < 12; ++i)
+        mesh.triSourcePgon[i] = static_cast<int32_t> (i / 2 + 1);
+    mesh.triMaterial.assign (12, 52);
+    // Captured from Polygon::GetMaterial's positive generation reference, even
+    // when the polygon AttributeIndex's original AC index was Unset (-2).
+    mesh.triSurfaceAttribute.assign (12, 752);
+    snapshot.meshes.push_back (std::move (mesh));
+    const std::vector<ex::FaceKey> faces { { { 0, 1 }, 3 } };
+    ex::SurfaceSelection selection;
+    std::string error;
+    ASSERT_TRUE (ex::ResolveSurfaceSelection (snapshot, faces, std::set<int32_t> { 752 }, selection, error)) << error;
+    EXPECT_EQ (selection.poolToSurface.at (52), 752);
+    EXPECT_EQ (*selection.materialPoolFilter, std::set<int32_t> { 52 });
+    ex::Request request;
+    request.snapshotId = 6;
+    request.captureStamp = 1;
+    request.coverScopeId = "explicit-empty-covers";
+    request.faces = faces;
+    request.materialPoolFilter = selection.materialPoolFilter;
+    ex::Result result;
+    ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
+    EXPECT_NEAR (result.areas.selectedExposedArea, 9.5, 1e-7);
+
+    // A later live pool might call index 52 something else. Even captured pool
+    // identity changes must not re-map already captured per-polygon provenance.
+    snapshot.materialIdentity[52] = { "Later renamed pool", 716 };
+    ASSERT_TRUE (ex::ResolveSurfaceSelection (snapshot, faces, std::set<int32_t> { 752 }, selection, error)) << error;
+    EXPECT_EQ (selection.poolToSurface.at (52), 752);
+    snapshot.meshes[0].triSurfaceAttribute.assign (12, 0);
+    Refuses (snapshot, faces, std::set<int32_t> { 752 }, "no original project surface");
 }

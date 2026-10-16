@@ -47,6 +47,25 @@ struct Corner {
     double nx, ny, nz;
 };
 
+int32_t ReadPolygonSurfaceAttribute (const ModelerAPI::Polygon& polygon)
+{
+    try {
+        ModelerAPI::Material material;
+        polygon.GetMaterial (&material);
+        // AttributeIndex::GetOriginalIndex can remain Unset (-2) on a valid
+        // polygon reference. Read the ACTUAL polygon material's generation
+        // origin instead: UMAT >0 is AC_MATER, 0 is GDL, <0 is a pen colour
+        // (AC29 Model3D/UMAT.hpp). Validate positives against the capture's
+        // project surface catalog in SurfaceAttributeMap, never by pool/name.
+        return std::max<int32_t> (material.GetExternalReference (), 0);
+    }
+    catch (const GS::Exception&) {
+        // Preserve geometry even when material provenance is unavailable. Zero
+        // stays unknown and filtered takeoff refuses; never omit this polygon.
+        return 0;
+    }
+}
+
 bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
 {
     mesh.guid = APIGuidToString (GSGuid2APIGuid (elem.GetElemGuid ())).ToCStr ().Get ();
@@ -113,8 +132,7 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                 ModelerAPI::AttributeIndex matIdx;
                 polygon.GetMaterialIndex (matIdx);
                 const int32_t material = matIdx.GetIndex ();
-                const int32_t original = matIdx.GetOriginalIndex ();
-                const int32_t surfaceAttribute = matIdx.IsValid () && original > 0 ? original : 0;
+                const int32_t surfaceAttribute = ReadPolygonSurfaceAttribute (polygon);
 
                 const Int32 nConvex = polygon.GetConvexPolygonCount ();
                 for (Int32 iConvex = 1; iConvex <= nConvex; ++iConvex) {

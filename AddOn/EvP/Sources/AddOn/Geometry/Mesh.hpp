@@ -37,8 +37,9 @@ struct Mesh {
     // must be treated as unusable rather than guessed at.
     std::vector<int32_t> triSourceBody;
     std::vector<int32_t> triSourcePgon;
-    // Original project SURFACE attribute from the polygon's AttributeIndex,
-    // not triMaterial's model-pool index. Zero is unknown/generated. Empty on
+    // Original project SURFACE attribute from the actual polygon material's
+    // positive generation reference, not triMaterial's pool index or a later
+    // live pool lookup. Zero is unknown/generated/pen-derived. Empty on
     // old serialized/synthetic meshes; consumers must never guess a mapping.
     std::vector<int32_t> triSurfaceAttribute;
     Aabb bounds; // element AABB (server-side spatial index)
@@ -68,7 +69,7 @@ struct CapturedSurface {
 };
 struct CapturedMaterialIdentity {
     std::string name;
-    int32_t externalReference = 0; // identity evidence only, never a surface index
+    int32_t externalReference = 0; // pool identity; per-face mapping uses the actual polygon material
     bool operator== (const CapturedMaterialIdentity&) const = default;
 };
 struct Snapshot {
