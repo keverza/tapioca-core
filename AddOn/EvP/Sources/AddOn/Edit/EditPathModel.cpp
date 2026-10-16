@@ -174,10 +174,11 @@ bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& e
     SharpCorners (path, g, out);
     Untangle (out.left);
     Untangle (out.right);
-    for (double s : g.pointStations) {
+    // A bend's control point is its corner, where the legs meet, not its arc's middle.
+    for (size_t i = 0; i < path.points.size () && i < g.pointStations.size (); ++i) {
         StationFrame f;
-        if (Evaluate (path, g, s, f))
-            out.points.push_back (f.centre);
+        if (Evaluate (path, g, g.pointStations[i], f))
+            out.points.push_back ({ path.points[i].p.x, path.points[i].p.y, f.centre.z });
     }
     for (const auto& b : path.profile) {
         StationFrame f;

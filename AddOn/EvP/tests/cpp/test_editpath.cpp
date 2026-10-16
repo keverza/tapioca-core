@@ -454,3 +454,26 @@ TEST (EditPath, OnlyAnOpenLineOfStraightsAndArcsBecomesAPath)
     EXPECT_TRUE (doc.paths.empty ());
     EXPECT_EQ (doc.entities.size (), 2u);
 }
+
+TEST (EditPath, ABendsControlPointStaysAtItsCorner)
+{
+    // Rounding a bend leaves its control point -- and the control polygon through it --
+    // where the legs meet; only the centreline's arc moves, and its middle carries the height.
+    Footpath f;
+    for (double r : { 5.0, 12.0 }) {
+        ASSERT_TRUE (ed::SetPathRadius (f.doc, f.path, f.P ().points[1].id, r, f.error)) << f.error;
+        ed::PathOutline o;
+        ASSERT_TRUE (ed::Outline (f.P (), 1.0, o, f.error)) << f.error;
+        ASSERT_EQ (o.points.size (), 3u);
+        EXPECT_NEAR (o.points[1].x, 40.0, 1e-9);
+        EXPECT_NEAR (o.points[1].y, 0.0, 1e-9);
+        double z = 0.0;
+        ASSERT_TRUE (ed::Elevation (f.P ().profile, f.G ().pointStations[1], z));
+        EXPECT_NEAR (o.points[1].z, z, 1e-9);
+        ed::Vec3 at;
+        ASSERT_TRUE (ed::PointOf (f.doc, { f.path, ed::Part::PathPoint, f.P ().points[1].id }, at));
+        EXPECT_NEAR (at.x, 40.0, 1e-9);
+        EXPECT_NEAR (at.y, 0.0, 1e-9);
+        EXPECT_NEAR (at.z, z, 1e-9);
+    }
+}

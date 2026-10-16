@@ -272,6 +272,9 @@ bool PointOf (const Document& doc, const Ref& ref, Vec3& point)
             !Evaluate (*path, g, station, frame))
             return false;
         point = frame.centre;
+        for (const auto& c : path->points) // a bend's control point is its corner
+            if (ref.part == Part::PathPoint && c.id == ref.item)
+                point = { c.p.x, c.p.y, frame.centre.z };
         return true;
     }
     if (!Exists (doc, ref))
