@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace geomsrv::archviz::edithud {
 
@@ -626,6 +627,12 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             default:
                 if (key.ctrl && (key.code == 'Z' || key.code == 'Y'))
                     history (key.code == 'Z');
+                else if (!typing && !key.ctrl && !key.alt && s.drag != Drag::None) {
+                    // No tool or gumball mode changes under a gesture: the handle held is one of
+                    // this mode's, and the panel's tools are off until it ends too.
+                    if (key.code < 0x80 && key.code != 0 && std::strchr ("VLPBGRSTFE", int (key.code)) != nullptr)
+                        s.message = "Finish the drag, or Esc it, before switching tool or mode.";
+                }
                 else if (!typing && !key.ctrl && !key.alt) {
                     switch (key.code) {
                         case 'V':

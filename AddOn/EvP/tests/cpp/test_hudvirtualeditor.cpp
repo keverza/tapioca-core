@@ -265,6 +265,25 @@ TEST (HudVirtualEditor, ANumberTypedMidDragEndsItOnce)
     EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10.0, 1e-9);
 }
 
+TEST (HudVirtualEditor, ModeKeysWaitForTheDrag)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    d.Key ('R'); // Rotate's handle at this index is a ring, not the arrow held
+    d.Key ('E'); // and Extrude has one handle
+    d.Key ('L');
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Move);
+    EXPECT_EQ (d.S ().tool, eh::Tool::Select);
+    EXPECT_FALSE (d.S ().message.empty ());
+    d.At (900, 300);
+    d.Release (900, 300);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 13.0, 1e-6);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.y, 10.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Key ('R'); // after it, the keys switch as before
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Rotate);
+}
+
 TEST (HudVirtualEditor, EscapeMidDragGivesUpTheNumberThenTheDrag)
 {
     Drive d (Corner ());
