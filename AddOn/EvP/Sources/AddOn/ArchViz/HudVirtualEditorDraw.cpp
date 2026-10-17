@@ -401,7 +401,8 @@ void DrawGizmo (Session& s, const Map& m, const edit::Frame& f, edit::GizmoMode 
                     }
                     case K::ScaleUniform: {
                         rc::Scope scope (s.canvas, { At (f.origin, o) });
-                        Polygon (list, p, Alpha (colour, on ? 120 : 50), colour, 2.0f * scale);
+                        // The gumball's is an outline: the pivot dot inside it stays clear.
+                        Polygon (list, p, Alpha (colour, on ? 120 : h.compact ? 0 : 50), colour, 2.0f * scale);
                         break;
                     }
                     case K::Side: {

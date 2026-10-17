@@ -180,6 +180,7 @@ std::vector<Handle> Handles (GizmoMode mode)
             add (HandleKind::Centre, -1, false, 2, Quantity::Distance);
             for (int a = 0; a < 3; ++a)
                 add (HandleKind::ScaleAxis, a, true, 3, Quantity::Factor);
+            add (HandleKind::ScaleUniform, 2, true, 3, Quantity::Factor); // every axis at once
             for (int a = 0; a < 3; ++a)
                 add (HandleKind::Axis, a, true, 0, Quantity::Distance);
             for (int a = 0; a < 3; ++a)
@@ -458,7 +459,8 @@ std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handl
             return { { { o + u * lo + v * lo, o + u * hi + v * lo, o + u * hi + v * hi, o + u * lo + v * hi }, true } };
         }
         case HandleKind::ScaleUniform: {
-            const double b = size * 0.15;
+            // In the gumball, a square round the pivot dot, inside the plane squares.
+            const double b = size * (handle.compact ? 0.14 : 0.15);
             return { { { o + u * b + v * b, o - u * b + v * b, o - u * b - v * b, o + u * b - v * b }, true } };
         }
         case HandleKind::Ring: {

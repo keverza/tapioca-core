@@ -350,6 +350,7 @@ TEST (HudVirtualEditor, GumballHoldsEveryTransform)
     EXPECT_EQ (kindAt (724, 376), int (ed::HandleKind::Plane));
     EXPECT_EQ (kindAt (810, 400), int (ed::HandleKind::Side));
     EXPECT_EQ (kindAt (700, 400), int (ed::HandleKind::Centre));
+    EXPECT_EQ (kindAt (710, 400), int (ed::HandleKind::ScaleUniform)); // 0.14 of 70 px out
 
     // The side grip stretches: the right side out by 1 m.
     d.Press (810, 400);
