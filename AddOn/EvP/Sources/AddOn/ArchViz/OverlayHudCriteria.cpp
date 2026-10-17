@@ -1,5 +1,6 @@
 // OVERLAY-INVARIANTS.md: ImGui layout/input only; emits events after layout's lock.
 #include "OverlayHudEngine.hpp"
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <set>
@@ -57,6 +58,10 @@ void Engine::Impl::Criteria (const layers::Panel& panel, const layers::PanelItem
         ImGui::TableSetColumnIndex (3);
         auto [it, inserted] = state.criteriaText.try_emplace (row.id);
         auto& held = it->second;
+        if (inserted || held.field != row.field) {
+            held.field = row.field;
+            held.search.clear ();
+        }
         if (inserted || held.sent != row.value) {
             held.sent = held.current = row.value;
         }
@@ -72,12 +77,30 @@ void Engine::Impl::Criteria (const layers::Panel& panel, const layers::PanelItem
         if (enter || ImGui::IsItemDeactivatedAfterEdit ())
             said ("criteriaValue", double (row.field), held.current);
         ImGui::SameLine (0, 4);
-        if (ImGui::BeginCombo ("##values", "", ImGuiComboFlags_NoPreview)) {
+        if (ImGui::BeginCombo ("##values", "", ImGuiComboFlags_NoPreview | ImGuiComboFlags_HeightLarge)) {
+            std::array<char, 513> search {};
+            std::memcpy (search.data (), held.search.data (), (std::min) (held.search.size (), search.size () - 1));
+            if (ImGui::IsWindowAppearing ())
+                ImGui::SetKeyboardFocusHere ();
+            ImGui::SetNextItemWidth ((std::max) (200.0f, ImGui::GetContentRegionAvail ().x));
+            ImGui::InputTextWithHint ("##search", "Search captured values...", search.data (), search.size ());
+            held.search = search.data ();
+            if (ImGui::IsItemActive ())
+                store->criteriaTextActive = true;
+            const auto same = [] (unsigned char a, unsigned char b) {
+                const auto fold = [] (unsigned char c) { return c >= 'A' && c <= 'Z' ? c + 'a' - 'A' : c; };
+                return fold (a) == fold (b);
+            };
+            size_t matches = 0;
             for (const auto& option : row.options)
-                if (ImGui::Selectable (option.c_str (), option == held.current)) {
+                if ((held.search.empty () || std::search (option.begin (), option.end (), held.search.begin (),
+                                                          held.search.end (), same) != option.end ()) &&
+                    (++matches, ImGui::Selectable (option.c_str (), option == held.current))) {
                     held.current = option;
                     said ("criteriaValue", double (row.field), option);
                 }
+            if (!matches)
+                ImGui::TextUnformatted ("No matching captured values");
             ImGui::EndCombo ();
         }
         ImGui::TableSetColumnIndex (4);

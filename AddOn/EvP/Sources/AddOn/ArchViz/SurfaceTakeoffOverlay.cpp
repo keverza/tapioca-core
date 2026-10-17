@@ -32,15 +32,14 @@ void CALLBACK Tick (HWND, UINT, UINT_PTR timer, DWORD)
         s_eventSeq = tail.lastSeq;
         bool changed = false;
         if (tail.gap) {
-            s_ui.pending = s_ui.selected;
             s_ui.draftRules = s_ui.rules;
             s_ui.token = std::to_string (s_snapshotId) + ":" + std::to_string (s_eventSeq);
-            s_ui.warning = "Material input expired. The last calculated list is retained; choose materials again.";
+            s_ui.warning = "Criteria input expired. The last applied rules are retained; edit the draft again.";
             changed = true;
         }
         else
             for (const auto& event : tail.events) {
-                if (event.view != "3d" || event.layer != kLayer || event.panel < 0 || event.panel > 1 || !event.final)
+                if (event.view != "3d" || event.layer != kLayer || event.panel != 0 || !event.final)
                     continue;
                 changed |= ApplyUiChange (*s_presentation, s_ui, event.kind, event.id, event.value, event.text);
             }

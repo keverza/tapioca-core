@@ -155,12 +155,10 @@ def test_seeded_exterior_takeoff_against_independent_fixture(live_client, surfac
         area = triangle_area(mesh)
         close(area, mesh["areaM2"], 1e-6)
         measured[mesh["surfaceAttributeIndex"]] += area
-    for row, expected, color in zip(
-        data["surfaces"], exterior["expectedAreaM2"], request["surfaceColors"], strict=True
-    ):
+    for row, expected in zip(data["surfaces"], exterior["expectedAreaM2"], strict=True):
         close(row["areaM2"], expected, fixture["absoluteTolerance"])
         close(row["areaM2"], measured[row["surfaceAttributeIndex"]], 1e-6)
-        assert row["rgba"] == color
+        assert row["rgba"] == 0x5A7F62FF  # legacy per-material colors cannot override selection styling
     close(sum(measured.values()), data["selectedAreaM2"], 1e-6)
     assert data["selectedTriangleCount"] == sum(len(mesh["triangles"]) // 3 for mesh in data["meshes"])
     assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == data
@@ -268,7 +266,8 @@ def test_criteria_candidates_have_an_automatic_multimaterial_tolerant_capture(li
     assert pin(data) == identity and data["classification"] == "allElementFaces-contactOnly"
     assert data["contactToleranceM"] == 0.001
     assert {normalized_guid(g) for g in data["regionElementGuids"]} == {normalized_guid(g) for g in targets}
-    assert 3 <= len(data["surfaces"]) <= 64, "Fixture must exercise a list, not two finish slots"
+    assert 3 <= len(data["surfaces"]) <= 512, "Fixture must exercise a list, not two finish slots"
+    assert {row["rgba"] for row in data["surfaces"]} == {0x5A7F62FF}
     assert {row["surfaceAttributeIndex"] for row in data["surfaces"]} <= {
         row["surfaceAttributeIndex"] for row in catalog
     }
@@ -281,4 +280,38 @@ def test_criteria_candidates_have_an_automatic_multimaterial_tolerant_capture(li
         close(row["areaM2"], measured[row["surfaceAttributeIndex"]], 1e-6)
     close(sum(measured.values()), data["selectedAreaM2"], 1e-6)
     assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == data
+    assert pin(call("Tapioca.GetSnapshotInfo")) == identity
+
+
+def test_captured_door_window_bodies_remove_contact_without_seo(live_client, surface_capture):
+    fixture, identity, _ = surface_capture
+    if not fixture.get("allWallSurfaces"):
+        pytest.skip("Fixture does not request the criteria calculator")
+    call = live_client.tapioca_call
+    info = call("Tapioca.GetSnapshotInfo")
+    typed = list(zip(info["guids"], info["elemTypes"], strict=True))
+    targets = [guid for guid, kind in typed if kind in (1, 2, 17, 19)]
+    covers = [guid for guid, kind in typed if kind in (1, 2, 13, 14, 17, 19)]
+    assert len(covers) > len(targets), "Fixture must include captured door/window geometry"
+    request = {
+        **identity,
+        "regionMode": "allElementFaces",
+        "seeds": [],
+        "targetGuids": targets,
+        "coverGuids": targets,
+        "coverScopeId": "Construction baseline:casing-test",
+        "contactToleranceM": 0.001,
+        "surfaceAttributeIndices": [],
+        "publishOverlay": False,
+        "compareNative": False,
+    }
+    baseline = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
+    request.update(coverGuids=covers, coverScopeId="Captured construction + doors/windows:casing-test")
+    covered = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
+    assert covered["coverBodyCount"] > baseline["coverBodyCount"]
+    assert pin(covered) == identity
+    assert {normalized_guid(g) for g in covered["coverGuids"]} == {normalized_guid(g) for g in covers}
+    assert covered["selectedAreaM2"] < baseline["selectedAreaM2"] - 1e-6, "Casing contact must remove actual area"
+    close(sum(triangle_area(mesh) for mesh in covered["meshes"]), covered["selectedAreaM2"], 1e-6)
+    assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == covered
     assert pin(call("Tapioca.GetSnapshotInfo")) == identity

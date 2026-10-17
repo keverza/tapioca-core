@@ -165,7 +165,7 @@ std::string ValidatePanel (const Panel& panel)
             for (const auto& row : item.criteria) {
                 if (row.id.empty () || row.id.size () > 48 || !ids.insert (row.id).second || row.value.size () > 512 ||
                     row.field >= item.labels.size () || row.condition >= item.columns.size () || row.open > 3 ||
-                    row.close > 3 || row.options.size () > 64)
+                    row.close > 3 || row.options.size () > 512)
                     return at + "invalid criteria row identity, field, condition, parentheses or value";
                 for (const auto& option : row.options)
                     if (option.size () > 512)

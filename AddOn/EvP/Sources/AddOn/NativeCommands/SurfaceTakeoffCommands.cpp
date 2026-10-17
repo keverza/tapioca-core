@@ -78,8 +78,8 @@ const char kInput[] = R"json({
   "regionMode":{"type":"string","enum":["seededFacade","allWallFaces","allElementFaces"]},
   "seeds":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,
     "properties":{"guid":{"type":"string","minLength":1,"maxLength":38},"point":{"$ref":"#/$defs/vector"},"normal":{"$ref":"#/$defs/vector"}},"required":["guid","point","normal"]}},
-  "surfaceAttributeIndices":{"type":"array","maxItems":64,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
-  "surfaceColors":{"type":"array","maxItems":64,"items":{"type":"integer","minimum":0,"maximum":4294967295}},
+   "surfaceAttributeIndices":{"type":"array","maxItems":512,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
+   "surfaceColors":{"type":"array","maxItems":512,"description":"Legacy compatibility input; highlights use the fixed selection color.","items":{"type":"integer","minimum":0,"maximum":4294967295}},
   "publishOverlay":{"type":"boolean"},"compareNative":{"type":"boolean"}
  },"required":["snapshotId","captureStamp","targetGuids","coverGuids","coverScopeId","seeds","surfaceAttributeIndices","publishOverlay","compareNative"],
  "$defs":{"vector":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}}}
@@ -90,7 +90,8 @@ const char kOutput[] = R"json({
   "classification":{"enum":["userExteriorSeeds-connectedCoplanar","allWallFaces-contactOnly","allElementFaces-contactOnly"]},"unit":{"const":"m2"},
   "coverScopeId":{"type":"string"},"coverGuids":{"type":"array","items":{"type":"string"}},
   "contactToleranceM":{"type":"number","minimum":0,"maximum":0.001},
-  "regionFaceCount":{"type":"integer","minimum":1},"selectedTriangleCount":{"type":"integer","minimum":0},
+   "regionFaceCount":{"type":"integer","minimum":1},"selectedTriangleCount":{"type":"integer","minimum":0},
+   "coverBodyCount":{"type":"integer","minimum":0},
   "regionElementGuids":{"type":"array","minItems":1,"items":{"type":"string"}},
   "selectedAreaM2":{"type":"number","minimum":0},"overlayPublished":{"type":"boolean"},
   "nativeComparisonAvailable":{"type":"boolean"},"nativeComparisonNote":{"type":"string"},
@@ -103,7 +104,7 @@ const char kOutput[] = R"json({
     "surfaceAttributeIndex":{"type":"integer","minimum":1},"areaM2":{"type":"number","exclusiveMinimum":0},
     "points":{"type":"array","minItems":9,"items":{"type":"number"}},"triangles":{"type":"array","minItems":3,"items":{"type":"integer","minimum":0}}
   },"required":["guid","sourceBody","sourcePgon","surfaceAttributeIndex","areaM2","points","triangles"]}}
- },"required":["snapshotId","captureStamp","classification","unit","coverScopeId","coverGuids","contactToleranceM","regionFaceCount","regionElementGuids","selectedTriangleCount","selectedAreaM2","overlayPublished","nativeComparisonAvailable","nativeComparisonNote","nativeSurfaces","surfaces","meshes"]
+  },"required":["snapshotId","captureStamp","classification","unit","coverScopeId","coverGuids","contactToleranceM","regionFaceCount","coverBodyCount","regionElementGuids","selectedTriangleCount","selectedAreaM2","overlayPublished","nativeComparisonAvailable","nativeComparisonNote","nativeSurfaces","surfaces","meshes"]
 })json";
 const char kEmptyInput[] = R"json({"type":"object","properties":{},"additionalProperties":false})json";
 const char kClearOutput[] =
@@ -148,7 +149,7 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
             !params.Get ("coverScopeId", scope) || !params.Get ("publishOverlay", publish) ||
             !params.Get ("compareNative", compare) || targets.IsEmpty () || targets.GetSize () > 64 ||
             covers.GetSize () > 128 || (wholeTargets ? !inputs.IsEmpty () : inputs.IsEmpty ()) ||
-            inputs.GetSize () > 8 || indices.GetSize () > 64 || scope.IsEmpty ())
+            inputs.GetSize () > 8 || indices.GetSize () > view::kMaxSurfaces || scope.IsEmpty ())
             return fail ("Explicit bounded scopes, surfaces and exterior seeds are required.");
         std::vector<size_t> targetIndices;
         std::vector<ex::ExteriorSeed> seeds;
@@ -216,8 +217,8 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
                     return fail ("A wall face has no captured original project surface.");
                 captured.insert (entry.second);
             }
-            if (captured.empty () || captured.size () > 64)
-                return fail ("The material list requires 1..64 captured wall surfaces.");
+            if (captured.empty () || captured.size () > view::kMaxSurfaces)
+                return fail ("The criteria capture requires 1..512 candidate surfaces.");
             surfaces.assign (captured.begin (), captured.end ());
         }
         std::vector<uint32_t> colors;
@@ -240,7 +241,11 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
             return fail (error);
         request.materialPoolFilter = selection.materialPoolFilter;
         ex::Result result;
-        if (!ex::Calculate (*snapshot, request, result, error, {}, cancelled))
+        ex::Limits limits;
+        // A library opening contains many separate casing/frame/hardware bodies.
+        // Only the body count grows; input/work/time and strict solids stay bounded.
+        limits.maxCoverBodies = 2048;
+        if (!ex::Calculate (*snapshot, request, result, error, limits, cancelled))
             return fail (error);
         std::map<int32_t, double> nativeAreas;
         std::string note = "Native comparison not requested. Surface Schedule acceptance is separate.";
@@ -345,6 +350,7 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
             coverEcho.Push (Text (guid));
         output.Add ("coverGuids", coverEcho);
         output.Add ("regionFaceCount", GS::Int64 (request.faces.size ()));
+        output.Add ("coverBodyCount", GS::Int64 (result.covers.size ()));
         GS::Array<GS::UniString> regionElements;
         for (const auto& entry : result.byElementGuid)
             regionElements.Push (Text (entry.first));

@@ -367,6 +367,56 @@ TEST (ExposedSurface, DownwardHeadCoveredByRealFrameHasZeroArea)
     EXPECT_DOUBLE_EQ (result.areas.exposedArea, 0);
 }
 
+TEST (ExposedSurface, NonSeoDoorCasingSubtractsJambAndHeadOnlyWhenIncludedAsACover)
+{
+    for (double gap : { 0.0, .0005, .001, .001001 }) {
+        // Actual wall-opening edges, not camera occlusion. The two casing bodies
+        // overlap half the jamb and the complete downward head respectively.
+        const auto snapshot = Capture ({ Opening (), Box ("door-casing-jamb", 1 + gap, -.01, .8, .05, .22, .75),
+                                         Box ("door-casing-head", .99, -.01, 2.2, 1.22, .22, .1 - gap) });
+        for (int32_t polygon : { 2, 4 }) {
+            auto request = Request ({ { { 0, 1 }, polygon } });
+            request.contactToleranceM = .001;
+            ex::Result baseline, covered;
+            std::string error;
+            ASSERT_TRUE (ex::Calculate (snapshot, request, baseline, error)) << error;
+            const double gross = polygon == 2 ? .3 : .24;
+            EXPECT_NEAR (baseline.areas.exposedArea, gross, 1e-6);
+            request.covers = { { size_t (polygon == 2 ? 1 : 2), 1 } };
+            ASSERT_TRUE (ex::Calculate (snapshot, request, covered, error)) << error;
+            const double exposed = gap <= .001 ? (polygon == 2 ? .15 : 0) : gross;
+            EXPECT_NEAR (covered.areas.exposedArea, exposed, 1e-6) << gap;
+            EXPECT_NEAR (EmittedArea (covered), covered.areas.exposedArea, 1e-12);
+        }
+    }
+}
+
+TEST (ExposedSurface, ManyBodyLibraryCoverRetainsSolidChecksAndChargesEachBodyScan)
+{
+    Mesh casing = Box ("library-door", 1, -.1, 0, 1, .1, 3);
+    for (int32_t body = 2; body <= 160; ++body)
+        Append (casing, Box ("hardware", 10 + body, 0, 0, .01, .01, .01, 10, body));
+    auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), casing });
+    auto request = Request ();
+    for (int32_t body = 1; body <= 160; ++body)
+        request.covers.push_back ({ 1, body });
+    ExpectRefusal (snapshot, request, "face/body budget"); // low-level default stays bounded at 128
+    ex::Limits limits;
+    limits.maxCoverBodies = 2048; // calculator's explicit library-cover budget
+    ex::Result result;
+    std::string error;
+    ASSERT_TRUE (ex::Calculate (snapshot, request, result, error, limits)) << error;
+    EXPECT_NEAR (result.areas.exposedArea, 12, 1e-6);
+    EXPECT_EQ (result.covers.size (), 160u);
+    EXPECT_GT (result.statistics.work, size_t (160 * 160 * 12)); // full source-sidecar scans are charged
+    limits.maxWork = 100000;
+    ExpectRefusal (snapshot, request, "work budget", limits);
+    limits.maxWork = 2000000;
+    Append (snapshot.meshes[1], Box ("bad-hardware", 200, 0, 0, .01, .01, .01, 10, 161), true);
+    request.covers.push_back ({ 1, 161 });
+    ExpectRefusal (snapshot, request, "positive outward-wound", limits); // even distant hardware cannot be skipped
+}
+
 TEST (ExposedSurface, GapAndUnrelatedForegroundGeometryDoNotOcclude)
 {
     const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), Box ("offset", 0, -1, 0, 5, .9, 3),

@@ -36,7 +36,7 @@ std::vector<std::string> CriterionValues (const Presentation& presentation, sc::
         values = { "Top", "Bottom", "Side" };
     std::vector<std::string> result;
     for (const auto& value : values) {
-        if (result.size () == 64)
+        if (result.size () == kMaxSurfaces)
             break;
         result.push_back (value);
     }
@@ -51,6 +51,7 @@ bool ApplyCriteriaChange (const Presentation& presentation, UiState& state, cons
             if (state.criteriaError.empty ()) {
                 state.rules = state.draftRules;
                 state.focus.reset ();
+                state.areaPage = 0;
             }
             return true;
         }
@@ -128,17 +129,13 @@ bool MatchesCriteria (const Presentation& presentation, const UiState& state, si
                         : facing == Facing::Bottom ? "Bottom"
                                                    : "Side");
 }
-overlaylayers::Panel CriteriaPanel (const Presentation& presentation, const UiState& state)
+void AppendCriteria (overlaylayers::Panel& panel, const Presentation& presentation, const UiState& state)
 {
     namespace layers = overlaylayers;
-    layers::Panel panel;
-    panel.title = "Surface criteria";
-    panel.widthPixels = panel.pageWidthPixels = 1000;
-    layers::ApplyTheme (panel, layers::PanelTheme::Light);
     layers::PanelItem text;
     text.wrap = true;
-    text.text = "Object/surface criteria - AND/OR with parentheses. Draft rows do not change quantities until Apply "
-                "criteria. Covers remain independent.";
+    text.text = "Select objects and materials with rules. For example: Surface contains Stucco. Use OR for several "
+                "finishes. Drafts change quantities/highlights only after Apply criteria. Covers stay independent.";
     panel.items.push_back (text);
     layers::PanelItem grid;
     grid.kind = layers::ItemKind::CriteriaGrid;
@@ -177,6 +174,5 @@ overlaylayers::Panel CriteriaPanel (const Presentation& presentation, const UiSt
         "Supported: Element Type, Layer, Home Story, Element ID, Surface, face direction. Type a value (Enter to "
         "commit), or choose a captured value. No IFC/custom-property criteria or native schedule editing is claimed.";
     panel.items.push_back (text);
-    return panel;
 }
 } // namespace geomsrv::archviz::surfacetakeoff

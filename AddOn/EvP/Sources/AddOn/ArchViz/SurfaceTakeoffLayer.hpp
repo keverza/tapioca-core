@@ -8,7 +8,10 @@
 
 namespace geomsrv::archviz::surfacetakeoff {
 constexpr const char* kLayer = "tapioca.exposedSurfaces";
-constexpr size_t kMaxSurfaces = 64;
+constexpr size_t kMaxSurfaces = 512; // bounded by the candidate-face budget, not the project catalog
+constexpr size_t kAreaPageSize = 50;
+// sRGB conversion of oklch(0.56 0.06 151), rounded to 8-bit channels.
+constexpr uint32_t kHighlightRgba = 0x5A7F62FFu;
 uint32_t DefaultColor (size_t index);
 struct SurfaceRow {
     int32_t index = 0;
@@ -31,12 +34,12 @@ struct Presentation {
     std::string scopeLabel, coverLabel, comparisonNote;
     double contactToleranceM = 0;
 };
-// Pure UI state over an already verified capture. Applying a material list or
+// Pure UI state over an already verified capture. Applying criteria or
 // highlighting never changes the stored per-material areas or recalculates geometry.
 struct UiState {
     std::string token;
     std::string warning;
-    std::set<int32_t> pending, selected;
+    size_t areaPage = 0;
     std::optional<int32_t> focus;
     bool includeTop = true, includeBottom = true, includeSides = true;
     std::vector<surfacecriteria::Rule> draftRules, rules;
@@ -53,7 +56,11 @@ std::vector<std::string> CriterionValues (const Presentation& presentation, surf
 bool ApplyCriteriaChange (const Presentation& presentation, UiState& state, const std::string& kind,
                           const std::string& id, double value, const std::string& text);
 bool MatchesCriteria (const Presentation& presentation, const UiState& state, size_t mesh);
-overlaylayers::Panel CriteriaPanel (const Presentation& presentation, const UiState& state);
+// Display-only coplanar union: keep perimeters/holes, suppress same-material joins.
+// Original fragment triangles and measured quantities are never changed.
+bool BoundaryLines (const Presentation& presentation, const std::vector<size_t>& meshes,
+                    std::vector<overlaylayers::Polyline>& lines, std::string& error);
+void AppendCriteria (overlaylayers::Panel& panel, const Presentation& presentation, const UiState& state);
 // Pure: the exact selected fragment triangles are copied to the layer and summed
 // independently for its table. Whole-element native quantities are a comparison,
 // never a replacement for highlighted area or schedule-equivalence evidence.

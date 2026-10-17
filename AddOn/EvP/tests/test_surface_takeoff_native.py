@@ -79,7 +79,7 @@ def test_all_wall_schema_allows_explicit_seedless_scope_but_not_unknown_modes():
 
 def test_material_list_and_tolerance_contract_are_bounded():
     data = schema("kInput")
-    assert data["properties"]["surfaceAttributeIndices"]["maxItems"] == 64
+    assert data["properties"]["surfaceAttributeIndices"]["maxItems"] == 512
     assert data["properties"]["contactToleranceM"]["maximum"] == 0.001
     assert "allElementFaces" in data["properties"]["regionMode"]["enum"]
     assert "request.contactToleranceM = .001" in SOURCE

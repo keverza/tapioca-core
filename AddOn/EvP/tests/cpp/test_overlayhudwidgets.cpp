@@ -119,6 +119,53 @@ TEST (OverlayHudWidgets, CriteriaTextReceivesScopedKeyboardWithoutStartingTheRoo
     EXPECT_FALSE (hud::CriteriaTextActive (*watched.state));
 }
 
+TEST (OverlayHudWidgets, CriteriaCapturedValuesSearchFindsAFinishBeyondTheFirstSixtyFour)
+{
+    Watched watched;
+    layers::Panel panel;
+    panel.widthPixels = 1000;
+    auto table = Control (layers::ItemKind::CriteriaGrid, "criteria", "");
+    table.labels = { "Surface" };
+    table.columns = { "is" };
+    layers::CriteriaRow row;
+    row.id = "rule";
+    row.value = "Finish 0";
+    for (int i = 0; i < 300; ++i)
+        row.options.push_back ("Finish " + std::to_string (i));
+    row.options.push_back ("Needle finish");
+    table.criteria = { row };
+    panel.items = { table };
+    layers::Layer layer;
+    layer.name = "criteria-search";
+    layer.panels = { panel };
+    ASSERT_TRUE (layers::Validate (layer).empty ());
+    watched.Lay ({ &panel }, At (1100, 600));
+    hud::Layout opened;
+    // Resizable native columns determine the value arrow's position. Locate the
+    // search-bearing popup, not a guessed project-specific material row.
+    for (float x = kLeft + 500; x < kLeft + 850; x += 8) {
+        watched.Click ({ &panel }, 1100, 600);
+        opened = watched.Click ({ &panel }, x, kTop + 30);
+        opened = watched.Lay ({ &panel }, At (x, kTop + 30));
+        if (opened.popup && hud::CriteriaTextActive (*watched.state))
+            break;
+    }
+    ASSERT_TRUE (opened.popup);
+    ASSERT_TRUE (hud::CriteriaTextActive (*watched.state));
+    auto typed = At (800, 100);
+    typed.characters = u"needle";
+    watched.Lay ({ &panel }, typed);
+    const auto filtered = watched.Lay ({ &panel }, At (800, 100));
+    float box[4] = {};
+    ASSERT_TRUE (Box (filtered.overlay, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u, box));
+    watched.heard.clear ();
+    watched.Click ({ &panel }, box[0] + 40, box[1] + 40);
+    const auto picked = std::find_if (watched.heard.begin (), watched.heard.end (),
+                                      [] (const auto& event) { return event.kind == "criteriaValue"; });
+    ASSERT_NE (picked, watched.heard.end ()) << "popup: " << box[0] << "," << box[1] << ".." << box[2] << "," << box[3];
+    EXPECT_EQ (picked->text, "Needle finish");
+}
+
 TEST (OverlayHudWidgets, LayoutThumbnailClickSelectsOnlyItsLayerAndPersists)
 {
     Watched watched;

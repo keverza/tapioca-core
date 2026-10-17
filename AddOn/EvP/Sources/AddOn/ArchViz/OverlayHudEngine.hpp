@@ -77,7 +77,8 @@ struct State {
         std::map<uint32_t, bool> sections;  // by item index
         std::map<std::string, Held> values; // by control id; the tab bar's by its id
         struct Text {
-            std::string sent, current;
+            std::string sent, current, search;
+            uint32_t field = 0;
         };
         std::map<std::string, Text> criteriaText;
     };

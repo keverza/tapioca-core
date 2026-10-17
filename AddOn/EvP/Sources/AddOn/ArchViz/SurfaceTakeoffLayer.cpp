@@ -17,39 +17,8 @@ std::string Area (double value)
 } // namespace
 uint32_t DefaultColor (size_t index)
 {
-    static constexpr uint32_t palette[] = { 0xE5484DFFu, 0xF6C945FFu, 0x4388DBFFu, 0x43A577FFu,
-                                            0xA473CEFFu, 0xE98740FFu, 0x3AA4B4FFu, 0xCE689FFFu };
-    if (index < std::size (palette))
-        return palette[index];
-    const double hue = std::fmod (index * .61803398875, 1.0) * 6;
-    const double c = .65, x = c * (1 - std::abs (std::fmod (hue, 2.0) - 1)), m = .25;
-    double r = 0, g = 0, b = 0;
-    const int sector = int (hue);
-    if (sector == 0) {
-        r = c;
-        g = x;
-    }
-    else if (sector == 1) {
-        r = x;
-        g = c;
-    }
-    else if (sector == 2) {
-        g = c;
-        b = x;
-    }
-    else if (sector == 3) {
-        g = x;
-        b = c;
-    }
-    else if (sector == 4) {
-        r = x;
-        b = c;
-    }
-    else {
-        r = c;
-        b = x;
-    }
-    return (uint32_t ((r + m) * 255) << 24) | (uint32_t ((g + m) * 255) << 16) | (uint32_t ((b + m) * 255) << 8) | 255;
+    (void) index;
+    return kHighlightRgba;
 }
 bool Build (const Snapshot& snapshot, const exposed::Result& result, const exposed::SurfaceSelection& selection,
             const std::vector<int32_t>& surfaces, const std::map<int32_t, double>& nativeAreas,
@@ -69,7 +38,7 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
     auto& layer = prepared.layer;
     layer.name = kLayer;
     layer.views = overlaylayers::Views::ThreeD;
-    layer.occlusion = overlaylayers::Behind::Hide;
+    layer.occlusion = overlaylayers::Behind::Show;
     for (const auto& entry : result.byElementGuid) {
         const auto mesh = std::find_if (snapshot.meshes.begin (), snapshot.meshes.end (),
                                         [&] (const auto& value) { return value.guid == entry.first; });
@@ -85,9 +54,7 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         if (found == snapshot.surfaceAttributes.end () || positions.contains (index))
             return fail ("Missing/duplicate selected project surface.");
         positions[index] = prepared.rows.size ();
-        prepared.rows.push_back (
-            { index, found->second.name,
-              colors.empty () ? DefaultColor (prepared.rows.size ()) : colors[prepared.rows.size ()], 0 });
+        prepared.rows.push_back ({ index, found->second.name, kHighlightRgba, 0 });
     }
     for (const auto& fragment : result.fragments) {
         const auto mapped = selection.poolToSurface.find (fragment.materialPoolIndex);
@@ -134,9 +101,10 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         mesh.indices = fragment.triangles;
         mesh.rgba = row.rgba;
         mesh.styled = true;
-        mesh.style.opacity = .65f;
-        mesh.style.cullBack = true;
-        mesh.style.edgeRgba = row.rgba;
+        mesh.style.opacity = .5f;
+        mesh.style.behind = overlaylayers::Behind::Show;
+        mesh.style.cullBack = false; // selected faces stay inspectable through the model from either side
+        mesh.style.edgeRgba = 0;     // BoundaryLines owns outlines across fragment/element seams.
         mesh.style.edgeWidthPixels = 1.5f;
         mesh.hoverTitle = row.name;
         mesh.hoverRows = { { "Highlighted", Area (area) + " m2" } };

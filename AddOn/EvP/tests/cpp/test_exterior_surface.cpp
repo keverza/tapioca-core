@@ -3,6 +3,7 @@
 #include "ArchViz/SurfaceTakeoffLayer.hpp"
 #include "MeshFixtures.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 
 namespace {
 using namespace geomsrv;
@@ -34,6 +35,26 @@ Snapshot Capture ()
 ex::ExteriorSeed Seed ()
 {
     return { 0, { .5, 0, .5 }, { 0, -1, 0 } };
+}
+void Patch (presentation::Presentation& data, double x, double y, double width, double height, int32_t surface = 1)
+{
+    namespace layers = archviz::overlaylayers;
+    data.layer.name = presentation::kLayer;
+    data.layer.views = layers::Views::ThreeD;
+    layers::Mesh mesh;
+    mesh.points = { x, y, 0, x + width, y, 0, x + width, y + height, 0, x, y + height, 0 };
+    mesh.indices = { 0, 1, 2, 0, 2, 3 };
+    mesh.rgba = presentation::kHighlightRgba;
+    data.layer.meshes.push_back (mesh);
+    data.meshSurfaces.push_back (surface);
+    data.meshAreas.push_back (width * height);
+    data.meshFacings.push_back (presentation::Facing::Top);
+    data.meshElements.push_back ("wall");
+    data.elements["wall"] = { "wall", "Wall" };
+    if (std::none_of (data.rows.begin (), data.rows.end (), [&] (const auto& row) { return row.index == surface; }))
+        data.rows.push_back ({ surface, "Finish " + std::to_string (surface), presentation::kHighlightRgba, 0 });
+    data.rows.back ().areaM2 += width * height;
+    data.areaM2 += width * height;
 }
 } // namespace
 
@@ -206,17 +227,23 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
         << error;
     ASSERT_EQ (output.rows.size (), 2u);
     ASSERT_EQ (output.layer.meshes.size (), result.fragments.size ());
-    EXPECT_NE (output.rows[0].rgba, output.rows[1].rgba);
+    EXPECT_EQ (output.rows[0].rgba, presentation::kHighlightRgba);
+    EXPECT_EQ (output.rows[1].rgba, presentation::kHighlightRgba);
     EXPECT_DOUBLE_EQ (output.rows[0].areaM2, 1);
     EXPECT_DOUBLE_EQ (output.rows[1].areaM2, 1);
     EXPECT_DOUBLE_EQ (output.areaM2, 2);
     EXPECT_EQ (output.triangles, 4u);
     EXPECT_EQ (output.layer.views, archviz::overlaylayers::Views::ThreeD);
-    EXPECT_EQ (output.layer.panels.size (), 2u);
+    EXPECT_EQ (output.layer.panels.size (), 1u);
     for (size_t i = 0; i < result.fragments.size (); ++i) {
         EXPECT_EQ (output.layer.meshes[i].points, result.fragments[i].points);
         EXPECT_EQ (output.layer.meshes[i].indices, result.fragments[i].triangles);
         EXPECT_TRUE (output.layer.meshes[i].styled);
+        EXPECT_EQ (output.layer.meshes[i].rgba, presentation::kHighlightRgba);
+        EXPECT_EQ (output.layer.meshes[i].style.edgeRgba, 0u);
+        EXPECT_EQ (output.layer.meshes[i].style.opacity, .5f);
+        EXPECT_EQ (output.layer.meshes[i].style.behind, archviz::overlaylayers::Behind::Show);
+        EXPECT_FALSE (output.layer.meshes[i].style.cullBack);
     }
     result.areas.selectedExposedArea = 999;
     EXPECT_FALSE (presentation::Build (snapshot, result, selection, { 100, 200 }, {}, "", output, error));
@@ -224,7 +251,7 @@ TEST (ExteriorSurface, RedYellowOverlayAndPanelUseExactSelectedFragmentTriangles
     EXPECT_TRUE (output.rows.empty ());
 }
 
-TEST (ExteriorSurface, MaterialListSwatchesAndDirectionFiltersUseCachedClippedGeometry)
+TEST (ExteriorSurface, CriteriaSwatchesAndDirectionFiltersUseCachedClippedGeometry)
 {
     auto snapshot = Capture ();
     snapshot.surfaceAttributes[300] = { "Unused finish", "unused" };
@@ -261,10 +288,8 @@ TEST (ExteriorSurface, MaterialListSwatchesAndDirectionFiltersUseCachedClippedGe
     EXPECT_NEAR (presentation::UiAreas (data, state).at (200), 2.4, 1e-6);
     ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "bottom"), 0));
     EXPECT_NEAR (presentation::UiAreas (data, state).at (200), 2.2, 1e-6); // beam/contact end still subtracted
-    ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "choose", 200), 0));
-    EXPECT_TRUE (state.selected.contains (200)); // pending list is not a partly applied calculation
-    ASSERT_TRUE (presentation::ApplyUiChange (data, state, "button", presentation::UiId (state, "calculate"), 1));
-    EXPECT_FALSE (state.selected.contains (200));
+    EXPECT_FALSE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "choose", 200), 0));
+    ASSERT_TRUE (presentation::ApplyUiChange (data, state, "button", presentation::UiId (state, "showAll"), 1));
     EXPECT_FALSE (state.focus.has_value ());
     EXPECT_FALSE (presentation::ApplyUiChange (data, state, "swatch", "old-revision:highlight:100", 1));
     EXPECT_FALSE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "top"), 42));
@@ -294,4 +319,98 @@ TEST (ExteriorSurface, MaterialListSwatchesAndDirectionFiltersUseCachedClippedGe
     ASSERT_TRUE (presentation::ApplyUiChange (data, state, "button", presentation::UiId (state, "applyCriteria"), 1));
     EXPECT_FALSE (state.criteriaError.empty ());
     EXPECT_NEAR (presentation::UiAreas (data, state).at (100), 2.6, 1e-6); // invalid parentheses keep last good query
+}
+
+TEST (ExteriorSurface, OneCriteriaSectionNoChecklistZeroRowsHiddenAndHundredsOfSurfacesArePaged)
+{
+    presentation::Presentation data;
+    for (int32_t surface = 1; surface <= 300; ++surface)
+        Patch (data, surface * 2, 0, 1, 1, surface);
+    data.rows.push_back ({ 400, "Zero finish", presentation::kHighlightRgba, 0 });
+    auto state = presentation::InitialUi (data, "capture");
+    auto layer = presentation::UiLayer (data, state);
+    ASSERT_EQ (layer.panels.size (), 1u);
+    const auto& items = layer.panels[0].items;
+    const auto countKind = [&] (archviz::overlaylayers::ItemKind kind) {
+        return std::count_if (items.begin (), items.end (), [&] (const auto& item) { return item.kind == kind; });
+    };
+    EXPECT_EQ (countKind (archviz::overlaylayers::ItemKind::Swatch), 50);
+    EXPECT_EQ (countKind (archviz::overlaylayers::ItemKind::Checkbox), 3); // directions, not 300 materials
+    EXPECT_EQ (countKind (archviz::overlaylayers::ItemKind::CriteriaGrid), 1);
+    EXPECT_TRUE (std::any_of (items.begin (), items.end (), [] (const auto& item) {
+        return item.kind == archviz::overlaylayers::ItemKind::Section && item.text == "Surface criteria";
+    }));
+    EXPECT_TRUE (archviz::overlaylayers::Validate (layer).empty ());
+    const auto choices = presentation::CriterionValues (data, surfacecriteria::Field::Surface);
+    EXPECT_EQ (choices.size (), 301u); // no truncation to 64; searchable, not a checklist
+    EXPECT_FALSE (presentation::ApplyUiChange (data, state, "swatch", presentation::UiId (state, "highlight", 400), 1));
+    for (int i = 0; i < 5; ++i)
+        ASSERT_TRUE (presentation::ApplyUiChange (data, state, "button", presentation::UiId (state, "nextAreas"), 1));
+    layer = presentation::UiLayer (data, state);
+    EXPECT_EQ (state.areaPage, 5u);
+    for (const auto& item : layer.panels[0].items)
+        if (item.kind == archviz::overlaylayers::ItemKind::Swatch) {
+            EXPECT_NE (item.text, "Zero finish");
+            EXPECT_EQ (item.rgba, presentation::kHighlightRgba);
+        }
+    EXPECT_TRUE (archviz::overlaylayers::Validate (layer).empty ());
+    ASSERT_TRUE (presentation::ApplyUiChange (data, state, "checkbox", presentation::UiId (state, "top"), 0));
+    layer = presentation::UiLayer (data, state);
+    EXPECT_TRUE (layer.meshes.empty ());
+    EXPECT_TRUE (layer.polylines.empty ());
+    for (const auto& item : layer.panels[0].items)
+        EXPECT_NE (item.kind, archviz::overlaylayers::ItemKind::Swatch);
+}
+
+TEST (ExteriorSurface, CoplanarSameSurfaceJoinsAndTJunctionsHaveOnlyTheirUnionPerimeter)
+{
+    presentation::Presentation data;
+    Patch (data, 0, 0, 1, 2);
+    Patch (data, 1, 0, 1, 1);
+    Patch (data, 1, 1, 1, 1);
+    const auto original = data.layer.meshes;
+    std::vector<archviz::overlaylayers::Polyline> lines;
+    std::string error;
+    ASSERT_TRUE (presentation::BoundaryLines (data, { 0, 1, 2 }, lines, error)) << error;
+    ASSERT_EQ (lines.size (), 1u);
+    const auto& points = lines[0].points;
+    for (size_t i = 0; i < points.size (); i += 3) {
+        const size_t next = (i + 3) % points.size ();
+        EXPECT_FALSE (points[i] == 1 && points[next] == 1 && points[i + 1] != points[next + 1]);
+    }
+    for (size_t i = 0; i < original.size (); ++i) {
+        EXPECT_EQ (data.layer.meshes[i].points, original[i].points);
+        EXPECT_EQ (data.layer.meshes[i].indices, original[i].indices);
+    }
+    ASSERT_TRUE (presentation::BoundaryLines (data, { 0 }, lines, error)) << error;
+    EXPECT_EQ (lines.size (), 1u); // filtering restores the now-exposed boundary
+}
+
+TEST (ExteriorSurface, BoundaryUnionKeepsHolesMaterialBoundariesGapsAndCreases)
+{
+    std::string error;
+    std::vector<archviz::overlaylayers::Polyline> lines;
+    presentation::Presentation ring;
+    Patch (ring, 0, 0, 3, 1);
+    Patch (ring, 0, 2, 3, 1);
+    Patch (ring, 0, 1, 1, 1);
+    Patch (ring, 2, 1, 1, 1);
+    ASSERT_TRUE (presentation::BoundaryLines (ring, { 0, 1, 2, 3 }, lines, error)) << error;
+    EXPECT_EQ (lines.size (), 2u); // perimeter and real hole
+    for (const auto& line : lines)
+        EXPECT_EQ (line.rgba, (presentation::kHighlightRgba & 0xFFFFFF00u) | 0x80u);
+    for (int variant = 0; variant < 3; ++variant) {
+        presentation::Presentation data;
+        Patch (data, 0, 0, 1, 1);
+        Patch (data, variant == 1 ? 1.001 : 1, 0, 1, 1, variant == 0 ? 2 : 1);
+        if (variant == 2) { // a real corner is not a coplanar join
+            auto& points = data.layer.meshes[1].points;
+            for (size_t i = 0; i < points.size (); i += 3) {
+                points[i + 2] = points[i] - 1;
+                points[i] = 1;
+            }
+        }
+        ASSERT_TRUE (presentation::BoundaryLines (data, { 0, 1 }, lines, error)) << error;
+        EXPECT_EQ (lines.size (), 2u) << variant;
+    }
 }

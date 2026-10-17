@@ -274,6 +274,8 @@ bool Prepare (const Snapshot& snapshot, const Request& request, std::vector<Face
         Body body;
         body.key = key;
         const auto& mesh = snapshot.meshes[key.meshIndex];
+        if (!work.Check (mesh.TriangleCount (), error))
+            return false; // account for the full sidecar scan even in a many-body library part
         std::map<uint32_t, uint32_t> remap;
         for (size_t i = 0; i < mesh.TriangleCount (); ++i) {
             if (!work.Check (1, error))
