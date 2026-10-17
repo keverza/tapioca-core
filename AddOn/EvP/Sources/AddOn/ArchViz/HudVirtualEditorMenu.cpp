@@ -2,6 +2,7 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPolyline.hpp"
 #include <imgui.h>
 #include <algorithm>
 
@@ -9,6 +10,71 @@
 // offers. The items are data (MenuItems), so what each place offers is tested without
 // ImGui; Menu only draws them and RunMenuItem does what one says.
 namespace geomsrv::archviz::edithud {
+
+namespace detail {
+
+// The document actions the menu, the keys and the panel share.
+void History (Session& s, bool undo)
+{
+    if (s.drag != Drag::None)
+        return;
+    if (!(undo ? s.edits.Undo () : s.edits.Redo ()))
+        s.message = undo ? "Nothing to undo." : "Nothing to redo.";
+    s.selection.Prune (Doc (s));
+}
+
+void DeleteSelection (Session& s)
+{
+    const auto items = s.selection.Items ();
+    if (items.empty () || s.drag != Drag::None)
+        return;
+    const bool ok = s.edits.Apply ([items] (edit::Document& d, std::string& error) {
+        for (const auto& r : items) {
+            if (edit::FindPath (d, r.entity) != nullptr) {
+                bool done = true;
+                switch (r.part) {
+                    case edit::Part::Entity:
+                        d.paths.erase (std::remove_if (d.paths.begin (), d.paths.end (),
+                                                       [&] (const edit::Path& p) { return p.id == r.entity; }),
+                                       d.paths.end ());
+                        break;
+                    case edit::Part::PathPoint:
+                        done = edit::DeletePathPoint (d, r.entity, r.item, error);
+                        break;
+                    case edit::Part::Break:
+                        done = edit::DeletePathBreak (d, r.entity, r.item, error);
+                        break;
+                    case edit::Part::Range:
+                        done = edit::DeletePathSection (d, r.entity, r.item, error);
+                        break;
+                    default:
+                        break;
+                }
+                if (!done)
+                    return false;
+                continue;
+            }
+            if (r.part == edit::Part::Entity)
+                d.entities.erase (std::remove_if (d.entities.begin (), d.entities.end (),
+                                                  [&] (const edit::Entity& e) { return e.id == r.entity; }),
+                                  d.entities.end ());
+            else if (r.part == edit::Part::Vertex) {
+                if (!edit::DeleteVertex (d, r.entity, r.item, error))
+                    return false;
+            }
+            else {
+                error = "Delete removes vertices, path parts or whole objects.";
+                return false;
+            }
+        }
+        return true;
+    });
+    if (ok)
+        s.selection.Clear ();
+    else
+        s.message = s.edits.Message ();
+}
+} // namespace detail
 
 void detail::SelectMade (Session& s, edit::Id since)
 {
