@@ -79,6 +79,11 @@ struct Session {
     int handle = -1, hoverHandle = -1;
     edit::Frame frame;
     edit::Transform dragTransform; // the handle drag's transform so far: the gumball rides it
+    // The handle drag's value so far, in its quantity -- the tracker's field while it runs, so a
+    // number typed mid-drag replaces it -- and whether the button came up while that number was
+    // being typed (the number, not the release, ends the gesture then).
+    double dragValue = 0.0;
+    bool dragReleased = false;
     // A gumball handle clicked without a drag: the tracker asks for its number (a distance,
     // an angle, a factor or a width) and Enter applies it about `typedFrame`.
     int typedHandle = -1;

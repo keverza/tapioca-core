@@ -349,6 +349,32 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     return true;
 }
 
+// The handle a gumball drag holds -- one of the mode's, or a pushed face's -- and what it moves.
+edit::Handle HeldHandle (const Session& s)
+{
+    return s.handle == -2 ? edit::Handles (edit::GizmoMode::Extrude).front ()
+                          : edit::Handles (s.gizmo)[size_t (s.handle)];
+}
+
+std::vector<edit::Ref> HeldRefs (const Session& s)
+{
+    return s.handle == -2 ? std::vector<edit::Ref> { s.edits.Target () } : s.selection.Items ();
+}
+
+// Ends a gumball drag at what it shows now: one undo entry when it changed anything.
+void EndHandleDrag (Session& s)
+{
+    s.edits.End ();
+    s.snap = {};
+    // A dragged pivot stays where it was put; one already set travels with its selection.
+    if (s.handle >= 0 && (s.dragTransform.relocate || (s.pivot && s.pivotFor == s.selection.Items ()))) {
+        s.pivot = edit::Moved (s.frame, s.dragTransform).origin;
+        s.pivotFor = s.selection.Items ();
+    }
+    s.drag = Drag::None;
+    s.dragReleased = false;
+}
+
 void Escape (Session& s)
 {
     if (s.tracker.State () == edit::TrackerState::Editing)
@@ -408,6 +434,21 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
     }
     if (event.outcome != O::Commit)
         return;
+    if (s.drag == Drag::Handle && s.dragStarted) {
+        // A number typed through a gumball drag: the drag's own transform at that value, from
+        // where the gesture began, and the gesture ends there -- once, whatever the button does.
+        const auto r = edit::FromValue (s.frame, HeldHandle (s), event.value);
+        if (!r.ok)
+            s.message = r.error;
+        else if (!s.edits.Move (edit::TransformOperation (HeldRefs (s), r.transform)))
+            s.message = s.edits.Message ();
+        else {
+            s.dragTransform = r.transform;
+            EndHandleDrag (s);
+            s.message.clear ();
+        }
+        return;
+    }
     if (s.typedHandle >= 0) {
         // The clicked handle's number: the same transform a drag of that size would make.
         const edit::Handle h = edit::Handles (s.gizmo)[size_t (s.typedHandle)];
@@ -458,6 +499,14 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         items.push_back ({ edit::Quantity::Length, edit::DistanceXY (last, at) });
         items.push_back (
             { edit::Quantity::Angle, std::atan2 (at.y - last.y, at.x - last.x) * 180.0 / 3.14159265358979323846 });
+        return items;
+    }
+    if (s.drag == Drag::Handle && s.dragStarted) {
+        // The held handle's quantity, what the drag has made of it so far; a handle that takes no
+        // number (a plane, the pivot) offers none.
+        const edit::Handle h = HeldHandle (s);
+        if (h.focusable)
+            items.push_back ({ h.quantity, s.dragValue });
         return items;
     }
     if (s.selection.Items ().empty ())
@@ -683,6 +732,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else if (s.hoverHandle >= 0) {
             s.drag = Drag::Handle;
             s.dragStarted = false;
+            s.dragReleased = false;
+            s.dragValue = 0.0;
             s.handle = s.hoverHandle;
             s.frame = frame;
             s.dragTransform = {};
@@ -711,6 +762,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     // A face pushes or pulls along its normal: the face handle, taken directly.
                     s.drag = Drag::Handle;
                     s.dragStarted = false;
+                    s.dragReleased = false;
+                    s.dragValue = 0.0;
                     s.handle = -2;
                     edit::FaceFrame (*e, pressed.item, s.frame);
                     s.startX = mouse.x, s.startY = mouse.y;
@@ -832,19 +885,21 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else
             s.message = "This view is edge-on to the working plane. Orbit or type a value.";
     }
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted) {
+    // While a number is typed through the drag the number has it: the preview stays as it was
+    // when typing began, and the pointer moves nothing until Esc gives the number up.
+    const bool typing = s.tracker.State () == edit::TrackerState::Editing;
+    if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted && !typing) {
         edit::Ray now;
-        const edit::Handle h = s.handle == -2 ? edit::Handles (edit::GizmoMode::Extrude).front ()
-                                              : edit::Handles (s.gizmo)[size_t (s.handle)];
+        const edit::Handle h = HeldHandle (s);
         if (m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, now)) {
             const auto r = edit::Drag (s.frame, h, s.startRay, now);
-            const auto refs = s.handle == -2 ? std::vector<edit::Ref> { s.edits.Target () } : s.selection.Items ();
             if (!r.ok)
                 s.message = r.error;
-            else if (!s.edits.Move (edit::TransformOperation (refs, r.transform)))
+            else if (!s.edits.Move (edit::TransformOperation (HeldRefs (s), r.transform)))
                 s.message = s.edits.Message ();
             else {
                 s.dragTransform = r.transform;
+                s.dragValue = r.value;
                 char text[48];
                 std::snprintf (text, sizeof text, "%.2f %s", r.value, edit::QuantityUnit (h.quantity));
                 s.snap = {};
@@ -876,21 +931,28 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (ImGui::IsMouseReleased (0))
         s.wholeGrab = false;
     if (ImGui::IsMouseReleased (0)) {
-        if (s.drag == Drag::Part || s.drag == Drag::Handle) {
-            s.edits.End ();
-            s.snap = {};
+        if (s.drag == Drag::Handle && typing) {
+            // The typed number has the gesture: Enter ends it, this release does not.
+            s.dragReleased = true;
+            s.message = "Enter applies the typed value; Esc gives it up and keeps the drag as it was.";
         }
-        // A dragged pivot stays where it was put; one already set travels with its selection.
-        if (s.drag == Drag::Handle && s.handle >= 0 &&
-            (s.dragTransform.relocate || (s.pivot && s.pivotFor == s.selection.Items ()))) {
-            s.pivot = edit::Moved (s.frame, s.dragTransform).origin;
-            s.pivotFor = s.selection.Items ();
+        else if (s.drag == Drag::Handle)
+            EndHandleDrag (s);
+        else {
+            if (s.drag == Drag::Part) {
+                s.edits.End ();
+                s.snap = {};
+            }
+            else if (s.drag == Drag::Marquee && std::hypot (mouse.x - s.startX, mouse.y - s.startY) > 3.0f)
+                s.selection.Marquee (Doc (s), pick, s.startX, s.startY, mouse.x, mouse.y, s.filter, shift);
+            if (s.drag == Drag::Part || s.drag == Drag::Marquee)
+                s.drag = Drag::None;
         }
-        else if (s.drag == Drag::Marquee && std::hypot (mouse.x - s.startX, mouse.y - s.startY) > 3.0f)
-            s.selection.Marquee (Doc (s), pick, s.startX, s.startY, mouse.x, mouse.y, s.filter, shift);
-        if (s.drag == Drag::Part || s.drag == Drag::Handle || s.drag == Drag::Marquee)
-            s.drag = Drag::None;
     }
+    // Released while a number was typed, and the number then given up (Esc, emptied): the drag
+    // ends as the release left it, at the preview from before the typing.
+    if (s.drag == Drag::Handle && s.dragReleased && s.tracker.State () != edit::TrackerState::Editing)
+        EndHandleDrag (s);
 
     // Drawing tools follow the pointer between clicks.
     if (s.tool != Tool::Select && hovered && s.drag == Drag::None) {

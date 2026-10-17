@@ -224,6 +224,91 @@ TEST (HudVirtualEditor, GizmoAxisMovesTheSelection)
     EXPECT_NEAR (v.y, 10.0, 1e-6);
 }
 
+namespace {
+// The vertex at (x, 10) selected and its gumball's X arrow pressed and dragged 2 m.
+void DragTheXArrow (Drive& d, float x = 10)
+{
+    d.S ().localAxes = false; // the arrow along world X, whatever the segments do
+    const float sx = 600 + 20 * x;
+    d.Press (sx, 300);
+    d.Release (sx, 300);
+    d.At (sx + 40, 300);
+    ASSERT_GE (d.S ().hoverHandle, 0);
+    d.Press (sx + 40, 300);
+    d.At (sx + 80, 300);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Handle);
+    ASSERT_NEAR (d.D ().entities[0].vertices[2].p.x, x + 2.0, 1e-6);
+}
+} // namespace
+
+TEST (HudVirtualEditor, ANumberTypedMidDragEndsItOnce)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    // The tracker offers the arrow's own quantity, not the vertex's dimensions.
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Distance);
+    EXPECT_NEAR (d.S ().tracker.Items ()[0].value, 2.0, 1e-6);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.At (900, 300); // the number has the drag now: the pointer moves nothing
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+    d.Key (0x0D);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 15.0, 1e-9); // 5 m from where the drag began
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Release (900, 300); // the release ends nothing more
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 15.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10.0, 1e-9);
+}
+
+TEST (HudVirtualEditor, EscapeMidDragGivesUpTheNumberThenTheDrag)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.Key (0x1B); // the number goes: the drag is as it was when typing began, and runs on
+    EXPECT_NE (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+    d.At (900, 300);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 13.0, 1e-6);
+    d.Key (0x1B); // the drag goes: back to before it
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10.0, 1e-12);
+    d.Release (900, 300);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, AReleaseWhileANumberIsTypedWaitsForIt)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.Release (880, 300);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle); // still the number's
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x0D);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 15.0, 1e-9);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // Given up instead, the drag ends where the release left it.
+    DragTheXArrow (d, 15); // the vertex is at (17, 10)
+    d.input.characters = u"1";
+    d.Frame ();
+    d.Release (980, 300);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 17.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}
+
 TEST (HudVirtualEditor, DrawingAPolylineAndAPath)
 {
     Drive d (Corner ());
