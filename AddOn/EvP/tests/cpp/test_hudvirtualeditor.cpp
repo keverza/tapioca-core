@@ -162,6 +162,40 @@ TEST (HudVirtualEditor, DraggingAVertexIsOneUndoableGesture)
     EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 10.0, 1e-9);
 }
 
+TEST (HudVirtualEditor, ADistanceTypedThroughAPartDragMovesItThatFar)
+{
+    Drive d (Corner ());
+    d.Press (800, 500); // the vertex at (10, 0), dragged 2 m along X
+    d.At (840, 500);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Part);
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Distance);
+    EXPECT_NEAR (d.S ().tracker.Items ()[0].value, 2.0, 1e-6);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.At (860, 520); // the number has the drag: the pointer moves nothing
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 12.0, 1e-6);
+    d.Key (0x0D);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 15.0, 1e-9); // 5 m the way it was going
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.y, 0.0, 1e-9);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    d.Release (860, 520);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // Released while typed, then given up: the drag ends where it was when typing began.
+    d.S ().selection.Clear (); // no gumball over it: a press on it is the part's
+    d.Press (900, 500);        // the vertex, now at (15, 0)
+    d.At (920, 500);
+    d.input.characters = u"9";
+    d.Frame ();
+    d.Release (920, 500);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Part);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 16.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}
+
 TEST (HudVirtualEditor, TypedLengthOnASelectedSegment)
 {
     Drive d (Corner ());

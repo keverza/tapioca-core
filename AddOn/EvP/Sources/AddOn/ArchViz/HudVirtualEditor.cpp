@@ -315,6 +315,26 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
         }
         return;
     }
+    if (s.drag == Drag::Part && s.dragStarted && s.dragTypable) {
+        // A distance typed through a part drag: the items moved that far the way the pointer has
+        // taken them, from where the gesture began, and the gesture ends there once.
+        if (!s.dragDirection) {
+            s.message = "Move the pointer the way the distance should go, then type it.";
+            return;
+        }
+        edit::Transform t;
+        t.translate = *s.dragDirection * event.value;
+        if (!s.edits.Move (edit::TransformOperation (Moving (s, s.target), t))) {
+            s.message = s.edits.Message ();
+            return;
+        }
+        s.edits.End ();
+        s.drag = Drag::None;
+        s.dragReleased = false;
+        s.snap = {};
+        s.message.clear ();
+        return;
+    }
     if (s.typedHandle >= 0) {
         // The clicked handle's number: the same transform a drag of that size would make.
         const edit::Handle h = edit::Handles (s.gizmo)[size_t (s.typedHandle)];
@@ -365,6 +385,10 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         items.push_back ({ edit::Quantity::Length, edit::DistanceXY (last, at) });
         items.push_back (
             { edit::Quantity::Angle, std::atan2 (at.y - last.y, at.x - last.x) * 180.0 / 3.14159265358979323846 });
+        return items;
+    }
+    if (s.drag == Drag::Part && s.dragStarted && s.dragTypable) {
+        items.push_back ({ edit::Quantity::Distance, s.dragValue }); // how far the items have moved
         return items;
     }
     if (s.drag == Drag::Handle && s.dragStarted) {
@@ -659,6 +683,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 else if (edit::PointOf (Doc (s), pressed, s.anchor)) {
                     s.drag = Drag::Part;
                     s.dragStarted = false;
+                    s.dragReleased = false;
+                    s.dragValue = 0.0;
+                    s.dragDirection.reset ();
                     s.target = pressed;
                     s.startX = mouse.x, s.startY = mouse.y;
                     if (!m.Onto (mouse.x, mouse.y, s.anchor.z, s.anchor, s.startCursor) || !s.edits.Begin (pressed))
@@ -736,12 +763,17 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // a pushed face wait the same: a hand's tremor on a click is not a move.
     if (ImGui::IsMouseDown (0) && (s.drag == Drag::Part || s.drag == Drag::Handle) && !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= kDragPixels;
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted) {
+    // While a number is typed through a drag the number has it: the preview stays as it was
+    // when typing began, and the pointer moves nothing until Esc gives the number up.
+    const bool typing = s.tracker.State () == edit::TrackerState::Editing;
+    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted && !typing) {
         const auto moving = Moving (s, s.target);
         Vec3 at;
         if (Pointer (s, m, mouse, s.anchor.z, s.anchor, s.anchor, Exclusions (Doc (s), moving), scale, at)) {
             edit::Operation op;
             const edit::Path* path = edit::FindPath (s.edits.Before (), s.target.entity);
+            s.dragTypable =
+                !(path != nullptr && (s.target.part == edit::Part::Range || s.target.part == edit::Part::Break));
             if (path != nullptr && s.target.part == edit::Part::Range)
                 op = [id = path->id, at] (edit::Document& d, std::string& e) {
                     return edit::SetPathWidthFromPoint (d, id, at, e);
@@ -763,6 +795,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     FlushEdges (s, m, mouse, moving, s.anchor.z, Exclusions (Doc (s), moving), scale, t);
                 }
                 op = edit::TransformOperation (moving, t);
+                s.dragValue = std::hypot (t.translate.x, t.translate.y);
+                if (s.dragValue > 1.0e-9)
+                    s.dragDirection = t.translate * (1.0 / s.dragValue);
             }
             if (op && !s.edits.Move (op))
                 s.message = s.edits.Message ();
@@ -770,9 +805,6 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else
             s.message = "This view is edge-on to the working plane. Orbit or type a value.";
     }
-    // While a number is typed through the drag the number has it: the preview stays as it was
-    // when typing began, and the pointer moves nothing until Esc gives the number up.
-    const bool typing = s.tracker.State () == edit::TrackerState::Editing;
     if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted && !typing) {
         edit::Ray now;
         const edit::Handle h = HeldHandle (s);
@@ -816,7 +848,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (ImGui::IsMouseReleased (0))
         s.wholeGrab = false;
     if (ImGui::IsMouseReleased (0)) {
-        if (s.drag == Drag::Handle && typing) {
+        if ((s.drag == Drag::Handle || (s.drag == Drag::Part && s.dragStarted)) && typing) {
             // The typed number has the gesture: Enter ends it, this release does not.
             s.dragReleased = true;
             s.message = "Enter applies the typed value; Esc gives it up and keeps the drag as it was.";
@@ -838,6 +870,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // ends as the release left it, at the preview from before the typing.
     if (s.drag == Drag::Handle && s.dragReleased && s.tracker.State () != edit::TrackerState::Editing)
         EndHandleDrag (s);
+    if (s.drag == Drag::Part && s.dragReleased && s.tracker.State () != edit::TrackerState::Editing) {
+        s.edits.End ();
+        s.snap = {};
+        s.drag = Drag::None;
+        s.dragReleased = false;
+    }
 
     // Drawing tools follow the pointer between clicks.
     if (s.tool != Tool::Select && hovered && s.drag == Drag::None) {
@@ -917,7 +955,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // A gumball handle clicked, or dragged, offers its number at once: a field beside the handle
     // (or the pointer through a drag), the value selected so the first key typed replaces it.
     const bool offered = !s.tracker.Items ().empty () &&
-                         (s.typedHandle >= 0 || (s.drag == Drag::Handle && s.dragStarted && s.handle >= 0));
+                         (s.typedHandle >= 0 || (s.drag == Drag::Handle && s.dragStarted && s.handle >= 0) ||
+                          (s.drag == Drag::Part && s.dragStarted && s.dragTypable));
     if (hovered && (s.tracker.State () == edit::TrackerState::Editing || offered)) {
         const ImVec2 base = s.typedHandle >= 0 ? ImVec2 { s.startX, s.startY } : mouse;
         float y = base.y + 20 * scale;
