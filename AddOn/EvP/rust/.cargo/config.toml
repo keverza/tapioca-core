@@ -1,0 +1,4 @@
+# Match the host's MultiThreadedDLL (/MD), including its Debug configuration.
+# Do not set a default target: host-native tests must also run on Linux in CI.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=-crt-static"]

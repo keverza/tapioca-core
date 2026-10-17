@@ -92,6 +92,10 @@ captures.
 
 ## 6. Carry over optional state
 
+Rust kernel development is optional and does not affect normal add-on builds.
+See [Rust kernel setup and gates](rust-kernel.md) for the pinned toolchain and
+compile-only scaffold. No algorithms have been migrated or linked into the add-on.
+
 - `AddOn\reference\`: copy or provision it as described above.
 - `%LOCALAPPDATA%\Tapioca\palette.json`: copy only if the saved palette layout and
   parameter values matter; otherwise the palette recreates defaults.

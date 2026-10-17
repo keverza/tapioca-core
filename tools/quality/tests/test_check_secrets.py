@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import check_secrets  # noqa: E402
+import check_secrets
 
 
 def _repo(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -70,6 +70,20 @@ def test_provider_configuration_in_add_on_code_is_a_violation(tmp_path):
 
     assert len(findings) == 1
     assert "provider configuration outside the evaluator" in findings[0][2]
+
+
+def test_rust_sources_are_scanned_for_credentials_and_provider_isolation(tmp_path):
+    credential = 'const KEY: &str = "AKIAQ7RT4WPZJK2NBVCX";\n'  # pragma: allowlist secret
+    root = _repo(
+        tmp_path,
+        {
+            "AddOn/EvP/rust/geometry/src/lib.rs": credential,
+            "AddOn/EvP/rust/ffi/src/lib.rs": 'const HOST: &str = "api.openai.com";\n',
+        },
+    )
+    findings = check_secrets.check(root)
+    assert len(findings) == 2
+    assert all(rel.endswith(".rs") for rel, _, _ in findings)
 
 
 def test_the_evaluator_may_name_its_own_provider(tmp_path):
@@ -128,9 +142,7 @@ def test_this_corpus_is_scanned_rather_than_excluded():
     text = Path(__file__).read_text(encoding="utf-8")
     assert check_secrets.scan_file(rel, text) == []
     # ...and it would fire here without the waiver.
-    assert check_secrets.scan_file(
-        rel, text.replace("  # pragma: allowlist secret", "")
-    )
+    assert check_secrets.scan_file(rel, text.replace("  # pragma: allowlist secret", ""))
 
 
 def test_the_real_repository_is_clean():

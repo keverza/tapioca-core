@@ -31,7 +31,7 @@ EXIT_TOOL_ERROR = 2
 TEXT_SUFFIXES = {
     ".py", ".ps1", ".psm1", ".cpp", ".hpp", ".h", ".c", ".cc", ".js", ".jsx", ".ts",
     ".tsx", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".md", ".txt", ".env",
-    ".xml", ".html", ".sh", ".bat", ".cmake", ".grc",
+    ".xml", ".html", ".sh", ".bat", ".cmake", ".grc", ".rs",
 }
 
 # Vendored SDKs and archived material are not ours to fix, and the archive exists to

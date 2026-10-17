@@ -1,0 +1,11 @@
+[package]
+name = "tapioca-geometry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Platform-independent geometry kernel scaffold; no algorithms yet."
+
+[lints]
+workspace = true

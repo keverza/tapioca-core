@@ -52,6 +52,12 @@ if ($args -notcontains "-SkipArchCheck") {
             throw "Architecture check failed - see the list above. Fix it, or state the exception in tools/quality/check_cpp.py."
         }
 
+        # Only architecture/secrets here: Rust compilation remains opt-in.
+        & python "$repo\tools\quality\check_rust.py" --structure-only
+        if ($LASTEXITCODE -ne 0) {
+            throw "Rust scaffold structure check failed."
+        }
+
         # ⚠️ A RESPONSE FIELD AND ITS SCHEMA ARE ONE EDIT, and forgetting that
         # fails EVERY call to the command with an error naming the field rather
         # than the command. It has cost a full in-Archicad run twice (2026-08-11

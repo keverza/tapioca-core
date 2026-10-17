@@ -14,6 +14,13 @@ set (PY_BRIDGE  "EvPPy")     # CPython half, built as its own DLL — see Source
 
 project (${ADDON_NAME} CXX)
 
+# Compile/check an isolated scaffold; never link it or change runtime behavior.
+option (TAPIOCA_BUILD_RUST_KERNEL "Check and compile the unlinked Rust kernel scaffold" OFF)
+if (TAPIOCA_BUILD_RUST_KERNEL)
+    include ("${CMAKE_CURRENT_LIST_DIR}/cmake/RustKernel.cmake")
+    TapiocaAddRustKernel ()
+endif ()
+
 # ---- Options / paths -------------------------------------------------------
 # AC_API_DEVKIT_DIR must point to the folder that CONTAINS "Support"
 # (i.e. .../acapi29), matching Speckle's convention and CompileResources.py.

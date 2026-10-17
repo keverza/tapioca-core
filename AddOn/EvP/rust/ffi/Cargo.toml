@@ -1,0 +1,17 @@
+[package]
+name = "tapioca-geometry-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Unlinked C ABI static-library scaffold for the geometry kernel."
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+tapioca-geometry = { path = "../geometry" }
+
+[lints]
+workspace = true

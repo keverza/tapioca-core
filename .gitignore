@@ -17,6 +17,8 @@ __pycache__/
 !docs/static/*.gif
 !docs/static/Logo.jpg
 /AddOn/EvP/build_29
+/AddOn/EvP/rust/target/
+/AddOn/EvP/rust/build/
 # The artifacts Build-AddOn29.ps1 copies into dist/ at the end of a build, so the
 # shipped binaries are in one findable place. dist/ ITSELF IS TRACKED -- it
 # carries the generated API docs -- so the BINARIES are ignored by EXTENSION

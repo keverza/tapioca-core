@@ -15,6 +15,11 @@ the public command roots before syncing them.
 
 ## Native boundaries
 
+Rust-only work lives in `AddOn/EvP/rust/`. Read its `AGENTS.md` and
+`docs/guides/rust-kernel.md`; it is an unlinked scaffold, not a migration mandate.
+Run `python tools/quality/check_rust.py` for Rust changes. Rust uses idiomatic
+Rust naming, not the C++ naming convention above.
+
 - ACAPI is main-thread-only; use `MainThreadGate`.
 - Gate lambdas capture by value.
 - Native commands do not open undo scopes.
