@@ -286,8 +286,9 @@ std::vector<rules::Edit> Diagram (const rules::Page& page, Draft& draft,
     draw->PopClipRect ();
     if (hovered) {
         if (edgeHit >= 0 && !ImGui::IsPopupOpen ("##massing.site.context")) {
-            ImGui::SetTooltip ("Segment S%d\nOffset: %.2f m", edgeHit + 1,
-                               draft.assignments[size_t (edgeHit)].distance);
+            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                             hudshell::Formatted ("Segment S%d\nOffset: %.2f m", edgeHit + 1,
+                                                  draft.assignments[size_t (edgeHit)].distance));
         }
         if (pointHit >= 0 || edgeHit >= 0 || !otherHit.empty ())
             ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);

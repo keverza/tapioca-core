@@ -207,11 +207,17 @@ TEST (HudText, StatsReserveFullNumericValueAndRevealTruncatedNameOnHover)
     EXPECT_GT (labelPoint.x, 0);
     EXPECT_EQ (frame (labelPoint), "coverage.built");
     frame (labelPoint);
-    bool fullNameTooltip = false;
+    // The full name is said in the HUD's own tip (the dock's bubble, on the foreground list), not in
+    // an ImGui tooltip window: every glyph of it, in the tip's ink.
+    size_t tipGlyphVertices = 0, glyphs = 0;
+    for (const char c : name)
+        glyphs += c != ' ' ? 1 : 0;
+    for (const auto* list : ImGui::GetDrawData ()->CmdLists)
+        for (const auto& vertex : list->VtxBuffer)
+            tipGlyphVertices += vertex.col == shell::Packed (shell::kTipInkRgba) ? 1 : 0;
+    EXPECT_GE (tipGlyphVertices, glyphs * 4);
     for (const auto* candidate : context->Windows)
-        if ((candidate->Flags & ImGuiWindowFlags_Tooltip) && candidate->Active)
-            fullNameTooltip = candidate->Size.x >= ImGui::CalcTextSize (name.c_str ()).x;
-    EXPECT_TRUE (fullNameTooltip);
+        EXPECT_FALSE ((candidate->Flags & ImGuiWindowFlags_Tooltip) && candidate->Active);
     EXPECT_EQ (frame (valuePoint), "coverage.built");
     EXPECT_TRUE (frame ({ 800, 500 }).empty ());
     ImGui::DestroyContext (context);

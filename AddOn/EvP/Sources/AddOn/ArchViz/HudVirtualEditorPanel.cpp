@@ -59,8 +59,7 @@ void Panel (Session& s)
     group ("Guides", kSnapGuides);
     ImGui::SameLine ();
     ImGui::Checkbox ("Flush", &s.edgeSnap);
-    if (ImGui::IsItemHovered ())
-        ImGui::SetTooltip ("A moved object's edges snap flush to parallel edges");
+    hudshell::Tip ("A moved object's edges snap flush to parallel edges", hudshell::TipSide::Above);
     if ((s.snapModes & edit::kSnapAngle) != 0) {
         float step = float (s.angleStep);
         ImGui::SetNextItemWidth (120.0f);
@@ -95,8 +94,7 @@ void Panel (Session& s)
             }
             ImGui::EndCombo ();
         }
-        if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("Height between contour lines");
+        hudshell::Tip ("Height between contour lines", hudshell::TipSide::Above);
     }
     ImGui::BeginDisabled (s.drag != Drag::None);
     if (ImGui::SmallButton ("Undo"))

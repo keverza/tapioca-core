@@ -40,8 +40,8 @@ Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<
                     hudshell::ClaimRightClick ();
                     ImGui::OpenPopup ("##colour.menu");
                 }
-                ImGui::SetTooltip ("%s: double-click to choose a colour; right-click to reset it.",
-                                   fp::Name (wanted, i).c_str ());
+                hudshell::Tip (fp::Name (wanted, i) + ": double-click to choose a colour; right-click to reset it.",
+                               hudshell::TipSide::Above);
             }
             if (ImGui::BeginPopup ("##colour.menu")) {
                 if (ImGui::MenuItem ("Use default colour", nullptr, false, type.rgba != 0) &&
@@ -52,8 +52,8 @@ Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<
             const auto editCell = [&] (Field field) {
                 if (ImGui::IsItemHovered () && ImGui::IsMouseDoubleClicked (ImGuiMouseButton_Left))
                     tables.push_back ({ programme, i, field });
-                if (ImGui::IsItemHovered ())
-                    ImGui::SetTooltip ("Drag to adjust; double-click to type in the Programme table.");
+                hudshell::Tip ("Drag to adjust; double-click to type in the Programme table.",
+                               hudshell::TipSide::Above);
             };
             ImGui::TableSetColumnIndex (1);
             double rooms = type.rooms;
@@ -91,9 +91,8 @@ Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<
                 changed |= fp::SetShare (wanted, i, std::round (share * 10) / 1000);
             save |= ImGui::IsItemDeactivatedAfterEdit ();
             editCell (Field::Share);
-            if (ImGui::IsItemHovered ())
-                ImGui::SetTooltip (
-                    "Share of the flat count. Drag scales other types to keep 100%%; double-click to type.");
+            hudshell::Tip ("Share of the flat count. Drag scales other types to keep 100%; double-click to type.",
+                           hudshell::TipSide::Above);
             ImGui::TableSetColumnIndex (5);
             ImGui::BeginDisabled (wanted.types.size () <= 1);
             if (ImGui::SmallButton ("x"))
@@ -136,8 +135,8 @@ Outcome Draw (fp::Programme& programme, const fp::Programme& saved, std::vector<
         ImGui::TextUnformatted ("Unsaved programme.");
         beside ("Save");
         save |= ImGui::SmallButton ("Save");
-        if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("Store the programme in the project (one Undo step). Edits save when you let go.");
+        hudshell::Tip ("Store the programme in the project (one Undo step). Edits save when you let go.",
+                       hudshell::TipSide::Above);
     }
     Outcome outcome;
     if (changed && fp::Valid (wanted)) {

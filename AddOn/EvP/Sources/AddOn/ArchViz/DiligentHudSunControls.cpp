@@ -1,4 +1,5 @@
 #include "ArchViz/DiligentHudSunControls.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/SunStudyPreview.hpp"
 
 #include <imgui.h>
@@ -97,8 +98,8 @@ void DrawSunStudyGradient (bool blue, float& threshold)
                              Colour (0x28536B), 2.0f);
         draw->AddRect (ImVec2 (edge - 5, start.y + height - 3), ImVec2 (edge + 5, start.y + height + 9), IM_COL32_WHITE,
                        2.0f);
-        if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("Drag the blue box: direct sun below %s", SunStudyClock (threshold, true).c_str ());
+        hudshell::Tip ("Drag the blue box: direct sun below " + SunStudyClock (threshold, true),
+                       hudshell::TipSide::Above);
     }
     ImGui::TextDisabled ("0:00h                            9:00h+");
 }

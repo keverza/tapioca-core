@@ -302,8 +302,8 @@ void Menu (Editor& e, Context& c, bp::Draft& draft, const bp::Plan& plan, const 
         ImGui::EndDisabled ();
         if (ImGui::MenuItem (locked ? "Unlock" : "Lock"))
             Commit (e, c, fe::SetLocked (s, full, flat, !locked));
-        if (ImGui::IsItemHovered ())
-            ImGui::SetTooltip ("A locked flat keeps its walls, rooms and place through every other edit.");
+        hudshell::Tip ("A locked flat keeps its walls, rooms and place through every other edit.",
+                       hudshell::TipSide::Right);
         std::string traits;
         if (f.corner)
             traits += "corner  ";
@@ -461,9 +461,9 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
             ImGui::OpenPopup ("##notSaved");
         e.undo.clear (), e.redo.clear ();
     }
-    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip ("%s", dirty.empty () ? "Nothing to save: the plan is as the project keeps it."
-                                                : "Write the stairs and floor plans to the slabs' metadata.");
+    hudshell::Tip (dirty.empty () ? "Nothing to save: the plan is as the project keeps it."
+                                  : "Write the stairs and floor plans to the slabs' metadata.",
+                   hudshell::TipSide::Above);
     NextControl (60 * scale);
     if (ImGui::SmallButton ("Discard")) {
         for (const auto& name : dirty)
@@ -500,17 +500,16 @@ Asked PlanView (EditorPtr& editor, bp::Planner& planner, const std::map<std::str
         ImGui::TextDisabled ("Floor %d%s | %zu flats, %zu stairs | net %.0f of %.0f m2", floor->story,
                              unique ? " (unique)" : "", s.flats.size (), s.cores.size (), s.net, s.gross);
     if (ImGui::IsItemHovered ()) {
-        ImGui::BeginTooltip ();
-        ImGui::Text ("%s | net/gross %.2f | unassigned %.0f m2", s.typology.c_str (),
-                     s.gross > 0 ? s.net / s.gross : 0.0, red);
+        std::string tip = hudshell::Formatted ("%s | net/gross %.2f | unassigned %.0f m2", s.typology.c_str (),
+                                               s.gross > 0 ? s.net / s.gross : 0.0, red);
         for (const auto& d : s.diagnostics)
             if (d.level == fs::Diagnostic::Error)
-                ImGui::TextColored (ImVec4 (0.75f, 0.23f, 0.22f, 1), "%s", d.text.c_str ());
+                tip += "\nError: " + d.text;
             else if (d.level == fs::Diagnostic::Warning && d.code.rfind ("pin.", 0) == 0)
-                ImGui::TextDisabled ("%s", d.text.c_str ());
-        ImGui::TextDisabled ("Drag a flat onto another to change places, off the floor to remove it. Right click "
-                             "for rooms, split, join, lock, stair size, flat count and access.");
-        ImGui::EndTooltip ();
+                tip += "\n" + d.text;
+        tip += "\nDrag a flat onto another to change places, off the floor to remove it. Right click for rooms, "
+               "split, join, lock, stair size, flat count and access.";
+        hudshell::Tip (tip, hudshell::TipSide::Below);
     }
     return asked;
 }

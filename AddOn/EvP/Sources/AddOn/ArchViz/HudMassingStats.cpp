@@ -1,5 +1,6 @@
 #include "ArchViz/HudMassingStats.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
+#include "ArchViz/HudShell.hpp"
 #include <imgui.h>
 
 #include <algorithm>
@@ -110,15 +111,13 @@ std::string Draw (const massingslices::Result& result, const overlaylayers::Pane
         ImGui::PopID ();
     }
     if (!hovered.empty ()) {
-        ImGui::BeginTooltip ();
+        std::string tip;
         for (const auto& use : mix)
-            if (use.function == hovered) {
-                ImGui::Text ("%s: %.2f%%", use.label.c_str (), use.percent);
-                ImGui::Text ("Area: %.2f m2", use.area);
-                ImGui::Text ("Slice-estimated volume: %.2f m3", use.volume);
-            }
-        ImGui::TextDisabled ("Highlight extends each slice to the next floor / slab top.");
-        ImGui::EndTooltip ();
+            if (use.function == hovered)
+                tip += hudshell::Formatted ("%s: %.2f%%\nArea: %.2f m2\nSlice-estimated volume: %.2f m3\n",
+                                            use.label.c_str (), use.percent, use.area, use.volume);
+        tip += "Highlight extends each slice to the next floor / slab top.";
+        hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, tip);
     }
     if (mix.empty ())
         ImGui::TextDisabled ("No floor area to distribute.");
@@ -138,8 +137,10 @@ std::string Draw (const massingslices::Result& result, const overlaylayers::Pane
                              (ImGui::GetItemRectMax ().x - ImGui::GetItemRectMin ().x);
             const bool built = at < coverage;
             hovered = built ? massingslices::kBuiltHover : massingslices::kUnbuiltHover;
-            ImGui::SetTooltip ("%s: %.2f m2 (%.2f%%)", built ? "Built footprint" : "Unbuilt parcel",
-                               built ? result.builtArea : result.unbuiltArea, 100 * (built ? coverage : 1 - coverage));
+            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Above,
+                             hudshell::Formatted ("%s: %.2f m2 (%.2f%%)", built ? "Built footprint" : "Unbuilt parcel",
+                                                  built ? result.builtArea : result.unbuiltArea,
+                                                  100 * (built ? coverage : 1 - coverage)));
         }
         ImGui::PopStyleColor (2);
         ImGui::TextDisabled ("Projected slab union within each parcel; not summed floor areas.");

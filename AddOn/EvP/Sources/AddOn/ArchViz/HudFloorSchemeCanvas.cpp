@@ -340,9 +340,10 @@ void Palette (const floorprogramme::Programme& programme, float scale, bool vert
                        label);
         if (ImGui::IsItemHovered () && !ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
             if (value < 0)
-                ImGui::SetTooltip ("Drag onto the plan: a stair there.");
+                hudshell::Tip ("Drag onto the plan: a stair there.", hudshell::TipSide::Above);
             else
-                ImGui::SetTooltip ("Drag onto a flat: a %d-room flat put in beside it.", k + 1);
+                hudshell::Tip (hudshell::Formatted ("Drag onto a flat: a %d-room flat put in beside it.", k + 1),
+                               hudshell::TipSide::Above);
         }
         if (ImGui::BeginDragDropSource ()) {
             ImGui::SetDragDropPayload (kPayload, &value, sizeof (value));
@@ -938,13 +939,15 @@ void Canvas (Editor& e, Context& c, float scale)
     if (hovered && e.drag == Drag::None && !ImGui::IsPopupOpen ("##planMenu")) {
         if (at.hover.kind == Kind::Flat) {
             const auto& f = s.flats[at.hover.index];
-            ImGui::SetTooltip ("%s | net %.1f m2 | %.1f x %.1f m%s",
-                               floorprogramme::Name (c.programme, f.type).c_str (), f.net, f.frontage, f.depth,
-                               f.manual ? " | walls at an angle: rooms left to you" : "");
+            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                             hudshell::Formatted ("%s | net %.1f m2 | %.1f x %.1f m%s",
+                                                  floorprogramme::Name (c.programme, f.type).c_str (), f.net,
+                                                  f.frontage, f.depth,
+                                                  f.manual ? " | walls at an angle: rooms left to you" : ""));
         }
         else if (at.hover.kind == Kind::Party)
-            ImGui::SetTooltip (
-                "Wall against the next building: no windows. Drag it to take its floor or give it yours.");
+            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right,
+                             "Wall against the next building: no windows. Drag it to take its floor or give it yours.");
     }
 }
 

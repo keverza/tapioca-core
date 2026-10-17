@@ -79,7 +79,12 @@ void TipAt (ImVec2 at, TipSide side, const std::string& text, uint32_t swatch = 
 void TipBeside (ImVec2 min, ImVec2 max, TipSide side, const std::string& text, uint32_t swatch = 0);
 
 // The last item's tip while the pointer is on it, disabled or not. True when it was said.
+// Every hover text of the HUD is said this way (or by TipAt / TipBeside for a place on a
+// canvas), never by ImGui's own tooltip window: one look everywhere.
 bool Tip (const std::string& text, TipSide side = TipSide::Left, uint32_t swatch = 0);
+
+// printf into a string, for a tip with numbers in it.
+std::string Formatted (const char* format, ...);
 
 // ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
 // HUD's font size). Settings and the HUD's menu choose one; every size of the HUD -- text,

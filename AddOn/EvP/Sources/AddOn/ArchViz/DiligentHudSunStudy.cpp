@@ -293,17 +293,7 @@ void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& i
     (void) height;
     if (state.sunInspect != 1 || !input.inside || state.sunReadingState != 1)
         return;
-    const std::string text = SunStudyClock (state.sunReadingHours, true);
-    ImGui::PushStyleColor (ImGuiCol_Text, ImVec4 (0.0f, 0.0f, 0.0f, 1.0f));
-    ImGui::PushStyleColor (ImGuiCol_PopupBg, ImVec4 (0.78f, 0.78f, 0.78f, 0.70f));
-    ImGui::PushStyleVar (ImGuiStyleVar_PopupRounding, 4.0f);
-    ImGui::PushStyleVar (ImGuiStyleVar_PopupBorderSize, 0.0f);
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (4.0f, 2.0f));
-    ImGui::BeginTooltip ();
-    ImGui::TextUnformatted (text.c_str ());
-    ImGui::EndTooltip ();
-    ImGui::PopStyleVar (3);
-    ImGui::PopStyleColor (2);
+    hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Right, SunStudyClock (state.sunReadingHours, true));
 }
 
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
