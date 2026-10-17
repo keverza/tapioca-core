@@ -31,6 +31,7 @@
 #include "NativeCommands/Component3DCommands.hpp"
 #include "NativeCommands/SurfaceSourceCommands.hpp"
 #include "NativeCommands/SurfaceFragmentCommands.hpp"
+#include "NativeCommands/SurfaceTakeoffCommands.hpp"
 #include "NativeCommands/SurfaceInspectorCommands.hpp"
 #include "NativeCommands/CreateCommands.hpp"
 #include "NativeCommands/CuttingPlaneCommands.hpp"
@@ -143,6 +144,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetComponent3DCommandRegistrations,
     &GetSurfaceSourceCommandRegistrations,
     &GetSurfaceFragmentCommandRegistrations,
+    &GetSurfaceTakeoffCommandRegistrations,
     &GetSurfaceInspectorCommandRegistrations,
     &GetCuttingPlaneCommandRegistrations,
     &GetNotifyCommandRegistrations,

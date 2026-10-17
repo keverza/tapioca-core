@@ -377,6 +377,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # 3D overlay its prepared copy through the controller.
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayLayers.hpp"),
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayController.hpp"),
+    # Seeded surface takeoff publishes its verified fragments/table through one
+    # main-thread adapter. It cannot reach camera, DXGI or renderer internals.
+    ("NativeCommands/SurfaceTakeoffCommands.cpp", "ArchViz/SurfaceTakeoffOverlay.hpp"),
     # RoofSlopeEditor is a read-only boundary adapter: immutable slab input to the
     # native virtual editor, the shared HUD lock and its owned overlay layer. No
     # modelling, camera, rendering or native element writes live in the command.

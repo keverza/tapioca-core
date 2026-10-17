@@ -183,6 +183,30 @@ classification, picked-face correspondence, equivalent-scope Surface Schedule
 acceptance or rendered-overlay acceptance. Library frames must be supplied as
 explicit covers before claiming frame-covered reveal results.
 
+### Optional seeded-facade numeric case
+
+A surface fixture may also supply an `exterior` object for
+`Tapioca.CalculateExteriorSurfaceTakeoff`:
+
+```json
+{
+  "seeds": [{"guid":"<captured-wall-guid>", "point":[1,0,1], "normal":[0,-1,0]}],
+  "surfaceAttributeGuids": ["<project-surface-guid>"],
+  "expectedAreaM2": [1.0],
+  "basis": "Independent complete facade contours minus explicitly known slab contact patches"
+}
+```
+
+This supplements, rather than replaces, the required `cases` and `elementTypes`.
+The test targets captured walls and explicitly uses **captured slabs only** as
+covers. It checks original project surfaces, independent expected areas, emitted
+triangle sums, native-comparison disclosure and an identical repeat. Its curated
+seed asserts exterior membership; expansion is connected and coplanar, not global
+exterior classification. It neither publishes an overlay nor simulates picks or
+mouse input. Interactive picker, rendered pixels and equivalent-scope Surface
+Schedule acceptance remain separate. Do not invent an expected area from the
+response when a fixture changes.
+
 ## Pass/fail and artifacts
 
 Success is process exit code **0** from `live_session.py`, with all six stages

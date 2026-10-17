@@ -18,6 +18,7 @@
 #include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/StorySliceOverlay.hpp"
+#include "ArchViz/SurfaceTakeoffOverlay.hpp"
 #include "Preview/RetainedPreviewStore.hpp"
 
 namespace geomsrv {
@@ -64,6 +65,7 @@ void Shared ()
     // trace's annotations.
     storysliceoverlay::OnProjectClosed ();
     overlayannotations::OnProjectClosed ();
+    surfacetakeoff::OnProjectClosed ();
     // The trace store outlives the renderer; disabling annotations alone left the
     // last command's geometry available to reappear over the next project (§8).
     evp::preview::RetainedPreviewStore::Get ().Clear ();

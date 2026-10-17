@@ -291,8 +291,10 @@ bool Prepare (const Snapshot& snapshot, const Request& request, std::vector<Face
         }
         if (body.mesh.triangles.empty ())
             return Fail (error, "Requested cover body is absent from this capture.");
-        if (!ClosedSolid (body.mesh, work, error))
+        if (!ClosedSolid (body.mesh, work, error)) {
+            error = "Cover " + mesh.guid + " / source body " + std::to_string (key.sourceBody) + ": " + error;
             return false;
+        }
         covers.push_back (std::move (body));
     }
     return work.Check (0, error);

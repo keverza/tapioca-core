@@ -5,7 +5,7 @@ import json
 import pytest
 
 from tools.archicad_client import LiveTestError, normalized_guid
-from tools.surface_fixture import close, pin, positive_int, validate_fixture, validate_result
+from tools.surface_fixture import close, pin, positive_int, triangle_area, validate_fixture, validate_result
 
 
 def pytest_generate_tests(metafunc):
@@ -115,3 +115,52 @@ def test_surface_stale_pin_is_refused(live_client, surface_capture):
             "Tapioca.GetSnapshotSurfaces", {**identity, "captureStamp": identity["captureStamp"] + 1}
         )
     assert pin(live_client.tapioca_call("Tapioca.GetSnapshotInfo")) == identity
+
+
+def test_seeded_exterior_takeoff_against_independent_fixture(live_client, surface_capture):
+    fixture, identity, catalog = surface_capture
+    exterior = fixture.get("exterior")
+    if exterior is None:
+        pytest.skip("Fixture has no independently specified exterior region")
+    call = live_client.tapioca_call
+    info = call("Tapioca.GetSnapshotInfo")
+    assert pin(info) == identity
+    surfaces = []
+    for guid in exterior["surfaceAttributeGuids"]:
+        matches = [
+            row["surfaceAttributeIndex"] for row in catalog if normalized_guid(row["guid"]) == normalized_guid(guid)
+        ]
+        assert len(matches) == 1
+        surfaces.append(matches[0])
+    request = {
+        **identity,
+        "targetGuids": [guid for guid, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind == 1],
+        "coverGuids": [guid for guid, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind == 2],
+        "coverScopeId": "Captured slabs + Extra covers:automated-independent-fixture",
+        "seeds": exterior["seeds"],
+        "surfaceAttributeIndices": surfaces,
+        "surfaceColors": [0xE5484DFF, 0xF6C945FF][: len(surfaces)],
+        "publishOverlay": False,
+        "compareNative": True,
+    }
+    data = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
+    assert pin(data) == identity and data["classification"] == "userExteriorSeeds-connectedCoplanar"
+    assert data["overlayPublished"] is False and data["coverScopeId"] == request["coverScopeId"]
+    assert {normalized_guid(g) for g in data["coverGuids"]} == {normalized_guid(g) for g in request["coverGuids"]}
+    assert data["nativeComparisonAvailable"] is True and "NOT equivalent" in data["nativeComparisonNote"]
+    assert [row["surfaceAttributeIndex"] for row in data["surfaces"]] == surfaces
+    measured = dict.fromkeys(surfaces, 0.0)
+    for mesh in data["meshes"]:
+        area = triangle_area(mesh)
+        close(area, mesh["areaM2"], 1e-6)
+        measured[mesh["surfaceAttributeIndex"]] += area
+    for row, expected, color in zip(
+        data["surfaces"], exterior["expectedAreaM2"], request["surfaceColors"], strict=True
+    ):
+        close(row["areaM2"], expected, fixture["absoluteTolerance"])
+        close(row["areaM2"], measured[row["surfaceAttributeIndex"]], 1e-6)
+        assert row["rgba"] == color
+    close(sum(measured.values()), data["selectedAreaM2"], 1e-6)
+    assert data["selectedTriangleCount"] == sum(len(mesh["triangles"]) // 3 for mesh in data["meshes"])
+    assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == data
+    assert pin(call("Tapioca.GetSnapshotInfo")) == identity

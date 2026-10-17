@@ -1,0 +1,91 @@
+// Bound by OVERLAY-INVARIANTS.md §§5,8,12: no renderer/camera modifications.
+#include "SurfaceTakeoffOverlay.hpp"
+#include "ArchViz/OverlayController.hpp"
+#include "Geometry/MeshStore.hpp"
+#include <windows.h>
+#include <atomic>
+
+namespace geomsrv::archviz::surfacetakeoff {
+namespace {
+UINT_PTR s_timer = 0;
+uint64_t s_snapshotId = 0, s_captureStamp = 0;
+std::atomic<uint64_t> s_request { 0 };
+bool Current (uint64_t id, uint64_t stamp)
+{
+    const auto snapshot = MeshStore::Get ().Current ();
+    return snapshot && snapshot->id == id && snapshot->captureStamp == stamp &&
+           MeshStore::Get ().CaptureStamp () == stamp;
+}
+void CALLBACK Tick (HWND, UINT, UINT_PTR timer, DWORD)
+{
+    if (!s_timer || timer != s_timer)
+        return;
+    if (Current (s_snapshotId, s_captureStamp))
+        return;
+    // An old capture expiring must not revoke a newer worker request that has
+    // already pinned the replacement capture. Project close/Clear do revoke it.
+    KillTimer (nullptr, s_timer);
+    s_timer = 0;
+    s_snapshotId = s_captureStamp = 0;
+    overlaylayers::Clear (kLayer);
+    overlaylayers::Layer stale;
+    stale.name = kLayer;
+    stale.views = overlaylayers::Views::ThreeD;
+    overlaylayers::Panel panel;
+    panel.title = "Exposed surfaces";
+    overlaylayers::ApplyTheme (panel, overlaylayers::PanelTheme::Light);
+    overlaylayers::PanelItem item;
+    item.text = "Model/capture changed. Refresh and pick an exterior face again.";
+    item.wrap = true;
+    panel.items.push_back (item);
+    stale.panels.push_back (panel);
+    overlaylayers::Set (std::move (stale));
+    overlaycontrol::PublishLayers ();
+}
+} // namespace
+uint64_t BeginRequest ()
+{
+    return ++s_request;
+}
+bool Publish (const Presentation& presentation, uint64_t id, uint64_t stamp, uint64_t request, std::string& error)
+{
+    if (request != s_request.load ()) {
+        error = "Surface request superseded before publication.";
+        return false;
+    }
+    if (!Current (id, stamp)) {
+        error = "Capture changed before surface overlay publication.";
+        return false;
+    }
+    const auto overlay = overlaycontrol::Describe (overlaycontrol::Overlay::ThreeD);
+    if (!overlay.wanted || !overlay.running) {
+        error = "Enable the 3D overlay in a perspective 3D view first.";
+        return false;
+    }
+    if (!s_timer)
+        s_timer = SetTimer (nullptr, 0, 100, Tick);
+    if (!s_timer) {
+        error = "Could not watch surface-result freshness.";
+        return false;
+    }
+    s_snapshotId = id;
+    s_captureStamp = stamp;
+    overlaylayers::Set (presentation.layer);
+    overlaycontrol::PublishLayers ();
+    return true;
+}
+void OnProjectClosed ()
+{
+    ++s_request;
+    if (s_timer)
+        KillTimer (nullptr, s_timer);
+    s_timer = 0;
+    s_snapshotId = s_captureStamp = 0;
+    overlaylayers::Clear (kLayer);
+}
+void Clear ()
+{
+    OnProjectClosed ();
+    overlaycontrol::PublishLayers ();
+}
+} // namespace geomsrv::archviz::surfacetakeoff
