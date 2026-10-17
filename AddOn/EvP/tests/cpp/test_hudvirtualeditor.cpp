@@ -179,6 +179,35 @@ TEST (HudVirtualEditor, TypedLengthOnASelectedSegment)
     EXPECT_TRUE (labels[0].line);
 }
 
+TEST (HudVirtualEditor, UndoWaitsForTheNumberBeingTyped)
+{
+    Drive d (Corner ());
+    d.Press (800, 500); // the vertex at (10, 0), dragged to (12, 0)
+    d.At (840, 500);
+    d.Release (840, 500);
+    ASSERT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Press (720, 500); // the first segment's middle, now at (6, 0)
+    d.Release (720, 500);
+    d.input.characters = u"5";
+    d.Frame ();
+    ASSERT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    // Ctrl+Z, and Archicad's own Undo routed to the editor: the typed number has the keyboard.
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    d.input.editActions = { hud::Input::EditAction::Undo };
+    d.Frame ();
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 12.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().tracker.Text (), "5");
+    // Given up with Esc, the same chord undoes the drag.
+    d.Key (0x1B);
+    ASSERT_NE (d.S ().tracker.State (), ed::TrackerState::Editing);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 10.0, 1e-9);
+}
+
 TEST (HudVirtualEditor, GizmoAxisMovesTheSelection)
 {
     Drive d (Corner ());

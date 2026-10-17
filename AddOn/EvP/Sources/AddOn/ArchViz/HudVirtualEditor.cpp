@@ -531,11 +531,19 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             Escape (s);
         escaped = true;
     };
+    // Undo and redo are the document's, never the number being typed's: a chord pressed while
+    // a value is typed does nothing to the history (Enter applies it, Esc gives it up first).
+    const auto history = [&] (bool undo) {
+        if (s.tracker.State () == edit::TrackerState::Editing)
+            s.message = "Apply the typed value with Enter or give it up with Esc before undoing.";
+        else
+            History (s, undo);
+    };
     for (const auto action : v.editActions) {
         if (action == overlayhud::Input::EditAction::Cancel)
             escape ();
         else if (action == overlayhud::Input::EditAction::Undo || action == overlayhud::Input::EditAction::Redo)
-            History (s, action == overlayhud::Input::EditAction::Undo);
+            history (action == overlayhud::Input::EditAction::Undo);
         else
             s.message = "Archicad's delete, cut and paste are off while the virtual editor has the view.";
     }
@@ -568,7 +576,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                 break;
             default:
                 if (key.ctrl && (key.code == 'Z' || key.code == 'Y'))
-                    History (s, key.code == 'Z');
+                    history (key.code == 'Z');
                 else if (!typing && !key.ctrl && !key.alt) {
                     switch (key.code) {
                         case 'V':
