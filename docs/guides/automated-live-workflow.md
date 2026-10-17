@@ -217,6 +217,16 @@ independent aggregate area oracle**. Analytic C++ fixtures and the separate
 contour cases remain the independent geometric checks. All-wall mode includes
 interior faces; it does not infer exterior membership from finishes or normals.
 
+The criteria-candidate continuation inventories walls/slabs/columns/beams and
+automatically discovers up to 512 candidate surfaces, checking fixed selection
+color, emitted-triangle totals and repeatability. A separate opening-cover test
+adds captured doors/windows (Modeler types 13/14) as covers, not targets, and
+checks that real contact removes area while all selected bodies pass strict solid
+validation. Library openings expand to many bodies: this calculator permits
+2,048 cover bodies without relaxing the triangle/work/time limits. The response
+reports `coverBodyCount`. This monotonic contact/transport check is not an
+independent aggregate-area oracle or a visual overlay/Surface Schedule pass.
+
 ## Pass/fail and artifacts
 
 Success is process exit code **0** from `live_session.py`, with all six stages
