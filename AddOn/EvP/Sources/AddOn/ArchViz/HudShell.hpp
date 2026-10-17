@@ -20,7 +20,9 @@
 
 #include <imgui.h>
 
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <string>
 #include <vector>
@@ -84,7 +86,15 @@ void TipBeside (ImVec2 min, ImVec2 max, TipSide side, const std::string& text, u
 bool Tip (const std::string& text, TipSide side = TipSide::Left, uint32_t swatch = 0);
 
 // printf into a string, for a tip with numbers in it.
-std::string Formatted (const char* format, ...);
+inline std::string Formatted (const char* format, ...)
+{
+    char text[512];
+    va_list args;
+    va_start (args, format);
+    const int n = std::vsnprintf (text, sizeof text, format, args);
+    va_end (args);
+    return n < 0 ? std::string () : std::string (text, size_t (n < int (sizeof text) ? n : int (sizeof text) - 1));
+}
 
 // ⚠️ THE TEXT SIZE IS A FEW STEPS, NOT A NUMBER (the user, 2026-09-29: a control for the
 // HUD's font size). Settings and the HUD's menu choose one; every size of the HUD -- text,
