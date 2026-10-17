@@ -178,7 +178,7 @@ layers::Layer UiLayer (const Presentation& presentation, const UiState& state)
     panel.items.push_back (section);
     layers::PanelItem table;
     table.kind = layers::ItemKind::Table;
-    table.columns = { "Surface", "Native whole walls m2" };
+    table.columns = { "Surface", "Native whole elements m2" };
     for (const auto& row : presentation.rows)
         if (state.selected.contains (row.index)) {
             const auto native = presentation.nativeAreas.find (row.index);
