@@ -112,7 +112,10 @@ static void RecordStartup (const char* acapiFunction, GSErrCode err, short resId
     if (!StartupLogPath (path))
         return;
 
-    evp::AppendTextLine (path, GS::UniString::Printf ("  %s (resId %d, %s): %s", acapiFunction, (int) resId, what,
+    // ⚠️ %T, NOT %s: ToPrintf hands Printf the UniString's own UTF-16 buffer. Read through %s
+    // it was taken for 8-bit text -- every line ended in a blank result and every launch raised
+    // Archicad's UTF-8 assertion (Unicode.cpp 343) once per menu item.
+    evp::AppendTextLine (path, GS::UniString::Printf ("  %s (resId %d, %s): %T", acapiFunction, (int) resId, what,
                                                       (err == NoError) ? GS::UniString ("ok").ToPrintf ()
                                                                        : evp::DescribeErr (err).ToPrintf ()));
 }

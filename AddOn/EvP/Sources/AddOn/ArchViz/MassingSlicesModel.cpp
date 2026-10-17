@@ -8,6 +8,8 @@
 #include "ArchViz/SelectionMetadata.hpp"
 #include "ArchViz/SlabSliceSource.hpp"
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/SlabBodies.hpp"
@@ -16,6 +18,7 @@
 #include "ArchViz/SectionModel.hpp"
 #include "ArchViz/OverlayHudModel.hpp"
 #include "Metadata/MetadataStorage.hpp"
+#include "Server/ServerState.hpp"
 
 #include <algorithm>
 
@@ -293,13 +296,44 @@ void Update ()
     massinginspectionmodel::Refresh ();
     Publish (); // Errors and empty sets also change Stats; wake an idle HUD once.
 }
+
+// ⚠️ THE TIMER FOLLOWS EDITS FOR A RUNNING OVERLAY SESSION, AND NOTHING ELSE (2026-10-17).
+// It is a thread timer, so it fires inside every message pump on the main thread --
+// including the one Archicad runs while it opens the NEXT project. Any Poll used to arm
+// it, so the FollowHudState after OnProjectClosed's Forget, and turning the last overlay
+// off, both left it running; its slab reads then ran mid-open (SolidLink_GetOperators:
+// "Loading of the object failed", five times) and Archicad crashed in its object database
+// at the next 3D window. Only a session arms it; a tick without one disarms it, unread.
+bool Following ()
+{
+    return ServerState::Get ().modelOpen.load () && (overlayruntime::Running () || planruntime::Running ());
+}
+
+void Disarm ()
+{
+    if (s_timer != 0) {
+        ::KillTimer (nullptr, s_timer);
+        s_timer = 0;
+    }
+}
+
+void Arm ()
+{
+    if (s_timer != 0 || !Following ())
+        return;
+    s_timer = ::SetTimer (nullptr, 0, 250, [] (HWND, UINT, UINT_PTR, DWORD) {
+        if (Following ())
+            Poll ();
+        else
+            Disarm ();
+    });
+}
 } // namespace
 
 void Changed ()
 {
     s_dirty = true;
-    if (s_timer == 0)
-        s_timer = ::SetTimer (nullptr, 0, 250, [] (HWND, UINT, UINT_PTR, DWORD) { Poll (); });
+    Arm ();
 }
 
 void Poll ()
@@ -383,10 +417,7 @@ std::shared_ptr<const std::vector<SliceChain>> CollapseContours ()
 void Forget ()
 {
     massinginspectionmodel::Forget ();
-    if (s_timer != 0) {
-        ::KillTimer (nullptr, s_timer);
-        s_timer = 0;
-    }
+    Disarm ();
     overlaylayers::Clear (massingslices::kLayer);
     s_selected.clear ();
     s_signature.clear ();
