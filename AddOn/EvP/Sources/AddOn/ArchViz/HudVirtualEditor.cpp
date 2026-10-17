@@ -408,7 +408,9 @@ edit::Frame GizmoFrame (const Session& s)
     const auto& items = s.selection.Items ();
     if (s.pivot && s.pivotFor == items)
         f.origin = *s.pivot;
-    if (s.gizmo == edit::GizmoMode::Extrude && items.size () == 1 && items[0].part == edit::Part::Face)
+    // A face pushes or pulls along its normal: the gumball's Z arrow, or Extrude's one handle.
+    if ((s.gizmo == edit::GizmoMode::Extrude || s.gizmo == edit::GizmoMode::Gumball) && items.size () == 1 &&
+        items[0].part == edit::Part::Face)
         if (const edit::Entity* e = edit::Find (Doc (s), items[0].entity)) {
             edit::FaceFrame (*e, items[0].item, f);
             return f;
@@ -418,8 +420,10 @@ edit::Frame GizmoFrame (const Session& s)
         for (int i = 0; i < 3; ++i)
             f.axes[i] = local.axes[i];
     }
-    // Stretch grips stand on the sides of the selection's box, centred on it.
-    if (s.gizmo == edit::GizmoMode::Stretch)
+    // Stretch grips stand on the sides of the selection's box, centred on it. The gumball stands
+    // there too, unless its pivot was put elsewhere: then it has no box, and no side grips.
+    const bool custom = s.pivot && s.pivotFor == items;
+    if (s.gizmo == edit::GizmoMode::Stretch || (s.gizmo == edit::GizmoMode::Gumball && !custom))
         edit::FitBox (Doc (s), items, f);
     return f;
 }
@@ -454,6 +458,8 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
         else
             History (s, undo);
     };
+    // A mode key shows that transform's handles alone; pressed again, the gumball comes back.
+    const auto mode = [&s] (edit::GizmoMode m) { s.gizmo = s.gizmo == m ? edit::GizmoMode::Gumball : m; };
     for (const auto action : v.editActions) {
         if (action == overlayhud::Input::EditAction::Cancel)
             escape ();
@@ -520,22 +526,22 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                             s.tool = Tool::Curve; // the pen: clicks for corners, drags for curves
                             break;
                         case 'G':
-                            s.gizmo = edit::GizmoMode::Move;
+                            mode (edit::GizmoMode::Move);
                             break;
                         case 'R':
-                            s.gizmo = edit::GizmoMode::Rotate;
+                            mode (edit::GizmoMode::Rotate);
                             break;
                         case 'S':
-                            s.gizmo = edit::GizmoMode::Scale;
+                            mode (edit::GizmoMode::Scale);
                             break;
                         case 'T':
-                            s.gizmo = edit::GizmoMode::Stretch;
+                            mode (edit::GizmoMode::Stretch);
                             break;
                         case 'F':
                             s.fromEnd = !s.fromEnd; // the other end of the segment stays
                             break;
                         case 'E':
-                            s.gizmo = edit::GizmoMode::Extrude;
+                            mode (edit::GizmoMode::Extrude);
                             break;
                         default:
                             break;
@@ -908,26 +914,39 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // The tracker: its values are the panel's; beside the pointer only while one is typed.
     std::vector<edit::Dimension> dims;
     s.tracker.Show (TrackerFields (s, dims));
-    if (hovered && s.tracker.State () == edit::TrackerState::Editing) {
-        float y = mouse.y + 20 * scale;
+    // A gumball handle clicked, or dragged, offers its number at once: a field beside the handle
+    // (or the pointer through a drag), the value selected so the first key typed replaces it.
+    const bool offered = !s.tracker.Items ().empty () &&
+                         (s.typedHandle >= 0 || (s.drag == Drag::Handle && s.dragStarted && s.handle >= 0));
+    if (hovered && (s.tracker.State () == edit::TrackerState::Editing || offered)) {
+        const ImVec2 base = s.typedHandle >= 0 ? ImVec2 { s.startX, s.startY } : mouse;
+        float y = base.y + 20 * scale;
         for (size_t i = 0; i < s.tracker.Items ().size (); ++i) {
             const auto& item = s.tracker.Items ()[i];
-            char text[80];
-            const bool editing = s.tracker.State () == edit::TrackerState::Editing && i == s.tracker.Focus ();
-            if (editing)
-                std::snprintf (text, sizeof text, "%s  %s_", edit::QuantityName (item.quantity),
-                               s.tracker.Text ().c_str ());
-            else
-                std::snprintf (
-                    text, sizeof text, "%s  %s%s", edit::QuantityName (item.quantity),
-                    editlayers::FormatValue (item.quantity, item.locked ? item.lockedValue : item.value).c_str (),
-                    item.locked ? "  (locked)" : "");
-            const ImVec2 at { mouse.x + 18 * scale, y };
-            const ImVec2 size = ImGui::CalcTextSize (text);
-            draw->AddRectFilled ({ at.x - 4, at.y - 2 }, { at.x + size.x + 4, at.y + size.y + 2 },
-                                 i == s.tracker.Focus () ? IM_COL32 (255, 236, 179, 240) : kPaper, 3.0f);
-            draw->AddText (at, kInk, text);
-            y += size.y + 6;
+            const bool focused = i == s.tracker.Focus ();
+            const bool editing = s.tracker.State () == edit::TrackerState::Editing && focused;
+            const std::string name = std::string (edit::QuantityName (item.quantity)) + "  ";
+            const std::string value =
+                editing ? s.tracker.Text () + "_"
+                        : editlayers::FormatValue (item.quantity, item.locked ? item.lockedValue : item.value) +
+                              (item.locked ? "  (locked)" : "");
+            const std::string text = name + value;
+            const ImVec2 at { base.x + 18 * scale, y };
+            const ImVec2 size = ImGui::CalcTextSize (text.c_str ());
+            const ImVec2 lo { at.x - 4 * scale, at.y - 2 * scale },
+                hi { at.x + size.x + 4 * scale, at.y + size.y + 2 * scale };
+            draw->AddRectFilled (lo, hi, kPaper, 2.0f * scale);
+            if (focused) {
+                draw->AddRect (lo, hi, kHover, 2.0f * scale, 0, 1.0f * scale); // the field typing goes to
+                if (!editing && offered) {
+                    // Selected, as a field opened for typing is: the first key replaces it.
+                    const float from = at.x + ImGui::CalcTextSize (name.c_str ()).x;
+                    draw->AddRectFilled ({ from - 1 * scale, at.y }, { at.x + size.x + 1 * scale, at.y + size.y },
+                                         (kHover & 0x00FFFFFFu) | 0x40000000u);
+                }
+            }
+            draw->AddText (at, kInk, text.c_str ());
+            y += size.y + 6 * scale;
         }
     }
     // One cursor per state, said every frame so nothing of Archicad's shows between them: a

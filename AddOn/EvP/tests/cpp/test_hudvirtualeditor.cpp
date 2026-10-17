@@ -26,6 +26,9 @@ struct Drive {
         EXPECT_TRUE (hud::StartVirtualEditor (*view.state, std::move (doc), "test"));
         input.planar = true;
         input.plan[0] = 20, input.plan[2] = 600, input.plan[4] = -20, input.plan[5] = 500;
+        // The single Move gizmo, whose layout most of these tests press on; the gumball's own
+        // are below (GumballHoldsEveryTransform).
+        S ().gizmo = ed::GizmoMode::Move;
         // As the starting command does: the session's first layer goes in the store at once.
         EXPECT_TRUE (eh::Follow (S (), layer));
         layers::Set (layer);
@@ -326,6 +329,69 @@ TEST (HudVirtualEditor, AReleaseWhileANumberIsTypedWaitsForIt)
     EXPECT_EQ (d.S ().drag, eh::Drag::None);
     EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 17.0, 1e-6);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}
+
+TEST (HudVirtualEditor, GumballHoldsEveryTransform)
+{
+    EXPECT_EQ (eh::Session ().gizmo, ed::GizmoMode::Gumball); // what a session starts with
+    Drive d (Corner ());
+    d.S ().gizmo = ed::GizmoMode::Gumball;
+    d.S ().localAxes = false;
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    // On the box's centre (5, 5) -- (700, 400) -- 70 px across: a scale box 35 px out, the arrow
+    // 50 to 70 px out, an arc at 60 px between the axes, a side grip on the box's right side.
+    const auto kindAt = [&] (float x, float y) {
+        d.At (x, y);
+        return d.S ().hoverHandle < 0 ? -1 : int (ed::Handles (d.S ().gizmo)[size_t (d.S ().hoverHandle)].kind);
+    };
+    EXPECT_EQ (kindAt (735, 400), int (ed::HandleKind::ScaleAxis));
+    EXPECT_EQ (kindAt (765, 400), int (ed::HandleKind::Axis));
+    EXPECT_EQ (kindAt (742, 358), int (ed::HandleKind::Ring));
+    EXPECT_EQ (kindAt (724, 376), int (ed::HandleKind::Plane));
+    EXPECT_EQ (kindAt (810, 400), int (ed::HandleKind::Side));
+    EXPECT_EQ (kindAt (700, 400), int (ed::HandleKind::Centre));
+
+    // The side grip stretches: the right side out by 1 m.
+    d.Press (810, 400);
+    d.At (830, 400);
+    d.Release (830, 400);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 11.0, 1e-6);
+    EXPECT_NEAR (d.D ().entities[0].vertices[0].p.x, 0.0, 1e-6);
+    // The arrow moves, from the new box's centre (5.5, 5): (710, 400).
+    d.Press (770, 400);
+    d.At (790, 400);
+    d.Release (790, 400);
+    EXPECT_NEAR (d.D ().entities[0].vertices[0].p.x, 1.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+    // A mode key shows that transform alone; again, the gumball is back.
+    d.Key ('R');
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Rotate);
+    d.Key ('R');
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Gumball);
+}
+
+TEST (HudVirtualEditor, AClickedGumballHandleOffersItsField)
+{
+    Drive d (Corner ());
+    d.S ().gizmo = ed::GizmoMode::Gumball;
+    d.S ().localAxes = false;
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    d.At (765, 400); // the X arrow
+    ASSERT_GE (d.S ().hoverHandle, 0);
+    d.Press (765, 400);
+    d.Release (765, 400);
+    ASSERT_GE (d.S ().typedHandle, 0);
+    // The field shows before anything is typed: the arrow's distance, selected.
+    const auto out = d.Frame ();
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Distance);
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Showing);
+    d.input.characters = u"3";
+    d.Frame ();
+    EXPECT_EQ (d.S ().tracker.Text (), "3"); // the first key replaced the value
+    d.Key (0x0D);
+    EXPECT_NEAR (d.D ().entities[0].vertices[0].p.x, 3.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
 }
 
 TEST (HudVirtualEditor, DrawingAPolylineAndAPath)

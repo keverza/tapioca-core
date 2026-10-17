@@ -54,7 +54,7 @@ struct Session {
     edit::Tracker tracker;
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;
-    edit::GizmoMode gizmo = edit::GizmoMode::Move;
+    edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // every transform's handles at once
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
     bool fromEnd = false;  // a typed length or angle keeps the segment's end, not its start (F)
     // Snapping: which snaps are on (edit::SnapMode), the construction angle step, whether a

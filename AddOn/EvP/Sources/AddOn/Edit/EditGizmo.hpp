@@ -13,7 +13,10 @@
 
 namespace geomsrv::edit {
 
-enum class GizmoMode : uint8_t { Move, Rotate, Scale, Stretch, Extrude };
+// Gumball: every transform at once, one handle set -- arrows to move, arcs to turn, boxes on
+// the axes to scale, squares to move in a plane, grips on the selection's box to stretch. The
+// single modes remain for a gizmo that shows one transform alone.
+enum class GizmoMode : uint8_t { Move, Rotate, Scale, Stretch, Extrude, Gumball };
 enum class HandleKind : uint8_t { Centre, Axis, Plane, Ring, ScaleAxis, ScaleUniform, Face, Side };
 
 // Orthonormal axes at the pivot: world, the working plane, or path-local.
@@ -44,6 +47,9 @@ struct Handle {
     uint32_t group = 0; // handles that highlight and update together
     Quantity quantity = Quantity::Distance;
     int side = 0; // a Side grip: +1 or -1 along its axis
+    // Laid out to share the gumball with every other kind: an arrow's head end alone, a scale
+    // box partway out with no stem, an arc between the axes, a side grip clear of the rest.
+    bool compact = false;
 };
 std::vector<Handle> Handles (GizmoMode mode);
 

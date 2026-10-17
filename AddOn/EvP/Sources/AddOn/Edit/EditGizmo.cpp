@@ -175,6 +175,25 @@ std::vector<Handle> Handles (GizmoMode mode)
         case GizmoMode::Extrude:
             add (HandleKind::Face, 2, true, 0, Quantity::Distance);
             break;
+        case GizmoMode::Gumball:
+            // Scale boxes before the arrows they sit on: a press on a box is the box's.
+            add (HandleKind::Centre, -1, false, 2, Quantity::Distance);
+            for (int a = 0; a < 3; ++a)
+                add (HandleKind::ScaleAxis, a, true, 3, Quantity::Factor);
+            for (int a = 0; a < 3; ++a)
+                add (HandleKind::Axis, a, true, 0, Quantity::Distance);
+            for (int a = 0; a < 3; ++a)
+                add (HandleKind::Plane, a, false, 1, Quantity::Distance);
+            for (int a = 0; a < 3; ++a)
+                add (HandleKind::Ring, a, true, 4, Quantity::Angle);
+            for (int a = 0; a < 2; ++a)
+                for (const int side : { 1, -1 }) {
+                    add (HandleKind::Side, a, true, 5, Quantity::Width);
+                    h.back ().side = side;
+                }
+            for (auto& handle : h)
+                handle.compact = true;
+            break;
     }
     return h;
 }
@@ -397,16 +416,36 @@ std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handl
         case HandleKind::Centre:
             return { { { o }, false } };
         case HandleKind::Axis:
+            if (handle.compact) // the shaft's outer part and the head: the box inside it is the scale's
+                return { { { o + axis * (size * 0.7), o + axis * size }, false } };
+            return { { { o, o + axis * size }, false } };
         case HandleKind::Face:
             return { { { o, o + axis * size }, false } };
         case HandleKind::ScaleAxis: {
+            if (handle.compact) {
+                // A cube's two faces along its axis, so one of them faces any view.
+                const Vec3 at = o + axis * (size * 0.5);
+                const double b = size * 0.07;
+                return {
+                    { { at + axis * b + u * b, at - axis * b + u * b, at - axis * b - u * b, at + axis * b - u * b },
+                      true },
+                    { { at + axis * b + v * b, at - axis * b + v * b, at - axis * b - v * b, at + axis * b - v * b },
+                      true }
+                };
+            }
             const Vec3 tip = o + axis * (size * 0.7);
             const double b = size * 0.06;
             return { { { o, tip }, false },
                      { { tip + u * b + v * b, tip - u * b + v * b, tip - u * b - v * b, tip + u * b - v * b }, true } };
         }
         case HandleKind::Side: {
-            const double reach = (frame.half[a] > 1.0e-9 ? frame.half[a] : size * 0.4) + size * 0.15;
+            // In the gumball a grip stands only where the selection has a width to stretch, and
+            // never among the other handles.
+            if (handle.compact && frame.half[a] <= 1.0e-9)
+                return {};
+            double reach = (frame.half[a] > 1.0e-9 ? frame.half[a] : size * 0.4) + size * 0.15;
+            if (handle.compact)
+                reach = std::max (reach, size * 1.25);
             const Vec3 at = o + axis * (reach * handle.side);
             const Vec3 across = frame.axes[a == 0 ? 1 : 0];
             const double b = size * 0.07;
@@ -425,6 +464,17 @@ std::vector<HandleShape> HandleGeometry (const Frame& frame, const Handle& handl
         case HandleKind::Ring: {
             HandleShape ring;
             ring.closed = true;
+            if (handle.compact) {
+                // An arc between the other two axes, clear of their arrows and boxes. Its first
+                // point is the centre, so it reads as a wedge seen edge-on or not; only the arc
+                // itself is drawn and picked.
+                ring.points.push_back (o);
+                for (int k = 0; k <= 12; ++k) {
+                    const double t = kPi * (15.0 + 60.0 * k / 12.0) / 180.0;
+                    ring.points.push_back (o + u * (0.85 * size * std::cos (t)) + v * (0.85 * size * std::sin (t)));
+                }
+                return { ring };
+            }
             for (int k = 0; k < 48; ++k) {
                 const double t = 2.0 * kPi * k / 48.0;
                 ring.points.push_back (o + u * (0.8 * size * std::cos (t)) + v * (0.8 * size * std::sin (t)));
@@ -486,7 +536,9 @@ int PickHandle (const Frame& frame, const std::vector<Handle>& handles, double s
             if (s.size () == 1)
                 consider (std::hypot (s[0].first - x, s[0].second - y));
             const size_t edges = shape.closed ? s.size () : s.size () - 1;
-            for (size_t i = 0; i < edges && s.size () > 1; ++i) {
+            // A gumball arc is picked on the arc, not on the wedge's sides to its centre.
+            const bool arc = handles[h].compact && handles[h].kind == HandleKind::Ring;
+            for (size_t i = arc ? 1 : 0; i < (arc ? s.size () - 1 : edges) && s.size () > 1; ++i) {
                 const auto [ax, ay] = s[i];
                 const auto [bx, by] = s[(i + 1) % s.size ()];
                 const double dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;

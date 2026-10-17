@@ -135,6 +135,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             Rule (items);
             const char* modes[] = { "Move", "Rotate", "Scale", "Stretch", "Push/pull face" };
             const char* keys[] = { "G", "R", "S", "T", "E" };
+            items.push_back (Item ("gizmo.5", "Gumball", {}, true, s.gizmo == edit::GizmoMode::Gumball));
             for (int i = 0; i < 5; ++i)
                 if (i < 4 || (e != nullptr && e->kind == edit::Kind::Extrusion))
                     items.push_back (Item ("gizmo." + std::to_string (i), modes[i], keys[i], true, int (s.gizmo) == i));
