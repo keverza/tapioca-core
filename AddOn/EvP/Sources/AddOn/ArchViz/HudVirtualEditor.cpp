@@ -649,6 +649,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
         else if (s.hoverHandle >= 0) {
             s.drag = Drag::Handle;
+            s.dragStarted = false;
             s.handle = s.hoverHandle;
             s.frame = frame;
             s.dragTransform = {};
@@ -677,9 +678,11 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 if (pressed.part == edit::Part::Face && e != nullptr) {
                     // A face pushes or pulls along its normal: the face handle, taken directly.
                     s.drag = Drag::Handle;
+                    s.dragStarted = false;
                     s.handle = -2;
                     edit::FaceFrame (*e, pressed.item, s.frame);
                     s.dragPlanar = v.planar;
+                    s.startX = mouse.x, s.startY = mouse.y;
                     if (!m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, s.startRay) ||
                         !s.edits.Begin (pressed))
                         s.drag = Drag::None;
@@ -761,8 +764,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // Move.
     // ⚠️ NOTHING MOVES UNTIL THE POINTER HAS (the user, 2026-10-15: just clicking an edge moved it --
     // the press snapped the grab point onto something nearby and the item jumped there). A drag
-    // starts 3 px from its press; a press released inside that is a click.
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && !s.dragStarted)
+    // starts 3 px from its press; a press released inside that is a click. A gumball handle and
+    // a pushed face wait the same: a hand's tremor on a click is not a move.
+    if (ImGui::IsMouseDown (0) && (s.drag == Drag::Part || s.drag == Drag::Handle) && !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= kDragPixels;
     if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted) {
         const auto moving = Moving (s, s.target);
@@ -798,7 +802,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else
             s.message = "This view is edge-on to the working plane. Orbit or type a value.";
     }
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle) {
+    if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted) {
         edit::Ray now;
         const edit::Handle h = s.handle == -2 ? edit::Handles (edit::GizmoMode::Extrude).front ()
                                               : edit::Handles (s.gizmo)[size_t (s.handle)];
@@ -822,8 +826,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
 
     // Release. A handle clicked without a drag asks for its number instead.
-    if (ImGui::IsMouseReleased (0) && s.drag == Drag::Handle && s.handle >= 0 &&
-        std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f &&
+    if (ImGui::IsMouseReleased (0) && s.drag == Drag::Handle && s.handle >= 0 && !s.dragStarted &&
         edit::Handles (s.gizmo)[size_t (s.handle)].focusable) {
         s.edits.Cancel ();
         s.typedHandle = s.handle;

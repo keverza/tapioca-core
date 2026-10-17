@@ -380,6 +380,55 @@ TEST (HudVirtualEditor, ClickingAGumballHandleAsksForItsNumber)
     EXPECT_EQ (d.S ().typedHandle, -1);
 }
 
+TEST (HudVirtualEditor, AClickOnAGumballHandleMovesNothing)
+{
+    Drive d (Corner ());
+    d.S ().localAxes = false;
+    d.Press (800, 300); // the vertex at (10, 10)
+    d.Release (800, 300);
+    // The XY plane's square: 0.25 to 0.45 of the gizmo's 70 px along X and Y.
+    d.At (824, 276);
+    ASSERT_GE (d.S ().hoverHandle, 0);
+    ASSERT_EQ (ed::Handles (d.S ().gizmo)[size_t (d.S ().hoverHandle)].kind, ed::HandleKind::Plane);
+    d.Press (824, 276);
+    d.At (826, 277); // a tremor inside the drag threshold
+    d.Release (826, 277);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10.0, 1e-12);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.y, 10.0, 1e-12);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    // Past the threshold the same handle drags.
+    d.Press (824, 276);
+    d.At (844, 276);
+    d.Release (844, 276);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 11.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, AClickOnAFaceDoesNotPushIt)
+{
+    ed::Document doc;
+    ed::AddExtrusion (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, 3.0);
+    Drive d (std::move (doc));
+    // A 3D view looking down and north: a face is picked only where it faces the camera.
+    d.input.planar = false;
+    d.input.project = [] (double x, double y, double z, float& px, float& py) {
+        px = float (600 + 20 * x + 5 * z), py = float (500 - 20 * y - 10 * z);
+        return true;
+    };
+    d.input.hasCameraDirection = true;
+    d.input.cameraDirection[1] = 0.5, d.input.cameraDirection[2] = -1.0;
+    d.S ().filter = ed::kPickFace;
+    d.At (715, 370); // the top's middle, (5, 5, 3)
+    ASSERT_EQ (d.S ().selection.hover.part, ed::Part::Face);
+    d.Press (715, 370);
+    d.At (716, 372); // a tremor inside the drag threshold
+    d.Release (716, 372);
+    EXPECT_EQ (d.S ().selection.Kind (), ed::SelectionKind::Face);
+    EXPECT_NEAR (d.D ().entities[0].height, 3.0, 1e-12);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
 TEST (HudVirtualEditor, DragsMoveFromABasePointAndSnapFlush)
 {
     ed::Document doc;
