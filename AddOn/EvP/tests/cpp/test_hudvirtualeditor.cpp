@@ -356,6 +356,45 @@ TEST (HudVirtualEditor, DrawingAPolylineAndAPath)
     EXPECT_EQ (eh::ProfilePath (d.S ()), &d.D ().paths[0]);
 }
 
+TEST (HudVirtualEditor, BackspaceTakesBackTheLastPointDrawn)
+{
+    Drive d (Corner ());
+    d.Press (700, 500); // the first segment, selected
+    d.Release (700, 500);
+    ASSERT_FALSE (d.S ().selection.Items ().empty ());
+    d.Key ('L');
+    for (const auto& [x, y] :
+         std::vector<std::pair<float, float>> { { 600.f, 100.f }, { 700.f, 100.f }, { 700.f, 160.f } }) {
+        d.Press (x, y);
+        d.Release (x, y);
+    }
+    ASSERT_EQ (d.S ().drawing.size (), 3u);
+    d.Key (0x08);
+    EXPECT_EQ (d.S ().drawing.size (), 2u);
+    ASSERT_EQ (d.D ().entities.size (), 1u); // the selected corner is still there
+    EXPECT_EQ (d.D ().entities[0].vertices.size (), 3u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x0D);
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_EQ (d.D ().entities[1].vertices.size (), 2u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // The pen's point goes with its handle; taken back to nothing, the line is simply not there.
+    d.Key ('B');
+    d.Press (600, 600);
+    d.Release (600, 600);
+    d.Press (700, 600);
+    d.At (720, 620); // pulled out: a smooth anchor
+    d.Release (720, 620);
+    ASSERT_EQ (d.S ().drawing.size (), 2u);
+    d.Key (0x08);
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    EXPECT_LE (d.S ().drawHandles.size (), 1u);
+    d.Key (0x08);
+    EXPECT_TRUE (d.S ().drawing.empty ());
+    EXPECT_EQ (d.D ().entities.size (), 2u);
+}
+
 TEST (HudVirtualEditor, EscapeStepsBackThenCloses)
 {
     Drive d (Corner ());

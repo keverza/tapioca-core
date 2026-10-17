@@ -617,6 +617,13 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             case 0x08:
                 if (typing)
                     s.tracker.Key ({ K::Backspace });
+                else if (!s.drawing.empty ()) {
+                    // A line being drawn takes back its last point, and the pen that point's
+                    // handle -- never the selection's geometry, which is not what is being drawn.
+                    s.drawing.pop_back ();
+                    if (s.drawHandles.size () > s.drawing.size ())
+                        s.drawHandles.resize (s.drawing.size ());
+                }
                 else
                     DeleteSelection (s);
                 break;
