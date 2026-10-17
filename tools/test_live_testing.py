@@ -165,7 +165,16 @@ def test_report_preserves_failures_requests_and_log_tail(tmp_path):
     assert not (tmp_path / "report.json.tmp").exists()
 
 
-@pytest.mark.parametrize("args", [["--suite", "massing"], ["--api-timeout", "nan"], ["--port", "80"]])
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--suite", "massing"],
+        ["--api-timeout", "nan"],
+        ["--port", "80"],
+        ["--suite", "surface"],
+        ["--suite", "surface", "--expected-project", "x.pln", "--fixture", "x.json"],
+    ],
+)
 def test_cli_rejects_unsafe_or_unbounded_configuration(args):
     with pytest.raises(SystemExit) as result:
         main(args)

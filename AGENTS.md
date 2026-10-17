@@ -45,8 +45,11 @@ With Archicad closed and saved fixture inputs prepared, run:
 python tools/live_session.py --project <source.pln> --fixture <expected-metrics.json>
 ```
 
-The runner owns its launched PID, tests a copied PLN through Tapir and Tapioca
-HTTP, and quits only that verified process. Never bypass its existing-instance
+Reuse disposable files in `C:\Tests` directly; do not create a new PLN per run.
+For a protected master, pass `--project-copy <one reusable disposable.pln>`.
+Per-run directories should contain reports/JSON/logs, not project copies.
+The runner owns its launched PID, tests the disposable PLN through Tapir and
+Tapioca HTTP, and quits only that verified process. Never bypass its existing-instance
 guard, force-kill an application, or replace expected metrics with observed
 results. Check the session report's shutdown and source-hash assertions as well
 as the nested pytest report. Use `tools/live_test.py` for attach-only testing.

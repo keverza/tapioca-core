@@ -4,6 +4,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <numeric>
 
 namespace geomsrv::exposed::detail {
 namespace {
@@ -80,9 +81,58 @@ bool ClosedSolid (const Mesh& mesh, Work& work, std::string& error)
             edge.balance += forward ? 1 : -1;
         }
     }
-    for (const auto& entry : edges)
+    // Convex source polygons can leave a long triangle edge opposite several
+    // shorter collinear edges. Split only unmatched edges at existing snapped
+    // vertices; do not close gaps, weld near lines or discard bad triangles.
+    // Reduce the integer lattice direction to avoid cross-product overflow.
+    const std::set<Key> vertices (keys.begin (), keys.end ());
+    std::map<std::pair<Key, Key>, Incidence> normalized;
+    for (const auto& [edge, incidence] : edges) {
+        std::vector<Key> split { edge.first, edge.second };
+        if (incidence.count == 1) {
+            Key delta {}, direction {};
+            int64_t divisor = 0;
+            for (size_t axis = 0; axis < 3; ++axis) {
+                delta[axis] = edge.second[axis] - edge.first[axis];
+                divisor = std::gcd (divisor, delta[axis]);
+            }
+            for (size_t axis = 0; axis < 3; ++axis)
+                direction[axis] = delta[axis] / divisor;
+            for (const Key& vertex : vertices) {
+                if (!work.Check (1, error))
+                    return false;
+                bool onSegment = vertex != edge.first && vertex != edge.second;
+                int64_t step = 0;
+                bool haveStep = false;
+                for (size_t axis = 0; axis < 3 && onSegment; ++axis) {
+                    const int64_t offset = vertex[axis] - edge.first[axis];
+                    onSegment &= vertex[axis] >= std::min (edge.first[axis], edge.second[axis]) &&
+                                 vertex[axis] <= std::max (edge.first[axis], edge.second[axis]);
+                    if (direction[axis] == 0) {
+                        onSegment &= offset == 0;
+                    }
+                    else {
+                        onSegment &= offset % direction[axis] == 0;
+                        const int64_t candidate = offset / direction[axis];
+                        onSegment &= !haveStep || step == candidate;
+                        step = candidate;
+                        haveStep = true;
+                    }
+                }
+                if (onSegment)
+                    split.push_back (vertex);
+            }
+            std::sort (split.begin (), split.end ());
+        }
+        for (size_t i = 1; i < split.size (); ++i) {
+            auto& segment = normalized[{ split[i - 1], split[i] }];
+            segment.count += incidence.count;
+            segment.balance += incidence.balance;
+        }
+    }
+    for (const auto& entry : normalized)
         if (entry.second.count != 2 || entry.second.balance != 0)
-            return Fail (error, "Cover body is open/non-manifold or has unsupported unmatched solid edges.");
+            return Fail (error, "Cover body is open/non-manifold or has unmatched solid edges.");
     if (!std::isfinite (volume6) || volume6 <= 1e-12)
         return Fail (error, "Cover body has no positive outward-wound solid volume.");
     return true;

@@ -1,4 +1,4 @@
-"""Launch an owned Archicad, test Tapir and Tapioca HTTP on a PLN copy, then quit cleanly."""
+"""Test a disposable PLN in an owned Archicad, then quit cleanly without saving."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 from tools.archicad_client import ArchicadClient, LiveTestError  # noqa: E402
 from tools.live_test import main as run_tests  # noqa: E402
 from tools.live_test import positive_number  # noqa: E402
+from tools.surface_fixture import validate_fixture as validate_surface_fixture  # noqa: E402
 from tools.test_report import json_value  # noqa: E402
 
 
@@ -57,7 +58,7 @@ class LiveSession:
     def __init__(self, options, directory: Path):
         self.options = options
         self.directory = directory
-        self.project = directory / "project.pln"
+        self.project = getattr(options, "project_copy", None) or options.project
         self.process = None
         self.process_birth = None
         self.client = ArchicadClient(port=options.port, timeout=options.api_timeout)
@@ -70,6 +71,7 @@ class LiveSession:
             "httpTrace": self.http.trace,
             "sourceProject": str(options.project),
             "disposableProject": str(self.project),
+            "projectCopyRequested": self.project != options.project,
             "savedProject": False,
             "forcedTermination": False,
         }
@@ -108,9 +110,16 @@ class LiveSession:
         return self.client.verify_project(self.project)
 
     def launch(self):
+        require_idle((self.options.port, self.options.tapioca_port))
+        if self.project != self.options.project:
+            # The caller explicitly names one reusable disposable copy. Never
+            # replace it while any Archicad is open, or alias the protected input.
+            if self.project.exists() and os.path.samefile(self.project, self.options.project):
+                raise LiveTestError("unsafe_project", "Disposable copy aliases the source PLN")
+            self.project.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.options.project, self.project)
         import psutil
 
-        require_idle((self.options.port, self.options.tapioca_port))
         self.process = subprocess.Popen(
             [str(self.options.archicad_exe), str(self.project)], cwd=self.options.archicad_exe.parent
         )
@@ -143,13 +152,18 @@ class LiveSession:
         for name in ("GetDetailsOfElements", "QuitArchicad"):
             if not self.client.available("TapirCommand", name):
                 raise LiveTestError("capability_missing", f"TapirCommand.{name} is unavailable")
-        elements = [{"elementId": {"guid": guid}} for guid in fixture["elementGuids"]]
+        surface = getattr(self.options, "suite", "massing") == "surface"
+        guids = fixture["elementTypes"] if surface else fixture["elementGuids"]
+        types = list(fixture["elementTypes"].values()) if surface else ["Slab"] * len(guids)
+        elements = [{"elementId": {"guid": guid}} for guid in guids]
         result = self.client.addon("TapirCommand", "GetDetailsOfElements", {"elements": elements})
         records = result.get("detailsOfElements", [])
-        if len(records) != len(elements) or any(row.get("type") != "Slab" for row in records):
-            raise LiveTestError("fixture_error", f"Saved PLN does not contain the expected slab GUIDs: {result}")
+        if len(records) != len(elements) or any(
+            row.get("type") != kind for row, kind in zip(records, types, strict=True)
+        ):
+            raise LiveTestError("fixture_error", f"Saved PLN lacks the expected element GUIDs/types: {result}")
         (self.directory / "tapir-elements.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-        return {"slabCount": len(records)}
+        return {"elementCount" if surface else "slabCount": len(records)}
 
     def start_server(self):
         self.guard_project()
@@ -173,7 +187,7 @@ class LiveSession:
         code = run_tests(
             [
                 "--suite",
-                "massing",
+                getattr(self.options, "suite", "massing"),
                 "--port",
                 str(self.options.port),
                 "--tapioca-port",
@@ -223,15 +237,16 @@ class LiveSession:
             source_hash = digest(self.options.project)
             self.report["sourceSha256Before"] = source_hash
             fixture = json.loads(self.options.fixture.read_text(encoding="utf-8"))
-            if not 1 <= len(fixture["elementGuids"]) <= 8:
+            if getattr(self.options, "suite", "massing") == "surface":
+                validate_surface_fixture(fixture)
+            elif not 1 <= len(fixture["elementGuids"]) <= 8:
                 raise LiveTestError("fixture_error", "Expected 1..8 slab GUIDs")
-            shutil.copy2(self.options.project, self.project)
             shutil.copy2(self.options.fixture, self.directory / "fixture.json")
             self.stage("launch_archicad", self.launch)
             self.stage("wait_for_owned_project", self.wait_ready)
             self.stage("tapir_read_fixture", lambda: self.run_tapir(fixture))
             self.stage("start_tapioca_server", self.start_server)
-            self.stage("tapioca_http_massing_tests", self.run_suite)
+            self.stage(f"tapioca_http_{getattr(self.options, 'suite', 'massing')}_tests", self.run_suite)
             self.report["exitCode"] = 0
         except (Exception, KeyboardInterrupt) as exc:
             self.report["errors"].append({"category": getattr(exc, "category", "session_error"), "message": str(exc)})
@@ -276,8 +291,16 @@ class LiveSession:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", type=Path, required=True, help="Saved source PLN; copied, never overwritten")
+    parser.add_argument(
+        "--project", type=Path, required=True, help="Saved disposable PLN; opened directly, never saved"
+    )
+    parser.add_argument(
+        "--project-copy",
+        type=Path,
+        help="Optional single reusable disposable PLN path; refreshed from --project only while Archicad is closed",
+    )
     parser.add_argument("--fixture", type=Path, required=True)
+    parser.add_argument("--suite", choices=("massing", "surface"), default="massing")
     parser.add_argument(
         "--archicad-exe",
         type=Path,
@@ -301,6 +324,10 @@ def main(argv=None):
         setattr(options, name, value)
     if options.project.suffix.casefold() != ".pln" or options.archicad_exe.name.casefold() != "archicad.exe":
         parser.error("Expected a .pln project and ARCHICAD.exe")
+    if options.project_copy:
+        options.project_copy = options.project_copy.resolve()
+        if options.project_copy == options.project or options.project_copy.suffix.casefold() != ".pln":
+            parser.error("--project-copy must name a different disposable .pln file")
     try:
         import psutil  # noqa: F401
     except ImportError:

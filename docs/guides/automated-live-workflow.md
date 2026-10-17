@@ -23,6 +23,9 @@ uv run --frozen --with archicad==29.3000 --with "psutil>=6,<8" python tools/live
 
 No menu clicks, palette opening or manual server startup are required.
 
+For explicit exposed-surface contact tests, use `--suite surface` and the surface
+fixture format below. The default remains `massing`.
+
 ## Prerequisites (once per machine)
 
 - Windows, an interactive logged-in desktop, Archicad 29 and a working license.
@@ -46,18 +49,34 @@ python tools/live_session.py --project C:\Tests\disposable.pln --fixture C:\Test
   --archicad-exe "D:\Applications\Archicad 29\ARCHICAD.exe"
 ```
 
-The supplied source PLN is treated as a master: the runner copies it into a new
-results directory and opens **that copy**, never the source. GUIDs survive this
-file copy. Save fixture changes deliberately before running; unsaved geometry in
-a previous Archicad session is not part of the source PLN.
+**Use saved files in `C:\Tests` as disposable inputs and open them directly.**
+The runner no longer creates a PLN in every results directory. Reports/fixture
+JSON/logs remain per-run, but the same project file is reused without saving it.
+Save fixture changes deliberately before running; unsaved geometry in a previous
+Archicad session is not part of the saved input.
+
+To protect a non-disposable master, explicitly name **one reusable copy**:
+
+```powershell
+python tools/live_session.py --project C:\Models\master.pln --project-copy C:\Tests\live-session.pln `
+  --fixture C:\Tests\massing.json
+```
+
+The runner refreshes that same copy only after the idle-instance/port guard
+passes. The explicit copy path is disposable and may be overwritten on each run;
+it cannot alias the master. Do not create a new copy path for every invocation.
+Both modes retain source-hash checks and never save a project during cleanup.
 
 ## What the command actually tests
 
+The table describes the default `massing` suite; the `surface` suite is described
+below and shares the same process/project safety checks.
+
 | Stage | Actual operation / assertion |
 | --- | --- |
-| Isolation | Hash source PLN, copy it and the fixture JSON into a fresh run directory |
-| Launch | Start `ARCHICAD.exe <copied PLN>` without shell/file-association launching; retain its PID and creation time |
-| Readiness | Wait for Archicad 29 JSON API; verify its listener belongs to that PID and its project path is the exact copied PLN |
+| Isolation | Hash input PLN, preserve fixture JSON in a fresh report directory; optionally refresh the one explicit reusable copy after the idle guard |
+| Launch | Start `ARCHICAD.exe <disposable PLN>` without shell/file-association launching; retain its PID and creation time |
+| Readiness | Wait for Archicad 29 JSON API; verify its listener belongs to that PID and its project path is the exact requested disposable PLN |
 | Tapir | Execute `TapirCommand.GetDetailsOfElements` for the fixture GUIDs and verify the saved elements are slabs |
 | Server startup | Execute `Tapioca.StartServer` through Archicad JSON; this delegates to Tapioca's existing server command |
 | Server verification | Verify port 19191 belongs to the same PID; read `/health` and execute `Tapioca.GetStatus` through `/evp/call` |
@@ -110,6 +129,60 @@ If creating a fixture with Tapir, **read it back before testing**. A composite
 slab can retain its composite thickness despite a requested creation thickness.
 Use a Basic slab for the analytic fixture and verify its polygon and height.
 
+## Explicit surface fixtures
+
+```powershell
+python tools/live_session.py --suite surface --project C:\Tests\SurfaceCalc.pln --fixture C:\Tests\surface.json
+```
+
+This reuses the same ownership, exact-project, Tapir, HTTP, graceful-quit and
+source-hash guards. It does not run the massing workflow or alter selection.
+It explicitly captures the **current complete 3D model** with `meta: none` so
+targets and covers share one capture; only fixture contours are measured, and
+only fixture `coverGuids` can cover them. Hidden/absent geometry refuses.
+
+The JSON format is:
+
+```json
+{
+  "elementTypes": {"<target-guid>": "Slab", "<cover-guid>": "Wall"},
+  "absoluteTolerance": 0.000001,
+  "cases": [{
+    "name": "known-face",
+    "elementGuid": "<target-guid>",
+    "polygonPoints": [0,0,0, 1,0,0, 1,1,0, 0,1,0],
+    "surfaceAttributeGuid": "<actual-project-surface-guid>",
+    "coverGuids": ["<cover-guid>"],
+    "expectedGrossAreaM2": 1.0,
+    "expectedExposedAreaM2": 0.5,
+    "basis": "Independent unit-square face; known half-square contact patch"
+  }]
+}
+```
+
+Replace the example with independently established geometry, not returned areas.
+`polygonPoints` is a complete world-space metre contour, wound outward. Optional
+`polygonPieces` holds opposite-wound hole contours or same-wound decomposition
+parts. Real rebated window holes need not equal nominal window dimensions.
+The runner sends homogeneous floating-point coordinates, including whole-number
+heights, at the native SDK array boundary. Surface **GUIDs** are resolved against
+the fresh captured catalog; neither pool numbers nor saved source polygon IDs
+are fixture selectors. `basis` records where each independent expectation came
+from. Bounds are 32 explicit elements/cases and tolerance at most 0.001 m².
+
+For every case the suite geometrically resolves the complete contour, strictly
+inventories all requested cover bodies, checks an empty-cover baseline, then
+checks explicit covers, an identical repeat and an empty surface filter. It
+independently sums emitted world triangles and validates face, element and
+per-project-surface totals, including an unused surface's zero row. Capture and
+project identity are rechecked; a separate stale-pin test must refuse. Native
+quantity responses are recorded separately, never substituted for the oracle.
+
+These are **explicit-source-face contact tests**, not automatic exterior
+classification, picked-face correspondence, equivalent-scope Surface Schedule
+acceptance or rendered-overlay acceptance. Library frames must be supplied as
+explicit covers before claiming frame-covered reveal results.
+
 ## Pass/fail and artifacts
 
 Success is process exit code **0** from `live_session.py`, with all six stages
@@ -121,7 +194,6 @@ Each invocation creates:
 ```text
 test-results/session-<UTC timestamp>/
   session.json                 stage outcomes, PID, requests/responses, source hashes
-  project.pln                  disposable project copy
   fixture.json                 exact assertion inputs
   tapir-elements.json          independently read element details
   native-log-*.txt             final 64 KiB of available startup/ArchViz logs
@@ -133,8 +205,9 @@ test-results/session-<UTC timestamp>/
 
 Add `--log <path>` to preserve other explicit native logs. Results are ignored
 by git; retain a decisive report separately when using it as long-term evidence.
-Old run copies can be removed manually when no process has them open. The runner
-does not delete them automatically.
+No PLN is created under the per-run report directory. Reuse the input file in
+`C:\Tests`, or the one `--project-copy` path. Old copies made by earlier runner
+versions may be removed deliberately once no process has them open.
 
 Timeouts can be adjusted in seconds:
 
@@ -145,7 +218,7 @@ python tools/live_session.py --project C:\Tests\disposable.pln --fixture C:\Test
 
 Short API timeouts while Archicad loads can appear in the trace even on a passing
 run. The readiness stage retries read-only requests until the startup deadline;
-it proceeds only after verifying the copied project.
+it proceeds only after verifying the exact disposable project.
 
 ### When it fails
 
@@ -160,7 +233,7 @@ it proceeds only after verifying the copied project.
 - **Assertion failure:** compare independent geometry and expected metrics. The
   runner still attempts a verified, graceful shutdown of its owned process.
 - **Startup or shutdown timeout:** inspect the application/modal and logs. If
-  ownership or project identity cannot be proven, the runner leaves the process
+   ownership or project identity cannot be proven, the runner leaves the process
   alone and reports `manualCleanupMayBeRequired`. It never force-kills an app,
   saves a project to dismiss a prompt, or calls a timeout a pass.
 - **Nonzero Archicad exit:** session fails even if pytest passed. No crash claim

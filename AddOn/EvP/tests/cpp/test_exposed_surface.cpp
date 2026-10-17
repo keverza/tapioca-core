@@ -191,6 +191,56 @@ TEST (ExposedSurface, PartialContactRetainsOnlyUncoveredFragment)
             EXPECT_GE (fragment.points[i], 2 - 1e-6);
 }
 
+TEST (ExposedSurface, ClosedCoverWithCollinearTriangleTJunctionsKeepsExactCoverage)
+{
+    Mesh cover = Box ("subdivided-cover", 0, -.3, 0, 2, .3, 3);
+    const uint32_t a = cover.triangles[0], b = cover.triangles[1], c = cover.triangles[2];
+    const uint32_t middle = static_cast<uint32_t> (cover.VertexCount ());
+    for (size_t axis = 0; axis < 3; ++axis)
+        cover.vertices.push_back ((cover.vertices[a * 3 + axis] + cover.vertices[b * 3 + axis]) / 2);
+    cover.triangles[1] = middle;
+    cover.triangles.insert (cover.triangles.end (), { middle, b, c });
+    cover.triSourceBody.push_back (1);
+    cover.triSourcePgon.push_back (1);
+    cover.triMaterial.push_back (10);
+    const auto snapshot = Capture ({ Box ("wall", 0, 0, 0, 5, .2, 3), cover });
+    ex::Result result;
+    std::string error;
+    ASSERT_TRUE (ex::Calculate (snapshot, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, error)) << error;
+    EXPECT_NEAR (result.areas.exposedArea, 9, 1e-6);
+    EXPECT_NEAR (EmittedArea (result), 9, 1e-6);
+    auto rotated = snapshot;
+    for (auto& mesh : rotated.meshes) {
+        for (size_t i = 0; i < mesh.vertices.size (); i += 3) {
+            const double x = mesh.vertices[i], y = mesh.vertices[i + 1];
+            mesh.vertices[i] = .6 * x - .8 * y;
+            mesh.vertices[i + 1] = .8 * x + .6 * y;
+        }
+        evptest::RecomputeBounds (mesh);
+    }
+    ASSERT_TRUE (ex::Calculate (rotated, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), result, error)) << error;
+    EXPECT_NEAR (EmittedArea (result), 9, 1e-6);
+    auto cracked = snapshot;
+    cracked.meshes[1].vertices[middle * 3 + 2] += 1e-5;
+    ExpectRefusal (cracked, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), "open/non-manifold");
+    // Subdivision normalization is bounded and must not conceal an actually open
+    // solid or a duplicate, even when its signed volume still looks plausible.
+    auto open = snapshot;
+    open.meshes[1].triangles.erase (open.meshes[1].triangles.begin (), open.meshes[1].triangles.begin () + 3);
+    open.meshes[1].triSourceBody.pop_back ();
+    open.meshes[1].triSourcePgon.pop_back ();
+    open.meshes[1].triMaterial.pop_back ();
+    ExpectRefusal (open, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), "open/non-manifold");
+    auto duplicate = snapshot;
+    auto& mesh = duplicate.meshes[1];
+    const std::vector<uint32_t> triangle (mesh.triangles.begin (), mesh.triangles.begin () + 3);
+    mesh.triangles.insert (mesh.triangles.end (), triangle.begin (), triangle.end ());
+    mesh.triSourceBody.push_back (1);
+    mesh.triSourcePgon.push_back (1);
+    mesh.triMaterial.push_back (10);
+    ExpectRefusal (duplicate, Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } }), "open/non-manifold");
+}
+
 TEST (ExposedSurface, IntersectingAndOverlappingCoversAreUnionedNotSubtractedTwice)
 {
     const auto snapshot =

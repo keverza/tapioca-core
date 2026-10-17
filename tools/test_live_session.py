@@ -54,7 +54,7 @@ def test_preexisting_server_is_refused(monkeypatch):
         live_session.require_idle((19723, 19191))
 
 
-def make_session(tmp_path):
+def make_session(tmp_path, *, project_copy=None):
     source = tmp_path / "source.pln"
     source.write_bytes(b"master project")
     fixture = tmp_path / "source.json"
@@ -63,6 +63,7 @@ def make_session(tmp_path):
     directory.mkdir()
     options = SimpleNamespace(
         project=source,
+        project_copy=project_copy,
         fixture=fixture,
         archicad_exe=tmp_path / "ARCHICAD.exe",
         port=19723,
@@ -106,12 +107,13 @@ def test_port_and_pid_identity_must_both_match(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("test_fails", [False, True])
-def test_session_copies_master_and_always_requests_owned_quit(monkeypatch, tmp_path, test_fails):
+def test_session_opens_disposable_directly_and_always_requests_owned_quit(monkeypatch, tmp_path, test_fails):
     session = make_session(tmp_path)
     events = []
 
     def launch():
         session.process = FakeProcess()
+        assert session.project == session.options.project
         assert session.project.read_bytes() == b"master project"
         events.append("launch")
 
@@ -136,6 +138,72 @@ def test_session_copies_master_and_always_requests_owned_quit(monkeypatch, tmp_p
     report = json.loads((session.directory / "session.json").read_text())
     assert report["sourceUnchanged"]
     assert report["forcedTermination"] is False and report["savedProject"] is False
+    assert report["projectCopyRequested"] is False
+    assert not (session.directory / "project.pln").exists()
+
+
+def test_explicit_copy_is_reused_and_only_refreshed_after_idle_guard(monkeypatch, tmp_path):
+    copy = tmp_path / "reusable.pln"
+    copy.write_bytes(b"previous disposable copy")
+    session = make_session(tmp_path, project_copy=copy)
+    events = []
+
+    def idle(_):
+        assert copy.read_bytes() == b"previous disposable copy"
+        events.append("idle")
+
+    def popen(args, **_):
+        assert events == ["idle"]
+        assert args[1] == str(copy)
+        assert copy.read_bytes() == b"master project"
+        return FakeProcess()
+
+    monkeypatch.setattr(live_session, "require_idle", idle)
+    monkeypatch.setattr(live_session.subprocess, "Popen", popen)
+    monkeypatch.setitem(
+        sys.modules, "psutil", SimpleNamespace(Process=lambda _: SimpleNamespace(create_time=lambda: 123))
+    )
+    session.launch()
+    assert session.report["projectCopyRequested"] is True
+    assert session.project == copy and not (session.directory / "project.pln").exists()
+
+
+def test_default_launch_uses_existing_disposable_without_creating_pln(monkeypatch, tmp_path):
+    session = make_session(tmp_path)
+    monkeypatch.setattr(live_session, "require_idle", lambda _: None)
+    monkeypatch.setitem(
+        sys.modules, "psutil", SimpleNamespace(Process=lambda _: SimpleNamespace(create_time=lambda: 123))
+    )
+    calls = []
+    monkeypatch.setattr(live_session.subprocess, "Popen", lambda args, **_: calls.append(args) or FakeProcess())
+    session.launch()
+    assert calls[0][1] == str(session.options.project)
+    assert list(session.directory.glob("*.pln")) == []
+    assert not (session.directory.parent / "project.pln").exists()
+
+
+def test_running_instance_cannot_overwrite_reusable_copy(monkeypatch, tmp_path):
+    copy = tmp_path / "reusable.pln"
+    copy.write_bytes(b"keep running project")
+    session = make_session(tmp_path, project_copy=copy)
+
+    def refuse(_):
+        raise LiveTestError("unsafe_instance", "already running")
+
+    monkeypatch.setattr(live_session, "require_idle", refuse)
+    with pytest.raises(LiveTestError, match="unsafe_instance"):
+        session.launch()
+    assert copy.read_bytes() == b"keep running project"
+
+
+def test_reusable_copy_cannot_be_a_hardlink_to_master(monkeypatch, tmp_path):
+    copy = tmp_path / "reusable.pln"
+    session = make_session(tmp_path, project_copy=copy)
+    copy.hardlink_to(session.options.project)
+    monkeypatch.setattr(live_session, "require_idle", lambda _: None)
+    with pytest.raises(LiveTestError, match="aliases"):
+        session.launch()
+    assert session.options.project.read_bytes() == b"master project"
 
 
 def test_shutdown_requires_exit_zero_and_closed_ports(monkeypatch, tmp_path):
@@ -182,3 +250,70 @@ def test_preflight_failure_still_writes_report_without_quitting_anything(monkeyp
     assert report["sourceUnchanged"]
     assert [row["name"] for row in report["stages"]] == ["launch_archicad"]
     assert report["errors"][0]["category"] == "unsafe_instance"
+
+
+def test_surface_suite_uses_same_owned_lifecycle_and_passes_suite_to_pytest(monkeypatch, tmp_path):
+    from tools.test_surface_fixture import fixture
+
+    session = make_session(tmp_path)
+    session.options.suite = "surface"
+    session.options.fixture.write_text(json.dumps(fixture()))
+    events = []
+
+    def launch():
+        events.append("launch")
+        session.process = FakeProcess()
+
+    monkeypatch.setattr(session, "launch", launch)
+    monkeypatch.setattr(session, "wait_ready", lambda: None)
+    monkeypatch.setattr(session, "run_tapir", lambda _: None)
+    monkeypatch.setattr(session, "start_server", lambda: None)
+    monkeypatch.setattr(session, "guard_project", lambda: None)
+    monkeypatch.setattr(session, "require_owned", lambda _: None)
+    monkeypatch.setattr(session, "quit", lambda: events.append("quit"))
+    monkeypatch.setattr(session, "capture_logs", lambda: None)
+    calls = []
+    monkeypatch.setattr(live_session, "run_tests", lambda args: calls.append(args) or 0)
+    assert session.run() == 0
+    assert events == ["launch", "quit"]
+    assert calls[0][:2] == ["--suite", "surface"]
+    assert "tapioca_http_surface_tests" in [row["name"] for row in session.report["stages"]]
+
+
+def test_bad_surface_fixture_cannot_launch(monkeypatch, tmp_path):
+    session = make_session(tmp_path)
+    session.options.suite = "surface"
+    monkeypatch.setattr(session, "launch", lambda: pytest.fail("must validate before launch"))
+    monkeypatch.setattr(session, "capture_logs", lambda: None)
+    assert session.run() == 1
+    assert session.process is None and session.report["sourceUnchanged"]
+
+
+@pytest.mark.parametrize("actual_types", [["Slab", "Wall"], ["Wall", "Slab"], ["Slab"]])
+def test_surface_tapir_checks_every_explicit_element_type(monkeypatch, tmp_path, actual_types):
+    from tools.test_surface_fixture import GUID, SURFACE
+
+    session = make_session(tmp_path)
+    session.options.suite = "surface"
+    monkeypatch.setattr(session, "guard_project", lambda: None)
+    calls = []
+
+    def addon(namespace, command, params=None):
+        calls.append((namespace, command, params))
+        return {"detailsOfElements": [{"type": kind} for kind in actual_types]}
+
+    monkeypatch.setattr(session.client, "addon", addon)
+    monkeypatch.setattr(session.client, "available", lambda *_: True)
+    fixture = {"elementTypes": {GUID: "Slab", SURFACE: "Wall"}}
+    if actual_types == ["Slab", "Wall"]:
+        assert session.run_tapir(fixture) == {"elementCount": 2}
+    else:
+        with pytest.raises(LiveTestError, match="fixture_error"):
+            session.run_tapir(fixture)
+    assert calls == [
+        (
+            "TapirCommand",
+            "GetDetailsOfElements",
+            {"elements": [{"elementId": {"guid": GUID}}, {"elementId": {"guid": SURFACE}}]},
+        )
+    ]
