@@ -118,6 +118,7 @@ void FollowHudState ()
                           overlayhud::ContentShown (*state) && overlayhud::LayerShown (*state, roofslope::kLayer);
     const bool editorKeys = overlayhud::VirtualEditorActive (*state) && overlayhud::EditLocked (*state) &&
                             overlayhud::ContentShown (*state) && overlayhud::LayerShown (*state, editlayers::kLayer);
+    overlayinput::EnableHudTextKeys (overlayhud::CriteriaTextActive (*state));
     if (!overlayinput::EnableRoofEditKeys (roofKeys || editorKeys)) {
         overlayhud::StopRoofEditor (*state);
         overlayhud::StopVirtualEditor (*state, "keyboard ownership was refused");

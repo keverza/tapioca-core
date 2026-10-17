@@ -48,6 +48,77 @@ TEST (OverlayHudWidgets, CutoffNumberFitsBesideGripAtBothExtremes)
     }
 }
 
+TEST (OverlayHudWidgets, ClickableSwatchEmitsAnIdentifiedEventWithoutMakingStaticKeysInteractive)
+{
+    Watched watched;
+    layers::Panel panel;
+    panel.widthPixels = 400;
+    auto swatch = Control (layers::ItemKind::Swatch, "capture-7:highlight:118", "Stucco red");
+    swatch.rgba = 0xE5484DFFu;
+    swatch.checked = true;
+    swatch.value = "29.950 m2";
+    panel.items = { swatch };
+    watched.Lay ({ &panel }, At (800, 600));
+    watched.Click ({ &panel }, kLeft + 8, kTop + 8);
+    ASSERT_EQ (watched.heard.size (), 1u);
+    EXPECT_EQ (watched.heard[0].kind, "swatch");
+    EXPECT_EQ (watched.heard[0].id, swatch.id);
+    EXPECT_TRUE (watched.heard[0].final);
+    layers::Layer layer;
+    layer.name = "material-ui";
+    layer.panels = { panel };
+    EXPECT_TRUE (layers::Validate (layer).empty ());
+    layer.panels[0].items.push_back (swatch);
+    EXPECT_NE (layers::Validate (layer).find ("share the id"), std::string::npos);
+    watched.heard.clear ();
+    panel.items[0].id.clear ();
+    watched.Lay ({ &panel }, At (800, 600));
+    watched.Click ({ &panel }, kLeft + 8, kTop + 8);
+    EXPECT_TRUE (watched.heard.empty ());
+}
+
+TEST (OverlayHudWidgets, CriteriaTextReceivesScopedKeyboardWithoutStartingTheRoofEditor)
+{
+    Watched watched;
+    layers::Panel panel;
+    panel.widthPixels = 1000;
+    layers::PanelItem table;
+    table.kind = layers::ItemKind::CriteriaGrid;
+    table.id = "criteria";
+    table.labels = { "Element Type", "Layer" };
+    table.columns = { "is", "is not" };
+    layers::CriteriaRow row;
+    row.id = "capture-1:rule:1";
+    row.value = "Wall";
+    row.options = { "Wall", "Slab" };
+    table.criteria = { row };
+    panel.items = { table };
+    watched.Lay ({ &panel }, At (1100, 600));
+    EXPECT_FALSE (hud::CriteriaTextActive (*watched.state));
+    watched.Click ({ &panel }, kLeft + 350, kTop + 30);
+    ASSERT_TRUE (hud::CriteriaTextActive (*watched.state));
+    watched.heard.clear ();
+    auto text = At (kLeft + 350, kTop + 30);
+    text.characters = u"X";
+    watched.Lay ({ &panel }, text);
+    auto enter = At (kLeft + 350, kTop + 30);
+    hud::Input::Key key;
+    key.code = 0x0D;
+    key.down = true;
+    enter.keys = { key };
+    watched.Lay ({ &panel }, enter);
+    key.down = false;
+    enter.keys = { key };
+    watched.Lay ({ &panel }, enter);
+    const auto changed = std::find_if (watched.heard.begin (), watched.heard.end (),
+                                       [] (const auto& change) { return change.kind == "criteriaValue"; });
+    ASSERT_NE (changed, watched.heard.end ());
+    EXPECT_EQ (changed->id, row.id);
+    EXPECT_NE (changed->text.find ('X'), std::string::npos);
+    watched.Click ({ &panel }, 1100, 600);
+    EXPECT_FALSE (hud::CriteriaTextActive (*watched.state));
+}
+
 TEST (OverlayHudWidgets, LayoutThumbnailClickSelectsOnlyItsLayerAndPersists)
 {
     Watched watched;

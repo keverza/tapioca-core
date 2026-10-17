@@ -147,9 +147,10 @@ std::string ValidatePanel (const Panel& panel)
     for (size_t k = 0; k < panel.items.size (); ++k) {
         const PanelItem& item = panel.items[k];
         const std::string at = "item " + std::to_string (k) + ": ";
-        const bool control = item.kind == ItemKind::Checkbox || item.kind == ItemKind::Slider ||
-                             item.kind == ItemKind::Combo || item.kind == ItemKind::Button ||
-                             item.kind == ItemKind::SitePlan || item.kind == ItemKind::LayoutChoices;
+        const bool control =
+            item.kind == ItemKind::Checkbox || item.kind == ItemKind::Slider || item.kind == ItemKind::Combo ||
+            item.kind == ItemKind::Button || item.kind == ItemKind::SitePlan || item.kind == ItemKind::LayoutChoices ||
+            (item.kind == ItemKind::Swatch && !item.id.empty ()) || item.kind == ItemKind::CriteriaGrid;
         if (control && (item.id.empty () || item.id.size () > kMaxControlId))
             return at + "a checkbox, slider, dropdown or button needs its id, at most 64 bytes: its value and "
                         "its events are named by it";
@@ -157,6 +158,20 @@ std::string ValidatePanel (const Panel& panel)
             return at + "the tab bar's id is at most 64 bytes";
         if (control && !ids.insert (item.id).second)
             return at + "two controls of one panel share the id \"" + item.id + "\"";
+        if (item.kind == ItemKind::CriteriaGrid) {
+            if (item.criteria.size () > 16 || item.labels.empty () || item.labels.size () > 64 ||
+                item.columns.empty () || item.columns.size () > 64)
+                return at + "criteria table needs <=16 rows and 1..64 fields/conditions";
+            for (const auto& row : item.criteria) {
+                if (row.id.empty () || row.id.size () > 48 || !ids.insert (row.id).second || row.value.size () > 512 ||
+                    row.field >= item.labels.size () || row.condition >= item.columns.size () || row.open > 3 ||
+                    row.close > 3 || row.options.size () > 64)
+                    return at + "invalid criteria row identity, field, condition, parentheses or value";
+                for (const auto& option : row.options)
+                    if (option.size () > 512)
+                        return at + "criteria options are at most 512 bytes";
+            }
+        }
         if (item.kind == ItemKind::LayoutChoices) {
             if (item.choices.empty () || item.choices.size () > 4 || item.selected >= item.choices.size ())
                 return at + "layoutChoices needs 1..4 choices and a valid selected index";

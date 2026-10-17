@@ -380,6 +380,8 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Seeded surface takeoff publishes its verified fragments/table through one
     # main-thread adapter. It cannot reach camera, DXGI or renderer internals.
     ("NativeCommands/SurfaceTakeoffCommands.cpp", "ArchViz/SurfaceTakeoffOverlay.hpp"),
+    # Bounded main-thread cheap criteria fields; the pure evaluator/UI never use SDK calls.
+    ("NativeCommands/SurfaceCriteriaMetadata.cpp", "Metadata/MetadataExtractor.hpp"),
     # RoofSlopeEditor is a read-only boundary adapter: immutable slab input to the
     # native virtual editor, the shared HUD lock and its owned overlay layer. No
     # modelling, camera, rendering or native element writes live in the command.

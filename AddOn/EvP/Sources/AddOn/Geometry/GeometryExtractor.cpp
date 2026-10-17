@@ -4,6 +4,7 @@
 #include "GeometryExtractor.hpp"
 #include "VertexWeld.hpp"
 #include "WireframeEdges.hpp"
+#include "TriangleDegeneracy.hpp"
 
 #include <exp.h>
 #include <Sight.hpp>
@@ -74,6 +75,7 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
     VertexWelder welder (mesh);
     std::vector<Corner> corners;
     size_t degenerateNormals = 0;
+    size_t emptyFanTriangles = 0;
 
     const Int32 nBodies = elem.GetTessellatedBodyCount ();
     for (Int32 iBody = 1; iBody <= nBodies; ++iBody) {
@@ -189,6 +191,11 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                     };
                     const uint32_t i0 = emit (corners[0]);
                     for (size_t k = 1; k + 1 < corners.size (); ++k) {
+                        if (IsRoundoffZeroTriangle (&bodyPos[corners[0].vertex * 3], &bodyPos[corners[k].vertex * 3],
+                                                    &bodyPos[corners[k + 1].vertex * 3])) {
+                            ++emptyFanTriangles;
+                            continue;
+                        }
                         const uint32_t sourceVertices[3] = { uint32_t (corners[0].vertex), uint32_t (corners[k].vertex),
                                                              uint32_t (corners[k + 1].vertex) };
                         mesh.triangles.push_back (i0);
@@ -215,6 +222,9 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
     }
 
     assert (mesh.triSourceBody.size () == mesh.TriangleCount ());
+    if (emptyFanTriangles)
+        ACAPI_WriteReport ("Tapioca geometry %s: omitted %llu roundoff-zero generated fan triangles (no surface area).",
+                           false, mesh.guid.c_str (), static_cast<unsigned long long> (emptyFanTriangles));
     assert (mesh.triSourcePgon.size () == mesh.TriangleCount ());
     assert (mesh.triMaterial.size () == mesh.TriangleCount ());
     assert (mesh.triSurfaceAttribute.size () == mesh.TriangleCount ());

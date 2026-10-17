@@ -31,6 +31,8 @@ struct Work {
 V Point (const std::vector<double>& points, size_t index);
 bool Prepare (const Snapshot& snapshot, const Request& request, std::vector<Face>& faces, std::vector<Body>& covers,
               Work& work, std::string& error);
-bool Overlaps (const Aabb& a, const Aabb& b);
+bool Overlaps (const Aabb& a, const Aabb& b, double margin = 0);
+bool NearContact (const Face& face, const Body& body, double tolerance, cp::PathsD& paths, Work& work,
+                  std::string& error);
 } // namespace geomsrv::exposed::detail
 #endif

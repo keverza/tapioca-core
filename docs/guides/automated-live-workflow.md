@@ -207,6 +207,16 @@ mouse input. Interactive picker, rendered pixels and equivalent-scope Surface
 Schedule acceptance remain separate. Do not invent an expected area from the
 response when a fixture changes.
 
+The fixture may additionally contain `allWallSurfaces`, an array of one or two
+project surface GUIDs. This enables the seedless **all-wall** integration test:
+every captured wall is a target, and all captured walls/slabs are explicit covers.
+Its bulk region must match a separately enumerated complete source-face inventory,
+and its totals must match emitted triangles and explicit-face calculation. This
+is completeness/transport evidence using the same clipping kernel, **not an
+independent aggregate area oracle**. Analytic C++ fixtures and the separate
+contour cases remain the independent geometric checks. All-wall mode includes
+interior faces; it does not infer exterior membership from finishes or normals.
+
 ## Pass/fail and artifacts
 
 Success is process exit code **0** from `live_session.py`, with all six stages

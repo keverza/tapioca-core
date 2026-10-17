@@ -12,6 +12,11 @@ struct ExteriorSeed {
     size_t meshIndex = 0;
     std::array<double, 3> point {}, normal {};
 };
+// Whole-target inventory, including interior, top/bottom and reveal faces.
+// No exterior assertion or seed is involved. Malformed source faces refuse.
+bool ResolveAllTargetFaces (const Snapshot& snapshot, const std::vector<size_t>& targets, std::vector<FaceKey>& faces,
+                            std::string& error, const Limits& limits = {},
+                            const std::function<bool ()>& cancelled = {});
 bool ResolveFacadeRegion (const Snapshot& snapshot, const std::vector<size_t>& targets,
                           const std::vector<ExteriorSeed>& seeds, std::vector<FaceKey>& faces, std::string& error,
                           const Limits& limits = {}, const std::function<bool ()>& cancelled = {});

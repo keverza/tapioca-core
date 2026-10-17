@@ -1,5 +1,6 @@
 #include "NativeCommands/SurfaceFragmentCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
+#include "NativeCommands/CommandUtils.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/SurfaceAttributeMap.hpp"
 
@@ -32,6 +33,7 @@ constexpr const char kCalculateInput[] = R"json({
         "snapshotId":{"type":"integer","minimum":1},
         "captureStamp":{"type":"integer","minimum":1},
         "coverScopeId":{"type":"string","minLength":1,"maxLength":256},
+        "contactToleranceM":{"type":"number","minimum":0,"maximum":0.001},
         "faces":{"type":"array","minItems":1,"maxItems":512,"items":{"$ref":"#/$defs/face"}},
         "covers":{"type":"array","maxItems":128,"items":{"$ref":"#/$defs/body"}},
         "surfaceAttributeIndices":{"type":"array","maxItems":512,"uniqueItems":true,"items":{"type":"integer","minimum":1}}
@@ -46,6 +48,7 @@ constexpr const char kCalculateOutput[] = R"json({
     "type":"object","properties":{
         "snapshotId":{"type":"integer","minimum":1},"captureStamp":{"type":"integer","minimum":1},
         "algorithmVersion":{"type":"integer","minimum":1},"coverScopeId":{"type":"string","minLength":1},
+        "contactToleranceM":{"type":"number","minimum":0,"maximum":0.001},
         "unit":{"const":"m2"},"coordinateUnit":{"const":"m"},"indexSpace":{"const":"ModelerAPI-1-based"},
         "classification":{"const":"explicitSourceFaces-contactOnly"},
         "areas":{"$ref":"#/$defs/areas"},
@@ -63,7 +66,7 @@ constexpr const char kCalculateOutput[] = R"json({
             "work":{"$ref":"#/$defs/count"},"outputTriangles":{"$ref":"#/$defs/count"}
         },"additionalProperties":false,"required":["candidateCoverPairs","sectionCount","work","outputTriangles"]}
     },"additionalProperties":false,
-    "required":["snapshotId","captureStamp","algorithmVersion","coverScopeId","unit","coordinateUnit","indexSpace","classification","areas","covers","faces","fragments","surfaces","elements","statistics"],
+    "required":["snapshotId","captureStamp","algorithmVersion","coverScopeId","contactToleranceM","unit","coordinateUnit","indexSpace","classification","areas","covers","faces","fragments","surfaces","elements","statistics"],
     "$defs":{
         "count":{"type":"integer","minimum":0},
         "elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},
@@ -187,6 +190,7 @@ GS::ObjectState DescribeResult (const Snapshot& snapshot, const ex::Result& resu
     output.Add ("captureStamp", static_cast<GS::Int64> (result.captureStamp));
     output.Add ("algorithmVersion", result.algorithmVersion);
     output.Add ("coverScopeId", Text (result.coverScopeId));
+    output.Add ("contactToleranceM", result.contactToleranceM);
     output.Add ("unit", GS::UniString ("m2"));
     output.Add ("coordinateUnit", GS::UniString ("m"));
     output.Add ("indexSpace", GS::UniString ("ModelerAPI-1-based"));
@@ -318,6 +322,8 @@ class CalculateSurfaceFragmentsCommand : public MainThreadCommand {
         request.snapshotId = snapshot->id;
         request.captureStamp = snapshot->captureStamp;
         request.coverScopeId = scope.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+        if (params.Contains ("contactToleranceM") && !ReadReal (params, "contactToleranceM", request.contactToleranceM))
+            return fail ("invalid contactToleranceM");
         for (const auto& row : faces) {
             ex::FaceKey key;
             GS::Int32 polygon = 0;

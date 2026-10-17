@@ -21,6 +21,10 @@ bool MakeFrame (const V& a, const V& b, const V& c, Frame& frame);
 bool Boolean (Clipper2Lib::ClipType operation, const Clipper2Lib::PathsD& subject, const Clipper2Lib::PathsD& clip,
               Clipper2Lib::PathsD& paths, std::string& error,
               Clipper2Lib::FillRule fill = Clipper2Lib::FillRule::NonZero);
+// grid is the final PolyPathD::Scale(). Preserve this exact binary lattice;
+// Clipper's decimal-double triangulator changes very thin clipped boundaries.
+bool TriangulateOnGrid (const Clipper2Lib::PathsD& loops, double grid, Clipper2Lib::PathsD& triangles,
+                        std::string& error);
 // Input is a validated body. The exterior-side limit assigns coplanar vertices
 // below the plane: opposite touching solids cover, bodies behind the face do not.
 // Returns normalized section paths, holes retained. Open cuts refuse atomically.

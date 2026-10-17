@@ -54,3 +54,32 @@ def test_overlay_lifetime_and_stale_result_guard_are_native():
     assert "MeshStore::Get ().CaptureStamp ()" in overlay and "Model/capture changed" in overlay
     assert "surfacetakeoff::OnProjectClosed ();" in (ROOT / "ArchViz/OverlayRelease.cpp").read_text(encoding="utf-8")
     assert "if (cancelled ())" in SOURCE
+
+
+def test_all_wall_schema_allows_explicit_seedless_scope_but_not_unknown_modes():
+    payload = dict(
+        snapshotId=1,
+        captureStamp=1,
+        targetGuids=["w"],
+        coverGuids=["w"],
+        coverScopeId="all-walls",
+        regionMode="allWallFaces",
+        seeds=[],
+        surfaceAttributeIndices=[100],
+        publishOverlay=False,
+        compareNative=False,
+    )
+    jsonschema.validate(payload, schema("kInput"))
+    payload["regionMode"] = "guessExteriorFromMaterial"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(payload, schema("kInput"))
+    assert "snapshot->meshes[index].elemType != 1" in SOURCE
+    assert "ex::ResolveAllTargetFaces" in SOURCE
+
+
+def test_material_list_and_tolerance_contract_are_bounded():
+    data = schema("kInput")
+    assert data["properties"]["surfaceAttributeIndices"]["maxItems"] == 64
+    assert data["properties"]["contactToleranceM"]["maximum"] == 0.001
+    assert "allElementFaces" in data["properties"]["regionMode"]["enum"]
+    assert "request.contactToleranceM = .001" in SOURCE

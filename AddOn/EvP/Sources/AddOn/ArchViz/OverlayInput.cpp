@@ -91,6 +91,7 @@ Target* s_keyboardTarget = nullptr;
 Router& g_router = state::router;
 Stats& g_stats = state::stats;
 bool s_roofEditKeys = false;
+bool s_hudTextKeys = false;
 
 Target& TargetOf (View view)
 {
@@ -168,8 +169,11 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     }
     const Route route =
         removing ? g_router.Decide (event, over, overScroll) : g_router.Preview (event, over, overScroll);
-    if (removing && event.kind == EventKind::Press && route == Route::Take)
+    if (removing && event.kind == EventKind::Press && route == Route::Take) {
         s_gestureTarget = self, s_keyboardTarget = self;
+        if (s_hudTextKeys && ::GetAncestor (self->canvas, GA_ROOT) == ::GetForegroundWindow ())
+            ::SetFocus (self->canvas);
+    }
     if (removing && g_router.GetOwner () == Owner::None)
         s_gestureTarget = nullptr;
     if (route == Route::Take) {
@@ -371,8 +375,24 @@ bool TextField (HWND window)
 
 bool QueueKey (HWND window, const overlayhud::Input::Key& key, const std::u16string& text, bool take)
 {
-    if (!s_roofEditKeys || !window)
+    if ((!s_roofEditKeys && !s_hudTextKeys) || !window)
         return false;
+    if (s_hudTextKeys && !s_roofEditKeys) {
+        Target* target = s_keyboardTarget;
+        if (!target || !target->canvas || TextField (window) || !state::OwnsPointer (*target))
+            return false;
+        const HWND root = ::GetAncestor (target->canvas, GA_ROOT);
+        if (root != ::GetForegroundWindow () || ::GetAncestor (window, GA_ROOTOWNER) != root)
+            return false;
+        if (take) {
+            if (key.code && target->keys.size () < 128)
+                target->keys.push_back (key);
+            if (target->characters.size () + text.size () < 256)
+                target->characters += text;
+            RequestRefresh (*target);
+        }
+        return true;
+    }
     Target* target = TargetFor (window);
     // Taken mouse presses do not focus Archicad's canvas. The document/frame may
     // retain keyboard focus and translate Delete as an accelerator there.
@@ -437,7 +457,7 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
         }
         else if (original == WM_MOUSELEAVE && removing)
             Left (*message);
-        else if (s_roofEditKeys)
+        else if (s_roofEditKeys || s_hudTextKeys)
             keyboard::Message (*message, removing);
         // The click meter's press, when no mouse hook timed it first.
         if (g_timing && removing && g_mouseHook == nullptr &&
@@ -732,7 +752,7 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
         // attached had published the regions.
         RequestRefresh (target);
     }
-    if (s_roofEditKeys)
+    if (s_roofEditKeys || s_hudTextKeys)
         keyboard::Install (&QueueKey);
     return true;
 }
@@ -752,6 +772,7 @@ void Detach (View view)
 void Shutdown ()
 {
     s_roofEditKeys = false;
+    s_hudTextKeys = false;
     g_timing = false;
     for (Target& target : g_targets)
         Clear (target);
@@ -769,11 +790,32 @@ bool EnableRoofEditKeys (bool enabled)
             return false;
         }
     }
-    else
+    else if (!s_hudTextKeys)
         keyboard::Stop ();
-    if (!enabled)
+    if (!enabled && !s_hudTextKeys)
         for (auto& target : g_targets)
             target.editActions.clear (), target.keys.clear (), target.characters.clear ();
+    return true;
+}
+
+bool EnableHudTextKeys (bool enabled)
+{
+    const bool starting = enabled && !s_hudTextKeys;
+    s_hudTextKeys = enabled;
+    // A consumed HUD click does not normally move native focus. Focus THIS
+    // canvas once on explicit text activation, never another window or a timer's
+    // recurring refresh, so an old palette Edit cannot receive criteria text.
+    if (starting && s_keyboardTarget && s_keyboardTarget->canvas && state::OwnsPointer (*s_keyboardTarget) &&
+        ::GetAncestor (s_keyboardTarget->canvas, GA_ROOT) == ::GetForegroundWindow ())
+        ::SetFocus (s_keyboardTarget->canvas);
+    if (enabled && !keyboard::Install (&QueueKey)) {
+        s_hudTextKeys = false;
+        hudconsole::Warning ("Criteria input",
+                             "Keyboard ownership could not be installed; use captured dropdown values.");
+        return false;
+    }
+    if (!enabled && !s_roofEditKeys)
+        keyboard::Stop ();
     return true;
 }
 

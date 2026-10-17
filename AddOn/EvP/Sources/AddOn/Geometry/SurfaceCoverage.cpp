@@ -57,6 +57,38 @@ bool Boolean (Clipper2Lib::ClipType operation, const Clipper2Lib::PathsD& subjec
     return true;
 }
 
+bool TriangulateOnGrid (const Clipper2Lib::PathsD& loops, double grid, Clipper2Lib::PathsD& triangles,
+                        std::string& error)
+{
+    namespace cp = Clipper2Lib;
+    triangles.clear ();
+    error.clear ();
+    if (!std::isfinite (grid) || grid <= 0) {
+        error = "Invalid fragment triangulation grid.";
+        return false;
+    }
+    // ClipperD's lattice is binary, while Triangulate(PathsD) re-snaps to a
+    // decimal lattice. Keep its exact integer boundary, expanded fourfold because
+    // the triangulator ignores triangles with a one-unit edge. Expansion creates
+    // no new vertices or area and keeps one-grid strips instead of deleting them.
+    constexpr double expansion = 4;
+    int scaleError = 0;
+    const cp::Paths64 boundary = cp::ScalePaths<int64_t, double> (loops, expansion / grid, scaleError);
+    cp::Paths64 integerTriangles;
+    if (scaleError || cp::Triangulate (boundary, integerTriangles) != cp::TriangulateResult::success ||
+        integerTriangles.empty ()) {
+        error = "Exposed fragment triangulation failed; no partial result.";
+        return false;
+    }
+    auto prepared = cp::ScalePaths<double, int64_t> (integerTriangles, grid / expansion, scaleError);
+    if (scaleError) {
+        error = "Exposed fragment triangle coordinate scaling failed.";
+        return false;
+    }
+    triangles = std::move (prepared);
+    return true;
+}
+
 bool Section (const Mesh& body, const Frame& frame, Clipper2Lib::PathsD& paths, std::string& error)
 {
     namespace cp = Clipper2Lib;

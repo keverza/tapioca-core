@@ -331,7 +331,7 @@ enum class ItemKind : uint8_t {
     Separator = 2, // a rule
     Spacing = 3,   // `heightPixels` of nothing
     Progress = 4,  // a bar filled to `fraction`, `text` over it
-    Swatch = 5,    // a square of `rgba` and its `text`: a key entry
+    Swatch = 5,    // key entry; optional `id` makes its color clickable ("swatch" event), `checked` marks focus
     Ramp = 6,      // a colour bar over `colormap`'s range with its ticks: a legend
     Plot = 7,      // `values` as a line
     Table = 8,     // `columns` over `rows`
@@ -349,6 +349,7 @@ enum class ItemKind : uint8_t {
     Button = 17,        // `text` on it; each press is reported
     SitePlan = 18,      // fitted XY parcel/inset diagram with endpoint/edge context menus
     LayoutChoices = 19, // fitted selectable thumbnails; a choice shows its target overlay layer
+    CriteriaGrid = 20,  // native criteria table: field/condition/value, parentheses, AND/OR, row actions
 };
 
 // A control's `id` names its value and its events: at most this long, one per panel.
@@ -367,6 +368,12 @@ struct LayoutChoice {
     std::string layer;
     uint32_t count = 0;
     std::vector<ChoicePath> paths;
+};
+struct CriteriaRow {
+    std::string id, value;
+    uint32_t field = 0, condition = 0, open = 0, close = 0;
+    bool orNext = false;
+    std::vector<std::string> options;
 };
 
 struct PanelItem {
@@ -412,6 +419,8 @@ struct PanelItem {
     std::vector<uint32_t> referenceVertices;
     bool editable = true;
     std::vector<LayoutChoice> choices;
+    // Native-only criteria editor: labels are field names, columns conditions.
+    std::vector<CriteriaRow> criteria;
 };
 
 // A panel's look: the dark glass the HUD began with, or the light card of the design.

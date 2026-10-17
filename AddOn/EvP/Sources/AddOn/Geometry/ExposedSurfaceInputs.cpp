@@ -209,11 +209,11 @@ bool Work::Check (size_t amount, std::string& error)
     return true;
 }
 
-bool Overlaps (const Aabb& a, const Aabb& b)
+bool Overlaps (const Aabb& a, const Aabb& b, double margin)
 {
     for (size_t i = 0; i < 3; ++i)
-        if (a.mn[i] > b.mx[i] + surfacecoverage::kPlaneTolerance ||
-            b.mn[i] > a.mx[i] + surfacecoverage::kPlaneTolerance)
+        if (a.mn[i] > b.mx[i] + surfacecoverage::kPlaneTolerance + margin ||
+            b.mn[i] > a.mx[i] + surfacecoverage::kPlaneTolerance + margin)
             return false;
     return true;
 }
@@ -226,6 +226,8 @@ bool Prepare (const Snapshot& snapshot, const Request& request, std::vector<Face
         return Fail (error, "Snapshot/capture identity is absent or differs from the request.");
     if (request.coverScopeId.empty ())
         return Fail (error, "An explicit cover/model-state scope identity is required.");
+    if (!std::isfinite (request.contactToleranceM) || request.contactToleranceM < 0 || request.contactToleranceM > .001)
+        return Fail (error, "Contact tolerance must be finite and in 0..0.001 m.");
     if (request.materialPoolFilter)
         for (int32_t material : *request.materialPoolFilter)
             if (material < 0)

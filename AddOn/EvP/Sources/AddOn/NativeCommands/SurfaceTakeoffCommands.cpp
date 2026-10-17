@@ -2,6 +2,7 @@
 #include "NativeCommands/SurfaceTakeoffCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandUtils.hpp"
+#include "NativeCommands/SurfaceCriteriaMetadata.hpp"
 #include "AddOnCommands.hpp"
 #include "ArchViz/SurfaceTakeoffOverlay.hpp"
 #include "Geometry/ExteriorSurfaceRegion.hpp"
@@ -73,10 +74,12 @@ const char kInput[] = R"json({
   "targetGuids":{"type":"array","minItems":1,"maxItems":64,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":38}},
   "coverGuids":{"type":"array","maxItems":128,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":38}},
   "coverScopeId":{"type":"string","minLength":1,"maxLength":256},
-  "seeds":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,
+  "contactToleranceM":{"type":"number","minimum":0,"maximum":0.001},
+  "regionMode":{"type":"string","enum":["seededFacade","allWallFaces","allElementFaces"]},
+  "seeds":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,
     "properties":{"guid":{"type":"string","minLength":1,"maxLength":38},"point":{"$ref":"#/$defs/vector"},"normal":{"$ref":"#/$defs/vector"}},"required":["guid","point","normal"]}},
-  "surfaceAttributeIndices":{"type":"array","minItems":1,"maxItems":2,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
-  "surfaceColors":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"integer","minimum":0,"maximum":4294967295}},
+  "surfaceAttributeIndices":{"type":"array","maxItems":64,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
+  "surfaceColors":{"type":"array","maxItems":64,"items":{"type":"integer","minimum":0,"maximum":4294967295}},
   "publishOverlay":{"type":"boolean"},"compareNative":{"type":"boolean"}
  },"required":["snapshotId","captureStamp","targetGuids","coverGuids","coverScopeId","seeds","surfaceAttributeIndices","publishOverlay","compareNative"],
  "$defs":{"vector":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}}}
@@ -84,8 +87,9 @@ const char kInput[] = R"json({
 const char kOutput[] = R"json({
  "type":"object","additionalProperties":false,"properties":{
   "snapshotId":{"type":"integer","minimum":1},"captureStamp":{"type":"integer","minimum":1},
-  "classification":{"const":"userExteriorSeeds-connectedCoplanar"},"unit":{"const":"m2"},
+  "classification":{"enum":["userExteriorSeeds-connectedCoplanar","allWallFaces-contactOnly","allElementFaces-contactOnly"]},"unit":{"const":"m2"},
   "coverScopeId":{"type":"string"},"coverGuids":{"type":"array","items":{"type":"string"}},
+  "contactToleranceM":{"type":"number","minimum":0,"maximum":0.001},
   "regionFaceCount":{"type":"integer","minimum":1},"selectedTriangleCount":{"type":"integer","minimum":0},
   "regionElementGuids":{"type":"array","minItems":1,"items":{"type":"string"}},
   "selectedAreaM2":{"type":"number","minimum":0},"overlayPublished":{"type":"boolean"},
@@ -99,7 +103,7 @@ const char kOutput[] = R"json({
     "surfaceAttributeIndex":{"type":"integer","minimum":1},"areaM2":{"type":"number","exclusiveMinimum":0},
     "points":{"type":"array","minItems":9,"items":{"type":"number"}},"triangles":{"type":"array","minItems":3,"items":{"type":"integer","minimum":0}}
   },"required":["guid","sourceBody","sourcePgon","surfaceAttributeIndex","areaM2","points","triangles"]}}
- },"required":["snapshotId","captureStamp","classification","unit","coverScopeId","coverGuids","regionFaceCount","regionElementGuids","selectedTriangleCount","selectedAreaM2","overlayPublished","nativeComparisonAvailable","nativeComparisonNote","nativeSurfaces","surfaces","meshes"]
+ },"required":["snapshotId","captureStamp","classification","unit","coverScopeId","coverGuids","contactToleranceM","regionFaceCount","regionElementGuids","selectedTriangleCount","selectedAreaM2","overlayPublished","nativeComparisonAvailable","nativeComparisonNote","nativeSurfaces","surfaces","meshes"]
 })json";
 const char kEmptyInput[] = R"json({"type":"object","properties":{},"additionalProperties":false})json";
 const char kClearOutput[] =
@@ -132,12 +136,19 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         GS::Array<GS::Int32> indices;
         GS::UniString scope;
         bool publish = false, compare = false;
+        GS::UniString mode ("seededFacade");
+        params.Get ("regionMode", mode);
+        const bool allWalls = mode == "allWallFaces";
+        const bool allElements = mode == "allElementFaces";
+        const bool wholeTargets = allWalls || allElements;
+        if (!wholeTargets && mode != "seededFacade")
+            return fail ("Unsupported wall region mode.");
         if (!params.Get ("targetGuids", targets) || !params.Get ("coverGuids", covers) ||
             !params.Get ("seeds", inputs) || !params.Get ("surfaceAttributeIndices", indices) ||
             !params.Get ("coverScopeId", scope) || !params.Get ("publishOverlay", publish) ||
             !params.Get ("compareNative", compare) || targets.IsEmpty () || targets.GetSize () > 64 ||
-            covers.GetSize () > 128 || inputs.IsEmpty () || inputs.GetSize () > 8 || indices.IsEmpty () ||
-            indices.GetSize () > 2 || scope.IsEmpty ())
+            covers.GetSize () > 128 || (wholeTargets ? !inputs.IsEmpty () : inputs.IsEmpty ()) ||
+            inputs.GetSize () > 8 || indices.GetSize () > 64 || scope.IsEmpty ())
             return fail ("Explicit bounded scopes, surfaces and exterior seeds are required.");
         std::vector<size_t> targetIndices;
         std::vector<ex::ExteriorSeed> seeds;
@@ -145,10 +156,20 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         request.snapshotId = snapshot->id;
         request.captureStamp = snapshot->captureStamp;
         request.coverScopeId = Utf8 (scope);
+        request.contactToleranceM = .001;
+        if (params.Contains ("contactToleranceM") && !ReadReal (params, "contactToleranceM", request.contactToleranceM))
+            return fail ("Invalid contact tolerance.");
         for (const auto& guid : targets) {
             size_t index = 0;
             if (!FindMesh (*snapshot, guid, index))
                 return fail ("Target missing or ambiguous in capture.");
+            if (allWalls && snapshot->meshes[index].elemType != 1)
+                return fail ("All-wall targets must be captured ModelerAPI walls.");
+            if (allElements) {
+                const auto type = snapshot->meshes[index].elemType;
+                if (type != 1 && type != 2 && type != 17 && type != 19)
+                    return fail ("Criteria candidates must be captured walls, slabs, columns or beams.");
+            }
             targetIndices.push_back (index);
         }
         std::set<std::string> coverNames;
@@ -180,22 +201,40 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         const uint64_t ticket = publish ? view::BeginRequest () : 0;
         const auto cancelled = [&] { return pc.TestBreak () || RunEnded (generation) || !Current (snapshot); };
         std::string error;
-        if (!ex::ResolveFacadeRegion (*snapshot, targetIndices, seeds, request.faces, error, {}, cancelled))
+        if (!(wholeTargets
+                  ? ex::ResolveAllTargetFaces (*snapshot, targetIndices, request.faces, error, {}, cancelled)
+                  : ex::ResolveFacadeRegion (*snapshot, targetIndices, seeds, request.faces, error, {}, cancelled)))
             return fail (error);
         std::vector<int32_t> surfaces (indices.Begin (), indices.End ());
-        std::vector<uint32_t> colors { 0xE5484DFFu, 0xF6C945FFu };
+        ex::SurfaceSelection selection;
+        if (surfaces.empty ()) {
+            if (!ex::ResolveSurfaceSelection (*snapshot, request.faces, std::nullopt, selection, error))
+                return fail (error);
+            std::set<int32_t> captured;
+            for (const auto& entry : selection.poolToSurface) {
+                if (entry.second <= 0)
+                    return fail ("A wall face has no captured original project surface.");
+                captured.insert (entry.second);
+            }
+            if (captured.empty () || captured.size () > 64)
+                return fail ("The material list requires 1..64 captured wall surfaces.");
+            surfaces.assign (captured.begin (), captured.end ());
+        }
+        std::vector<uint32_t> colors;
+        for (size_t i = 0; i < surfaces.size (); ++i)
+            colors.push_back (view::DefaultColor (i));
         if (params.Contains ("surfaceColors")) {
             GS::Array<GS::Int64> values;
-            if (!params.Get ("surfaceColors", values) || values.GetSize () != surfaces.size ())
+            if (!params.Get ("surfaceColors", values) || (!values.IsEmpty () && values.GetSize () != surfaces.size ()))
                 return fail ("One explicit color is required for each selected surface.");
-            colors.clear ();
+            if (!values.IsEmpty ())
+                colors.clear ();
             for (GS::Int64 value : values) {
                 if (value < 0 || value > 0xFFFFFFFFLL)
                     return fail ("Invalid surface color.");
                 colors.push_back (uint32_t (value));
             }
         }
-        ex::SurfaceSelection selection;
         if (!ex::ResolveSurfaceSelection (*snapshot, request.faces,
                                           std::set<int32_t> (surfaces.begin (), surfaces.end ()), selection, error))
             return fail (error);
@@ -228,7 +267,11 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
                 return fail ("Capture changed during native quantity comparison.");
             nativeAvailable = quantity->ok;
             note = quantity->ok
-                       ? "Native whole region elements, same cover GUIDs; NOT equivalent facade-face/schedule scope."
+                       ? (wholeTargets
+                              ? "Native whole candidate elements, same cover GUIDs. Surface Schedule equivalence not "
+                                "established."
+                              : "Native whole region elements, same cover GUIDs; NOT equivalent facade-face/schedule "
+                                "scope.")
                        : "Native whole-element comparison unavailable: " + Utf8 (quantity->error);
             if (quantity->ok) {
                 for (int32_t surface : surfaces)
@@ -256,14 +299,26 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
                 }
             }
         }
+        note += " Native comparison does not apply the near-contact tolerance or face-direction filters.";
         auto presentation = std::make_shared<view::Presentation> ();
-        if (!view::Build (*snapshot, result, selection, surfaces, nativeAreas, note, *presentation, error, colors))
+        if (!view::Build (*snapshot, result, selection, surfaces, nativeAreas, note, *presentation, error, colors,
+                          wholeTargets))
             return fail (error);
         if (cancelled ())
             return fail ("Capture changed before presentation.");
         if (publish) {
             auto publication = std::make_shared<std::string> ();
             GS::UniString gateError;
+            if (!evp::MainThreadGate::Get ().Invoke (
+                    [snapshot, targetIndices, presentation] {
+                        if (Current (snapshot))
+                            ReadSurfaceCriteriaMetadata (*snapshot, targetIndices, presentation->elements);
+                    },
+                    evp::MainThreadGate::DefaultTimeoutMs, gateError))
+                return fail (Utf8 (gateError));
+            if (allElements)
+                presentation->scopeLabel = "Criteria candidates: captured walls, slabs, columns and beams. Includes "
+                                           "interiors; not exterior-only.";
             if (!evp::MainThreadGate::Get ().Invoke (
                     [snapshot, presentation, publication, generation, ticket] {
                         if (!Current (snapshot) || RunEnded (generation))
@@ -279,9 +334,12 @@ class SurfaceTakeoffCommand : public MainThreadCommand {
         GS::ObjectState output;
         output.Add ("snapshotId", id);
         output.Add ("captureStamp", stamp);
-        output.Add ("classification", GS::UniString ("userExteriorSeeds-connectedCoplanar"));
+        output.Add ("classification", GS::UniString (allElements ? "allElementFaces-contactOnly"
+                                                     : allWalls  ? "allWallFaces-contactOnly"
+                                                                 : "userExteriorSeeds-connectedCoplanar"));
         output.Add ("unit", GS::UniString ("m2"));
         output.Add ("coverScopeId", scope);
+        output.Add ("contactToleranceM", result.contactToleranceM);
         GS::Array<GS::UniString> coverEcho;
         for (const auto& guid : coverNames)
             coverEcho.Push (Text (guid));

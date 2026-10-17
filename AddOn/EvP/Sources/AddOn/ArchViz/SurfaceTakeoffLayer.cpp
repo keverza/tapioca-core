@@ -1,6 +1,7 @@
 // Bound by OVERLAY-INVARIANTS.md: only layer content, camera-independent area.
 #include "SurfaceTakeoffLayer.hpp"
 #include "Geometry/GeometryEngine.hpp"
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
@@ -14,10 +15,46 @@ std::string Area (double value)
     return text.str ();
 }
 } // namespace
+uint32_t DefaultColor (size_t index)
+{
+    static constexpr uint32_t palette[] = { 0xE5484DFFu, 0xF6C945FFu, 0x4388DBFFu, 0x43A577FFu,
+                                            0xA473CEFFu, 0xE98740FFu, 0x3AA4B4FFu, 0xCE689FFFu };
+    if (index < std::size (palette))
+        return palette[index];
+    const double hue = std::fmod (index * .61803398875, 1.0) * 6;
+    const double c = .65, x = c * (1 - std::abs (std::fmod (hue, 2.0) - 1)), m = .25;
+    double r = 0, g = 0, b = 0;
+    const int sector = int (hue);
+    if (sector == 0) {
+        r = c;
+        g = x;
+    }
+    else if (sector == 1) {
+        r = x;
+        g = c;
+    }
+    else if (sector == 2) {
+        g = c;
+        b = x;
+    }
+    else if (sector == 3) {
+        g = x;
+        b = c;
+    }
+    else if (sector == 4) {
+        r = x;
+        b = c;
+    }
+    else {
+        r = c;
+        b = x;
+    }
+    return (uint32_t ((r + m) * 255) << 24) | (uint32_t ((g + m) * 255) << 16) | (uint32_t ((b + m) * 255) << 8) | 255;
+}
 bool Build (const Snapshot& snapshot, const exposed::Result& result, const exposed::SurfaceSelection& selection,
             const std::vector<int32_t>& surfaces, const std::map<int32_t, double>& nativeAreas,
             const std::string& comparisonNote, Presentation& output, std::string& error,
-            const std::vector<uint32_t>& colors)
+            const std::vector<uint32_t>& colors, bool allWalls)
 {
     output = {};
     error.clear ();
@@ -26,14 +63,21 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         return false;
     };
     if (snapshot.id != result.snapshotId || snapshot.captureStamp != result.captureStamp || surfaces.empty () ||
-        surfaces.size () > 2)
+        surfaces.size () > kMaxSurfaces)
         return fail ("Presentation capture/surface scope is invalid.");
     Presentation prepared;
     auto& layer = prepared.layer;
     layer.name = kLayer;
     layer.views = overlaylayers::Views::ThreeD;
     layer.occlusion = overlaylayers::Behind::Hide;
-    if (colors.size () < surfaces.size ())
+    for (const auto& entry : result.byElementGuid) {
+        const auto mesh = std::find_if (snapshot.meshes.begin (), snapshot.meshes.end (),
+                                        [&] (const auto& value) { return value.guid == entry.first; });
+        if (mesh == snapshot.meshes.end ())
+            return fail ("Missing element identity in presentation.");
+        prepared.elements[entry.first] = { entry.first, surfacecriteria::TypeName (mesh->elemType) };
+    }
+    if (!colors.empty () && colors.size () != surfaces.size ())
         return fail ("Missing selected surface colors.");
     std::map<int32_t, size_t> positions;
     for (int32_t index : surfaces) {
@@ -41,7 +85,9 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         if (found == snapshot.surfaceAttributes.end () || positions.contains (index))
             return fail ("Missing/duplicate selected project surface.");
         positions[index] = prepared.rows.size ();
-        prepared.rows.push_back ({ index, found->second.name, colors[prepared.rows.size ()], 0 });
+        prepared.rows.push_back (
+            { index, found->second.name,
+              colors.empty () ? DefaultColor (prepared.rows.size ()) : colors[prepared.rows.size ()], 0 });
     }
     for (const auto& fragment : result.fragments) {
         const auto mapped = selection.poolToSurface.find (fragment.materialPoolIndex);
@@ -55,6 +101,7 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         if (fragment.points.size () % 3 || fragment.triangles.empty () || fragment.triangles.size () % 3)
             return fail ("Invalid fragment mesh.");
         double area = 0;
+        Facing facing = Facing::Side;
         for (size_t i = 0; i < fragment.triangles.size (); i += 3) {
             engine::Vector3 p[3];
             for (size_t j = 0; j < 3; ++j) {
@@ -69,6 +116,13 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
             const double measured = std::sqrt (engine::Dot (cross, cross)) / 2;
             if (!std::isfinite (measured) || measured <= 0)
                 return fail ("Invalid fragment triangle area.");
+            if (i == 0) {
+                const double normalZ = cross.z / (2 * measured);
+                if (normalZ >= std::sqrt (.5))
+                    facing = Facing::Top;
+                else if (normalZ <= -std::sqrt (.5))
+                    facing = Facing::Bottom;
+            }
             area += measured;
         }
         if (!std::isfinite (fragment.areaM2) || std::abs (area - fragment.areaM2) > 1e-6)
@@ -89,46 +143,24 @@ bool Build (const Snapshot& snapshot, const exposed::Result& result, const expos
         prepared.triangles += mesh.indices.size () / 3;
         prepared.areaM2 += area;
         layer.meshes.push_back (std::move (mesh));
+        prepared.meshSurfaces.push_back (mapped->second);
+        prepared.meshAreas.push_back (area);
+        prepared.meshFacings.push_back (facing);
+        prepared.meshElements.push_back (snapshot.meshes[fragment.source.body.meshIndex].guid);
     }
     if (!std::isfinite (result.areas.selectedExposedArea) ||
         std::abs (prepared.areaM2 - result.areas.selectedExposedArea) > 1e-6)
         return fail ("Panel and selected fragment totals differ.");
-    overlaylayers::Panel panel;
-    panel.title = "Exposed surfaces";
-    panel.widthPixels = 390;
-    overlaylayers::ApplyTheme (panel, overlaylayers::PanelTheme::Light);
-    overlaylayers::PanelItem scope;
-    scope.text = "User-confirmed exterior seed: connected facade plane(s).";
-    scope.wrap = true;
-    panel.items.push_back (scope);
-    for (const auto& row : prepared.rows) {
-        overlaylayers::PanelItem swatch;
-        swatch.kind = overlaylayers::ItemKind::Swatch;
-        swatch.text = row.name;
-        swatch.rgba = row.rgba;
-        panel.items.push_back (swatch);
-        overlaylayers::PanelItem area;
-        area.kind = overlaylayers::ItemKind::Row;
-        area.text = "Highlighted area";
-        area.value = Area (row.areaM2) + " m2";
-        area.sizePixels = 20;
-        panel.items.push_back (area);
-    }
-    overlaylayers::PanelItem comparison;
-    comparison.kind = overlaylayers::ItemKind::Table;
-    comparison.columns = { "Surface", "Native whole walls m2" };
-    for (const auto& row : prepared.rows) {
-        const auto native = nativeAreas.find (row.index);
-        comparison.rows.push_back ({ row.name, native == nativeAreas.end () ? "unavailable" : Area (native->second) });
-    }
-    panel.items.push_back (comparison);
-    scope.text = comparisonNote;
-    panel.items.push_back (scope);
-    scope.text = "Cover scope: " + result.coverScopeId.substr (0, result.coverScopeId.find (':')) + " (" +
-                 std::to_string (result.covers.size ()) +
-                 " bodies). Other walls/frames count only when supplied. Refresh after edits.";
-    panel.items.push_back (scope);
-    layer.panels.push_back (std::move (panel));
+    prepared.scopeLabel = allWalls
+                              ? "All captured wall faces: includes interiors, returns and reveals. Not exterior-only."
+                              : "User-confirmed exterior seed: connected facade plane(s).";
+    prepared.nativeAreas = nativeAreas;
+    prepared.comparisonNote = comparisonNote;
+    prepared.contactToleranceM = result.contactToleranceM;
+    prepared.coverLabel = "Cover scope: " + result.coverScopeId.substr (0, result.coverScopeId.find (':')) + " (" +
+                          std::to_string (result.covers.size ()) +
+                          " bodies). Other walls/frames count only when supplied. Refresh after edits.";
+    prepared.layer = UiLayer (prepared, InitialUi (prepared, "0"));
     const auto invalid = overlaylayers::Validate (layer);
     if (!invalid.empty ()) {
         error = invalid;

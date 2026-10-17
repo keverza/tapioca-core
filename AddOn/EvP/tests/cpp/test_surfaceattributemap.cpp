@@ -1,6 +1,7 @@
 #include "Geometry/SurfaceAttributeMap.hpp"
 #include "MeshFixtures.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 
 namespace {
 using namespace geomsrv;
@@ -265,7 +266,10 @@ TEST (SurfaceAttributeMap, NinePointFiveFixtureKeepsPool52SeparateFromOriginalSu
     request.materialPoolFilter = selection.materialPoolFilter;
     ex::Result result;
     ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
-    EXPECT_NEAR (result.areas.selectedExposedArea, 9.5, 1e-7);
+    // ClipperD(7) rounds the 1.9 m edge to a 2^-24 m binary grid. The
+    // 5 m width is exact, so its analytic area error bound is 5 * half a cell.
+    // Do not re-snap output to decimal merely to recover the pretty 9.5 total.
+    EXPECT_NEAR (result.areas.selectedExposedArea, 9.5, std::ldexp (5.0, -25));
 
     // A later live pool might call index 52 something else. Even captured pool
     // identity changes must not re-map already captured per-polygon provenance.

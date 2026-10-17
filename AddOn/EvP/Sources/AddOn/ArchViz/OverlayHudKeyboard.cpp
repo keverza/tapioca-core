@@ -50,7 +50,8 @@ void Engine::Impl::KeyboardInput (const Input& input)
 {
     auto& io = ImGui::GetIO ();
     const bool active =
-        store->roofEditor && store->editLocked && store->shown && LayerShown (*store, roofslope::kLayer);
+        (store->roofEditor && store->editLocked && store->shown && LayerShown (*store, roofslope::kLayer)) ||
+        CriteriaTextActive (*store);
     if (roofKeysActive && !active)
         io.ClearInputKeys ();
     roofKeysActive = active;

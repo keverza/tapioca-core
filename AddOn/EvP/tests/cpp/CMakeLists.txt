@@ -80,9 +80,11 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/SurfaceSourceBoundary.cpp"
     "${GEOM_DIR}/SurfaceCoverage.cpp"
     "${GEOM_DIR}/ExposedSurfaceInputs.cpp"
+    "${GEOM_DIR}/ExposedSurfaceContact.cpp"
     "${GEOM_DIR}/ExposedSurface.cpp"
     "${GEOM_DIR}/SurfaceAttributeMap.cpp"
     "${GEOM_DIR}/ExteriorSurfaceRegion.cpp"
+    "${GEOM_DIR}/SurfaceCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/NativeCommands/PolygonPickState.cpp")
 list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
@@ -493,6 +495,8 @@ set (EVP_ARCHVIZ_SOURCES
     # prepared for each; a wrong vertex is a picture in someone else's view.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffLayer.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffUi.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayers.cpp"
     # ArchViz/OverlayText.cpp and OverlayScene.cpp are what the Diligent guest draws on
     # the overlays -- labels laid out around their anchors, dimensions, styled meshes,
@@ -598,6 +602,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudOwn.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudDisplays.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudControls.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudItems.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudEvents.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayClickTiming.cpp"
@@ -808,6 +813,8 @@ set (EVP_TEST_SOURCES
     test_surfacesourcemap.cpp
     test_exposed_surface.cpp
     test_exterior_surface.cpp
+    test_surfacecriteria.cpp
+    test_triangledegeneracy.cpp
     test_surfaceattributemap.cpp
     test_polygonpickstate.cpp
     test_elementpacket.cpp

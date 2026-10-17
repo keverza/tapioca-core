@@ -329,6 +329,7 @@ struct Stats {
 
 // What the user did to the panels, by key: shared by the views' engines (`UseState`).
 struct State;
+bool CriteriaTextActive (const State& state);
 // Live ramp edits drained outside ImGui layout; analysis geometry is never recalculated.
 std::vector<Change> TakeRampCutoffs (State& state);
 std::vector<Change> TakeRampGreens (State& state);

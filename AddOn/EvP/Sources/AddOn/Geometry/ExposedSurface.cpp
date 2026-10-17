@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <iomanip>
+#include <sstream>
 
 namespace geomsrv::exposed {
 namespace {
@@ -24,12 +26,12 @@ void Add (Areas& sum, const Areas& value)
 }
 
 bool Coverage (const Face& face, const std::vector<Face>& faces, size_t faceIndex, const std::vector<Body>& covers,
-               cp::PathsD& paths, Work& work, std::string& error)
+               double contactTolerance, cp::PathsD& paths, Work& work, std::string& error)
 {
     for (const auto& cover : covers) {
         if (!work.Check (1, error))
             return false;
-        if (cover.key == face.key.body || !Overlaps (face.bounds, cover.mesh.bounds))
+        if (cover.key == face.key.body || !Overlaps (face.bounds, cover.mesh.bounds, contactTolerance))
             continue; // own operated source body already has its internal faces removed
         ++work.statistics.candidateCoverPairs;
         if (!work.Check (cover.mesh.TriangleCount () + cover.mesh.VertexCount (), error))
@@ -40,6 +42,8 @@ bool Coverage (const Face& face, const std::vector<Face>& faces, size_t faceInde
         if (!section.empty ())
             ++work.statistics.sectionCount;
         paths.insert (paths.end (), section.begin (), section.end ());
+        if (contactTolerance > 0 && !NearContact (face, cover, contactTolerance, paths, work, error))
+            return false;
     }
     // Own same-facing overlapping source patches once, BEFORE material filtering.
     // Different materials cannot be silently assigned to an arbitrary owner.
@@ -80,8 +84,8 @@ bool Coverage (const Face& face, const std::vector<Face>& faces, size_t faceInde
     return work.Check (0, error);
 }
 
-bool Emit (const cp::PathsD& loops, const Face& face, bool selected, Result& result, FaceAreas& row, Work& work,
-           std::string& error)
+bool Emit (const cp::PathsD& loops, double grid, const Face& face, bool selected, Result& result, FaceAreas& row,
+           Work& work, std::string& error)
 {
     size_t vertices = 0;
     for (const auto& loop : loops)
@@ -89,8 +93,8 @@ bool Emit (const cp::PathsD& loops, const Face& face, bool selected, Result& res
     if (!work.Check (vertices, error))
         return false;
     cp::PathsD triangles;
-    if (cp::Triangulate (loops, kPrecision, triangles) != cp::TriangulateResult::success || triangles.empty ())
-        return Fail (error, "Exposed fragment triangulation failed; no partial result.");
+    if (!surfacecoverage::TriangulateOnGrid (loops, grid, triangles, error))
+        return false;
     if (triangles.size () > work.limits.maxOutputTriangles ||
         work.statistics.outputTriangles > work.limits.maxOutputTriangles - triangles.size ())
         return Fail (error, "Exposed fragment output budget exceeded; no partial result.");
@@ -128,8 +132,14 @@ bool Emit (const cp::PathsD& loops, const Face& face, bool selected, Result& res
     }
     const double planarArea = cp::Area (loops);
     if (!std::isfinite (planarArea) || planarArea <= 0 ||
-        std::abs (planarArea - fragment.areaM2) > 1e-12 + 1e-6 * planarArea)
-        return Fail (error, "Fragment triangulation area disagrees with its clipped boundary.");
+        std::abs (planarArea - fragment.areaM2) > 1e-12 + 1e-6 * planarArea) {
+        std::ostringstream detail;
+        detail << std::setprecision (17)
+               << "Fragment triangulation area disagrees with its clipped boundary: " << fragment.areaM2 << " vs "
+               << planarArea << " m2 (" << triangles.size () << " triangles).";
+        error = detail.str ();
+        return false;
+    }
     row.areas.exposedArea += fragment.areaM2;
     if (selected)
         row.areas.selectedExposedArea += fragment.areaM2;
@@ -147,7 +157,7 @@ bool EmitTree (const cp::PolyPathD& tree, const Face& face, bool selected, Resul
             cp::PathsD loops { child->Polygon () };
             for (const auto& hole : *child)
                 loops.push_back (hole->Polygon ());
-            if (!Emit (loops, face, selected, result, row, work, error))
+            if (!Emit (loops, child->Scale (), face, selected, result, row, work, error))
                 return false;
         }
         if (!EmitTree (*child, face, selected, result, row, work, error))
@@ -165,12 +175,13 @@ bool Run (const Snapshot& snapshot, const Request& request, Result& result, Work
     result.snapshotId = snapshot.id;
     result.captureStamp = snapshot.captureStamp;
     result.coverScopeId = request.coverScopeId;
+    result.contactToleranceM = request.contactToleranceM;
     for (const auto& body : covers)
         result.covers.push_back (body.key);
     for (size_t i = 0; i < faces.size (); ++i) {
         const auto& face = faces[i];
         cp::PathsD coverage, normalized;
-        if (!Coverage (face, faces, i, covers, coverage, work, error) ||
+        if (!Coverage (face, faces, i, covers, request.contactToleranceM, coverage, work, error) ||
             !surfacecoverage::Boolean (cp::ClipType::Union, coverage, {}, normalized, error))
             return false;
         cp::ClipperD clipper (kPrecision);
@@ -181,8 +192,12 @@ bool Run (const Snapshot& snapshot, const Request& request, Result& result, Work
             return Fail (error, "Exposed surface difference failed; no partial result.");
         const bool selected = !request.materialPoolFilter || request.materialPoolFilter->contains (face.material);
         FaceAreas row { face.key, face.material, { face.source.areaM2, 0, 0 } };
-        if (!EmitTree (fragments, face, selected, result, row, work, error))
+        if (!EmitTree (fragments, face, selected, result, row, work, error)) {
+            error = "Face " + snapshot.meshes[face.key.body.meshIndex].guid + " / body " +
+                    std::to_string (face.key.body.sourceBody) + " / polygon " + std::to_string (face.key.sourcePgon) +
+                    ": " + error;
             return false;
+        }
         if (row.areas.exposedArea > row.areas.grossGeometricArea + 1e-12 + 1e-6 * row.areas.grossGeometricArea)
             return Fail (error, "Exposed fragments exceed their source area.");
         result.faces.push_back (row);

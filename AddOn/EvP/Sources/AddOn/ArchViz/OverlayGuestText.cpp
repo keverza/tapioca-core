@@ -156,7 +156,7 @@ overlayhud::Engine* Hud (overlayinput::View view)
                     ArchVizLog ("OVERLAY HUD  selecting the picked flat's slabs refused: " + error);
             });
         }
-        if (change.kind == "metadata" || change.kind.rfind ("massing", 0) == 0) {
+        if (change.kind == "metadata" || change.kind.rfind ("massing", 0) == 0 || change.kind == "criteriaTextFocus") {
             selectionmetadata::Later ([] () { overlaycontrol::FollowHudState (); });
         }
     });

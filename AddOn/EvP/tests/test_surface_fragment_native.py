@@ -97,6 +97,7 @@ def test_fragment_response_preserves_source_surface_and_exact_measurement_mesh()
         "captureStamp": 4,
         "algorithmVersion": 1,
         "coverScopeId": "explicit-empty-covers",
+        "contactToleranceM": 0.0,
         "unit": "m2",
         "coordinateUnit": "m",
         "indexSpace": "ModelerAPI-1-based",

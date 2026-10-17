@@ -11,7 +11,7 @@
 // Exterior classification/seed expansion is a caller responsibility, NOT normal
 // orientation or visibility. No SDK, gate, camera, cache/store or renderer access.
 namespace geomsrv::exposed {
-constexpr uint32_t kAlgorithmVersion = 1;
+constexpr uint32_t kAlgorithmVersion = 3; // explicit near-contact tolerance, independent of validation precision
 
 struct BodyKey {
     size_t meshIndex = 0;
@@ -40,6 +40,9 @@ struct Request {
     // Archicad surface attributes against this capture, never building materials.
     // nullopt selects all candidate materials; an empty set selects none.
     std::optional<std::set<int32_t>> materialPoolFilter;
+    // Cover-facing boundary patches at a normal gap of 0..this distance also
+    // cover their projected overlap. Never a lateral buffer or a mesh weld.
+    double contactToleranceM = 0;
 };
 struct Areas {
     double grossGeometricArea = 0, exposedArea = 0, selectedExposedArea = 0; // m2
@@ -74,6 +77,7 @@ struct Result {
     std::map<int32_t, Areas> byMaterialPool;
     std::map<std::string, Areas> byElementGuid;
     Statistics statistics;
+    double contactToleranceM = 0;
 };
 struct Limits {
     size_t maxInputTriangles = 100000, maxFaces = 512, maxCoverBodies = 128;

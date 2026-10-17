@@ -148,6 +148,48 @@ bool Candidates (const Snapshot& snapshot, const std::set<size_t>& targets, cons
 }
 } // namespace
 
+bool ResolveAllTargetFaces (const Snapshot& snapshot, const std::vector<size_t>& targets, std::vector<FaceKey>& faces,
+                            std::string& error, const Limits& limits, const std::function<bool ()>& cancelled)
+{
+    faces.clear ();
+    error.clear ();
+    if (!snapshot.id || !snapshot.captureStamp || targets.empty () || targets.size () > 64 ||
+        !std::isfinite (limits.maxSeconds) || limits.maxSeconds <= 0)
+        return Fail (error, "A fresh capture and bounded whole-target scope are required.");
+    detail::Work work { limits, cancelled, {} };
+    std::vector<FaceKey> prepared;
+    size_t triangles = 0;
+    const std::set<size_t> scope (targets.begin (), targets.end ());
+    for (size_t index : scope) {
+        if (index >= snapshot.meshes.size ())
+            return Fail (error, "Whole-wall target is absent.");
+        const auto& mesh = snapshot.meshes[index];
+        if (mesh.TriangleCount () > limits.maxInputTriangles ||
+            triangles > limits.maxInputTriangles - mesh.TriangleCount ())
+            return Fail (error, "Whole-wall input triangle budget exceeded.");
+        triangles += mesh.TriangleCount ();
+        if (!work.Check (mesh.TriangleCount () + mesh.VertexCount (), error))
+            return false;
+        const surfacemap::MatchTolerance tolerance { 1 - 1e-10, kTolerance, kTolerance };
+        const auto inventory = surfacemap::EnumerateSourceFaces (mesh, &error, tolerance);
+        if (!error.empty ()) {
+            error = "Wall " + mesh.guid + ": " + error;
+            return false;
+        }
+        if (inventory.empty ())
+            return Fail (error, "Whole-wall target has no source faces.");
+        for (const auto& face : inventory) {
+            if (prepared.size () >= limits.maxFaces)
+                return Fail (error, "Whole-wall face budget exceeded.");
+            prepared.push_back ({ { index, face.sourceBody }, face.sourcePgon });
+        }
+    }
+    if (!work.Check (0, error))
+        return false;
+    faces = std::move (prepared);
+    return true;
+}
+
 bool ResolveFacadeRegion (const Snapshot& snapshot, const std::vector<size_t>& targets,
                           const std::vector<ExteriorSeed>& seeds, std::vector<FaceKey>& faces, std::string& error,
                           const Limits& limits, const std::function<bool ()>& cancelled)

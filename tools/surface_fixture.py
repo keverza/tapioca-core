@@ -112,7 +112,7 @@ def validate_result(data, request, case, surface, expected_exposed, tolerance):
         assert data[key] == request[key], f"Changed {key}"
     assert data["unit"] == "m2" and data["coordinateUnit"] == "m"
     assert data["indexSpace"] == "ModelerAPI-1-based"
-    assert data["classification"] == "explicitSourceFaces-contactOnly" and data["algorithmVersion"] == 1
+    assert data["classification"] == "explicitSourceFaces-contactOnly" and data["algorithmVersion"] in (1, 2, 3)
     assert sorted(map(body_key, data["covers"])) == sorted(map(body_key, request["covers"]))
     source = source_key(request["faces"][0])
     assert len(data["faces"]) == 1 and source_key(data["faces"][0]["source"]) == source

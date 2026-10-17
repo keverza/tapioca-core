@@ -142,6 +142,7 @@ def test_seeded_exterior_takeoff_against_independent_fixture(live_client, surfac
         "surfaceColors": [0xE5484DFF, 0xF6C945FF][: len(surfaces)],
         "publishOverlay": False,
         "compareNative": True,
+        "contactToleranceM": 0.0,
     }
     data = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
     assert pin(data) == identity and data["classification"] == "userExteriorSeeds-connectedCoplanar"
@@ -162,5 +163,122 @@ def test_seeded_exterior_takeoff_against_independent_fixture(live_client, surfac
         assert row["rgba"] == color
     close(sum(measured.values()), data["selectedAreaM2"], 1e-6)
     assert data["selectedTriangleCount"] == sum(len(mesh["triangles"]) // 3 for mesh in data["meshes"])
+    assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == data
+    assert pin(call("Tapioca.GetSnapshotInfo")) == identity
+
+
+def test_all_wall_faces_match_complete_explicit_inventory(live_client, surface_capture):
+    fixture, identity, catalog = surface_capture
+    if not fixture.get("allWallSurfaces"):
+        pytest.skip("Fixture does not request whole-wall inventory validation")
+    call = live_client.tapioca_call
+    info = call("Tapioca.GetSnapshotInfo")
+    targets = [g for g, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind == 1]
+    covers = [g for g, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind in (1, 2)]
+    indices = []
+    for guid in fixture["allWallSurfaces"]:
+        matches = [
+            row["surfaceAttributeIndex"] for row in catalog if normalized_guid(row["guid"]) == normalized_guid(guid)
+        ]
+        assert len(matches) == 1
+        indices.append(matches[0])
+    faces, bodies = [], []
+    normals = set()
+    for guid in covers:
+        inventory = call("Tapioca.InspectSurfaceSourceFace", {**identity, "elementId": {"guid": guid}})
+        assert inventory["status"] == "enumerated" and inventory["faces"], inventory
+        bodies.extend(
+            {"elementId": {"guid": guid}, "sourceBody": body}
+            for body in sorted({face["sourceBody"] for face in inventory["faces"]})
+        )
+        if guid in targets:
+            for face in inventory["faces"]:
+                faces.append(
+                    {"elementId": {"guid": guid}, "sourceBody": face["sourceBody"], "sourcePgon": face["sourcePgon"]}
+                )
+                normals.add(tuple(round(value, 3) for value in face["normal"]))
+    assert len(normals) >= 6, "Fixture must exercise multiple wall planes, not a single facade"
+    request = {
+        **identity,
+        "regionMode": "allWallFaces",
+        "contactToleranceM": 0.001,
+        "seeds": [],
+        "targetGuids": targets,
+        "coverGuids": covers,
+        "coverScopeId": "Captured walls and slabs:automated-whole-wall",
+        "surfaceAttributeIndices": indices,
+        "publishOverlay": False,
+        "compareNative": True,
+    }
+    data = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
+    assert pin(data) == identity and data["classification"] == "allWallFaces-contactOnly"
+    assert data["regionFaceCount"] == len(faces)
+    assert {normalized_guid(g) for g in data["regionElementGuids"]} == {normalized_guid(g) for g in targets}
+    explicit = call(
+        "Tapioca.CalculateSurfaceFragments",
+        {
+            **identity,
+            "faces": faces,
+            "covers": bodies,
+            "coverScopeId": request["coverScopeId"],
+            "surfaceAttributeIndices": indices,
+            "contactToleranceM": 0.001,
+        },
+    )
+    # Independent region enumeration over every source face. Same math kernel,
+    # so this is completeness/integration evidence, not an independent area oracle.
+    close(data["selectedAreaM2"], explicit["areas"]["selectedExposedArea"], 1e-6)
+    assert len(explicit["faces"]) == len(faces)
+    measured = dict.fromkeys(indices, 0.0)
+    reached = set()
+    for mesh in data["meshes"]:
+        area = triangle_area(mesh)
+        close(area, mesh["areaM2"], 1e-6)
+        measured[mesh["surfaceAttributeIndex"]] += area
+        reached.add(normalized_guid(mesh["guid"]))
+    assert len(reached) > 2, "Whole-wall fixture must highlight more than the old two-wall facade"
+    for row in data["surfaces"]:
+        close(row["areaM2"], measured[row["surfaceAttributeIndex"]], 1e-6)
+    close(sum(measured.values()), data["selectedAreaM2"], 1e-6)
+    assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == data
+    assert pin(call("Tapioca.GetSnapshotInfo")) == identity
+
+
+def test_criteria_candidates_have_an_automatic_multimaterial_tolerant_capture(live_client, surface_capture):
+    fixture, identity, catalog = surface_capture
+    if not fixture.get("allWallSurfaces"):
+        pytest.skip("Fixture does not request the criteria calculator")
+    call = live_client.tapioca_call
+    info = call("Tapioca.GetSnapshotInfo")
+    targets = [guid for guid, kind in zip(info["guids"], info["elemTypes"], strict=True) if kind in (1, 2, 17, 19)]
+    request = {
+        **identity,
+        "regionMode": "allElementFaces",
+        "seeds": [],
+        "targetGuids": targets,
+        "coverGuids": targets,
+        "coverScopeId": "Captured construction elements:criteria-test",
+        "contactToleranceM": 0.001,
+        "surfaceAttributeIndices": [],
+        "surfaceColors": [],
+        "publishOverlay": False,
+        "compareNative": True,
+    }
+    data = call("Tapioca.CalculateExteriorSurfaceTakeoff", request)
+    assert pin(data) == identity and data["classification"] == "allElementFaces-contactOnly"
+    assert data["contactToleranceM"] == 0.001
+    assert {normalized_guid(g) for g in data["regionElementGuids"]} == {normalized_guid(g) for g in targets}
+    assert 3 <= len(data["surfaces"]) <= 64, "Fixture must exercise a list, not two finish slots"
+    assert {row["surfaceAttributeIndex"] for row in data["surfaces"]} <= {
+        row["surfaceAttributeIndex"] for row in catalog
+    }
+    measured = {row["surfaceAttributeIndex"]: 0.0 for row in data["surfaces"]}
+    for mesh in data["meshes"]:
+        area = triangle_area(mesh)
+        close(area, mesh["areaM2"], 1e-6)
+        measured[mesh["surfaceAttributeIndex"]] += area
+    for row in data["surfaces"]:
+        close(row["areaM2"], measured[row["surfaceAttributeIndex"]], 1e-6)
+    close(sum(measured.values()), data["selectedAreaM2"], 1e-6)
     assert call("Tapioca.CalculateExteriorSurfaceTakeoff", request) == data
     assert pin(call("Tapioca.GetSnapshotInfo")) == identity

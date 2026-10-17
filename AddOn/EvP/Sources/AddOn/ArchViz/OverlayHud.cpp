@@ -442,9 +442,14 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
                 items::Progress (item, width, scale);
                 break;
             case layers::ItemKind::Swatch: {
+                if (!item.id.empty ()) {
+                    Control (panel, item, i, state, width, scale);
+                    break;
+                }
                 // A run of swatches is one key: a grid when it has values or columns.
                 size_t end = i;
-                while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Swatch)
+                while (end < panel.items.size () && panel.items[end].kind == layers::ItemKind::Swatch &&
+                       panel.items[end].id.empty ())
                     ++end;
                 items::Keys (panel, i, end, width, scale);
                 ImGui::PopID ();
@@ -491,6 +496,9 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
                 break;
             case layers::ItemKind::LayoutChoices:
                 LayoutChoices (panel, item, i, state, width, scale);
+                break;
+            case layers::ItemKind::CriteriaGrid:
+                Criteria (panel, item, i, state, width);
                 break;
             case layers::ItemKind::Tab:
                 break; // above
@@ -601,6 +609,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     const float ui = scale * hudshell::FontScaleOfStep (store->fontStep);
     hudshell::BaseStyle (ui);
     ImGui::NewFrame ();
+    const bool wasCriteriaTextActive = store->criteriaTextActive;
+    store->criteriaTextActive = false;
     windows.assign (panels.size () + 2, nullptr);
     highlight = Layout::Highlight {};
     inset = 0.0f;
@@ -649,6 +659,8 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
     cursor = cellCanvas ? uint8_t (overlayinput::Cursor::Arrow) : hudshell::CursorOf (hand);
     hand = cursor == uint8_t (overlayinput::Cursor::Hand);
     ImGui::Render ();
+    if (wasCriteriaTextActive != store->criteriaTextActive)
+        changes.push_back ({ "criteriaTextFocus", "", "", "", -1, store->criteriaTextActive ? 1.0 : 0.0, "", true });
     Sync (ImGui::GetDrawData ());
     ++stats.frames;
 }

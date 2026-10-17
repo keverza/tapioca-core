@@ -97,6 +97,34 @@ void Engine::Impl::Control (const layers::Panel& panel, const layers::PanelItem&
     auto said = [&] (const char* kind, double value, std::string text, bool final) {
         changes.push_back ({ kind, key, panel.title, item.id, int32_t (index), value, std::move (text), final });
     };
+    if (item.kind == layers::ItemKind::Swatch) {
+        const float side = ImGui::GetFrameHeight ();
+        if (ImGui::BeginTable ("##swatch.row", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings,
+                               { w, 0 })) {
+            ImGui::TableSetupColumn ("color", ImGuiTableColumnFlags_WidthFixed, side);
+            ImGui::TableSetupColumn ("material", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn ("area", ImGuiTableColumnFlags_WidthFixed,
+                                     ImGui::CalcTextSize (item.value.c_str ()).x);
+            ImGui::TableNextRow ();
+            ImGui::TableSetColumnIndex (0);
+            if (ImGui::ColorButton ("##swatch", items::Colour (item.rgba),
+                                    ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop |
+                                        ImGuiColorEditFlags_NoAlpha,
+                                    { side, side }))
+                said ("swatch", 1.0, item.text, true);
+            if (ImGui::IsItemHovered ())
+                ImGui::SetMouseCursor (ImGuiMouseCursor_Hand);
+            if (item.checked)
+                ImGui::GetWindowDrawList ()->AddRect (ImGui::GetItemRectMin (), ImGui::GetItemRectMax (),
+                                                      items::Packed (panel.accentRgba), 2 * scale, 0, 2 * scale);
+            ImGui::TableSetColumnIndex (1);
+            ImGui::TextWrapped ("%s", item.text.c_str ());
+            ImGui::TableSetColumnIndex (2);
+            ImGui::TextUnformatted (item.value.c_str ());
+            ImGui::EndTable ();
+        }
+        return;
+    }
     if (item.kind == layers::ItemKind::Button) {
         if (items::Button (item, w))
             said ("button", 1.0, item.text, true);

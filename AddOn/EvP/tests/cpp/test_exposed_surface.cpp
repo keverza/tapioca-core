@@ -130,6 +130,87 @@ void ExpectRefusal (const Snapshot& snapshot, const ex::Request& request, const 
 }
 } // namespace
 
+TEST (ExposedSurface, TriangulationPreservesBinaryGridInsteadOfResnappingToDecimalGrid)
+{
+    namespace cp = Clipper2Lib;
+    const double grid = std::ldexp (1.0, -24); // actual ClipperD(7) lattice
+    const cp::PathsD loops { { { 0.0, 0.0 }, { 10000000 * grid, 0.0 }, { 10000000 * grid, grid }, { 0.0, grid } } };
+    cp::PathsD triangles;
+    std::string error;
+    ASSERT_TRUE (surfacecoverage::TriangulateOnGrid (loops, grid, triangles, error)) << error;
+    double area = 0;
+    for (const auto& triangle : triangles)
+        area += std::abs (cp::Area (triangle));
+    EXPECT_NEAR (area, 10000000 * grid * grid, 1e-20);
+}
+
+TEST (ExposedSurface, CapturedOneGridTriangularContactSliverIsNotDiscarded)
+{
+    namespace cp = Clipper2Lib;
+    const double grid = std::ldexp (1.0, -24);
+    const cp::Path64 captured { { 121689711, -36909875 }, { 116656546, -36909874 }, { 116656546, -36909875 },
+                                { 118580124, -36909875 }, { 120850850, -36909875 }, { 121228950, -36909875 } };
+    int errorCode = 0;
+    const auto loops = cp::ScalePaths<double, int64_t> (cp::Paths64 { captured }, grid, errorCode);
+    ASSERT_EQ (errorCode, 0);
+    cp::PathsD triangles;
+    std::string error;
+    ASSERT_TRUE (surfacecoverage::TriangulateOnGrid (loops, grid, triangles, error)) << error;
+    double area = 0;
+    for (const auto& triangle : triangles)
+        area += std::abs (cp::Area (triangle));
+    EXPECT_NEAR (area, .5 * (121689711 - 116656546) * grid * grid, 1e-20);
+    EXPECT_FALSE (triangles.empty ());
+}
+
+TEST (ExposedSurface, NonSeoOpposingFacesWithinOneMillimetreExcludeOnlyOverlappingPatch)
+{
+    for (double gap : { 0.0, .0005, .001, .001001 }) {
+        const auto snapshot =
+            Capture ({ Box ("target", 0, 0, 0, 2, .2, 2), Box ("unoperated-cover", .5, -1 - gap, .5, 1, 1, 1) });
+        auto request = Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } });
+        request.contactToleranceM = .001;
+        ex::Result result;
+        std::string error;
+        ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
+        EXPECT_NEAR (result.areas.exposedArea, gap <= .001 ? 3.0 : 4.0, 1e-6) << gap;
+        EXPECT_DOUBLE_EQ (result.contactToleranceM, .001);
+        EXPECT_NEAR (EmittedArea (result), result.areas.exposedArea, 1e-12);
+    }
+}
+
+TEST (ExposedSurface, NearContactDoesNotExpandSidewaysCoverItsOwnBodyOrReachBehindTarget)
+{
+    auto snapshot = Capture ({ Box ("target", 0, 0, 0, 2, .0005, 2), Box ("side-gap", 2.0005, -1.0005, 0, 1, 1, 2),
+                               Box ("behind", .5, .0005, .5, 1, 1, 1) });
+    auto request = Request ({ { { 0, 1 }, 3 } }, { { 0, 1 }, { 1, 1 }, { 2, 1 } });
+    request.contactToleranceM = .001;
+    ex::Result result;
+    std::string error;
+    ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
+    EXPECT_NEAR (result.areas.exposedArea, 4, 1e-6);
+    request.contactToleranceM = .001001;
+    ExpectRefusal (snapshot, request, "Contact tolerance");
+}
+
+TEST (ExposedSurface, InclinedNearbyBoundaryClipsAtTheGapLimitRatherThanRemovingWholeFace)
+{
+    auto cover = Box ("sloping-near-cover", 0, -1.0005, 0, 1, 1, 1);
+    for (size_t i = 0; i < cover.vertices.size (); i += 3)
+        cover.vertices[i + 1] -= .001 * cover.vertices[i + 2];
+    evptest::RecomputeBounds (cover);
+    const auto snapshot = Capture ({ Box ("target", 0, 0, 0, 1, .2, 1), cover });
+    auto request = Request ({ { { 0, 1 }, 3 } }, { { 1, 1 } });
+    request.contactToleranceM = .001;
+    ex::Result result;
+    std::string error;
+    ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
+    EXPECT_NEAR (result.areas.exposedArea, .5, 1e-6);
+    request.contactToleranceM = 0;
+    ASSERT_TRUE (ex::Calculate (snapshot, request, result, error)) << error;
+    EXPECT_NEAR (result.areas.exposedArea, 1, 1e-6);
+}
+
 TEST (ExposedSurface, AnalyticWallOpeningAndEveryRevealKeepExactAreaAndHole)
 {
     const auto snapshot = Capture ({ Opening () });

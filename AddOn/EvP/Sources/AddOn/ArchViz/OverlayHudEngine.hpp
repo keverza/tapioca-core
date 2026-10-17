@@ -76,9 +76,14 @@ struct State {
     struct Panel {
         std::map<uint32_t, bool> sections;  // by item index
         std::map<std::string, Held> values; // by control id; the tab bar's by its id
+        struct Text {
+            std::string sent, current;
+        };
+        std::map<std::string, Text> criteriaText;
     };
     std::map<std::string, Panel> panels;
     uint32_t fontStep = kFontStepDefault; // kFontSteps
+    bool criteriaTextActive = false;
     // ⚠️ SHOWN OR HIDDEN, NEVER DESTROYED (the user, 2026-09-30: the dock's circle toggles
     // the whole overlay and its HUD; Settings, each layer). Hidden, nothing of the overlay
     // is drawn but the dock's tab; a hidden layer's content and panels are not drawn. The
@@ -337,6 +342,8 @@ struct Engine::Impl {
     // changes, said.
     void Control (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
                   float width, float scale);
+    void Criteria (const layers::Panel& panel, const layers::PanelItem& item, size_t index, PanelState& state,
+                   float width);
 
     // The tab bar's `number`th tab; true when its page is shown. `TabsDone` after the bar
     // takes the user's press on another.

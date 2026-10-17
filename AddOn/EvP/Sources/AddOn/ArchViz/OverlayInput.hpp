@@ -103,6 +103,9 @@ void Shutdown ();
 // Keyboard ownership before host accelerators, only while the roof canvas is
 // locked and visible. Text goes to ImGui; other windows/dialogs stay native.
 bool EnableRoofEditKeys (bool enabled);
+// Scoped to an active HUD text field and its owning canvas/pointer, never the
+// model viewport or another palette's text field. Does not lock the view.
+bool EnableHudTextKeys (bool enabled);
 
 // Where the HUD is on that view, from its last layout.
 void SetHitMap (View view, HitMap map);
