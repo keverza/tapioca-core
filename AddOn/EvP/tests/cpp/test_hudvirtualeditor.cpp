@@ -1004,6 +1004,30 @@ TEST (HudVirtualEditor, AClickedLabelIsTypedOver)
     EXPECT_NEAR (w.widthLeft + w.widthRight, 4.0, 1e-9);
 }
 
+TEST (HudVirtualEditor, ALabelOpenedBeforeAnotherEditIsStale)
+{
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, -10, 0 }, { 0, 12, 0 } }, 6.0);
+    Drive d (std::move (doc));
+    ImVec2 at;
+    ASSERT_TRUE (LabelAt (d, ed::Quantity::Width, false, at));
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    ASSERT_TRUE (d.S ().labelOpen);
+    d.input.characters = u"4";
+    d.Frame ();
+    // Something else edits the path while the number is typed (the panel, the menu).
+    const ed::Id range = ed::FindPath (d.D (), p)->sections[0].id;
+    ASSERT_TRUE (d.S ().edits.Apply (
+        [p, range] (ed::Document& doc, std::string& e) { return ed::SetPathWidth (doc, p, range, 2.5, 2.5, e); }));
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().labelOpen);
+    EXPECT_FALSE (d.S ().message.empty ());
+    const auto& r = ed::FindPath (d.D (), p)->sections[0];
+    EXPECT_NEAR (r.widthLeft + r.widthRight, 5.0, 1e-9); // the other edit's, not the label's
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
 TEST (HudVirtualEditor, ATypedGradeKeepsTheWayItFalls)
 {
     // Falling 1 m over 20 m: its label says 5.0 %; 2 typed over it is a 2 % fall.

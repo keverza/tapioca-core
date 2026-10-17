@@ -144,8 +144,9 @@ struct Session {
     std::vector<edit::Contour> contourLines;
     uint64_t contoursRevision = UINT64_MAX;
     // The labels as placed this frame, each with what typing over it sets, for a click to
-    // open one (HudVirtualEditorLabels.cpp); the one open, its text as typed, and whether
-    // that text is still all selected (the first key then replaces it).
+    // open one (HudVirtualEditorLabels.cpp); the one open, the document revision it opened on
+    // (an edit since makes it stale), its text as typed, and whether that text is still all
+    // selected (the first key then replaces it).
     struct PlacedLabel {
         editlayers::Box box;
         editlayers::MarkLabel target;
@@ -153,6 +154,7 @@ struct Session {
     std::vector<PlacedLabel> placed;
     bool labelOpen = false, labelSelected = false;
     editlayers::MarkLabel labelTarget;
+    uint64_t labelRevision = 0;
     std::string labelText;
     std::vector<edit::Ref> publishedSelection;
     std::string message;

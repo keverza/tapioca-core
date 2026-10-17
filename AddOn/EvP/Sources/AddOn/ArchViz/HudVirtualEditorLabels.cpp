@@ -40,7 +40,8 @@ bool Inside (const editlayers::Box& b, ImVec2 p, float slack)
 
 // Sets what was typed and closes the label: true. Text that is no number, or a value the edit
 // refuses (a negative radius, a width the path cannot take), changes nothing: the label stays
-// open on it, selected so the next key replaces it, and the message says why -- false.
+// open on it, selected so the next key replaces it, and the message says why -- false. A label
+// the document has moved past since it opened is stale: it closes unset -- false too.
 bool Enter (Session& s)
 {
     const auto refuse = [&s] (const std::string& why) {
@@ -48,6 +49,13 @@ bool Enter (Session& s)
         s.labelSelected = true;
         return false;
     };
+    // The document moved on since the label opened (the panel, the menu): what it reads may
+    // be another value now, or gone. It is not set, and it closes -- click it again.
+    if (Doc (s).revision != s.labelRevision) {
+        s.labelOpen = false;
+        s.message = "The value changed while it was typed; click its label again.";
+        return false;
+    }
     double value = 0.0;
     if (!edit::ParseNumber (s.labelText, value))
         return refuse ("Type a plain number; Enter applies, Esc cancels.");
@@ -112,6 +120,7 @@ bool LabelClick (Session& s, ImVec2 mouse, bool hovered)
         s.labelOpen = true;
         s.labelSelected = true;
         s.labelTarget = it->target;
+        s.labelRevision = Doc (s).revision;
         s.labelText = Number (it->target.text);
         return true;
     }
