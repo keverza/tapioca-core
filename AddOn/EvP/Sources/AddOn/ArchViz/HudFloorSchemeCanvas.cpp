@@ -339,11 +339,12 @@ void Palette (const floorprogramme::Programme& programme, float scale, bool vert
         draw->AddText ({ (a.x + b.x - t.x) / 2, (a.y + b.y - t.y) / 2 }, value < 0 ? IM_COL32_WHITE : Ink (colour),
                        label);
         if (ImGui::IsItemHovered () && !ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
+            // Beside the tile, out over the view as the dock's tips are: never over the tiles.
             if (value < 0)
-                hudshell::Tip ("Drag onto the plan: a stair there.", hudshell::TipSide::Above);
+                hudshell::Tip ("Drag onto the plan: a stair there.", hudshell::TipSide::Left);
             else
                 hudshell::Tip (hudshell::Formatted ("Drag onto a flat: a %d-room flat put in beside it.", k + 1),
-                               hudshell::TipSide::Above);
+                               hudshell::TipSide::Left);
         }
         if (ImGui::BeginDragDropSource ()) {
             ImGui::SetDragDropPayload (kPayload, &value, sizeof (value));
