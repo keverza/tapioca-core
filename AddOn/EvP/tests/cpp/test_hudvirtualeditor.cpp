@@ -501,6 +501,49 @@ TEST (HudVirtualEditor, CornerGripsRoundEveryCornerOfASelectedObject)
     EXPECT_NEAR (d.D ().entities[0].vertices[0].radius, 3.0, 1e-9);
 }
 
+TEST (HudVirtualEditor, SwitchingPlanAnd3DCancelsAnyGesture)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    Drive d (std::move (doc));
+    const ed::Document start = d.D ();
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f; // the corner grip at (10, 0)
+    d.At (gx, gy);
+    ASSERT_GE (d.S ().hoverCorner, 0);
+    d.Press (gx, gy);
+    d.At (gx - 20, gy - 20);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Corner);
+    ASSERT_GT (d.D ().entities[0].vertices[1].radius, 0.0); // the preview rounds it
+    // The same picture, now as 3D's projection: the grip's drag cannot carry over.
+    d.input.planar = false;
+    d.input.project = [] (double x, double y, double, float& px, float& py) {
+        px = float (600 + 20 * x), py = float (500 - 20 * y);
+        return true;
+    };
+    d.At (gx - 24, gy - 24);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    EXPECT_EQ (d.D ().entities, start.entities);
+    EXPECT_FALSE (d.S ().message.empty ());
+    d.Release (gx - 24, gy - 24);
+    EXPECT_EQ (d.D ().entities, start.entities);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+
+    // A gumball handle waiting for its number is let go too.
+    d.input.planar = true;
+    d.Press (800, 500); // the vertex at (10, 0)
+    d.Release (800, 500);
+    d.At (840, 500); // its X arrow
+    ASSERT_GE (d.S ().hoverHandle, 0);
+    d.Press (840, 500);
+    d.Release (840, 500);
+    ASSERT_GE (d.S ().typedHandle, 0);
+    d.input.planar = false;
+    d.Frame ();
+    EXPECT_EQ (d.S ().typedHandle, -1);
+}
+
 TEST (HudVirtualEditor, ThePenPlacesCornersAndPullsOutCurves)
 {
     Drive d (ed::Document {});

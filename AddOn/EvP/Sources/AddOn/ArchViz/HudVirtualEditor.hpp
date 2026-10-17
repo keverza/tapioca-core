@@ -87,7 +87,7 @@ struct Session {
     edit::Ray startRay;
     edit::Vec3 anchor, startCursor;
     float startX = 0.0f, startY = 0.0f;
-    bool dragPlanar = false;
+    std::optional<bool> viewPlanar; // the projection the view showed last frame: plan or 3D
     edit::SnapResult snap;
     // Curves: the pen's handles for the points it placed (parallel to `drawing`) and its
     // press; an anchor's handle hovered or dragged; a curved segment being bent.

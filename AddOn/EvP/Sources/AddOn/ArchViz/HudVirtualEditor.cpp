@@ -368,6 +368,33 @@ void Escape (Session& s)
         s.close = true;
 }
 
+// The view went from plan to 3D or back. No gesture carries into the other projection: a drag
+// of the view of any kind gives up its preview and the document is as it was before it, and
+// what waited on the pointer -- the pen's press, a handle or a label waiting for its number,
+// hover and snap -- is let go. A line being drawn keeps its points: they are model points, and
+// the next click places the next one in the new view. The profile's drags are the panel's.
+void ViewSwitched (Session& s)
+{
+    bool cancelled = s.typedHandle >= 0 || s.labelOpen || s.penDown;
+    if (s.drag != Drag::None && s.drag != Drag::ProfileBreak && s.drag != Drag::ProfileTangent) {
+        cancelled = cancelled || s.drag != Drag::Marquee || s.edits.InGesture ();
+        s.edits.Cancel ();
+        s.drag = Drag::None;
+        s.dragStarted = false;
+        s.wholeGrab = false;
+    }
+    if (s.tracker.State () == edit::TrackerState::Editing)
+        s.tracker.Key ({ edit::TrackerKey::Kind::Escape }), cancelled = true;
+    s.typedHandle = -1;
+    s.labelOpen = false;
+    s.penDown = false;
+    s.snap = {};
+    s.selection.hover = {};
+    s.hoverHandle = s.hoverCorner = s.hoverKerb = s.hoverBezier = -1;
+    if (cancelled)
+        s.message = "The view changed between plan and 3D; the edit in progress was cancelled.";
+}
+
 void TrackerEvent (Session& s, const edit::Tracker::Event& event)
 {
     using O = edit::Tracker::Outcome;
@@ -595,11 +622,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     draw->PushClipRect ({ -1e6f, -1e6f }, { 1e6f, 1e6f }, false);
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
     const bool shift = ImGui::GetIO ().KeyShift;
-    if ((s.drag == Drag::Part || s.drag == Drag::Handle) && s.dragPlanar != v.planar) {
-        // A view switch mid-gesture cannot carry the gesture into the other projection.
-        s.edits.Cancel ();
-        s.drag = Drag::None;
-    }
+    if (s.viewPlanar && *s.viewPlanar != v.planar)
+        ViewSwitched (s);
+    s.viewPlanar = v.planar;
     const edit::PickView pick = m.Pick ();
     const double radius = kPickPixels * scale;
     const bool gizmo = GizmoShown (s);
@@ -655,7 +680,6 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             s.dragTransform = {};
             s.typedHandle = -1;
             s.startX = mouse.x, s.startY = mouse.y;
-            s.dragPlanar = v.planar;
             if (m.RayAt (mouse.x, mouse.y, frame.origin.z, frame.origin, s.startRay) && s.edits.Begin ())
                 s.message.clear ();
             else
@@ -681,7 +705,6 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     s.dragStarted = false;
                     s.handle = -2;
                     edit::FaceFrame (*e, pressed.item, s.frame);
-                    s.dragPlanar = v.planar;
                     s.startX = mouse.x, s.startY = mouse.y;
                     if (!m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, s.startRay) ||
                         !s.edits.Begin (pressed))
@@ -691,7 +714,6 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     s.drag = Drag::Part;
                     s.dragStarted = false;
                     s.target = pressed;
-                    s.dragPlanar = v.planar;
                     s.startX = mouse.x, s.startY = mouse.y;
                     if (!m.Onto (mouse.x, mouse.y, s.anchor.z, s.anchor, s.startCursor) || !s.edits.Begin (pressed))
                         s.drag = Drag::None;
