@@ -293,7 +293,8 @@ bool TypeKerb (Session& s, double radius)
     if (k == nullptr)
         return false;
     const edit::PavedCorner c = *k;
-    const double r = std::clamp (radius, 0.0, c.maxRadius);
+    // A negative radius is refused, not made sharp; one past what the corner takes is cut to it.
+    const double r = radius < 0.0 ? radius : std::min (radius, c.maxRadius);
     if (!s.edits.Apply (
             [c, r] (edit::Document& d, std::string& e) { return edit::SetKerbRadius (d, c.path, c.key, r, e); }))
         s.message = s.edits.Message ();

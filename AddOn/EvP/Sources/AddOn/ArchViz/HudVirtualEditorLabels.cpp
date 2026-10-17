@@ -9,7 +9,8 @@
 // Labels opened for typing: a click on a label of the view -- a path's height, grade,
 // crossfall, width or radius, a kerb fillet's radius, a live dimension -- opens it on a pill
 // with its value selected, so the first key typed replaces it; a caret stands after the
-// text. Enter, or a click anywhere else, sets the value; Esc leaves it as it was.
+// text. Enter, or a click anywhere else, sets the value; Esc leaves it as it was. What cannot
+// be set -- no number, or one the edit refuses -- keeps the label open with the reason.
 namespace geomsrv::archviz::edithud::detail {
 
 namespace {
@@ -37,21 +38,24 @@ bool Inside (const editlayers::Box& b, ImVec2 p, float slack)
     return std::abs (x) <= (b.x1 - b.x0) * 0.5f + slack && std::abs (y) <= (b.y1 - b.y0) * 0.5f + slack;
 }
 
-// Sets what was typed, if it is a number; the label closes either way.
-void Enter (Session& s)
+// Sets what was typed and closes the label: true. Text that is no number, or a value the edit
+// refuses (a negative radius, a width the path cannot take), changes nothing: the label stays
+// open on it, selected so the next key replaces it, and the message says why -- false.
+bool Enter (Session& s)
 {
-    s.labelOpen = false;
+    const auto refuse = [&s] (const std::string& why) {
+        s.message = why;
+        s.labelSelected = true;
+        return false;
+    };
     double value = 0.0;
-    if (!edit::ParseNumber (s.labelText, value)) {
-        if (!s.labelText.empty ())
-            s.message = "Type a plain number; Enter applies, Esc cancels.";
-        return;
-    }
+    if (!edit::ParseNumber (s.labelText, value))
+        return refuse ("Type a plain number; Enter applies, Esc cancels.");
     const editlayers::MarkLabel t = s.labelTarget;
     edit::Operation op;
     if (t.kerbPath != edit::kNoId)
         op = [t, value] (edit::Document& d, std::string& e) {
-            return edit::SetKerbRadius (d, t.kerbPath, t.kerb, std::max (0.0, value), e);
+            return edit::SetKerbRadius (d, t.kerbPath, t.kerb, value, e);
         };
     else if (t.value.ref.part == edit::Part::Range && t.value.quantity == edit::Quantity::Slope && value < 0.0) {
         // A crossfall typed negative falls to the other side (a crown has none: it is kept).
@@ -73,10 +77,12 @@ void Enter (Session& s)
             value = -value;
         op = edit::WriteDimension (t.value, value);
     }
-    if (!s.edits.Apply (op))
-        s.message = s.edits.Message ();
-    else
-        s.message.clear ();
+    // Apply is false for a value that changes nothing too; only a refusal carries a reason.
+    if (!s.edits.Apply (op) && !s.edits.Message ().empty ())
+        return refuse (s.edits.Message ());
+    s.labelOpen = false;
+    s.message.clear ();
+    return true;
 }
 
 } // namespace
@@ -101,8 +107,8 @@ bool LabelClick (Session& s, ImVec2 mouse, bool hovered)
             s.labelSelected = false; // a second click: the caret after the text, to add to it
             return true;
         }
-        if (s.labelOpen)
-            Enter (s);
+        if (s.labelOpen && !Enter (s))
+            return true; // what was typed is refused: its label stays open, and the click is spent
         s.labelOpen = true;
         s.labelSelected = true;
         s.labelTarget = it->target;
@@ -111,7 +117,7 @@ bool LabelClick (Session& s, ImVec2 mouse, bool hovered)
     }
     if (!s.labelOpen)
         return false;
-    Enter (s); // a click elsewhere sets it, and does nothing else
+    Enter (s); // a click elsewhere sets it, or is refused with it, and does nothing else
     return true;
 }
 

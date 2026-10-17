@@ -86,8 +86,8 @@ bool SameLabel (const editlayers::MarkLabel& a, const editlayers::MarkLabel& b);
 const edit::PavedCorner* PickedKerb (Session& s);
 // The picked kerb corner's radius, for the tracker to offer for typing; false when none is.
 bool KerbField (const Session& s, double& radius);
-// A typed radius for the picked kerb corner, clamped to what it can take: false when no
-// corner is picked (the value is someone else's).
+// A typed radius for the picked kerb corner, cut to the most it can take (a negative one is
+// refused): false when no corner is picked (the value is someone else's).
 bool TypeKerb (Session& s, double radius);
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).

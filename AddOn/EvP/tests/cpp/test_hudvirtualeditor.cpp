@@ -1054,6 +1054,70 @@ TEST (HudVirtualEditor, AKerbFilletsRadiusIsTypedOverItsLabel)
     EXPECT_DOUBLE_EQ (pa.kerbs[0].radius, 4.0);
 }
 
+TEST (HudVirtualEditor, ALabelKeepsWhatItCannotSetOpen)
+{
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 32, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 16, 0, 0 }, { 16, 16, 0 } }, 2.0);
+    for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
+        if (c.key.other != ed::kNoId) {
+            std::string error;
+            ASSERT_TRUE (ed::SetKerbRadius (doc, c.path, c.key, 6.0, error)) << error;
+            break;
+        }
+    Drive d (std::move (doc));
+    ImVec2 at;
+    ASSERT_TRUE (LabelAt (d, ed::Quantity::Radius, true, at));
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    d.input.characters = u"7";
+    d.Frame ();
+    d.Key (0x0D);
+    ASSERT_DOUBLE_EQ (ed::FindPath (d.D (), a)->kerbs[0].radius, 7.0);
+    ASSERT_EQ (d.S ().edits.UndoDepth (), 1u);
+    // The value it opens on, set again: it closes, and nothing is edited.
+    ASSERT_TRUE (LabelAt (d, ed::Quantity::Radius, true, at));
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    ASSERT_TRUE (d.S ().labelOpen);
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().labelOpen);
+    EXPECT_TRUE (d.S ().message.empty ());
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Press (at.x, at.y);
+    d.Release (at.x, at.y);
+    ASSERT_TRUE (d.S ().labelOpen);
+
+    // A negative radius: refused, not made sharp; the label stays open with the reason.
+    d.input.characters = u"-2";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_TRUE (d.S ().labelOpen);
+    EXPECT_FALSE (d.S ().message.empty ());
+    EXPECT_DOUBLE_EQ (ed::FindPath (d.D (), a)->kerbs[0].radius, 7.0);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // No number at all, set by a click elsewhere: the click is spent on the refusal -- nothing
+    // is selected and no marquee starts -- and the label is still open.
+    d.input.characters = u".";
+    d.Frame ();
+    EXPECT_EQ (d.S ().labelText, "."); // the refused text was selected: the key replaced it
+    d.Press (1000, 100);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    d.Release (1000, 100);
+    EXPECT_TRUE (d.S ().labelOpen);
+    EXPECT_TRUE (d.S ().selection.Items ().empty ());
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // Corrected, it sets.
+    d.input.characters = u"3";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().labelOpen);
+    EXPECT_DOUBLE_EQ (ed::FindPath (d.D (), a)->kerbs[0].radius, 3.0);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+}
+
 TEST (HudVirtualEditor, AHoveredPathLightsItsWholeCentreline)
 {
     // The pointer on a path's centreline, between its points: the whole line lights, end to
