@@ -144,6 +144,7 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         std::vector<size_t> corners;
         Corners (s, entity, shape, corners);
         s.drag = Drag::Corner;
+        s.dragStarted = false;
         s.cornerEntity = entity;
         s.cornerIndex = hot->index;
         s.cornerSet.clear ();
@@ -152,7 +153,9 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         s.startX = mouse.x, s.startY = mouse.y;
         took = true;
     }
-    if (s.drag == Drag::Corner && ImGui::IsMouseDown (0)) {
+    if (s.drag == Drag::Corner && ImGui::IsMouseDown (0) && !s.dragStarted)
+        s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= 3.0f;
+    if (s.drag == Drag::Corner && s.dragStarted && ImGui::IsMouseDown (0)) {
         edit::Entity shape;
         const edit::Entity* before = ShapeOf (s.edits.Before (), s.cornerEntity, shape) ? &shape : nullptr;
         Vec3 at;
@@ -180,7 +183,7 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         took = true;
     }
     if (s.drag == Drag::Corner && ImGui::IsMouseReleased (0)) {
-        if (std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
+        if (!s.dragStarted) {
             // A click: the corner is picked, its radius ready to type.
             s.edits.Cancel ();
             edit::Entity shape;
@@ -342,12 +345,15 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         }
         if (s.edits.Begin ()) {
             s.drag = Drag::Kerb;
+            s.dragStarted = false;
             s.kerb = hot->corner;
             s.startX = mouse.x, s.startY = mouse.y;
             took = true;
         }
     }
-    if (s.drag == Drag::Kerb && ImGui::IsMouseDown (0)) {
+    if (s.drag == Drag::Kerb && ImGui::IsMouseDown (0) && !s.dragStarted)
+        s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= 3.0f;
+    if (s.drag == Drag::Kerb && s.dragStarted && ImGui::IsMouseDown (0)) {
         Vec3 at;
         if (m.Onto (mouse.x, mouse.y, s.kerb.at.z, s.kerb.at, at)) {
             double r = edit::KerbRadiusFromGrip (s.kerb, at, Inset (m, s.kerb.at, scale));
@@ -364,7 +370,7 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         took = true;
     }
     if (s.drag == Drag::Kerb && ImGui::IsMouseReleased (0)) {
-        if (std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
+        if (!s.dragStarted) {
             s.edits.Cancel (); // a click: this corner picked, to be set alone
             s.kerbPicked = true;
         }

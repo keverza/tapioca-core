@@ -850,6 +850,45 @@ TEST (HudVirtualEditor, CornerGripsRoundEveryCornerOfASelectedObject)
     EXPECT_NEAR (d.D ().entities[0].vertices[0].radius, 3.0, 1e-9);
 }
 
+TEST (HudVirtualEditor, RadiusGripsWaitForTheDragThreshold)
+{
+    ed::Document doc;
+    const ed::Id shape = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { shape, ed::Part::Entity, 0 } });
+    const auto before = d.D ().entities;
+    const auto revision = d.D ().revision;
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f;
+    d.Press (gx + 7, gy - 7); // inside the grip's hit area but not on its centre
+    ASSERT_EQ (d.S ().drag, eh::Drag::Corner);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.D ().revision, revision);
+    d.At (gx + 8, gy - 7);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.D ().revision, revision);
+    d.Release (gx + 8, gy - 7);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+
+    ed::Document paths;
+    const ed::Id path = ed::AddPath (paths, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    Drive p (std::move (paths));
+    p.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+    const auto original = p.D ().paths;
+    const auto pathRevision = p.D ().revision;
+    const auto c = ed::Pave (p.D ().paths, 0.5, false).corners.front ();
+    const auto at = ed::KerbGripAt (c, 0.8);
+    const float x = 600 + 20 * float (at.x) + 7, y = 500 - 20 * float (at.y) - 7;
+    p.Press (x, y);
+    ASSERT_EQ (p.S ().drag, eh::Drag::Kerb);
+    EXPECT_EQ (p.D ().paths, original);
+    EXPECT_EQ (p.D ().revision, pathRevision);
+    p.At (x + 1, y);
+    EXPECT_EQ (p.D ().paths, original);
+    EXPECT_EQ (p.D ().revision, pathRevision);
+    p.Release (x + 1, y);
+    EXPECT_EQ (p.S ().edits.UndoDepth (), 0u);
+}
+
 TEST (HudVirtualEditor, SwitchingPlanAnd3DCancelsAnyGesture)
 {
     ed::Document doc;
