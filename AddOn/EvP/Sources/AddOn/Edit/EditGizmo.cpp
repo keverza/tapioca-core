@@ -277,6 +277,8 @@ DragResult Refuse (const char* why)
 
 DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, const Ray& now)
 {
+    if (!handle.movable)
+        return Refuse ("this handle does not apply to the selection");
     DragResult r;
     r.transform.pivot = frame.origin;
     r.transform.scaleFrame = frame;
@@ -407,6 +409,8 @@ DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragRes
 
 DragResult FromValue (const Frame& frame, const Handle& handle, double value)
 {
+    if (!handle.movable)
+        return Refuse ("this handle does not apply to the selection");
     if (!handle.focusable || !std::isfinite (value))
         return Refuse ("that handle takes no typed value");
     DragResult r;

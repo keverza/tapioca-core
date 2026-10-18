@@ -758,6 +758,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditWorkingPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditTracker.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmo.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmoContext.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"

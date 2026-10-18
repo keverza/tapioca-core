@@ -1,4 +1,5 @@
 #include "Edit/EditGizmo.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 
@@ -46,6 +47,98 @@ TEST (EditGizmo, HandleTablesAreData)
     EXPECT_EQ (focusable, 3); // the three axes take typed distances; planes and centre do not
     EXPECT_EQ (ed::Handles (ed::GizmoMode::Extrude).size (), 1u);
     EXPECT_EQ (ed::Handles (ed::GizmoMode::Rotate)[1].quantity, ed::Quantity::Angle);
+}
+
+TEST (EditGizmo, APointHasMoveControlsButNoScaleRotationOrStretch)
+{
+    ed::Id id = 0;
+    const auto doc = Square (id);
+    const std::vector<ed::Ref> point { { id, ed::Part::Vertex, doc.entities[0].vertices[0].id } };
+    const auto handles = ed::Handles (ed::GizmoMode::Gumball, doc, point, {});
+    const auto table = ed::Handles (ed::GizmoMode::Gumball);
+    ASSERT_EQ (handles.size (), table.size ());
+    for (size_t i = 0; i < handles.size (); ++i) {
+        const auto& h = handles[i];
+        EXPECT_EQ (h.index, table[i].index);
+        EXPECT_EQ (h.kind, table[i].kind);
+        EXPECT_EQ (h.movable, h.kind == ed::HandleKind::Centre || h.kind == ed::HandleKind::Axis ||
+                                  h.kind == ed::HandleKind::Plane);
+        if (!h.movable) {
+            EXPECT_FALSE (h.focusable);
+            EXPECT_FALSE (ed::FromValue ({}, h, 2).ok);
+            EXPECT_FALSE (ed::Drag ({}, h, Down (1, 1), Down (2, 2)).ok);
+        }
+    }
+}
+
+TEST (EditGizmo, TwoDistinctPointsCanScaleAndTurnButNotAlongAnEmptyAxis)
+{
+    ed::Id id = 0;
+    const auto doc = Square (id);
+    const std::vector<ed::Ref> points { { id, ed::Part::Vertex, doc.entities[0].vertices[0].id },
+                                        { id, ed::Part::Vertex, doc.entities[0].vertices[1].id } };
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball, doc, points, {})) {
+        if (h.kind == ed::HandleKind::ScaleAxis)
+            EXPECT_EQ (h.movable, h.axis == 0);
+        if (h.kind == ed::HandleKind::ScaleUniform)
+            EXPECT_TRUE (h.movable);
+        if (h.kind == ed::HandleKind::Ring)
+            EXPECT_EQ (h.movable, h.axis != 0);
+    }
+}
+
+TEST (EditGizmo, PathControlsKeepPlanTransformsSeparateFromProfileAndWidth)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 1 } }, 2);
+    const std::vector<ed::Ref> whole { { id, ed::Part::Entity, 0 } };
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball, doc, whole, {})) {
+        if (h.kind == ed::HandleKind::Side)
+            EXPECT_FALSE (h.movable);
+        if (h.kind == ed::HandleKind::Ring)
+            EXPECT_EQ (h.movable, h.axis == 2);
+        if (h.kind == ed::HandleKind::ScaleAxis)
+            EXPECT_EQ (h.movable, h.axis != 2);
+        if (h.kind == ed::HandleKind::Axis)
+            EXPECT_TRUE (h.movable);
+    }
+    for (const auto& h : ed::Handles (ed::GizmoMode::Extrude, doc, whole, {}))
+        EXPECT_FALSE (h.movable);
+    const std::vector<ed::Ref> point { { id, ed::Part::PathPoint, doc.paths[0].points[1].id } };
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball, doc, point, {}))
+        if (h.kind == ed::HandleKind::ScaleAxis || h.kind == ed::HandleKind::ScaleUniform ||
+            h.kind == ed::HandleKind::Ring || h.kind == ed::HandleKind::Side)
+            EXPECT_FALSE (h.movable);
+    auto mixed = whole;
+    mixed.push_back ({ id, ed::Part::Range, doc.paths[0].sections[0].id });
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball, doc, mixed, {}))
+        EXPECT_FALSE (h.movable);
+}
+
+TEST (EditGizmo, AFaceOffersNormalPushPullWhileAnExtrusionVertexCannotTiltTheBase)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 2, 0, 0 }, { 2, 2, 0 }, { 0, 2, 0 } }, 3);
+    ed::Frame frame;
+    ASSERT_TRUE (ed::FaceFrame (doc.entities[0], 1, frame));
+    const std::vector<ed::Ref> top { { id, ed::Part::Face, 1 } };
+    int movable = 0;
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball, doc, top, frame))
+        if (h.movable) {
+            ++movable;
+            EXPECT_EQ (h.kind, ed::HandleKind::Face);
+            const auto result = ed::FromValue (frame, h, 1.5);
+            ASSERT_TRUE (result.ok);
+            ed::Session session (doc);
+            ASSERT_TRUE (session.Apply (ed::TransformOperation (top, result.transform)));
+            EXPECT_DOUBLE_EQ (session.Doc ().entities[0].height, 4.5);
+            EXPECT_EQ (session.Doc ().entities[0].vertices, doc.entities[0].vertices);
+        }
+    EXPECT_EQ (movable, 1);
+    const std::vector<ed::Ref> vertex { { id, ed::Part::Vertex, doc.entities[0].vertices[0].id } };
+    for (const auto& h : ed::Handles (ed::GizmoMode::Move, doc, vertex, {}))
+        if (h.kind == ed::HandleKind::Axis)
+            EXPECT_EQ (h.movable, h.axis != 2);
 }
 
 TEST (EditGizmo, AxisDragFollowsTheRayNotTheScreen)

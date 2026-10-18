@@ -52,6 +52,10 @@ struct Handle {
     bool compact = false;
 };
 std::vector<Handle> Handles (GizmoMode mode);
+// Same stable slots, with unsupported or meaningless controls made non-movable/non-focusable.
+// Drawing and picking consume this table; a captured slot never changes identity during a drag.
+std::vector<Handle> Handles (GizmoMode mode, const Document& doc, const std::vector<Ref>& selection,
+                             const Frame& frame);
 
 struct Ray {
     Vec3 origin, direction;
