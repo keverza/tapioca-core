@@ -1,4 +1,5 @@
 #include "Edit/EditSelection.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
 
 namespace ed = geomsrv::edit;
@@ -14,6 +15,28 @@ ed::PickView Plan ()
         return true;
     };
     return v;
+}
+
+// The same view at another scale: only the projection moved, nothing of the document.
+ed::PickView Plan (double scale)
+{
+    ed::PickView v;
+    v.toScreen = [scale] (ed::Vec3 p, double& x, double& y) {
+        x = p.x * scale;
+        y = p.y * scale;
+        return true;
+    };
+    return v;
+}
+
+bool SameHits (const std::vector<ed::PickHit>& a, const std::vector<ed::PickHit>& b)
+{
+    if (a.size () != b.size ())
+        return false;
+    for (size_t i = 0; i < a.size (); ++i)
+        if (!(a[i].ref == b[i].ref) || a[i].distance != b[i].distance)
+            return false;
+    return true;
 }
 
 struct Scene {
@@ -145,4 +168,107 @@ TEST (EditSelection, ActionsComeFromTheTable)
     EXPECT_TRUE (ed::Applicable (table, sel, ed::ViewKind::Plan).empty ()); // join needs two
     sel.Toggle ({ s.square, ed::Part::Entity, 0 });
     EXPECT_EQ (ed::Applicable (table, sel, ed::ViewKind::Plan).size (), 1u);
+}
+
+TEST (EditSelection, ACachedPickReusesPathsOutlineAcrossHoverAndNavigation)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 } }, false);
+    ed::AddPath (doc, { { 10, 0, 0 }, { 20, 0, 0 } }, 2.0, "kerb");
+    ed::PickGeometryCache cache;
+    const auto first = ed::Pick (doc, Plan (), 1500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_FALSE (first.empty ());
+    EXPECT_EQ (cache.builds, doc.paths.size ()); // one outline per path, deterministically
+    EXPECT_EQ (cache.entries.size (), doc.paths.size ());
+    const uint64_t builds = cache.builds;
+    // The same hover again: the outline is reused and the hits are identical.
+    const auto again = ed::Pick (doc, Plan (), 1500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_EQ (cache.builds, builds);
+    EXPECT_TRUE (SameHits (first, again));
+    // Navigation: a different projector changes the projection, never the tessellation.
+    const auto moved = ed::Pick (doc, Plan (200.0), 3000, 0, ed::kPickAll, 16, &cache);
+    EXPECT_EQ (cache.builds, builds);
+    // Cached and uncached agree at the new projector, hit for hit.
+    const auto plain = ed::Pick (doc, Plan (200.0), 3000, 0, ed::kPickAll, 16);
+    EXPECT_TRUE (SameHits (moved, plain));
+}
+
+TEST (EditSelection, ACachedPickRebuildsOnlyWhenTheDocumentMoves)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2.0, "kerb");
+    const ed::Id tip = doc.paths.front ().points[1].id;
+    ed::PickGeometryCache cache;
+    ed::Pick (doc, Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    const uint64_t builds = cache.builds;
+    ed::Pick (doc, Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_EQ (cache.builds, builds);
+    // A no-op Move leaves the revision alone (EditSession): nothing is rebuilt.
+    ed::Session session (doc);
+    ASSERT_TRUE (session.Begin ());
+    ASSERT_TRUE (session.Move ([] (ed::Document&, std::string&) { return true; }));
+    session.End ();
+    ed::Pick (session.Doc (), Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_EQ (cache.builds, builds);
+    // A real edit moves the revision: the next pick rebuilds.
+    ASSERT_TRUE (session.Apply ([path, tip] (ed::Document& d, std::string& error) {
+        return ed::MovePathPoint (d, path, tip, { 12, 0, 0 }, error);
+    }));
+    ed::Pick (session.Doc (), Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_GT (cache.builds, builds);
+}
+
+TEST (EditSelection, ACachedPickIsNotStaleForAReplacedDocument)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2.0, "kerb");
+    ed::PickGeometryCache cache;
+    EXPECT_FALSE (ed::Pick (doc, Plan (), 500, 0, ed::kPickAll, 8, &cache).empty ());
+    const uint64_t builds = cache.builds;
+    // A different document that keeps the revision and the path's ids, moved elsewhere.
+    ed::Document other = doc;
+    other.paths.front ().points[0].p = { 100, 0, 0 };
+    other.paths.front ().points[1].p = { 110, 0, 0 };
+    ASSERT_EQ (other.revision, doc.revision);
+    ASSERT_EQ (other.paths.front ().id, doc.paths.front ().id);
+    // The stale outline must not answer for the moved path...
+    EXPECT_TRUE (ed::Pick (other, Plan (), 500, 0, ed::kPickAll, 8, &cache).empty ());
+    // ... and the new shape is found where it now is.
+    EXPECT_FALSE (ed::Pick (other, Plan (), 10500, 0, ed::kPickAll, 8, &cache).empty ());
+    EXPECT_GT (cache.builds, builds); // the value changed: one rebuild, no stale hit
+}
+
+TEST (EditSelection, ACachedPickDropsAPathTheDocumentNoLongerHas)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2.0, "kerb");
+    ed::AddPath (doc, { { 0, 20, 0 }, { 10, 20, 0 } }, 2.0, "kerb");
+    ed::PickGeometryCache cache;
+    ed::Pick (doc, Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_EQ (cache.entries.size (), 2u);
+    const uint64_t builds = cache.builds;
+    doc.paths.pop_back (); // a path leaves without the revision moving
+    ed::Pick (doc, Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_EQ (cache.entries.size (), 1u); // pruned to what the document still has
+    EXPECT_EQ (cache.builds, builds);      // the survivor's outline was reused
+}
+
+TEST (EditSelection, ACachedPickRebuildsAfterUndo)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2.0, "kerb");
+    const ed::Id tip = doc.paths.front ().points[1].id;
+    ed::Session session (doc);
+    ed::PickGeometryCache cache;
+    ed::Pick (session.Doc (), Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    const uint64_t builds = cache.builds;
+    ASSERT_TRUE (session.Apply ([path, tip] (ed::Document& d, std::string& error) {
+        return ed::MovePathPoint (d, path, tip, { 12, 0, 0 }, error);
+    }));
+    ed::Pick (session.Doc (), Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    const uint64_t afterEdit = cache.builds;
+    EXPECT_GT (afterEdit, builds);
+    ASSERT_TRUE (session.Undo ()); // the restore moves the revision as well
+    ed::Pick (session.Doc (), Plan (), 500, 0, ed::kPickAll, 8, &cache);
+    EXPECT_GT (cache.builds, afterEdit);
 }

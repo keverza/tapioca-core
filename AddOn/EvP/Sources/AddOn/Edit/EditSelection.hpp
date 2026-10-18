@@ -32,10 +32,35 @@ struct PickHit {
     Ref ref;
     double distance = 0.0; // pixels
 };
+
+// A caller-owned cache of the MODEL-SPACE path outlines a Pick needs, so a pick that only
+// moved the camera, the cursor or the selection does not re-tessellate every path's
+// `Outline`. It holds no screen position, no hit, no camera and touches no thread global,
+// and it is bounded to one entry per path in the document. Its key is the document revision
+// for the cheap reset AND the cached path value for correctness when a different document
+// arrives with the same revision or ids: an entry is reused only while the path's own value
+// is unchanged, so a stale outline cannot outlive its input. Callers that pass nothing keep
+// the uncached Pick.
+struct PickGeometryCache {
+    struct Entry {
+        Id path = kNoId;
+        Path input; // the path the outline was built from; compared on every lookup
+        PathOutline outline;
+        uint64_t touched = 0; // the pick that last used it, for the prune
+    };
+    double step = -1.0; // the outline quality the entries were built at; a different one rebuilds
+    uint64_t revision = 0;
+    uint64_t builds = 0; // outlines actually tessellated: the misses this cache paid
+    uint64_t tick = 0;   // the current pick, stamped into each entry it uses
+    std::vector<Entry> entries;
+};
+
 // Hits within `radius` pixels, ordered vertex > segment > face > entity, then nearest.
-// A click inside a closed outline (or on any of its edges) hits the entity.
+// A click inside a closed outline (or on any of its edges) hits the entity. `cache` is
+// optional and spares only the paths' outline tessellation: the projection, the scan and
+// the returned hits are identical with or without it.
 std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, double y, uint32_t filter,
-                           double radius);
+                           double radius, PickGeometryCache* cache = nullptr);
 
 enum class SelectionKind : uint8_t { None, Vertex, Segment, Face, Entity, Mixed, PathPoint, Break, Range };
 

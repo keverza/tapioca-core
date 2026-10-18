@@ -2,10 +2,14 @@
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace geomsrv::edit {
 
 namespace {
+
+// Pick samples every path's outline at this step; the cache is keyed on it.
+constexpr double kOutlineStep = 0.5;
 
 struct S2 {
     double x = 0.0, y = 0.0;
@@ -104,7 +108,7 @@ bool Facing (const Entity& e, size_t face, const PickView& view)
 } // namespace
 
 std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, double y, uint32_t filter,
-                           double radius)
+                           double radius, PickGeometryCache* cache)
 {
     std::vector<PickHit> hits;
     const S2 p { x, y };
@@ -167,11 +171,48 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
         if ((filter & kPickEntity) && entityBest >= 0.0)
             hits.push_back ({ { e.id, Part::Entity, 0 }, entityBest });
     }
+    // Paths: their outlines are model-space and do not depend on the camera, the cursor or
+    // the selection, so a caller-owned cache reuses a path's tessellation while its own
+    // value is unchanged; the projection and the hits are recomputed every pick. The
+    // revision reset is a clear, and the value compare keeps a stale entry from surviving a
+    // document swap that kept the revision or the ids.
+    if (cache != nullptr && (cache->step != kOutlineStep || cache->revision != doc.revision)) {
+        cache->entries.clear ();
+        cache->step = kOutlineStep;
+        cache->revision = doc.revision;
+    }
+    const uint64_t touched = cache != nullptr ? ++cache->tick : 0;
     for (const auto& path : doc.paths) {
-        PathOutline o;
-        std::string error;
-        if (!Outline (path, 0.5, o, error))
-            continue;
+        PathOutline built;
+        const PathOutline* resolved = nullptr;
+        if (cache != nullptr) {
+            size_t at = cache->entries.size ();
+            for (size_t i = 0; i < cache->entries.size (); ++i)
+                if (cache->entries[i].path == path.id && cache->entries[i].input == path) {
+                    at = i;
+                    break;
+                }
+            if (at == cache->entries.size ()) {
+                PickGeometryCache::Entry entry;
+                entry.path = path.id;
+                entry.input = path;
+                std::string error;
+                if (!Outline (path, kOutlineStep, entry.outline, error))
+                    continue; // an outline that cannot be built is not cached
+                ++cache->builds;
+                cache->entries.push_back (std::move (entry));
+                at = cache->entries.size () - 1;
+            }
+            cache->entries[at].touched = touched;
+            resolved = &cache->entries[at].outline;
+        }
+        else {
+            std::string error;
+            if (!Outline (path, kOutlineStep, built, error))
+                continue;
+            resolved = &built;
+        }
+        const PathOutline& o = *resolved;
         const auto near = [&] (Vec3 q, double& d) {
             S2 s;
             if (!Project (view, q, s))
@@ -212,6 +253,11 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
         if ((filter & kPickEntity) && centreBest >= 0.0)
             hits.push_back ({ { path.id, Part::Entity, 0 }, centreBest });
     }
+    if (cache != nullptr)
+        cache->entries.erase (
+            std::remove_if (cache->entries.begin (), cache->entries.end (),
+                            [touched] (const PickGeometryCache::Entry& entry) { return entry.touched != touched; }),
+            cache->entries.end ());
     std::stable_sort (hits.begin (), hits.end (), [] (const PickHit& a, const PickHit& b) {
         const int ra = Rank (a.ref.part), rb = Rank (b.ref.part);
         return ra != rb ? ra < rb : a.distance < b.distance;
