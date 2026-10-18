@@ -37,6 +37,39 @@ double SurfaceArea (const ed::PavedArea& a)
     return sum;
 }
 
+// Whether a plan point is inside the paved area: the rings' even-odd rule, so an outer ring
+// and the holes in it contain a point an even number of times.
+bool InArea (const ed::PavedArea& a, double x, double y)
+{
+    bool in = false;
+    for (const auto& ring : a.rings)
+        if (Inside (ring, x, y))
+            in = !in;
+    return in;
+}
+
+// Every triangle lies inside the paved outline and the triangles together fill its area: a
+// triangulation that bridges a concave junction leaves the outline or changes the sum.
+void ExpectMeshFillsItsOutline (const ed::PavedArea& a)
+{
+    ASSERT_FALSE (a.triangles.empty ());
+    double outlined = 0.0;
+    for (const auto& ring : a.rings)
+        outlined += std::abs (Area (ring));
+    for (size_t t = 0; t + 2 < a.triangles.size (); t += 3) {
+        const auto& p = a.vertices[a.triangles[t]];
+        const auto& q = a.vertices[a.triangles[t + 1]];
+        const auto& r = a.vertices[a.triangles[t + 2]];
+        const double area = Area ({ p, q, r });
+        if (std::abs (area) < 1.0e-6)
+            continue; // a collapsed triangle has no middle to test
+        EXPECT_TRUE (InArea (a, (p.x + q.x + r.x) / 3.0, (p.y + q.y + r.y) / 3.0))
+            << "triangle middle " << (p.x + q.x + r.x) / 3.0 << ", " << (p.y + q.y + r.y) / 3.0
+            << " is outside the paved outline";
+    }
+    EXPECT_NEAR (std::abs (SurfaceArea (a)), outlined, 0.05);
+}
+
 std::vector<ed::Path> Cross (double kerb, bool tee = false)
 {
     ed::Document doc;
@@ -274,4 +307,94 @@ TEST (EditPathNetwork, ARequestedKerbRadiusRecoversWhenIntersectingPathsMove)
         ASSERT_TRUE (found);
         EXPECT_DOUBLE_EQ (ed::FindPath (doc, corner.path)->kerbs[0].radius, 1.5);
     }
+}
+
+TEST (EditPathNetwork, ACornerUsesTheWidthItSitsInNotTheNarrowestAlongThePath)
+{
+    // A 4 m path pinched to 0.2 m in its middle: its end corners sit in the wide ranges and
+    // most of that width may be used. The pinch somewhere else must not clamp them (the cap
+    // was the path's narrowest half width, so it did).
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 4.0);
+    std::string error;
+    ed::Id pinch = ed::kNoId, after = ed::kNoId;
+    ASSERT_TRUE (ed::SplitPathSection (doc, p, 8.0, error, &pinch)) << error;
+    ASSERT_TRUE (ed::SplitPathSection (doc, p, 12.0, error, &after)) << error;
+    ASSERT_TRUE (ed::SetPathWidth (doc, p, pinch, 0.1, 0.1, error)) << error;
+    ASSERT_TRUE (ed::SetPathWidth (doc, p, after, 2.0, 2.0, error)) << error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, p, 1.5, error)) << error;
+    const auto paved = ed::Pave (doc.paths, 0.5, false);
+    ASSERT_EQ (paved.corners.size (), 4u); // the two ends' corners; a width step is not a corner
+    size_t wide = 0;
+    for (const auto& c : paved.corners)
+        if (c.at.x < 1.0 && c.at.y > 1.0) {
+            ++wide;
+            EXPECT_DOUBLE_EQ (c.requestedRadius, 1.5);
+            EXPECT_GT (c.maxRadius, 1.5);         // the 2 m half width it sits in allows it
+            EXPECT_DOUBLE_EQ (c.key.radius, 1.5); // so the request fits, uncut
+            EXPECT_FALSE (c.Limited ());
+        }
+    EXPECT_EQ (wide, 1u);
+}
+
+TEST (EditPathNetwork, AWidthChangeBesideACornerBoundsItsRounding)
+{
+    // A range boundary that widens the path 0.2 m before its end moves the kerb line: the end
+    // corner's fillet stays tangent to the edge it is on and so stops at the step. That step
+    // is a real boundary, not a synthetic corner to skip, and must keep bounding the rounding.
+    ed::Document doc;
+    const ed::Id p = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    std::string error;
+    ed::Id wide = ed::kNoId;
+    ASSERT_TRUE (ed::SplitPathSection (doc, p, 19.8, error, &wide)) << error;
+    ASSERT_TRUE (ed::SetPathWidth (doc, p, wide, 2.0, 2.0, error)) << error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, p, 1.0, error)) << error;
+    const auto paved = ed::Pave (doc.paths, 0.5, false);
+    size_t atEnd = 0;
+    for (const auto& c : paved.corners)
+        if (c.at.x > 19.0) {
+            ++atEnd;
+            EXPECT_DOUBLE_EQ (c.requestedRadius, 1.0); // the intent is kept
+            EXPECT_LT (c.maxRadius, 0.2);              // the 0.2 m of edge before the step
+            EXPECT_DOUBLE_EQ (c.key.radius, c.maxRadius);
+            EXPECT_TRUE (c.Limited ());
+        }
+    EXPECT_EQ (atEnd, 2u);
+}
+
+TEST (EditPathNetwork, TheMeshCoversTheOutlineAtCrossings)
+{
+    // A + crossing, a tee and a crossing with a short arm past it: each union is concave at
+    // the junction, where a triangulation that bridges the notch would leave a triangle
+    // outside the outline.
+    for (const auto& paths : { Cross (0.0), Cross (0.0, true) }) {
+        SCOPED_TRACE ("crossing and tee");
+        ExpectMeshFillsItsOutline (ed::Pave (paths, 0.5, true));
+    }
+    ed::Document shortArm;
+    ed::AddPath (shortArm, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    ed::AddPath (shortArm, { { 10, -10, 0 }, { 10, 0.6, 0 } }, 2.0); // 0.6 m past the edge
+    SCOPED_TRACE ("short arm");
+    ExpectMeshFillsItsOutline (ed::Pave (shortArm.paths, 0.5, true));
+}
+
+TEST (EditPathNetwork, TheMeshCoversAFilletedJunction)
+{
+    // The acute A/B/C fixture with a junction corner rounded 2.5 m: the fillet is added to
+    // the area and the surface still fills exactly the outline, every triangle inside it.
+    ed::Document doc;
+    const double c30 = std::cos (0.5235987755982988), s30 = std::sin (0.5235987755982988);
+    const ed::Id a = ed::AddPath (doc, { { -10, 0, 0 }, { 40, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 15 - 20 * c30, -20 * s30, 0 }, { 15 + 20 * c30, 20 * s30, 0 } }, 2.0);
+    ed::AddPath (doc, { { -10, 6, 0 }, { 40, 6, 0 } }, 2.0);
+    ed::PavedCorner junction;
+    for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
+        if (c.Involves (a) && c.key.other != ed::kNoId) {
+            junction = c;
+            break;
+        }
+    ASSERT_NE (junction.key.other, ed::kNoId);
+    std::string error;
+    ASSERT_TRUE (ed::SetKerbRadius (doc, junction.path, junction.key, 2.5, error)) << error;
+    ExpectMeshFillsItsOutline (ed::Pave (doc.paths, 0.5, true));
 }

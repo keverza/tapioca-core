@@ -34,7 +34,6 @@ struct Source {
     const Path* path = nullptr;
     AlignmentGeometry geometry;
     PathOutline outline;
-    double half = 0.0; // its narrowest half width
 };
 
 // The height at a plan point: the path it lies in (or nearest, at a junction's rounding).
@@ -56,31 +55,50 @@ double SegmentDistance (Vec3 p, Vec3 a, Vec3 b)
     return std::hypot (p.x - a.x - t * dx, p.y - a.y - t * dy);
 }
 
+// Where along segment a-b the plan point p projects, clamped to it (0..1).
+double AlongSegment (Vec3 p, Vec3 a, Vec3 b)
+{
+    const double dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+    return l2 > 0.0 ? std::clamp (((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0.0, 1.0) : 0.0;
+}
+
 // Where `p` lies on a path's outline: on its left or right edge (with the sample it is at,
-// when it is one), else across an end. False when it is not on it.
-bool OnOutline (const PathOutline& o, Vec3 p, KerbSide& side, int& sample)
+// when it is one, and its station either way), else across an end. False when it is not on
+// it. The station reads the range in force there, so a corner's cap is local to the width
+// it sits in, not the path's narrowest somewhere else.
+bool OnOutline (const PathOutline& o, Vec3 p, KerbSide& side, int& sample, double& station)
 {
     sample = -1;
+    station = 0.0;
     for (const auto [edge, s] : { std::pair { &o.left, KerbSide::Left }, std::pair { &o.right, KerbSide::Right } }) {
-        bool on = false;
+        double on = 2.0 * kOn, at = 0.0;
         for (size_t k = 0; k < edge->size (); ++k) {
             if (DistanceXY ((*edge)[k], p) <= kOn) {
-                side = s, sample = int (k);
+                side = s, sample = int (k), station = o.stations[k];
                 return true;
             }
-            on = on || (k + 1 < edge->size () && SegmentDistance (p, (*edge)[k], (*edge)[k + 1]) <= kOn);
+            if (k + 1 >= edge->size ())
+                continue;
+            const double d = SegmentDistance (p, (*edge)[k], (*edge)[k + 1]);
+            if (d <= on && d <= kOn) {
+                on = d;
+                at = o.stations[k] + AlongSegment (p, (*edge)[k], (*edge)[k + 1]) * (o.stations[k + 1] - o.stations[k]);
+            }
         }
-        if (on) {
+        if (on <= kOn) {
             side = s;
+            station = at;
             return true;
         }
     }
     if (!o.left.empty () && SegmentDistance (p, o.right.front (), o.left.front ()) <= kOn) {
         side = KerbSide::Start;
+        station = o.stations.front ();
         return true;
     }
     if (!o.left.empty () && SegmentDistance (p, o.left.back (), o.right.back ()) <= kOn) {
         side = KerbSide::End;
+        station = o.stations.back ();
         return true;
     }
     return false;
@@ -112,6 +130,14 @@ double RadiusOf (const Path& owner, const KerbCorner& key, double fallback)
         if (k.Same (key))
             return k.radius;
     return fallback;
+}
+
+// The narrowest half width of the range in force at `station`: a rounding is cut no deeper
+// than the width it sits in, not the path's narrowest width somewhere else along it.
+double LocalHalf (const Path& path, double station)
+{
+    const Section* section = SectionAt (path.sections, station);
+    return section == nullptr ? 0.0 : std::min (section->widthLeft, section->widthRight);
 }
 
 // The corners of the sharp area, each said what it is and how it is rounded.
@@ -172,19 +198,21 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
             struct Owner {
                 size_t source;
                 KerbSide side;
+                double station;
             };
             std::vector<Owner> owners;
             for (size_t s = 0; s < sources.size (); ++s) {
                 KerbSide side = KerbSide::Left;
                 int sample = -1;
-                if (OnOutline (sources[s].outline, v, side, sample))
-                    owners.push_back ({ s, side });
+                double station = 0.0;
+                if (OnOutline (sources[s].outline, v, side, sample, station))
+                    owners.push_back ({ s, side, station });
             }
             if (owners.empty ())
                 continue;
             double half = std::numeric_limits<double>::infinity ();
             for (const auto& o : owners)
-                half = std::min (half, sources[o.source].half);
+                half = std::min (half, LocalHalf (*sources[o.source].path, o.station));
             if (owners.size () >= 2) {
                 Owner a = owners[0], b = owners[1];
                 if (sources[b.source].path->id < sources[a.source].path->id)
@@ -208,7 +236,7 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
                 c.key.radius = RadiusOf (*s.path, c.key, s.path->edgeRadius);
             }
             // The largest radius whose tangent points stay within its half of each leg; an
-            // outside corner's also cuts no deeper than most of the narrowest half width.
+            // outside corner's also cuts no deeper than most of the half width it sits in.
             const double legs = 0.49 * std::min (leg (i, -1), leg (i, 1)) * std::tan (c.half);
             c.maxRadius = std::min (legs, c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant);
             c.requestedRadius = c.key.radius;
@@ -291,9 +319,6 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
         if (!ValidatePath (path, s.geometry, error) || !Outline (path, step, s.outline, error) ||
             s.outline.left.size () < 2)
             continue;
-        s.half = std::numeric_limits<double>::infinity ();
-        for (const auto& r : path.sections)
-            s.half = std::min ({ s.half, r.widthLeft, r.widthRight });
         // Its own outline, clean: a tight bend's fold resolved.
         const cp::PathsD own = cp::Union (cp::PathsD { Polygon (s.outline) }, cp::FillRule::NonZero, kPrecision);
         united.insert (united.end (), own.begin (), own.end ());
