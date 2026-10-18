@@ -1,8 +1,103 @@
 #include "Edit/EditWorkingPlane.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 #include <limits>
 
 namespace ed = geomsrv::edit;
+
+TEST (EditWorkingPlane, PathPlanAndSectionUseTheProfileCentreButNotTheGradeAsTheirAxes)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 10, 20, 100 }, { 40, 60, 110 } }, 4);
+    const auto original = doc.paths;
+    std::string error;
+    for (const double station : { 0.0, 25.0, 50.0 }) {
+        ed::WorkingPlane plan, section;
+        ASSERT_TRUE (ed::PlaneFromPath (doc, id, station, ed::PathPlaneKind::Plan, plan, error)) << error;
+        ASSERT_TRUE (ed::PlaneFromPath (doc, id, station, ed::PathPlaneKind::Section, section, error)) << error;
+        const ed::Vec3 centre { 10 + 0.6 * station, 20 + 0.8 * station, 100 + 0.2 * station };
+        EXPECT_NEAR (ed::Distance (plan.origin, centre), 0, 1e-12);
+        EXPECT_EQ (plan.origin, section.origin);
+        EXPECT_EQ (plan.u, (ed::Vec3 { 0.6, 0.8, 0 }));
+        EXPECT_EQ (plan.v, (ed::Vec3 { -0.8, 0.6, 0 }));
+        EXPECT_EQ (plan.normal, (ed::Vec3 { 0, 0, 1 }));
+        EXPECT_EQ (section.u, plan.v);
+        EXPECT_EQ (section.v, (ed::Vec3 { 0, 0, 1 }));
+        EXPECT_EQ (section.normal, plan.u);
+        EXPECT_EQ (plan.source, ed::PlaneSource::PathPlan);
+        EXPECT_EQ (section.source, ed::PlaneSource::PathSection);
+        EXPECT_EQ (plan.sourceRef.entity, id);
+        EXPECT_EQ (plan.sourceRevision, doc.revision);
+        EXPECT_DOUBLE_EQ (plan.sourceStation, station);
+        EXPECT_TRUE (ed::ValidPlane (plan));
+        EXPECT_TRUE (ed::ValidPlane (section));
+        EXPECT_FALSE (ed::IsWorldXY (plan));
+        const ed::Vec3 local { 3, 4, 5 };
+        EXPECT_NEAR (ed::Distance (ed::ToLocal (section, ed::ToWorld (section, local)), local), 0, 1e-12);
+    }
+    EXPECT_EQ (doc.paths, original);
+}
+
+TEST (EditWorkingPlane, RoundedPathStationsUseTheArcTangentAndEvaluatedVerticalCurve)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 20, 0, 102 }, { 20, 20, 100 } }, 2);
+    auto* path = ed::FindPath (doc, id);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, id, path->points[1].id, 5, error));
+    ed::AlignmentGeometry geometry;
+    ASSERT_TRUE (ed::ValidatePath (*path, geometry, error));
+    const double station = geometry.pointStations[1];
+    ASSERT_TRUE (ed::InsertBreak (path->profile, station, ed::NewId (doc), error));
+    path->profile[1].z = 106;
+    path->profile[1].curve = 6;
+    ed::StationFrame expected;
+    ASSERT_TRUE (ed::ValidatePath (*path, geometry, error));
+    ASSERT_TRUE (ed::Evaluate (*path, geometry, station, expected));
+    ed::WorkingPlane plane;
+    ASSERT_TRUE (ed::PlaneFromPath (doc, id, station, ed::PathPlaneKind::Plan, plane, error)) << error;
+    EXPECT_EQ (plane.origin, expected.centre);
+    EXPECT_NE (plane.origin.z, path->profile[1].z); // the curve, not the raw grade-break height
+    EXPECT_NEAR (plane.u.x, std::sqrt (0.5), 1e-12);
+    EXPECT_NEAR (plane.u.y, std::sqrt (0.5), 1e-12);
+    EXPECT_DOUBLE_EQ (plane.u.z, 0);
+}
+
+TEST (EditWorkingPlane, PathPlaneRefusesInvalidStationAndStaleSourcesWithoutClampingOrOutput)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 10 }, { 10, 0, 12 } }, 2);
+    const auto original = ed::WorldXY (7);
+    auto out = original;
+    std::string error;
+    for (const double station :
+         { -0.1, 10.1, std::numeric_limits<double>::quiet_NaN (), std::numeric_limits<double>::infinity () }) {
+        EXPECT_FALSE (ed::PlaneFromPath (doc, id, station, ed::PathPlaneKind::Plan, out, error));
+        EXPECT_TRUE (ed::SamePlane (out, original));
+        EXPECT_FALSE (error.empty ());
+    }
+    EXPECT_FALSE (ed::PlaneFromPath (doc, 999, 5, ed::PathPlaneKind::Plan, out, error));
+    doc.paths[0].profile.clear ();
+    EXPECT_FALSE (ed::PlaneFromPath (doc, id, 5, ed::PathPlaneKind::Plan, out, error));
+    EXPECT_TRUE (ed::SamePlane (out, original));
+}
+
+TEST (EditWorkingPlane, SharpCornerStationRefusesEitherTangentButAdjacentStationsWork)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 10 }, { 10, 0, 12 }, { 10, 10, 13 } }, 2);
+    const auto original = ed::WorldXY (7);
+    auto out = original;
+    std::string error;
+    EXPECT_FALSE (ed::PlaneFromPath (doc, id, 10, ed::PathPlaneKind::Plan, out, error));
+    EXPECT_NE (error.find ("two tangents"), std::string::npos);
+    EXPECT_TRUE (ed::SamePlane (out, original));
+    ASSERT_TRUE (ed::PlaneFromPath (doc, id, 9.99, ed::PathPlaneKind::Plan, out, error));
+    EXPECT_EQ (out.u, (ed::Vec3 { 1, 0, 0 }));
+    ASSERT_TRUE (ed::PlaneFromPath (doc, id, 10.01, ed::PathPlaneKind::Plan, out, error));
+    EXPECT_EQ (out.u, (ed::Vec3 { 0, 1, 0 }));
+}
 
 TEST (EditWorkingPlane, FaceFramesKeepPickTimeProvenanceAndAuthoredAxes)
 {

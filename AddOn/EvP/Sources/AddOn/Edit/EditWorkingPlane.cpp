@@ -14,8 +14,12 @@ WorkingPlane WorldXY (double z)
 bool ValidPlane (const WorkingPlane& p)
 {
     if (!Finite (p.origin) || !Finite (p.u) || !Finite (p.v) || !Finite (p.normal) ||
-        (p.source != PlaneSource::WorldXY && p.source != PlaneSource::Explicit && p.source != PlaneSource::Face) ||
-        (p.source == PlaneSource::Face && (p.sourceRef.entity == kNoId || p.sourceRef.part != Part::Face)))
+        (p.source != PlaneSource::WorldXY && p.source != PlaneSource::Explicit && p.source != PlaneSource::Face &&
+         p.source != PlaneSource::PathPlan && p.source != PlaneSource::PathSection) ||
+        (p.source == PlaneSource::Face && (p.sourceRef.entity == kNoId || p.sourceRef.part != Part::Face)) ||
+        !std::isfinite (p.sourceStation) || p.sourceStation < 0 ||
+        ((p.source == PlaneSource::PathPlan || p.source == PlaneSource::PathSection) &&
+         (p.sourceRef.entity == kNoId || p.sourceRef.part != Part::Entity)))
         return false;
     constexpr double e = 1e-9;
     return std::abs (Length (p.u) - 1) < e && std::abs (Length (p.v) - 1) < e && std::abs (Length (p.normal) - 1) < e &&
@@ -31,7 +35,7 @@ bool IsWorldXY (const WorkingPlane& p)
 bool SamePlaneFrame (const WorkingPlane& a, const WorkingPlane& b)
 {
     return a.origin == b.origin && a.u == b.u && a.v == b.v && a.normal == b.normal && a.source == b.source &&
-           a.sourceRef == b.sourceRef;
+           a.sourceRef == b.sourceRef && a.sourceStation == b.sourceStation;
 }
 
 bool SamePlane (const WorkingPlane& a, const WorkingPlane& b)
@@ -76,6 +80,61 @@ bool PlaneFromFace (const Document& doc, Ref face, WorkingPlane& out, std::strin
     }
     if (!Finite (area) || std::abs (Dot (area, plane.normal)) < 1e-12) {
         error = "That face is degenerate; the working plane was left unchanged.";
+        return false;
+    }
+    out = plane;
+    error.clear ();
+    return true;
+}
+
+bool PlaneFromPath (const Document& doc, Id id, double station, PathPlaneKind kind, WorkingPlane& out,
+                    std::string& error)
+{
+    const Path* path = FindPath (doc, id);
+    if (path == nullptr || !std::isfinite (station) ||
+        (kind != PathPlaneKind::Plan && kind != PathPlaneKind::Section)) {
+        error = "Choose an existing virtual path and a finite station in metres from its start.";
+        return false;
+    }
+    AlignmentGeometry alignment;
+    if (!ValidatePath (*path, alignment, error))
+        return false;
+    if (station < 0 || station > alignment.length) {
+        error = "The working-plane station must be within the path; it was not clamped to an end.";
+        return false;
+    }
+    for (size_t i = 1; i + 1 < path->points.size (); ++i) {
+        if (path->points[i].radius != 0 || std::abs (station - alignment.pointStations[i]) > 1e-8)
+            continue;
+        Vec3 incoming, outgoing;
+        const auto a = path->points[i].p - path->points[i - 1].p;
+        const auto b = path->points[i + 1].p - path->points[i].p;
+        if (Normalize ({ a.x, a.y, 0 }, incoming) && Normalize ({ b.x, b.y, 0 }, outgoing) &&
+            Dot (incoming, outgoing) < 1 - 1e-9) {
+            error = "A sharp corner has two tangents; choose a station before or after it.";
+            return false;
+        }
+    }
+    StationFrame frame;
+    if (!Evaluate (*path, alignment, station, frame)) {
+        error = "The path cannot be evaluated at that working-plane station.";
+        return false;
+    }
+    WorkingPlane plane;
+    plane.origin = frame.centre;
+    if (kind == PathPlaneKind::Plan) {
+        plane.u = frame.tangent, plane.v = frame.left;
+        plane.source = PlaneSource::PathPlan;
+    }
+    else {
+        plane.u = frame.left, plane.v = { 0, 0, 1 }, plane.normal = frame.tangent;
+        plane.source = PlaneSource::PathSection;
+    }
+    plane.sourceRef = { id, Part::Entity, 0 };
+    plane.sourceRevision = doc.revision;
+    plane.sourceStation = station;
+    if (!ValidPlane (plane)) {
+        error = "The path does not define a finite orthonormal station frame.";
         return false;
     }
     out = plane;
