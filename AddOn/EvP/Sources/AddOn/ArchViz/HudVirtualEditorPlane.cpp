@@ -47,8 +47,10 @@ bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automati
         plane.v.z == 0 && std::abs (plane.normal.z) == 1;
     if ((!edit::IsWorldXY (plane) && !horizontalSource) || !plane.sticky) {
         s.message = plane.source == edit::PlaneSource::PathSection
-                        ? "Vertical path-section authoring is unavailable; use a horizontal path plan plane."
-                        : "Use World XY or a horizontal face/path plan; side/oblique plane authoring is unavailable.";
+                        ? "Vertical path-section authoring is unavailable; use a horizontal drawing plane along "
+                          "the path."
+                        : "Use World XY or a horizontal drawing plane on a face or along a path; side/oblique "
+                          "plane authoring is unavailable.";
         return false;
     }
     auto next = s.plane;
@@ -68,7 +70,7 @@ bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automati
     }
     const bool unfinished = s.drag != Drag::None || s.penDown || s.planeTyping || !s.drawing.empty () ||
                             s.tracker.State () == edit::TrackerState::Editing || s.labelOpen || s.typedHandle >= 0;
-    detail::CancelViewEdit (s, "The working plane changed; unfinished input was cancelled.");
+    detail::CancelViewEdit (s, "The drawing plane changed; unfinished input was cancelled.");
     // Unlike a view switch, a plane change would mix authoring frames inside one unfinished shape.
     s.edits.Cancel ();
     s.drag = Drag::None;
@@ -78,7 +80,7 @@ bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automati
     s.tracker.Hide ();
     s.capturedPlane.reset ();
     s.plane = next;
-    s.message = unfinished ? "The working plane changed; unfinished input was cancelled." : "";
+    s.message = unfinished ? "The drawing plane changed; unfinished input was cancelled." : "";
     return true;
 }
 
@@ -135,7 +137,7 @@ bool UsePathPartPlane (Session& s, edit::Ref part)
         }
     }
     if (!station) {
-        s.message = "Choose an existing path control point, grade break or range start; whole paths need a station.";
+        s.message = "Choose an existing path control point, grade point or range start; whole paths need a station.";
         return false;
     }
     return UsePathPlane (s, part.entity, *station);
@@ -145,7 +147,7 @@ bool BeginPlaneEntry (Session& s)
 {
     if (s.drag != Drag::None || s.edits.InGesture () || s.penDown || !s.drawing.empty () || s.labelOpen ||
         s.typedHandle >= 0 || s.planeTyping || s.tracker.State () == edit::TrackerState::Editing) {
-        s.message = "Finish or cancel the current input before entering a working-plane elevation.";
+        s.message = "Finish or cancel the current input before entering a drawing-plane elevation.";
         return false;
     }
     s.planeTyping = true;
@@ -153,7 +155,7 @@ bool BeginPlaneEntry (Session& s)
     s.planeEntryRevision = 0;
     s.tracker.Hide ();
     s.tracker.Show ({ { edit::Quantity::Elevation, s.plane.origin.z } });
-    s.message = "Type World XY elevation in metres; Enter sets the plane to World XY, Esc cancels.";
+    s.message = "Type the World XY elevation in metres; Enter sets the drawing plane to World XY, Esc cancels.";
     detail::CapturePlane (s);
     return true;
 }
@@ -174,7 +176,8 @@ bool BeginPathPlaneEntry (Session& s, edit::Id path)
         s.plane.source == edit::PlaneSource::PathPlan && s.plane.sourceRef.entity == path ? s.plane.sourceStation : 0;
     s.tracker.Hide ();
     s.tracker.Show ({ { edit::Quantity::Distance, station } });
-    s.message = "Type the path plan plane station in metres from its start; Enter sets it, Esc cancels.";
+    s.message = "Type the distance from path start in metres; Enter sets a horizontal drawing plane there, "
+                "Esc cancels.";
     return true;
 }
 
@@ -203,19 +206,22 @@ void CapturePlane (Session& s)
 void PlaneControls (Session& s)
 {
     if (s.plane.source == edit::PlaneSource::Face)
-        ImGui::Text ("Face snapshot (sticky): %llu / %llu r%llu",
+        ImGui::Text ("Drawing plane: selected horizontal face (sticky): %llu / %llu r%llu",
                      static_cast<unsigned long long> (s.plane.sourceRef.entity),
                      static_cast<unsigned long long> (s.plane.sourceRef.item),
                      static_cast<unsigned long long> (s.plane.sourceRevision));
     else if (s.plane.source == edit::PlaneSource::PathPlan)
-        ImGui::Text ("Path plan snapshot (horizontal, sticky): %llu at %.6g m, r%llu",
+        ImGui::Text ("Drawing plane: horizontal along the path (sticky): %llu at %.6g m, r%llu",
                      static_cast<unsigned long long> (s.plane.sourceRef.entity), s.plane.sourceStation,
                      static_cast<unsigned long long> (s.plane.sourceRevision));
     else
-        ImGui::TextUnformatted ("Working plane: World XY (sticky)");
+        ImGui::TextUnformatted ("Drawing plane: World XY (sticky)");
     char label[80];
     std::snprintf (label, sizeof label, "Elevation %.6g m##planeElevation", s.plane.origin.z);
-    if (ImGui::SmallButton (label))
+    const bool elevationClicked = ImGui::SmallButton (label);
+    ImGui::SetItemTooltip ("Type the World XY elevation for the drawing plane. It moves neither the path nor "
+                           "the camera.");
+    if (elevationClicked)
         BeginPlaneEntry (s); // the existing Tracker owns numeric text, validation and Esc
     ImGui::SameLine ();
     auto next = s.plane;
@@ -223,20 +229,30 @@ void PlaneControls (Session& s)
         SetWorkingPlane (s, next);
     const auto& selected = s.selection.Items ();
     ImGui::BeginDisabled (selected.size () != 1 || selected[0].part != edit::Part::Face);
-    if (ImGui::SmallButton ("Use selected face plane"))
+    const bool faceClicked = ImGui::SmallButton ("Drawing plane at selected face");
+    ImGui::SetItemTooltip ("Draws on the horizontal top or bottom face of an extrusion; the drawing plane "
+                           "sits at that face's elevation. Sloped or vertical faces are not supported.");
+    if (faceClicked)
         UseFacePlane (s, selected[0]);
     ImGui::EndDisabled ();
     const bool path = selected.size () == 1 && edit::FindPath (s.edits.Doc (), selected[0].entity) != nullptr;
     ImGui::BeginDisabled (!path);
-    if (ImGui::SmallButton ("Path plan plane at station..."))
+    const bool stationClicked = ImGui::SmallButton ("Horizontal drawing plane along path...");
+    ImGui::SetItemTooltip ("A horizontal drawing plane at the path's elevation, a typed distance from its "
+                           "start. Its axes run along and across the path; it moves neither the path nor the "
+                           "camera.");
+    if (stationClicked)
         BeginPathPlaneEntry (s, selected[0].entity);
     ImGui::EndDisabled ();
     if (path && (selected[0].part == edit::Part::PathPoint || selected[0].part == edit::Part::Break ||
                  selected[0].part == edit::Part::Range)) {
-        const char* partLabel = selected[0].part == edit::Part::Range   ? "Plane at selected range start"
-                                : selected[0].part == edit::Part::Break ? "Plane at selected grade station"
-                                                                        : "Plane at selected control station";
-        if (ImGui::SmallButton (partLabel))
+        const char* partLabel = selected[0].part == edit::Part::Range   ? "Drawing plane at selected range start"
+                                : selected[0].part == edit::Part::Break ? "Drawing plane at selected grade point"
+                                                                        : "Drawing plane at selected control point";
+        const bool partClicked = ImGui::SmallButton (partLabel);
+        ImGui::SetItemTooltip ("A horizontal drawing plane at this path point's own station and elevation; it "
+                               "moves neither the path nor the camera.");
+        if (partClicked)
             UsePathPartPlane (s, selected[0]);
     }
 }

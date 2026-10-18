@@ -199,7 +199,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             const edit::Entity* e = edit::Find (doc, s.menu.ref.entity);
             items.push_back (Item ("delete", "Delete object", "Del"));
             if (s.menu.ref.part == edit::Part::Face)
-                items.push_back (Item ("plane.face", "Use face as working plane"));
+                items.push_back (Item ("plane.face", "Drawing plane at selected face"));
             Rule (items);
             const char* modes[] = { "Move", "Rotate", "Scale", "Stretch", "Push/pull face" };
             const char* keys[] = { "G", "R", "S", "T", "E" };
@@ -287,12 +287,12 @@ std::vector<MenuItem> MenuItems (const Session& s)
         Rule (items);
         if (s.menu.ref.part == edit::Part::PathPoint || s.menu.ref.part == edit::Part::Break ||
             s.menu.ref.part == edit::Part::Range) {
-            const char* label = s.menu.ref.part == edit::Part::Range   ? "Use path plan at range start"
-                                : s.menu.ref.part == edit::Part::Break ? "Use path plan at grade station"
-                                                                       : "Use path plan at control station";
+            const char* label = s.menu.ref.part == edit::Part::Range   ? "Drawing plane at range start"
+                                : s.menu.ref.part == edit::Part::Break ? "Drawing plane at grade point"
+                                                                       : "Drawing plane at control point";
             items.push_back (Item ("plane.pathPart", label));
         }
-        items.push_back (Item ("plane.pathStation", "Path plan plane at station..."));
+        items.push_back (Item ("plane.pathStation", "Horizontal drawing plane along path..."));
     }
     AddHistory (s, items);
     if (s.menu.target == MenuTarget::View) {
