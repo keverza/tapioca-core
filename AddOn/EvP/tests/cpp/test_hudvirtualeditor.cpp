@@ -397,7 +397,9 @@ TEST (HudVirtualEditor, ModeKeysWaitForTheDrag)
     EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 13.0, 1e-6);
     EXPECT_NEAR (d.D ().entities[0].vertices[2].p.y, 10.0, 1e-6);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
-    d.Key ('R'); // after it, the keys switch as before
+    // Rotation applies to a shape, not the lone point just moved.
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    d.Key ('R'); // after the gesture, an applicable mode can be chosen
     EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Rotate);
 }
 
@@ -1499,6 +1501,35 @@ TEST (HudVirtualEditor, PathStationSnapshotsDoNotFollowProfileEditsDeletionOrUnd
     ASSERT_TRUE (eh::UsePathPlane (d.S (), id, 25)); // only an explicit repick follows the restored source
     EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 110);
     EXPECT_TRUE (d.S ().drawing.empty ());
+}
+
+TEST (HudVirtualEditor, UnsupportedPointAndPathModesCannotBeChosenByShortcutOrMenu)
+{
+    Drive d (Corner ());
+    d.S ().gizmo = ed::GizmoMode::Gumball;
+    d.S ().localAxes = false;
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Vertex, d.D ().entities[0].vertices[1].id } });
+    EXPECT_TRUE (eh::GizmoAvailable (d.S (), ed::GizmoMode::Move));
+    for (const auto mode :
+         { ed::GizmoMode::Scale, ed::GizmoMode::Rotate, ed::GizmoMode::Stretch, ed::GizmoMode::Extrude })
+        EXPECT_FALSE (eh::GizmoAvailable (d.S (), mode));
+    d.Key ('S');
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Gumball);
+    EXPECT_FALSE (d.S ().message.empty ());
+    d.At (835, 500); // the absent X scale box must not steal a press from the model
+    EXPECT_LT (d.S ().hoverHandle, 0);
+
+    ed::Document path;
+    const auto id = ed::AddPath (path, { { 0, 0, 0 }, { 10, 0, 1 }, { 10, 10, 2 } }, 2);
+    d.S ().edits = ed::Session (path);
+    d.S ().selection.Set ({ { id, ed::Part::Entity, 0 } });
+    d.Key ('E');
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Gumball);
+    EXPECT_FALSE (eh::SetGizmoMode (d.S (), ed::GizmoMode::Extrude));
+    d.Key ('T');
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Gumball);
+    EXPECT_TRUE (eh::GizmoAvailable (d.S (), ed::GizmoMode::Scale));
+    EXPECT_TRUE (eh::GizmoAvailable (d.S (), ed::GizmoMode::Rotate));
 }
 
 TEST (HudVirtualEditor, GumballHoldsEveryTransform)

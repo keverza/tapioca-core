@@ -33,7 +33,7 @@ bool Different (const std::array<float, 12>& a, const std::array<float, 12>& b)
 edit::Handle Held (const Session& s)
 {
     return s.handle == -2 ? edit::Handles (edit::GizmoMode::Extrude).front ()
-                          : edit::Handles (s.gizmo)[size_t (s.handle)];
+                          : GizmoHandles (s, s.gizmo)[size_t (s.handle)];
 }
 
 } // namespace

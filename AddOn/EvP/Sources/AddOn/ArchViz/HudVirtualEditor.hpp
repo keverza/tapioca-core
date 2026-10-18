@@ -56,7 +56,7 @@ struct Session {
     edit::Tracker tracker;
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;
-    edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // every transform's handles at once
+    edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
     bool fromEnd = false;  // a typed length or angle keeps the segment's end, not its start (F)
     // Snapping: which snaps are on (edit::SnapMode), the construction angle step, whether a
@@ -233,6 +233,9 @@ void Menu (Session& session);
 
 // Where the gumball stands and how it is turned for the current selection and mode.
 edit::Frame GizmoFrame (const Session& session);
+std::vector<edit::Handle> GizmoHandles (const Session& session, edit::GizmoMode mode);
+bool GizmoAvailable (const Session& session, edit::GizmoMode mode);
+bool SetGizmoMode (Session& session, edit::GizmoMode mode);
 
 // The path the profile canvas shows: the selected one, else the only one.
 const edit::Path* ProfilePath (const Session& session);

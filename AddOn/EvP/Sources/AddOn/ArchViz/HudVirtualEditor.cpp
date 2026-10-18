@@ -147,7 +147,7 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
 edit::Handle HeldHandle (const Session& s)
 {
     return s.handle == -2 ? edit::Handles (edit::GizmoMode::Extrude).front ()
-                          : edit::Handles (s.gizmo)[size_t (s.handle)];
+                          : GizmoHandles (s, s.gizmo)[size_t (s.handle)];
 }
 
 std::vector<edit::Ref> HeldRefs (const Session& s)
@@ -312,7 +312,7 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
     }
     if (s.typedHandle >= 0) {
         // The clicked handle's number: the same transform a drag of that size would make.
-        const edit::Handle h = edit::Handles (s.gizmo)[size_t (s.typedHandle)];
+        const edit::Handle h = GizmoHandles (s, s.gizmo)[size_t (s.typedHandle)];
         const auto r = edit::FromValue (s.typedFrame, h, event.value);
         s.typedHandle = -1;
         if (!r.ok)
@@ -395,7 +395,7 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         return items;
     }
     if (s.typedHandle >= 0 && size_t (s.typedHandle) < edit::Handles (s.gizmo).size ()) {
-        const edit::Handle h = edit::Handles (s.gizmo)[size_t (s.typedHandle)];
+        const edit::Handle h = GizmoHandles (s, s.gizmo)[size_t (s.typedHandle)];
         const int a = h.axis >= 0 && h.axis < 3 ? h.axis : 2;
         const double now = h.quantity == edit::Quantity::Factor ? 1.0
                            : h.kind == edit::HandleKind::Side   ? 2.0 * s.typedFrame.half[a]
@@ -450,7 +450,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             History (s, undo);
     };
     // A mode key shows that transform's handles alone; pressed again, the gumball comes back.
-    const auto mode = [&s] (edit::GizmoMode m) { s.gizmo = s.gizmo == m ? edit::GizmoMode::Gumball : m; };
+    const auto mode = [&s] (edit::GizmoMode m) { SetGizmoMode (s, s.gizmo == m ? edit::GizmoMode::Gumball : m); };
     const auto trackerKey = [&s] (edit::TrackerKey key) {
         const edit::Tracker entry = s.tracker;
         const int handle = s.typedHandle;
@@ -581,11 +581,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     CheckView (s, v);
     Navigate (s, m, mouse);
     hovered = hovered && !s.navigation.blocked && !s.planeTyping;
+    if (s.drag == Drag::None && s.typedHandle < 0 && !s.selection.Items ().empty () && !GizmoAvailable (s, s.gizmo))
+        s.gizmo = edit::GizmoMode::Gumball;
     const edit::PickView pick = m.Pick ();
     const double radius = kPickPixels * scale;
     const bool gizmo = GizmoShown (s);
     const edit::Frame frame = gizmo ? GizmoFrame (s) : edit::Frame {};
-    const auto handles = edit::Handles (s.gizmo);
+    const auto handles = GizmoHandles (s, s.gizmo);
     ImVec2 pivotPixel;
     const double gizmoSize =
         m.Screen (frame.origin, pivotPixel)
@@ -839,7 +841,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
 
     // Release. A handle clicked without a drag asks for its number instead.
     if (ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked && s.drag == Drag::Handle &&
-        s.handle >= 0 && !s.dragStarted && edit::Handles (s.gizmo)[size_t (s.handle)].focusable) {
+        s.handle >= 0 && !s.dragStarted && HeldHandle (s).focusable) {
         s.edits.Cancel ();
         s.typedHandle = s.handle;
         s.typedMode = s.gizmo;

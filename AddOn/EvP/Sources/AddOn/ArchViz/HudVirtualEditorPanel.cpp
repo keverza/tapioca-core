@@ -37,14 +37,16 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
         s.tool = Tool::Curve;
-    // The gumball holds every transform; a single mode shows one alone.
+    // The gumball holds applicable transforms; the same table gates individual modes.
     if (ImGui::RadioButton ("Gumball", s.gizmo == edit::GizmoMode::Gumball))
         s.gizmo = edit::GizmoMode::Gumball;
     const char* modes[] = { "Move (G)", "Rotate (R)", "Scale (S)", "Stretch (T)", "Extrude (E)" };
     for (int i = 0; i < 5; ++i) {
         ImGui::SameLine ();
+        ImGui::BeginDisabled (!GizmoAvailable (s, edit::GizmoMode (i)));
         if (ImGui::RadioButton (modes[i], int (s.gizmo) == i))
-            s.gizmo = edit::GizmoMode (i);
+            SetGizmoMode (s, edit::GizmoMode (i));
+        ImGui::EndDisabled ();
     }
     // Snapping, in the groups a drafter thinks in.
     const auto group = [&] (const char* label, uint32_t bits) {

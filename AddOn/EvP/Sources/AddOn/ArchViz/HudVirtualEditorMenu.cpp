@@ -206,7 +206,8 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("gizmo.5", "Gumball", {}, true, s.gizmo == edit::GizmoMode::Gumball));
             for (int i = 0; i < 5; ++i)
                 if (i < 4 || (e != nullptr && e->kind == edit::Kind::Extrusion))
-                    items.push_back (Item ("gizmo." + std::to_string (i), modes[i], keys[i], true, int (s.gizmo) == i));
+                    items.push_back (Item ("gizmo." + std::to_string (i), modes[i], keys[i],
+                                           GizmoAvailable (s, edit::GizmoMode (i)), int (s.gizmo) == i));
             items.push_back (Item ("gizmo.local", "Axes along the shape", {}, true, s.localAxes));
             if (e != nullptr && e->kind == edit::Kind::Polyline && !e->closed)
                 AddActions (s, items, {});
@@ -356,7 +357,7 @@ void RunMenuItem (Session& s, const std::string& id)
     else if (id == "gizmo.local")
         s.localAxes = !s.localAxes;
     else if (id.rfind ("gizmo.", 0) == 0)
-        s.gizmo = edit::GizmoMode (std::stoi (id.substr (6)));
+        SetGizmoMode (s, edit::GizmoMode (std::stoi (id.substr (6))));
     else if (id == "segment.insert") {
         const edit::Ref r = s.menu.ref;
         const edit::Vec3 at = s.menu.at;

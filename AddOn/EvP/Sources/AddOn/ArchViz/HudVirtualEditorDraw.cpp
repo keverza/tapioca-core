@@ -27,8 +27,7 @@ edit::Frame GizmoFrame (const Session& s)
     if (s.pivot && s.pivotFor == items)
         f.origin = *s.pivot;
     // A face pushes or pulls along its normal: the gumball's Z arrow, or Extrude's one handle.
-    if ((s.gizmo == edit::GizmoMode::Extrude || s.gizmo == edit::GizmoMode::Gumball) && items.size () == 1 &&
-        items[0].part == edit::Part::Face)
+    if (items.size () == 1 && items[0].part == edit::Part::Face)
         if (const edit::Entity* e = edit::Find (s.edits.Doc (), items[0].entity)) {
             edit::FaceFrame (*e, items[0].item, f);
             return f;
@@ -43,6 +42,30 @@ edit::Frame GizmoFrame (const Session& s)
     if (s.gizmo == edit::GizmoMode::Stretch || (s.gizmo == edit::GizmoMode::Gumball && !custom))
         edit::FitBox (s.edits.Doc (), items, f);
     return f;
+}
+
+std::vector<edit::Handle> GizmoHandles (const Session& s, edit::GizmoMode mode)
+{
+    const auto& doc = s.edits.InGesture () ? s.edits.Before () : s.edits.Doc ();
+    const auto frame = s.drag == Drag::Handle ? s.frame : s.typedHandle >= 0 ? s.typedFrame : GizmoFrame (s);
+    return edit::Handles (mode, doc, s.selection.Items (), frame);
+}
+
+bool GizmoAvailable (const Session& s, edit::GizmoMode mode)
+{
+    const auto handles = GizmoHandles (s, mode);
+    return std::any_of (handles.begin (), handles.end (),
+                        [] (const edit::Handle& h) { return h.movable && h.kind != edit::HandleKind::Centre; });
+}
+
+bool SetGizmoMode (Session& s, edit::GizmoMode mode)
+{
+    if (!GizmoAvailable (s, mode)) {
+        s.message = "That control does not apply to this selection; paths use their own profile and width controls.";
+        return false;
+    }
+    s.gizmo = mode;
+    return true;
 }
 
 } // namespace geomsrv::archviz::edithud
@@ -303,8 +326,8 @@ void DrawGizmo (Session& s, const Map& m, const edit::Frame& f, edit::GizmoMode 
     }
     // Two passes: the gumball's scale boxes sit on its arrows' shafts and are drawn over them.
     for (int pass = 0; pass < 2; ++pass)
-        for (const auto& h : edit::Handles (mode)) {
-            if ((h.compact && h.kind == K::ScaleAxis) != (pass == 1))
+        for (const auto& h : GizmoHandles (s, mode)) {
+            if (!h.movable || (h.compact && h.kind == K::ScaleAxis) != (pass == 1))
                 continue;
             const bool on = int (h.index) == active;
             if (dragging && !on)
