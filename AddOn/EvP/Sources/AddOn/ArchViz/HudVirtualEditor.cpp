@@ -461,8 +461,20 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                 escape ();
                 break;
             case 0x0D:
-                if (s.tracker.State () == edit::TrackerState::Editing)
-                    TrackerEvent (s, s.tracker.Key ({ K::Enter }));
+                if (s.tracker.State () == edit::TrackerState::Editing) {
+                    // Parsing is not application: a number refused by the operation retains
+                    // its text, focus, locks and clicked-handle binding for correction.
+                    const edit::Tracker entry = s.tracker;
+                    const int handle = s.typedHandle;
+                    const auto event = s.tracker.Key ({ K::Enter });
+                    if (event.outcome == edit::Tracker::Outcome::Commit)
+                        s.message.clear ();
+                    TrackerEvent (s, event);
+                    if (event.outcome == edit::Tracker::Outcome::Commit && !s.message.empty ()) {
+                        s.tracker = entry;
+                        s.typedHandle = handle;
+                    }
+                }
                 else if (s.dragReleased && (s.drag == Drag::Handle || s.drag == Drag::Part))
                     EndDrag (s);
                 else if (!s.drawing.empty ())

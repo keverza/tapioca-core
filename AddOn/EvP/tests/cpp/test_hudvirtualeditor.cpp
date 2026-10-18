@@ -221,6 +221,80 @@ TEST (HudVirtualEditor, TypedLengthOnASelectedSegment)
     EXPECT_TRUE (labels[0].line);
 }
 
+TEST (HudVirtualEditor, ARefusedTrackerValueStaysAvailableForCorrection)
+{
+    Drive d (Corner ());
+    d.Press (700, 500);
+    d.Release (700, 500);
+    const auto original = d.D ().entities;
+    d.input.characters = u"-1";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().tracker.Text (), "-1");
+    EXPECT_FALSE (d.S ().message.empty ());
+    EXPECT_EQ (d.D ().entities, original);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x08);
+    d.Key (0x08);
+    d.input.characters = u"6";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 6.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, ARefusedClickedHandleRetainsItsBinding)
+{
+    auto doc = Corner ();
+    doc.entities[0].vertices[2].lockXY = true;
+    Drive d (std::move (doc));
+    d.S ().localAxes = false;
+    d.Press (800, 300);
+    d.Release (800, 300);
+    d.Press (840, 300);
+    d.Release (840, 300);
+    ASSERT_GE (d.S ().typedHandle, 0);
+    const int handle = d.S ().typedHandle;
+    d.input.characters = u"2";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().typedHandle, handle);
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().tracker.Text (), "2");
+    EXPECT_NE (d.S ().message.find ("locked"), std::string::npos);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x08);
+    d.input.characters = u"0"; // an unchanged valid value closes without an undo
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().typedHandle, -1);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_TRUE (d.S ().message.empty ());
+}
+
+TEST (HudVirtualEditor, ARefusedValueCannotCommitTheLastValidDrag)
+{
+    Drive d (Corner ());
+    d.Press (800, 500);
+    d.At (840, 500);
+    d.input.characters = u"-10"; // collapses the moved vertex onto its neighbour
+    d.Frame ();
+    d.Release (840, 500);
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Part);
+    EXPECT_TRUE (d.S ().edits.InGesture ());
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().tracker.Text (), "-10");
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 12.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x1B);
+    d.Key (0x1B);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 10.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
 TEST (HudVirtualEditor, UndoWaitsForTheNumberBeingTyped)
 {
     Drive d (Corner ());
