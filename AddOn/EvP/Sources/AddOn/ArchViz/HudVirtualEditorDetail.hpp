@@ -81,13 +81,14 @@ bool LabelClick (Session& s, ImVec2 mouse, bool hovered);
 bool LabelKeys (Session& s, const overlayhud::Input& v);
 // Whether two labels set the same value.
 bool SameLabel (const editlayers::MarkLabel& a, const editlayers::MarkLabel& b);
+bool LabelContains (const editlayers::Box& box, ImVec2 mouse);
 
 // The kerb corner a click picked, as it is now; null when none is.
 const edit::PavedCorner* PickedKerb (Session& s);
 // The picked kerb corner's radius, for the tracker to offer for typing; false when none is.
 bool KerbField (const Session& s, double& radius);
-// A typed radius for the picked kerb corner, cut to the most it can take (a negative one is
-// refused): false when no corner is picked (the value is someone else's).
+// A typed requested radius for the picked kerb corner; paving fits it without losing intent.
+// False when no corner is picked (the value is someone else's).
 bool TypeKerb (Session& s, double radius);
 // A captured bend/corner or kerb grip's exact radius, with its original target scope.
 // Empty outside an active radius drag; unsupported values are refused by the operation.

@@ -293,11 +293,11 @@ bool KerbField (const Session& s, double& radius)
 {
     if (!s.kerbPicked)
         return false;
-    radius = s.kerb.key.radius;
+    radius = s.kerb.requestedRadius;
     if (s.pavedRevision == Doc (s).revision)
         for (const auto& c : s.paved.corners)
             if (c.path == s.kerb.path && c.key.Same (s.kerb.key))
-                radius = c.key.radius;
+                radius = c.requestedRadius;
     return true;
 }
 
@@ -307,10 +307,13 @@ bool TypeKerb (Session& s, double radius)
     if (k == nullptr)
         return false;
     const edit::PavedCorner c = *k;
-    // A negative radius is refused, not made sharp; one past what the corner takes is cut to it.
-    const double r = radius < 0.0 ? radius : std::min (radius, c.maxRadius);
-    if (!s.edits.Apply (
-            [c, r] (edit::Document& d, std::string& e) { return edit::SetKerbRadius (d, c.path, c.key, r, e); }))
+    if (radius == c.requestedRadius) {
+        s.message.clear ();
+        return true;
+    }
+    if (!s.edits.Apply ([c, radius] (edit::Document& d, std::string& e) {
+            return edit::SetKerbRadius (d, c.path, c.key, radius, e);
+        }))
         s.message = s.edits.Message ();
     else
         s.message.clear ();
@@ -327,14 +330,8 @@ edit::Operation RadiusDragOperation (const Session& s, double radius)
         };
     if (s.drag == Drag::Kerb)
         return [c = s.kerb, radius] (edit::Document& d, std::string& e) {
-            // Exact entry cannot silently become the rendered cap. This is the captured
-            // grip's supported range, not a change to the document's global kerb policy.
-            if (radius > c.maxRadius) {
-                char text[96];
-                std::snprintf (text, sizeof text, "this corner supports a radius of at most %.3f m", c.maxRadius);
-                e = text;
-                return false;
-            }
+            if (radius == c.requestedRadius)
+                return true; // candidate is before: discard the preview without adding an override
             return edit::SetKerbRadius (d, c.path, c.key, radius, e);
         };
     return {};

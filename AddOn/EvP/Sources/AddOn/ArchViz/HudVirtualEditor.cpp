@@ -261,6 +261,8 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
             s.message = s.edits.Message ();
         else {
             s.dragValue = event.value;
+            if (s.drag == Drag::Kerb)
+                s.kerbPicked = true;
             if (event.outcome == O::Commit)
                 EndDrag (s);
             s.message.clear ();

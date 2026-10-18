@@ -1,4 +1,5 @@
 #include "ArchViz/EditLayers.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include "Edit/EditPathContours.hpp"
@@ -658,7 +659,12 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
             continue;
         if (l.line)
             DimensionLine (s, l, a, b, scale);
-        Ink (s, l.at, at, box, l.text, FromRgba (l.rgba), &l);
+        Ink (s, l.at, at, box, l.text, FromRgba (l.textRgba != 0 ? l.textRgba : l.rgba), &l);
+        if (l.limitedRadius && s.drag == Drag::None && LabelContains (box, ImGui::GetIO ().MousePos)) {
+            char text[128];
+            std::snprintf (text, sizeof text, "Fitted radius %.2f m. Requested %.2f m.", l.extent, l.kerb.radius);
+            hudshell::TipAt (ImGui::GetIO ().MousePos, hudshell::TipSide::Above, text);
+        }
     }
 }
 

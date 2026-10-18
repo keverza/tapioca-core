@@ -810,6 +810,10 @@ std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style
         l.typed = true;
         l.kerbPath = c.path;
         l.kerb = c.key;
+        l.kerb.radius = c.requestedRadius; // typing edits intent, never the fitted display value
+        l.limitedRadius = c.Limited ();
+        if (l.limitedRadius)
+            l.textRgba = style.limitedRadius;
         out.push_back (std::move (l));
     }
     return out;

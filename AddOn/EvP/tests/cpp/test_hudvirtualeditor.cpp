@@ -1109,23 +1109,31 @@ TEST (HudVirtualEditor, ATypedKerbDragSetsOnlyItsCapturedCorner)
     ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
     EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Radius);
     const auto preview = d.D ().paths;
-    d.input.characters = u"99";
+    d.input.characters = u"-1";
     d.Frame ();
     d.Release (t.x + 30, t.y + 30);
-    d.Key (0x0D); // exact entry must not silently cap to the grip's maximum
+    d.Key (0x0D); // negative input is still refused, not silently made sharp
     ASSERT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
     EXPECT_EQ (d.D ().paths, preview);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
     d.Key (0x08);
     d.Key (0x08);
-    d.input.characters = u"0.5";
+    d.input.characters = u"8.5"; // preserve the request beyond the current fitted maximum
     d.Frame ();
     d.Key (0x0D);
     EXPECT_EQ (d.S ().drag, eh::Drag::None);
     EXPECT_FALSE (d.S ().edits.InGesture ());
     ASSERT_EQ (d.D ().paths[0].kerbs.size (), 1u);
     EXPECT_TRUE (d.D ().paths[0].kerbs[0].Same (c.key));
-    EXPECT_DOUBLE_EQ (d.D ().paths[0].kerbs[0].radius, 0.5);
+    EXPECT_DOUBLE_EQ (d.D ().paths[0].kerbs[0].radius, 8.5);
+    bool limited = false;
+    for (const auto& fitted : ed::Pave (d.D ().paths, 0.5, false).corners)
+        if (fitted.key.Same (c.key)) {
+            EXPECT_DOUBLE_EQ (fitted.requestedRadius, 8.5);
+            EXPECT_DOUBLE_EQ (fitted.key.radius, fitted.maxRadius);
+            limited = fitted.Limited ();
+        }
+    EXPECT_TRUE (limited);
     EXPECT_DOUBLE_EQ (d.D ().paths[0].edgeRadius, 0.0);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
     d.input.keys = { { 'Z', true, false, true } };
@@ -1177,6 +1185,43 @@ TEST (HudVirtualEditor, ATypedJunctionRadiusCanBeCancelledOrCommitted)
         }
         EXPECT_FALSE (d.S ().edits.InGesture ());
     }
+}
+
+TEST (HudVirtualEditor, ALimitedKerbLabelEditsItsUnroundedRequestedRadius)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 8, 0, 0 } }, 4.0);
+    const double request = 10.123456789;
+    std::string error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, path, request, error)) << error;
+    Drive d (std::move (doc));
+    d.input.plan[0] = 100, d.input.plan[4] = -100, d.input.plan[2] = 300;
+    d.At (1100, 100);
+    bool purple = false;
+    for (const auto& vertex : d.Frame ().overlay.vertices)
+        purple = purple || vertex.rgba == geomsrv::archviz::hudshell::Unpacked (IM_COL32 (122, 63, 196, 255));
+    EXPECT_TRUE (purple);
+    eh::Session::PlacedLabel label;
+    bool found = false;
+    for (const auto& candidate : d.S ().placed)
+        if (candidate.target.limitedRadius && candidate.box.x0 > 0 && candidate.box.y0 > 0) {
+            label = candidate;
+            found = true;
+            break;
+        }
+    ASSERT_TRUE (found);
+    const float x = (label.box.x0 + label.box.x1) * 0.5f, y = (label.box.y0 + label.box.y1) * 0.5f;
+    d.Press (x, y);
+    d.Release (x, y);
+    ASSERT_TRUE (d.S ().labelOpen);
+    double edited = 0;
+    ASSERT_TRUE (ed::ParseNumber (d.S ().labelText, edited));
+    EXPECT_DOUBLE_EQ (edited, request); // not the smaller fitted text, and not rounded to two decimals
+    const auto before = d.D ().paths;
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().labelOpen);
+    EXPECT_EQ (d.D ().paths, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
 }
 
 TEST (HudVirtualEditor, SwitchingPlanAnd3DCancelsAnyGesture)

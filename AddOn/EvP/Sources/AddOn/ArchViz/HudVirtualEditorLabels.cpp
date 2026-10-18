@@ -4,6 +4,7 @@
 #include "Edit/EditPathNetwork.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 
 // Labels opened for typing: a click on a label of the view -- a path's height, grade,
@@ -60,6 +61,11 @@ bool Enter (Session& s)
     if (!edit::ParseNumber (s.labelText, value))
         return refuse ("Type a plain number; Enter applies, Esc cancels.");
     const editlayers::MarkLabel t = s.labelTarget;
+    if (t.kerbPath != edit::kNoId && value == t.kerb.radius) {
+        s.labelOpen = false;
+        s.message.clear ();
+        return true;
+    }
     edit::Operation op;
     if (t.kerbPath != edit::kNoId)
         op = [t, value] (edit::Document& d, std::string& e) {
@@ -95,6 +101,11 @@ bool Enter (Session& s)
 
 } // namespace
 
+bool LabelContains (const editlayers::Box& box, ImVec2 mouse)
+{
+    return Inside (box, mouse, 2.0f);
+}
+
 bool SameLabel (const editlayers::MarkLabel& a, const editlayers::MarkLabel& b)
 {
     if (a.kerbPath != b.kerbPath)
@@ -121,7 +132,26 @@ bool LabelClick (Session& s, ImVec2 mouse, bool hovered)
         s.labelSelected = true;
         s.labelTarget = it->target;
         s.labelRevision = Doc (s).revision;
-        s.labelText = Number (it->target.text);
+        if (it->target.kerbPath != edit::kNoId) {
+            // A fitted display is not the user's stored request. Edit that request with
+            // round-trip plain-number precision, so opening/confirming it loses no intent.
+            char text[2048];
+            const auto result =
+                std::to_chars (text, text + sizeof text, it->target.kerb.radius, std::chars_format::fixed);
+            if (result.ec != std::errc {}) {
+                s.labelOpen = false;
+                s.message = "The requested radius could not be formatted for editing.";
+                return true;
+            }
+            s.labelText.assign (text, result.ptr);
+            const auto dot = s.labelText.find ('.');
+            if (dot == std::string::npos)
+                s.labelText += ".00";
+            else if (s.labelText.size () - dot == 2)
+                s.labelText += '0';
+        }
+        else
+            s.labelText = Number (it->target.text);
         return true;
     }
     if (!s.labelOpen)

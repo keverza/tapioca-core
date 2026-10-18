@@ -2,6 +2,7 @@
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPathNetwork.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 
 namespace ed = geomsrv::edit;
@@ -230,6 +231,8 @@ TEST (EditPathNetwork, AFilletIsItsArcAloneAndKeepsToItsLegs)
     ASSERT_NE (now, nullptr);
     // The leg up B to C is 4 / sin 30 = 8 m: half of it, at this angle, takes about 1.05 m.
     EXPECT_LT (now->key.radius, 2.5);
+    EXPECT_DOUBLE_EQ (now->requestedRadius, 2.5);
+    EXPECT_TRUE (now->Limited ());
     EXPECT_NEAR (now->key.radius, 0.49 * 8.0 * std::tan (now->half), 0.05);
     // The paved area grows by that fillet and nothing else.
     const double r = now->key.radius, h = now->half;
@@ -239,4 +242,36 @@ TEST (EditPathNetwork, AFilletIsItsArcAloneAndKeepsToItsLegs)
     for (const auto& c : round.corners)
         if (!(c.path == acute->path && c.key.Same (acute->key)))
             EXPECT_DOUBLE_EQ (c.key.radius, 0.0);
+}
+
+TEST (EditPathNetwork, ARequestedKerbRadiusRecoversWhenIntersectingPathsMove)
+{
+    ed::Document doc;
+    const double cos30 = std::cos (0.5235987755982988), sin30 = std::sin (0.5235987755982988);
+    const ed::Id a = ed::AddPath (doc, { { -10, 0, 0 }, { 40, 0, 0 } }, 2.0);
+    const ed::Id b =
+        ed::AddPath (doc, { { 15 - 20 * cos30, -20 * sin30, 0 }, { 15 + 20 * cos30, 20 * sin30, 0 } }, 2.0);
+    const ed::Id across = ed::AddPath (doc, { { -10, 6, 0 }, { 40, 6, 0 } }, 2.0);
+    ed::PavedCorner corner;
+    for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
+        if (c.Involves (a) && c.Involves (b) && !c.convex && c.half < 0.3 && c.at.y > 0)
+            corner = c;
+    ASSERT_NE (corner.path, ed::kNoId);
+    std::string error;
+    ASSERT_TRUE (ed::SetKerbRadius (doc, corner.path, corner.key, 1.5, error)) << error;
+    for (const double shift : { 12.0, -12.0 }) {
+        const auto points = ed::FindPath (doc, across)->points;
+        for (const auto& point : points)
+            ASSERT_TRUE (ed::MovePathPoint (doc, across, point.id, point.p + ed::Vec3 { 0, shift, 0 }, error)) << error;
+        bool found = false;
+        for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
+            if (c.path == corner.path && c.key.Same (corner.key)) {
+                found = true;
+                EXPECT_DOUBLE_EQ (c.requestedRadius, 1.5);
+                EXPECT_DOUBLE_EQ (c.key.radius, std::min (1.5, c.maxRadius));
+                EXPECT_EQ (c.Limited (), shift < 0);
+            }
+        ASSERT_TRUE (found);
+        EXPECT_DOUBLE_EQ (ed::FindPath (doc, corner.path)->kerbs[0].radius, 1.5);
+    }
 }

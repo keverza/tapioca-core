@@ -14,6 +14,29 @@ TEST (EditLayers, FormatsDimensionLabels)
     EXPECT_EQ (el::FormatValue (ed::Quantity::Elevation, 1.5), "+1.50 m");
 }
 
+TEST (EditLayers, FittedKerbDimensionsKeepRequestedIntentAndUsePurpleTextOnly)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 4.0);
+    std::string error;
+    const el::Style style;
+    for (const double request : { 10.0, 0.5 }) {
+        ASSERT_TRUE (ed::SetPathEdgeRadius (doc, path, request, error)) << error;
+        size_t count = 0;
+        for (const auto& label : el::PathLabels (doc, style)) {
+            if (label.kerbPath == ed::kNoId)
+                continue;
+            ++count;
+            EXPECT_DOUBLE_EQ (label.kerb.radius, request);
+            EXPECT_EQ (label.limitedRadius, request > label.extent);
+            EXPECT_EQ (label.text, "R " + el::FormatValue (ed::Quantity::Radius, label.extent));
+            EXPECT_EQ (label.rgba, style.dimension); // no purple line/arrow or general palette change
+            EXPECT_EQ (label.textRgba, label.limitedRadius ? style.limitedRadius : 0u);
+        }
+        EXPECT_EQ (count, 4u);
+    }
+}
+
 TEST (EditLayers, EarClippingHandlesConcaveOutlines)
 {
     // An L: six corners, four triangles, none outside the L.

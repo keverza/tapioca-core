@@ -211,6 +211,7 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
             // outside corner's also cuts no deeper than most of the narrowest half width.
             const double legs = 0.49 * std::min (leg (i, -1), leg (i, 1)) * std::tan (c.half);
             c.maxRadius = std::min (legs, c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant);
+            c.requestedRadius = c.key.radius;
             c.key.radius = std::min (c.key.radius, c.maxRadius);
             c.at = { v.x, v.y, HeightAt (sources, v) };
             out.push_back (c);

@@ -34,7 +34,8 @@ struct Style {
     uint32_t gradeBreak = 0x1F7FC4FFu, fixedBreak = 0xD93A49FFu, fall = 0x0F7F84FFu;
     uint32_t junctionBreak = 0x7A3FC4FFu;                      // a grade break shared with a crossing path
     uint32_t contour = 0x8C939CB4u, contourText = 0x6E7682FFu; // grading guides: thin, grey
-    double pathStep = 0.5;                                     // metres between drawn path samples
+    uint32_t limitedRadius = 0x7A3FC4FFu; // editor-radius-limited token: fitted kerb dimension text only
+    double pathStep = 0.5;                // metres between drawn path samples
     float lineWidth = 2.0f, selectedWidth = 3.5f, vertexPixels = 7.0f;
     float textPixels = 12.0f;
 };
@@ -113,6 +114,8 @@ struct MarkLabel {
     edit::Vec3 at, side, along;
     std::string text;
     uint32_t rgba = 0;
+    uint32_t textRgba = 0; // optional text-only override; the dimension's line keeps rgba
+    bool limitedRadius = false;
     float dy = 0.0f;
     // A dimension's own line, `from` to `to`: ticked at both ends (a width across the path),
     // or with an arrow at `to` only (a radius, from its arc's centre). Worth showing only when

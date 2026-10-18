@@ -24,11 +24,16 @@ struct Document;
 struct PavedCorner {
     Id path = kNoId;
     KerbCorner key;
-    Vec3 at;              // the sharp corner, at the surface's height
-    Vec3 bisector;        // plan unit, into the wedge its rounding cuts (outside) or fills
-    double half = 0.0;    // half that wedge's angle
-    bool convex = true;   // an outside corner
-    double maxRadius = 0; // what it can take: most of the narrowest half width outside
+    Vec3 at;                      // the sharp corner, at the surface's height
+    Vec3 bisector;                // plan unit, into the wedge its rounding cuts (outside) or fills
+    double half = 0.0;            // half that wedge's angle
+    bool convex = true;           // an outside corner
+    double maxRadius = 0;         // what it can take: most of the narrowest half width outside
+    double requestedRadius = 0.0; // stored intent, retried when the surrounding paths change
+    bool Limited () const
+    {
+        return requestedRadius > key.radius + 1.0e-9;
+    }
     bool Involves (Id id) const
     {
         return path == id || key.other == id;
