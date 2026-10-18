@@ -916,40 +916,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     s.tracker.Show (TrackerFields (s, dims));
     // A gumball handle clicked, or dragged, offers its number at once: a field beside the handle
     // (or the pointer through a drag), the value selected so the first key typed replaces it.
-    const bool offered = !s.tracker.Items ().empty () &&
-                         (s.typedHandle >= 0 || (s.drag == Drag::Handle && s.dragStarted && s.handle >= 0) ||
-                          (s.drag == Drag::Part && s.dragStarted && s.dragTypable));
-    if (hovered && (s.tracker.State () == edit::TrackerState::Editing || offered)) {
-        const ImVec2 base = s.typedHandle >= 0 ? ImVec2 { s.startX, s.startY } : mouse;
-        float y = base.y + 20 * scale;
-        for (size_t i = 0; i < s.tracker.Items ().size (); ++i) {
-            const auto& item = s.tracker.Items ()[i];
-            const bool focused = i == s.tracker.Focus ();
-            const bool editing = s.tracker.State () == edit::TrackerState::Editing && focused;
-            const std::string name = std::string (edit::QuantityName (item.quantity)) + "  ";
-            const std::string value =
-                editing ? s.tracker.Text () + "_"
-                        : editlayers::FormatValue (item.quantity, item.locked ? item.lockedValue : item.value) +
-                              (item.locked ? "  (locked)" : "");
-            const std::string text = name + value;
-            const ImVec2 at { base.x + 18 * scale, y };
-            const ImVec2 size = ImGui::CalcTextSize (text.c_str ());
-            const ImVec2 lo { at.x - 4 * scale, at.y - 2 * scale },
-                hi { at.x + size.x + 4 * scale, at.y + size.y + 2 * scale };
-            draw->AddRectFilled (lo, hi, kPaper, 2.0f * scale);
-            if (focused) {
-                draw->AddRect (lo, hi, kHover, 2.0f * scale, 0, 1.0f * scale); // the field typing goes to
-                if (!editing && offered) {
-                    // Selected, as a field opened for typing is: the first key replaces it.
-                    const float from = at.x + ImGui::CalcTextSize (name.c_str ()).x;
-                    draw->AddRectFilled ({ from - 1 * scale, at.y }, { at.x + size.x + 1 * scale, at.y + size.y },
-                                         (kHover & 0x00FFFFFFu) | 0x40000000u);
-                }
-            }
-            draw->AddText (at, kInk, text.c_str ());
-            y += size.y + 6 * scale;
-        }
-    }
+    DrawTracker (s, mouse, hovered, scale);
     // One cursor per state, said every frame so nothing of Archicad's shows between them: a
     // crosshair while a drawing tool places points, the move cross on a handle and through any
     // drag, the arrow otherwise.

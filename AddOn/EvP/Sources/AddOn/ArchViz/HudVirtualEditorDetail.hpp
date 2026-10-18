@@ -108,6 +108,8 @@ void DrawContourLabels (Session& s, const Map& m, std::vector<editlayers::Box>& 
 // or, while `dragging`, held -- then it alone is drawn, with a guide along its axis.
 void DrawGizmo (Session& s, const Map& m, const edit::Frame& frame, edit::GizmoMode mode, double size, int active,
                 bool dragging, float scale);
+// The tracker's active numeric field, beside the pointer (or a clicked handle).
+void DrawTracker (Session& s, ImVec2 mouse, bool hovered, float scale);
 
 const edit::Document& Doc (const Session& s);
 // Ends the line a drawing tool is placing: a polyline or a path, selected.
