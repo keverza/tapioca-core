@@ -1138,17 +1138,19 @@ TEST (HudVirtualEditor, ATypedJunctionRadiusCanBeCancelledOrCommitted)
     ed::Document doc;
     const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
     ed::AddPath (doc, { { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
-    Drive d (std::move (doc));
-    d.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
-    const auto original = d.D ().paths;
+    const auto original = doc.paths;
     ed::PavedCorner c;
-    for (const auto& corner : ed::Pave (d.D ().paths, 0.5, false).corners)
+    for (const auto& corner : ed::Pave (doc.paths, 0.5, false).corners)
         if (corner.key.other != ed::kNoId)
             c = corner;
     ASSERT_NE (c.key.other, ed::kNoId);
     const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
     const auto g = screen (ed::KerbGripAt (c, 0.8)), to = screen (ed::KerbGripAt (c, 0.8) + c.bisector);
     for (const bool cancel : { true, false }) {
+        // Independent gestures, not two immediate same-position presses (the grip's sharp action).
+        Drive d (doc);
+        d.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+        SCOPED_TRACE (cancel);
         d.Press (g.x, g.y);
         d.At (to.x, to.y);
         ASSERT_EQ (d.S ().drag, eh::Drag::Kerb);
