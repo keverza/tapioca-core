@@ -18,6 +18,21 @@ namespace geomsrv::archviz::overlayinput::state {
 namespace {
 using events::PhysicalButtons;
 
+// ⚠️ THE NATIVE MIDDLE-BUTTON GESTURE OWNS THE SHOWN CURSOR WHILE IT IS HELD -- READ LIVE,
+// NEVER FROM A LATCH (2026-10-18). Archicad pans and zooms with the middle button, and its
+// gesture is not the HUD's: while it is held the HUD leaves the shown cursor alone. The state
+// that said so used to be `Target::navigating`, an edge latch set by a passed middle press and
+// cleared only when some later event was weighed -- so a release the hook never saw (the button
+// went up outside every window, or WH_MOUSE was refused) left the HUD unable to put its cursor
+// back at all, and `ReassertCursor` could not repair the message it was called for because the
+// latch it read was still one event behind. The physical button cannot be behind: it is false
+// the moment it is released, on the same message. `Target::navigating` stays the editing signal
+// the HUD publishes (`overlayhud::Input::navigating`); it just no longer licenses the cursor.
+bool NativeNavigation ()
+{
+    return (PhysicalButtons () & Bit (Button::Middle)) != 0;
+}
+
 // ---- the cursor over the HUD ------------------------------------------------------------
 // Resolved from the comctl32 Archicad has already loaded, as PlanFrameSession's: the add-on
 // gains no import for it.
@@ -200,7 +215,7 @@ HCURSOR DesiredCursor (const Target& target, Cursor& desired)
 
 bool ShowCursor (const Target& target)
 {
-    if (target.navigating || !OwnsPointer (target))
+    if (NativeNavigation () || !OwnsPointer (target))
         return false;
     Cursor desired = Cursor::Arrow;
     ::SetCursor (DesiredCursor (target, desired));
@@ -214,9 +229,13 @@ bool ShowCursor (const Target& target)
 // view the virtual editor's cursor flickered between the arrow and a crosshair). After anything
 // the canvas handled, a locked view whose pointer is the HUD's gets the HUD's cursor back --
 // counted, so a live run says whether, and how often, Archicad replaced it.
+// ⚠️ AND IT COMES BACK AT THE RELEASE ITSELF, NOT AT THE POINTER'S NEXT MOVE (2026-10-18): this
+// runs for every message the thread takes, and the native gesture's hold is read live
+// (`NativeNavigation`), so the middle button's own release message is enough to put the HUD's
+// cursor back with no further input of any kind.
 void ReassertCursor (const Target& target)
 {
-    if (target.navigating || !target.map.locked || !OwnsPointer (target))
+    if (NativeNavigation () || !target.map.locked || !OwnsPointer (target))
         return;
     Cursor desired = Cursor::Arrow;
     const HCURSOR cursor = DesiredCursor (target, desired);

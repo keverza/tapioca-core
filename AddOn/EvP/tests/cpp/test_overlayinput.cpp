@@ -19,9 +19,14 @@ int s_hostHovers = 0, s_hostLeaves = 0;
 int s_hostDeletes = 0;
 int s_hostMiddleDown = 0, s_hostMiddleUp = 0;
 int s_hostNavigationMoves = 0;
+constexpr UINT kHostCursorMessage = WM_APP + 43;
 
 LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if (message == kHostCursorMessage) {
+        ::SetCursor (::LoadCursorW (nullptr, MAKEINTRESOURCEW (32515)));
+        return 0;
+    }
     if (message == WM_MOUSEHOVER)
         ++s_hostHovers;
     if (message == WM_MOUSELEAVE)
@@ -146,6 +151,94 @@ TEST (OverlayInput, CapturedEditorNavigationIsPassedAndReported)
     input::Detach (input::View::Plan);
     ::DestroyWindow (canvas);
     Pump ();
+}
+
+// ⚠️ THE HUD'S CURSOR DOES NOT DEPEND ON THE NATIVE GESTURE'S RELEASE HAVING BEEN SEEN
+// (2026-10-18). The published cursor is the first thing the user sees change, and the virtual
+// editor's flickered "for seconds after" an interaction. Archicad's middle-button pan owns the
+// SHOWN cursor while it is held, and the state that said so was an edge latch set by a passed
+// middle press and cleared only when a later event was weighed -- so a release no event carried
+// (the button came up outside every window, or WH_MOUSE refused, which the code warns for) left
+// the HUD unable to put its cursor back at all, until the pointer moved again. The hold is now
+// read live, so the very next message the thread takes restores it with no pointer motion at all.
+TEST (OverlayInput, TheHudsCursorIsRestoredWithoutTheNavigationReleaseBeingSeen)
+{
+    const HMODULE controls = ::LoadLibraryW (L"comctl32.dll"); // the canvas subclass answers WM_SETCURSOR
+    ASSERT_NE (controls, nullptr);
+    // ⚠️ THE CURSORS BY EXPLICIT WIDE IDS: this test build has no UNICODE `IDC_*` (the macros expand
+    // to `MAKEINTRESOURCEA`), so they do not type as `LPCWSTR` for `LoadCursorW`. 32512 is
+    // `IDC_ARROW`, 32515 is `IDC_CROSS` (winuser.h).
+    const HCURSOR arrow = ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32512));
+    const HCURSOR cross = ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32515));
+    ASSERT_NE (arrow, nullptr);
+    ASSERT_NE (cross, nullptr);
+    const HWND canvas = Canvas (), other = Canvas ();
+    ASSERT_NE (canvas, nullptr);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    Pump ();
+    ASSERT_TRUE (input::GetStats ().subclassed[1]) << "the canvas must be the one that shows the cursor";
+
+    // A HUD gesture holds the pointer, then a native middle-button pan runs through it: the pan
+    // is passed to Archicad, the HUD's own press is not (`NavigationPassesDuringACapturedHudGesture`).
+    ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
+    ::PostMessageW (canvas, WM_MBUTTONDOWN, MK_LBUTTON | MK_MBUTTON, MAKELPARAM (40, 40));
+    ::PostMessageW (canvas, WM_MOUSEMOVE, MK_LBUTTON | MK_MBUTTON, MAKELPARAM (50, 40));
+    Pump ();
+    // The release is never delivered: the button is up -- nothing physical is held -- and the next
+    // message the thread takes belongs to another window, as Archicad's own messages do.
+    ::SetCursor (cross); // what Archicad left on the pan
+    ::PostMessageW (other, WM_NULL, 0, 0);
+    Pump ();
+    EXPECT_EQ (::GetCursor (), arrow) << "the HUD's cursor comes back at the next message, with no next move";
+
+    // And with the release itself delivered, it is back on that message -- again without motion.
+    ::PostMessageW (canvas, WM_MBUTTONDOWN, MK_LBUTTON | MK_MBUTTON, MAKELPARAM (50, 40));
+    Pump ();
+    ::SetCursor (cross);
+    ::PostMessageW (canvas, WM_MBUTTONUP, MK_LBUTTON, MAKELPARAM (50, 40));
+    Pump ();
+    EXPECT_EQ (::GetCursor (), arrow) << "the release message is enough";
+
+    input::Shutdown ();
+    ::DestroyWindow (other);
+    ::DestroyWindow (canvas);
+    ::FreeLibrary (controls);
+}
+
+TEST (OverlayInput, TheHudsCursorWinsAfterAnotherWindowDispatches)
+{
+    const HMODULE controls = ::LoadLibraryW (L"comctl32.dll");
+    ASSERT_NE (controls, nullptr);
+    const HWND canvas = Canvas (), other = Canvas ();
+    ASSERT_NE (canvas, nullptr);
+    ASSERT_NE (other, nullptr);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    Pump ();
+    // Capture belongs to the HUD. A different native window then overwrites its cursor
+    // inside dispatch, after WH_GETMESSAGE has already run. No next message repairs it.
+    ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
+    Pump ();
+    ::SendMessageW (other, kHostCursorMessage, 0, 0);
+    EXPECT_EQ (::GetCursor (), ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32512)))
+        << "a sent native message is repaired before its caller regains control";
+    ::PostMessageW (other, kHostCursorMessage, 0, 0);
+    Pump ();
+    EXPECT_EQ (::GetCursor (), ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32512)));
+    input::Shutdown ();
+    ::SendMessageW (other, kHostCursorMessage, 0, 0);
+    EXPECT_EQ (::GetCursor (), ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32515)))
+        << "shutdown removes the thread-local post-dispatch cursor hook";
+    ::DestroyWindow (other);
+    ::DestroyWindow (canvas);
+    ::FreeLibrary (controls);
 }
 
 // ⚠️ THE USER, 2026-09-30: after 3D -> plan -> 3D, and after the 3D window was closed and

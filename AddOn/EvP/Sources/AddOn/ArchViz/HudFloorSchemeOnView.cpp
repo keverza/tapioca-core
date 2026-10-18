@@ -128,7 +128,7 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
                 ImGui::EndDragDropTarget ();
             }
         }
-        if (hovered && active.empty ()) {
+        if (onto.onView && active.empty ()) {
             hudshell::OwnCursor ();
             ImGui::SetMouseCursor (ImGuiMouseCursor_Arrow);
         }
@@ -174,7 +174,10 @@ void OnView (std::map<std::string, EditorPtr>& editors, bp::Planner& planner,
                     pick = Pick { s.key, &floor, Mid (f.shape), std::move (screen) };
             }
         }
-    if (hovered) {
+    // ⚠️ THE POINTER'S PLACE, NOT IMGUI'S HOVER (2026-10-18): the claim below is owed wherever the
+    // pointer is on the view (`ViewOnto::onView`); `hovered` above and below is the picking
+    // predicate and is left exactly as it was.
+    if (onto.onView) {
         hudshell::OwnCursor ();
         ImGui::SetMouseCursor (pick ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
     }

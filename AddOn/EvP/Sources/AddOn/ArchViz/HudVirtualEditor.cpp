@@ -927,7 +927,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // One cursor per state, said every frame so nothing of Archicad's shows between them: a
     // crosshair while a drawing tool places points, the move cross on a handle and through any
     // drag, the arrow otherwise.
-    if (hovered) {
+    if (v.pointer && !v.overHud) {
         const bool dragging = s.drag != Drag::None && s.drag != Drag::Marquee; // the profile's are the panel's
         hudshell::OwnCursor (s.tool != Tool::Select && s.drag == Drag::None);
         if (s.tool == Tool::Curve && s.drag == Drag::None) {

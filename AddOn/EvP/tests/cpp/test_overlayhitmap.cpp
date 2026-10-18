@@ -34,6 +34,13 @@ TEST (OverlayHitMap, LockedCanvasDoesNotInheritAStalePanelHandButKeepsEditingAnd
     EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Move);
     map.cursor = uint8_t (input::Cursor::Cross);
     EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Cross);
+    // ⚠️ THE TOOL'S OWN CURSORS ARE NEVER THE HAND RULE'S TO TAKE (2026-10-18): only a HAND is
+    // downgraded on a locked view away from a region. The pen, the pen that closes and the drawing
+    // cross pass through -- which is what lets a locked view show the tool's cursor at all.
+    for (const input::Cursor tool : { input::Cursor::Pen, input::Cursor::PenClose, input::Cursor::Cross }) {
+        map.cursor = uint8_t (tool);
+        EXPECT_EQ (input::CursorFor (map, false, false), tool);
+    }
     map.locked = false;
     map.cursor = uint8_t (input::Cursor::Hand);
     EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Hand);

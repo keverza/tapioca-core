@@ -56,11 +56,15 @@ using state::ViewOf;
 // its paced redraw a timer of id 1 + view.
 constexpr wchar_t kWindowClass[] = L"TapiocaOverlayInput";
 constexpr UINT kRefreshMessage = WM_APP + 1;
+constexpr UINT kCursorRepairMessage = WM_APP + 2;
 constexpr UINT_PTR kRedrawTimer = 1;
 // At most one redraw a view this often for the HUD: about sixty a second.
 constexpr uint64_t kRedrawMs = 16; // hover feedback follows the pointer at up to 60 Hz
 
 HHOOK g_hook = nullptr;
+HHOOK s_returnHook = nullptr;
+bool s_repairingCursor = false;
+bool s_cursorRepairPending = false;
 // ⚠️ THE BUTTONS ARE DECIDED A STEP EARLIER, BY A THREAD-LOCAL WH_MOUSE HOOK (the user,
 // 2026-09-30: a right click on the HUD still reached Archicad). Windows takes a button
 // message off the queue in stages: the mouse hook first, then it SENDS the canvas's parent
@@ -458,6 +462,15 @@ LRESULT CALLBACK GetMessageProc (int code, WPARAM wParam, LPARAM lParam)
             for (const Target& target : g_targets)
                 if (target.subclassed)
                     ReassertCursor (target);
+        // WH_CALLWNDPROCRET covers sent messages, not DispatchMessage's posted messages.
+        // Coalesce one cursor-only turn after this dispatch, even if the pointer stops.
+        if (removing && (original != kCursorRepairMessage || window != g_window) && !s_cursorRepairPending &&
+            g_window != nullptr)
+            for (const Target& target : g_targets)
+                if (target.subclassed && target.map.locked && state::OwnsPointer (target)) {
+                    s_cursorRepairPending = ::PostMessageW (g_window, kCursorRepairMessage, 0, 0) != 0;
+                    break;
+                }
         if (original >= WM_MOUSEFIRST && original <= WM_MOUSELAST)
             Consider (*message, removing);
         else if (original == WM_MOUSEHOVER) {
@@ -493,6 +506,36 @@ LRESULT CALLBACK IdleProc (int code, WPARAM wParam, LPARAM lParam)
                 ReassertCursor (target);
     }
     return ::CallNextHookEx (g_idleHook, code, wParam, lParam);
+}
+
+// OVERLAY-INVARIANTS.md §15: another native window can replace the cursor INSIDE dispatch.
+// A pre-dispatch repair cannot win that write. This hook is local to our input thread.
+LRESULT CALLBACK ReturnProc (int code, WPARAM wParam, LPARAM lParam)
+{
+    const LRESULT result = ::CallNextHookEx (s_returnHook, code, wParam, lParam);
+    if (code == HC_ACTION && !s_repairingCursor) {
+        s_repairingCursor = true;
+        for (const Target& target : g_targets)
+            if (target.subclassed)
+                ReassertCursor (target);
+        s_repairingCursor = false;
+    }
+    return result;
+}
+
+void FollowReturnHook ()
+{
+    if (g_hook != nullptr && s_returnHook == nullptr) {
+        s_returnHook = ::SetWindowsHookExW (WH_CALLWNDPROCRET, &ReturnProc, nullptr, ::GetCurrentThreadId ());
+        if (s_returnHook == nullptr)
+            ArchVizLog ("OVERLAY INPUT  SetWindowsHookEx(WH_CALLWNDPROCRET) failed with GetLastError " +
+                        std::to_string (::GetLastError ()) + ": native dispatch may replace the HUD cursor");
+    }
+    else if (g_hook == nullptr && s_returnHook != nullptr) {
+        ::UnhookWindowsHookEx (s_returnHook);
+        s_returnHook = nullptr;
+        s_repairingCursor = false;
+    }
 }
 
 // With the message hook: the cursor's repair needs it always, the click meter while armed.
@@ -547,6 +590,13 @@ void Pace (Target& target)
 
 LRESULT CALLBACK WindowProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if (message == kCursorRepairMessage) {
+        s_cursorRepairPending = false;
+        for (const Target& target : g_targets)
+            if (target.subclassed)
+                ReassertCursor (target);
+        return 0; // cursor only: no layout, geometry publication, redraw or navigation
+    }
     if (message == kRefreshMessage && wParam <= 1) {
         Target& target = g_targets[wParam];
         // ⚠️ CLEARED BEFORE THE LAYOUT: input arriving during it asks for another.
@@ -644,6 +694,8 @@ void Uninstall ()
         ArchVizLog ("OVERLAY INPUT  the HUD's message hook removed");
     }
     FollowIdleHook ();
+    FollowReturnHook ();
+    s_cursorRepairPending = false;
     // ⚠️ NOT GUARDED ON THE HOOK: the window can exist without it, and a window whose
     // procedure lives in a DLL about to unload is Windows calling into freed code.
     if (g_window != nullptr) {
@@ -737,6 +789,7 @@ bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error)
         }
         ArchVizLog ("OVERLAY INPUT  the HUD's message hook installed on this thread");
         FollowIdleHook ();
+        FollowReturnHook ();
     }
     if (g_mouseHook == nullptr) {
         g_mouseHook = ::SetWindowsHookExW (WH_MOUSE, &MouseProc, nullptr, ::GetCurrentThreadId ());

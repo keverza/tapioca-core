@@ -92,6 +92,7 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
         else if (!store->roofEditor && !store->virtualEditor) {
             hudfloorscheme::ViewOnto onto;
             onto.planar = input.planar;
+            onto.onView = input.pointer && !input.overHud;
             std::copy (std::begin (input.plan), std::end (input.plan), onto.plan);
             onto.project = input.project;
             // 3D with the cells shown: the solids are what is picked (PickCell).

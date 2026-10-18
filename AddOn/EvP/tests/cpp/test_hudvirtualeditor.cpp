@@ -2,6 +2,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
@@ -14,6 +15,7 @@ namespace eh = geomsrv::archviz::edithud;
 namespace el = geomsrv::archviz::editlayers;
 namespace hud = geomsrv::archviz::overlayhud;
 namespace layers = geomsrv::archviz::overlaylayers;
+namespace oi = geomsrv::archviz::overlayinput;
 
 namespace {
 // The locked plan view: model (x, y) shows at (600 + 20 x, 500 - 20 y).
@@ -547,6 +549,25 @@ TEST (HudVirtualEditor, NavigationPausesAndRebasesAPartDragWithoutHistory)
     d.input.keys = { { 'Z', true, false, true } };
     d.Frame ();
     EXPECT_EQ (d.D ().entities, before);
+}
+
+TEST (HudVirtualEditor, TheToolCursorIsClaimedWhereverThePointerIsOnTheView)
+{
+    Drive d (Corner ());
+    d.S ().tool = eh::Tool::Curve;
+    d.At (600, 500);
+    ASSERT_EQ (d.Frame ().cursor, uint8_t (oi::Cursor::Pen)) << "the pen on the view, before any navigation";
+    // The native middle-button gesture: editing is suspended for it, the cursor is not.
+    d.input.navigating = true;
+    EXPECT_EQ (d.Frame ().cursor, uint8_t (oi::Cursor::Pen))
+        << "navigation suspends editing, not the cursor the HUD has published";
+    d.input.navigating = false;
+    EXPECT_EQ (d.Frame ().cursor, uint8_t (oi::Cursor::Pen)) << "the pen is still the pen once it ends";
+    // Over the HUD -- a panel, a legend, the open menu -- the pointer is not the tool's.
+    d.input.overHud = true;
+    EXPECT_NE (d.Frame ().cursor, uint8_t (oi::Cursor::Pen)) << "over the HUD the tool's cursor is not claimed";
+    d.input.overHud = false;
+    EXPECT_EQ (d.Frame ().cursor, uint8_t (oi::Cursor::Pen)) << "and it is claimed again back on the view";
 }
 
 TEST (HudVirtualEditor, NavigationRebasesAHandleAndKeepsItsTypedTotal)

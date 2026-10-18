@@ -400,7 +400,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 }
             }
     }
-    if (hovered) {
+    // ⚠️ THE POINTER'S PLACE, NOT IMGUI'S HOVER (2026-10-18, the virtual editor's report): the
+    // claim below is owed wherever the pointer is on the view, `Input::pointer` with
+    // `Input::overHud`. `hovered` stays the picking predicate above; `ImGui::IsWindowHovered()` is
+    // false while a HUD popup is open or any item elsewhere holds ActiveId, and each of those used
+    // to hand the arrow back in the middle of an interaction.
+    if (v.pointer && !v.overHud) {
         hudshell::OwnCursor ();
         ImGui::SetMouseCursor (fieldHovered ? ImGuiMouseCursor_TextInput
                                : hit.kind   ? ImGuiMouseCursor_ResizeAll

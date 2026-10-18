@@ -66,6 +66,11 @@ struct ViewOnto {
     // (user, 2026-10-16: "click through floor in 3D selection is BAD UI. So make cells selectable on
     // any floor"). Unset: the flats of each building's shown floor, as their outlines on it.
     std::function<std::optional<Hit> (float x, float y)> pick;
+    // ⚠️ THE POINTER IS ON THE VIEW, from the input layer's own answer (`Input::pointer` with
+    // `Input::overHud`, never ImGui's hover: that is an input-priority predicate and is false under
+    // an open HUD popup or a foreign ActiveId). It licenses the HUD's CURSOR claim alone; `hovered`
+    // still decides every pick, press and drag (2026-10-18, the virtual editor's cursor report).
+    bool onView = false;
 };
 // ⚠️ THE FLOOR PLAN EDITED ON THE VIEW ITSELF while the dock's lock is on (the user, 2026-10-10),
 // in the HUD's window over the whole view (`hovered`: the pointer is there, not on a panel). In
