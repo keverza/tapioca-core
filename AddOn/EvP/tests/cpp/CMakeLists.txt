@@ -556,6 +556,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudRoof.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDrawing.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorNavigation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPanel.cpp"
