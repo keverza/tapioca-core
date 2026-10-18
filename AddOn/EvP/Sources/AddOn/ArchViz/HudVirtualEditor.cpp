@@ -202,43 +202,12 @@ void Escape (Session& s)
         s.close = true;
 }
 
-// The view went from plan to 3D or back. No gesture carries into the other projection: a drag
-// of the view of any kind gives up its preview and the document is as it was before it, and
-// what waited on the pointer -- the pen's press, a handle or a label waiting for its number,
-// hover and snap -- is let go. A line being drawn keeps its points: they are model points, and
-// the next click places the next one in the new view. The profile's drags are the panel's.
-void ViewSwitched (Session& s,
-                   const char* reason = "The view changed between plan and 3D; the edit in progress was cancelled.")
-{
-    bool cancelled = s.typedHandle >= 0 || s.labelOpen || s.penDown;
-    if (s.drag != Drag::None && s.drag != Drag::ProfileBreak && s.drag != Drag::ProfileTangent) {
-        cancelled = cancelled || s.drag != Drag::Marquee || s.edits.InGesture ();
-        s.edits.Cancel ();
-        s.drag = Drag::None;
-        s.dragStarted = false;
-        s.wholeGrab = false;
-    }
-    if (s.tracker.State () == edit::TrackerState::Editing)
-        s.tracker.Key ({ edit::TrackerKey::Kind::Escape }), cancelled = true;
-    s.typedHandle = -1;
-    s.labelOpen = false;
-    s.penDown = false;
-    s.snap = {};
-    s.selection.hover = {};
-    s.hoverHandle = s.hoverCorner = s.hoverKerb = s.hoverBezier = -1;
-    s.navigation = {};
-    s.dragReleased = false;
-    s.dragPointerPause.reset ();
-    if (cancelled)
-        s.message = reason;
-}
-
 void CheckView (Session& s, const overlayhud::Input& v)
 {
     if (s.viewPlanar && *s.viewPlanar != v.planar)
-        ViewSwitched (s);
+        CancelViewEdit (s, "The view changed between plan and 3D; the edit in progress was cancelled.");
     if (s.viewIdentity != 0 && v.viewIdentity != 0 && s.viewIdentity != v.viewIdentity)
-        ViewSwitched (s, "The host window changed; the edit in progress was cancelled.");
+        CancelViewEdit (s, "The host window changed; the edit in progress was cancelled.");
     s.viewPlanar = v.planar;
     s.viewIdentity = v.viewIdentity;
 }

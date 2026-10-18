@@ -100,6 +100,7 @@ inline bool DragPointerMoves (const Session& s, ImVec2 mouse)
 }
 // Same-view navigation pauses operation input, never the immutable session baseline.
 void Navigate (Session& s, const Map& m, ImVec2 mouse);
+void CancelViewEdit (Session& s, const char* reason);
 bool DragOnto (const Session& s, const Map& m, ImVec2 mouse, double z, edit::Vec3 seed, edit::Vec3& out);
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
