@@ -1657,6 +1657,31 @@ TEST (HudVirtualEditor, TransientFeedbackIsAnchoredToTheModel)
     EXPECT_GT (anchored, 0u) << "gizmo handles reproject at Present like the roof grips";
 }
 
+TEST (HudVirtualEditor, PerspectiveGizmoSizeDoesNotFollowThePointerDepth)
+{
+    Drive d (Corner ());
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Vertex, d.D ().entities[0].vertices.back ().id } });
+    d.input.planar = false;
+    d.input.project = [] (double x, double y, double z, float& px, float& py) {
+        const double w = 1 + 0.03 * y + 0.015 * z;
+        px = float (600 + 20 * x / w), py = float (500 - (20 * y + 5 * z) / w);
+        return w > 0;
+    };
+    const auto extent = [&] (float x, float y) {
+        d.input.x = x, d.input.y = y;
+        const auto layout = d.Frame ();
+        double maxX = -1e9;
+        for (const auto& vertex : layout.overlay.vertices)
+            if (vertex.modelAnchored)
+                maxX = std::max (maxX, vertex.model[0]);
+        return maxX;
+    };
+    const double near = extent (1100, 100);
+    const double far = extent (1100, 700);
+    ASSERT_GT (near, 10);
+    EXPECT_DOUBLE_EQ (near, far) << "the manipulator is sized at its pivot, not under the pointer";
+}
+
 TEST (HudVirtualEditor, StartingReplacesARoofSessionAndTheReverse)
 {
     Drive d (Corner ());

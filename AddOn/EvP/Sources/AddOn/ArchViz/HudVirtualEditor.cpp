@@ -586,7 +586,11 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     const bool gizmo = GizmoShown (s);
     const edit::Frame frame = gizmo ? GizmoFrame (s) : edit::Frame {};
     const auto handles = edit::Handles (s.gizmo);
-    const double gizmoSize = kGizmoPixels * scale * m.MetresPerPixel (mouse.x, mouse.y, frame.origin.z, frame.origin);
+    ImVec2 pivotPixel;
+    const double gizmoSize =
+        m.Screen (frame.origin, pivotPixel)
+            ? kGizmoPixels * scale * m.MetresPerPixel (pivotPixel.x, pivotPixel.y, frame.origin.z, frame.origin)
+            : 0;
 
     // Hover: a gizmo handle first, then the document.
     std::vector<edit::PickHit> hits;
