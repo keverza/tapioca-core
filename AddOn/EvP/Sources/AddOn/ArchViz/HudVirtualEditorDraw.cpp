@@ -10,6 +10,43 @@
 #include <cmath>
 #include <cstdio>
 
+namespace geomsrv::archviz::edithud {
+
+edit::Frame GizmoFrame (const Session& s)
+{
+    edit::Frame f;
+    const auto& items = s.selection.Items ();
+    size_t n = 0;
+    for (const auto& r : items) {
+        edit::Vec3 p;
+        if (edit::PointOf (s.edits.Doc (), r, p))
+            f.origin = f.origin + p, ++n;
+    }
+    if (n != 0)
+        f.origin = f.origin * (1.0 / double (n));
+    if (s.pivot && s.pivotFor == items)
+        f.origin = *s.pivot;
+    // A face pushes or pulls along its normal: the gumball's Z arrow, or Extrude's one handle.
+    if ((s.gizmo == edit::GizmoMode::Extrude || s.gizmo == edit::GizmoMode::Gumball) && items.size () == 1 &&
+        items[0].part == edit::Part::Face)
+        if (const edit::Entity* e = edit::Find (s.edits.Doc (), items[0].entity)) {
+            edit::FaceFrame (*e, items[0].item, f);
+            return f;
+        }
+    if (s.localAxes) {
+        const edit::Frame local = edit::SelectionFrame (s.edits.Doc (), items, f.origin);
+        for (int i = 0; i < 3; ++i)
+            f.axes[i] = local.axes[i];
+    }
+    // A relocated pivot has no side grips: the box stays with the selection.
+    const bool custom = s.pivot && s.pivotFor == items;
+    if (s.gizmo == edit::GizmoMode::Stretch || (s.gizmo == edit::GizmoMode::Gumball && !custom))
+        edit::FitBox (s.edits.Doc (), items, f);
+    return f;
+}
+
+} // namespace geomsrv::archviz::edithud
+
 // What the virtual editor draws on the locked view beyond picking feedback: the live
 // dimensions of the selection and the paths' labels, placed so that no label sits on the
 // gizmo or another label. A label is secondary: plain ink, no pill, reading along what it

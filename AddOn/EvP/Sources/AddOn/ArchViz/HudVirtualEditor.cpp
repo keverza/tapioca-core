@@ -108,22 +108,6 @@ std::vector<edit::Ref> Exclusions (const edit::Document& doc, const std::vector<
     return out;
 }
 
-bool Centre (const Session& s, Vec3& centre)
-{
-    const auto& items = s.selection.Items ();
-    Vec3 sum;
-    size_t n = 0;
-    for (const auto& r : items) {
-        Vec3 p;
-        if (edit::PointOf (Doc (s), r, p))
-            sum = sum + p, ++n;
-    }
-    if (n == 0)
-        return false;
-    centre = sum * (1.0 / double (n));
-    return true;
-}
-
 bool GizmoShown (const Session& s)
 {
     return s.tool == Tool::Select && !s.selection.Items ().empty () &&
@@ -398,33 +382,6 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         items.push_back ({ d.quantity, value });
     }
     return items;
-}
-
-edit::Frame GizmoFrame (const Session& s)
-{
-    edit::Frame f;
-    Centre (s, f.origin);
-    const auto& items = s.selection.Items ();
-    if (s.pivot && s.pivotFor == items)
-        f.origin = *s.pivot;
-    // A face pushes or pulls along its normal: the gumball's Z arrow, or Extrude's one handle.
-    if ((s.gizmo == edit::GizmoMode::Extrude || s.gizmo == edit::GizmoMode::Gumball) && items.size () == 1 &&
-        items[0].part == edit::Part::Face)
-        if (const edit::Entity* e = edit::Find (Doc (s), items[0].entity)) {
-            edit::FaceFrame (*e, items[0].item, f);
-            return f;
-        }
-    if (s.localAxes) {
-        const edit::Frame local = edit::SelectionFrame (Doc (s), items, f.origin);
-        for (int i = 0; i < 3; ++i)
-            f.axes[i] = local.axes[i];
-    }
-    // Stretch grips stand on the sides of the selection's box, centred on it. The gumball stands
-    // there too, unless its pivot was put elsewhere: then it has no box, and no side grips.
-    const bool custom = s.pivot && s.pivotFor == items;
-    if (s.gizmo == edit::GizmoMode::Stretch || (s.gizmo == edit::GizmoMode::Gumball && !custom))
-        edit::FitBox (Doc (s), items, f);
-    return f;
 }
 
 const edit::Path* ProfilePath (const Session& s)
