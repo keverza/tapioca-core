@@ -182,7 +182,7 @@ TEST (HudVirtualEditor, ADistanceTypedThroughAPartDragMovesItThatFar)
     d.Release (860, 520);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
 
-    // Released while typed, then given up: the drag ends where it was when typing began.
+    // Released while typed, then given up: the preview stays uncommitted until explicitly ended.
     d.S ().selection.Clear (); // no gumball over it: a press on it is the part's
     d.Press (900, 500);        // the vertex, now at (15, 0)
     d.At (920, 500);
@@ -191,9 +191,14 @@ TEST (HudVirtualEditor, ADistanceTypedThroughAPartDragMovesItThatFar)
     d.Release (920, 500);
     EXPECT_EQ (d.S ().drag, eh::Drag::Part);
     d.Key (0x1B);
-    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Part);
+    EXPECT_TRUE (d.S ().edits.InGesture ());
     EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 16.0, 1e-6);
-    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 15.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
 }
 
 TEST (HudVirtualEditor, TypedLengthOnASelectedSegment)
@@ -354,15 +359,86 @@ TEST (HudVirtualEditor, AReleaseWhileANumberIsTypedWaitsForIt)
     EXPECT_EQ (d.S ().drag, eh::Drag::None);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
 
-    // Given up instead, the drag ends where the release left it.
+    // Giving up the number is not permission to commit the released drag.
     DragTheXArrow (d, 15); // the vertex is at (17, 10)
     d.input.characters = u"1";
     d.Frame ();
     d.Release (980, 300);
     d.Key (0x1B);
-    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    EXPECT_TRUE (d.S ().edits.InGesture ());
     EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 17.0, 1e-6);
-    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 15.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, AReleasedNumericDragCanExplicitlyFinishItsCheckpoint)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.Release (940, 340); // moving the pointer while typing must not change the checkpoint
+    d.Key (0x1B);
+    d.At (950, 350);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_FALSE (d.S ().message.empty ()); // the waiting drag is explained, not hidden
+    d.Key (0x0D);                           // Enter without a field explicitly finishes the preserved preview
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10.0, 1e-9);
+    d.input.keys = { { 'Y', true, false, true } };
+    d.Frame ();
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+}
+
+TEST (HudVirtualEditor, AReleasedPartDragCanRetypeBeforeFinishing)
+{
+    Drive d (Corner ());
+    d.Press (800, 500);
+    d.At (840, 500);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.Release (880, 500);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Part);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.input.characters = u"3";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 13.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, EscapeRestoresTheNumericCheckpointEvenAfterPointerMovement)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.At (940, 340);
+    d.Key (0x1B);
+    EXPECT_NE (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+    d.Frame (); // repeated layout is not a new pointer move
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+    d.Key (0x1B);
+    d.Release (940, 340);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10.0, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
 }
 
 TEST (HudVirtualEditor, GumballHoldsEveryTransform)

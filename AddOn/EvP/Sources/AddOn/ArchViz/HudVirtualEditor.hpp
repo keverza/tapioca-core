@@ -84,6 +84,8 @@ struct Session {
     // being typed (the number, not the release, ends the gesture then).
     double dragValue = 0.0;
     bool dragReleased = false;
+    // After leaving numeric entry, keep its preview until the pointer actually moves again.
+    std::optional<std::pair<float, float>> dragPointerPause;
     // A part drag that moves its items (not a path's width or grade break): the way they have
     // gone so far, in plan, which a typed distance keeps -- unset until the pointer has moved.
     bool dragTypable = false;

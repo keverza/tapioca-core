@@ -180,6 +180,20 @@ void EndHandleDrag (Session& s)
     s.dragReleased = false;
 }
 
+void EndDrag (Session& s)
+{
+    if (s.drag == Drag::Handle)
+        EndHandleDrag (s);
+    else {
+        s.edits.End ();
+        s.drag = Drag::None;
+        s.dragReleased = false;
+        s.snap = {};
+    }
+    s.dragPointerPause.reset ();
+    s.message.clear ();
+}
+
 void Escape (Session& s)
 {
     if (s.tracker.State () == edit::TrackerState::Editing)
@@ -189,7 +203,10 @@ void Escape (Session& s)
     else if (s.drag != Drag::None) {
         s.edits.Cancel ();
         s.drag = Drag::None;
+        s.dragReleased = false;
+        s.dragPointerPause.reset ();
         s.snap = {};
+        s.message.clear ();
     }
     else if (!s.drawing.empty ())
         s.drawing.clear (), s.references.clear ();
@@ -409,8 +426,12 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     using K = edit::TrackerKey::Kind;
     bool escaped = false;
     const auto escape = [&] {
-        if (!escaped)
+        if (!escaped) {
+            const bool field = s.tracker.State () == edit::TrackerState::Editing;
             Escape (s);
+            if (field && s.drag != Drag::None)
+                s.dragPointerPause = { v.x, v.y };
+        }
         escaped = true;
     };
     // Undo and redo are the document's, never the number being typed's: a chord pressed while
@@ -442,6 +463,8 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             case 0x0D:
                 if (s.tracker.State () == edit::TrackerState::Editing)
                     TrackerEvent (s, s.tracker.Key ({ K::Enter }));
+                else if (s.dragReleased && (s.drag == Drag::Handle || s.drag == Drag::Part))
+                    EndDrag (s);
                 else if (!s.drawing.empty ())
                     FinishDrawing (s);
                 break;
@@ -581,6 +604,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             s.drag = Drag::Handle;
             s.dragStarted = false;
             s.dragReleased = false;
+            s.dragPointerPause.reset ();
             s.dragValue = 0.0;
             s.handle = s.hoverHandle;
             s.frame = frame;
@@ -611,6 +635,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     s.drag = Drag::Handle;
                     s.dragStarted = false;
                     s.dragReleased = false;
+                    s.dragPointerPause.reset ();
                     s.dragValue = 0.0;
                     s.handle = -2;
                     edit::FaceFrame (*e, pressed.item, s.frame);
@@ -623,6 +648,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     s.drag = Drag::Part;
                     s.dragStarted = false;
                     s.dragReleased = false;
+                    s.dragPointerPause.reset ();
                     s.dragValue = 0.0;
                     s.dragDirection.reset ();
                     s.target = pressed;
@@ -705,7 +731,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // While a number is typed through a drag the number has it: the preview stays as it was
     // when typing began, and the pointer moves nothing until Esc gives the number up.
     const bool typing = s.tracker.State () == edit::TrackerState::Editing;
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted && !typing) {
+    if (s.dragPointerPause && (mouse.x != s.dragPointerPause->first || mouse.y != s.dragPointerPause->second))
+        s.dragPointerPause.reset ();
+    const bool pointerMoves = !typing && !s.dragPointerPause && !s.dragReleased;
+    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted && pointerMoves) {
         const auto moving = Moving (s, s.target);
         Vec3 at;
         if (Pointer (s, m, mouse, s.anchor.z, s.anchor, s.anchor, Exclusions (Doc (s), moving), scale, at)) {
@@ -744,7 +773,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else
             s.message = "This view is edge-on to the working plane. Orbit or type a value.";
     }
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted && !typing) {
+    if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted && pointerMoves) {
         edit::Ray now;
         const edit::Handle h = HeldHandle (s);
         if (m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, now)) {
@@ -786,7 +815,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (ImGui::IsMouseReleased (0))
         s.wholeGrab = false;
-    if (ImGui::IsMouseReleased (0)) {
+    if (ImGui::IsMouseReleased (0) && !s.dragReleased) {
         if ((s.drag == Drag::Handle || (s.drag == Drag::Part && s.dragStarted)) && typing) {
             // The typed number has the gesture: Enter ends it, this release does not.
             s.dragReleased = true;
@@ -805,16 +834,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 s.drag = Drag::None;
         }
     }
-    // Released while a number was typed, and the number then given up (Esc, emptied): the drag
-    // ends as the release left it, at the preview from before the typing.
-    if (s.drag == Drag::Handle && s.dragReleased && s.tracker.State () != edit::TrackerState::Editing)
-        EndHandleDrag (s);
-    if (s.drag == Drag::Part && s.dragReleased && s.tracker.State () != edit::TrackerState::Editing) {
-        s.edits.End ();
-        s.snap = {};
-        s.drag = Drag::None;
-        s.dragReleased = false;
-    }
+    // Giving up a field never commits its underlying drag. After release the preview waits
+    // visibly for an explicit finish, another number, or cancellation -- no hidden capture.
+    if (s.dragReleased && s.drag != Drag::None && !typing)
+        s.message = "Drag paused: Enter finishes this preview; type a value, or Esc cancels the drag.";
 
     // Drawing tools follow the pointer between clicks.
     if (s.tool != Tool::Select && hovered && s.drag == Drag::None) {
