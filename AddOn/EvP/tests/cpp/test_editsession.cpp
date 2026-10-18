@@ -138,3 +138,83 @@ TEST (EditSession, UndoHistoryIsCapped)
         ASSERT_TRUE (s.Apply (MoveEnd (e, 1.0)));
     EXPECT_EQ (s.UndoDepth (), 3u);
 }
+
+TEST (EditSession, ANoOpMoveKeepsTheRevisionAndRecordsNothing)
+{
+    ed::Id e = 0;
+    ed::Session s (Line (e));
+    const uint64_t revision = s.Doc ().revision;
+    ASSERT_TRUE (s.Begin ());
+    ASSERT_TRUE (s.Move (MoveEnd (e, 0.0)));
+    EXPECT_EQ (s.Doc ().revision, revision);
+    ASSERT_TRUE (s.Move (MoveEnd (e, 0.0)));
+    EXPECT_EQ (s.Doc ().revision, revision);
+    EXPECT_DOUBLE_EQ (EndX (s, e), 4.0);
+    EXPECT_FALSE (s.End ()); // no content changed: no undo entry
+    EXPECT_FALSE (s.CanUndo ());
+}
+
+TEST (EditSession, ARepeatedIdenticalPreviewDoesNotMoveTheRevision)
+{
+    ed::Id e = 0;
+    ed::Session s (Line (e));
+    ASSERT_TRUE (s.Begin ());
+    ASSERT_TRUE (s.Move (MoveEnd (e, 2.0)));
+    const uint64_t afterFirst = s.Doc ().revision;
+    ASSERT_TRUE (s.Move (MoveEnd (e, 2.0))); // the same preview again
+    EXPECT_EQ (s.Doc ().revision, afterFirst);
+    EXPECT_DOUBLE_EQ (EndX (s, e), 6.0);
+}
+
+TEST (EditSession, ReturningToTheBaselineIsAChangeButRecordsNothing)
+{
+    ed::Id e = 0;
+    ed::Session s (Line (e));
+    const uint64_t revision = s.Doc ().revision;
+    ASSERT_TRUE (s.Begin ());
+    ASSERT_TRUE (s.Move (MoveEnd (e, 1.0)));
+    const uint64_t moved = s.Doc ().revision;
+    EXPECT_GT (moved, revision);
+    ASSERT_TRUE (s.Move (MoveEnd (e, 0.0))); // back to the gesture's start
+    EXPECT_DOUBLE_EQ (EndX (s, e), 4.0);
+    EXPECT_GT (s.Doc ().revision, moved); // the published doc did change
+    EXPECT_FALSE (s.End ());              // ... but there is nothing to undo
+    EXPECT_FALSE (s.CanUndo ());
+}
+
+TEST (EditSession, ANoOpMoveStillAdvancesTheIdCounter)
+{
+    ed::Id e = 0;
+    ed::Session s (Line (e));
+    ASSERT_TRUE (s.Begin ());
+    const uint64_t revision = s.Doc ().revision;
+    const ed::Id next = s.Doc ().nextId;
+    ASSERT_TRUE (s.Move ([] (ed::Document& d, std::string&) {
+        ed::NewId (d); // an id is allocated, no content is published
+        return true;
+    }));
+    EXPECT_EQ (s.Doc ().revision, revision);
+    EXPECT_GT (s.Doc ().nextId, next);
+    s.Cancel ();
+    EXPECT_EQ (s.Doc ().revision, revision); // a no-op gesture cancels without restoring
+    EXPECT_GT (s.Doc ().nextId, next);
+}
+
+TEST (EditSession, RealEditsCancelAndUndoStillInvalidate)
+{
+    ed::Id e = 0;
+    ed::Session s (Line (e));
+    const uint64_t start = s.Doc ().revision;
+    ASSERT_TRUE (s.Apply (MoveEnd (e, 1.0)));
+    EXPECT_GT (s.Doc ().revision, start);
+    ASSERT_TRUE (s.Undo ());
+    EXPECT_GT (s.Doc ().revision, start); // undo republishes the restored state
+    EXPECT_DOUBLE_EQ (EndX (s, e), 4.0);
+    ASSERT_TRUE (s.Begin ());
+    ASSERT_TRUE (s.Move (MoveEnd (e, 3.0)));
+    const uint64_t moved = s.Doc ().revision;
+    EXPECT_GT (moved, start);
+    s.Cancel ();
+    EXPECT_GT (s.Doc ().revision, moved); // cancel restores: the host must republish
+    EXPECT_DOUBLE_EQ (EndX (s, e), 4.0);
+}

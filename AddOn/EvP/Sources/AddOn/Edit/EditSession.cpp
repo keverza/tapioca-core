@@ -49,6 +49,15 @@ bool Session::Accept (Document candidate, const std::string& refusal)
     }
     // Ids are never handed out twice, even by a candidate built from an older copy.
     candidate.nextId = std::max (candidate.nextId, doc.nextId);
+    // A Move that reproduces the content already published changed nothing to draw or to
+    // invalidate, so the revision stays put and every revision-keyed cache holds. The id
+    // counter still moves forward, and `changed` is left alone: a gesture that never
+    // changed content ends with no undo entry and cancels without restoring.
+    if (SameContent (candidate, doc)) {
+        doc.nextId = std::max (doc.nextId, candidate.nextId);
+        message.clear ();
+        return true;
+    }
     candidate.revision = doc.revision + 1;
     doc = std::move (candidate);
     changed = true;
