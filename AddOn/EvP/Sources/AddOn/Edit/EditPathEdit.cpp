@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 
 namespace geomsrv::edit {
 
@@ -543,7 +544,45 @@ bool TransformPathParts (Document& doc, const std::vector<Ref>& refs, Vec3 t, st
         const bool ok = EditPath (
             doc, id,
             [&] (Path& p, std::string& why) {
+                const Path source = p;
+                std::set<Id> lifted;
+                const bool whole =
+                    std::any_of (parts.begin (), parts.end (), [] (const Ref& r) { return r.part == Part::Entity; });
                 for (const auto& r : parts) {
+                    if (whole && r.part != Part::Entity)
+                        continue;
+                    if (t.z != 0.0 && r.part == Part::Entity &&
+                        std::all_of (p.profile.begin (), p.profile.end (),
+                                     [] (const GradeBreak& b) { return b.fixed; })) {
+                        why = "all path elevations are fixed; release an elevation before lifting the path";
+                        return false;
+                    }
+                    if (t.z != 0.0 && r.part == Part::PathPoint) {
+                        const double station = StationOfPoint (source, r.item);
+                        if (station < 0) {
+                            why = "the control point no longer exists";
+                            return false;
+                        }
+                        int index = -1;
+                        for (size_t i = 0; i < p.profile.size (); ++i)
+                            if (p.profile[i].anchor == r.item || std::abs (p.profile[i].station - station) < 1e-6)
+                                index = int (i);
+                        if (index < 0) {
+                            const Id created = NewId (doc);
+                            if (!InsertBreak (p.profile, station, created, why))
+                                return false;
+                            index = BreakIndex (p, created);
+                        }
+                        auto& point = p.profile[size_t (index)];
+                        if (point.fixed || point.curve > 0) {
+                            why = point.fixed ? "that elevation is fixed"
+                                              : "edit this vertical curve's grade point in the profile";
+                            return false;
+                        }
+                        point.anchor = r.item;
+                        if (lifted.insert (point.id).second)
+                            point.z += t.z;
+                    }
                     if (r.part == Part::Entity || r.part == Part::PathPoint) {
                         for (auto& c : p.points) {
                             if (r.part == Part::PathPoint && c.id != r.item)
@@ -565,7 +604,8 @@ bool TransformPathParts (Document& doc, const std::vector<Ref>& refs, Vec3 t, st
                                 why = "that elevation is fixed";
                                 return false;
                             }
-                            b.z += t.z;
+                            if (lifted.insert (b.id).second)
+                                b.z += t.z;
                         }
                     if (r.part == Part::Range) {
                         why = "drag a range's edge to change its width";

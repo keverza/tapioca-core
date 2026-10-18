@@ -226,6 +226,39 @@ TEST (EditPath, GizmoMovesPathPartsThroughTheSession)
     EXPECT_DOUBLE_EQ (ed::FindPath (s.Doc (), f.path)->points[1].p.x, 40.0);
 }
 
+TEST (EditPath, ZMoveOfAControlPointEditsItsProfileHeightAndIsUndoable)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 2 } }, 2);
+    const auto original = doc.paths;
+    const ed::Ref point { id, ed::Part::PathPoint, doc.paths[0].points[1].id };
+    ed::Session session (doc);
+    ed::Transform up;
+    up.translate.z = 0.5;
+    ASSERT_TRUE (session.Apply (ed::TransformOperation ({ point }, up))) << session.Message ();
+    ed::Vec3 at;
+    ASSERT_TRUE (ed::PointOf (session.Doc (), point, at));
+    EXPECT_NEAR (at.z, 1.5, 1e-12);
+    EXPECT_EQ (ed::FindPath (session.Doc (), id)->points, original[0].points);
+    EXPECT_EQ (session.UndoDepth (), 1u);
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_EQ (session.Doc ().paths, original);
+}
+
+TEST (EditPath, ZMoveRefusesAnEntirelyFixedPathWithAReason)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 1 } }, 2);
+    for (auto& point : doc.paths[0].profile)
+        point.fixed = true;
+    ed::Session session (doc);
+    ed::Transform up;
+    up.translate.z = 0.5;
+    EXPECT_FALSE (session.Apply (ed::TransformOperation ({ { id, ed::Part::Entity, 0 } }, up)));
+    EXPECT_NE (session.Message ().find ("fixed"), std::string::npos);
+    EXPECT_EQ (session.Doc ().paths, doc.paths);
+}
+
 TEST (EditPath, PathPartsAreTypedDimensions)
 {
     Footpath f;
