@@ -283,6 +283,17 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("snap.flush", "Edges snap flush to edges", {}, true, s.edgeSnap));
             break;
     }
+    if (edit::FindPath (doc, s.menu.ref.entity) != nullptr && s.menu.target != MenuTarget::Drawing) {
+        Rule (items);
+        if (s.menu.ref.part == edit::Part::PathPoint || s.menu.ref.part == edit::Part::Break ||
+            s.menu.ref.part == edit::Part::Range) {
+            const char* label = s.menu.ref.part == edit::Part::Range   ? "Use path plan at range start"
+                                : s.menu.ref.part == edit::Part::Break ? "Use path plan at grade station"
+                                                                       : "Use path plan at control station";
+            items.push_back (Item ("plane.pathPart", label));
+        }
+        items.push_back (Item ("plane.pathStation", "Path plan plane at station..."));
+    }
     AddHistory (s, items);
     if (s.menu.target == MenuTarget::View) {
         Rule (items);
@@ -302,6 +313,10 @@ void RunMenuItem (Session& s, const std::string& id)
         s.close = true;
     else if (id == "plane.face")
         UseFacePlane (s, s.menu.ref);
+    else if (id == "plane.pathPart")
+        UsePathPartPlane (s, s.menu.ref);
+    else if (id == "plane.pathStation")
+        BeginPathPlaneEntry (s, s.menu.ref.entity);
     else if (id == "tool.select")
         s.tool = Tool::Select, s.drawing.clear ();
     else if (id == "tool.polyline")

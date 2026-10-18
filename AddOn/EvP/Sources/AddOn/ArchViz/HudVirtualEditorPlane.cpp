@@ -21,6 +21,8 @@ void CancelViewEdit (Session& s, const char* reason)
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape }), cancelled = true;
     s.typedHandle = -1;
     s.planeTyping = false;
+    s.planeEntryPath = edit::kNoId;
+    s.planeEntryRevision = 0;
     s.labelOpen = false;
     s.penDown = false;
     s.snap = {};
@@ -39,10 +41,14 @@ namespace geomsrv::archviz::edithud {
 
 bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automatic)
 {
-    const bool horizontalFace = edit::ValidPlane (plane) && plane.source == edit::PlaneSource::Face && plane.u.z == 0 &&
-                                plane.v.z == 0 && std::abs (plane.normal.z) == 1;
-    if ((!edit::IsWorldXY (plane) && !horizontalFace) || !plane.sticky) {
-        s.message = "Use World XY or a horizontal virtual face; side/oblique plane authoring is unavailable.";
+    const bool horizontalSource =
+        edit::ValidPlane (plane) &&
+        (plane.source == edit::PlaneSource::Face || plane.source == edit::PlaneSource::PathPlan) && plane.u.z == 0 &&
+        plane.v.z == 0 && std::abs (plane.normal.z) == 1;
+    if ((!edit::IsWorldXY (plane) && !horizontalSource) || !plane.sticky) {
+        s.message = plane.source == edit::PlaneSource::PathSection
+                        ? "Vertical path-section authoring is unavailable; use a horizontal path plan plane."
+                        : "Use World XY or a horizontal face/path plan; side/oblique plane authoring is unavailable.";
         return false;
     }
     auto next = s.plane;
@@ -90,18 +96,85 @@ bool UseFacePlane (Session& s, edit::Ref face)
     return SetWorkingPlane (s, plane);
 }
 
+bool UsePathPlane (Session& s, edit::Id path, double station, edit::PathPlaneKind kind)
+{
+    edit::WorkingPlane plane;
+    const auto& doc = s.edits.InGesture () ? s.edits.Before () : s.edits.Doc ();
+    std::string error;
+    if (!edit::PlaneFromPath (doc, path, station, kind, plane, error)) {
+        s.message = error;
+        return false;
+    }
+    plane.locked = s.plane.locked;
+    return SetWorkingPlane (s, plane);
+}
+
+bool UsePathPartPlane (Session& s, edit::Ref part)
+{
+    const auto& doc = s.edits.InGesture () ? s.edits.Before () : s.edits.Doc ();
+    const auto* path = edit::FindPath (doc, part.entity);
+    std::optional<double> station;
+    if (path != nullptr) {
+        if (part.part == edit::Part::PathPoint) {
+            edit::AlignmentGeometry alignment;
+            std::string error;
+            if (edit::BuildAlignment (path->points, alignment, error))
+                for (size_t i = 0; i < path->points.size (); ++i)
+                    if (path->points[i].id == part.item)
+                        station = alignment.pointStations[i];
+        }
+        else if (part.part == edit::Part::Break) {
+            for (const auto& point : path->profile)
+                if (point.id == part.item)
+                    station = point.station;
+        }
+        else if (part.part == edit::Part::Range) {
+            for (const auto& range : path->sections)
+                if (range.id == part.item)
+                    station = range.station;
+        }
+    }
+    if (!station) {
+        s.message = "Choose an existing path control point, grade break or range start; whole paths need a station.";
+        return false;
+    }
+    return UsePathPlane (s, part.entity, *station);
+}
+
 bool BeginPlaneEntry (Session& s)
 {
-    if (s.drag != Drag::None || s.penDown || !s.drawing.empty () || s.labelOpen || s.typedHandle >= 0 ||
-        s.tracker.State () == edit::TrackerState::Editing) {
+    if (s.drag != Drag::None || s.edits.InGesture () || s.penDown || !s.drawing.empty () || s.labelOpen ||
+        s.typedHandle >= 0 || s.planeTyping || s.tracker.State () == edit::TrackerState::Editing) {
         s.message = "Finish or cancel the current input before entering a working-plane elevation.";
         return false;
     }
     s.planeTyping = true;
+    s.planeEntryPath = edit::kNoId;
+    s.planeEntryRevision = 0;
     s.tracker.Hide ();
     s.tracker.Show ({ { edit::Quantity::Elevation, s.plane.origin.z } });
     s.message = "Type World XY elevation in metres; Enter sets the plane to World XY, Esc cancels.";
     detail::CapturePlane (s);
+    return true;
+}
+
+bool BeginPathPlaneEntry (Session& s, edit::Id path)
+{
+    edit::WorkingPlane candidate;
+    std::string error;
+    if (!edit::PlaneFromPath (s.edits.Doc (), path, 0, edit::PathPlaneKind::Plan, candidate, error)) {
+        s.message = error;
+        return false;
+    }
+    if (!BeginPlaneEntry (s))
+        return false;
+    s.planeEntryPath = path;
+    s.planeEntryRevision = s.edits.Doc ().revision;
+    const double station =
+        s.plane.source == edit::PlaneSource::PathPlan && s.plane.sourceRef.entity == path ? s.plane.sourceStation : 0;
+    s.tracker.Hide ();
+    s.tracker.Show ({ { edit::Quantity::Distance, station } });
+    s.message = "Type the path plan plane station in metres from its start; Enter sets it, Esc cancels.";
     return true;
 }
 
@@ -134,6 +207,10 @@ void PlaneControls (Session& s)
                      static_cast<unsigned long long> (s.plane.sourceRef.entity),
                      static_cast<unsigned long long> (s.plane.sourceRef.item),
                      static_cast<unsigned long long> (s.plane.sourceRevision));
+    else if (s.plane.source == edit::PlaneSource::PathPlan)
+        ImGui::Text ("Path plan snapshot (horizontal, sticky): %llu at %.6g m, r%llu",
+                     static_cast<unsigned long long> (s.plane.sourceRef.entity), s.plane.sourceStation,
+                     static_cast<unsigned long long> (s.plane.sourceRevision));
     else
         ImGui::TextUnformatted ("Working plane: World XY (sticky)");
     char label[80];
@@ -149,6 +226,19 @@ void PlaneControls (Session& s)
     if (ImGui::SmallButton ("Use selected face plane"))
         UseFacePlane (s, selected[0]);
     ImGui::EndDisabled ();
+    const bool path = selected.size () == 1 && edit::FindPath (s.edits.Doc (), selected[0].entity) != nullptr;
+    ImGui::BeginDisabled (!path);
+    if (ImGui::SmallButton ("Path plan plane at station..."))
+        BeginPathPlaneEntry (s, selected[0].entity);
+    ImGui::EndDisabled ();
+    if (path && (selected[0].part == edit::Part::PathPoint || selected[0].part == edit::Part::Break ||
+                 selected[0].part == edit::Part::Range)) {
+        const char* partLabel = selected[0].part == edit::Part::Range   ? "Plane at selected range start"
+                                : selected[0].part == edit::Part::Break ? "Plane at selected grade station"
+                                                                        : "Plane at selected control station";
+        if (ImGui::SmallButton (partLabel))
+            UsePathPartPlane (s, selected[0]);
+    }
 }
 
 } // namespace detail

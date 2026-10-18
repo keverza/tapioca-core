@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>
@@ -45,6 +46,34 @@ TEST (HudVirtualEditorMap, PlanRoundTripsAnObliqueFrameAndItsLocalScale)
     ed::Vec3 adjacent;
     ASSERT_TRUE (map.Onto (pixel.x + 1, pixel.y, plane, out, adjacent));
     EXPECT_NEAR (scale, ed::Distance (out, adjacent), 1e-12);
+}
+
+TEST (HudVirtualEditorMap, EvaluatedPathFramesUseTheExistingPlanAnd3DProviders)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    ed::WorkingPlane plan, section;
+    std::string error;
+    ASSERT_TRUE (ed::PlaneFromPath (doc, id, 25, ed::PathPlaneKind::Plan, plan, error));
+    ASSERT_TRUE (ed::PlaneFromPath (doc, id, 25, ed::PathPlaneKind::Section, section, error));
+    auto input = Plan ();
+    ed::Vec3 out;
+    const auto point = ed::ToWorld (plan, { 3, 4, 0 });
+    ImVec2 pixel;
+    ASSERT_TRUE ((eh::detail::Map { input }.Screen (point, pixel)));
+    ASSERT_TRUE ((eh::detail::Map { input }.Onto (pixel.x, pixel.y, plan, {}, out)));
+    EXPECT_NEAR (ed::Distance (out, point), 0, 1e-5);
+    EXPECT_FALSE ((eh::detail::Map { input }.Onto (pixel.x, pixel.y, section, section.origin, out)));
+    input.planar = false;
+    input.project = [] (double x, double y, double z, float& px, float& py) {
+        px = float (600 + 20 * x + 2 * z), py = float (500 - 20 * y - 5 * z);
+        return true;
+    };
+    const auto sectionPoint = ed::ToWorld (section, { 3, 4, 0 });
+    ASSERT_TRUE ((eh::detail::Map { input }.Screen (sectionPoint, pixel)));
+    ASSERT_TRUE ((eh::detail::Map { input }.Onto (pixel.x, pixel.y, section, section.origin, out)));
+    EXPECT_NEAR (ed::Distance (out, sectionPoint), 0, 0.005);
+    EXPECT_NEAR (ed::ToLocal (section, out).z, 0, 1e-12);
 }
 
 TEST (HudVirtualEditorMap, PerspectiveRoundTripsInTheAuthoredPlaneWithoutCameraAcquisition)

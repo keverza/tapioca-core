@@ -190,9 +190,11 @@ void Escape (Session& s)
         if (s.planeTyping)
             s.message.clear ();
         s.planeTyping = false;
+        s.planeEntryPath = edit::kNoId;
+        s.planeEntryRevision = 0;
     }
     else if (s.planeTyping)
-        s.planeTyping = false, s.message.clear ();
+        s.planeTyping = false, s.planeEntryPath = edit::kNoId, s.planeEntryRevision = 0, s.message.clear ();
     else if (s.typedHandle >= 0)
         s.typedHandle = -1, s.message.clear ();
     else if (s.drag != Drag::None) {
@@ -237,7 +239,18 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
         return;
     if (s.planeTyping) {
         if (event.outcome == O::Locked)
-            s.message = "Enter sets the working-plane elevation; Tab does not lock this setting.";
+            s.message = "Enter sets the working plane; Tab does not lock this setting.";
+        else if (s.planeEntryPath != edit::kNoId) {
+            if (s.edits.Doc ().revision != s.planeEntryRevision) {
+                s.message = "The path document changed; Esc this entry and choose the path again.";
+                return;
+            }
+            s.planeTyping = false;
+            if (UsePathPlane (s, s.planeEntryPath, event.value))
+                s.planeEntryPath = edit::kNoId, s.planeEntryRevision = 0;
+            else
+                s.planeTyping = true;
+        }
         else {
             auto plane = edit::WorldXY (event.value);
             plane.locked = s.plane.locked;
@@ -344,6 +357,11 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
 {
     std::vector<edit::TrackerItem> items;
     dims.clear ();
+    if (s.planeTyping && s.planeEntryPath != edit::kNoId)
+        return { { edit::Quantity::Distance,
+                   s.plane.source == edit::PlaneSource::PathPlan && s.plane.sourceRef.entity == s.planeEntryPath
+                       ? s.plane.sourceStation
+                       : 0 } };
     if (s.planeTyping)
         return { { edit::Quantity::Elevation, s.plane.origin.z } };
     if (!s.drawing.empty ()) {

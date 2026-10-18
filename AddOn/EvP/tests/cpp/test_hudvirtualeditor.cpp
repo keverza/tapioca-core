@@ -1249,6 +1249,258 @@ TEST (HudVirtualEditor, DrawingTrackerAnglesUseThePickedFaceAxes)
     EXPECT_NEAR (ed::Distance (d.S ().drawing.back (), plane.origin + plane.u * 2), 0, 1e-12);
 }
 
+TEST (HudVirtualEditor, PathPlaneStationUsesTheTrackerAndPreservesTheDocumentAndLock)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    Drive d (doc);
+    auto locked = ed::WorldXY (7);
+    locked.locked = true;
+    ASSERT_TRUE (eh::SetWorkingPlane (d.S (), locked));
+    ASSERT_TRUE (eh::BeginPathPlaneEntry (d.S (), id));
+    d.Frame ();
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Distance);
+    EXPECT_FALSE (eh::BeginPlaneEntry (d.S ())); // even the armed, not-yet-typed field owns its binding
+    EXPECT_EQ (d.S ().planeEntryPath, id);
+    d.input.characters = u"25";
+    d.Frame ();
+    d.Key (0x09);
+    EXPECT_EQ (d.S ().tracker.Text (), "25");
+    EXPECT_FALSE (d.S ().tracker.Locked (ed::Quantity::Distance));
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().planeTyping);
+    EXPECT_EQ (d.S ().planeEntryPath, ed::kNoId);
+    EXPECT_EQ (d.S ().plane.source, ed::PlaneSource::PathPlan);
+    EXPECT_EQ (d.S ().plane.origin, (ed::Vec3 { 15, 20, 105 }));
+    EXPECT_DOUBLE_EQ (d.S ().plane.sourceStation, 25);
+    EXPECT_EQ (d.S ().plane.sourceRevision, doc.revision);
+    EXPECT_TRUE (d.S ().plane.locked);
+    EXPECT_EQ (d.D ().paths, doc.paths);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    ed::WorkingPlane automatic;
+    std::string error;
+    ASSERT_TRUE (ed::PlaneFromPath (d.D (), id, 30, ed::PathPlaneKind::Plan, automatic, error));
+    automatic.locked = true;
+    EXPECT_FALSE (eh::SetWorkingPlane (d.S (), automatic, true));
+    EXPECT_DOUBLE_EQ (d.S ().plane.sourceStation, 25);
+}
+
+TEST (HudVirtualEditor, PathPlaneEntryIsReachableFromTheActualPathMenu)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 20, 0, 102 } }, 2);
+    Drive d (doc);
+    d.RightClick (700, 500);
+    ASSERT_TRUE (d.S ().menu.open);
+    ASSERT_TRUE (d.Offers ("plane.pathStation"));
+    eh::RunMenuItem (d.S (), "plane.pathStation");
+    EXPECT_TRUE (d.S ().planeTyping);
+    EXPECT_EQ (d.S ().planeEntryPath, id);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Distance);
+    EXPECT_EQ (d.S ().plane.source, ed::PlaneSource::WorldXY); // opening the field never adopts a default station
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, PathPartPlaneActionsUseIdentityStationsWithoutChangingPickedRangeSplit)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 10, 0, 101 }, { 20, 0, 102 } }, 2);
+    auto* path = ed::FindPath (doc, id);
+    std::string error;
+    const auto grade = ed::NewId (doc), range = ed::NewId (doc);
+    ASSERT_TRUE (ed::InsertBreak (path->profile, 7, grade, error));
+    ASSERT_TRUE (ed::SplitSection (path->sections, 14, range, error));
+    const auto point = path->points[1].id;
+    Drive d (doc);
+    const ed::Ref refs[] = { { id, ed::Part::PathPoint, point },
+                             { id, ed::Part::Break, grade },
+                             { id, ed::Part::Range, range } };
+    const eh::MenuTarget targets[] = { eh::MenuTarget::PathPoint, eh::MenuTarget::GradeBreak, eh::MenuTarget::Range };
+    const double stations[] = { 10, 7, 14 };
+    for (size_t i = 0; i < 3; ++i) {
+        d.S ().menu.target = targets[i];
+        d.S ().menu.ref = refs[i];
+        d.S ().menu.at = { 19, 0, 101.9 }; // deliberately not the marker's station
+        d.S ().selection.Set ({ refs[i] });
+        ASSERT_TRUE (d.Offers ("plane.pathPart"));
+        eh::RunMenuItem (d.S (), "plane.pathPart");
+        EXPECT_DOUBLE_EQ (d.S ().plane.sourceStation, stations[i]);
+        EXPECT_NEAR (d.S ().plane.origin.x, stations[i], 1e-12);
+        EXPECT_NEAR (d.S ().plane.origin.z, 100 + stations[i] * 0.1, 1e-12);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    }
+    EXPECT_EQ (d.D ().paths, doc.paths);
+    eh::RunMenuItem (d.S (), "path.splitRange"); // still splits at the picked place, not the selected range's start
+    ASSERT_EQ (d.D ().paths[0].sections.size (), 3u);
+    EXPECT_DOUBLE_EQ (d.D ().paths[0].sections.back ().station, 19);
+    EXPECT_DOUBLE_EQ (d.S ().plane.sourceStation, 14);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.S ().menu.ref.item = 999;
+    const auto snapshot = d.S ().plane;
+    eh::RunMenuItem (d.S (), "plane.pathPart");
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, snapshot));
+    EXPECT_NE (d.S ().message.find ("existing path"), std::string::npos);
+}
+
+TEST (HudVirtualEditor, PathStationRefusalKeepsTextForCorrectionAndEscLeavesThePlaneAlone)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    Drive d (doc);
+    const auto original = d.S ().plane;
+    ASSERT_TRUE (eh::BeginPathPlaneEntry (d.S (), id));
+    d.input.characters = u"-1";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_TRUE (d.S ().planeTyping);
+    EXPECT_EQ (d.S ().tracker.Text (), "-1");
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, original));
+    EXPECT_NE (d.S ().message.find ("not clamped"), std::string::npos);
+    d.Key (0x1B);
+    EXPECT_FALSE (d.S ().planeTyping);
+    EXPECT_EQ (d.S ().planeEntryPath, ed::kNoId);
+    EXPECT_TRUE (d.S ().message.empty ());
+    ASSERT_TRUE (eh::BeginPathPlaneEntry (d.S (), id));
+    d.input.characters = u"51";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().tracker.Text (), "51");
+    d.Key (0x08);
+    d.Key (0x08);
+    d.input.characters = u"25";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().plane.source, ed::PlaneSource::PathPlan);
+    EXPECT_DOUBLE_EQ (d.S ().plane.sourceStation, 25);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, AQueuedStationEnterCannotRebindToAChangedPathDocument)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    Drive d (doc);
+    const auto original = d.S ().plane;
+    ASSERT_TRUE (eh::BeginPathPlaneEntry (d.S (), id));
+    d.input.characters = u"25";
+    d.Frame ();
+    ASSERT_TRUE (d.S ().edits.Apply ([] (ed::Document& candidate, std::string&) {
+        candidate.paths[0].profile.back ().z += 1;
+        return true;
+    }));
+    d.Key (0x0D);
+    EXPECT_TRUE (d.S ().planeTyping);
+    EXPECT_EQ (d.S ().tracker.Text (), "25");
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, original));
+    EXPECT_NE (d.S ().message.find ("document changed"), std::string::npos);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Key (0x1B);
+    ASSERT_TRUE (eh::BeginPathPlaneEntry (d.S (), id));
+    d.input.characters = u"25";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 105.5);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, PathPlaneDrawingUsesItsCapturedDatumAndLocalTypedDirection)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    Drive d (doc);
+    ASSERT_TRUE (eh::UsePathPlane (d.S (), id, 25));
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().snapModes = 0;
+    d.Press (1000, 500); // (20, 0), well away from the path's geometry
+    d.Release (1000, 500);
+    ASSERT_EQ (d.S ().drawing.size (), 1u);
+    ASSERT_TRUE (d.S ().capturedPlane);
+    EXPECT_EQ (d.S ().drawing[0], (ed::Vec3 { 20, 0, 105 }));
+    d.S ().tracker.Key ({ ed::TrackerKey::Kind::Tab });
+    d.S ().tracker.Key ({ ed::TrackerKey::Kind::Char, '0' });
+    d.S ().tracker.Key ({ ed::TrackerKey::Kind::Tab });
+    d.input.characters = u"2";
+    d.Frame ();
+    d.Key (0x0D);
+    ASSERT_EQ (d.S ().drawing.size (), 2u);
+    EXPECT_NEAR (ed::Distance (d.S ().drawing.back (), { 21.2, 1.6, 105 }), 0, 1e-12);
+    d.Key (0x0D);
+    ASSERT_EQ (d.D ().entities.size (), 1u);
+    EXPECT_EQ (d.D ().paths, doc.paths);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, PathPlaneAdoptionCancelsAgainstTheCommittedProfileNotItsPreview)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    Drive d (doc);
+    ASSERT_TRUE (d.S ().edits.Begin ({ id, ed::Part::Entity, 0 }));
+    ASSERT_TRUE (d.S ().edits.Move ([] (ed::Document& candidate, std::string&) {
+        candidate.paths[0].profile.back ().z = 200;
+        return true;
+    }));
+    d.S ().drag = eh::Drag::Part;
+    ASSERT_TRUE (eh::UsePathPlane (d.S (), id, 25));
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    EXPECT_EQ (d.D ().paths, doc.paths);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 105);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_NE (d.S ().message.find ("cancelled"), std::string::npos);
+}
+
+TEST (HudVirtualEditor, VerticalSectionAndStalePathChoicesDoNotDisturbUnfinishedInput)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    Drive d (doc);
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().drawing = { { 20, 0, 0 } };
+    const auto plane = d.S ().plane;
+    EXPECT_FALSE (eh::UsePathPlane (d.S (), id, 25, ed::PathPlaneKind::Section));
+    EXPECT_NE (d.S ().message.find ("Vertical path-section"), std::string::npos);
+    EXPECT_FALSE (eh::UsePathPlane (d.S (), 999, 25));
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, plane));
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    ASSERT_TRUE (eh::UsePathPlane (d.S (), id, 25));
+    EXPECT_TRUE (d.S ().drawing.empty ());
+    EXPECT_EQ (d.S ().plane.source, ed::PlaneSource::PathPlan);
+}
+
+TEST (HudVirtualEditor, PathStationSnapshotsDoNotFollowProfileEditsDeletionOrUndo)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 100 }, { 30, 40, 110 } }, 2);
+    Drive d (doc);
+    ASSERT_TRUE (eh::UsePathPlane (d.S (), id, 25));
+    const auto snapshot = d.S ().plane;
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().drawing = { { 20, 0, 105 } };
+    ASSERT_TRUE (d.S ().edits.Apply ([] (ed::Document& candidate, std::string&) {
+        candidate.paths[0].profile.back ().z += 10;
+        return true;
+    }));
+    d.Frame ();
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, snapshot));
+    ASSERT_TRUE (d.S ().edits.Apply ([] (ed::Document& candidate, std::string&) {
+        candidate.paths.clear ();
+        return true;
+    }));
+    d.Frame ();
+    EXPECT_FALSE (eh::UsePathPlane (d.S (), id, 25));
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, snapshot));
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    d.Frame ();
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, snapshot));
+    ASSERT_TRUE (eh::UsePathPlane (d.S (), id, 25)); // only an explicit repick follows the restored source
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 110);
+    EXPECT_TRUE (d.S ().drawing.empty ());
+}
+
 TEST (HudVirtualEditor, GumballHoldsEveryTransform)
 {
     EXPECT_EQ (eh::Session ().gizmo, ed::GizmoMode::Gumball); // what a session starts with

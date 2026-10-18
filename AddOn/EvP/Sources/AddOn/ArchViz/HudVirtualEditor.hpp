@@ -146,6 +146,8 @@ struct Session {
     edit::WorkingPlane plane;
     std::optional<edit::WorkingPlane> capturedPlane;
     bool planeTyping = false;
+    edit::Id planeEntryPath = edit::kNoId; // while planeTyping: station entry for this path, else World XY elevation
+    uint64_t planeEntryRevision = 0;
 
     // The profile canvas.
     edit::Id profilePath = edit::kNoId;
@@ -194,11 +196,14 @@ struct Session {
     }
 };
 
-// The host supports World XY and horizontal virtual-face snapshots. Explicit changes cancel dependent
+// The host supports World XY and horizontal face/path-plan snapshots. Explicit changes cancel dependent
 // unfinished input, not committed geometry; an automatic change respects the plane's lock.
 bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automatic = false);
 bool UseFacePlane (Session& s, edit::Ref face);
+bool UsePathPlane (Session& s, edit::Id path, double station, edit::PathPlaneKind kind = edit::PathPlaneKind::Plan);
+bool UsePathPartPlane (Session& s, edit::Ref part);
 bool BeginPlaneEntry (Session& s);
+bool BeginPathPlaneEntry (Session& s, edit::Id path);
 
 constexpr char kPanelTitle[] = "Virtual editor";
 
