@@ -121,6 +121,32 @@ TEST (EditGizmo, TypedValuesMatchDrags)
     EXPECT_FALSE (ed::FromValue (f, Find (ed::GizmoMode::Scale, ed::HandleKind::ScaleAxis, 0), -1.0).ok);
 }
 
+TEST (EditGizmo, NavigationContinuationKeepsTheOriginalFrameAndTotalValue)
+{
+    ed::Frame frame;
+    frame.half[0] = 2;
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball)) {
+        const auto checkpoint = ed::Drag (frame, h, Down (2, 1), Down (3, 2));
+        if (!checkpoint.ok)
+            continue; // edge-on handles remain unsupported in this view
+        const auto still = ed::ContinueDrag (frame, h, checkpoint, Down (8, 3), Down (8, 3));
+        ASSERT_TRUE (still.ok) << still.error;
+        EXPECT_NEAR (still.value, checkpoint.value, 1e-9);
+        const ed::Vec3 a = ed::Apply (still.transform, { 4, 5, 0 });
+        const ed::Vec3 b = ed::Apply (checkpoint.transform, { 4, 5, 0 });
+        EXPECT_NEAR (ed::Distance (a, b), 0, 1e-9);
+        EXPECT_NEAR (still.transform.stretchBy, checkpoint.transform.stretchBy, 1e-9);
+    }
+    const auto scale = Find (ed::GizmoMode::Scale, ed::HandleKind::ScaleAxis, 0);
+    const auto r = ed::ContinueDrag (frame, scale, ed::FromValue (frame, scale, 2), Down (8, 0), Down (12, 0));
+    ASSERT_TRUE (r.ok);
+    EXPECT_NEAR (r.value, 3, 1e-9); // factors multiply, distances and angles add
+    const auto ring = Find (ed::GizmoMode::Rotate, ed::HandleKind::Ring, 2);
+    const auto turn = ed::ContinueDrag (frame, ring, ed::FromValue (frame, ring, 45), Down (8, 0), Down (0, 8));
+    ASSERT_TRUE (turn.ok);
+    EXPECT_NEAR (turn.value, 135, 1e-9);
+}
+
 TEST (EditGizmo, MovingAWholeEntityOrStretchingOneSegment)
 {
     ed::Id e = 0;

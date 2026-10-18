@@ -359,6 +359,52 @@ DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, con
     return r;
 }
 
+DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragResult& checkpoint, const Ray& start,
+                         const Ray& now)
+{
+    if (!checkpoint.ok)
+        return Refuse ("there is no valid drag checkpoint");
+    Frame incremental = frame;
+    const int a = handle.axis >= 0 && handle.axis < 3 ? handle.axis : 2;
+    if (handle.kind == HandleKind::Side)
+        incremental.half[a] = 0.0; // validate the total width, not an isolated incremental delta
+    auto r = Drag (incremental, handle, start, now);
+    if (!r.ok)
+        return r;
+    r.transform.scaleFrame = frame;
+    const auto& before = checkpoint.transform;
+    switch (handle.kind) {
+        case HandleKind::Axis:
+        case HandleKind::Plane:
+        case HandleKind::Centre:
+            r.transform.translate = before.translate + r.transform.translate;
+            r.value = handle.kind == HandleKind::Axis ? checkpoint.value + r.value : Length (r.transform.translate);
+            break;
+        case HandleKind::Face:
+            r.transform.extrude += before.extrude;
+            r.value += checkpoint.value;
+            break;
+        case HandleKind::Ring:
+            r.transform.angle += before.angle;
+            r.value += checkpoint.value;
+            break;
+        case HandleKind::Side: {
+            r.transform.stretchBy += before.stretchBy;
+            r.value += checkpoint.value;
+            if (frame.half[a] > 1.0e-9 && r.value < 1.0e-3)
+                return Refuse ("that side would cross the other");
+            break;
+        }
+        case HandleKind::ScaleAxis:
+        case HandleKind::ScaleUniform:
+            r.transform.scale = { before.scale.x * r.transform.scale.x, before.scale.y * r.transform.scale.y,
+                                  before.scale.z * r.transform.scale.z };
+            r.value *= checkpoint.value;
+            break;
+    }
+    return r;
+}
+
 DragResult FromValue (const Frame& frame, const Handle& handle, double value)
 {
     if (!handle.focusable || !std::isfinite (value))

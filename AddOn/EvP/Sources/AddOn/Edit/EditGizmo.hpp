@@ -85,6 +85,10 @@ struct DragResult {
 // Refuses edge-on views (a line pointing into the camera, a plane seen side-on) rather
 // than turning a tiny screen move into a huge model move.
 DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, const Ray& now);
+// Continue the same captured handle after navigation. `checkpoint` is the last valid total
+// transform; start/now use the updated view. No geometry baseline or pivot is changed.
+DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragResult& checkpoint, const Ray& start,
+                         const Ray& now);
 // The Transform a typed value means on that handle: metres, degrees or a factor.
 DragResult FromValue (const Frame& frame, const Handle& handle, double value);
 
