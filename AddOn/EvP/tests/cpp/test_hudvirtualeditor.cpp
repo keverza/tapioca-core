@@ -963,6 +963,220 @@ TEST (HudVirtualEditor, RadiusGripsWaitForTheDragThreshold)
     EXPECT_EQ (p.S ().edits.UndoDepth (), 0u);
 }
 
+TEST (HudVirtualEditor, ATypedRadiusThroughACornerDragKeepsItsScope)
+{
+    ed::Document doc;
+    const ed::Id shape = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    Drive d (std::move (doc));
+    const auto original = d.D ().entities;
+    d.S ().selection.Set ({ { shape, ed::Part::Entity, 0 } });
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f;
+    d.Press (gx, gy);
+    d.At (gx - 20, gy - 20);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Corner);
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Radius);
+    const auto preview = d.D ().entities;
+    d.input.characters = u"1.25";
+    d.Frame ();
+    d.At (gx - 40, gy - 40);
+    EXPECT_EQ (d.D ().entities, preview);
+    d.Release (gx - 40, gy - 40);
+    EXPECT_TRUE (d.S ().edits.InGesture ());
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    for (const auto& v : d.D ().entities[0].vertices)
+        EXPECT_DOUBLE_EQ (v.radius, 1.25);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_EQ (d.D ().entities, original);
+    d.input.keys = { { 'Y', true, false, true } };
+    d.Frame ();
+    for (const auto& v : d.D ().entities[0].vertices)
+        EXPECT_DOUBLE_EQ (v.radius, 1.25);
+}
+
+TEST (HudVirtualEditor, ACornerDragValidatesAndLocksItsNumericRadius)
+{
+    ed::Document doc;
+    const ed::Id shape = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { shape, ed::Part::Entity, 0 } });
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f;
+    d.Press (gx, gy);
+    d.At (gx - 20, gy - 20);
+    const auto preview = d.D ().entities;
+    for (const auto text : { u"-1", u"4" }) { // negative, then beyond the 3 m all-corner fit
+        d.input.characters = text;
+        d.Frame ();
+        d.Key (0x09);
+        EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+        EXPECT_FALSE (d.S ().message.empty ());
+        EXPECT_EQ (d.D ().entities, preview);
+        while (!d.S ().tracker.Text ().empty ())
+            d.Key (0x08);
+    }
+    d.input.characters = u"1.5";
+    d.Frame ();
+    d.Key (0x09);
+    ASSERT_TRUE (d.S ().tracker.Locked (ed::Quantity::Radius));
+    d.At (gx - 50, gy - 50);
+    for (const auto& v : d.D ().entities[0].vertices)
+        EXPECT_DOUBLE_EQ (v.radius, 1.5);
+    d.Release (gx - 50, gy - 50);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, EscapeUnwindsARadiusFieldThenItsGripDrag)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 100 }, { 10, 0, 101 }, { 10, 10, 102 } }, 1.5);
+    Drive d (std::move (doc));
+    const auto original = d.D ().paths;
+    d.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f;
+    d.Press (gx, gy);
+    d.At (gx - 20, gy - 20);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Corner);
+    const auto preview = d.D ().paths;
+    d.input.characters = u"2";
+    d.Frame ();
+    d.Release (gx - 40, gy - 40);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Corner);
+    EXPECT_EQ (d.D ().paths, preview);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.D ().paths, original);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, ATypedBendRadiusPreservesFixedProfileElevations)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 100 }, { 10, 0, 101 }, { 10, 10, 102 } }, 1.5);
+    doc.paths[0].profile.front ().fixed = true;
+    doc.paths[0].profile.back ().fixed = true;
+    Drive d (std::move (doc));
+    const auto original = d.D ().paths;
+    d.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+    const float gx = 600 + 20 * (10 - 0.5657f), gy = 500 - 20 * 0.5657f;
+    d.Press (gx, gy);
+    d.At (gx - 20, gy - 20);
+    d.input.characters = u"2.25";
+    d.Frame ();
+    d.Key (0x0D);
+    d.Release (gx - 20, gy - 20);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    const auto& p = d.D ().paths[0];
+    EXPECT_DOUBLE_EQ (p.points[1].radius, 2.25);
+    ASSERT_EQ (p.sections.size (), original[0].sections.size ());
+    for (size_t i = 0; i < p.sections.size (); ++i) {
+        EXPECT_EQ (p.sections[i].id, original[0].sections[i].id);
+        EXPECT_DOUBLE_EQ (p.sections[i].widthLeft, original[0].sections[i].widthLeft);
+        EXPECT_DOUBLE_EQ (p.sections[i].widthRight, original[0].sections[i].widthRight);
+        EXPECT_DOUBLE_EQ (p.sections[i].crossfall, original[0].sections[i].crossfall);
+        EXPECT_EQ (p.sections[i].fall, original[0].sections[i].fall);
+    }
+    ASSERT_EQ (p.profile.size (), original[0].profile.size ());
+    for (size_t i = 0; i < p.profile.size (); ++i) {
+        EXPECT_EQ (p.profile[i].id, original[0].profile[i].id);
+        EXPECT_DOUBLE_EQ (p.profile[i].z, original[0].profile[i].z);
+        EXPECT_EQ (p.profile[i].fixed, original[0].profile[i].fixed);
+    }
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_EQ (d.D ().paths, original);
+}
+
+TEST (HudVirtualEditor, ATypedKerbDragSetsOnlyItsCapturedCorner)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 4.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+    const auto original = d.D ().paths;
+    const auto c = ed::Pave (d.D ().paths, 0.5, false).corners.front ();
+    const auto at = ed::KerbGripAt (c, 0.8), to = at + c.bisector;
+    const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+    const auto g = screen (at), t = screen (to);
+    d.Press (g.x, g.y);
+    d.At (t.x, t.y);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Kerb);
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Radius);
+    const auto preview = d.D ().paths;
+    d.input.characters = u"99";
+    d.Frame ();
+    d.Release (t.x + 30, t.y + 30);
+    d.Key (0x0D); // exact entry must not silently cap to the grip's maximum
+    ASSERT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.D ().paths, preview);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x08);
+    d.Key (0x08);
+    d.input.characters = u"0.5";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    ASSERT_EQ (d.D ().paths[0].kerbs.size (), 1u);
+    EXPECT_TRUE (d.D ().paths[0].kerbs[0].Same (c.key));
+    EXPECT_DOUBLE_EQ (d.D ().paths[0].kerbs[0].radius, 0.5);
+    EXPECT_DOUBLE_EQ (d.D ().paths[0].edgeRadius, 0.0);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_EQ (d.D ().paths, original);
+}
+
+TEST (HudVirtualEditor, ATypedJunctionRadiusCanBeCancelledOrCommitted)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    ed::AddPath (doc, { { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+    const auto original = d.D ().paths;
+    ed::PavedCorner c;
+    for (const auto& corner : ed::Pave (d.D ().paths, 0.5, false).corners)
+        if (corner.key.other != ed::kNoId)
+            c = corner;
+    ASSERT_NE (c.key.other, ed::kNoId);
+    const auto screen = [] (ed::Vec3 p) { return ImVec2 { 600 + 20 * float (p.x), 500 - 20 * float (p.y) }; };
+    const auto g = screen (ed::KerbGripAt (c, 0.8)), to = screen (ed::KerbGripAt (c, 0.8) + c.bisector);
+    for (const bool cancel : { true, false }) {
+        d.Press (g.x, g.y);
+        d.At (to.x, to.y);
+        ASSERT_EQ (d.S ().drag, eh::Drag::Kerb);
+        const auto preview = d.D ().paths;
+        d.input.characters = u"0.75";
+        d.Frame ();
+        d.Release (to.x, to.y);
+        if (cancel) {
+            d.Key (0x1B);
+            EXPECT_EQ (d.D ().paths, preview);
+            d.Key (0x1B);
+            EXPECT_EQ (d.D ().paths, original);
+            EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+        }
+        else {
+            d.Key (0x0D);
+            const auto* p = ed::FindPath (d.D (), c.path);
+            ASSERT_NE (p, nullptr);
+            ASSERT_EQ (p->kerbs.size (), 1u);
+            EXPECT_TRUE (p->kerbs[0].Same (c.key));
+            EXPECT_DOUBLE_EQ (p->kerbs[0].radius, 0.75);
+            EXPECT_DOUBLE_EQ (p->edgeRadius, 0.0);
+            EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+        }
+        EXPECT_FALSE (d.S ().edits.InGesture ());
+    }
+}
+
 TEST (HudVirtualEditor, SwitchingPlanAnd3DCancelsAnyGesture)
 {
     ed::Document doc;

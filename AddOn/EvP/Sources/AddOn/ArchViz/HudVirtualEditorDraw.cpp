@@ -20,7 +20,8 @@ void DrawTracker (Session& s, ImVec2 mouse, bool hovered, float scale)
 {
     const bool offered = !s.tracker.Items ().empty () &&
                          (s.typedHandle >= 0 || (s.drag == Drag::Handle && s.dragStarted && s.handle >= 0) ||
-                          (s.drag == Drag::Part && s.dragStarted && s.dragTypable));
+                          (s.drag == Drag::Part && s.dragStarted && s.dragTypable) ||
+                          ((s.drag == Drag::Corner || s.drag == Drag::Kerb) && s.dragStarted));
     if (!hovered || (s.tracker.State () != edit::TrackerState::Editing && !offered))
         return;
     auto* draw = s.canvas.list;

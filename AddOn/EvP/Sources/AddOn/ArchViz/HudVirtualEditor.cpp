@@ -254,6 +254,19 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
         s.message = "Type a plain number; Enter applies, Esc cancels.";
         return;
     }
+    if (event.outcome != O::Commit && event.outcome != O::Locked)
+        return;
+    if (const auto op = RadiusDragOperation (s, event.value)) {
+        if (!s.edits.Move (op))
+            s.message = s.edits.Message ();
+        else {
+            s.dragValue = event.value;
+            if (event.outcome == O::Commit)
+                EndDrag (s);
+            s.message.clear ();
+        }
+        return;
+    }
     if (event.outcome != O::Commit)
         return;
     if (s.drag == Drag::Handle && s.dragStarted) {
@@ -341,6 +354,10 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         items.push_back ({ edit::Quantity::Length, edit::DistanceXY (last, at) });
         items.push_back (
             { edit::Quantity::Angle, std::atan2 (at.y - last.y, at.x - last.x) * 180.0 / 3.14159265358979323846 });
+        return items;
+    }
+    if ((s.drag == Drag::Corner || s.drag == Drag::Kerb) && s.dragStarted) {
+        items.push_back ({ edit::Quantity::Radius, s.dragValue });
         return items;
     }
     if (s.drag == Drag::Part && s.dragStarted && s.dragTypable) {
@@ -444,6 +461,20 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     };
     // A mode key shows that transform's handles alone; pressed again, the gumball comes back.
     const auto mode = [&s] (edit::GizmoMode m) { s.gizmo = s.gizmo == m ? edit::GizmoMode::Gumball : m; };
+    const auto trackerKey = [&s] (edit::TrackerKey key) {
+        const edit::Tracker entry = s.tracker;
+        const int handle = s.typedHandle;
+        const auto event = s.tracker.Key (key);
+        const bool applying =
+            event.outcome == edit::Tracker::Outcome::Commit || event.outcome == edit::Tracker::Outcome::Locked;
+        if (applying)
+            s.message.clear ();
+        TrackerEvent (s, event);
+        if (applying && !s.message.empty ()) {
+            s.tracker = entry;
+            s.typedHandle = handle;
+        }
+    };
     for (const auto action : v.editActions) {
         if (action == overlayhud::Input::EditAction::Cancel)
             escape ();
@@ -461,27 +492,15 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                 escape ();
                 break;
             case 0x0D:
-                if (s.tracker.State () == edit::TrackerState::Editing) {
-                    // Parsing is not application: a number refused by the operation retains
-                    // its text, focus, locks and clicked-handle binding for correction.
-                    const edit::Tracker entry = s.tracker;
-                    const int handle = s.typedHandle;
-                    const auto event = s.tracker.Key ({ K::Enter });
-                    if (event.outcome == edit::Tracker::Outcome::Commit)
-                        s.message.clear ();
-                    TrackerEvent (s, event);
-                    if (event.outcome == edit::Tracker::Outcome::Commit && !s.message.empty ()) {
-                        s.tracker = entry;
-                        s.typedHandle = handle;
-                    }
-                }
-                else if (s.dragReleased && (s.drag == Drag::Handle || s.drag == Drag::Part))
+                if (s.tracker.State () == edit::TrackerState::Editing)
+                    trackerKey ({ K::Enter });
+                else if (s.dragReleased && s.edits.InGesture ())
                     EndDrag (s);
                 else if (!s.drawing.empty ())
                     FinishDrawing (s);
                 break;
             case 0x09:
-                TrackerEvent (s, s.tracker.Key ({ key.shift ? K::BackTab : K::Tab }));
+                trackerKey ({ key.shift ? K::BackTab : K::Tab });
                 break;
             case 0x08:
                 if (typing)
@@ -745,7 +764,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     const bool typing = s.tracker.State () == edit::TrackerState::Editing;
     if (s.dragPointerPause && (mouse.x != s.dragPointerPause->first || mouse.y != s.dragPointerPause->second))
         s.dragPointerPause.reset ();
-    const bool pointerMoves = !typing && !s.dragPointerPause && !s.dragReleased;
+    const bool pointerMoves = DragPointerMoves (s, mouse);
     if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted && pointerMoves) {
         const auto moving = Moving (s, s.target);
         Vec3 at;

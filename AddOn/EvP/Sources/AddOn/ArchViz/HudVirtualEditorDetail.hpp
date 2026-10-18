@@ -89,6 +89,14 @@ bool KerbField (const Session& s, double& radius);
 // A typed radius for the picked kerb corner, cut to the most it can take (a negative one is
 // refused): false when no corner is picked (the value is someone else's).
 bool TypeKerb (Session& s, double radius);
+// A captured bend/corner or kerb grip's exact radius, with its original target scope.
+// Empty outside an active radius drag; unsupported values are refused by the operation.
+edit::Operation RadiusDragOperation (const Session& s, double radius);
+inline bool DragPointerMoves (const Session& s, ImVec2 mouse)
+{
+    return s.tracker.State () != edit::TrackerState::Editing && !s.dragReleased &&
+           (!s.dragPointerPause || mouse.x != s.dragPointerPause->first || mouse.y != s.dragPointerPause->second);
+}
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);

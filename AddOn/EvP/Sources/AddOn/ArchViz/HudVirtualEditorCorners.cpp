@@ -145,6 +145,10 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         Corners (s, entity, shape, corners);
         s.drag = Drag::Corner;
         s.dragStarted = false;
+        s.dragReleased = false;
+        s.dragPointerPause.reset ();
+        s.dragValue = shape.vertices[hot->index].radius;
+        s.tracker.Hide (); // locks belong to this grip gesture, never the previous one
         s.cornerEntity = entity;
         s.cornerIndex = hot->index;
         s.cornerSet.clear ();
@@ -155,7 +159,7 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
     }
     if (s.drag == Drag::Corner && ImGui::IsMouseDown (0) && !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= 3.0f;
-    if (s.drag == Drag::Corner && s.dragStarted && ImGui::IsMouseDown (0)) {
+    if (s.drag == Drag::Corner && s.dragStarted && ImGui::IsMouseDown (0) && DragPointerMoves (s, mouse)) {
         edit::Entity shape;
         const edit::Entity* before = ShapeOf (s.edits.Before (), s.cornerEntity, shape) ? &shape : nullptr;
         Vec3 at;
@@ -168,11 +172,15 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
             const double inset = Inset (m, before->vertices[s.cornerIndex].p, scale);
             double r = edit::RadiusFromGrip (*before, s.cornerIndex, at, inset);
             r = std::min (std::round (r * 100.0) / 100.0, edit::MaxRadius (*before, set)); // to the centimetre, as fits
+            if (const auto locked = s.tracker.Locked (edit::Quantity::Radius))
+                r = *locked;
             const edit::Id entity = s.cornerEntity;
             const auto ids = s.cornerSet;
             if (!s.edits.Move (
                     [entity, ids, r] (edit::Document& d, std::string& e) { return SetRadius (d, entity, ids, r, e); }))
                 s.message = s.edits.Message ();
+            else
+                s.dragValue = r;
             char text[32];
             std::snprintf (text, sizeof text, "R %.2f m", r);
             s.snap = {};
@@ -182,7 +190,10 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         }
         took = true;
     }
-    if (s.drag == Drag::Corner && ImGui::IsMouseReleased (0)) {
+    if (s.drag == Drag::Corner && s.dragStarted && ImGui::IsMouseReleased (0) &&
+        s.tracker.State () == edit::TrackerState::Editing)
+        s.dragReleased = true;
+    if (s.drag == Drag::Corner && ImGui::IsMouseReleased (0) && !s.dragReleased) {
         if (!s.dragStarted) {
             // A click: the corner is picked, its radius ready to type.
             s.edits.Cancel ();
@@ -306,6 +317,29 @@ bool TypeKerb (Session& s, double radius)
     return true;
 }
 
+edit::Operation RadiusDragOperation (const Session& s, double radius)
+{
+    if (!s.dragStarted)
+        return {};
+    if (s.drag == Drag::Corner)
+        return [id = s.cornerEntity, ids = s.cornerSet, radius] (edit::Document& d, std::string& e) {
+            return SetRadius (d, id, ids, radius, e);
+        };
+    if (s.drag == Drag::Kerb)
+        return [c = s.kerb, radius] (edit::Document& d, std::string& e) {
+            // Exact entry cannot silently become the rendered cap. This is the captured
+            // grip's supported range, not a change to the document's global kerb policy.
+            if (radius > c.maxRadius) {
+                char text[96];
+                std::snprintf (text, sizeof text, "this corner supports a radius of at most %.3f m", c.maxRadius);
+                e = text;
+                return false;
+            }
+            return edit::SetKerbRadius (d, c.path, c.key, radius, e);
+        };
+    return {};
+}
+
 bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale)
 {
     const std::vector<edit::Id> paths = KerbPaths (s);
@@ -346,6 +380,10 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         if (s.edits.Begin ()) {
             s.drag = Drag::Kerb;
             s.dragStarted = false;
+            s.dragReleased = false;
+            s.dragPointerPause.reset ();
+            s.dragValue = hot->corner.key.radius;
+            s.tracker.Hide ();
             s.kerb = hot->corner;
             s.startX = mouse.x, s.startY = mouse.y;
             took = true;
@@ -353,13 +391,17 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
     }
     if (s.drag == Drag::Kerb && ImGui::IsMouseDown (0) && !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= 3.0f;
-    if (s.drag == Drag::Kerb && s.dragStarted && ImGui::IsMouseDown (0)) {
+    if (s.drag == Drag::Kerb && s.dragStarted && ImGui::IsMouseDown (0) && DragPointerMoves (s, mouse)) {
         Vec3 at;
         if (m.Onto (mouse.x, mouse.y, s.kerb.at.z, s.kerb.at, at)) {
             double r = edit::KerbRadiusFromGrip (s.kerb, at, Inset (m, s.kerb.at, scale));
             r = std::min (std::round (r * 100.0) / 100.0, s.kerb.maxRadius); // to the centimetre, as fits
+            if (const auto locked = s.tracker.Locked (edit::Quantity::Radius))
+                r = *locked;
             if (!s.edits.Move (KerbEdit (s.kerb, r)))
                 s.message = s.edits.Message ();
+            else
+                s.dragValue = r;
             char text[48];
             std::snprintf (text, sizeof text, "Corner R %.2f m", r);
             s.snap = {};
@@ -369,7 +411,10 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
         }
         took = true;
     }
-    if (s.drag == Drag::Kerb && ImGui::IsMouseReleased (0)) {
+    if (s.drag == Drag::Kerb && s.dragStarted && ImGui::IsMouseReleased (0) &&
+        s.tracker.State () == edit::TrackerState::Editing)
+        s.dragReleased = true;
+    if (s.drag == Drag::Kerb && ImGui::IsMouseReleased (0) && !s.dragReleased) {
         if (!s.dragStarted) {
             s.edits.Cancel (); // a click: this corner picked, to be set alone
             s.kerbPicked = true;
