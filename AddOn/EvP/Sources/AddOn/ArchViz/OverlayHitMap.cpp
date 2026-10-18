@@ -32,17 +32,29 @@ Route Router::Verdict (const Event& event, bool overHud, bool overScroll, Owner&
         owner = Owner::None;
     switch (event.kind) {
         case EventKind::Press:
+            if (event.button == Button::Middle) {
+                if (owner == Owner::None)
+                    owner = Owner::Host;
+                return Route::Pass;
+            }
             if (owner == Owner::None)
-                owner = event.button == Button::Middle || !overHud ? Owner::Host : Owner::Hud;
+                owner = !overHud ? Owner::Host : Owner::Hud;
             return owner == Owner::Hud ? Route::Take : Route::Pass;
         case EventKind::Release: {
+            if (event.button == Button::Middle) {
+                if (event.held == 0)
+                    owner = Owner::None;
+                return Route::Pass;
+            }
             // One whose press was never seen is Archicad's: it may be waiting for it.
             const Route route = owner == Owner::Hud ? Route::Take : Route::Pass;
-            if (event.held == 0)
+            if ((event.held & ~Bit (Button::Middle)) == 0)
                 owner = Owner::None;
             return route;
         }
         case EventKind::Move:
+            if ((event.held & Bit (Button::Middle)) != 0)
+                return Route::Pass;
             if (owner == Owner::Hud)
                 return Route::Take;
             if (owner == Owner::Host)

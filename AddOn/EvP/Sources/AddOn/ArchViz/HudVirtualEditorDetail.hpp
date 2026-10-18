@@ -95,9 +95,12 @@ bool TypeKerb (Session& s, double radius);
 edit::Operation RadiusDragOperation (const Session& s, double radius);
 inline bool DragPointerMoves (const Session& s, ImVec2 mouse)
 {
-    return s.tracker.State () != edit::TrackerState::Editing && !s.dragReleased &&
+    return !s.navigation.blocked && s.tracker.State () != edit::TrackerState::Editing && !s.dragReleased &&
            (!s.dragPointerPause || mouse.x != s.dragPointerPause->first || mouse.y != s.dragPointerPause->second);
 }
+// Same-view navigation pauses operation input, never the immutable session baseline.
+void Navigate (Session& s, const Map& m, ImVec2 mouse);
+bool DragOnto (const Session& s, const Map& m, ImVec2 mouse, double z, edit::Vec3 seed, edit::Vec3& out);
 
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);

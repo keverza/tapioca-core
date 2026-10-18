@@ -20,6 +20,8 @@ struct Target {
     float x = 0.0f;
     float y = 0.0f;
     bool wasOver = false; // over the HUD at the last message: leaving it redraws the hover
+    bool navigating = false;
+    uint64_t navigationRevision = 0;
     std::vector<overlayhud::Input::Button> buttons;
     std::vector<overlayhud::Input::EditAction> editActions;
     std::vector<overlayhud::Input::Key> keys;

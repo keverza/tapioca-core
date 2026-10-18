@@ -17,6 +17,8 @@ namespace {
 int g_refreshes = 0;
 int s_hostHovers = 0, s_hostLeaves = 0;
 int s_hostDeletes = 0;
+int s_hostMiddleDown = 0, s_hostMiddleUp = 0;
+int s_hostNavigationMoves = 0;
 
 LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -26,6 +28,12 @@ LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lPar
         ++s_hostLeaves;
     if (message == WM_COMMAND && LOWORD (wParam) == 4242)
         ++s_hostDeletes;
+    if (message == WM_MBUTTONDOWN)
+        ++s_hostMiddleDown;
+    if (message == WM_MBUTTONUP)
+        ++s_hostMiddleUp;
+    if (message == WM_MOUSEMOVE && (wParam & MK_MBUTTON) != 0)
+        ++s_hostNavigationMoves;
     return ::DefWindowProcW (window, message, wParam, lParam);
 }
 
@@ -79,6 +87,66 @@ void Pump ()
 }
 
 } // namespace
+
+TEST (OverlayInput, CapturedEditorNavigationIsPassedAndReported)
+{
+    const HWND canvas = Canvas ();
+    ASSERT_NE (canvas, nullptr);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    Pump ();
+    s_hostMiddleDown = s_hostMiddleUp = 0;
+    s_hostNavigationMoves = 0;
+    ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
+    Pump ();
+    auto events = input::TakeInput (input::View::Plan);
+    ASSERT_EQ (events.buttons.size (), 1u);
+    EXPECT_EQ (events.buttons[0].button, 0);
+    ::PostMessageW (canvas, WM_MBUTTONDOWN, MK_LBUTTON | MK_MBUTTON, MAKELPARAM (40, 40));
+    Pump ();
+    events = input::TakeInput (input::View::Plan);
+    EXPECT_TRUE (events.navigating);
+    EXPECT_EQ (events.navigationRevision, 1u);
+    EXPECT_TRUE (events.buttons.empty ());
+    EXPECT_EQ (s_hostMiddleDown, 1);
+    ::PostMessageW (canvas, WM_MOUSEMOVE, MK_LBUTTON | MK_MBUTTON, MAKELPARAM (50, 40));
+    Pump ();
+    EXPECT_EQ (s_hostNavigationMoves, 1);
+    EXPECT_TRUE (input::TakeInput (input::View::Plan).buttons.empty ());
+    ::PostMessageW (canvas, WM_LBUTTONUP, MK_MBUTTON, MAKELPARAM (50, 40));
+    Pump ();
+    events = input::TakeInput (input::View::Plan);
+    ASSERT_EQ (events.buttons.size (), 1u);
+    EXPECT_FALSE (events.buttons[0].down);
+    EXPECT_TRUE (events.navigating);
+    ::PostMessageW (canvas, WM_MBUTTONUP, 0, MAKELPARAM (50, 40));
+    ::PostMessageW (canvas, WM_MOUSEWHEEL, MAKEWPARAM (0, WHEEL_DELTA), MAKELPARAM (50, 40));
+    Pump ();
+    events = input::TakeInput (input::View::Plan);
+    EXPECT_FALSE (events.navigating);
+    EXPECT_EQ (events.navigationRevision, 3u);
+    EXPECT_EQ (s_hostMiddleUp, 1);
+    EXPECT_TRUE (events.buttons.empty ());
+    EXPECT_NE (events.viewIdentity, 0u);
+    // A scrollable HUD page still consumes its wheel; it is not a native zoom event.
+    input::Region page;
+    page.rect[0] = page.rect[1] = -1000000;
+    page.rect[2] = page.rect[3] = 1000000;
+    page.scrolls = true;
+    map.regions.push_back (page);
+    input::SetHitMap (input::View::Plan, map);
+    ::PostMessageW (canvas, WM_MOUSEWHEEL, MAKEWPARAM (0, WHEEL_DELTA), MAKELPARAM (50, 40));
+    Pump ();
+    events = input::TakeInput (input::View::Plan);
+    EXPECT_EQ (events.navigationRevision, 3u);
+    EXPECT_FLOAT_EQ (events.wheel, 1.0f);
+    input::Detach (input::View::Plan);
+    ::DestroyWindow (canvas);
+    Pump ();
+}
 
 // ⚠️ THE USER, 2026-09-30: after 3D -> plan -> 3D, and after the 3D window was closed and
 // opened again, the HUD was drawn but static and took nothing. Detach forgets where the HUD

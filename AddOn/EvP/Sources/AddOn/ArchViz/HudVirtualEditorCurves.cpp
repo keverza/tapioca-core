@@ -101,6 +101,10 @@ bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const e
         if (s.hoverBezier >= 0 && size_t (s.hoverBezier) < handles.size () && s.edits.Begin ()) {
             const HandleEnd& h = handles[size_t (s.hoverBezier)];
             s.drag = Drag::Bezier;
+            s.dragStarted = false;
+            s.dragReleased = false;
+            s.dragPointerPause.reset ();
+            s.navigation.point = h.end;
             s.bezierEntity = h.entity, s.bezierVertex = h.vertex, s.bezierOut = h.out;
             took = true;
         }
@@ -117,9 +121,13 @@ bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const e
                     if (m.Onto (mouse.x, mouse.y, on.z, on, at) && s.edits.Begin (r)) {
                         s.selection.Set ({ r });
                         s.drag = Drag::Bend;
+                        s.dragStarted = false;
+                        s.dragReleased = false;
+                        s.dragPointerPause.reset ();
                         s.bendEntity = r.entity, s.bendSegment = r.item;
                         s.bendT = edit::NearestOnSegment (*e, size_t (i), at);
                         s.bendStart = at;
+                        s.navigation.point = at;
                         s.startX = mouse.x, s.startY = mouse.y;
                         took = true;
                     }
@@ -127,14 +135,16 @@ bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const e
             }
         }
     }
-    if (ImGui::IsMouseDown (0) && (s.drag == Drag::Bezier || s.drag == Drag::Bend)) {
+    if (ImGui::IsMouseDown (0) && (s.drag == Drag::Bezier || s.drag == Drag::Bend) && DragPointerMoves (s, mouse)) {
         took = true;
         edit::Operation op;
+        Vec3 used;
         if (s.drag == Drag::Bezier) {
             const edit::Entity* e = edit::Find (s.edits.Before (), s.bezierEntity);
             const int i = e != nullptr ? edit::VertexIndex (*e, s.bezierVertex) : -1;
             Vec3 at;
-            if (i >= 0 && m.Onto (mouse.x, mouse.y, e->vertices[size_t (i)].p.z, e->vertices[size_t (i)].p, at)) {
+            if (i >= 0 && DragOnto (s, m, mouse, e->vertices[size_t (i)].p.z, e->vertices[size_t (i)].p, at)) {
+                used = at;
                 const Vec3 anchor = e->vertices[size_t (i)].p;
                 const Vec3 offset = Constrain ({ at.x - anchor.x, at.y - anchor.y, 0.0 }, shift);
                 op = [id = s.bezierEntity, v = s.bezierVertex, out = s.bezierOut, offset] (edit::Document& d,
@@ -145,17 +155,26 @@ bool CurveHandles (Session& s, const Map& m, ImVec2 mouse, bool hovered, const e
         }
         else if (std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= kThreshold) { // a click does not bend
             Vec3 at;
-            if (m.Onto (mouse.x, mouse.y, s.bendStart.z, s.bendStart, at))
+            if (DragOnto (s, m, mouse, s.bendStart.z, s.bendStart, at)) {
+                used = at;
                 op = [id = s.bendEntity, seg = s.bendSegment, t = s.bendT,
                       move = Vec3 { at.x - s.bendStart.x, at.y - s.bendStart.y, 0.0 }] (edit::Document& d,
                                                                                         std::string& error) {
                     return edit::BendSegment (d, id, seg, t, move, error);
                 };
+            }
         }
-        if (op && !s.edits.Move (op))
-            s.message = s.edits.Message ();
+        if (op) {
+            if (!s.edits.Move (op))
+                s.message = s.edits.Message ();
+            else {
+                s.navigation.point = used;
+                s.dragStarted = true;
+            }
+        }
     }
-    if (ImGui::IsMouseReleased (0) && (s.drag == Drag::Bezier || s.drag == Drag::Bend)) {
+    if (ImGui::IsMouseReleased (0) && !s.navigation.blocked && !s.dragReleased &&
+        (s.drag == Drag::Bezier || s.drag == Drag::Bend)) {
         s.edits.End ();
         s.drag = Drag::None;
         took = true;
@@ -180,17 +199,23 @@ void PenDrag (Session& s, const Map& m, ImVec2 mouse)
     s.drawHandles.resize (s.drawing.size ());
     if (s.tool != Tool::Curve || s.drawing.empty ())
         return;
-    if (ImGui::IsMouseClicked (0))
+    if (ImGui::IsMouseClicked (0)) {
         s.penX = mouse.x, s.penY = mouse.y, s.penDown = true;
+        s.navigation.point = s.drawing.back ();
+    }
     if (ImGui::IsMouseReleased (0))
         s.penDown = false;
     // Past the threshold, the press pulls the new anchor's handles out (smooth: the arriving
     // one mirrors the leaving one).
-    if (s.penDown && ImGui::IsMouseDown (0) && std::hypot (mouse.x - s.penX, mouse.y - s.penY) >= kThreshold) {
+    if (s.penDown && DragPointerMoves (s, mouse) && ImGui::IsMouseDown (0) &&
+        (edit::Length (s.drawHandles.back ()) > 1.0e-12 ||
+         std::hypot (mouse.x - s.penX, mouse.y - s.penY) >= kThreshold)) {
         const Vec3 anchor = s.drawing.back ();
         Vec3 at;
-        if (m.Onto (mouse.x, mouse.y, anchor.z, anchor, at))
+        if (DragOnto (s, m, mouse, anchor.z, anchor, at)) {
             s.drawHandles.back () = Constrain ({ at.x - anchor.x, at.y - anchor.y, 0.0 }, ImGui::GetIO ().KeyShift);
+            s.navigation.point = at;
+        }
     }
 }
 

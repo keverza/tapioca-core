@@ -155,21 +155,25 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
         for (size_t i : corners)
             s.cornerSet.push_back (shape.vertices[i].id);
         s.startX = mouse.x, s.startY = mouse.y;
+        Vec3 press;
+        if (m.Onto (mouse.x, mouse.y, shape.vertices[hot->index].p.z, shape.vertices[hot->index].p, press))
+            s.navigation.point = press;
+        s.navigation.gripInset = Inset (m, shape.vertices[hot->index].p, scale);
         took = true;
     }
-    if (s.drag == Drag::Corner && ImGui::IsMouseDown (0) && !s.dragStarted)
+    if (!s.navigation.blocked && s.drag == Drag::Corner && ImGui::IsMouseDown (0) && !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= 3.0f;
     if (s.drag == Drag::Corner && s.dragStarted && ImGui::IsMouseDown (0) && DragPointerMoves (s, mouse)) {
         edit::Entity shape;
         const edit::Entity* before = ShapeOf (s.edits.Before (), s.cornerEntity, shape) ? &shape : nullptr;
         Vec3 at;
         if (before != nullptr && s.cornerIndex < before->vertices.size () &&
-            m.Onto (mouse.x, mouse.y, before->vertices[s.cornerIndex].p.z, before->vertices[s.cornerIndex].p, at)) {
+            DragOnto (s, m, mouse, before->vertices[s.cornerIndex].p.z, before->vertices[s.cornerIndex].p, at)) {
             std::vector<size_t> set;
             for (edit::Id id : s.cornerSet)
                 if (const int i = edit::VertexIndex (*before, id); i >= 0)
                     set.push_back (size_t (i));
-            const double inset = Inset (m, before->vertices[s.cornerIndex].p, scale);
+            const double inset = s.navigation.gripInset;
             double r = edit::RadiusFromGrip (*before, s.cornerIndex, at, inset);
             r = std::min (std::round (r * 100.0) / 100.0, edit::MaxRadius (*before, set)); // to the centimetre, as fits
             if (const auto locked = s.tracker.Locked (edit::Quantity::Radius))
@@ -179,8 +183,10 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
             if (!s.edits.Move (
                     [entity, ids, r] (edit::Document& d, std::string& e) { return SetRadius (d, entity, ids, r, e); }))
                 s.message = s.edits.Message ();
-            else
+            else {
                 s.dragValue = r;
+                s.navigation.point = at;
+            }
             char text[32];
             std::snprintf (text, sizeof text, "R %.2f m", r);
             s.snap = {};
@@ -193,7 +199,7 @@ bool CornerGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float sc
     if (s.drag == Drag::Corner && s.dragStarted && ImGui::IsMouseReleased (0) &&
         s.tracker.State () == edit::TrackerState::Editing)
         s.dragReleased = true;
-    if (s.drag == Drag::Corner && ImGui::IsMouseReleased (0) && !s.dragReleased) {
+    if (s.drag == Drag::Corner && ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked) {
         if (!s.dragStarted) {
             // A click: the corner is picked, its radius ready to type.
             s.edits.Cancel ();
@@ -383,22 +389,28 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
             s.tracker.Hide ();
             s.kerb = hot->corner;
             s.startX = mouse.x, s.startY = mouse.y;
+            Vec3 press;
+            if (m.Onto (mouse.x, mouse.y, s.kerb.at.z, s.kerb.at, press))
+                s.navigation.point = press;
+            s.navigation.gripInset = Inset (m, s.kerb.at, scale);
             took = true;
         }
     }
-    if (s.drag == Drag::Kerb && ImGui::IsMouseDown (0) && !s.dragStarted)
+    if (!s.navigation.blocked && s.drag == Drag::Kerb && ImGui::IsMouseDown (0) && !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= 3.0f;
     if (s.drag == Drag::Kerb && s.dragStarted && ImGui::IsMouseDown (0) && DragPointerMoves (s, mouse)) {
         Vec3 at;
-        if (m.Onto (mouse.x, mouse.y, s.kerb.at.z, s.kerb.at, at)) {
-            double r = edit::KerbRadiusFromGrip (s.kerb, at, Inset (m, s.kerb.at, scale));
+        if (DragOnto (s, m, mouse, s.kerb.at.z, s.kerb.at, at)) {
+            double r = edit::KerbRadiusFromGrip (s.kerb, at, s.navigation.gripInset);
             r = std::min (std::round (r * 100.0) / 100.0, s.kerb.maxRadius); // to the centimetre, as fits
             if (const auto locked = s.tracker.Locked (edit::Quantity::Radius))
                 r = *locked;
             if (!s.edits.Move (KerbEdit (s.kerb, r)))
                 s.message = s.edits.Message ();
-            else
+            else {
                 s.dragValue = r;
+                s.navigation.point = at;
+            }
             char text[48];
             std::snprintf (text, sizeof text, "Corner R %.2f m", r);
             s.snap = {};
@@ -411,7 +423,7 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
     if (s.drag == Drag::Kerb && s.dragStarted && ImGui::IsMouseReleased (0) &&
         s.tracker.State () == edit::TrackerState::Editing)
         s.dragReleased = true;
-    if (s.drag == Drag::Kerb && ImGui::IsMouseReleased (0) && !s.dragReleased) {
+    if (s.drag == Drag::Kerb && ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked) {
         if (!s.dragStarted) {
             s.edits.Cancel (); // a click: this corner picked, to be set alone
             s.kerbPicked = true;

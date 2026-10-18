@@ -1285,6 +1285,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/OverlayHudModel.cpp",
     "ArchViz/SurfaceSwitch.cpp",
     "ArchViz/OverlayInput.cpp",
+    "ArchViz/HudVirtualEditorNavigation.cpp",
     "ArchViz/OverlayRelease.cpp",
     "ArchViz/OverlayCameraKeep.cpp",
     "ArchViz/OverlayCensusAnchor.cpp",

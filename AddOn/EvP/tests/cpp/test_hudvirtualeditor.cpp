@@ -515,6 +515,396 @@ TEST (HudVirtualEditor, EscapeRestoresTheNumericCheckpointEvenAfterPointerMoveme
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
 }
 
+TEST (HudVirtualEditor, NavigationPausesAndRebasesAPartDragWithoutHistory)
+{
+    Drive d (Corner ());
+    d.S ().snapModes = 0;
+    d.S ().edgeSnap = false;
+    d.Press (800, 500);
+    d.At (840, 500);
+    const auto before = d.S ().edits.Before ().entities;
+    const auto preview = d.D ().entities;
+    d.input.navigating = true;
+    ++d.input.navigationRevision;
+    d.input.plan[2] += 100;
+    d.At (900, 550);
+    EXPECT_EQ (d.D ().entities, preview);
+    EXPECT_EQ (d.S ().edits.Before ().entities, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.input.navigating = false;
+    ++d.input.navigationRevision;
+    d.Frame ();
+    d.Frame ();
+    EXPECT_EQ (d.D ().entities, preview);
+    d.At (920, 550);                       // one metre after resume, still evaluated from the original before
+    EXPECT_TRUE (d.S ().message.empty ()); // no stale "release navigation" instruction after resume
+    EXPECT_NEAR (d.D ().entities[0].vertices[1].p.x, 13, 1e-6);
+    d.Release (920, 550);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_EQ (d.D ().entities, before);
+}
+
+TEST (HudVirtualEditor, NavigationRebasesAHandleAndKeepsItsTypedTotal)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    d.input.navigating = true;
+    ++d.input.navigationRevision;
+    d.input.plan[0] = 40;
+    d.input.plan[4] = -40;
+    d.At (930, 320);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12, 1e-6);
+    d.input.navigating = false;
+    ++d.input.navigationRevision;
+    d.Frame ();
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12, 1e-6);
+    d.At (970, 320);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 13, 1e-6);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.Key (0x0D);
+    d.Release (970, 320);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 15, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, ReleaseDuringNavigationWaitsForExplicitFinishOrCancel)
+{
+    for (const bool cancel : { true, false }) {
+        Drive d (Corner ());
+        DragTheXArrow (d);
+        const auto preview = d.D ().entities;
+        d.input.navigating = true;
+        ++d.input.navigationRevision;
+        d.Release (940, 340);
+        EXPECT_TRUE (d.S ().dragReleased);
+        EXPECT_TRUE (d.S ().edits.InGesture ());
+        EXPECT_EQ (d.D ().entities, preview);
+        d.input.navigating = false;
+        ++d.input.navigationRevision;
+        d.At (950, 350);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+        d.Key (cancel ? 0x1B : 0x0D);
+        EXPECT_EQ (d.S ().drag, eh::Drag::None);
+        EXPECT_FALSE (d.S ().edits.InGesture ());
+        EXPECT_EQ (d.S ().edits.UndoDepth (), cancel ? 0u : 1u);
+        EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, cancel ? 10 : 12, 1e-6);
+    }
+}
+
+TEST (HudVirtualEditor, WheelAnimationChangesOnlyTheViewUntilPointerMotionResumes)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    const auto preview = d.D ().entities;
+    ++d.input.navigationRevision; // wheel has no held-button state
+    for (const double zoom : { 25.0, 30.0, 40.0 }) {
+        d.input.plan[0] = zoom;
+        d.input.plan[4] = -zoom;
+        d.At (900, 320);
+        EXPECT_EQ (d.D ().entities, preview);
+    }
+    d.Frame ();
+    EXPECT_EQ (d.D ().entities, preview);
+    d.At (940, 320);
+    d.Release (940, 320);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 13, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, MarqueeStaysAtThePointerWhileNavigatingAndKeepsItsModifier)
+{
+    Drive d (Corner ());
+    const auto& entity = d.D ().entities[0];
+    const ed::Ref first { entity.id, ed::Part::Vertex, entity.vertices[0].id };
+    const ed::Ref last { entity.id, ed::Part::Vertex, entity.vertices[2].id };
+    d.S ().filter = ed::kPickVertex;
+    d.S ().selection.Set ({ last });
+    d.input.shift = true;
+    d.Press (550, 550);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Marquee);
+    d.input.navigating = true;
+    ++d.input.navigationRevision;
+    d.input.shift = false;
+    d.input.plan[2] += 100;
+    d.At (850, 250);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Marquee);
+    d.Release (850, 250);
+    EXPECT_FALSE (d.S ().selection.Contains (first));
+    d.input.navigating = false;
+    ++d.input.navigationRevision;
+    d.Frame ();
+    EXPECT_EQ (d.S ().drag, eh::Drag::Marquee);
+    d.Key (0x0D);
+    EXPECT_TRUE (d.S ().selection.Contains (first));
+    EXPECT_TRUE (d.S ().selection.Contains (last));
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, WindowReplacementCancelsBeforeNumericEnterCanApply)
+{
+    Drive d (Corner ());
+    d.input.viewIdentity = 1;
+    DragTheXArrow (d);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.input.viewIdentity = 2;
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 10, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, NavigationDoesNotTurnACapturedClickIntoADrag)
+{
+    Drive d (Corner ());
+    d.Press (800, 500);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Part);
+    const auto original = d.D ().entities;
+    d.input.navigating = true;
+    d.At (950, 350);
+    d.input.navigating = false;
+    d.input.plan[2] += 150;
+    d.Frame ();
+    d.Frame ();
+    d.At (951, 350);
+    EXPECT_FALSE (d.S ().dragStarted);
+    d.Release (951, 350);
+    EXPECT_EQ (d.D ().entities, original);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, RepeatedNavigationContinuesFromTheLatestValidHandlePreview)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    for (int i = 0; i < 3; ++i) {
+        const auto preview = d.D ().entities;
+        const auto revision = d.D ().revision;
+        d.input.navigating = true;
+        ++d.input.navigationRevision;
+        d.At (900, 350);
+        d.input.navigating = false;
+        ++d.input.navigationRevision;
+        d.input.plan[2] += 25;
+        d.Frame ();
+        d.Frame ();
+        d.Frame ();
+        EXPECT_EQ (d.D ().entities, preview);
+        EXPECT_EQ (d.D ().revision, revision);
+        d.At (920, 350);
+        EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 13 + i, 1e-6);
+    }
+    d.Release (920, 350);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, AnEdgeOnNavigationRebaseCanExplicitlyFinishOrCancel)
+{
+    for (const bool cancel : { false, true }) {
+        Drive d (Corner ());
+        // Use the 3D mapping seam from the beginning; switching projection kinds must cancel.
+        d.input.planar = false;
+        d.input.project = [] (double x, double y, double z, float& px, float& py) {
+            px = float (600 + 20 * x), py = float (500 - 20 * y - 5 * z);
+            return true;
+        };
+        DragTheXArrow (d);
+        const auto preview = d.D ().entities;
+        d.input.navigating = true;
+        d.input.project = [] (double x, double, double z, float& px, float& py) {
+            px = float (600 + 20 * x), py = float (500 - 20 * z); // XY seen edge-on
+            return true;
+        };
+        d.At (950, 350);
+        d.input.navigating = false;
+        d.Frame ();
+        d.Frame ();
+        EXPECT_TRUE (d.S ().navigation.blocked);
+        EXPECT_TRUE (d.S ().navigation.pending);
+        EXPECT_EQ (d.D ().entities, preview);
+        EXPECT_NE (d.S ().message.find ("edge-on"), std::string::npos);
+        d.Key (cancel ? 0x1B : 0x0D); // explicit even before LMB release
+        d.Release (950, 350);
+        EXPECT_EQ (d.S ().drag, eh::Drag::None);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), cancel ? 0u : 1u);
+        EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, cancel ? 10 : 12, 1e-6);
+    }
+}
+
+TEST (HudVirtualEditor, RadiusNavigationKeepsCapturedScopeAndZoomIndependentGripInset)
+{
+    ed::Document doc;
+    const auto id = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    Drive d (doc);
+    d.S ().selection.Set ({ { id, ed::Part::Entity, 0 } });
+    const float x = 600 + 20 * (10 - 0.5657f), y = 500 - 20 * 0.5657f;
+    d.Press (x, y);
+    d.At (x - 4, y - 4);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Corner);
+    const auto preview = d.D ().entities;
+    d.input.navigating = true;
+    d.input.plan[0] = 5, d.input.plan[4] = -5;
+    d.At (900, 350);
+    d.input.navigating = false;
+    d.Frame ();
+    d.Frame ();
+    EXPECT_EQ (d.D ().entities, preview);
+    d.At (899.5f, 349.5f);
+    for (const auto& v : d.D ().entities[0].vertices)
+        EXPECT_GT (v.radius, 0.0); // zoom must not change the grip's sharp-radius threshold
+    d.Key (0x1B);
+    d.Release (899.5f, 349.5f);
+    EXPECT_EQ (d.D ().entities, doc.entities);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+
+    ed::Document paths;
+    const auto path = ed::AddPath (paths, { { 0, 0, 100 }, { 20, 0, 101 } }, 4);
+    paths.paths[0].profile.front ().fixed = paths.paths[0].profile.back ().fixed = true;
+    Drive p (paths);
+    p.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+    const auto c = ed::Pave (paths.paths, 0.5, false).corners.front ();
+    const auto at = ed::KerbGripAt (c, 0.8);
+    p.Press (float (600 + 20 * at.x), float (500 - 20 * at.y));
+    ASSERT_EQ (p.S ().drag, eh::Drag::Kerb);
+    p.At (float (600 + 20 * (at.x + c.bisector.x)), float (500 - 20 * (at.y + c.bisector.y)));
+    const auto pathPreview = p.D ().paths;
+    p.input.navigating = true;
+    p.input.plan[0] = 40, p.input.plan[4] = -40;
+    p.Release (900, 350);
+    EXPECT_EQ (p.D ().paths, pathPreview);
+    p.input.navigating = false;
+    p.Frame ();
+    p.Frame ();
+    EXPECT_EQ (p.D ().paths, pathPreview);
+    p.Key (0x0D);
+    ASSERT_EQ (p.D ().paths[0].kerbs.size (), 1u);
+    EXPECT_TRUE (p.D ().paths[0].kerbs[0].Same (c.key));
+    EXPECT_EQ (p.D ().paths[0].profile, paths.paths[0].profile);
+    EXPECT_EQ (p.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, CurveHandlesAndBendingResumeWithoutReplacingTheirBaseline)
+{
+    ed::Document doc;
+    const auto id = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 20, 0, 0 } }, false);
+    std::string error;
+    ASSERT_TRUE (ed::SetSmooth (doc, id, doc.entities[0].vertices[1].id, true, error)) << error;
+    for (const bool bend : { false, true }) {
+        Drive d (doc);
+        const float x = bend ? 700 : 600 + 20 * (10 + 10.0f / 3.0f);
+        if (!bend)
+            d.S ().selection.Set ({ { id, ed::Part::Vertex, doc.entities[0].vertices[1].id } });
+        d.Press (x, 500);
+        ASSERT_EQ (d.S ().drag, bend ? eh::Drag::Bend : eh::Drag::Bezier);
+        d.At (x, 460);
+        const auto preview = d.D ().entities;
+        d.input.navigating = true;
+        d.input.plan[2] += 100;
+        d.At (900, 350);
+        d.input.navigating = false;
+        d.Frame ();
+        d.Frame ();
+        EXPECT_EQ (d.D ().entities, preview);
+        EXPECT_EQ (d.S ().edits.Before ().entities, doc.entities);
+        d.At (900, 330);
+        EXPECT_NE (d.D ().entities, preview);
+        d.input.navigating = true;
+        d.Release (910, 320);
+        EXPECT_TRUE (d.S ().edits.InGesture ());
+        d.Key (0x1B);
+        EXPECT_EQ (d.D ().entities, doc.entities);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    }
+}
+
+TEST (HudVirtualEditor, NavigationRetainsRadiusLocksAndUncommittedTrackerText)
+{
+    ed::Document doc;
+    const auto id = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    Drive d (doc);
+    d.S ().selection.Set ({ { id, ed::Part::Entity, 0 } });
+    const float x = 600 + 20 * (10 - 0.5657f), y = 500 - 20 * 0.5657f;
+    d.Press (x, y);
+    d.At (x - 20, y - 20);
+    d.input.characters = u"1.5";
+    d.Frame ();
+    d.Key (0x09);
+    ASSERT_TRUE (d.S ().tracker.Locked (ed::Quantity::Radius));
+    const auto lockedPreview = d.D ().entities;
+    d.input.navigating = true;
+    d.input.plan[2] += 100;
+    d.At (900, 350);
+    d.input.navigating = false;
+    d.Frame ();
+    d.Frame ();
+    d.At (920, 330);
+    EXPECT_EQ (d.D ().entities, lockedPreview);
+    ASSERT_TRUE (d.S ().tracker.Locked (ed::Quantity::Radius));
+    EXPECT_DOUBLE_EQ (*d.S ().tracker.Locked (ed::Quantity::Radius), 1.5);
+    d.input.characters = u"2.25";
+    d.Frame ();
+    d.input.navigating = true;
+    d.Release (950, 350);
+    EXPECT_EQ (d.S ().tracker.Text (), "2.25");
+    EXPECT_EQ (d.D ().entities, lockedPreview);
+    d.input.navigating = false;
+    d.Frame ();
+    d.Frame ();
+    d.Key (0x1B); // number first, gesture second
+    EXPECT_EQ (d.D ().entities, lockedPreview);
+    d.Key (0x1B);
+    EXPECT_EQ (d.D ().entities, doc.entities);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, ThePenKeepsItsPointsAndHandlesDuringNavigation)
+{
+    Drive d ({});
+    d.S ().tool = eh::Tool::Curve;
+    d.S ().snapModes = 0;
+    d.Press (600, 500);
+    d.At (640, 480);
+    const auto points = d.S ().drawing, handles = d.S ().drawHandles;
+    d.input.navigating = true;
+    d.input.plan[2] += 100;
+    d.At (900, 350);
+    d.input.navigating = false;
+    d.Frame ();
+    d.Frame ();
+    EXPECT_EQ (d.S ().drawing, points);
+    EXPECT_EQ (d.S ().drawHandles, handles);
+    d.At (920, 350);
+    EXPECT_NEAR (d.S ().drawHandles[0].x, handles[0].x + 1, 1e-6);
+    d.input.navigating = true;
+    d.Release (930, 340);
+    EXPECT_FALSE (d.S ().penDown);
+    EXPECT_EQ (d.S ().drawing, points);
+    EXPECT_TRUE (d.D ().entities.empty ());
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, NavigationBeforePenMotionDoesNotPullOutAHandle)
+{
+    Drive d ({});
+    d.S ().tool = eh::Tool::Curve;
+    d.S ().snapModes = 0;
+    d.Press (600, 500);
+    d.input.navigating = true;
+    d.input.plan[2] += 100;
+    d.At (900, 350);
+    d.input.navigating = false;
+    d.Frame ();
+    d.Frame ();
+    d.At (901, 350);
+    d.Release (901, 350);
+    ASSERT_EQ (d.S ().drawHandles.size (), 1u);
+    EXPECT_DOUBLE_EQ (ed::Length (d.S ().drawHandles[0]), 0.0);
+}
+
 TEST (HudVirtualEditor, GumballHoldsEveryTransform)
 {
     EXPECT_EQ (eh::Session ().gizmo, ed::GizmoMode::Gumball); // what a session starts with

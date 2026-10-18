@@ -171,9 +171,12 @@ struct Input {
         int button = 0;
         bool down = false;
     };
-    std::vector<Button> buttons; // since the last layout, in order
-    bool hasButtonState = false; // the runtime can reconcile a release missed outside its canvas
-    uint32_t buttonsDown = 0;    // current physical button mask; synthetic callers may omit it
+    std::vector<Button> buttons;     // since the last layout, in order
+    bool hasButtonState = false;     // the runtime can reconcile a release missed outside its canvas
+    uint32_t buttonsDown = 0;        // current physical button mask; synthetic callers may omit it
+    bool navigating = false;         // native navigation chord held now; never an editor-owned button
+    uint64_t navigationRevision = 0; // native navigation events, including wheel, observed by this view
+    uint64_t viewIdentity = 0;       // opaque host-window identity; a replacement cancels editor capture
     enum class EditAction { Cancel, Undo, Redo, BlockedModelKey };
     std::vector<EditAction> editActions; // scoped to the active roof canvas, consumed once per Build
     struct Key {

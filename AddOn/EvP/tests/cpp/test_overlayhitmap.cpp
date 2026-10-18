@@ -168,6 +168,26 @@ TEST (OverlayHitMap, NavigationIsNeverTaken)
     EXPECT_EQ (router.Decide (Move (), true), input::Route::Take);
 }
 
+TEST (OverlayHitMap, NavigationPassesDuringACapturedHudGesture)
+{
+    input::Router router;
+    EXPECT_EQ (router.Decide (Press (input::Button::Left, kLeft), true), input::Route::Take);
+    EXPECT_EQ (router.Preview (Press (input::Button::Middle, kLeft | kMiddle), true), input::Route::Pass);
+    EXPECT_EQ (router.GetOwner (), input::Owner::Hud);
+    EXPECT_EQ (router.Decide (Press (input::Button::Middle, kLeft | kMiddle), true), input::Route::Pass);
+    EXPECT_EQ (router.Decide (Move (kLeft | kMiddle), true), input::Route::Pass);
+    EXPECT_EQ (router.GetOwner (), input::Owner::Hud);
+    EXPECT_EQ (router.Decide (Release (input::Button::Middle, kLeft), true), input::Route::Pass);
+    EXPECT_EQ (router.Decide (Move (kLeft), true), input::Route::Take);
+    EXPECT_EQ (router.Decide (Release (input::Button::Left, 0), true), input::Route::Take);
+    EXPECT_EQ (router.GetOwner (), input::Owner::None);
+    router.Decide (Press (input::Button::Left, kLeft), true);
+    router.Decide (Press (input::Button::Middle, kLeft | kMiddle), true);
+    EXPECT_EQ (router.Decide (Release (input::Button::Left, kMiddle), true), input::Route::Take);
+    EXPECT_EQ (router.GetOwner (), input::Owner::None); // no hidden HUD capture after its last button
+    EXPECT_EQ (router.Decide (Release (input::Button::Middle, 0), true), input::Route::Pass);
+}
+
 // ⚠️ BUT THE WHEEL OVER A PAGE THAT SCROLLS IS THE HUD'S (the user, 2026-10-03: a vertical
 // scroll bar when a page is taller than the view): it scrolls the page, the view does not zoom
 // under it. Sideways, or while a gesture of Archicad's is held, it is still the view's.

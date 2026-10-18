@@ -22,6 +22,7 @@
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditTracker.hpp"
 #include <optional>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -86,6 +87,19 @@ struct Session {
     bool dragReleased = false;
     // After leaving numeric entry, keep its preview until the pointer actually moves again.
     std::optional<std::pair<float, float>> dragPointerPause;
+    struct Navigation {
+        bool blocked = false, pending = false, handleRebased = false;
+        uint64_t revision = 0;
+        std::optional<std::array<float, 12>> projection;
+        edit::Vec3 reference, offset;
+        std::optional<edit::Vec3> point; // last successful operation input, not a new document baseline
+        edit::Ray ray;
+        edit::DragResult handle;
+        double gripInset = -1.0; // captured with the grip, unaffected by zoom
+        std::string notice;      // clear only feedback this navigation lifecycle owns
+    } navigation;
+    uint64_t viewIdentity = 0;
+    bool marqueeAdditive = false;
     // A part drag that moves its items (not a path's width or grade break): the way they have
     // gone so far, in plan, which a typed distance keeps -- unset until the pointer has moved.
     bool dragTypable = false;

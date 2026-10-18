@@ -125,6 +125,8 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     Vec3 cursor;
     if (!m.Onto (mouse.x, mouse.y, z, seed, cursor))
         return false;
+    if (s.drag == Drag::Part)
+        cursor = cursor + s.navigation.offset;
     edit::SnapQuery q;
     q.cursor = cursor;
     q.tolerance = kSnapPixels * scale * m.MetresPerPixel (mouse.x, mouse.y, z, cursor);
@@ -205,7 +207,8 @@ void Escape (Session& s)
 // what waited on the pointer -- the pen's press, a handle or a label waiting for its number,
 // hover and snap -- is let go. A line being drawn keeps its points: they are model points, and
 // the next click places the next one in the new view. The profile's drags are the panel's.
-void ViewSwitched (Session& s)
+void ViewSwitched (Session& s,
+                   const char* reason = "The view changed between plan and 3D; the edit in progress was cancelled.")
 {
     bool cancelled = s.typedHandle >= 0 || s.labelOpen || s.penDown;
     if (s.drag != Drag::None && s.drag != Drag::ProfileBreak && s.drag != Drag::ProfileTangent) {
@@ -223,8 +226,21 @@ void ViewSwitched (Session& s)
     s.snap = {};
     s.selection.hover = {};
     s.hoverHandle = s.hoverCorner = s.hoverKerb = s.hoverBezier = -1;
+    s.navigation = {};
+    s.dragReleased = false;
+    s.dragPointerPause.reset ();
     if (cancelled)
-        s.message = "The view changed between plan and 3D; the edit in progress was cancelled.";
+        s.message = reason;
+}
+
+void CheckView (Session& s, const overlayhud::Input& v)
+{
+    if (s.viewPlanar && *s.viewPlanar != v.planar)
+        ViewSwitched (s);
+    if (s.viewIdentity != 0 && v.viewIdentity != 0 && s.viewIdentity != v.viewIdentity)
+        ViewSwitched (s, "The host window changed; the edit in progress was cancelled.");
+    s.viewPlanar = v.planar;
+    s.viewIdentity = v.viewIdentity;
 }
 
 void TrackerEvent (Session& s, const edit::Tracker::Event& event)
@@ -397,6 +413,7 @@ const edit::Path* ProfilePath (const Session& s)
 
 void Keys (Session& s, const overlayhud::Input& v, bool textInput)
 {
+    CheckView (s, v); // stale numeric input cannot commit before the next view layout
     if (textInput || LabelKeys (s, v))
         return; // an ImGui text field, or a label open for typing, has the keyboard
     using K = edit::TrackerKey::Kind;
@@ -453,7 +470,14 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             case 0x0D:
                 if (s.tracker.State () == edit::TrackerState::Editing)
                     trackerKey ({ K::Enter });
-                else if (s.dragReleased && s.edits.InGesture ())
+                else if ((s.dragReleased || s.navigation.blocked) && s.drag == Drag::Marquee) {
+                    s.selection.Marquee (Doc (s), Map { v }.Pick (), s.startX, s.startY, v.x, v.y, s.filter,
+                                         s.marqueeAdditive);
+                    s.drag = Drag::None;
+                    s.dragReleased = false;
+                    s.message.clear ();
+                }
+                else if ((s.dragReleased || s.navigation.blocked) && s.edits.InGesture ())
                     EndDrag (s);
                 else if (!s.drawing.empty ())
                     FinishDrawing (s);
@@ -540,9 +564,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     draw->PushClipRect ({ -1e6f, -1e6f }, { 1e6f, 1e6f }, false);
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
     const bool shift = ImGui::GetIO ().KeyShift;
-    if (s.viewPlanar && *s.viewPlanar != v.planar)
-        ViewSwitched (s);
-    s.viewPlanar = v.planar;
+    CheckView (s, v);
+    Navigate (s, m, mouse);
+    hovered = hovered && !s.navigation.blocked;
     const edit::PickView pick = m.Pick ();
     const double radius = kPickPixels * scale;
     const bool gizmo = GizmoShown (s);
@@ -649,6 +673,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     // the place it was pressed -- so a corner can be put on a corner.
                     else if (pressed.part == edit::Part::Entity && e != nullptr)
                         s.anchor = GrabPoint (s, m, mouse, pressed, s.startCursor, scale), s.startCursor = s.anchor;
+                    if (s.drag == Drag::Part)
+                        s.navigation.point = s.startCursor;
                 }
             }
         }
@@ -656,6 +682,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             if (!shift)
                 s.selection.Clear ();
             s.drag = Drag::Marquee;
+            s.marqueeAdditive = shift;
             s.startX = mouse.x, s.startY = mouse.y;
         }
     }
@@ -716,7 +743,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // the press snapped the grab point onto something nearby and the item jumped there). A drag
     // starts 3 px from its press; a press released inside that is a click. A gumball handle and
     // a pushed face wait the same: a hand's tremor on a click is not a move.
-    if (ImGui::IsMouseDown (0) && (s.drag == Drag::Part || s.drag == Drag::Handle) && !s.dragStarted)
+    if (!s.navigation.blocked && ImGui::IsMouseDown (0) && (s.drag == Drag::Part || s.drag == Drag::Handle) &&
+        !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= kDragPixels;
     // While a number is typed through a drag the number has it: the preview stays as it was
     // when typing began, and the pointer moves nothing until Esc gives the number up.
@@ -757,8 +785,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 if (s.dragValue > 1.0e-9)
                     s.dragDirection = t.translate * (1.0 / s.dragValue);
             }
-            if (op && !s.edits.Move (op))
-                s.message = s.edits.Message ();
+            if (op) {
+                if (!s.edits.Move (op))
+                    s.message = s.edits.Message ();
+                else
+                    s.navigation.point = at;
+            }
         }
         else
             s.message = "This view is edge-on to the working plane. Orbit or type a value.";
@@ -767,7 +799,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         edit::Ray now;
         const edit::Handle h = HeldHandle (s);
         if (m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, now)) {
-            const auto r = edit::Drag (s.frame, h, s.startRay, now);
+            const auto r = s.navigation.handleRebased
+                               ? edit::ContinueDrag (s.frame, h, s.navigation.handle, s.navigation.ray, now)
+                               : edit::Drag (s.frame, h, s.startRay, now);
             if (!r.ok)
                 s.message = r.error;
             else if (!s.edits.Move (edit::TransformOperation (HeldRefs (s), r.transform)))
@@ -786,8 +820,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
 
     // Release. A handle clicked without a drag asks for its number instead.
-    if (ImGui::IsMouseReleased (0) && s.drag == Drag::Handle && s.handle >= 0 && !s.dragStarted &&
-        edit::Handles (s.gizmo)[size_t (s.handle)].focusable) {
+    if (ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked && s.drag == Drag::Handle &&
+        s.handle >= 0 && !s.dragStarted && edit::Handles (s.gizmo)[size_t (s.handle)].focusable) {
         s.edits.Cancel ();
         s.typedHandle = s.handle;
         s.typedMode = s.gizmo;
@@ -797,7 +831,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         s.snap = {};
         s.message = "Type the value, Enter applies, Esc cancels.";
     }
-    if (ImGui::IsMouseReleased (0) && s.drag == Drag::Part && s.wholeGrab &&
+    if (ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked && s.drag == Drag::Part && s.wholeGrab &&
         std::hypot (mouse.x - s.startX, mouse.y - s.startY) < 3.0f) {
         s.edits.Cancel (); // a click on a selected object's corner picks the corner
         s.selection.Click (s.pressHits, s.startX, s.startY, false);
@@ -805,7 +839,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (ImGui::IsMouseReleased (0))
         s.wholeGrab = false;
-    if (ImGui::IsMouseReleased (0) && !s.dragReleased) {
+    if (ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked) {
         if ((s.drag == Drag::Handle || (s.drag == Drag::Part && s.dragStarted)) && typing) {
             // The typed number has the gesture: Enter ends it, this release does not.
             s.dragReleased = true;
@@ -819,7 +853,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 s.snap = {};
             }
             else if (s.drag == Drag::Marquee && std::hypot (mouse.x - s.startX, mouse.y - s.startY) > 3.0f)
-                s.selection.Marquee (Doc (s), pick, s.startX, s.startY, mouse.x, mouse.y, s.filter, shift);
+                s.selection.Marquee (Doc (s), pick, s.startX, s.startY, mouse.x, mouse.y, s.filter, s.marqueeAdditive);
             if (s.drag == Drag::Part || s.drag == Drag::Marquee)
                 s.drag = Drag::None;
         }
@@ -830,13 +864,16 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         s.message = "Drag paused: Enter finishes this preview; type a value, or Esc cancels the drag.";
 
     // Drawing tools follow the pointer between clicks.
-    if (s.tool != Tool::Select && hovered && s.drag == Drag::None) {
+    if (s.tool != Tool::Select && (hovered || s.navigation.blocked) && s.drag == Drag::None) {
         const double z = s.drawing.empty () ? s.workZ : s.drawing.back ().z;
         Vec3 p;
         std::optional<Vec3> anchor;
         if (!s.drawing.empty ())
             anchor = s.drawing.back ();
-        if (Pointer (s, m, mouse, z, s.drawing.empty () ? Vec3 {} : s.drawing.back (), anchor, {}, scale, p)) {
+        if (s.navigation.blocked ||
+            Pointer (s, m, mouse, z, s.drawing.empty () ? Vec3 {} : s.drawing.back (), anchor, {}, scale, p)) {
+            if (s.navigation.blocked)
+                p = s.snap.point;
             if (const auto length = s.tracker.Locked (edit::Quantity::Length); length && !s.drawing.empty ()) {
                 Vec3 dir;
                 if (edit::Normalize (Vec3 { p.x - anchor->x, p.y - anchor->y, 0.0 }, dir))
@@ -891,7 +928,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
 
     // The marquee, in screen pixels: left to right solid (contained), right to left dashed-thin (touched).
-    if (s.drag == Drag::Marquee && ImGui::IsMouseDown (0)) {
+    if (s.drag == Drag::Marquee && (ImGui::IsMouseDown (0) || s.dragReleased)) {
         const bool crossing = mouse.x < s.startX;
         draw->AddRectFilled ({ std::min (s.startX, mouse.x), std::min (s.startY, mouse.y) },
                              { std::max (s.startX, mouse.x), std::max (s.startY, mouse.y) },
@@ -925,6 +962,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                                    ? ImGuiMouseCursor_ResizeAll
                                    : ImGuiMouseCursor_Arrow);
     }
+    if (!s.navigation.projection && (s.drag != Drag::None || s.penDown))
+        Navigate (s, m, mouse); // capture the pre-navigation mapping on the Begin frame
     draw->PopClipRect ();
 }
 

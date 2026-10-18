@@ -162,6 +162,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
             self->buttons.clear ();
             self->wheel = 0.0f;
             self->wasOver = false;
+            self->navigating = false;
             if (over)
                 ++g_stats.declinedHidden;
         }
@@ -194,6 +195,15 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
     self->inside = PtInRect (&client, point) != FALSE;
     self->x = float (point.x);
     self->y = float (point.y);
+    const bool middle =
+        (event.kind == EventKind::Press || event.kind == EventKind::Release) && event.button == Button::Middle;
+    if (route == Route::Pass && (middle || (event.kind == EventKind::Wheel && event.wheel != 0.0f))) {
+        ++self->navigationRevision;
+        if (middle)
+            self->navigating = event.kind == EventKind::Press;
+    }
+    if (event.kind == EventKind::Move)
+        self->navigating = (event.held & Bit (Button::Middle)) != 0;
     const bool button = route == Route::Take && (event.kind == EventKind::Press || event.kind == EventKind::Release);
     if (button && self->buttons.size () < 32)
         self->buttons.push_back ({ int (event.button), event.kind == EventKind::Press });
@@ -670,6 +680,9 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.overHud = input.pointer && target.map.Hit (input.x, input.y, input.width, input.height) >= 0;
     input.hasButtonState = true;
     input.buttonsDown = PhysicalButtons ();
+    input.navigating = target.navigating || (input.buttonsDown & Bit (Button::Middle)) != 0;
+    input.navigationRevision = target.navigationRevision;
+    input.viewIdentity = uint64_t (reinterpret_cast<uintptr_t> (target.canvas));
     // Read as the layout is: it follows the press that asked for it, the key held through both.
     input.shift = ::GetKeyState (VK_SHIFT) < 0;
     if (take) {

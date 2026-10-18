@@ -200,7 +200,7 @@ HCURSOR DesiredCursor (const Target& target, Cursor& desired)
 
 bool ShowCursor (const Target& target)
 {
-    if (!OwnsPointer (target))
+    if (target.navigating || !OwnsPointer (target))
         return false;
     Cursor desired = Cursor::Arrow;
     ::SetCursor (DesiredCursor (target, desired));
@@ -216,7 +216,7 @@ bool ShowCursor (const Target& target)
 // counted, so a live run says whether, and how often, Archicad replaced it.
 void ReassertCursor (const Target& target)
 {
-    if (!target.map.locked || !OwnsPointer (target))
+    if (target.navigating || !target.map.locked || !OwnsPointer (target))
         return;
     Cursor desired = Cursor::Arrow;
     const HCURSOR cursor = DesiredCursor (target, desired);

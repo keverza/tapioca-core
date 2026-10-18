@@ -421,7 +421,7 @@ overlayhud::Input HudInput (bool take)
     input.planar = true;
     std::copy (std::begin (s_lastHudPlan), std::end (s_lastHudPlan), input.plan);
     const bool locked = overlayhud::EditLocked (*guesttext::HudState ());
-    const bool navigation = (::GetAsyncKeyState (VK_MBUTTON) & 0x8000) != 0;
+    const bool navigation = input.navigating;
     if (overlayvisibility::Hovering () && !locked && !navigation) {
         if (input.pointer && !input.overHud)
             input.hover = HoverAt (input.x, input.y);
