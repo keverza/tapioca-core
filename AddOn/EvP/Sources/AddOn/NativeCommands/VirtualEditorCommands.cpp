@@ -208,10 +208,18 @@ class VirtualEditorCommand : public MainThreadCommand {
             edit::Document doc;
             edit::SnapContext context;
             std::string error;
+            double planeZ = 0.0;
+            bool planeLocked = false;
+            if (params.Contains ("planeZ") && !ReadFiniteNumber (params, "planeZ", planeZ))
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("Working-plane elevation must be finite.", "opening the virtual editor"));
+            params.Get ("planeLocked", planeLocked);
             if (!Seed (params, role, doc, context, error))
                 return NativeCommandResult::Failure (
                     EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8), "opening the virtual editor"));
-            hud::StartVirtualEditor (*state, std::move (doc), role, std::move (context));
+            if (!hud::StartVirtualEditor (*state, std::move (doc), role, std::move (context), planeZ, planeLocked))
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("The working plane was refused.", "opening the virtual editor"));
             auto& session = *hud::VirtualEditor (*state);
             session.owner = archviz::overlaycontrol::RunningCommand ();
             GS::UniString tool;
@@ -335,6 +343,11 @@ class EditorStateCommand : public MainThreadCommand {
         result.Add ("paths", static_cast<GS::Int64> (s->edits.Doc ().paths.size ()));
         result.Add ("snapPoints", static_cast<GS::Int64> (s->context.points.size ()));
         result.Add ("snapSegments", static_cast<GS::Int64> (s->context.segments.size ()));
+        result.Add ("planeZ", s->plane.origin.z);
+        result.Add ("planeLocked", s->plane.locked);
+        result.Add ("planeSticky", s->plane.sticky);
+        result.Add ("planeSource", GS::UniString ("worldXY"));
+        result.Add ("planeCaptured", s->capturedPlane.has_value ());
         result.Add ("message", GS::UniString (s->message.c_str (), CC_UTF8));
         return result;
     }
@@ -344,15 +357,39 @@ class EditorStateCommand : public MainThreadCommand {
 
 NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
 {
-    static const NativeCommandRegistration
-        registrations[] = {
-            // A UI lifecycle that must release its borrowed lock and keys even after a Run is
-            // cancelled, as the roof editor's does; it never writes to the model.
-            { "VirtualEditor",
-              &MakeRegisteredNativeCommand<VirtualEditorCommand>, true, R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","state"]},"role":{"type":"string"},"tool":{"type":"string","enum":["select","polyline","path","curve"]},"polylines":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":20000,"items":{"$ref":"#Point3D"}},"closed":{"type":"boolean"},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},"boxes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"outline":{"type":"array","minItems":3,"maxItems":20000,"items":{"$ref":"#Point3D"}},"height":{"type":"number","exclusiveMinimum":0},"role":{"type":"string"}},"required":["outline","height"],"additionalProperties":false}},"paths":{"type":"array","maxItems":200,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":2000,"items":{"$ref":"#Point3D"}},"width":{"type":"number","exclusiveMinimum":0,"maximum":100},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},"snapPoints":{"type":"array","maxItems":100000,"items":{"$ref":"#Point3D"}},"snapSegments":{"type":"array","maxItems":100000,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"$ref":"#Point3D"}}}},"required":["action"],"additionalProperties":false})json", R"json({"type":"object","properties":{"active":{"type":"boolean"},"locked":{"type":"boolean"},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},"document":{"type":"object","properties":{"polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},"paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}}},"required":["polylines","paths"],"additionalProperties":false}},"required":["active","locked"],"additionalProperties":false})json" },
-            { "EditorState",
-              &MakeRegisteredNativeCommand<EditorStateCommand>, true, R"json({"type":"object","properties":{},"additionalProperties":false})json", R"json({"type":"object","properties":{"active":{"type":"boolean"},"locked":{"type":"boolean"},"layerShown":{"type":"boolean"},"tool":{"type":"string","enum":["select","polyline","path","curve"]},"gizmo":{"type":"string","enum":["move","rotate","scale","stretch","extrude","gumball"]},"drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend"]},"gesture":{"type":"boolean"},"selection":{"type":"integer"},"selectionKind":{"type":"string","enum":["none","vertex","segment","face","entity","mixed","pathPoint","break","range"]},"hovering":{"type":"boolean"},"revision":{"type":"integer"},"publishedRevision":{"type":"integer"},"undoDepth":{"type":"integer"},"tracker":{"type":"string","enum":["hidden","showing","editing"]},"drawing":{"type":"integer"},"entities":{"type":"integer"},"paths":{"type":"integer"},"snapPoints":{"type":"integer"},"snapSegments":{"type":"integer"},"message":{"type":"string"}},"required":["active","locked","layerShown"],"additionalProperties":false})json" },
-        };
+    static const NativeCommandRegistration registrations[] = {
+        // A UI lifecycle that must release its borrowed lock and keys even after a Run is
+        // cancelled, as the roof editor's does; it never writes to the model.
+        { "VirtualEditor", &MakeRegisteredNativeCommand<VirtualEditorCommand>, true,
+          R"json({"type":"object","properties":{
+                "action":{"type":"string","enum":["start","stop","state"]},"role":{"type":"string"},
+                "tool":{"type":"string","enum":["select","polyline","path","curve"]},
+                "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},
+                "polylines":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":20000,"items":{"$ref":"#Point3D"}},"closed":{"type":"boolean"},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
+                "boxes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"outline":{"type":"array","minItems":3,"maxItems":20000,"items":{"$ref":"#Point3D"}},"height":{"type":"number","exclusiveMinimum":0},"role":{"type":"string"}},"required":["outline","height"],"additionalProperties":false}},
+                "paths":{"type":"array","maxItems":200,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":2000,"items":{"$ref":"#Point3D"}},"width":{"type":"number","exclusiveMinimum":0,"maximum":100},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
+                "snapPoints":{"type":"array","maxItems":100000,"items":{"$ref":"#Point3D"}},
+                "snapSegments":{"type":"array","maxItems":100000,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"$ref":"#Point3D"}}}
+              },"required":["action"],"additionalProperties":false})json",
+          R"json({"type":"object","properties":{"active":{"type":"boolean"},"locked":{"type":"boolean"},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},"document":{"type":"object","properties":{"polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},"paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}}},"required":["polylines","paths"],"additionalProperties":false}},"required":["active","locked"],"additionalProperties":false})json" },
+        { "EditorState", &MakeRegisteredNativeCommand<EditorStateCommand>, true,
+          R"json({"type":"object","properties":{},"additionalProperties":false})json",
+          R"json({"type":"object","properties":{
+                "active":{"type":"boolean"},"locked":{"type":"boolean"},"layerShown":{"type":"boolean"},
+                "tool":{"type":"string","enum":["select","polyline","path","curve"]},
+                "gizmo":{"type":"string","enum":["move","rotate","scale","stretch","extrude","gumball"]},
+                "drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend"]},
+                "gesture":{"type":"boolean"},"selection":{"type":"integer"},
+                "selectionKind":{"type":"string","enum":["none","vertex","segment","face","entity","mixed","pathPoint","break","range"]},
+                "hovering":{"type":"boolean"},"revision":{"type":"integer"},"publishedRevision":{"type":"integer"},
+                "undoDepth":{"type":"integer"},"tracker":{"type":"string","enum":["hidden","showing","editing"]},
+                "drawing":{"type":"integer"},"entities":{"type":"integer"},"paths":{"type":"integer"},
+                "snapPoints":{"type":"integer"},"snapSegments":{"type":"integer"},
+                "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},"planeSticky":{"type":"boolean"},
+                "planeSource":{"type":"string","enum":["worldXY"]},"planeCaptured":{"type":"boolean"},
+                "message":{"type":"string"}
+              },"required":["active","locked","layerShown"],"additionalProperties":false})json" },
+    };
     return MakeRegistrationView (registrations);
 }
 

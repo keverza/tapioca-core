@@ -21,6 +21,7 @@
 #include "Edit/EditProfileView.hpp"
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditTracker.hpp"
+#include "Edit/EditWorkingPlane.hpp"
 #include <optional>
 #include <array>
 #include <string>
@@ -61,7 +62,7 @@ struct Session {
     // Snapping: which snaps are on (edit::SnapMode), the construction angle step, whether a
     // moved item's edges snap flush to others, and the edges the work has touched lately --
     // parallels and squares run to them.
-    uint32_t snapModes = edit::kSnapAll;
+    uint32_t snapModes = edit::kSnapAll & ~edit::kSnapTerrain; // terrain Z is an explicit opt-in, not the datum
     double angleStep = 15.0;
     bool edgeSnap = true;
     std::vector<std::pair<edit::Vec3, edit::Vec3>> references;
@@ -142,7 +143,9 @@ struct Session {
     bool dragStarted = false;             // the pointer has left the press by the drag threshold
     std::vector<edit::PickHit> pressHits; // what was under that press, for the click it may be
     std::vector<edit::Vec3> drawing;      // points placed by a drawing tool
-    double workZ = 0.0;                   // the working plane's height when nothing gives one
+    edit::WorkingPlane plane;
+    std::optional<edit::WorkingPlane> capturedPlane;
+    bool planeTyping = false;
 
     // The profile canvas.
     edit::Id profilePath = edit::kNoId;
@@ -190,6 +193,11 @@ struct Session {
     {
     }
 };
+
+// The first host plane package supports world XY only. Explicit changes cancel dependent
+// unfinished input, not committed geometry; an automatic change respects the plane's lock.
+bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automatic = false);
+bool BeginPlaneEntry (Session& s);
 
 constexpr char kPanelTitle[] = "Virtual editor";
 

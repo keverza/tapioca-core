@@ -131,7 +131,8 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     q.cursor = cursor;
     q.tolerance = kSnapPixels * scale * m.MetresPerPixel (mouse.x, mouse.y, z, cursor);
     q.anchor = anchor;
-    q.plane.origin = { 0.0, 0.0, z };
+    q.plane = edit::SnapPlane (s.capturedPlane.value_or (s.plane));
+    q.plane.origin.z = z; // existing parts keep their captured geometry datum, drawing uses the authoring plane
     q.exclude = exclude;
     PrepareSnap (s, q);
     s.snap = edit::Snap (Doc (s), context, q);
@@ -182,8 +183,14 @@ void EndDrag (Session& s)
 
 void Escape (Session& s)
 {
-    if (s.tracker.State () == edit::TrackerState::Editing)
+    if (s.tracker.State () == edit::TrackerState::Editing) {
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });
+        if (s.planeTyping)
+            s.message.clear ();
+        s.planeTyping = false;
+    }
+    else if (s.planeTyping)
+        s.planeTyping = false, s.message.clear ();
     else if (s.typedHandle >= 0)
         s.typedHandle = -1, s.message.clear ();
     else if (s.drag != Drag::None) {
@@ -204,6 +211,7 @@ void Escape (Session& s)
 
 void CheckView (Session& s, const overlayhud::Input& v)
 {
+    CheckPlane (s);
     if (s.viewPlanar && *s.viewPlanar != v.planar)
         CancelViewEdit (s, "The view changed between plan and 3D; the edit in progress was cancelled.");
     if (s.viewIdentity != 0 && v.viewIdentity != 0 && s.viewIdentity != v.viewIdentity)
@@ -225,6 +233,18 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
     }
     if (event.outcome != O::Commit && event.outcome != O::Locked)
         return;
+    if (s.planeTyping) {
+        if (event.outcome == O::Locked)
+            s.message = "Enter sets the working-plane elevation; Tab does not lock this setting.";
+        else {
+            auto plane = s.plane;
+            plane.origin.z = event.value;
+            s.planeTyping = false;
+            if (!SetWorkingPlane (s, plane))
+                s.planeTyping = true;
+        }
+        return;
+    }
     if (const auto op = RadiusDragOperation (s, event.value)) {
         if (!s.edits.Move (op))
             s.message = s.edits.Message ();
@@ -320,6 +340,8 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
 {
     std::vector<edit::TrackerItem> items;
     dims.clear ();
+    if (s.planeTyping)
+        return { { edit::Quantity::Elevation, s.plane.origin.z } };
     if (!s.drawing.empty ()) {
         const Vec3 last = s.drawing.back (), at = s.snap.point;
         items.push_back ({ edit::Quantity::Length, edit::DistanceXY (last, at) });
@@ -399,7 +421,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     // Undo and redo are the document's, never the number being typed's: a chord pressed while
     // a value is typed does nothing to the history (Enter applies it, Esc gives it up first).
     const auto history = [&] (bool undo) {
-        if (s.tracker.State () == edit::TrackerState::Editing)
+        if (s.tracker.State () == edit::TrackerState::Editing || s.planeTyping)
             s.message = "Apply the typed value with Enter or give it up with Esc before undoing.";
         else
             History (s, undo);
@@ -428,7 +450,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
         else
             s.message = "Archicad's delete, cut and paste are off while the virtual editor has the view.";
     }
-    const bool typing = s.tracker.State () == edit::TrackerState::Editing;
+    const bool typing = s.tracker.State () == edit::TrackerState::Editing || s.planeTyping;
     for (const auto& key : v.keys) {
         if (!key.down || key.repeat)
             continue;
@@ -474,7 +496,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             default:
                 if (key.ctrl && (key.code == 'Z' || key.code == 'Y'))
                     history (key.code == 'Z');
-                else if (!typing && !key.ctrl && !key.alt && s.drag != Drag::None) {
+                else if (!typing && !key.ctrl && !key.alt && (s.drag != Drag::None || s.planeTyping)) {
                     // No tool or gumball mode changes under a gesture: the handle held is one of
                     // this mode's, and the panel's tools are off until it ends too.
                     if (key.code < 0x80 && key.code != 0 && std::strchr ("VLPBGRSTFE", int (key.code)) != nullptr)
@@ -535,7 +557,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     const bool shift = ImGui::GetIO ().KeyShift;
     CheckView (s, v);
     Navigate (s, m, mouse);
-    hovered = hovered && !s.navigation.blocked;
+    hovered = hovered && !s.navigation.blocked && !s.planeTyping;
     const edit::PickView pick = m.Pick ();
     const double radius = kPickPixels * scale;
     const bool gizmo = GizmoShown (s);
@@ -565,7 +587,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (!gripTook && hovered && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
         s.typedHandle = -1;
         if (s.tool != Tool::Select) {
-            const double z = s.drawing.empty () ? s.workZ : s.drawing.back ().z;
+            const double z = s.drawing.empty () ? s.plane.origin.z : s.drawing.back ().z;
             Vec3 p;
             std::optional<Vec3> anchor;
             if (!s.drawing.empty ())
@@ -669,7 +691,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         Vec3 at, on;
         const double z = !s.drawing.empty ()                                                  ? s.drawing.back ().z
                          : !under.empty () && edit::PointOf (Doc (s), under.front ().ref, on) ? on.z
-                                                                                              : s.workZ;
+                                                                                              : s.plane.origin.z;
         if (!m.Onto (mouse.x, mouse.y, z, on, at))
             at = on;
         if (s.tool != Tool::Select && !s.drawing.empty ())
@@ -834,7 +856,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
 
     // Drawing tools follow the pointer between clicks.
     if (s.tool != Tool::Select && (hovered || s.navigation.blocked) && s.drag == Drag::None) {
-        const double z = s.drawing.empty () ? s.workZ : s.drawing.back ().z;
+        const double z = s.drawing.empty () ? s.plane.origin.z : s.drawing.back ().z;
         Vec3 p;
         std::optional<Vec3> anchor;
         if (!s.drawing.empty ())
@@ -933,6 +955,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (!s.navigation.projection && (s.drag != Drag::None || s.penDown))
         Navigate (s, m, mouse); // capture the pre-navigation mapping on the Begin frame
+    CapturePlane (s);
     draw->PopClipRect ();
 }
 

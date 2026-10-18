@@ -358,7 +358,8 @@ const roofslope::Data* RoofEditorData (const State& state);
 bool FollowRoofEditor (State& state, overlaylayers::Layer& layer, bool& clear);
 // The virtual editor (HudVirtualEditor.hpp), in the same pattern: it borrows the dock's lock,
 // owns only the command-scoped "virtual-editor" layer, and replaces a roof session.
-bool StartVirtualEditor (State& state, edit::Document doc, std::string role = {}, edit::SnapContext context = {});
+bool StartVirtualEditor (State& state, edit::Document doc, std::string role = {}, edit::SnapContext context = {},
+                         double planeZ = 0.0, bool planeLocked = false);
 // `reason` goes to archviz.log with the session's last state.
 void StopVirtualEditor (State& state, const char* reason = "stopped");
 bool VirtualEditorActive (const State& state);

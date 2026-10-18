@@ -2,6 +2,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include <cmath>
 
 // The virtual editor's lifecycle on the HUD's state, in the roof editor's pattern: a
 // session borrows the dock's lock and owns only its command-scoped layer, and stopping
@@ -15,8 +16,11 @@ void Engine::Impl::VirtualEditActions (const Input& input)
     edithud::Keys (*store->virtualEditor, input, popup || ImGui::GetIO ().WantTextInput);
 }
 
-bool StartVirtualEditor (State& state, edit::Document doc, std::string role, edit::SnapContext context)
+bool StartVirtualEditor (State& state, edit::Document doc, std::string role, edit::SnapContext context, double planeZ,
+                         bool planeLocked)
 {
+    if (!std::isfinite (planeZ))
+        return false;       // invalid input cannot replace an existing editor or release its ownership
     StopRoofEditor (state); // one editor owns the locked view at a time
     StopVirtualEditor (state, "opened again");
     auto session = std::make_shared<edithud::Session> (std::move (doc));
@@ -24,11 +28,8 @@ bool StartVirtualEditor (State& state, edit::Document doc, std::string role, edi
     session->previousLock = state.editLocked;
     session->role = std::move (role);
     session->context = std::move (context);
-    for (const auto& e : session->edits.Doc ().entities)
-        if (!e.vertices.empty ()) {
-            session->workZ = e.vertices.front ().p.z;
-            break;
-        }
+    session->plane = edit::WorldXY (planeZ);
+    session->plane.locked = planeLocked;
     session->cursorBase = overlayinput::GetStats ().cursorsReasserted;
     state.virtualEditor = std::move (session);
     state.editLocked = true;

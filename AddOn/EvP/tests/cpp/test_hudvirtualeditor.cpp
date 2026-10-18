@@ -7,6 +7,7 @@
 #include "Edit/EditShape.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
+#include <limits>
 
 namespace ed = geomsrv::edit;
 namespace eh = geomsrv::archviz::edithud;
@@ -905,6 +906,200 @@ TEST (HudVirtualEditor, NavigationBeforePenMotionDoesNotPullOutAHandle)
     EXPECT_DOUBLE_EQ (ed::Length (d.S ().drawHandles[0]), 0.0);
 }
 
+TEST (HudVirtualEditor, PlaneElevationUsesTheExistingTrackerWithoutEditingTheDocument)
+{
+    Drive d ({});
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().context.height = [] (double, double, double& z) {
+        z = 999;
+        return true;
+    };
+    EXPECT_EQ (d.S ().snapModes & ed::kSnapTerrain, 0u); // context availability must not opt in to terrain Z
+    const auto revision = d.D ().revision;
+    ASSERT_TRUE (eh::BeginPlaneEntry (d.S ()));
+    d.Frame ();
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Elevation);
+    d.input.characters = u"12.5";
+    d.Frame ();
+    d.Key (0x09); // no hidden Tab-lock binding for a plane setting
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 0);
+    d.Key (0x0D);
+    EXPECT_FALSE (d.S ().planeTyping);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 12.5);
+    EXPECT_EQ (d.D ().revision, revision);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Press (600, 500);
+    d.Release (600, 500);
+    ASSERT_TRUE (d.S ().capturedPlane);
+    EXPECT_DOUBLE_EQ (d.S ().capturedPlane->origin.z, 12.5);
+    d.Press (800, 500);
+    d.Release (800, 500);
+    d.Key (0x0D);
+    ASSERT_EQ (d.D ().entities.size (), 1u);
+    for (const auto& v : d.D ().entities[0].vertices)
+        EXPECT_DOUBLE_EQ (v.p.z, 12.5);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, PlaneEntryEscapesAndCannotStealAnActiveNumberOrDrag)
+{
+    Drive d (Corner ());
+    const auto original = d.D ().entities;
+    d.S ().selection.Set ({ { original[0].id, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::BeginPlaneEntry (d.S ()));
+    d.Frame ();
+    for (const auto key : { 0x08u, 0x2Eu, uint32_t ('S') }) {
+        d.Key (key); // the armed field owns destructive/tool keys even before its first digit
+        EXPECT_EQ (d.D ().entities, original);
+        EXPECT_TRUE (d.S ().planeTyping);
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    }
+    d.input.characters = u"9";
+    d.Frame ();
+    d.Key (0x1B);
+    EXPECT_FALSE (d.S ().planeTyping);
+    EXPECT_TRUE (d.S ().message.empty ());
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 0);
+    DragTheXArrow (d);
+    EXPECT_FALSE (eh::BeginPlaneEntry (d.S ()));
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    d.Key (0x1B);
+    d.Release (900, 300);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, PlaneChangesCancelBeforeQueuedNumericEnterAndKeepOneBaseline)
+{
+    Drive d (Corner ());
+    const auto original = d.D ().entities;
+    DragTheXArrow (d);
+    const auto preview = d.D ().entities;
+    ASSERT_TRUE (d.S ().capturedPlane);
+    EXPECT_TRUE (eh::SetWorkingPlane (d.S (), d.S ().plane)); // idempotent setting does not cancel
+    EXPECT_EQ (d.D ().entities, preview);
+    d.input.characters = u"5";
+    d.Frame ();
+    d.S ().plane = ed::WorldXY (8); // external frame change, before the next key-dispatch/layout
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    EXPECT_EQ (d.D ().entities, original);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 8);
+    d.Release (900, 300);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, PlaneChangesCancelUnfinishedDrawingInsteadOfMixingDatums)
+{
+    Drive d ({});
+    d.S ().tool = eh::Tool::Curve;
+    d.S ().snapModes = 0;
+    d.Press (600, 500);
+    d.At (620, 480);
+    d.Release (620, 480);
+    ASSERT_FALSE (d.S ().drawing.empty ());
+    EXPECT_TRUE (eh::SetWorkingPlane (d.S (), ed::WorldXY (5)));
+    EXPECT_TRUE (d.S ().drawing.empty ());
+    EXPECT_TRUE (d.S ().drawHandles.empty ());
+    EXPECT_FALSE (d.S ().capturedPlane);
+    EXPECT_TRUE (d.D ().entities.empty ());
+    EXPECT_FALSE (d.S ().message.empty ());
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, LockedAndUnsupportedPlanesRefuseWithoutDisturbingThePreview)
+{
+    Drive d (Corner ());
+    auto locked = ed::WorldXY (2.5);
+    locked.locked = true;
+    ASSERT_TRUE (eh::SetWorkingPlane (d.S (), locked));
+    DragTheXArrow (d);
+    const auto preview = d.D ().entities;
+    EXPECT_FALSE (eh::SetWorkingPlane (d.S (), ed::WorldXY (8), true));
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, locked));
+    auto oblique = locked;
+    oblique.source = ed::PlaneSource::Explicit;
+    oblique.u = { 0, 1, 0 }, oblique.v = { 0, 0, 1 }, oblique.normal = { 1, 0, 0 };
+    EXPECT_FALSE (eh::SetWorkingPlane (d.S (), oblique));
+    EXPECT_NE (d.S ().message.find ("oblique"), std::string::npos);
+    EXPECT_EQ (d.D ().entities, preview);
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    d.input.planar = false;
+    d.Frame (); // view changes cancel the geometry but never reorient or unlock the plane
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, locked));
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, LockingTheCapturedPlanePreservesItsPreviewAndNumericText)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    const auto preview = d.D ().entities;
+    d.input.characters = u"5";
+    d.Frame ();
+    auto plane = d.S ().plane;
+    plane.locked = true;
+    ASSERT_TRUE (eh::SetWorkingPlane (d.S (), plane));
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().tracker.Text (), "5");
+    EXPECT_EQ (d.D ().entities, preview);
+    EXPECT_TRUE (d.S ().capturedPlane->locked);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x0D);
+    d.Release (900, 300);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 15, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, NonfiniteStartupCannotReplaceTheSessionAndSeedGeometryDoesNotChooseThePlane)
+{
+    auto doc = Corner ();
+    for (auto& v : doc.entities[0].vertices)
+        v.p.z = 101;
+    Drive d (doc);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 0);
+    const auto* session = &d.S ();
+    EXPECT_FALSE (hud::StartVirtualEditor (*d.view.state, {}, "invalid", {}, std::numeric_limits<double>::infinity ()));
+    EXPECT_EQ (&d.S (), session);
+    EXPECT_EQ (d.D ().entities, doc.entities);
+    EXPECT_TRUE (hud::StartVirtualEditor (*d.view.state, {}, "explicit", {}, 103.25, true));
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 103.25);
+    EXPECT_TRUE (d.S ().plane.locked);
+}
+
+TEST (HudVirtualEditor, PerspectiveDrawingResolvesAtTheExplicitPlaneAndEdgeOnRefuses)
+{
+    Drive d ({});
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().snapModes = 0;
+    ASSERT_TRUE (eh::SetWorkingPlane (d.S (), ed::WorldXY (2.5)));
+    d.input.planar = false;
+    d.input.project = [] (double x, double y, double z, float& px, float& py) {
+        const double w = 1 + 0.2 * z;
+        px = float (600 + (20 * x + 2 * z) / w), py = float (500 - (20 * y + 5 * z) / w);
+        return true;
+    };
+    d.Press (630, 445); // integer physical pixels: ImGui rounds the delivered pointer position
+    d.Release (d.input.x, d.input.y);
+    ASSERT_EQ (d.S ().drawing.size (), 1u);
+    // Map's existing inverse stops within 0.05 physical pixels (0.00375 m at this datum).
+    EXPECT_NEAR (d.S ().drawing[0].x, 2, 0.00375);
+    EXPECT_NEAR (d.S ().drawing[0].y, 3.5, 0.00375);
+    EXPECT_DOUBLE_EQ (d.S ().drawing[0].z, 2.5);
+    d.input.project = [] (double x, double, double z, float& px, float& py) {
+        px = float (600 + 20 * x), py = float (500 - 20 * z);
+        return true;
+    };
+    d.Press (900, 300);
+    d.Release (900, 300);
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_NE (d.S ().message.find ("edge-on"), std::string::npos);
+}
+
 TEST (HudVirtualEditor, GumballHoldsEveryTransform)
 {
     EXPECT_EQ (eh::Session ().gizmo, ed::GizmoMode::Gumball); // what a session starts with
@@ -1072,7 +1267,7 @@ TEST (HudVirtualEditor, RightClickMenuFollowsWhatIsUnderThePointer)
 {
     Drive d (Corner ());
     // On the empty view: tools, selection and closing the editor.
-    d.RightClick (300, 200);
+    d.RightClick (1000, 100); // empty canvas, clear of the expanded working-plane miniGUI
     ASSERT_TRUE (d.S ().menu.open);
     EXPECT_EQ (d.S ().menu.target, eh::MenuTarget::View);
     EXPECT_TRUE (d.Offers ("close"));

@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include <cstdio>
 
 // OVERLAY-INVARIANTS.md: shared cancellation of view-owned input only; no camera or native writes.
 namespace geomsrv::archviz::edithud::detail {
@@ -7,7 +8,7 @@ namespace geomsrv::archviz::edithud::detail {
 // points. The profile's drags belong to its independent panel canvas.
 void CancelViewEdit (Session& s, const char* reason)
 {
-    bool cancelled = s.typedHandle >= 0 || s.labelOpen || s.penDown;
+    bool cancelled = s.typedHandle >= 0 || s.labelOpen || s.penDown || s.planeTyping;
     if (s.drag != Drag::None && s.drag != Drag::ProfileBreak && s.drag != Drag::ProfileTangent) {
         cancelled = cancelled || s.drag != Drag::Marquee || s.edits.InGesture ();
         s.edits.Cancel ();
@@ -18,6 +19,7 @@ void CancelViewEdit (Session& s, const char* reason)
     if (s.tracker.State () == edit::TrackerState::Editing)
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape }), cancelled = true;
     s.typedHandle = -1;
+    s.planeTyping = false;
     s.labelOpen = false;
     s.penDown = false;
     s.snap = {};
@@ -31,3 +33,98 @@ void CancelViewEdit (Session& s, const char* reason)
 }
 
 } // namespace geomsrv::archviz::edithud::detail
+
+namespace geomsrv::archviz::edithud {
+
+bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automatic)
+{
+    if (!edit::IsWorldXY (plane) || !plane.sticky) {
+        s.message =
+            "Only a finite sticky World XY working plane is supported here; oblique plane authoring is unavailable.";
+        return false;
+    }
+    auto next = s.plane;
+    std::string error;
+    if (!edit::ChangePlane (next, plane, automatic, error)) {
+        s.message = error;
+        return false;
+    }
+    if (edit::SamePlane (s.plane, next))
+        return true;
+    if (edit::SamePlaneFrame (s.plane, next)) {
+        // Locking the current frame is not a new geometric datum: keep its input/preview.
+        s.plane = next;
+        if (s.capturedPlane) {
+            s.capturedPlane->locked = next.locked;
+            s.capturedPlane->sticky = next.sticky;
+        }
+        return true;
+    }
+    const bool unfinished = s.drag != Drag::None || s.penDown || s.planeTyping || !s.drawing.empty () ||
+                            s.tracker.State () == edit::TrackerState::Editing || s.labelOpen || s.typedHandle >= 0;
+    detail::CancelViewEdit (s, "The working plane changed; unfinished input was cancelled.");
+    // Unlike a view switch, a plane change would mix authoring frames inside one unfinished shape.
+    s.edits.Cancel ();
+    s.drag = Drag::None;
+    s.drawing.clear ();
+    s.drawHandles.clear ();
+    s.references.clear ();
+    s.tracker.Hide ();
+    s.capturedPlane.reset ();
+    s.plane = next;
+    s.message = unfinished ? "The working plane changed; unfinished input was cancelled." : "";
+    return true;
+}
+
+bool BeginPlaneEntry (Session& s)
+{
+    if (s.drag != Drag::None || s.penDown || !s.drawing.empty () || s.labelOpen || s.typedHandle >= 0 ||
+        s.tracker.State () == edit::TrackerState::Editing) {
+        s.message = "Finish or cancel the current input before entering a working-plane elevation.";
+        return false;
+    }
+    s.planeTyping = true;
+    s.tracker.Hide ();
+    s.tracker.Show ({ { edit::Quantity::Elevation, s.plane.origin.z } });
+    s.message = "Type the working-plane elevation in metres; Enter sets it, Esc cancels.";
+    detail::CapturePlane (s);
+    return true;
+}
+
+namespace detail {
+
+void CheckPlane (Session& s)
+{
+    if (s.capturedPlane && !edit::SamePlane (*s.capturedPlane, s.plane)) {
+        const auto next = s.plane;
+        s.plane = *s.capturedPlane; // validate an externally requested change against the captured valid frame
+        SetWorkingPlane (s, next);
+    }
+}
+
+void CapturePlane (Session& s)
+{
+    if (s.drag != Drag::None || s.penDown || !s.drawing.empty () || s.labelOpen || s.typedHandle >= 0 ||
+        s.planeTyping || s.tracker.State () == edit::TrackerState::Editing) {
+        if (!s.capturedPlane)
+            s.capturedPlane = s.plane;
+    }
+    else
+        s.capturedPlane.reset ();
+}
+
+void PlaneControls (Session& s)
+{
+    ImGui::TextUnformatted ("Working plane: World XY (sticky)");
+    char label[80];
+    std::snprintf (label, sizeof label, "Elevation %.6g m##planeElevation", s.plane.origin.z);
+    if (ImGui::SmallButton (label))
+        BeginPlaneEntry (s); // the existing Tracker owns numeric text, validation and Esc
+    ImGui::SameLine ();
+    auto next = s.plane;
+    if (ImGui::Checkbox ("Lock plane", &next.locked))
+        SetWorkingPlane (s, next);
+}
+
+} // namespace detail
+} // namespace geomsrv::archviz::edithud

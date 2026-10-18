@@ -87,7 +87,8 @@ bool FlushEdges (Session& s, const Map& m, ImVec2 mouse, const std::vector<edit:
         return false;
     q.cursor = at;
     q.tolerance = 10.0 * scale * m.MetresPerPixel (mouse.x, mouse.y, z, at);
-    q.plane.origin = { 0.0, 0.0, z };
+    q.plane = edit::SnapPlane (s.capturedPlane.value_or (s.plane));
+    q.plane.origin.z = z;
     q.exclude = exclude;
     edit::SnapResult r;
     if (!edit::SnapEdges (before, s.context, q, edges, t.translate, r))

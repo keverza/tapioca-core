@@ -73,8 +73,8 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("World axes", !s.localAxes))
         s.localAxes = false;
+    PlaneControls (s);
     // The grading guide: the paths' contour lines and their heights.
-    ImGui::SameLine (0.0f, 18.0f);
     bool shown = s.contours;
     if (ImGui::Checkbox ("Contours", &shown))
         s.contours = shown, s.publishedRevision = UINT64_MAX; // the layer draws them

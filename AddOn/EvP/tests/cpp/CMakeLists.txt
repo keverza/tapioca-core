@@ -754,6 +754,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditWorkingPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditTracker.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmo.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
@@ -773,6 +774,7 @@ set (EVP_TEST_SOURCES
     test_editdocument.cpp
     test_editsession.cpp
     test_editsnap.cpp
+    test_editworkingplane.cpp
     test_editshape.cpp
     test_editpathnetwork.cpp
     test_editpathcontours.cpp
