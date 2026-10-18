@@ -791,6 +791,7 @@ set (EVP_TEST_SOURCES
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
+    test_hudvirtualeditormap.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp

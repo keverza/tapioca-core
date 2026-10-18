@@ -346,7 +346,16 @@ class EditorStateCommand : public MainThreadCommand {
         result.Add ("planeZ", s->plane.origin.z);
         result.Add ("planeLocked", s->plane.locked);
         result.Add ("planeSticky", s->plane.sticky);
-        result.Add ("planeSource", GS::UniString ("worldXY"));
+        result.Add ("planeSource", GS::UniString (s->plane.source == edit::PlaneSource::Face ? "face" : "worldXY"));
+        result.Add ("planeOrigin", Point (s->plane.origin));
+        result.Add ("planeU", Point (s->plane.u));
+        result.Add ("planeV", Point (s->plane.v));
+        result.Add ("planeNormal", Point (s->plane.normal));
+        if (s->plane.source == edit::PlaneSource::Face) {
+            result.Add ("planeSourceEntity", static_cast<GS::Int64> (s->plane.sourceRef.entity));
+            result.Add ("planeSourceFace", static_cast<GS::Int64> (s->plane.sourceRef.item));
+            result.Add ("planeSourceRevision", static_cast<GS::Int64> (s->plane.sourceRevision));
+        }
         result.Add ("planeCaptured", s->capturedPlane.has_value ());
         result.Add ("message", GS::UniString (s->message.c_str (), CC_UTF8));
         return result;
@@ -386,7 +395,11 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "drawing":{"type":"integer"},"entities":{"type":"integer"},"paths":{"type":"integer"},
                 "snapPoints":{"type":"integer"},"snapSegments":{"type":"integer"},
                 "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},"planeSticky":{"type":"boolean"},
-                "planeSource":{"type":"string","enum":["worldXY"]},"planeCaptured":{"type":"boolean"},
+                "planeSource":{"type":"string","enum":["worldXY","face"]},"planeCaptured":{"type":"boolean"},
+                "planeOrigin":{"$ref":"#Point3D"},"planeU":{"$ref":"#Point3D"},
+                "planeV":{"$ref":"#Point3D"},"planeNormal":{"$ref":"#Point3D"},
+                "planeSourceEntity":{"type":"integer"},"planeSourceFace":{"type":"integer"},
+                "planeSourceRevision":{"type":"integer"},
                 "message":{"type":"string"}
               },"required":["active","locked","layerShown"],"additionalProperties":false})json" },
     };

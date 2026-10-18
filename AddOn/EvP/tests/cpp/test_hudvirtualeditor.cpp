@@ -1100,6 +1100,155 @@ TEST (HudVirtualEditor, PerspectiveDrawingResolvesAtTheExplicitPlaneAndEdgeOnRef
     EXPECT_NE (d.S ().message.find ("edge-on"), std::string::npos);
 }
 
+TEST (HudVirtualEditor, PickedFacePlaneIsReachableFromTheMenuAndDrawsAtItsDatum)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, 3);
+    Drive d (doc);
+    d.input.planar = false;
+    d.input.project = [] (double x, double y, double z, float& px, float& py) {
+        px = float (600 + 20 * x + 5 * z), py = float (500 - 20 * y - 10 * z);
+        return true;
+    };
+    d.input.hasCameraDirection = true;
+    d.input.cameraDirection[1] = 0.5, d.input.cameraDirection[2] = -1;
+    d.S ().filter = ed::kPickFace;
+    d.RightClick (715, 370);
+    ASSERT_TRUE (d.Offers ("plane.face"));
+    ASSERT_EQ (d.S ().menu.ref, (ed::Ref { id, ed::Part::Face, 1 }));
+    eh::RunMenuItem (d.S (), "plane.face");
+    d.S ().menu.open = false;
+    EXPECT_EQ (d.S ().plane.source, ed::PlaneSource::Face);
+    EXPECT_EQ (d.S ().plane.origin, (ed::Vec3 { 5, 5, 3 }));
+    EXPECT_EQ (d.S ().plane.sourceRevision, doc.revision);
+    EXPECT_EQ (d.D ().entities, doc.entities);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.Key (0x1B); // close the ImGui popup, not the editor
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().snapModes = 0;
+    d.Press (1015, 270); // (20,10,3), beyond the source box
+    d.Release (1015, 270);
+    ASSERT_EQ (d.S ().drawing.size (), 1u);
+    ASSERT_TRUE (d.S ().capturedPlane);
+    EXPECT_TRUE (ed::SamePlane (*d.S ().capturedPlane, d.S ().plane));
+    d.Press (1115, 270);
+    d.Release (1115, 270);
+    d.Key (0x0D);
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    for (const auto& vertex : d.D ().entities.back ().vertices)
+        EXPECT_DOUBLE_EQ (vertex.p.z, 3);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, AFacePickCancelsInputAgainstTheCommittedFaceNotItsPreview)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, 3);
+    Drive d (doc);
+    ASSERT_TRUE (d.S ().edits.Begin ({ id, ed::Part::Face, 1 }));
+    ASSERT_TRUE (d.S ().edits.Move ([id] (ed::Document& candidate, std::string&) {
+        ed::Find (candidate, id)->height = 9;
+        return true;
+    }));
+    d.S ().drag = eh::Drag::Handle;
+    ASSERT_TRUE (eh::UseFacePlane (d.S (), { id, ed::Part::Face, 1 }));
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    EXPECT_EQ (d.D ().entities, doc.entities);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 3);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_NE (d.S ().message.find ("cancelled"), std::string::npos);
+}
+
+TEST (HudVirtualEditor, SideOrStaleFacePicksPreserveUnfinishedInputAndThePlane)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, 3);
+    Drive d (doc);
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().drawing = { { 20, 0, 0 } };
+    const auto plane = d.S ().plane;
+    EXPECT_FALSE (eh::UseFacePlane (d.S (), { id, ed::Part::Face, 2 }));
+    EXPECT_NE (d.S ().message.find ("side/oblique"), std::string::npos);
+    EXPECT_FALSE (eh::UseFacePlane (d.S (), { id, ed::Part::Face, 999 }));
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, plane));
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    EXPECT_EQ (d.D ().entities, doc.entities);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    ASSERT_TRUE (eh::UseFacePlane (d.S (), { id, ed::Part::Face, 1 }));
+    EXPECT_TRUE (d.S ().drawing.empty ());
+    EXPECT_EQ (d.S ().plane.source, ed::PlaneSource::Face);
+}
+
+TEST (HudVirtualEditor, FaceSnapshotsDoNotFollowDeletedOrMovedSourcesOrOverrideLocksAutomatically)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 100 }, { 10, 0, 100 }, { 10, 10, 100 }, { 0, 10, 100 } }, 3);
+    Drive d (doc);
+    auto locked = ed::WorldXY (7);
+    locked.locked = true;
+    ASSERT_TRUE (eh::SetWorkingPlane (d.S (), locked));
+    ed::WorkingPlane candidate;
+    std::string error;
+    ASSERT_TRUE (ed::PlaneFromFace (d.D (), { id, ed::Part::Face, 0 }, candidate, error));
+    EXPECT_FALSE (eh::SetWorkingPlane (d.S (), candidate, true));
+    ASSERT_TRUE (eh::UseFacePlane (d.S (), { id, ed::Part::Face, 0 }));
+    const auto snapshot = d.S ().plane;
+    EXPECT_TRUE (snapshot.locked);
+    EXPECT_DOUBLE_EQ (snapshot.normal.z, -1);
+    ASSERT_TRUE (d.S ().edits.Apply ([] (ed::Document& candidate, std::string&) {
+        candidate.entities[0].height = 5;
+        for (auto& vertex : candidate.entities[0].vertices)
+            vertex.p.z += 2;
+        return true;
+    }));
+    d.Frame ();
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, snapshot));
+    ASSERT_TRUE (d.S ().edits.Apply ([] (ed::Document& candidate, std::string&) {
+        candidate.entities.clear ();
+        return true;
+    }));
+    d.Frame ();
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, snapshot));
+    EXPECT_FALSE (eh::UseFacePlane (d.S (), snapshot.sourceRef));
+    EXPECT_TRUE (ed::SamePlane (d.S ().plane, snapshot));
+    ASSERT_TRUE (eh::BeginPlaneEntry (d.S ()));
+    d.input.characters = u"8";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_EQ (d.S ().plane.source, ed::PlaneSource::WorldXY);
+    EXPECT_DOUBLE_EQ (d.S ().plane.origin.z, 8);
+    EXPECT_TRUE (d.S ().plane.locked);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u); // only the two document edits, never the plane changes
+}
+
+TEST (HudVirtualEditor, DrawingTrackerAnglesUseThePickedFaceAxes)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, 3);
+    Drive d (doc);
+    ASSERT_TRUE (eh::UseFacePlane (d.S (), { id, ed::Part::Face, 1 }));
+    const auto plane = d.S ().plane;
+    d.S ().drawing = { plane.origin };
+    d.S ().snap.point = plane.origin + plane.u * 4;
+    std::vector<ed::Dimension> dims;
+    const auto fields = eh::TrackerFields (d.S (), dims);
+    ASSERT_EQ (fields.size (), 2u);
+    EXPECT_NEAR (fields[0].value, 4, 1e-12);
+    EXPECT_NEAR (fields[1].value, 0, 1e-12);
+    d.S ().tool = eh::Tool::Polyline;
+    d.S ().tracker.Show (fields);
+    // Lock a zero angle relative to the face's U, then enter a 2 m length.
+    d.S ().tracker.Key ({ ed::TrackerKey::Kind::Tab });
+    d.S ().tracker.Key ({ ed::TrackerKey::Kind::Char, '0' });
+    d.S ().tracker.Key ({ ed::TrackerKey::Kind::Tab });
+    d.input.characters = u"2";
+    d.Frame ();
+    d.Key (0x0D);
+    ASSERT_EQ (d.S ().drawing.size (), 2u);
+    EXPECT_NEAR (ed::Distance (d.S ().drawing.back (), plane.origin + plane.u * 2), 0, 1e-12);
+}
+
 TEST (HudVirtualEditor, GumballHoldsEveryTransform)
 {
     EXPECT_EQ (eh::Session ().gizmo, ed::GizmoMode::Gumball); // what a session starts with

@@ -45,4 +45,10 @@ def test_working_plane_start_and_state_fields_have_strict_schemas():
     }.items():
         assert state[name] == {"type": kind}
         assert f'result.Add ("{name}"' in source
-    assert state["planeSource"]["enum"] == ["worldXY"]
+    assert state["planeSource"]["enum"] == ["worldXY", "face"]
+    for name in ("planeOrigin", "planeU", "planeV", "planeNormal"):
+        assert state[name] == {"$ref": "#Point3D"}
+        assert f'result.Add ("{name}"' in source
+    for name in ("planeSourceEntity", "planeSourceFace", "planeSourceRevision"):
+        assert state[name] == {"type": "integer"}
+        assert f'result.Add ("{name}"' in source

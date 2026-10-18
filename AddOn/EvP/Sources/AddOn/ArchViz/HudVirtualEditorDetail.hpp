@@ -35,6 +35,10 @@ struct Map {
     // transform; 3D refines a seed by Newton steps through the projection and refuses a
     // plane seen edge-on.
     bool Onto (float px, float py, double z, edit::Vec3 seed, edit::Vec3& out) const;
+    // Checked arbitrary-plane inverse and local pixel scale. Failure leaves outputs intact;
+    // a representable mapping is not permission to author unsupported geometry on that plane.
+    bool Onto (float px, float py, const edit::WorkingPlane& plane, edit::Vec3 seed, edit::Vec3& out) const;
+    bool MetresPerPixel (float px, float py, const edit::WorkingPlane& plane, edit::Vec3 seed, double& out) const;
     // A pick ray through the pixel, towards the scene.
     bool RayAt (float px, float py, double z, edit::Vec3 seed, edit::Ray& ray) const;
     double MetresPerPixel (float px, float py, double z, edit::Vec3 seed) const;

@@ -123,16 +123,18 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     for (const auto& p : s.drawing)
         context.points.push_back ({ p, "this line" });
     Vec3 cursor;
-    if (!m.Onto (mouse.x, mouse.y, z, seed, cursor))
+    const auto plane = s.tool == Tool::Select ? edit::WorldXY (z) : s.capturedPlane.value_or (s.plane);
+    double pixelScale = 0;
+    if (!m.Onto (mouse.x, mouse.y, plane, seed, cursor) ||
+        !m.MetresPerPixel (mouse.x, mouse.y, plane, cursor, pixelScale))
         return false;
     if (s.drag == Drag::Part)
         cursor = cursor + s.navigation.offset;
     edit::SnapQuery q;
     q.cursor = cursor;
-    q.tolerance = kSnapPixels * scale * m.MetresPerPixel (mouse.x, mouse.y, z, cursor);
+    q.tolerance = kSnapPixels * scale * pixelScale;
     q.anchor = anchor;
-    q.plane = edit::SnapPlane (s.capturedPlane.value_or (s.plane));
-    q.plane.origin.z = z; // existing parts keep their captured geometry datum, drawing uses the authoring plane
+    q.plane = edit::SnapPlane (plane);
     q.exclude = exclude;
     PrepareSnap (s, q);
     s.snap = edit::Snap (Doc (s), context, q);
@@ -237,8 +239,8 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
         if (event.outcome == O::Locked)
             s.message = "Enter sets the working-plane elevation; Tab does not lock this setting.";
         else {
-            auto plane = s.plane;
-            plane.origin.z = event.value;
+            auto plane = edit::WorldXY (event.value);
+            plane.locked = s.plane.locked;
             s.planeTyping = false;
             if (!SetWorkingPlane (s, plane))
                 s.planeTyping = true;
@@ -311,13 +313,15 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
     if (!s.drawing.empty ()) {
         // A typed length places the next point along the pointer's current direction.
         const Vec3 last = s.drawing.back ();
+        const auto plane = s.capturedPlane.value_or (s.plane);
         Vec3 dir;
-        const Vec3 toward = s.snap.snapped ? s.snap.point : last + Vec3 { 1.0, 0.0, 0.0 };
-        if (!edit::Normalize (Vec3 { toward.x - last.x, toward.y - last.y, 0.0 }, dir))
-            dir = { 1.0, 0.0, 0.0 };
+        const Vec3 toward = s.snap.snapped ? s.snap.point : last + plane.u;
+        const Vec3 delta = toward - last;
+        if (!edit::Normalize (delta - plane.normal * edit::Dot (delta, plane.normal), dir))
+            dir = plane.u;
         if (const auto angle = s.tracker.Locked (edit::Quantity::Angle))
-            dir = { std::cos (*angle * 3.14159265358979323846 / 180.0),
-                    std::sin (*angle * 3.14159265358979323846 / 180.0), 0.0 };
+            dir = plane.u * std::cos (*angle * 3.14159265358979323846 / 180.0) +
+                  plane.v * std::sin (*angle * 3.14159265358979323846 / 180.0);
         if (s.tracker.Items ()[event.item].quantity == edit::Quantity::Length && event.value > 0.0)
             s.drawing.push_back (last + dir * event.value);
         return;
@@ -343,10 +347,11 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
     if (s.planeTyping)
         return { { edit::Quantity::Elevation, s.plane.origin.z } };
     if (!s.drawing.empty ()) {
-        const Vec3 last = s.drawing.back (), at = s.snap.point;
-        items.push_back ({ edit::Quantity::Length, edit::DistanceXY (last, at) });
-        items.push_back (
-            { edit::Quantity::Angle, std::atan2 (at.y - last.y, at.x - last.x) * 180.0 / 3.14159265358979323846 });
+        const auto plane = s.capturedPlane.value_or (s.plane);
+        const Vec3 delta = s.snap.point - s.drawing.back ();
+        const double u = edit::Dot (delta, plane.u), v = edit::Dot (delta, plane.v);
+        items.push_back ({ edit::Quantity::Length, std::hypot (u, v) });
+        items.push_back ({ edit::Quantity::Angle, std::atan2 (v, u) * 180.0 / 3.14159265358979323846 });
         return items;
     }
     if ((s.drag == Drag::Corner || s.drag == Drag::Kerb) && s.dragStarted) {

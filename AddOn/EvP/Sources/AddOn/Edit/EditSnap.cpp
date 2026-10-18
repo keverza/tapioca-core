@@ -43,6 +43,10 @@ void PlaneAxes (const Plane& plane, Vec3& u, Vec3& v)
 {
     Vec3 n { 0.0, 0.0, 1.0 };
     Normalize (plane.normal, n);
+    if (Normalize (plane.u - n * Dot (plane.u, n), u)) {
+        v = Cross (n, u);
+        return;
+    }
     const Vec3 seed = std::abs (n.x) < 0.9 ? Vec3 { 1.0, 0.0, 0.0 } : Vec3 { 0.0, 1.0, 0.0 };
     Normalize (Cross (n, seed), v);
     Normalize (Cross (v, n), u);

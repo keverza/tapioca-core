@@ -53,8 +53,9 @@ const char* SnapKindName (SnapKind kind);
 struct Plane {
     Vec3 origin;
     Vec3 normal { 0.0, 0.0, 1.0 };
+    Vec3 u; // optional authored tangent; zero retains the historical normal-derived axes
 };
-// In-plane unit axes: world X and Y for a horizontal plane.
+// In-plane unit axes: authored tangent when supplied, otherwise normal-derived (world XY when horizontal).
 void PlaneAxes (const Plane& plane, Vec3& u, Vec3& v);
 Vec3 ProjectToPlane (const Plane& plane, Vec3 p);
 

@@ -4,6 +4,77 @@
 
 namespace ed = geomsrv::edit;
 
+TEST (EditWorkingPlane, FaceFramesKeepPickTimeProvenanceAndAuthoredAxes)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 100 }, { 4, 0, 100 }, { 4, 6, 100 }, { 0, 6, 100 } }, 3);
+    std::string error;
+    for (ed::Id face : { 0u, 1u, 2u }) {
+        ed::WorkingPlane plane;
+        ASSERT_TRUE (ed::PlaneFromFace (doc, { id, ed::Part::Face, face }, plane, error)) << error;
+        EXPECT_TRUE (ed::ValidPlane (plane));
+        EXPECT_FALSE (ed::IsWorldXY (plane));
+        EXPECT_EQ (plane.source, ed::PlaneSource::Face);
+        EXPECT_EQ (plane.sourceRef, (ed::Ref { id, ed::Part::Face, face }));
+        EXPECT_EQ (plane.sourceRevision, doc.revision);
+        if (face < 2)
+            EXPECT_EQ (plane.origin, (ed::Vec3 { 2, 3, face == 0 ? 100.0 : 103.0 }));
+        ed::Vec3 u, v;
+        ed::PlaneAxes (ed::SnapPlane (plane), u, v);
+        EXPECT_EQ (u, plane.u);
+        EXPECT_EQ (v, plane.v);
+        EXPECT_NEAR (ed::Distance (ed::ToLocal (plane, ed::ToWorld (plane, { 2, 4, 0 })), { 2, 4, 0 }), 0, 1e-12);
+    }
+}
+
+TEST (EditWorkingPlane, StaleDegenerateAndNonplanarFacesLeaveThePlaneUntouched)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 6, 0 }, { 0, 6, 0 } }, 3);
+    const auto line = ed::AddPolyline (doc, { { 0, 0, 0 }, { 1, 0, 0 } }, false);
+    const auto original = ed::WorldXY (7);
+    auto out = original;
+    std::string error;
+    for (const auto ref : { ed::Ref { id, ed::Part::Face, 999 }, ed::Ref { line, ed::Part::Face, 0 },
+                            ed::Ref { id, ed::Part::Entity, 0 }, ed::Ref { 999, ed::Part::Face, 0 } }) {
+        EXPECT_FALSE (ed::PlaneFromFace (doc, ref, out, error));
+        EXPECT_TRUE (ed::SamePlane (out, original));
+        EXPECT_FALSE (error.empty ());
+    }
+    doc.entities[0].vertices[0].p.z = 1;
+    EXPECT_FALSE (ed::PlaneFromFace (doc, { id, ed::Part::Face, 1 }, out, error));
+    EXPECT_TRUE (ed::SamePlane (out, original));
+    for (auto& vertex : doc.entities[0].vertices)
+        vertex.p = {};
+    EXPECT_FALSE (ed::PlaneFromFace (doc, { id, ed::Part::Face, 1 }, out, error));
+    EXPECT_TRUE (ed::SamePlane (out, original));
+    doc.entities[0].vertices.clear ();
+    EXPECT_FALSE (ed::PlaneFromFace (doc, { id, ed::Part::Face, 0 }, out, error));
+    EXPECT_TRUE (ed::SamePlane (out, original));
+}
+
+TEST (EditWorkingPlane, SnapAdapterUsesAuthoredDirectionsInsteadOfRebuildingWorldAxes)
+{
+    auto plane = ed::WorldXY (7);
+    plane.source = ed::PlaneSource::Explicit;
+    plane.u = { 0.6, 0.8, 0 }, plane.v = { -0.8, 0.6, 0 };
+    ed::SnapQuery q;
+    q.plane = ed::SnapPlane (plane);
+    q.cursor = plane.origin + plane.u * 4 + plane.v * 0.02;
+    q.anchor = plane.origin;
+    q.modes = ed::kSnapAxis;
+    q.tolerance = 0.1;
+    const auto snap = ed::Snap ({}, {}, q);
+    ASSERT_TRUE (snap.snapped);
+    EXPECT_EQ (snap.kind, ed::SnapKind::Axis);
+    EXPECT_NEAR (ed::Distance (snap.point, plane.origin + plane.u * 4), 0, 1e-12);
+    // Legacy queries still derive the world axes when no authored tangent was supplied.
+    ed::Vec3 u, v;
+    ed::PlaneAxes ({}, u, v);
+    EXPECT_EQ (u, (ed::Vec3 { 1, 0, 0 }));
+    EXPECT_EQ (v, (ed::Vec3 { 0, 1, 0 }));
+}
+
 TEST (EditWorkingPlane, WorldXYHasAnExplicitDatumAndSnapAdapter)
 {
     const auto plane = ed::WorldXY (103.25);

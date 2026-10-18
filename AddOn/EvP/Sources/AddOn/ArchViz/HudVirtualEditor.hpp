@@ -194,9 +194,10 @@ struct Session {
     }
 };
 
-// The first host plane package supports world XY only. Explicit changes cancel dependent
+// The host supports World XY and horizontal virtual-face snapshots. Explicit changes cancel dependent
 // unfinished input, not committed geometry; an automatic change respects the plane's lock.
 bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automatic = false);
+bool UseFacePlane (Session& s, edit::Ref face);
 bool BeginPlaneEntry (Session& s);
 
 constexpr char kPanelTitle[] = "Virtual editor";

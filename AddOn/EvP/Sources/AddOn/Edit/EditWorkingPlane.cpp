@@ -1,4 +1,5 @@
 #include "Edit/EditWorkingPlane.hpp"
+#include "Edit/EditGizmo.hpp"
 #include <cmath>
 
 namespace geomsrv::edit {
@@ -13,7 +14,8 @@ WorkingPlane WorldXY (double z)
 bool ValidPlane (const WorkingPlane& p)
 {
     if (!Finite (p.origin) || !Finite (p.u) || !Finite (p.v) || !Finite (p.normal) ||
-        (p.source != PlaneSource::WorldXY && p.source != PlaneSource::Explicit))
+        (p.source != PlaneSource::WorldXY && p.source != PlaneSource::Explicit && p.source != PlaneSource::Face) ||
+        (p.source == PlaneSource::Face && (p.sourceRef.entity == kNoId || p.sourceRef.part != Part::Face)))
         return false;
     constexpr double e = 1e-9;
     return std::abs (Length (p.u) - 1) < e && std::abs (Length (p.v) - 1) < e && std::abs (Length (p.normal) - 1) < e &&
@@ -28,17 +30,57 @@ bool IsWorldXY (const WorkingPlane& p)
 
 bool SamePlaneFrame (const WorkingPlane& a, const WorkingPlane& b)
 {
-    return a.origin == b.origin && a.u == b.u && a.v == b.v && a.normal == b.normal && a.source == b.source;
+    return a.origin == b.origin && a.u == b.u && a.v == b.v && a.normal == b.normal && a.source == b.source &&
+           a.sourceRef == b.sourceRef;
 }
 
 bool SamePlane (const WorkingPlane& a, const WorkingPlane& b)
 {
-    return SamePlaneFrame (a, b) && a.locked == b.locked && a.sticky == b.sticky;
+    return SamePlaneFrame (a, b) && a.locked == b.locked && a.sticky == b.sticky &&
+           a.sourceRevision == b.sourceRevision;
 }
 
 Plane SnapPlane (const WorkingPlane& p)
 {
-    return { p.origin, p.normal };
+    return { p.origin, p.normal, p.u };
+}
+
+bool PlaneFromFace (const Document& doc, Ref face, WorkingPlane& out, std::string& error)
+{
+    const Entity* entity = Find (doc, face.entity);
+    Frame frame;
+    if (face.part != Part::Face || entity == nullptr || entity->vertices.size () < 3 ||
+        face.item >= FaceCount (*entity) || !FaceFrame (*entity, size_t (face.item), frame)) {
+        error = "Pick one existing virtual extrusion face to set the working plane.";
+        return false;
+    }
+    WorkingPlane plane;
+    plane.origin = frame.origin;
+    plane.u = frame.axes[0], plane.v = frame.axes[1], plane.normal = frame.axes[2];
+    plane.source = PlaneSource::Face;
+    plane.sourceRef = face;
+    plane.sourceRevision = doc.revision;
+    if (!ValidPlane (plane)) {
+        error = "That face does not define a finite working plane.";
+        return false;
+    }
+    const auto polygon = FacePolygon (*entity, size_t (face.item));
+    Vec3 area;
+    for (size_t i = 0; i < polygon.size (); ++i) {
+        const auto point = polygon[i];
+        if (!Finite (point) || std::abs (Dot (point - plane.origin, plane.normal)) > 1e-8) {
+            error = "That face is not planar; the working plane was left unchanged.";
+            return false;
+        }
+        area = area + Cross (point - plane.origin, polygon[(i + 1) % polygon.size ()] - plane.origin);
+    }
+    if (!Finite (area) || std::abs (Dot (area, plane.normal)) < 1e-12) {
+        error = "That face is degenerate; the working plane was left unchanged.";
+        return false;
+    }
+    out = plane;
+    error.clear ();
+    return true;
 }
 
 Vec3 ToLocal (const WorkingPlane& p, Vec3 world)

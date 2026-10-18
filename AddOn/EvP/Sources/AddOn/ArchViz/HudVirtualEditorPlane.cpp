@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include <cstdio>
+#include <cmath>
 
 // OVERLAY-INVARIANTS.md: shared cancellation of view-owned input only; no camera or native writes.
 namespace geomsrv::archviz::edithud::detail {
@@ -38,9 +39,10 @@ namespace geomsrv::archviz::edithud {
 
 bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automatic)
 {
-    if (!edit::IsWorldXY (plane) || !plane.sticky) {
-        s.message =
-            "Only a finite sticky World XY working plane is supported here; oblique plane authoring is unavailable.";
+    const bool horizontalFace = edit::ValidPlane (plane) && plane.source == edit::PlaneSource::Face && plane.u.z == 0 &&
+                                plane.v.z == 0 && std::abs (plane.normal.z) == 1;
+    if ((!edit::IsWorldXY (plane) && !horizontalFace) || !plane.sticky) {
+        s.message = "Use World XY or a horizontal virtual face; side/oblique plane authoring is unavailable.";
         return false;
     }
     auto next = s.plane;
@@ -54,10 +56,8 @@ bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automati
     if (edit::SamePlaneFrame (s.plane, next)) {
         // Locking the current frame is not a new geometric datum: keep its input/preview.
         s.plane = next;
-        if (s.capturedPlane) {
-            s.capturedPlane->locked = next.locked;
-            s.capturedPlane->sticky = next.sticky;
-        }
+        if (s.capturedPlane)
+            s.capturedPlane = next;
         return true;
     }
     const bool unfinished = s.drag != Drag::None || s.penDown || s.planeTyping || !s.drawing.empty () ||
@@ -76,6 +76,20 @@ bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automati
     return true;
 }
 
+bool UseFacePlane (Session& s, edit::Ref face)
+{
+    edit::WorkingPlane plane;
+    // A plane change will cancel the gesture: never adopt a face from the discarded preview.
+    const auto& doc = s.edits.InGesture () ? s.edits.Before () : s.edits.Doc ();
+    std::string error;
+    if (!edit::PlaneFromFace (doc, face, plane, error)) {
+        s.message = error;
+        return false;
+    }
+    plane.locked = s.plane.locked; // an explicit pick can replace a locked datum, not unlock it
+    return SetWorkingPlane (s, plane);
+}
+
 bool BeginPlaneEntry (Session& s)
 {
     if (s.drag != Drag::None || s.penDown || !s.drawing.empty () || s.labelOpen || s.typedHandle >= 0 ||
@@ -86,7 +100,7 @@ bool BeginPlaneEntry (Session& s)
     s.planeTyping = true;
     s.tracker.Hide ();
     s.tracker.Show ({ { edit::Quantity::Elevation, s.plane.origin.z } });
-    s.message = "Type the working-plane elevation in metres; Enter sets it, Esc cancels.";
+    s.message = "Type World XY elevation in metres; Enter sets the plane to World XY, Esc cancels.";
     detail::CapturePlane (s);
     return true;
 }
@@ -115,7 +129,13 @@ void CapturePlane (Session& s)
 
 void PlaneControls (Session& s)
 {
-    ImGui::TextUnformatted ("Working plane: World XY (sticky)");
+    if (s.plane.source == edit::PlaneSource::Face)
+        ImGui::Text ("Face snapshot (sticky): %llu / %llu r%llu",
+                     static_cast<unsigned long long> (s.plane.sourceRef.entity),
+                     static_cast<unsigned long long> (s.plane.sourceRef.item),
+                     static_cast<unsigned long long> (s.plane.sourceRevision));
+    else
+        ImGui::TextUnformatted ("Working plane: World XY (sticky)");
     char label[80];
     std::snprintf (label, sizeof label, "Elevation %.6g m##planeElevation", s.plane.origin.z);
     if (ImGui::SmallButton (label))
@@ -124,6 +144,11 @@ void PlaneControls (Session& s)
     auto next = s.plane;
     if (ImGui::Checkbox ("Lock plane", &next.locked))
         SetWorkingPlane (s, next);
+    const auto& selected = s.selection.Items ();
+    ImGui::BeginDisabled (selected.size () != 1 || selected[0].part != edit::Part::Face);
+    if (ImGui::SmallButton ("Use selected face plane"))
+        UseFacePlane (s, selected[0]);
+    ImGui::EndDisabled ();
 }
 
 } // namespace detail

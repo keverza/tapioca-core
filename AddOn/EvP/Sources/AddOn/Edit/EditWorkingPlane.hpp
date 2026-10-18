@@ -5,7 +5,7 @@
 
 namespace geomsrv::edit {
 
-enum class PlaneSource : uint8_t { WorldXY, Explicit };
+enum class PlaneSource : uint8_t { WorldXY, Explicit, Face };
 
 // World metres and a right-handed orthonormal basis. This input frame is not the
 // gizmo's pivot/frame, nor a new view/camera. Hosts may support fewer sources.
@@ -14,8 +14,12 @@ struct WorkingPlane {
     Vec3 u { 1, 0, 0 }, v { 0, 1, 0 }, normal { 0, 0, 1 };
     PlaneSource source = PlaneSource::WorldXY;
     bool sticky = true, locked = false;
+    // Pick-time provenance only, not a live binding: face indices are session-local.
+    Ref sourceRef;
+    uint64_t sourceRevision = 0;
 };
 WorkingPlane WorldXY (double z = 0.0);
+bool PlaneFromFace (const Document& doc, Ref face, WorkingPlane& out, std::string& error);
 bool ValidPlane (const WorkingPlane& plane);
 bool IsWorldXY (const WorkingPlane& plane);
 bool SamePlaneFrame (const WorkingPlane& a, const WorkingPlane& b);

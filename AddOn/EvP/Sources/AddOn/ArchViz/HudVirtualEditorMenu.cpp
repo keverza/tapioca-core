@@ -198,6 +198,8 @@ std::vector<MenuItem> MenuItems (const Session& s)
         case MenuTarget::Object: {
             const edit::Entity* e = edit::Find (doc, s.menu.ref.entity);
             items.push_back (Item ("delete", "Delete object", "Del"));
+            if (s.menu.ref.part == edit::Part::Face)
+                items.push_back (Item ("plane.face", "Use face as working plane"));
             Rule (items);
             const char* modes[] = { "Move", "Rotate", "Scale", "Stretch", "Push/pull face" };
             const char* keys[] = { "G", "R", "S", "T", "E" };
@@ -298,6 +300,8 @@ void RunMenuItem (Session& s, const std::string& id)
         DeleteSelection (s);
     else if (id == "close")
         s.close = true;
+    else if (id == "plane.face")
+        UseFacePlane (s, s.menu.ref);
     else if (id == "tool.select")
         s.tool = Tool::Select, s.drawing.clear ();
     else if (id == "tool.polyline")
