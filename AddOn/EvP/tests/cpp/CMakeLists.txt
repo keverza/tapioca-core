@@ -773,6 +773,10 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanar.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarBuild.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFlatten.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFaces.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathNetwork.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathContours.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathCrossing.cpp"
@@ -791,6 +795,10 @@ set (EVP_TEST_SOURCES
     test_editsnap.cpp
     test_editworkingplane.cpp
     test_editshape.cpp
+    test_editplanar.cpp
+    test_editplanaridentity.cpp
+    test_editplanarrobustbuild.cpp
+    test_editplanarrobustfaces.cpp
     test_editpathnetwork.cpp
     test_fillet2d.cpp
     test_editpathcontours.cpp
@@ -1124,9 +1132,11 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
     target_sources (EvPGeomTests PRIVATE "${GEOM_DIR}/GeometryRustTerrain.cpp"
         "${GEOM_DIR}/GeometryRustIdentity.cpp"
         "${GEOM_DIR}/GeometryRustValue.cpp"
+        "${GEOM_DIR}/GeometryRustAffine.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_value.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_value.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_affine.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
 # The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):
