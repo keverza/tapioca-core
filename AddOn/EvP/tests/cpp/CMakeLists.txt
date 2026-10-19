@@ -564,6 +564,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorMenu.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorSnap.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorSnapControls.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorCorners.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorCurves.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLabels.cpp"
@@ -794,6 +795,7 @@ set (EVP_TEST_SOURCES
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
     test_hudvirtualeditorsnap.cpp
+    test_hudvirtualeditorsnapcontrols.cpp
     test_hudvirtualeditormap.cpp
     test_dimensiongeometry.cpp
     test_drawlist.cpp

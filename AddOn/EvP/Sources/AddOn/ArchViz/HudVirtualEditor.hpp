@@ -251,6 +251,11 @@ constexpr uint32_t kSnapPoints =
     edit::kSnapEndpoint | edit::kSnapMidpoint | edit::kSnapCentre | edit::kSnapIntersection;
 constexpr uint32_t kSnapEdges = edit::kSnapNearest | edit::kSnapPerpendicular | edit::kSnapExtension;
 constexpr uint32_t kSnapGuides = edit::kSnapAxis | edit::kSnapParallel | edit::kSnapAngle;
+struct SnapOption {
+    uint32_t mode;
+    const char* label;
+};
+const std::vector<SnapOption>& SnapOptions ();
 
 // The right-click menu: the items for what it was opened on, and what one of them does.
 std::vector<MenuItem> MenuItems (const Session& session);
