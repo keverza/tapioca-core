@@ -113,6 +113,9 @@ struct Event {
 
 enum class Route : uint8_t { Pass = 0, Take = 1 };
 enum class Owner : uint8_t { None = 0, Hud = 1, Host = 2 };
+// Cursor ownership follows a native hold live, even when its release message was lost.
+// This does not change event routing or cancel an independent HUD edit/typed gesture.
+Owner CursorOwner (Owner remembered, uint32_t physicalButtons);
 
 class Router {
   public:

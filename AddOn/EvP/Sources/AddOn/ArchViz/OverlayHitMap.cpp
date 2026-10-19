@@ -6,6 +6,11 @@ namespace geomsrv {
 namespace archviz {
 namespace overlayinput {
 
+Owner CursorOwner (Owner remembered, uint32_t physicalButtons)
+{
+    return remembered == Owner::Host && physicalButtons == 0 ? Owner::None : remembered;
+}
+
 Cursor CursorFor (const HitMap& map, bool overRegion, bool hudGesture)
 {
     const Cursor cursor = map.cursor == uint8_t (Cursor::Arrow) && map.hand ? Cursor::Hand : Cursor (map.cursor);

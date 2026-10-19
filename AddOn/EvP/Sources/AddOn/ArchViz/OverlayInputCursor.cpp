@@ -148,8 +148,9 @@ bool OwnsPointer (const Target& target)
 {
     if (target.owner.shown == nullptr || !target.owner.shown ())
         return false;
-    if (router.GetOwner () != Owner::None)
-        return router.GetOwner () == Owner::Hud;
+    const Owner owner = CursorOwner (router.GetOwner (), PhysicalButtons ());
+    if (owner != Owner::None)
+        return owner == Owner::Hud;
     POINT screen = {};
     if (!::GetCursorPos (&screen))
         return false;

@@ -223,15 +223,19 @@ TEST (OverlayInput, TheHudsCursorWinsAfterAnotherWindowDispatches)
     input::SetHitMap (input::View::Plan, map);
     Pump ();
     // Capture belongs to the HUD. A different native window then overwrites its cursor
-    // inside dispatch, after WH_GETMESSAGE has already run. No next message repairs it.
+    // inside dispatch, after WH_GETMESSAGE has already run. No further pointer event follows.
     ::PostMessageW (canvas, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM (40, 40));
     Pump ();
+    const int refreshes = g_refreshes;
+    const auto redraws = input::GetStats ().redraws;
     ::SendMessageW (other, kHostCursorMessage, 0, 0);
     EXPECT_EQ (::GetCursor (), ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32512)))
         << "a sent native message is repaired before its caller regains control";
     ::PostMessageW (other, kHostCursorMessage, 0, 0);
     Pump ();
     EXPECT_EQ (::GetCursor (), ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32512)));
+    EXPECT_EQ (g_refreshes, refreshes) << "cursor repair must not regenerate the HUD";
+    EXPECT_EQ (input::GetStats ().redraws, redraws) << "cursor repair must not redraw the model";
     input::Shutdown ();
     ::SendMessageW (other, kHostCursorMessage, 0, 0);
     EXPECT_EQ (::GetCursor (), ::LoadCursorW (nullptr, MAKEINTRESOURCEW (32515)))

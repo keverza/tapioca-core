@@ -46,6 +46,15 @@ TEST (OverlayHitMap, LockedCanvasDoesNotInheritAStalePanelHandButKeepsEditingAnd
     EXPECT_EQ (input::CursorFor (map, false, false), input::Cursor::Hand);
 }
 
+TEST (OverlayHitMap, ANativeGestureWithNoPhysicalHoldDoesNotOwnTheCursor)
+{
+    EXPECT_EQ (input::CursorOwner (input::Owner::Host, 0), input::Owner::None);
+    EXPECT_EQ (input::CursorOwner (input::Owner::Host, input::Bit (input::Button::Middle)), input::Owner::Host);
+    EXPECT_EQ (input::CursorOwner (input::Owner::Host, input::Bit (input::Button::Left)), input::Owner::Host);
+    EXPECT_EQ (input::CursorOwner (input::Owner::Hud, 0), input::Owner::Hud);
+    EXPECT_EQ (input::CursorOwner (input::Owner::None, 0), input::Owner::None);
+}
+
 namespace {
 
 input::Region Box (float fx, float fy, float left, float top, float right, float bottom, bool logical = false)
