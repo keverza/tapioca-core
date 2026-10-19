@@ -1,11 +1,13 @@
 # Rust geometry kernel: environment and compilation rules
 
-**Status:** S1 legacy-ingress increment, 2026-10-19. `tapioca-core-ffi` exports
-`tapioca_version`, `tapioca_validate_mesh` and `tapioca_validate_snapshot` (ABI v1).
+**Status:** S1 structural-attribution increment, 2026-10-19. `tapioca-core-ffi` exports
+`tapioca_version`, `tapioca_validate_mesh`, `tapioca_validate_snapshot`,
+`tapioca_validate_provenance` and `tapioca_validate_attributed_mesh` (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
-unsupported ABI; explicit CMake OFF is the legacy rollback path. Attributed
-identity views/round-trip remain an incomplete S1 gate. C++ engines remain the
+unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
+views and the validation round-trip are implemented; complete value-model/catalog
+validation remains an incomplete S1 gate. C++ engines remain the
 production geometry authorities; no algorithm or consumer flag is switched.
 
 ## Location and boundaries
@@ -94,7 +96,8 @@ Rust on the full gate is an error, never a green skip. `--target
 x86_64-pc-windows-msvc` makes the target explicit; otherwise native-host tests run,
 including Linux. `--target-dir <path>` redirects outputs. Tests cover generic
 mesh shape/finite/index/sidecar ingress plus the version/status/error boundary.
-They do not prove terrain topology, authored identity or catalog semantics.
+Separate identity fixtures cover authored structural relationships, not geometric
+contributor truth, terrain topology, persistence or catalog semantics.
 
 ## C ABI envelope and legacy ingress
 
@@ -125,9 +128,41 @@ snapshot validation refuses duplicate nonempty GUIDs with `ERR_STATE`.
 
 Snapshot conversion owns only small view descriptors. Material/surface catalogs,
 bounds and capture freshness remain outside this increment and are not discarded
-or certified. The facade must not be used as authored identity/D14 proof: those
-views and provenance checks are still required before terrain consumers. Bulk
+or certified. The legacy facade must not be used as authored identity/D14 proof.
+Bulk
 validation belongs on workers; synchronous geometry needs measured D3 budgets.
+
+### Structural authored provenance (separate gate)
+
+`GeometryIdentity.hpp` owns the C++ session-value carriers. The bridge in
+`GeometryRustIdentity.cpp` explicitly converts metadata into C POD arrays while
+borrowing mesh coordinates and compatibility sidecars unchanged. Rust never
+allocates authored IDs, normalizes native bindings, repairs input or retains views.
+The geometry crate owns safe validation; the FFI crate alone owns foreign borrows.
+
+The gate validates schema/session/revision, session-wide catalog ID uniqueness,
+ordered acyclic operation parents, owner reachability, canonical uppercase native
+GUIDs, explicit metadata UUID presence, UTF-8 roles, and checked ranges/references.
+Support tables are explicit current or retained historical inputs. Every entity in
+each declared domain has exactly one mapping with source/history contributors;
+unknown discriminators, gaps, duplicates and invalid predecessors refuse.
+Patch rows require nonzero object-scoped tokens; member rows may carry an optional
+token with an owner. Semantic patch matching and allocator history remain C++ work.
+
+`ValidateProvenance` accepts the primitive's declared counts/domains;
+`ValidateAttributedMesh` fixes vertex+face domains (mask 5) and checks counts
+against real mesh arrays. Complete snapshot/catalog validation is not implied.
+Structural refusal returns `ERR_STATE` with diagnostic 1..4 (unattributable,
+conflict, stale, unstable patch key). Success publishes 0. Transport errors and
+caught panics preserve the prior diagnostic. All inputs remain immutable; no
+Rust-generated geometry/identity output, persistence or native reconciliation is
+claimed by this validation round-trip. No terrain consumer is enabled.
+
+Advisory size review: `identity/mapping.rs` keeps the deterministic, ordered
+validation pipeline and its private checks together; `identity/tests.rs` keeps
+one shared borrowed fixture and its explicit mutation/refusal matrix together.
+The larger tests are verbose POD fixtures grouped by binding, support-context and
+mapping-kind contracts. Size/line advisories remain visible; no lint is suppressed.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
@@ -136,7 +171,7 @@ The standalone CMake entry needs no DevKit or Diligent:
 ```powershell
 cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
 cmake --build AddOn/EvP/rust/build --target TapiocaRustKernel --config RelWithDebInfo
-cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure --config RelWithDebInfo
+cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke --config RelWithDebInfo
 ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 ```
 
@@ -144,7 +179,10 @@ ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 `TapiocaLinkRustCore` to build/link the aggregate release archive and verify both
 C and C++ header consumers. `TapiocaRustWrapperFailure` separately links only
 test stubs to prove version/status refusal and output preservation; never use
-those stubs in a production target. MSVC uses x64 and dynamic CRT `/MD` in **every**
+those stubs in a production target. `TapiocaRustIdentitySmoke` links real Rust and
+the C++ converter, including revision zero, two GUIDs for one object and refusal
+immutability. Stub tests also cover inconsistent status/diagnostic combinations.
+MSVC uses x64 and dynamic CRT `/MD` in **every**
 configuration, including Debug, matching Rust's `-crt-static`. Archives are under
 `<binary-dir>/rust/x86_64-pc-windows-msvc/release/` on Windows and
 `<binary-dir>/rust/release/` on native Linux. Cargo owns incremental invalidation;

@@ -17,9 +17,20 @@ add_test (NAME TapiocaRustAbiSmoke COMMAND TapiocaRustAbiSmoke)
 # Explicit test-only ABI stubs exercise wrapper refusal paths without shipping
 # a panic/version-override export or linking a second production authority.
 add_executable (TapiocaRustWrapperFailure tests/abi_wrapper_failure.cpp
-    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustTerrain.cpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustTerrain.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustIdentity.cpp")
 set_target_properties (TapiocaRustWrapperFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
 target_include_directories (TapiocaRustWrapperFailure PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn"
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry")
 add_test (NAME TapiocaRustWrapperFailure COMMAND TapiocaRustWrapperFailure)
+
+# Real owned-C++ -> borrowed-POD -> Rust identity validation, without the SDK.
+add_executable (TapiocaRustIdentitySmoke tests/identity_smoke.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustTerrain.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustIdentity.cpp")
+set_target_properties (TapiocaRustIdentitySmoke PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustIdentitySmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry")
+TapiocaLinkRustCore (TapiocaRustIdentitySmoke)
+add_test (NAME TapiocaRustIdentitySmoke COMMAND TapiocaRustIdentitySmoke)

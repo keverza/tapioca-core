@@ -1,6 +1,7 @@
 // Stub-linked parity oracle for wrapper failures; never linked into the add-on.
 #include "GeometryRustFfi.h"
 #include "GeometryRustTerrain.hpp"
+#include "Mesh.hpp"
 
 #include <cstring>
 #include <iostream>
@@ -9,6 +10,7 @@ namespace {
 TapiocaStatus s_status = TAPIOCA_OK;
 uint32_t s_version = TAPIOCA_ABI_VERSION;
 bool s_message = true;
+uint32_t s_diagnostic = TAPIOCA_DIAGNOSTIC_NONE;
 } // namespace
 
 extern "C" TapiocaStatus tapioca_version (uint32_t* version, char* error, size_t capacity)
@@ -33,6 +35,20 @@ extern "C" TapiocaStatus tapioca_validate_snapshot (const TapiocaSnapshotView*, 
     return TAPIOCA_ERR_INTERNAL;
 }
 
+extern "C" TapiocaStatus tapioca_validate_provenance (const TapiocaProvenanceRequest*, uint32_t* diagnostic, char*,
+                                                      size_t)
+{
+    *diagnostic = s_diagnostic; // Intentionally write even on transport failure.
+    return s_status;
+}
+
+extern "C" TapiocaStatus tapioca_validate_attributed_mesh (const TapiocaMeshView*,
+                                                           const TapiocaProvenanceRequest* request,
+                                                           uint32_t* diagnostic, char* error, size_t capacity)
+{
+    return tapioca_validate_provenance (request, diagnostic, error, capacity);
+}
+
 int main ()
 {
     uint32_t output = 77;
@@ -54,6 +70,35 @@ int main ()
     s_version = TAPIOCA_ABI_VERSION;
     if (!tapioca::geometry::ReadRustAbiVersion (output, error) || output != TAPIOCA_ABI_VERSION || !error.empty ())
         return 4;
+
+    using namespace tapioca::geometry;
+    const ProvenanceRequest request;
+    const geomsrv::Mesh mesh;
+    // Exercise both wrappers against inconsistent and failed callee envelopes.
+    for (bool attributed : { false, true }) {
+        auto validate = [&] (ProvenanceDiagnostic& diagnostic) {
+            return attributed ? ValidateAttributedMesh (mesh, request, diagnostic, error)
+                              : ValidateProvenance (request, diagnostic, error);
+        };
+        for (TapiocaStatus status : std::array<TapiocaStatus, 5> { TAPIOCA_OK, TAPIOCA_ERR_ARG, TAPIOCA_ERR_STATE,
+                                                                   TAPIOCA_ERR_INTERNAL, 99 }) {
+            for (uint32_t code : { 0U, 1U, 2U, 3U, 4U, 99U }) {
+                s_status = status;
+                s_diagnostic = code;
+                auto diagnostic = ProvenanceDiagnostic::PatchKeyUnstable;
+                error = "prior error";
+                const bool success = validate (diagnostic);
+                const bool validSuccess = status == TAPIOCA_OK && code == 0;
+                const bool validRefusal = status == TAPIOCA_ERR_STATE && code >= 1 && code <= 4;
+                if (success != validSuccess || (success && !error.empty ()) || (!success && error.empty ()))
+                    return 5;
+                const auto expected = validSuccess || validRefusal ? static_cast<ProvenanceDiagnostic> (code)
+                                                                   : ProvenanceDiagnostic::PatchKeyUnstable;
+                if (diagnostic != expected)
+                    return 6;
+            }
+        }
+    }
     std::cout << "Tapioca wrapper mismatch/status/output-preservation checks passed\n";
     return 0;
 }

@@ -24,7 +24,8 @@ def workspace(tmp_path):
 
 
 def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
-    assert check_rust.structure(workspace) == ([], [])
+    errors, _ = check_rust.structure(workspace)
+    assert errors == []  # Cohesive owned modules may legitimately emit advisories.
     ffi = tomllib.loads((workspace / "ffi/Cargo.toml").read_text(encoding="utf-8"))
     assert ffi["package"]["name"] == "tapioca-core-ffi"
     assert ffi["lib"]["crate-type"] == ["staticlib", "rlib"]
@@ -82,20 +83,24 @@ def test_abort_profile_is_rejected(workspace):
 
 @pytest.mark.parametrize("count, prefix", [(600, None), (601, "WARNING"), (1001, "REVIEW")])
 def test_file_size_is_an_advisory_not_a_build_failure(workspace, count, prefix):
+    _, baseline = check_rust.structure(workspace)
     (workspace / "geometry/src/large.rs").write_text("// cohesive algorithm\n" * count, encoding="utf-8")
     errors, reviews = check_rust.structure(workspace)
     assert errors == []
-    assert len(reviews) == (1 if prefix else 0)
+    added = [review for review in reviews if review not in baseline]
+    assert len(added) == (1 if prefix else 0)
     if prefix:
-        assert reviews[0].startswith(prefix)
+        assert added[0].startswith(prefix)
+        assert "geometry/src/large.rs" in added[0]
 
 
 @pytest.mark.parametrize("directory", ["target", "build", "vendor", "generated"])
 def test_generated_and_vendored_rust_are_not_size_scanned(workspace, directory):
+    baseline = check_rust.structure(workspace)
     path = workspace / directory
     path.mkdir()
     (path / "large.rs").write_text("// not owned\n" * 1001, encoding="utf-8")
-    assert check_rust.structure(workspace) == ([], [])
+    assert check_rust.structure(workspace) == baseline
 
 
 def test_new_untracked_rust_is_secret_scanned(workspace):

@@ -54,6 +54,25 @@ int main (void)
         strstr (error, "SnapshotDuplicateGuid:") != error)
         return 9;
 
+    if (sizeof (void*) == 8 &&
+        (sizeof (TapiocaIdentityContext) != 40 || sizeof (TapiocaBindingRecord) != 96 ||
+         sizeof (TapiocaMappingRecord) != 80 || sizeof (TapiocaProvenanceRequest) != 280 ||
+         offsetof (TapiocaProvenanceRequest, table) != 64 || offsetof (TapiocaBindingRecord, role) != 72))
+        return 10;
+    TapiocaProvenanceRequest request = { 0 };
+    request.expectedSession[0] = 1;
+    request.table.context.schemaVersion = 1;
+    request.table.context.sessionUuid[0] = 1;
+    request.table.context.tableId = 100;
+    request.domains = TAPIOCA_MESH_PROVENANCE_DOMAINS;
+    uint32_t diagnostic = 99;
+    if (tapioca_validate_provenance (&request, &diagnostic, error, sizeof (error)) != TAPIOCA_OK || diagnostic != 0)
+        return 11;
+    request.expectedRevision = 1;
+    if (tapioca_validate_provenance (&request, &diagnostic, error, sizeof (error)) != TAPIOCA_ERR_STATE ||
+        diagnostic != TAPIOCA_PROVENANCE_STALE || strstr (error, "ProvenanceStale:") != error)
+        return 12;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

@@ -74,9 +74,10 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
 ## C ABI boundary
 
 - `ffi/` is the only possible unsafe/ABI owner; `deny(unsafe_code)` is the default.
-  Current exports are `tapioca_version` and legacy geometry-only mesh/snapshot
-  validators. Attributed identity and geometry algorithms still require their
-  own implementation and tests. New namespaces/symbols use `tapioca` or
+  Current exports are `tapioca_version`, legacy geometry-only mesh/snapshot
+  validators and separate structural provenance/attributed-mesh validators.
+  Geometry algorithms still require their own implementation and tests.
+  New namespaces/symbols use `tapioca` or
   `geometry`, never `EvP`/`evp` (existing directory names are not new namespaces).
   Any narrow override must explain `SAFETY:`, alignment, pointer/length/overflow
   validation, aliasing, ownership, and lifetime. `repr(C)` records, fixed-width

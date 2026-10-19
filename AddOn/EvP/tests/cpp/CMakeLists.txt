@@ -1122,7 +1122,9 @@ target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 Tapio
 if (TAPIOCA_LINK_RUST_GEOMETRY)
     include ("${EVP_ROOT}/cmake/RustKernel.cmake")
     target_sources (EvPGeomTests PRIVATE "${GEOM_DIR}/GeometryRustTerrain.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp")
+        "${GEOM_DIR}/GeometryRustIdentity.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
 # The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):

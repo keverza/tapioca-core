@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include "GeometryIdentity.hpp"
 
 namespace geomsrv {
 struct Mesh;
@@ -36,6 +37,16 @@ bool ValidateMesh (const geomsrv::Mesh& mesh, std::string& error);
 // geometry is never copied. Material/surface catalogs are left untouched and
 // are not validated in this increment.
 bool ValidateSnapshot (const geomsrv::Snapshot& snapshot, std::string& error);
+
+// Structural attribution validation, separate from the legacy geometry gate.
+// Inputs are immutable; diagnostic changes only when validation completes.
+// ERR_ARG/INTERNAL transport failures leave diagnostic unchanged. No ID repair,
+// native writes, geometric attribution inference or retained Rust borrow.
+bool ValidateProvenance (const ProvenanceRequest& request, ProvenanceDiagnostic& diagnostic, std::string& error);
+// This primitive requires vertex+face domains and exact counts derived from the
+// mesh; catalogs/Modeler sidecars remain additive. Bulk calls belong on workers.
+bool ValidateAttributedMesh (const geomsrv::Mesh& mesh, const ProvenanceRequest& request,
+                             ProvenanceDiagnostic& diagnostic, std::string& error);
 
 } // namespace tapioca::geometry
 

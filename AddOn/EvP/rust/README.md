@@ -4,13 +4,14 @@ The aggregate `tapioca-core-ffi` staticlib exports `tapioca_version` and shared
 legacy geometry-only mesh/snapshot validators, with status/error handling and
 panic containment. The add-on and offline C++ suite link it by default through a
 thin `tapioca::geometry` services wrapper. Startup reads/logs ABI version 1; no
-geometry consumer is switched. Attributed views and the identity round-trip remain
-S1 work: these legacy validators do not certify D14 or material catalogs. Existing
+geometry consumer is switched. Separate provenance/attributed-mesh exports validate
+schema-v1 structural identity, with an owned-C++ → POD → Rust validation round-trip.
+These legacy validators still do not certify D14 or material catalogs. Existing
 C++ geometry remains authoritative; no algorithm is migrated.
 
 ```text
 rust/
-  geometry/   safe borrowed mesh views/validation; no dependencies or host APIs
+  geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs
   ffi/        aggregate staticlib + rlib; depends only on geometry; C ABI envelope
   tests/      standalone C/C++ header and archive-link smoke test
 ```

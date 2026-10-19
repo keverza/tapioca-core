@@ -6,8 +6,8 @@
 
 /* Aggregate ABI v1. Only implemented exports are declared here. No SDK or
  * Rust/C++ containers, native bool, exceptions, callbacks or retained borrows.
- * The validators below are the legacy geometry-only ingress gate, NOT D14
- * authored-identity validation. Attributed views remain a separate S1 gate. */
+ * Legacy geometry validation and attributed structural validation are separate
+ * gates. No validator proves geometric contributor truth or allocates IDs. */
 #define TAPIOCA_ABI_VERSION UINT32_C (1)
 
 /* Fixed-width status representation shared by future geometry families. */
@@ -67,6 +67,133 @@ typedef struct {
     TapiocaMeshArrayView meshes;
 } TapiocaSnapshotView;
 
+/* Authored identity is session-scoped uint64, never a triangle/index identity.
+ * POD records contain only all-bit-valid fields; unknown enum values refuse.
+ * Ranges index their documented flat pool with checked offset + count. */
+enum { TAPIOCA_ID_SOURCE = 1, TAPIOCA_ID_OPERATION = 2, TAPIOCA_ID_OBJECT = 3 };
+enum { TAPIOCA_DOMAIN_VERTEX = 1, TAPIOCA_DOMAIN_EDGE = 2, TAPIOCA_DOMAIN_FACE = 3, TAPIOCA_DOMAIN_PATCH = 4 };
+enum {
+    TAPIOCA_MAPPING_EXACT = 1,
+    TAPIOCA_MAPPING_INHERITED = 2,
+    TAPIOCA_MAPPING_SPLIT = 3,
+    TAPIOCA_MAPPING_MERGED = 4,
+    TAPIOCA_MAPPING_GENERATED = 5
+};
+enum {
+    TAPIOCA_DIAGNOSTIC_NONE = 0,
+    TAPIOCA_PROVENANCE_UNATTRIBUTABLE = 1,
+    TAPIOCA_PROVENANCE_CONFLICT = 2,
+    TAPIOCA_PROVENANCE_STALE = 3,
+    TAPIOCA_PATCH_KEY_UNSTABLE = 4
+};
+#define TAPIOCA_MESH_PROVENANCE_DOMAINS UINT32_C (5) /* Vertex + face mask. */
+
+typedef struct {
+    uint64_t offset, count;
+} TapiocaIdentityRange;
+typedef struct {
+    uint32_t schemaVersion;
+    uint8_t sessionUuid[16]; /* Non-nil, no Archicad GUID reinterpretation. */
+    uint64_t revision;       /* Session document revision; zero is valid. */
+    uint64_t tableId;        /* Nonzero call-local table ID, not persisted. */
+} TapiocaIdentityContext;
+typedef struct {
+    uint64_t vertices, edges, faces, patches;
+} TapiocaEntityCounts;
+typedef struct {
+    uint64_t id;
+    TapiocaIdentityRange bindings;
+} TapiocaSourceRecord;
+typedef struct {
+    uint64_t id;
+    TapiocaIdentityRange parents;
+} TapiocaOperationRecord;
+typedef struct {
+    uint64_t id, operation;
+} TapiocaObjectRecord;
+typedef struct {
+    uint32_t logicalKind;
+    uint64_t logicalId;
+    uint8_t nativeGuid[36];   /* Uppercase dashed non-nil GUID, no braces/NUL. */
+    uint8_t metadataUuid[16]; /* All zero when metadataPresent is zero. */
+    uint32_t metadataPresent;
+    TapiocaIdentityRange role; /* Nonempty UTF-8 into roleBytes; no NUL. */
+    uint64_t revision;         /* Session revision, not model-watch epoch. */
+} TapiocaBindingRecord;
+typedef struct {
+    uint32_t domain, kind;
+    uint64_t outputIndex;
+    TapiocaIdentityRange sources, operations;
+    uint64_t object;
+    TapiocaIdentityRange predecessors;
+    uint64_t patchKey;
+} TapiocaMappingRecord;
+typedef struct {
+    uint64_t tableId;
+    uint32_t domain;
+    uint64_t entityIndex;
+} TapiocaPredecessorRecord;
+typedef struct {
+    TapiocaIdentityContext context;
+    TapiocaEntityCounts counts;
+    uint32_t historical; /* 0: current revision; 1: explicit retained input <= current. */
+} TapiocaSupportTable;
+
+typedef struct {
+    const TapiocaSourceRecord* data;
+    size_t count;
+} TapiocaSourceArray;
+typedef struct {
+    const TapiocaOperationRecord* data;
+    size_t count;
+} TapiocaOperationArray;
+typedef struct {
+    const TapiocaObjectRecord* data;
+    size_t count;
+} TapiocaObjectArray;
+typedef struct {
+    const TapiocaBindingRecord* data;
+    size_t count;
+} TapiocaBindingArray;
+typedef struct {
+    const TapiocaMappingRecord* data;
+    size_t count;
+} TapiocaMappingArray;
+typedef struct {
+    const TapiocaPredecessorRecord* data;
+    size_t count;
+} TapiocaPredecessorArray;
+typedef struct {
+    const TapiocaSupportTable* data;
+    size_t count;
+} TapiocaSupportArray;
+typedef struct {
+    const uint64_t* data;
+    size_t count;
+} TapiocaIdArray;
+typedef struct {
+    TapiocaIdentityContext context;
+    TapiocaSourceArray sources;
+    TapiocaOperationArray operations;
+    TapiocaObjectArray objects;
+    TapiocaBindingArray bindings;
+    TapiocaIdArray bindingRefs;  /* Indices into bindings. */
+    TapiocaIdArray sourceIds;    /* Sorted unique contributor sets. */
+    TapiocaIdArray operationIds; /* Ordered DAG parents or sorted contributor sets. */
+    TapiocaPredecessorArray predecessors;
+    TapiocaMappingArray mappings;
+    TapiocaByteView roleBytes;
+    TapiocaSupportArray supportTables;
+} TapiocaProvenanceView;
+typedef struct {
+    uint8_t expectedSession[16]; /* Trusted current session, supplied separately. */
+    uint64_t expectedRevision;
+    TapiocaEntityCounts counts; /* Expected output-domain sizes. */
+    uint32_t domains;           /* Bit (domain - 1), known nonzero bits 0..3. */
+    uint32_t requireObject;     /* Byte-independent boolean: 0 or 1. */
+    TapiocaProvenanceView table;
+} TapiocaProvenanceRequest;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -100,6 +227,25 @@ TapiocaStatus tapioca_version (uint32_t* version, char* error, size_t errorCapac
  * use workers for unbounded/bulk inputs; synchronous use needs measured budgets. */
 TapiocaStatus tapioca_validate_mesh (const TapiocaMeshView* mesh, char* error, size_t errorCapacity);
 TapiocaStatus tapioca_validate_snapshot (const TapiocaSnapshotView* snapshot, char* error, size_t errorCapacity);
+
+/* Structural attribution gate: contexts/revisions, catalogs and acyclic DAG,
+ * native bindings, range/reference validity and complete unique domain coverage.
+ * Never generates identity, repairs input, certifies contributor geometry, or
+ * establishes persisted patch matching/history allocation by itself.
+ * diagnostic is required writable uint32 storage, disjoint from ALL inputs and
+ * error. On completed validation it receives NONE or a named code above. On a
+ * transport/geometry error or caught panic it remains unchanged. Structural
+ * refusals return ERR_STATE with diagnostic + UTF-8 message. All foreign-memory
+ * and panic caveats of the legacy gate apply; no pointer is retained.
+ * A generic caller derives counts from its retained real geometry tables.
+ * Bulk validation runs on workers; no main-thread latency guarantee is implied. */
+TapiocaStatus tapioca_validate_provenance (const TapiocaProvenanceRequest* request, uint32_t* diagnostic, char* error,
+                                           size_t errorCapacity);
+/* This ingress declares vertex+face attribution (domains == 5), derives their
+ * counts from mesh arrays and refuses mismatches; edge/patch output counts must
+ * be zero. Existing Modeler sidecars stay additive and unchanged. */
+TapiocaStatus tapioca_validate_attributed_mesh (const TapiocaMeshView* mesh, const TapiocaProvenanceRequest* request,
+                                                uint32_t* diagnostic, char* error, size_t errorCapacity);
 
 #ifdef __cplusplus
 }

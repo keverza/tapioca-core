@@ -1,17 +1,9 @@
 //! Borrow-only legacy mesh ingress. This does not certify authored identity (D14).
 
-use crate::boundary::{Failure, call, memory_range, overlaps};
+use crate::borrow::BorrowContext;
+pub use crate::borrow::SliceView;
+use crate::boundary::{Failure, call, memory_range};
 use tapioca_geometry::mesh::{self, ValidationError};
-
-/// Call-scoped array view. Counts are scalar elements, never bytes or xyz tuples.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct SliceView<T> {
-    /// Immutable caller-owned data; null is accepted only when count is zero.
-    pub data: *const T,
-    /// Number of scalar elements available at data.
-    pub count: usize,
-}
 
 /// Borrowed geometry-only mesh. No field substitutes for authored provenance.
 #[repr(C)]
@@ -55,38 +47,9 @@ pub struct SnapshotView {
     pub meshes: SliceView<MeshView>,
 }
 
-struct BorrowContext {
-    error_range: Option<(usize, usize)>,
-}
-
 impl BorrowContext {
-    // SAFETY: callers guarantee live, initialized immutable foreign memory for
-    // the entire call, with no aliases to writable error storage. Checked shape
-    // and arithmetic reject malformed representations, not dangling allocations.
-    unsafe fn slice<'a, T: Copy>(&self, view: SliceView<T>) -> Result<&'a [T], Failure> {
-        let range = memory_range(view.data, view.count)?;
-        if overlaps(range, self.error_range) {
-            return Err(Failure::Overlap);
-        }
-        if view.count == 0 {
-            return Ok(&[]);
-        }
-        // SAFETY: range checked null, alignment, byte/address overflow and error
-        // overlap; allocation validity, initialization and lifetime are foreign
-        // caller obligations. The borrow cannot escape an exported call.
-        Ok(unsafe { std::slice::from_raw_parts(view.data, view.count) })
-    }
-
-    // SAFETY: same allocation/lifetime contract as slice; UTF-8 is checked here.
-    unsafe fn text<'a>(&self, view: SliceView<u8>) -> Result<&'a str, Failure> {
-        // SAFETY: caller forwards the immutable foreign view contract.
-        let bytes = unsafe { self.slice(view)? };
-        std::str::from_utf8(bytes)
-            .map_err(|_| Failure::Argument("InvalidUtf8: malformed text view"))
-    }
-
     // SAFETY: descriptor and all referenced arrays obey the foreign borrow contract.
-    unsafe fn mesh<'a>(&self, input: MeshView) -> Result<mesh::MeshView<'a>, Failure> {
+    pub(crate) unsafe fn mesh(&self, input: MeshView) -> Result<mesh::MeshView<'_>, Failure> {
         // SAFETY: each field is checked independently before forming a slice;
         // immutable inputs may share storage, but none may overlap error output.
         unsafe {
@@ -106,7 +69,7 @@ impl BorrowContext {
     }
 }
 
-fn validation_failure(error: ValidationError) -> Failure {
+pub(crate) fn validation_failure(error: ValidationError) -> Failure {
     match error {
         ValidationError::SnapshotDuplicateGuid => Failure::State(error.message()),
         _ => Failure::Argument(error.message()),
@@ -135,6 +98,7 @@ pub unsafe extern "C" fn tapioca_validate_mesh(
         call(error, capacity, || {
             let context = BorrowContext {
                 error_range: memory_range(error.cast_const(), capacity)?,
+                output_range: None,
             };
             let descriptor = context.slice(SliceView {
                 data: input,
@@ -166,6 +130,7 @@ pub unsafe extern "C" fn tapioca_validate_snapshot(
         call(error, capacity, || {
             let context = BorrowContext {
                 error_range: memory_range(error.cast_const(), capacity)?,
+                output_range: None,
             };
             let descriptor = context.slice(SliceView {
                 data: input,
