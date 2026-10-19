@@ -97,6 +97,18 @@ struct SnapQuery {
     // parallel and square to each (the host keeps them; a few are plenty).
     std::vector<std::pair<Vec3, Vec3>> references;
     double angleStep = 15.0; // degrees between construction angles; 0 disables them
+    // Optional view screening the editor may attach: the kernel still acquires no camera, the host
+    // hands over its own world-to-pixel mapping and the pointer. Absent, every rule below is
+    // skipped and snapping behaves exactly as before.
+    struct Screening {
+        // This view's world-to-pixel mapping; false when a point cannot be shown (behind the camera).
+        std::function<bool (const Vec3& p, double& px, double& py)> project;
+        double mouseX = 0.0, mouseY = 0.0;        // the pointer, in `project`'s pixels
+        double pixelTolerance = 0.0;              // reject a candidate farther than this in pixels; <=0 skips the test
+        double viewWidth = 0.0, viewHeight = 0.0; // the viewport; <=0 leaves the bounds unchecked
+        double proximity = 0.0;                   // metres: reject a candidate farther than this in 3D from the cursor
+    };
+    std::optional<Screening> screen;
 };
 
 struct SnapResult {

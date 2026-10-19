@@ -5,15 +5,19 @@
 #include <cmath>
 
 // The virtual editor's drafting aids around the kernel's snap: which snaps are on, the
-// edges a gesture has touched (parallels and squares run to them), the point a drag
-// grabs an item by, and its edges snapping flush to others.
+// edges a gesture has touched (parallels and squares run to them), the point a drag was
+// pressed (its captured base point), its edges snapping flush to others, and the view
+// screening that makes a snap mouse-close, on screen and near in 3D.
 namespace geomsrv::archviz::edithud::detail {
 
 using edit::Vec3;
 
 void PrepareSnap (const Session& s, edit::SnapQuery& q)
 {
-    q.modes = s.snapModes;
+    // Snapping off suspends every mode without clearing the chosen list; the grid uses the
+    // session's spacing, so the kernel's last-resort grid follows the field the panel edits.
+    q.modes = s.snapEnabled ? s.snapModes : 0u;
+    q.grid = s.snapGrid;
     q.angleStep = s.angleStep;
     q.references = s.references;
     // A line being drawn is its own first reference: its last leg, to turn square from.
@@ -37,31 +41,61 @@ void Acquire (Session& s, const edit::SnapResult& snap)
 
 Vec3 GrabPoint (const Session& s, const Map& m, ImVec2 mouse, const edit::Ref& pressed, Vec3 onPlane, float scale)
 {
-    const edit::Entity* e = edit::Find (Doc (s), pressed.entity);
-    if (e == nullptr)
-        return onPlane;
-    // The item's own vertex under the pointer, top or bottom, is the base point; else the
-    // place it was pressed.
-    const float reach = 12.0f * scale;
-    float best = reach;
-    Vec3 grab = onPlane;
-    const Vec3 up { 0.0, 0.0, e->kind == edit::Kind::Extrusion ? e->height : 0.0 };
-    for (const auto& v : e->vertices)
-        for (const Vec3 p : { v.p, v.p + up }) {
-            ImVec2 q;
-            if (!m.Screen (p, q))
-                continue;
-            const float d = std::hypot (q.x - mouse.x, q.y - mouse.y);
-            if (d < best)
-                best = d, grab = p;
-        }
-    return grab;
+    // The base point a drag moves from is the exact place it was pressed: preserving the captured
+    // press position means a press near a corner keeps its offset and the item never jumps on the
+    // first frame. Snapping then pulls this base point onto its target, so a press exactly on a
+    // corner still lands that corner on the target.
+    (void) s;
+    (void) m;
+    (void) mouse;
+    (void) pressed;
+    (void) scale;
+    return onPlane;
+}
+
+namespace {
+constexpr float kSnapScreenPixels = 10.0f;  // the pointer's snap radius, matching Pointer's kSnapPixels
+constexpr float kFlushScreenPixels = 30.0f; // 3x: a flush target is past the pointer's own snap radius,
+                                            // or the pointer would already have snapped to it
+
+// The screening both snaps share: the supplied view's world-to-pixel mapping, the pointer, the
+// viewport, and the session's 3D proximity cap. A plan view has one scale for the whole plane, so
+// the pixel test alone is exact and the cap is left off; in 3D a far-in-Z point can project on top
+// of the pointer, and only its world point tells it apart.
+void SetScreening (const Session& s, const Map& m, ImVec2 mouse, float pixelTolerance, edit::SnapQuery& q)
+{
+    edit::SnapQuery::Screening screen;
+    screen.project = [&m] (const Vec3& p, double& px, double& py) {
+        ImVec2 at;
+        if (!m.Screen (p, at))
+            return false;
+        px = at.x, py = at.y;
+        return true;
+    };
+    screen.mouseX = mouse.x, screen.mouseY = mouse.y;
+    screen.pixelTolerance = pixelTolerance;
+    screen.viewWidth = m.v.width, screen.viewHeight = m.v.height;
+    screen.proximity = m.v.planar                                                 ? 0.0
+                       : std::isfinite (s.snapProximity) && s.snapProximity > 0.0 ? s.snapProximity
+                                                                                  : 1.0;
+    q.screen = std::move (screen);
+}
+} // namespace
+
+void ScreenPointer (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q)
+{
+    SetScreening (s, m, mouse, kSnapScreenPixels * scale, q);
+}
+
+void ScreenFlush (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q)
+{
+    SetScreening (s, m, mouse, kFlushScreenPixels * scale, q);
 }
 
 bool FlushEdges (Session& s, const Map& m, ImVec2 mouse, const std::vector<edit::Ref>& moving, double z,
                  const std::vector<edit::Ref>& exclude, float scale, edit::Transform& t)
 {
-    if (!s.edgeSnap)
+    if (!s.edgeSnap || !s.snapEnabled)
         return false;
     // The moving item's edges, where the move puts them.
     const edit::Document& before = s.edits.Before ();
@@ -89,6 +123,7 @@ bool FlushEdges (Session& s, const Map& m, ImVec2 mouse, const std::vector<edit:
     q.tolerance = 10.0 * scale * m.MetresPerPixel (mouse.x, mouse.y, z, at);
     q.plane = edit::SnapPlane (edit::WorldXY (z)); // part drags retain their original geometry datum/world axes
     q.exclude = exclude;
+    ScreenFlush (s, m, mouse, scale, q);
     edit::SnapResult r;
     if (!edit::SnapEdges (before, s.context, q, edges, t.translate, r))
         return false;

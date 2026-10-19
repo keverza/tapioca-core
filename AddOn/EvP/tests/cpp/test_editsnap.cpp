@@ -291,3 +291,202 @@ TEST (EditSnap, SampledBendsFormRuns)
     EXPECT_EQ (runs[3], 0);        // inside the bend
     EXPECT_EQ (runs[5], 0);
 }
+
+// --- View screening (SnapQuery::screen): what the editor's Map supplies so a snap is mouse-close,
+// on screen and near in 3D. Unset, every rule below is skipped (the tests above cover that path).
+
+TEST (EditSnap, ViewScreeningRejectsABehindCameraCandidate)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 3, 0, 0 }, { 3, 4, 0 } }, false);
+    ed::SnapQuery q = At (3.01, 0.01, 0.1);
+    q.modes = ed::kSnapEndpoint;
+    EXPECT_EQ (ed::Snap (doc, {}, q).kind, ed::SnapKind::Endpoint); // the plane metric alone sees it
+    ed::SnapQuery::Screening s;
+    s.project = [] (const ed::Vec3&, double&, double&) { return false; }; // behind the camera
+    s.viewWidth = 1200.0, s.viewHeight = 800.0;
+    q.screen = s;
+    EXPECT_FALSE (ed::Snap (doc, {}, q).snapped);
+}
+
+TEST (EditSnap, ViewScreeningRejectsAFarCandidateBeforeAnyProjection)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 3, 0, 50 }, { 3, 4, 50 } }, false); // far above the working plane
+    ed::SnapQuery q = At (3.01, 0.01, 0.1);
+    q.modes = ed::kSnapEndpoint;
+    EXPECT_EQ (ed::Snap (doc, {}, q).kind, ed::SnapKind::Endpoint);
+    ed::SnapQuery::Screening s;
+    // It would land exactly on the pointer, so only the world point can tell it is far away.
+    s.project = [] (const ed::Vec3&, double& px, double& py) {
+        px = 110.0, py = 100.0;
+        return true;
+    };
+    s.mouseX = 110.0, s.mouseY = 100.0;
+    s.pixelTolerance = 10.0;
+    s.viewWidth = 1200.0, s.viewHeight = 800.0;
+    s.proximity = 1.0; // metres
+    q.screen = s;
+    EXPECT_FALSE (ed::Snap (doc, {}, q).snapped);
+}
+
+TEST (EditSnap, ViewScreeningRejectsAnOffViewportCandidate)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 3, 0, 0 }, { 3, 4, 0 } }, false);
+    ed::SnapQuery q = At (3.01, 0.01, 0.1);
+    q.modes = ed::kSnapEndpoint;
+    ed::SnapQuery::Screening s;
+    s.project = [] (const ed::Vec3&, double& px, double& py) {
+        px = 2000.0, py = 100.0;
+        return true;
+    };
+    s.viewWidth = 1200.0, s.viewHeight = 800.0;
+    q.screen = s;
+    EXPECT_FALSE (ed::Snap (doc, {}, q).snapped);
+}
+
+TEST (EditSnap, ViewScreeningAcceptsANearOnScreenCandidateAndDropsAFarOne)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 3, 0, 0 }, { 3, 4, 0 } }, false);
+    ed::SnapQuery q = At (3.01, 0.01, 0.1);
+    q.modes = ed::kSnapEndpoint;
+    ed::SnapQuery::Screening s;
+    s.project = [] (const ed::Vec3& p, double& px, double& py) {
+        px = 600.0 + 100.0 * p.x, py = 400.0;
+        return true;
+    };
+    s.mouseX = 903.0, s.mouseY = 400.0; // the pointer where the endpoint shows
+    s.pixelTolerance = 10.0;
+    s.viewWidth = 1200.0, s.viewHeight = 800.0;
+    q.screen = s;
+    const auto near = ed::Snap (doc, {}, q);
+    ASSERT_TRUE (near.snapped);
+    EXPECT_EQ (near.kind, ed::SnapKind::Endpoint);
+    s.mouseX = 943.0; // now 43 px away
+    q.screen = s;
+    EXPECT_FALSE (ed::Snap (doc, {}, q).snapped);
+}
+
+TEST (EditSnap, ViewScreeningKeepsASegmentCrossingTheViewport)
+{
+    ed::Document doc;
+    ed::SnapContext ctx;
+    ctx.segments.push_back ({ { -1000, 0, 0 }, { 1000, 0, 0 }, "model" }); // both ends far off screen
+    ed::SnapQuery q = At (0.01, 0.0, 0.1);
+    q.modes = ed::kSnapNearest;
+    ed::SnapQuery::Screening s;
+    s.project = [] (const ed::Vec3& p, double& px, double& py) {
+        px = 600.0 + p.x, py = 400.0;
+        return true;
+    };
+    s.mouseX = 600.0, s.mouseY = 400.0;
+    s.pixelTolerance = 10.0;
+    s.viewWidth = 1200.0, s.viewHeight = 800.0;
+    s.proximity = 1.0;
+    q.screen = s;
+    const auto crossing = ed::Snap (doc, ctx, q);
+    ASSERT_TRUE (crossing.snapped);
+    EXPECT_EQ (crossing.kind, ed::SnapKind::Nearest);
+    ExpectAt (crossing, 0.01, 0.0);
+    // A lone endpoint off the viewport is not a candidate, though the crossing segment is.
+    ed::SnapContext pointCtx;
+    pointCtx.points.push_back ({ { 1000, 0, 0 }, "model" });
+    ed::SnapQuery pq = At (1000.01, 0.0, 0.1);
+    pq.modes = ed::kSnapEndpoint;
+    pq.screen = s; // its pixel is 1600, past the 1200-wide viewport
+    EXPECT_FALSE (ed::Snap (doc, pointCtx, pq).snapped);
+}
+
+TEST (EditSnap, EdgeFlushScreensTheTargetAndTakesTheGloballyNearestGrabbedEdge)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { -5, 0, 0 }, { 105, 0, 0 } }, false); // a long target line at y = 0
+    ed::SnapContext ctx;
+    ed::SnapQuery q = At (2.0, 0.05, 0.2);
+    const std::vector<std::pair<ed::Vec3, ed::Vec3>> edges {
+        { { 100, 0.05, 0 }, { 104, 0.05, 0 } }, // far from the pointer: gap 0.05
+        { { 0, 0.1, 0 }, { 4, 0.1, 0 } },       // the grabbed edge: gap 0.1
+    };
+    ed::SnapResult r;
+    // Unscreened, the first edge's smaller gap wins (the old first-edge behaviour).
+    ed::Vec3 old { 0, 0, 0 };
+    ASSERT_TRUE (ed::SnapEdges (doc, ctx, q, edges, old, r));
+    EXPECT_NEAR (old.y, -0.05, 1e-9);
+    // Screened, the far edge is not pointer-local, so the grabbed edge's gap is used instead.
+    ed::SnapQuery::Screening s;
+    s.proximity = 1.0;
+    q.screen = s;
+    ed::Vec3 now { 0, 0, 0 };
+    ASSERT_TRUE (ed::SnapEdges (doc, ctx, q, edges, now, r));
+    EXPECT_NEAR (now.y, -0.1, 1e-9);
+}
+
+TEST (EditSnap, ASegmentExclusionDropsItsWholeMovingItem)
+{
+    ed::Document doc;
+    const ed::Id e = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 } }, false);
+    const ed::Ref seg { e, ed::Part::Segment, ed::Find (doc, e)->segments[0].id };
+    ed::SnapQuery q = At (4.02, 3.98, 0.2); // right at the far vertex (4, 4)
+    q.modes = ed::kSnapEndpoint | ed::kSnapNearest;
+    q.exclude = { seg };
+    // The whole moving item is dropped, so its own far vertex is not a target.
+    EXPECT_FALSE (ed::Snap (doc, {}, q).snapped);
+}
+
+// The new flush contract: a remote moving edge is never pulled onto a target the pointer is on,
+// even though the perpendicular gap is within tolerance.
+TEST (EditSnap, EdgeFlushRejectsARemoteMovingEdgeBesideANearbyTarget)
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { -5, 0, 0 }, { 15, 0, 0 } }, false); // a target line at y = 0
+    ed::SnapContext ctx;
+    ed::SnapQuery q = At (0.0, 0.1, 0.2); // the pointer sits on the target
+    // The moving edge is parallel and within the gap (0.1 m), but its nearest point is 5 m away.
+    const std::vector<std::pair<ed::Vec3, ed::Vec3>> edges { { { 5, 0.1, 0 }, { 9, 0.1, 0 } } };
+    ed::Vec3 translate { 0, 0, 0 };
+    ed::SnapResult r;
+    // Unscreened the gap alone would flush (the old broad behaviour) ...
+    EXPECT_TRUE (ed::SnapEdges (doc, ctx, q, edges, translate, r));
+    // ... but the moving edge is remote from the pointer, so the screened query refuses it.
+    ed::SnapQuery::Screening s;
+    s.proximity = 1.0; // metres
+    q.screen = s;
+    ed::Vec3 screened { 0, 0, 0 };
+    EXPECT_FALSE (ed::SnapEdges (doc, ctx, q, edges, screened, r));
+}
+
+TEST (EditSnap, AProjectedIntersectionScreensBothOriginalSources)
+{
+    ed::SnapContext context;
+    context.segments = { { { -0.5, 0, 0 }, { 0.5, 0, 0 }, "near" }, { { 0, -0.5, 50 }, { 0, 0.5, 50 }, "far" } };
+    auto query = At (0.01, 0.01, 0.2);
+    query.modes = ed::kSnapIntersection;
+    query.screen = ed::SnapQuery::Screening {};
+    query.screen->proximity = 1;
+    EXPECT_FALSE (ed::Snap ({}, context, query).snapped);
+    context.segments[1].a.z = context.segments[1].b.z = 0;
+    EXPECT_EQ (ed::Snap ({}, context, query).kind, ed::SnapKind::Intersection);
+}
+
+TEST (EditSnap, TerrainElevationIsScreenedAfterSamplingItsRealHeight)
+{
+    ed::SnapContext context;
+    context.height = [] (double, double, double& z) {
+        z = 50;
+        return true;
+    };
+    auto query = At (0, 0, 0.2);
+    query.modes = ed::kSnapTerrain;
+    query.screen = ed::SnapQuery::Screening {};
+    query.screen->proximity = 1;
+    EXPECT_FALSE (ed::Snap ({}, context, query).snapped);
+    context.height = [] (double, double, double& z) {
+        z = 0.25;
+        return true;
+    };
+    const auto near = ed::Snap ({}, context, query);
+    EXPECT_EQ (near.kind, ed::SnapKind::Terrain);
+    EXPECT_DOUBLE_EQ (near.point.z, 0.25);
+}

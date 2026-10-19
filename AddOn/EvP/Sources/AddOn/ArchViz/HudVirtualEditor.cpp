@@ -97,6 +97,7 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     q.plane = edit::SnapPlane (plane);
     q.exclude = exclude;
     PrepareSnap (s, q);
+    ScreenPointer (s, m, mouse, scale, q);
     s.snap = edit::Snap (Doc (s), context, q);
     Acquire (s, s.snap);
     out = s.snap.point;
@@ -669,10 +670,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     s.startX = mouse.x, s.startY = mouse.y;
                     if (!m.Onto (mouse.x, mouse.y, s.anchor.z, s.anchor, s.startCursor) || !s.edits.Begin (pressed))
                         s.drag = Drag::None;
-                    // A whole item moves from a base point: its own vertex under the pointer, or
-                    // the place it was pressed -- so a corner can be put on a corner.
-                    else if (pressed.part == edit::Part::Entity && e != nullptr)
-                        s.anchor = GrabPoint (s, m, mouse, pressed, s.startCursor, scale), s.startCursor = s.anchor;
+                    // The press point is the drag base: the item moves by the pointer's travel and keeps
+                    // its captured offset exactly, so a press near a corner never jumps; a press exactly
+                    // on a corner still puts that corner on a target.
                     if (s.drag == Drag::Part)
                         s.navigation.point = s.startCursor;
                 }
@@ -755,7 +755,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted && pointerMoves) {
         const auto moving = Moving (s, s.target);
         Vec3 at;
-        if (Pointer (s, m, mouse, s.anchor.z, s.anchor, s.anchor, Exclusions (Doc (s), moving), scale, at)) {
+        if (Pointer (s, m, mouse, s.startCursor.z, s.startCursor, s.startCursor, Exclusions (Doc (s), moving), scale,
+                     at)) {
             edit::Operation op;
             const edit::Path* path = edit::FindPath (s.edits.Before (), s.target.entity);
             s.dragTypable =
@@ -772,14 +773,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                     op = edit::DragBreak (path->id, s.target.item, station, z);
             }
             else {
-                // Pressing on an item lifted off its grab point moves by the pointer's travel;
-                // with no point to snap to, its edges may still snap flush to others.
+                // Pressing on an item moves it by the pointer's travel from the captured press point,
+                // snapped or not: the item keeps its offset under the pointer and only the pointer's own
+                // snap pulls it, so engaging or giving up a snap never steps the item.
                 edit::Transform t;
-                t.translate = { at.x - s.anchor.x, at.y - s.anchor.y, 0.0 };
-                if (!s.snap.snapped) {
-                    t.translate = { at.x - s.startCursor.x, at.y - s.startCursor.y, 0.0 };
-                    FlushEdges (s, m, mouse, moving, s.anchor.z, Exclusions (Doc (s), moving), scale, t);
-                }
+                t.translate = { at.x - s.startCursor.x, at.y - s.startCursor.y, 0.0 };
+                if (!s.snap.snapped)
+                    FlushEdges (s, m, mouse, moving, s.startCursor.z, Exclusions (Doc (s), moving), scale, t);
                 op = edit::TransformOperation (moving, t);
                 s.dragValue = std::hypot (t.translate.x, t.translate.y);
                 if (s.dragValue > 1.0e-9)

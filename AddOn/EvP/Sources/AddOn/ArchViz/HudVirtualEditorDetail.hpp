@@ -53,10 +53,18 @@ void DashedLine (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 col
 void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::string& text, ImU32 colour);
 
 // Drafting aids (HudVirtualEditorSnap.cpp): the session's snap settings and references
-// into a query; an edge a snap landed on kept as a reference; the point a drag grabs an
-// item by (its own vertex under the pointer, else where it was pressed); and a moved
-// item's edges snapping flush to parallel ones, correcting `t` -- false when none did.
+// into a query; an edge a snap landed on kept as a reference; the exact point a drag was
+// pressed (its captured base point); and a moved item's edges snapping flush to parallel
+// ones, correcting `t` -- false when none did.
 void PrepareSnap (const Session& s, edit::SnapQuery& q);
+// Fill the kernel's optional view screening from this view's own mapping
+// (HudVirtualEditorSnap.cpp): a candidate must be near the pointer in this view's pixels, on
+// screen, in front of the camera and within the session's 3D proximity cap. The flush's reach is
+// wider than the pointer's snap radius, or a target the pointer would already have snapped to
+// could never be reached. The kernel acquires no camera; the mapping and viewport are the ones the
+// input layer handed over. Absent, the query keeps the plane metric alone.
+void ScreenPointer (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
+void ScreenFlush (const Session& s, const Map& m, ImVec2 mouse, float scale, edit::SnapQuery& q);
 void Acquire (Session& s, const edit::SnapResult& snap);
 edit::Vec3 GrabPoint (const Session& s, const Map& m, ImVec2 mouse, const edit::Ref& pressed, edit::Vec3 onPlane,
                       float scale);

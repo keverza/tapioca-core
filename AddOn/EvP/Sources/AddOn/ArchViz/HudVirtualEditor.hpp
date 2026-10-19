@@ -64,7 +64,10 @@ struct Session {
     // Snapping: which snaps are on (edit::SnapMode), the construction angle step, whether a
     // moved item's edges snap flush to others, and the edges the work has touched lately --
     // parallels and squares run to them.
-    uint32_t snapModes = edit::kSnapAll & ~edit::kSnapTerrain; // terrain Z is an explicit opt-in, not the datum
+    uint32_t snapModes = edit::kSnapAll & ~(edit::kSnapTerrain | edit::kSnapGrid); // terrain Z and grid are opt-in
+    bool snapEnabled = true; // suspends snapping without clearing the selected modes
+    double snapGrid = 1.0;
+    double snapProximity = 1.0; // metres: a target farther than this in 3D is not "here"
     double angleStep = 15.0;
     bool edgeSnap = true;
     std::vector<std::pair<edit::Vec3, edit::Vec3>> references;

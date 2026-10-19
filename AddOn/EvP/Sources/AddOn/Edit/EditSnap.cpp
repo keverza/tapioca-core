@@ -147,9 +147,11 @@ bool Excluded (const std::vector<Ref>& exclude, Id entity, Id vertex)
     for (const auto& r : exclude) {
         if (r.entity != entity)
             continue;
-        if (r.part == Part::Entity)
+        // Only a vertex ref is partial. Every other part (the whole entity, a face, a segment, a
+        // path range) drops the whole moving item, so a preview position can never be a target.
+        if (r.part != Part::Vertex)
             return true;
-        if (vertex != kNoId && r.part == Part::Vertex && r.item == vertex)
+        if (vertex != kNoId && r.item == vertex)
             return true;
     }
     return false;
@@ -261,6 +263,29 @@ bool Better (const Candidate& a, const Candidate& b)
     return a.distance < b.distance;
 }
 
+// Optional view screening (SnapQuery::screen). The candidate's world point is tested first, so a
+// point far from the gesture is rejected before any projection -- a source far in Z is never
+// excused by where it happens to land on screen. A segment is judged by its computed candidate,
+// never by blanket-rejecting a source whose endpoints happen to be off-screen.
+bool Screened (const SnapQuery& query, const Vec3& p)
+{
+    if (!query.screen)
+        return true;
+    const SnapQuery::Screening& v = *query.screen;
+    if (v.proximity > 0.0 && Distance (p, query.cursor) > v.proximity)
+        return false;
+    if (!v.project)
+        return true;
+    double px = 0.0, py = 0.0;
+    if (!v.project (p, px, py) || !std::isfinite (px) || !std::isfinite (py))
+        return false; // behind the camera: nothing to snap to
+    if (v.viewWidth > 0.0 && v.viewHeight > 0.0 && (px < 0.0 || py < 0.0 || px > v.viewWidth || py > v.viewHeight))
+        return false;
+    if (v.pixelTolerance > 0.0 && std::hypot (px - v.mouseX, py - v.mouseY) > v.pixelTolerance)
+        return false;
+    return true;
+}
+
 } // namespace
 
 SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuery& query)
@@ -282,6 +307,8 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
 
     std::optional<Candidate> best;
     const auto offer = [&] (Candidate c) {
+        if (!Screened (query, c.p))
+            return;
         if (c.distance <= tol && (!best || Better (c, *best)))
             best = std::move (c);
     };
@@ -464,6 +491,10 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
                 if ((l.bounded && (t < 0.0 || t > 1.0)) || (m.bounded && (s < 0.0 || s > 1.0)))
                     continue;
                 const Vec3 p = Lerp (l.a, l.b, t);
+                // A projected crossing needs both source points in reach, not just the first
+                // line's: a distant second line must not manufacture a local intersection.
+                if (!Screened (query, Lerp (m.a, m.b, s)))
+                    continue;
                 Candidate c { SnapKind::Intersection, p, Dist (frame.To (p), cursor), l.ref, l.context, {},
                               "Intersection" };
                 for (const Line* g : { &l, &m })
@@ -490,10 +521,13 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
     else if (on && has (kSnapGrid) && query.grid > 0.0) {
         const double gu = std::round (cursor.x / query.grid) * query.grid;
         const double gv = std::round (cursor.y / query.grid) * query.grid;
-        result.snapped = true;
-        result.kind = SnapKind::Grid;
-        result.point = frame.origin + frame.u * gu + frame.v * gv;
-        result.hint = SnapKindName (SnapKind::Grid);
+        const Vec3 grid = frame.origin + frame.u * gu + frame.v * gv;
+        if (Screened (query, grid)) {
+            result.snapped = true;
+            result.kind = SnapKind::Grid;
+            result.point = grid;
+            result.hint = SnapKindName (SnapKind::Grid);
+        }
     }
     if (query.keepPlane)
         result.point = ProjectToPlane (query.plane, result.point);
@@ -501,8 +535,9 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
     // Terrain gives Z to a plan position; it never moves the position itself.
     const bool level = std::abs (frame.u.z) < 1.0e-9 && std::abs (frame.v.z) < 1.0e-9;
     double z = 0.0;
-    if (has (kSnapTerrain) && level && query.keepPlane && context.height &&
-        context.height (result.point.x, result.point.y, z) && std::isfinite (z)) {
+    if (has (kSnapTerrain) && level && query.keepPlane && context.height && Screened (query, result.point) &&
+        context.height (result.point.x, result.point.y, z) && std::isfinite (z) &&
+        Screened (query, { result.point.x, result.point.y, z })) {
         result.point.z = z;
         if (!result.snapped) {
             result.snapped = true;
@@ -526,15 +561,29 @@ bool SnapEdges (const Document& doc, const SnapContext& context, const SnapQuery
     std::vector<Seg> targets;
     Gather (doc, context, query, points, targets);
     constexpr double kParallel = 0.017; // about a degree
-    double best = tol;
+    const bool gated = query.screen.has_value ();
+    const P2 cursor = frame.To (query.cursor);
+    // The point of a plane edge nearest the pointer: the moving edge and the target are both
+    // judged by it, so a flush follows the grab the user holds, never the far side of the item.
+    const auto near = [&] (const Vec3& ea, const Vec3& eb) {
+        const double t = std::clamp (LineParameter (frame.To (ea), frame.To (eb), cursor), 0.0, 1.0);
+        return Lerp (ea, eb, t);
+    };
+    double bestGap = tol;
     bool found = false;
+    Vec3 bestMoveA, bestMoveB;
+    SnapResult bestResult;
     for (const auto& [ma, mb] : edges) {
+        if (gated && !Screened (query, near (ma, mb)))
+            continue;
         const P2 a = frame.To (ma), b = frame.To (mb);
         const double mx = b.x - a.x, my = b.y - a.y, ml = std::hypot (mx, my);
         if (ml < 1.0e-9)
             continue;
         const double nx = -my / ml, ny = mx / ml; // the moving edge's normal in the plane
         for (const auto& t : targets) {
+            if (gated && !Screened (query, near (t.a, t.b)))
+                continue;
             const P2 c = frame.To (t.a), d = frame.To (t.b);
             const double tx = d.x - c.x, ty = d.y - c.y, tl = std::hypot (tx, ty);
             if (tl < 1.0e-9 || std::abs (mx * ty - my * tx) / (ml * tl) > kParallel)
@@ -545,26 +594,40 @@ bool SnapEdges (const Document& doc, const SnapContext& context, const SnapQuery
             const double s0 = (c.x - a.x) * ux + (c.y - a.y) * uy, s1 = (d.x - a.x) * ux + (d.y - a.y) * uy;
             if (std::max (s0, s1) < -tol || std::min (s0, s1) > ml + tol)
                 continue; // side by side, not along each other
-            if (std::abs (gap) < best) {
-                best = std::abs (gap);
+            // The globally closest pair wins, not the first moving edge that happens to reach one;
+            // a strict comparison keeps the result deterministic for a fixed edge order.
+            if (std::abs (gap) < bestGap) {
+                bestGap = std::abs (gap);
                 found = true;
-                translate = translate + frame.u * (gap * nx) + frame.v * (gap * ny);
-                result = {};
-                result.snapped = true;
-                result.kind = SnapKind::Nearest;
-                result.source = t.ref;
-                result.contextSource = t.context;
-                result.guides = { { t.a, t.b, SnapKind::Nearest } };
-                result.hint = t.context.empty () ? "Edge to edge" : "Edge to edge \xC2\xB7 " + t.context;
-                result.onEdge = true;
-                result.edgeFrom = t.a;
-                result.edgeTo = t.b;
+                bestMoveA = ma, bestMoveB = mb;
+                bestResult = {};
+                bestResult.snapped = true;
+                bestResult.kind = SnapKind::Nearest;
+                bestResult.source = t.ref;
+                bestResult.contextSource = t.context;
+                bestResult.guides = { { t.a, t.b, SnapKind::Nearest } };
+                bestResult.hint = t.context.empty () ? "Edge to edge" : "Edge to edge \xC2\xB7 " + t.context;
+                bestResult.onEdge = true;
+                bestResult.edgeFrom = t.a;
+                bestResult.edgeTo = t.b;
             }
         }
-        if (found)
-            break; // one edge flush is the snap; the correction moved every edge alike
+        if (found && !gated)
+            break; // one edge flush is the snap; the old behaviour when no view screening is attached
     }
-    return found;
+    if (!found)
+        return false;
+    // One correction from the pair already chosen: an earlier candidate never moved the item.
+    {
+        const P2 a = frame.To (bestMoveA), b = frame.To (bestMoveB);
+        const double mx = b.x - a.x, my = b.y - a.y, ml = std::hypot (mx, my);
+        const double nx = -my / ml, ny = mx / ml;
+        const P2 c = frame.To (bestResult.edgeFrom);
+        const double gap = (c.x - a.x) * nx + (c.y - a.y) * ny;
+        translate = translate + frame.u * (gap * nx) + frame.v * (gap * ny);
+    }
+    result = std::move (bestResult);
+    return true;
 }
 
 } // namespace geomsrv::edit
