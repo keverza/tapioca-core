@@ -18,7 +18,8 @@ add_test (NAME TapiocaRustAbiSmoke COMMAND TapiocaRustAbiSmoke)
 # a panic/version-override export or linking a second production authority.
 add_executable (TapiocaRustWrapperFailure tests/abi_wrapper_failure.cpp
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustTerrain.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustIdentity.cpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustIdentity.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustValue.cpp")
 set_target_properties (TapiocaRustWrapperFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
 target_include_directories (TapiocaRustWrapperFailure PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn"
@@ -34,3 +35,10 @@ target_include_directories (TapiocaRustIdentitySmoke PRIVATE "${CMAKE_CURRENT_LI
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry")
 TapiocaLinkRustCore (TapiocaRustIdentitySmoke)
 add_test (NAME TapiocaRustIdentitySmoke COMMAND TapiocaRustIdentitySmoke)
+
+add_executable (TapiocaRustValueSmoke tests/value_smoke.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustValue.cpp")
+set_target_properties (TapiocaRustValueSmoke PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustValueSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
+TapiocaLinkRustCore (TapiocaRustValueSmoke)
+add_test (NAME TapiocaRustValueSmoke COMMAND TapiocaRustValueSmoke)

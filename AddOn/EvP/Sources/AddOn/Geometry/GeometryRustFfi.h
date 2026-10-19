@@ -67,6 +67,58 @@ typedef struct {
     TapiocaMeshArrayView meshes;
 } TapiocaSnapshotView;
 
+/* Complete detached value views. Legacy records above keep their limited
+ * geometry-only semantics and layout. Bounds/catalogs are opt-in here. */
+typedef struct {
+    double mn[3], mx[3];
+} TapiocaAabb;
+typedef struct {
+    TapiocaMeshView mesh;
+    TapiocaAabb bounds;
+} TapiocaMeshValueView;
+typedef struct {
+    const TapiocaMeshValueView* data;
+    size_t count;
+} TapiocaMeshValueArray;
+typedef struct {
+    int32_t index;
+    double transparency;
+} TapiocaMaterialTransparency;
+typedef struct {
+    int32_t index, externalReference;
+    TapiocaTextView name;
+} TapiocaMaterialIdentity;
+typedef struct {
+    int32_t index;
+    TapiocaTextView name, guid;
+} TapiocaSurfaceAttribute;
+typedef struct {
+    const TapiocaMaterialTransparency* data;
+    size_t count;
+} TapiocaTransparencyArray;
+typedef struct {
+    const TapiocaMaterialIdentity* data;
+    size_t count;
+} TapiocaMaterialIdentityArray;
+typedef struct {
+    const TapiocaSurfaceAttribute* data;
+    size_t count;
+} TapiocaSurfaceAttributeArray;
+typedef struct {
+    uint64_t id, captureStamp;
+    TapiocaTextView scope;
+    uint32_t completeModel;
+    TapiocaMeshValueArray meshes;
+    TapiocaTransparencyArray materialTransparency;
+    TapiocaMaterialIdentityArray materialIdentity;
+    TapiocaSurfaceAttributeArray surfaceAttributes;
+} TapiocaSnapshotValueView;
+typedef struct {
+    TapiocaSnapshotValueView snapshot;
+    uint64_t expectedCaptureStamp; /* Zero: detached/synthetic; nonzero: require matching capture. */
+    uint32_t requireCatalogs;      /* Require positive face pool/surface references; transparency stays optional. */
+} TapiocaSnapshotValueRequest;
+
 /* Authored identity is session-scoped uint64, never a triangle/index identity.
  * POD records contain only all-bit-valid fields; unknown enum values refuse.
  * Ranges index their documented flat pool with checked offset + count. */
@@ -227,6 +279,14 @@ TapiocaStatus tapioca_version (uint32_t* version, char* error, size_t errorCapac
  * use workers for unbounded/bulk inputs; synchronous use needs measured budgets. */
 TapiocaStatus tapioca_validate_mesh (const TapiocaMeshView* mesh, char* error, size_t errorCapacity);
 TapiocaStatus tapioca_validate_snapshot (const TapiocaSnapshotView* snapshot, char* error, size_t errorCapacity);
+
+/* Validate complete detached values without repair/geometry copies/retained borrows.
+ * Snapshot/catalog validation is not authored provenance or proof of current
+ * host state. C++ rechecks publication epochs; expectedCaptureStamp is separate
+ * from the editor document revision and never inferred from input metadata. */
+TapiocaStatus tapioca_validate_mesh_value (const TapiocaMeshValueView* mesh, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_validate_snapshot_value (const TapiocaSnapshotValueRequest* request, char* error,
+                                               size_t errorCapacity);
 
 /* Structural attribution gate: contexts/revisions, catalogs and acyclic DAG,
  * native bindings, range/reference validity and complete unique domain coverage.

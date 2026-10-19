@@ -2,12 +2,13 @@
 
 **Status:** S1 structural-attribution increment, 2026-10-19. `tapioca-core-ffi` exports
 `tapioca_version`, `tapioca_validate_mesh`, `tapioca_validate_snapshot`,
-`tapioca_validate_provenance` and `tapioca_validate_attributed_mesh` (additive ABI v1).
+`tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
+`tapioca_validate_mesh_value` and `tapioca_validate_snapshot_value` (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
-views and the validation round-trip are implemented; complete value-model/catalog
-validation remains an incomplete S1 gate. C++ engines remain the
+views, immutable validation round-trips and complete detached value/catalog
+validation are implemented. C++ engines remain the
 production geometry authorities; no algorithm or consumer flag is switched.
 
 ## Location and boundaries
@@ -141,13 +142,23 @@ allocates authored IDs, normalizes native bindings, repairs input or retains vie
 The geometry crate owns safe validation; the FFI crate alone owns foreign borrows.
 
 The gate validates schema/session/revision, session-wide catalog ID uniqueness,
-ordered acyclic operation parents, owner reachability, canonical uppercase native
+unique acyclic operation parents (preserving caller order), owner reachability, canonical uppercase native
 GUIDs, explicit metadata UUID presence, UTF-8 roles, and checked ranges/references.
 Support tables are explicit current or retained historical inputs. Every entity in
 each declared domain has exactly one mapping with source/history contributors;
 unknown discriminators, gaps, duplicates and invalid predecessors refuse.
 Patch rows require nonzero object-scoped tokens; member rows may carry an optional
 token with an owner. Semantic patch matching and allocator history remain C++ work.
+
+C++ IDs remain semantic aliases of the existing editor's u64 `Id`; Rust uses
+distinct transparent newtypes. Runtime catalog lookup rejects cross-domain IDs.
+The gate preserves parent-list order, not a separately inferred chronological
+ordering. Retained historical inputs may be at the current revision (including
+revision-zero baselines). Native GUID reuse is not a global uniqueness rule;
+semantic native ownership/reconciliation remains with the C++ session.
+The owned C++ provenance request requires objects by default; genuinely
+source-only primitives must explicitly opt out. Object-producing adapters must
+keep that requirement enabled, rather than treat generic validation as proof.
 
 `ValidateProvenance` accepts the primitive's declared counts/domains;
 `ValidateAttributedMesh` fixes vertex+face domains (mask 5) and checks counts
@@ -163,6 +174,40 @@ validation pipeline and its private checks together; `identity/tests.rs` keeps
 one shared borrowed fixture and its explicit mutation/refusal matrix together.
 The larger tests are verbose POD fixtures grouped by binding, support-context and
 mapping-kind contracts. Size/line advisories remain visible; no lint is suppressed.
+The value tests likewise retain one shared explicit borrowed snapshot fixture and
+its mutation/refusal matrix. A private native-GUID checker is shared by value and
+identity validation so their canonicalization policy cannot drift.
+
+## Complete detached values and catalogs
+
+`ValidateMeshValue` and `ValidateSnapshotValue` are additive gates; legacy mesh
+and snapshot calls retain their geometry-only contract. The complete view carries
+all `geomsrv::Mesh`/`Snapshot` fields without transferring their ownership. Bounds
+are not repaired: all axes must be finite and ordered and contain all vertices;
+empty meshes may retain the canonical all-`+inf`/all-`-inf` empty box or a finite
+ordered box. Wire masks use only three bits. Material/surface sidecars are
+nonnegative; zero remains unknown/no-material, never a guessed reference.
+
+All supplied catalog rows are checked, including unreferenced entries: positive
+unique keys, finite transparency fractions in [0,1], UTF-8 text and canonical
+uppercase non-nil surface GUIDs. Display names may be empty or nonunique and are
+preserved exactly. Catalog order and material/surface numbering need not match.
+Pool `externalReference` is opaque signed identity (including pen/zero values),
+not a face-surface mapping and never a required surface-catalog reference.
+
+By default, absent catalogs/references remain explicitly unknown; this supports
+detached/type-filtered subsets. `requireCatalogs` requires positive face material
+keys in `materialIdentity` and positive face surface keys in `surfaceAttributes`.
+Zero references are exempt. Transparency stays sparse even in this mode; missing
+does not mean opaque or glass. No catalog is reconstructed from another.
+
+Scope is `all` or `selection`; complete-model implies `all`, not the reverse.
+Detached values may have zero ID/stamp, including a complete direct capture.
+Nonzero `expectedCaptureStamp` compares the retained model-watch stamp only.
+It does not validate ID allocation, read host state, prove completeness or replace
+the host publication/freshness check. Editor revisions and D14 provenance remain
+separate. Consumer-specific source-face, winding/manifold and selection checks
+still apply; complete-value success does not certify a takeoff or terrain result.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
@@ -171,7 +216,7 @@ The standalone CMake entry needs no DevKit or Diligent:
 ```powershell
 cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
 cmake --build AddOn/EvP/rust/build --target TapiocaRustKernel --config RelWithDebInfo
-cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke --config RelWithDebInfo
+cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke --config RelWithDebInfo
 ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 ```
 
@@ -182,6 +227,8 @@ test stubs to prove version/status refusal and output preservation; never use
 those stubs in a production target. `TapiocaRustIdentitySmoke` links real Rust and
 the C++ converter, including revision zero, two GUIDs for one object and refusal
 immutability. Stub tests also cover inconsistent status/diagnostic combinations.
+`TapiocaRustValueSmoke` covers retained bounds, sparse catalogs, explicit unknowns
+and independent capture stamps through the real C++ converter and Rust validator.
 MSVC uses x64 and dynamic CRT `/MD` in **every**
 configuration, including Debug, matching Rust's `-crt-static`. Archives are under
 `<binary-dir>/rust/x86_64-pc-windows-msvc/release/` on Windows and

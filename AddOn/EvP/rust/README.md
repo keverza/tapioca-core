@@ -6,7 +6,9 @@ panic containment. The add-on and offline C++ suite link it by default through a
 thin `tapioca::geometry` services wrapper. Startup reads/logs ABI version 1; no
 geometry consumer is switched. Separate provenance/attributed-mesh exports validate
 schema-v1 structural identity, with an owned-C++ → POD → Rust validation round-trip.
-These legacy validators still do not certify D14 or material catalogs. Existing
+Complete detached value/catalog validators are separate opt-in exports, including
+retained bounds and capture-stamp assertions. Legacy validation still certifies
+neither D14 nor catalogs. Existing
 C++ geometry remains authoritative; no algorithm is migrated.
 
 ```text

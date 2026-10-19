@@ -73,6 +73,15 @@ int main (void)
         diagnostic != TAPIOCA_PROVENANCE_STALE || strstr (error, "ProvenanceStale:") != error)
         return 12;
 
+    if (sizeof (void*) == 8 && (sizeof (TapiocaAabb) != 48 || sizeof (TapiocaMeshValueView) != 200 ||
+                                sizeof (TapiocaSnapshotValueRequest) != 120))
+        return 13;
+    TapiocaSnapshotValueRequest valueRequest = { 0 };
+    valueRequest.snapshot.scope.data = "all";
+    valueRequest.snapshot.scope.count = 3;
+    if (tapioca_validate_snapshot_value (&valueRequest, error, sizeof (error)) != TAPIOCA_OK)
+        return 14;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

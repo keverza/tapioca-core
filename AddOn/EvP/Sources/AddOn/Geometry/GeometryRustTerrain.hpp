@@ -14,8 +14,9 @@ namespace tapioca::geometry {
 
 // Service facade over the Rust geometry ABI. Legacy geometry-only and structural
 // authored-attribution gates are separate; neither changes or copies geometry.
-// This does not certify geometric contributor truth or D14 algorithms, validate
-// material/surface catalogs, or implement terrain math. Catalogs stay C++ owned.
+// This does not certify geometric contributor truth or D14 algorithms, or
+// implement terrain math. Complete detached value/catalog validation is a
+// separate opt-in gate; all snapshots and catalogs stay C++ owned.
 //
 // Bulk or unbounded validation should run on a worker. Keep synchronous calls
 // to inputs whose measured budget is small enough for the calling thread.
@@ -36,6 +37,16 @@ bool ValidateMesh (const geomsrv::Mesh& mesh, std::string& error);
 // geometry is never copied. Material/surface catalogs are left untouched and
 // are not validated in this increment.
 bool ValidateSnapshot (const geomsrv::Snapshot& snapshot, std::string& error);
+
+struct SnapshotValueOptions {
+    uint64_t expectedCaptureStamp = 0; // Zero accepts detached/synthetic framing.
+    bool requireCatalogs = false;      // Unknown/missing catalogs otherwise stay unknown.
+};
+// Complete detached values, including bounds and catalogs; separate from D14.
+// A nonzero expected capture stamp requires matching retained stamp (not an ID). This
+// does not replace the host's publication-time freshness check. Worker by default.
+bool ValidateMeshValue (const geomsrv::Mesh& mesh, std::string& error);
+bool ValidateSnapshotValue (const geomsrv::Snapshot& snapshot, const SnapshotValueOptions& options, std::string& error);
 
 // Structural attribution validation, separate from the legacy geometry gate.
 // Inputs are immutable; diagnostic changes only when validation completes.

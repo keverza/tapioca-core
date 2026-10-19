@@ -35,6 +35,16 @@ extern "C" TapiocaStatus tapioca_validate_snapshot (const TapiocaSnapshotView*, 
     return TAPIOCA_ERR_INTERNAL;
 }
 
+extern "C" TapiocaStatus tapioca_validate_mesh_value (const TapiocaMeshValueView*, char*, size_t)
+{
+    return s_status;
+}
+
+extern "C" TapiocaStatus tapioca_validate_snapshot_value (const TapiocaSnapshotValueRequest*, char*, size_t)
+{
+    return s_status;
+}
+
 extern "C" TapiocaStatus tapioca_validate_provenance (const TapiocaProvenanceRequest*, uint32_t* diagnostic, char*,
                                                       size_t)
 {
@@ -98,6 +108,17 @@ int main ()
                     return 6;
             }
         }
+    }
+    const geomsrv::Snapshot snapshot;
+    for (TapiocaStatus status :
+         std::array<TapiocaStatus, 5> { TAPIOCA_OK, TAPIOCA_ERR_ARG, TAPIOCA_ERR_STATE, TAPIOCA_ERR_INTERNAL, 99 }) {
+        s_status = status;
+        const bool success = ValidateMeshValue (mesh, error);
+        if (success != (status == TAPIOCA_OK) || (success && !error.empty ()) || (!success && error.empty ()))
+            return 7;
+        if (ValidateSnapshotValue (snapshot, {}, error) != success || (success && !error.empty ()) ||
+            (!success && error.empty ()))
+            return 8;
     }
     std::cout << "Tapioca wrapper mismatch/status/output-preservation checks passed\n";
     return 0;

@@ -5,11 +5,9 @@
 //! copying or repairing them, and validates the geometry arrays that algorithms
 //! consume.
 //!
-//! Material and surface catalogs and whole-snapshot round-tripping remain outside
-//! this increment. Authored provenance has its own structural validation gate;
-//! legacy geometry-only validation does not imply attribution. Catalog fields
-//! are deliberately not modeled here, so a successful snapshot validation is not
-//! a claim that a complete `geomsrv::Snapshot` was validated.
+//! Complete detached values/catalogs and authored provenance have separate opt-in
+//! gates. Legacy geometry-only validation implies neither attribution nor complete
+//! snapshot validation. No gate reads host state or transfers snapshot ownership.
 //!
 //! This crate must not depend on the host, rendering, platform, or FFI layers.
 
@@ -17,3 +15,5 @@
 
 pub mod identity;
 pub mod mesh;
+mod native_guid;
+pub mod value;

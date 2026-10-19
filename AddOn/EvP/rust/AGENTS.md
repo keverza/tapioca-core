@@ -75,7 +75,8 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
 
 - `ffi/` is the only possible unsafe/ABI owner; `deny(unsafe_code)` is the default.
   Current exports are `tapioca_version`, legacy geometry-only mesh/snapshot
-  validators and separate structural provenance/attributed-mesh validators.
+  validators, complete detached mesh/snapshot value validators, and separate
+  structural provenance/attributed-mesh validators.
   Geometry algorithms still require their own implementation and tests.
   New namespaces/symbols use `tapioca` or
   `geometry`, never `EvP`/`evp` (existing directory names are not new namespaces).

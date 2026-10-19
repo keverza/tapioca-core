@@ -17,7 +17,6 @@ use super::catalog::{
 const SCHEMA_VERSION: u32 = 1;
 const DOMAIN_MASK_ALL: u32 = 0b1111;
 const DOMAINS: [u32; 4] = [DOMAIN_VERTEX, DOMAIN_EDGE, DOMAIN_FACE, DOMAIN_PATCH];
-const DASH_POSITIONS: [usize; 4] = [8, 13, 18, 23];
 
 /// Stable provenance validation failure categories.
 ///
@@ -229,7 +228,7 @@ fn validate_bindings(table: &TableView<'_>, catalogs: &Catalogs) -> Result<(), E
         if binding.logical_id == 0 || !logical_id_resolves(binding, catalogs) {
             return Err(Error::ProvenanceConflict);
         }
-        if !is_canonical_native_guid(&binding.native_guid) {
+        if !crate::native_guid::is_canonical(&binding.native_guid) {
             return Err(Error::ProvenanceConflict);
         }
         validate_metadata(binding)?;
@@ -662,24 +661,4 @@ const fn entity_count(counts: EntityCounts, domain: u32) -> Option<u64> {
 
 fn is_zero_bytes<const N: usize>(bytes: &[u8; N]) -> bool {
     bytes.iter().all(|&byte| byte == 0)
-}
-
-fn is_upper_hex(byte: u8) -> bool {
-    byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte)
-}
-
-fn is_canonical_native_guid(guid: &[u8; 36]) -> bool {
-    let mut has_nonzero = false;
-    for (index, &byte) in guid.iter().enumerate() {
-        if DASH_POSITIONS.contains(&index) {
-            if byte != b'-' {
-                return false;
-            }
-        } else if !is_upper_hex(byte) {
-            return false;
-        } else if byte != b'0' {
-            has_nonzero = true;
-        }
-    }
-    has_nonzero
 }

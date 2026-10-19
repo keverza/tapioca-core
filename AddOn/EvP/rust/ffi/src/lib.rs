@@ -41,3 +41,13 @@ pub use identity::{
     ProvenanceRequest, ProvenanceView, tapioca_validate_attributed_mesh,
     tapioca_validate_provenance,
 };
+
+#[allow(
+    unsafe_code,
+    reason = "Complete detached-value POD ingress uses shared checked call-scoped foreign borrows"
+)]
+mod value;
+pub use value::{
+    MaterialIdentity, MeshValueView, SnapshotValueRequest, SnapshotValueView, SurfaceAttribute,
+    tapioca_validate_mesh_value, tapioca_validate_snapshot_value,
+};
