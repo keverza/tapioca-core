@@ -3371,6 +3371,7 @@ TEST (HudVirtualEditor, ARestingProfileBindingOwnsTheInputBeforeItsFirstDigit)
     const ImVec2 at = Centre (*box);
     d.Press (at.x, at.y);
     ASSERT_TRUE (d.S ().profileTyping);
+    EXPECT_TRUE (eh::GizmoModeLocked (d.S ())) << "mode ownership starts before the first typed digit";
     ASSERT_EQ (d.S ().tracker.State (), ed::TrackerState::Showing); // resting: no digit yet
 
     // A mode key does not take the view while the field rests.
