@@ -136,13 +136,15 @@ The standalone CMake entry needs no DevKit or Diligent:
 ```powershell
 cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
 cmake --build AddOn/EvP/rust/build --target TapiocaRustKernel --config RelWithDebInfo
-cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke --config RelWithDebInfo
+cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure --config RelWithDebInfo
 ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 ```
 
 `TapiocaRustKernel` invokes the full gate. `TapiocaRustAbiSmoke` uses
 `TapiocaLinkRustCore` to build/link the aggregate release archive and verify both
-C and C++ header consumers. MSVC uses x64 and dynamic CRT `/MD` in **every**
+C and C++ header consumers. `TapiocaRustWrapperFailure` separately links only
+test stubs to prove version/status refusal and output preservation; never use
+those stubs in a production target. MSVC uses x64 and dynamic CRT `/MD` in **every**
 configuration, including Debug, matching Rust's `-crt-static`. Archives are under
 `<binary-dir>/rust/x86_64-pc-windows-msvc/release/` on Windows and
 `<binary-dir>/rust/release/` on native Linux. Cargo owns incremental invalidation;
