@@ -21,6 +21,8 @@ struct Settings {
     size_t maxArcSegments = 4096;
     size_t maxIntersectionPairs = 2000000;
     size_t maxFitPasses = 40;
+    size_t maxInputVertices = 65536;
+    size_t maxOutputVertices = 250000;
 };
 struct Request {
     double radius = 0;
@@ -59,8 +61,9 @@ Point Tangent (const Edge& edge, double t);
 // Atomic: invalid inputs, exhausted safety budgets or an unresolved topology
 // conflict return false without replacing `out`. Fitting only decreases radii.
 bool Build (const std::vector<InputRing>& input, const Settings& settings, Region& out, std::string& error);
-// Sampling is an output operation, not the construction history. Refuses rather
-// than violating chord error if its explicit segment budget is insufficient.
+// Sampling is an output operation, not the construction history. Refines below
+// chordError where needed to retain ring nesting/nonintersection. Refuses
+// atomically if precision/segment/vertex budgets cannot retain that topology.
 bool Tessellate (const Region& region, const Settings& settings, std::vector<std::vector<Point>>& out,
                  std::string& error);
 } // namespace geomsrv::fillet2d

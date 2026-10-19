@@ -738,3 +738,32 @@ TEST (EditPathNetwork, ThreeWayJunctionKeepsOneAnalyticBoundary)
     ASSERT_EQ (area.boundary.rings.size (), 1u);
     ExpectMeshFillsItsOutline (area);
 }
+
+TEST (EditPathNetwork, CentrelineBendsKeepTheirOffsetsAndAreNotBoundaryFilletedAgain)
+{
+    for (double radius : { 3., .5 }) {
+        ed::Document doc;
+        std::string error;
+        const auto id = ed::AddPath (doc, { { -10, 0, 0 }, { 0, 0, 0 }, { 0, 10, 0 } }, 2);
+        const auto bend = doc.paths[0].points[1].id;
+        ASSERT_TRUE (ed::SetPathRadius (doc, id, bend, radius, error));
+        ASSERT_TRUE (ed::SetPathEdgeRadius (doc, id, .5, error));
+        ed::AlignmentGeometry g;
+        ASSERT_TRUE (ed::BuildAlignment (doc.paths[0].points, g, error));
+        const auto arc = std::find_if (g.elements.begin (), g.elements.end (),
+                                       [] (const ed::AlignmentElement& e) { return e.kind == ed::ElementKind::Arc; });
+        ASSERT_NE (arc, g.elements.end ());
+        if (radius > 1) {
+            ed::StationFrame frame;
+            ASSERT_TRUE (ed::Evaluate (doc.paths[0], g, arc->start + arc->length * .5, frame));
+            EXPECT_NEAR (ed::DistanceXY (frame.leftEdge, arc->centre), radius - 1, 1e-9);
+            EXPECT_NEAR (ed::DistanceXY (frame.rightEdge, arc->centre), radius + 1, 1e-9);
+        }
+        const auto area = ed::Pave (doc.paths, .25);
+        ASSERT_TRUE (area.warning.empty ()) << area.warning;
+        for (const auto& corner : area.corners)
+            EXPECT_NE (corner.key.point, bend);
+        EXPECT_DOUBLE_EQ (doc.paths[0].points[1].radius, radius);
+        ExpectMeshFillsItsOutline (area);
+    }
+}

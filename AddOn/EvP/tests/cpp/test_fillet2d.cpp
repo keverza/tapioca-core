@@ -180,16 +180,17 @@ TEST (Fillet2D, ChordErrorIsControlledAndBudgetFailuresAreAtomic)
     ASSERT_TRUE (f::Tessellate (region, {}, sampled, error)) << error;
     for (const auto& edge : region.rings[0].edges)
         if (edge.kind == f::Kind::Arc) {
-            f::Region arcOnly;
-            arcOnly.rings.push_back ({ false, { edge }, {} });
-            std::vector<std::vector<f::Point>> arc;
-            ASSERT_TRUE (f::Tessellate (arcOnly, {}, arc, error));
-            arc[0].push_back (edge.to);
-            for (size_t i = 1; i < arc[0].size (); ++i) {
-                const auto a = arc[0][i - 1], b = arc[0][i];
+            size_t chords = 0;
+            for (size_t i = 0; i < sampled[0].size (); ++i) {
+                const auto a = sampled[0][i], b = sampled[0][(i + 1) % sampled[0].size ()];
+                if (std::abs (Distance (a, edge.centre) - edge.radius) > 1e-8 ||
+                    std::abs (Distance (b, edge.centre) - edge.radius) > 1e-8)
+                    continue;
+                ++chords;
                 const f::Point middle { (a.x + b.x) * .5, (a.y + b.y) * .5 };
                 EXPECT_LE (edge.radius - Distance (edge.centre, middle), f::Settings {}.chordError + 1e-12);
             }
+            EXPECT_GT (chords, 0u);
         }
     const auto saved = sampled;
     f::Settings limited;
@@ -200,6 +201,58 @@ TEST (Fillet2D, ChordErrorIsControlledAndBudgetFailuresAreAtomic)
     const f::InputRing bowtie { { { 0, 0 }, { 4, 4 }, { 0, 4 }, { 4, 0 } }, {} };
     EXPECT_FALSE (f::Build ({ bowtie }, {}, region, error));
     EXPECT_EQ (region.rings[0].edges.size (), oldEdges);
+}
+
+TEST (Fillet2D, SamplingRefinesToKeepATinyHoleInsideTheAnalyticBoundary)
+{
+    auto outside = Rectangle (0, 0, 10, 10);
+    outside.corners[0].radius = 2;
+    const double angle = kPi + kPi / 100;
+    const f::Point holeCentre { 2 + (2 - .0003) * std::cos (angle), 2 + (2 - .0003) * std::sin (angle) };
+    const auto hole = Rectangle (holeCentre.x - .00005, holeCentre.y - .00005, .0001, .0001);
+    f::Region region;
+    std::string error;
+    ASSERT_TRUE (f::Build ({ outside, hole }, {}, region, error)) << error;
+    EXPECT_DOUBLE_EQ (Corner (region.rings[0], 0).radius, 2);
+    std::vector<std::vector<f::Point>> sampled;
+    ASSERT_TRUE (f::Tessellate (region, {}, sampled, error)) << error;
+    EXPECT_GT (sampled[0].size (), 29u) << "the ordinary 1 mm chords would exclude this hole";
+    std::vector<f::InputRing> input;
+    for (const auto& points : sampled)
+        input.push_back ({ points, {} });
+    f::Region checked;
+    ASSERT_TRUE (f::Build (input, {}, checked, error)) << error;
+    EXPECT_TRUE (checked.rings[1].hole);
+    EXPECT_EQ (checked.rings[1].parent, 0u);
+    const auto saved = sampled;
+    f::Settings limited;
+    limited.maxArcSegments = 30;
+    EXPECT_FALSE (f::Tessellate (region, limited, sampled, error));
+    EXPECT_EQ (sampled, saved);
+}
+
+TEST (Fillet2D, VertexAndNestingBudgetsRefuseAtomicallyAndOpenChainsAreNotSampled)
+{
+    f::Region region;
+    std::string error;
+    ASSERT_TRUE (f::Build ({ Rectangle (0, 0, 10, 10, 2) }, {}, region, error));
+    const auto savedEdges = region.rings[0].edges.size ();
+    f::Settings inputLimit;
+    inputLimit.maxInputVertices = 3;
+    EXPECT_FALSE (f::Build ({ Rectangle (0, 0, 10, 10) }, inputLimit, region, error));
+    EXPECT_EQ (region.rings[0].edges.size (), savedEdges);
+    f::Settings nestingLimit;
+    nestingLimit.maxIntersectionPairs = 3;
+    EXPECT_FALSE (f::Build ({ Rectangle (0, 0, 10, 10), Rectangle (20, 0, 10, 10) }, nestingLimit, region, error));
+    std::vector<std::vector<f::Point>> points { { { 99, 99 } } };
+    const auto saved = points;
+    f::Settings outputLimit;
+    outputLimit.maxOutputVertices = 8;
+    EXPECT_FALSE (f::Tessellate (region, outputLimit, points, error));
+    EXPECT_EQ (points, saved);
+    region.rings[0].edges[0].to.x += 1;
+    EXPECT_FALSE (f::Tessellate (region, {}, points, error));
+    EXPECT_EQ (points, saved);
 }
 
 TEST (Fillet2D, SampledCurvesWithNoSemanticCornerRequestsAreNotRoundedAgain)

@@ -50,7 +50,7 @@ bool Valid (const Settings& s)
     return std::isfinite (s.lengthTolerance) && s.lengthTolerance > 0 && std::isfinite (s.angleTolerance) &&
            s.angleTolerance > 0 && std::isfinite (s.edgeClearance) && s.edgeClearance > s.lengthTolerance &&
            std::isfinite (s.chordError) && s.chordError > s.lengthTolerance && s.maxArcSegments > 0 &&
-           s.maxIntersectionPairs > 0 && s.maxFitPasses > 0;
+           s.maxIntersectionPairs > 0 && s.maxFitPasses > 0 && s.maxInputVertices >= 3 && s.maxOutputVertices >= 3;
 }
 bool OnArc (const Edge& e, Point p, const Settings& s, double* parameter = nullptr)
 {
@@ -285,12 +285,12 @@ Region Rebuild (const Candidates& rings)
     }
     return result;
 }
-double Area (const InputRing& ring)
+double Area (const std::vector<Point>& points)
 {
     double area = 0;
-    const Point origin = ring.points[0];
-    for (size_t i = 0; i < ring.points.size (); ++i)
-        area += Cross (ring.points[i] - origin, ring.points[(i + 1) % ring.points.size ()] - origin);
+    const Point origin = points[0];
+    for (size_t i = 0; i < points.size (); ++i)
+        area += Cross (points[i] - origin, points[(i + 1) % points.size ()] - origin);
     return area * .5;
 }
 } // namespace
@@ -320,6 +320,14 @@ bool Build (const std::vector<InputRing>& input, const Settings& s, Region& out,
 {
     if (!Valid (s))
         return Fail (error, "invalid fillet tolerance or safety budget");
+    if (!input.empty () && input.size () > s.maxIntersectionPairs / input.size ())
+        return Fail (error, "fillet ring nesting budget exceeded");
+    size_t inputVertices = 0;
+    for (const auto& ring : input) {
+        if (ring.points.size () > s.maxInputVertices - inputVertices)
+            return Fail (error, "fillet input vertex budget exceeded");
+        inputVertices += ring.points.size ();
+    }
     Candidates candidates;
     for (const auto& ring : input) {
         const size_t n = ring.points.size ();
@@ -354,7 +362,8 @@ bool Build (const std::vector<InputRing>& input, const Settings& s, Region& out,
             }
             made.push_back (c);
         }
-        if (!std::isfinite (Area (ring)) || std::abs (Area (ring)) <= s.lengthTolerance * s.lengthTolerance)
+        if (!std::isfinite (Area (ring.points)) ||
+            std::abs (Area (ring.points)) <= s.lengthTolerance * s.lengthTolerance)
             return Fail (error, "fillet ring has no area");
         candidates.push_back (std::move (made));
     }
@@ -380,7 +389,7 @@ bool Build (const std::vector<InputRing>& input, const Settings& s, Region& out,
             }
         const bool hole = depth % 2 != 0;
         holes.push_back (hole);
-        if ((Area (input[i]) > 0) == hole) {
+        if ((Area (input[i].points) > 0) == hole) {
             auto& ring = candidates[i];
             std::reverse (ring.begin (), ring.end ());
             for (auto& c : ring) {
@@ -487,25 +496,106 @@ bool Tessellate (const Region& region, const Settings& s, std::vector<std::vecto
 {
     if (!Valid (s))
         return Fail (error, "invalid fillet tessellation settings");
-    std::vector<std::vector<Point>> made;
+    if (!region.rings.empty () && region.rings.size () > s.maxIntersectionPairs / region.rings.size ())
+        return Fail (error, "fillet sampling nesting budget exceeded");
+    size_t edgeCount = 0;
     for (const auto& ring : region.rings) {
-        std::vector<Point> points;
-        for (const auto& edge : ring.edges) {
-            size_t pieces = 1;
-            if (edge.kind == Kind::Arc) {
-                const double step = 4 * std::asin (std::sqrt (std::min (1.0, s.chordError / (2 * edge.radius))));
-                const double count = std::ceil (std::abs (edge.sweep) / step);
-                if (!std::isfinite (count) || count > double (s.maxArcSegments))
-                    return Fail (error, "fillet chord-error segment budget exceeded");
-                pieces = std::max (size_t (1), size_t (count));
+        if (ring.edges.empty () || ring.edges.size () > s.maxOutputVertices - edgeCount)
+            return Fail (error, "invalid fillet chain or edge budget exceeded");
+        edgeCount += ring.edges.size ();
+        for (size_t i = 0; i < ring.edges.size (); ++i) {
+            const auto& e = ring.edges[i];
+            const auto& next = ring.edges[(i + 1) % ring.edges.size ()];
+            if (!std::isfinite (e.from.x) || !std::isfinite (e.from.y) || !std::isfinite (e.to.x) ||
+                !std::isfinite (e.to.y) || Length (e.to - next.from) > s.lengthTolerance)
+                return Fail (error, "open or non-finite analytic fillet chain");
+            if (e.kind == Kind::Line) {
+                const double length = Length (e.to - e.from);
+                if (!std::isfinite (length) || length <= s.lengthTolerance)
+                    return Fail (error, "degenerate analytic fillet line");
             }
-            for (size_t i = 0; i < pieces; ++i)
-                points.push_back (At (edge, double (i) / pieces));
+            else {
+                if (!std::isfinite (e.centre.x) || !std::isfinite (e.centre.y) || !std::isfinite (e.radius) ||
+                    e.radius <= s.lengthTolerance || !std::isfinite (e.startAngle) || !std::isfinite (e.sweep) ||
+                    std::abs (e.sweep) <= s.angleTolerance || std::abs (e.sweep) > 2 * kPi + s.angleTolerance)
+                    return Fail (error, "invalid analytic fillet arc");
+                const auto circle = [&] (double angle) {
+                    return e.centre + Point { std::cos (angle), std::sin (angle) } * e.radius;
+                };
+                if (Length (circle (e.startAngle) - e.from) > s.lengthTolerance ||
+                    Length (circle (e.startAngle + e.sweep) - e.to) > s.lengthTolerance)
+                    return Fail (error, "fillet arc endpoints do not match its circle");
+            }
         }
-        made.push_back (std::move (points));
     }
-    out = std::move (made);
-    error.clear ();
-    return true;
+    Collision collision;
+    bool budget = false;
+    if (FindCollision (region, s, collision, budget) || budget)
+        return Fail (error,
+                     budget ? "fillet sampling intersection budget exceeded" : "invalid analytic fillet topology");
+    std::vector<std::vector<bool>> nesting (region.rings.size (), std::vector<bool> (region.rings.size (), false));
+    for (size_t i = 0; i < region.rings.size (); ++i)
+        for (size_t j = 0; j < region.rings.size (); ++j)
+            if (i != j)
+                nesting[i][j] = Contains (region.rings[j], region.rings[i].edges[0].from, s);
+    double chordError = s.chordError;
+    for (size_t pass = 0; pass < s.maxFitPasses && chordError > s.lengthTolerance; ++pass, chordError *= .5) {
+        std::vector<std::vector<Point>> made;
+        Region polygon;
+        size_t vertices = 0;
+        bool valid = true;
+        for (const auto& ring : region.rings) {
+            std::vector<Point> points;
+            for (const auto& edge : ring.edges) {
+                size_t pieces = 1;
+                if (edge.kind == Kind::Arc) {
+                    const double step = 4 * std::asin (std::sqrt (std::min (1.0, chordError / (2 * edge.radius))));
+                    const double count = std::ceil (std::abs (edge.sweep) / step);
+                    if (!std::isfinite (count) || count > double (s.maxArcSegments))
+                        return Fail (error, "fillet chord-error segment budget exceeded");
+                    pieces = std::max (size_t (1), size_t (count));
+                }
+                if (pieces > s.maxOutputVertices - vertices)
+                    return Fail (error, "fillet output vertex budget exceeded");
+                vertices += pieces;
+                for (size_t i = 0; i < pieces; ++i)
+                    points.push_back (At (edge, double (i) / pieces));
+            }
+            Ring sampled;
+            sampled.hole = ring.hole;
+            if (points.size () < 3)
+                valid = false;
+            else {
+                const double area = Area (points);
+                if (!std::isfinite (area) || std::abs (area) <= s.lengthTolerance * s.lengthTolerance ||
+                    (area > 0) == ring.hole)
+                    valid = false;
+            }
+            for (size_t i = 0; points.size () >= 3 && i < points.size (); ++i) {
+                Edge line;
+                line.from = points[i];
+                line.to = points[(i + 1) % points.size ()];
+                if (Length (line.to - line.from) <= s.lengthTolerance)
+                    return Fail (error, "fillet sampling exceeds geometric precision");
+                sampled.edges.push_back (line);
+            }
+            polygon.rings.push_back (std::move (sampled));
+            made.push_back (std::move (points));
+        }
+        if (valid && FindCollision (polygon, s, collision, budget))
+            valid = false;
+        if (budget)
+            return Fail (error, "fillet sampling intersection budget exceeded");
+        for (size_t i = 0; valid && i < polygon.rings.size (); ++i)
+            for (size_t j = 0; valid && j < polygon.rings.size (); ++j)
+                if (i != j && Contains (polygon.rings[j], polygon.rings[i].edges[0].from, s) != nesting[i][j])
+                    valid = false;
+        if (valid) {
+            out = std::move (made);
+            error.clear ();
+            return true;
+        }
+    }
+    return Fail (error, "topology-preserving fillet sampling exceeded its precision or refinement budget");
 }
 } // namespace geomsrv::fillet2d
