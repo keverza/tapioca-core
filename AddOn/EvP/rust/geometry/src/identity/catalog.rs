@@ -131,7 +131,7 @@ pub struct OperationRecord {
     /// Nonzero authored operation identifier.
     pub id: OperationId,
     /// Range of indices into [`TableView::operation_ids`]. The referenced list
-    /// may be in any order but must contain each predecessor once.
+    /// preserves the caller's DAG parent order and must contain each predecessor once.
     pub parents: Range,
 }
 
@@ -211,7 +211,7 @@ pub struct SupportTable {
     pub context: Context,
     /// Entity counts used to bound predecessor locators.
     pub counts: EntityCounts,
-    /// Historical flag: `0` current revision, `1` older revision.
+    /// Historical flag: `0` current revision, `1` retained revision at or before current.
     pub historical: u32,
 }
 

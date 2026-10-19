@@ -110,6 +110,10 @@ void ExpectMeshUnchanged (const Mesh& before, const Mesh& after)
     EXPECT_EQ (before.triSourceBody, after.triSourceBody);
     EXPECT_EQ (before.triSourcePgon, after.triSourcePgon);
     EXPECT_EQ (before.triSurfaceAttribute, after.triSurfaceAttribute);
+    for (size_t axis = 0; axis < 3; ++axis) {
+        EXPECT_EQ (before.bounds.mn[axis], after.bounds.mn[axis]);
+        EXPECT_EQ (before.bounds.mx[axis], after.bounds.mx[axis]);
+    }
 }
 
 void ExpectRequestUnchanged (const ProvenanceRequest& before, const ProvenanceRequest& after)
@@ -399,14 +403,39 @@ TEST (GeometryRustIdentity, ChangedExpectedCountsAreRejected)
 TEST (GeometryRustIdentity, AttributedMeshRequiresVertexAndFaceDomainsOnly)
 {
     Mesh mesh = BuildMesh ();
-    ProvenanceRequest request = MakeValidRequest ();
-    request.domains = 0b1111U;
+    std::string error;
+    for (uint32_t domains : { 0U, 0x10U, 0b1111U }) {
+        auto request = MakeValidRequest ();
+        request.domains = domains;
+        auto diagnostic = ProvenanceDiagnostic::None;
+        EXPECT_FALSE (ValidateAttributedMesh (mesh, request, diagnostic, error));
+        EXPECT_EQ (ProvenanceDiagnostic::ProvenanceConflict, diagnostic);
+    }
+    for (bool edge : { false, true }) {
+        auto request = MakeValidRequest ();
+        if (edge)
+            request.counts.edges = 1;
+        else
+            request.counts.patches = 1;
+        auto diagnostic = ProvenanceDiagnostic::None;
+        EXPECT_FALSE (ValidateAttributedMesh (mesh, request, diagnostic, error));
+        EXPECT_EQ (ProvenanceDiagnostic::ProvenanceConflict, diagnostic);
+    }
+}
 
-    ProvenanceDiagnostic diagnostic = ProvenanceDiagnostic::ProvenanceConflict;
+TEST (GeometryRustIdentity, ObjectOmissionRequiresExplicitSourceOnlyOptOut)
+{
+    EXPECT_TRUE (ProvenanceRequest {}.requireObject);
+    const auto mesh = BuildMesh ();
+    auto request = MakeValidRequest ();
+    for (auto& mapping : request.table.mappings)
+        mapping.object = 0;
+    auto diagnostic = ProvenanceDiagnostic::None;
     std::string error;
     EXPECT_FALSE (ValidateAttributedMesh (mesh, request, diagnostic, error));
     EXPECT_EQ (ProvenanceDiagnostic::ProvenanceUnattributable, diagnostic);
-    EXPECT_EQ (0U, error.rfind ("ProvenanceUnattributable", 0)) << error;
+    request.requireObject = false; // Explicit source-only geometry is supported, not object output.
+    EXPECT_TRUE (ValidateAttributedMesh (mesh, request, diagnostic, error)) << error;
 }
 
 TEST (GeometryRustIdentity, HistoricalSupportAndExactPredecessorAreAccepted)

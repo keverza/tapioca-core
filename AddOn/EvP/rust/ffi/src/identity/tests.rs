@@ -290,3 +290,28 @@ fn diagnostic_cannot_alias_mesh_coordinate_storage() {
     assert_eq!(status, 1);
     assert_eq!(values, [0; 3]);
 }
+
+#[test]
+fn attributed_mesh_domain_contract_conflicts_are_not_coverage_gaps() {
+    let mesh = mesh();
+    for (domains, edges, patches) in [(0, 0, 0), (0x10, 0, 0), (15, 0, 0), (5, 1, 0), (5, 0, 1)] {
+        let mut input = request();
+        input.domains = domains;
+        input.counts.edges = edges;
+        input.counts.patches = patches;
+        let mut output = 99;
+        let mut error = [0; 256];
+        // SAFETY: initialized empty descriptors and disjoint writable local outputs.
+        let status = unsafe {
+            tapioca_validate_attributed_mesh(
+                &raw const mesh,
+                &raw const input,
+                &raw mut output,
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        assert_eq!((status, output), (2, 2));
+        assert!(error.starts_with(b"ProvenanceConflict:"));
+    }
+}

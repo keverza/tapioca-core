@@ -210,12 +210,9 @@ pub unsafe extern "C" fn tapioca_validate_attributed_mesh(
                 .map_err(|_| Failure::Argument("MeshArrayLength: vertex count exceeds u64"))?;
             let faces = u64::try_from(mesh.triangles.len() / 3)
                 .map_err(|_| Failure::Argument("MeshArrayLength: face count exceeds u64"))?;
-            if request.domains != 5
-                || request.counts.edges != 0
-                || request.counts.patches != 0
-                || request.counts.vertices != vertices
-                || request.counts.faces != faces
-            {
+            if request.domains != 5 || request.counts.edges != 0 || request.counts.patches != 0 {
+                Ok(Err(id::Error::ProvenanceConflict))
+            } else if request.counts.vertices != vertices || request.counts.faces != faces {
                 Ok(Err(id::Error::ProvenanceUnattributable))
             } else {
                 Ok(id::validate_provenance(&request))

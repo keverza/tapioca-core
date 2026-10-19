@@ -115,7 +115,9 @@ bool SameMesh (const Mesh& left, const Mesh& right)
            left.normals == right.normals && left.triangles == right.triangles &&
            left.triMaterial == right.triMaterial && left.triWireEdges == right.triWireEdges &&
            left.triSourceBody == right.triSourceBody && left.triSourcePgon == right.triSourcePgon &&
-           left.triSurfaceAttribute == right.triSurfaceAttribute;
+           left.triSurfaceAttribute == right.triSurfaceAttribute &&
+           std::equal (std::begin (left.bounds.mn), std::end (left.bounds.mn), std::begin (right.bounds.mn)) &&
+           std::equal (std::begin (left.bounds.mx), std::end (left.bounds.mx), std::begin (right.bounds.mx));
 }
 
 int Fail (const char* message)

@@ -107,7 +107,7 @@ struct ProvenanceRequest {
     uint64_t expectedRevision = 0;
     EntityCounts counts;
     uint32_t domains = kMeshProvenanceDomains;
-    bool requireObject = false;
+    bool requireObject = true; // Fail closed; source-only primitives must explicitly opt out.
     ProvenanceTable table;
     bool operator== (const ProvenanceRequest&) const = default;
 };
