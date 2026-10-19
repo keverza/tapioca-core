@@ -12,11 +12,10 @@ struct Snapshot;
 
 namespace tapioca::geometry {
 
-// Service facade over the Rust geometry ABI. This is the S1 geometry-only
-// legacy ingress gate: it validates the shared geomsrv arrays without changing
-// or copying them. Attributed views and authored identity are the next gate;
-// this header does not claim D14 identity validation, does not validate material
-// or surface catalogs, and contains no terrain math. Catalogs stay C++ owned.
+// Service facade over the Rust geometry ABI. Legacy geometry-only and structural
+// authored-attribution gates are separate; neither changes or copies geometry.
+// This does not certify geometric contributor truth or D14 algorithms, validate
+// material/surface catalogs, or implement terrain math. Catalogs stay C++ owned.
 //
 // Bulk or unbounded validation should run on a worker. Keep synchronous calls
 // to inputs whose measured budget is small enough for the calling thread.
