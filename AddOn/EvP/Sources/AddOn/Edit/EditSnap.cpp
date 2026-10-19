@@ -302,7 +302,9 @@ SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuer
 
     std::vector<Pt> points;
     std::vector<Seg> segments;
-    if (on)
+    constexpr uint32_t sceneModes = kSnapEndpoint | kSnapMidpoint | kSnapIntersection | kSnapCentre |
+                                    kSnapPerpendicular | kSnapNearest | kSnapExtension;
+    if (on && (query.modes & sceneModes) != 0)
         Gather (doc, context, query, points, segments);
 
     std::optional<Candidate> best;

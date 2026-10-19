@@ -78,10 +78,14 @@ bool GizmoShown (const Session& s)
 bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::optional<Vec3> anchor,
               const std::vector<edit::Ref>& exclude, float scale, Vec3& out)
 {
-    // A drawing tool snaps to its own unfinished points too, so a line closes on its start.
-    edit::SnapContext context = s.context;
-    for (const auto& p : s.drawing)
-        context.points.push_back ({ p, "this line" });
+    // Only drawing needs an augmented context for its unfinished points. Ordinary drags borrow
+    // the immutable host snapshot instead of copying all its points, edges and source strings.
+    edit::SnapContext context;
+    if (!s.drawing.empty ()) {
+        context = s.context;
+        for (const auto& p : s.drawing)
+            context.points.push_back ({ p, "this line" });
+    }
     Vec3 cursor;
     const auto plane = s.tool == Tool::Select ? edit::WorldXY (z) : s.capturedPlane.value_or (s.plane);
     double pixelScale = 0;
@@ -98,7 +102,7 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     q.exclude = exclude;
     PrepareSnap (s, q);
     ScreenPointer (s, m, mouse, scale, q);
-    s.snap = edit::Snap (Doc (s), context, q);
+    s.snap = edit::Snap (Doc (s), s.drawing.empty () ? s.context : context, q);
     Acquire (s, s.snap);
     out = s.snap.point;
     return true;
