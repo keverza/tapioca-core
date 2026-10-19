@@ -309,6 +309,21 @@ bool SplitPath (Document& doc, Id id, double station, std::string& error, Id* cr
     const Id newId = b.id;
     result.paths.push_back (std::move (b));
     const auto junctions = FindJunctions (doc.paths);
+    // Other paths' grade links follow the same half as their junction, keeping
+    // the existing grade identity/fixed binding instead of recreating it later.
+    for (const auto& j : junctions) {
+        const Id ja = doc.paths[j.a].id, jb = doc.paths[j.b].id;
+        if (ja != id && jb != id)
+            continue;
+        const double own = ja == id ? j.stationA : j.stationB;
+        const double other = ja == id ? j.stationB : j.stationA;
+        if (own <= station + kJoin)
+            continue;
+        auto* branch = FindPath (result, ja == id ? jb : ja);
+        for (auto& grade : branch->profile)
+            if (grade.crossing == id && std::abs (grade.station - other) <= 1e-3)
+                grade.crossing = newId;
+    }
     for (auto& path : result.paths)
         if (path.id != id && path.id != newId)
             path.kerbs.erase (std::remove_if (path.kerbs.begin (), path.kerbs.end (),

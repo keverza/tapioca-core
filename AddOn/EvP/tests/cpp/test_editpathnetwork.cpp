@@ -103,6 +103,28 @@ TEST (EditPathTopology, SplitTransfersJunctionAndSeamKerbsWithoutARelease)
     }
 }
 
+TEST (EditPathTopology, SplitRemapsExternalFixedGradeLinksToTheCorrectHalf)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 2 } }, 2);
+    const auto other = ed::AddPath (doc, { { 15, -5, 0 }, { 15, 5, 0 } }, 2);
+    ed::LinkCrossings (doc, doc);
+    auto* branch = ed::FindPath (doc, other);
+    ASSERT_EQ (branch->profile.size (), 3u);
+    branch->profile[1].fixed = true;
+    branch->profile[1].binding = "threshold";
+    const auto before = branch->profile[1];
+    ed::Id made = 0;
+    std::string error;
+    ASSERT_TRUE (ed::SplitPath (doc, id, 10, error, &made)) << error;
+    auto expected = before;
+    expected.crossing = made;
+    EXPECT_EQ (ed::FindPath (doc, other)->profile[1], expected);
+    const auto baseline = doc;
+    ed::LinkCrossings (doc, baseline);
+    EXPECT_EQ (ed::FindPath (doc, other)->profile[1], expected);
+}
+
 TEST (EditPathTopology, NewlyMeetingEndsJoinAtEndWithOneUndoAndCancelDoesNotJoin)
 {
     ed::Document doc;
