@@ -62,6 +62,25 @@ TEST (EditProfileView, PickBreaksBeforeTangents)
     EXPECT_EQ (tangent[0].index, 1u);
 }
 
+TEST (EditProfileView, SteepPositiveAndNegativeProfilesFitWithLinearCompression)
+{
+    for (double height : { 1000000., -1000000. }) {
+        ed::Document doc;
+        ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, height } }, 2);
+        const auto view = ed::FitProfile (doc.paths[0], 0, 0, 420, 150, 25);
+        EXPECT_LT (view.exaggeration, 1);
+        for (double t : { 0., .25, .5, 1. }) {
+            double x = 0, y = 0, station = 0, z = 0;
+            ed::ProfileToScreen (view, 10 * t, height * t, x, y);
+            EXPECT_GE (y, 25 - 1e-8);
+            EXPECT_LE (y, 125 + 1e-8);
+            ed::ProfileFromScreen (view, x, y, station, z);
+            EXPECT_NEAR (station, 10 * t, 1e-8);
+            EXPECT_NEAR (z, height * t, 1e-8);
+        }
+    }
+}
+
 TEST (EditProfileView, DraggedBreakSnapsToRoundGrades)
 {
     Ramp r;

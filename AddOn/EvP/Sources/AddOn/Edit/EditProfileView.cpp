@@ -46,9 +46,9 @@ ProfileView FitProfile (const Path& path, double left, double top, double width,
     v.stationMin = 0.0;
     v.stationMax = std::max (end, 1.0e-3);
     const double sx = HorizontalScale (v);
-    // Heights fill the canvas, but never stretched more than asked nor squashed.
+    // Independent linear vertical scaling must also compress steep profiles.
     const double range = std::max (hi - lo, 1.0e-3);
-    v.exaggeration = std::clamp (v.height / range / sx, 1.0, std::max (1.0, maxExaggeration));
+    v.exaggeration = std::min (v.height / range / sx, std::max (1.0, maxExaggeration));
     const double visible = v.height / (sx * v.exaggeration);
     const double mid = (lo + hi) * 0.5;
     v.zMin = mid - visible * 0.5;

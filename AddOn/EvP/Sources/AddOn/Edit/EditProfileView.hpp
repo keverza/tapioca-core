@@ -18,7 +18,8 @@ struct ProfileView {
     double exaggeration = 1.0; // vertical pixels per metre over horizontal pixels per metre
 };
 // Fits the whole profile (and the terrain heights, when given) inside the canvas with
-// a margin, exaggerating heights up to `maxExaggeration` so the elevations fill it.
+// a margin, scaling heights independently (including compression for steep profiles)
+// up to `maxExaggeration` so the elevations fit. The vertical axis remains linear.
 ProfileView FitProfile (const Path& path, double left, double top, double width, double height, double margin,
                         const std::vector<std::pair<double, double>>& terrain = {}, double maxExaggeration = 20.0);
 void ProfileToScreen (const ProfileView& view, double station, double z, double& x, double& y);

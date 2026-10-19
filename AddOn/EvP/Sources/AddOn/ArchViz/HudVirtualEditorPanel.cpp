@@ -288,7 +288,26 @@ void Panel (Session& s)
         std::vector<editlayers::Box> taken;
         const auto set = [&] (const editlayers::Box& box, const std::string& text, ImU32 ink,
                               const edit::Dimension& target) {
-            Inked (list, box, text, ink);
+            if (s.profileTyping && target.ref == s.profileTarget.ref && target.quantity == s.profileTarget.quantity) {
+                const bool editing = s.tracker.State () == edit::TrackerState::Editing;
+                double value = 0;
+                edit::ReadDimension (doc, target, value);
+                char number[64];
+                std::snprintf (number, sizeof number, "%.2f", value);
+                const std::string entry = editing ? s.tracker.Text () : number;
+                const float w = ImGui::CalcTextSize (entry.c_str ()).x + 14.0f, h = lineHeight + 6.0f;
+                const float x = std::clamp ((box.x0 + box.x1 - w) * 0.5f, min.x, std::max (min.x, min.x + width - w));
+                const float y = std::clamp (box.y0, min.y, min.y + height - h);
+                list->AddRectFilled ({ x, y }, { x + w, y + h }, IM_COL32 (255, 248, 220, 255), 2);
+                list->AddRect ({ x, y }, { x + w, y + h }, kAccent, 2, 0, 1.5f);
+                if (!editing)
+                    list->AddRectFilled ({ x + 3, y + 2 }, { x + w - 4, y + h - 2 }, IM_COL32 (62, 99, 221, 45));
+                list->AddText ({ x + 4, y + 3 }, ink, entry.c_str ());
+                if (std::fmod (ImGui::GetTime (), 1.0) < 0.6)
+                    list->AddLine ({ x + w - 5, y + 3 }, { x + w - 5, y + h - 3 }, ink);
+            }
+            else
+                Inked (list, box, text, ink);
             s.profilePlaced.push_back ({ box, target });
         };
         // The grid: about five round heights, thin and written in the gutter; round stations
@@ -354,6 +373,7 @@ void Panel (Session& s)
                  { { path->id, edit::Part::Break, b.id }, edit::Quantity::Elevation });
         }
         list->PopClipRect ();
+        ImGui::TextDisabled ("Vertical scale x%.3g (linear)", view.exaggeration);
         // A click on a label binds it: the exact dimension, at this revision, for the existing
         // Tracker to type over. The pointer must really be on the canvas -- the item's own ImGui
         // hover, which an open popup, a covering window or the page's scroll clip all withdraw,
