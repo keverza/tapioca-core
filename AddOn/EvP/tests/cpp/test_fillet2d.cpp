@@ -140,6 +140,21 @@ TEST (Fillet2D, IslandsAndRepeatedRecomputationKeepTheirTopologyAndAuthoredInten
     EXPECT_DOUBLE_EQ (input[0].corners[0].radius, 2);
 }
 
+TEST (Fillet2D, NestedHolesAndIslandsKeepTheirImmediateParents)
+{
+    const std::vector<f::InputRing> input { Rectangle (0, 0, 20, 20, .5), Rectangle (2, 2, 16, 16, .5),
+                                            Rectangle (4, 4, 12, 12, .5), Rectangle (6, 6, 8, 8, .5) };
+    f::Region out;
+    std::string error;
+    ASSERT_TRUE (f::Build (input, {}, out, error)) << error;
+    ASSERT_EQ (out.rings.size (), 4u);
+    EXPECT_EQ (out.rings[0].parent, std::numeric_limits<size_t>::max ());
+    for (size_t i = 1; i < 4; ++i) {
+        EXPECT_EQ (out.rings[i].parent, i - 1);
+        EXPECT_EQ (out.rings[i].hole, i % 2 != 0);
+    }
+}
+
 TEST (Fillet2D, ChordErrorIsControlledAndBudgetFailuresAreAtomic)
 {
     f::Region region;

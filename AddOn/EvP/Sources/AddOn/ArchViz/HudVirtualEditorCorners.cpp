@@ -292,7 +292,10 @@ const edit::PavedArea& PavedSurface (Session& s)
 {
     const double step = SurfaceStep (s);
     if (s.pavedRevision != Doc (s).revision || s.pavedStep != step) {
+        const std::string previousWarning = s.paved.warning;
         s.paved = edit::Pave (Doc (s).paths, step);
+        if (s.message.empty () || s.message == previousWarning)
+            s.message = s.paved.warning;
         s.pavedRevision = Doc (s).revision;
         s.pavedStep = step;
     }

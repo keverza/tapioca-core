@@ -47,6 +47,7 @@ struct Ring {
     bool hole = false;
     std::vector<Edge> edges; // outer CCW, holes CW, material always on the left
     std::vector<Corner> corners;
+    size_t parent = std::numeric_limits<size_t>::max (); // immediate containing ring, not just hole parity
 };
 struct Region {
     std::vector<Ring> rings; // same ring identities/order as the input

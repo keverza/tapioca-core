@@ -502,8 +502,8 @@ TEST (EditPathNetwork, AFilletIsItsArcAloneAndKeepsToItsLegs)
 {
     // A (along X) crossed at 30 degrees by B, with C parallel to A 4 m above it. The sharp
     // corner between A's top edge and B is rounded by its own arc only -- not by filling the
-    // whole gap a 2.5 m disk cannot reach between A and C -- and that arc keeps to its half
-    // of the leg up B to the next corner (B meeting C), so the radius asked is clamped.
+    // whole gap a 2.5 m disk cannot reach between A and C. The next corner is sharp, so
+    // this fillet may use that leg's whole shared budget, not an arbitrary half.
     ed::Document doc;
     const double c30 = std::cos (0.5235987755982988), s30 = std::sin (0.5235987755982988);
     const ed::Id a = ed::AddPath (doc, { { -10, 0, 0 }, { 40, 0, 0 } }, 2.0);
@@ -524,16 +524,17 @@ TEST (EditPathNetwork, AFilletIsItsArcAloneAndKeepsToItsLegs)
     std::string error;
     ASSERT_TRUE (ed::SetKerbRadius (doc, acute->path, acute->key, 2.5, error)) << error;
     const ed::PavedArea round = ed::Pave (doc.paths, 0.5, false);
+    ASSERT_TRUE (round.warning.empty ()) << round.warning;
     const ed::PavedCorner* now = nullptr;
     for (const auto& c : round.corners)
         if (c.path == acute->path && c.key.Same (acute->key))
             now = &c;
     ASSERT_NE (now, nullptr);
-    // The leg up B to C is 4 / sin 30 = 8 m: half of it, at this angle, takes about 1.05 m.
+    // The leg up B to C is 4 / sin 30 = 8 m; its sharp neighbour consumes none.
     EXPECT_LT (now->key.radius, 2.5);
     EXPECT_DOUBLE_EQ (now->requestedRadius, 2.5);
     EXPECT_TRUE (now->Limited ());
-    EXPECT_NEAR (now->key.radius, 0.49 * 8.0 * std::tan (now->half), 0.05);
+    EXPECT_NEAR (now->key.radius, (8.0 - geomsrv::fillet2d::Settings {}.edgeClearance) * std::tan (now->half), 0.005);
     // The paved area grows by that fillet and nothing else.
     const double r = now->key.radius, h = now->half;
     const double fillet = r * r / std::tan (h) - 0.5 * r * r * (3.14159265358979 - 2.0 * h);
@@ -558,7 +559,7 @@ TEST (EditPathNetwork, ARequestedKerbRadiusRecoversWhenIntersectingPathsMove)
             corner = c;
     ASSERT_NE (corner.path, ed::kNoId);
     std::string error;
-    ASSERT_TRUE (ed::SetKerbRadius (doc, corner.path, corner.key, 1.5, error)) << error;
+    ASSERT_TRUE (ed::SetKerbRadius (doc, corner.path, corner.key, 2.5, error)) << error;
     for (const double shift : { 12.0, -12.0 }) {
         const auto points = ed::FindPath (doc, across)->points;
         for (const auto& point : points)
@@ -567,12 +568,12 @@ TEST (EditPathNetwork, ARequestedKerbRadiusRecoversWhenIntersectingPathsMove)
         for (const auto& c : ed::Pave (doc.paths, 0.5, false).corners)
             if (c.path == corner.path && c.key.Same (corner.key)) {
                 found = true;
-                EXPECT_DOUBLE_EQ (c.requestedRadius, 1.5);
-                EXPECT_DOUBLE_EQ (c.key.radius, std::min (1.5, c.maxRadius));
+                EXPECT_DOUBLE_EQ (c.requestedRadius, 2.5);
+                EXPECT_DOUBLE_EQ (c.key.radius, std::min (2.5, c.maxRadius));
                 EXPECT_EQ (c.Limited (), shift < 0);
             }
         ASSERT_TRUE (found);
-        EXPECT_DOUBLE_EQ (ed::FindPath (doc, corner.path)->kerbs[0].radius, 1.5);
+        EXPECT_DOUBLE_EQ (ed::FindPath (doc, corner.path)->kerbs[0].radius, 2.5);
     }
 }
 
@@ -682,6 +683,8 @@ TEST (EditPathNetwork, ObliqueUnitedFilletsHaveNoNeedleTearsOrDetachedSlivers)
             ASSERT_TRUE (ed::SetPathEdgeRadius (doc, a, radius, error));
             ASSERT_TRUE (ed::SetPathEdgeRadius (doc, b, radius, error));
             const auto area = ed::Pave (doc.paths, .5, false);
+            ASSERT_TRUE (area.warning.empty ()) << area.warning;
+            ASSERT_FALSE (area.boundary.rings.empty ());
             ASSERT_EQ (area.rings.size (), 1u);
             const auto& ring = area.rings[0];
             ASSERT_GT (ring.size (), 8u);
@@ -692,4 +695,46 @@ TEST (EditPathNetwork, ObliqueUnitedFilletsHaveNoNeedleTearsOrDetachedSlivers)
                 EXPECT_GT (ed::Dot (before, after), -.94) << "near-reversal spike at " << i;
             }
         }
+}
+
+TEST (EditPathNetwork, AnalyticFilletsRetainHolesIslandsAndRequestedRadiusOnRecomputation)
+{
+    ed::Document doc;
+    const ed::Vec3 corners[] = { { 0, 0, 0 }, { 20, 0, 0 }, { 20, 20, 0 }, { 0, 20, 0 } };
+    std::string error;
+    for (size_t i = 0; i < 4; ++i) {
+        const auto id = ed::AddPath (doc, { corners[i], corners[(i + 1) % 4] }, 2);
+        ASSERT_TRUE (ed::SetPathEdgeRadius (doc, id, 1, error));
+    }
+    const auto island = ed::AddPath (doc, { { 40, 0, 0 }, { 50, 0, 0 } }, 2);
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, island, .5, error));
+    const auto first = ed::Pave (doc.paths, .5, false), second = ed::Pave (doc.paths, .5, false);
+    ASSERT_TRUE (first.warning.empty ()) << first.warning;
+    EXPECT_EQ (first.rings, second.rings);
+    ASSERT_EQ (first.boundary.rings.size (), 3u);
+    size_t holes = 0, arcs = 0;
+    for (const auto& ring : first.boundary.rings) {
+        holes += ring.hole;
+        for (const auto& edge : ring.edges)
+            arcs += edge.kind == geomsrv::fillet2d::Kind::Arc;
+    }
+    EXPECT_EQ (holes, 1u);
+    EXPECT_GT (arcs, 0u);
+    for (const auto& p : doc.paths)
+        EXPECT_DOUBLE_EQ (p.edgeRadius, p.id == island ? .5 : 1);
+}
+
+TEST (EditPathNetwork, ThreeWayJunctionKeepsOneAnalyticBoundary)
+{
+    ed::Document doc;
+    std::string error;
+    for (double angle : { 0., 2.1, 4.2 }) {
+        const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 15 * std::cos (angle), 15 * std::sin (angle), 0 } }, 2);
+        ASSERT_TRUE (ed::SetPathEdgeRadius (doc, id, .7, error));
+    }
+    const auto area = ed::Pave (doc.paths, .5, true);
+    ASSERT_TRUE (area.warning.empty ()) << area.warning;
+    ASSERT_EQ (area.rings.size (), 1u);
+    ASSERT_EQ (area.boundary.rings.size (), 1u);
+    ExpectMeshFillsItsOutline (area);
 }

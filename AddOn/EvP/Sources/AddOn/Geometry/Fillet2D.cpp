@@ -335,7 +335,8 @@ bool Build (const std::vector<InputRing>& input, const Settings& s, Region& out,
             c.in = c.point - ring.points[(i + n - 1) % n];
             c.out = ring.points[(i + 1) % n] - c.point;
             const double before = Length (c.in), after = Length (c.out);
-            if (before <= s.edgeClearance || after <= s.edgeClearance)
+            if (!std::isfinite (before) || !std::isfinite (after) || before <= s.lengthTolerance ||
+                after <= s.lengthTolerance)
                 return Fail (error, "fillet ring has a degenerate edge");
             c.in = c.in * (1 / before);
             c.out = c.out * (1 / after);
@@ -353,7 +354,7 @@ bool Build (const std::vector<InputRing>& input, const Settings& s, Region& out,
             }
             made.push_back (c);
         }
-        if (std::abs (Area (ring)) <= s.lengthTolerance * s.lengthTolerance)
+        if (!std::isfinite (Area (ring)) || std::abs (Area (ring)) <= s.lengthTolerance * s.lengthTolerance)
             return Fail (error, "fillet ring has no area");
         candidates.push_back (std::move (made));
     }
@@ -396,7 +397,7 @@ bool Build (const std::vector<InputRing>& input, const Settings& s, Region& out,
         std::vector<double> scale (ring.size (), 1);
         for (size_t i = 0; i < ring.size (); ++i) {
             const size_t j = (i + 1) % ring.size ();
-            const double available = Length (ring[j].point - ring[i].point) - s.edgeClearance;
+            const double available = std::max (0.0, Length (ring[j].point - ring[i].point) - s.edgeClearance);
             const double used = ring[i].radius * ring[i].factor + ring[j].radius * ring[j].factor;
             if (used > available)
                 scale[i] = std::min (scale[i], available / used), scale[j] = std::min (scale[j], available / used);
@@ -448,6 +449,15 @@ bool Build (const std::vector<InputRing>& input, const Settings& s, Region& out,
         }
         for (size_t r = 0; r < candidates.size (); ++r) {
             result.rings[r].hole = holes[r];
+            size_t parentDepth = 0;
+            for (size_t other = 0; other < nesting.size (); ++other)
+                if (nesting[r][other]) {
+                    const size_t depth = size_t (std::count (nesting[other].begin (), nesting[other].end (), true)) + 1;
+                    if (depth > parentDepth) {
+                        result.rings[r].parent = other;
+                        parentDepth = depth;
+                    }
+                }
             const auto& ring = candidates[r];
             for (size_t i = 0; i < ring.size (); ++i) {
                 const size_t prev = (i + ring.size () - 1) % ring.size (), next = (i + 1) % ring.size ();

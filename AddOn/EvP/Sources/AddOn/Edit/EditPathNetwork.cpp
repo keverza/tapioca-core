@@ -14,8 +14,13 @@ namespace {
 
 namespace cp = Clipper2Lib;
 
-constexpr int kPrecision = 3;          // millimetres
-constexpr double kArcTolerance = 0.01; // metres a rounding may stray from the true arc
+constexpr int kPrecision = 5; // Boolean/mesh grid is finer than the 1 mm arc chord target.
+const double kLattice = std::ldexp (1.0, std::ilogb (std::pow (10.0, kPrecision)) + 1);
+const fillet2d::Settings kFilletSettings = [] {
+    fillet2d::Settings settings;
+    settings.lengthTolerance = 2 / kLattice;
+    return settings;
+}();
 constexpr double kOn = 0.003;          // a corner this close to a path's edge is on it
 constexpr double kMinTurn = 0.14;      // radians (8 degrees): less is a straight run
 constexpr double kMaxReentrant = 50.0; // metres: a re-entrant corner's largest radius
@@ -187,21 +192,6 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
             const Vec3 in { -prevs[i].x, -prevs[i].y, 0.0 };
             turning[i] = std::abs (std::atan2 (in.x * nexts[i].y - in.y * nexts[i].x, Dot (in, nexts[i]))) >= kMinTurn;
         }
-        // How far along the outline each leg runs to the next corner: a corner's rounding keeps
-        // to its own half of each leg, so it never reaches into a neighbour's.
-        std::vector<double> run (n + 1, 0.0);
-        for (size_t k = 0; k < n; ++k)
-            run[k + 1] = run[k] + std::hypot (ring[(k + 1) % n].x - ring[k].x, ring[(k + 1) % n].y - ring[k].y);
-        const auto leg = [&] (size_t i, int dir) {
-            for (size_t k = 1; k < n; ++k) {
-                const size_t j = dir > 0 ? (i + k) % n : (i + n - k) % n;
-                if (turning[j]) {
-                    const double d = dir > 0 ? run[j] - run[i] : run[i] - run[j];
-                    return d > 0.0 ? d : d + run[n];
-                }
-            }
-            return run[n] * 0.5;
-        };
         for (size_t i = 0; i < n; ++i) {
             if (!turning[i])
                 continue;
@@ -255,12 +245,9 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
                 c.key.side = side;
                 c.key.radius = RadiusOf (*s.path, c.key, s.path->edgeRadius);
             }
-            // The largest radius whose tangent points stay within its half of each leg; an
-            // outside corner's also cuts no deeper than most of the half width it sits in.
-            const double adjacent = std::min (std::hypot (ring[(i + n - 1) % n].x - v.x, ring[(i + n - 1) % n].y - v.y),
-                                              std::hypot (ring[(i + 1) % n].x - v.x, ring[(i + 1) % n].y - v.y));
-            const double legs = 0.49 * std::min ({ leg (i, -1), leg (i, 1), adjacent }) * std::tan (c.half);
-            c.maxRadius = std::min (legs, c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant);
+            // Width is a hardscape policy; shared-edge/nonlocal fitting belongs
+            // to Fillet2D, not independent half-edge clamps at each corner.
+            c.maxRadius = c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant;
             c.requestedRadius = c.key.radius;
             c.key.radius = std::min (c.key.radius, c.maxRadius);
             c.at = { v.x, v.y, HeightAt (sources, v) };
@@ -270,64 +257,59 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
     return out;
 }
 
-Vec3 Turned (Vec3 d, double angle)
+bool Round (const cp::PathsD& sharp, PavedArea& out, cp::PathsD& rounded)
 {
-    const double c = std::cos (angle), s = std::sin (angle);
-    return { d.x * c - d.y * s, d.x * s + d.y * c, 0.0 };
-}
-
-// Ordered from the incoming edge's tangent to the outgoing edge's tangent.
-// No independent patch edges are introduced along the united boundary.
-cp::PathD FilletArc (const PavedCorner& c, Vec3 previous)
-{
-    const double r = c.key.radius, t = r / std::tan (c.half);
-    Vec3 da = Turned (c.bisector, c.half), db = Turned (c.bisector, -c.half);
-    if (Dot (da, previous - c.at) < Dot (db, previous - c.at))
-        std::swap (da, db);
-    const Vec3 a = c.at + da * t, b = c.at + db * t;
-    const Vec3 centre = c.at + c.bisector * (r / std::sin (c.half));
-    const double from = std::atan2 (a.y - centre.y, a.x - centre.x);
-    const double sweep = std::remainder (std::atan2 (b.y - centre.y, b.x - centre.x) - from, 2.0 * kPi);
-    const double step = 2.0 * std::acos (std::clamp (1.0 - kArcTolerance / r, -1.0, 1.0));
-    const int pieces = std::clamp (int (std::ceil (std::abs (sweep) / std::max (step, 1.0e-3))), 2, 256);
-    cp::PathD piece;
-    for (int k = 0; k <= pieces; ++k) {
-        const double angle = from + sweep * k / pieces;
-        if (k == 0)
-            piece.push_back ({ a.x, a.y });
-        else if (k == pieces)
-            piece.push_back ({ b.x, b.y });
-        else
-            piece.push_back ({ centre.x + r * std::cos (angle), centre.y + r * std::sin (angle) });
-    }
-    return piece;
-}
-
-// Round only after footprint union. Replacing each ring corner with its arc
-// avoids the narrow gaps/islands produced by separately rounded Boolean patches.
-cp::PathsD Round (const cp::PathsD& sharp, const std::vector<PavedCorner>& corners)
-{
-    cp::PathsD rounded;
-    bool changed = false;
+    std::vector<fillet2d::InputRing> input;
     for (const auto& ring : sharp) {
-        cp::PathD out;
-        for (size_t i = 0; i < ring.size (); ++i) {
-            const auto found = std::find_if (corners.begin (), corners.end (), [&] (const PavedCorner& c) {
-                return c.at.x == ring[i].x && c.at.y == ring[i].y && c.key.radius > 1e-4 && c.half > 1e-3 &&
-                       c.half < kPi * .5 - 1e-3;
-            });
-            if (found == corners.end ()) {
-                out.push_back (ring[i]);
-                continue;
-            }
-            const auto& prev = ring[(i + ring.size () - 1) % ring.size ()];
-            const auto arc = FilletArc (*found, { prev.x, prev.y, 0 });
-            out.insert (out.end (), arc.begin (), arc.end ());
-            changed = true;
+        fillet2d::InputRing made;
+        for (const auto& p : ring) {
+            made.points.push_back ({ p.x, p.y });
+            const auto found = std::find_if (out.corners.begin (), out.corners.end (),
+                                             [&] (const PavedCorner& c) { return c.at.x == p.x && c.at.y == p.y; });
+            made.corners.push_back (found == out.corners.end ()
+                                        ? fillet2d::Request {}
+                                        : fillet2d::Request { found->requestedRadius, found->maxRadius });
         }
-        rounded.push_back (std::move (out));
+        input.push_back (std::move (made));
     }
-    return changed ? cp::Union (rounded, cp::FillRule::NonZero, kPrecision) : sharp;
+    if (!fillet2d::Build (input, kFilletSettings, out.boundary, out.warning))
+        return false;
+    std::vector<std::vector<fillet2d::Point>> sampled;
+    if (!fillet2d::Tessellate (out.boundary, kFilletSettings, sampled, out.warning))
+        return false;
+    std::vector<fillet2d::InputRing> quantized;
+    for (const auto& ring : sampled) {
+        cp::PathD made;
+        fillet2d::InputRing check;
+        for (const auto& p : ring) {
+            const fillet2d::Point q { std::round (p.x * kLattice) / kLattice, std::round (p.y * kLattice) / kLattice };
+            if (!check.points.empty () && check.points.back () == q)
+                continue;
+            check.points.push_back (q);
+            made.push_back ({ q.x, q.y });
+        }
+        quantized.push_back (std::move (check));
+        rounded.push_back (std::move (made));
+    }
+    fillet2d::Region check;
+    if (!fillet2d::Build (quantized, kFilletSettings, check, out.warning))
+        return false;
+    for (size_t r = 0; r < check.rings.size (); ++r) {
+        if (check.rings[r].hole != out.boundary.rings[r].hole ||
+            check.rings[r].parent != out.boundary.rings[r].parent) {
+            out.warning = "sampled fillet changed region nesting";
+            return false;
+        }
+        for (const auto& c : out.boundary.rings[r].corners) {
+            const auto p = input[r].points[c.source];
+            for (auto& corner : out.corners)
+                if (corner.at.x == p.x && corner.at.y == p.y) {
+                    corner.key.radius = c.radius;
+                    corner.maxRadius = c.maxRadius;
+                }
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -440,11 +422,17 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
     // One area: crossings and touching ends made junctions; then every corner its own rounding.
     united = cp::Union (united, cp::FillRule::NonZero, kPrecision);
     // Remove collinear sampling noise before choosing tangent directions/extents.
-    united = cp::SimplifyPaths (united, 0.001, true);
+    united = cp::SimplifyPaths (united, kFilletSettings.chordError * .1, true);
     out.corners = FindCorners (united, sources);
-    united = Round (united, out.corners);
-    // Straight runs keep their ends only: the samples along them say nothing (1 mm).
-    united = cp::SimplifyPaths (united, 0.001, true);
+    cp::PathsD rounded;
+    if (Round (united, out, rounded))
+        united = std::move (rounded);
+    else {
+        out.warning = "Kerb fillets refused: " + out.warning;
+        out.boundary = {};
+        for (auto& corner : out.corners)
+            corner.key.radius = corner.maxRadius = 0;
+    }
     const auto lift = [&] (const cp::PointD& q) {
         const Vec3 p { q.x, q.y, 0.0 };
         return Vec3 { q.x, q.y, HeightAt (sources, p) };
@@ -474,7 +462,7 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
         // overload rounds that boundary a second time, moving slanted edges;
         // refinement then exposes triangles outside the original footprint.
         // Triangulate the existing lattice without changing its plan vertices.
-        const double lattice = std::ldexp (1.0, std::ilogb (std::pow (10.0, kPrecision)) + 1);
+        const double lattice = kLattice;
         cp::Paths64 grid;
         for (const auto& ring : region) {
             cp::Path64 path;

@@ -11,6 +11,7 @@
 // evaluate that mesh rather than separate strips. Plan metres; nothing reads the model.
 #include "Edit/EditPath.hpp"
 #include "Edit/EditTypes.hpp"
+#include "Geometry/Fillet2D.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -41,6 +42,8 @@ struct PavedCorner {
 };
 
 struct PavedArea {
+    fillet2d::Region boundary; // analytic line/arc construction, before mesh sampling
+    std::string warning;       // a refused rounding keeps the sharp region, never silent retopology
     // Outlines counter-clockwise, holes clockwise, in plan with heights from the paths.
     std::vector<std::vector<Vec3>> rings;
     // The surface: triangles over `vertices`, counter-clockwise from above.
