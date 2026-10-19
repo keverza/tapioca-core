@@ -1,14 +1,16 @@
 # Rust kernel foundation
 
-The aggregate `tapioca-core-ffi` staticlib exports only `tapioca_version`, with
-status/error handling and panic-containment tests. A standalone C/C++ smoke test
-links the archive; neither the add-on nor the full offline C++ suite uses it yet.
-Geometry validators, attributed views and production linking are the remaining
-S1 work. Existing C++ geometry remains authoritative; no algorithm is migrated.
+The aggregate `tapioca-core-ffi` staticlib exports `tapioca_version` and shared
+legacy geometry-only mesh/snapshot validators, with status/error handling and
+panic containment. The add-on and offline C++ suite link it by default through a
+thin `tapioca::geometry` services wrapper. Startup reads/logs ABI version 1; no
+geometry consumer is switched. Attributed views and the identity round-trip remain
+S1 work: these legacy validators do not certify D14 or material catalogs. Existing
+C++ geometry remains authoritative; no algorithm is migrated.
 
 ```text
 rust/
-  geometry/   safe library; no dependencies or host/platform APIs
+  geometry/   safe borrowed mesh views/validation; no dependencies or host APIs
   ffi/        aggregate staticlib + rlib; depends only on geometry; C ABI envelope
   tests/      standalone C/C++ header and archive-link smoke test
 ```
@@ -33,3 +35,7 @@ setup without `-InstallRustup` on machines already using Rust.
 `--build` is the CMake archive path (structure/secrets + pinned offline release
 build), not a substitute for the full gate. See [coding rules](AGENTS.md) and
 the [build/contracts guide](../../../docs/guides/rust-kernel.md).
+
+`TAPIOCA_LINK_RUST_GEOMETRY=OFF` is the explicit CMake legacy/no-Cargo rollback
+path; it excludes the Rust wrapper/parity tests and the startup handshake. It is
+not a successful attributed-validator path and cannot enable terrain consumers.

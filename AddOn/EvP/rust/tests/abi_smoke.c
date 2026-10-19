@@ -25,6 +25,35 @@ int main (void)
     if (TapiocaCppHeaderCheck () != 0)
         return 5;
 
+    if (sizeof (void*) == 8 &&
+        (sizeof (TapiocaMeshView) != 152 || sizeof (TapiocaSnapshotView) != 56 ||
+         offsetof (TapiocaMeshView, vertices) != 24 || offsetof (TapiocaSnapshotView, meshes) != 40))
+        return 6;
+
+    double vertices[] = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    uint32_t triangles[] = { 0, 1, 2 };
+    TapiocaMeshView mesh = { 0 };
+    mesh.guid.data = "synthetic";
+    mesh.guid.count = 9;
+    mesh.vertices.data = vertices;
+    mesh.vertices.count = 9;
+    mesh.triangles.data = triangles;
+    mesh.triangles.count = 3;
+    if (tapioca_validate_mesh (&mesh, error, sizeof (error)) != TAPIOCA_OK)
+        return 7;
+    triangles[2] = 3;
+    if (tapioca_validate_mesh (&mesh, error, sizeof (error)) != TAPIOCA_ERR_ARG ||
+        strstr (error, "MeshIndexOutOfBounds:") != error)
+        return 8;
+    triangles[2] = 2;
+    TapiocaMeshView meshes[] = { mesh, mesh };
+    TapiocaSnapshotView snapshot = { 0 };
+    snapshot.meshes.data = meshes;
+    snapshot.meshes.count = 2;
+    if (tapioca_validate_snapshot (&snapshot, error, sizeof (error)) != TAPIOCA_ERR_STATE ||
+        strstr (error, "SnapshotDuplicateGuid:") != error)
+        return 9;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

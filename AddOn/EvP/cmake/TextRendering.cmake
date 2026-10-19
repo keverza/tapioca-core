@@ -88,12 +88,9 @@ add_subdirectory ("${MSDF_ATLAS_DIR}" "${CMAKE_BINARY_DIR}/TextRendering/msdf-at
 #
 # ⚠️ AN UNPINNED CONSUMER IS A LINK FAILURE WAITING FOR A REBUILD. EvP.apx uses
 # /MD even in Debug and sets TAPIOCA_TEXT_FORCE_HOST_RUNTIME for it. The offline
-# C++ suite does not, and leaving the else branch empty meant these four
-# libraries took whatever MSDFGEN_DYNAMIC_RUNTIME chose - plain /MD - inside a
-# /MDd test executable. Nothing failed until something touched the configure
-# step, and then the whole suite stopped linking with fifty-two LNK2038s that
-# named none of the code that changed. So the second consumer states its
-# contract as explicitly as the first: the CMake default, matching the config.
+# C++ suite now opts into the same policy to link the aggregate release Rust
+# archive. Other consumers may still request the config-dependent CRT below;
+# every library and its consumer must agree, including after reconfiguration.
 if (MSVC)
     if (TAPIOCA_TEXT_FORCE_HOST_RUNTIME)
         set (tapioca_text_runtime "MultiThreadedDLL")

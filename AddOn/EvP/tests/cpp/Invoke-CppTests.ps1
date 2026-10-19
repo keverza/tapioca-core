@@ -6,6 +6,7 @@
 # Needs no Archicad, no DevKit, no Python — that is the point of L2.
 param (
     [switch] $Sanitize,
+    [switch] $NoRust,
     [string] $Config = "Debug",
     [string] $Filter = ""
 )
@@ -17,8 +18,9 @@ $ctest = Join-Path (Split-Path $cmake) "ctest.exe"
 
 $buildDir = if ($Sanitize) { "$root\build-asan" } else { "$root\build" }
 $sanFlag  = if ($Sanitize) { "-DEVP_SANITIZE=ON" } else { "-DEVP_SANITIZE=OFF" }
+$rustFlag = if ($NoRust) { "-DTAPIOCA_LINK_RUST_GEOMETRY=OFF" } else { "-DTAPIOCA_LINK_RUST_GEOMETRY=ON" }
 
-& $cmake -S $root -B $buildDir $sanFlag
+& $cmake -S $root -B $buildDir $sanFlag $rustFlag
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
 & $cmake --build $buildDir --config $Config
 if ($LASTEXITCODE -ne 0) { throw "Build failed." }

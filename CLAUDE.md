@@ -27,7 +27,7 @@ Read the component README before changing build or runtime boundaries.
 - Canonical probe: `AddOn/EvP/Diagnostics/Probes/PlanAnchorProbe/`
 - Offline tests: `AddOn/EvP/tests/` and `AddOn/EvP/tests/cpp/`
 - Build and quality tools: `tools/build/` and `tools/quality/`
-- Rust kernel foundation (production-unlinked): `AddOn/EvP/rust/`; read its `AGENTS.md`
+- Rust kernel legacy validation foundation: `AddOn/EvP/rust/`; read its `AGENTS.md`
   and `docs/guides/rust-kernel.md`. Validate with `python tools/quality/check_rust.py`.
 
 ## Validation

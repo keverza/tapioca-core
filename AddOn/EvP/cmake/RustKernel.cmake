@@ -30,8 +30,8 @@ function (TapiocaAddRustKernel)
 endfunction ()
 
 # Link the same release archive in every C++ configuration, using dynamic CRT
-# on MSVC (/MD). This helper is first exercised by the host-free ABI smoke test;
-# production/test-suite consumers arrive with the attributed S1 validators.
+# on MSVC (/MD). Existing add-on link calls use CMake's plain signature; pass
+# PLAIN there rather than mixing plain and keyword signatures on one target.
 function (TapiocaLinkRustCore target)
     if (NOT TARGET TapiocaCoreFfi)
         find_package (Python3 3.11 REQUIRED COMPONENTS Interpreter)
@@ -84,5 +84,9 @@ function (TapiocaLinkRustCore target)
             endif ()
         endif ()
     endif ()
-    target_link_libraries (${target} PRIVATE TapiocaCoreFfi)
+    if (ARGC GREATER 1 AND ARGV1 STREQUAL "PLAIN")
+        target_link_libraries (${target} TapiocaCoreFfi)
+    else ()
+        target_link_libraries (${target} PRIVATE TapiocaCoreFfi)
+    endif ()
 endfunction ()

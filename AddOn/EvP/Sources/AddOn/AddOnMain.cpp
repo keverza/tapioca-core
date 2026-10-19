@@ -60,6 +60,10 @@
 #include "Python/PathUtils.hpp"     // EvpDataDir / AppendTextLine — ACAPI-free, safe this early
 #include "Diagnostics/ApiError.hpp" // DescribeErr — never print a bare GSErrCode
 
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "Geometry/GeometryRustTerrain.hpp"
+#endif
+
 // The floor-plan overlay: its hook and device go before the unload, and the plan
 // geometry domain hands it the content reader at Initialize.
 #include "ArchViz/PlanOverlayRuntime.hpp"
@@ -464,6 +468,18 @@ GSErrCode RegisterInterface (void)
 GSErrCode Initialize (void)
 {
     RecordStartupHeader ("Initialize");
+
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    // Pure constant-time ABI handshake, before any host callbacks or workers arm.
+    // Geometry consumers remain C++; this proves the linked archive can be called.
+    uint32_t geometryAbiVersion = 0;
+    std::string geometryAbiError;
+    if (!tapioca::geometry::ReadRustAbiVersion (geometryAbiVersion, geometryAbiError)) {
+        RecordStartupEvent (("Rust geometry ABI refused: " + geometryAbiError).c_str ());
+        return APIERR_GENERAL;
+    }
+    RecordStartupEvent (("Rust geometry ABI v" + std::to_string (geometryAbiVersion)).c_str ());
+#endif
 
     // The node-graph runtime reaches Archicad through exactly this one object.
     // Installed before anything can evaluate; detached in FreeData, which is what

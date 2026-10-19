@@ -7,7 +7,8 @@
 # STANDALONE ON PURPOSE. This is its own CMake project, NOT a target inside the
 # add-on's CMakeLists, because:
 #   * the add-on's CMakeLists hard-fails without the Archicad DevKit, and the
-#     whole point of L2 is that it needs no DevKit, no Archicad, no Python;
+#     whole point of L2 is that it needs no DevKit or Archicad. The default Rust
+#     bridge requires Python and the pinned Rust toolchain (OFF is explicit);
 #   * that makes this buildable on Linux/WSL and in hosted CI, where the .apx
 #     cannot be built at all (docs/guides/testing.md Â§8.7).
 #
@@ -24,7 +25,13 @@
 # so making the text stack optional turned it off and quickjs lost its linker
 # language. The suite states its own languages instead of inheriting them from
 # a third-party subdirectory it may or may not include.
+# Match the aggregate release Rust archive in all configurations, including
+# every vendored C/C++ test library. Debug keeps its compiler debug/stack-check
+# flags, but uses the same release CRT/STL ABI as the add-on.
+set (CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 project (EvPGeomTests C CXX)
+
+option (TAPIOCA_LINK_RUST_GEOMETRY "Link/test the Rust geometry validation bridge (OFF needs no Cargo)" ON)
 
 set (CMAKE_CXX_STANDARD 20)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -39,6 +46,7 @@ set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP")
 set (QUICKJS_DIR "${REF_DIR}/quickjs-ng")
 # Scene text is shipped production code, so its pinned dependencies and tests
 # belong to the default offline gate rather than an optional coverage tier.
+set (TAPIOCA_TEXT_FORCE_HOST_RUNTIME ON)
 include ("${EVP_ROOT}/cmake/TextRendering.cmake")
 # No msgpack include on purpose: the serializer hand-rolls its writer, and
 # test_serializer.cpp hand-rolls an INDEPENDENT reader from the msgpack spec.
@@ -1111,6 +1119,12 @@ target_include_directories (EvPGeomTests PRIVATE
 target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_INC}")
 target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs TapiocaImGui
                                            ${TAPIOCA_TEXT_LIBS})
+if (TAPIOCA_LINK_RUST_GEOMETRY)
+    include ("${EVP_ROOT}/cmake/RustKernel.cmake")
+    target_sources (EvPGeomTests PRIVATE "${GEOM_DIR}/GeometryRustTerrain.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp")
+    TapiocaLinkRustCore (EvPGeomTests)
+endif ()
 # The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):
 # the compiler and its reflection, no GPU. The guest's depth pull is RUN, on WARP --
 # the software device every Windows has, no hardware GPU (test_guestdepthpull.cpp).

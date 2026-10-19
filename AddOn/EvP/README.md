@@ -4,10 +4,11 @@ This directory contains the Tapioca Archicad add-on component. `Sources/AddOn`
 is the native add-on, `Sources/EvPPy` is the CPython bridge, and
 `Sources/PyPackage` is the Python package staged beside the add-on at build time.
 
-`rust/` is an optional geometry-kernel foundation with a version-only C ABI and
-a standalone archive-link smoke test; no algorithm or production integration is
-implemented. See `rust/README.md` before Rust work; ordinary add-on builds do not
-yet need the Rust toolchain.
+`rust/` provides the linked version/legacy geometry-validation foundation; no
+geometry algorithm is migrated and attributed identity remains a separate gate.
+Default add-on/offline-test builds require the pinned Rust toolchain. See
+`rust/README.md`; `TAPIOCA_LINK_RUST_GEOMETRY=OFF` explicitly builds the legacy
+no-Rust rollback path instead, not a Rust-validator acceptance run.
 
 The repository root owns the build and quality entry points. Provision the
 ignored reference tree before configuring the AC29 project:

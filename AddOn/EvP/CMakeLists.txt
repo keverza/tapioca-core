@@ -14,10 +14,14 @@ set (PY_BRIDGE  "EvPPy")     # CPython half, built as its own DLL — see Source
 
 project (${ADDON_NAME} CXX)
 
-# Compile/check an isolated scaffold; never link it or change runtime behavior.
-option (TAPIOCA_BUILD_RUST_KERNEL "Check and compile the unlinked Rust kernel scaffold" OFF)
-if (TAPIOCA_BUILD_RUST_KERNEL)
+# Full Rust quality gate is optional at build time; archive compilation is a
+# prerequisite when the geometry ingress bridge is enabled (the default).
+option (TAPIOCA_LINK_RUST_GEOMETRY "Link the Rust version/legacy geometry validation bridge" ON)
+option (TAPIOCA_BUILD_RUST_KERNEL "Run the full Rust kernel quality gate during the build" OFF)
+if (TAPIOCA_LINK_RUST_GEOMETRY OR TAPIOCA_BUILD_RUST_KERNEL)
     include ("${CMAKE_CURRENT_LIST_DIR}/cmake/RustKernel.cmake")
+endif ()
+if (TAPIOCA_BUILD_RUST_KERNEL)
     TapiocaAddRustKernel ()
 endif ()
 
@@ -293,6 +297,9 @@ source_group ("Resources" FILES ${AddOnResourceFiles} ${AddOnImageFiles})
 # files are picked up without a manual reconfigure.
 file (GLOB_RECURSE AddOnHeaderFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.h ${AddOnSourcesFolder}/*.hpp)
 file (GLOB_RECURSE AddOnSourceFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.c ${AddOnSourcesFolder}/*.cpp)
+if (NOT TAPIOCA_LINK_RUST_GEOMETRY)
+    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRustTerrain\\.cpp$")
+endif ()
 
 # ---- ArchViz: the Diligent renderer ----------------------------------------
 # ⚠️ cmake/Bgfx.cmake IS GONE, AND WITH IT THE `archviz_render` SEAM
@@ -421,6 +428,10 @@ file (GLOB ModuleFolders ${AC_API_DEVKIT_DIR}/Support/Modules/*)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE ${ModuleFolders})
 
 target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS} ${TAPIOCA_TEXT_LIBS} TapiocaClipper2 TapiocaQuickJs)
+if (TAPIOCA_LINK_RUST_GEOMETRY)
+    TapiocaLinkRustCore (${ADDON_LIB} PLAIN)
+    target_compile_definitions (${ADDON_LIB} PRIVATE TAPIOCA_GEOMETRY_RUST=1)
+endif ()
 # d3dcompiler/dxguid/gdi32 came in through ARCHVIZ_LIBS with bgfx. The Diligent
 # D3D11 backend compiles its HLSL at runtime, so d3dcompiler is still needed and
 # is now named here rather than inherited from a renderer that is gone.

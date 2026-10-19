@@ -4,11 +4,13 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 const OK: i32 = 0;
 const ERR_ARG: i32 = 1;
+const ERR_STATE: i32 = 2;
 const ERR_INTERNAL: i32 = 3;
 const ABI_VERSION: u32 = 1;
 
-enum Failure {
+pub(crate) enum Failure {
     Argument(&'static str),
+    State(&'static str),
     Overlap,
     Internal,
 }
@@ -17,14 +19,15 @@ impl Failure {
     fn status(&self) -> i32 {
         match self {
             Self::Argument(_) | Self::Overlap => ERR_ARG,
+            Self::State(_) => ERR_STATE,
             Self::Internal => ERR_INTERNAL,
         }
     }
 
     fn message(&self) -> &'static str {
         match self {
-            Self::Argument(message) => message,
-            Self::Overlap => "Version and error buffers overlap",
+            Self::Argument(message) | Self::State(message) => message,
+            Self::Overlap => "Input/output and error buffers overlap",
             Self::Internal => "Rust panic contained at the Tapioca C ABI boundary",
         }
     }
@@ -32,7 +35,10 @@ impl Failure {
 
 // These checks reject malformed pointer representations, not dangling/foreign
 // allocations. Actual validity, exclusive writes and lifetime are caller duties.
-fn memory_range<T>(pointer: *const T, count: usize) -> Result<Option<(usize, usize)>, Failure> {
+pub(crate) fn memory_range<T>(
+    pointer: *const T,
+    count: usize,
+) -> Result<Option<(usize, usize)>, Failure> {
     if count == 0 {
         return Ok(None);
     }
@@ -52,7 +58,7 @@ fn memory_range<T>(pointer: *const T, count: usize) -> Result<Option<(usize, usi
     Ok(Some((pointer.addr(), end)))
 }
 
-fn overlaps(left: Option<(usize, usize)>, right: Option<(usize, usize)>) -> bool {
+pub(crate) fn overlaps(left: Option<(usize, usize)>, right: Option<(usize, usize)>) -> bool {
     matches!((left, right), (Some((a, b)), Some((c, d))) if a < d && c < b)
 }
 
@@ -76,7 +82,7 @@ unsafe fn write_message(buffer: *mut u8, capacity: usize, message: &str) {
 
 // SAFETY: a nonempty error buffer must be live/writable for capacity bytes and
 // must not alias any operation input/output. Null is accepted only at capacity 0.
-unsafe fn call(
+pub(crate) unsafe fn call(
     error: *mut u8,
     capacity: usize,
     operation: impl FnOnce() -> Result<(), Failure>,
@@ -95,7 +101,7 @@ unsafe fn call(
     };
     let (status, message) = match result {
         Ok(()) => (OK, ""),
-        // A diagnostic write would itself overwrite the failed version output.
+        // A diagnostic write would overwrite another input/output region.
         Err(Failure::Overlap) => return ERR_ARG,
         Err(failure) => (failure.status(), failure.message()),
     };

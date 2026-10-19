@@ -92,12 +92,13 @@ captures.
 
 ## 6. Carry over optional state
 
-Rust kernel development is currently optional for ordinary add-on builds. See
-[Rust kernel setup and gates](rust-kernel.md) for the pinned toolchain, aggregate
-staticlib and standalone C/C++ ABI smoke test. Only the version/status envelope
-is implemented; no geometry algorithm is migrated or linked into the add-on.
-Rust/Cargo becomes a documented build prerequisite when a geometry family becomes
-mandatory; do not silently skip that family's archive if the toolchain is absent.
+Default add-on and offline C++ test builds require the pinned Rust/Cargo toolchain
+for the version/legacy geometry-validation archive. See
+[Rust kernel setup and gates](rust-kernel.md) for setup and the standalone C/C++
+ABI smoke test. No geometry algorithm is migrated; attributed identity validation
+is still a separate gate. `-DTAPIOCA_LINK_RUST_GEOMETRY=OFF` explicitly selects the
+legacy no-Rust rollback build; a missing toolchain must never silently skip the
+enabled archive or count as a validator pass.
 
 - `AddOn\reference\`: copy or provision it as described above.
 - `%LOCALAPPDATA%\Tapioca\palette.json`: copy only if the saved palette layout and

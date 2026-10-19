@@ -1,13 +1,15 @@
 # L2 — offline C++ tests for `Sources/AddOn/Geometry/`
 
-The host-free tier of `docs/guides/testing.md`. **No Archicad, no DevKit, no Python, no
-`.apx`.** It compiles the real engine sources — never a copy — so a green run is a
+The host-free tier of `docs/guides/testing.md`. **No Archicad, no DevKit, no
+`.apx`.** The default Rust bridge requires Python 3.11+ and the pinned Rust/Cargo
+toolchain (see `docs/guides/rust-kernel.md`). It compiles the real engine sources — never a copy — so a green run is a
 statement about the code that ships.
 
 ## One-time setup
 
-Two dependencies, both under `AddOn/reference/`, which is **gitignored** — a fresh clone
-has neither:
+Core C++ reference entries below and the text stack listed later are provisioned
+under `AddOn/reference/`, which is **gitignored**. See the catalog/provisioning
+guide for the complete pinned dependency set:
 
 | Dep | How to get it |
 |---|---|
@@ -21,6 +23,7 @@ The target compiles `src/gtest-all.cc` + `src/gtest_main.cc` only — the rest o
 .\Invoke-CppTests.ps1                # build + ctest
 .\Invoke-CppTests.ps1 -Sanitize      # same, under MSVC AddressSanitizer
 .\Invoke-CppTests.ps1 -Filter "SliceEngine.*"
+.\Invoke-CppTests.ps1 -NoRust       # explicit legacy/no-Cargo build; no Rust parity claim
 ```
 
 Or by hand (this is also the Linux/CI path — see `docs/guides/testing.md` §8.7):
@@ -28,6 +31,12 @@ Or by hand (this is also the Linux/CI path — see `docs/guides/testing.md` §8.
 ```bash
 cmake -S . -B build && cmake --build build && ctest --test-dir build
 ```
+
+`TAPIOCA_LINK_RUST_GEOMETRY` defaults ON. Explicit OFF omits the wrapper/parity
+tests rather than silently succeeding without Rust. The PowerShell script sets
+this option from `-NoRust` on every run; an ordinary invocation restores ON.
+Every MSVC test dependency uses the add-on's `/MD` CRT/STL ABI, including Debug
+and the text stack, to link the aggregate release Rust archive consistently.
 
 ## What is covered
 
@@ -39,6 +48,7 @@ cmake -S . -B build && cmake --build build && ctest --test-dir build
 | `test_spatial.cpp` | `SpatialQueries` | box/sphere/polygon selection, touching-face convention, invalid AABB never matches |
 | `test_serializer.cpp` | `MeshSerializer` | msgpack round-trip through an **independent** decoder, tag-width boundaries, truncated-buffer rejection |
 | `test_render.cpp` | `RenderEngine` | image dimensions, centre-hit depth, background/foreground partition, thread count does not change the image |
+| `test_geometry_rust_parity.cpp` | `tapioca::geometry` Rust wrapper | version/shape/finite/index/sidecar ingress, immutable arrays, snapshot GUIDs; not authored identity or catalog certification |
 
 Every engine also has a **degenerate-input** case: empty mesh, single triangle,
 zero-area, sliver, duplicate vertices, NaN, Inf. Those assert *defined behaviour and no
