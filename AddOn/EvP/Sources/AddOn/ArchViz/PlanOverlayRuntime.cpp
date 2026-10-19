@@ -35,6 +35,8 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 
@@ -103,6 +105,39 @@ ULONGLONG g_lastDeviceRedrawMs = 0;
 ULONGLONG g_lastTargetCheckMs = 0;
 layer::Stats g_reported;
 double s_lastHudPlan[6] = {};
+
+// Window-local CPU costs, outside Present. Drawing alone does not include the input
+// turn that prepares it; keep those phases separate when diagnosing a slow canvas.
+struct HudCost {
+    uint64_t samples = 0;
+    std::array<uint64_t, 5> sum {};
+    std::array<uint64_t, 5> max {};
+    void Add (const std::array<uint64_t, 5>& sample)
+    {
+        ++samples;
+        for (size_t i = 0; i < sample.size (); ++i) {
+            sum[i] += sample[i];
+            max[i] = (std::max) (max[i], sample[i]);
+        }
+    }
+};
+HudCost s_hudCost;
+uint64_t s_reportedHudUploads = 0, s_reportedSceneUploads = 0, s_reportedLayerGeneration = 0;
+
+struct HudCostSample {
+    std::array<uint64_t, 5> phases {};
+    std::chrono::steady_clock::time_point at = std::chrono::steady_clock::now ();
+    void Mark (size_t phase)
+    {
+        const auto now = std::chrono::steady_clock::now ();
+        phases[phase] = uint64_t (std::chrono::duration_cast<std::chrono::microseconds> (now - at).count ());
+        at = now;
+    }
+    ~HudCostSample ()
+    {
+        s_hudCost.Add (phases);
+    }
+};
 
 struct OwnAcapi {
     OwnAcapi ()
@@ -285,6 +320,23 @@ void Report (bool final)
     }
     const double seconds = double (now - g_lastReportMs) / 1000.0;
     g_lastReportMs = now;
+    const auto guestCost = dxgi::planguest::GetStats ();
+    const uint64_t generation = overlaylayers::Generation ();
+    if (s_hudCost.samples != 0) {
+        std::string cost = "PLAN HUD COST  " + std::to_string (s_hudCost.samples) + " input refreshes; CPU us mean/max";
+        constexpr const char* names[] = { "input", "pages", "layoutUpload", "follow", "scenePrepare" };
+        for (size_t i = 0; i < s_hudCost.sum.size (); ++i)
+            cost += " " + std::string (names[i]) + "=" + std::to_string (s_hudCost.sum[i] / s_hudCost.samples) + "/" +
+                    std::to_string (s_hudCost.max[i]);
+        cost += "; deltas hudUploads=" + std::to_string (guestCost.hudUploads - s_reportedHudUploads) +
+                " sceneUploads=" + std::to_string (guestCost.uploads - s_reportedSceneUploads) +
+                " layerGeneration=" + std::to_string (generation - s_reportedLayerGeneration);
+        ArchVizLog (cost);
+    }
+    s_hudCost = {};
+    s_reportedHudUploads = guestCost.hudUploads;
+    s_reportedSceneUploads = guestCost.uploads;
+    s_reportedLayerGeneration = generation;
     if (presents == 0 && declined == 0 && !final) {
         g_reported = stats;
         return;
@@ -449,21 +501,27 @@ bool RefreshHud ()
 {
     if (!g_running)
         return false;
+    HudCostSample cost;
     bool changed = false;
     std::string error;
     const overlayhud::Input input = HudInput (true);
+    cost.Mark (0);
     // The HUD is there with or without a layer: the overlay runs, its own pages say what.
     overlayhudmodel::Prepare (overlayinput::View::Plan);
+    cost.Mark (1);
     if (!dxgi::planguest::RefreshHud (OnActiveStorey (overlaylayers::Layers ()), input, changed, error)) {
+        cost.Mark (2);
         if (error != g_lastHudError)
             ArchVizLog ("PLAN OVERLAY  the HUD NOT LAID OUT for the pointer: " + error);
         g_lastHudError = error;
         return false;
     }
+    cost.Mark (2);
     // Every time, not only when the pixels changed: the hand can change without them.
     overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
     // What the user did there may be the dock's circle or a layer hidden.
     overlaycontrol::FollowHudState ();
+    cost.Mark (3);
     // Editing must publish the scene in this input turn, not at the 100 ms tick.
     // Prepare remains outside Present; only its existing shaders reproject at Present.
     if (layer::GetStats ().prepared) {
@@ -483,6 +541,7 @@ bool RefreshHud ()
             ArchVizLog ("PLAN OVERLAY  edit scene NOT PREPARED: " + error);
         changed = changed || linesChanged || sceneChanged;
     }
+    cost.Mark (4);
     return changed;
 }
 
@@ -738,6 +797,11 @@ StartResult Start ()
     g_hudBeats = 0;
     g_lastError.clear ();
     g_reported = layer::Stats {};
+    s_hudCost = {};
+    const auto guestCost = dxgi::planguest::GetStats ();
+    s_reportedHudUploads = guestCost.hudUploads;
+    s_reportedSceneUploads = guestCost.uploads;
+    s_reportedLayerGeneration = overlaylayers::Generation ();
     g_content = plancontent::Content {};
     g_lastDeviceRedrawMs = 0;
     g_lastTargetCheckMs = 0;

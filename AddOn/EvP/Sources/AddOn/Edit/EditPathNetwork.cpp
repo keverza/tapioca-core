@@ -1,5 +1,7 @@
 #include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditDocument.hpp"
+#include "Edit/EditPathCrossing.hpp"
+#include "Edit/EditPathSurface.hpp"
 #include <clipper2/clipper.h>
 #include <clipper2/clipper.triangulation.h>
 #include <algorithm>
@@ -304,6 +306,11 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
     const double share = width > 1.0e-9 ? std::min (std::abs (offset) / width, 1.0) : 0.0;
     z = f.centre.z + (left ? dropLeft : dropRight) * share;
     beyond = std::abs (offset) - width;
+    const Vec3 delta = p - f.centre;
+    if (station <= 1e-8)
+        beyond = std::max (beyond, -Dot (delta, f.tangent));
+    else if (station >= g.length - 1e-8)
+        beyond = std::max (beyond, Dot (delta, f.tangent));
     return true;
 }
 
@@ -326,6 +333,8 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
     }
     if (united.empty ())
         return out;
+    std::sort (sources.begin (), sources.end (),
+               [] (const Source& a, const Source& b) { return a.path->id < b.path->id; });
     // One area: crossings and touching ends made junctions; then every corner its own rounding.
     united = cp::Union (united, cp::FillRule::NonZero, kPrecision);
     out.corners = FindCorners (united, sources);
@@ -355,8 +364,20 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
             if (cp::Area (hole) < 0.0 && !hole.empty () &&
                 cp::PointInPolygon (hole.front (), outer) != cp::PointInPolygonResult::IsOutside)
                 region.push_back (hole);
-        cp::PathsD triangles;
-        if (cp::Triangulate (region, kPrecision, triangles, false) != cp::TriangulateResult::success)
+        // Boolean outlines use a binary lattice. The decimal triangulation
+        // overload rounds that boundary a second time, moving slanted edges;
+        // refinement then exposes triangles outside the original footprint.
+        // Triangulate the existing lattice without changing its plan vertices.
+        const double lattice = std::ldexp (1.0, std::ilogb (std::pow (10.0, kPrecision)) + 1);
+        cp::Paths64 grid;
+        for (const auto& ring : region) {
+            cp::Path64 path;
+            for (const auto& q : ring)
+                path.push_back ({ int64_t (std::llround (q.x * lattice)), int64_t (std::llround (q.y * lattice)) });
+            grid.push_back (std::move (path));
+        }
+        cp::Paths64 triangles;
+        if (cp::Triangulate (grid, triangles, false) != cp::TriangulateResult::success)
             continue; // a refused region stays outlined, unfilled
         for (auto& t : triangles) {
             if (t.size () != 3)
@@ -365,11 +386,81 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
                 std::reverse (t.begin (), t.end ());
             for (const auto& q : t) {
                 out.triangles.push_back (static_cast<uint32_t> (out.vertices.size ()));
-                out.vertices.push_back (lift (q));
+                out.vertices.push_back (lift ({ double (q.x) / lattice, double (q.y) / lattice }));
             }
         }
     }
+    std::vector<Vec3> samples;
+    for (const auto& source : sources) {
+        const auto sample = [&] (double station) {
+            StationFrame frame;
+            if (Evaluate (*source.path, source.geometry, station, frame))
+                samples.insert (samples.end (), { frame.centre, frame.leftEdge, frame.rightEdge });
+        };
+        // Insert semantic features, not every collinear drawing sample: inserting
+        // hundreds of points into long triangle fans creates unnecessary slivers.
+        for (const auto& b : source.path->profile) {
+            sample (b.station);
+            if (b.curve > 0) {
+                sample (b.station - b.curve * 0.5);
+                sample (b.station + b.curve * 0.5);
+            }
+        }
+        for (const auto& section : source.path->sections)
+            sample (section.station);
+        for (double station : source.geometry.pointStations)
+            sample (station);
+    }
+    RefinePavedSurface (out, samples, step, [&] (Vec3 p) { return HeightAt (sources, p); });
     return out;
+}
+
+std::vector<StationSpan> PathAnnotationSpans (const std::vector<Path>& paths, Id id, double from, double to)
+{
+    std::vector<StationSpan> spans;
+    if (!(to > from))
+        return spans;
+    spans.push_back ({ from, to });
+    for (const auto& j : FindJunctions (paths)) {
+        const Path &a = paths[j.a], &b = paths[j.b];
+        if (a.id != id && b.id != id)
+            continue;
+        const bool ownA = a.id == id;
+        const double station = ownA ? j.stationA : j.stationB;
+        AlignmentGeometry ga, gb;
+        Placement fa, fb;
+        std::string error;
+        if (!BuildAlignment (a.points, ga, error) || !BuildAlignment (b.points, gb, error) ||
+            !Locate (ga, j.stationA, fa) || !Locate (gb, j.stationB, fb))
+            continue;
+        const auto* sa = SectionAt (a.sections, j.stationA);
+        const auto* sb = SectionAt (b.sections, j.stationB);
+        if (!sa || !sb)
+            continue;
+        const double wa = std::max (sa->widthLeft, sa->widthRight), wb = std::max (sb->widthLeft, sb->widthRight);
+        const double sine = std::abs (fa.tangent.x * fb.tangent.y - fa.tangent.y * fb.tangent.x);
+        const double cosine = std::abs (Dot (fa.tangent, fb.tangent));
+        const double reach = sine > 1e-3 ? ((ownA ? wb : wa) + (ownA ? wa : wb) * cosine) / sine : wa + wb;
+        double radius = std::max (a.edgeRadius, b.edgeRadius);
+        for (const auto& path : { &a, &b })
+            for (const auto& k : path->kerbs)
+                if (k.other == (path->id == a.id ? b.id : a.id))
+                    radius = std::max (radius, k.radius);
+        const double lo = station - reach - radius - 0.1, hi = station + reach + radius + 0.1;
+        std::vector<StationSpan> kept;
+        for (const auto& span : spans) {
+            if (span.to <= lo || span.from >= hi)
+                kept.push_back (span);
+            else {
+                if (span.from < lo)
+                    kept.push_back ({ span.from, lo });
+                if (span.to > hi)
+                    kept.push_back ({ hi, span.to });
+            }
+        }
+        spans = std::move (kept);
+    }
+    return spans;
 }
 
 Vec3 KerbGripAt (const PavedCorner& c, double minInset)

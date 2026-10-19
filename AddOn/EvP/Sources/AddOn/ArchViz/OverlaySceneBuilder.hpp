@@ -154,6 +154,8 @@ struct Draft {
     std::vector<std::string> inside; // the solid layers' `inside` (OverlayLayers.hpp)
 };
 
+void AddSolidGlyphPage (const Draft& draft, std::vector<std::shared_ptr<const overlaytext::Page>>& pages);
+
 // A panel, and whose it is: its layer and its place among that layer's panels -- what
 // the HUD's input names it by.
 struct PanelRef {

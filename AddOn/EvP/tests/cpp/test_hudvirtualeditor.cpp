@@ -4,10 +4,14 @@
 #include "ArchViz/OverlayHitMap.hpp" // overlayinput::Cursor: the cursor claim these tests read
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/OverlayScene.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
 #include "hud_fixture.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <limits>
 
 namespace ed = geomsrv::edit;
@@ -128,6 +132,111 @@ TEST (HudVirtualEditor, StartingPublishesTheLayerAndBorrowsTheLock)
     hud::StopVirtualEditor (*d.view.state);
     EXPECT_EQ (hud::EditLocked (*d.view.state), locked);
     EXPECT_FALSE (hud::VirtualEditorActive (*d.view.state));
+}
+
+TEST (HudVirtualEditor, ThePathPointMenuSplitsAtItsBoundPointWithOneUndo)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 1 }, { 10, 10, 2 } }, 2);
+    const auto point = doc.paths[0].points[1].id;
+    Drive d (doc);
+    d.S ().menu.target = eh::MenuTarget::PathPoint;
+    d.S ().menu.ref = { id, ed::Part::PathPoint, point };
+    d.S ().menu.at = { 8, 0, 0 }; // the part's identity, not the offset press, owns this action
+    EXPECT_TRUE (d.Offers ("path.split"));
+    eh::RunMenuItem (d.S (), "path.split");
+    ASSERT_EQ (d.D ().paths.size (), 2u);
+    EXPECT_NEAR (d.D ().paths[0].profile.back ().station, 10, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    EXPECT_EQ (d.D ().paths, doc.paths);
+}
+
+TEST (HudVirtualEditor, SurfaceQualityChangesOnlyForChangedPreviewsAndRefinesOnceAtEnd)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 1 } }, 2);
+    Drive d (doc);
+    const auto generation = layers::Generation ();
+    ASSERT_TRUE (d.S ().edits.Begin ());
+    d.Publish ();
+    EXPECT_EQ (layers::Generation (), generation) << "a no-op press must not republish a coarse model";
+    const auto grade = doc.paths[0].profile.back ().id;
+    ASSERT_TRUE (d.S ().edits.Move (
+        [=] (ed::Document& c, std::string& e) { return ed::SetPathElevation (c, id, grade, 2, e); }));
+    d.Publish ();
+    EXPECT_DOUBLE_EQ (d.S ().pavedStep, 2);
+    const auto coarse = d.S ().paved.triangles.size ();
+    const auto revision = d.D ().revision;
+    ASSERT_TRUE (d.S ().edits.End ());
+    d.Publish ();
+    EXPECT_EQ (d.D ().revision, revision);
+    EXPECT_DOUBLE_EQ (d.S ().pavedStep, 0.5);
+    EXPECT_GT (d.S ().paved.triangles.size (), coarse);
+    const auto finished = layers::Generation ();
+    d.Publish ();
+    EXPECT_EQ (layers::Generation (), finished);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, FinishingADrawnEndpointExtensionSelectsTheJoinedPath)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2, "footpath");
+    Drive d (doc);
+    d.S ().tool = eh::Tool::Path;
+    d.Press (800, 500);
+    d.Release (800, 500);
+    d.Press (1000, 500);
+    d.Release (1000, 500);
+    d.Key (0x0D);
+    ASSERT_EQ (d.D ().paths.size (), 1u);
+    EXPECT_EQ (d.D ().paths[0].id, id);
+    EXPECT_EQ (d.D ().paths[0].role, "footpath");
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_TRUE (ed::Exists (d.D (), d.S ().selection.Items ()[0]));
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    EXPECT_EQ (d.D ().paths, doc.paths);
+}
+
+TEST (HudVirtualEditor, SeededPlanHoverAndNavigationKeepModelPublicationStable)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, -10, 0 }, { 25, -10, 0.6 }, { 25, 5, 1 } }, 1.8);
+    ed::AddExtrusion (doc, { { 5, 5, 0 }, { 11, 5, 0 }, { 11, 9, 0 }, { 5, 9, 0 } }, 3);
+    Drive d (std::move (doc));
+    const auto coldStarted = std::chrono::steady_clock::now ();
+    d.Frame ();
+    const double cold =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - coldStarted).count ();
+    const auto revision = d.D ().revision;
+    const auto generation = layers::Generation ();
+    std::vector<double> hover, navigation;
+    for (int i = 0; i < 120; ++i) {
+        const auto started = std::chrono::steady_clock::now ();
+        d.input.x = 700 + float (i % 20);
+        d.input.y = 700;
+        if (i >= 60)
+            d.input.plan[2] = 600 + i;
+        const auto plan =
+            geomsrv::archviz::overlayscene::PreparePlanHud (layers::Layers (), &d.view.engine, 1, d.input);
+        EXPECT_TRUE (plan.locked);
+        d.Publish ();
+        EXPECT_EQ (d.D ().revision, revision);
+        EXPECT_EQ (layers::Generation (), generation);
+        (i < 60 ? hover : navigation)
+            .push_back (
+                std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ());
+    }
+    const auto report = [] (const char* name, std::vector<double>& samples) {
+        std::sort (samples.begin (), samples.end ());
+        std::printf ("Seeded plan %s: %.3f ms p50, %.3f p95, %.3f max (60 warm CPU layouts)\n", name,
+                     samples[samples.size () / 2], samples[(samples.size () * 95 + 99) / 100 - 1], samples.back ());
+    };
+    std::printf ("Seeded plan first HUD build: %.3f ms (CPU only, excludes initial model publication)\n", cold);
+    report ("hover", hover);
+    report ("navigation", navigation);
 }
 
 TEST (HudVirtualEditor, TheCommandThatOpenedItOwnsIt)

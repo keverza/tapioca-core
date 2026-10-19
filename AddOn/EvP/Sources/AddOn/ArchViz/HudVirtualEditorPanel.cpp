@@ -445,13 +445,15 @@ void Panel (Session& s)
 bool Follow (Session& s, overlaylayers::Layer& layer)
 {
     const auto& doc = Doc (s);
-    if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection)
+    if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection &&
+        s.publishedPathStep == SurfaceStep (s))
         return false;
     edit::Selection shown = s.selection;
     shown.hover = {}; // hover is the view's transient feedback, not the layer's
     editlayers::Feedback f;
     f.labelsInView = true; // placed with the dimensions, clear of them (DrawPathLabels)
     f.selection = &shown;
+    f.paved = &PavedSurface (s);
     f.contours = s.contours ? &Contours (s) : nullptr;
     // The live dimensions are the view's (HudVirtualEditorDraw.cpp): placed in pixels, they
     // can stand clear of the gizmo and the tracker, which model-anchored text cannot know.
@@ -461,6 +463,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     panel.widthPixels = 400;
     layer.panels.push_back (panel);
     s.publishedRevision = doc.revision;
+    s.publishedPathStep = SurfaceStep (s);
     s.publishedSelection = s.selection.Items ();
     return true;
 }

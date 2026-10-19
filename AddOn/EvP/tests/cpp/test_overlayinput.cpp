@@ -19,10 +19,17 @@ int s_hostHovers = 0, s_hostLeaves = 0;
 int s_hostDeletes = 0;
 int s_hostMiddleDown = 0, s_hostMiddleUp = 0;
 int s_hostNavigationMoves = 0;
+int s_hostHitTests = 0;
+bool s_boundHitTests = false;
 constexpr UINT kHostCursorMessage = WM_APP + 43;
 
 LRESULT CALLBACK HostProc (HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if (message == WM_NCHITTEST && s_boundHitTests) {
+        if (++s_hostHitTests > 32)
+            input::SetHitMap (input::View::Plan, {}); // bound a recursive query in the failing implementation
+        return HTCLIENT;
+    }
     if (message == kHostCursorMessage) {
         ::SetCursor (::LoadCursorW (nullptr, MAKEINTRESOURCEW (32515)));
         return 0;
@@ -242,6 +249,38 @@ TEST (OverlayInput, TheHudsCursorWinsAfterAnotherWindowDispatches)
         << "shutdown removes the thread-local post-dispatch cursor hook";
     ::DestroyWindow (other);
     ::DestroyWindow (canvas);
+    ::FreeLibrary (controls);
+}
+
+TEST (OverlayInput, CursorLocationQueriesDoNotReenterThroughNativeHitTesting)
+{
+    const HMODULE controls = ::LoadLibraryW (L"comctl32.dll");
+    ASSERT_NE (controls, nullptr);
+    const HWND canvas = Canvas ();
+    ASSERT_NE (canvas, nullptr);
+    POINT cursor = {};
+    ASSERT_TRUE (::GetCursorPos (&cursor));
+    // Only this test's window, without moving the pointer or activating another application.
+    ::SetWindowPos (canvas, HWND_TOPMOST, cursor.x - 100, cursor.y - 100, 300, 300, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    Pump ();
+    s_hostHitTests = 0;
+    s_boundHitTests = true;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    const int lockingHitTests = s_hostHitTests;
+    EXPECT_GT (lockingHitTests, 0) << "the native hit-test path must actually be exercised";
+    EXPECT_LT (lockingHitTests, 10) << "cursor resolution must not query itself through WM_NCHITTEST";
+    EXPECT_TRUE (input::CurrentInput (input::View::Plan).pointer);
+    s_hostHitTests = 0;
+    ::SendMessageW (canvas, WM_NULL, 0, 0);
+    EXPECT_LT (s_hostHitTests, 10);
+    s_boundHitTests = false;
+    input::Shutdown ();
+    ::DestroyWindow (canvas);
+    Pump ();
     ::FreeLibrary (controls);
 }
 

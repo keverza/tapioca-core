@@ -132,6 +132,8 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
 // asked changes; none when hidden), and their heights written along them, small and grey,
 // where a label fits beside its line clear of the others.
 const std::vector<edit::Contour>& Contours (Session& s);
+const edit::PavedArea& PavedSurface (Session& s);
+double SurfaceStep (const Session& s);
 void DrawContourLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The gumball for `mode` at `frame`, `size` metres across; `active` is the handle hovered
 // or, while `dragging`, held -- then it alone is drawn, with a guide along its axis.

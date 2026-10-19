@@ -1,11 +1,151 @@
 #include "Edit/EditPathCrossing.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPathNetwork.hpp"
+#include "Edit/EditSession.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
 
 namespace ed = geomsrv::edit;
+
+TEST (EditPathTopology, EveryEndpointOrientationJoinsWithoutChangingHeightsOrWidths)
+{
+    for (bool aStart : { false, true })
+        for (bool bStart : { false, true }) {
+            ed::Document doc;
+            const auto a = ed::AddPath (doc,
+                                        aStart ? std::vector<ed::Vec3> { { 10, 0, 1 }, { 0, 0, 0 } }
+                                               : std::vector<ed::Vec3> { { 0, 0, 0 }, { 10, 0, 1 } },
+                                        2);
+            const auto b = ed::AddPath (doc,
+                                        bStart ? std::vector<ed::Vec3> { { 10, 0, 1 }, { 20, 0, 3 } }
+                                               : std::vector<ed::Vec3> { { 20, 0, 3 }, { 10, 0, 1 } },
+                                        4);
+            const auto point = doc.paths[1].points[bStart ? 1 : 0].id;
+            doc.paths[1].profile[bStart ? 1 : 0].fixed = true;
+            std::string error;
+            ASSERT_TRUE (ed::JoinPathEnds (doc, a, aStart, b, bStart, error)) << error;
+            ASSERT_EQ (doc.paths.size (), 1u);
+            const auto& path = doc.paths[0];
+            EXPECT_EQ (path.id, a);
+            EXPECT_EQ (path.points.back ().id, point);
+            ASSERT_EQ (path.profile.size (), 3u);
+            EXPECT_DOUBLE_EQ (path.profile[1].station, 10);
+            EXPECT_DOUBLE_EQ (path.profile[1].z, 1);
+            EXPECT_TRUE (path.profile.back ().fixed);
+            EXPECT_DOUBLE_EQ (ed::SectionAt (path.sections, 15)->widthLeft, 2);
+            EXPECT_TRUE (ed::Validate (doc, error)) << error;
+        }
+}
+
+TEST (EditPathTopology, SplitPreservesTheDefinitionAndDoesNotImmediatelyRejoin)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 1 }, { 10, 10, 3 } }, 2);
+    std::string error;
+    ASSERT_TRUE (ed::SplitPathSection (doc, id, 12, error));
+    ASSERT_TRUE (ed::SetPathWidth (doc, id, doc.paths[0].sections[1].id, 2, 3, error));
+    const auto original = doc.paths[0];
+    ed::Session session (doc);
+    ASSERT_TRUE (session.Apply ([=] (ed::Document& d, std::string& e) { return ed::SplitPath (d, id, 10, e); }, false));
+    ASSERT_EQ (session.Doc ().paths.size (), 2u);
+    for (double station : { 0., 3., 9., 10., 13., 20. }) {
+        double expected = 0, actual = 0;
+        ASSERT_TRUE (ed::Elevation (original.profile, station, expected));
+        const bool second = station > 10;
+        const auto& half = session.Doc ().paths[second ? 1 : 0];
+        ASSERT_TRUE (ed::Elevation (half.profile, second ? station - 10 : station, actual));
+        EXPECT_NEAR (actual, expected, 1e-10);
+        EXPECT_DOUBLE_EQ (ed::SectionAt (half.sections, second ? station - 10 : station)->widthRight,
+                          ed::SectionAt (original.sections, station)->widthRight);
+    }
+    EXPECT_EQ (session.UndoDepth (), 1u);
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_EQ (session.Doc ().paths[0], original);
+    ASSERT_TRUE (session.Redo ());
+    EXPECT_EQ (session.Doc ().paths.size (), 2u);
+}
+
+TEST (EditPathTopology, NewlyMeetingEndsJoinAtEndWithOneUndoAndCancelDoesNotJoin)
+{
+    ed::Document doc;
+    const auto a = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2);
+    ed::AddPath (doc, { { 12, 0, 0 }, { 20, 0, 0 } }, 2);
+    const auto point = doc.paths[0].points.back ().id;
+    ed::Session s (doc);
+    const auto move = [=] (ed::Document& d, std::string& e) {
+        return ed::MovePathPoint (d, a, point, { 12, 0, 0 }, e);
+    };
+    ASSERT_TRUE (s.Begin ());
+    ASSERT_TRUE (s.Move (move));
+    EXPECT_EQ (s.Doc ().paths.size (), 2u);
+    s.Cancel ();
+    EXPECT_EQ (s.Doc ().paths, doc.paths);
+    ASSERT_TRUE (s.Apply (move));
+    EXPECT_EQ (s.Doc ().paths.size (), 1u);
+    EXPECT_EQ (s.UndoDepth (), 1u);
+    ASSERT_TRUE (s.Undo ());
+    EXPECT_EQ (s.Doc ().paths, doc.paths);
+}
+
+TEST (EditPathTopology, UnrepresentableSplitAndIncompatibleJoinAreAtomicRefusals)
+{
+    ed::Document doc;
+    const auto a = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, 2);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, a, doc.paths[0].points[1].id, 2, error));
+    const auto before = doc;
+    EXPECT_FALSE (ed::SplitPath (doc, a, 9, error));
+    EXPECT_EQ (doc.paths, before.paths);
+    EXPECT_EQ (doc.nextId, before.nextId);
+    const auto b = ed::AddPath (doc, { { 10, 10, 2 }, { 20, 10, 2 } }, 2);
+    const auto different = doc;
+    EXPECT_FALSE (ed::JoinPathEnds (doc, a, false, b, true, error));
+    EXPECT_EQ (doc.paths, different.paths);
+}
+
+TEST (EditPathTopology, JoiningANewRunRetainsTheSurvivingRoleAndBothKerbIntents)
+{
+    ed::Document doc;
+    const auto a = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2, "footpath");
+    const auto b = ed::AddPath (doc, { { 10, 0, 0 }, { 20, 0, 0 } }, 2, "virtual-editor");
+    std::string error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, a, 0.5, error));
+    const auto farPoint = doc.paths[1].points.back ().id;
+    ASSERT_TRUE (ed::JoinPathEnds (doc, a, false, b, true, error)) << error;
+    EXPECT_EQ (doc.paths[0].role, "footpath");
+    const auto surface = ed::Pave (doc.paths, 0.5, false);
+    size_t farCorners = 0;
+    for (const auto& c : surface.corners)
+        if (c.key.point == farPoint) {
+            ++farCorners;
+            EXPECT_DOUBLE_EQ (c.requestedRadius, 0);
+        }
+    EXPECT_EQ (farCorners, 2u);
+}
+
+TEST (EditPathTopology, JoiningRemapsTheOwnerOfAnExistingJunctionKerbRequest)
+{
+    ed::Document doc;
+    const auto a = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2);
+    const auto branch = ed::AddPath (doc, { { 15, -5, 0 }, { 15, 5, 0 } }, 2);
+    const auto b = ed::AddPath (doc, { { 10, 0, 0 }, { 20, 0, 0 } }, 2);
+    const auto before = ed::Pave (doc.paths, 0.5, false);
+    const auto corner = std::find_if (before.corners.begin (), before.corners.end (),
+                                      [=] (const ed::PavedCorner& c) { return c.path == branch && c.key.other == b; });
+    ASSERT_NE (corner, before.corners.end ());
+    std::string error;
+    ASSERT_TRUE (ed::SetKerbRadius (doc, corner->path, corner->key, .4, error));
+    ASSERT_TRUE (ed::JoinPathEnds (doc, a, false, b, true, error)) << error;
+    const auto after = ed::Pave (doc.paths, 0.5, false);
+    const auto mapped = std::find_if (after.corners.begin (), after.corners.end (), [&] (const ed::PavedCorner& c) {
+        return ed::DistanceXY (c.at, corner->at) < 1e-3;
+    });
+    ASSERT_NE (mapped, after.corners.end ());
+    EXPECT_EQ (mapped->path, a);
+    EXPECT_EQ (mapped->key.other, branch);
+    EXPECT_DOUBLE_EQ (mapped->requestedRadius, .4);
+}
 
 namespace {
 double Area (const std::vector<ed::Vec3>& ring)
@@ -121,6 +261,23 @@ TEST (EditPathNetwork, ThePavedSurfaceCarriesThePathsHeights)
         const double centre = 100.0 + 2.0 * v.x / 20.0;        // the grade along it
         EXPECT_NEAR (v.z, centre, 0.05) << v.x << ", " << v.y; // a 2 % crossfall over 1 m: 2 cm
     }
+}
+
+TEST (EditPathNetwork, TheSharedSurfaceRetainsInteriorGradeBreaksAndCrown)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 0 } }, 2);
+    std::string error;
+    ed::Id grade;
+    ASSERT_TRUE (ed::InsertPathBreak (doc, id, 10, error, &grade));
+    ASSERT_TRUE (ed::SetPathElevation (doc, id, grade, 2, error));
+    const auto surface = ed::Pave (doc.paths);
+    double z = 0;
+    ASSERT_TRUE (ed::PavedHeight (surface, { 10, 0, 0 }, z));
+    EXPECT_NEAR (z, 2, 1e-9);
+    ASSERT_TRUE (ed::PavedHeight (surface, { 10, 1, 0 }, z));
+    EXPECT_NEAR (z, 1.98, 1e-9);
+    ExpectMeshFillsItsOutline (surface);
 }
 
 TEST (EditPathNetwork, EveryCornerOfTheAreaIsAKerbCorner)

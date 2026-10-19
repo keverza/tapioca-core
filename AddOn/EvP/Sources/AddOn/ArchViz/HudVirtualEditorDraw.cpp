@@ -773,17 +773,19 @@ const std::vector<edit::Contour>& Contours (Session& s)
         s.contoursRevision = UINT64_MAX;
         return s.contourLines;
     }
-    if (s.contoursRevision == doc.revision && s.contoursAsked == s.contourStep)
+    if (s.contoursRevision == doc.revision && s.contoursAsked == s.contourStep && s.contoursPathStep == SurfaceStep (s))
         return s.contourLines;
     s.contoursRevision = doc.revision;
     s.contoursAsked = s.contourStep;
+    s.contoursPathStep = SurfaceStep (s);
     // Asked for none: about ten lines over the heights there are, never finer than 5 cm --
     // a crown's few centimetres are not grading.
     double interval = s.contourStep, lo = 0.0, hi = 0.0;
     if (!(interval > 0.0))
         interval = edit::PathHeightRange (doc.paths, lo, hi) ? std::max (edit::NiceStep (hi - lo, 10), 0.05) : 0.0;
     s.contoursInterval = interval;
-    s.contourLines = edit::PathContours (doc.paths, interval);
+    s.contourLines =
+        edit::SurfaceContours (PavedSurface (s), interval, doc.paths.size () == 1 ? doc.paths[0].id : edit::kNoId);
     return s.contourLines;
 }
 

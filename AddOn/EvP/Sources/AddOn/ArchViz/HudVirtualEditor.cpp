@@ -112,9 +112,12 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
 void EndHandleDrag (Session& s)
 {
     s.edits.End ();
+    s.message = s.edits.Message ();
+    s.selection.Prune (Doc (s));
     s.snap = {};
     // A dragged pivot stays where it was put; one already set travels with its selection.
-    if (s.handle >= 0 && (s.dragTransform.relocate || (s.pivot && s.pivotFor == s.selection.Items ()))) {
+    if (s.message.empty () && s.handle >= 0 &&
+        (s.dragTransform.relocate || (s.pivot && s.pivotFor == s.selection.Items ()))) {
         s.pivot = edit::Moved (s.frame, s.dragTransform).origin;
         s.pivotFor = s.selection.Items ();
     }
@@ -134,7 +137,8 @@ void EndDrag (Session& s)
         s.snap = {};
     }
     s.dragPointerPause.reset ();
-    s.message.clear ();
+    s.selection.Prune (Doc (s));
+    s.message = s.edits.Message ();
 }
 
 void Escape (Session& s)
@@ -856,6 +860,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else {
             if (s.drag == Drag::Part) {
                 s.edits.End ();
+                s.message = s.edits.Message ();
+                s.selection.Prune (Doc (s));
                 s.snap = {};
             }
             else if (s.drag == Drag::Marquee && std::hypot (mouse.x - s.startX, mouse.y - s.startY) > 3.0f)

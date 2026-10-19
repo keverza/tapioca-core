@@ -7,8 +7,8 @@
 // (its ends', and its sharp bends' on either side) take the path's edge radius, a junction's
 // (where two paths' sides meet) the larger of the two paths', and either can be set apart
 // (Path::kerbs). An outside corner's rounding cuts it, a re-entrant one's fills it. Heights
-// come from the paths -- the nearest one's profile and crossfall -- so the paved surface is
-// a 3D mesh. Plan geometry in metres; nothing reads the model.
+// sample the paths' profiles and crossfalls into one shared-edge 3D mesh. Contours
+// evaluate that mesh rather than separate strips. Plan metres; nothing reads the model.
 #include "Edit/EditPath.hpp"
 #include "Edit/EditTypes.hpp"
 #include <cstdint>
@@ -49,9 +49,19 @@ struct PavedArea {
     std::vector<PavedCorner> corners;
 };
 
-// `step`: metres between samples along each path. Paths that do not validate are left out.
+// `step`: target sample/mesh-edge spacing, bounded at 250,000 triangles. Authored
+// profile/section features are inserted at both preview and resting quality.
+// Paths that do not validate are left out.
 // Without `surface`, only the outline and its corners (what grips need).
 PavedArea Pave (const std::vector<Path>& paths, double step = 0.5, bool surface = true);
+
+struct StationSpan {
+    double from = 0, to = 0;
+};
+// Runs where a path's own width/fall can be measured without crossing a junction.
+std::vector<StationSpan> PathAnnotationSpans (const std::vector<Path>& paths, Id path, double from, double to);
+// Height on the actual unified piecewise-linear surface, not an independent strip.
+bool PavedHeight (const PavedArea& area, Vec3 point, double& z);
 
 // A corner's grip: on its bisector at its arc's middle, or `minInset` metres into a sharp
 // corner; the radius whose arc's middle is where `p` falls on the bisector (0 inside it).
@@ -62,7 +72,7 @@ double KerbRadiusFromGrip (const PavedCorner& corner, Vec3 p, double minInset);
 bool SetKerbRadius (Document& doc, Id path, const KerbCorner& corner, double radius, std::string& error);
 
 // A path's surface at plan point `p`: the centre's elevation with the crossfall carried to
-// the offset. `beyond` is how far `p` lies outside the path's width (negative inside).
+// the offset. `beyond` includes width and end caps (negative inside).
 bool SurfaceHeight (const Path& path, const AlignmentGeometry& geometry, Vec3 p, double& z, double& beyond);
 
 } // namespace geomsrv::edit

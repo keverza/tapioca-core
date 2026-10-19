@@ -18,6 +18,25 @@ namespace archviz {
 namespace overlayscene {
 namespace build {
 
+void AddSolidGlyphPage (const Draft& draft, std::vector<std::shared_ptr<const overlaytext::Page>>& pages)
+{
+    // Solid terminators still travel through the glyph pipeline, whose draw needs
+    // a bound page. An arrow-only layer has no text atlas: give it a stable opaque
+    // texel rather than silently dropping every arrowhead at draw time.
+    if (pages.empty () && std::any_of (draft.glyphs.begin (), draft.glyphs.end (), [] (const DraftGlyph& glyph) {
+            return glyph.page < kHudPageBase && (glyph.flags & kSolid) != 0;
+        })) {
+        static const auto solid = [] {
+            auto page = std::make_shared<overlaytext::Page> ();
+            page->id = overlaytext::NewPageId ();
+            page->width = page->height = 1;
+            page->pixels = { 255, 255, 255, 255 };
+            return std::shared_ptr<const overlaytext::Page> (page);
+        }();
+        pages.push_back (solid);
+    }
+}
+
 namespace {
 
 // Logical pixels from the pointer's hot spot up to the hovered value's baseline: clear

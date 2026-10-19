@@ -63,26 +63,33 @@ TEST (EditPathContours, ACrossfallSkewsTheLines)
     EXPECT_NEAR (right.x - left.x, 0.4, 0.02);
 }
 
-TEST (EditPathContours, CrossingPathsShareTheGroundOnce)
+TEST (EditPathContours, NetworkContoursCutTheDisplayedUnitedSurface)
 {
-    // Where two paths cross, a level is traced on the path the ground belongs to -- the one
-    // it lies deeper in -- so the crossing is not lined twice.
+    // A junction is no longer separately traced/clipped strip fragments. Every
+    // segment must lie on the very same piecewise-linear surface as the fill.
     ed::Document doc;
     const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 2 } }, 2.0);
     const ed::Id b = ed::AddPath (doc, { { 10, -10, 0.5 }, { 10, 10, 1.5 } }, 2.0);
     const auto lines = ed::PathContours (doc.paths, 0.1);
+    const auto mesh = ed::Pave (doc.paths);
     size_t inside = 0;
-    for (const auto& c : lines)
-        for (const auto& p : c.points) {
+    for (const auto& c : lines) {
+        EXPECT_EQ (c.path, ed::kNoId);
+        for (size_t i = 0; i < c.points.size (); ++i) {
+            const auto& p = c.points[i];
+            double z = 0;
+            ASSERT_TRUE (ed::PavedHeight (mesh, p, z));
+            EXPECT_NEAR (z, c.z, 1e-7);
+            if (i > 0) {
+                ASSERT_TRUE (ed::PavedHeight (mesh, ed::Lerp (c.points[i - 1], p, 0.5), z));
+                EXPECT_NEAR (z, c.z, 1e-7);
+            }
             const double ax = std::abs (p.y), bx = std::abs (p.x - 10.0); // depth across each
             if (ax > 1.0 - 1.0e-6 || bx > 1.0 - 1.0e-6)
                 continue; // outside the shared square
             ++inside;
-            if (c.path == a)
-                EXPECT_LE (ax, bx + 1.0e-6) << p.x << ", " << p.y;
-            else if (c.path == b)
-                EXPECT_LE (bx, ax + 1.0e-6) << p.x << ", " << p.y;
         }
+    }
     EXPECT_GT (inside, 0u);
 }
 
@@ -149,11 +156,11 @@ TEST (EditPathContours, AJunctionsRoundingIsContouredToo)
     for (const auto& c : ed::PathContours (doc.paths, 0.05)) {
         if (c.path != ed::kNoId)
             continue;
-        ++between;
         for (const auto& q : c.points) {
-            EXPECT_GE (q.y, 1.0 - 2e-3) << q.x << ", " << q.y;                   // beyond the ramp's edge
-            EXPECT_GE (std::abs (q.x - 10.0), 1.0 - 2e-3) << q.x << ", " << q.y; // and the level path's
-            EXPECT_LE (q.y, 3.0 + 2e-3);                                         // within the rounding
+            if (q.y < 1.0 + 2e-3 || std::abs (q.x - 10.0) < 1.0 + 2e-3)
+                continue; // network contours now continue through the strips too
+            ++between;
+            EXPECT_LE (q.y, 3.0 + 2e-3); // within the rounding
             EXPECT_DOUBLE_EQ (q.z, c.z);
         }
     }

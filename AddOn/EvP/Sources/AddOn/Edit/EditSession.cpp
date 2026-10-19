@@ -1,5 +1,6 @@
 #include "Edit/EditSession.hpp"
 #include "Edit/EditPathCrossing.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <algorithm>
 
 namespace geomsrv::edit {
@@ -79,10 +80,25 @@ bool Session::Move (const Operation& operation)
     return Accept (std::move (candidate), error);
 }
 
-bool Session::End ()
+bool Session::End (bool joinPathEnds)
 {
     if (!gesture)
         return false;
+    if (changed && joinPathEnds) {
+        Document joined = doc;
+        std::string error;
+        if (!JoinMovedPathEnds (joined, before, error)) {
+            Cancel ();
+            message = error;
+            return false;
+        }
+        if (!SameContent (joined, doc) && !Accept (std::move (joined), {})) {
+            const auto reason = message;
+            Cancel ();
+            message = reason;
+            return false;
+        }
+    }
     gesture = false;
     target = {};
     if (!changed || SameContent (doc, before))
@@ -105,7 +121,7 @@ void Session::Cancel ()
     changed = false;
 }
 
-bool Session::Apply (const Operation& operation)
+bool Session::Apply (const Operation& operation, bool joinPathEnds)
 {
     if (!Begin ())
         return false;
@@ -115,7 +131,7 @@ bool Session::Apply (const Operation& operation)
         message = reason;
         return false;
     }
-    return End ();
+    return End (joinPathEnds);
 }
 
 void Session::Restore (Document state)

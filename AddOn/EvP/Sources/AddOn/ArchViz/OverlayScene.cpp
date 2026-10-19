@@ -669,6 +669,7 @@ std::vector<std::shared_ptr<const overlaytext::Page>> ComposePages (Draft& draft
     if (draft.glyphs.empty ())
         return pages;
     pages = draft.textPages;
+    AddSolidGlyphPage (draft, pages);
     const uint32_t base = uint32_t (pages.size ());
     bool panels = false;
     for (DraftGlyph& glyph : draft.glyphs)

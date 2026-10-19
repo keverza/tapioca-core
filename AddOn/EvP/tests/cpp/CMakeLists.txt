@@ -772,6 +772,8 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathSection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathModel.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathTopology.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathSurface.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
 
 set (EVP_TEST_SOURCES

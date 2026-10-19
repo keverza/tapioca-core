@@ -49,10 +49,10 @@ class Session {
     // that no longer exists: a stale handle must not start an edit.
     bool Begin (const Ref& target = {});
     bool Move (const Operation& operation);
-    bool End ();
+    bool End (bool joinPathEnds = true);
     void Cancel ();
     // A whole gesture in one call: a typed value, a context action, a key.
-    bool Apply (const Operation& operation);
+    bool Apply (const Operation& operation, bool joinPathEnds = true);
 
     bool CanUndo () const
     {

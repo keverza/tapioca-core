@@ -245,11 +245,7 @@ bool Shown (const std::vector<edit::Id>& paths, const edit::PavedCorner& c)
 
 const std::vector<edit::PavedCorner>& PavedCorners (Session& s)
 {
-    if (s.pavedRevision != Doc (s).revision) {
-        s.paved = edit::Pave (Doc (s).paths, 0.5, false);
-        s.pavedRevision = Doc (s).revision;
-    }
-    return s.paved.corners;
+    return PavedSurface (s).corners;
 }
 
 // The paths whose kerb grips show: every path paved together with one that has anything of it
@@ -284,6 +280,22 @@ edit::Operation KerbEdit (const edit::PavedCorner& c, double r)
 }
 
 } // namespace
+
+double SurfaceStep (const Session& s)
+{
+    return s.edits.InGesture () && Doc (s).revision != s.edits.Before ().revision ? 2.0 : 0.5;
+}
+
+const edit::PavedArea& PavedSurface (Session& s)
+{
+    const double step = SurfaceStep (s);
+    if (s.pavedRevision != Doc (s).revision || s.pavedStep != step) {
+        s.paved = edit::Pave (Doc (s).paths, step);
+        s.pavedRevision = Doc (s).revision;
+        s.pavedStep = step;
+    }
+    return s.paved;
+}
 
 const edit::PavedCorner* PickedKerb (Session& s)
 {

@@ -14,6 +14,39 @@ TEST (EditLayers, FormatsDimensionLabels)
     EXPECT_EQ (el::FormatValue (ed::Quantity::Elevation, 1.5), "+1.50 m");
 }
 
+TEST (EditLayers, WidthFallAndGradeAnnotationsMoveOffJunctions)
+{
+    ed::Document doc;
+    const auto a = ed::AddPath (doc, { { 0, 0, 0 }, { 30, 0, 3 } }, 4);
+    ed::AddPath (doc, { { 10, -15, 0 }, { 10, 15, 2 } }, 6);
+    size_t widths = 0, falls = 0;
+    for (const auto& label : el::PathLabels (doc)) {
+        if (!label.typed || label.kerbPath != ed::kNoId)
+            continue;
+        if (label.value.ref.part != ed::Part::Range && label.value.quantity != ed::Quantity::Slope)
+            continue;
+        EXPECT_FALSE (std::abs (label.at.x - 10) < 3.05 && std::abs (label.at.y) < 2.05);
+        if (label.value.quantity == ed::Quantity::Width) {
+            ++widths;
+            EXPECT_NEAR (ed::DistanceXY (label.from, label.to), label.value.ref.entity == a ? 4 : 6, 1e-9);
+        }
+        if (label.value.ref.part == ed::Part::Range && label.value.quantity == ed::Quantity::Slope)
+            ++falls;
+    }
+    EXPECT_EQ (widths, 2u);
+    EXPECT_EQ (falls, 2u);
+    const auto layer = el::Build (doc, {});
+    size_t arrows = 0;
+    for (const auto& line : layer.polylines) {
+        if (line.endArrow != layers::Terminator::Arrow || line.points.size () != 6)
+            continue;
+        ++arrows;
+        const double x = (line.points[0] + line.points[3]) * .5, y = (line.points[1] + line.points[4]) * .5;
+        EXPECT_FALSE (std::abs (x - 10) < 3.05 && std::abs (y) < 2.05);
+    }
+    EXPECT_GT (arrows, 2u);
+}
+
 TEST (EditLayers, FittedKerbDimensionsKeepRequestedIntentAndUsePurpleTextOnly)
 {
     ed::Document doc;

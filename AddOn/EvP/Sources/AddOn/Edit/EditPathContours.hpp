@@ -2,19 +2,15 @@
 #define EVP_EDIT_EDITPATHCONTOURS_HPP
 
 // The paths' grading read as contour lines: where their walking surface crosses each level
-// of a round interval, a visual guide to how the ground falls. Each path's surface is its
-// outline -- left edge, centreline, right edge at every sample -- with the crossfall
-// carried straight from the centre to each edge; where paths cross, the ground belongs to
-// the path it lies deepest in, as the paved surface's heights do (Pave). The lines keep to
-// the paved area as its kerbs round it, and the ground a junction's rounding adds between
-// the paths is contoured too, on a fine grid of the same heights.
+// of a round interval. Contours cut the same united, sampled mesh that is displayed,
+// including junctions and kerb roundings; independent overlapping strips are not traced.
 #include "Edit/EditPath.hpp"
 #include <vector>
 
 namespace geomsrv::edit {
 
 struct Contour {
-    Id path = kNoId; // none on a junction's rounding, between paths
+    Id path = kNoId; // a single path's id; none for a unified multi-path network
     double z = 0.0;
     std::vector<Vec3> points; // in plan at height `z`, in the order the line runs
 };
@@ -24,6 +20,9 @@ struct Contour {
 // cut more than `maxLevels` levels draws none.
 std::vector<Contour> PathContours (const std::vector<Path>& paths, double interval, double step = 0.5,
                                    size_t maxLevels = 400);
+struct PavedArea;
+std::vector<Contour> SurfaceContours (const PavedArea& surface, double interval, Id path = kNoId,
+                                      size_t maxLevels = 400);
 
 // The paths' lowest and highest surface heights; false when there are none.
 bool PathHeightRange (const std::vector<Path>& paths, double& lo, double& hi, double step = 0.5);

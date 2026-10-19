@@ -12,6 +12,7 @@
 #include "Edit/EditGizmo.hpp"
 #include "Edit/EditPath.hpp"
 #include "Edit/EditPathContours.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include "Edit/EditSnap.hpp"
 #include <string>
 #include <vector>
@@ -57,6 +58,7 @@ struct Feedback {
     // The paths' contour lines (PathContours), drawn under their lines; the view writes
     // their heights. None when null.
     const std::vector<edit::Contour>* contours = nullptr;
+    const edit::PavedArea* paved = nullptr; // session's revision-cached shared surface
     std::vector<edit::Dimension> dimensions;
     GizmoView gizmo;
 };

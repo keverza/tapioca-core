@@ -16,6 +16,12 @@ namespace geomsrv::edit {
 // cross-section range `width` wide centred on it.
 Id AddPath (Document& doc, const std::vector<Vec3>& points, double width, const std::string& role = {});
 
+// Atomic topology edits; incompatible intent refuses instead of being discarded.
+bool JoinPathEnds (Document& doc, Id first, bool firstStart, Id second, bool secondStart, std::string& error);
+bool JoinMovedPathEnds (Document& doc, const Document& before, std::string& error);
+// This split increment supports straight runs/sharp points; curve interiors refuse rather than approximate.
+bool SplitPath (Document& doc, Id path, double station, std::string& error, Id* created = nullptr);
+
 bool EditPath (Document& doc, Id path, const std::function<bool (Path&, std::string&)>& change, std::string& error);
 
 bool MovePathPoint (Document& doc, Id path, Id point, Vec3 to, std::string& error);

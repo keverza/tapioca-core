@@ -22,6 +22,30 @@ namespace layers = geomsrv::archviz::overlaylayers;
 namespace text = geomsrv::archviz::overlaytext;
 namespace hud = geomsrv::archviz::overlayhud;
 
+TEST (OverlayScene, ArrowOnlyLayersHaveABindablePageWithoutATextEngine)
+{
+    geomsrv::archviz::overlaylayers::Layer layer;
+    layer.name = "arrows";
+    geomsrv::archviz::overlaylayers::Polyline line;
+    line.points = { 0, 0, 0, 2, 0, 0 };
+    line.endArrow = geomsrv::archviz::overlaylayers::Terminator::Arrow;
+    layer.polylines.push_back (line);
+    const std::vector<std::shared_ptr<const geomsrv::archviz::overlaylayers::Layer>> all {
+        std::make_shared<const geomsrv::archviz::overlaylayers::Layer> (layer)
+    };
+    const auto plan = geomsrv::archviz::overlayscene::PreparePlan (all, nullptr);
+    const auto scene = geomsrv::archviz::overlayscene::PrepareScene (all, nullptr);
+    ASSERT_FALSE (plan.glyphs.empty ());
+    ASSERT_FALSE (scene.glyphs.empty ());
+    ASSERT_EQ (plan.pages.size (), 1u);
+    ASSERT_EQ (scene.pages.size (), 1u);
+    EXPECT_EQ (plan.pages[0]->id, scene.pages[0]->id);
+    for (const auto& draw : plan.glyphDraws)
+        EXPECT_LT (draw.page, plan.pages.size ());
+    for (const auto& draw : scene.glyphDraws)
+        EXPECT_LT (draw.page, scene.pages.size ());
+}
+
 namespace {
 
 text::Engine& Engine ()

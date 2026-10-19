@@ -165,8 +165,25 @@ bool MenuStation (const Session& s, double& station)
     edit::AlignmentGeometry g;
     std::string why;
     double offset = 0.0;
-    return path != nullptr && edit::BuildAlignment (path->points, g, why) &&
-           edit::StationOf (g, s.menu.at, station, offset);
+    if (path == nullptr || !edit::BuildAlignment (path->points, g, why))
+        return false;
+    if (s.menu.ref.part == edit::Part::PathPoint) {
+        for (size_t i = 0; i < path->points.size (); ++i)
+            if (path->points[i].id == s.menu.ref.item) {
+                station = g.pointStations[i];
+                return true;
+            }
+        return false;
+    }
+    if (s.menu.ref.part == edit::Part::Break) {
+        for (const auto& b : path->profile)
+            if (b.id == s.menu.ref.item) {
+                station = b.station;
+                return true;
+            }
+        return false;
+    }
+    return edit::StationOf (g, s.menu.at, station, offset);
 }
 
 template <class F> void ApplyPath (Session& s, F change)
@@ -240,6 +257,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("path.insertPoint", "Insert control point here"));
             items.push_back (Item ("path.insertBreak", "Add grade break here"));
             items.push_back (Item ("path.splitRange", "Split cross-section here"));
+            items.push_back (Item ("path.split", "Split path here"));
             Rule (items);
             items.push_back (Item ("delete", "Delete path", "Del"));
             break;
@@ -248,6 +266,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             const edit::Path* p = MenuPath (s);
             items.push_back (Item ("delete", "Delete control point", "Del", p != nullptr && p->points.size () > 2));
             items.push_back (Item ("path.insertBreak", "Add grade break here"));
+            items.push_back (Item ("path.split", "Split path at this point"));
             break;
         }
         case MenuTarget::GradeBreak: {
@@ -258,6 +277,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
                     fixed = fixed || (b.id == s.menu.ref.item && b.fixed);
             items.push_back (fixed ? Item ("break.unfix", "Release elevation") : Item ("break.fix", "Fix elevation"));
             items.push_back (Item ("delete", "Delete grade break", "Del", p != nullptr && p->profile.size () > 2));
+            items.push_back (Item ("path.split", "Split path at this point"));
             break;
         }
         case MenuTarget::Range: {
@@ -273,6 +293,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("fall.flip", "Flip fall", {}, r != nullptr && r->fall != edit::Fall::Crown));
             Rule (items);
             items.push_back (Item ("path.splitRange", "Split cross-section here"));
+            items.push_back (Item ("path.split", "Split path here"));
             items.push_back (Item ("delete", "Delete cross-section", "Del", p != nullptr && p->sections.size () > 1));
             break;
         }
@@ -411,6 +432,26 @@ void RunMenuItem (Session& s, const std::string& id)
         ApplyPath (s, [] (edit::Document& d, edit::Id p, double st, std::string& e) {
             return edit::SplitPathSection (d, p, st, e);
         });
+    else if (id == "path.split") {
+        double station = 0;
+        if (!MenuStation (s, station)) {
+            s.message = "The path split point could not be resolved.";
+            return;
+        }
+        const edit::Id path = s.menu.ref.entity;
+        edit::Id created = edit::kNoId;
+        // End must not immediately rejoin the two deliberately separated ends.
+        if (!s.edits.Apply (
+                [&created, path, station] (edit::Document& d, std::string& e) {
+                    return edit::SplitPath (d, path, station, e, &created);
+                },
+                false))
+            s.message = s.edits.Message ();
+        else {
+            s.selection.Set ({ { path, edit::Part::Entity, 0 }, { created, edit::Part::Entity, 0 } });
+            s.message.clear ();
+        }
+    }
     else if (id == "break.fix" || id == "break.unfix") {
         const edit::Path* p = MenuPath (s);
         if (p == nullptr)

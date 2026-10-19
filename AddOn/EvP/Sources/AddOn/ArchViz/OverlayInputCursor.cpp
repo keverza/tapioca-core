@@ -18,6 +18,22 @@ namespace geomsrv::archviz::overlayinput::state {
 namespace {
 using events::PhysicalButtons;
 
+// WindowFromPoint sends WM_NCHITTEST. Both the canvas subclass and the thread's
+// return hook can run inside that query; neither may start another cursor query.
+// Guard the query itself, including ownership checks made outside cursor repair.
+bool s_queryingCursor = false;
+struct CursorQuery {
+    bool previous = s_queryingCursor;
+    CursorQuery ()
+    {
+        s_queryingCursor = true;
+    }
+    ~CursorQuery ()
+    {
+        s_queryingCursor = previous;
+    }
+};
+
 // ⚠️ THE NATIVE MIDDLE-BUTTON GESTURE OWNS THE SHOWN CURSOR WHILE IT IS HELD -- READ LIVE,
 // NEVER FROM A LATCH (2026-10-18). Archicad pans and zooms with the middle button, and its
 // gesture is not the HUD's: while it is held the HUD leaves the shown cursor alone. The state
@@ -146,6 +162,7 @@ bool ResolveSubclassing ()
 
 bool OwnsPointer (const Target& target)
 {
+    const CursorQuery query;
     if (target.owner.shown == nullptr || !target.owner.shown ())
         return false;
     const Owner owner = CursorOwner (router.GetOwner (), PhysicalButtons ());
@@ -216,6 +233,9 @@ HCURSOR DesiredCursor (const Target& target, Cursor& desired)
 
 bool ShowCursor (const Target& target)
 {
+    if (s_queryingCursor)
+        return false;
+    const CursorQuery query;
     if (NativeNavigation () || !OwnsPointer (target))
         return false;
     Cursor desired = Cursor::Arrow;
@@ -236,6 +256,9 @@ bool ShowCursor (const Target& target)
 // cursor back with no further input of any kind.
 void ReassertCursor (const Target& target)
 {
+    if (s_queryingCursor)
+        return;
+    const CursorQuery query;
     if (NativeNavigation () || !target.map.locked || !OwnsPointer (target))
         return;
     Cursor desired = Cursor::Arrow;

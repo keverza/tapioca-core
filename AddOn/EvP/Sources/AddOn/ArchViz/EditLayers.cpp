@@ -320,9 +320,37 @@ bool CentreAt (const edit::PathOutline& o, double station, Vec3& out)
     return false;
 }
 
+bool AnnotationStation (const edit::Document& doc, const edit::Path& path, double from, double to, double preferred,
+                        double& station, double* halfSpan = nullptr)
+{
+    double best = 1e100;
+    bool found = false;
+    for (const auto& span : edit::PathAnnotationSpans (doc.paths, path.id, from, to)) {
+        if (span.to - span.from < 0.1)
+            continue;
+        const double at =
+            preferred > span.from + 0.05 && preferred < span.to - 0.05 ? preferred : (span.from + span.to) * 0.5;
+        if (std::abs (at - preferred) >= best)
+            continue;
+        best = std::abs (at - preferred);
+        station = at;
+        if (halfSpan)
+            *halfSpan = 0.8 * std::min (at - span.from, span.to - at);
+        found = true;
+    }
+    return found;
+}
+
+bool FrameAt (const edit::Path& path, double station, edit::StationFrame& frame)
+{
+    edit::AlignmentGeometry g;
+    std::string error;
+    return edit::BuildAlignment (path.points, g, error) && edit::Evaluate (path, g, station, frame);
+}
+
 // A path's labels: each grade break's height, each tangent's grade over its middle, each
 // range's crossfall on its falling side.
-void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const Style& style,
+void PathMarkLabels (const edit::Document& doc, const edit::Path& path, const edit::PathOutline& o, const Style& style,
                      std::vector<MarkLabel>& out)
 {
     const auto leftAt = [&] (double station) {
@@ -338,6 +366,8 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
     };
     for (size_t i = 0; i < path.profile.size () && i < o.breaks.size (); ++i) {
         const auto& b = path.profile[i];
+        if (b.crossing != edit::kNoId)
+            continue; // its exact height is not a measurement of an arm's run
         MarkLabel l;
         l.text = FormatValue (edit::Quantity::Elevation, b.z);
         if (b.fixed)
@@ -356,10 +386,13 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
     for (size_t i = 0; i + 1 < path.profile.size (); ++i) {
         const double s0 = path.profile[i].station, s1 = path.profile[i + 1].station;
         MarkLabel l;
-        if (!CentreAt (o, (s0 + s1) * 0.5, l.at))
+        double station = 0;
+        if (!AnnotationStation (doc, path, s0 + path.profile[i].curve * 0.5, s1 - path.profile[i + 1].curve * 0.5,
+                                (s0 + s1) * 0.5, station) ||
+            !CentreAt (o, station, l.at))
             continue;
-        l.side = leftAt ((s0 + s1) * 0.5);
-        l.along = tangentAt ((s0 + s1) * 0.5);
+        l.side = leftAt (station);
+        l.along = tangentAt (station);
         l.text = Percent (std::abs (edit::TangentGrade (path.profile, i) * 100.0));
         l.rgba = style.text;
         l.dy = -18.0f;
@@ -370,11 +403,12 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
     for (size_t r = 0; r < path.sections.size (); ++r) {
         const auto& section = path.sections[r];
         const double end = r + 1 < path.sections.size () ? path.sections[r + 1].station : o.stations.back ();
-        const double s = (section.station + end) * 0.5;
-        size_t k = 0;
-        while (k + 1 < o.stations.size () && o.stations[k] < s)
-            ++k;
-        const Vec3 c = o.centre[k], edge = section.fall == edit::Fall::Right ? o.right[k] : o.left[k];
+        double station = 0;
+        edit::StationFrame frame;
+        if (!AnnotationStation (doc, path, section.station, end, (section.station + end) * 0.5, station) ||
+            !FrameAt (path, station, frame))
+            continue;
+        const Vec3 c = frame.centre, edge = section.fall == edit::Fall::Right ? frame.rightEdge : frame.leftEdge;
         MarkLabel l;
         if (!edit::Normalize (Vec3 { edge.x - c.x, edge.y - c.y, 0.0 }, l.side))
             l.side = { 0.0, 1.0, 0.0 };
@@ -391,21 +425,23 @@ void PathMarkLabels (const edit::Path& path, const edit::PathOutline& o, const S
 
 // A path's dimensions for the view: each range's width across it, a third of the way along
 // (clear of its crossfall), and each bend's radius from its arc's centre to its middle.
-void PathDimensionLabels (const edit::Path& path, const edit::PathOutline& o, const Style& style,
-                          std::vector<MarkLabel>& out)
+void PathDimensionLabels (const edit::Document& doc, const edit::Path& path, const edit::PathOutline& o,
+                          const Style& style, std::vector<MarkLabel>& out)
 {
     for (size_t r = 0; r < path.sections.size (); ++r) {
         const auto& section = path.sections[r];
         const double end = r + 1 < path.sections.size () ? path.sections[r + 1].station : o.stations.back ();
-        const double s = section.station + (end - section.station) / 3.0;
-        size_t k = 0;
-        while (k + 1 < o.stations.size () && o.stations[k] < s)
-            ++k;
+        double station = 0;
+        edit::StationFrame frame;
+        if (!AnnotationStation (doc, path, section.station, end, section.station + (end - section.station) / 3.0,
+                                station) ||
+            !FrameAt (path, station, frame))
+            continue;
         MarkLabel l;
         l.line = true;
-        l.from = o.right[k];
-        l.to = o.left[k];
-        l.at = o.centre[k];
+        l.from = frame.rightEdge;
+        l.to = frame.leftEdge;
+        l.at = frame.centre;
         if (!edit::Normalize (Vec3 { l.to.x - l.from.x, l.to.y - l.from.y, 0.0 }, l.along))
             continue;
         l.side = { l.along.y, -l.along.x, 0.0 }; // ahead along the path
@@ -445,8 +481,8 @@ void PathDimensionLabels (const edit::Path& path, const edit::PathOutline& o, co
 
 // A path's marks over its surface: control polygon and points, grade breaks with their
 // heights, grade arrows and percentages, crossfall arrows.
-void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Style& style, layers::Layer& layer,
-                   bool labels)
+void AddPathMarks (const edit::Document& doc, const edit::Path& path, const edit::PathOutline& o, const Style& style,
+                   layers::Layer& layer, bool labels)
 {
     // Control polygon and points: the plan handles.
     layers::Polyline polygon = Line (o.points, false, style.controlPolygon, 1.0f);
@@ -477,9 +513,13 @@ void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Sty
     for (size_t i = 0; i + 1 < path.profile.size (); ++i) {
         const double s0 = path.profile[i].station, s1 = path.profile[i + 1].station;
         const double grade = edit::TangentGrade (path.profile, i) * 100.0;
-        Vec3 a, b, mid;
-        if (!CentreAt (o, s0 + (s1 - s0) * 0.4, a) || !CentreAt (o, s0 + (s1 - s0) * 0.6, b) ||
-            !CentreAt (o, (s0 + s1) * 0.5, mid))
+        Vec3 a, b;
+        double station = 0, halfSpan = 0;
+        if (!AnnotationStation (doc, path, s0 + path.profile[i].curve * 0.5, s1 - path.profile[i + 1].curve * 0.5,
+                                (s0 + s1) * 0.5, station, &halfSpan))
+            continue;
+        halfSpan = std::min (halfSpan, (s1 - s0) * 0.1);
+        if (!CentreAt (o, station - halfSpan, a) || !CentreAt (o, station + halfSpan, b))
             continue;
         if (std::abs (grade) > 1.0e-9)
             layer.polylines.push_back (grade > 0.0 ? Arrow (b, a, style.text) : Arrow (a, b, style.text));
@@ -489,11 +529,12 @@ void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Sty
     for (size_t r = 0; r < path.sections.size (); ++r) {
         const auto& section = path.sections[r];
         const double end = r + 1 < path.sections.size () ? path.sections[r + 1].station : o.stations.back ();
-        const double s = (section.station + end) * 0.5;
-        size_t k = 0;
-        while (k + 1 < o.stations.size () && o.stations[k] < s)
-            ++k;
-        const Vec3 c = o.centre[k], l = o.left[k], rt = o.right[k];
+        double station = 0;
+        edit::StationFrame frame;
+        if (!AnnotationStation (doc, path, section.station, end, (section.station + end) * 0.5, station) ||
+            !FrameAt (path, station, frame))
+            continue;
+        const Vec3 c = frame.centre, l = frame.leftEdge, rt = frame.rightEdge;
         const auto toward = [&] (Vec3 edge) { return Lerp (c, edge, 0.8); };
         if (section.fall == edit::Fall::Crown) {
             layer.polylines.push_back (Arrow (c, toward (l), style.fall));
@@ -507,16 +548,17 @@ void AddPathMarks (const edit::Path& path, const edit::PathOutline& o, const Sty
     if (!labels)
         return;
     std::vector<MarkLabel> marks;
-    PathMarkLabels (path, o, style, marks);
+    PathMarkLabels (doc, path, o, style, marks);
     for (const auto& l : marks)
         layer.texts.push_back (Label (l.text, l.at, style, l.dy, l.rgba));
 }
 
 // The paths paved as one area: crossings and junctions united, corners rounded by their
 // kerb radii, the surface triangulated with the paths' heights.
-bool AddPaved (const edit::Document& doc, const Style& style, layers::Layer& layer)
+bool AddPaved (const edit::Document& doc, const Style& style, layers::Layer& layer, const edit::PavedArea* cached)
 {
-    const auto paved = edit::Pave (doc.paths, style.pathStep);
+    const auto built = cached ? edit::PavedArea {} : edit::Pave (doc.paths, style.pathStep);
+    const auto& paved = cached ? *cached : built;
     if (paved.rings.empty ())
         return false;
     if (!paved.triangles.empty ()) {
@@ -534,7 +576,8 @@ bool AddPaved (const edit::Document& doc, const Style& style, layers::Layer& lay
     return true;
 }
 
-void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, bool paved, bool labels)
+void AddPath (const edit::Document& doc, const edit::Path& path, const Style& style, layers::Layer& layer, bool paved,
+              bool labels)
 {
     edit::PathOutline o;
     std::string error;
@@ -542,7 +585,7 @@ void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, 
         return;
     if (paved) {
         layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
-        AddPathMarks (path, o, style, layer, labels);
+        AddPathMarks (doc, path, o, style, layer, labels);
         return;
     }
     // The walking surface as a strip between the edges.
@@ -563,7 +606,7 @@ void AddPath (const edit::Path& path, const Style& style, layers::Layer& layer, 
     layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
     layer.polylines.push_back (Line (o.left, false, style.pathEdge, 1.5f));
     layer.polylines.push_back (Line (o.right, false, style.pathEdge, 1.5f));
-    AddPathMarks (path, o, style, layer, labels);
+    AddPathMarks (doc, path, o, style, layer, labels);
 }
 
 // A selected or hovered part of a path.
@@ -786,8 +829,8 @@ std::vector<MarkLabel> PathLabels (const edit::Document& doc, const Style& style
         edit::PathOutline o;
         std::string error;
         if (edit::Outline (path, style.pathStep, o, error) && o.stations.size () >= 2) {
-            PathMarkLabels (path, o, style, out);
-            PathDimensionLabels (path, o, style, out);
+            PathMarkLabels (doc, path, o, style, out);
+            PathDimensionLabels (doc, path, o, style, out);
         }
     }
     // Each rounded kerb corner's radius, from its fillet's centre to its middle.
@@ -837,12 +880,12 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     }
     if (!vertices.points.empty ())
         layer.points.push_back (std::move (vertices));
-    const bool paved = !doc.paths.empty () && AddPaved (doc, style, layer);
+    const bool paved = !doc.paths.empty () && AddPaved (doc, style, layer, f.paved);
     if (f.contours != nullptr)
         for (const auto& c : *f.contours)
             layer.polylines.push_back (Line (c.points, false, style.contour, 1.0f));
     for (const auto& p : doc.paths)
-        AddPath (p, style, layer, paved, !f.labelsInView);
+        AddPath (doc, p, style, layer, paved, !f.labelsInView);
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
             AddRef (doc, ref, style.selected, style, layer);
