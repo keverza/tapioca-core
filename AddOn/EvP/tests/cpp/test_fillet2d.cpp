@@ -121,6 +121,22 @@ TEST (Fillet2D, NonlocalHoleCollisionsAndNestingChangesReduceRadiiInsteadOfDelet
     EXPECT_LT (Corner (region.rings[0], 0).radius, 8);
 }
 
+TEST (Fillet2D, NonadjacentArcArcCollisionsFitBothContributingCorners)
+{
+    auto outside = Rectangle (0, 0, 20, 20);
+    outside.corners[0].radius = 8;
+    // Only the two southwest circular arcs cross: the hole's straight runs
+    // begin beyond the intersections of the outer arc with x/y=1.
+    const auto hole = Rectangle (1, 1, 12, 12, 4);
+    f::Region region;
+    std::string error;
+    ASSERT_TRUE (f::Build ({ outside, hole }, {}, region, error)) << error;
+    ASSERT_EQ (region.rings.size (), 2u);
+    EXPECT_DOUBLE_EQ (Corner (region.rings[0], 0).radius, 4);
+    EXPECT_DOUBLE_EQ (Corner (region.rings[1], 0).radius, 2);
+    EXPECT_EQ (region.rings[1].parent, 0u);
+}
+
 TEST (Fillet2D, IslandsAndRepeatedRecomputationKeepTheirTopologyAndAuthoredIntent)
 {
     const std::vector<f::InputRing> input { Rectangle (0, 0, 4, 4, 2), Rectangle (10, 0, 4, 4, 2) };

@@ -49,6 +49,24 @@ TEST (EditLayers, QuietPathsKeepOnlyTheUnitedBoundarySurfaceAndContourStrokes)
     EXPECT_FALSE (detailed.texts.empty ());
 }
 
+TEST (EditLayers, RoundedIntersectionPublishesOnlyOneSharedSurfaceMesh)
+{
+    ed::Document doc;
+    std::string error;
+    const auto a = ed::AddPath (doc, { { -10, 0, 0 }, { 10, 0, 1 } }, 2);
+    const auto b = ed::AddPath (doc, { { 0, -10, 0 }, { 0, 10, 1 } }, 2);
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, a, .5, error));
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, b, .5, error));
+    const auto area = ed::Pave (doc.paths);
+    ASSERT_TRUE (area.warning.empty ()) << area.warning;
+    el::Feedback f;
+    f.paved = &area;
+    const auto layer = el::Build (doc, f);
+    ASSERT_EQ (layer.meshes.size (), 1u) << "no overlapping per-path/fillet patch meshes";
+    EXPECT_EQ (layer.meshes[0].indices, area.triangles);
+    EXPECT_EQ (layer.meshes[0].points.size (), area.vertices.size () * 3);
+}
+
 TEST (EditLayers, WidthFallAndGradeAnnotationsMoveOffJunctions)
 {
     ed::Document doc;
