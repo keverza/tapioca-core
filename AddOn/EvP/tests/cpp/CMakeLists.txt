@@ -71,6 +71,7 @@ set (EVP_GEOM_SOURCES
     # mirrored mesh that is inside-out, a normal transformed as a direction under
     # a non-uniform scale. None of those logs anything.
     "${GEOM_DIR}/Curves.cpp"
+    "${GEOM_DIR}/Fillet2D.cpp"
     "${GEOM_DIR}/Transforms.cpp"
     # SurfaceSourceMap is the one place a face pick is correlated with extracted
     # provenance (Mesh::triSourceBody / triSourcePgon) by geometry. Pure by
@@ -783,6 +784,7 @@ set (EVP_TEST_SOURCES
     test_editworkingplane.cpp
     test_editshape.cpp
     test_editpathnetwork.cpp
+    test_fillet2d.cpp
     test_editpathcontours.cpp
     test_editpathcrossing.cpp
     test_edittracker.cpp
