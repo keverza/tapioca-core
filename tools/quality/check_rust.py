@@ -1,8 +1,9 @@
-"""Check the isolated Rust scaffold; no add-on build or deployment.
+"""Check the Rust kernel foundation; no add-on build or deployment.
 
 Default: architecture/secrets, fmt, check, strict Clippy, advisory complexity,
-debug + release tests/doctests, and a release staticlib. --structure-only needs
-only Python 3.11+. Exit 0 = clean, 1 = violation, 2 = missing/broken tool.
+debug + release tests/doctests, and a release aggregate staticlib. --build only
+compiles that release staticlib; --structure-only needs only Python 3.11+.
+Exit 0 = clean, 1 = violation, 2 = missing/broken tool.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import check_secrets
 REPO = Path(__file__).resolve().parents[2]
 WORKSPACE = REPO / "AddOn/EvP/rust"
 SKIP_DIRS = {"target", "build", "vendor", "generated", ".git"}
-PACKAGES = {"geometry": "tapioca-geometry", "ffi": "tapioca-geometry-ffi"}
+PACKAGES = {"geometry": "tapioca-geometry", "ffi": "tapioca-core-ffi"}
 
 
 def rust_sources(workspace: Path) -> list[Path]:
@@ -84,10 +85,13 @@ def find_rustup() -> str | None:
     return str(proxy) if proxy.is_file() else None
 
 
-def cargo_commands(target: str | None) -> list[list[str]]:
+def cargo_commands(target: str | None, build_only: bool = False) -> list[list[str]]:
     platform = ["--target", target] if target else []
     common = ["--workspace", "--all-targets", "--locked", "--offline", *platform]
     tests = ["--workspace", "--locked", "--offline", *platform]
+    aggregate = ["build", "--package", PACKAGES["ffi"], "--release", "--locked", "--offline", *platform]
+    if build_only:
+        return [aggregate]
     return [
         ["fmt", "--all", "--", "--check"],
         ["check", *common],
@@ -107,13 +111,15 @@ def cargo_commands(target: str | None) -> list[list[str]]:
         ],
         ["test", *tests],
         ["test", *tests, "--release"],
-        ["build", "--package", "tapioca-geometry-ffi", "--release", "--locked", "--offline", *platform],
+        aggregate,
     ]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--structure-only", action="store_true", help="do not require Rust or compile anything")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--structure-only", action="store_true", help="do not require Rust or compile anything")
+    mode.add_argument("--build", action="store_true", help="only build the release aggregate static library")
     parser.add_argument("--target", choices=["x86_64-pc-windows-msvc"], help="otherwise test on the native host")
     parser.add_argument("--target-dir", type=Path, help="Cargo build output directory (default: rust/target)")
     args = parser.parse_args(argv)
@@ -141,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
         if args.target_dir:
             env["CARGO_TARGET_DIR"] = str(args.target_dir.resolve())
-        for command in cargo_commands(args.target):
+        for command in cargo_commands(args.target, build_only=args.build):
             print("+ cargo " + " ".join(command), flush=True)
             result = subprocess.run([rustup, "run", version, "cargo", *command], cwd=WORKSPACE, env=env, check=False)
             if result.returncode:
@@ -149,7 +155,10 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError, KeyError) as error:
         print(f"Rust gate could not run: {error}", file=sys.stderr)
         return 2
-    print("Rust gates passed; scaffold compiled only. No geometry algorithms or C ABI exports exist yet.")
+    if args.build:
+        print("Rust core release build passed.")
+        return 0
+    print("Rust gates passed; the aggregate core static library compiled.")
     return 0
 
 

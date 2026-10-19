@@ -1,4 +1,4 @@
-"""The Rust scaffold gates must reject broken policy, not merely pass empty crates."""
+"""The Rust foundation gates must reject broken policy, not merely pass valid crates."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import types
 from pathlib import Path
 
 import pytest
@@ -22,10 +23,15 @@ def workspace(tmp_path):
     return destination
 
 
-def test_scaffold_has_no_production_exports_and_obeys_policy(workspace):
+def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
     assert check_rust.structure(workspace) == ([], [])
-    for path in check_rust.rust_sources(workspace):
-        assert 'extern "C"' not in path.read_text(encoding="utf-8")
+    ffi = tomllib.loads((workspace / "ffi/Cargo.toml").read_text(encoding="utf-8"))
+    assert ffi["package"]["name"] == "tapioca-core-ffi"
+    assert ffi["lib"]["crate-type"] == ["staticlib", "rlib"]
+    assert ffi["dependencies"] == {"tapioca-geometry": {"path": "../geometry"}}
+    geometry = tomllib.loads((workspace / "geometry/Cargo.toml").read_text(encoding="utf-8"))
+    assert geometry["package"]["name"] == "tapioca-geometry"
+    assert geometry.get("dependencies", {}) == {}
 
 
 @pytest.mark.parametrize("crate", ["geometry", "ffi"])
@@ -54,7 +60,7 @@ def test_unapproved_dependencies_fail_including_platform_and_test_crates(workspa
 def test_reverse_dependency_is_rejected(workspace):
     path = workspace / "geometry/Cargo.toml"
     path.write_text(
-        path.read_text(encoding="utf-8") + '\n[dependencies]\ntapioca-geometry-ffi = { path = "../ffi" }\n',
+        path.read_text(encoding="utf-8") + '\n[dependencies]\ntapioca-core-ffi = { path = "../ffi" }\n',
         encoding="utf-8",
     )
     errors, _ = check_rust.structure(workspace)
@@ -98,8 +104,9 @@ def test_new_untracked_rust_is_secret_scanned(workspace):
     assert any("provider configuration" in error for error in errors)
 
 
-def test_all_compile_commands_are_offline_locked_and_test_both_profiles():
+def test_full_gate_commands_are_offline_locked_and_test_both_profiles():
     commands = check_rust.cargo_commands("x86_64-pc-windows-msvc")
+    assert [command[0] for command in commands] == ["fmt", "check", "clippy", "clippy", "test", "test", "build"]
     for command in commands:
         if command[0] != "fmt":
             assert "--locked" in command and "--offline" in command
@@ -107,6 +114,35 @@ def test_all_compile_commands_are_offline_locked_and_test_both_profiles():
     tests = [command for command in commands if command[0] == "test"]
     assert len(tests) == 2
     assert "--release" not in tests[0] and "--release" in tests[1]
+    assert commands[-1][:4] == ["build", "--package", "tapioca-core-ffi", "--release"]
+
+
+@pytest.mark.parametrize(
+    "target, platform",
+    [(None, []), ("x86_64-pc-windows-msvc", ["--target", "x86_64-pc-windows-msvc"])],
+)
+def test_build_mode_selects_only_the_aggregate_release_command(target, platform):
+    assert check_rust.cargo_commands(target, build_only=True) == [
+        ["build", "--package", "tapioca-core-ffi", "--release", "--locked", "--offline", *platform]
+    ]
+
+
+def test_build_and_structure_only_are_mutually_exclusive(capsys):
+    with pytest.raises(SystemExit) as error:
+        check_rust.main(["--build", "--structure-only"])
+    assert error.value.code == 2
+    assert "not allowed with argument" in capsys.readouterr().err
+
+
+def _fake_cargo(monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(check_rust.subprocess, "run", run)
+    return calls
 
 
 def test_missing_rustup_is_an_error_not_a_green_skip(monkeypatch):
@@ -120,6 +156,64 @@ def test_inherited_overrides_cannot_bypass_the_pin_or_flags(monkeypatch, overrid
     monkeypatch.setattr(check_rust, "find_rustup", lambda: "rustup")
     monkeypatch.setenv(override, "override")
     assert check_rust.main([]) == 2
+
+
+@pytest.mark.parametrize(
+    "relative, contents",
+    [
+        ("geometry/src/lib.rs", "//! Missing unsafe guard.\n"),
+        ("geometry/src/new.rs", 'const URL: &str = "api.openai.com";\n'),
+    ],
+)
+def test_build_mode_rejects_structure_and_secret_violations_before_cargo(workspace, monkeypatch, relative, contents):
+    monkeypatch.setattr(check_rust, "WORKSPACE", workspace)
+    monkeypatch.setattr(check_rust, "find_rustup", lambda: "rustup")
+    calls = _fake_cargo(monkeypatch)
+    (workspace / relative).write_text(contents, encoding="utf-8")
+    assert check_rust.main(["--build"]) == 1
+    assert calls == []
+
+
+def test_build_mode_still_requires_rustup(workspace, monkeypatch):
+    monkeypatch.setattr(check_rust, "WORKSPACE", workspace)
+    calls = _fake_cargo(monkeypatch)
+    monkeypatch.setattr(check_rust, "find_rustup", lambda: None)
+    assert check_rust.main(["--build"]) == 2
+    assert calls == []
+
+
+@pytest.mark.parametrize("override", ["RUSTUP_TOOLCHAIN", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_BOOTSTRAP"])
+def test_build_mode_refuses_inherited_overrides(workspace, monkeypatch, override):
+    monkeypatch.setattr(check_rust, "WORKSPACE", workspace)
+    calls = _fake_cargo(monkeypatch)
+    monkeypatch.setattr(check_rust, "find_rustup", lambda: "rustup")
+    monkeypatch.setenv(override, "override")
+    assert check_rust.main(["--build"]) == 2
+    assert calls == []
+
+
+def test_build_mode_uses_pinned_toolchain_for_one_command(workspace, monkeypatch):
+    monkeypatch.setattr(check_rust, "WORKSPACE", workspace)
+    monkeypatch.setattr(check_rust, "find_rustup", lambda: "rustup")
+    calls = _fake_cargo(monkeypatch)
+    assert check_rust.main(["--build", "--target", "x86_64-pc-windows-msvc"]) == 0
+    version = tomllib.loads((workspace / "rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"]
+    assert calls == [
+        [
+            "rustup",
+            "run",
+            version,
+            "cargo",
+            "build",
+            "--package",
+            "tapioca-core-ffi",
+            "--release",
+            "--locked",
+            "--offline",
+            "--target",
+            "x86_64-pc-windows-msvc",
+        ]
+    ]
 
 
 @pytest.mark.parametrize(

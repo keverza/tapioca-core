@@ -16,7 +16,9 @@ the public command roots before syncing them.
 ## Native boundaries
 
 Rust-only work lives in `AddOn/EvP/rust/`. Read its `AGENTS.md` and
-`docs/guides/rust-kernel.md`; it is an unlinked scaffold, not a migration mandate.
+`docs/guides/rust-kernel.md`; its version-only foundation is production-unlinked,
+not a generic migration mandate. New namespaces use `tapioca` or `geometry`,
+never `EvP`/`evp`; existing compatibility paths/types need not be renamed.
 Run `python tools/quality/check_rust.py` for Rust changes. Rust uses idiomatic
 Rust naming, not the C++ naming convention above.
 

@@ -1,11 +1,11 @@
 [package]
-name = "tapioca-geometry-ffi"
+name = "tapioca-core-ffi"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Unlinked C ABI static-library scaffold for the geometry kernel."
+description = "Aggregate C ABI static-library foundation for the Tapioca core."
 
 [lib]
 crate-type = ["staticlib", "rlib"]

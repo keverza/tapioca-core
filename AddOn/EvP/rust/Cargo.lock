@@ -3,12 +3,12 @@
 version = 4
 
 [[package]]
-name = "tapioca-geometry"
-version = "0.0.0"
-
-[[package]]
-name = "tapioca-geometry-ffi"
+name = "tapioca-core-ffi"
 version = "0.0.0"
 dependencies = [
  "tapioca-geometry",
 ]
+
+[[package]]
+name = "tapioca-geometry"
+version = "0.0.0"

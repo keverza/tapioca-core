@@ -1,7 +1,8 @@
 # Rust kernel coding rules
 
 Read `README.md` and `../../../docs/guides/rust-kernel.md` first. This is an
-**unlinked scaffold**, not an authorization to port or refactor C++ algorithms.
+**production-unlinked foundation** with a version-only C ABI, not an authorization
+to port or refactor C++ algorithms outside an approved capability/stage.
 Before a feature, identify its owner, reusable primitives, input/output contract,
 invariants, C++ parity oracle, and tests. Keep changes independently verifiable.
 
@@ -70,9 +71,12 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
   compiler/profile, seeds, worker count, time, allocations/copies, peak memory.
   No performance claim before measurement; do not add a benchmark framework first.
 
-## Future FFI (not implemented)
+## C ABI boundary
 
 - `ffi/` is the only possible unsafe/ABI owner; `deny(unsafe_code)` is the default.
+  The current export is `tapioca_version`; validators/geometry exports require
+  their own implementation and tests. New namespaces/symbols use `tapioca` or
+  `geometry`, never `EvP`/`evp` (existing directory names are not new namespaces).
   Any narrow override must explain `SAFETY:`, alignment, pointer/length/overflow
   validation, aliasing, ownership, and lifetime. `repr(C)` records, fixed-width
   integers, explicit string encodings; never Rust/C++ containers or native `bool`.
@@ -93,6 +97,7 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
 
 From `core/`: `python tools/quality/check_rust.py`. This runs structure/secrets,
 formatting, compilation, strict Clippy, advisory complexity, debug/release tests
-and doctests, and release static-library compilation. It does not build/deploy
-the `.apx`. Run relevant checker regression tests as well. See the guide for
-environment setup and the optional CMake compile target.
+and doctests, and release static-library compilation. `--build` retains policy,
+secrets and pin checks but compiles only the release archive for CMake; it is not
+the full gate. Neither mode builds/deploys the `.apx`. Run checker regressions
+and the standalone C/C++ ABI smoke test for boundary/build changes. See the guide.

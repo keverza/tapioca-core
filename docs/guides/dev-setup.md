@@ -92,9 +92,12 @@ captures.
 
 ## 6. Carry over optional state
 
-Rust kernel development is optional and does not affect normal add-on builds.
-See [Rust kernel setup and gates](rust-kernel.md) for the pinned toolchain and
-compile-only scaffold. No algorithms have been migrated or linked into the add-on.
+Rust kernel development is currently optional for ordinary add-on builds. See
+[Rust kernel setup and gates](rust-kernel.md) for the pinned toolchain, aggregate
+staticlib and standalone C/C++ ABI smoke test. Only the version/status envelope
+is implemented; no geometry algorithm is migrated or linked into the add-on.
+Rust/Cargo becomes a documented build prerequisite when a geometry family becomes
+mandatory; do not silently skip that family's archive if the toolchain is absent.
 
 - `AddOn\reference\`: copy or provision it as described above.
 - `%LOCALAPPDATA%\Tapioca\palette.json`: copy only if the saved palette layout and
