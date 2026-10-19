@@ -16,6 +16,10 @@ namespace detail {
 // The document actions the menu, the keys and the panel share.
 void History (Session& s, bool undo)
 {
+    if (s.profileTyping) {
+        s.message = "Apply the profile value with Enter or give it up with Esc before undoing.";
+        return;
+    }
     if (s.drag != Drag::None)
         return;
     if (!(undo ? s.edits.Undo () : s.edits.Redo ()))
@@ -25,6 +29,10 @@ void History (Session& s, bool undo)
 
 void DeleteSelection (Session& s)
 {
+    if (s.profileTyping) {
+        s.message = "Apply the profile value with Enter or give it up with Esc before deleting.";
+        return;
+    }
     const auto items = s.selection.Items ();
     if (items.empty () || s.drag != Drag::None)
         return;

@@ -3021,3 +3021,294 @@ TEST (HudVirtualEditor, ACrossfallTypedNegativeFallsTheOtherWay)
     EXPECT_EQ (r.fall, ed::Fall::Right);
     EXPECT_NEAR (r.crossfall, 3.0, 1e-9);
 }
+
+namespace {
+// The placed profile label for a quantity and grade point, as the canvas published it this frame.
+const eh::Session::PlacedProfileLabel* ProfileLabel (const eh::Session& s, ed::Quantity quantity, ed::Id item)
+{
+    for (auto it = s.profilePlaced.rbegin (); it != s.profilePlaced.rend (); ++it)
+        if (it->target.quantity == quantity && it->target.ref.item == item)
+            return &*it;
+    return nullptr;
+}
+ImVec2 Centre (const eh::Session::PlacedProfileLabel& l)
+{
+    return { (l.box.x0 + l.box.x1) * 0.5f, (l.box.y0 + l.box.y1) * 0.5f };
+}
+// The canvas is clickable only where it is really drawn: a viewport tall enough that the page
+// does not scroll it out of the panel (the default harness can), then a frame to lay it out.
+void ShowProfile (Drive& d)
+{
+    d.input.width = 1200.0f;
+    d.input.height = 1500.0f;
+    d.Frame ();
+}
+// A straight 100 m ramp, 100.0 to 103.0, with a break at 40 m set to 102.0 (5 % then 1 %).
+ed::Document ProfileRamp (ed::Id& path, ed::Id& mid)
+{
+    ed::Document doc;
+    path = ed::AddPath (doc, { { 0, 0, 100.0 }, { 100, 0, 103.0 } }, 1.8);
+    std::string error;
+    EXPECT_TRUE (ed::InsertPathBreak (doc, path, 40.0, error, &mid)) << error;
+    EXPECT_TRUE (ed::SetPathElevation (doc, path, mid, 102.0, error)) << error;
+    return doc;
+}
+} // namespace
+
+TEST (HudVirtualEditor, AProfileElevationLabelBindsTheBreakItSitsBeside)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    ASSERT_FALSE (d.S ().profilePlaced.empty ());
+    size_t elevations = 0, slopes = 0;
+    for (const auto& l : d.S ().profilePlaced) {
+        elevations += l.target.quantity == ed::Quantity::Elevation;
+        slopes += l.target.quantity == ed::Quantity::Slope;
+    }
+    EXPECT_EQ (elevations, 3u); // one beside each grade point
+    EXPECT_EQ (slopes, 2u);     // one along each tangent
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    const auto revision = d.D ().revision;
+    const float cx = (box->box.x0 + box->box.x1) * 0.5f, cy = (box->box.y0 + box->box.y1) * 0.5f;
+    d.Press (cx, cy);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None); // a label click is never a drag
+    ASSERT_TRUE (d.S ().profileTyping);
+    EXPECT_EQ (d.S ().profileTarget.quantity, ed::Quantity::Elevation);
+    EXPECT_EQ (d.S ().profileTarget.ref.entity, path);
+    EXPECT_EQ (d.S ().profileTarget.ref.item, mid);
+    EXPECT_EQ (d.S ().profileRevision, revision);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].part, ed::Part::Break);
+    ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().tracker.Items ()[0].quantity, ed::Quantity::Elevation);
+
+    // The exact number typed is what is written, at full precision.
+    d.input.characters = u"102.375";
+    d.Frame ();
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    d.Key (0x0D);
+    const ed::Path* p = ed::FindPath (d.D (), path);
+    ASSERT_EQ (p->profile.size (), 3u);
+    EXPECT_DOUBLE_EQ (p->profile[1].z, 102.375);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    EXPECT_FALSE (d.S ().profileTyping);
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    EXPECT_DOUBLE_EQ (ed::FindPath (d.D (), path)->profile[1].z, 102.0); // one undoable step
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, AProfileSlopeLabelReadsAlongItsTangentAndTakesASignedGrade)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Slope, mid);
+    ASSERT_NE (box, nullptr);
+    // It reads along the projected run, not level: the canvas exaggerates the heights, so the
+    // angle on screen is the tangent's, and the second tangent rises to the right.
+    EXPECT_NE (box->box.ux, 1.0f);
+    EXPECT_LT (box->box.uy, 0.0f);
+    const float cx = (box->box.x0 + box->box.x1) * 0.5f, cy = (box->box.y0 + box->box.y1) * 0.5f;
+    d.Press (cx, cy);
+    ASSERT_TRUE (d.S ().profileTyping);
+    EXPECT_EQ (d.S ().profileTarget.quantity, ed::Quantity::Slope);
+    EXPECT_EQ (d.S ().profileTarget.ref.item, mid);
+    d.input.characters = u"-1.25"; // signed: this tangent now falls
+    d.Frame ();
+    d.Key (0x0D);
+    const ed::Path* p = ed::FindPath (d.D (), path);
+    EXPECT_NEAR ((p->profile[2].z - p->profile[1].z) / (p->profile[2].station - p->profile[1].station) * 100.0, -1.25,
+                 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, AProfileElevationRefusalKeepsTheFieldAndWhatWasTyped)
+{
+    ed::Id path = 0, mid = 0;
+    auto doc = ProfileRamp (path, mid);
+    doc.paths[0].profile[1].fixed = true; // a reference elevation the edit must keep
+    Drive d (std::move (doc));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    d.Press ((box->box.x0 + box->box.x1) * 0.5f, (box->box.y0 + box->box.y1) * 0.5f);
+    ASSERT_TRUE (d.S ().profileTyping);
+    const auto before = d.D ().paths;
+    d.input.characters = u"103.5";
+    d.Frame ();
+    d.Key (0x0D);
+    EXPECT_NE (d.S ().message.find ("fixed"), std::string::npos);
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing); // the field is kept...
+    EXPECT_EQ (d.S ().tracker.Text (), "103.5");                    // ...with what was typed
+    EXPECT_EQ (d.D ().paths, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_TRUE (d.S ().profileTyping);
+}
+
+TEST (HudVirtualEditor, AProfileBindingRefusesWhatAChangedDocumentNoLongerMatches)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    d.Press ((box->box.x0 + box->box.x1) * 0.5f, (box->box.y0 + box->box.y1) * 0.5f);
+    ASSERT_TRUE (d.S ().profileTyping);
+    // An edit elsewhere moves the document on: the value the click read is no longer the one
+    // that would be written, so Enter refuses instead of writing it.
+    ASSERT_TRUE (d.S ().edits.Apply (
+        [path] (ed::Document& doc, std::string& e) { return ed::SetPathEdgeRadius (doc, path, 2.0, e); }));
+    d.input.characters = u"105";
+    d.Frame ();
+    const auto before = d.D ().paths;
+    d.Key (0x0D);
+    EXPECT_NE (d.S ().message.find ("changed"), std::string::npos);
+    EXPECT_EQ (d.D ().paths, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u); // only the kerb edit
+    EXPECT_TRUE (d.S ().profileTyping);        // the binding waits to be corrected
+}
+
+TEST (HudVirtualEditor, EscapeGivesUpAProfileBindingWithoutEditing)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    d.Press ((box->box.x0 + box->box.x1) * 0.5f, (box->box.y0 + box->box.y1) * 0.5f);
+    ASSERT_TRUE (d.S ().profileTyping);
+    d.input.characters = u"104";
+    d.Frame ();
+    const auto before = d.D ().paths;
+    d.Key (0x1B);
+    EXPECT_FALSE (d.S ().profileTyping);
+    EXPECT_NE (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.D ().paths, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, AProfileLabelCannotBindWhileAnotherEntryOwnsTheNumber)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    const float cx = (box->box.x0 + box->box.x1) * 0.5f, cy = (box->box.y0 + box->box.y1) * 0.5f;
+    ASSERT_TRUE (eh::BeginPlaneEntry (d.S ())); // the working plane already owns the tracker
+    d.Press (cx, cy);
+    EXPECT_TRUE (d.S ().planeTyping);
+    EXPECT_FALSE (d.S ().profileTyping);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, AProfileLabelClickIsNeverADragNorABreak)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    const size_t breaks = ed::FindPath (d.D (), path)->profile.size ();
+    const float cx = (box->box.x0 + box->box.x1) * 0.5f, cy = (box->box.y0 + box->box.y1) * 0.5f;
+    d.Press (cx, cy);
+    EXPECT_TRUE (d.S ().profileTyping); // the click was the label's
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    EXPECT_EQ (ed::FindPath (d.D (), path)->profile.size (), breaks);
+}
+
+TEST (HudVirtualEditor, ARestingProfileBindingOwnsTheInputBeforeItsFirstDigit)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    const ImVec2 at = Centre (*box);
+    d.Press (at.x, at.y);
+    ASSERT_TRUE (d.S ().profileTyping);
+    ASSERT_EQ (d.S ().tracker.State (), ed::TrackerState::Showing); // resting: no digit yet
+
+    // A mode key does not take the view while the field rests.
+    const auto gizmo = d.S ().gizmo;
+    d.input.keys = { { 'R', true } };
+    d.Frame ();
+    d.input.keys = { { 'R', false } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().gizmo, gizmo);
+    EXPECT_TRUE (d.S ().profileTyping);
+
+    // The drawing plane cannot take the number from the resting field.
+    EXPECT_FALSE (eh::BeginPlaneEntry (d.S ()));
+    EXPECT_FALSE (d.S ().planeTyping);
+    EXPECT_TRUE (d.S ().profileTyping);
+    EXPECT_FALSE (d.S ().message.empty ());
+
+    // Undo waits for the value, exactly as it does for one being typed.
+    const auto depth = d.S ().edits.UndoDepth ();
+    d.input.keys = { { 'Z', true, false, true } };
+    d.Frame ();
+    d.input.keys = { { 'Z', false, false, true } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().edits.UndoDepth (), depth);
+    EXPECT_TRUE (d.S ().profileTyping);
+
+    // The view neither picks nor drags under it: press on the path's own centreline.
+    d.Press (1000, 500);
+    d.Release (1000, 500);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_TRUE (d.S ().profileTyping);
+}
+
+TEST (HudVirtualEditor, AProfileLabelThePageHasScrolledAwayIsNotClickable)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    // Too short a viewport for the page: the canvas is clipped out of the panel, and ImGui's own
+    // hover must be what a click passes -- the published box alone is never enough.
+    d.input.height = 260.0f;
+    d.Frame ();
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr); // still published...
+    const ImVec2 at = Centre (*box);
+    d.Press (at.x, at.y);
+    EXPECT_FALSE (d.S ().profileTyping); // ...and not clickable where it is not drawn
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, AProfileBindingSurvivesAPlanToThreeDViewSwitch)
+{
+    ed::Id path = 0, mid = 0;
+    Drive d (ProfileRamp (path, mid));
+    ShowProfile (d);
+    const auto* box = ProfileLabel (d.S (), ed::Quantity::Elevation, mid);
+    ASSERT_NE (box, nullptr);
+    const ImVec2 at = Centre (*box);
+    d.Press (at.x, at.y);
+    ASSERT_TRUE (d.S ().profileTyping);
+    d.input.characters = u"102.5";
+    d.Frame ();
+    ASSERT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    ASSERT_EQ (d.S ().tracker.Text (), "102.5");
+    const auto revision = d.S ().profileRevision;
+
+    // The view changes plan -> 3D. The panel's field is not the view's to give up.
+    d.input.planar = false;
+    d.Frame ();
+    EXPECT_TRUE (d.S ().profileTyping);
+    EXPECT_EQ (d.S ().tracker.State (), ed::TrackerState::Editing);
+    EXPECT_EQ (d.S ().tracker.Text (), "102.5");
+    EXPECT_EQ (d.S ().profileTarget.ref.item, mid);
+    EXPECT_EQ (d.S ().profileRevision, revision);
+
+    d.Key (0x0D);
+    EXPECT_DOUBLE_EQ (ed::FindPath (d.D (), path)->profile[1].z, 102.5);
+    EXPECT_FALSE (d.S ().profileTyping);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}

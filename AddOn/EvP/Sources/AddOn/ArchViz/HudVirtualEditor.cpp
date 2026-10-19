@@ -147,14 +147,17 @@ void Escape (Session& s)
 {
     if (s.tracker.State () == edit::TrackerState::Editing) {
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });
-        if (s.planeTyping)
+        if (s.planeTyping || s.profileTyping)
             s.message.clear ();
         s.planeTyping = false;
         s.planeEntryPath = edit::kNoId;
         s.planeEntryRevision = 0;
+        s.profileTyping = false;
     }
     else if (s.planeTyping)
         s.planeTyping = false, s.planeEntryPath = edit::kNoId, s.planeEntryRevision = 0, s.message.clear ();
+    else if (s.profileTyping)
+        s.profileTyping = false, s.message.clear ();
     else if (s.typedHandle >= 0)
         s.typedHandle = -1, s.message.clear ();
     else if (s.drag != Drag::None) {
@@ -217,6 +220,25 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
             s.planeTyping = false;
             if (!SetWorkingPlane (s, plane))
                 s.planeTyping = true;
+        }
+        return;
+    }
+    if (s.profileTyping) {
+        // A profile label's value: Enter sets it, Esc gives it up, Tab locks nothing here. The
+        // binding is only as good as the revision it was made at -- an edit since then means
+        // the value it would write is not the one the click read, so it is refused unapplied.
+        if (event.outcome == O::Locked)
+            s.message = "Enter sets the value; Tab does not lock this one.";
+        else if (s.edits.Doc ().revision != s.profileRevision)
+            s.message = "The path changed while the value was typed; click its label again.";
+        else {
+            s.profileTyping = false;
+            if (!s.edits.Apply (edit::WriteDimension (s.profileTarget, event.value))) {
+                s.profileTyping = true; // a refusal keeps the field, with what was typed, to correct
+                s.message = s.edits.Message ();
+            }
+            else
+                s.message.clear ();
         }
         return;
     }
@@ -324,6 +346,13 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
                        : 0 } };
     if (s.planeTyping)
         return { { edit::Quantity::Elevation, s.plane.origin.z } };
+    if (s.profileTyping) {
+        // The profile canvas' binding: the exact dimension a clicked label read, whatever the
+        // selection has become, so nothing else typed through the tracker can shadow it.
+        double value = 0.0;
+        edit::ReadDimension (s.edits.Doc (), s.profileTarget, value);
+        return { { s.profileTarget.quantity, value } };
+    }
     if (!s.drawing.empty ()) {
         const auto plane = s.capturedPlane.value_or (s.plane);
         const Vec3 delta = s.snap.point - s.drawing.back ();
@@ -404,7 +433,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     // Undo and redo are the document's, never the number being typed's: a chord pressed while
     // a value is typed does nothing to the history (Enter applies it, Esc gives it up first).
     const auto history = [&] (bool undo) {
-        if (s.tracker.State () == edit::TrackerState::Editing || s.planeTyping)
+        if (s.tracker.State () == edit::TrackerState::Editing || s.planeTyping || s.profileTyping)
             s.message = "Apply the typed value with Enter or give it up with Esc before undoing.";
         else
             History (s, undo);
@@ -433,7 +462,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
         else
             s.message = "Archicad's delete, cut and paste are off while the virtual editor has the view.";
     }
-    const bool typing = s.tracker.State () == edit::TrackerState::Editing || s.planeTyping;
+    const bool typing = s.tracker.State () == edit::TrackerState::Editing || s.planeTyping || s.profileTyping;
     for (const auto& key : v.keys) {
         if (!key.down || key.repeat)
             continue;
@@ -540,7 +569,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     const bool shift = ImGui::GetIO ().KeyShift;
     CheckView (s, v);
     Navigate (s, m, mouse);
-    hovered = hovered && !s.navigation.blocked && !s.planeTyping;
+    hovered = hovered && !s.navigation.blocked && !s.planeTyping && !s.profileTyping;
     if (s.drag == Drag::None && s.typedHandle < 0 && !s.selection.Items ().empty () && !GizmoAvailable (s, s.gizmo))
         s.gizmo = edit::GizmoMode::Gumball;
     const edit::PickView pick = m.Pick ();

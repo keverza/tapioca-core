@@ -19,13 +19,49 @@ namespace {
 const ImU32 kGrid = IM_COL32 (200, 205, 212, 255);
 const ImU32 kGridFaint = IM_COL32 (228, 231, 236, 255);
 const ImU32 kGridText = IM_COL32 (110, 118, 130, 255);
+void Turn (ImDrawList* list, int first, const editlayers::Box& box)
+{
+    if (box.ux == 1.0f && box.uy == 0.0f)
+        return;
+    const float cx = (box.x0 + box.x1) * 0.5f, cy = (box.y0 + box.y1) * 0.5f;
+    for (int i = first; i < list->VtxBuffer.Size; ++i) {
+        ImVec2& p = list->VtxBuffer[i].pos;
+        const float x = p.x - cx, y = p.y - cy;
+        p = { cx + x * box.ux - y * box.uy, cy + x * box.uy + y * box.ux };
+    }
+}
+
+// A label's ink in its box, turned as the box is.
+void Inked (ImDrawList* list, const editlayers::Box& box, const std::string& text, ImU32 ink)
+{
+    const int first = list->VtxBuffer.Size;
+    list->AddText ({ box.x0 + 4.0f, box.y0 + 1.0f }, ink, text.c_str ());
+    Turn (list, first, box);
+}
+
+// A downhill slope indicator along a tangent's projected run: a shaft and a filled head, the
+// arrowhead the model path draws as a line terminator (EditLayers Arrow), built here in pixels.
+void SlopeArrow (ImDrawList* list, ImVec2 from, ImVec2 to, ImU32 colour, float scale)
+{
+    const float dx = to.x - from.x, dy = to.y - from.y, len = std::hypot (dx, dy);
+    if (len < 6.0f * scale)
+        return;
+    const float ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+    const float head = std::min (10.0f * scale, len * 0.5f), half = 0.5f * head;
+    const ImVec2 base { to.x - ux * head, to.y - uy * head };
+    list->AddLine (from, base, colour, 1.5f * scale);
+    list->AddTriangleFilled (to, { base.x + nx * half, base.y + ny * half }, { base.x - nx * half, base.y - ny * half },
+                             colour);
+}
 } // namespace
 
 void Panel (Session& s)
 {
     const auto& doc = Doc (s);
+    s.profilePlaced.clear ();
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());
+    ImGui::BeginDisabled (s.profileTyping);
     if (ImGui::RadioButton ("Select (V)", s.tool == Tool::Select))
         s.tool = Tool::Select, s.drawing.clear ();
     ImGui::SameLine ();
@@ -75,6 +111,7 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("World axes", !s.localAxes))
         s.localAxes = false;
+    ImGui::EndDisabled ();
     PlaneControls (s);
     // The grading guide: the paths' contour lines and their heights.
     bool shown = s.contours;
@@ -100,7 +137,7 @@ void Panel (Session& s)
         }
         hudshell::Tip ("Height between contour lines", hudshell::TipSide::Above);
     }
-    ImGui::BeginDisabled (s.drag != Drag::None);
+    ImGui::BeginDisabled (s.drag != Drag::None || s.profileTyping);
     if (ImGui::SmallButton ("Undo"))
         History (s, true);
     ImGui::SameLine ();
@@ -149,6 +186,7 @@ void Panel (Session& s)
         s.profilePath = path->id;
         ImGui::Separator ();
         ImGui::Text ("Path profile  (%zu breaks, %zu ranges)", path->profile.size (), path->sections.size ());
+        ImGui::BeginDisabled (s.profileTyping);
         // Its kerb radius: its outside corners and its junctions with other paths rounded.
         float kerb = float (path->edgeRadius);
         ImGui::SetNextItemWidth (140.0f);
@@ -225,6 +263,7 @@ void Panel (Session& s)
             ImGui::EndDisabled ();
         }
 
+        ImGui::EndDisabled ();
         // The profile canvas: stations right, elevations up, exaggerated to fit, with a gutter
         // on the left for its grid's heights.
         const float width = std::max (200.0f, ImGui::GetContentRegionAvail ().x);
@@ -239,16 +278,31 @@ void Panel (Session& s)
         char widest[32];
         std::snprintf (widest, sizeof widest, "-%.2f", highest);
         const float gutter = ImGui::CalcTextSize (widest).x;
+        // The labels sit beside their marks: the canvas keeps a label's line height clear at
+        // every edge, so an elevation above a grade point is inside it, never clipped away.
+        const float lineHeight = ImGui::GetTextLineHeight ();
+        const float margin = 14.0f + lineHeight;
         edit::ProfileView& frozen = s.profileView;
         const bool dragging = s.drag == Drag::ProfileBreak || s.drag == Drag::ProfileTangent;
         const edit::ProfileView view =
-            dragging ? frozen : edit::FitProfile (*path, min.x + gutter, min.y, width - gutter, height, 14.0);
+            dragging ? frozen : edit::FitProfile (*path, min.x + gutter, min.y, width - gutter, height, margin);
+        // The canvas clips its own drawing: a label that runs past an edge, or that the page has
+        // scrolled out of the panel, is never drawn over the page beside it.
+        list->PushClipRect (min, { min.x + width, min.y + height }, true);
         list->AddRectFilled (min, { min.x + width, min.y + height }, IM_COL32 (250, 251, 252, 255), 4.0f);
         const auto drawing = edit::DrawProfile (*path, 1.0);
         const auto screen = [&] (double station, double z) {
             double x = 0.0, y = 0.0;
             edit::ProfileToScreen (view, station, z, x, y);
             return ImVec2 { float (x), float (y) };
+        };
+        // The labels the canvas places, and the boxes they took. A label's ink reads along its
+        // own box (Upright, never upside down), and every placed box is published for a click.
+        std::vector<editlayers::Box> taken;
+        const auto set = [&] (const editlayers::Box& box, const std::string& text, ImU32 ink,
+                              const edit::Dimension& target) {
+            Inked (list, box, text, ink);
+            s.profilePlaced.push_back ({ box, target });
         };
         // The grid: about five round heights, thin and written in the gutter; round stations
         // across, fainter still.
@@ -273,11 +327,26 @@ void Panel (Session& s)
         for (size_t i = 0; i + 1 < drawing.line.size (); ++i)
             list->AddLine (screen (drawing.line[i].first, drawing.line[i].second),
                            screen (drawing.line[i + 1].first, drawing.line[i + 1].second), kInk, 2.0f);
-        for (const auto& g : drawing.grades) {
+        for (size_t i = 0; i + 1 < drawing.breaks.size (); ++i) {
+            const edit::ProfileDrawing::Marker& a = drawing.breaks[i];
+            const edit::ProfileDrawing::Marker& b = drawing.breaks[i + 1];
+            const ImVec2 pa = screen (a.station, a.z), pb = screen (b.station, b.z);
+            float ux = pb.x - pa.x, uy = pb.y - pa.y;
+            editlayers::Upright (ux, uy);
+            const double percent = i < drawing.grades.size () ? drawing.grades[i].percent : 0.0;
             char text[24];
-            std::snprintf (text, sizeof text, "%.1f %%", g.percent);
-            const ImVec2 at = screen (g.station, g.z);
-            list->AddText ({ at.x - 14, at.y - 18 }, kInk, text);
+            std::snprintf (text, sizeof text, "%.1f %%", percent);
+            const float w = ImGui::CalcTextSize (text).x + 8.0f, h = lineHeight + 2.0f;
+            const ImVec2 mid { (pa.x + pb.x) * 0.5f, (pa.y + pb.y) * 0.5f };
+            const ImVec2 n { -uy, ux };
+            const auto box = editlayers::PlaceAlong (mid.x, mid.y, w, h, ux, uy, n.x, n.y, 8.0f + 0.5f * h, taken);
+            set (box, text, kInk, { { path->id, edit::Part::Break, a.id }, edit::Quantity::Slope });
+            // Water runs from the higher end to the lower: the arrow follows the fall.
+            if (std::abs (percent) > 1.0e-9) {
+                const ImVec2 from = screen (a.station + (b.station - a.station) * 0.25, a.z + (b.z - a.z) * 0.25);
+                const ImVec2 to = screen (a.station + (b.station - a.station) * 0.8, a.z + (b.z - a.z) * 0.8);
+                SlopeArrow (list, percent > 0.0 ? to : from, percent > 0.0 ? from : to, kInk, 1.0f);
+            }
         }
         for (const auto& b : drawing.breaks) {
             const ImVec2 at = screen (b.station, b.z);
@@ -288,11 +357,48 @@ void Panel (Session& s)
                 list->AddCircleFilled (at, 5.0f, kAxis[2]);
             if (chosen)
                 list->AddCircle (at, 8.0f, kAccent, 0, 2.0f);
+            // Its own elevation beside it, the way a grade break's height is read on the path.
+            std::string text = editlayers::FormatValue (edit::Quantity::Elevation, b.z);
+            if (b.fixed)
+                text += " fixed";
+            const float w = ImGui::CalcTextSize (text.c_str ()).x + 8.0f, h = lineHeight + 2.0f;
+            const auto box = editlayers::PlaceLabel (at.x, at.y, w, h, 0.0f, -1.0f, h, taken);
+            set (box, text, b.fixed ? kAxis[0] : kInk,
+                 { { path->id, edit::Part::Break, b.id }, edit::Quantity::Elevation });
         }
+        list->PopClipRect ();
+        // A click on a label binds it: the exact dimension, at this revision, for the existing
+        // Tracker to type over. The pointer must really be on the canvas -- the item's own ImGui
+        // hover, which an open popup, a covering window or the page's scroll clip all withdraw,
+        // and inside the canvas' rectangle -- never a box alone, which a scrolled-away or
+        // covered label could supply. Nothing else may own the input (a drag, the plane, a
+        // typed handle, the view's own label).
         const ImVec2 mouse = ImGui::GetIO ().MousePos;
-        if (over && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
+        const bool onCanvas =
+            over && mouse.x >= min.x && mouse.x <= min.x + width && mouse.y >= min.y && mouse.y <= min.y + height;
+        bool labelClick = false;
+        const bool canBind = onCanvas && ImGui::IsMouseClicked (0) && s.drag == Drag::None && !s.edits.InGesture () &&
+                             !s.penDown && s.drawing.empty () && !s.labelOpen && s.typedHandle < 0 && !s.planeTyping &&
+                             s.tracker.State () != edit::TrackerState::Editing;
+        if (canBind)
+            for (auto it = s.profilePlaced.rbegin (); it != s.profilePlaced.rend (); ++it)
+                if (LabelContains (it->box, mouse)) {
+                    double value = 0.0;
+                    edit::ReadDimension (doc, it->target, value);
+                    s.selection.Set ({ it->target.ref });
+                    s.profileTyping = true;
+                    s.profileTarget = it->target;
+                    s.profileRevision = doc.revision;
+                    s.tracker.Hide ();
+                    s.tracker.Show ({ { it->target.quantity, value } });
+                    s.message.clear ();
+                    labelClick = true;
+                    break;
+                }
+        if (!labelClick && over && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
             const auto hits = edit::PickProfile (*path, view, mouse.x, mouse.y, 7.0);
             if (!hits.empty () && s.edits.Begin ()) {
+                s.profileTyping = false; // the drag owns the tracker now
                 frozen = view;
                 s.profileIndex = hits.front ().index;
                 s.profileStartY = mouse.y;
@@ -305,7 +411,8 @@ void Panel (Session& s)
                     s.drag = Drag::ProfileTangent;
             }
         }
-        if (over && ImGui::IsMouseDoubleClicked (0) && s.drag == Drag::None) {
+        if (!labelClick && over && ImGui::IsMouseDoubleClicked (0) && s.drag == Drag::None) {
+            s.profileTyping = false;
             double station = 0.0, z = 0.0;
             edit::ProfileFromScreen (view, mouse.x, mouse.y, station, z);
             const edit::Id id = path->id;
@@ -337,7 +444,10 @@ void Panel (Session& s)
             s.edits.End ();
             s.drag = Drag::None;
         }
-        ImGui::TextDisabled ("Drag breaks and tangents; double-click adds a break. Grades snap to 0.5 %%.");
+        if (s.profileTyping)
+            ImGui::TextDisabled ("Type the clicked label's value; Enter applies it, Esc gives it up.");
+        else
+            ImGui::TextDisabled ("Drag breaks and tangents; double-click adds a break. Grades snap to 0.5 %%.");
     }
     if (!s.message.empty ()) {
         ImGui::Separator ();

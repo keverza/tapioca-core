@@ -17,7 +17,7 @@ void CancelViewEdit (Session& s, const char* reason)
         s.dragStarted = false;
         s.wholeGrab = false;
     }
-    if (s.tracker.State () == edit::TrackerState::Editing)
+    if (s.tracker.State () == edit::TrackerState::Editing && !s.profileTyping)
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape }), cancelled = true;
     s.typedHandle = -1;
     s.planeTyping = false;
@@ -68,8 +68,9 @@ bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automati
             s.capturedPlane = next;
         return true;
     }
-    const bool unfinished = s.drag != Drag::None || s.penDown || s.planeTyping || !s.drawing.empty () ||
-                            s.tracker.State () == edit::TrackerState::Editing || s.labelOpen || s.typedHandle >= 0;
+    const bool unfinished = s.drag != Drag::None || s.penDown || s.planeTyping || !s.drawing.empty () || s.labelOpen ||
+                            s.typedHandle >= 0 ||
+                            (s.tracker.State () == edit::TrackerState::Editing && !s.profileTyping);
     detail::CancelViewEdit (s, "The drawing plane changed; unfinished input was cancelled.");
     // Unlike a view switch, a plane change would mix authoring frames inside one unfinished shape.
     s.edits.Cancel ();
@@ -77,7 +78,10 @@ bool SetWorkingPlane (Session& s, const edit::WorkingPlane& plane, bool automati
     s.drawing.clear ();
     s.drawHandles.clear ();
     s.references.clear ();
-    s.tracker.Hide ();
+    // The profile canvas' field is the panel's, not this frame's: a plane change does not hide it
+    // or give up what was typed there (HudVirtualEditor.cpp TrackerFields keeps offering it).
+    if (!s.profileTyping)
+        s.tracker.Hide ();
     s.capturedPlane.reset ();
     s.plane = next;
     s.message = unfinished ? "The drawing plane changed; unfinished input was cancelled." : "";
@@ -146,7 +150,7 @@ bool UsePathPartPlane (Session& s, edit::Ref part)
 bool BeginPlaneEntry (Session& s)
 {
     if (s.drag != Drag::None || s.edits.InGesture () || s.penDown || !s.drawing.empty () || s.labelOpen ||
-        s.typedHandle >= 0 || s.planeTyping || s.tracker.State () == edit::TrackerState::Editing) {
+        s.typedHandle >= 0 || s.planeTyping || s.profileTyping || s.tracker.State () == edit::TrackerState::Editing) {
         s.message = "Finish or cancel the current input before entering a drawing-plane elevation.";
         return false;
     }

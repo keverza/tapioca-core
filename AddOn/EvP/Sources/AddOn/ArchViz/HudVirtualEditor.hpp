@@ -156,6 +156,23 @@ struct Session {
     double profileStartZ = 0.0;
     float profileStartY = 0.0f;
 
+    // The value a click on one of the profile's labels bound: the exact dimension typing over
+    // it writes (WriteDimension), the document revision it was bound at (an edit since makes
+    // it stale, as a view label's does), and whether the canvas owns the number. The binding
+    // belongs to the panel, not the view or a drag: a view change does not move it, Esc and
+    // the revision check do.
+    bool profileTyping = false;
+    edit::Dimension profileTarget;
+    uint64_t profileRevision = 0;
+    // The profile's labels as placed this frame, each with what a click on it binds. Kept
+    // apart from `placed`, the locked view's own set (HudVirtualEditorLabels.cpp), so neither
+    // can be hit by the other's pointer.
+    struct PlacedProfileLabel {
+        editlayers::Box box;
+        edit::Dimension target;
+    };
+    std::vector<PlacedProfileLabel> profilePlaced;
+
     // Lifecycle.
     uint64_t token = 0;
     // The cursor's fight with Archicad, for the log: at the start, and at the drag's start.
