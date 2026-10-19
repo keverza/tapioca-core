@@ -53,6 +53,8 @@ struct ContextMenu {
 struct Session {
     edit::Session edits;
     edit::Selection selection;
+    // Model-space outlines only; bounded to this session and reprojected for every pick.
+    edit::PickGeometryCache pickCache;
     edit::Tracker tracker;
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;

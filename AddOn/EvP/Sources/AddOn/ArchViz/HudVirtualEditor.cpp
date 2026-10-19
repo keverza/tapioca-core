@@ -587,7 +587,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     std::vector<edit::PickHit> hits;
     if (s.drag == Drag::None && hovered && s.tool == Tool::Select) {
         s.hoverHandle = gizmo ? edit::PickHandle (frame, handles, gizmoSize, pick, mouse.x, mouse.y, radius) : -1;
-        hits = edit::Pick (Doc (s), pick, mouse.x, mouse.y, s.filter, radius);
+        hits = edit::Pick (Doc (s), pick, mouse.x, mouse.y, s.filter, radius, &s.pickCache);
         s.selection.hover = s.hoverHandle < 0 && !hits.empty () ? hits.front ().ref : edit::Ref {};
     }
     else if (!hovered && s.drag == Drag::None)
@@ -705,7 +705,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     const bool rightHere = v.pointer && ImGui::IsWindowHovered (ImGuiHoveredFlags_AllowWhenBlockedByPopup);
     if ((hovered || (s.menu.open && rightHere)) && ImGui::IsMouseClicked (ImGuiMouseButton_Right) &&
         s.drag == Drag::None) {
-        const auto under = edit::Pick (Doc (s), pick, mouse.x, mouse.y, s.filter, radius);
+        const auto under = edit::Pick (Doc (s), pick, mouse.x, mouse.y, s.filter, radius, &s.pickCache);
         Vec3 at, on;
         const double z = !s.drawing.empty ()                                                  ? s.drawing.back ().z
                          : !under.empty () && edit::PointOf (Doc (s), under.front ().ref, on) ? on.z
