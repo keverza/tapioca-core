@@ -3,12 +3,17 @@
 
 #include <cstdint>
 #include <string>
+#include <span>
+#include <vector>
 #include "GeometryIdentity.hpp"
 
 namespace geomsrv {
 struct Mesh;
 struct Snapshot;
 } // namespace geomsrv
+namespace geomsrv::engine {
+struct Transform;
+}
 
 namespace tapioca::geometry {
 
@@ -57,6 +62,18 @@ bool ValidateProvenance (const ProvenanceRequest& request, ProvenanceDiagnostic&
 // mesh; catalogs/Modeler sidecars remain additive. Bulk calls belong on workers.
 bool ValidateAttributedMesh (const geomsrv::Mesh& mesh, const ProvenanceRequest& request,
                              ProvenanceDiagnostic& diagnostic, std::string& error);
+
+enum class VectorTransformMode : uint32_t { Point = 1, Direction = 2, Normal = 3 };
+struct TransformVectorsRequest {
+    const geomsrv::engine::Transform& transform;
+    VectorTransformMode mode;
+    std::span<const double> values; // Interleaved xyz, world metres for points.
+};
+// Initial S2b affine primitive, not a mesh/identity conversion or production
+// authority switch. Caller handles winding using flipsOrientation. On failure
+// result and flipsOrientation are unchanged; no borrowed input is retained.
+bool TransformVectors (const TransformVectorsRequest& request, std::vector<double>& result, bool& flipsOrientation,
+                       std::string& error);
 
 } // namespace tapioca::geometry
 

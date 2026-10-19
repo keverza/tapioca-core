@@ -13,6 +13,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod affine;
 pub mod identity;
 pub mod mesh;
 mod native_guid;

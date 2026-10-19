@@ -119,6 +119,23 @@ typedef struct {
     uint32_t requireCatalogs;      /* Require positive face pool/surface references; transparency stays optional. */
 } TapiocaSnapshotValueRequest;
 
+/* S2b affine vectors: row-major 3x4, never a projective 4x4 matrix.
+ * Input/output counts are interleaved xyz scalar counts, not vector counts. */
+typedef struct {
+    double m[3][4];
+} TapiocaAffineTransform;
+enum { TAPIOCA_VECTOR_POINT = 1, TAPIOCA_VECTOR_DIRECTION = 2, TAPIOCA_VECTOR_NORMAL = 3 };
+typedef struct {
+    TapiocaAffineTransform transform;
+    uint32_t mode;
+    TapiocaDoubleView values;
+} TapiocaAffineRequest;
+typedef struct {
+    double* data;
+    size_t capacity;
+    uint32_t* flipsOrientation;
+} TapiocaAffineOutput;
+
 /* Authored identity is session-scoped uint64, never a triangle/index identity.
  * POD records contain only all-bit-valid fields; unknown enum values refuse.
  * Ranges index their documented flat pool with checked offset + count. */
@@ -287,6 +304,21 @@ TapiocaStatus tapioca_validate_snapshot (const TapiocaSnapshotView* snapshot, ch
 TapiocaStatus tapioca_validate_mesh_value (const TapiocaMeshValueView* mesh, char* error, size_t errorCapacity);
 TapiocaStatus tapioca_validate_snapshot_value (const TapiocaSnapshotValueRequest* request, char* error,
                                                size_t errorCapacity);
+
+/* Apply one affine transform to a batch of positions/directions/normals.
+ * Positions translate; directions do not; normals use the inverse transpose
+ * without renormalization. Exact singular normal transforms retain the input,
+ * matching the legacy C++ contract. Non-finite input/derived values refuse.
+ * flipsOrientation is required u32 storage (0/1); it informs a future mesh
+ * caller's winding policy, but this primitive changes no topology or identity.
+ * Both writable outputs must be live, aligned, disjoint from each other, both
+ * descriptors, all inputs and error. Capacity may exceed input scalar count;
+ * only that prefix is written. All outputs remain unchanged on refusal/panic.
+ * Inputs are borrowed; Rust computes a temporary result and commits only after
+ * complete validation. No Rust allocation escapes. OOM/invalid-memory caveats
+ * apply. Bulk calls belong on workers; no latency guarantee or consumer flip. */
+TapiocaStatus tapioca_transform_vectors (const TapiocaAffineRequest* request, const TapiocaAffineOutput* output,
+                                         char* error, size_t errorCapacity);
 
 /* Structural attribution gate: contexts/revisions, catalogs and acyclic DAG,
  * native bindings, range/reference validity and complete unique domain coverage.

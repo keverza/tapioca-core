@@ -19,7 +19,8 @@ add_test (NAME TapiocaRustAbiSmoke COMMAND TapiocaRustAbiSmoke)
 add_executable (TapiocaRustWrapperFailure tests/abi_wrapper_failure.cpp
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustTerrain.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustIdentity.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustValue.cpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustValue.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustAffine.cpp")
 set_target_properties (TapiocaRustWrapperFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
 target_include_directories (TapiocaRustWrapperFailure PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn"
@@ -42,3 +43,10 @@ set_target_properties (TapiocaRustValueSmoke PROPERTIES CXX_STANDARD 20 CXX_STAN
 target_include_directories (TapiocaRustValueSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
 TapiocaLinkRustCore (TapiocaRustValueSmoke)
 add_test (NAME TapiocaRustValueSmoke COMMAND TapiocaRustValueSmoke)
+
+add_executable (TapiocaRustAffineSmoke tests/affine_smoke.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustAffine.cpp")
+set_target_properties (TapiocaRustAffineSmoke PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustAffineSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
+TapiocaLinkRustCore (TapiocaRustAffineSmoke)
+add_test (NAME TapiocaRustAffineSmoke COMMAND TapiocaRustAffineSmoke)

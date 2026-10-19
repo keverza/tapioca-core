@@ -51,3 +51,10 @@ pub use value::{
     MaterialIdentity, MeshValueView, SnapshotValueRequest, SnapshotValueView, SurfaceAttribute,
     tapioca_validate_mesh_value, tapioca_validate_snapshot_value,
 };
+
+#[allow(
+    unsafe_code,
+    reason = "Affine POD ingress and checked disjoint caller-owned coordinate/orientation publication"
+)]
+mod affine;
+pub use affine::{AffineOutput, AffineRequest, tapioca_transform_vectors};

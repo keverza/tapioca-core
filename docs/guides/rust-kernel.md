@@ -3,7 +3,8 @@
 **Status:** S1 structural-attribution increment, 2026-10-19. `tapioca-core-ffi` exports
 `tapioca_version`, `tapioca_validate_mesh`, `tapioca_validate_snapshot`,
 `tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
-`tapioca_validate_mesh_value` and `tapioca_validate_snapshot_value` (additive ABI v1).
+`tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
+S2b `tapioca_transform_vectors` primitive (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
@@ -209,6 +210,24 @@ the host publication/freshness check. Editor revisions and D14 provenance remain
 separate. Consumer-specific source-face, winding/manifold and selection checks
 still apply; complete-value success does not certify a takeoff or terrain result.
 
+## Initial S2b affine-vector batch
+
+`TransformVectors` borrows flat xyz f64 input and explicitly copies only the
+small row-major 3x4 matrix descriptor. Points translate, directions do not, and
+normals use the cofactor inverse transpose without normalization. Exactly singular
+normal matrices retain the input normal, matching the documented C++ oracle.
+Non-finite inputs, determinant/cofactors or results refuse. One Rust temporary
+holds the completed output before copying to a provisional C++ vector; coordinates
+and the orientation report publish together only on success. No allocation or
+borrow escapes Rust and no input, identity, sidecar or winding is changed.
+
+Compiled C++ fixtures compare the existing transform builders/application functions
+against Rust for identity, translation, rotation, scaling, reflection, composition,
+shear, survey coordinates, singular normals and seeded matrices. These are parity
+tests, not a production family flip, D14 geometry-operation certification or a
+benchmark. Bulk calls remain worker-classified. Plane/interval/curve/terrain value
+conversions and massing-corpus capture remain outstanding for the full S2b gate.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:
@@ -216,7 +235,7 @@ The standalone CMake entry needs no DevKit or Diligent:
 ```powershell
 cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
 cmake --build AddOn/EvP/rust/build --target TapiocaRustKernel --config RelWithDebInfo
-cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke --config RelWithDebInfo
+cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke --config RelWithDebInfo
 ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 ```
 
@@ -229,6 +248,8 @@ the C++ converter, including revision zero, two GUIDs for one object and refusal
 immutability. Stub tests also cover inconsistent status/diagnostic combinations.
 `TapiocaRustValueSmoke` covers retained bounds, sparse catalogs, explicit unknowns
 and independent capture stamps through the real C++ converter and Rust validator.
+`TapiocaRustAffineSmoke` checks the new affine ABI and atomic publication; failure
+stubs also reject inconsistent orientation reports without changing caller output.
 MSVC uses x64 and dynamic CRT `/MD` in **every**
 configuration, including Debug, matching Rust's `-crt-static`. Archives are under
 `<binary-dir>/rust/x86_64-pc-windows-msvc/release/` on Windows and

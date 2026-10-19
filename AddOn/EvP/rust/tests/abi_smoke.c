@@ -82,6 +82,23 @@ int main (void)
     if (tapioca_validate_snapshot_value (&valueRequest, error, sizeof (error)) != TAPIOCA_OK)
         return 14;
 
+    if (sizeof (void*) == 8 && (sizeof (TapiocaAffineTransform) != 96 || sizeof (TapiocaAffineRequest) != 120 ||
+                                sizeof (TapiocaAffineOutput) != 24))
+        return 15;
+    const double point[] = { 1, 2, 3 };
+    double transformed[] = { 99, 99, 99 };
+    uint32_t flipped = 99;
+    TapiocaAffineRequest affine = { 0 };
+    affine.transform.m[0][0] = affine.transform.m[1][1] = affine.transform.m[2][2] = 1;
+    affine.transform.m[0][3] = 10;
+    affine.mode = TAPIOCA_VECTOR_POINT;
+    affine.values.data = point;
+    affine.values.count = 3;
+    TapiocaAffineOutput affineOutput = { transformed, 3, &flipped };
+    if (tapioca_transform_vectors (&affine, &affineOutput, error, sizeof (error)) != TAPIOCA_OK ||
+        transformed[0] != 11 || transformed[1] != 2 || transformed[2] != 3 || flipped != 0)
+        return 16;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

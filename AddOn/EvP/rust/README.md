@@ -11,6 +11,11 @@ retained bounds and capture-stamp assertions. Legacy validation still certifies
 neither D14 nor catalogs. Existing
 C++ geometry remains authoritative; no algorithm is migrated.
 
+The initial S2b affine-vector batch is available for differential tests through
+`tapioca_transform_vectors`: 3x4 f64 positions/directions/inverse-transpose normals
+with atomic caller-owned output and orientation reporting. No production consumer
+is switched. This is not full S2b, a mesh/provenance transform, or a latency claim.
+
 ```text
 rust/
   geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs

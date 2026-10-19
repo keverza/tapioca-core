@@ -2,6 +2,7 @@
 #include "GeometryRustFfi.h"
 #include "GeometryRustTerrain.hpp"
 #include "Mesh.hpp"
+#include "Transforms.hpp"
 
 #include <cstring>
 #include <iostream>
@@ -42,6 +43,15 @@ extern "C" TapiocaStatus tapioca_validate_mesh_value (const TapiocaMeshValueView
 
 extern "C" TapiocaStatus tapioca_validate_snapshot_value (const TapiocaSnapshotValueRequest*, char*, size_t)
 {
+    return s_status;
+}
+
+extern "C" TapiocaStatus tapioca_transform_vectors (const TapiocaAffineRequest*, const TapiocaAffineOutput* output,
+                                                    char*, size_t)
+{
+    if (output->capacity != 0)
+        output->data[0] = 123; // Even a failed/misbehaving callee cannot commit wrapper outputs.
+    *output->flipsOrientation = s_diagnostic;
     return s_status;
 }
 
@@ -121,5 +131,27 @@ int main ()
             return 8;
     }
     std::cout << "Tapioca wrapper mismatch/status/output-preservation checks passed\n";
+    const geomsrv::engine::Transform transform;
+    const std::array<double, 3> coordinates { 1, 2, 3 };
+    for (TapiocaStatus status :
+         std::array<TapiocaStatus, 5> { TAPIOCA_OK, TAPIOCA_ERR_ARG, TAPIOCA_ERR_STATE, TAPIOCA_ERR_INTERNAL, 99 }) {
+        for (uint32_t report : { 0U, 1U, 99U }) {
+            s_status = status;
+            s_diagnostic = report;
+            std::vector<double> result { 77 };
+            bool flipped = true;
+            const bool success =
+                TransformVectors ({ transform, VectorTransformMode::Point, coordinates }, result, flipped, error);
+            const bool expectedSuccess = status == TAPIOCA_OK && report <= 1;
+            if (success != expectedSuccess || (success && !error.empty ()) || (!success && error.empty ()))
+                return 9;
+            if (success) {
+                if (result.size () != 3 || result.front () != 123 || flipped != (report == 1))
+                    return 10;
+            }
+            else if (result != std::vector<double> { 77 } || !flipped)
+                return 11;
+        }
+    }
     return 0;
 }
