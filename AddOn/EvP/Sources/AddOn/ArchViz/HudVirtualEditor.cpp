@@ -103,18 +103,6 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     return true;
 }
 
-// The handle a gumball drag holds -- one of the mode's, or a pushed face's -- and what it moves.
-edit::Handle HeldHandle (const Session& s)
-{
-    return s.handle == -2 ? edit::Handles (edit::GizmoMode::Extrude).front ()
-                          : GizmoHandles (s, s.gizmo)[size_t (s.handle)];
-}
-
-std::vector<edit::Ref> HeldRefs (const Session& s)
-{
-    return s.handle == -2 ? std::vector<edit::Ref> { s.edits.Target () } : s.selection.Items ();
-}
-
 // Ends a gumball drag at what it shows now: one undo entry when it changed anything.
 void EndHandleDrag (Session& s)
 {
@@ -125,6 +113,7 @@ void EndHandleDrag (Session& s)
         s.pivot = edit::Moved (s.frame, s.dragTransform).origin;
         s.pivotFor = s.selection.Items ();
     }
+    s.facePush = false;
     s.drag = Drag::None;
     s.dragReleased = false;
 }
@@ -260,7 +249,7 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
     if (s.drag == Drag::Handle && s.dragStarted) {
         // A number typed through a gumball drag: the drag's own transform at that value, from
         // where the gesture began, and the gesture ends there -- once, whatever the button does.
-        const auto r = edit::FromValue (s.frame, HeldHandle (s), event.value);
+        const auto r = edit::FromValue (s.frame, HeldControl (s), event.value);
         if (!r.ok)
             s.message = r.error;
         else if (!s.edits.Move (edit::TransformOperation (HeldRefs (s), r.transform)))
@@ -293,9 +282,8 @@ void TrackerEvent (Session& s, const edit::Tracker::Event& event)
         return;
     }
     if (s.typedHandle >= 0) {
-        // The clicked handle's number: the same transform a drag of that size would make.
-        const edit::Handle h = GizmoHandles (s, s.gizmo)[size_t (s.typedHandle)];
-        const auto r = edit::FromValue (s.typedFrame, h, event.value);
+        // The clicked handle's number, on the control the click captured.
+        const auto r = edit::FromValue (s.typedFrame, s.typedControl, event.value);
         s.typedHandle = -1;
         if (!r.ok)
             s.message = r.error;
@@ -372,7 +360,7 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
     if (s.drag == Drag::Handle && s.dragStarted) {
         // The held handle's quantity, what the drag has made of it so far; a handle that takes no
         // number (a plane, the pivot) offers none.
-        const edit::Handle h = HeldHandle (s);
+        const edit::Handle h = HeldControl (s);
         if (h.focusable)
             items.push_back ({ h.quantity, s.dragValue });
         return items;
@@ -383,8 +371,8 @@ std::vector<edit::TrackerItem> TrackerFields (const Session& s, std::vector<edit
         items.push_back ({ edit::Quantity::Radius, r });
         return items;
     }
-    if (s.typedHandle >= 0 && size_t (s.typedHandle) < edit::Handles (s.gizmo).size ()) {
-        const edit::Handle h = GizmoHandles (s, s.gizmo)[size_t (s.typedHandle)];
+    if (s.typedHandle >= 0) {
+        const edit::Handle h = s.typedControl;
         const int a = h.axis >= 0 && h.axis < 3 ? h.axis : 2;
         const double now = h.quantity == edit::Quantity::Factor ? 1.0
                            : h.kind == edit::HandleKind::Side   ? 2.0 * s.typedFrame.half[a]
@@ -462,6 +450,8 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
         else
             s.message = "Archicad's delete, cut and paste are off while the virtual editor has the view.";
     }
+    // A resting profile binding is numeric input too: it owns the view's keys until Enter
+    // applies it, Esc gives it up, or a digit opens its field (HudVirtualEditorPanel.cpp).
     const bool typing = s.tracker.State () == edit::TrackerState::Editing || s.planeTyping || s.profileTyping;
     for (const auto& key : v.keys) {
         if (!key.down || key.repeat)
@@ -569,9 +559,16 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     const bool shift = ImGui::GetIO ().KeyShift;
     CheckView (s, v);
     Navigate (s, m, mouse);
+    // A resting profile binding (the panel's field) withholds the pointer from the view, as a
+    // plane entry does: it owns the number until Enter, Esc or a digit takes it.
     hovered = hovered && !s.navigation.blocked && !s.planeTyping && !s.profileTyping;
-    if (s.drag == Drag::None && s.typedHandle < 0 && !s.selection.Items ().empty () && !GizmoAvailable (s, s.gizmo))
+    // A selection that no longer supports the mode it was left in falls back to the gumball,
+    // which shows whatever it does support. Said once, when the mode actually changes.
+    if (s.drag == Drag::None && s.typedHandle < 0 && !s.selection.Items ().empty () && !GizmoAvailable (s, s.gizmo)) {
+        if (s.gizmo != edit::GizmoMode::Gumball)
+            s.message = "That control does not apply to this selection: back to the gumball.";
         s.gizmo = edit::GizmoMode::Gumball;
+    }
     const edit::PickView pick = m.Pick ();
     const double radius = kPickPixels * scale;
     const bool gizmo = GizmoShown (s);
@@ -630,14 +627,20 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             s.dragPointerPause.reset ();
             s.dragValue = 0.0;
             s.handle = s.hoverHandle;
+            s.heldControl = handles[size_t (s.hoverHandle)];
+            s.facePush = false;
             s.frame = frame;
             s.dragTransform = {};
             s.typedHandle = -1;
             s.startX = mouse.x, s.startY = mouse.y;
-            if (m.RayAt (mouse.x, mouse.y, frame.origin.z, frame.origin, s.startRay) && s.edits.Begin ())
-                s.message.clear ();
-            else
+            if (!m.RayAt (mouse.x, mouse.y, frame.origin.z, frame.origin, s.startRay) || !s.edits.Begin ())
                 s.drag = Drag::None, s.message = "That handle cannot be dragged in this view.";
+            else if (!edit::NeutralDrag (s.frame, s.heldControl, s.startRay).ok)
+                // It can still be clicked for its number, but not dragged from here: the line,
+                // plane or ring it runs on is edge-on. The first real move says so again.
+                s.message = "This view is edge-on to that control; click it to type a value, or orbit.";
+            else
+                s.message.clear ();
         }
         else if (!hits.empty ()) {
             // An object already selected whole is dragged whole from wherever it is pressed --
@@ -653,20 +656,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             if (!shift && (s.wholeGrab || s.selection.Items ().size () == 1)) {
                 const edit::Ref pressed = s.wholeGrab ? whole : s.selection.Items ().front ();
                 const edit::Entity* e = edit::Find (Doc (s), pressed.entity);
-                if (pressed.part == edit::Part::Face && e != nullptr) {
-                    // A face pushes or pulls along its normal: the face handle, taken directly.
-                    s.drag = Drag::Handle;
-                    s.dragStarted = false;
-                    s.dragReleased = false;
-                    s.dragPointerPause.reset ();
-                    s.dragValue = 0.0;
-                    s.handle = -2;
-                    edit::FaceFrame (*e, pressed.item, s.frame);
-                    s.startX = mouse.x, s.startY = mouse.y;
-                    if (!m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, s.startRay) ||
-                        !s.edits.Begin (pressed))
-                        s.drag = Drag::None;
-                }
+                if (pressed.part == edit::Part::Face && e != nullptr)
+                    BeginFacePush (s, m, mouse.x, mouse.y, pressed);
                 else if (edit::PointOf (Doc (s), pressed, s.anchor)) {
                     s.drag = Drag::Part;
                     s.dragStarted = false;
@@ -806,7 +797,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     }
     if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted && pointerMoves) {
         edit::Ray now;
-        const edit::Handle h = HeldHandle (s);
+        const edit::Handle h = HeldControl (s);
         if (m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, now)) {
             const auto r = s.navigation.handleRebased
                                ? edit::ContinueDrag (s.frame, h, s.navigation.handle, s.navigation.ray, now)
@@ -828,11 +819,13 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         }
     }
 
-    // Release. A handle clicked without a drag asks for its number instead.
+    // Release. A handle clicked without a drag asks for its number instead; a face click is
+    // only ever a select (its height has its own field, and a number typed mid-drag works).
     if (ImGui::IsMouseReleased (0) && !s.dragReleased && !s.navigation.blocked && s.drag == Drag::Handle &&
-        s.handle >= 0 && !s.dragStarted && HeldHandle (s).focusable) {
+        !s.facePush && !s.dragStarted && HeldControl (s).focusable) {
         s.edits.Cancel ();
         s.typedHandle = s.handle;
+        s.typedControl = s.heldControl;
         s.typedMode = s.gizmo;
         s.typedFrame = s.frame;
         s.dragTransform = {};
@@ -908,7 +901,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     {
         std::vector<editlayers::Box> taken;
         ImVec2 o;
-        if (gizmo && m.Screen (frame.origin, o)) {
+        // A gizmo with nothing movable draws nothing, so it reserves no space either.
+        const bool drawn =
+            std::any_of (handles.begin (), handles.end (), [] (const edit::Handle& h) { return h.movable; });
+        if (gizmo && drawn && m.Screen (frame.origin, o)) {
             const float r = (kGizmoPixels + 12.0f) * scale;
             taken.push_back ({ o.x - r, o.y - r, o.x + r, o.y + r });
         }
@@ -927,11 +923,12 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         Note (s, m, s.snap.point, { 14 * scale, -22 * scale }, s.snap.hint, kInk);
     }
 
-    // The gizmo.
+    // A face push/pull rides its face: the drawn control stands at the face's current normal
+    // (GizmoFrame), so it follows the extrusion instead of the press-time frame.
     if (gizmo && s.drag != Drag::Part) {
         // Through a drag the gumball rides what it moves: carried and turned with it.
         const bool dragging = s.drag == Drag::Handle;
-        const edit::Frame f = dragging && s.handle >= 0 ? edit::Moved (s.frame, s.dragTransform) : frame;
+        const edit::Frame f = dragging && !s.facePush ? edit::Moved (s.frame, s.dragTransform) : frame;
         const int lit = dragging ? s.handle : s.typedHandle >= 0 ? s.typedHandle : s.hoverHandle;
         DrawGizmo (s, m, s.typedHandle >= 0 ? s.typedFrame : f, s.gizmo, gizmoSize, lit, dragging, scale);
     }
@@ -953,6 +950,15 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // A gumball handle clicked, or dragged, offers its number at once: a field beside the handle
     // (or the pointer through a drag), the value selected so the first key typed replaces it.
     DrawTracker (s, mouse, hovered, scale);
+    // ⚠️ THE POINTER'S PLACE LICENSES THE CURSOR, NOT IMGUI'S HOVER (2026-10-18). `hovered` above
+    // is a PICKING predicate and it is deliberately narrow: `ImGui::IsWindowHovered()` is false
+    // while any HUD popup is open -- this view's own right-click menu included -- and while any
+    // item elsewhere holds ImGui's ActiveId, and `navigation.blocked` is true through a native
+    // navigation and its rebase as well. Each of those used to withdraw the claim for the layouts
+    // it lasted and handed the arrow back, which is the flicker the user saw between the tool's
+    // cursor and the standard one. The cursor is owed wherever the pointer actually is, which the
+    // input layer has already answered (`Input::pointer` with `Input::overHud`): on the view the
+    // tool's cursor stands, over a panel, a legend or an open menu the HUD's own does (`overHud`).
     // One cursor per state, said every frame so nothing of Archicad's shows between them: a
     // crosshair while a drawing tool places points, the move cross on a handle and through any
     // drag, the arrow otherwise.

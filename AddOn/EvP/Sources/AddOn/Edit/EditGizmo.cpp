@@ -92,6 +92,11 @@ std::vector<Vec3> SelectedPoints (const Document& doc, const std::vector<Ref>& i
             case Part::Entity:
                 for (const auto& v : e->vertices)
                     out.push_back (v.p);
+                // An extrusion is measured to its top: its box centre is the shape's, not its
+                // base's, so a whole extrusion's pivot does not sit on the ground (FitBox).
+                if (e->kind == Kind::Extrusion)
+                    for (const auto& v : e->vertices)
+                        out.push_back (v.p + Vec3 { 0.0, 0.0, e->height });
                 break;
             case Part::Vertex:
                 out.push_back (e->vertices[static_cast<size_t> (VertexIndex (*e, r.item))].p);
@@ -407,6 +412,15 @@ DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragRes
     return r;
 }
 
+DragResult NeutralDrag (const Frame& frame, const Handle& handle, const Ray& ray)
+{
+    Frame opening = frame;
+    const int a = handle.axis >= 0 && handle.axis < 3 ? handle.axis : 2;
+    if (handle.kind == HandleKind::Side)
+        opening.half[a] = 0.0; // its opening value is the width it already has, not a refusal
+    return Drag (opening, handle, ray, ray);
+}
+
 DragResult FromValue (const Frame& frame, const Handle& handle, double value)
 {
     if (!handle.movable)
@@ -663,13 +677,24 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
             for (auto& [id, indices] : moved)
                 for (size_t i : indices)
                     flat = flat && std::abs (Dot (Find (doc, id)->vertices[i].p - t.pivot, stretchDir)) <= 1.0e-9;
+        // A scale the table offers per axis has to mean what it says: an extrusion is its
+        // profile plus a height, so a vertical factor would tilt the profile rather than
+        // resize the shape. A whole extrusion therefore scales in plan, whatever the box it
+        // is measured about (the table offers it no Z factor at all).
+        const auto entityScale = [&t] (const Entity& e, size_t indexCount) {
+            Transform out = t;
+            if (e.kind == Kind::Extrusion && indexCount == e.vertices.size () && out.scale.z != 1.0)
+                out.scale.z = 1.0;
+            return out;
+        };
         for (auto& [id, indices] : moved) {
             Entity& e = *Find (doc, id);
+            const Transform et = entityScale (e, indices.size ());
             for (size_t i : indices) {
                 Vertex& v = e.vertices[i];
                 if (stretch && !flat && Dot (v.p - t.pivot, stretchDir) * t.stretchSide <= 1.0e-9)
                     continue; // the other side stays
-                const Vec3 p = stretch ? v.p + stretchDir * t.stretchBy : Apply (t, v.p);
+                const Vec3 p = stretch ? v.p + stretchDir * t.stretchBy : Apply (et, v.p);
                 const bool xy = std::abs (p.x - v.p.x) > 1.0e-12 || std::abs (p.y - v.p.y) > 1.0e-12;
                 const bool z = std::abs (p.z - v.p.z) > 1.0e-12;
                 if ((xy && v.lockXY) || (z && v.lockZ)) {
@@ -679,7 +704,7 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                 if (!stretch)
                     for (Vec3* h : { &v.in, &v.out })
                         if (std::hypot (h->x, h->y) > 0.0) {
-                            const Vec3 to = Apply (t, v.p + *h) - Apply (t, v.p);
+                            const Vec3 to = Apply (et, v.p + *h) - Apply (et, v.p);
                             *h = { to.x, to.y, 0.0 };
                         }
                 v.p = p;

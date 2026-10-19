@@ -1,8 +1,8 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/OverlayHitMap.hpp" // overlayinput::Cursor: the cursor claim these tests read
 #include "ArchViz/OverlayHud.hpp"
-#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditShape.hpp"
@@ -551,6 +551,13 @@ TEST (HudVirtualEditor, NavigationPausesAndRebasesAPartDragWithoutHistory)
     EXPECT_EQ (d.D ().entities, before);
 }
 
+// ⚠️ THE TOOL'S CURSOR IS OWED WHEREVER THE POINTER IS ON THE VIEW (2026-10-18, the user: the
+// cursor kept changing from the standard one to the tool's through an interaction and for seconds
+// after it). A native navigation suspends EDITING -- the hover, the picks, nothing is placed -- but
+// it must not withdraw the published cursor claim, or the HUD's cursor can only come back a layout
+// after the gesture ends, while the arrow is what is shown. The same claim is owed while anything
+// else holds ImGui's hover away from the view (a popup, a foreign ActiveId), and it is NOT owed
+// over the HUD itself: on a panel, a legend or an open menu the pointer is not the tool's.
 TEST (HudVirtualEditor, TheToolCursorIsClaimedWhereverThePointerIsOnTheView)
 {
     Drive d (Corner ());
@@ -1537,6 +1544,7 @@ TEST (HudVirtualEditor, UnsupportedPointAndPathModesCannotBeChosenByShortcutOrMe
     d.Key ('S');
     EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Gumball);
     EXPECT_FALSE (d.S ().message.empty ());
+    EXPECT_EQ (d.S ().message.find ("path"), std::string::npos); // a lone point is not a path's doing
     d.At (835, 500); // the absent X scale box must not steal a press from the model
     EXPECT_LT (d.S ().hoverHandle, 0);
 
@@ -1564,7 +1572,8 @@ TEST (HudVirtualEditor, GumballHoldsEveryTransform)
     // 50 to 70 px out, an arc at 60 px between the axes, a side grip on the box's right side.
     const auto kindAt = [&] (float x, float y) {
         d.At (x, y);
-        return d.S ().hoverHandle < 0 ? -1 : int (ed::Handles (d.S ().gizmo)[size_t (d.S ().hoverHandle)].kind);
+        return d.S ().hoverHandle < 0 ? -1
+                                      : int (eh::GizmoHandles (d.S (), d.S ().gizmo)[size_t (d.S ().hoverHandle)].kind);
     };
     EXPECT_EQ (kindAt (735, 400), int (ed::HandleKind::ScaleAxis));
     EXPECT_EQ (kindAt (765, 400), int (ed::HandleKind::Axis));
@@ -1875,7 +1884,7 @@ TEST (HudVirtualEditor, AClickOnAGumballHandleMovesNothing)
     // The XY plane's square: 0.25 to 0.45 of the gizmo's 70 px along X and Y.
     d.At (824, 276);
     ASSERT_GE (d.S ().hoverHandle, 0);
-    ASSERT_EQ (ed::Handles (d.S ().gizmo)[size_t (d.S ().hoverHandle)].kind, ed::HandleKind::Plane);
+    ASSERT_EQ (eh::GizmoHandles (d.S (), d.S ().gizmo)[size_t (d.S ().hoverHandle)].kind, ed::HandleKind::Plane);
     d.Press (824, 276);
     d.At (826, 277); // a tremor inside the drag threshold
     d.Release (826, 277);
@@ -1913,6 +1922,134 @@ TEST (HudVirtualEditor, AClickOnAFaceDoesNotPushIt)
     EXPECT_EQ (d.S ().selection.Kind (), ed::SelectionKind::Face);
     EXPECT_NEAR (d.D ().entities[0].height, 3.0, 1e-12);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudVirtualEditor, AFacePressPushesAlongTheModesOwnFaceControl)
+{
+    ed::Document doc;
+    ed::AddExtrusion (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, 3.0);
+    Drive d (std::move (doc));
+    // The same 3D view as the test above: the top face at (5, 5, 3).
+    d.input.planar = false;
+    d.input.project = [] (double x, double y, double z, float& px, float& py) {
+        px = float (600 + 20 * x + 5 * z), py = float (500 - 20 * y - 10 * z);
+        return true;
+    };
+    d.input.hasCameraDirection = true;
+    d.input.cameraDirection[1] = 0.5, d.input.cameraDirection[2] = -1.0;
+    d.S ().filter = ed::kPickFace;
+    d.S ().gizmo = ed::GizmoMode::Extrude; // a face's push/pull: Extrude's own handle
+    d.At (715, 370);
+    ASSERT_EQ (d.S ().selection.hover.part, ed::Part::Face);
+    d.Press (715, 370);
+    // The gesture resolved the mode's face control: a real slot, never a sentinel, so the
+    // drawing, the drag and a mid-drag number all name the same captured handle.
+    ASSERT_EQ (d.S ().drag, eh::Drag::Handle);
+    const auto handles = eh::GizmoHandles (d.S (), d.S ().gizmo);
+    EXPECT_EQ (d.S ().handle, eh::GizmoFaceSlot (handles));
+    EXPECT_GE (d.S ().handle, 0);
+    EXPECT_EQ (d.S ().heldControl.kind, ed::HandleKind::Face);
+    EXPECT_TRUE (d.S ().facePush);
+    // ... and that slot is the one a drag draws, so the arrow stays visible through the push.
+    bool drawn = false;
+    for (const auto& h : handles)
+        drawn = drawn || (int (h.index) == d.S ().handle && h.movable && h.kind == ed::HandleKind::Face);
+    EXPECT_TRUE (drawn);
+    d.At (715, 340); // up the screen: the top lifts along its normal
+    ASSERT_EQ (d.S ().drag, eh::Drag::Handle);
+    const double lifted = d.D ().entities[0].height;
+    EXPECT_GT (lifted, 3.4);
+    d.Release (715, 340);
+    EXPECT_NEAR (d.D ().entities[0].height, lifted, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+
+    // Esc gives the push back; a click on the face is still only a select (no field, no push).
+    d.Press (715, 370);
+    d.At (715, 340);
+    EXPECT_EQ (eh::HeldControl (d.S ()).kind, ed::HandleKind::Face);
+    d.Key (0x1B);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_NEAR (d.D ().entities[0].height, lifted, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    d.Press (715, 370);
+    d.Release (715, 370);
+    EXPECT_EQ (d.S ().typedHandle, -1);
+    EXPECT_NEAR (d.D ().entities[0].height, lifted, 1e-9);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, AForcedModeChangeDuringAGumballDragIsRefused)
+{
+    Drive d (Corner ());
+    d.S ().gizmo = ed::GizmoMode::Gumball;
+    d.S ().localAxes = false;
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    d.Press (765, 400); // the gumball's X arrow
+    ASSERT_EQ (d.S ().drag, eh::Drag::Handle);
+    EXPECT_EQ (d.S ().heldControl.kind, ed::HandleKind::Axis);
+    d.At (785, 400);
+    ASSERT_NEAR (d.D ().entities[0].vertices[2].p.x, 11.0, 1e-6);
+    // A mode change under the gesture would re-name the control it captured: refused, before
+    // anything is written, so the drag keeps resolving its own handle (never a stale index).
+    const auto mode = d.S ().gizmo;
+    EXPECT_FALSE (eh::SetGizmoMode (d.S (), ed::GizmoMode::Rotate));
+    EXPECT_EQ (d.S ().gizmo, mode);
+    EXPECT_FALSE (d.S ().message.empty ());
+    EXPECT_EQ (d.S ().drag, eh::Drag::Handle);
+    d.At (805, 400);
+    EXPECT_NEAR (d.D ().entities[0].vertices[2].p.x, 12.0, 1e-6);
+    d.Release (805, 400);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    // With the gesture over the same change applies.
+    EXPECT_TRUE (eh::SetGizmoMode (d.S (), ed::GizmoMode::Rotate));
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Rotate);
+}
+
+TEST (HudVirtualEditor, AnExtrusionKeepsOnePivotInEveryMode)
+{
+    ed::Document doc;
+    ed::AddExtrusion (doc, { { 0, 0, 0 }, { 6, 0, 0 }, { 6, 6, 0 }, { 0, 6, 0 } }, 3.0);
+    Drive d (std::move (doc));
+    d.S ().localAxes = false;
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    ed::Frame box;
+    d.S ().gizmo = ed::GizmoMode::Gumball;
+    box = eh::GizmoFrame (d.S ());
+    // The shape's box, not its base: an extrusion is measured to its top.
+    EXPECT_NEAR (box.origin.x, 3.0, 1e-9);
+    EXPECT_NEAR (box.origin.z, 1.5, 1e-9);
+    EXPECT_NEAR (box.half[2], 1.5, 1e-9);
+    for (const auto mode :
+         { ed::GizmoMode::Move, ed::GizmoMode::Rotate, ed::GizmoMode::Scale, ed::GizmoMode::Stretch }) {
+        d.S ().gizmo = mode;
+        const ed::Frame f = eh::GizmoFrame (d.S ());
+        EXPECT_NEAR (f.origin.x, box.origin.x, 1e-9) << int (mode);
+        EXPECT_NEAR (f.origin.y, box.origin.y, 1e-9) << int (mode);
+        EXPECT_NEAR (f.origin.z, box.origin.z, 1e-9) << int (mode); // the pivot never jumps
+    }
+}
+
+TEST (HudVirtualEditor, AMixedSelectionThatSupportsNothingFallsBackToTheGumballOnce)
+{
+    ed::Document doc;
+    const ed::Id path = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, 2.0);
+    Drive d (std::move (doc));
+    d.S ().selection.Set ({ { path, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::SetGizmoMode (d.S (), ed::GizmoMode::Rotate));
+    // A range beside the whole path keeps its own width control: no handle applies to the pair.
+    d.S ().selection.Set ({ { path, ed::Part::Entity, 0 }, { path, ed::Part::Range, d.D ().paths[0].sections[0].id } });
+    EXPECT_FALSE (eh::GizmoAvailable (d.S (), ed::GizmoMode::Rotate));
+    bool drawn = false;
+    for (const auto& h : eh::GizmoHandles (d.S (), ed::GizmoMode::Rotate))
+        drawn = drawn || h.movable; // nothing is drawn, so nothing need reserve label space
+    EXPECT_FALSE (drawn);
+    d.Frame ();
+    EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Gumball);
+    EXPECT_FALSE (d.S ().message.empty ()); // the fallback is said
+    d.S ().message.clear ();
+    d.Frame ();
+    EXPECT_TRUE (d.S ().message.empty ()); // and not said again every frame
 }
 
 TEST (HudVirtualEditor, DragsMoveFromABasePointAndSnapFlush)
@@ -3021,6 +3158,9 @@ TEST (HudVirtualEditor, ACrossfallTypedNegativeFallsTheOtherWay)
     EXPECT_EQ (r.fall, ed::Fall::Right);
     EXPECT_NEAR (r.crossfall, 3.0, 1e-9);
 }
+
+// ---- the profile canvas' own labels: an elevation beside each grade point and a signed grade
+// along each tangent, each bound to the exact dimension a click reads (HudVirtualEditorPanel.cpp)
 
 namespace {
 // The placed profile label for a quantity and grade point, as the canvas published it this frame.

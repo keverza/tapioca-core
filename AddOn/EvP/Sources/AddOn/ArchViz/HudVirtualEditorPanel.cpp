@@ -19,6 +19,10 @@ namespace {
 const ImU32 kGrid = IM_COL32 (200, 205, 212, 255);
 const ImU32 kGridFaint = IM_COL32 (228, 231, 236, 255);
 const ImU32 kGridText = IM_COL32 (110, 118, 130, 255);
+
+// Turns what was just drawn about its box's centre, to read along it: the same arithmetic the
+// view's transient labels use (HudVirtualEditorDraw.cpp Turn), so a value reads the same
+// turned in the panel as over the view.
 void Turn (ImDrawList* list, int first, const editlayers::Box& box)
 {
     if (box.ux == 1.0f && box.uy == 0.0f)
@@ -58,7 +62,7 @@ void SlopeArrow (ImDrawList* list, ImVec2 from, ImVec2 to, ImU32 colour, float s
 void Panel (Session& s)
 {
     const auto& doc = Doc (s);
-    s.profilePlaced.clear ();
+    s.profilePlaced.clear (); // the canvas republishes its labels every frame
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());
     ImGui::BeginDisabled (s.profileTyping);
@@ -73,13 +77,17 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
         s.tool = Tool::Curve;
-    // The gumball holds applicable transforms; the same table gates individual modes.
+    // The gumball holds applicable transforms; the same table gates individual modes, and a
+    // mode waits while a gesture or a typed value owns the control.
+    const bool locked = GizmoModeLocked (s);
+    ImGui::BeginDisabled (locked);
     if (ImGui::RadioButton ("Gumball", s.gizmo == edit::GizmoMode::Gumball))
-        s.gizmo = edit::GizmoMode::Gumball;
+        SetGizmoMode (s, edit::GizmoMode::Gumball);
+    ImGui::EndDisabled ();
     const char* modes[] = { "Move (G)", "Rotate (R)", "Scale (S)", "Stretch (T)", "Extrude (E)" };
     for (int i = 0; i < 5; ++i) {
         ImGui::SameLine ();
-        ImGui::BeginDisabled (!GizmoAvailable (s, edit::GizmoMode (i)));
+        ImGui::BeginDisabled (locked || !GizmoAvailable (s, edit::GizmoMode (i)));
         if (ImGui::RadioButton (modes[i], int (s.gizmo) == i))
             SetGizmoMode (s, edit::GizmoMode (i));
         ImGui::EndDisabled ();

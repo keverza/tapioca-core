@@ -118,8 +118,11 @@ std::vector<Handle> Handles (GizmoMode mode, const Document& doc, const std::vec
                                 (!(path || extrusion) || std::abs (axis.z) > 0.999);
                     break;
                 case HandleKind::ScaleAxis:
+                    // A path scales in plan only; an extrusion's height is not a vertex extent,
+                    // so a factor on its Z axis would move the base alone -- refused however the
+                    // box is measured, not merely while its vertices share one height.
                     supported = supported && extent[a] > kMinSegment && !lockXY && (!lockZ || path) &&
-                                (!path || std::abs (axis.z) < 1e-9);
+                                (!path || std::abs (axis.z) < 1e-9) && !(extrusion && a == 2);
                     break;
                 case HandleKind::ScaleUniform:
                     supported = supported && spread && !lockXY && (!lockZ || path);

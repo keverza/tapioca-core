@@ -93,6 +93,10 @@ DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, con
 // transform; start/now use the updated view. No geometry baseline or pivot is changed.
 DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragResult& checkpoint, const Ray& start,
                          const Ray& now);
+// The same call a drag makes before it has moved: whether the handle's line, plane or ring can
+// be used from this ray at all, without the value refusals the first real move owns. A side grip
+// is asked with its width unset, since its opening value is the width it already has.
+DragResult NeutralDrag (const Frame& frame, const Handle& handle, const Ray& ray);
 // The Transform a typed value means on that handle: metres, degrees or a factor.
 DragResult FromValue (const Frame& frame, const Handle& handle, double value);
 

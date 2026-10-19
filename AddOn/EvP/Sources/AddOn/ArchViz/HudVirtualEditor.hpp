@@ -81,6 +81,12 @@ struct Session {
     Drag drag = Drag::None;
     edit::Ref target;
     int handle = -1, hoverHandle = -1;
+    // The control a gesture captured, resolved once where it began: the drag, its drawing, a
+    // typed number and a navigation rebase all name the same handle, whatever the mode or the
+    // selection says afterwards. `facePush` says its refs are the pressed face (not the
+    // selection): a face pushes or pulls along its normal through the mode's own face control.
+    edit::Handle heldControl;
+    bool facePush = false;
     edit::Frame frame;
     edit::Transform dragTransform; // the handle drag's transform so far: the gumball rides it
     // The handle drag's value so far, in its quantity -- the tracker's field while it runs, so a
@@ -112,6 +118,7 @@ struct Session {
     int typedHandle = -1;
     edit::GizmoMode typedMode = edit::GizmoMode::Move;
     edit::Frame typedFrame;
+    edit::Handle typedControl; // the clicked handle itself, kept for the number it takes
     edit::Ray startRay;
     edit::Vec3 anchor, startCursor;
     float startX = 0.0f, startY = 0.0f;
@@ -157,7 +164,6 @@ struct Session {
     size_t profileIndex = 0;
     double profileStartZ = 0.0;
     float profileStartY = 0.0f;
-
     // The value a click on one of the profile's labels bound: the exact dimension typing over
     // it writes (WriteDimension), the document revision it was bound at (an edit since makes
     // it stale, as a view label's does), and whether the canvas owns the number. The binding
@@ -254,6 +260,24 @@ void Menu (Session& session);
 edit::Frame GizmoFrame (const Session& session);
 std::vector<edit::Handle> GizmoHandles (const Session& session, edit::GizmoMode mode);
 bool GizmoAvailable (const Session& session, edit::GizmoMode mode);
+// The slot of a mode's face push/pull control in that table (Extrude's own handle, the
+// gumball's normal arrow), or -1 when the mode has none.
+int GizmoFaceSlot (const std::vector<edit::Handle>& handles);
+// The control a gesture captured, and the refs it moves: both are resolved where the gesture
+// began, so its drawing, its typed number and a navigation rebase all name the same control
+// whatever the mode or the selection says afterwards. `HeldRefs` is the pressed face for a
+// face push/pull and the selection otherwise.
+edit::Handle HeldControl (const Session& session);
+std::vector<edit::Ref> HeldRefs (const Session& session);
+// Takes the mode's face control for the face just pressed: the frame, its slot and the gesture.
+// False (with a message) when this view cannot push that face at all.
+namespace detail {
+struct Map;
+}
+bool BeginFacePush (Session& session, const detail::Map& view, float x, float y, const edit::Ref& face);
+// True while a gesture or a numeric entry owns the input: a mode change waits for it rather
+// than re-naming the control the gesture captured.
+bool GizmoModeLocked (const Session& session);
 bool SetGizmoMode (Session& session, edit::GizmoMode mode);
 
 // The path the profile canvas shows: the selected one, else the only one.

@@ -28,19 +28,29 @@ edit::Frame GizmoFrame (const Session& s)
         f.origin = *s.pivot;
     // A face pushes or pulls along its normal: the gumball's Z arrow, or Extrude's one handle.
     if (items.size () == 1 && items[0].part == edit::Part::Face)
-        if (const edit::Entity* e = edit::Find (s.edits.Doc (), items[0].entity)) {
-            edit::FaceFrame (*e, items[0].item, f);
-            return f;
-        }
+        if (const edit::Entity* e = edit::Find (s.edits.Doc (), items[0].entity))
+            if (edit::FaceFrame (*e, items[0].item, f))
+                return f;
     if (s.localAxes) {
         const edit::Frame local = edit::SelectionFrame (s.edits.Doc (), items, f.origin);
         for (int i = 0; i < 3; ++i)
             f.axes[i] = local.axes[i];
     }
-    // A relocated pivot has no side grips: the box stays with the selection.
+    // One frame for every mode: the selection's own box centre (an extrusion measured to its
+    // top), so the pivot does not jump when the mode changes and a rotate or scale turns about
+    // the place the gumball stands. A pivot the user moved stays where they put it, and
+    // Stretch's box and grips stay the selection's.
     const bool custom = s.pivot && s.pivotFor == items;
-    if (s.gizmo == edit::GizmoMode::Stretch || (s.gizmo == edit::GizmoMode::Gumball && !custom))
+    if (s.gizmo == edit::GizmoMode::Stretch)
         edit::FitBox (s.edits.Doc (), items, f);
+    else if (!custom) {
+        edit::Frame box = f;
+        if (edit::FitBox (s.edits.Doc (), items, box)) {
+            f.origin = box.origin;
+            for (int i = 0; i < 3; ++i)
+                f.half[i] = box.half[i];
+        }
+    }
     return f;
 }
 
@@ -58,13 +68,81 @@ bool GizmoAvailable (const Session& s, edit::GizmoMode mode)
                         [] (const edit::Handle& h) { return h.movable && h.kind != edit::HandleKind::Centre; });
 }
 
+int GizmoFaceSlot (const std::vector<edit::Handle>& handles)
+{
+    for (const auto& h : handles)
+        if (h.kind == edit::HandleKind::Face)
+            return int (h.index);
+    return -1;
+}
+
+bool GizmoModeLocked (const Session& s)
+{
+    // A gesture holds a captured control and a typed value owns the number: a mode change under
+    // either would re-name what they work on, so it waits for Enter/Esc or the release.
+    return s.drag != Drag::None || s.typedHandle >= 0 || s.tracker.State () == edit::TrackerState::Editing ||
+           s.planeTyping;
+}
+
 bool SetGizmoMode (Session& s, edit::GizmoMode mode)
 {
+    if (GizmoModeLocked (s)) {
+        s.message = "Finish the drag or the typed value, or Esc it, before switching the control.";
+        return false;
+    }
     if (!GizmoAvailable (s, mode)) {
-        s.message = "That control does not apply to this selection; paths use their own profile and width controls.";
+        s.message = "That control does not apply to this selection.";
         return false;
     }
     s.gizmo = mode;
+    return true;
+}
+
+edit::Handle HeldControl (const Session& s)
+{
+    return s.heldControl;
+}
+
+std::vector<edit::Ref> HeldRefs (const Session& s)
+{
+    return s.facePush ? std::vector<edit::Ref> { s.edits.Target () } : s.selection.Items ();
+}
+
+bool BeginFacePush (Session& s, const detail::Map& view, float x, float y, const edit::Ref& face)
+{
+    // A face pushes or pulls along its normal through the control the mode gives it -- Extrude's
+    // own handle, or the gumball's normal arrow. Its slot is resolved once here (never a
+    // sentinel) against this face's own selection and frame, so the drag, its drawing and a
+    // mid-drag number all name one control; its refs are the pressed face (HeldRefs), and a
+    // click without a drag stays a plain select.
+    const edit::Entity* e = edit::Find (s.edits.Doc (), face.entity);
+    edit::Frame frame;
+    s.startX = x, s.startY = y;
+    const bool frameOk = e != nullptr && edit::FaceFrame (*e, face.item, frame);
+    const auto handles =
+        frameOk ? edit::Handles (s.gizmo, s.edits.Doc (), { face }, frame) : std::vector<edit::Handle> {};
+    const int slot = GizmoFaceSlot (handles);
+    if (slot < 0 || !handles[size_t (slot)].movable || !view.RayAt (x, y, frame.origin.z, frame.origin, s.startRay) ||
+        !edit::NeutralDrag (frame, handles[size_t (slot)], s.startRay).ok) {
+        s.message = "That face cannot be pushed or pulled in this view; use its height.";
+        return false;
+    }
+    if (!s.edits.Begin (face)) {
+        s.message = s.edits.Message ();
+        return false;
+    }
+    s.drag = Drag::Handle;
+    s.dragStarted = false;
+    s.dragReleased = false;
+    s.dragPointerPause.reset ();
+    s.dragValue = 0.0;
+    s.handle = slot;
+    s.heldControl = handles[size_t (slot)];
+    s.facePush = true;
+    s.frame = frame;
+    s.dragTransform = {};
+    s.typedHandle = -1;
+    s.message.clear ();
     return true;
 }
 
@@ -325,8 +403,9 @@ void DrawGizmo (Session& s, const Map& m, const edit::Frame& f, edit::GizmoMode 
         }
     }
     // Two passes: the gumball's scale boxes sit on its arrows' shafts and are drawn over them.
+    const auto handles = GizmoHandles (s, mode);
     for (int pass = 0; pass < 2; ++pass)
-        for (const auto& h : GizmoHandles (s, mode)) {
+        for (const auto& h : handles) {
             if (!h.movable || (h.compact && h.kind == K::ScaleAxis) != (pass == 1))
                 continue;
             const bool on = int (h.index) == active;

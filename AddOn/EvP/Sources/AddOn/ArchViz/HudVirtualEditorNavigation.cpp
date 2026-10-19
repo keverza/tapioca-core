@@ -32,8 +32,7 @@ bool Different (const std::array<float, 12>& a, const std::array<float, 12>& b)
 
 edit::Handle Held (const Session& s)
 {
-    return s.handle == -2 ? edit::Handles (edit::GizmoMode::Extrude).front ()
-                          : GizmoHandles (s, s.gizmo)[size_t (s.handle)];
+    return s.heldControl; // resolved where the gesture began: never re-read from the table
 }
 
 } // namespace
@@ -84,7 +83,7 @@ void Navigate (Session& s, const Map& m, ImVec2 mouse)
             const auto h = Held (s);
             ok = m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, n.ray);
             if (ok) {
-                const auto neutral = edit::Drag (s.frame, h, n.ray, n.ray);
+                const auto neutral = edit::NeutralDrag (s.frame, h, n.ray);
                 ok = neutral.ok;
                 n.handle = { true, s.dragTransform, s.dragStarted ? s.dragValue : neutral.value, {} };
                 n.handleRebased = ok;

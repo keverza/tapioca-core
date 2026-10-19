@@ -141,6 +141,59 @@ TEST (EditGizmo, AFaceOffersNormalPushPullWhileAnExtrusionVertexCannotTiltTheBas
             EXPECT_EQ (h.movable, h.axis != 2);
 }
 
+TEST (EditGizmo, AWholeExtrusionsBoxIsMeasuredToItsTopAndHasNoVerticalScale)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 }, { 0, 4, 0 } }, 3);
+    const std::vector<ed::Ref> whole { { id, ed::Part::Entity, 0 } };
+    // The box (and so the pivot every mode uses) is the shape's: mid-height, not its base.
+    ed::Frame box;
+    ASSERT_TRUE (ed::FitBox (doc, whole, box));
+    EXPECT_NEAR (box.origin.z, 1.5, 1e-12);
+    EXPECT_NEAR (box.half[2], 1.5, 1e-12);
+    EXPECT_NEAR (box.half[0], 2.0, 1e-12);
+    // No Z scale for an extrusion: its height is not a vertex extent, and the table says so
+    // rather than depending on the vertices happening to share one height.
+    doc.entities[0].vertices[0].p.z = 1.0; // a hand-made z extent, as a future box change would
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball, doc, whole, box))
+        if (h.kind == ed::HandleKind::ScaleAxis)
+            EXPECT_EQ (h.movable, h.axis != 2) << "an extrusion's height is not a scale axis";
+}
+
+TEST (EditGizmo, AUniformScaleOfAWholeExtrusionLeavesItsProfilePlanarAndItsHeightAlone)
+{
+    ed::Document doc;
+    const auto id = ed::AddExtrusion (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 }, { 0, 4, 0 } }, 3);
+    const std::vector<ed::Ref> whole { { id, ed::Part::Entity, 0 } };
+    ed::Frame frame;
+    ASSERT_TRUE (ed::FitBox (doc, whole, frame));
+    ed::Transform t;
+    t.pivot = frame.origin; // the box's centre: mid-height
+    t.scaleFrame = frame;
+    t.scale = { 2.0, 2.0, 2.0 };
+    ed::Session session (doc);
+    ASSERT_TRUE (session.Apply (ed::TransformOperation (whole, t)));
+    EXPECT_DOUBLE_EQ (session.Doc ().entities[0].height, 3.0); // its own parameter, not scaled
+    for (const auto& v : session.Doc ().entities[0].vertices)
+        EXPECT_NEAR (v.p.z, 0.0, 1e-12);                                 // and the profile does not sink or tilt
+    EXPECT_NEAR (session.Doc ().entities[0].vertices[2].p.x, 6.0, 1e-9); // the plan doubles about the box centre
+}
+
+TEST (EditGizmo, NeutralDragAsksTheControlWithoutAskingItsOpeningValue)
+{
+    ed::Frame f;
+    // The Z axis seen from straight above points into the view: no drag can start there.
+    EXPECT_FALSE (ed::NeutralDrag (f, Find (ed::GizmoMode::Move, ed::HandleKind::Axis, 2), Down (1, 1)).ok);
+    EXPECT_TRUE (ed::NeutralDrag (f, Find (ed::GizmoMode::Move, ed::HandleKind::Axis, 2), Front (1, 1)).ok);
+    // A side grip opens at the width it already has: a narrow selection is still draggable
+    // (the first real move owns "that side would cross the other"), where a zero move is not.
+    const auto grip = Find (ed::GizmoMode::Stretch, ed::HandleKind::Side, 0);
+    ed::Frame narrow;
+    narrow.half[0] = 1.0e-4;
+    EXPECT_FALSE (ed::Drag (narrow, grip, Front (0, 0), Front (0, 0)).ok);
+    EXPECT_TRUE (ed::NeutralDrag (narrow, grip, Front (0, 0)).ok);
+}
+
 TEST (EditGizmo, AxisDragFollowsTheRayNotTheScreen)
 {
     ed::Frame f;
