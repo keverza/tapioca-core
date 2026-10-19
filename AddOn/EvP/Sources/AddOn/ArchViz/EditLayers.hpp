@@ -58,7 +58,8 @@ struct Feedback {
     // The paths' contour lines (PathContours), drawn under their lines; the view writes
     // their heights. None when null.
     const std::vector<edit::Contour>* contours = nullptr;
-    const edit::PavedArea* paved = nullptr; // session's revision-cached shared surface
+    const edit::PavedArea* paved = nullptr;            // session's revision-cached shared surface
+    const std::vector<edit::Id>* quietPaths = nullptr; // far-zoom overview: surface, boundary and contours only
     std::vector<edit::Dimension> dimensions;
     GizmoView gizmo;
 };

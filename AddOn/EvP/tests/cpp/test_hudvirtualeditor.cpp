@@ -134,6 +134,46 @@ TEST (HudVirtualEditor, StartingPublishesTheLayerAndBorrowsTheLock)
     EXPECT_FALSE (hud::VirtualEditorActive (*d.view.state));
 }
 
+TEST (HudVirtualEditor, FarZoomHidesPathDetailButKeepsContoursWithoutRederivingTheSurface)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 2 } }, 2);
+    Drive d (doc);
+    d.At (0, 0);
+    EXPECT_TRUE (d.S ().quietPaths.empty ());
+    const auto revision = d.D ().revision, pavedRevision = d.S ().pavedRevision;
+    const auto vertices = d.S ().paved.vertices;
+    const auto contours = d.S ().contourLines.size ();
+    ASSERT_GT (contours, 0u);
+    d.input.plan[0] = 5;
+    d.input.plan[4] = -5;
+    d.Frame ();
+    EXPECT_EQ (d.S ().quietPaths, std::vector<ed::Id> { id });
+    EXPECT_TRUE (d.S ().placed.empty ());
+    EXPECT_EQ (d.S ().pavedRevision, pavedRevision);
+    EXPECT_EQ (d.S ().paved.vertices, vertices);
+    EXPECT_EQ (d.S ().contourLines.size (), contours);
+    size_t strokes = 0;
+    for (const auto& p : d.layer.polylines) {
+        EXPECT_EQ (p.endArrow, layers::Terminator::None);
+        EXPECT_NE (p.rgba, el::Style {}.geometry);
+        strokes += p.rgba == el::Style {}.contour;
+    }
+    EXPECT_GT (strokes, 0u);
+    const auto generation = layers::Generation ();
+    d.input.plan[0] = 14;
+    d.input.plan[4] = -14; // 28px wide: hysteresis keeps the overview
+    d.Frame ();
+    EXPECT_EQ (layers::Generation (), generation);
+    d.input.plan[0] = 20;
+    d.input.plan[4] = -20;
+    d.Frame ();
+    EXPECT_TRUE (d.S ().quietPaths.empty ());
+    EXPECT_GT (layers::Generation (), generation);
+    EXPECT_EQ (d.D ().revision, revision);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
 TEST (HudVirtualEditor, ThePathPointMenuSplitsAtItsBoundPointWithOneUndo)
 {
     ed::Document doc;

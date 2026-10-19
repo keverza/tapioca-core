@@ -466,7 +466,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
 {
     const auto& doc = Doc (s);
     if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection &&
-        s.publishedPathStep == SurfaceStep (s))
+        s.publishedPathStep == SurfaceStep (s) && s.quietPaths == s.publishedQuietPaths)
         return false;
     edit::Selection shown = s.selection;
     shown.hover = {}; // hover is the view's transient feedback, not the layer's
@@ -474,6 +474,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     f.labelsInView = true; // placed with the dimensions, clear of them (DrawPathLabels)
     f.selection = &shown;
     f.paved = &PavedSurface (s);
+    f.quietPaths = &s.quietPaths;
     f.contours = s.contours ? &Contours (s) : nullptr;
     // The live dimensions are the view's (HudVirtualEditorDraw.cpp): placed in pixels, they
     // can stand clear of the gizmo and the tracker, which model-anchored text cannot know.
@@ -485,6 +486,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     s.publishedRevision = doc.revision;
     s.publishedPathStep = SurfaceStep (s);
     s.publishedSelection = s.selection.Items ();
+    s.publishedQuietPaths = s.quietPaths;
     return true;
 }
 

@@ -518,6 +518,8 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
     if (s.selection.Items ().empty () || !s.drawing.empty ())
         return;
     const edit::Ref ref = s.selection.Items ().front ();
+    if (QuietPath (s, ref.entity))
+        return;
     ImVec2 centre;
     const bool haveCentre = ShapeCentre (s, m, ref, centre);
     const float pad = 5.0f, lineHeight = ImGui::GetTextLineHeight ();
@@ -672,6 +674,8 @@ void DrawPathLabels (Session& s, const Map& m, std::vector<editlayers::Box>& tak
     }
     const float h = ImGui::GetTextLineHeight () + 4.0f;
     for (const auto& l : s.marks) {
+        if (QuietPath (s, l.kerbPath != edit::kNoId ? l.kerbPath : l.value.ref.entity))
+            continue;
         ImVec2 at, toward, ahead;
         if (!m.Screen (l.at, at))
             continue;
@@ -723,6 +727,8 @@ void DrawHover (Session& s, const Map& m, float scale)
             Line (s, m, p.back (), p.front (), kHover, width * scale);
     };
     if (const edit::Path* path = edit::FindPath (Doc (s), hover.entity)) {
+        if (QuietPath (s, path->id))
+            return;
         edit::PathOutline o;
         std::string error;
         if (!edit::Outline (*path, 0.5, o, error))
@@ -778,7 +784,7 @@ const std::vector<edit::Contour>& Contours (Session& s)
     s.contoursRevision = doc.revision;
     s.contoursAsked = s.contourStep;
     s.contoursPathStep = SurfaceStep (s);
-    // Asked for none: about ten lines over the heights there are, never finer than 5 cm --
+    // Asked for none: about three divisions over the heights there are, never finer than 5 cm --
     // a crown's few centimetres are not grading.
     double interval = s.contourStep, lo = 0.0, hi = 0.0;
     if (!(interval > 0.0))
@@ -792,6 +798,8 @@ const std::vector<edit::Contour>& Contours (Session& s)
 void DrawContourLabels (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale)
 {
     if (!s.contours)
+        return;
+    if (!Doc (s).paths.empty () && s.quietPaths.size () == Doc (s).paths.size ())
         return;
     ImFont* font = ImGui::GetFont ();
     const float size = ImGui::GetFontSize () * 0.85f, h = size + 2.0f;

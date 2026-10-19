@@ -577,8 +577,10 @@ bool AddPaved (const edit::Document& doc, const Style& style, layers::Layer& lay
 }
 
 void AddPath (const edit::Document& doc, const edit::Path& path, const Style& style, layers::Layer& layer, bool paved,
-              bool labels)
+              bool labels, bool detail)
 {
+    if (paved && !detail)
+        return;
     edit::PathOutline o;
     std::string error;
     if (!edit::Outline (path, style.pathStep, o, error) || o.stations.size () < 2)
@@ -603,10 +605,12 @@ void AddPath (const edit::Document& doc, const edit::Path& path, const Style& st
     surface.style.shading = layers::Shading::Flat;
     surface.styled = true;
     layer.meshes.push_back (std::move (surface));
-    layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
+    if (detail)
+        layer.polylines.push_back (Line (o.centre, false, style.geometry, style.lineWidth));
     layer.polylines.push_back (Line (o.left, false, style.pathEdge, 1.5f));
     layer.polylines.push_back (Line (o.right, false, style.pathEdge, 1.5f));
-    AddPathMarks (doc, path, o, style, layer, labels);
+    if (detail)
+        AddPathMarks (doc, path, o, style, layer, labels);
 }
 
 // A selected or hovered part of a path.
@@ -884,16 +888,22 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     if (f.contours != nullptr)
         for (const auto& c : *f.contours)
             layer.polylines.push_back (Line (c.points, false, style.contour, 1.0f));
+    const auto quiet = [&] (edit::Id id) {
+        return f.quietPaths && std::find (f.quietPaths->begin (), f.quietPaths->end (), id) != f.quietPaths->end ();
+    };
     for (const auto& p : doc.paths)
-        AddPath (doc, p, style, layer, paved, !f.labelsInView);
+        AddPath (doc, p, style, layer, paved, !f.labelsInView, !quiet (p.id));
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
-            AddRef (doc, ref, style.selected, style, layer);
-        if (f.selection->hover.entity != edit::kNoId && !f.selection->Contains (f.selection->hover))
+            if (!quiet (ref.entity))
+                AddRef (doc, ref, style.selected, style, layer);
+        if (f.selection->hover.entity != edit::kNoId && !f.selection->Contains (f.selection->hover) &&
+            !quiet (f.selection->hover.entity))
             AddRef (doc, f.selection->hover, style.hover, style, layer);
     }
     for (const auto& d : f.dimensions)
-        AddDimension (doc, d, style, layer);
+        if (!quiet (d.ref.entity))
+            AddDimension (doc, d, style, layer);
     if (f.snap != nullptr)
         AddSnap (*f.snap, style, layer);
     AddGizmo (f.gizmo, style, layer);

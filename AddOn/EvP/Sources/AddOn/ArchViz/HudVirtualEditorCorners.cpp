@@ -61,6 +61,8 @@ bool Corners (const Session& s, edit::Id& entity, edit::Entity& shape, std::vect
     if (items.empty () || s.tool != Tool::Select)
         return false;
     entity = items.front ().entity;
+    if (QuietPath (s, entity) && s.drag == Drag::None)
+        return false;
     if (!ShapeOf (Doc (s), entity, shape))
         return false;
     for (const auto& r : items) {
@@ -370,6 +372,8 @@ bool KerbGrips (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scal
     };
     std::vector<KerbGrip> grips;
     for (const auto& c : PavedCorners (s)) {
+        if (QuietPath (s, c.path) && s.drag == Drag::None)
+            continue;
         KerbGrip g { c, edit::KerbGripAt (c, Inset (m, c.at, scale)), {} };
         if (Shown (paths, c) && m.Screen (g.at, g.screen))
             grips.push_back (g);

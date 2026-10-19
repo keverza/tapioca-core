@@ -152,6 +152,7 @@ struct Session {
     edit::PavedArea paved;
     uint64_t pavedRevision = UINT64_MAX;
     double pavedStep = 0, publishedPathStep = 0, contoursPathStep = 0;
+    std::vector<edit::Id> quietPaths, publishedQuietPaths;
     bool wholeGrab = false;               // the press grabbed a selected object by its own part
     bool dragStarted = false;             // the pointer has left the press by the drag threshold
     std::vector<edit::PickHit> pressHits; // what was under that press, for the click it may be

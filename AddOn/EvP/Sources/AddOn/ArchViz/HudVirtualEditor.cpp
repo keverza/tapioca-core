@@ -567,6 +567,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
     const bool shift = ImGui::GetIO ().KeyShift;
     CheckView (s, v);
+    UpdatePathDetail (s, m, scale);
     Navigate (s, m, mouse);
     // A resting profile binding (the panel's field) withholds the pointer from the view, as a
     // plane entry does: it owns the number until Enter, Esc or a digit takes it.

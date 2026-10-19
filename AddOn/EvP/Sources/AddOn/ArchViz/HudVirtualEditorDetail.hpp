@@ -114,6 +114,8 @@ inline bool DragPointerMoves (const Session& s, ImVec2 mouse)
 }
 // Same-view navigation pauses operation input, never the immutable session baseline.
 void Navigate (Session& s, const Map& m, ImVec2 mouse);
+void UpdatePathDetail (Session& s, const Map& m, float scale);
+bool QuietPath (const Session& s, edit::Id id);
 void CancelViewEdit (Session& s, const char* reason);
 void CheckPlane (Session& s);
 void CapturePlane (Session& s);

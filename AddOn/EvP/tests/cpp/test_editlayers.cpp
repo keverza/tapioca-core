@@ -14,6 +14,41 @@ TEST (EditLayers, FormatsDimensionLabels)
     EXPECT_EQ (el::FormatValue (ed::Quantity::Elevation, 1.5), "+1.50 m");
 }
 
+TEST (EditLayers, QuietPathsKeepOnlyTheUnitedBoundarySurfaceAndContourStrokes)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 20, 0, 2 } }, 2);
+    ed::Selection selected;
+    selected.Set ({ { id, ed::Part::Entity, 0 } });
+    const std::vector<ed::Id> quiet { id };
+    const auto contours = ed::PathContours (doc.paths, .5);
+    el::Feedback f;
+    f.selection = &selected;
+    f.contours = &contours;
+    f.quietPaths = &quiet;
+    const auto layer = el::Build (doc, f);
+    ASSERT_EQ (layer.meshes.size (), 1u);
+    EXPECT_TRUE (layer.points.empty ());
+    EXPECT_TRUE (layer.texts.empty ());
+    EXPECT_TRUE (layer.dimensions.empty ());
+    size_t edges = 0, grades = 0;
+    for (const auto& line : layer.polylines) {
+        EXPECT_EQ (line.endArrow, layers::Terminator::None);
+        if (line.closed)
+            ++edges;
+        else {
+            ++grades;
+            EXPECT_EQ (line.rgba, el::Style {}.contour);
+        }
+    }
+    EXPECT_EQ (edges, 1u);
+    EXPECT_EQ (grades, contours.size ());
+    f.quietPaths = nullptr;
+    const auto detailed = el::Build (doc, f);
+    EXPECT_FALSE (detailed.points.empty ());
+    EXPECT_FALSE (detailed.texts.empty ());
+}
+
 TEST (EditLayers, WidthFallAndGradeAnnotationsMoveOffJunctions)
 {
     ed::Document doc;

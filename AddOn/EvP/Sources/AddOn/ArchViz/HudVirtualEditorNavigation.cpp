@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
 #include <cmath>
+#include <algorithm>
 
 // OVERLAY-INVARIANTS.md: consume the existing view mapping only. No camera acquisition,
 // SDK access, native geometry writes or extra document/history baseline lives here.
@@ -36,6 +37,47 @@ edit::Handle Held (const Session& s)
 }
 
 } // namespace
+
+bool QuietPath (const Session& s, edit::Id id)
+{
+    return std::find (s.quietPaths.begin (), s.quietPaths.end (), id) != s.quietPaths.end ();
+}
+
+void UpdatePathDetail (Session& s, const Map& m, float scale)
+{
+    std::vector<edit::Id> quiet;
+    for (const auto& path : Doc (s).paths) {
+        edit::AlignmentGeometry g;
+        std::string error;
+        if (!edit::BuildAlignment (path.points, g, error))
+            continue;
+        double widest = 0;
+        const auto sample = [&] (double station) {
+            edit::StationFrame f;
+            ImVec2 a, b;
+            if (edit::Evaluate (path, g, station, f) && m.Screen (f.leftEdge, a) && m.Screen (f.rightEdge, b))
+                widest = std::max (widest, double (std::hypot (a.x - b.x, a.y - b.y)) / std::max (scale, .01f));
+        };
+        for (size_t i = 0; i < path.sections.size (); ++i) {
+            const double from = path.sections[i].station;
+            const double to = i + 1 < path.sections.size () ? path.sections[i + 1].station : g.length;
+            for (double t : { 0., .5, 1. })
+                sample (from + (to - from) * t);
+        }
+        // Logical screen width, not a world-scale/camera heuristic. Hysteresis
+        // avoids republishing at every tiny zoom change around the threshold.
+        if (widest < (QuietPath (s, path.id) ? 32 : 24))
+            quiet.push_back (path.id);
+    }
+    s.quietPaths = std::move (quiet);
+    s.placed.erase (std::remove_if (s.placed.begin (), s.placed.end (),
+                                    [&] (const Session::PlacedLabel& l) {
+                                        return QuietPath (s, l.target.kerbPath != edit::kNoId
+                                                                 ? l.target.kerbPath
+                                                                 : l.target.value.ref.entity);
+                                    }),
+                    s.placed.end ());
+}
 
 bool DragOnto (const Session& s, const Map& m, ImVec2 mouse, double z, edit::Vec3 seed, edit::Vec3& out)
 {
