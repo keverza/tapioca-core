@@ -17,7 +17,6 @@ namespace cp = Clipper2Lib;
 constexpr int kPrecision = 3;          // millimetres
 constexpr double kArcTolerance = 0.01; // metres a rounding may stray from the true arc
 constexpr double kOn = 0.003;          // a corner this close to a path's edge is on it
-constexpr double kNeighbour = 0.05;    // how far along the outline a corner's legs are read
 constexpr double kMinTurn = 0.14;      // radians (8 degrees): less is a straight run
 constexpr double kMaxReentrant = 50.0; // metres: a re-entrant corner's largest radius
 constexpr double kPi = 3.14159265358979323846;
@@ -180,12 +179,7 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
         for (size_t i = 0; i < n; ++i) {
             const Vec3 v { ring[i].x, ring[i].y, 0.0 };
             const auto along = [&] (int dir) {
-                size_t j = i;
-                for (size_t k = 0; k + 1 < n; ++k) {
-                    j = dir > 0 ? (j + 1) % n : (j + n - 1) % n;
-                    if (std::hypot (ring[j].x - v.x, ring[j].y - v.y) >= kNeighbour)
-                        break;
-                }
+                const size_t j = dir > 0 ? (i + 1) % n : (i + n - 1) % n;
                 return Vec3 { ring[j].x, ring[j].y, 0.0 };
             };
             if (!Normalize (along (-1) - v, prevs[i]) || !Normalize (along (1) - v, nexts[i]))
@@ -263,7 +257,9 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
             }
             // The largest radius whose tangent points stay within its half of each leg; an
             // outside corner's also cuts no deeper than most of the half width it sits in.
-            const double legs = 0.49 * std::min (leg (i, -1), leg (i, 1)) * std::tan (c.half);
+            const double adjacent = std::min (std::hypot (ring[(i + n - 1) % n].x - v.x, ring[(i + n - 1) % n].y - v.y),
+                                              std::hypot (ring[(i + 1) % n].x - v.x, ring[(i + 1) % n].y - v.y));
+            const double legs = 0.49 * std::min ({ leg (i, -1), leg (i, 1), adjacent }) * std::tan (c.half);
             c.maxRadius = std::min (legs, c.convex ? 0.98 * (std::isfinite (half) ? half : 0.0) : kMaxReentrant);
             c.requestedRadius = c.key.radius;
             c.key.radius = std::min (c.key.radius, c.maxRadius);
@@ -280,39 +276,58 @@ Vec3 Turned (Vec3 d, double angle)
     return { d.x * c - d.y * s, d.x * s + d.y * c, 0.0 };
 }
 
-// A corner's rounding: the piece between its legs and an arc of its radius tangent to both,
-// built from the corner alone -- nothing else of the area shapes it.
-cp::PathD Fillet (const PavedCorner& c)
+// Ordered from the incoming edge's tangent to the outgoing edge's tangent.
+// No independent patch edges are introduced along the united boundary.
+cp::PathD FilletArc (const PavedCorner& c, Vec3 previous)
 {
     const double r = c.key.radius, t = r / std::tan (c.half);
-    const Vec3 a = c.at + Turned (c.bisector, c.half) * t, b = c.at + Turned (c.bisector, -c.half) * t;
+    Vec3 da = Turned (c.bisector, c.half), db = Turned (c.bisector, -c.half);
+    if (Dot (da, previous - c.at) < Dot (db, previous - c.at))
+        std::swap (da, db);
+    const Vec3 a = c.at + da * t, b = c.at + db * t;
     const Vec3 centre = c.at + c.bisector * (r / std::sin (c.half));
     const double from = std::atan2 (a.y - centre.y, a.x - centre.x);
     const double sweep = std::remainder (std::atan2 (b.y - centre.y, b.x - centre.x) - from, 2.0 * kPi);
     const double step = 2.0 * std::acos (std::clamp (1.0 - kArcTolerance / r, -1.0, 1.0));
     const int pieces = std::clamp (int (std::ceil (std::abs (sweep) / std::max (step, 1.0e-3))), 2, 256);
-    cp::PathD piece { { c.at.x, c.at.y } };
+    cp::PathD piece;
     for (int k = 0; k <= pieces; ++k) {
         const double angle = from + sweep * k / pieces;
-        piece.push_back ({ centre.x + r * std::cos (angle), centre.y + r * std::sin (angle) });
+        if (k == 0)
+            piece.push_back ({ a.x, a.y });
+        else if (k == pieces)
+            piece.push_back ({ b.x, b.y });
+        else
+            piece.push_back ({ centre.x + r * std::cos (angle), centre.y + r * std::sin (angle) });
     }
-    if (cp::Area (piece) < 0.0)
-        std::reverse (piece.begin (), piece.end ());
     return piece;
 }
 
-// Each corner rounded by its own radius: its fillet cut from an outside corner, added to a
-// re-entrant one.
+// Round only after footprint union. Replacing each ring corner with its arc
+// avoids the narrow gaps/islands produced by separately rounded Boolean patches.
 cp::PathsD Round (const cp::PathsD& sharp, const std::vector<PavedCorner>& corners)
 {
-    cp::PathsD cut, fill;
-    for (const auto& c : corners)
-        if (c.key.radius > 1.0e-4 && c.half > 1.0e-3 && c.half < kPi * 0.5 - 1.0e-3)
-            (c.convex ? cut : fill).push_back (Fillet (c));
-    if (cut.empty () && fill.empty ())
-        return sharp;
-    cp::PathsD area = cut.empty () ? sharp : cp::Difference (sharp, cut, cp::FillRule::NonZero, kPrecision);
-    return fill.empty () ? area : cp::Union (area, fill, cp::FillRule::NonZero, kPrecision);
+    cp::PathsD rounded;
+    bool changed = false;
+    for (const auto& ring : sharp) {
+        cp::PathD out;
+        for (size_t i = 0; i < ring.size (); ++i) {
+            const auto found = std::find_if (corners.begin (), corners.end (), [&] (const PavedCorner& c) {
+                return c.at.x == ring[i].x && c.at.y == ring[i].y && c.key.radius > 1e-4 && c.half > 1e-3 &&
+                       c.half < kPi * .5 - 1e-3;
+            });
+            if (found == corners.end ()) {
+                out.push_back (ring[i]);
+                continue;
+            }
+            const auto& prev = ring[(i + ring.size () - 1) % ring.size ()];
+            const auto arc = FilletArc (*found, { prev.x, prev.y, 0 });
+            out.insert (out.end (), arc.begin (), arc.end ());
+            changed = true;
+        }
+        rounded.push_back (std::move (out));
+    }
+    return changed ? cp::Union (rounded, cp::FillRule::NonZero, kPrecision) : sharp;
 }
 
 } // namespace
@@ -424,6 +439,8 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
     }
     // One area: crossings and touching ends made junctions; then every corner its own rounding.
     united = cp::Union (united, cp::FillRule::NonZero, kPrecision);
+    // Remove collinear sampling noise before choosing tangent directions/extents.
+    united = cp::SimplifyPaths (united, 0.001, true);
     out.corners = FindCorners (united, sources);
     united = Round (united, out.corners);
     // Straight runs keep their ends only: the samples along them say nothing (1 mm).

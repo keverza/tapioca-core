@@ -665,3 +665,31 @@ TEST (EditPathNetwork, TheMeshCoversAFilletedJunction)
     ASSERT_TRUE (ed::SetKerbRadius (doc, junction.path, junction.key, 2.5, error)) << error;
     ExpectMeshFillsItsOutline (ed::Pave (doc.paths, 0.5, true));
 }
+
+TEST (EditPathNetwork, ObliqueUnitedFilletsHaveNoNeedleTearsOrDetachedSlivers)
+{
+    for (double angle : { .13, .31, .57, .91 })
+        for (double radius : { .2, .5, 1.5 }) {
+            SCOPED_TRACE (::testing::Message () << "angle=" << angle << " radius=" << radius);
+            const auto rotate = [=] (double x, double y) {
+                return ed::Vec3 { 1234.567 + x * std::cos (angle) - y * std::sin (angle),
+                                  987.654 + x * std::sin (angle) + y * std::cos (angle), 0 };
+            };
+            ed::Document doc;
+            const auto a = ed::AddPath (doc, { rotate (-30, 0), rotate (30, 0) }, 3.1);
+            const auto b = ed::AddPath (doc, { rotate (2, -18), rotate (-3, 18) }, 2.7);
+            std::string error;
+            ASSERT_TRUE (ed::SetPathEdgeRadius (doc, a, radius, error));
+            ASSERT_TRUE (ed::SetPathEdgeRadius (doc, b, radius, error));
+            const auto area = ed::Pave (doc.paths, .5, false);
+            ASSERT_EQ (area.rings.size (), 1u);
+            const auto& ring = area.rings[0];
+            ASSERT_GT (ring.size (), 8u);
+            for (size_t i = 0; i < ring.size (); ++i) {
+                ed::Vec3 before, after;
+                ASSERT_TRUE (ed::Normalize (ring[i] - ring[(i + ring.size () - 1) % ring.size ()], before));
+                ASSERT_TRUE (ed::Normalize (ring[(i + 1) % ring.size ()] - ring[i], after));
+                EXPECT_GT (ed::Dot (before, after), -.94) << "near-reversal spike at " << i;
+            }
+        }
+}
