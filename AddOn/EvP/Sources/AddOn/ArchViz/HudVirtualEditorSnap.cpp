@@ -12,6 +12,17 @@ namespace geomsrv::archviz::edithud::detail {
 
 using edit::Vec3;
 
+Vec3 SnappedTranslation (const Session& s, Vec3 at)
+{
+    // Hit tolerance offsets are retained for free drags, not endpoint snaps.
+    if (s.target.part == edit::Part::PathPoint && s.snap.snapped && s.snap.kind == edit::SnapKind::Endpoint)
+        if (const auto* path = edit::FindPath (s.edits.Before (), s.target.entity))
+            for (const auto& point : path->points)
+                if (point.id == s.target.item)
+                    return { at.x - point.p.x, at.y - point.p.y, 0 };
+    return { at.x - s.startCursor.x, at.y - s.startCursor.y, 0 };
+}
+
 void PrepareSnap (const Session& s, edit::SnapQuery& q)
 {
     // Snapping off suspends every mode without clearing the chosen list; the grid uses the

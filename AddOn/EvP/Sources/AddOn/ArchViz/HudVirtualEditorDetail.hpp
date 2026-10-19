@@ -57,6 +57,7 @@ void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::str
 // pressed (its captured base point); and a moved item's edges snapping flush to parallel
 // ones, correcting `t` -- false when none did.
 void PrepareSnap (const Session& s, edit::SnapQuery& q);
+edit::Vec3 SnappedTranslation (const Session& s, edit::Vec3 at);
 // Fill the kernel's optional view screening from this view's own mapping
 // (HudVirtualEditorSnap.cpp): a candidate must be near the pointer in this view's pixels, on
 // screen, in front of the camera and within the session's 3D proximity cap. The flush's reach is

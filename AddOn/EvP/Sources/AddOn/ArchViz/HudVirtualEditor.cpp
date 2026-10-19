@@ -785,7 +785,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 // snapped or not: the item keeps its offset under the pointer and only the pointer's own
                 // snap pulls it, so engaging or giving up a snap never steps the item.
                 edit::Transform t;
-                t.translate = { at.x - s.startCursor.x, at.y - s.startCursor.y, 0.0 };
+                t.translate = SnappedTranslation (s, at);
                 if (!s.snap.snapped)
                     FlushEdges (s, m, mouse, moving, s.startCursor.z, Exclusions (Doc (s), moving), scale, t);
                 op = edit::TransformOperation (moving, t);

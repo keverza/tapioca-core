@@ -152,6 +152,35 @@ TEST (HudVirtualEditor, ThePathPointMenuSplitsAtItsBoundPointWithOneUndo)
     EXPECT_EQ (d.D ().paths, doc.paths);
 }
 
+TEST (HudVirtualEditor, AnOffsetEndpointPressSnapsThePointAndJoinsWithAGradeControl)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2);
+    ed::AddPath (doc, { { 12, 0, 0 }, { 12, 10, 1 } }, 2);
+    Drive d (doc);
+    d.Press (797, 498); // 3px off the first endpoint
+    ASSERT_EQ (d.S ().target.part, ed::Part::PathPoint);
+    d.At (840, 500);
+    d.Release (840, 500);
+    ASSERT_EQ (d.D ().paths.size (), 1u) << d.S ().message;
+    const auto* path = ed::FindPath (d.D (), id);
+    ASSERT_NE (path, nullptr);
+    ASSERT_EQ (path->points.size (), 3u);
+    EXPECT_NEAR (path->points[1].p.x, 12, 1e-9);
+    EXPECT_NEAR (path->points[1].p.y, 0, 1e-9);
+    ASSERT_EQ (path->profile.size (), 3u);
+    EXPECT_EQ (path->profile[1].anchor, path->points[1].id);
+    EXPECT_NEAR (path->profile[1].station, 12, 1e-9);
+    ed::PathOutline outline;
+    std::string error;
+    ASSERT_TRUE (ed::Outline (*path, .5, outline, error));
+    bool outsideMiter = false;
+    for (auto p : outline.right)
+        outsideMiter |= std::abs (p.x - 13) < 1e-9 && std::abs (p.y + 1) < 1e-9;
+    EXPECT_TRUE (outsideMiter);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
 TEST (HudVirtualEditor, SurfaceQualityChangesOnlyForChangedPreviewsAndRefinesOnceAtEnd)
 {
     ed::Document doc;
@@ -172,7 +201,7 @@ TEST (HudVirtualEditor, SurfaceQualityChangesOnlyForChangedPreviewsAndRefinesOnc
     d.Publish ();
     EXPECT_EQ (d.D ().revision, revision);
     EXPECT_DOUBLE_EQ (d.S ().pavedStep, 0.5);
-    EXPECT_GT (d.S ().paved.triangles.size (), coarse);
+    EXPECT_EQ (d.S ().paved.triangles.size (), coarse) << "a planar run needs no extra resting subdivisions";
     const auto finished = layers::Generation ();
     d.Publish ();
     EXPECT_EQ (layers::Generation (), finished);
@@ -3192,7 +3221,7 @@ TEST (HudVirtualEditor, ContoursShowTheGradingUntilHidden)
     size_t strokes = 0;
     EXPECT_GT (drawn (strokes), 0u);
     EXPECT_GT (strokes, 0u);
-    EXPECT_DOUBLE_EQ (d.S ().contoursInterval, 0.2); // about ten over its 2 m
+    EXPECT_DOUBLE_EQ (d.S ().contoursInterval, 0.5); // about three guides, not ten
     d.S ().contours = false;
     d.S ().publishedRevision = UINT64_MAX; // as the panel's toggle does
     d.Publish ();
@@ -3328,6 +3357,11 @@ TEST (HudVirtualEditor, AProfileElevationLabelBindsTheBreakItSitsBeside)
     EXPECT_EQ (d.S ().profileTarget.ref.entity, path);
     EXPECT_EQ (d.S ().profileTarget.ref.item, mid);
     EXPECT_EQ (d.S ().profileRevision, revision);
+    const auto active = d.Frame ();
+    size_t entryVertices = 0;
+    for (const auto& vertex : active.host.vertices)
+        entryVertices += vertex.rgba == geomsrv::archviz::hudshell::Unpacked (IM_COL32 (255, 248, 220, 255));
+    EXPECT_GT (entryVertices, 0u) << "the clicked label must show an inline outlined edit field";
     ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
     EXPECT_EQ (d.S ().selection.Items ()[0].part, ed::Part::Break);
     ASSERT_EQ (d.S ().tracker.Items ().size (), 1u);

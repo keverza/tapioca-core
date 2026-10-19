@@ -782,7 +782,7 @@ const std::vector<edit::Contour>& Contours (Session& s)
     // a crown's few centimetres are not grading.
     double interval = s.contourStep, lo = 0.0, hi = 0.0;
     if (!(interval > 0.0))
-        interval = edit::PathHeightRange (doc.paths, lo, hi) ? std::max (edit::NiceStep (hi - lo, 10), 0.05) : 0.0;
+        interval = edit::PathHeightRange (doc.paths, lo, hi) ? std::max (edit::NiceStep (hi - lo, 3), 0.05) : 0.0;
     s.contoursInterval = interval;
     s.contourLines =
         edit::SurfaceContours (PavedSurface (s), interval, doc.paths.size () == 1 ? doc.paths[0].id : edit::kNoId);
