@@ -36,18 +36,42 @@ struct Source {
     const Path* path = nullptr;
     AlignmentGeometry geometry;
     PathOutline outline;
+    std::vector<std::pair<Vec3, double>> junctions;
 };
 
 // The height at a plan point: the path it lies in (or nearest, at a junction's rounding).
 double HeightAt (const std::vector<Source>& sources, Vec3 p)
 {
     double best = std::numeric_limits<double>::infinity (), z = 0.0;
+    double weighted = 0, weights = 0, blend = 0;
     for (const auto& s : sources) {
         double h = 0.0, beyond = 0.0;
-        if (SurfaceHeight (*s.path, s.geometry, p, h, beyond) && beyond < best)
+        if (!SurfaceHeight (*s.path, s.geometry, p, h, beyond))
+            continue;
+        if (beyond < best)
             best = beyond, z = h;
+        double influence = 0;
+        for (const auto& [at, radius] : s.junctions) {
+            const double t = std::clamp (2.0 - DistanceXY (p, at) / radius, 0.0, 1.0);
+            influence = std::max (influence, t * t * (3 - 2 * t));
+        }
+        if (influence <= 0)
+            continue;
+        double station = 0, offset = 0;
+        Placement frame;
+        if (!StationOf (s.geometry, p, station, offset) || !Locate (s.geometry, station, frame))
+            continue;
+        const auto* section = SectionAt (s.path->sections, station);
+        const double width = std::max (section->widthLeft, section->widthRight);
+        const double distance = DistanceXY (p, frame.point) / width;
+        const double weight = influence / std::pow (1 + distance * distance, 2);
+        weighted += weight * h;
+        weights += weight;
+        blend = std::max (blend, influence);
     }
-    return z;
+    // A continuous partition of unity replaces the old deepest-strip winner
+    // inside junctions. Feather back to the authored arms outside the junction.
+    return weights > 0 ? z * (1 - blend) + weighted / weights * blend : z;
 }
 
 double SegmentDistance (Vec3 p, Vec3 a, Vec3 b)
@@ -303,7 +327,7 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
     const double width = left ? f.section.widthLeft : f.section.widthRight;
     double dropLeft = 0.0, dropRight = 0.0;
     EdgeDrops (f.section, dropLeft, dropRight);
-    const double share = width > 1.0e-9 ? std::min (std::abs (offset) / width, 1.0) : 0.0;
+    const double share = width > 1.0e-9 ? std::abs (offset) / width : 0.0;
     z = f.centre.z + (left ? dropLeft : dropRight) * share;
     beyond = std::abs (offset) - width;
     const Vec3 delta = p - f.centre;
@@ -311,6 +335,45 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
         beyond = std::max (beyond, -Dot (delta, f.tangent));
     else if (station >= g.length - 1e-8)
         beyond = std::max (beyond, Dot (delta, f.tangent));
+    // Continue the tangent plane into a junction rounding, not a flat end-cap
+    // plateau that packs all of the contour change into one narrow band.
+    if (station <= 1e-8 || station >= g.length - 1e-8)
+        z += f.grade * Dot (delta, f.tangent);
+    // A joined sharp bend is one path but still has two tangent planes. Blend
+    // those locally too, instead of reintroducing a nearest-leg cliff inside it.
+    for (size_t i = 1; i < g.elements.size (); ++i) {
+        const auto& a = g.elements[i - 1];
+        const auto& b = g.elements[i];
+        Vec3 ta, tb;
+        if (a.kind != ElementKind::Line || b.kind != ElementKind::Line || !Normalize (a.b - a.a, ta) ||
+            !Normalize (b.b - b.a, tb) || Dot (ta, tb) > 1 - 1e-9)
+            continue;
+        StationFrame corner;
+        if (!Evaluate (path, g, b.start, corner))
+            continue;
+        const double width = std::max (corner.section.widthLeft, corner.section.widthRight);
+        const double t = std::clamp (2 - DistanceXY (p, corner.centre) / (2 * width), 0.0, 1.0);
+        if (t <= 0)
+            continue;
+        double h0 = 0, h1 = 0, grade0 = 0, grade1 = 0;
+        Elevation (path.profile, std::max (0.0, b.start - 1e-7), h0, &grade0);
+        Elevation (path.profile, std::min (g.length, b.start + 1e-7), h1, &grade1);
+        const Vec3 d = p - corner.centre;
+        double dl = 0, dr = 0;
+        EdgeDrops (corner.section, dl, dr);
+        const auto plane = [&] (Vec3 tangent, double grade, bool incoming) {
+            const double along = Dot (d, tangent), side = d.x * -tangent.y + d.y * tangent.x;
+            const double w = side >= 0 ? corner.section.widthLeft : corner.section.widthRight;
+            const double height = corner.centre.z + along * grade + std::abs (side) / w * (side >= 0 ? dl : dr);
+            const double beyond = incoming ? std::max (0.0, along) : std::min (0.0, along);
+            const double weight = 1 / std::pow (1 + (side * side + beyond * beyond) / (width * width), 2);
+            return std::pair { height, weight };
+        };
+        const auto [za, wa] = plane (ta, grade0, true);
+        const auto [zb, wb] = plane (tb, grade1, false);
+        const double blend = t * t * (3 - 2 * t);
+        z = z * (1 - blend) + (za * wa + zb * wb) / (wa + wb) * blend;
+    }
     return true;
 }
 
@@ -335,6 +398,30 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
         return out;
     std::sort (sources.begin (), sources.end (),
                [] (const Source& a, const Source& b) { return a.path->id < b.path->id; });
+    for (const auto& j : FindJunctions (paths)) {
+        const Path &a = paths[j.a], &b = paths[j.b];
+        const auto* sa = SectionAt (a.sections, j.stationA);
+        const auto* sb = SectionAt (b.sections, j.stationB);
+        if (!sa || !sb)
+            continue;
+        AlignmentGeometry ga, gb;
+        Placement fa, fb;
+        std::string error;
+        if (!BuildAlignment (a.points, ga, error) || !BuildAlignment (b.points, gb, error) ||
+            !Locate (ga, j.stationA, fa) || !Locate (gb, j.stationB, fb))
+            continue;
+        const double sine = std::abs (fa.tangent.x * fb.tangent.y - fa.tangent.y * fb.tangent.x);
+        const double widths = std::max (sa->widthLeft, sa->widthRight) + std::max (sb->widthLeft, sb->widthRight);
+        const double reach = sine > 0.05 ? widths / sine : widths;
+        double radius = std::max (a.edgeRadius, b.edgeRadius);
+        for (const auto* path : { &a, &b })
+            for (const auto& k : path->kerbs)
+                if (k.other == (path->id == a.id ? b.id : a.id))
+                    radius = std::max (radius, k.radius);
+        for (auto& source : sources)
+            if (source.path->id == a.id || source.path->id == b.id)
+                source.junctions.push_back ({ j.at, reach + radius });
+    }
     // One area: crossings and touching ends made junctions; then every corner its own rounding.
     united = cp::Union (united, cp::FillRule::NonZero, kPrecision);
     out.corners = FindCorners (united, sources);
@@ -354,6 +441,8 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
         out.rings.push_back (std::move (r));
     }
     if (!surface)
+        return out;
+    if (sources.size () == 1 && BuildLinearSurface (out, *sources[0].path, sources[0].geometry))
         return out;
     // The surface: each outline with its holes triangulated.
     for (const auto& outer : united) {
@@ -377,7 +466,7 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
             grid.push_back (std::move (path));
         }
         cp::Paths64 triangles;
-        if (cp::Triangulate (grid, triangles, false) != cp::TriangulateResult::success)
+        if (cp::Triangulate (grid, triangles, true) != cp::TriangulateResult::success)
             continue; // a refused region stays outlined, unfilled
         for (auto& t : triangles) {
             if (t.size () != 3)

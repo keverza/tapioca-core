@@ -4,6 +4,8 @@
 #include <functional>
 
 namespace geomsrv::edit {
+// Straight piecewise-planar grading needs only left/crown/right at authored stations.
+bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeometry& geometry);
 // Shared-edge refinement of the united footprint; authored samples retain profile
 // features that an outline-only triangulation cannot describe.
 void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, double step,

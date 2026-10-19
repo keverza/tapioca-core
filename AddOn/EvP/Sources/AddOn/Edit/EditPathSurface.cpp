@@ -24,6 +24,49 @@ Edge Key (uint32_t a, uint32_t b)
 {
     return { std::min (a, b), std::max (a, b) };
 }
+void ImproveEdges (PavedArea& area)
+{
+    struct Incident {
+        size_t face;
+        uint32_t opposite;
+    };
+    for (int pass = 0; pass < 8; ++pass) {
+        std::map<Edge, std::vector<Incident>> edges;
+        for (size_t i = 0; i < area.triangles.size (); i += 3)
+            for (int k = 0; k < 3; ++k)
+                edges[Key (area.triangles[i + k], area.triangles[i + (k + 1) % 3])].push_back (
+                    { i, area.triangles[i + (k + 2) % 3] });
+        std::vector<bool> changed (area.triangles.size () / 3, false);
+        bool flipped = false;
+        for (const auto& [edge, faces] : edges) {
+            if (faces.size () != 2 || changed[faces[0].face / 3] || changed[faces[1].face / 3])
+                continue;
+            const auto [a, b] = edge;
+            const uint32_t c = faces[0].opposite, d = faces[1].opposite;
+            const Vec3 pa = area.vertices[a], pb = area.vertices[b], pc = area.vertices[c], pd = area.vertices[d];
+            if (Cross (pa, pb, pc) * Cross (pa, pb, pd) >= -1e-18 || Cross (pc, pd, pa) * Cross (pc, pd, pb) >= -1e-18)
+                continue;
+            const auto cotangent = [] (Vec3 a, Vec3 b, Vec3 at) {
+                return ((a.x - at.x) * (b.x - at.x) + (a.y - at.y) * (b.y - at.y)) / std::abs (Cross (at, a, b));
+            };
+            if (cotangent (pa, pb, pc) + cotangent (pa, pb, pd) >= -1e-8)
+                continue;
+            const auto write = [&] (size_t i, uint32_t x, uint32_t y, uint32_t z) {
+                if (Cross (area.vertices[x], area.vertices[y], area.vertices[z]) < 0)
+                    std::swap (y, z);
+                area.triangles[i] = x;
+                area.triangles[i + 1] = y;
+                area.triangles[i + 2] = z;
+                changed[i / 3] = true;
+            };
+            write (faces[0].face, c, d, a);
+            write (faces[1].face, d, c, b);
+            flipped = true;
+        }
+        if (!flipped)
+            break;
+    }
+}
 } // namespace
 
 bool PavedHeight (const PavedArea& area, Vec3 point, double& z)
@@ -38,6 +81,45 @@ bool PavedHeight (const PavedArea& area, Vec3 point, double& z)
         }
     }
     return false;
+}
+
+bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeometry& geometry)
+{
+    if (geometry.elements.size () != 1 || geometry.elements[0].kind != ElementKind::Line ||
+        path.sections.size () != 1 || path.edgeRadius != 0 || area.rings.size () != 1 || area.rings[0].size () != 4)
+        return false;
+    for (const auto& b : path.profile)
+        if (b.curve != 0)
+            return false;
+    for (const auto& k : path.kerbs)
+        if (k.radius != 0)
+            return false;
+    StationFrame start, end;
+    if (!Evaluate (path, geometry, 0, start) || !Evaluate (path, geometry, geometry.length, end))
+        return false;
+    const auto boundary = [&] (Vec3 p) {
+        return *std::min_element (area.rings[0].begin (), area.rings[0].end (),
+                                  [&] (Vec3 a, Vec3 b) { return DistanceXY (a, p) < DistanceXY (b, p); });
+    };
+    const Vec3 sl = boundary (start.leftEdge), sr = boundary (start.rightEdge), el = boundary (end.leftEdge),
+               er = boundary (end.rightEdge);
+    area.vertices.clear ();
+    area.triangles.clear ();
+    for (double station : SampleStations (path, geometry, 0)) {
+        StationFrame f;
+        Evaluate (path, geometry, station, f);
+        Vec3 left = Lerp (sl, el, station / geometry.length), right = Lerp (sr, er, station / geometry.length);
+        left.z = f.leftEdge.z;
+        right.z = f.rightEdge.z;
+        const auto n = uint32_t (area.vertices.size ());
+        area.vertices.insert (area.vertices.end (), { left, f.centre, right });
+        if (n == 0)
+            continue;
+        for (uint32_t k = 0; k < 2; ++k) {
+            area.triangles.insert (area.triangles.end (), { n - 3 + k, n - 2 + k, n + k, n - 2 + k, n + 1 + k, n + k });
+        }
+    }
+    return true;
 }
 
 void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, double step,
@@ -92,6 +174,7 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
         }
         area.triangles = std::move (next);
     }
+    ImproveEdges (area);
     // Mark edges globally before splitting triangles: neighbours always receive
     // the same midpoint, so refinement introduces neither cracks nor T-junctions.
     for (int pass = 0; pass < 24; ++pass) {
@@ -159,5 +242,6 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
         }
         area.triangles = std::move (next);
     }
+    ImproveEdges (area);
 }
 } // namespace geomsrv::edit

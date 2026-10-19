@@ -1,4 +1,5 @@
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditPathCrossing.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -227,10 +228,6 @@ bool SplitPath (Document& doc, Id id, double station, std::string& error, Id* cr
     for (const auto& grade : source->profile)
         if (grade.curve > 0 && std::abs (station - grade.station) < grade.curve * 0.5 + kJoin)
             return Fail (error, "split outside the vertical curve to preserve its profile");
-    for (const auto& path : doc.paths)
-        for (const auto& k : path.kerbs)
-            if ((path.id == id && k.other != kNoId) || k.other == id)
-                return Fail (error, "release junction-specific kerb overrides before splitting this path");
     Document result = doc;
     Path a = *source, b = *source;
     b.id = NewId (result);
@@ -293,10 +290,16 @@ bool SplitPath (Document& doc, Id id, double station, std::string& error, Id* cr
     a.kerbs.clear ();
     b.kerbs.clear ();
     for (auto k : source->kerbs) {
+        if (k.other != kNoId)
+            continue; // transferred by junction station below
         const bool onRight =
             std::any_of (b.points.begin (), b.points.end (), [&] (const ControlPoint& p) { return p.id == k.point; });
-        if (k.point == left.id)
-            return Fail (error, "release the split point's kerb override before splitting");
+        if (k.point == left.id) {
+            a.kerbs.push_back (k);
+            k.point = right.id;
+            b.kerbs.push_back (k);
+            continue;
+        }
         (onRight ? b.kerbs : a.kerbs).push_back (k);
     }
     AlignmentGeometry check;
@@ -305,6 +308,41 @@ bool SplitPath (Document& doc, Id id, double station, std::string& error, Id* cr
     *FindPath (result, id) = std::move (a);
     const Id newId = b.id;
     result.paths.push_back (std::move (b));
+    const auto junctions = FindJunctions (doc.paths);
+    for (auto& path : result.paths)
+        if (path.id != id && path.id != newId)
+            path.kerbs.erase (std::remove_if (path.kerbs.begin (), path.kerbs.end (),
+                                              [=] (const KerbCorner& k) { return k.other == id; }),
+                              path.kerbs.end ());
+    for (const auto& path : doc.paths)
+        for (const auto& request : path.kerbs) {
+            if (request.other == kNoId || (path.id != id && request.other != id))
+                continue;
+            const Id other = path.id == id ? request.other : path.id;
+            bool firstHalf = false, secondHalf = false;
+            for (const auto& j : junctions) {
+                const Id ja = doc.paths[j.a].id, jb = doc.paths[j.b].id;
+                if (!((ja == id && jb == other) || (jb == id && ja == other)))
+                    continue;
+                const double s = ja == id ? j.stationA : j.stationB;
+                firstHalf |= s <= station + kJoin;
+                secondHalf |= s >= station - kJoin;
+            }
+            if (!firstHalf && !secondHalf)
+                firstHalf = true; // retain dormant intent
+            for (const Id half : { id, newId }) {
+                if (!(half == id ? firstHalf : secondHalf))
+                    continue;
+                KerbCorner k = request;
+                Id owner = path.id == id ? half : path.id;
+                k.other = path.id == id ? other : half;
+                if (owner > k.other) {
+                    std::swap (owner, k.other);
+                    std::swap (k.side, k.otherSide);
+                }
+                FindPath (result, owner)->kerbs.push_back (k);
+            }
+        }
     if (!Validate (result, error))
         return false;
     doc = std::move (result);

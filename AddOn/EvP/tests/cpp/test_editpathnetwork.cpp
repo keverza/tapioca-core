@@ -66,6 +66,43 @@ TEST (EditPathTopology, SplitPreservesTheDefinitionAndDoesNotImmediatelyRejoin)
     EXPECT_EQ (session.Doc ().paths.size (), 2u);
 }
 
+TEST (EditPathTopology, SplitTransfersJunctionAndSeamKerbsWithoutARelease)
+{
+    for (bool lowerOwner : { true, false }) {
+        ed::Document doc;
+        if (!lowerOwner)
+            ed::AddPath (doc, { { 15, -5, 0 }, { 15, 5, 0 } }, 2);
+        const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 1 }, { 20, 0, 2 } }, 2);
+        if (lowerOwner)
+            ed::AddPath (doc, { { 15, -5, 0 }, { 15, 5, 0 } }, 2);
+        const auto surface = ed::Pave (doc.paths, .5, false);
+        const auto corner = std::find_if (surface.corners.begin (), surface.corners.end (),
+                                          [] (const ed::PavedCorner& c) { return c.key.other != ed::kNoId; });
+        ASSERT_NE (corner, surface.corners.end ());
+        std::string error;
+        ASSERT_TRUE (ed::SetKerbRadius (doc, corner->path, corner->key, .4, error));
+        ed::KerbCorner seam;
+        seam.point = ed::FindPath (doc, id)->points[1].id;
+        seam.radius = .2;
+        ed::FindPath (doc, id)->kerbs.push_back (seam);
+        ed::Id made = 0;
+        ASSERT_TRUE (ed::SplitPath (doc, id, 10, error, &made)) << error;
+        ASSERT_NE (ed::FindPath (doc, made), nullptr);
+        EXPECT_EQ (ed::FindPath (doc, id)->kerbs[0].point, seam.point);
+        bool transferred = false;
+        for (const auto& p : doc.paths)
+            for (const auto& k : p.kerbs)
+                if (k.other != ed::kNoId) {
+                    EXPECT_TRUE (p.id == made || k.other == made);
+                    EXPECT_LT (p.id, k.other);
+                    EXPECT_DOUBLE_EQ (k.radius, .4);
+                    transferred = true;
+                }
+        EXPECT_TRUE (transferred);
+        EXPECT_TRUE (ed::Validate (doc, error)) << error;
+    }
+}
+
 TEST (EditPathTopology, NewlyMeetingEndsJoinAtEndWithOneUndoAndCancelDoesNotJoin)
 {
     ed::Document doc;
@@ -278,6 +315,57 @@ TEST (EditPathNetwork, TheSharedSurfaceRetainsInteriorGradeBreaksAndCrown)
     ASSERT_TRUE (ed::PavedHeight (surface, { 10, 1, 0 }, z));
     EXPECT_NEAR (z, 1.98, 1e-9);
     ExpectMeshFillsItsOutline (surface);
+}
+
+TEST (EditPathNetwork, AStraightSlopeUsesOnlyThreeCrossSectionPointsAtAuthoredStations)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 100, 0, 10 } }, 4);
+    for (double step : { 2., .5, .1 }) {
+        const auto mesh = ed::Pave (doc.paths, step);
+        EXPECT_EQ (mesh.vertices.size (), 6u);
+        EXPECT_EQ (mesh.triangles.size (), 12u);
+        for (size_t i = 0; i < mesh.triangles.size (); i += 3) {
+            const auto a = mesh.vertices[mesh.triangles[i]], b = mesh.vertices[mesh.triangles[i + 1]],
+                       c = mesh.vertices[mesh.triangles[i + 2]];
+            EXPECT_GT ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x), 0);
+        }
+        for (double x : { 1., 20., 50., 90., 99. })
+            for (double y : { -1.5, -.5, 0., .5, 1.5 }) {
+                double z = 0;
+                ASSERT_TRUE (ed::PavedHeight (mesh, { x, y, 0 }, z));
+                EXPECT_NEAR (z, .1 * x - .02 * std::abs (y), 1e-9);
+            }
+    }
+}
+
+TEST (EditPathNetwork, JunctionBlendHasNoDeepestStripCliff)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { -10, 0, -1 }, { 10, 0, 1 } }, 4);
+    ed::AddPath (doc, { { 0, -10, .5 }, { 0, 10, -.5 } }, 4);
+    const auto mesh = ed::Pave (doc.paths, .25);
+    for (double x = .4; x < 1.5; x += .1) {
+        double a = 0, b = 0;
+        ASSERT_TRUE (ed::PavedHeight (mesh, { x - .05, x + .05, 0 }, a));
+        ASSERT_TRUE (ed::PavedHeight (mesh, { x + .05, x - .05, 0 }, b));
+        EXPECT_LT (std::abs (a - b), .04) << x;
+    }
+    ExpectMeshFillsItsOutline (mesh);
+}
+
+TEST (EditPathNetwork, AJoinedRightAngleHasNoNearestLegCliff)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, -1 }, { 10, 0, 0 }, { 10, 10, -.5 } }, 4);
+    const auto mesh = ed::Pave (doc.paths, .25);
+    for (double d = .4; d < 1.5; d += .1) {
+        double a = 0, b = 0;
+        ASSERT_TRUE (ed::PavedHeight (mesh, { 10 - d - .05, d - .05, 0 }, a));
+        ASSERT_TRUE (ed::PavedHeight (mesh, { 10 - d + .05, d + .05, 0 }, b));
+        EXPECT_LT (std::abs (a - b), .04);
+    }
+    ExpectMeshFillsItsOutline (mesh);
 }
 
 TEST (EditPathNetwork, EveryCornerOfTheAreaIsAKerbCorner)
