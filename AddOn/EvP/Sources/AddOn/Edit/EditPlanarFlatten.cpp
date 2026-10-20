@@ -101,6 +101,11 @@ bool AddFlattened (std::vector<PieceSegment>& segments, const PlanarOptions& opt
                    std::string& error, Vec3 a, Vec3 b, Id source, uint32_t piece, double u0, double u1, bool openStart,
                    bool openEnd)
 {
+    if (!FinitePoint (a) || !FinitePoint (b)) {
+        error = "flattened source segment has non-finite coordinates";
+        AddDiagnostic (out, PlanarDiagnosticCode::Degenerate, source, kNoId, {}, 0.0, error);
+        return false;
+    }
     if (segments.size () >= options.maxSegments)
         return TooManySegments (out, options, error);
     const uint32_t ordinal = static_cast<uint32_t> (segments.size ());
@@ -164,7 +169,7 @@ bool FlattenLineOrArc (std::vector<PieceSegment>& segments, const PlanarOptions&
 {
     const double sweep = angle; // Positive Archicad arcAngle bulges right.
     std::size_t count = 1;
-    if (std::abs (sweep) >= 1.0e-12) {
+    if (sweep != 0.0) {
         const Vec3 chordVector { b.x - a.x, b.y - a.y, 0.0 };
         const double chord = Length2 (chordVector);
         if (!(chord > 0.0)) {
@@ -174,7 +179,7 @@ bool FlattenLineOrArc (std::vector<PieceSegment>& segments, const PlanarOptions&
         }
         const double half = sweep * 0.5;
         const double sinHalf = std::sin (half);
-        if (std::abs (sinHalf) < 1.0e-15)
+        if (sinHalf == 0.0)
             return ArcPrecisionLimit (out, error, source, a,
                                       "the angle is numerically indistinguishable from a full turn");
         const double radius = chord / (2.0 * std::abs (sinHalf));
@@ -225,14 +230,17 @@ bool FlattenLineOrArc (std::vector<PieceSegment>& segments, const PlanarOptions&
     const double chord = Length2 (chordVector);
     const Vec3 left { -chordVector.y / chord, chordVector.x / chord, 0.0 };
     const double half = sweep * 0.5;
-    const double tanHalf = std::tan (half);
-    const double offset = std::abs (tanHalf) < 1.0e-15 ? 0.0 : (chord * 0.5) / tanHalf;
-    const Vec3 centre { (a.x + b.x) * 0.5 + left.x * offset, (a.y + b.y) * 0.5 + left.y * offset, 0.0 };
-    const double radius = chord / (2.0 * std::abs (std::sin (half)));
-    const double start = std::atan2 (a.y - centre.y, a.x - centre.x);
+    const double sinHalf = std::sin (half);
     const auto at = [&] (double t) {
-        const double theta = start + sweep * t;
-        return Vec3 { centre.x + radius * std::cos (theta), centre.y + radius * std::sin (theta), 0.0 };
+        // Evaluate in the chord frame, not as centre + radius*cos(theta): a
+        // shallow long arc otherwise subtracts enormous nearly equal values
+        // and loses its meaningful sagitta. The product-of-sines identity also
+        // avoids subtracting cosines close to one. It works for major arcs too.
+        const double theta = sweep * (t - 0.5);
+        const double along = 0.5 + 0.5 * std::sin (theta) / sinHalf;
+        const double normal = -chord * (std::sin ((half + theta) * 0.5) / sinHalf) * std::sin ((half - theta) * 0.5);
+        return Vec3 { a.x + chordVector.x * along + left.x * normal, a.y + chordVector.y * along + left.y * normal,
+                      0.0 };
     };
 
     for (std::size_t i = 0; i < count; ++i) {
@@ -253,7 +261,7 @@ bool FlattenSegment (std::vector<PieceSegment>& segments, const PlanarOptions& o
 {
     const bool cubic = NonzeroHandle (outHandle) || NonzeroHandle (inHandle);
     if (cubic) {
-        if (std::abs (angle) > 1.0e-12) {
+        if (angle != 0.0) {
             error = "source " + std::to_string (source) + " has both an arc angle and cubic handles on one segment";
             AddDiagnostic (out, PlanarDiagnosticCode::Degenerate, source, kNoId, a, angle, error);
             return false;
@@ -349,7 +357,7 @@ bool NormalizeCurves (const std::vector<PlanarCurve>& curves, std::vector<Normal
         if (!curve.arcAngles.empty ()) {
             for (std::size_t i = 0; i < segmentCount; ++i) {
                 const std::size_t next = (i + 1) % pointCount;
-                if (SameXY (curve.points[i], curve.points[next]) && std::abs (curve.arcAngles[i]) > 1.0e-12) {
+                if (SameXY (curve.points[i], curve.points[next]) && curve.arcAngles[i] != 0.0) {
                     error = "source " + std::to_string (curve.source) +
                             " has a nonzero arc angle on a zero-length segment (ambiguous)";
                     AddDiagnostic (out, PlanarDiagnosticCode::Degenerate, curve.source, kNoId, curve.points[i],
@@ -450,7 +458,7 @@ bool NormalizeCurves (const std::vector<PlanarCurve>& curves, std::vector<Normal
             for (std::size_t i = 0; i < usedCount; ++i)
                 used.insert (line.points[i].lastOriginal);
             for (std::size_t i = 0; i < line.angles.size (); ++i) {
-                if (used.count (static_cast<uint32_t> (i)) == 0 && std::abs (line.angles[i]) > 1.0e-12) {
+                if (used.count (static_cast<uint32_t> (i)) == 0 && line.angles[i] != 0.0) {
                     error = "source " + std::to_string (curve.source) +
                             " has an arc angle at a vertex with no leaving segment";
                     AddDiagnostic (out, PlanarDiagnosticCode::Degenerate, curve.source, kNoId, curve.points[i], 0.0,

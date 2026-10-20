@@ -161,11 +161,26 @@ TEST (EditPlanarRobustFaces, UnrepresentableAreaRefusesInsteadOfPublishingInfini
     EXPECT_FALSE (geo::BuildPlanarMap ({ Closed (1, { P (0, 0), P (side, 0), P (side, side), P (0, side) }) }, options,
                                        map, error));
     EXPECT_FALSE (error.empty ());
-    EXPECT_NE (error.find ("area"), std::string::npos) << error;
+    // The intersection gate now refuses this span before face-area products.
+    EXPECT_NE (error.find ("finite planar intersection arithmetic"), std::string::npos) << error;
     EXPECT_TRUE (HasDiagnostic (map, PlanarDiagnosticCode::Degenerate));
     EXPECT_TRUE (map.faces.empty ());
-    for (const auto& face : map.faces)
-        EXPECT_TRUE (std::isfinite (face.area));
+
+    // Retain independent coverage of the face builder's own area guard: supply
+    // an already valid square topology whose coordinates are scaled afterwards.
+    PlanarMap areaMap;
+    ExpectBuild ({ Closed (1, { P (0, 0), P (1, 0), P (1, 1), P (0, 1) }) }, PlanarOptions {}, areaMap);
+    for (auto& vertex : areaMap.vertices) {
+        vertex.x *= side;
+        vertex.y *= side;
+    }
+    areaMap.cycles.clear ();
+    areaMap.faces.clear ();
+    areaMap.diagnostics.clear ();
+    EXPECT_FALSE (geo::detail::BuildFaces (options, areaMap, error));
+    EXPECT_NE (error.find ("area"), std::string::npos) << error;
+    EXPECT_TRUE (HasDiagnostic (areaMap, PlanarDiagnosticCode::Degenerate));
+    EXPECT_TRUE (areaMap.faces.empty ());
 }
 
 TEST (EditPlanarRobustFaces, NonSeparatingBridgeIsNotAFaceBoundaryContributor)

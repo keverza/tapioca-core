@@ -14,6 +14,11 @@
 // the Archicad polygon convention: a positive angle bulges to the RIGHT of the
 // vertex->next direction. Major arcs up to (but not including) a full turn are
 // supported analytically; |angle| >= 2*pi is refused rather than guessed.
+// Nonzero shallow sweeps are never classified as lines by an angular epsilon.
+// Unsupported tessellation precision is refused, not silently straightened.
+// Intersection predicates currently require the flattened XY span (including
+// numerical weld bounds) on each axis <= sqrt(DBL_MAX)/4; larger inputs refuse
+// as Degenerate before unscaled products can overflow.
 //
 // Provenance: PlanarEdgePiece::piece is a source-local segment locator: the
 // input point ordinal at the actual leaving vertex of that segment. It is

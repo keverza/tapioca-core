@@ -17,7 +17,6 @@ namespace tapioca::geometry::detail {
 namespace {
 
 constexpr double kParallelRelative = 1.0e-12;
-constexpr double kSplitTolerance = 1.0e-12;
 constexpr double kTangentAngle = 0.12; // Radians, about seven degrees.
 constexpr std::size_t kMaxGridCellsPerSegment = 256;
 
@@ -140,6 +139,10 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
     for (auto& list : splits)
         list = { 0.0, 1.0 };
     std::size_t splitEvents = 0;
+    const auto splitTolerance = [&] (std::size_t segment) {
+        const auto& s = segments[segment];
+        return std::min (0.5, weld / std::hypot (s.b.x - s.a.x, s.b.y - s.a.y));
+    };
     const auto addSplit = [&] (std::size_t segment, double t) {
         if (splitEvents >= options.maxSplitEvents) {
             error = "split-event budget exceeded (" + std::to_string (options.maxSplitEvents) + ")";
@@ -148,9 +151,10 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
             return false;
         }
         ++splitEvents;
-        if (t <= kSplitTolerance)
+        const double tolerance = splitTolerance (segment);
+        if (t <= tolerance)
             splits[segment].push_back (0.0);
-        else if (t >= 1.0 - kSplitTolerance)
+        else if (t >= 1.0 - tolerance)
             splits[segment].push_back (1.0);
         else
             splits[segment].push_back (t);
@@ -174,6 +178,15 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
         all.minY = std::min (all.minY, bounds[i].minY);
         all.maxX = std::max (all.maxX, bounds[i].maxX);
         all.maxY = std::max (all.maxY, bounds[i].maxY);
+    }
+    // The unscaled predicates below multiply coordinate differences. Refuse an
+    // unsupported range before any inf/NaN can silently drop an intersection.
+    // The factor four leaves headroom for sums of two products and weld bounds.
+    const double predicateSpan = std::sqrt (std::numeric_limits<double>::max ()) * 0.25;
+    if (all.maxX - all.minX > predicateSpan || all.maxY - all.minY > predicateSpan) {
+        error = "coordinate range exceeds finite planar intersection arithmetic";
+        AddDiagnostic (out, PlanarDiagnosticCode::Degenerate, kNoId, kNoId, {}, 0.0, error);
+        return false;
     }
     const double diagonal = std::hypot (all.maxX - all.minX, all.maxY - all.minY);
     const double cell =
@@ -247,6 +260,8 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
             continue;
         const double lengthA = std::sqrt (lengthA2);
         const double lengthB = std::sqrt (lengthB2);
+        const double toleranceA = splitTolerance (ia);
+        const double toleranceB = splitTolerance (ib);
         const double cross = Cross2 (da, db);
         const bool parallel = std::abs (cross) <= kParallelRelative * lengthA * lengthB;
 
@@ -259,7 +274,7 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
                 const double ta1 = Dot2 (Vec3 { b.b.x - a.a.x, b.b.y - a.a.y, 0.0 }, da) / lengthA2;
                 const double low = std::max (0.0, std::min (ta0, ta1));
                 const double high = std::min (1.0, std::max (ta0, ta1));
-                if (high >= low - kSplitTolerance) {
+                if (high >= low - toleranceA) {
                     const Vec3 at { a.a.x + da.x * (low + high) * 0.5, a.a.y + da.y * (low + high) * 0.5, 0.0 };
                     AddDiagnostic (out, PlanarDiagnosticCode::NearCoincident, a.source, b.source, at, distance,
                                    "near-coincident parallel edges");
@@ -270,14 +285,13 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
                 const double ta1 = Dot2 (Vec3 { b.b.x - a.a.x, b.b.y - a.a.y, 0.0 }, da) / lengthA2;
                 const double low = std::max (0.0, std::min (ta0, ta1));
                 const double high = std::min (1.0, std::max (ta0, ta1));
-                if (high >= low - kSplitTolerance) {
+                if (high >= low - toleranceA) {
                     if (!addSplit (ia, std::clamp (low, 0.0, 1.0)) || !addSplit (ia, std::clamp (high, 0.0, 1.0)))
                         return false;
                     for (double t : { 0.0, 1.0 }) {
                         const Vec3 p { a.a.x + da.x * t, a.a.y + da.y * t, 0.0 };
                         const double tb = Dot2 (Vec3 { p.x - b.a.x, p.y - b.a.y, 0.0 }, db) / lengthB2;
-                        if (tb >= -kSplitTolerance && tb <= 1.0 + kSplitTolerance &&
-                            !addSplit (ib, std::clamp (tb, 0.0, 1.0)))
+                        if (tb >= -toleranceB && tb <= 1.0 + toleranceB && !addSplit (ib, std::clamp (tb, 0.0, 1.0)))
                             return false;
                     }
                 }
@@ -290,7 +304,7 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
                 if (side > weld)
                     continue;
                 const double t = Dot2 (Vec3 { q.x - a.a.x, q.y - a.a.y, 0.0 }, da) / lengthA2;
-                if (t >= -kSplitTolerance && t <= 1.0 + kSplitTolerance && !addSplit (ia, std::clamp (t, 0.0, 1.0)))
+                if (t >= -toleranceA && t <= 1.0 + toleranceA && !addSplit (ia, std::clamp (t, 0.0, 1.0)))
                     return false;
             }
             for (Vec3 q : { a.a, a.b }) {
@@ -298,14 +312,12 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
                 if (side > weld)
                     continue;
                 const double t = Dot2 (Vec3 { q.x - b.a.x, q.y - b.a.y, 0.0 }, db) / lengthB2;
-                if (t >= -kSplitTolerance && t <= 1.0 + kSplitTolerance && !addSplit (ib, std::clamp (t, 0.0, 1.0)))
+                if (t >= -toleranceB && t <= 1.0 + toleranceB && !addSplit (ib, std::clamp (t, 0.0, 1.0)))
                     return false;
             }
             continue;
         }
 
-        const double toleranceA = std::min (0.5, weld / lengthA);
-        const double toleranceB = std::min (0.5, weld / lengthB);
         const Vec3 offset { b.a.x - a.a.x, b.a.y - a.a.y, 0.0 };
         const double ta = Cross2 (offset, db) / cross;
         const double tb = Cross2 (offset, da) / cross;
@@ -333,7 +345,8 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
                 return true;
             for (Vec3 q : { target.a, target.b }) {
                 const double t = Dot2 (Vec3 { q.x - source.a.x, q.y - source.a.y, 0.0 }, ds) / ls2;
-                if (t < -kSplitTolerance || t > 1.0 + kSplitTolerance)
+                const double tolerance = splitTolerance (sourceIndex);
+                if (t < -tolerance || t > 1.0 + tolerance)
                     continue;
                 const double distance =
                     std::abs (Cross2 (ds, Vec3 { q.x - source.a.x, q.y - source.a.y, 0.0 })) / std::sqrt (ls2);
@@ -346,11 +359,13 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
             return false;
     }
 
-    for (auto& list : splits) {
+    for (std::size_t i = 0; i < splits.size (); ++i) {
+        auto& list = splits[i];
+        const double tolerance = splitTolerance (i);
         std::sort (list.begin (), list.end ());
         std::vector<double> unique;
         for (double t : list) {
-            if (unique.empty () || t > unique.back () + kSplitTolerance)
+            if (unique.empty () || t - unique.back () > tolerance)
                 unique.push_back (std::clamp (t, 0.0, 1.0));
         }
         if (unique.size () < 2 || unique.front () != 0.0 || unique.back () != 1.0) {

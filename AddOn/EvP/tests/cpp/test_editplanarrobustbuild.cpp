@@ -474,3 +474,58 @@ TEST (EditPlanarRobustBuild, CubicShuffledSourcesKeepCanonicalFaces)
     ASSERT_TRUE (geo::BuildPlanarMap ({ curves[1], curves[0] }, options, reversed, error)) << error;
     ExpectSameFaces (expected, reversed);
 }
+
+TEST (EditPlanarRobustBuild, FractionalSplitsPreservePhysicalSeparation)
+{
+    PlanarOptions options;
+    options.snapTolerance = 1.0e-9;
+    for (bool reverse : { false, true }) {
+        PlanarCurve square = Closed (1, { P (0, 0), P (1.0e6, 0), P (1.0e6, 1.0e6), P (0, 1.0e6) });
+        if (reverse)
+            std::reverse (square.points.begin (), square.points.end ());
+        PlanarMap map;
+        std::string error;
+        ASSERT_TRUE (
+            geo::BuildPlanarMap ({ square, Open (2, { P (1.0e-7, -1), P (1.0e-7, 1.0e6 + 1) }) }, options, map, error))
+            << error;
+        ASSERT_EQ (map.faces.size (), 2u);
+        const double narrow = std::min (map.faces[0].area, map.faces[1].area);
+        EXPECT_NEAR (narrow, 0.1, 1.0e-4);
+        EXPECT_NEAR (map.faces[0].area + map.faces[1].area, 1.0e12, 0.001);
+    }
+}
+
+TEST (EditPlanarRobustBuild, IntersectionOverflowRefusesInsteadOfReturningAnUnsplitFace)
+{
+    PlanarOptions options;
+    options.snapTolerance = 1.0e140;
+    PlanarMap map;
+    std::string error;
+    EXPECT_FALSE (geo::BuildPlanarMap ({ Closed (1, { P (0, 0), P (1.0e155, 0), P (1.0e155, 1.0e145), P (0, 1.0e145) }),
+                                         Open (2, { P (5.0e154, -1.0e145), P (5.0e154, 2.0e145) }) },
+                                       options, map, error));
+    EXPECT_FALSE (error.empty ());
+    EXPECT_TRUE (HasDiagnostic (map, PlanarDiagnosticCode::Degenerate));
+    EXPECT_TRUE (map.faces.empty ());
+}
+
+TEST (EditPlanarRobustBuild, ShallowArcRetainsGeometricallyMeaningfulSagitta)
+{
+    PlanarOptions options;
+    options.chordTolerance = 1.0e-6;
+    for (double sign : { -1.0, 1.0 }) {
+        PlanarCurve arc = Open (1, { P (0, 0), P (1.0e9, 0) });
+        arc.arcAngles = { sign * 5.0e-13, 0.0 };
+        PlanarMap map;
+        std::string error;
+        ASSERT_TRUE (geo::BuildPlanarMap ({ arc }, options, map, error)) << error;
+        ASSERT_GT (map.edges.size (), 1u);
+        double sagitta = 0.0;
+        for (Vec3 vertex : map.vertices) {
+            EXPECT_TRUE (std::isfinite (vertex.x));
+            EXPECT_TRUE (std::isfinite (vertex.y));
+            sagitta = std::max (sagitta, -sign * vertex.y);
+        }
+        EXPECT_NEAR (sagitta, 6.25e-5, options.chordTolerance);
+    }
+}
