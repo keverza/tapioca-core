@@ -909,6 +909,8 @@ set (EVP_TEST_SOURCES
     test_terrainprojection.cpp
     test_massingfacade.cpp
     test_massingslices.cpp
+    massing_corpus.cpp
+    test_massingcorpus.cpp
     test_hudsection.cpp
     test_tapiocametadata.cpp
     test_overlayclicktiming.cpp

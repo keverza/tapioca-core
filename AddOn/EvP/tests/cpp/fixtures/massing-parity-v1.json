@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "63d3cd1",
+  "units": "world metres, square metres, cubic metres; right-handed Z-up",
+  "absoluteTolerance": 0.000001,
+  "anchorTolerance": 0.00002,
+  "meshes": {
+    "taper": {
+      "guid": "body:taper",
+      "vertices": [0,0,0, 10,0,0, 10,10,0, 0,10,0, 2.5,2.5,9, 7.5,2.5,9, 7.5,7.5,9, 2.5,7.5,9],
+      "triangles": [0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7]
+    },
+    "halfEnvelope": {
+      "guid": "body:envelope",
+      "vertices": [5,0,-1, 10,0,-1, 10,10,-1, 5,10,-1, 5,0,10, 10,0,10, 10,10,10, 5,10,10],
+      "triangles": [0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7]
+    },
+    "slopedRoof": {
+      "guid": "body:sloped-roof",
+      "vertices": [0,0,0, 10,0,0, 10,10,0, 0,10,0, 0,0,0.8, 10,0,3.2, 10,10,3.2, 0,10,0.8],
+      "triangles": [0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7]
+    },
+    "openPlane": {
+      "guid": "body:open-plane",
+      "vertices": [0,0,0, 10,0,0, 10,0,9, 0,0,9],
+      "triangles": [0,1,2,0,2,3]
+    }
+  },
+  "cases": [
+    {
+      "name": "RectangularPrism",
+      "sourceTest": "MassingSlices; SlabSlices; native analytic fixture",
+      "basis": "20*10 footprint, 9 m height, three 3 m floors; area600, volume1800, perimeter60*height9 facade540",
+      "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:rectangle","id":"A","bottom":0,"top":9,"outer":[0,0,20,0,20,10,0,10],"holes":[],"metadata":{"massing.buildingId":"Tower","massing.floorHeight":3}}]},
+      "analytic": {"success":true,"rawArea":600.0,"rawVolume":1800.0,"floorCount":3,"facadeArea":540.0},
+      "expected": "massing-parity-v1.expected.json#RectangularPrism"
+    },
+    {
+      "name": "CourtyardPrism",
+      "sourceTest": "MassingFacade.MixedPrismAndOperatedBodyKeepCourtyardAndSharedWallExclusion; MassingBake.CountedSlicesRetainHolesSeparateIslandsAndPhysicalElevation",
+      "basis": "10*10 outer less2*2 hole: 96*3 floor area,96*9 volume,(40+8)*9 courtyard facade",
+      "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:courtyard","id":"C","bottom":0,"top":9,"outer":[0,0,10,0,10,10,0,10],"holes":[[4,4,6,4,6,6,4,6]],"metadata":{"massing.buildingId":"Courtyard","massing.floorHeight":3}}]},
+      "analytic": {"success":true,"rawArea":288.0,"rawVolume":864.0,"floorCount":3,"facadeArea":432.0},
+      "expected": "massing-parity-v1.expected.json#CourtyardPrism"
+    },
+    {
+      "name": "ThinExcludedFloor",
+      "sourceTest": "MassingSlices.ThinSelectedSlabRetainsOneFloorButIsGrayAndExcludedWithoutAnEnvelope",
+      "basis": "10*10*0.3 prism retains one gray floor below1.6m clearance: counted0,excluded100,volume30",
+      "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:thin","id":"T","bottom":0,"top":0.3,"outer":[0,0,10,0,10,10,0,10],"holes":[],"metadata":{}}]},
+      "analytic": {"success":true,"rawArea":0.0,"excludedArea":100.0,"rawVolume":30.0,"floorCount":1},
+      "expected": "massing-parity-v1.expected.json#ThinExcludedFloor"
+    },
+    {
+      "name": "HalfEnvelope",
+      "sourceTest": "MassingSlices.Intersect; MassingSlices.Build envelope clipping regressions",
+      "basis": "10*10*9 prism intersected by x5..10 envelope: raw300/900,allowed150/450 across three floors",
+      "input": {"mode":"build","envelope":"halfEnvelope","storeys":[],"slabs":[{"guid":"slab:clipped","id":"E","bottom":0,"top":9,"outer":[0,0,10,0,10,10,0,10],"holes":[],"metadata":{"massing.floorHeight":3}}]},
+      "analytic": {"success":true,"rawArea":300.0,"allowedArea":150.0,"rawVolume":900.0,"allowedVolume":450.0,"floorCount":3,"clipped":true},
+      "expected": "massing-parity-v1.expected.json#HalfEnvelope"
+    },
+    {
+      "name": "GroupedBuildings",
+      "sourceTest": "MassingBuildings.OneSelectedSlabPreviewsEveryFloorAndTargetsAllItsBuildingMembers; ExactIdsGroupSlabsAndMissingIdsNeverMerge",
+      "basis": "Tower lower0..3 plus upper3..9 share ID; separate case-sensitive tower atx20 has one floor. Four100m2 floor rows,1200m3 volume",
+      "input": {"mode":"build","storeys":[],"slabs":[
+        {"guid":"slab:lower","id":"L","bottom":0,"top":3,"outer":[0,0,10,0,10,10,0,10],"holes":[],"metadata":{"massing.buildingId":"Tower","massing.floorHeight":3}},
+        {"guid":"slab:upper","id":"U","bottom":3,"top":9,"outer":[0,0,10,0,10,10,0,10],"holes":[],"metadata":{"massing.buildingId":"Tower","massing.floorHeight":3}},
+        {"guid":"slab:other","id":"O","bottom":0,"top":3,"outer":[20,0,30,0,30,10,20,10],"holes":[],"metadata":{"massing.buildingId":"tower","massing.floorHeight":3}}
+      ]},
+      "analytic": {"success":true,"rawArea":400.0,"rawVolume":1200.0,"floorCount":4},
+      "expected": "massing-parity-v1.expected.json#GroupedBuildings"
+    },
+    {
+      "name": "TaperedBody",
+      "anchorTolerance": 0.0001,
+      "sourceTest": "MassingSlices.TaperedBodyOnlyMassingSourceFeedsFloorMetadataPlanAndBakeExport",
+      "basis": "Square frustum side10 atz0 to5 atz9; ideal floor-base prisms3*(100+625/9+400/9)=1925/3m3, not true frustum volume. Existing SliceEngine base-face nudge1e-6m shifts volume3.34e-5m3, within original test1e-4m3 bound. Headroom affects counted area separately",
+      "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:taper","id":"M","bottom":0,"top":9,"outer":[],"holes":[],"body":"taper","facadeBody":"taper","metadata":{"massing.buildingId":"Frustum","massing.floorHeight":3}}]},
+      "analytic": {"success":true,"floorCount":3,"rawVolume":641.6666666666666},
+      "expected": "massing-parity-v1.expected.json#TaperedBody"
+    },
+    {
+      "name": "OpenBodyRefusal",
+      "sourceTest": "MassingSlices.OpenMassingBodySectionsAreRefusedBeforeAreaAndBakeContoursArePublished",
+      "basis": "Open vertical plane cannot define a closed floor volume; named refusal, never prism substitution",
+      "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:open","id":"Bad","bottom":0,"top":9,"outer":[],"holes":[],"body":"openPlane","metadata":{}}]},
+      "analytic": {"success":false},
+      "expected": "massing-parity-v1.expected.json#OpenBodyRefusal"
+    },
+    {
+      "name": "SlopedHeadroom",
+      "sourceTest": "MassingHeadroom.SlopedRoofSplitsExactlyAtTheVerticalClearanceBoundary",
+      "basis": "Roofz=0.8+0.24x crosses1.6m atx10/3: counted200/3,excluded100/3m2",
+      "input": {"mode":"headroom","body":"slopedRoof","z":0,"chains":[[0,0,10,0,10,10,0,10]]},
+      "analytic": {"success":true,"countedArea":66.66666666666667,"excludedArea":33.333333333333336},
+      "expected": "massing-parity-v1.expected.json#SlopedHeadroom"
+    },
+    {
+      "name": "StoreySlicesWithHole",
+      "sourceTest": "SlabSlices.EachFloorIsASliceOfTheOutlineLessItsHoles",
+      "basis": "20*10 outer less2*2 hole:3 slices196m2 each atz1.1,4.1,7.1; project storeys0,1,2",
+      "input": {"mode":"slice","slab":{"guid":"slab:storeys","id":"S","bottom":0,"top":9,"outer":[0,0,20,0,20,10,0,10],"holes":[[2,2,2,4,4,4,4,2]]},"cut":"step","step":3,"minTop":2.5,"offset":1.1,"levels":[],"storeys":[{"index":-1,"name":"Basement","z":-3},{"index":0,"name":"Ground","z":0},{"index":1,"name":"First","z":3},{"index":2,"name":"Second","z":6}]},
+      "analytic": {"footprint":200.0,"sliceArea":196.0,"area":588.0},
+      "expected": "massing-parity-v1.expected.json#StoreySlicesWithHole"
+    },
+    {
+      "name": "MissingStoreysRefusal",
+      "sourceTest": "SlabSlices.TheStoreyRuleNeedsTwoRisingStoreys",
+      "basis": "Storey-based floor generation without at least two rising project levels must diagnose rather than fabricate floors",
+      "input": {"mode":"slice","slab":{"guid":"slab:no-storeys","id":"N","bottom":0,"top":9,"outer":[0,0,10,0,10,10,0,10],"holes":[]},"cut":"storeys","step":3,"minTop":2.5,"offset":0,"levels":[],"storeys":[]},
+      "analytic": {"area":0.0},
+      "expected": "massing-parity-v1.expected.json#MissingStoreysRefusal"
+    },
+    {
+      "name": "LoggedBakeCornerCleanup",
+      "sourceTest": "MassingBake.SlabCleanupRemovesTheLoggedMicrometreCornerStepsBeforeNativeCreation",
+      "basis": "Captured2026-10-08 first three failure vertices plus representative1.9micrometre stair-step closure; cleanup keeps four real rectangle corners",
+      "input": {"mode":"cleanRing","xy":[96.14302738290297,-261.1064460082009,96.14302738290297,-246.10674832295922,96.14302738290297,-246.1067464156106,96.14302547555434,-246.1067464156106,96.14302547555434,-246.106744508262,86.14302738290297,-246.106744508262,86.14302738290297,-261.1064460082009],"arcs":[]},
+      "analytic": {"success":true},
+      "expected": "massing-parity-v1.expected.json#LoggedBakeCornerCleanup"
+    },
+    {
+      "name": "FacadeSharedWalls",
+      "sourceTest": "MassingFacade.OperatedFacadeExcludesDuplicateSharedIntersectingAndNestedFaces",
+      "basis": "Two adjacent10*10*3prisms share30m2wall each; union perimeter60*3=180m2facade",
+      "input": {"mode":"facade","slabs":[
+        {"guid":"slab:left","id":"Left","bottom":0,"top":3,"outer":[0,0,10,0,10,10,0,10],"holes":[],"metadata":{}},
+        {"guid":"slab:right","id":"Right","bottom":0,"top":3,"outer":[10,0,20,0,20,10,10,10],"holes":[],"metadata":{}}
+      ]},
+      "analytic": {"success":true,"area":180.0},
+      "expected": "massing-parity-v1.expected.json#FacadeSharedWalls"
+    },
+    {
+      "name": "ArcCleanupRefusal",
+      "sourceTest": "MassingBake.SlabCleanupRefusesCollapsedHoleInvalidInputsAndArcReplacementWithoutMutatingOutput",
+      "basis": "A straight-contour cleanup may not silently replace an authored curved edge",
+      "input": {"mode":"cleanRing","xy":[0,0,10,0,10,10,0,10],"arcs":[0.5]},
+      "analytic": {"success":false},
+      "expected": "massing-parity-v1.expected.json#ArcCleanupRefusal"
+    },
+    {
+      "name": "SurveyPrism",
+      "sourceTest": "MassingHeadroom.SurveyCoordinatesAndElevatedFloorDoNotFlattenOrShiftTheRoofBoundary; SlabSlices",
+      "basis": "10*10*9m prism atworld700000,6000000,z120: three100m2 floors,900m3 volume,360m2facade without local-origin translation",
+      "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:survey","id":"GEO","bottom":120,"top":129,"outer":[700000,6000000,700010,6000000,700010,6000010,700000,6000010],"holes":[],"metadata":{"massing.floorHeight":3}}]},
+      "analytic": {"success":true,"rawArea":300.0,"rawVolume":900.0,"floorCount":3,"facadeArea":360.0},
+      "expected": "massing-parity-v1.expected.json#SurveyPrism"
+    }
+  ]
+}
