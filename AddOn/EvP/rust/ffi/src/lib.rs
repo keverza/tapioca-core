@@ -68,3 +68,10 @@ pub use affine::{
 )]
 mod polyline;
 pub use polyline::{PolylineOutput, PolylineRequest, tapioca_sample_polyline};
+
+#[allow(
+    unsafe_code,
+    reason = "Arc POD ingress and checked disjoint caller-owned point publication"
+)]
+mod arc;
+pub use arc::{ArcRequest, tapioca_make_arc};

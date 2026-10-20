@@ -13,7 +13,8 @@ struct Snapshot;
 } // namespace geomsrv
 namespace geomsrv::engine {
 struct Transform;
-}
+struct Vector3;
+} // namespace geomsrv::engine
 
 namespace tapioca::geometry {
 
@@ -94,6 +95,17 @@ struct PolylineSamples {
 // prior arrays because publication occurs after the ABI call ends. Worker by default.
 bool SamplePolyline (std::span<const double> points, std::span<const double> parameters, PolylineSamples& result,
                      std::string& error);
+
+struct ArcRequest {
+    const geomsrv::engine::Vector3& centre;
+    const geomsrv::engine::Vector3& normal;
+    double radius, startRadians, sweepRadians;
+    int segments;
+};
+// S2b parity primitive: (segments+1) xyz points in sweep order, no endpoint snap.
+// Result is unchanged on refusal; centre/normal are copied to POD, never
+// reinterpreted or retained. Worker by default, no consumer flip.
+bool MakeArc (const ArcRequest& request, std::vector<double>& result, std::string& error);
 
 } // namespace tapioca::geometry
 

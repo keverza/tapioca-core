@@ -17,6 +17,8 @@ on:
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustIdentity.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustValue.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustAffine.cpp
+      - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustArc.cpp
+      - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPolyline.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryIdentity.hpp
       - .github/workflows/rust-kernel.yml
   pull_request:
@@ -35,6 +37,8 @@ on:
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustIdentity.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustValue.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustAffine.cpp
+      - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustArc.cpp
+      - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPolyline.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryIdentity.hpp
       - .github/workflows/rust-kernel.yml
   workflow_dispatch:
@@ -66,13 +70,13 @@ jobs:
         shell: bash
         run: |
           cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
-          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure --config RelWithDebInfo
+          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure TapiocaRustArcSmoke TapiocaRustArcFailure --config RelWithDebInfo
           ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
       - name: Verify Windows Debug uses the same release Rust archive and CRT
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure --config Debug
+          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure TapiocaRustArcSmoke TapiocaRustArcFailure --config Debug
           ctest --test-dir AddOn/EvP/rust/build -C Debug --output-on-failure
       - name: Test enforcement
         run: |

@@ -33,6 +33,14 @@ incoming-segment joins, repeated vertices and squared-norm underflow fallbacks.
 Non-finite/overflowing arithmetic refuses. No implicit closure, arc construction,
 semantic IDs, polygon repair or latency guarantee; bulk requests use workers.
 
+`tapioca_make_arc` adds bounded S2b tessellation parity with C++ `MakeArc`: an
+adaptive right-handed frame, signed radians (including multiple turns), 2..4096
+segments and one evaluated endpoint per segment plus the start. It does not snap
+full-circle closure or introduce an analytic `ArcPolyline` carrier. Non-finite
+coordinates/angles and unusable squared normal lengths/overflow refuse atomically.
+One Rust temporary point vector copies into provisional caller-owned output; no
+allocation/borrow escapes. Worker by default until measured; no consumer flip.
+
 ```text
 rust/
   geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs

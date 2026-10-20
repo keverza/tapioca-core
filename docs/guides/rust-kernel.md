@@ -5,7 +5,7 @@
 `tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
 `tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
 S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
-`tapioca_sample_polyline` primitives (additive ABI v1).
+`tapioca_sample_polyline` and `tapioca_make_arc` primitives (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
@@ -269,6 +269,32 @@ is not a D14 geometry-generation/attribution primitive or production family flip
 Work is O(vertices + samples * log(vertices)); bulk calls remain worker-classified.
 No benchmark, main-thread budget or full S2b completion is claimed.
 
+## S2b bounded arc tessellation
+
+`MakeArc` explicitly copies centre/normal coordinates into the additive ABI-v1
+`TapiocaArcRequest`; it never reinterprets C++ `Vector3` memory. Pure Rust owns
+frame construction and tessellation, reusing `affine::Vec3`. World-metre/radian
+inputs retain the C++ `Curves.cpp::MakeArc` adaptive seed (normalized `abs(z)<0.9`),
+cross products, squared-norm normalization, sum association, signed sweep and
+2..4096 segment limits. Angles are not reduced modulo a turn, and the closing
+point of a full circle is evaluated, not snapped. Exactly `segments+1` points are
+returned in sweep order. No analytic ArcPolyline, welding, ID allocation or
+geometry-family switch is introduced; `Curves.cpp` remains authoritative.
+
+Non-finite centre/normal/radius/angles, nonpositive radius, zero sweep, unusable
+squared normal length (including underflow/overflow), and non-finite intermediate
+angles/points refuse. This deliberately excludes the legacy oracle's accidental
+successful NaN/inf output, not a production behavior repair. A complete Rust
+temporary vector copies only the requested prefix into disjoint caller-owned
+storage; the entire declared output capacity must be disjoint from request/error.
+The C++ facade publishes its provisional vector only on success. Refusals/contained
+panics preserve prior results. Foreign allocation validity and OOM/abort are not
+recoverable. The bounded operation stays worker-classified until D3 measurements;
+no performance or full-S2b/terrain acceptance is claimed. Compiled C++ differential
+tests use absolute `1e-9 m` for ordinary/survey positions, with a dedicated tighter
+tiny-radius check, plus plane/radius/winding invariants and seeded cases. No
+bitwise cross-toolchain transcendental parity is claimed.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:
@@ -276,7 +302,7 @@ The standalone CMake entry needs no DevKit or Diligent:
 ```powershell
 cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
 cmake --build AddOn/EvP/rust/build --target TapiocaRustKernel --config RelWithDebInfo
-cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure --config RelWithDebInfo
+cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure TapiocaRustArcSmoke TapiocaRustArcFailure --config RelWithDebInfo
 ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 ```
 
@@ -294,6 +320,9 @@ stubs also reject inconsistent orientation reports without changing caller outpu
 `TapiocaRustPolylineSmoke` checks layouts and real measurement/sample conversion;
 `TapiocaRustPolylineFailure` checks facade atomicity for status refusals even if a
 test-only stub dirties provisional storage. The C smoke also calls the real export.
+`TapiocaRustArcSmoke` checks arc layout, real export/facade publication and refusal;
+`TapiocaRustArcFailure` proves prior results survive a refusing transport that has
+dirtied provisional output. The C smoke independently calls the real arc export.
 MSVC uses x64 and dynamic CRT `/MD` in **every**
 configuration, including Debug, matching Rust's `-crt-static`. Archives are under
 `<binary-dir>/rust/x86_64-pc-windows-msvc/release/` on Windows and

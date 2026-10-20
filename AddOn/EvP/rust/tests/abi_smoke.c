@@ -118,6 +118,13 @@ int main (void)
         cumulative[0] != 0 || cumulative[1] != 8 || sampled[2] != 4 || tangents[2] != 1 || error[0] != '\0')
         return 20;
 
+    TapiocaArcRequest arc = { { 0, 0, 0 }, { 0, 0, 1 }, 2, 0, 1, 2 };
+    double arcPoints[9] = { 0 };
+    if (sizeof (void*) == 8 && (sizeof (TapiocaArcRequest) != 80 || offsetof (TapiocaArcRequest, segments) != 72))
+        return 20;
+    if (tapioca_make_arc (&arc, arcPoints, 9, error, sizeof (error)) != TAPIOCA_OK || arcPoints[1] != 2)
+        return 21;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

@@ -368,6 +368,33 @@ TapiocaStatus tapioca_compose_transforms (const TapiocaAffineTransform* transfor
 TapiocaStatus tapioca_sample_polyline (const TapiocaPolylineRequest* request, const TapiocaPolylineOutput* output,
                                        char* error, size_t errorCapacity);
 
+/* Additive ABI-v1 arc POD. World metres, radians, dimensionless normal.
+ * Signed sweep, including multiple turns;
+ * adaptive C++ frame and segment order.
+ * No local-origin conversion, endpoint snap, authored IDs or ArcPolyline
+ * carrier. */
+typedef struct {
+    double centre[3], normal[3];
+    double radius, startRadians, sweepRadians;
+    int32_t segments; /* 2..4096 inclusive. */
+} TapiocaArcRequest;
+
+/* Writes exactly (segments+1)*3 interleaved xyz scalars. Capacity is scalar f64s,
+ * not points. Request must be
+ * initialized immutable live storage; output must be
+ * aligned live exclusively writable storage, disjoint (ENTIRE
+ * capacity) from
+ * request and error. NULL output requires zero capacity, then refuses too-small.
+ * Finite inputs,
+ * positive radius, nonzero sweep and usable squared normal length
+ * are required. Non-finite arithmetic refuses. All
+ * output unchanged on refusal
+ * or contained panic; no allocation/borrow escapes. Common foreign-memory and
+ *
+ * OOM/abort caveats apply. Worker by default until measured; no consumer flip. */
+TapiocaStatus tapioca_make_arc (const TapiocaArcRequest* request, double* output, size_t scalarCapacity, char* error,
+                                size_t errorCapacity);
+
 /* Structural attribution gate: contexts/revisions, catalogs and acyclic DAG,
  * native bindings, range/reference validity and complete unique domain coverage.
  * Never generates identity, repairs input, certifies contributor geometry, or
