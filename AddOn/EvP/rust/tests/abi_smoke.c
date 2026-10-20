@@ -189,6 +189,11 @@ int main (void)
         return 28;
     }
 
+    const TapiocaDividePolylineRequest division = { { line, 6 }, 2, 1 };
+    double divided[9];
+    if (tapioca_divide_polyline (&division, divided, 9, error, sizeof (error)) != TAPIOCA_OK || divided[2] != 0 ||
+        divided[5] != 4 || divided[8] != 8)
+        return 29;
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

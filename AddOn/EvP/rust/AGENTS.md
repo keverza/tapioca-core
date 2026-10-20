@@ -78,7 +78,7 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
   validators, complete detached mesh/snapshot value validators, and separate
   structural provenance/attributed-mesh validators.
   S2b also exposes the implemented affine-vector batch, matrix-chain composition/builders,
-  polyline measurement/sampling, bounded arc tessellation, neutral plane projection
+  polyline measurement/sampling/segment-count division, bounded arc tessellation, neutral plane projection
   and attributed polygon value copying; no production
   geometry family is switched by its parity harness.
   Geometry algorithms still require their own implementation and tests.

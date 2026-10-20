@@ -443,6 +443,31 @@ TapiocaStatus tapioca_project_to_plane (const TapiocaPlaneRequest* request, cons
 TapiocaStatus tapioca_sample_polyline (const TapiocaPolylineRequest* request, const TapiocaPolylineOutput* output,
                                        char* error, size_t errorCapacity);
 
+typedef struct {
+    TapiocaDoubleView points;
+    int32_t count;        /* Segment count, 1..100000. */
+    uint32_t includeEnds; /* Exactly 0 or 1. */
+} TapiocaDividePolylineRequest;
+
+/* Equal arc-length division: N+1 xyz positions with ends, N-1 without. No
+ * inferred closure, repair or identity
+ * generation. Finite >=2 xyz input points;
+ * count=1 without ends returns empty without evaluating unused lengths.
+ *
+ * Otherwise non-finite used arithmetic refuses. All errors return ARG, contained
+ * unwind INTERNAL. All output stays
+ * unchanged on failure; only the requested
+ * prefix publishes on success. ENTIRE output capacity/error must be live
+ * aligned
+ * exclusive writable and mutually disjoint, and disjoint from descriptor/points.
+ * Input storage is live
+ * initialized immutable and call-scoped. Null arrays only
+ * at zero count/capacity; zero output capacity is valid only
+ * for an empty result.
+ * Shared foreign-memory/OOM/abort caveats apply. Worker until measured. */
+TapiocaStatus tapioca_divide_polyline (const TapiocaDividePolylineRequest* request, double* output,
+                                       size_t scalarCapacity, char* error, size_t errorCapacity);
+
 /* Additive ABI-v1 arc POD. World metres, radians, dimensionless normal.
  * Signed sweep, including multiple turns;
  * adaptive C++ frame and segment order.

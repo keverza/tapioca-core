@@ -33,6 +33,8 @@ pub enum Error {
     NonFiniteInput,
     /// A difference, squared norm, cumulative length or sample is non-finite.
     ArithmeticRange,
+    /// Segment count must be in the existing C++ range 1..=100000.
+    DivideCount,
 }
 
 impl Error {
@@ -43,6 +45,7 @@ impl Error {
             Self::Shape => "PolylineShape: expected at least two whole xyz points",
             Self::NonFiniteInput => "PolylineNonFinite: coordinates and parameters must be finite",
             Self::ArithmeticRange => "PolylineArithmeticRange: unrepresentable length or sample",
+            Self::DivideCount => "PolylineDivideCount: expected between 1 and 100000 segments",
         }
     }
 }
@@ -166,5 +169,63 @@ pub fn sample_polyline(points: &[f64], parameters: &[f64]) -> Result<PolylineSam
     })
 }
 
+/// Number of output positions for the C++ segment-count/end-inclusion contract.
+/// Used by ABI ingress to check capacity before computation/allocation.
+///
+/// # Errors
+/// [`Error::DivideCount`] outside 1..=100000 segments.
+pub fn division_point_count(count: u32, include_ends: bool) -> Result<usize, Error> {
+    if !(1..=100_000).contains(&count) {
+        return Err(Error::DivideCount);
+    }
+    usize::try_from(if include_ends { count + 1 } else { count - 1 })
+        .map_err(|_| Error::ArithmeticRange)
+}
+
+/// Divide into `count` equal arc-length segments, preserving `Curves.cpp` order.
+/// N segments return N+1 positions with ends, N-1 without. No implicit closure,
+/// identity/lineage generation, welding or polygon validity is implied.
+/// Uses the same measurement/sampling implementation as [`sample_polyline`].
+/// One segment without ends returns empty after shape/count/finite ingress;
+/// it does not evaluate unused lengths, matching the C++ early return on finite
+/// inputs. Otherwise arithmetic must remain finite, including tangent evaluation
+/// even though tangents are not returned (the C++ oracle also evaluates them).
+/// O(vertices + count * log(vertices)), worker-classified until measured.
+///
+/// # Errors
+/// Malformed xyz/fewer than two vertices, invalid count, non-finite coordinates
+/// or unrepresentable used arithmetic refuse without a partial result.
+pub fn divide_polyline(points: &[f64], count: u32, include_ends: bool) -> Result<Vec<f64>, Error> {
+    let (vertices, remainder) = points.as_chunks::<3>();
+    if !remainder.is_empty() || vertices.len() < 2 {
+        return Err(Error::Shape);
+    }
+    let samples = division_point_count(count, include_ends)?;
+    if !points.iter().all(|value| value.is_finite()) {
+        return Err(Error::NonFiniteInput);
+    }
+    let capacity = sample_capacity(samples)?;
+    if samples == 0 {
+        return Ok(Vec::new());
+    }
+    let measured = sample_polyline(points, &[])?;
+    let mut output = Vec::with_capacity(capacity);
+    let start = u32::from(!include_ends);
+    let end = if include_ends { count + 1 } else { count };
+    for index in start..end {
+        let parameter = f64::from(index) / f64::from(count);
+        let (point, _) = sample(
+            vertices,
+            &measured.cumulative,
+            measured.total_length,
+            parameter,
+        )?;
+        output.extend(point);
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod divide_tests;
 #[cfg(test)]
 mod tests;

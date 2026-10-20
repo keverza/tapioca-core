@@ -4,6 +4,9 @@ use crate::borrow::{BorrowContext, SliceView};
 use crate::boundary::{Failure, call, memory_range, overlaps};
 use tapioca_geometry::polyline;
 
+mod divide;
+pub use divide::{DividePolylineRequest, tapioca_divide_polyline};
+
 /// Immutable flat xyz world-metre points and finite length-fraction parameters.
 #[repr(C)]
 #[derive(Clone, Copy)]

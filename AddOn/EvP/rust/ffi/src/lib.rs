@@ -65,10 +65,13 @@ pub use affine::{
 
 #[allow(
     unsafe_code,
-    reason = "Polyline POD ingress and checked disjoint caller-owned measurement/sample publication"
+    reason = "Polyline POD ingress and checked disjoint caller-owned measurement/sample/division publication"
 )]
 mod polyline;
-pub use polyline::{PolylineOutput, PolylineRequest, tapioca_sample_polyline};
+pub use polyline::{
+    DividePolylineRequest, PolylineOutput, PolylineRequest, tapioca_divide_polyline,
+    tapioca_sample_polyline,
+};
 
 #[allow(
     unsafe_code,

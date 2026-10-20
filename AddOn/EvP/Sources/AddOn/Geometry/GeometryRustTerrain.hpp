@@ -125,6 +125,13 @@ struct PolylineSamples {
 bool SamplePolyline (std::span<const double> points, std::span<const double> parameters, PolylineSamples& result,
                      std::string& error);
 
+// Equal arc-length segments, not result-point count: N+1 with ends, N-1 without.
+// 1..100000 segments. One without ends returns empty after finite/shape checks,
+// without evaluating unused lengths. Result publishes atomically and may own
+// input points. No implicit closure/identity generation; worker until measured.
+bool DividePolyline (std::span<const double> points, int32_t count, bool includeEnds, std::vector<double>& result,
+                     std::string& error);
+
 struct ArcRequest {
     const geomsrv::engine::Vector3& centre;
     const geomsrv::engine::Vector3& normal;

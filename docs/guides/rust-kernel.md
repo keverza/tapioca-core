@@ -5,7 +5,7 @@
 `tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
 `tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
 S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
-`tapioca_sample_polyline`, `tapioca_make_arc`, `tapioca_build_transform` and
+`tapioca_sample_polyline`, `tapioca_divide_polyline`, `tapioca_make_arc`, `tapioca_build_transform` and
 `tapioca_project_to_plane` and `tapioca_copy_attributed_polygon`
 primitives (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
@@ -383,6 +383,60 @@ Compiled frame parity uses absolute `1e-12`, projected points absolute `1e-9 m`,
 world-scale slack; raw source fields compare bitwise. Bulk O(points) calls remain
 worker-classified until D3 latency/copy/allocation/peak-memory evidence exists.
 This completes only the legacy neutral plane subset, not full S2b/G1 or terrain.
+
+### S2b polyline division
+
+`tapioca_divide_polyline` and the owned `DividePolyline` facade in the existing
+`GeometryRustPolyline.cpp` bridge implement the existing `Curves.cpp` operation:
+N **segments**, not positions, yield N+1 positions with ends or N-1 without.
+Count is 1..100000; a single segment without ends has no interior position.
+The additive ABI-v1 request is a flat xyz borrowed view, `int32_t` segment count
+and explicit 0/1 `uint32_t` end policy (x64 size 24, offsets 16/20). No per-point
+FFI calls, new bridge TU, crate, dependency or rollback-filter expansion.
+
+Safe Rust `polyline::divide_polyline` reuses measurement and sampling, including
+3D arc-length parameterization, incoming-segment joins, repeated points,
+coincident/tiny curves and accumulated-length endpoint fallback. Parameters use
+the C++ `double(index)/double(count)` order. No implicit closure, endpoint snap,
+welding, geometric repair, ID generation or attribution is added. Future authored
+consumers still need attributable outputs or refusal; this is geometry-only parity.
+Ordinary C++ differentials use absolute `1e-12`, survey cases absolute `1e-9 m`,
+never world-relative slack. Repeated Rust results compare exactly.
+
+All supplied coordinates must be finite, including for empty division. For the
+empty case only, no length arithmetic is evaluated: finite endpoints whose unused
+subtraction/length would overflow can return empty, matching the C++ early return.
+For nonempty output, any non-finite used arithmetic refuses instead of copying
+the C++ oracle's accidental NaN/inf successes. Tangents are evaluated as in C++
+but not returned. Invalid flags, counts, shape, pointers/capacity, non-finite input
+or used arithmetic return ARG; contained unwind uses the existing INTERNAL status.
+
+The ABI preflights descriptor, point pool, entire writable output capacity and
+error storage. Known overlap wins over malformed peer storage, including nested
+point/error alias with null/overflowing output. Live initialized input and live
+aligned exclusive writable outputs remain caller obligations; null arrays require
+zero count/capacity, OOM/abort/foreign invalid memory/UB are not recoverable. Rust
+computes a complete temporary coordinate vector before the prefix is copied.
+The C++ facade publishes a provisional vector by move and safely accepts its prior
+result as input. Refusals preserve the whole prior result, even with a dirty stub.
+
+Source-level storage is one Rust cumulative-distance vector and one output vector
+for nonempty division, plus the C++ provisional result. The existing measurement
+return's empty sample/tangent vectors do not allocate; no explicit parameter
+vector is materialized. These are source observations, **not measured allocation,
+copy or peak-memory counts**. Work is O(vertices + samples*log(vertices)); the
+compiled C++ oracle remeasures per position. No performance improvement or
+synchronous budget is claimed from that structural difference. Worker by default;
+the composition-only benchmark does not classify division.
+
+Tests include both policies at 1/2/8/100000 segments, uneven/survey/nonplanar,
+repeated/degenerate/explicit-closed/self-crossing/tiny curves, rounded cumulative
+endpoints, 64 seeded survey cases and a tessellated oblique arc. Rust checks empty
+unused-overflow versus nonempty refusal; FFI covers layout, uninitialized/prefix
+publication, invalid count/flag/shape/numeric/capacity/pointers and alias precedence.
+Existing standalone C smoke, C++ polyline smoke and dirty-refusal stub targets
+exercise the new symbol without adding an executable. Full S2b/G1, value carriers,
+D14 generation, broader live parity and H1/terrain gates remain incomplete.
 
 ## S2b attributed single-contour polygon value copy
 

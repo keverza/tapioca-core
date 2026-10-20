@@ -24,6 +24,19 @@ extern "C" TapiocaStatus tapioca_sample_polyline (const TapiocaPolylineRequest*,
     return s_status;
 }
 
+extern "C" TapiocaStatus tapioca_divide_polyline (const TapiocaDividePolylineRequest*, double* output,
+                                                  size_t scalarCapacity, char* error, size_t capacity)
+{
+    if (scalarCapacity != 0)
+        output[0] = -999;
+    if (capacity > 0) {
+        const char* message = s_message ? "stub division refusal" : "";
+        if (std::strlen (message) + 1 <= capacity)
+            std::memcpy (error, message, std::strlen (message) + 1);
+    }
+    return s_status;
+}
+
 int main ()
 {
     using namespace tapioca::geometry;
@@ -38,6 +51,10 @@ int main ()
                 result.cumulative != std::vector<double> { 77 } || result.totalLength != 88 ||
                 result.points != std::vector<double> { 99 } || result.tangents != std::vector<double> { 111 })
                 return 1;
+            std::vector<double> divided { 77 };
+            if (DividePolyline (points, 2, true, divided, error) || error.empty () ||
+                divided != std::vector<double> { 77 })
+                return 2;
         }
     }
     return 0;

@@ -33,6 +33,15 @@ incoming-segment joins, repeated vertices and squared-norm underflow fallbacks.
 Non-finite/overflowing arithmetic refuses. No implicit closure, arc construction,
 semantic IDs, polygon repair or latency guarantee; bulk requests use workers.
 
+`tapioca_divide_polyline` adds segment-count/end-inclusion parity with the
+existing C++ `DividePolyline`, reusing the same safe measurement/sampling code.
+N segments (1..100000) yield N+1 positions with ends, N-1 without; one segment
+without ends returns empty after shape/count/finite checks without evaluating
+unused lengths. Other calls require finite used arithmetic, preserve C++ joins,
+repeated/zero-length/explicit closing vertices and squared-norm fallbacks, and
+publish the whole xyz prefix atomically. No new attribution or production caller;
+bulk requests remain worker-classified, not covered by composition benchmarks.
+
 `tapioca_make_arc` adds bounded S2b tessellation parity with C++ `MakeArc`: an
 adaptive right-handed frame, signed radians (including multiple turns), 2..4096
 segments and one evaluated endpoint per segment plus the start. It does not snap
