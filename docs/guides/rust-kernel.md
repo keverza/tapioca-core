@@ -371,8 +371,8 @@ prior result's plane/points. No Rust allocation or reference escapes ownership.
 
 Tests pin raw value bits, fallback boundaries, seed axes, authored tangents,
 survey coordinates, 64 seeded frames/projections, idempotence, late arithmetic
-refusal, unused output capacity and all region-overlap pairs. Compiled frame
-parity uses absolute `1e-12`, projected points absolute `1e-9 m`, not relative
+refusal, unused output capacity, output-pair and input/descriptor/error overlaps.
+Compiled frame parity uses absolute `1e-12`, projected points absolute `1e-9 m`, not relative
 world-scale slack; raw source fields compare bitwise. Bulk O(points) calls remain
 worker-classified until D3 latency/copy/allocation/peak-memory evidence exists.
 This completes only the legacy neutral plane subset, not full S2b/G1 or terrain.
