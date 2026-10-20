@@ -173,11 +173,26 @@ Value Section (const geomsrv::archviz::hudsection::Section& section)
                             { "floors", Value::Array (std::move (floors)) },
                             { "spans", Value::Array (std::move (spans)) } });
 }
-Value Build (const Value& input, const Value& meshes)
+geomsrv::archviz::massingcalculation::Result Envelope (const Value& input, const Value& meshes,
+                                                       const Value& workflowShells)
 {
-    const auto sources = Inputs (Field (input, "slabs"), meshes);
-    const auto storeys = Storeys (Field (input, "storeys"));
     geomsrv::archviz::massingcalculation::Result envelope;
+    if (const auto* fixture = input.Find ("envelopeFixture")) {
+        if (input.Find ("envelope"))
+            throw std::runtime_error ("ambiguous corpus envelope source");
+        int64_t index = -1;
+        const auto& shells = Array (workflowShells);
+        if (!fixture->IsIntegral () || !fixture->AsInteger (index) || index < 0 || uint64_t (index) >= shells.size ())
+            throw std::runtime_error ("invalid workflow shell fixture index");
+        const auto& payload = Field (shells[size_t (index)], "payload");
+        const auto bridge =
+            Value::Object ({ { "ok", Value::Bool (true) }, { "outputs", Value::Object ({ { "payload", payload } }) } });
+        std::string error;
+        if (!geomsrv::archviz::massingcalculation::Decode (js::Write (bridge, 0), envelope, error) ||
+            !envelope.hasEnvelope)
+            throw std::runtime_error ("invalid required workflow shell payload: " + error);
+        return envelope;
+    }
     if (const auto* reference = input.Find ("envelope")) {
         const auto body = Mesh (meshes, *reference);
         geomsrv::archviz::overlaylayers::Mesh mesh;
@@ -186,6 +201,13 @@ Value Build (const Value& input, const Value& meshes)
         envelope.hasEnvelope = true;
         envelope.layer.meshes.push_back (std::move (mesh));
     }
+    return envelope;
+}
+Value Build (const Value& input, const Value& meshes, const Value& workflowShells)
+{
+    const auto sources = Inputs (Field (input, "slabs"), meshes);
+    const auto storeys = Storeys (Field (input, "storeys"));
+    const auto envelope = Envelope (input, meshes, workflowShells);
     ms::Result result;
     std::string error;
     const bool success = ms::Build (sources, storeys, envelope.hasEnvelope ? &envelope : nullptr, result, error);
@@ -297,11 +319,11 @@ Value Slice (const Value& input, const Value& meshes)
 }
 } // namespace
 
-Value Evaluate (const Value& input, const Value& meshes)
+Value Evaluate (const Value& input, const Value& meshes, const Value& workflowShells)
 {
     const auto mode = Text (Field (input, "mode"));
     if (mode == "build")
-        return Build (input, meshes);
+        return Build (input, meshes, workflowShells);
     if (mode == "slice")
         return Slice (input, meshes);
     std::string error;

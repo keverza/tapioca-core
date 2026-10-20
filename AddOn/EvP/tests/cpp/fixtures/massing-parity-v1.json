@@ -256,6 +256,24 @@
       "input": {"mode":"slice","slab":{"guid":"slab:above","id":"Above","bottom":0,"top":15,"outer":[0,0,10,0,10,10,0,10],"holes":[]},"cut":"step","step":3,"minTop":2.5,"offset":0,"levels":[],"storeys":[{"index":-1,"name":"Lower","z":0},{"index":0,"name":"Upper","z":3}]},
       "analytic": {"body":false,"area":500.0,"footprint":100.0,"sliceArea":100.0},
       "expected": "massing-parity-v1.expected.json#AboveTopStorey"
+    },
+    {
+      "name": "WorkflowConvexShell",
+      "baselineCommit": "f4ae4a0",
+      "sourceTest": "MassingSlices.SharedPythonConvexAndConcaveShellsCutAndIntersectAtEveryFloor; massing-shells.json[0]",
+      "basis": "Original workflow request:20x20 parcel,setback3 gives14x14 footprint;roof rises2m/m above8.5m to22.5m apex. At floor z=0,3,...27,1.6m headroom counts square side max(0,14-max(0,z+1.6-8.5)). Allowed areas196,196,196,141.61,79.21,34.81,8.41,0,0,0 sum852.04. Source32x32x30 prism:10240m2/30720m3,ten floors.",
+      "input": {"mode":"build","envelopeFixture":0,"storeys":[],"slabs":[{"guid":"slab:workflow-convex","id":"Convex","bottom":0,"top":30,"outer":[-1,-1,31,-1,31,31,-1,31],"holes":[],"metadata":{"massing.floorHeight":3}}]},
+      "analytic": {"success":true,"clipped":true,"rawArea":10240.0,"rawVolume":30720.0,"floorCount":10,"allowedVolume":2877.75},
+      "expected": "massing-parity-v1.expected.json#WorkflowConvexShell"
+    },
+    {
+      "name": "WorkflowConcaveShell",
+      "baselineCommit": "f4ae4a0",
+      "sourceTest": "MassingSlices.SharedPythonConvexAndConcaveShellsCutAndIntersectAtEveryFloor; massing-shells.json[1]",
+      "basis": "Original workflow L-shaped30x30 parcel less18x18 notch;1m setbacks give union of28x10 and10x28 strips less10x10 overlap=460m2. Below8.5m eaves,the first three floors have460m2 clearance-qualified area. Source32x32x30 prism:10240m2/30720m3,ten floors;at27m above all shell roofs,allowed area0. Upper concave roof snapshots are C++ baselines,not independently analytic quantities.",
+      "input": {"mode":"build","envelopeFixture":1,"storeys":[],"slabs":[{"guid":"slab:workflow-concave","id":"Concave","bottom":0,"top":30,"outer":[-1,-1,31,-1,31,31,-1,31],"holes":[],"metadata":{"massing.floorHeight":3}}]},
+      "analytic": {"success":true,"clipped":true,"rawArea":10240.0,"rawVolume":30720.0,"floorCount":10},
+      "expected": "massing-parity-v1.expected.json#WorkflowConcaveShell"
     }
   ]
 }

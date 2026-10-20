@@ -4,7 +4,8 @@
 analytic anchors. `massing-parity-v1.expected.json` contains captured outputs of
 the existing compiled C++ engines at production-source baseline `63d3cd1` for the
 original fourteen cases. Ten added cases name baseline `a3ee1ff` explicitly in
-their `baselineCommit` field; they do not overwrite the original snapshots.
+their `baselineCommit` field; two workflow-shell cases name `f4ae4a0`. None
+overwrites the earlier snapshots.
 The test-only adapter is `../massing_corpus.cpp`; no production algorithm changed.
 
 ## Replay
@@ -32,7 +33,7 @@ evaluation must match with zero tolerance; input JSON must remain unchanged.
 
 ## Coverage and interpretation
 
-Twenty-four cases exercise the existing `MassingSlices`, `MassingFacade`,
+Twenty-six cases exercise the existing `MassingSlices`, `MassingFacade`,
 `MassingBake`, `SlabSlices`, `MassingBuildings` and `MassingHeadroom` consumers:
 
 - rectangular/courtyard prisms, a thin excluded floor and a half-width envelope;
@@ -50,7 +51,12 @@ Twenty-four cases exercise the existing `MassingSlices`, `MassingFacade`,
 - exact inclusive `1.6 m` and just-below-threshold floor accounting, including
   bake success versus refusal without changing physical volume or story identity;
 - unsorted explicit levels with micron-near duplicates/out-of-range cuts, and
-  storey numbering that continues above the project's top level.
+  storey numbering that continues above the project's top level;
+- both original `massing-shells.json` workflow payloads, decoded through the
+  existing `MassingCalculation::Decode` boundary before ten-floor slicing,
+  clearance classification, building previews and bake planning. The original
+  shell file is required and unchanged; `envelopeFixture` selects index 0/1,
+  never regenerates an envelope or substitutes a box.
 
 The added anchors are derived independently before snapshot capture. The
 courtyard/island fixture has `3*(100-4+16)=336 m²` counted area,
@@ -64,6 +70,30 @@ volumes, without calling the consumers under test or a primitive builder.
 The removed-floor fixture deliberately contains only vertical walls, matching
 the source regression: useful slice ingress, not valid closed-solid modelling
 input. All added meshes remain literal committed coordinates and indices.
+
+The workflow cases reuse the exact committed shell payloads and their requests,
+not native SEO captures. Both source slabs are 32 x 32 x 30 m prisms with ten
+3 m floors: raw area **10,240 m²**, raw volume **30,720 m³**. For the convex
+20 x 20 m parcel, 3 m setbacks give a 14 m square. Above 8.5 m eaves, its
+2:1 rise/run roof reaches the 22.5 m apex. At floor base `z`, 1.6 m clearance
+leaves square side `max(0, 14 - max(0, z + 1.6 - 8.5))`. Allowed areas are
+`196,196,196,141.61,79.21,34.81,8.41,0,0,0` (ideal total **852.04 m²**).
+Each section retains the existing `2e-5 m²` analytic bound. The four nonintegral
+sections accumulate that error: the total uses their summed `8e-5 m²` bound,
+not a relaxed replay tolerance. The measured C++ total is
+`852.03997741699277 m²`; its difference from ideal exceeds one section's bound.
+Floor-base prism volume (before clearance exclusion) is **2,877.75 m³**; it is
+not the continuous roof-solid volume or counted area multiplied by 3 m.
+
+For the concave L parcel, 1 m setbacks leave two 28 x 10 m strips sharing
+10 x 10 m: **460 m²**. The first three clearance-qualified floors independently
+check that area. Every later area is nonnegative/nonincreasing and the last is
+zero. Upper concave roof quantities are saved C++ baselines, **not independent
+analytic anchors**. Both cases preserve seven baked floor pieces, all ten floor
+identities (including zero-area upper floors), exact row/contour order and raw,
+allowed, low-headroom and outside-highlight semantics. Malformed/out-of-range/
+fractional selectors, missing or invalid payloads and ambiguous envelope sources
+throw fixture errors rather than becoming expected domain-refusal snapshots.
 
 The snapshots retain raw/allowed/excluded areas and volumes, all five row-contour
 categories (including closed flags and winding/order), source GUIDs, storeys,
@@ -91,8 +121,9 @@ This is an initial, bounded regression corpus, not full S2b or a Rust parity run
 When G2/G3 implementations and their flags arrive, replay these same inputs
 against both compiled backends before any production family flip. Full migration
 acceptance still needs real-building/native SEO captures, arc cases and broader
-disconnected-body coverage beyond these synthetic fixtures,
-the existing `massing-shells.json` workflow fixtures, complete preview rendering,
+disconnected-body coverage beyond these synthetic/workflow fixtures, fresh Python
+workflow generation parity (the committed shell payloads are replayed, not rebuilt),
+complete preview rendering,
 baked native GUID/Undo stability, the live consumer matrix and reproducible
 latency/allocation/copy/peak-memory measurements. The existing tests remain in
 place; this corpus neither replaces them nor creates a second geometry authority.

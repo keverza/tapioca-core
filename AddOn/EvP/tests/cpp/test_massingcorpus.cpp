@@ -1,6 +1,7 @@
 #include "massing_corpus.hpp"
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <fstream>
@@ -10,6 +11,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 namespace corpus = tapioca::testing::massingcorpus;
@@ -68,6 +70,22 @@ const V& Goldens ()
     return Required (goldens, "cases");
 }
 
+const V& WorkflowShells ()
+{
+    static const V shells = [] () {
+        std::ifstream file (std::string (EVP_TEST_FIXTURE_DIR) + "/massing-shells.json");
+        if (!file)
+            throw std::runtime_error ("required committed workflow shells are absent");
+        const std::string bytes { std::istreambuf_iterator<char> (file), std::istreambuf_iterator<char> () };
+        const auto parsed = js::Parse (bytes);
+        if (bytes.size () > 1024 * 1024 || !parsed.ok || !parsed.value.AsArray () ||
+            parsed.value.AsArray ()->size () != 2)
+            throw std::runtime_error ("invalid required workflow shells");
+        return parsed.value;
+    }();
+    return shells;
+}
+
 // Unlike the production JSON writer, diagnostics retain the integer/double
 // distinction at whole-valued coordinates (3.0 versus authored story/colour 3).
 // This emits text only; replay has no golden-file update path.
@@ -111,12 +129,13 @@ TEST_P (MassingCorpus, ReplayCommittedCppBaseline)
     ASSERT_NE (found, nullptr);
     const auto& input = Required (*found, "input");
     const auto& meshes = Required (fixture, "meshes");
-    const auto before = SnapshotText (input) + SnapshotText (meshes);
-    const auto actual = corpus::Evaluate (input, meshes);
-    EXPECT_EQ (SnapshotText (input) + SnapshotText (meshes), before);
+    const auto& shells = WorkflowShells ();
+    const auto before = SnapshotText (input) + SnapshotText (meshes) + SnapshotText (shells);
+    const auto actual = corpus::Evaluate (input, meshes, shells);
+    EXPECT_EQ (SnapshotText (input) + SnapshotText (meshes) + SnapshotText (shells), before);
     std::string mismatch;
     ASSERT_TRUE (corpus::Match (actual, actual, 0, mismatch)) << "non-finite output at " << mismatch;
-    const auto repeated = corpus::Evaluate (input, meshes);
+    const auto repeated = corpus::Evaluate (input, meshes, shells);
     EXPECT_TRUE (corpus::Match (actual, repeated, 0, mismatch)) << "nondeterministic output at " << mismatch;
     double tolerance = 0, anchorTolerance = 0;
     ASSERT_TRUE (Required (fixture, "absoluteTolerance").AsDouble (tolerance));
@@ -147,7 +166,8 @@ INSTANTIATE_TEST_SUITE_P (V1, MassingCorpus,
                                              "BodyCourtyardIsland", "BodyRemovedTopFloor", "HeadroomHole",
                                              "HeadroomDisconnected", "RidgeHeadroom", "NearestLowExit",
                                              "ExactHeadroomThreshold", "BelowHeadroomThreshold",
-                                             "ExplicitLevelsSorting", "AboveTopStorey"),
+                                             "ExplicitLevelsSorting", "AboveTopStorey", "WorkflowConvexShell",
+                                             "WorkflowConcaveShell"),
                           [] (const auto& parameter) { return parameter.param; });
 
 TEST (MassingCorpusContract, EveryVersionedCaseIsRegisteredAndProvenanced)
@@ -196,7 +216,9 @@ TEST (MassingCorpusContract, EveryVersionedCaseIsRegisteredAndProvenanced)
                                                "ExactHeadroomThreshold",
                                                "BelowHeadroomThreshold",
                                                "ExplicitLevelsSorting",
-                                               "AboveTopStorey" }));
+                                               "AboveTopStorey",
+                                               "WorkflowConvexShell",
+                                               "WorkflowConcaveShell" }));
     EXPECT_EQ (Goldens ().AsObject ()->size (), names.size ());
 }
 
@@ -298,5 +320,108 @@ TEST (MassingCorpusContract, LiteralDisconnectedShellsPreserveCavityWindingAndSe
     const auto& stacked = Required (meshes, "stackedSolids");
     CheckBoxShell (stacked, 0, 0, 100);
     CheckBoxShell (stacked, 36, 8, 200);
+}
+
+TEST (MassingCorpusContract, WorkflowShellClearanceAreasHaveIndependentRequestBasedAnchors)
+{
+    const auto& shells = WorkflowShells ();
+    for (const auto& item : *Required (Fixture (), "cases").AsArray ()) {
+        const auto& input = Required (item, "input");
+        const auto* selected = input.Find ("envelopeFixture");
+        if (!selected)
+            continue;
+        int64_t index = -1;
+        ASSERT_TRUE (selected->AsInteger (index));
+        ASSERT_TRUE (index == 0 || index == 1);
+        EXPECT_EQ (Text (Required (item, "name")), index == 0 ? "WorkflowConvexShell" : "WorkflowConcaveShell");
+        const auto& request = Required ((*shells.AsArray ())[size_t (index)], "request");
+        double eaves = 0, runPerRise = 0;
+        ASSERT_TRUE (Required (request, "baseHeight").AsDouble (eaves));
+        ASSERT_TRUE (Required (request, "runPerRise").AsDouble (runPerRise));
+        ASSERT_DOUBLE_EQ (eaves, 8.5);
+        ASSERT_DOUBLE_EQ (runPerRise, 0.5);
+        const auto& edges = *Required (request, "edges").AsArray ();
+        ASSERT_EQ (edges.size (), index == 0 ? 4u : 6u);
+        const std::vector<double> parcel = index == 0
+                                               ? std::vector<double> { 0, 0, 20, 0, 20, 20, 0, 20 }
+                                               : std::vector<double> { 0, 0, 30, 0, 30, 12, 12, 12, 12, 30, 0, 30 };
+        for (size_t i = 0; i < edges.size (); ++i) {
+            const auto& edge = edges[i];
+            double setback = 0, arc = 0;
+            ASSERT_TRUE (Required (edge, "distance").AsDouble (setback));
+            ASSERT_DOUBLE_EQ (setback, index == 0 ? 3.0 : 1.0);
+            ASSERT_TRUE (Required (edge, "arc").AsDouble (arc));
+            ASSERT_DOUBLE_EQ (arc, 0.0);
+            bool regulated = false;
+            ASSERT_TRUE (Required (edge, "regulated").AsBool (regulated));
+            ASSERT_TRUE (regulated);
+            for (const auto* key : { "a", "b" }) {
+                const auto* point = Required (edge, key).AsArray ();
+                ASSERT_NE (point, nullptr);
+                ASSERT_EQ (point->size (), 2u);
+                const auto vertex = key[0] == 'a' ? i : (i + 1) % edges.size ();
+                for (size_t axis = 0; axis < 2; ++axis) {
+                    double coordinate = 0;
+                    ASSERT_TRUE ((*point)[axis].AsDouble (coordinate));
+                    ASSERT_DOUBLE_EQ (coordinate, parcel[2 * vertex + axis]);
+                }
+            }
+        }
+        const auto actual = corpus::Evaluate (input, Required (Fixture (), "meshes"), shells);
+        const auto& rows = *Required (actual, "rows").AsArray ();
+        ASSERT_EQ (rows.size (), 10u);
+        double previous = index == 0 ? 196.0 : 460.0;
+        double expectedTotal = 0, actualTotal = 0;
+        for (size_t i = 0; i < rows.size (); ++i) {
+            double z = 0, area = 0;
+            ASSERT_TRUE (Required (rows[i], "z").AsDouble (z));
+            ASSERT_TRUE (Required (rows[i], "allowedArea").AsDouble (area));
+            EXPECT_DOUBLE_EQ (z, 3.0 * double (i));
+            if (index == 0) {
+                // Geometry from the square request, not the payload's reported
+                // area or the saved C++ output. Both sides retreat above eaves.
+                const double side = std::max (0.0, 14.0 - 2 * runPerRise * std::max (0.0, z + 1.6 - eaves));
+                EXPECT_NEAR (area, side * side, 2e-5);
+                expectedTotal += side * side;
+            }
+            else if (i < 3) {
+                EXPECT_NEAR (area, 2 * 28.0 * 10.0 - 10.0 * 10.0, 2e-5);
+            }
+            EXPECT_GE (area, 0.0);
+            EXPECT_LE (area, previous + 2e-5);
+            previous = area;
+            actualTotal += area;
+        }
+        EXPECT_DOUBLE_EQ (previous, 0.0);
+        if (index == 0) {
+            EXPECT_NEAR (expectedTotal, 852.04, 1e-12);
+            // Four nonintegral roof-section areas each have the existing 2e-5
+            // anchor bound. Accumulated error is bounded by their sum, not by
+            // pretending the full ten-floor total has one section's error.
+            EXPECT_NEAR (actualTotal, expectedTotal, 4 * 2e-5);
+        }
+    }
+}
+
+TEST (MassingCorpusContract, InvalidWorkflowShellReferencesAndPayloadsFailRatherThanBecomeGoldens)
+{
+    const auto parsed = js::Parse (R"({"mode":"build","envelopeFixture":0,"storeys":[],"slabs":[]})");
+    ASSERT_TRUE (parsed.ok);
+    const auto& input = parsed.value;
+    const auto& meshes = Required (Fixture (), "meshes");
+    EXPECT_THROW (corpus::Evaluate (input, meshes), std::runtime_error);
+    EXPECT_THROW (corpus::Evaluate (input, meshes, V::Array ({})), std::runtime_error);
+    EXPECT_THROW (corpus::Evaluate (input, meshes, V::Array ({ V::Object ({}) })), std::runtime_error);
+    for (const auto& payload : { V (), V::Object ({}), V::Object ({ { "hasEnvelope", V::Bool (false) } }) })
+        EXPECT_THROW (corpus::Evaluate (input, meshes, V::Array ({ V::Object ({ { "payload", payload } }) })),
+                      std::runtime_error);
+    for (const auto& selector : { V::Integer (-1), V::Integer (2), V::Double (0.5), V::String ("0") }) {
+        auto fields = *input.AsObject ();
+        fields["envelopeFixture"] = selector;
+        EXPECT_THROW (corpus::Evaluate (V::Object (std::move (fields)), meshes, WorkflowShells ()), std::runtime_error);
+    }
+    auto fields = *input.AsObject ();
+    fields["envelope"] = V::String ("halfEnvelope");
+    EXPECT_THROW (corpus::Evaluate (V::Object (std::move (fields)), meshes, WorkflowShells ()), std::runtime_error);
 }
 } // namespace
