@@ -296,10 +296,11 @@
     {
       "name": "ArcAnnularPrism",
       "baselineCommit": "1a8b01b",
+      "baselineCorrection": "Arc-aware C++ facade ingress repair,2026-10-20; production repair and direct regressions are committed alongside this reviewed correction (see fixture README). Original capture baseline is retained for provenance. Only facadeArea/hasFacade/unavailable note are updated; geometry,rows,bake plans and other case baselines stay unchanged.",
       "sourceTest": "SlabSlices.AnArcedOutlineIsItsArcNotItsChord; MassingBake.CountedSlicesRetainHolesSeparateIslandsAndPhysicalElevation",
-      "basis": "Outer unit circle,four quarter-turns=>128-gon;clockwise radius0.5 hole,two half-turns=>64-gon. Net area64*sin(pi/64)-8*sin(pi/32)=2.356194034318268;three floors7.068582102954805m2,volume21.205746308864413m3. Existing C++ facade refuses the valid two-node hole before tessellation;hasFacade=false/area0 is an unavailable result,NOT an independent zero-facade geometric answer. ArcAnnularFacade separately anchors equivalent four-node-hole facade.",
+      "basis": "Outer unit circle,four quarter-turns=>128-gon;clockwise radius0.5 hole,two half-turns=>64-gon. Net area64*sin(pi/64)-8*sin(pi/32)=2.356194034318268;three floors7.068582102954805m2,volume21.205746308864413m3. Arc-aware facade ingress now accepts the valid two-node hole;chordal perimeter9*(256*sin(pi/128)+64*sin(pi/64))=84.80597092938268m2 agrees with equivalent four-node-hole ArcAnnularFacade. Prior unavailable result is retained in dated evidence,not treated as correct zero geometry.",
       "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:arc-annulus","id":"Annulus","bottom":0,"top":9,"outer":[1,0,0,1,-1,0,0,-1],"outerArcs":[1.5707963267948966,1.5707963267948966,1.5707963267948966,1.5707963267948966],"holes":[[-0.5,0,0.5,0]],"holeArcs":[[-3.141592653589793,-3.141592653589793]],"metadata":{"massing.buildingId":"ArcTower","massing.floorHeight":3}}]},
-      "analytic": {"success":true,"floorCount":3,"rawArea":7.068582102954805,"rawVolume":21.205746308864413,"hasFacade":false},
+      "analytic": {"success":true,"floorCount":3,"rawArea":7.068582102954805,"rawVolume":21.205746308864413,"hasFacade":true,"facadeArea":84.80597092938268},
       "expected": "massing-parity-v1.expected.json#ArcAnnularPrism"
     },
     {

@@ -215,3 +215,127 @@ TEST (MassingFacade, SurveyPlacementAndInvalidBodyAreHandledWithoutPartialArea)
     EXPECT_FALSE (ms::Facade ({ input }, area, error));
     EXPECT_EQ (area, 123);
 }
+
+TEST (MassingFacade, TwoNodeCircularPrismsUseTheirTessellatedPerimeterWithoutRewritingSources)
+{
+    constexpr double pi = 3.14159265358979323846;
+    for (double sign : { -1.0, 1.0 }) {
+        ms::Input input;
+        input.slab.guid = "circle:two-nodes";
+        input.slab.outer = { { -1, 0, 1, 0 }, { sign * pi, sign * pi } };
+        input.slab.bottom = 2;
+        input.slab.top = 11;
+        const auto before = input.slab.outer;
+        double area = 123;
+        std::string error;
+        ASSERT_TRUE (ms::Facade ({ input }, area, error)) << error;
+        EXPECT_NEAR (area, 9 * 252 * std::sin (pi / 126), 2e-5);
+        EXPECT_TRUE (error.empty ());
+        ASSERT_TRUE (ms::Facade ({ input, input }, area, error)) << error;
+        EXPECT_NEAR (area, 9 * 252 * std::sin (pi / 126), 2e-5); // Duplicate sources count once.
+        EXPECT_EQ (input.slab.outer.xy, before.xy);
+        EXPECT_EQ (input.slab.outer.arcs, before.arcs);
+        input.slab.outer.arcs = { sign * pi }; // A semicircle plus a straight closing diameter.
+        ASSERT_TRUE (ms::Facade ({ input }, area, error)) << error;
+        EXPECT_NEAR (area, 9 * (126 * std::sin (pi / 126) + 2), 2e-5);
+    }
+}
+
+TEST (MassingFacade, TwoNodeCircularHolesContributeFacadeAndKeepMassingRows)
+{
+    constexpr double pi = 3.14159265358979323846;
+    ms::Input input;
+    input.slab.guid = "annulus:two-node-hole";
+    input.slab.outer = { { 1, 0, 0, 1, -1, 0, 0, -1 }, { pi / 2, pi / 2, pi / 2, pi / 2 } };
+    input.slab.holes = { { { -0.5, 0, 0.5, 0 }, { -pi, -pi } } };
+    input.slab.top = 9;
+    double area = 123;
+    std::string error;
+    ASSERT_TRUE (ms::Facade ({ input }, area, error)) << error;
+    const double expected = 9 * (256 * std::sin (pi / 128) + 64 * std::sin (pi / 64));
+    EXPECT_NEAR (area, expected, 2e-5);
+    ms::Result result;
+    ASSERT_TRUE (ms::Build ({ input }, {}, nullptr, result, error)) << error;
+    EXPECT_TRUE (result.hasFacade);
+    EXPECT_NEAR (result.facadeArea, expected, 2e-5);
+    EXPECT_EQ (result.note.find ("Facade area unavailable"), std::string::npos);
+    ASSERT_EQ (result.rows.size (), 3u);
+    EXPECT_NEAR (result.rawArea, 3 * (64 * std::sin (pi / 64) - 8 * std::sin (pi / 32)), 2e-5);
+    EXPECT_EQ (input.slab.holes.front ().xy.size (), 4u);
+    EXPECT_EQ (input.slab.holes.front ().arcs, (std::vector<double> { -pi, -pi }));
+}
+
+TEST (MassingFacade, TwoNodeArcPrismWorksBesideAnUnmodifiedOperatedBody)
+{
+    constexpr double pi = 3.14159265358979323846;
+    ms::Input circle;
+    circle.slab.guid = "circle:mixed";
+    circle.slab.outer = { { -1, 0, 1, 0 }, { pi, pi } };
+    circle.slab.top = 9;
+    const auto body = SurfaceSlab (3, 10);
+    double area = 123;
+    std::string error;
+    ASSERT_TRUE (ms::Facade ({ circle, body }, area, error)) << error;
+    EXPECT_NEAR (area, 120 + 9 * 252 * std::sin (pi / 126), 2e-5);
+}
+
+TEST (MassingFacade, ArcIngressRefusesMalformedOrCollapsedRingsWithoutPartialArea)
+{
+    constexpr double pi = 3.14159265358979323846;
+    const auto nan = std::numeric_limits<double>::quiet_NaN ();
+    const auto inf = std::numeric_limits<double>::infinity ();
+    const std::vector<geomsrv::archviz::slabslices::Ring> invalid {
+        { {}, {} },
+        { { 0, 0 }, {} },
+        { { 0, 0, 1 }, {} },
+        { { -1, 0, 1, 0 }, {} },
+        { { -1, 0, 1, 0 }, { 0, 0 } },
+        { { 0, 0, 0, 0 }, { pi, pi } },
+        { { -1, 0, 1, 0 }, { 1e-8 } }, // Inherited straight-sweep fallback cannot form a contour.
+        { { -1, 0, 1, 0 }, { pi, pi, 0 } },
+        { { -1, 0, 1, 0 }, { nan, pi } },
+        { { -1, 0, 1, 0 }, { pi, inf } },
+        { { -1, 0, 1, 0 }, { 2 * pi, 0 } },
+        { { -1, 0, 1, 0 }, { -2 * pi, 0 } },
+        { { nan, 0, 1, 0 }, { pi, pi } },
+        { { -1e9, 0, 1e9, 0 }, { 2 * pi - 1e-5 } } // Derived circle, unlike stored nodes, leaves world bounds.
+    };
+    for (const auto& ring : invalid) {
+        for (bool hole : { false, true }) {
+            ms::Input input;
+            input.slab.outer = { { -1, 0, 1, 0 }, { pi, pi } };
+            input.slab.top = 9;
+            if (hole)
+                input.slab.holes = { ring };
+            else
+                input.slab.outer = ring;
+            double area = 123;
+            std::string error;
+            EXPECT_FALSE (ms::Facade ({ input }, area, error));
+            EXPECT_EQ (area, 123);
+            EXPECT_FALSE (error.empty ());
+        }
+    }
+}
+
+TEST (MassingFacade, CappedLargeCircularPrismsRetainBudgetsAndRefuseOverflowAtomically)
+{
+    constexpr double pi = 3.14159265358979323846;
+    constexpr double radius = 40000000;
+    ms::Input input;
+    input.slab.outer = { { -radius, 0, radius, 0 }, { pi, pi } };
+    input.slab.top = 9;
+    double area = 123;
+    std::string error;
+    ASSERT_TRUE (ms::Facade ({ input }, area, error)) << error;
+    EXPECT_NEAR (area, 9 * 1024 * radius * std::sin (pi / 512), 1e-4);
+    input.slab.holes.assign (40, input.slab.outer); // 41*512 tessellated points > existing 20000 budget.
+    area = 123;
+    EXPECT_FALSE (ms::Facade ({ input }, area, error));
+    EXPECT_EQ (area, 123);
+    EXPECT_NE (error.find ("budget"), std::string::npos);
+    input.slab.holes.clear ();
+    input.slab.top = std::numeric_limits<double>::max ();
+    EXPECT_FALSE (ms::Facade ({ input }, area, error));
+    EXPECT_EQ (area, 123);
+}

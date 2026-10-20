@@ -6,7 +6,9 @@ the existing compiled C++ engines at production-source baseline `63d3cd1` for th
 original fourteen cases. Ten added cases name baseline `a3ee1ff` explicitly in
 their `baselineCommit` field; two workflow-shell cases name `f4ae4a0`; five
 signed-arc cases name `1a8b01b`. None
-overwrites the earlier snapshots.
+overwrites the earlier snapshots except the explicit `ArcAnnularPrism` facade
+correction below; its original capture annotation is retained with a
+`baselineCorrection` reason.
 The test-only adapter is `../massing_corpus.cpp`; no production algorithm changed.
 
 ## Replay
@@ -136,16 +138,24 @@ the actual ordered coordinates, source/storey identity and diagnostics. Existing
 absolute `2e-5` analytic and `1e-6` replay bounds stay unchanged. This is neither
 native curved-slab capture nor full ArcPolyline metadata/identity interoperability.
 
-**Known production limitation, not fixed here:** the facade's prism-footprint
-ingress requires at least three **stored** vertices per ring before tessellation.
-It therefore refuses the geometrically valid two-node/two-half-turn hole in
-`ArcAnnularPrism`, while slice/headroom/bake planning accept it. The build result
-must keep `hasFacade=false` and the exact `Facade area unavailable: Invalid facade
-prism contour.` note; its saved numeric zero is **unavailable**, not an independent
-zero-area answer. `ArcAnnularFacade` uses equivalent four-node quarter-turns and
-does compute the analytic chord-perimeter area. No node padding or rewrite hides
-the two-node limitation. An arc-aware facade-ingress repair needs a separate
-production change and reviewed baseline update before claiming that case supported.
+**Explicit facade correction, 2026-10-20:** the original capture exposed a
+production defect: facade ingress required three **stored** vertices before
+tessellation, rejecting valid two-node circular holes that slicing/bake accepted.
+The repaired ingress requires at least two stored vertices, finite bounded arc
+metadata and at least three **tessellated** contour vertices. Sources are never
+padded or rewritten. The two-node-hole `ArcAnnularPrism` now has `hasFacade=true`
+and independently anchored facade **84.80597092938268 m²**, matching the equivalent
+four-node-hole `ArcAnnularFacade`. Only its saved `facadeArea`, `hasFacade` and
+unavailable-note text change; every row, coordinate, source/storey, preview and
+bake field, all other 30 cases and all tolerances remain unchanged. The original
+unavailable result remains dated evidence, not a correct zero-area answer.
+
+The related finite-large-arc regression showed the shared float/double
+tessellators narrowing an over-`INT_MAX` requested step count before applying
+their existing 2..256 cap. They now clamp before narrowing, preserving ordinary
+arc counts and the existing cap. Facade checks both input and tessellated world
+coordinates before polygon conversion; invalid/collapsed/non-finite/over-budget
+geometry and non-finite final area refuse without publishing partial area.
 
 The snapshots retain raw/allowed/excluded areas and volumes, all five row-contour
 categories (including closed flags and winding/order), source GUIDs, storeys,

@@ -13,6 +13,7 @@ namespace cp = Clipper2Lib;
 using V = engine::Vector3;
 constexpr double kCos70 = 0.3420201433256687;
 constexpr double kPlaneTolerance = surfacecoverage::kPlaneTolerance;
+constexpr double kFullTurn = 6.28318530717958647692;
 V Sub (const V& a, const V& b)
 {
     return { a.x - b.x, a.y - b.y, a.z - b.z };
@@ -46,15 +47,30 @@ bool Footprints (const std::vector<Input>& inputs, std::vector<cp::PathsD>& foot
         cp::PathsD rings;
         bool valid = true;
         const auto add = [&] (const slabslices::Ring& ring) {
-            if (ring.xy.size () < 6 || ring.xy.size () % 2 || ring.xy.size () > 40000) {
+            // Archicad circles have two stored vertices and two half-turns.
+            // Count the contour AFTER the shared tessellator, never pad source nodes.
+            if (ring.xy.size () < 4 || ring.xy.size () % 2 || ring.xy.size () > 40000 ||
+                ring.arcs.size () > ring.xy.size () / 2) {
                 valid = false;
                 return;
             }
             for (double coordinate : ring.xy)
                 valid &= std::isfinite (coordinate) && std::abs (coordinate) <= 1e9;
+            for (double sweep : ring.arcs)
+                valid &= std::isfinite (sweep) && std::abs (sweep) < kFullTurn;
             if (!valid)
                 return;
             const auto contour = slabslices::Contour (ring, 0.05);
+            if (contour.Count () < 3) {
+                valid = false;
+                return;
+            }
+            // Near-full-turn arcs can leave the admitted world envelope even
+            // when their stored endpoints are finite and in bounds.
+            for (double coordinate : contour.xy)
+                valid &= std::isfinite (coordinate) && std::abs (coordinate) <= 1e9;
+            if (!valid)
+                return;
             cp::PathD path;
             for (size_t i = 0; i + 1 < contour.xy.size (); i += 2)
                 path.emplace_back (contour.xy[i] - ox, contour.xy[i + 1] - oy);
@@ -104,6 +120,8 @@ bool Prisms (const std::vector<Input>& inputs, double& area, std::string& error)
                 total += std::hypot (b.x - a.x, b.y - a.y) * (levels[k] - levels[k - 1]);
             }
     }
+    if (!std::isfinite (total))
+        return Fail (error, "Non-finite facade area.");
     area = total;
     return true;
 }
@@ -239,7 +257,7 @@ bool Facade (const std::vector<Input>& inputs, double& area, std::string& error)
     bool surfaces = false;
     for (const auto& input : inputs) {
         surfaces |= bool (input.body || input.facadeBody);
-        if (!input.body && !input.facadeBody && (input.slab.outer.xy.size () < 6 || input.slab.slopedEdges))
+        if (!input.body && !input.facadeBody && (input.slab.outer.xy.size () < 4 || input.slab.slopedEdges))
             return Fail (error, "Facade awaits current sloped slab body; no prism substitute.");
     }
     if (!surfaces)

@@ -479,8 +479,7 @@ TEST (MassingCorpusContract, SignedArcContoursRetainIndependentChordAreasWinding
             ASSERT_EQ (chains->size (), 2u);
             ASSERT_NO_FATAL_FAILURE (CheckCircularChain ((*chains)[0], 128, 1, 64 * std::sin (pi / 64)));
             ASSERT_NO_FATAL_FAILURE (CheckCircularChain ((*chains)[1], 64, 0.5, -8 * std::sin (pi / 32)));
-            EXPECT_NE (Text (Required (actual, "note")).find ("Facade area unavailable: Invalid facade prism contour."),
-                       std::string::npos);
+            EXPECT_EQ (Text (Required (actual, "note")).find ("Facade area unavailable"), std::string::npos);
             const auto& baked = Required (Required (Required (actual, "bake"), "geometry"), "items");
             ASSERT_NE (baked.AsArray (), nullptr);
             ASSERT_EQ (baked.AsArray ()->size (), 3u);
