@@ -1,6 +1,7 @@
 // Stub-linked parity oracle for wrapper failures; never linked into the add-on.
 #include "GeometryRustFfi.h"
 #include "GeometryRustTerrain.hpp"
+#include "Geometry/GeometryRustPolygon.hpp"
 #include "Mesh.hpp"
 #include "Transforms.hpp"
 
@@ -88,6 +89,19 @@ extern "C" TapiocaStatus tapioca_validate_attributed_mesh (const TapiocaMeshView
     return tapioca_validate_provenance (request, diagnostic, error, capacity);
 }
 
+extern "C" TapiocaStatus tapioca_copy_attributed_polygon (const TapiocaAttributedPolygonRequest*, double* output,
+                                                          size_t scalarCapacity, char* error, size_t capacity)
+{
+    if (scalarCapacity != 0)
+        output[0] = -999; // Dirty provisional storage, even on refusal.
+    if (capacity != 0) {
+        const char* message = s_message ? "polygon fixture failure" : "";
+        if (std::strlen (message) + 1 <= capacity)
+            std::memcpy (error, message, std::strlen (message) + 1);
+    }
+    return s_status;
+}
+
 int main ()
 {
     uint32_t output = 77;
@@ -111,6 +125,20 @@ int main ()
         return 4;
 
     using namespace tapioca::geometry;
+    for (auto status : std::array<TapiocaStatus, 4> { TAPIOCA_ERR_ARG, TAPIOCA_ERR_STATE, TAPIOCA_ERR_INTERNAL, 99 }) {
+        s_status = status;
+        for (bool message : { false, true }) {
+            s_message = message;
+            AttributedPolygon source, result;
+            source.polygon.points = { { 1, 2, 3 } };
+            result.polygon.points = { { 77, 88, 99 } };
+            result.provenance.expectedRevision = 42;
+            const auto retained = result.provenance;
+            if (CopyAttributedPolygon (source, result, error) || error.empty () || result.polygon.points.size () != 1 ||
+                result.polygon.points[0].x != 77 || result.provenance != retained)
+                return 17;
+        }
+    }
     const ProvenanceRequest request;
     const geomsrv::Mesh mesh;
     // Exercise both wrappers against inconsistent and failed callee envelopes.

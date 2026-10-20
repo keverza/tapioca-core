@@ -20,6 +20,7 @@ on:
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustArc.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPolyline.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPlane.cpp
+      - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPolygon.hpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryIdentity.hpp
       - .github/workflows/rust-kernel.yml
   pull_request:
@@ -41,6 +42,7 @@ on:
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustArc.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPolyline.cpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPlane.cpp
+      - AddOn/EvP/Sources/AddOn/Geometry/GeometryRustPolygon.hpp
       - AddOn/EvP/Sources/AddOn/Geometry/GeometryIdentity.hpp
       - .github/workflows/rust-kernel.yml
   workflow_dispatch:

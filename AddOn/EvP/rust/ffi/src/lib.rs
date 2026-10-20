@@ -83,3 +83,10 @@ pub use arc::{ArcRequest, tapioca_make_arc};
 )]
 mod plane;
 pub use plane::{PlaneOutput, PlaneRequest, tapioca_project_to_plane};
+
+#[allow(
+    unsafe_code,
+    reason = "Attributed polygon POD/pool preflight and atomic caller-owned coordinate publication"
+)]
+mod polygon;
+pub use polygon::{AttributedPolygonRequest, tapioca_copy_attributed_polygon};

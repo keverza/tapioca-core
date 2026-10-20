@@ -19,5 +19,6 @@ pub mod identity;
 pub mod mesh;
 mod native_guid;
 pub mod plane;
+pub mod polygon;
 pub mod polyline;
 pub mod value;

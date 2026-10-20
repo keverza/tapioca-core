@@ -1,4 +1,5 @@
 #include "Geometry/GeometryRustTerrain.hpp"
+#include "Geometry/GeometryRustPolygon.hpp"
 
 #include "GeometryRustFfi.h"
 #include "Mesh.hpp"
@@ -267,6 +268,39 @@ bool ValidateAttributedMesh (const geomsrv::Mesh& mesh, const ProvenanceRequest&
     uint32_t rawDiagnostic = std::numeric_limits<uint32_t>::max ();
     const TapiocaStatus status = CallAttributedMesh (mesh, request, rawDiagnostic, buffer);
     return PublishOutcome (status, rawDiagnostic, buffer, diagnostic, error);
+}
+
+bool CopyAttributedPolygon (const AttributedPolygon& source, AttributedPolygon& result, std::string& error)
+{
+    // Reuse the existing explicit catalog converter. Never reinterpret C++
+    // Vector3/table storage; the Rust validator checks actual contour counts.
+    AbiProvenanceStorage storage;
+    const auto provenance = MakeAbiRequest (source.provenance, storage);
+    std::vector<double> points;
+    if (source.polygon.points.size () > points.max_size () / 3) {
+        error = "PolygonShape: coordinate scalar capacity overflow";
+        return false;
+    }
+    points.reserve (source.polygon.points.size () * 3);
+    for (const auto& point : source.polygon.points)
+        points.insert (points.end (), { point.x, point.y, point.z });
+    const TapiocaAttributedPolygonRequest input { { points.data (), points.size () }, provenance };
+    std::vector<double> output (points.size ());
+    ErrorBuffer buffer {};
+    const auto status =
+        tapioca_copy_attributed_polygon (&input, output.data (), output.size (), buffer.data (), buffer.size ());
+    if (status != TAPIOCA_OK) {
+        error = FailureMessage (status, 0, buffer);
+        return false;
+    }
+    AttributedPolygon candidate;
+    candidate.provenance = source.provenance; // Entire retained table, no new identity or mapping.
+    candidate.polygon.points.reserve (source.polygon.points.size ());
+    for (size_t index = 0; index < output.size (); index += 3)
+        candidate.polygon.points.push_back ({ output[index], output[index + 1], output[index + 2] });
+    result = std::move (candidate);
+    error.clear ();
+    return true;
 }
 
 } // namespace tapioca::geometry

@@ -57,7 +57,7 @@ impl BorrowContext {
     // SAFETY: descriptor and each pool must be live immutable foreign storage
     // for this call. All POD fields admit every bit pattern (no raw Rust enums,
     // bools or NonZero types); repr(C)/transparent layouts are tested in C++ too.
-    unsafe fn provenance(
+    pub(crate) unsafe fn provenance(
         &self,
         input: &ProvenanceRequest,
     ) -> Result<id::ValidationRequest<'_>, Failure> {

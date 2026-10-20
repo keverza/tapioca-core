@@ -308,6 +308,11 @@ typedef struct {
     TapiocaProvenanceView table;
 } TapiocaProvenanceRequest;
 
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaProvenanceRequest provenance;
+} TapiocaAttributedPolygonRequest;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -483,6 +488,34 @@ TapiocaStatus tapioca_validate_provenance (const TapiocaProvenanceRequest* reque
  * be zero. Existing Modeler sidecars stay additive and unchanged. */
 TapiocaStatus tapioca_validate_attributed_mesh (const TapiocaMeshView* mesh, const TapiocaProvenanceRequest* request,
                                                 uint32_t* diagnostic, char* error, size_t errorCapacity);
+
+/* S2b exact single-contour value copy, not polygon modelling/topology validation.
+ * Empty or >=3 finite xyz vertices
+ * in world metres, no repair/welding/closure
+ * removal. Nonempty: N stored vertices, N implicit last-to-first edges,
+ * one face;
+ * empty: all counts zero. Provenance domains exactly 7, patches zero; complete
+ * attribution required.
+ * Existing structural validator and requireObject policy
+ * apply. No identity is invented or changed; caller RETAINS
+ * the exact input table
+ * for the unchanged entity ordering. No hole-role inference/geometric ancestry
+ *
+ * certification. Degenerate, nonplanar and self-intersecting values can copy.
+ * Descriptor and every point/provenance
+ * pool must be live initialized immutable
+ * allocations; entire output scalar capacity and error storage must be live
+
+ * * aligned exclusively writable, mutually disjoint and disjoint from ALL inputs.
+ * Null arrays require zero
+ * count/capacity. Only requested prefix publishes on
+ * success; all output unchanged on refusal/panic. ERR_ARG for
+ * geometry/transport,
+ * ERR_STATE for attribution, shared panic/OOM/abort/foreign-memory caveats apply.
+ * O(points +
+ * provenance validation), worker by default until measured. */
+TapiocaStatus tapioca_copy_attributed_polygon (const TapiocaAttributedPolygonRequest* request, double* output,
+                                               size_t scalarCapacity, char* error, size_t errorCapacity);
 
 #ifdef __cplusplus
 }

@@ -145,6 +145,50 @@ int main (void)
         planeFrame.plane.normal[2] != 7 || planeFrame.u[0] != 1)
         return 25;
 
+    TapiocaAttributedPolygonRequest polygon = { 0 };
+    polygon.provenance = request;
+    polygon.provenance.expectedRevision = 0;
+    polygon.provenance.domains = 7;
+    if (sizeof (void*) == 8 &&
+        (sizeof (polygon) != 296 || offsetof (TapiocaAttributedPolygonRequest, provenance) != 16))
+        return 26;
+    if (tapioca_copy_attributed_polygon (&polygon, NULL, 0, error, sizeof (error)) != TAPIOCA_OK)
+        return 27;
+    const double triangle[] = { -0.0, 0, 0, 2, 0, 0, 0, 3, 0 };
+    const TapiocaSourceRecord source = { 11, { 0, 0 } };
+    const uint64_t sourceId = 11;
+    const TapiocaOperationRecord operation = { 12, { 0, 0 } };
+    const uint64_t operationId = 12;
+    TapiocaMappingRecord rows[7] = { 0 };
+    for (size_t index = 0; index < 7; ++index) {
+        rows[index].domain = index < 3 ? TAPIOCA_DOMAIN_VERTEX : index < 6 ? TAPIOCA_DOMAIN_EDGE : TAPIOCA_DOMAIN_FACE;
+        rows[index].kind = TAPIOCA_MAPPING_GENERATED;
+        rows[index].outputIndex = index < 3 ? index : index < 6 ? index - 3 : 0;
+        rows[index].sources.count = 1;
+        rows[index].operations.count = 1;
+    }
+    polygon.points.data = triangle;
+    polygon.points.count = 9;
+    polygon.provenance.counts.vertices = 3;
+    polygon.provenance.counts.edges = 3;
+    polygon.provenance.counts.faces = 1;
+    polygon.provenance.table.sources.data = &source;
+    polygon.provenance.table.sources.count = 1;
+    polygon.provenance.table.sourceIds.data = &sourceId;
+    polygon.provenance.table.sourceIds.count = 1;
+    polygon.provenance.table.mappings.data = rows;
+    polygon.provenance.table.mappings.count = 7;
+    polygon.provenance.table.operations.data = &operation;
+    polygon.provenance.table.operations.count = 1;
+    polygon.provenance.table.operationIds.data = &operationId;
+    polygon.provenance.table.operationIds.count = 1;
+    double polygonOutput[9];
+    if (tapioca_copy_attributed_polygon (&polygon, polygonOutput, 9, error, sizeof (error)) != TAPIOCA_OK ||
+        memcmp (polygonOutput, triangle, sizeof (triangle)) != 0) {
+        fprintf (stderr, "Attributed polygon C copy failed: %s\n", error);
+        return 28;
+    }
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

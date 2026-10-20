@@ -1,4 +1,5 @@
 #include "Geometry/GeometryRustTerrain.hpp"
+#include "Geometry/GeometryRustPolygon.hpp"
 
 #include "GeometryRustFfi.h"
 #include "Mesh.hpp"
@@ -6,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <limits>
 #include <string>
@@ -302,5 +304,25 @@ int main ()
     if (numeric != TAPIOCA_PROVENANCE_STALE)
         return Fail ("direct ABI stale request returned the wrong numeric code");
 
+    static_assert (sizeof (TapiocaAttributedPolygonRequest) == 296);
+    AttributedPolygon polygon;
+    polygon.polygon.points = { { -0.0, 0, 0 }, { 2, 0, 0 }, { 0, 3, 0 } };
+    polygon.provenance = valid;
+    polygon.provenance.domains = 7;
+    polygon.provenance.counts.edges = 3;
+    for (uint64_t index = 0; index < 3; ++index)
+        polygon.provenance.table.mappings.push_back (MakeGeneratedRow (IdentityDomain::Edge, index));
+    AttributedPolygon copied;
+    if (!CopyAttributedPolygon (polygon, copied, error) || copied.provenance != polygon.provenance ||
+        copied.polygon.points.size () != 3 || copied.polygon.points[1].x != 2 ||
+        !std::signbit (copied.polygon.points[0].x))
+        return Fail ("attributed polygon value/identity copy failed");
+    if (!CopyAttributedPolygon (copied, copied, error) || copied.provenance != polygon.provenance)
+        return Fail ("aliased polygon copy failed");
+    const auto copiedProvenance = copied.provenance;
+    polygon.provenance.table.mappings.clear ();
+    if (CopyAttributedPolygon (polygon, copied, error) || copied.provenance != copiedProvenance ||
+        copied.polygon.points[1].x != 2)
+        return Fail ("unattributed polygon accepted or prior output changed");
     return 0;
 }

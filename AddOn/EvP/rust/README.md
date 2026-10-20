@@ -63,6 +63,17 @@ refuses atomically. Geometry services do not include or depend on `Edit/`; its
 state, WorkingPlane provenance and production callers remain unchanged. Bulk
 requests stay worker-classified until measured; this is not full S2b acceptance.
 
+`tapioca_copy_attributed_polygon` round-trips the existing C++ single-contour
+`Polygon` value through flat xyz, using the shared structural provenance validator.
+Every coordinate bit/order/duplicate/explicit closure survives. Finite empty or
+at-least-three-vertex values require complete vertex/implicit-edge/face attribution
+(N/N/1, all zero for empty; exactly domains mask 7). The C++ facade retains the
+entire validated input table unchanged; Rust does not create IDs, table IDs or
+lineage. Missing/conflicting/stale attribution refuses before coordinate output.
+This is not planarity, Boolean, hole-role or geometric-contributor validation:
+degenerate/nonplanar/self-intersecting values may copy. Worker by default, no
+production consumer flip. See `GeometryRustPolygon.hpp` for the owned value API.
+
 ```text
 rust/
   geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs

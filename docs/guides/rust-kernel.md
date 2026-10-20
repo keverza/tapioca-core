@@ -6,7 +6,7 @@
 `tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
 S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
 `tapioca_sample_polyline`, `tapioca_make_arc`, `tapioca_build_transform` and
-`tapioca_project_to_plane`
+`tapioca_project_to_plane` and `tapioca_copy_attributed_polygon`
 primitives (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
@@ -376,6 +376,67 @@ Compiled frame parity uses absolute `1e-12`, projected points absolute `1e-9 m`,
 world-scale slack; raw source fields compare bitwise. Bulk O(points) calls remain
 worker-classified until D3 latency/copy/allocation/peak-memory evidence exists.
 This completes only the legacy neutral plane subset, not full S2b/G1 or terrain.
+
+## S2b attributed single-contour polygon value copy
+
+`GeometryRustPolygon.hpp::AttributedPolygon` pairs the existing
+`GeometryEngine.hpp::Polygon` carrier with the existing complete owned
+`ProvenanceRequest`. `CopyAttributedPolygon` lives beside the shared explicit
+catalog converter in `GeometryRustIdentity.cpp`: no additional bridge translation
+unit or CMake rollback filter is needed. It flattens C++ `Vector3` coordinates
+explicitly, then calls additive ABI-v1 `tapioca_copy_attributed_polygon`. Rust
+`geometry::polygon` owns the value contract and reuses `identity` validation; this
+new one-way module edge is required to refuse unattributable values before copy,
+not a second provenance engine or a geometry-to-FFI dependency.
+
+The contract is a single contour in world-metre f64, right-handed Z-up: empty or
+at least three stored xyz vertices, all finite. Exactly domains mask 7 represent
+N vertices, N implicit successor edges (last to first) and one contour face; empty
+values have zero counts in all domains. Patches are absent. An explicitly stored
+closing vertex is retained as an extra vertex/edge, even if that produces a
+zero-length closing edge. Order, winding, signed zero, repeated vertices and
+survey coordinates are copied **bitwise**, with no arithmetic/tolerance, welding,
+orientation reversal, closure removal, quantization or planarity repair. One- and
+two-vertex contours are rejected by this carrier contract, not polygon modelling.
+
+The shared schema-v1 validator checks complete mappings, current framing,
+catalogs, DAG/ordered parents, native GUID/metadata/roles and retained historical
+support. Default object ownership still fails closed; explicitly source-only
+values may use the existing `requireObject=false` policy. Raw coordinates return
+from Rust; C++ copies the **entire original provenance request unchanged** into
+the provisional result. There is no newly returned Rust identity table, new
+table ID, operation, predecessor remap or inferred ancestry. This is the same
+value/entity ordering, not a generated Boolean/remesh result. Structural success
+does not prove geometric contributor truth, valid polygon topology, hole roles,
+planarity or terrain suitability. Collinear, coincident, nonplanar and
+self-intersecting values intentionally round-trip; modelling gates remain separate.
+
+FFI preflights the descriptor, points and all eleven provenance pools against
+the entire caller-owned output capacity and error storage before borrowing or
+publishing. Known nested error/output overlap takes precedence over a malformed
+peer pool. Numeric/transport errors return ARG, attribution errors STATE, and
+the shared panic envelope contains unwind only. No output prefix publishes until
+validation and the Rust temporary coordinate copy succeed. Null arrays require
+zero count/capacity. Live initialized foreign inputs and live aligned exclusive
+writable outputs remain caller obligations; OOM/abort/invalid memory is not
+recoverable. The C++ whole value publishes atomically and supports self-aliasing.
+
+The kernel allocates one coordinate vector after validation, in addition to the
+existing provenance validator's working collections. The facade owns flat input,
+provisional output, reconstructed `Vector3` storage, explicit ABI catalogs and a
+retained-table copy. No allocation/copy/peak-memory or latency measurement is
+claimed. Work is O(points + provenance validation), worker-classified until D3
+benchmarks, not a synchronous budget. No new crate, production consumer, editor
+state, semantic ID allocation, Boolean/offset or terrain implementation is added.
+
+Tests pin exact bits, source-only opt-out, empty/explicit closure/degenerate
+values, all point/provenance-pool writable overlaps, malformed memory/shape,
+numeric and attribution refusals. Compiled C++ tests include the independently
+read saved slab contour and 64 seeded survey contours, full retained-table
+equality (including >2^53 IDs, ordered DAG parents, native links and exact
+historical predecessors), self-aliasing and atomic refusal. Existing standalone
+C/C++ identity smoke and refusing stubs exercise the new symbol, without adding
+another executable or a test-only production export. Full S2b remains incomplete.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
