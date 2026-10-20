@@ -107,6 +107,17 @@ int main (void)
         composed.m[0][0] != 1)
         return 18;
 
+    if (sizeof (void*) == 8 && (sizeof (TapiocaPolylineRequest) != 32 || sizeof (TapiocaPolylineOutput) != 48 ||
+                                offsetof (TapiocaPolylineOutput, totalLength) != 40))
+        return 19;
+    const double line[] = { 0, 0, 0, 0, 0, 8 }, parameters[] = { 0.5 };
+    double cumulative[2], sampled[3], tangents[3], total;
+    const TapiocaPolylineRequest polyline = { { line, 6 }, { parameters, 1 } };
+    const TapiocaPolylineOutput polylineOutput = { cumulative, 2, sampled, tangents, 3, &total };
+    if (tapioca_sample_polyline (&polyline, &polylineOutput, error, sizeof (error)) != TAPIOCA_OK || total != 8 ||
+        cumulative[0] != 0 || cumulative[1] != 8 || sampled[2] != 4 || tangents[2] != 1 || error[0] != '\0')
+        return 20;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

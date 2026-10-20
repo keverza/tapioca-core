@@ -17,4 +17,5 @@ pub mod affine;
 pub mod identity;
 pub mod mesh;
 mod native_guid;
+pub mod polyline;
 pub mod value;

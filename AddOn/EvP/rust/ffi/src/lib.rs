@@ -2,7 +2,8 @@
 //!
 //! Mesh/snapshot validators borrow the existing geometry arrays without mutation.
 //! Separate provenance views validate declared identity relationships; geometry-only
-//! validation is not D14 certification. No geometry algorithm or host API is exposed here.
+//! validation is not D14 certification. S2b affine/polyline parity primitives
+//! expose no host API and do not switch a production geometry consumer.
 
 #![deny(unsafe_code)]
 
@@ -60,3 +61,10 @@ mod affine;
 pub use affine::{
     AffineOutput, AffineRequest, tapioca_compose_transforms, tapioca_transform_vectors,
 };
+
+#[allow(
+    unsafe_code,
+    reason = "Polyline POD ingress and checked disjoint caller-owned measurement/sample publication"
+)]
+mod polyline;
+pub use polyline::{PolylineOutput, PolylineRequest, tapioca_sample_polyline};

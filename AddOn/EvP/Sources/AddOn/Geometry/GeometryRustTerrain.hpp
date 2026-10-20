@@ -82,6 +82,19 @@ bool TransformVectors (const TransformVectorsRequest& request, std::vector<doubl
 bool ComposeTransforms (std::span<const geomsrv::engine::Transform> transforms, geomsrv::engine::Transform& result,
                         std::string& error);
 
+struct PolylineSamples {
+    std::vector<double> cumulative; // One world-metre length per input vertex.
+    double totalLength = 0;
+    std::vector<double> points;   // Interleaved xyz, world metres.
+    std::vector<double> tangents; // Interleaved xyz directions, dimensionless.
+};
+// S2b parity primitive, no closure/welding, identity allocation or consumer flip.
+// Points are flat xyz; parameters are finite clamped length fractions. Empty
+// parameters measure only. Result publishes atomically; inputs may borrow its
+// prior arrays because publication occurs after the ABI call ends. Worker by default.
+bool SamplePolyline (std::span<const double> points, std::span<const double> parameters, PolylineSamples& result,
+                     std::string& error);
+
 } // namespace tapioca::geometry
 
 #endif

@@ -50,3 +50,16 @@ set_target_properties (TapiocaRustAffineSmoke PROPERTIES CXX_STANDARD 20 CXX_STA
 target_include_directories (TapiocaRustAffineSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
 TapiocaLinkRustCore (TapiocaRustAffineSmoke)
 add_test (NAME TapiocaRustAffineSmoke COMMAND TapiocaRustAffineSmoke)
+
+add_executable (TapiocaRustPolylineSmoke tests/polyline_smoke.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustPolyline.cpp")
+set_target_properties (TapiocaRustPolylineSmoke PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustPolylineSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
+TapiocaLinkRustCore (TapiocaRustPolylineSmoke)
+add_test (NAME TapiocaRustPolylineSmoke COMMAND TapiocaRustPolylineSmoke)
+
+add_executable (TapiocaRustPolylineFailure tests/polyline_wrapper_failure.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustPolyline.cpp")
+set_target_properties (TapiocaRustPolylineFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustPolylineFailure PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
+add_test (NAME TapiocaRustPolylineFailure COMMAND TapiocaRustPolylineFailure)

@@ -4,7 +4,8 @@
 `tapioca_version`, `tapioca_validate_mesh`, `tapioca_validate_snapshot`,
 `tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
 `tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
-S2b `tapioca_transform_vectors` and `tapioca_compose_transforms` primitives (additive ABI v1).
+S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
+`tapioca_sample_polyline` primitives (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
@@ -242,6 +243,32 @@ overflow, malformed foreign shapes, overlap and refusal immutability. The affine
 test module intentionally retains shared explicit matrix fixtures for vector and
 composition semantics (623 lines); its size advisory is not suppressed.
 
+## S2b polyline measurement and batch sampling
+
+`SamplePolyline` borrows flat xyz world-metre coordinates and finite length
+fractions, never reinterpreting C++ vector objects. It measures 3D cumulative
+lengths once in vertex order and samples in caller parameter order, using the
+compiled `Curves.cpp` oracle's arithmetic/semantics. Fractions clamp to [0,1];
+exact joins use the incoming segment, even a zero-length leading segment. Fully
+coincident curves and selected segments whose squared length underflows use +X
+tangents. Cumulative rounding can swallow a final tiny segment: endpoint selection
+retains that C++ behavior rather than silently introducing a new numerical policy.
+No implicit closure, welding, polygon validity, arc constructor or semantic ID
+allocation is added. Non-finite coordinates/parameters and non-finite derived
+lengths/samples refuse the entire batch; these are deliberate safety refusals,
+not claimed parity for the C++ oracle's NaN/inf results.
+
+Empty parameters measure only (at least two points still required). The C ABI
+checks descriptors, input ranges and all four output regions for shape/overlap.
+Only requested prefixes publish after complete success; refusals preserve total,
+cumulative distances, positions and tangents. The facade uses provisional C++
+arrays, so inputs may borrow prior result arrays safely. Rust owns three temporary
+result vectors; no allocation or borrow crosses the boundary. Coordinates,
+topology, authored IDs and provenance remain caller-owned and unchanged. Sampling
+is not a D14 geometry-generation/attribution primitive or production family flip.
+Work is O(vertices + samples * log(vertices)); bulk calls remain worker-classified.
+No benchmark, main-thread budget or full S2b completion is claimed.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:
@@ -249,7 +276,7 @@ The standalone CMake entry needs no DevKit or Diligent:
 ```powershell
 cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
 cmake --build AddOn/EvP/rust/build --target TapiocaRustKernel --config RelWithDebInfo
-cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke --config RelWithDebInfo
+cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure --config RelWithDebInfo
 ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 ```
 
@@ -264,6 +291,9 @@ immutability. Stub tests also cover inconsistent status/diagnostic combinations.
 and independent capture stamps through the real C++ converter and Rust validator.
 `TapiocaRustAffineSmoke` checks the new affine ABI and atomic publication; failure
 stubs also reject inconsistent orientation reports without changing caller output.
+`TapiocaRustPolylineSmoke` checks layouts and real measurement/sample conversion;
+`TapiocaRustPolylineFailure` checks facade atomicity for status refusals even if a
+test-only stub dirties provisional storage. The C smoke also calls the real export.
 MSVC uses x64 and dynamic CRT `/MD` in **every**
 configuration, including Debug, matching Rust's `-crt-static`. Archives are under
 `<binary-dir>/rust/x86_64-pc-windows-msvc/release/` on Windows and

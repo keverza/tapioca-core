@@ -66,13 +66,13 @@ jobs:
         shell: bash
         run: |
           cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
-          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke --config RelWithDebInfo
+          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure --config RelWithDebInfo
           ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
       - name: Verify Windows Debug uses the same release Rust archive and CRT
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke --config Debug
+          cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure --config Debug
           ctest --test-dir AddOn/EvP/rust/build -C Debug --output-on-failure
       - name: Test enforcement
         run: |

@@ -136,6 +136,20 @@ typedef struct {
     uint32_t* flipsOrientation;
 } TapiocaAffineOutput;
 
+/* S2b polyline measurement/sampling; no implicit closure, welding or identity. */
+typedef struct {
+    TapiocaDoubleView points;     /* At least two xyz points, world metres. */
+    TapiocaDoubleView parameters; /* Finite length fractions, clamped to [0,1]. */
+} TapiocaPolylineRequest;
+typedef struct {
+    double* cumulative;
+    size_t cumulativeCapacity; /* One distance per input vertex. */
+    double* points;
+    double* tangents;
+    size_t sampleScalarCapacity; /* Scalar capacity of EACH xyz output buffer. */
+    double* totalLength;         /* Required even for an empty parameter array. */
+} TapiocaPolylineOutput;
+
 /* Authored identity is session-scoped uint64, never a triangle/index identity.
  * POD records contain only all-bit-valid fields; unknown enum values refuse.
  * Ranges index their documented flat pool with checked offset + count. */
@@ -335,6 +349,24 @@ TapiocaStatus tapioca_transform_vectors (const TapiocaAffineRequest* request, co
  * allocation or borrowed view crosses ownership. */
 TapiocaStatus tapioca_compose_transforms (const TapiocaAffineTransform* transforms, size_t count,
                                           TapiocaAffineTransform* output, char* error, size_t errorCapacity);
+
+/* Measure 3D lengths and sample by arc length, not by vertex index. No closure
+ * is inferred. Exact joins select the
+ * incoming segment; zero-length curves or
+ * selected segments use +X tangents. Non-finite input/derived values
+ * refuse.
+ * Empty parameters measure only. Outputs are caller-owned, live, aligned and
+ * mutually disjoint, and
+ * disjoint from ALL inputs/descriptors/error storage.
+ * Writes only vertex-count cumulative entries and
+ * parameter-count xyz samples;
+ * all outputs remain unchanged on refusal/contained panic. Null sample buffers
+ *
+ * require zero capacity. Ownership/panic/foreign-memory caveats above apply.
+ * Bulk calls use workers; no D14
+ * certification or production consumer switch. */
+TapiocaStatus tapioca_sample_polyline (const TapiocaPolylineRequest* request, const TapiocaPolylineOutput* output,
+                                       char* error, size_t errorCapacity);
 
 /* Structural attribution gate: contexts/revisions, catalogs and acyclic DAG,
  * native bindings, range/reference validity and complete unique domain coverage.

@@ -9,7 +9,7 @@ schema-v1 structural identity, with an owned-C++ → POD → Rust validation rou
 Complete detached value/catalog validators are separate opt-in exports, including
 retained bounds and capture-stamp assertions. Legacy validation still certifies
 neither D14 nor catalogs. Existing
-C++ geometry remains authoritative; no algorithm is migrated.
+C++ geometry remains authoritative in production; parity primitives do not flip consumers.
 
 The initial S2b affine-vector batch is available for differential tests through
 `tapioca_transform_vectors`: 3x4 f64 positions/directions/inverse-transpose normals
@@ -23,6 +23,15 @@ Non-finite input or intermediate coefficients/determinants refuse; singular
 matrices remain valid. C++ differential tests use the existing `Compose` oracle.
 No production consumer is switched, and bulk chains stay worker-classified until
 measured. No mesh/provenance, builder or terrain capability is implied.
+
+The next S2b primitive, `tapioca_sample_polyline`, measures flat xyz polylines and
+samples a batch of finite, clamped arc-length fractions. Cumulative lengths,
+positions and tangents publish together into disjoint caller-owned buffers only
+after complete success. Input coordinates stay borrowed and unchanged. C++
+`Curves.cpp` remains the production authority and compiled parity oracle, including
+incoming-segment joins, repeated vertices and squared-norm underflow fallbacks.
+Non-finite/overflowing arithmetic refuses. No implicit closure, arc construction,
+semantic IDs, polygon repair or latency guarantee; bulk requests use workers.
 
 ```text
 rust/
