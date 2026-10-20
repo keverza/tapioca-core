@@ -76,3 +76,16 @@ add_executable (TapiocaRustArcFailure tests/arc_wrapper_failure.cpp
 set_target_properties (TapiocaRustArcFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
 target_include_directories (TapiocaRustArcFailure PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
 add_test (NAME TapiocaRustArcFailure COMMAND TapiocaRustArcFailure)
+
+add_executable (TapiocaRustPlaneSmoke tests/plane_smoke.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustPlane.cpp")
+set_target_properties (TapiocaRustPlaneSmoke PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustPlaneSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
+TapiocaLinkRustCore (TapiocaRustPlaneSmoke)
+add_test (NAME TapiocaRustPlaneSmoke COMMAND TapiocaRustPlaneSmoke)
+
+add_executable (TapiocaRustPlaneFailure tests/plane_wrapper_failure.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustPlane.cpp")
+set_target_properties (TapiocaRustPlaneFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustPlaneFailure PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
+add_test (NAME TapiocaRustPlaneFailure COMMAND TapiocaRustPlaneFailure)

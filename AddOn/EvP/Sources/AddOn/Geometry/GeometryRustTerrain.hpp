@@ -2,6 +2,7 @@
 #define TAPIOCA_GEOMETRY_RUST_TERRAIN_HPP
 
 #include <cstdint>
+#include <array>
 #include <string>
 #include <span>
 #include <vector>
@@ -93,6 +94,23 @@ struct TransformBuilderRequest {
 // Bounded S2b parity builder, worker-classified until measured. Explicit POD copy;
 // no retained references or geometry/identity changes. Output unchanged on refusal.
 bool BuildTransform (const TransformBuilderRequest& request, geomsrv::engine::Transform& result, std::string& error);
+
+struct PlaneValue {
+    std::array<double, 3> origin {};          // World metres; exact retained value.
+    std::array<double, 3> normal { 0, 0, 1 }; // Dimensionless, not necessarily unit.
+    std::array<double, 3> u {};               // Optional authored tangent; zero derives seed axes.
+};
+struct PlaneProjection {
+    PlaneValue plane;
+    std::array<double, 3> u {}, v {}; // Derived dimensionless axes.
+    std::vector<double> points;       // Interleaved xyz projected world metres.
+};
+// Neutral S2b value/frame/batch projection, not an Edit/WorkingPlane dependency.
+// Raw plane fields round-trip unchanged; empty points derive a frame only.
+// Result publishes atomically. Inputs may borrow its prior value/point storage.
+// Bulk calls are worker-classified; no provenance or production consumer flip.
+bool ProjectToPlane (const PlaneValue& plane, std::span<const double> points, PlaneProjection& result,
+                     std::string& error);
 
 struct PolylineSamples {
     std::vector<double> cumulative; // One world-metre length per input vertex.

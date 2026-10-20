@@ -5,7 +5,8 @@
 `tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
 `tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
 S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
-`tapioca_sample_polyline`, `tapioca_make_arc` and `tapioca_build_transform`
+`tapioca_sample_polyline`, `tapioca_make_arc`, `tapioca_build_transform` and
+`tapioca_project_to_plane`
 primitives (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
@@ -333,6 +334,49 @@ tests use absolute `1e-9 m` for ordinary/survey positions, with a dedicated tigh
 tiny-radius check, plus plane/radius/winding invariants and seeded cases. No
 bitwise cross-toolchain transcendental parity is claimed.
 
+## S2b neutral plane values and batch projection
+
+`PlaneValue` mirrors the existing legacy plane's origin, normal and optional
+authored u without pulling `Edit/` into a geometry service. The bridge copies all
+nine doubles explicitly; Rust derives a frame and projects borrowed flat xyz
+points using the compiled `EditSnap.cpp::PlaneAxes/ProjectToPlane` and
+`EditTypes.cpp::Normalize` as the finite-input oracle. Raw source fields return
+exactly, including signed zero and unnormalized directions, separately from the
+derived axes. This is not an editor `WorkingPlane` metadata/provenance carrier or
+an authored identity allocation. Editor callers, state and production math remain
+unchanged. An empty point batch still derives the frame and returns the value.
+
+The legacy policy is explicit: normalization uses the squared norm and multiplies
+by reciprocal length. A **finite** normal shorter than `1e-12` falls back to world
+Z; a finite short/parallel authored u derives seed axes. Equality at `1e-12` is
+accepted. Seed selection uses normalized `abs(normal.x)<0.9`, unlike arc
+tessellation's normal-z rule. An accepted authored u uses `v=Cross(n,u)` without
+additional normalization, exactly as the oracle. The threshold is inherited
+dimensionless direction-length policy, not a global world-metre epsilon.
+
+Malformed xyz, non-finite plane/point coordinates and non-finite intermediate
+squared norms/products/differences/dot sums/results refuse. Thus finite tiny
+direction fallbacks are preserved, but C++'s accidental NaN/inf fallbacks or
+successful non-finite outputs are not reproduced. No welding, origin shift,
+quantization, plane repair or policy unification with arc/transform frames occurs.
+
+The additive ABI-v1 request borrows point storage; a complete Rust temporary
+holds projected points and the frame/source value. Both outputs publish only
+after full success, and only the requested point prefix is written. The entire
+declared point capacity and required frame must be disjoint from each other and
+all inputs/descriptors/error storage. Empty arrays may be null/zero; frame storage
+is always required. Foreign validity/OOM/abort caveats and shared panic/error
+envelope apply. C++ uses provisional arrays/frame, so inputs may safely borrow the
+prior result's plane/points. No Rust allocation or reference escapes ownership.
+
+Tests pin raw value bits, fallback boundaries, seed axes, authored tangents,
+survey coordinates, 64 seeded frames/projections, idempotence, late arithmetic
+refusal, unused output capacity and all region-overlap pairs. Compiled frame
+parity uses absolute `1e-12`, projected points absolute `1e-9 m`, not relative
+world-scale slack; raw source fields compare bitwise. Bulk O(points) calls remain
+worker-classified until D3 latency/copy/allocation/peak-memory evidence exists.
+This completes only the legacy neutral plane subset, not full S2b/G1 or terrain.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:
@@ -340,7 +384,7 @@ The standalone CMake entry needs no DevKit or Diligent:
 ```powershell
 cmake -S AddOn/EvP/rust -B AddOn/EvP/rust/build
 cmake --build AddOn/EvP/rust/build --target TapiocaRustKernel --config RelWithDebInfo
-cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure TapiocaRustArcSmoke TapiocaRustArcFailure --config RelWithDebInfo
+cmake --build AddOn/EvP/rust/build --target TapiocaRustAbiSmoke TapiocaRustWrapperFailure TapiocaRustIdentitySmoke TapiocaRustValueSmoke TapiocaRustAffineSmoke TapiocaRustPolylineSmoke TapiocaRustPolylineFailure TapiocaRustArcSmoke TapiocaRustArcFailure TapiocaRustPlaneSmoke TapiocaRustPlaneFailure --config RelWithDebInfo
 ctest --test-dir AddOn/EvP/rust/build -C RelWithDebInfo --output-on-failure
 ```
 
@@ -361,6 +405,10 @@ test-only stub dirties provisional storage. The C smoke also calls the real expo
 `TapiocaRustArcSmoke` checks arc layout, real export/facade publication and refusal;
 `TapiocaRustArcFailure` proves prior results survive a refusing transport that has
 dirtied provisional output. The C smoke independently calls the real arc export.
+`TapiocaRustPlaneSmoke` checks frame layout, raw value preservation, real projection,
+frame-only calls and aliased owned input; `TapiocaRustPlaneFailure` checks whole
+result preservation even when a refusing stub dirties provisional frame/points.
+The C smoke calls the real plane export and checks independent analytic output.
 MSVC uses x64 and dynamic CRT `/MD` in **every**
 configuration, including Debug, matching Rust's `-crt-static`. Archives are under
 `<binary-dir>/rust/x86_64-pc-windows-msvc/release/` on Windows and

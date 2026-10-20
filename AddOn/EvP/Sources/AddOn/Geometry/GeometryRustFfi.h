@@ -149,6 +149,24 @@ typedef struct {
     double radians;   /* Rotation only; ignored otherwise. */
 } TapiocaTransformBuilderRequest;
 
+/* Neutral legacy plane. Not an editor WorkingPlane/provenance/identity carrier. */
+typedef struct {
+    double origin[3], normal[3], u[3];
+} TapiocaPlane;
+typedef struct {
+    TapiocaPlane plane; /* Exact retained input, not a normalized replacement. */
+    double u[3], v[3];  /* Derived dimensionless in-plane axes. */
+} TapiocaPlaneFrame;
+typedef struct {
+    TapiocaPlane plane;
+    TapiocaDoubleView points;
+} TapiocaPlaneRequest;
+typedef struct {
+    TapiocaPlaneFrame* frame; /* One required exclusive writable record. */
+    double* points;
+    size_t scalarCapacity; /* f64 scalars, not xyz points. */
+} TapiocaPlaneOutput;
+
 /* S2b polyline measurement/sampling; no implicit closure, welding or identity. */
 typedef struct {
     TapiocaDoubleView points;     /* At least two xyz points, world metres. */
@@ -380,6 +398,27 @@ TapiocaStatus tapioca_compose_transforms (const TapiocaAffineTransform* transfor
  * constant work, worker until measured. */
 TapiocaStatus tapioca_build_transform (const TapiocaTransformBuilderRequest* request, TapiocaAffineTransform* output,
                                        char* error, size_t errorCapacity);
+
+/* Derive plane axes and project a flat xyz batch in world metres. Empty points
+ * perform frame/value round-trip only.
+ * Finite normals with length <1e-12 use
+ * world Z; finite short/parallel authored u uses legacy normal-derived seed
+ * axes.
+ * Normalization multiplies by reciprocal length, preserving the editor oracle.
+ * Raw origin/normal/u
+ * round-trip unchanged. Non-finite inputs/arithmetic refuse.
+ * Both outputs, including ENTIRE point capacity, must be
+ * live aligned exclusively
+ * writable, mutually disjoint and disjoint from ALL inputs/descriptors/error.
+ * Null point
+ * arrays require zero count/capacity; frame is always required. Only
+ * the requested prefix and complete frame publish
+ * on success; all outputs stay
+ * unchanged on refusal/contained panic. Common foreign-memory/OOM/abort caveats
+ *
+ * apply. Worker by default until measured; no editor state or consumer switch. */
+TapiocaStatus tapioca_project_to_plane (const TapiocaPlaneRequest* request, const TapiocaPlaneOutput* output,
+                                        char* error, size_t errorCapacity);
 
 /* Measure 3D lengths and sample by arc length, not by vertex index. No closure
  * is inferred. Exact joins select the

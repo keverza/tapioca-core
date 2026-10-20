@@ -52,6 +52,17 @@ sign-recovery policy. Rust building allocates nothing; the existing C++ facade
 copies only POD inputs/output. This is not an attributed mesh transform, a
 production consumer switch or a measured synchronous budget.
 
+`tapioca_project_to_plane` adds a neutral origin/normal/authored-u plane value,
+source-preserving frame derivation and flat xyz batch projection. The finite-input
+oracle is the existing editor's `PlaneAxes`/`ProjectToPlane`, including its
+`length < 1e-12` world-Z/seed fallbacks, reciprocal-multiply normalization and
+normal-x seed rule (not the arc frame rule). Raw input fields round-trip exactly,
+including signed zero; they are not replaced by normalized directions. Empty
+points request only frame/value output. Non-finite input/derived arithmetic
+refuses atomically. Geometry services do not include or depend on `Edit/`; its
+state, WorkingPlane provenance and production callers remain unchanged. Bulk
+requests stay worker-classified until measured; this is not full S2b acceptance.
+
 ```text
 rust/
   geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs

@@ -298,7 +298,7 @@ source_group ("Resources" FILES ${AddOnResourceFiles} ${AddOnImageFiles})
 file (GLOB_RECURSE AddOnHeaderFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.h ${AddOnSourcesFolder}/*.hpp)
 file (GLOB_RECURSE AddOnSourceFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.c ${AddOnSourcesFolder}/*.cpp)
 if (NOT TAPIOCA_LINK_RUST_GEOMETRY)
-    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRust(Terrain|Identity|Value|Affine|Polyline|Arc)\\.cpp$")
+    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRust(Terrain|Identity|Value|Affine|Polyline|Arc|Plane)\\.cpp$")
 endif ()
 
 # ---- ArchViz: the Diligent renderer ----------------------------------------

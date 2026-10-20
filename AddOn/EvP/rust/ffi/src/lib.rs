@@ -76,3 +76,10 @@ pub use polyline::{PolylineOutput, PolylineRequest, tapioca_sample_polyline};
 )]
 mod arc;
 pub use arc::{ArcRequest, tapioca_make_arc};
+
+#[allow(
+    unsafe_code,
+    reason = "Plane POD ingress and checked disjoint frame/projected-point publication"
+)]
+mod plane;
+pub use plane::{PlaneOutput, PlaneRequest, tapioca_project_to_plane};

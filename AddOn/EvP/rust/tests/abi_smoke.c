@@ -133,6 +133,18 @@ int main (void)
         built.m[0][3] != 30 || built.m[1][3] != -40)
         return 23;
 
+    const double planePoints[] = { 1, 2, 9 };
+    const TapiocaPlaneRequest plane = { { { 0, 0, 5 }, { 0, 0, 7 }, { 0, 0, 0 } }, { planePoints, 3 } };
+    TapiocaPlaneFrame planeFrame = { 0 };
+    double projected[3] = { 99, 99, 99 };
+    const TapiocaPlaneOutput planeOutput = { &planeFrame, projected, 3 };
+    if (sizeof (void*) == 8 &&
+        (sizeof (TapiocaPlaneRequest) != 88 || sizeof (TapiocaPlaneFrame) != 120 || sizeof (TapiocaPlaneOutput) != 24))
+        return 24;
+    if (tapioca_project_to_plane (&plane, &planeOutput, error, sizeof (error)) != TAPIOCA_OK || projected[2] != 5 ||
+        planeFrame.plane.normal[2] != 7 || planeFrame.u[0] != 1)
+        return 25;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }
