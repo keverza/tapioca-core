@@ -334,7 +334,8 @@ fn alias_pool(input: &mut AttributedPolygonRequest, index: usize, data: *const u
 fn every_point_and_provenance_pool_is_disjoint_from_output_and_error() {
     let rows = mappings();
     for pool in 0..12 {
-        for error_alias in [false, true] {
+        for variant in 0..4 {
+            let error_alias = variant != 0;
             let mut input = request(&rows);
             let mut backing = [77_u64; 128];
             let mut output = [99.0; 12];
@@ -347,7 +348,7 @@ fn every_point_and_provenance_pool_is_disjoint_from_output_and_error() {
             } else {
                 input.points.data = std::ptr::null();
             }
-            let target = if error_alias {
+            let mut target = if error_alias {
                 output.as_mut_ptr()
             } else {
                 backing.as_mut_ptr().cast()
@@ -357,10 +358,14 @@ fn every_point_and_provenance_pool_is_disjoint_from_output_and_error() {
             } else {
                 error.as_mut_ptr()
             };
+            if variant == 2 {
+                target = std::ptr::null_mut();
+            }
+            let capacity = if variant == 3 { usize::MAX } else { 12 };
             // SAFETY: recognized alias wins before foreign borrow/write. Backing
             // is large/aligned for each declared POD, never interpreted as one.
             let status = unsafe {
-                tapioca_copy_attributed_polygon(&raw const input, target, 12, message, 128)
+                tapioca_copy_attributed_polygon(&raw const input, target, capacity, message, 128)
             };
             assert_eq!(status, 1, "pool {pool}, error {error_alias}");
             assert_eq!(backing, [77; 128]);

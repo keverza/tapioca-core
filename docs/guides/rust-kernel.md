@@ -414,8 +414,9 @@ self-intersecting values intentionally round-trip; modelling gates remain separa
 FFI preflights the descriptor, points and all eleven provenance pools against
 the entire caller-owned output capacity and error storage before borrowing or
 publishing. Known nested error/output overlap takes precedence over a malformed
-peer pool. Numeric/transport errors return ARG, attribution errors STATE, and
-the shared panic envelope contains unwind only. No output prefix publishes until
+peer pool or malformed output shape. Numeric/transport errors return ARG,
+attribution errors STATE, and the shared panic envelope contains unwind only.
+No output prefix publishes until
 validation and the Rust temporary coordinate copy succeed. Null arrays require
 zero count/capacity. Live initialized foreign inputs and live aligned exclusive
 writable outputs remain caller obligations; OOM/abort/invalid memory is not

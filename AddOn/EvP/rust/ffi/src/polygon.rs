@@ -33,13 +33,13 @@ unsafe fn prepare(
         }
     }
     let descriptor = descriptor?;
-    let target = target?;
-    if overlaps(descriptor, target) {
+    let known_target = target.as_ref().ok().copied().flatten();
+    if overlaps(descriptor, known_target) {
         return Err(Failure::Overlap);
     }
     let context = BorrowContext {
         error_range,
-        output_range: target,
+        output_range: known_target,
     };
     // SAFETY: descriptor shape/disjointness checked; POD copied, not retained.
     let input = unsafe { context.record(input)? };
@@ -61,10 +61,13 @@ unsafe fn prepare(
         memory_range(table.support_tables.data, table.support_tables.count),
     ];
     for range in pools.iter().flatten() {
-        if overlaps(*range, error_range) || overlaps(*range, target) {
+        if overlaps(*range, error_range) || overlaps(*range, known_target) {
             return Err(Failure::Overlap);
         }
     }
+    // Even a malformed output shape must not cause an error write over a
+    // recognized nested input pool; inspect available input ranges first.
+    target?;
     for range in pools {
         range?;
     }
