@@ -841,6 +841,7 @@ set (EVP_TEST_SOURCES
     test_render.cpp
     test_normals.cpp
     test_geometryengine.cpp
+    test_curves.cpp
     test_meshgroups.cpp
     test_surfacesourcemap.cpp
     test_exposed_surface.cpp
