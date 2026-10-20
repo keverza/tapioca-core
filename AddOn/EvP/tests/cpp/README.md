@@ -38,6 +38,71 @@ this option from `-NoRust` on every run; an ordinary invocation restores ON.
 Every MSVC test dependency uses the add-on's `/MD` CRT/STL ABI, including Debug
 and the text stack, to link the aggregate release Rust archive consistently.
 
+## Opt-in composition measurements (S2b)
+
+This is a small executable and standard-library Python recorder, **not a benchmark
+framework**, test-suite performance threshold, native integration test or production
+consumer flip. It calls compiled `Transforms.cpp::Compose`, raw
+`tapioca_compose_transforms`, and `GeometryRustAffine.cpp::ComposeTransforms` on
+identical seeded finite near-identity matrices. The C++ baseline does not perform
+the Rust boundary's input/refusal checks; that difference is part of the measured
+call paths. Correctness checks use the existing absolute `1e-12` parity bound.
+
+From `core/`, with CMake on PATH (use the installed Visual Studio CMake if needed):
+
+```powershell
+cmake -S AddOn/EvP/tests/cpp -B AddOn/EvP/tests/cpp/build/benchmark -G "Visual Studio 18 2026" -A x64 -T v143 -DTAPIOCA_BUILD_GEOMETRY_BENCHMARKS=ON -DTAPIOCA_LINK_RUST_GEOMETRY=ON -DEVP_SANITIZE=OFF
+cmake --build AddOn/EvP/tests/cpp/build/benchmark --config RelWithDebInfo --target TapiocaCompositionBench
+AddOn/EvP/tests/cpp/build/benchmark/RelWithDebInfo/TapiocaCompositionBench.exe --self-test
+python tools/benchmark_composition.py --executable AddOn/EvP/tests/cpp/build/benchmark/RelWithDebInfo/TapiocaCompositionBench.exe --cmake-cache AddOn/EvP/tests/cpp/build/benchmark/CMakeCache.txt --output test-results/composition-benchmark.json
+python -m pytest tools/test_benchmark_composition.py -q
+```
+
+Use a separate build tree as shown; the normal tests keep benchmarks **OFF**.
+Rust OFF or sanitizer ON configurations cannot enable this target. It reuses
+existing Clipper2/GLM only because the compiled transform TU references the real
+`GeometryEngine.cpp::Unit`; no reference computation is copied or stubbed. The
+Rust archive still follows the pinned locked/offline release CMake policy.
+Linux/macOS source support exists, but only Windows x64 was locally exercised.
+The runner requires Python 3.11+ and the already-installed pinned rustup toolchain
+to record `rustc -vV`; it does not install tools or access Archicad.
+
+Default measurement is nine fresh-process samples per lane/size, 256 calls per
+batch, one calling worker, eight warmups and matrix counts 0/1/16/256/4096. First
+lane rotates between samples. Native CLI caps chain count at 4096 and iterations
+at 10000; Python caps samples at 31. Self-test covers all 15 lane/size combinations
+with 128 iterations to avoid zero-duration sub-clock-tick batches. Timings are
+instrumented steady-clock batch averages, not individual-call percentiles or a
+production deadline. Output is consumed through a volatile checksum; every full
+matrix is checked before timing and the selected path again after timing.
+
+The report pins source commit/dirty status, executable SHA256, CMake flags/toolset,
+actual C++/Rust compiler versions, machine/core count, seed, stable FNV-1a hash of
+little-endian f64 fixture bits, raw samples and min/median/max. Unknown/missing,
+mislabelled, non-finite, inconsistent-fixture/configuration or non-optimized
+measurements refuse rather than become evidence. No CPU affinity, scheduler,
+background-load or power-policy isolation is claimed.
+
+**Measurement limits matter:**
+
+- The executable replaces ordinary C++ `new/new[]` only in this executable and
+  counts calling-thread calls/requested bytes inside the measured loop. It does
+  **not** intercept Rust, `malloc`, aligned/system allocations, allocator overhead
+  or other threads. The nonempty facade makes one observed ordinary-new request
+  per call. MSVC large-vector padding is included in measured requested bytes,
+  not silently reported as logical payload. The probe perturbs measured timing.
+- The reported ABI input copy volume (`96*N` bytes per nonempty facade call) is
+  a **source-derived model**, not instrumented traffic or a count of all matrix,
+  descriptor/result copies. Raw ABI uses a prebuilt POD fixture outside timing;
+  the owned facade performs its real conversion within timing.
+- Peak RSS is the OS **whole-process lifetime high-water working set**, including
+  executable startup, both fixture representations, all-lane correctness checks
+  and selected-lane warmup. Before/after high-water values are not per-operation
+  peak live heap, allocation totals or memory attributable to one backend.
+- Composition stays **worker-classified**. This partial performance evidence
+  does not close full allocation/copy/peak-heap/D3 budgets, measure other
+  primitives or justify a production consumer switch.
+
 ## What is covered
 
 | File | Engine | Anchor cases |

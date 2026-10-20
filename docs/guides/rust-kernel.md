@@ -215,6 +215,13 @@ still apply; complete-value success does not certify a takeoff or terrain result
 
 ## Initial S2b affine-vector batch
 
+Opt-in composition measurement commands and measurement limits are documented in
+[`tests/cpp/README.md`](../../AddOn/EvP/tests/cpp/README.md#opt-in-composition-measurements-s2b).
+`TapiocaCompositionBench` is test-only and defaults OFF; it adds no Rust crate,
+public ABI or production caller. Timing, scoped C++ allocation requests and
+process-lifetime peak RSS are separate from still-unmeasured Rust allocations,
+total copy traffic and operation peak heap. Composition remains worker-classified.
+
 `TransformVectors` borrows flat xyz f64 input and explicitly copies only the
 small row-major 3x4 matrix descriptor. Points translate, directions do not, and
 normals use the cofactor inverse transpose without normalization. Exactly singular

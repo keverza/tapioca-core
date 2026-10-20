@@ -1150,6 +1150,24 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_polygon.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
+option (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS "Build opt-in geometry measurement executables" OFF)
+if (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS)
+    if (NOT TAPIOCA_LINK_RUST_GEOMETRY OR EVP_SANITIZE)
+        message (FATAL_ERROR "Composition measurements require Rust ON and sanitizers OFF")
+    endif ()
+    add_executable (TapiocaCompositionBench benchmark_composition.cpp
+        "${GEOM_DIR}/Transforms.cpp" "${GEOM_DIR}/GeometryEngine.cpp" "${GEOM_DIR}/GeometryRustAffine.cpp")
+    target_compile_features (TapiocaCompositionBench PRIVATE cxx_std_20)
+    target_include_directories (TapiocaCompositionBench PRIVATE "${EVP_ROOT}/Sources/AddOn" "${GEOM_DIR}")
+    target_include_directories (TapiocaCompositionBench SYSTEM PRIVATE "${GLM_INC}")
+    target_compile_definitions (TapiocaCompositionBench PRIVATE TAPIOCA_BENCH_CONFIG="$<CONFIG>")
+    target_link_libraries (TapiocaCompositionBench PRIVATE TapiocaClipper2)
+    if (WIN32)
+        target_link_libraries (TapiocaCompositionBench PRIVATE psapi)
+    endif ()
+    TapiocaLinkRustCore (TapiocaCompositionBench)
+endif ()
+
 # The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):
 # the compiler and its reflection, no GPU. The guest's depth pull is RUN, on WARP --
 # the software device every Windows has, no hardware GPU (test_guestdepthpull.cpp).
