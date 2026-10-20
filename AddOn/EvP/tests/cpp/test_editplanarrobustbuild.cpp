@@ -478,7 +478,6 @@ TEST (EditPlanarRobustBuild, CubicShuffledSourcesKeepCanonicalFaces)
 TEST (EditPlanarRobustBuild, FractionalSplitsPreservePhysicalSeparation)
 {
     PlanarOptions options;
-    options.snapTolerance = 1.0e-9;
     for (bool reverse : { false, true }) {
         PlanarCurve square = Closed (1, { P (0, 0), P (1.0e6, 0), P (1.0e6, 1.0e6), P (0, 1.0e6) });
         if (reverse)
