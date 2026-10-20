@@ -2,7 +2,9 @@
 
 `massing-parity-v1.json` contains immutable, explicit inputs and independent
 analytic anchors. `massing-parity-v1.expected.json` contains captured outputs of
-the existing compiled C++ engines at production-source baseline `63d3cd1`.
+the existing compiled C++ engines at production-source baseline `63d3cd1` for the
+original fourteen cases. Ten added cases name baseline `a3ee1ff` explicitly in
+their `baselineCommit` field; they do not overwrite the original snapshots.
 The test-only adapter is `../massing_corpus.cpp`; no production algorithm changed.
 
 ## Replay
@@ -30,7 +32,7 @@ evaluation must match with zero tolerance; input JSON must remain unchanged.
 
 ## Coverage and interpretation
 
-Fourteen cases exercise the existing `MassingSlices`, `MassingFacade`,
+Twenty-four cases exercise the existing `MassingSlices`, `MassingFacade`,
 `MassingBake`, `SlabSlices`, `MassingBuildings` and `MassingHeadroom` consumers:
 
 - rectangular/courtyard prisms, a thin excluded floor and a half-width envelope;
@@ -39,6 +41,29 @@ Fourteen cases exercise the existing `MassingSlices`, `MassingFacade`,
 - storey assignment, cut offsets and hole contours, plus missing-storey refusal;
 - the recorded micrometre bake-corner defect and unsupported arc cleanup;
 - shared-wall facade exclusion and georeferenced/elevated geometry.
+- a closed courtyard shell plus a disconnected island, preserving three floor
+  contours and two baked pieces per floor rather than inventing an outer box;
+- a body-removed top floor: three floor records, two rendered slices, with exact
+  empty-floor diagnostic and physical cut elevations retained;
+- headroom holes and disconnected regions, a two-eave roof ridge, and a nearer
+  low exit ceiling that must not be hidden by a higher disconnected solid;
+- exact inclusive `1.6 m` and just-below-threshold floor accounting, including
+  bake success versus refusal without changing physical volume or story identity;
+- unsorted explicit levels with micron-near duplicates/out-of-range cuts, and
+  storey numbering that continues above the project's top level.
+
+The added anchors are derived independently before snapshot capture. The
+courtyard/island fixture has `3*(100-4+16)=336 m²` counted area,
+`9*(100-4+16)=1008 m³` ideal floor-prism volume and `9*(40+8+16)=576 m²`
+vertical facade. Its measured volume is `1007.999998 m³` because the existing
+base-plane tangency nudge affects the first cut, within the **unchanged** generic
+`2e-5` analytic bound. The full captured value still uses `1e-6` replay tolerance.
+Five closed box shells (including the reversed cavity and stacked solids) are
+independently checked for opposing paired edges and signed scalar-triple-product
+volumes, without calling the consumers under test or a primitive builder.
+The removed-floor fixture deliberately contains only vertical walls, matching
+the source regression: useful slice ingress, not valid closed-solid modelling
+input. All added meshes remain literal committed coordinates and indices.
 
 The snapshots retain raw/allowed/excluded areas and volumes, all five row-contour
 categories (including closed flags and winding/order), source GUIDs, storeys,
@@ -65,7 +90,8 @@ frustum volume**. Headroom exclusion changes counted floor area independently.
 This is an initial, bounded regression corpus, not full S2b or a Rust parity run.
 When G2/G3 implementations and their flags arrive, replay these same inputs
 against both compiled backends before any production family flip. Full migration
-acceptance still needs broader real-building/SEO/arc/disconnected-body cases,
+acceptance still needs real-building/native SEO captures, arc cases and broader
+disconnected-body coverage beyond these synthetic fixtures,
 the existing `massing-shells.json` workflow fixtures, complete preview rendering,
 baked native GUID/Undo stability, the live consumer matrix and reproducible
 latency/allocation/copy/peak-memory measurements. The existing tests remain in

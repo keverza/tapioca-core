@@ -1,11 +1,13 @@
 #include "massing_corpus.hpp"
 
 #include <gtest/gtest.h>
+#include <array>
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <set>
 #include <stdexcept>
 
@@ -141,7 +143,11 @@ INSTANTIATE_TEST_SUITE_P (V1, MassingCorpus,
                           ::testing::Values ("RectangularPrism", "CourtyardPrism", "ThinExcludedFloor", "HalfEnvelope",
                                              "GroupedBuildings", "TaperedBody", "OpenBodyRefusal", "SlopedHeadroom",
                                              "StoreySlicesWithHole", "MissingStoreysRefusal", "LoggedBakeCornerCleanup",
-                                             "ArcCleanupRefusal", "FacadeSharedWalls", "SurveyPrism"),
+                                             "ArcCleanupRefusal", "FacadeSharedWalls", "SurveyPrism",
+                                             "BodyCourtyardIsland", "BodyRemovedTopFloor", "HeadroomHole",
+                                             "HeadroomDisconnected", "RidgeHeadroom", "NearestLowExit",
+                                             "ExactHeadroomThreshold", "BelowHeadroomThreshold",
+                                             "ExplicitLevelsSorting", "AboveTopStorey"),
                           [] (const auto& parameter) { return parameter.param; });
 
 TEST (MassingCorpusContract, EveryVersionedCaseIsRegisteredAndProvenanced)
@@ -155,15 +161,42 @@ TEST (MassingCorpusContract, EveryVersionedCaseIsRegisteredAndProvenanced)
         EXPECT_FALSE (Text (Required (item, "basis")).empty ());
         EXPECT_FALSE (Text (Required (item, "sourceTest")).empty ());
         ASSERT_NE (Required (item, "analytic").AsObject (), nullptr);
+        EXPECT_FALSE (Required (item, "analytic").AsObject ()->empty ());
+        const auto* baseline = item.Find ("baselineCommit");
+        if (!baseline)
+            baseline = &Required (fixture, "baselineCommit");
+        const auto commit = Text (*baseline);
+        EXPECT_GE (commit.size (), 7u);
+        EXPECT_LE (commit.size (), 40u);
+        EXPECT_EQ (commit.find_first_not_of ("0123456789abcdef"), std::string::npos);
         EXPECT_EQ (Text (Required (item, "expected")),
                    "massing-parity-v1.expected.json#" + Text (Required (item, "name")));
         ASSERT_NE (Goldens ().Find (Text (Required (item, "name"))), nullptr);
     }
-    EXPECT_EQ (names,
-               (std::set<std::string> { "RectangularPrism", "CourtyardPrism", "ThinExcludedFloor", "HalfEnvelope",
-                                        "GroupedBuildings", "TaperedBody", "OpenBodyRefusal", "SlopedHeadroom",
-                                        "StoreySlicesWithHole", "MissingStoreysRefusal", "LoggedBakeCornerCleanup",
-                                        "ArcCleanupRefusal", "FacadeSharedWalls", "SurveyPrism" }));
+    EXPECT_EQ (names, (std::set<std::string> { "RectangularPrism",
+                                               "CourtyardPrism",
+                                               "ThinExcludedFloor",
+                                               "HalfEnvelope",
+                                               "GroupedBuildings",
+                                               "TaperedBody",
+                                               "OpenBodyRefusal",
+                                               "SlopedHeadroom",
+                                               "StoreySlicesWithHole",
+                                               "MissingStoreysRefusal",
+                                               "LoggedBakeCornerCleanup",
+                                               "ArcCleanupRefusal",
+                                               "FacadeSharedWalls",
+                                               "SurveyPrism",
+                                               "BodyCourtyardIsland",
+                                               "BodyRemovedTopFloor",
+                                               "HeadroomHole",
+                                               "HeadroomDisconnected",
+                                               "RidgeHeadroom",
+                                               "NearestLowExit",
+                                               "ExactHeadroomThreshold",
+                                               "BelowHeadroomThreshold",
+                                               "ExplicitLevelsSorting",
+                                               "AboveTopStorey" }));
     EXPECT_EQ (Goldens ().AsObject ()->size (), names.size ());
 }
 
@@ -211,5 +244,59 @@ TEST (MassingCorpusContract, SnapshotDiagnosticPreservesExactNumericKinds)
     EXPECT_FALSE (Required (parsed.value, "coordinate").IsIntegral ());
     EXPECT_TRUE (Required (parsed.value, "sourceStory").IsIntegral ());
     EXPECT_FALSE (corpus::Match (value, value, 0, mismatch, "$", 65));
+}
+
+// A check of the literal inputs, independent of the slice/headroom/facade
+// consumers: oriented edge incidence and the scalar-triple-product volume.
+void CheckBoxShell (const V& mesh, size_t firstIndex, int64_t firstVertex, double expectedVolume)
+{
+    const auto& vertices = *Required (mesh, "vertices").AsArray ();
+    const auto& triangles = *Required (mesh, "triangles").AsArray ();
+    ASSERT_LE (firstIndex + 36, triangles.size ());
+    std::map<std::pair<int64_t, int64_t>, std::pair<int, int>> edges;
+    double volume = 0;
+    for (size_t i = firstIndex; i < firstIndex + 36; i += 3) {
+        std::array<int64_t, 3> indices {};
+        std::array<std::array<double, 3>, 3> points {};
+        for (size_t j = 0; j < 3; ++j) {
+            ASSERT_TRUE (triangles[i + j].AsInteger (indices[j]));
+            ASSERT_GE (indices[j], firstVertex);
+            ASSERT_LT (indices[j], firstVertex + 8);
+            const auto base = size_t (indices[j]) * 3;
+            ASSERT_LE (base + 3, vertices.size ());
+            for (size_t axis = 0; axis < 3; ++axis) {
+                ASSERT_TRUE (vertices[base + axis].AsDouble (points[j][axis]));
+                ASSERT_TRUE (std::isfinite (points[j][axis]));
+            }
+        }
+        for (size_t j = 0; j < 3; ++j) {
+            const auto a = indices[j], b = indices[(j + 1) % 3];
+            auto& edge = edges[a < b ? std::pair { a, b } : std::pair { b, a }];
+            ++edge.first;
+            edge.second += a < b ? 1 : -1;
+        }
+        for (size_t axis = 0; axis < 3; ++axis)
+            volume += points[0][axis] *
+                      (points[1][(axis + 1) % 3] * points[2][(axis + 2) % 3] -
+                       points[1][(axis + 2) % 3] * points[2][(axis + 1) % 3]) /
+                      6;
+    }
+    EXPECT_NEAR (volume, expectedVolume, 1e-9);
+    for (const auto& [key, counts] : edges) {
+        EXPECT_EQ (counts.first, 2) << key.first << ':' << key.second;
+        EXPECT_EQ (counts.second, 0) << "edge directions must oppose";
+    }
+}
+
+TEST (MassingCorpusContract, LiteralDisconnectedShellsPreserveCavityWindingAndSeparateSolidVolumes)
+{
+    const auto& meshes = Required (Fixture (), "meshes");
+    const auto& courtyard = Required (meshes, "courtyardIsland");
+    CheckBoxShell (courtyard, 0, 0, 900);
+    CheckBoxShell (courtyard, 36, 8, -36); // Inward-facing cavity, not positive fill.
+    CheckBoxShell (courtyard, 72, 16, 144);
+    const auto& stacked = Required (meshes, "stackedSolids");
+    CheckBoxShell (stacked, 0, 0, 100);
+    CheckBoxShell (stacked, 36, 8, 200);
 }
 } // namespace
