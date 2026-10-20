@@ -44,8 +44,27 @@ No new dependency, callback, host API, feature flag or second geometry authority
 
 Welding does not implement SDK polygon-normal normalization/fallback, fan emission,
 source-body bounds or sidecar publication. Analysis bounds must not overwrite
-retained capture bounds that span un-emitted body vertices. Complete extractor
-replay/native capture parity and full G1/S2b acceptance remain separate gates.
+retained capture bounds that span un-emitted body vertices.
+
+`MeshExtraction.hpp/.cpp` now contains the actual SDK-free C++ production
+normalization/fan/emission seam used by `GeometryExtractor`. The offline
+`test_geometry_rust_extraction.cpp` replay composes the existing Rust services
+against that oracle: one candidate-fan analysis, one ordered body-partitioned
+weld, then one emitted-mesh analysis. C++ still normalizes SDK corner normals.
+Every emitted Add occurrence maps back to its normalized source corner; corners
+that never emit are explicitly marked absent. Visibility is translated from
+source-body keys to each triangle's welded domain with polygon-local ranges.
+Whole `Mesh` equality includes bitwise positions/normals/bounds, GUID/type,
+triangle order and every material/surface/body/polygon/wire sidecar. Source-body
+bounds are retained, including un-emitted vertices and all-omitted first corners.
+
+The fixtures are curated, including 64 deterministic seeds and reused native
+collinear coordinates with authored sidecars; they are **not** complete SDK
+captures. The legacy normal length/first-three fallback and final whole-mesh
+smooth fallback remain C++. No new ABI export, Rust algorithm, dependency or
+production Rust caller is added. Complete native source-body/corner/material
+capture parity, non-finite/overflow safety differences, performance measurements
+and full G1/S2b acceptance remain open. Replay is test-only and worker-classified.
 
 Foreign input/output/error preflight covers every descriptor and full declared
 capacity before borrowing. Rust owns temporary derived arrays and publishes every

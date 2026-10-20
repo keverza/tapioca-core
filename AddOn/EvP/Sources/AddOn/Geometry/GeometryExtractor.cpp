@@ -2,9 +2,8 @@
 #include "ACAPinc.h"
 
 #include "GeometryExtractor.hpp"
-#include "VertexWeld.hpp"
+#include "MeshExtraction.hpp"
 #include "WireframeEdges.hpp"
-#include "TriangleDegeneracy.hpp"
 
 #include <exp.h>
 #include <Sight.hpp>
@@ -28,26 +27,6 @@ namespace geomsrv {
 
 namespace {
 
-// One element -> one Mesh. Bug-avoidance rules verified against the AC29
-// ModelAccess_Test exporter: 1-based loops, guard empty bodies, and skip
-// self-intersecting polygons via try/catch.
-//
-// NORMALS: taken from ConvexPolygon::GetNormalVectorByVertex(), which is what
-// the DevKit's own exporter uses (ModelAccess_Test_Exporter.cpp, "Normals"
-// block) with the same 1-based corner index it passes to GetVertexIndex().
-// These are Archicad's true normals — hard across a box edge, smooth across a
-// tessellated cylinder. We used to discard them and average adjacent face
-// normals into the body's SHARED vertex list instead, which welded every hard
-// edge smooth and shaded flat boxes like spheres. See VertexWeld.hpp.
-//
-// Because one shared body vertex now carries a different normal per adjacent
-// face, vertices get split (VertexWelder). Positions and the surface itself
-// are unchanged — only the vertex count and the indices differ.
-struct Corner {
-    Int32 vertex; // body-local, 0-based
-    double nx, ny, nz;
-};
-
 int32_t ReadPolygonSurfaceAttribute (const ModelerAPI::Polygon& polygon)
 {
     try {
@@ -67,15 +46,29 @@ int32_t ReadPolygonSurfaceAttribute (const ModelerAPI::Polygon& polygon)
     }
 }
 
+// One element -> one Mesh. Bug-avoidance rules verified against the AC29
+// ModelAccess_Test exporter: 1-based loops, guard empty bodies, and skip
+// self-intersecting polygons via try/catch.
+//
+// NORMALS: taken from ConvexPolygon::GetNormalVectorByVertex(), which is what
+// the DevKit's own exporter uses (ModelAccess_Test_Exporter.cpp, "Normals"
+// block) with the same 1-based corner index it passes to GetVertexIndex().
+// These are Archicad's true normals — hard across a box edge, smooth across a
+// tessellated cylinder. We used to discard them and average adjacent face
+// normals into the body's SHARED vertex list instead, which welded every hard
+// edge smooth and shaded flat boxes like spheres. See VertexWeld.hpp.
+//
+// Because one shared body vertex now carries a different normal per adjacent
+// face, vertices get split (VertexWelder). Positions and the surface itself
+// are unchanged — only the vertex count and the indices differ.
 bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
 {
     mesh.guid = APIGuidToString (GSGuid2APIGuid (elem.GetElemGuid ())).ToCStr ().Get ();
     mesh.elemType = static_cast<int32_t> (elem.GetType ());
 
     VertexWelder welder (mesh);
-    std::vector<Corner> corners;
-    size_t degenerateNormals = 0;
-    size_t emptyFanTriangles = 0;
+    std::vector<ExtractionCorner> corners;
+    ExtractionCounts counts;
 
     const Int32 nBodies = elem.GetTessellatedBodyCount ();
     for (Int32 iBody = 1; iBody <= nBodies; ++iBody) {
@@ -156,63 +149,15 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                             break;
                         }
                         const ModelerAPI::Vector n = convex.GetNormalVectorByVertex (k);
-                        corners.push_back (Corner { bi, n.x, n.y, n.z });
+                        corners.push_back (ExtractionCorner { bi, n.x, n.y, n.z });
                     }
                     if (!indicesOk || corners.size () < 3)
                         continue;
 
-                    // A degenerate corner normal (Archicad occasionally reports
-                    // one on a sliver) falls back to the polygon's geometric
-                    // normal rather than shipping a zero vector to the shader.
-                    double fnx = 0.0, fny = 0.0, fnz = 0.0;
-                    TriangleNormal (&bodyPos[corners[0].vertex * 3], &bodyPos[corners[1].vertex * 3],
-                                    &bodyPos[corners[2].vertex * 3], fnx, fny, fnz);
-                    const bool faceOk = NormalizeVector (fnx, fny, fnz);
-
-                    for (Corner& c : corners) {
-                        if (!NormalizeVector (c.nx, c.ny, c.nz)) {
-                            if (!faceOk) {
-                                indicesOk = false;
-                                break;
-                            }
-                            c.nx = fnx;
-                            c.ny = fny;
-                            c.nz = fnz;
-                            ++degenerateNormals;
-                        }
-                    }
-                    if (!indicesOk)
-                        continue;
-
-                    // Fan-triangulate: (1, k, k+1) over the gathered corners.
-                    const auto emit = [&] (const Corner& c) {
-                        return welder.Add (c.vertex, bodyPos[c.vertex * 3], bodyPos[c.vertex * 3 + 1],
-                                           bodyPos[c.vertex * 3 + 2], c.nx, c.ny, c.nz);
-                    };
-                    const uint32_t i0 = emit (corners[0]);
-                    for (size_t k = 1; k + 1 < corners.size (); ++k) {
-                        if (IsRoundoffZeroTriangle (&bodyPos[corners[0].vertex * 3], &bodyPos[corners[k].vertex * 3],
-                                                    &bodyPos[corners[k + 1].vertex * 3])) {
-                            ++emptyFanTriangles;
-                            continue;
-                        }
-                        const uint32_t sourceVertices[3] = { uint32_t (corners[0].vertex), uint32_t (corners[k].vertex),
-                                                             uint32_t (corners[k + 1].vertex) };
-                        mesh.triangles.push_back (i0);
-                        mesh.triangles.push_back (emit (corners[k]));
-                        mesh.triangles.push_back (emit (corners[k + 1]));
-                        mesh.triMaterial.push_back (material);
-                        mesh.triSurfaceAttribute.push_back (surfaceAttribute);
-                        mesh.triWireEdges.push_back (BuildTriangleWireEdgeMask (sourceVertices, visibleEdges));
-                        // Provenance at the ONE triangle-emission point. Welding
-                        // preserves this order; later material grouping does not.
-                        // The body loop index
-                        // and the polygon loop index are both 1-based ModelerAPI
-                        // indices (see Mesh.hpp). Independent of the C 3D-database
-                        // numbering and of the native picker's ids.
-                        mesh.triSourceBody.push_back (iBody);
-                        mesh.triSourcePgon.push_back (iPoly);
-                    }
+                    // The SDK-free C++ production oracle owns normalization,
+                    // fan omission, welding and all sidecars at one emission point.
+                    AppendExtractedConvex (mesh, welder, bodyPos, corners,
+                                           { iBody, iPoly, material, surfaceAttribute, visibleEdges }, counts);
                 }
             }
             catch (const GS::Exception&) {
@@ -222,9 +167,9 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
     }
 
     assert (mesh.triSourceBody.size () == mesh.TriangleCount ());
-    if (emptyFanTriangles)
+    if (counts.emptyFanTriangles)
         ACAPI_WriteReport ("Tapioca geometry %s: omitted %llu roundoff-zero generated fan triangles (no surface area).",
-                           false, mesh.guid.c_str (), static_cast<unsigned long long> (emptyFanTriangles));
+                           false, mesh.guid.c_str (), static_cast<unsigned long long> (counts.emptyFanTriangles));
     assert (mesh.triSourcePgon.size () == mesh.TriangleCount ());
     assert (mesh.triMaterial.size () == mesh.TriangleCount ());
     assert (mesh.triSurfaceAttribute.size () == mesh.TriangleCount ());

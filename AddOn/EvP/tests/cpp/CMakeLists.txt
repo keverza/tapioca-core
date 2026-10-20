@@ -66,6 +66,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/RenderEngine.cpp"
     "${GEOM_DIR}/SpatialQueries.cpp"
     "${GEOM_DIR}/VertexWeld.cpp"
+    "${GEOM_DIR}/MeshExtraction.cpp"
     "${GEOM_DIR}/SnapshotAssembly.cpp"
     "${GEOM_DIR}/GeometryEngine.cpp"
     # Primitives.cpp builds the solids the node catalog offers. Pure maths with
@@ -790,6 +791,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
 
 set (EVP_TEST_SOURCES
+    test_mesh_extraction.cpp
     test_editdocument.cpp
     test_editsession.cpp
     test_editsnap.cpp
@@ -1149,7 +1151,8 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_builders.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_plane.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_polygon.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_extraction.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
 option (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS "Build opt-in geometry measurement executables" OFF)
