@@ -212,3 +212,38 @@ fn discarded_and_truncated_errors_retain_status() {
     );
     assert_eq!(error.last(), Some(&0));
 }
+
+#[test]
+fn known_error_overlap_wins_over_another_malformed_region() {
+    let mut input = request();
+    let mut output = [99.0; 12];
+    // SAFETY: recognized error/output overlap must refuse before reporting the
+    // null request shape error. No foreign memory is accessed in this case.
+    let status = unsafe {
+        tapioca_make_arc(
+            std::ptr::null(),
+            output.as_mut_ptr(),
+            output.len(),
+            output.as_mut_ptr().cast(),
+            size_of_val(&output),
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(output.map(f64::to_bits), [99.0; 12].map(f64::to_bits));
+    let before = input;
+    // SAFETY: known error/request overlap wins over null nonempty output;
+    // live request remains untouched, including its immutable centre/normal.
+    let status = unsafe {
+        tapioca_make_arc(
+            &raw const input,
+            std::ptr::null_mut(),
+            9,
+            (&raw mut input).cast(),
+            size_of::<ArcRequest>(),
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(input.centre, before.centre);
+    assert_eq!(input.normal, before.normal);
+    assert_eq!(input.radius.to_bits(), before.radius.to_bits());
+}

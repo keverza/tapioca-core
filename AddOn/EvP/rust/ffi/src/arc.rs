@@ -12,12 +12,18 @@ unsafe fn prepare(
     scalar_capacity: usize,
     error_range: Option<(usize, usize)>,
 ) -> Result<Vec<f64>, Failure> {
-    let input_range = memory_range(request, 1)?;
-    let output_range = memory_range(output.cast_const(), scalar_capacity)?;
-    if overlaps(input_range, error_range)
-        || overlaps(output_range, error_range)
-        || overlaps(input_range, output_range)
-    {
+    let input_range = memory_range(request, 1);
+    let output_range = memory_range(output.cast_const(), scalar_capacity);
+    // Known error overlap wins even if the other region has a malformed shape:
+    // reporting that shape error must not corrupt a live input/output buffer.
+    for range in [&input_range, &output_range].into_iter().flatten() {
+        if overlaps(*range, error_range) {
+            return Err(Failure::Overlap);
+        }
+    }
+    let input_range = input_range?;
+    let output_range = output_range?;
+    if overlaps(input_range, output_range) {
         return Err(Failure::Overlap);
     }
     let context = BorrowContext {
