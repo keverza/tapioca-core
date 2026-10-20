@@ -79,7 +79,11 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
   structural provenance/attributed-mesh validators.
   S2b also exposes the implemented affine-vector batch, matrix-chain composition/builders,
   polyline measurement/sampling/segment-count division, bounded arc tessellation, neutral plane projection
-  and attributed polygon value copying; no production
+  and attributed polygon value copying. G1 also exposes body-local corner welding
+  with complete corner remaps and non-topology-changing mesh analysis (tight
+  supplied-vertex bounds, fallback normals, roundoff flags and wire masks).
+  Neither call implements SDK extraction, allocates semantic identity or replaces
+  retained capture bounds; full-capacity preflight precedes atomic publication. No production
   geometry family is switched by its parity harness.
   Geometry algorithms still require their own implementation and tests.
   New namespaces/symbols use `tapioca` or

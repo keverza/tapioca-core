@@ -38,6 +38,32 @@ this option from `-NoRust` on every run; an ordinary invocation restores ON.
 Every MSVC test dependency uses the add-on's `/MD` CRT/STL ABI, including Debug
 and the text stack, to link the aggregate release Rust archive consistently.
 
+## G1 mesh-preparation differential tests
+
+`GeometryRustMeshPrep.*` calls the real Rust archive through owned services and
+compares the compiled `VertexWeld`, `TriangleDegeneracy`, `WireframeEdges` and
+`Aabb` oracles. Fixtures cover the flat/smooth unit cube, captured native
+collinear fan coordinates from `test_triangledegeneracy.cpp`, survey placement,
+empty/unused vertices, all eight wire masks, body resets, halfway normal keys,
+i32 boundary keys, first-value retention and complete corner correspondence.
+Seeded cases pin f32 accumulation, stable ordering and 4,000 near-roundoff
+classifications; explicit nextafter values straddle the `8*DBL_EPSILON` boundary.
+Comparisons are exact, not a relaxed geometry tolerance.
+
+From `core/`:
+
+```powershell
+powershell -NoProfile -File AddOn/EvP/tests/cpp/Invoke-CppTests.ps1 -Filter 'GeometryRustMeshPrep.*:SmoothNormals.*:NormalHelpers.*:VertexWeld.*:TriangleDegeneracy.*:WireframeEdges.*'
+```
+
+The standalone Rust CMake project additionally builds real C11/C++20 record/link
+smoke and malicious failure-stub tests (`TapiocaRustMeshPrepSmoke` /
+`TapiocaRustMeshPrepFailure`). Rust tests cover safe refusal and full-capacity
+alias/error preflight with atomic multi-buffer publication. No production
+extractor is switched. This is not full capture replay, D14 authoring, native
+geometry parity or performance acceptance. Measurements remain outstanding;
+bulk mesh preparation stays worker-classified.
+
 ## Opt-in composition measurements (S2b)
 
 This is a small executable and standard-library Python recorder, **not a benchmark

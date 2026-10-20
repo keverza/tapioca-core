@@ -7,13 +7,56 @@
 S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
 `tapioca_sample_polyline`, `tapioca_divide_polyline`, `tapioca_make_arc`, `tapioca_build_transform` and
 `tapioca_project_to_plane` and `tapioca_copy_attributed_polygon`
-primitives (additive ABI v1).
+primitives, plus G1 `tapioca_weld_corners` / `tapioca_analyze_mesh` (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
 views, immutable validation round-trips and complete detached value/catalog
 validation are implemented. C++ engines remain the
 production geometry authorities; no algorithm or consumer flag is switched.
+
+## G1 mesh-preparation parity services
+
+`GeometryRustMeshPrep.hpp` exposes two coarse opt-in calls without switching
+`GeometryExtractor`. The pure oracles are `VertexWeld.cpp`, `Aabb.hpp`,
+`TriangleDegeneracy.hpp` and `WireframeEdges.cpp`, compiled into `EvPGeomTests`.
+No new dependency, callback, host API, feature flag or second geometry authority.
+
+- `WeldCorners`: ordered Add calls partitioned by nondecreasing body offsets,
+  starting at zero and ending at corner count (empty bodies allowed). Key is
+  `(sourceVertex, round(givenNormal*1e4))`, halfway **away** from zero, with i32
+  representability required. Source vertex is an opaque signed local key.
+  First position and first given normal win; positions are never proximity-welded
+  or averaged. Every corner returns its output vertex, so all contributors survive.
+  Native GUIDs, semantic IDs, authored lineage and sidecars remain C++ owned.
+- `AnalyzeMesh`: shape/finite/index validation, exact tight bounds including unused
+  **supplied** vertices, normal usability, smooth fallback normals, roundoff-zero
+  flags and wire masks. No vertex/triangle is deleted/reordered. Existing normals
+  must be empty or correctly shaped/finite; unusable lengths are reported, not
+  repaired in the source. Fallback preserves C++ f32 face-contribution narrowing
+  and f32 accumulation, then squared-norm normalization only above `1e-12`.
+  The roundoff test scales edges and uses `8*DBL_EPSILON`, not an area tolerance.
+  Three-component scaled hypot is compared against the compiled Windows oracle,
+  including nextafter boundaries and seeded near-collinear cases; no Linux result
+  is inferred. Wire bits are `v1-v2`, `v2-v0`, `v0-v1`; canonical u64 keys are
+  sorted globally or within one checked range per triangle. Keys and triangles
+  must use the **same** vertex domain, not pre-weld SDK indices after welding.
+
+Welding does not implement SDK polygon-normal normalization/fallback, fan emission,
+source-body bounds or sidecar publication. Analysis bounds must not overwrite
+retained capture bounds that span un-emitted body vertices. Complete extractor
+replay/native capture parity and full G1/S2b acceptance remain separate gates.
+
+Foreign input/output/error preflight covers every descriptor and full declared
+capacity before borrowing. Rust owns temporary derived arrays and publishes every
+prefix/count/summary together; any refusal/contained unwind leaves all outputs
+unchanged. Canonical empty bounds remain infinity envelopes. NaN/infinity,
+unrepresentable normal keys and nonfinite derived arithmetic refuse, rather than
+preserving accidental C++ invalid-number successes. Existing panic/OOM/abort and
+foreign-allocation-validity caveats apply. C++ explicitly copies corner/range PODs,
+borrows flat arrays, and publishes provisional owned results only on success.
+This allocates/copies; no allocation-free or synchronous latency claim. Bulk stays
+worker-classified pending reproducible timing/allocation/copy/peak-heap measurement.
 
 ## Location and boundaries
 

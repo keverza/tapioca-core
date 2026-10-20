@@ -542,6 +542,97 @@ TapiocaStatus tapioca_validate_attributed_mesh (const TapiocaMeshView* mesh, con
 TapiocaStatus tapioca_copy_attributed_polygon (const TapiocaAttributedPolygonRequest* request, double* output,
                                                size_t scalarCapacity, char* error, size_t errorCapacity);
 
+/* G1 additive mesh preparation. No production family flip, semantic ID creation
+ * or SDK capture workflow. Coordinates
+ * are world metres f64, RH Z-up. Normals
+ * are dimensionless. Bounds include unused supplied vertices, NOT un-emitted
+
+ * * source-body vertices; caller retains capture bounds/identity/sidecars.
+ * Both calls are worker-classified until
+ * measured. */
+typedef struct {
+    int32_t sourceVertex;          /* Opaque signed body-local key, not a position offset. */
+    double position[3], normal[3]; /* GIVEN normal, no normalization here. */
+} TapiocaWeldCorner;
+typedef struct {
+    const TapiocaWeldCorner* data;
+    size_t count;
+} TapiocaWeldCornerView;
+typedef struct {
+    const uint64_t* data;
+    size_t count;
+} TapiocaUint64View;
+typedef struct {
+    TapiocaWeldCornerView corners;
+    TapiocaUint64View bodyOffsets; /* [0,...,corners.count], nondecreasing; empty bodies valid. */
+} TapiocaWeldRequest;
+typedef struct {
+    size_t* vertexCount; /* Required; actual output vertex count, not scalars. */
+    double* positions;
+    float* normals;
+    size_t scalarCapacity; /* EACH xyz buffer: at least 3*corners.count. */
+    uint32_t* cornerVertices;
+    size_t cornerCapacity; /* At least corners.count, even when corners deduplicate. */
+} TapiocaWeldOutput;
+
+typedef struct {
+    uint64_t offset, count;
+} TapiocaEdgeRange;
+typedef struct {
+    const TapiocaEdgeRange* data;
+    size_t count;
+} TapiocaEdgeRangeView;
+typedef struct {
+    TapiocaDoubleView positions;
+    TapiocaFloatView normals; /* Empty or per-vertex xyz, shape/finite checked. */
+    TapiocaIndexView triangles;
+    TapiocaUint64View visibleEdges;  /* (min << 32)|max, SAME index domain as triangles. */
+    TapiocaEdgeRangeView edgeRanges; /* Empty: global pool; else one locally sorted range/triangle. */
+} TapiocaMeshAnalysisRequest;
+typedef struct {
+    TapiocaAabb bounds;
+    uint32_t normalsUsable; /* 0 or 1: existing C++ 0.9..1.1 length test. */
+} TapiocaMeshAnalysisSummary;
+typedef struct {
+    TapiocaMeshAnalysisSummary* summary; /* Required even for empty input. */
+    float* smoothNormals;
+    size_t scalarCapacity;   /* At least positions.count. */
+    uint8_t* roundoffZero;   /* 0/1 flag per triangle; no topology change. */
+    uint8_t* wireMasks;      /* bit0 v1-v2, bit1 v2-v0, bit2 v0-v1. */
+    size_t triangleCapacity; /* Capacity of EACH byte buffer. */
+} TapiocaMeshAnalysisOutput;
+
+/* First-encounter (sourceVertex,round(normal*1e4)) weld; halfway AWAY from zero.
+ * Reset key table at each body
+ * offset. No position proximity/averaging, source
+ * rewrite or semantic-ID allocation. Complete cornerVertices remap
+ * retains ALL
+ * contributors. Count <= UINT32_MAX; finite input and representable i32 keys.
+ * Analysis preserves
+ * order/topology; smooth f32 fallback deliberately smooths
+ * hard edges. Roundoff threshold is 8*DBL_EPSILON after
+ * per-triangle edge scaling,
+ * not an area/contact tolerance. Canonical visibility keys/ranges must be sorted
+ * per
+ * selected range; duplicates allowed. Non-finite used arithmetic refuses.
+ *
+ * All inputs/descriptors live aligned
+ * initialized immutable for the call. Full
+ * declared output capacities and required count/summary are live
+ * exclusively
+ * writable, mutually disjoint, and disjoint from ALL inputs/descriptors/error.
+ * Null arrays require
+ * zero count/capacity. Only result prefixes publish; tails
+ * untouched. Every output stays unchanged on
+ * refusal/contained panic. ERR_ARG
+ * for shape/geometry/arithmetic, ERR_INTERNAL for caught unwind. No borrow or
+ *
+ * allocation escapes. Shared foreign-allocation/OOM/abort limitations apply. */
+TapiocaStatus tapioca_weld_corners (const TapiocaWeldRequest* request, const TapiocaWeldOutput* output, char* error,
+                                    size_t errorCapacity);
+TapiocaStatus tapioca_analyze_mesh (const TapiocaMeshAnalysisRequest* request, const TapiocaMeshAnalysisOutput* output,
+                                    char* error, size_t errorCapacity);
+
 #ifdef __cplusplus
 }
 #endif

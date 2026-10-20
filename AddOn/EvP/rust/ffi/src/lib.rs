@@ -93,3 +93,13 @@ pub use plane::{PlaneOutput, PlaneRequest, tapioca_project_to_plane};
 )]
 mod polygon;
 pub use polygon::{AttributedPolygonRequest, tapioca_copy_attributed_polygon};
+
+#[allow(
+    unsafe_code,
+    reason = "Mesh-preparation POD ingress, full-capacity alias preflight and atomic disjoint output publication"
+)]
+mod mesh_prep;
+pub use mesh_prep::{
+    MeshAnalysisOutput, MeshAnalysisRequest, MeshAnalysisSummary, WeldOutput, WeldRequest,
+    tapioca_analyze_mesh, tapioca_weld_corners,
+};

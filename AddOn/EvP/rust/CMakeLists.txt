@@ -89,3 +89,18 @@ add_executable (TapiocaRustPlaneFailure tests/plane_wrapper_failure.cpp
 set_target_properties (TapiocaRustPlaneFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
 target_include_directories (TapiocaRustPlaneFailure PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
 add_test (NAME TapiocaRustPlaneFailure COMMAND TapiocaRustPlaneFailure)
+
+add_executable (TapiocaRustMeshPrepSmoke tests/mesh_prep_smoke.c tests/mesh_prep_smoke.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustMeshPrep.cpp")
+set_target_properties (TapiocaRustMeshPrepSmoke PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustMeshPrepSmoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn"
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry")
+TapiocaLinkRustCore (TapiocaRustMeshPrepSmoke)
+add_test (NAME TapiocaRustMeshPrepSmoke COMMAND TapiocaRustMeshPrepSmoke)
+
+add_executable (TapiocaRustMeshPrepFailure tests/mesh_prep_wrapper_failure.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn/Geometry/GeometryRustMeshPrep.cpp")
+set_target_properties (TapiocaRustMeshPrepFailure PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+target_include_directories (TapiocaRustMeshPrepFailure PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Sources/AddOn")
+add_test (NAME TapiocaRustMeshPrepFailure COMMAND TapiocaRustMeshPrepFailure)

@@ -1139,6 +1139,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${GEOM_DIR}/GeometryRustPolyline.cpp"
         "${GEOM_DIR}/GeometryRustArc.cpp"
         "${GEOM_DIR}/GeometryRustPlane.cpp"
+        "${GEOM_DIR}/GeometryRustMeshPrep.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_value.cpp"
@@ -1147,7 +1148,8 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_arc.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_builders.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_plane.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_polygon.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_polygon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
 option (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS "Build opt-in geometry measurement executables" OFF)

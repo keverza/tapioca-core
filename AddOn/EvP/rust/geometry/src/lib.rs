@@ -17,6 +17,7 @@ pub mod affine;
 pub mod arc;
 pub mod identity;
 pub mod mesh;
+pub mod mesh_prep;
 mod native_guid;
 pub mod plane;
 pub mod polygon;

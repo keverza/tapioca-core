@@ -83,6 +83,26 @@ This is not planarity, Boolean, hole-role or geometric-contributor validation:
 degenerate/nonplanar/self-intersecting values may copy. Worker by default, no
 production consumer flip. See `GeometryRustPolygon.hpp` for the owned value API.
 
+The G1 mesh-preparation batch adds `tapioca_weld_corners` and
+`tapioca_analyze_mesh`, exposed by `GeometryRustMeshPrep.hpp`. Welding partitions
+ordered corners by body offsets, uses the legacy source/rounded-normal key and
+returns **every** corner-to-output-vertex mapping. First position/normal wins;
+no proximity weld, coordinate averaging, source-node rewrite or semantic IDs.
+Normals are supplied as given; SDK polygon normalization/fan emission remains
+C++. Analysis preserves vertices/triangles and returns tight supplied-vertex
+bounds, original-normal usability, f32 area-weighted fallback normals, roundoff
+flags and barycentric wire masks. Visibility keys use the same vertex-index
+domain as the supplied triangles, not a pre-weld source domain. Tight bounds
+must not replace capture bounds spanning un-emitted body vertices.
+
+Both ABI calls validate all ranges and **full capacities** before borrowing,
+compute into Rust-owned temporaries, then publish all output prefixes/counts
+together. Refusal or caught unwind preserves outputs. The C++ facade uses
+provisional owned vectors and explicit POD conversion. Geometry/identity/face
+sidecars remain caller-owned. No production extractor is switched; full G1/S2b
+acceptance, native SDK-capture parity and performance budgets remain separate.
+These are worker operations, not synchronous latency claims; no new dependency.
+
 ```text
 rust/
   geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs
