@@ -4,7 +4,8 @@
 analytic anchors. `massing-parity-v1.expected.json` contains captured outputs of
 the existing compiled C++ engines at production-source baseline `63d3cd1` for the
 original fourteen cases. Ten added cases name baseline `a3ee1ff` explicitly in
-their `baselineCommit` field; two workflow-shell cases name `f4ae4a0`. None
+their `baselineCommit` field; two workflow-shell cases name `f4ae4a0`; five
+signed-arc cases name `1a8b01b`. None
 overwrites the earlier snapshots.
 The test-only adapter is `../massing_corpus.cpp`; no production algorithm changed.
 
@@ -33,7 +34,7 @@ evaluation must match with zero tolerance; input JSON must remain unchanged.
 
 ## Coverage and interpretation
 
-Twenty-six cases exercise the existing `MassingSlices`, `MassingFacade`,
+Thirty-one cases exercise the existing `MassingSlices`, `MassingFacade`,
 `MassingBake`, `SlabSlices`, `MassingBuildings` and `MassingHeadroom` consumers:
 
 - rectangular/courtyard prisms, a thin excluded floor and a half-width envelope;
@@ -56,7 +57,9 @@ Twenty-six cases exercise the existing `MassingSlices`, `MassingFacade`,
   existing `MassingCalculation::Decode` boundary before ten-floor slicing,
   clearance classification, building previews and bake planning. The original
   shell file is required and unchanged; `envelopeFixture` selects index 0/1,
-  never regenerates an envelope or substitutes a box.
+  never regenerates an envelope or substitutes a box;
+- positive and negative two-node/two-half-turn circular slab outlines, a curved
+  annulus with a clockwise hole and a major circular segment with a closing chord.
 
 The added anchors are derived independently before snapshot capture. The
 courtyard/island fixture has `3*(100-4+16)=336 m²` counted area,
@@ -95,6 +98,55 @@ allowed, low-headroom and outside-highlight semantics. Malformed/out-of-range/
 fractional selectors, missing or invalid payloads and ambiguous envelope sources
 throw fixture errors rather than becoming expected domain-refusal snapshots.
 
+### Signed-arc inputs and independent anchors
+
+Slab input objects may supply `outerArcs` and `holeArcs`, in signed **radians**
+for the edge leaving each stored vertex. `holeArcs`, when present, has one array
+per `holes` entry in the same order. A ring's array may be empty or shorter than
+its vertex count: omitted trailing sweeps are straight, matching `SlabSlices::Ring`.
+More sweeps than vertices, malformed arrays, non-finite values and nonzero sweeps
+of magnitude **>= 2π** throw fixture errors. XY must have complete pairs when arc
+metadata is supplied. This is a bounded test-input policy, not a new production
+arc validator or a repair algorithm. A circle uses two half-turns or four quarter
+turns, never a single full-turn edge. Old arc-free inputs retain their exact path.
+
+The adapter passes those values unchanged to the existing C++ consumers; it does
+not tessellate, change signs or infer hole winding. Production still uses
+`SlabSlices::Contour` / `PlanOverlayContent::TessellateEdgeDouble`. The inherited
+0.05 m **arc-length-per-segment target** (not sagitta tolerance) determines the
+chord polygons. Independent inscribed-polygon formulas anchor the actual model:
+
+| Case | Stored contour | Chord polygon / independent area |
+| --- | --- | --- |
+| `ArcDiscSlices` | 2 positive half-turns, radius 1 m | 126 vertices, `63*sin(π/63)` m² |
+| `ClockwiseArcDiscSlices` | 2 negative half-turns, radius 1 m | same unsigned area, negative signed area / clockwise order |
+| `ArcAnnularPrism` | outer 4 positive quarter-turns, radius 1 m; hole 2 negative half-turns, radius 0.5 m | 128 / 64 vertices, `64*sin(π/64)-8*sin(π/32)` m² |
+| `MajorArcSegmentSlices` | +270° from (1,0) to (0,-1), then a straight closing edge | 96 vertices, `(95*sin(3π/190)+1)/2` m² |
+| `ArcAnnularFacade` | same annulus, with 4 negative quarter-turns for the hole | same 128 / 64 chord polygons; facade `9*(256*sin(π/128)+64*sin(π/64))` m² |
+
+The circular slice cases retain three cut levels (including 0.25 m offset from
+physical floor bases). The annulus has three 3 m floors: **7.068582102954805 m²**
+counted area and **21.205746308864413 m³** floor-prism volume. The separate
+four-node-hole facade case independently anchors **84.80597092938268 m²**
+chordal vertical facade. These are **tessellated-prism**
+answers, not ideal circle/cylinder answers. Independent radius, count, winding
+and triangle-fan area checks do not call the production tessellator/area helper.
+All three baked annulus pieces must retain one hole; full saved snapshots retain
+the actual ordered coordinates, source/storey identity and diagnostics. Existing
+absolute `2e-5` analytic and `1e-6` replay bounds stay unchanged. This is neither
+native curved-slab capture nor full ArcPolyline metadata/identity interoperability.
+
+**Known production limitation, not fixed here:** the facade's prism-footprint
+ingress requires at least three **stored** vertices per ring before tessellation.
+It therefore refuses the geometrically valid two-node/two-half-turn hole in
+`ArcAnnularPrism`, while slice/headroom/bake planning accept it. The build result
+must keep `hasFacade=false` and the exact `Facade area unavailable: Invalid facade
+prism contour.` note; its saved numeric zero is **unavailable**, not an independent
+zero-area answer. `ArcAnnularFacade` uses equivalent four-node quarter-turns and
+does compute the analytic chord-perimeter area. No node padding or rewrite hides
+the two-node limitation. An arc-aware facade-ingress repair needs a separate
+production change and reviewed baseline update before claiming that case supported.
+
 The snapshots retain raw/allowed/excluded areas and volumes, all five row-contour
 categories (including closed flags and winding/order), source GUIDs, storeys,
 functions/colours, section parts/spans, building membership/preview sections,
@@ -120,7 +172,8 @@ frustum volume**. Headroom exclusion changes counted floor area independently.
 This is an initial, bounded regression corpus, not full S2b or a Rust parity run.
 When G2/G3 implementations and their flags arrive, replay these same inputs
 against both compiled backends before any production family flip. Full migration
-acceptance still needs real-building/native SEO captures, arc cases and broader
+acceptance still needs real-building/native SEO captures, native/operated curved
+body fixtures and broader
 disconnected-body coverage beyond these synthetic/workflow fixtures, fresh Python
 workflow generation parity (the committed shell payloads are replayed, not rebuilt),
 complete preview rendering,

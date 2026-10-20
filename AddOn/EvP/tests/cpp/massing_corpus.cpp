@@ -92,6 +92,21 @@ geomsrv::Mesh Mesh (const Value& meshes, const Value& name)
         mesh.bounds.Expand (mesh.vertices[offset], mesh.vertices[offset + 1], mesh.vertices[offset + 2]);
     return mesh;
 }
+slab::Ring Ring (const Value& xy, const Value* arcs)
+{
+    slab::Ring result { Numbers (xy), {} };
+    if (!arcs)
+        return result;
+    result.arcs = Numbers (*arcs);
+    if (result.xy.size () % 2 || result.arcs.size () > result.xy.size () / 2)
+        throw std::runtime_error ("corpus arc metadata does not match stored XY vertices");
+    // Bounded authored-edge fixture policy, not a second tessellator. Circles
+    // use multiple edges; a full-turn/multi-turn edge is not a valid fixture.
+    for (double sweep : result.arcs)
+        if (std::abs (sweep) >= 6.283185307179586)
+            throw std::runtime_error ("corpus arc sweep must have magnitude below one full turn");
+    return result;
+}
 slab::Slab Slab (const Value& value)
 {
     slab::Slab result;
@@ -99,9 +114,14 @@ slab::Slab Slab (const Value& value)
     result.id = Text (Field (value, "id"));
     result.bottom = Number (Field (value, "bottom"));
     result.top = Number (Field (value, "top"));
-    result.outer.xy = Numbers (Field (value, "outer"));
-    for (const auto& hole : Array (Field (value, "holes")))
-        result.holes.push_back ({ Numbers (hole), {} });
+    result.outer = Ring (Field (value, "outer"), value.Find ("outerArcs"));
+    const auto& holes = Array (Field (value, "holes"));
+    const auto* arcField = value.Find ("holeArcs");
+    const auto* holeArcs = arcField ? &Array (*arcField) : nullptr;
+    if (holeArcs && holeArcs->size () != holes.size ())
+        throw std::runtime_error ("corpus hole arc arrays must match the hole order and count");
+    for (size_t i = 0; i < holes.size (); ++i)
+        result.holes.push_back (Ring (holes[i], holeArcs ? &(*holeArcs)[i] : nullptr));
     return result;
 }
 geomsrv::archviz::ProjectStoreys Storeys (const Value& value)

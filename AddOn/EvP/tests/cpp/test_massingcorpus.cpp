@@ -167,7 +167,8 @@ INSTANTIATE_TEST_SUITE_P (V1, MassingCorpus,
                                              "HeadroomDisconnected", "RidgeHeadroom", "NearestLowExit",
                                              "ExactHeadroomThreshold", "BelowHeadroomThreshold",
                                              "ExplicitLevelsSorting", "AboveTopStorey", "WorkflowConvexShell",
-                                             "WorkflowConcaveShell"),
+                                             "WorkflowConcaveShell", "ArcDiscSlices", "ClockwiseArcDiscSlices",
+                                             "ArcAnnularPrism", "MajorArcSegmentSlices", "ArcAnnularFacade"),
                           [] (const auto& parameter) { return parameter.param; });
 
 TEST (MassingCorpusContract, EveryVersionedCaseIsRegisteredAndProvenanced)
@@ -218,7 +219,12 @@ TEST (MassingCorpusContract, EveryVersionedCaseIsRegisteredAndProvenanced)
                                                "ExplicitLevelsSorting",
                                                "AboveTopStorey",
                                                "WorkflowConvexShell",
-                                               "WorkflowConcaveShell" }));
+                                               "WorkflowConcaveShell",
+                                               "ArcDiscSlices",
+                                               "ClockwiseArcDiscSlices",
+                                               "ArcAnnularPrism",
+                                               "MajorArcSegmentSlices",
+                                               "ArcAnnularFacade" }));
     EXPECT_EQ (Goldens ().AsObject ()->size (), names.size ());
 }
 
@@ -423,5 +429,129 @@ TEST (MassingCorpusContract, InvalidWorkflowShellReferencesAndPayloadsFailRather
     auto fields = *input.AsObject ();
     fields["envelope"] = V::String ("halfEnvelope");
     EXPECT_THROW (corpus::Evaluate (V::Object (std::move (fields)), meshes, WorkflowShells ()), std::runtime_error);
+}
+// Independent chord-polygon invariants, not a copied arc tessellator: counts,
+// radius, winding and triangle-fan area. No production area/builder helper.
+void CheckCircularChain (const V& chain, size_t vertices, double radius, double signedArea)
+{
+    const auto* xy = Required (chain, "xy").AsArray ();
+    ASSERT_NE (xy, nullptr);
+    ASSERT_EQ (xy->size (), 2 * vertices);
+    bool closed = false;
+    ASSERT_TRUE (Required (chain, "closed").AsBool (closed));
+    ASSERT_TRUE (closed);
+    double area = 0;
+    for (size_t i = 0; i < vertices; ++i) {
+        double x = 0, y = 0, nx = 0, ny = 0;
+        ASSERT_TRUE ((*xy)[2 * i].AsDouble (x));
+        ASSERT_TRUE ((*xy)[2 * i + 1].AsDouble (y));
+        ASSERT_TRUE ((*xy)[2 * ((i + 1) % vertices)].AsDouble (nx));
+        ASSERT_TRUE ((*xy)[2 * ((i + 1) % vertices) + 1].AsDouble (ny));
+        EXPECT_NEAR (std::hypot (x, y), radius, 1e-12);
+        area += (x * ny - nx * y) * 0.5;
+    }
+    EXPECT_NEAR (area, signedArea, 1e-12);
+}
+
+TEST (MassingCorpusContract, SignedArcContoursRetainIndependentChordAreasWindingAndHoleRoles)
+{
+    constexpr double pi = 3.14159265358979323846;
+    size_t checked = 0;
+    for (const auto& item : *Required (Fixture (), "cases").AsArray ()) {
+        const auto name = Text (Required (item, "name"));
+        if (name != "ArcDiscSlices" && name != "ClockwiseArcDiscSlices" && name != "ArcAnnularPrism" &&
+            name != "MajorArcSegmentSlices" && name != "ArcAnnularFacade")
+            continue;
+        ++checked;
+        SCOPED_TRACE (name);
+        const auto actual = corpus::Evaluate (Required (item, "input"), Required (Fixture (), "meshes"));
+        if (name == "ArcAnnularFacade") {
+            double area = 0;
+            ASSERT_TRUE (Required (actual, "area").AsDouble (area));
+            EXPECT_NEAR (area, 9 * (256 * std::sin (pi / 128) + 64 * std::sin (pi / 64)), 2e-5);
+        }
+        else if (name == "ArcAnnularPrism") {
+            const auto* rows = Required (actual, "rows").AsArray ();
+            ASSERT_NE (rows, nullptr);
+            ASSERT_EQ (rows->size (), 3u);
+            const auto* chains = Required (rows->front (), "footprint").AsArray ();
+            ASSERT_NE (chains, nullptr);
+            ASSERT_EQ (chains->size (), 2u);
+            ASSERT_NO_FATAL_FAILURE (CheckCircularChain ((*chains)[0], 128, 1, 64 * std::sin (pi / 64)));
+            ASSERT_NO_FATAL_FAILURE (CheckCircularChain ((*chains)[1], 64, 0.5, -8 * std::sin (pi / 32)));
+            EXPECT_NE (Text (Required (actual, "note")).find ("Facade area unavailable: Invalid facade prism contour."),
+                       std::string::npos);
+            const auto& baked = Required (Required (Required (actual, "bake"), "geometry"), "items");
+            ASSERT_NE (baked.AsArray (), nullptr);
+            ASSERT_EQ (baked.AsArray ()->size (), 3u);
+            for (const auto& piece : *baked.AsArray ()) {
+                ASSERT_NE (Required (piece, "holes").AsArray (), nullptr);
+                EXPECT_EQ (Required (piece, "holes").AsArray ()->size (), 1u);
+            }
+        }
+        else {
+            const auto* slices = Required (actual, "slices").AsArray ();
+            ASSERT_NE (slices, nullptr);
+            ASSERT_EQ (slices->size (), 3u);
+            for (const auto& slice : *slices) {
+                const auto* chains = Required (slice, "chains").AsArray ();
+                ASSERT_NE (chains, nullptr);
+                ASSERT_EQ (chains->size (), 1u);
+                const double area =
+                    name == "MajorArcSegmentSlices" ? (95 * std::sin (3 * pi / 190) + 1) / 2 : 63 * std::sin (pi / 63);
+                ASSERT_NO_FATAL_FAILURE (CheckCircularChain (chains->front (),
+                                                             name == "MajorArcSegmentSlices" ? 96 : 126, 1,
+                                                             name == "ClockwiseArcDiscSlices" ? -area : area));
+                const auto& xy = *Required (chains->front (), "xy").AsArray ();
+                double firstX = 0, firstY = 0, nextY = 0;
+                ASSERT_TRUE (xy[0].AsDouble (firstX));
+                ASSERT_TRUE (xy[1].AsDouble (firstY));
+                ASSERT_TRUE (xy[3].AsDouble (nextY));
+                EXPECT_DOUBLE_EQ (firstX, name == "MajorArcSegmentSlices" ? 1 : -1);
+                EXPECT_DOUBLE_EQ (firstY, 0);
+                EXPECT_EQ (nextY > 0, name != "ArcDiscSlices");
+            }
+        }
+    }
+    EXPECT_EQ (checked, 5u);
+}
+
+TEST (MassingCorpusContract, ArcMetadataShapeErrorsRefuseAndOmittedTrailingSweepsRemainStraight)
+{
+    const auto parsed = js::Parse (
+        R"({"mode":"slice","slab":{"guid":"arc:test","id":"Arc","bottom":0,"top":3,"outer":[0,0,2,0,2,2,0,2],"holes":[[0.5,0.5,1,0.5,1,1,0.5,1]]},"cut":"step","step":3,"minTop":2.5,"offset":0,"levels":[],"storeys":[]})");
+    ASSERT_TRUE (parsed.ok);
+    const auto evaluate = [&] (const char* key, V metadata) {
+        auto source = *Required (parsed.value, "slab").AsObject ();
+        source[key] = std::move (metadata);
+        auto input = *parsed.value.AsObject ();
+        input["slab"] = V::Object (std::move (source));
+        return corpus::Evaluate (V::Object (std::move (input)), V::Object ({}));
+    };
+    const auto zero = V::Integer (0);
+    const auto tooMany = V::Array ({ zero, zero, zero, zero, zero });
+    for (const auto& bad :
+         { V (), V::Object ({}), V::Array ({ V::String ("bad") }), tooMany,
+           V::Array ({ V::Double (std::numeric_limits<double>::infinity ()) }),
+           V::Array ({ V::Double (6.283185307179586) }), V::Array ({ V::Double (-6.283185307179586) }) })
+        EXPECT_THROW (evaluate ("outerArcs", bad), std::runtime_error);
+    for (const auto& bad : { V (), V::Object ({}), V::Array ({}), V::Array ({ zero }),
+                             V::Array ({ V::Array ({}), V::Array ({}) }), V::Array ({ tooMany }),
+                             V::Array ({ V::Array ({ V::Double (std::numeric_limits<double>::quiet_NaN ()) }) }) })
+        EXPECT_THROW (evaluate ("holeArcs", bad), std::runtime_error);
+    const auto absent = corpus::Evaluate (parsed.value, V::Object ({}));
+    std::string mismatch;
+    EXPECT_TRUE (corpus::Match (absent, evaluate ("outerArcs", V::Array ({})), 0, mismatch));
+    EXPECT_TRUE (corpus::Match (absent, evaluate ("holeArcs", V::Array ({ V::Array ({}) })), 0, mismatch));
+    const auto partial = evaluate ("outerArcs", V::Array ({ V::Double (0.25) }));
+    const auto explicitZeros = evaluate ("outerArcs", V::Array ({ V::Double (0.25), zero, zero, zero }));
+    EXPECT_TRUE (corpus::Match (partial, explicitZeros, 0, mismatch));
+    EXPECT_FALSE (corpus::Match (absent, partial, 1e-6, mismatch));
+    auto source = *Required (parsed.value, "slab").AsObject ();
+    source["outer"] = V::Array ({ zero, zero, V::Integer (1) });
+    source["outerArcs"] = V::Array ({});
+    auto input = *parsed.value.AsObject ();
+    input["slab"] = V::Object (std::move (source));
+    EXPECT_THROW (corpus::Evaluate (V::Object (std::move (input)), V::Object ({})), std::runtime_error);
 }
 } // namespace

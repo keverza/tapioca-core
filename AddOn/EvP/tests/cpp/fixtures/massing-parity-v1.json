@@ -274,6 +274,51 @@
       "input": {"mode":"build","envelopeFixture":1,"storeys":[],"slabs":[{"guid":"slab:workflow-concave","id":"Concave","bottom":0,"top":30,"outer":[-1,-1,31,-1,31,31,-1,31],"holes":[],"metadata":{"massing.floorHeight":3}}]},
       "analytic": {"success":true,"clipped":true,"rawArea":10240.0,"rawVolume":30720.0,"floorCount":10},
       "expected": "massing-parity-v1.expected.json#WorkflowConcaveShell"
+    },
+    {
+      "name": "ArcDiscSlices",
+      "baselineCommit": "1a8b01b",
+      "sourceTest": "SlabSlices.AnArcedOutlineIsItsArcNotItsChord",
+      "basis": "Unit-radius disc encoded as two nodes/two positive half-turns. Legacy0.05m arc-length chord target gives63 segments per half:126-gon area63*sin(pi/63)=3.1402907966239213,not ideal pi. Three3m floors2..11,cut offset0.25;area9.420872389871764.",
+      "input": {"mode":"slice","slab":{"guid":"slab:arc-disc","id":"Disc","bottom":2,"top":11,"outer":[-1,0,1,0],"outerArcs":[3.141592653589793,3.141592653589793],"holes":[]},"cut":"step","step":3,"minTop":2.5,"offset":0.25,"levels":[],"storeys":[{"index":0,"name":"Ground","z":0},{"index":1,"name":"First","z":3},{"index":2,"name":"Second","z":6}]},
+      "analytic": {"body":false,"footprint":3.1402907966239213,"sliceArea":3.1402907966239213,"area":9.420872389871764},
+      "expected": "massing-parity-v1.expected.json#ArcDiscSlices"
+    },
+    {
+      "name": "ClockwiseArcDiscSlices",
+      "baselineCommit": "1a8b01b",
+      "sourceTest": "SlabSlices.AnArcedOutlineIsItsArcNotItsChord; signed-arc winding counterpart",
+      "basis": "Same two-node unit disc with negative half-turns,retaining clockwise contour order. Unsigned area equals126-gon disc;negative signed contour area and the upper first arc distinguish it from positive-sweep replay.",
+      "input": {"mode":"slice","slab":{"guid":"slab:arc-disc-cw","id":"Clockwise","bottom":2,"top":11,"outer":[-1,0,1,0],"outerArcs":[-3.141592653589793,-3.141592653589793],"holes":[]},"cut":"step","step":3,"minTop":2.5,"offset":0.25,"levels":[],"storeys":[]},
+      "analytic": {"body":false,"footprint":3.1402907966239213,"sliceArea":3.1402907966239213,"area":9.420872389871764},
+      "expected": "massing-parity-v1.expected.json#ClockwiseArcDiscSlices"
+    },
+    {
+      "name": "ArcAnnularPrism",
+      "baselineCommit": "1a8b01b",
+      "sourceTest": "SlabSlices.AnArcedOutlineIsItsArcNotItsChord; MassingBake.CountedSlicesRetainHolesSeparateIslandsAndPhysicalElevation",
+      "basis": "Outer unit circle,four quarter-turns=>128-gon;clockwise radius0.5 hole,two half-turns=>64-gon. Net area64*sin(pi/64)-8*sin(pi/32)=2.356194034318268;three floors7.068582102954805m2,volume21.205746308864413m3. Existing C++ facade refuses the valid two-node hole before tessellation;hasFacade=false/area0 is an unavailable result,NOT an independent zero-facade geometric answer. ArcAnnularFacade separately anchors equivalent four-node-hole facade.",
+      "input": {"mode":"build","storeys":[],"slabs":[{"guid":"slab:arc-annulus","id":"Annulus","bottom":0,"top":9,"outer":[1,0,0,1,-1,0,0,-1],"outerArcs":[1.5707963267948966,1.5707963267948966,1.5707963267948966,1.5707963267948966],"holes":[[-0.5,0,0.5,0]],"holeArcs":[[-3.141592653589793,-3.141592653589793]],"metadata":{"massing.buildingId":"ArcTower","massing.floorHeight":3}}]},
+      "analytic": {"success":true,"floorCount":3,"rawArea":7.068582102954805,"rawVolume":21.205746308864413,"hasFacade":false},
+      "expected": "massing-parity-v1.expected.json#ArcAnnularPrism"
+    },
+    {
+      "name": "MajorArcSegmentSlices",
+      "baselineCommit": "1a8b01b",
+      "sourceTest": "SlabSlices.AnArcedOutlineIsItsArcNotItsChord; PlanOverlayContent.TessellateEdgeDouble major-sweep contract",
+      "basis": "Unit-radius270degree arc(1,0)->(0,-1) plus closing straight chord. A partial arc array supplies only the first edge;trailing absent sweep is0. Legacy95 arc segments plus closing chord=>96 vertices,area(95*sin(3*pi/190)+1)/2=2.8552283469780595;three floors8.565685040934179. This is the major circular segment,not its minor complement or a two-point zero-area line.",
+      "input": {"mode":"slice","slab":{"guid":"slab:major-arc","id":"Major","bottom":0,"top":9,"outer":[1,0,0,-1],"outerArcs":[4.71238898038469],"holes":[]},"cut":"step","step":3,"minTop":2.5,"offset":0,"levels":[],"storeys":[]},
+      "analytic": {"body":false,"footprint":2.8552283469780595,"sliceArea":2.8552283469780595,"area":8.565685040934179},
+      "expected": "massing-parity-v1.expected.json#MajorArcSegmentSlices"
+    },
+    {
+      "name": "ArcAnnularFacade",
+      "baselineCommit": "1a8b01b",
+      "sourceTest": "MassingFacade.Footprints/Prisms curved-ring perimeter; ArcAnnularPrism two-node hole contrast",
+      "basis": "Same unit outer/radius0.5 hole/9m height annulus,both stored as four quarter-turn edges so the legacy facade's>=3stored-corner check accepts the hole. Outer128-gon and hole64-gon:chordal perimeter(256*sin(pi/128)+64*sin(pi/64))*9=84.80597092938268m2. Not ideal-cylinder facade27*pi.",
+      "input": {"mode":"facade","slabs":[{"guid":"slab:arc-facade","id":"ArcFacade","bottom":0,"top":9,"outer":[1,0,0,1,-1,0,0,-1],"outerArcs":[1.5707963267948966,1.5707963267948966,1.5707963267948966,1.5707963267948966],"holes":[[0.5,0,0,-0.5,-0.5,0,0,0.5]],"holeArcs":[[-1.5707963267948966,-1.5707963267948966,-1.5707963267948966,-1.5707963267948966]],"metadata":{}}]},
+      "analytic": {"success":true,"area":84.80597092938268},
+      "expected": "massing-parity-v1.expected.json#ArcAnnularFacade"
     }
   ]
 }
