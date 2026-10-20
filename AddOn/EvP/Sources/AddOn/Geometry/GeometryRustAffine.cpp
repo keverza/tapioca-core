@@ -37,4 +37,35 @@ bool TransformVectors (const TransformVectorsRequest& request, std::vector<doubl
     return true;
 }
 
+bool ComposeTransforms (std::span<const geomsrv::engine::Transform> transforms, geomsrv::engine::Transform& result,
+                        std::string& error)
+{
+    // Explicit POD conversion, never reinterpret C++ object storage as a Rust
+    // array. Only 12-double matrix descriptors are copied, no mesh/provenance.
+    std::vector<TapiocaAffineTransform> input (transforms.size ());
+    for (size_t i = 0; i < transforms.size (); ++i)
+        for (size_t row = 0; row < 3; ++row)
+            for (size_t column = 0; column < 4; ++column)
+                input[i].m[row][column] = transforms[i].m[row][column];
+    TapiocaAffineTransform candidate {};
+    std::array<char, 256> buffer {};
+    const auto status =
+        tapioca_compose_transforms (input.data (), input.size (), &candidate, buffer.data (), buffer.size ());
+    if (status != TAPIOCA_OK) {
+        size_t length = 0;
+        while (length < buffer.size () && buffer[length] != '\0')
+            ++length;
+        error = length != 0 ? std::string (buffer.data (), length)
+                            : "Tapioca Rust composition failed with status " + std::to_string (status);
+        return false;
+    }
+    geomsrv::engine::Transform composed;
+    for (size_t row = 0; row < 3; ++row)
+        for (size_t column = 0; column < 4; ++column)
+            composed.m[row][column] = candidate.m[row][column];
+    result = composed;
+    error.clear ();
+    return true;
+}
+
 } // namespace tapioca::geometry

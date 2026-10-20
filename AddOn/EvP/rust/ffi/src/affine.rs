@@ -131,5 +131,51 @@ pub unsafe extern "C" fn tapioca_transform_vectors(
     }
 }
 
+/// Compose a chain of row-major 3x4 matrices in application order.
+///
+/// Empty input returns identity. Input and result coefficients/determinants must
+/// be finite. Output is committed only after the entire chain succeeds.
+///
+/// # Safety
+/// Nonempty input must be live initialized immutable storage for `count`
+/// transforms. Output must be live aligned exclusive writable storage for one
+/// transform, disjoint from input and nonempty error storage. Null input is
+/// accepted only at count zero. No allocation, borrow or host callback escapes.
+/// Shape checks cannot prove allocation validity; abort/OOM/UB are not contained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapioca_compose_transforms(
+    transforms: *const affine::Transform,
+    count: usize,
+    output: *mut affine::Transform,
+    error: *mut u8,
+    capacity: usize,
+) -> i32 {
+    // SAFETY: the caller guarantees live call-scoped allocations. Shared checks
+    // reject malformed/overlapping ranges before borrowing or publishing output.
+    unsafe {
+        call(error, capacity, || {
+            let output_range = memory_range(output.cast_const(), 1)?;
+            let error_range = memory_range(error.cast_const(), capacity)?;
+            if overlaps(output_range, error_range) {
+                return Err(Failure::Overlap);
+            }
+            let context = BorrowContext {
+                error_range,
+                output_range,
+            };
+            let input = context.slice(SliceView {
+                data: transforms,
+                count,
+            })?;
+            let result = affine::compose_transforms(input)
+                .map_err(|error| Failure::Argument(error.message()))?;
+            // SAFETY: all foreign immutable borrows end before this single raw
+            // write to checked disjoint caller-owned output (may be uninitialized).
+            output.write(result);
+            Ok(())
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests;

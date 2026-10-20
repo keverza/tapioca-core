@@ -16,6 +16,14 @@ The initial S2b affine-vector batch is available for differential tests through
 with atomic caller-owned output and orientation reporting. No production consumer
 is switched. This is not full S2b, a mesh/provenance transform, or a latency claim.
 
+The S2b continuation adds `tapioca_compose_transforms`: a chain of row-major
+3x4 matrices in application order, folded from identity. Rust computes without
+allocation and publishes one complete caller-owned matrix only on success.
+Non-finite input or intermediate coefficients/determinants refuse; singular
+matrices remain valid. C++ differential tests use the existing `Compose` oracle.
+No production consumer is switched, and bulk chains stay worker-classified until
+measured. No mesh/provenance, builder or terrain capability is implied.
+
 ```text
 rust/
   geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs

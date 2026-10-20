@@ -55,6 +55,13 @@ extern "C" TapiocaStatus tapioca_transform_vectors (const TapiocaAffineRequest*,
     return s_status;
 }
 
+extern "C" TapiocaStatus tapioca_compose_transforms (const TapiocaAffineTransform*, size_t,
+                                                     TapiocaAffineTransform* output, char*, size_t)
+{
+    output->m[0][3] = 123; // A failed callee cannot commit the facade's provisional matrix.
+    return s_status;
+}
+
 extern "C" TapiocaStatus tapioca_validate_provenance (const TapiocaProvenanceRequest*, uint32_t* diagnostic, char*,
                                                       size_t)
 {
@@ -152,6 +159,14 @@ int main ()
             else if (result != std::vector<double> { 77 } || !flipped)
                 return 11;
         }
+    }
+    for (TapiocaStatus status :
+         std::array<TapiocaStatus, 4> { TAPIOCA_ERR_ARG, TAPIOCA_ERR_STATE, TAPIOCA_ERR_INTERNAL, 99 }) {
+        s_status = status;
+        geomsrv::engine::Transform composed;
+        composed.m[0][3] = 77;
+        if (ComposeTransforms ({}, composed, error) || composed.m[0][3] != 77 || error.empty ())
+            return 12;
     }
     return 0;
 }

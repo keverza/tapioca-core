@@ -144,3 +144,86 @@ TEST (GeometryRustAffine, MatrixAndScalarBufferLayoutsMatch)
     static_assert (sizeof (TapiocaAffineOutput) == 24);
     static_assert (offsetof (TapiocaAffineRequest, values) == 104);
 }
+
+TEST (GeometryRustAffine, CompositionOrderEmptyAndAliasedFacadeMatchCpp)
+{
+    const auto translation = oracle::Translation ({ 10, -20, 30 });
+    oracle::Transform scale;
+    std::string error;
+    ASSERT_TRUE (oracle::Scaling ({ 4, 5, 6 }, { 2, 3, -4 }, scale, error));
+    for (const auto& chain : { std::vector<oracle::Transform> {}, { translation, scale }, { scale, translation } }) {
+        auto expected = oracle::Identity ();
+        for (const auto& transform : chain)
+            expected = oracle::Compose (transform, expected);
+        oracle::Transform actual;
+        ASSERT_TRUE (tapioca::geometry::ComposeTransforms (chain, actual, error)) << error;
+        EXPECT_TRUE (error.empty ());
+        for (size_t row = 0; row < 3; ++row)
+            for (size_t column = 0; column < 4; ++column)
+                EXPECT_DOUBLE_EQ (actual.m[row][column], expected.m[row][column]);
+    }
+    std::vector<oracle::Transform> aliased { translation, scale };
+    const auto expected = oracle::Compose (scale, translation);
+    ASSERT_TRUE (tapioca::geometry::ComposeTransforms (aliased, aliased.front (), error)) << error;
+    for (size_t row = 0; row < 3; ++row)
+        for (size_t column = 0; column < 4; ++column)
+            EXPECT_DOUBLE_EQ (aliased.front ().m[row][column], expected.m[row][column]);
+}
+
+TEST (GeometryRustAffine, SeededCompositionChainsMatchCppAndDoNotChangeInputs)
+{
+    uint32_t state = 0x32A9B711U;
+    auto next = [&] () {
+        state = state * 1664525U + 1013904223U;
+        return static_cast<double> (state % 2001) / 1000.0 - 1.0;
+    };
+    for (int trial = 0; trial < 64; ++trial) {
+        std::vector<oracle::Transform> chain (8);
+        for (auto& transform : chain)
+            for (size_t row = 0; row < 3; ++row)
+                for (size_t column = 0; column < 4; ++column)
+                    transform.m[row][column] += next () * 0.125;
+        const auto before = chain;
+        auto expected = oracle::Identity ();
+        for (const auto& transform : chain)
+            expected = oracle::Compose (transform, expected);
+        oracle::Transform actual, repeated;
+        std::string error;
+        ASSERT_TRUE (tapioca::geometry::ComposeTransforms (chain, actual, error)) << error;
+        ASSERT_TRUE (tapioca::geometry::ComposeTransforms (chain, repeated, error)) << error;
+        for (size_t row = 0; row < 3; ++row) {
+            for (size_t column = 0; column < 4; ++column) {
+                const double tolerance =
+                    16 * std::numeric_limits<double>::epsilon () * std::max (1.0, std::abs (expected.m[row][column]));
+                EXPECT_NEAR (actual.m[row][column], expected.m[row][column], tolerance);
+                EXPECT_DOUBLE_EQ (actual.m[row][column], repeated.m[row][column]);
+                for (size_t i = 0; i < chain.size (); ++i)
+                    EXPECT_DOUBLE_EQ (chain[i].m[row][column], before[i].m[row][column]);
+            }
+        }
+    }
+}
+
+TEST (GeometryRustAffine, CompositionRefusalsPreservePriorMatrix)
+{
+    for (int kind = 0; kind < 3; ++kind) {
+        std::vector<oracle::Transform> chain (2);
+        if (kind == 0)
+            chain.back ().m[1][2] = std::numeric_limits<double>::quiet_NaN ();
+        else if (kind == 1)
+            for (auto& transform : chain)
+                transform.m[0][3] = std::numeric_limits<double>::max ();
+        else
+            for (auto& transform : chain)
+                for (size_t axis = 0; axis < 3; ++axis)
+                    transform.m[axis][axis] = 1.0e100;
+        auto output = oracle::Translation ({ 77, 88, 99 });
+        const auto before = output;
+        std::string error;
+        EXPECT_FALSE (tapioca::geometry::ComposeTransforms (chain, output, error));
+        EXPECT_FALSE (error.empty ());
+        for (size_t row = 0; row < 3; ++row)
+            for (size_t column = 0; column < 4; ++column)
+                EXPECT_DOUBLE_EQ (output.m[row][column], before.m[row][column]);
+    }
+}

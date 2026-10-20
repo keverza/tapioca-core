@@ -320,6 +320,22 @@ TapiocaStatus tapioca_validate_snapshot_value (const TapiocaSnapshotValueRequest
 TapiocaStatus tapioca_transform_vectors (const TapiocaAffineRequest* request, const TapiocaAffineOutput* output,
                                          char* error, size_t errorCapacity);
 
+/* Compose in application order: [a,b] applies a then b, folding from identity.
+ * Empty input returns identity. Finite
+ * coefficients/determinants are required
+ * for each input and intermediate result; singular transforms are valid.
+ *
+ * count is transforms, not scalars. Nonempty input is immutable live storage;
+ * output is one live aligned exclusively
+ * writable transform, disjoint from
+ * inputs and error. Null input is allowed only at count zero. Output remains
+ *
+ * unchanged on refusal/contained panic. Bulk chains belong on workers until
+ * measured. No identity/topology,
+ * allocation or borrowed view crosses ownership. */
+TapiocaStatus tapioca_compose_transforms (const TapiocaAffineTransform* transforms, size_t count,
+                                          TapiocaAffineTransform* output, char* error, size_t errorCapacity);
+
 /* Structural attribution gate: contexts/revisions, catalogs and acyclic DAG,
  * native bindings, range/reference validity and complete unique domain coverage.
  * Never generates identity, repairs input, certifies contributor geometry, or

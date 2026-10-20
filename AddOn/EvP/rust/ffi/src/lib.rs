@@ -57,4 +57,6 @@ pub use value::{
     reason = "Affine POD ingress and checked disjoint caller-owned coordinate/orientation publication"
 )]
 mod affine;
-pub use affine::{AffineOutput, AffineRequest, tapioca_transform_vectors};
+pub use affine::{
+    AffineOutput, AffineRequest, tapioca_compose_transforms, tapioca_transform_vectors,
+};

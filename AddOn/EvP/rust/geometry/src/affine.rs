@@ -4,7 +4,7 @@
 //! C++ `geomsrv::engine::Transform`, `Vec3` application rules and
 //! `geomsrv::engine::ApplyTo*` ordering so later Rust stages can consume them
 //! without a second set of transform semantics. It does not implement the
-//! C++ builders (`Identity`, `Rotation`, `Scaling`, `Mirroring`, `Compose`),
+//! C++ builders (`Rotation`, `Scaling`, `Mirroring`),
 //! face winding changes, mesh bookkeeping or any production consumer.
 //!
 //! Positions and translations are world-space metres in the existing
@@ -62,6 +62,57 @@ pub struct Vec3 {
 pub struct Transform {
     /// Three row-major rows of `(linear 3x3 | translation)` coefficients.
     pub m: [[f64; 4]; 3],
+}
+
+impl Transform {
+    /// Identity in the existing row-major 3x4 representation.
+    pub const IDENTITY: Self = Self {
+        m: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+    };
+}
+
+/// Compose a borrowed chain in application order, starting from identity.
+///
+/// `[a, b]` means apply `a` then `b`, exactly the left fold of the C++
+/// `Compose(next, accumulated)` oracle, including its sum association order.
+/// Empty input returns identity. No allocation, input mutation, identity or
+/// topology change occurs. Singular transforms remain valid, as in vector
+/// application; no inverse, epsilon or normalization is introduced.
+/// Bulk chains are worker-classified until measured against the D3 budget.
+///
+/// # Errors
+/// [`Error::NonFiniteTransform`] for an input coefficient/determinant that is
+/// non-finite; [`Error::NonFiniteOutput`] for any unrepresentable intermediate
+/// composed matrix or determinant. Failure returns no partial matrix.
+pub fn compose_transforms(transforms: &[Transform]) -> Result<Transform, Error> {
+    let mut accumulated = Transform::IDENTITY;
+    for next in transforms {
+        Validated::new(next)?;
+        let [first, second, third] = accumulated.m;
+        let mut result = Transform::IDENTITY;
+        for (output, &[a, b, c, translation]) in result.m.iter_mut().zip(&next.m) {
+            for ((((target, initial), x), y), z) in output
+                .iter_mut()
+                .zip([0.0, 0.0, 0.0, translation])
+                .zip(first)
+                .zip(second)
+                .zip(third)
+            {
+                let mut sum = initial;
+                sum += a * x;
+                sum += b * y;
+                sum += c * z;
+                *target = sum;
+            }
+        }
+        Validated::new(&result).map_err(|_| Error::NonFiniteOutput)?;
+        accumulated = result;
+    }
+    Ok(accumulated)
 }
 
 /// The affine rule applied to each input vector.

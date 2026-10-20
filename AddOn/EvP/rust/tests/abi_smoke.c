@@ -99,6 +99,14 @@ int main (void)
         transformed[0] != 11 || transformed[1] != 2 || transformed[2] != 3 || flipped != 0)
         return 16;
 
+    TapiocaAffineTransform composed = { 0 };
+    if (tapioca_compose_transforms (&affine.transform, 1, &composed, error, sizeof (error)) != TAPIOCA_OK ||
+        composed.m[0][3] != 10 || composed.m[2][2] != 1)
+        return 17;
+    if (tapioca_compose_transforms (NULL, 0, &composed, error, sizeof (error)) != TAPIOCA_OK || composed.m[0][3] != 0 ||
+        composed.m[0][0] != 1)
+        return 18;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

@@ -29,6 +29,11 @@ int main ()
         return 3;
     if (input != std::vector<double> { 1, 2, 3 })
         return 4;
+    const std::vector<geomsrv::engine::Transform> chain { transform, transform };
+    geomsrv::engine::Transform composed;
+    if (!ComposeTransforms (chain, composed, error) || composed.m[0][0] != 1 || composed.m[0][3] != 0 ||
+        !error.empty ())
+        return 5;
     std::cout << "Tapioca affine borrow/publication smoke passed\n";
     return 0;
 }

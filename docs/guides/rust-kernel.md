@@ -4,7 +4,7 @@
 `tapioca_version`, `tapioca_validate_mesh`, `tapioca_validate_snapshot`,
 `tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
 `tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
-S2b `tapioca_transform_vectors` primitive (additive ABI v1).
+S2b `tapioca_transform_vectors` and `tapioca_compose_transforms` primitives (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
@@ -227,6 +227,20 @@ shear, survey coordinates, singular normals and seeded matrices. These are parit
 tests, not a production family flip, D14 geometry-operation certification or a
 benchmark. Bulk calls remain worker-classified. Plane/interval/curve/terrain value
 conversions and massing-corpus capture remain outstanding for the full S2b gate.
+
+The composition continuation folds a borrowed matrix chain in application order
+from identity: `[a,b]` means `Compose(b, Compose(a, Identity()))` in the C++
+oracle. The kernel allocates nothing, preserves the oracle's sum association,
+accepts singular matrices, and refuses non-finite input or intermediate matrix
+coefficients/determinants. The C ABI publishes one complete caller-owned matrix
+only after success, with the existing panic/status/error envelope and explicit
+input/output/error disjointness. The owned C++ facade copies only matrix PODs;
+its result may alias an input because all conversion precedes publication. Bulk
+chains remain worker-classified, not a measured synchronous latency guarantee.
+Tests compare 64 seeded chains, order, empty identity, reflection/singularity,
+overflow, malformed foreign shapes, overlap and refusal immutability. The affine
+test module intentionally retains shared explicit matrix fixtures for vector and
+composition semantics (623 lines); its size advisory is not suppressed.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

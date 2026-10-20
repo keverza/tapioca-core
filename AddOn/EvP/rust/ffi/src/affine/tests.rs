@@ -21,6 +21,179 @@ fn bits(values: &[f64]) -> Vec<u64> {
 }
 
 #[test]
+fn composition_commits_complete_matrix_and_accepts_empty_null_input() {
+    let input = request(&[], 1).transform;
+    let mut output = affine::Transform { m: [[99.0; 4]; 3] };
+    let mut error = [0xff; 128];
+    // SAFETY: initialized input and disjoint exclusive output/error allocations.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            &raw const input,
+            1,
+            &raw mut output,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, 0);
+    assert_eq!(output, input);
+    assert_eq!(error.first(), Some(&0));
+    // SAFETY: null/zero is valid empty input; output and error remain disjoint.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            std::ptr::null(),
+            0,
+            &raw mut output,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, 0);
+    assert_eq!(output, affine::Transform::IDENTITY);
+}
+
+#[test]
+fn composition_rejects_malformed_input_without_changing_output() {
+    let mut invalid = affine::Transform::IDENTITY;
+    invalid.m = [[f64::NAN; 4]; 3];
+    let mut output = affine::Transform { m: [[99.0; 4]; 3] };
+    let before = output;
+    let mut error = [0; 128];
+    for (data, count) in [
+        (std::ptr::null(), 1),
+        (&raw const invalid, 1),
+        (
+            std::ptr::NonNull::<affine::Transform>::dangling()
+                .as_ptr()
+                .cast_const(),
+            usize::MAX,
+        ),
+    ] {
+        // SAFETY: malformed shapes are refused before access; invalid is live initialized POD.
+        let status = unsafe {
+            tapioca_compose_transforms(
+                data,
+                count,
+                &raw mut output,
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        assert_eq!(status, 1);
+        assert_eq!(output, before);
+        assert_ne!(error.first(), Some(&0));
+    }
+    let mut overflow = affine::Transform::IDENTITY;
+    overflow.m = [
+        [1.0, 0.0, 0.0, f64::MAX],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ];
+    let chain = [overflow, overflow];
+    // SAFETY: valid disjoint arrays; arithmetic overflow refuses after borrowing.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            chain.as_ptr(),
+            chain.len(),
+            &raw mut output,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(output, before);
+}
+
+#[test]
+fn composition_rejects_all_writable_overlap_without_writes() {
+    let mut input = affine::Transform::IDENTITY;
+    let before = input;
+    let mut error = [0x7f; 128];
+    // SAFETY: raw recognized input/output overlap refuses before borrowing or writing.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            &raw const input,
+            1,
+            &raw mut input,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(input, before);
+    assert_eq!(error, [0x7f; 128]);
+    let mut output = before;
+    // SAFETY: recognized input/error overlap refuses before a borrow or error write.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            &raw const input,
+            1,
+            &raw mut output,
+            (&raw mut input).cast(),
+            size_of::<affine::Transform>(),
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(input, before);
+    assert_eq!(output, before);
+    // SAFETY: recognized output/error overlap refuses before either write.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            std::ptr::null(),
+            0,
+            &raw mut output,
+            (&raw mut output).cast(),
+            size_of::<affine::Transform>(),
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(output, before);
+}
+
+#[test]
+fn composition_rejects_null_or_misaligned_output_and_malformed_error() {
+    let mut error = [0; 128];
+    // SAFETY: explicit null output is rejected before dereference.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, 1);
+    let mut storage = [99_u64; 13];
+    // SAFETY: explicit misalignment is rejected before dereference; allocation is live.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            std::ptr::null(),
+            0,
+            storage.as_mut_ptr().cast::<u8>().wrapping_add(1).cast(),
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(storage, [99; 13]);
+    let mut output = affine::Transform { m: [[99.0; 4]; 3] };
+    let before = output;
+    // SAFETY: null/nonzero error shape refuses before any publication.
+    let status = unsafe {
+        tapioca_compose_transforms(
+            std::ptr::null(),
+            0,
+            &raw mut output,
+            std::ptr::null_mut(),
+            1,
+        )
+    };
+    assert_eq!(status, 1);
+    assert_eq!(output, before);
+}
+
+#[test]
 fn affine_x64_layout_matches_c_header() {
     assert_eq!(size_of::<affine::Transform>(), 96);
     if size_of::<usize>() == 8 {

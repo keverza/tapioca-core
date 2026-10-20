@@ -7,6 +7,119 @@ const IDENTITY: Transform = Transform {
         [0.0, 0.0, 1.0, 0.0],
     ],
 };
+
+#[test]
+fn composition_empty_identity_and_application_order() {
+    assert_eq!(compose_transforms(&[]), Ok(Transform::IDENTITY));
+    assert_eq!(compose_transforms(&[IDENTITY]), Ok(IDENTITY));
+    let first = compose_transforms(&[NONUNIFORM_SCALE, TRANSLATION]);
+    let second = compose_transforms(&[TRANSLATION, NONUNIFORM_SCALE]);
+    assert_eq!(
+        first,
+        Ok(Transform {
+            m: [
+                [4.0, 0.0, 0.0, 10.0],
+                [0.0, 1.0, 0.0, -20.0],
+                [0.0, 0.0, 1.0, 0.5],
+            ]
+        })
+    );
+    assert_eq!(
+        second,
+        Ok(Transform {
+            m: [
+                [4.0, 0.0, 0.0, 40.0],
+                [0.0, 1.0, 0.0, -20.0],
+                [0.0, 0.0, 1.0, 0.5],
+            ]
+        })
+    );
+}
+
+#[test]
+fn composition_preserves_singular_and_reflection_semantics() -> Result<(), Error> {
+    let singular = compose_transforms(&[SINGULAR, TRANSLATION])?;
+    assert_eq!(
+        apply_to_normal(
+            &singular,
+            Vec3 {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0
+            }
+        )?,
+        Vec3 {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0
+        }
+    );
+    let reflection = compose_transforms(&[MIRROR_X, TRANSLATION])?;
+    assert!(apply_vectors(&reflection, ApplyMode::Point, &[])?.flips_orientation);
+    assert_eq!(compose_transforms(&[MIRROR_X, MIRROR_X])?, IDENTITY);
+    Ok(())
+}
+
+#[test]
+fn composition_refuses_input_and_intermediate_overflow() {
+    for input in [
+        NAN_COEFFICIENT,
+        INFINITE_COEFFICIENT,
+        OVERFLOWING_DETERMINANT,
+    ] {
+        assert_eq!(
+            compose_transforms(&[IDENTITY, input]),
+            Err(Error::NonFiniteTransform)
+        );
+    }
+    assert_eq!(
+        compose_transforms(&[OVERFLOW_TRANSLATION, OVERFLOW_TRANSLATION]),
+        Err(Error::NonFiniteOutput)
+    );
+    let large = Transform {
+        m: [
+            [1e100, 0.0, 0.0, 0.0],
+            [0.0, 1e100, 0.0, 0.0],
+            [0.0, 0.0, 1e100, 0.0],
+        ],
+    };
+    assert_eq!(
+        compose_transforms(&[large, large]),
+        Err(Error::NonFiniteOutput)
+    );
+}
+
+#[test]
+fn composition_matches_sequential_application_and_is_deterministic() -> Result<(), Error> {
+    let chain = [
+        SHEAR_XY,
+        NONUNIFORM_SCALE,
+        CPP_ROTATION_Z_90,
+        MIRROR_X,
+        TRANSLATION,
+    ];
+    let before = chain;
+    let composed = compose_transforms(&chain)?;
+    let point = Vec3 {
+        x: 2.0,
+        y: -3.0,
+        z: 7.0,
+    };
+    let mut expected = point;
+    for transform in &chain {
+        expected = apply_to_point(transform, expected)?;
+    }
+    let actual = apply_to_point(&composed, point)?;
+    for (a, b) in [actual.x, actual.y, actual.z]
+        .into_iter()
+        .zip([expected.x, expected.y, expected.z])
+    {
+        assert!((a - b).abs() <= 32.0 * f64::EPSILON * b.abs().max(1.0));
+    }
+    assert_eq!(composed, compose_transforms(&chain)?);
+    assert_eq!(chain, before);
+    Ok(())
+}
 const TRANSLATION: Transform = Transform {
     m: [
         [1.0, 0.0, 0.0, 10.0],

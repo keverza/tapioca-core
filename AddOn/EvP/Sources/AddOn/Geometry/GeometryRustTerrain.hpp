@@ -75,6 +75,13 @@ struct TransformVectorsRequest {
 bool TransformVectors (const TransformVectorsRequest& request, std::vector<double>& result, bool& flipsOrientation,
                        std::string& error);
 
+// S2b parity primitive. Input order is application order, folded from identity;
+// empty input returns identity. Result is unchanged on refusal; inputs can alias
+// result at this owned C++ facade (POD conversion completes before publication).
+// No authored IDs, winding or sidecars are changed. Bulk chains use a worker.
+bool ComposeTransforms (std::span<const geomsrv::engine::Transform> transforms, geomsrv::engine::Transform& result,
+                        std::string& error);
+
 } // namespace tapioca::geometry
 
 #endif

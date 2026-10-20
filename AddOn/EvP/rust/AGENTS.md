@@ -77,7 +77,7 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
   Current exports are `tapioca_version`, legacy geometry-only mesh/snapshot
   validators, complete detached mesh/snapshot value validators, and separate
   structural provenance/attributed-mesh validators.
-  Initial S2b also exposes the implemented affine-vector batch; no production
+  S2b also exposes the implemented affine-vector batch and matrix-chain composition; no production
   geometry family is switched by its parity harness.
   Geometry algorithms still require their own implementation and tests.
   New namespaces/symbols use `tapioca` or
