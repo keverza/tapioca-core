@@ -57,7 +57,9 @@ void TessellateEdgeDouble (double x0, double y0, double x1, double y1, double ar
     const double absRadius = std::fabs (radius);
     const double arcLength = std::fabs (sweep) * absRadius;
     const double wanted = (arcChordMetres > 1e-4) ? (arcLength / arcChordMetres) : 1.0;
-    const int steps = std::max (2, std::min (256, int (std::ceil (wanted))));
+    // Apply the existing cap before narrowing: finite large arcs can request
+    // more than INT_MAX steps, which must still mean 256, not overflow to 2.
+    const int steps = int (std::max (2.0, std::min (256.0, std::ceil (wanted))));
 
     const double startAngle = std::atan2 (y0 - cy, x0 - cx);
     for (int i = 1; i < steps; ++i) {

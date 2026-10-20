@@ -15,10 +15,9 @@ constexpr float kPi = 3.14159265358979323846f;
 // millimetre is far below anything a plan can express.
 constexpr float kMinSegmentMetres = 1e-4f;
 
-}   // namespace
+} // namespace
 
-void TessellateEdge (float x0, float y0, float x1, float y1,
-                     float arcAngle, float arcSign, float arcChordMetres,
+void TessellateEdge (float x0, float y0, float x1, float y1, float arcAngle, float arcSign, float arcChordMetres,
                      std::vector<float>& outXY)
 {
     outXY.push_back (x0);
@@ -26,7 +25,7 @@ void TessellateEdge (float x0, float y0, float x1, float y1,
 
     const float sweep = arcAngle * arcSign;
     if (std::fabs (sweep) < 1e-6f)
-        return;                                  // straight: the chord is the edge
+        return; // straight: the chord is the edge
 
     const float dx = x1 - x0;
     const float dy = y1 - y0;
@@ -41,9 +40,9 @@ void TessellateEdge (float x0, float y0, float x1, float y1,
     const float halfSweep = sweep * 0.5f;
     const float sinHalf = std::sin (halfSweep);
     if (std::fabs (sinHalf) < 1e-6f)
-        return;                                  // a 2*pi "arc": degenerate, draw the chord
+        return; // a 2*pi "arc": degenerate, draw the chord
 
-    const float radius = chord / (2.0f * sinHalf);      // signed with the sweep
+    const float radius = chord / (2.0f * sinHalf); // signed with the sweep
 
     // Centre of the arc. For a COUNTERCLOCKWISE-positive sweep the centre lies
     // along the chord's LEFT normal at (chord/2)/tan(sweep/2) — verified in the
@@ -62,7 +61,8 @@ void TessellateEdge (float x0, float y0, float x1, float y1,
     const float absRadius = std::fabs (radius);
     const float arcLength = std::fabs (sweep) * absRadius;
     const float wanted = (arcChordMetres > 1e-4f) ? (arcLength / arcChordMetres) : 1.0f;
-    const int steps = std::max (2, std::min (256, int (std::ceil (wanted))));
+    // Clamp in floating point before narrowing, as in TessellateEdgeDouble.
+    const int steps = int (std::max (2.0f, std::min (256.0f, std::ceil (wanted))));
 
     const float startAngle = std::atan2 (y0 - cy, x0 - cx);
     for (int i = 1; i < steps; ++i) {
@@ -74,8 +74,7 @@ void TessellateEdge (float x0, float y0, float x1, float y1,
 }
 
 size_t BuildAnchorRibbonSet (const std::vector<std::vector<float>>& outlines,
-                             const std::vector<std::vector<float>>& arcs,
-                             float z, float arcSign, float arcChordMetres,
+                             const std::vector<std::vector<float>>& arcs, float z, float arcSign, float arcChordMetres,
                              std::vector<PlanAnchorVertex>& out)
 {
     const size_t before = out.size ();
@@ -83,7 +82,7 @@ size_t BuildAnchorRibbonSet (const std::vector<std::vector<float>>& outlines,
     for (size_t ring = 0; ring < outlines.size (); ++ring) {
         const std::vector<float>& xy = outlines[ring];
         if (xy.size () < 4)
-            continue;                       // fewer than 2 points: no direction to take
+            continue; // fewer than 2 points: no direction to take
 
         const size_t pointCount = xy.size () / 2;
         const std::vector<float>* ringArcs =
@@ -91,18 +90,15 @@ size_t BuildAnchorRibbonSet (const std::vector<std::vector<float>>& outlines,
 
         // Closed, always: these are element OUTLINES, and a wall outline that
         // did not close would leave one edge of the wall undrawn.
-        BuildAnchorRibbon (xy.data (), pointCount,
-                           ringArcs != nullptr ? ringArcs->data () : nullptr,
+        BuildAnchorRibbon (xy.data (), pointCount, ringArcs != nullptr ? ringArcs->data () : nullptr,
                            /*closed*/ true, z, arcSign, arcChordMetres, out);
     }
 
     return out.size () - before;
 }
 
-size_t BuildAnchorRibbon (const float* xy, size_t pointCount,
-                          const float* arcs, bool closed, float z,
-                          float arcSign, float arcChordMetres,
-                          std::vector<PlanAnchorVertex>& out)
+size_t BuildAnchorRibbon (const float* xy, size_t pointCount, const float* arcs, bool closed, float z, float arcSign,
+                          float arcChordMetres, std::vector<PlanAnchorVertex>& out)
 {
     if (xy == nullptr || pointCount < 2)
         return 0;
@@ -116,11 +112,10 @@ size_t BuildAnchorRibbon (const float* xy, size_t pointCount,
     const size_t edgeCount = closed ? pointCount : (pointCount - 1);
     for (size_t i = 0; i < edgeCount; ++i) {
         const size_t next = (i + 1) % pointCount;
-        TessellateEdge (xy[i * 2], xy[i * 2 + 1], xy[next * 2], xy[next * 2 + 1],
-                        arcs != nullptr ? arcs[i] : 0.0f, arcSign, arcChordMetres,
-                        points);
+        TessellateEdge (xy[i * 2], xy[i * 2 + 1], xy[next * 2], xy[next * 2 + 1], arcs != nullptr ? arcs[i] : 0.0f,
+                        arcSign, arcChordMetres, points);
     }
-    if (!closed) {                               // TessellateEdge omits every end point
+    if (!closed) { // TessellateEdge omits every end point
         points.push_back (xy[(pointCount - 1) * 2]);
         points.push_back (xy[(pointCount - 1) * 2 + 1]);
     }
@@ -134,26 +129,26 @@ size_t BuildAnchorRibbon (const float* xy, size_t pointCount,
 
     for (size_t i = 0; i < segments; ++i) {
         const size_t next = (i + 1) % total;
-        const float x0 = points[i * 2],    y0 = points[i * 2 + 1];
+        const float x0 = points[i * 2], y0 = points[i * 2 + 1];
         const float x1 = points[next * 2], y1 = points[next * 2 + 1];
 
         const float dx = x1 - x0;
         const float dy = y1 - y0;
         const float length = std::sqrt (dx * dx + dy * dy);
         if (length < kMinSegmentMetres)
-            continue;                            // a repeated point, not a segment
+            continue; // a repeated point, not a segment
 
         const float ux = dx / length;
         const float uy = dy / length;
-        const float nx = -uy;                    // left normal
+        const float nx = -uy; // left normal
         const float ny = ux;
 
         // Four corners: (start|end) x (left|right), each pushed across by the
         // normal and along by the tangent (the square cap).
-        const PlanAnchorVertex startLeft  {x0, y0, z,  nx,  ny, -ux, -uy};
-        const PlanAnchorVertex startRight {x0, y0, z, -nx, -ny, -ux, -uy};
-        const PlanAnchorVertex endLeft    {x1, y1, z,  nx,  ny,  ux,  uy};
-        const PlanAnchorVertex endRight   {x1, y1, z, -nx, -ny,  ux,  uy};
+        const PlanAnchorVertex startLeft { x0, y0, z, nx, ny, -ux, -uy };
+        const PlanAnchorVertex startRight { x0, y0, z, -nx, -ny, -ux, -uy };
+        const PlanAnchorVertex endLeft { x1, y1, z, nx, ny, ux, uy };
+        const PlanAnchorVertex endRight { x1, y1, z, -nx, -ny, ux, uy };
 
         // ⚠️ NO WINDING ORDER IS RELIED ON. The PSO draws this with culling OFF,
         // because the ribbon is flat and a top-down camera that ends up on the
@@ -170,5 +165,5 @@ size_t BuildAnchorRibbon (const float* xy, size_t pointCount,
     return out.size () - before;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

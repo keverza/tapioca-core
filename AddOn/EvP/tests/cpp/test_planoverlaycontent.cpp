@@ -138,6 +138,25 @@ TEST (PlanOverlayContent, ARepeatedPointDrawsNoSegment)
         EXPECT_GT (std::hypot (X1 (content, s) - X0 (content, s), Y1 (content, s) - Y0 (content, s)), 0.5);
 }
 
+TEST (PlanOverlayContent, ArcSegmentCapAppliesBeforeIntegerNarrowing)
+{
+    // The requested step count exceeds INT_MAX even though all world-metre
+    // inputs and circle coordinates are finite and within the facade envelope.
+    constexpr double radius = 40000000;
+    for (double sign : { -1.0, 1.0 }) {
+        std::vector<double> points;
+        pc::TessellateEdgeDouble (-radius, 0, radius, 0, sign * kPi, 1, 0.05, points);
+        ASSERT_EQ (points.size (), 512u);
+        std::vector<float> single;
+        geomsrv::archviz::TessellateEdge (-float (radius), 0, float (radius), 0, float (sign * kPi), 1, 0.05f, single);
+        ASSERT_EQ (single.size (), points.size ());
+        for (size_t i = 0; i < points.size (); i += 2) {
+            EXPECT_NEAR (std::hypot (points[i], points[i + 1]), radius, 1e-7);
+            EXPECT_NEAR (std::hypot (double (single[i]), double (single[i + 1])), radius, 8);
+        }
+    }
+}
+
 TEST (PlanOverlayContent, NothingInIsNothingOut)
 {
     EXPECT_TRUE (pc::BuildContent ({}, {}, 1.0, 0.05).segments.empty ());
