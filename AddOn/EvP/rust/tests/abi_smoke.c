@@ -125,6 +125,14 @@ int main (void)
     if (tapioca_make_arc (&arc, arcPoints, 9, error, sizeof (error)) != TAPIOCA_OK || arcPoints[1] != 2)
         return 21;
 
+    TapiocaTransformBuilderRequest builder = { TAPIOCA_BUILD_SCALING, { 10, 20, 30 }, { -2, 3, 0.5 }, 0 };
+    TapiocaAffineTransform built = { 0 };
+    if (sizeof (void*) == 8 && (sizeof (builder) != 64 || offsetof (TapiocaTransformBuilderRequest, radians) != 56))
+        return 22;
+    if (tapioca_build_transform (&builder, &built, error, sizeof (error)) != TAPIOCA_OK || built.m[0][0] != -2 ||
+        built.m[0][3] != 30 || built.m[1][3] != -40)
+        return 23;
+
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }

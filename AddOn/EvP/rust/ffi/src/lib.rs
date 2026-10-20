@@ -59,7 +59,8 @@ pub use value::{
 )]
 mod affine;
 pub use affine::{
-    AffineOutput, AffineRequest, tapioca_compose_transforms, tapioca_transform_vectors,
+    AffineOutput, AffineRequest, TransformBuilderRequest, tapioca_build_transform,
+    tapioca_compose_transforms, tapioca_transform_vectors,
 };
 
 #[allow(

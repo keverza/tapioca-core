@@ -41,6 +41,17 @@ coordinates/angles and unusable squared normal lengths/overflow refuse atomicall
 One Rust temporary point vector copies into provisional caller-owned output; no
 allocation/borrow escapes. Worker by default until measured; no consumer flip.
 
+`tapioca_build_transform` completes the existing affine builder subset: translation,
+right-handed Rodrigues rotation, nonzero per-axis scaling and plane mirroring.
+The tagged request preserves C++ pivot-subtraction order and squared-norm
+normalization. Only selected fields are consumed; unused fields are ignored.
+Finite coefficients/determinant and ordered pivot sums are required; failures
+preserve the caller's complete prior matrix. Nonzero factors whose determinant
+underflows to zero retain the existing affine semantics, not a new orientation
+sign-recovery policy. Rust building allocates nothing; the existing C++ facade
+copies only POD inputs/output. This is not an attributed mesh transform, a
+production consumer switch or a measured synchronous budget.
+
 ```text
 rust/
   geometry/   safe borrowed mesh and identity validation; no dependencies or host APIs

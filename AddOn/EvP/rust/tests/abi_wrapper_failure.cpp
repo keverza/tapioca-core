@@ -62,6 +62,18 @@ extern "C" TapiocaStatus tapioca_compose_transforms (const TapiocaAffineTransfor
     return s_status;
 }
 
+extern "C" TapiocaStatus tapioca_build_transform (const TapiocaTransformBuilderRequest*, TapiocaAffineTransform* output,
+                                                  char* error, size_t capacity)
+{
+    output->m[0][3] = 123; // Dirty provisional storage before refusal; never publish it.
+    if (capacity != 0) {
+        const char* message = s_message ? "builder fixture failure" : "";
+        if (std::strlen (message) + 1 <= capacity)
+            std::memcpy (error, message, std::strlen (message) + 1);
+    }
+    return s_status;
+}
+
 extern "C" TapiocaStatus tapioca_validate_provenance (const TapiocaProvenanceRequest*, uint32_t* diagnostic, char*,
                                                       size_t)
 {
@@ -167,6 +179,13 @@ int main ()
         composed.m[0][3] = 77;
         if (ComposeTransforms ({}, composed, error) || composed.m[0][3] != 77 || error.empty ())
             return 12;
+        const geomsrv::engine::Vector3 zero {}, z { 0, 0, 1 };
+        for (bool message : { false, true }) {
+            s_message = message;
+            if (BuildTransform ({ TransformBuilderKind::Rotation, zero, z, 1 }, composed, error) ||
+                composed.m[0][3] != 77 || error.empty ())
+                return 13;
+        }
     }
     return 0;
 }

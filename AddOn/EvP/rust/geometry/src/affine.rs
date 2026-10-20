@@ -3,9 +3,9 @@
 //! This is the initial S2b interoperability primitive: it mirrors the existing
 //! C++ `geomsrv::engine::Transform`, `Vec3` application rules and
 //! `geomsrv::engine::ApplyTo*` ordering so later Rust stages can consume them
-//! without a second set of transform semantics. It does not implement the
-//! C++ builders (`Rotation`, `Scaling`, `Mirroring`),
-//! face winding changes, mesh bookkeeping or any production consumer.
+//! without a second set of transform semantics. Builders are available through
+//! [`build_transform`]; face winding changes, mesh bookkeeping and production
+//! consumer selection remain outside this module.
 //!
 //! Positions and translations are world-space metres in the existing
 //! right-handed, Z-up frame. Directions are not positions: they ignore the
@@ -35,6 +35,9 @@
 
 use std::fmt;
 use std::num::FpCategory;
+
+mod builder;
+pub use builder::{BuildError, TransformBuilder, build_transform};
 
 /// A three-component position, direction or normal.
 ///

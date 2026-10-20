@@ -34,6 +34,18 @@ int main ()
     if (!ComposeTransforms (chain, composed, error) || composed.m[0][0] != 1 || composed.m[0][3] != 0 ||
         !error.empty ())
         return 5;
+    static_assert (sizeof (TapiocaTransformBuilderRequest) == 64);
+    static_assert (offsetof (TapiocaTransformBuilderRequest, origin) == 8);
+    static_assert (offsetof (TapiocaTransformBuilderRequest, vector) == 32);
+    static_assert (offsetof (TapiocaTransformBuilderRequest, radians) == 56);
+    const geomsrv::engine::Vector3 origin { 10, 20, 30 }, vector { -2, 3, 0.5 };
+    if (!BuildTransform ({ TransformBuilderKind::Scaling, origin, vector }, composed, error) ||
+        composed.m[0][0] != -2 || composed.m[0][3] != 30 || !error.empty ())
+        return 6;
+    const auto saved = composed;
+    if (BuildTransform ({ static_cast<TransformBuilderKind> (99), origin, vector }, composed, error) ||
+        composed.m[0][3] != saved.m[0][3] || error.empty ())
+        return 7;
     std::cout << "Tapioca affine borrow/publication smoke passed\n";
     return 0;
 }

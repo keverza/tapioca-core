@@ -5,7 +5,8 @@
 `tapioca_validate_provenance`, `tapioca_validate_attributed_mesh`,
 `tapioca_validate_mesh_value`, `tapioca_validate_snapshot_value` and the initial
 S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
-`tapioca_sample_polyline` and `tapioca_make_arc` primitives (additive ABI v1).
+`tapioca_sample_polyline`, `tapioca_make_arc` and `tapioca_build_transform`
+primitives (additive ABI v1).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
@@ -242,6 +243,43 @@ Tests compare 64 seeded chains, order, empty identity, reflection/singularity,
 overflow, malformed foreign shapes, overlap and refusal immutability. The affine
 test module intentionally retains shared explicit matrix fixtures for vector and
 composition semantics (623 lines); its size advisory is not suppressed.
+
+### S2b transform builders
+
+`BuildTransform` adds translation, right-handed rotation, scaling and mirroring
+through the existing affine bridge. A tagged ABI-v1 request explicitly copies
+origin/vector/radians and returns one complete row-major 3x4 matrix. Translation
+consumes displacement only; rotation consumes pivot/axis/radians; scaling consumes
+pivot/dimensionless factors; mirroring consumes plane origin/normal. Unused fields
+are ignored, not normalized or reinterpreted. Unknown tags refuse. Rust uses a
+typed enum internally rather than an unchecked discriminator.
+
+The compiled `Transforms.cpp` oracle pins Rodrigues arithmetic, squared-norm
+normalization, and pivot conjugation as ordered coordinate subtractions (not
+`origin - Apply(linear, origin)`, which rounds differently). Zero scale factors,
+zero/underflowed/overflowing direction lengths and non-finite used inputs refuse.
+Finite coefficients/determinants and pivot intermediates are required. Nonzero
+tiny scale factors with a determinant underflowing to zero retain the existing
+affine gate's singular semantics: this is **not mathematical orientation-sign
+recovery** or permission to bypass a future mesh/winding consumer gate.
+
+Rust building is allocation-free, constant bounded work; C++ uses stack POD
+copies and publishes only after success. Request/output/error storage must be
+live, aligned and disjoint. Known error overlap wins even if the other record is
+malformed, preventing diagnostic corruption. The existing shared panic/error
+envelope and foreign-allocation/OOM/abort limitations apply. Tests cover all tags,
+independent analytic points, survey pivots, 64 seeded builder sets, inverse/mirror
+composition, unusable directions, determinant/pivot overflow, underflow semantics,
+ignored fields and full matrix preservation. Ordinary compiled differential
+matrices use absolute `1e-12`; survey-pivot cases allow absolute `1e-8 m` for
+translation terms, never world-relative scaling. These are parity tolerances,
+not measured performance or a global numerical tolerance policy.
+
+No new dependency, bridge translation unit, production family flag or semantic ID
+is introduced. The existing affine smoke and test-only refusal stub exercise the
+new export. Full S2b/G1, authored mesh transforms, remaining value conversions,
+benchmark evidence and terrain gates remain incomplete. Worker-classified until
+D3 timings justify main-thread use, despite the bounded allocation-free kernel.
 
 ## S2b polyline measurement and batch sampling
 

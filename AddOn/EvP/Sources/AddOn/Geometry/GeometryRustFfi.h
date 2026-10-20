@@ -136,6 +136,19 @@ typedef struct {
     uint32_t* flipsOrientation;
 } TapiocaAffineOutput;
 
+enum {
+    TAPIOCA_BUILD_TRANSLATION = 1,
+    TAPIOCA_BUILD_ROTATION = 2,
+    TAPIOCA_BUILD_SCALING = 3,
+    TAPIOCA_BUILD_MIRRORING = 4
+};
+typedef struct {
+    uint32_t kind;
+    double origin[3]; /* Pivot in world metres; ignored for translation. */
+    double vector[3]; /* Displacement metres / rotation axis / factors / mirror normal. */
+    double radians;   /* Rotation only; ignored otherwise. */
+} TapiocaTransformBuilderRequest;
+
 /* S2b polyline measurement/sampling; no implicit closure, welding or identity. */
 typedef struct {
     TapiocaDoubleView points;     /* At least two xyz points, world metres. */
@@ -349,6 +362,24 @@ TapiocaStatus tapioca_transform_vectors (const TapiocaAffineRequest* request, co
  * allocation or borrowed view crosses ownership. */
 TapiocaStatus tapioca_compose_transforms (const TapiocaAffineTransform* transforms, size_t count,
                                           TapiocaAffineTransform* output, char* error, size_t errorCapacity);
+
+/* Allocation-free transform builder; explicit tagged fields above. Only consumed
+ * fields must be finite.
+ * Rotation/mirror normalize via the C++ squared norm;
+ * zero/underflowed/non-finite lengths refuse. Scale factors must
+ * be nonzero.
+ * Finite coefficients, ordered pivot sums and determinant are required; a finite
+ * determinant
+ * underflowing to zero is allowed, as in the existing affine gate.
+ * Output is one live aligned exclusive writable
+ * record, unchanged on refusal or
+ * contained panic, disjoint from initialized immutable request and error storage.
+ *
+ * Common foreign-memory/ownership/panic caveats apply. No geometry/identity
+ * changes or production switch; bounded
+ * constant work, worker until measured. */
+TapiocaStatus tapioca_build_transform (const TapiocaTransformBuilderRequest* request, TapiocaAffineTransform* output,
+                                       char* error, size_t errorCapacity);
 
 /* Measure 3D lengths and sample by arc length, not by vertex index. No closure
  * is inferred. Exact joins select the

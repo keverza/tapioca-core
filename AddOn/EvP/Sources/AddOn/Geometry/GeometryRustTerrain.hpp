@@ -83,6 +83,17 @@ bool TransformVectors (const TransformVectorsRequest& request, std::vector<doubl
 bool ComposeTransforms (std::span<const geomsrv::engine::Transform> transforms, geomsrv::engine::Transform& result,
                         std::string& error);
 
+enum class TransformBuilderKind : uint32_t { Translation = 1, Rotation = 2, Scaling = 3, Mirroring = 4 };
+struct TransformBuilderRequest {
+    TransformBuilderKind kind;
+    const geomsrv::engine::Vector3& origin; // Pivot in metres; ignored for translation.
+    const geomsrv::engine::Vector3& vector; // Displacement / axis / factors / normal.
+    double radians = 0;                     // Rotation only; ignored otherwise.
+};
+// Bounded S2b parity builder, worker-classified until measured. Explicit POD copy;
+// no retained references or geometry/identity changes. Output unchanged on refusal.
+bool BuildTransform (const TransformBuilderRequest& request, geomsrv::engine::Transform& result, std::string& error);
+
 struct PolylineSamples {
     std::vector<double> cumulative; // One world-metre length per input vertex.
     double totalLength = 0;

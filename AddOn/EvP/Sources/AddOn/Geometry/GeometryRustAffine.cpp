@@ -68,4 +68,29 @@ bool ComposeTransforms (std::span<const geomsrv::engine::Transform> transforms, 
     return true;
 }
 
+bool BuildTransform (const TransformBuilderRequest& request, geomsrv::engine::Transform& result, std::string& error)
+{
+    const TapiocaTransformBuilderRequest input { static_cast<uint32_t> (request.kind),
+                                                 { request.origin.x, request.origin.y, request.origin.z },
+                                                 { request.vector.x, request.vector.y, request.vector.z },
+                                                 request.radians };
+    TapiocaAffineTransform candidate {};
+    std::array<char, 256> buffer {};
+    const auto status = tapioca_build_transform (&input, &candidate, buffer.data (), buffer.size ());
+    if (status != TAPIOCA_OK) {
+        size_t length = 0;
+        while (length < buffer.size () && buffer[length] != '\0')
+            ++length;
+        error = length != 0 ? std::string (buffer.data (), length)
+                            : "Tapioca Rust transform builder failed with status " + std::to_string (status);
+        return false;
+    }
+    geomsrv::engine::Transform built;
+    for (size_t row = 0; row < 3; ++row)
+        for (size_t column = 0; column < 4; ++column)
+            built.m[row][column] = candidate.m[row][column];
+    result = built;
+    error.clear ();
+    return true;
+}
 } // namespace tapioca::geometry

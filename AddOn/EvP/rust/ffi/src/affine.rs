@@ -28,6 +28,48 @@ pub struct AffineOutput {
     pub flips_orientation: *mut u32,
 }
 
+/// Tagged builder POD. Only the selected variant's fields are consumed.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TransformBuilderRequest {
+    /// 1 translation, 2 rotation, 3 scaling, 4 mirroring. Unknown tags refuse.
+    pub kind: u32,
+    /// World-metre pivot for rotation/scaling/mirroring; ignored for translation.
+    pub origin: affine::Vec3,
+    /// Displacement metres, rotation axis, dimensionless factors, or mirror normal.
+    pub vector: affine::Vec3,
+    /// Radians for rotation only; ignored for all other tags.
+    pub radians: f64,
+}
+
+fn builder(request: TransformBuilderRequest) -> Result<affine::TransformBuilder, Failure> {
+    let TransformBuilderRequest {
+        kind,
+        origin,
+        vector,
+        radians,
+    } = request;
+    match kind {
+        1 => Ok(affine::TransformBuilder::Translation(vector)),
+        2 => Ok(affine::TransformBuilder::Rotation {
+            origin,
+            axis: vector,
+            radians,
+        }),
+        3 => Ok(affine::TransformBuilder::Scaling {
+            origin,
+            factors: vector,
+        }),
+        4 => Ok(affine::TransformBuilder::Mirroring {
+            origin,
+            normal: vector,
+        }),
+        _ => Err(Failure::Argument(
+            "TransformBuildKind: expected translation, rotation, scaling or mirroring",
+        )),
+    }
+}
+
 fn mode(value: u32) -> Result<affine::ApplyMode, Failure> {
     match value {
         1 => Ok(affine::ApplyMode::Point),
@@ -177,5 +219,54 @@ pub unsafe extern "C" fn tapioca_compose_transforms(
     }
 }
 
+/// Build a finite 3x4 transform with no allocation or retained borrow.
+/// Output is unchanged on refusal/contained panic; unused tagged fields are ignored.
+///
+/// # Safety
+/// Request is live initialized immutable POD. Output is live aligned exclusively
+/// writable storage for one transform, disjoint from request/error. Known error
+/// overlap wins even if another region is malformed. Caller guarantees allocation
+/// validity/lifetimes; null/shape checks do not recover foreign UB or OOM/abort.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapioca_build_transform(
+    input: *const TransformBuilderRequest,
+    output: *mut affine::Transform,
+    error: *mut u8,
+    capacity: usize,
+) -> i32 {
+    // SAFETY: shared envelope checks error shape and contains unwinding. Known
+    // range overlaps are refused before a descriptor read or diagnostic write.
+    unsafe {
+        call(error, capacity, || {
+            let error_range = memory_range(error.cast_const(), capacity)?;
+            let input_range = memory_range(input, 1);
+            let output_range = memory_range(output.cast_const(), 1);
+            for range in [&input_range, &output_range].into_iter().flatten() {
+                if overlaps(*range, error_range) {
+                    return Err(Failure::Overlap);
+                }
+            }
+            let input_range = input_range?;
+            let output_range = output_range?;
+            if overlaps(input_range, output_range) {
+                return Err(Failure::Overlap);
+            }
+            let context = BorrowContext {
+                error_range,
+                output_range,
+            };
+            let request = context.record(input)?;
+            let result = affine::build_transform(builder(request)?)
+                .map_err(|error| Failure::Argument(error.message()))?;
+            // SAFETY: all foreign borrows end before one raw write to checked
+            // disjoint caller-owned storage, which may initially be uninitialized.
+            output.write(result);
+            Ok(())
+        })
+    }
+}
+
+#[cfg(test)]
+mod builder_tests;
 #[cfg(test)]
 mod tests;
