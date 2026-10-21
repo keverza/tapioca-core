@@ -295,9 +295,21 @@ void Describe (DerivedRegion& region)
     d.operations = region.operations;
     d.boundaries.clear ();
     for (const auto& boundary : region.boundary) {
+        // A run of pieces with one support is one boundary span, however finely it is
+        // cut: an arc's chords, or a shared edge split by a vertex elsewhere.
+        // Start where the support changes, so a ring beginning mid-arc is not split in two.
         std::vector<BoundaryRef> cycle;
-        for (const auto& piece : boundary)
-            cycle.insert (cycle.end (), piece.support.begin (), piece.support.end ());
+        const size_t n = boundary.size ();
+        size_t start = 0;
+        while (start < n && boundary[start].support == boundary[(start + n - 1) % n].support)
+            ++start;
+        if (start == n && n > 0) // one support all the way round
+            cycle = boundary.front ().support;
+        for (size_t k = 0; start < n && k < n; ++k) {
+            const auto& piece = boundary[(start + k) % n];
+            if (k == 0 || piece.support != boundary[(start + k + n - 1) % n].support)
+                cycle.insert (cycle.end (), piece.support.begin (), piece.support.end ());
+        }
         CanonicalCycle (cycle);
         d.boundaries.push_back (std::move (cycle));
     }
@@ -326,12 +338,49 @@ bool ReadSourceCurve (const edit::Document& doc, const LandscapeSource& source, 
             radius = std::max (radius, v.radius);
         const double step = std::min (0.15, std::sqrt (0.008 / std::max (radius, 0.001)));
         const auto features = edit::Features (*entity, step);
-        for (const auto& edge : features.edges) {
-            out.curve.points.push_back (edge.a);
-            out.segments.push_back (entity->segments[edge.segment].id);
+        // Features lists every corner arc (its `segment` is the corner's vertex, and the
+        // arcs are the first runs, two tangent points each) before the segments. Chain
+        // the pieces end to start for the drawing order instead.
+        const auto& edges = features.edges;
+        const int arcs = int (features.tangentPoints.size () / 2);
+        const size_t count = entity->segments.size ();
+        if (edges.empty () || count == 0) {
+            error = "source outline is empty";
+            return false;
         }
-        if (!entity->closed && !features.edges.empty ())
-            out.curve.points.push_back (features.edges.back ().b);
+        const auto arc = [&] (size_t k) { return edges[k].run >= 0 && edges[k].run < arcs; };
+        size_t at = edges.size ();
+        for (size_t k = 0; k < edges.size () && at == edges.size (); ++k)
+            if (entity->closed ? !arc (k) && edges[k].segment == 0
+                               : edit::Distance (edges[k].a, entity->vertices.front ().p) < 1.0e-9)
+                at = k;
+        std::vector<bool> used (edges.size (), false);
+        for (size_t n = 0; n < edges.size (); ++n) {
+            if (at >= edges.size () || used[at]) {
+                error = "source outline does not chain";
+                return false;
+            }
+            used[at] = true;
+            const auto& edge = edges[at];
+            out.curve.points.push_back (edge.a);
+            if (arc (at)) // corner `segment` joins segment segment-1 to segment
+                out.segments.push_back (
+                    { entity->segments[(edge.segment + count - 1) % count].id, entity->segments[edge.segment].id });
+            else
+                out.segments.push_back ({ entity->segments[edge.segment].id });
+            size_t next = edges.size ();
+            double best = 1.0e-9;
+            for (size_t k = 0; k < edges.size (); ++k)
+                if (!used[k] && edit::Distance (edges[k].a, edge.b) <= best)
+                    best = edit::Distance (edges[k].a, edge.b), next = k;
+            if (next == edges.size () && n + 1 < edges.size ()) {
+                error = "source outline does not chain";
+                return false;
+            }
+            at = next;
+            if (!entity->closed && n + 1 == edges.size ())
+                out.curve.points.push_back (edge.b);
+        }
         out.curve.arcAngles.clear ();
     }
     else {
@@ -341,7 +390,7 @@ bool ReadSourceCurve (const edit::Document& doc, const LandscapeSource& source, 
             out.curve.outHandles.push_back (v.out);
         }
         for (const auto& segment : entity->segments)
-            out.segments.push_back (segment.id);
+            out.segments.push_back ({ segment.id });
     }
     return true;
 }
@@ -364,8 +413,8 @@ DerivedRegion FaceRegion (const PlanarMap& map, const PlanarFace& face, const st
             for (auto parameter : edge.pieces) {
                 parameter.reversed = parameter.reversed != (half.origin != edge.a);
                 piece.parameters.push_back (parameter);
-                piece.support.push_back ({ parameter.source, curves.at (parameter.source).segments.at (parameter.piece),
-                                           parameter.reversed });
+                for (Id segment : curves.at (parameter.source).segments.at (parameter.piece))
+                    piece.support.push_back ({ parameter.source, segment, parameter.reversed });
             }
             ring.push_back (piece.a);
             pieces.push_back (std::move (piece));
@@ -440,7 +489,8 @@ bool SourceGuide (const SourceCurve& curve, Shape& guide, std::string& error)
         piece.b = map.vertices[edge.b];
         piece.parameters = edge.pieces;
         for (const auto& parameter : edge.pieces)
-            piece.support.push_back ({ parameter.source, curve.segments.at (parameter.piece), parameter.reversed });
+            for (Id segment : curve.segments.at (parameter.piece))
+                piece.support.push_back ({ parameter.source, segment, parameter.reversed });
         boundary.push_back (std::move (piece));
     }
     parent.boundary.push_back (std::move (boundary));

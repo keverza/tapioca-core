@@ -170,7 +170,7 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
             uint32_t ordinal;
             double start;
             Vec3 a, b;
-            Id segment;
+            std::vector<Id> segments;
         };
         std::vector<Piece> pieces;
         for (const auto& edge : map.edges)
@@ -196,7 +196,10 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
             }
             DerivedRegion segment;
             segment.sources = { source->id };
-            segment.boundary = { { { piece.a, piece.b, { { source->id, piece.segment, false } }, {}, true } } };
+            std::vector<BoundaryRef> support;
+            for (Id id : piece.segments)
+                support.push_back ({ source->id, id, false });
+            segment.boundary = { { { piece.a, piece.b, support, {}, true } } };
             Shape generated;
             if (!GeneratedShape (capsulePaths, { segment }, op.id, order, generated, error))
                 return false;
@@ -453,7 +456,7 @@ struct SourceChords {
         double u0, u1;
         Vec3 a, b;
     };
-    std::vector<Id> segments;
+    std::vector<std::vector<Id>> segments;
     std::map<uint32_t, std::vector<Chord>> pieces;
 };
 bool ReadChords (const edit::Document& doc, const LandscapeSource& source, SourceChords& out)
@@ -500,7 +503,9 @@ cp::PathsD Transport (const DerivedRegion& old, const std::function<const Source
                 const auto* table = chords (p.source);
                 if (!table || p.piece >= table->segments.size () ||
                     std::none_of (piece.support.begin (), piece.support.end (), [&] (const BoundaryRef& ref) {
-                        return ref.source == p.source && ref.segment == table->segments[p.piece];
+                        const auto& now = table->segments[p.piece];
+                        return ref.source == p.source &&
+                               std::find (now.begin (), now.end (), ref.segment) != now.end ();
                     }))
                     continue;
                 Vec3 ta, tb;

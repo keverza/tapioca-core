@@ -823,6 +823,7 @@ set (EVP_TEST_SOURCES
     test_editplanarrobustfaces.cpp
     test_editlandscape.cpp
     test_editlandscapeconstraints.cpp
+    test_editlandscapefillet.cpp
     test_editlandscapestroke.cpp
     test_hudlandscapesets.cpp
     test_editlandscapeserialization.cpp

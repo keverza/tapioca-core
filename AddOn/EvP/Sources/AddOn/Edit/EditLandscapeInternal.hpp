@@ -13,7 +13,9 @@ constexpr int kPrecision = 6;
 constexpr double kBoundaryEpsilon = 2.0 / 1048576.0;
 struct SourceCurve {
     PlanarCurve curve;
-    std::vector<Id> segments; // Each H1 leaving ordinal -> authored segment.
+    // Each H1 leaving ordinal -> its authored segment; a chord of a live corner's arc
+    // carries both incident segments, incoming first.
+    std::vector<std::vector<Id>> segments;
 };
 bool ReadSourceCurve (const geomsrv::edit::Document& doc, const LandscapeSource& source, SourceCurve& out,
                       std::string& error);
