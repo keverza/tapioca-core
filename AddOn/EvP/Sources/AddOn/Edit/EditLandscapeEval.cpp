@@ -327,6 +327,12 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
                  op.kind == OperationKind::ProtectedZone) {
             // Constraints retain the footprint; only affected regions acquire
             // the mask's actual sources/history. H3/H11 consume these masks.
+            // A grading limit or protected zone acts on terrain, which only a
+            // property line bounds: M1 still evaluates it, flagged.
+            if (op.kind != OperationKind::MaterialMask && out.propertyLine.empty ())
+                Diagnostic (out, LandscapeDiagnosticCode::PropertyLineOutside, id,
+                            "terrain constraint has no property line to bound it");
+            bool reached = false;
             for (auto& region : shape) {
                 std::set<Id> sources (region.sources.begin (), region.sources.end ());
                 std::set<Id> history (region.operations.begin (), region.operations.end ());
@@ -334,6 +340,7 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
                     for (const auto& mask : values.at (op.inputs[i]))
                         if (std::abs (cp::Area (
                                 cp::Intersect (Paths (region), Paths (mask), cp::FillRule::NonZero, kPrecision))) > 0) {
+                            reached = true;
                             sources.insert (mask.sources.begin (), mask.sources.end ());
                             history.insert (mask.operations.begin (), mask.operations.end ());
                         }
@@ -343,6 +350,9 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
                     if (history.count (parent))
                         region.operations.push_back (parent);
             }
+            // The footprint survives; a mask that clips none of it constrains nothing.
+            if (!reached && !shape.empty ())
+                Diagnostic (out, LandscapeDiagnosticCode::ClipEmpty, id, "constraint mask reaches no region");
             AppendHistory (shape, id, order);
         }
         else if (op.kind == OperationKind::RegionSelect)
