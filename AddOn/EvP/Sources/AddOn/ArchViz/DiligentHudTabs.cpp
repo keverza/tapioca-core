@@ -3,6 +3,7 @@
 // thing once (HANDOFF-HudTabs.md: every control has exactly one home).
 
 #include "ArchViz/DiligentHudShell.hpp"
+#include "ArchViz/HudShellTabs.hpp"
 
 #include "ArchViz/DiligentHudNames.hpp"
 #include "ArchViz/DiligentHudSections.hpp"
@@ -143,7 +144,7 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
 {
     const bool changed = state.analysisSeenKind != scene.sunStudy.analysisKind;
     state.analysisSeenKind = scene.sunStudy.analysisKind;
-    if (!ImGui::BeginTabBar ("##analysis-study"))
+    if (!hudshell::BeginSubTabs ("##analysis-study"))
         return;
     const ImGuiTabItemFlags sunFlags = changed && scene.sunStudy.analysisKind == 0 ? ImGuiTabItemFlags_SetSelected : 0;
     if (ImGui::BeginTabItem ("Sun study", nullptr, sunFlags)) {
@@ -166,7 +167,7 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
         DrawViewpointHudSection (state);
         ImGui::EndTabItem ();
     }
-    ImGui::EndTabBar ();
+    hudshell::EndSubTabs ();
 }
 
 void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, const Frame& frame, uint32_t width,

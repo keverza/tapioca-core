@@ -74,6 +74,43 @@ bool TabItem (const HostTab& tab, ImGuiTabItemFlags flags)
     return open;
 }
 
+namespace {
+
+// The colours BeginSubTabs pushes and EndSubTabs pops.
+constexpr int kSubTabColours = 7;
+
+} // namespace
+
+bool BeginSubTabs (const char* id)
+{
+    const ImGuiStyle& style = ImGui::GetStyle ();
+    const ImVec2 at = ImGui::GetCursorScreenPos ();
+    const float width = ImGui::GetContentRegionAvail ().x;
+    const float height = ImGui::GetFrameHeight () + style.TabBarBorderSize;
+    ImGui::GetWindowDrawList ()->AddRectFilled (at, ImVec2 (at.x + width, at.y + height),
+                                                ImGui::GetColorU32 (ImGuiCol_TabSelected), style.TabRounding);
+    const ImVec4 none (0.0f, 0.0f, 0.0f, 0.0f);
+    const ImVec4 pointed = ImGui::GetStyleColorVec4 (ImGuiCol_HeaderHovered);
+    const ImVec4 shown = ImGui::GetStyleColorVec4 (ImGuiCol_HeaderActive);
+    ImGui::PushStyleColor (ImGuiCol_Tab, none);
+    ImGui::PushStyleColor (ImGuiCol_TabDimmed, none);
+    ImGui::PushStyleColor (ImGuiCol_TabHovered, pointed);
+    ImGui::PushStyleColor (ImGuiCol_TabSelected, shown);
+    ImGui::PushStyleColor (ImGuiCol_TabDimmedSelected, shown);
+    ImGui::PushStyleColor (ImGuiCol_TabSelectedOverline, none);
+    ImGui::PushStyleColor (ImGuiCol_TabDimmedSelectedOverline, none);
+    if (ImGui::BeginTabBar (id))
+        return true;
+    ImGui::PopStyleColor (kSubTabColours);
+    return false;
+}
+
+void EndSubTabs ()
+{
+    ImGui::EndTabBar ();
+    ImGui::PopStyleColor (kSubTabColours);
+}
+
 } // namespace hudshell
 } // namespace archviz
 } // namespace geomsrv

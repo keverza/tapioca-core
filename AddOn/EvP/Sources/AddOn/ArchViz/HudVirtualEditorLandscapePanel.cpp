@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudShellTabs.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 
 namespace geomsrv::archviz::edithud {
@@ -45,7 +46,7 @@ void LandscapePanel (Session& s)
     if (ImGui::SmallButton ("Reload"))
         ReloadLandscape (s, s.landscapeSaved);
     ImGui::EndDisabled ();
-    if (ImGui::BeginTabBar ("##landscape")) {
+    if (hudshell::BeginSubTabs ("##landscape")) {
         if (ImGui::BeginTabItem ("Sets")) {
             if (ImGui::Button ("New face set"))
                 CreateLandscapeFaceSet (s);
@@ -168,7 +169,7 @@ void LandscapePanel (Session& s)
                 ImGui::TextWrapped ("%s", s.landscape.error.c_str ());
             ImGui::EndTabItem ();
         }
-        ImGui::EndTabBar ();
+        hudshell::EndSubTabs ();
     }
     ImGui::EndDisabled ();
 }

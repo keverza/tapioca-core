@@ -1,6 +1,7 @@
 // ArchViz/OverlayHud -- see the header.
 
 #include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/HudShellTabs.hpp"
 
 #include "ArchViz/HudClip.hpp"
 #include "ArchViz/ImGuiContextLock.hpp"
@@ -398,14 +399,17 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
     size_t firstTab = panel.items.size ();
     const std::string bar = TabBarId (panel, &firstTab);
     bool inBar = false, page = true, pageOpen = false;
+    const bool child = !panel.title.empty ();
     uint32_t tabNumber = 0;
     tabNow = -1;
     size_t i = 0;
     while (i < panel.items.size ()) {
         const layers::PanelItem& item = panel.items[i];
         if (item.kind == layers::ItemKind::Tab) {
+            // A titled panel is a page of the HUD's own tab (or a card on Stats): its tabs are
+            // that tab's children. An untitled panel floats on its own and keeps a plain row.
             if (i == firstTab)
-                inBar = ImGui::BeginTabBar ("##tabs");
+                inBar = child ? hudshell::BeginSubTabs ("##tabs") : ImGui::BeginTabBar ("##tabs");
             if (pageOpen)
                 ImGui::EndTabItem ();
             pageOpen = inBar && TabItem (item, tabNumber++, bar, state);
@@ -509,7 +513,10 @@ void Engine::Impl::Items (const layers::Panel& panel, PanelState& state, float s
     if (pageOpen)
         ImGui::EndTabItem ();
     if (inBar) {
-        ImGui::EndTabBar ();
+        if (child)
+            hudshell::EndSubTabs ();
+        else
+            ImGui::EndTabBar ();
         TabsDone (panel, firstTab, bar, state);
     }
 }

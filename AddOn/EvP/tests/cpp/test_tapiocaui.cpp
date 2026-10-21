@@ -7,6 +7,7 @@
 #include "hud_fixture.hpp"
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/HudShellTabs.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 #include "ArchViz/TapiocaUI/Foundation/IconData.hpp"
 #include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
@@ -520,4 +521,46 @@ TEST (TapiocaUiIcons, TheHudsOwnTabsAreGlyphsGreyAtRest)
     hud::SelectKey (*hud.state, shell::kSettingsKey);
     const hud::Layout settings = hud.Lay ({}, At (600, 600));
     EXPECT_GT (inTabRow (settings.host, rest, rowBottom), 0) << "Selection and Debug still at rest";
+}
+
+// ⚠️ THE USER, 2026-10-21: "Tabs that have subtabs should have same selected color for whole group
+// to indicate that it is child tabs. Selected subtab then should be darker." The child row sits on
+// a band in the panel's selected-tab colour; the shown child is the darker grey laid over it, and
+// no child carries the accent line. The style is as it was afterwards.
+TEST (TapiocaUiTabs, ChildTabsSitOnTheirParentsColourAndTheShownOneIsDarker)
+{
+    namespace shell = geomsrv::archviz::hudshell;
+    Context context;
+    ImGui::NewFrame ();
+    const int colours = shell::PushLook (shell::PlainLook (), 1.0f);
+    const ImU32 parent = ImGui::GetColorU32 (ImGuiCol_TabSelected);
+    const ImU32 darker = ImGui::GetColorU32 (ImGuiCol_HeaderActive);
+    const ImU32 accent = ImGui::GetColorU32 (ImGuiCol_TabSelectedOverline);
+    ASSERT_NE (parent, darker);
+    ImGui::SetNextWindowPos (ImVec2 (0, 0));
+    ImGui::SetNextWindowSize (ImVec2 (400, 200));
+    ImGui::Begin ("children", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+    ImDrawList* const draw = ImGui::GetWindowDrawList ();
+    const int from = draw->VtxBuffer.Size;
+    const Stacks before = Stacks::Now ();
+    ASSERT_TRUE (shell::BeginSubTabs ("##children"));
+    if (ImGui::BeginTabItem ("Sun study"))
+        ImGui::EndTabItem ();
+    if (ImGui::BeginTabItem ("View quality"))
+        ImGui::EndTabItem ();
+    shell::EndSubTabs ();
+    EXPECT_TRUE (Stacks::Now () == before);
+    bool band = false, shown = false, line = false;
+    for (int v = from; v < draw->VtxBuffer.Size; ++v) {
+        band = band || draw->VtxBuffer[v].col == parent;
+        shown = shown || draw->VtxBuffer[v].col == darker;
+        line = line || draw->VtxBuffer[v].col == accent;
+    }
+    EXPECT_TRUE (band) << "the row's band in the parent tab's colour";
+    EXPECT_TRUE (shown) << "the shown child, darker";
+    EXPECT_FALSE (line) << "no accent line on a child";
+    ImGui::End ();
+    ImGui::PopStyleColor (colours);
+    ImGui::PopStyleVar (shell::kLookVars);
+    ImGui::Render ();
 }
