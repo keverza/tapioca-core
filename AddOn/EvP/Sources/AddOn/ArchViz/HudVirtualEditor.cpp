@@ -385,19 +385,8 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     CheckView (s, v); // stale numeric input cannot commit before the next view layout
     if (textInput || LabelKeys (s, v))
         return; // an ImGui text field, or a label open for typing, has the keyboard
-    if (s.landscapeCommand) {
-        for (const auto action : v.editActions)
-            if (action == overlayhud::Input::EditAction::Cancel)
-                CancelLandscapeCommand (s);
-        for (const auto& key : v.keys)
-            if (key.down && !key.repeat) {
-                if (key.code == 0x1B)
-                    CancelLandscapeCommand (s);
-                else if (key.code == 0x0D)
-                    AdvanceLandscapeCommand (s);
-            }
+    if (LandscapeCommandKeys (s, v))
         return;
-    }
     if (GumballRepositioning (s)) {
         for (const auto action : v.editActions)
             if (action == overlayhud::Input::EditAction::Cancel)

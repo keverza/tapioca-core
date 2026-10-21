@@ -1,8 +1,25 @@
-#include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorDetail.hpp"
 #include <algorithm>
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
+
+bool detail::LandscapeCommandKeys (Session& s, const overlayhud::Input& v)
+{
+    if (!s.landscapeCommand)
+        return false;
+    for (const auto action : v.editActions)
+        if (action == overlayhud::Input::EditAction::Cancel)
+            CancelLandscapeCommand (s);
+    for (const auto& key : v.keys)
+        if (key.down && !key.repeat) {
+            if (key.code == 0x1B)
+                CancelLandscapeCommand (s);
+            else if (key.code == 0x0D)
+                AdvanceLandscapeCommand (s);
+        }
+    return true;
+}
 
 bool BeginLandscapeCommand (Session& s, lg::OperationKind kind)
 {

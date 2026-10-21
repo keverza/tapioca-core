@@ -149,6 +149,7 @@ void DrawTracker (Session& s, ImVec2 mouse, bool hovered, float scale);
 const edit::Document& Doc (const Session& s);
 // Ends the line a drawing tool is placing: a polyline or a path, selected.
 void FinishDrawing (Session& s);
+bool LandscapeCommandKeys (Session& s, const overlayhud::Input& input);
 void History (Session& s, bool undo);
 void EndHandleDrag (Session& s);
 void EndDrag (Session& s);
