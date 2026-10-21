@@ -111,6 +111,61 @@ TEST (EditLandscape, BooleanAreasHolesAndOrderedDifference)
     EXPECT_EQ (result.regions[0].sources, (std::vector<edit::Id> { outer, inner }));
 }
 
+TEST (EditLandscape, OffLatticeBooleansKeepOneVerifiedSupportPerPiece)
+{
+    // Clipper snaps output vertices to its 1e-6 lattice. Drawn coordinates are
+    // rarely on it; the snap must not cut supportless slivers at the corners.
+    for (double o : { 1.0 / 3.0, 0.1234567891, 1000.0 + 1.0 / 7.0 }) {
+        auto doc = Start ();
+        const auto a = Square (doc, o, o), b = Square (doc, o + 4, o - 1, 2);
+        Object (doc, Operation (doc, geo::OperationKind::Difference, { a, b }));
+        geo::LandscapeResult result;
+        ASSERT_TRUE (geo::EvaluateLandscape (doc, result)) << "offset " << o << ": " << result.error;
+        ASSERT_EQ (result.regions.size (), 1u);
+        EXPECT_NEAR (result.regions[0].area, 98, 1.0e-4) << o;
+        EXPECT_EQ (result.regions[0].sources, (std::vector<edit::Id> { a, b }));
+        size_t pieces = 0;
+        for (const auto& ring : result.regions[0].boundary)
+            for (const auto& piece : ring) {
+                ++pieces;
+                EXPECT_EQ (piece.support.size (), 1u) << o << " at " << piece.a.x << "," << piece.a.y;
+            }
+        EXPECT_EQ (pieces, 8u) << o;
+    }
+}
+
+TEST (EditLandscape, ArcFaceBooleanRetainsArcSupport)
+{
+    // A semicircular D minus a centred strip: two caps, each bounded by part of
+    // the one arc segment, part of the straight bottom and one strip side.
+    constexpr double kPi = 3.14159265358979323846;
+    auto doc = Start ();
+    geo::LandscapeSource arc;
+    arc.entityId = edit::AddPolyline (doc, { { 5, 0, 0 }, { -5, 0, 0 }, { 0, 0, 0 } }, true);
+    arc.arcAngles = { kPi, 0, 0 };
+    edit::Id d = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, arc, d, error)) << error;
+    const auto strip = Source (doc, { { -1, -1, 0 }, { 1, -1, 0 }, { 1, 9, 0 }, { -1, 9, 0 } });
+    Object (doc, Operation (doc, geo::OperationKind::Difference, { d, strip }));
+    geo::LandscapeResult result;
+    ASSERT_TRUE (geo::EvaluateLandscape (doc, result)) << result.error;
+    ASSERT_EQ (result.regions.size (), 2u);
+    // Strip-covered part of the half disc: integral of sqrt(25 - x^2) over [-1, 1].
+    const double removed = std::sqrt (24.0) + 25.0 * std::asin (0.2);
+    EXPECT_NEAR (Area (result), 12.5 * kPi - removed, 0.02);
+    const auto arcSegment = doc.entities[0].segments[0].id;
+    for (const auto& region : result.regions) {
+        EXPECT_EQ (region.sources, (std::vector<edit::Id> { d, strip }));
+        bool onArc = false;
+        for (const auto& piece : region.boundary[0]) {
+            ASSERT_EQ (piece.support.size (), 1u);
+            onArc = onArc || (piece.support[0].source == d && piece.support[0].segment == arcSegment);
+        }
+        EXPECT_TRUE (onArc);
+    }
+}
+
 TEST (EditLandscape, DisconnectedBooleanOutputsDoNotAcquireUnrelatedSources)
 {
     auto doc = Start ();

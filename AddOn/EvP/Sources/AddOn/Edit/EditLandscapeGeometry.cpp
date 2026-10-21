@@ -201,7 +201,20 @@ bool Attribute (DerivedRegion& output, const Shape& parents, Id operation, const
                                 if (On (p, a, b))
                                     splits.push_back (std::clamp (Along (p, a, b), 0.0, 1.0));
             std::sort (splits.begin (), splits.end ());
-            splits.erase (std::unique (splits.begin (), splits.end ()), splits.end ());
+            // Clipper snaps output vertices to its lattice, so an input endpoint
+            // lands a fraction of the boundary epsilon inside the output edge. A
+            // cut there leaves a sliver whose midpoint lies on no input edge;
+            // splits within the epsilon of a kept one are the same point.
+            const double length = edit::DistanceXY (a, b);
+            std::vector<double> kept { 0.0 };
+            for (double s : splits)
+                if ((s - kept.back ()) * length > kBoundaryEpsilon)
+                    kept.push_back (s);
+            if (kept.size () > 1 && (1.0 - kept.back ()) * length <= kBoundaryEpsilon)
+                kept.back () = 1.0;
+            else if (kept.back () != 1.0)
+                kept.push_back (1.0);
+            splits = std::move (kept);
             for (size_t j = 1; j < splits.size (); ++j) {
                 RegionBoundaryPiece piece;
                 piece.a = edit::Lerp (a, b, splits[j - 1]);
