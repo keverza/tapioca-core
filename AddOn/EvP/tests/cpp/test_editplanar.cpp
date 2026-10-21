@@ -88,6 +88,23 @@ void ExpectBuild (const std::vector<PlanarCurve>& curves, const PlanarOptions& o
 
 } // namespace
 
+TEST (EditPlanar, MultipleDanglingGuidesDoNotCloseBoundaryFragmentsWithChords)
+{
+    const auto square = Closed (1, { P (0, 0), P (4, 0), P (4, 4), P (0, 4) });
+    for (const double length : { -1.0, 1.0 }) {
+        PlanarMap map;
+        std::string error;
+        ASSERT_TRUE (geo::BuildPlanarMap (
+            { square, Open (2, { P (0, 1), P (length, 1) }), Open (3, { P (4, 3), P (4 - length, 3) }) }, {}, map,
+            error))
+            << error;
+        ASSERT_EQ (map.faces.size (), 1u) << "Two spurs must not create a new face.";
+        EXPECT_NEAR (map.faces.front ().area, 16, 1e-10);
+        EXPECT_EQ (map.faces.front ().halfEdges.size (), 6u);
+        EXPECT_TRUE (map.faces.front ().holes.empty ());
+    }
+}
+
 TEST (EditPlanar, EmptyInputIsAValidEmptyMap)
 {
     PlanarMap map;

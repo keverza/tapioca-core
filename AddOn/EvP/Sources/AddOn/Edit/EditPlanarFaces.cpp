@@ -327,33 +327,39 @@ std::vector<char> FindBridges (const PlanarMap& map)
     return bridge;
 }
 
-std::vector<std::vector<uint32_t>> SplitAtBridges (const std::vector<uint32_t>& walk, const std::vector<char>& bridges,
-                                                   const std::vector<PlanarHalfEdge>& halfEdges)
+bool SplitAtBridges (const std::vector<uint32_t>& walk, const std::vector<char>& bridges,
+                     const std::vector<PlanarHalfEdge>& halfEdges, std::vector<std::vector<uint32_t>>& chains)
 {
-    std::vector<std::vector<uint32_t>> chains;
-    std::vector<uint32_t> current;
-    for (uint32_t halfEdge : walk) {
-        if (bridges[halfEdges[halfEdge].edge]) {
-            if (!current.empty ()) {
-                chains.push_back (std::move (current));
-                current.clear ();
+    std::set<uint32_t> remaining;
+    for (uint32_t h : walk)
+        if (!bridges[halfEdges[h].edge])
+            remaining.insert (h);
+    // Bypass each bridge at its attachment vertex, through twin.next. Splitting
+    // at bridge occurrences instead makes arbitrary open fragments when two
+    // spurs touch one boundary, and their implicit closing chords invent faces.
+    // A bridge to a nested component still leaves that component its own cycle.
+    while (!remaining.empty ()) {
+        const uint32_t start = *remaining.begin ();
+        uint32_t current = start;
+        std::vector<uint32_t> cycle;
+        do {
+            if (!remaining.erase (current))
+                return false;
+            cycle.push_back (current);
+            uint32_t next = halfEdges[current].next;
+            size_t skipped = 0;
+            while (bridges[halfEdges[next].edge]) {
+                if (++skipped > walk.size ())
+                    return false;
+                next = halfEdges[halfEdges[next].twin].next;
             }
-            continue;
-        }
-        current.push_back (halfEdge);
+            if (halfEdges[halfEdges[current].twin].origin != halfEdges[next].origin)
+                return false;
+            current = next;
+        } while (current != start);
+        chains.push_back (std::move (cycle));
     }
-    if (!current.empty ())
-        chains.push_back (std::move (current));
-    // The walk is circular: when it starts and ends in the same non-bridge
-    // chain, those two pieces are one boundary cycle.
-    if (chains.size () > 1 && !walk.empty () && !bridges[halfEdges[walk.front ()].edge] &&
-        !bridges[halfEdges[walk.back ()].edge]) {
-        auto& first = chains.front ();
-        const auto last = chains.back ();
-        first.insert (first.begin (), last.begin (), last.end ());
-        chains.pop_back ();
-    }
-    return chains;
+    return true;
 }
 
 bool RayHitDistance (long double px, long double py, long double dx, long double dy, const std::vector<Vec3>& polygon,
@@ -567,7 +573,12 @@ bool BuildFaces (const PlanarOptions& options, PlanarMap& map, std::string& erro
 
     const std::vector<char> bridges = FindBridges (map);
     for (const auto& walk : walks) {
-        auto chains = SplitAtBridges (walk, bridges, map.halfEdges);
+        std::vector<std::vector<uint32_t>> chains;
+        if (!SplitAtBridges (walk, bridges, map.halfEdges, chains)) {
+            error = "bridge removal did not preserve closed planar boundaries";
+            AddDiagnostic (map, PlanarDiagnosticCode::Degenerate, kNoId, kNoId, {}, 0.0, error);
+            return false;
+        }
         for (auto& chain : chains) {
             RemoveAdjacentTwins (chain, map.halfEdges);
             if (chain.empty ())
