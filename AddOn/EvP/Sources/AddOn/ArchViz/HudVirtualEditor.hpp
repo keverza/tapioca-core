@@ -35,6 +35,12 @@ namespace geomsrv::archviz::edithud {
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve };
 enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
+struct LandscapeCommand {
+    tapioca::geometry::OperationKind kind;
+    uint64_t revision = 0;
+    bool second = false;
+    std::vector<tapioca::geometry::RegionDescriptor> first;
+};
 enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner, Bezier, Bend, Kerb };
 
 // What a right click landed on, which decides what its menu offers.
@@ -67,6 +73,7 @@ struct Session {
     edit::Id landscapeObject = edit::kNoId;
     edit::Id landscapeSet = edit::kNoId, landscapeOperandSet = edit::kNoId;
     std::string landscapeSaved;
+    std::optional<LandscapeCommand> landscapeCommand;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
     bool fromEnd = false;  // a typed length or angle keeps the segment's end, not its start (F)
@@ -267,6 +274,10 @@ bool CreateLandscapeFaceSet (Session& session);
 bool EditLandscapeFaceSet (Session& session, bool remove = false);
 bool SelectLandscapeFaceSet (Session& session);
 bool BooleanLandscapeFaceSets (Session& session, tapioca::geometry::OperationKind kind);
+bool BeginLandscapeCommand (Session& session, tapioca::geometry::OperationKind kind);
+bool AdvanceLandscapeCommand (Session& session);
+bool CancelLandscapeCommand (Session& session);
+const char* LandscapeCommandPrompt (const Session& session);
 bool ReloadLandscape (Session& session, const std::string& definition);
 void LandscapePanel (Session& session);
 

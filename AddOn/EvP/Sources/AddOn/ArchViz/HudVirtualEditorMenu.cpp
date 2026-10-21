@@ -16,6 +16,10 @@ namespace detail {
 // The document actions the menu, the keys and the panel share.
 void History (Session& s, bool undo)
 {
+    if (s.landscapeCommand) {
+        s.message = "Finish the command or Esc it before undoing.";
+        return;
+    }
     if (s.profileTyping) {
         s.message = "Apply the profile value with Enter or give it up with Esc before undoing.";
         return;

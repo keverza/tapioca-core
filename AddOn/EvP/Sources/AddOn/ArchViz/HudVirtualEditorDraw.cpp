@@ -80,8 +80,8 @@ bool GizmoModeLocked (const Session& s)
 {
     // A gesture holds a captured control and a typed value owns the number: a mode change under
     // either would re-name what they work on, so it waits for Enter/Esc or the release.
-    return s.drag != Drag::None || s.typedHandle >= 0 || s.tracker.State () == edit::TrackerState::Editing ||
-           s.planeTyping || s.profileTyping || s.labelOpen;
+    return s.landscapeCommand.has_value () || s.drag != Drag::None || s.typedHandle >= 0 ||
+           s.tracker.State () == edit::TrackerState::Editing || s.planeTyping || s.profileTyping || s.labelOpen;
 }
 
 bool SetGizmoMode (Session& s, edit::GizmoMode mode)

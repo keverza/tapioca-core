@@ -296,6 +296,95 @@ TEST (HudLandscape, PreviewDatumChangeRepublishesWithoutReevaluatingGeometry)
     EXPECT_FALSE (eh::Follow (s, layer));
 }
 
+TEST (HudLandscape, CanvasCommandsCollectTwoOperandsAndPublishOneUndoStep)
+{
+    for (const auto kind :
+         { lg::OperationKind::Union, lg::OperationKind::Difference, lg::OperationKind::Intersection }) {
+        eh::Session s (Demo ());
+        const auto faces = eh::Landscape (s).faces;
+        const auto a = *lg::LandscapeFaceAt (s.landscape, { 2, 1, 0 });
+        const auto b = *lg::LandscapeFaceAt (s.landscape, { 2, -1, 0 });
+        const auto before = s.edits.Doc ();
+        ASSERT_TRUE (eh::BeginLandscapeCommand (s, kind));
+        EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
+        EXPECT_FALSE (s.landscapeCommand->second);
+        ASSERT_TRUE (eh::PickLandscapeFace (s, a.seed, true, true));
+        ASSERT_TRUE (eh::PickLandscapeFace (s, b.seed, true, true));
+        ASSERT_TRUE (eh::AdvanceLandscapeCommand (s));
+        EXPECT_TRUE (s.selection.Items ().empty ());
+        EXPECT_EQ (s.edits.Doc ().revision, before.revision);
+        EXPECT_EQ (s.edits.Doc ().nextId, before.nextId);
+        EXPECT_EQ (s.edits.UndoDepth (), 0u);
+        EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
+        ASSERT_TRUE (eh::PickLandscapeFace (s, b.seed, true));
+        ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
+        EXPECT_FALSE (s.landscapeCommand);
+        EXPECT_EQ (s.edits.UndoDepth (), 1u);
+        EXPECT_EQ (s.edits.Doc ().landscape->sources, before.landscape->sources);
+        EXPECT_EQ (s.edits.Doc ().entities, before.entities);
+        ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 3u);
+        const double area = kind == lg::OperationKind::Union        ? a.area + b.area
+                            : kind == lg::OperationKind::Difference ? a.area
+                                                                    : b.area;
+        EXPECT_NEAR (Area (s), area, 1e-5);
+        std::string definition, error;
+        ASSERT_TRUE (lg::WriteLandscape (s.edits.Doc (), lg::LandscapeStorage::Virtual, definition, error));
+        ASSERT_TRUE (s.edits.Undo ());
+        EXPECT_EQ (s.edits.Doc ().landscape, before.landscape);
+        ASSERT_TRUE (s.edits.Redo ());
+        EXPECT_NEAR (Area (s), area, 1e-5);
+        ASSERT_TRUE (s.edits.Undo ());
+        ASSERT_TRUE (eh::ReloadLandscape (s, definition)) << s.message;
+        EXPECT_NEAR (Area (s), area, 1e-5);
+    }
+}
+
+TEST (HudLandscape, CommandKeysToggleCanvasPicksAdvanceAndCancelWithoutPublication)
+{
+    Drive d;
+    ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Difference));
+    d.Click ({ 2, 1, 0 });
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    d.Click ({ 2, 1, 0 });
+    EXPECT_TRUE (d.S ().selection.Items ().empty ());
+    d.Click ({ 2, 1, 0 });
+    d.Click ({ 2, -1, 0 });
+    ASSERT_EQ (d.S ().selection.Items ().size (), 2u);
+    d.input.keys = { { 0x0D, true } };
+    d.Frame ();
+    ASSERT_TRUE (d.S ().landscapeCommand);
+    EXPECT_TRUE (d.S ().landscapeCommand->second);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.input.keys = { { 'P', true } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().tool, eh::Tool::Select);
+    EXPECT_TRUE (d.S ().drawing.empty ());
+    d.input.keys = { { 0x1B, true } };
+    d.Frame ();
+    EXPECT_FALSE (d.S ().landscapeCommand);
+    EXPECT_FALSE (d.S ().close);
+    EXPECT_EQ (d.S ().edits.Doc ().landscape->operations.size (), 0u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+}
+
+TEST (HudLandscape, ChangedDocumentAndViewCancelPendingCommandOperands)
+{
+    eh::Session s (Demo ());
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    ASSERT_TRUE (eh::PickLandscapeFace (s, { 2, 1, 0 }, true));
+    ASSERT_TRUE (eh::AdvanceLandscapeCommand (s));
+    ed::Transform t;
+    t.translate = { 1, 0, 0 };
+    ASSERT_TRUE (s.edits.Apply (ed::TransformOperation ({ { s.edits.Doc ().entities[0].id, ed::Part::Entity } }, t)));
+    EXPECT_FALSE (eh::AdvanceLandscapeCommand (s));
+    EXPECT_FALSE (s.landscapeCommand);
+    EXPECT_TRUE (s.edits.Doc ().landscape->operations.empty ());
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    eh::detail::CancelViewEdit (s, "View changed.");
+    EXPECT_FALSE (s.landscapeCommand);
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+}
+
 TEST (HudLandscape, CircleSourceIsPickedOnItsDrawnArcNotItsHiddenControlChord)
 {
     const auto doc = Demo ();

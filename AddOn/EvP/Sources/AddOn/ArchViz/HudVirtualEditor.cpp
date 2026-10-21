@@ -110,6 +110,8 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
 
 void Escape (Session& s)
 {
+    if (CancelLandscapeCommand (s))
+        return;
     if (s.tracker.State () == edit::TrackerState::Editing) {
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });
         if (s.planeTyping || s.profileTyping)
@@ -383,6 +385,19 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     CheckView (s, v); // stale numeric input cannot commit before the next view layout
     if (textInput || LabelKeys (s, v))
         return; // an ImGui text field, or a label open for typing, has the keyboard
+    if (s.landscapeCommand) {
+        for (const auto action : v.editActions)
+            if (action == overlayhud::Input::EditAction::Cancel)
+                CancelLandscapeCommand (s);
+        for (const auto& key : v.keys)
+            if (key.down && !key.repeat) {
+                if (key.code == 0x1B)
+                    CancelLandscapeCommand (s);
+                else if (key.code == 0x0D)
+                    AdvanceLandscapeCommand (s);
+            }
+        return;
+    }
     using K = edit::TrackerKey::Kind;
     bool escaped = false;
     const auto escape = [&] {
