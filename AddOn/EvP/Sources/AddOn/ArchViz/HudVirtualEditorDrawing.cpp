@@ -22,6 +22,7 @@ void EndHandleDrag (Session& s)
     s.facePush = false;
     s.drag = Drag::None;
     s.dragReleased = false;
+    CancelGumballReposition (s);
 }
 
 void EndDrag (Session& s)

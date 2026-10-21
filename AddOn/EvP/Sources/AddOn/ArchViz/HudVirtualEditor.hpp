@@ -91,6 +91,8 @@ struct Session {
     // with it.
     std::optional<edit::Vec3> pivot;
     std::vector<edit::Ref> pivotFor;
+    std::vector<edit::Ref> gumballRepositionFor;
+    uint64_t gumballRepositionRevision = 0;
     uint32_t filter = edit::kPickAll;
     double pathWidth = 1.5;
     std::string role;  // the starting command's word for what it edits
@@ -321,6 +323,10 @@ bool BeginFacePush (Session& session, const detail::Map& view, float x, float y,
 // True while a gesture or a numeric entry owns the input: a mode change waits for it rather
 // than re-naming the control the gesture captured.
 bool GizmoModeLocked (const Session& session);
+bool GumballRepositioning (const Session& session);
+bool CanRepositionGumball (const Session& session);
+bool BeginGumballReposition (Session& session);
+bool CancelGumballReposition (Session& session);
 bool SetGizmoMode (Session& session, edit::GizmoMode mode);
 
 // The path the profile canvas shows: the selected one, else the only one.

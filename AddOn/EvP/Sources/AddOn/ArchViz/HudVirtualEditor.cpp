@@ -110,7 +110,7 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
 
 void Escape (Session& s)
 {
-    if (CancelLandscapeCommand (s))
+    if (CancelLandscapeCommand (s) || CancelGumballReposition (s))
         return;
     if (s.tracker.State () == edit::TrackerState::Editing) {
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });
@@ -398,6 +398,15 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
             }
         return;
     }
+    if (GumballRepositioning (s)) {
+        for (const auto action : v.editActions)
+            if (action == overlayhud::Input::EditAction::Cancel)
+                CancelGumballReposition (s);
+        for (const auto& key : v.keys)
+            if (key.down && !key.repeat && key.code == 0x1B)
+                CancelGumballReposition (s);
+        return;
+    }
     using K = edit::TrackerKey::Kind;
     bool escaped = false;
     const auto escape = [&] {
@@ -552,6 +561,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     draw->PushClipRect ({ -1e6f, -1e6f }, { 1e6f, 1e6f }, false);
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
     const bool shift = ImGui::GetIO ().KeyShift;
+    if (!s.gumballRepositionFor.empty () && !GumballRepositioning (s))
+        CancelGumballReposition (s);
     CheckView (s, v);
     UpdatePathDetail (s, m, scale);
     Navigate (s, m, mouse);

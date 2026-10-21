@@ -16,7 +16,7 @@ namespace detail {
 // The document actions the menu, the keys and the panel share.
 void History (Session& s, bool undo)
 {
-    if (s.landscapeCommand) {
+    if (s.landscapeCommand || GumballRepositioning (s)) {
         s.message = "Finish the command or Esc it before undoing.";
         return;
     }
@@ -329,6 +329,13 @@ std::vector<MenuItem> MenuItems (const Session& s)
         }
         items.push_back (Item ("plane.pathStation", "Horizontal drawing plane along path..."));
     }
+    if (!s.selection.Items ().empty () && s.menu.target != MenuTarget::Drawing) {
+        Rule (items);
+        if (GumballRepositioning (s))
+            items.push_back (Item ("gizmo.reposition.cancel", "Cancel gumball repositioning", "Esc"));
+        else
+            items.push_back (Item ("gizmo.reposition", "Reposition gumball", {}, CanRepositionGumball (s)));
+    }
     AddHistory (s, items);
     if (s.menu.target == MenuTarget::View) {
         Rule (items);
@@ -392,6 +399,10 @@ void RunMenuItem (Session& s, const std::string& id)
         s.fromEnd = !s.fromEnd;
     else if (id == "gizmo.local")
         s.localAxes = !s.localAxes;
+    else if (id == "gizmo.reposition")
+        BeginGumballReposition (s);
+    else if (id == "gizmo.reposition.cancel")
+        CancelGumballReposition (s);
     else if (id.rfind ("gizmo.", 0) == 0)
         SetGizmoMode (s, edit::GizmoMode (std::stoi (id.substr (6))));
     else if (id == "segment.insert") {

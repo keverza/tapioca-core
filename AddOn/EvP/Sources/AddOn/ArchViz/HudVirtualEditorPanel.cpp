@@ -66,7 +66,7 @@ void Panel (Session& s)
     LandscapePanel (s);
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());
-    ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value ());
+    ImGui::BeginDisabled (s.profileTyping || s.landscapeCommand.has_value () || GumballRepositioning (s));
     if (ImGui::RadioButton ("Select (V)", s.tool == Tool::Select))
         s.tool = Tool::Select, s.landscapeMode = LandscapeMode::Select, s.drawing.clear ();
     ImGui::SameLine ();

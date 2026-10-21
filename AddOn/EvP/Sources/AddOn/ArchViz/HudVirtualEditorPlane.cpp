@@ -11,6 +11,7 @@ void CancelViewEdit (Session& s, const char* reason)
 {
     bool cancelled = s.typedHandle >= 0 || s.labelOpen || s.penDown || s.planeTyping;
     cancelled = CancelLandscapeCommand (s) || cancelled;
+    cancelled = CancelGumballReposition (s) || cancelled;
     if (s.drag != Drag::None && s.drag != Drag::ProfileBreak && s.drag != Drag::ProfileTangent) {
         cancelled = cancelled || s.drag != Drag::Marquee || s.edits.InGesture ();
         s.edits.Cancel ();
