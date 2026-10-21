@@ -32,8 +32,15 @@ void Icon (IconId icon, ImVec2 position, float size, ImU32 colour);
 // The same, centred on `centre`, into `draw`: for a canvas that owns its own list.
 void DrawIcon (ImDrawList* draw, IconId icon, ImVec2 centre, float size, ImU32 colour);
 
+// ⚠️ A GLYPH AT REST IS GREY; ONLY THE SELECTED ONE IS FULL INK (the user, 2026-10-21: "Icons in
+// light mode should be dark gray. Black should be for selected icon only"). Both are the card's
+// own text colour -- dark grey and black on the light card, light grey and white on the dark one --
+// so a glyph follows the theme and BeginDisabled dims it like text. Never the accent.
+constexpr float kIconRestAlpha = 0.72f;
+ImU32 IconInk (bool selected);
+
 // A square button the frame's height with `icon` at two thirds of it (the toolbar's 24 px item,
-// 16 px glyph). `active` shows it toggled on: the accent glyph on the pressed grey. True on the
+// 16 px glyph). `active` shows it toggled on: the full-ink glyph on the pressed grey. True on the
 // frame it is pressed; never while disabled.
 bool IconButton (const char* id, IconId icon, bool active = false);
 

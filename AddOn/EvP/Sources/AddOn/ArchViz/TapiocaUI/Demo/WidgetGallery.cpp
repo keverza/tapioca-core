@@ -204,7 +204,7 @@ void TipSamples ()
 void IconSamples (GalleryState& state, float scale)
 {
     const float sizes[] = { 16.0f, 24.0f, 32.0f };
-    const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
+    const ImU32 ink = IconInk (false);
     for (uint32_t i = 0; i < IconCount (); ++i) {
         const IconId icon = IconId (i);
         ImGui::PushID (int (i));

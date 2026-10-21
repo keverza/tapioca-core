@@ -29,7 +29,7 @@ void ButtonColours (bool active, ImU32& ground, ImU32& ink)
                                  : hovered ? ImGuiCol_ButtonHovered
                                  : active  ? ImGuiCol_HeaderActive
                                            : ImGuiCol_Button);
-    ink = ImGui::GetColorU32 (active ? ImGuiCol_CheckMark : ImGuiCol_Text);
+    ink = IconInk (active);
 }
 
 } // namespace
@@ -68,6 +68,11 @@ void DrawIcon (ImDrawList* draw, IconId icon, ImVec2 centre, float size, ImU32 c
             draw->AddCircleFilled (at (last), thickness * 0.5f, colour);
         }
     }
+}
+
+ImU32 IconInk (bool selected)
+{
+    return ImGui::GetColorU32 (ImGuiCol_Text, selected ? 1.0f : kIconRestAlpha);
 }
 
 void Icon (IconId icon, ImVec2 position, float size, ImU32 colour)

@@ -451,3 +451,37 @@ TEST (TapiocaUiIcons, AnIconButtonIsPressedOnceAndNeverWhileDisabled)
     EXPECT_FALSE (frame (true, true));
     EXPECT_FALSE (frame (true, false)) << "disabled, the same click does nothing";
 }
+
+// ⚠️ THE USER, 2026-10-21: "Icons in light mode should be dark gray. Black should be for selected
+// icon only." A glyph at rest is the card's ink made lighter, the selected one is the full ink,
+// and neither is the accent.
+TEST (TapiocaUiIcons, AGlyphAtRestIsGreyAndOnlyTheSelectedOneIsFullInk)
+{
+    Context context;
+    ImGui::StyleColorsLight ();
+    ImGui::NewFrame ();
+    ImGui::SetNextWindowPos (ImVec2 (0, 0));
+    ImGui::Begin ("ink", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+    const ImU32 rest = ui::IconInk (false), selected = ui::IconInk (true);
+    EXPECT_EQ (rest & 0x00FFFFFFu, selected & 0x00FFFFFFu) << "the same ink";
+    EXPECT_LT (rest >> 24, selected >> 24) << "lighter at rest";
+    EXPECT_EQ (selected, ImGui::GetColorU32 (ImGuiCol_Text));
+    EXPECT_NE (selected & 0x00FFFFFFu, ImGui::GetColorU32 (ImGuiCol_CheckMark) & 0x00FFFFFFu) << "not the accent";
+    ImDrawList* const draw = ImGui::GetWindowDrawList ();
+    const auto drawnIn = [draw] (int from, ImU32 colour) {
+        for (int v = from; v < draw->VtxBuffer.Size; ++v)
+            if (draw->VtxBuffer[v].col == colour)
+                return true;
+        return false;
+    };
+    int from = draw->VtxBuffer.Size;
+    ui::IconButton ("rest", ui::IconId::Cut);
+    EXPECT_TRUE (drawnIn (from, rest));
+    EXPECT_FALSE (drawnIn (from, selected));
+    from = draw->VtxBuffer.Size;
+    ui::IconButton ("selected", ui::IconId::Cut, true);
+    EXPECT_TRUE (drawnIn (from, selected));
+    EXPECT_FALSE (drawnIn (from, rest));
+    ImGui::End ();
+    ImGui::Render ();
+}
