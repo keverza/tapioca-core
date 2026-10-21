@@ -525,3 +525,39 @@ fn seeded_networks_match_the_pinned_digest() -> Result<(), Error> {
     assert_eq!(digest(&tins), 14_121_222_549_121_236_847);
     Ok(())
 }
+
+/// Regression: a ring whose vertices lie (to rounding) on one straight edge
+/// creates sliver faces; classifying them by centroid filled or dropped them
+/// at random. Captured from a property-line split of a grid triangle.
+#[test]
+fn ring_with_nearly_collinear_vertices_classifies_slivers_topologically() -> Result<(), Error> {
+    let points = [
+        6.0,
+        0.0,
+        3.75,
+        8.0,
+        0.0,
+        4.0,
+        8.0,
+        2.0,
+        3.5,
+        7.221_428_571_428_571_5,
+        1.221_428_571_428_571_5,
+        3.597_321_428_571_428_6,
+        7.109_230_769_230_77,
+        1.109_230_769_230_769_5,
+        3.611_346_153_846_153_8,
+        7.2,
+        1.1,
+        3.625,
+    ];
+    let ring = [0, 1, 2, 3, 4];
+    let constraints = [boundary(&ring), breakline(&[4, 5]), breakline(&[5, 3])];
+    let tin = triangulate(&Request {
+        z_tolerance: 0.0,
+        ..request(&points, &constraints)
+    })?;
+    assert!(close(total_area(&tin), 2.0, 1e-12));
+    assert!(tin.constraint_edges.iter().all(|row| row.kept));
+    Ok(())
+}

@@ -1,15 +1,17 @@
-//! Inside/outside classification of the triangulated faces by ring nesting.
+//! Inside/outside classification of the triangulated faces by winding depth.
 //!
-//! Faces are grouped into regions that are connected without crossing a
-//! boundary or hole edge (breaklines do not separate regions). One face per
-//! region is tested against every ring by crossing number, giving its depth:
-//! boundaries containing it minus holes containing it (one implicit boundary,
-//! the convex hull, when the request has none). Depth 1 is kept, depth 0 is
-//! excluded and anything else (nested boundaries, a hole outside every
-//! boundary) refuses. Finally every ring edge must have a kept face on exactly
-//! one side, so a hole is never silently filled and a boundary never bridged.
+//! The depth of a face is the number of boundary rings around it minus the
+//! number of hole rings around it. It is computed topologically, not by testing
+//! points: outside the triangulation the depth is 0 (1 when the request has no
+//! boundary, so the convex hull acts as one), and crossing a ring edge changes
+//! it by one according to the edge's direction and the ring's orientation. A
+//! face reached with two different depths, or any depth other than 0 or 1,
+//! refuses. Depth 1 is kept. Every ring edge must then have a kept face on
+//! exactly one side, so a hole is never silently filled and a boundary never
+//! bridged. Testing centroids instead fails on the sliver faces that rings with
+//! nearly collinear vertices produce.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use super::input::Prepared;
 use super::{ConstraintEdge, Error, Role};
@@ -21,65 +23,35 @@ pub(super) struct Classified {
     pub boundary: Vec<Option<u32>>,
 }
 
-struct Ring {
-    constraint: u32,
-    role: Role,
-    segments: Vec<[[f64; 2]; 2]>,
-}
-
 pub(super) fn classify(
     prepared: &Prepared,
     faces: &[[u32; 3]],
     rows: &[ConstraintEdge],
 ) -> Result<Classified, Error> {
-    let rings = rings(prepared)?;
-    let roles: BTreeMap<u32, Role> = rings.iter().map(|r| (r.constraint, r.role)).collect();
+    let roles = ring_weights(prepared)?;
     let mut ring_edges: BTreeMap<[u32; 2], Vec<u32>> = BTreeMap::new();
-    for row in rows
-        .iter()
-        .filter(|row| roles.contains_key(&row.segment.constraint))
-    {
-        ring_edges
-            .entry(key(row.vertices))
-            .or_default()
-            .push(row.segment.constraint);
-    }
-    let mut adjacent: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
-    for (index, face) in faces.iter().enumerate() {
-        for edge in face_edges(*face) {
-            adjacent.entry(key(edge)).or_default().push(index);
+    let mut weights: BTreeMap<[u32; 2], i64> = BTreeMap::new();
+    for row in rows {
+        if let Some(&(_, weight)) = roles.get(&row.segment.constraint) {
+            ring_edges
+                .entry(key(row.vertices))
+                .or_default()
+                .push(row.segment.constraint);
+            *weights.entry(row.vertices).or_default() += weight;
         }
     }
-    let has_boundary = rings.iter().any(|ring| ring.role == Role::Boundary);
-    let mut kept = vec![false; faces.len()];
-    let mut boundary = vec![None; faces.len()];
-    let mut region = vec![false; faces.len()];
-    for (seed, face) in faces.iter().enumerate() {
-        if region.get(seed).copied().unwrap_or(true) {
-            continue;
-        }
-        let depth = depth(&rings, has_boundary, centroid(prepared, *face)?);
-        let keep = match depth {
-            0 => false,
-            1 => true,
+    let has_boundary = roles.values().any(|(role, _)| *role == Role::Boundary);
+    let depths = winding(faces, &weights, i64::from(!has_boundary))
+        .ok_or(Error::HoleClassificationFailed)?;
+    let mut kept = Vec::with_capacity(faces.len());
+    for depth in depths {
+        match depth {
+            0 => kept.push(false),
+            1 => kept.push(true),
             _ => return Err(Error::HoleClassificationFailed),
-        };
-        let (members, borders) = flood(faces, &adjacent, &ring_edges, &mut region, seed);
-        let bound = borders
-            .iter()
-            .filter(|constraint| roles.get(constraint) == Some(&Role::Boundary))
-            .min()
-            .copied();
-        if keep && has_boundary && bound.is_none() {
-            return Err(Error::HoleClassificationFailed);
-        }
-        for member in members {
-            if let (Some(flag), Some(owner)) = (kept.get_mut(member), boundary.get_mut(member)) {
-                *flag = keep;
-                *owner = bound.filter(|_| keep);
-            }
         }
     }
+    let adjacent = adjacency(faces);
     for edge in ring_edges.keys() {
         let sides = adjacent.get(edge).map_or(0, |list| {
             list.iter()
@@ -90,7 +62,85 @@ pub(super) fn classify(
             return Err(Error::HoleClassificationFailed);
         }
     }
+    let mut boundary = vec![None; faces.len()];
+    let mut region = vec![false; faces.len()];
+    for seed in 0..faces.len() {
+        if region.get(seed).copied().unwrap_or(true) || !kept.get(seed).copied().unwrap_or(false) {
+            continue;
+        }
+        let (members, borders) = flood(faces, &adjacent, &ring_edges, &mut region, seed);
+        let bound = borders
+            .iter()
+            .filter(|constraint| matches!(roles.get(constraint), Some((Role::Boundary, _))))
+            .min()
+            .copied();
+        if has_boundary && bound.is_none() {
+            return Err(Error::HoleClassificationFailed);
+        }
+        for member in members {
+            if let Some(owner) = boundary.get_mut(member) {
+                *owner = bound;
+            }
+        }
+    }
     Ok(Classified { kept, boundary })
+}
+
+/// Winding depth of every face of a triangle list.
+///
+/// `weights[[u, v]]` is how much the depth rises when crossing the directed
+/// edge `u -> v` from its right side to its left side (several rows on one
+/// edge add up). Outside the triangle list the depth is `outside`. Faces are
+/// counter-clockwise, so each face lies left of its own edges. Returns `None`
+/// when a face is reached with two different depths (or none at all).
+pub(super) fn winding(
+    faces: &[[u32; 3]],
+    weights: &BTreeMap<[u32; 2], i64>,
+    outside: i64,
+) -> Option<Vec<i64>> {
+    let rise = |[a, b]: [u32; 2]| {
+        weights.get(&[a, b]).copied().unwrap_or(0) - weights.get(&[b, a]).copied().unwrap_or(0)
+    };
+    let adjacent = adjacency(faces);
+    let mut depths: Vec<Option<i64>> = vec![None; faces.len()];
+    let mut queue = VecDeque::new();
+    for (index, face) in faces.iter().enumerate() {
+        for edge in face_edges(*face) {
+            if adjacent.get(&key(edge)).is_some_and(|list| list.len() == 1) {
+                assign(&mut depths, &mut queue, index, outside + rise(edge))?;
+            }
+        }
+    }
+    while let Some(index) = queue.pop_front() {
+        let depth = depths.get(index).copied().flatten()?;
+        let face = faces.get(index)?;
+        for edge in face_edges(*face) {
+            for &next in adjacent.get(&key(edge)).into_iter().flatten() {
+                if next != index {
+                    assign(&mut depths, &mut queue, next, depth - rise(edge))?;
+                }
+            }
+        }
+    }
+    depths.into_iter().collect()
+}
+
+/// Give a face its depth, or check it against the one it already has.
+fn assign(
+    depths: &mut [Option<i64>],
+    queue: &mut VecDeque<usize>,
+    face: usize,
+    depth: i64,
+) -> Option<()> {
+    match depths.get_mut(face)? {
+        Some(existing) if *existing != depth => None,
+        Some(_) => Some(()),
+        slot @ None => {
+            *slot = Some(depth);
+            queue.push_back(face);
+            Some(())
+        }
+    }
 }
 
 /// Whether an undirected edge borders at least one kept face.
@@ -102,6 +152,16 @@ pub(super) fn edge_kept(faces: &[[u32; 3]], kept: &[bool]) -> BTreeMap<[u32; 2],
         }
     }
     result
+}
+
+fn adjacency(faces: &[[u32; 3]]) -> BTreeMap<[u32; 2], Vec<usize>> {
+    let mut adjacent: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
+    for (index, face) in faces.iter().enumerate() {
+        for edge in face_edges(*face) {
+            adjacent.entry(key(edge)).or_default().push(index);
+        }
+    }
+    adjacent
 }
 
 /// Collect one region and the ring constraints on its border.
@@ -139,55 +199,37 @@ fn flood(
     (members, borders)
 }
 
-fn rings(prepared: &Prepared) -> Result<Vec<Ring>, Error> {
-    let mut rings: Vec<Ring> = Vec::new();
+/// Per ring constraint: its role and the depth rise across its edges in ring
+/// direction (+1 for a counter-clockwise boundary, -1 for a counter-clockwise
+/// hole, negated for clockwise rings). A ring with zero signed area refuses.
+fn ring_weights(prepared: &Prepared) -> Result<BTreeMap<u32, (Role, i64)>, Error> {
+    let mut areas: BTreeMap<u32, (Role, f64)> = BTreeMap::new();
     for segment in prepared
         .segments
         .iter()
         .filter(|s| s.role != Role::Breakline)
     {
         let [a, b] = segment.ends.map(|vertex| prepared.position(vertex));
-        let ends = [a?, b?].map(|p| [p[0], p[1]]);
-        match rings.last_mut() {
-            Some(ring) if ring.constraint == segment.id.constraint => ring.segments.push(ends),
-            _ => rings.push(Ring {
-                constraint: segment.id.constraint,
-                role: segment.role,
-                segments: vec![ends],
-            }),
-        }
+        let (a, b) = (a?, b?);
+        let entry = areas
+            .entry(segment.id.constraint)
+            .or_insert((segment.role, 0.0));
+        entry.1 += a[0] * b[1] - a[1] * b[0];
     }
-    Ok(rings)
-}
-
-fn depth(rings: &[Ring], has_boundary: bool, point: [f64; 2]) -> i64 {
-    let mut depth = i64::from(!has_boundary);
-    for ring in rings {
-        if contains(&ring.segments, point) {
-            depth += if ring.role == Role::Hole { -1 } else { 1 };
-        }
-    }
-    depth
-}
-
-/// Even-odd crossing number of a horizontal ray to +x.
-fn contains(segments: &[[[f64; 2]; 2]], [x, y]: [f64; 2]) -> bool {
-    let mut inside = false;
-    for &[p, q] in segments {
-        if (p[1] > y) != (q[1] > y) {
-            let at = p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1]);
-            if x < at {
-                inside = !inside;
-            }
-        }
-    }
-    inside
-}
-
-fn centroid(prepared: &Prepared, face: [u32; 3]) -> Result<[f64; 2], Error> {
-    let [a, b, c] = face.map(|vertex| prepared.position(vertex));
-    let (a, b, c) = (a?, b?, c?);
-    Ok([(a[0] + b[0] + c[0]) / 3.0, (a[1] + b[1] + c[1]) / 3.0])
+    areas
+        .into_iter()
+        .map(|(constraint, (role, area))| {
+            let orientation = if area > 0.0 {
+                1
+            } else if area < 0.0 {
+                -1
+            } else {
+                return Err(Error::HoleClassificationFailed);
+            };
+            let sign = if role == Role::Hole { -1 } else { 1 };
+            Ok((constraint, (role, sign * orientation)))
+        })
+        .collect()
 }
 
 pub(super) const fn face_edges([a, b, c]: [u32; 3]) -> [[u32; 2]; 3] {
