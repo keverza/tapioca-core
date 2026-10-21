@@ -577,10 +577,12 @@ wrapper). Plan xy and z are world metres in `f64`.
   crossings by segment pair), then constraints via the non-panicking
   `try_add_constraint`; a refused or gapped constraint path is
   `TriangulationConstraint`.
-- **Domain:** regions separated by ring edges get a nesting depth (boundaries
-  minus holes containing one face; the hull counts as a boundary when none is
-  given). Depth 1 is kept, 0 excluded, anything else and any ring edge without
-  exactly one kept side is `HoleClassificationFailed`.
+- **Domain:** each face gets a winding depth (boundaries minus holes around it),
+  computed topologically: 0 outside the triangulation (1 when no boundary is
+  given), +/-1 across each ring edge by its direction and the ring's orientation.
+  No point-in-polygon test is used (centroids misclassify slivers). Depth 1 is
+  kept, 0 excluded; two depths for one face, any other depth, or a ring edge
+  without exactly one kept side is `HoleClassificationFailed`.
 - **Result and identity:** canonical CCW triangles (lowest vertex first, sorted),
   per-input-point output vertex, crossing records naming their two segments,
   one constraint-edge row per `(constraint, segment)` in path order with a kept
@@ -594,8 +596,33 @@ collinear input or an empty kept domain are `TriangulationDegenerate`. Tests
 cover rings, holes, islands, crossings, T-junctions, overlaps, tampered results,
 georeferenced coordinates, 64 seeded breakline networks on a plane (area, Euler
 characteristic, heights, repeatability) and a digest pinned to `spade` 2.15.1
-that catches hash-ordered output across runs. Refinement and the property-line
-mesh split are later S3a.1 increments.
+that catches hash-ordered output across runs. Refinement is a later S3a.1
+increment.
+
+`terrain::split_mesh` makes a closed straight property line a path of edges of
+an existing plan-view mesh. Arcs (any nonzero per-segment arc angle) refuse with
+`PropertyLineArcUnsupported` before anything else; a malformed or non-simple
+line, a line vertex off the mesh, a crossing of a mesh boundary edge or an
+uncovered region inside the line refuse with `PropertyLineOutside`.
+
+- Input vertices keep their indices; new vertices (line vertices inside a face
+  or on an edge, then crossings in line order) take z from the mesh surface, so
+  the surface never changes. Every mesh-edge predicate is evaluated low vertex
+  to high, so neighbouring triangles agree.
+- Triangles the line does not touch are emitted verbatim in input order; each
+  straddled triangle is rebuilt with `triangulate` from its corners, its edge
+  vertices and the line pieces inside it. Every output triangle names its parent
+  and an inside flag (winding depth across the line edges, 0 outside the mesh).
+- Mapping: per line vertex its output vertex, per new vertex its origin (line
+  vertex or crossing segment) and host (edge or face), and line edges by segment
+  in path order. Each line edge must border exactly one inside triangle.
+
+Tests: generic and on-edge/through-vertex lines on grids, a line along mesh edges
+(mesh returned identical), arc refusal order, seven outside cases, a line around
+and across a mesh hole, malformed meshes, and 48 seeded star lines over seeded
+TINs (parent areas preserved, untouched triangles verbatim, heights on the
+surface, inside area equal to the line's area, conforming boundary, closed line
+path, repeatability).
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

@@ -22,18 +22,23 @@
 //! Callers translate these input indices to their source/operation/object IDs.
 //! A result whose constraint paths do not verify is refused, never returned.
 //!
-//! Not yet implemented here: refinement (quality/area Steiner points) and the
-//! property-line mesh split; both are later S3a.1 increments.
+//! [`split_mesh`] makes a closed property line a path of edges of an existing
+//! terrain mesh, rebuilding only the triangles it touches.
+//!
+//! Not yet implemented here: refinement (quality/area Steiner points), a later
+//! S3a.1 increment.
 
 mod classify;
 mod constrain;
 mod input;
 mod presplit;
+mod split;
 mod verify;
 
 #[cfg(test)]
 mod tests;
 
+pub use split::{Host, LineEdge, NewVertex, Origin, SplitMesh, SplitRequest, split_mesh};
 pub use verify::{extract_edges, verify_constraints};
 
 /// What a constraint polyline means for the surface and its domain.
@@ -152,6 +157,10 @@ pub enum Error {
     /// Rings cross, nest inconsistently or leave a ring edge without exactly
     /// one kept side.
     HoleClassificationFailed,
+    /// The property line is malformed, not simple, or not covered by the mesh.
+    PropertyLineOutside,
+    /// The property line has an arc segment; only straight segments split.
+    PropertyLineArcUnsupported,
 }
 
 impl Error {
@@ -175,6 +184,12 @@ impl Error {
             }
             Self::HoleClassificationFailed => {
                 "HoleClassificationFailed: boundary and hole rings cannot be resolved"
+            }
+            Self::PropertyLineOutside => {
+                "PropertyLineOutside: property line must be a simple ring covered by the mesh"
+            }
+            Self::PropertyLineArcUnsupported => {
+                "PropertyLineArcUnsupported: property line requires straight segments"
             }
         }
     }
