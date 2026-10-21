@@ -373,6 +373,111 @@ TEST (EditLandscape, PropertyLineRequiresClosedStraightSimpleGeometryAndContains
     EXPECT_NE (result.error.find ("PropertyLineArcUnsupported"), std::string::npos);
 }
 
+TEST (EditLandscape, PropertyLineRefusalsAreNamedAndLeaveTheDocumentUntouched)
+{
+    constexpr double kPi = 3.14159265358979323846;
+    auto doc = Start ();
+    const auto open = Source (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, false);
+    const auto bowtie = Source (doc, { { 0, 0, 0 }, { 10, 10, 0 }, { 10, 0, 0 }, { 0, 10, 0 } });
+    geo::LandscapeSource arc;
+    arc.entityId = edit::AddPolyline (doc, { { 20, 0, 0 }, { 30, 0, 0 }, { 30, 10, 0 }, { 20, 10, 0 } }, true);
+    arc.arcAngles = { kPi / 4, 0, 0, 0 };
+    edit::Id arced = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, arc, arced, error)) << error;
+    const auto untouched = doc;
+    const std::vector<std::pair<edit::Id, std::string>> cases {
+        { open, "PropertyLineOutside" },
+        { bowtie, "PropertyLineOutside" },
+        { arced, "PropertyLineArcUnsupported" },
+        { 999999, "does not exist" },
+    };
+    for (const auto& [source, expected] : cases) {
+        EXPECT_FALSE (geo::SetLandscapePropertyLine (doc, source, error)) << source;
+        EXPECT_NE (error.find (expected), std::string::npos) << source << ": " << error;
+        EXPECT_EQ (doc.landscape, untouched.landscape) << source;
+        EXPECT_EQ (doc.nextId, untouched.nextId) << source;
+        EXPECT_EQ (doc.revision, untouched.revision) << source;
+    }
+}
+
+TEST (EditLandscape, PropertyLineLoopIsCarriedUnchangedThroughEditsInsideIt)
+{
+    auto doc = Start ();
+    const auto line = Square (doc, 0, 0, 20);
+    const auto inner = Square (doc, 5, 5, 5);
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapePropertyLine (doc, line, error)) << error;
+    Object (doc, Operation (doc, geo::OperationKind::RegionSelect, { inner }));
+    const std::vector<edit::Vec3> loop { { 0, 0, 0 }, { 20, 0, 0 }, { 20, 20, 0 }, { 0, 20, 0 } };
+    const auto initial = Evaluate (doc);
+    EXPECT_EQ (initial.propertyLine, loop);
+    EXPECT_NE (initial.propertyLineRevision, 0u);
+    EXPECT_DOUBLE_EQ (initial.boundaryTolerance, 0.001);
+    const auto innerEntity = doc.landscape->sources[1].entityId, lineEntity = doc.landscape->sources[0].entityId;
+    edit::Session session (doc);
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string& e) {
+        return edit::MoveVertex (d, innerEntity, edit::Find (d, innerEntity)->vertices[2].id, { 12, 12, 0 }, e);
+    })) << session.Message ();
+    const auto edited = Evaluate (session.Doc ());
+    EXPECT_NEAR (Area (edited), 25 + 2 * 0.5 * 5 * 2, 1.0e-6); // the dragged corner adds two triangles
+    EXPECT_EQ (edited.propertyLine, loop);
+    EXPECT_EQ (edited.propertyLineRevision, initial.propertyLineRevision);
+    EXPECT_EQ (session.Doc ().landscape->propertyLineSourceId, line);
+    // Editing the line itself changes the exposed loop and its revision.
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string& e) {
+        return edit::MoveVertex (d, lineEntity, edit::Find (d, lineEntity)->vertices[2].id, { 25, 25, 0 }, e);
+    })) << session.Message ();
+    const auto moved = Evaluate (session.Doc ());
+    EXPECT_EQ (moved.propertyLine[2], (edit::Vec3 { 25, 25, 0 }));
+    EXPECT_NE (moved.propertyLineRevision, initial.propertyLineRevision);
+}
+
+TEST (EditLandscape, PathStrokeCombinesWithAPlaygroundAndACircleCutter)
+{
+    constexpr double kPi = 3.14159265358979323846;
+    auto doc = Start ();
+    const auto path = edit::AddPath (doc, { { 0, 5, 0 }, { 30, 5, 0 } }, 2, "walk");
+    geo::LandscapeSource centreline;
+    centreline.pathId = path;
+    centreline.role = geo::SourceRole::PathCenterline;
+    edit::Id walk = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, centreline, walk, error)) << error;
+    const auto stroke = Operation (doc, geo::OperationKind::Stroke, { walk });
+    const auto playground = Square (doc, 10, 0);
+    geo::LandscapeSource circle;
+    circle.entityId = edit::AddPolyline (doc, { { 17, 5, 0 }, { 15, 7, 0 }, { 13, 5, 0 }, { 15, 3, 0 } }, true);
+    circle.arcAngles.assign (4, kPi / 2);
+    edit::Id cutter = 0;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, circle, cutter, error)) << error;
+    // A 30 x 2 walk crosses a 10 x 10 playground over 10 x 2.
+    const std::vector<std::pair<geo::OperationKind, double>> expected {
+        { geo::OperationKind::Union, 140 },
+        { geo::OperationKind::Intersection, 20 },
+        { geo::OperationKind::Xor, 120 },
+        { geo::OperationKind::Difference, 40 },
+    };
+    for (const auto& [kind, area] : expected) {
+        auto variant = doc;
+        Object (variant, Operation (variant, kind, { stroke, playground }));
+        const auto result = Evaluate (variant);
+        EXPECT_NEAR (Area (result), area, 1.0e-6) << int (kind);
+        for (const auto& region : result.regions) {
+            EXPECT_FALSE (region.sources.empty ());
+            EXPECT_TRUE (std::all_of (region.sources.begin (), region.sources.end (),
+                                      [&] (edit::Id s) { return s == walk || s == playground; }));
+        }
+    }
+    const auto joined = Operation (doc, geo::OperationKind::Union, { stroke, playground });
+    Object (doc, Operation (doc, geo::OperationKind::Difference, { joined, cutter }));
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_EQ (result.regions[0].rings.size (), 2u);
+    EXPECT_NEAR (Area (result), 140 - 4 * kPi, 0.02);
+    EXPECT_EQ (result.regions[0].sources, (std::vector<edit::Id> { walk, playground, cutter }));
+}
+
 TEST (EditLandscape, ShuffledCatalogsKeepRegionIdsAndFullHistory)
 {
     auto doc = Start ();
