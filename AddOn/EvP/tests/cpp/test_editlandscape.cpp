@@ -501,6 +501,42 @@ TEST (EditLandscape, DisconnectedSiblingSharingAuthoredSegmentsIsNotAPredecessor
     EXPECT_EQ (notched->predecessorRegions, (std::vector<edit::Id> { right }));
 }
 
+TEST (EditLandscape, ReshapedArcCarriesOnlyItsOwnFragmentsLineage)
+{
+    // A D whose single arc bounds both disconnected pieces over different
+    // subdomains. One edit grows the arc and cuts a hole into the left piece.
+    constexpr double kPi = 3.14159265358979323846;
+    auto doc = Start ();
+    geo::LandscapeSource arc;
+    arc.entityId = edit::AddPolyline (doc, { { 5, 0, 0 }, { -5, 0, 0 }, { 0, 0, 0 } }, true);
+    arc.arcAngles = { kPi, 0, 0 };
+    edit::Id d = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, arc, d, error)) << error;
+    const auto strip = Source (doc, { { -1, -1, 0 }, { 1, -1, 0 }, { 1, 9, 0 }, { -1, 9, 0 } });
+    const auto notch = Square (doc, -20, 1, 1);
+    const auto pieces = Operation (doc, geo::OperationKind::Difference, { d, strip });
+    Object (doc, Operation (doc, geo::OperationKind::Difference, { pieces, notch }));
+    const auto initial = Evaluate (doc);
+    ASSERT_EQ (initial.regions.size (), 2u);
+    const auto left = RegionLeftOf (initial, 0, true)->regionId, right = RegionLeftOf (initial, 0, false)->regionId;
+    const auto notchEntity = doc.landscape->sources[2].entityId;
+    edit::Session session (doc);
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& doc, std::string&) {
+        doc.landscape->sources[0].arcAngles = { 1.2 * kPi, 0, 0 };
+        return Translate (doc, notchEntity, 16);
+    })) << session.Message ();
+    const auto after = Evaluate (session.Doc ());
+    ASSERT_EQ (after.regions.size (), 2u);
+    const auto* holed = RegionLeftOf (after, 0, true);
+    const auto* grown = RegionLeftOf (after, 0, false);
+    EXPECT_EQ (holed->rings.size (), 2u);
+    EXPECT_NE (holed->regionId, left);
+    EXPECT_EQ (holed->predecessorRegions, (std::vector<edit::Id> { left }));
+    EXPECT_EQ (grown->regionId, right);
+    EXPECT_GT (grown->area, RegionLeftOf (initial, 0, false)->area);
+}
+
 TEST (EditLandscape, ReplacedFootprintDescendsByAreaNotBySharedSegments)
 {
     auto doc = Start ();
