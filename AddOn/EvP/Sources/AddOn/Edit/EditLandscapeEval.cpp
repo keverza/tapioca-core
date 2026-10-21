@@ -1,0 +1,523 @@
+#include "Edit/EditLandscapeInternal.hpp"
+#include <algorithm>
+#include <bit>
+#include <cmath>
+#include <exception>
+#include <limits>
+#include <map>
+#include <set>
+
+namespace tapioca::geometry {
+namespace edit = geomsrv::edit;
+using namespace landscape_detail;
+namespace {
+const LandscapeSource* Source (const LandscapeSession& session, Id id)
+{
+    for (const auto& source : session.sources)
+        if (source.id == id)
+            return &source;
+    return nullptr;
+}
+bool PropertyLine (const edit::Document& doc, const std::map<Id, SourceCurve>& curves, LandscapeResult& out)
+{
+    const auto& session = *doc.landscape;
+    if (session.propertyLineSourceId == 0)
+        return true;
+    const auto* source = Source (session, session.propertyLineSourceId);
+    if (!source || source->deleted || source->role != SourceRole::PropertyLine || !curves.count (source->id)) {
+        out.error = "PropertyLineOutside: property-line source is absent or invalid";
+        return false;
+    }
+    const auto& curve = curves.at (source->id).curve;
+    if (std::any_of (curve.arcAngles.begin (), curve.arcAngles.end (), [] (double a) { return a != 0.0; }) ||
+        std::any_of (curve.inHandles.begin (), curve.inHandles.end (), [] (Vec3 h) { return h.x != 0 || h.y != 0; }) ||
+        std::any_of (curve.outHandles.begin (), curve.outHandles.end (),
+                     [] (Vec3 h) { return h.x != 0 || h.y != 0; }) ||
+        std::any_of (edit::Find (doc, source->entityId)->vertices.begin (),
+                     edit::Find (doc, source->entityId)->vertices.end (),
+                     [] (const auto& v) { return v.radius != 0; })) {
+        out.error = "PropertyLineArcUnsupported: property line requires straight segments";
+        Diagnostic (out, LandscapeDiagnosticCode::PropertyLineArcUnsupported, 0, out.error);
+        return false;
+    }
+    PlanarMap map;
+    if (!curve.closed || !BuildPlanarMap ({ curve }, PlanarOptions {}, map, out.error) || map.faces.size () != 1 ||
+        std::any_of (map.diagnostics.begin (), map.diagnostics.end (),
+                     [] (const auto& d) { return d.code == PlanarDiagnosticCode::SelfIntersection; })) {
+        out.error = "PropertyLineOutside: property line must be a closed simple straight ring";
+        Diagnostic (out, LandscapeDiagnosticCode::PropertyLineOutside, 0, out.error);
+        return false;
+    }
+    out.propertyLine = curve.points;
+    out.propertyLineRevision = source->revision;
+    return true;
+}
+void AppendHistory (Shape& shape, Id operation, const std::vector<Id>& order)
+{
+    for (auto& region : shape) {
+        std::set<Id> history (region.operations.begin (), region.operations.end ());
+        history.insert (operation);
+        region.operations.clear ();
+        for (Id id : order)
+            if (history.count (id))
+                region.operations.push_back (id);
+        Describe (region);
+    }
+}
+bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std::map<Id, SourceCurve>& curves,
+             const std::vector<Id>& order, Shape& out, std::string& error)
+{
+    const auto* source = Source (*doc.landscape, op.inputs.front ());
+    if (!source || source->deleted) {
+        error = "Stroke requires a source curve/path";
+        return false;
+    }
+    cp::PathsD paths;
+    DerivedRegion parent;
+    parent.sources = { source->id };
+    std::vector<RegionBoundaryPiece> support;
+    if (source->pathId) {
+        const auto* path = edit::FindPath (doc, source->pathId);
+        edit::AlignmentGeometry alignment;
+        edit::PathOutline outline;
+        if (!path || !edit::BuildAlignment (path->points, alignment, error))
+            return false;
+        if (std::ceil (alignment.length / 0.25) + alignment.elements.size () + 3 * path->profile.size () +
+                2 * path->sections.size () >
+            9000) {
+            error = "landscape path outline exceeds its sample budget";
+            return false;
+        }
+        if (!edit::Outline (*path, 0.25, outline, error))
+            return false;
+        cp::PathD ring;
+        for (auto p : outline.left)
+            ring.push_back ({ p.x, p.y });
+        for (auto i = outline.right.rbegin (); i != outline.right.rend (); ++i)
+            ring.push_back ({ i->x, i->y });
+        if (cp::Area (ring) < 0)
+            std::reverse (ring.begin (), ring.end ());
+        paths.push_back (std::move (ring));
+        // The existing path alignment/profile/section is authoritative; width
+        // belongs to its sections rather than a parallel stroke-width model.
+        for (size_t i = 1; i < path->points.size (); ++i)
+            support.push_back ({ path->points[i - 1].p,
+                                 path->points[i].p,
+                                 { { source->id, path->points[i - 1].id, false } },
+                                 {},
+                                 true });
+    }
+    else {
+        const auto& curve = curves.at (source->id);
+        PlanarMap map;
+        if (!BuildPlanarMap ({ curve.curve }, PlanarOptions {}, map, error))
+            return false;
+        cp::PathD line;
+        // Assemble the flattened pieces in source-local order, retaining arcs
+        // and cubics instead of stroking the raw anchor chord.
+        struct Piece {
+            uint32_t ordinal;
+            double start;
+            Vec3 a, b;
+            Id segment;
+        };
+        std::vector<Piece> pieces;
+        for (const auto& edge : map.edges)
+            for (const auto& p : edge.pieces) {
+                const Vec3 a = map.vertices[p.reversed ? edge.b : edge.a],
+                           b = map.vertices[p.reversed ? edge.a : edge.b];
+                pieces.push_back ({ p.piece, p.sourceStart, a, b, curve.segments.at (p.piece) });
+            }
+        std::sort (pieces.begin (), pieces.end (), [] (const auto& a, const auto& b) {
+            return std::tie (a.ordinal, a.start) < std::tie (b.ordinal, b.start);
+        });
+        for (const auto& piece : pieces) {
+            line.push_back ({ piece.a.x, piece.a.y });
+            support.push_back ({ piece.a, piece.b, { { source->id, piece.segment, false } }, {}, true });
+        }
+        if (!pieces.empty () && !curve.curve.closed)
+            line.push_back ({ pieces.back ().b.x, pieces.back ().b.y });
+        paths =
+            cp::InflatePaths (cp::PathsD { line }, op.width * 0.5, cp::JoinType::Round,
+                              curve.curve.closed ? cp::EndType::Joined : cp::EndType::Round, 2.0, kPrecision, 0.001);
+    }
+    parent.boundary.push_back (std::move (support));
+    return GeneratedShape (paths, { parent }, op.id, order, out, error);
+}
+bool Evaluate (const edit::Document& doc, LandscapeResult& out)
+{
+    out.revision = doc.revision;
+    if (!doc.landscape)
+        return true;
+    if (!ValidateLandscape (doc, out.error))
+        return false;
+    const auto& session = *doc.landscape;
+    std::vector<Id> order;
+    if (!ValidateLandscapeDag (session, order, out.error))
+        return false;
+    std::map<Id, SourceCurve> curves;
+    std::vector<PlanarCurve> input;
+    std::map<Id, Shape> values;
+    std::set<Id> unavailable;
+    for (const auto& source : session.sources) {
+        if (source.deleted) {
+            unavailable.insert (source.id);
+            continue;
+        }
+        if (source.pathId) {
+            values[source.id] = {};
+            continue;
+        }
+        SourceCurve curve;
+        if (!ReadSourceCurve (doc, source, curve, out.error))
+            return false;
+        input.push_back (curve.curve);
+        curves[source.id] = std::move (curve);
+    }
+    PlanarMap arrangement;
+    if (!BuildPlanarMap (input, PlanarOptions {}, arrangement, out.error)) {
+        out.planarDiagnostics = std::move (arrangement.diagnostics);
+        return false;
+    }
+    out.planarDiagnostics = arrangement.diagnostics;
+    for (const auto& face : arrangement.faces)
+        out.faces.push_back (FaceRegion (arrangement, face, curves));
+    if (!PropertyLine (doc, curves, out))
+        return false;
+    for (const auto& [id, curve] : curves) {
+        Shape shape;
+        if (curve.curve.closed) {
+            PlanarMap map;
+            if (!BuildPlanarMap ({ curve.curve }, PlanarOptions {}, map, out.error))
+                return false;
+            for (const auto& face : map.faces)
+                shape.push_back (FaceRegion (map, face, curves));
+        }
+        values[id] = std::move (shape);
+    }
+    for (Id id : order) {
+        const auto opIt = std::find_if (session.operations.begin (), session.operations.end (),
+                                        [=] (const auto& o) { return o.id == id; });
+        const auto& op = *opIt;
+        if (std::any_of (op.inputs.begin (), op.inputs.end (),
+                         [&] (Id inputId) { return !values.count (inputId) || unavailable.count (inputId); })) {
+            unavailable.insert (id);
+            values[id] = {};
+            Diagnostic (out, LandscapeDiagnosticCode::OrphanedOperation, id,
+                        "operation retains an absent/deleted input");
+            continue;
+        }
+        Shape shape = values.at (op.inputs.front ());
+        if (!op.enabled) {
+            values[id] = std::move (shape);
+            continue;
+        }
+        if (op.kind == OperationKind::Stroke) {
+            if (!Stroke (doc, op, curves, order, shape, out.error))
+                return false;
+        }
+        else if (op.kind == OperationKind::RegionSelect && !op.faces.empty ()) {
+            shape.clear ();
+            for (const auto& selector : op.faces) {
+                const DerivedRegion* match = nullptr;
+                for (const auto& face : out.faces)
+                    if (face.descriptor == selector) {
+                        if (match) {
+                            out.error = "ProvenanceUnattributable: ambiguous semantic face selector";
+                            Diagnostic (out, LandscapeDiagnosticCode::AmbiguousFace, id, out.error);
+                            return false;
+                        }
+                        match = &face;
+                    }
+                if (!match) {
+                    out.error = "ProvenanceUnattributable: selected face changed topology; select it explicitly again";
+                    Diagnostic (out, LandscapeDiagnosticCode::AmbiguousFace, id, out.error);
+                    return false;
+                }
+                shape.push_back (*match);
+            }
+            AppendHistory (shape, id, order);
+        }
+        else if (op.kind == OperationKind::Offset) {
+            Shape offset;
+            // Offset each disconnected attributed parent separately, then
+            // assemble with verified contributors; never tag all inputs onto
+            // every disconnected output.
+            for (const auto& parent : shape) {
+                const auto paths = cp::InflatePaths (Paths (parent), op.offset, cp::JoinType::Round,
+                                                     cp::EndType::Polygon, 2.0, kPrecision, 0.001);
+                Shape generated;
+                if (!GeneratedShape (paths, { parent }, id, order, generated, out.error))
+                    return false;
+                Shape combined;
+                if (!BooleanShape (OperationKind::Union, offset, generated, id, order, combined, out.error))
+                    return false;
+                offset = std::move (combined);
+            }
+            shape = std::move (offset);
+            if (shape.empty ())
+                Diagnostic (out, LandscapeDiagnosticCode::OffsetCollapsed, id, "offset consumed the footprint");
+        }
+        else if (op.kind == OperationKind::MaterialMask || op.kind == OperationKind::GradingLimit ||
+                 op.kind == OperationKind::ProtectedZone) {
+            // Constraints retain the footprint; only affected regions acquire
+            // the mask's actual sources/history. H3/H11 consume these masks.
+            for (auto& region : shape) {
+                std::set<Id> sources (region.sources.begin (), region.sources.end ());
+                std::set<Id> history (region.operations.begin (), region.operations.end ());
+                for (size_t i = 1; i < op.inputs.size (); ++i)
+                    for (const auto& mask : values.at (op.inputs[i]))
+                        if (std::abs (cp::Area (
+                                cp::Intersect (Paths (region), Paths (mask), cp::FillRule::NonZero, kPrecision))) > 0) {
+                            sources.insert (mask.sources.begin (), mask.sources.end ());
+                            history.insert (mask.operations.begin (), mask.operations.end ());
+                        }
+                region.sources.assign (sources.begin (), sources.end ());
+                region.operations.clear ();
+                for (Id parent : order)
+                    if (history.count (parent))
+                        region.operations.push_back (parent);
+            }
+            AppendHistory (shape, id, order);
+        }
+        else if (op.kind == OperationKind::RegionSelect)
+            AppendHistory (shape, id, order);
+        else
+            for (size_t i = 1; i < op.inputs.size (); ++i) {
+                Shape combined;
+                if (op.kind == OperationKind::Split) {
+                    Shape guides = values.at (op.inputs[i]);
+                    if (guides.empty () && curves.count (op.inputs[i]) &&
+                        !SourceGuide (curves.at (op.inputs[i]), guides, out.error))
+                        return false;
+                    if (!SplitShape (shape, guides, id, order, combined, out.error))
+                        return false;
+                }
+                else if (!BooleanShape (op.kind, shape, values.at (op.inputs[i]), id, order, combined, out.error))
+                    return false;
+                shape = std::move (combined);
+            }
+        if (shape.empty ())
+            Diagnostic (out, LandscapeDiagnosticCode::ClipEmpty, id, "operation produced no footprint");
+        values[id] = std::move (shape);
+    }
+    for (const auto& object : session.objects) {
+        if (unavailable.count (object.footprintOperation))
+            continue;
+        for (auto region : values.at (object.footprintOperation)) {
+            region.objectId = object.id;
+            region.material = object.baseMaterial;
+            Describe (region);
+            for (const auto& identity : session.regions)
+                if (identity.active && identity.descriptor == region.descriptor) {
+                    if (region.regionId) {
+                        out.error = "ProvenanceConflict: duplicate active semantic region";
+                        return false;
+                    }
+                    region.regionId = identity.id;
+                    region.predecessorRegions = identity.predecessors;
+                }
+            const MaterialAssignment* chosen = nullptr;
+            for (const auto& assignment : session.assignments)
+                if (assignment.valid && assignment.mask == 0 && assignment.region == region.regionId) {
+                    if (chosen && assignment.priority == chosen->priority &&
+                        !(assignment.material == chosen->material)) {
+                        out.error = "ProvenanceConflict: equally ranked region assignments require explicit resolution";
+                        return false;
+                    }
+                    if (!chosen || assignment.priority > chosen->priority)
+                        chosen = &assignment;
+                }
+            if (chosen)
+                region.material = chosen->material;
+            out.regions.push_back (std::move (region));
+        }
+    }
+    return true;
+}
+bool SharesBoundary (const RegionDescriptor& a, const RegionDescriptor& b)
+{
+    if (a.object != b.object)
+        return false;
+    for (const auto& ca : a.boundaries)
+        for (const auto& ra : ca)
+            for (const auto& cb : b.boundaries)
+                for (const auto& rb : cb)
+                    if (ra.source == rb.source && ra.segment == rb.segment)
+                        return true;
+    return false;
+}
+void RefreshSources (edit::Document& doc)
+{
+    if (!doc.landscape)
+        return;
+    for (auto& source : doc.landscape->sources) {
+        if (source.deleted)
+            continue;
+        uint64_t hash = 14695981039346656037ull;
+        const auto word = [&] (uint64_t value) {
+            for (int i = 0; i < 8; ++i) {
+                hash ^= value & 255;
+                hash *= 1099511628211ull;
+                value >>= 8;
+            }
+        };
+        const auto number = [&] (double value) { word (std::bit_cast<uint64_t> (value)); };
+        const auto point = [&] (Vec3 p) {
+            number (p.x);
+            number (p.y);
+            number (p.z);
+        };
+        for (double angle : source.arcAngles)
+            number (angle);
+        if (const auto* entity = edit::Find (doc, source.entityId)) {
+            word (entity->closed);
+            for (const auto& v : entity->vertices) {
+                word (v.id);
+                point (v.p);
+                point (v.in);
+                point (v.out);
+                number (v.radius);
+            }
+            for (const auto& s : entity->segments)
+                word (s.id);
+        }
+        if (const auto* path = edit::FindPath (doc, source.pathId)) {
+            for (const auto& p : path->points) {
+                word (p.id);
+                point (p.p);
+                number (p.radius);
+            }
+            for (const auto& p : path->profile) {
+                word (p.id);
+                number (p.station);
+                number (p.z);
+                number (p.curve);
+            }
+            for (const auto& s : path->sections) {
+                word (s.id);
+                number (s.station);
+                number (s.widthLeft);
+                number (s.widthRight);
+                number (s.crossfall);
+                word (uint64_t (s.fall));
+                number (s.shoulder);
+                number (s.cutSlope);
+                number (s.fillSlope);
+            }
+            number (path->edgeRadius);
+        }
+        source.revision = hash;
+    }
+}
+} // namespace
+
+bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
+{
+    LandscapeResult candidate;
+    try {
+        if (!Evaluate (doc, candidate)) {
+            result = std::move (candidate);
+            return false;
+        }
+    }
+    catch (const std::exception& e) {
+        candidate.error = std::string ("landscape evaluation refused: ") + e.what ();
+        candidate.regions.clear ();
+        result = std::move (candidate);
+        return false;
+    }
+    result = std::move (candidate);
+    return true;
+}
+
+bool RebuildLandscape (edit::Document& doc, LandscapeResult& result, std::string& error)
+{
+    error.clear ();
+    auto candidate = doc;
+    RefreshSources (candidate);
+    if (!EvaluateLandscape (candidate, result)) {
+        error = result.error;
+        return false;
+    }
+    if (!doc.landscape)
+        return true;
+    auto& session = *candidate.landscape;
+    const auto previous = session.regions;
+    for (auto& region : session.regions)
+        region.active = false;
+    for (size_t i = 0; i < result.regions.size (); ++i) {
+        auto& region = result.regions[i];
+        for (size_t j = 0; j < i; ++j)
+            if (region.descriptor == result.regions[j].descriptor) {
+                error = "ProvenanceUnattributable: disconnected outputs share an ambiguous semantic region descriptor";
+                Diagnostic (result, LandscapeDiagnosticCode::AmbiguousFace, 0, error);
+                result.error = error;
+                return false;
+            }
+        if (region.regionId) {
+            for (auto& identity : session.regions)
+                if (identity.id == region.regionId)
+                    identity.active = true;
+            continue;
+        }
+        if (candidate.nextId == 0 || candidate.nextId == std::numeric_limits<Id>::max ()) {
+            error = "landscape authored ID allocator exhausted";
+            return false;
+        }
+        region.regionId = edit::NewId (candidate);
+        std::set<Id> predecessors;
+        for (const auto& identity : previous)
+            if (identity.active && SharesBoundary (identity.descriptor, region.descriptor))
+                predecessors.insert (identity.id);
+        region.predecessorRegions.assign (predecessors.begin (), predecessors.end ());
+        session.regions.push_back ({ region.regionId, region.descriptor, region.predecessorRegions, true });
+    }
+    for (auto& assignment : session.assignments) {
+        const auto region = std::find_if (session.regions.begin (), session.regions.end (),
+                                          [&] (const auto& r) { return r.id == assignment.region; });
+        if (region != session.regions.end () && !region->active) {
+            assignment.valid = false;
+            Diagnostic (result, LandscapeDiagnosticCode::ProvenanceUnattributable, 0,
+                        "region assignment invalidated by topology change; explicit reassignment required");
+        }
+    }
+    if (!ValidateLandscape (candidate, error))
+        return false;
+    doc = std::move (candidate);
+    return true;
+}
+
+const DerivedRegion* LandscapeFaceAt (const LandscapeResult& result, Vec3 point)
+{
+    const DerivedRegion* best = nullptr;
+    for (const auto& face : result.faces)
+        if (PointInside (point, face.rings) && (!best || face.area < best->area))
+            best = &face;
+    return best;
+}
+
+bool ValidateLandscapeTerrainEdit (const edit::Document& doc, const std::vector<Vec3>& terrainBoundary,
+                                   std::string& error)
+{
+    LandscapeResult result;
+    if (!EvaluateLandscape (doc, result)) {
+        error = result.error;
+        return false;
+    }
+    if (result.propertyLine.empty ()) {
+        error = "PropertyLineOutside: terrain edit requires a property line";
+        return false;
+    }
+    DerivedRegion property, terrain;
+    property.rings = { result.propertyLine };
+    terrain.rings = { terrainBoundary };
+    if (terrainBoundary.size () < 3 || std::abs (cp::Area (cp::Difference (Paths (property), Paths (terrain),
+                                                                           cp::FillRule::NonZero, kPrecision))) > 0) {
+        error = "PropertyLineOutside: property line lies outside the terrain footprint";
+        return false;
+    }
+    error.clear ();
+    return true;
+}
+} // namespace tapioca::geometry

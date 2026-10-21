@@ -778,6 +778,9 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarBuild.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFlatten.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFaces.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEval.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathNetwork.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathContours.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathCrossing.cpp"
@@ -801,6 +804,7 @@ set (EVP_TEST_SOURCES
     test_editplanaridentity.cpp
     test_editplanarrobustbuild.cpp
     test_editplanarrobustfaces.cpp
+    test_editlandscape.cpp
     test_editpathnetwork.cpp
     test_fillet2d.cpp
     test_editpathcontours.cpp

@@ -10,7 +10,7 @@ namespace geomsrv::edit {
 // model is compared without this function knowing it.
 static bool SameContent (const Document& a, const Document& b)
 {
-    return a.paths == b.paths && a.entities == b.entities;
+    return a.paths == b.paths && a.entities == b.entities && a.landscape == b.landscape;
 }
 
 Session::Session (Document start, size_t undoCap)
@@ -42,6 +42,10 @@ bool Session::Accept (Document candidate, const std::string& refusal)
     // Paths that cross or meet share a height there, whichever of them the edit touched.
     if (error.empty ())
         LinkCrossings (candidate, before);
+    if (error.empty () && candidate.landscape) {
+        tapioca::geometry::LandscapeResult landscape;
+        tapioca::geometry::RebuildLandscape (candidate, landscape, error);
+    }
     if (error.empty ())
         Validate (candidate, error);
     if (!error.empty ()) {

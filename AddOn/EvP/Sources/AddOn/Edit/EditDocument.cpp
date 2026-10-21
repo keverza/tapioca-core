@@ -1,6 +1,7 @@
 #include "Edit/EditDocument.hpp"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 
 namespace geomsrv::edit {
@@ -17,6 +18,8 @@ bool operator!= (const Ref& a, const Ref& b)
 
 Id NewId (Document& doc)
 {
+    if (doc.nextId == kNoId || doc.nextId == std::numeric_limits<Id>::max ())
+        return kNoId;
     return doc.nextId++;
 }
 
@@ -382,7 +385,7 @@ bool Validate (const Document& doc, std::string& error)
             return false;
         }
     }
-    return true;
+    return tapioca::geometry::ValidateLandscape (doc, error);
 }
 
 } // namespace geomsrv::edit

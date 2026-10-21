@@ -6,8 +6,10 @@
 // place. Pure C++ (no Archicad, ImGui or Win32) so every tool built on it runs in the
 // offline suite. Units are metres, coordinates are world, Z is absolute.
 #include "Edit/EditPath.hpp"
+#include "Edit/EditLandscape.hpp"
 #include "Edit/EditTypes.hpp"
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -55,7 +57,8 @@ struct Entity {
 struct Document {
     std::vector<Entity> entities;
     std::vector<Path> paths; // ids share one space with the entities
-    Id nextId = 1;           // never reused, so a deleted id cannot alias a later one
+    std::optional<tapioca::geometry::LandscapeSession> landscape;
+    Id nextId = 1; // never reused, so a deleted id cannot alias a later one
     uint64_t revision = 0;
 };
 
