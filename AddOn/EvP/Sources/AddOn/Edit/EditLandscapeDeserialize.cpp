@@ -315,16 +315,10 @@ bool ReadLandscape (const std::string& text, geomsrv::edit::Document& doc, std::
         }
         if (!geomsrv::edit::Validate (candidate, error))
             return false;
-        LandscapeResult rebuilt;
-        if (!EvaluateLandscape (candidate, rebuilt)) {
-            error = rebuilt.error;
-            return false;
-        }
         // Validate the restored semantic records without allocating/retargeting
         // during read. A caller explicitly rebuilds after hydration.
-        for (const auto& region : rebuilt.regions)
-            if (region.regionId == 0)
-                lj::Fail ("landscape.regions", "active footprint lacks a persisted semantic identity");
+        if (!lj::ValidateStoredRegions (candidate, error))
+            return false;
         doc = std::move (candidate);
         return true;
     }

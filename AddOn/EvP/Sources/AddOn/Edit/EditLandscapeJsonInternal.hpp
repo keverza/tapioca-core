@@ -22,6 +22,7 @@ Value PointValue (Vec3 point);
 Value MaterialValue (const MaterialSpec& material);
 Value DescriptorValue (const RegionDescriptor& descriptor);
 Value DocumentValue (const geomsrv::edit::Document& doc, LandscapeStorage mode);
+bool ValidateStoredRegions (const geomsrv::edit::Document& doc, std::string& error);
 
 [[noreturn]] inline void Fail (const std::string& path, const std::string& reason)
 {

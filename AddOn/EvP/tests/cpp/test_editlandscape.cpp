@@ -273,6 +273,31 @@ TEST (EditLandscape, CyclesDuplicateIdsAndExhaustionRefuse)
     EXPECT_EQ (doc.nextId, std::numeric_limits<edit::Id>::max ());
 }
 
+TEST (EditLandscape, UnknownAndWrongDomainInputsRefuseButDeletedSourcesRemainOrphans)
+{
+    auto doc = Start ();
+    const auto source = Square (doc, 0, 0);
+    Operation (doc, geo::OperationKind::RegionSelect, { source });
+    const auto before = doc;
+    for (const auto input : { doc.nextId + 1, doc.entities[0].id, doc.entities[0].vertices[0].id }) {
+        doc = before;
+        doc.landscape->operations[0].inputs = { input };
+        std::string error;
+        EXPECT_FALSE (geo::ValidateLandscape (doc, error));
+        EXPECT_NE (error.find ("operations.inputs"), std::string::npos) << error;
+        geo::LandscapeResult result;
+        EXPECT_FALSE (geo::EvaluateLandscape (doc, result));
+    }
+    doc = before;
+    std::string error;
+    ASSERT_TRUE (geo::DeleteLandscapeSource (doc, source, error)) << error;
+    EXPECT_TRUE (geo::ValidateLandscape (doc, error)) << error;
+    const auto result = Evaluate (doc);
+    EXPECT_TRUE (std::any_of (result.diagnostics.begin (), result.diagnostics.end (), [] (const auto& d) {
+        return d.code == geo::LandscapeDiagnosticCode::OrphanedOperation;
+    }));
+}
+
 TEST (EditLandscape, PropertyLineRequiresClosedStraightSimpleGeometryAndContainsItsEdges)
 {
     auto doc = Start ();
@@ -412,4 +437,53 @@ TEST (EditLandscape, CancelAndUndoNeverReuseAllocatedLandscapeIdentities)
         return true;
     }));
     EXPECT_GE (session.Doc ().landscape->sources[0].id, highWater);
+}
+
+TEST (EditLandscape, NestedBooleanIslandRetainsHoleOrientationAndActualSources)
+{
+    auto doc = Start ();
+    const auto outer = Square (doc, 0, 0), hole = Square (doc, 2, 2, 6), island = Square (doc, 4, 4, 2);
+    const auto annulus = Operation (doc, geo::OperationKind::Difference, { outer, hole });
+    Object (doc, Operation (doc, geo::OperationKind::Union, { annulus, island }));
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 2u);
+    EXPECT_NEAR (Area (result), 68, 1.0e-6);
+    for (const auto& region : result.regions) {
+        EXPECT_EQ (region.sources, region.rings.size () == 2 ? (std::vector<edit::Id> { outer, hole })
+                                                             : (std::vector<edit::Id> { island }));
+        for (size_t r = 0; r < region.rings.size (); ++r) {
+            double twiceArea = 0;
+            const auto& ring = region.rings[r];
+            for (size_t i = 0; i < ring.size (); ++i)
+                twiceArea += ring[i].x * ring[(i + 1) % ring.size ()].y - ring[(i + 1) % ring.size ()].x * ring[i].y;
+            EXPECT_GT (r == 0 ? twiceArea : -twiceArea, 0);
+        }
+    }
+}
+
+TEST (EditLandscape, BooleanBoundarySubdomainsStayOnTheirAuthoredSegments)
+{
+    auto doc = Start ();
+    const auto a = Square (doc, 0, 0), b = Square (doc, 5, 0);
+    Object (doc, Operation (doc, geo::OperationKind::Difference, { a, b }));
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    for (const auto& cycle : result.regions[0].boundary)
+        for (const auto& piece : cycle) {
+            EXPECT_FALSE (piece.generated);
+            ASSERT_FALSE (piece.parameters.empty ());
+            for (const auto& parameter : piece.parameters) {
+                const auto source = std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (),
+                                                  [&] (const auto& s) { return s.id == parameter.source; });
+                ASSERT_NE (source, doc.landscape->sources.end ());
+                const auto* entity = edit::Find (doc, source->entityId);
+                ASSERT_LT (parameter.piece, entity->segments.size ());
+                const auto start = entity->vertices[parameter.piece].p;
+                const auto end = entity->vertices[(parameter.piece + 1) % entity->vertices.size ()].p;
+                const auto p = edit::Lerp (start, end, parameter.sourceStart);
+                const auto q = edit::Lerp (start, end, parameter.sourceEnd);
+                EXPECT_NEAR (edit::DistanceXY (piece.a, parameter.reversed ? q : p), 0, 2.0e-6);
+                EXPECT_NEAR (edit::DistanceXY (piece.b, parameter.reversed ? p : q), 0, 2.0e-6);
+            }
+        }
 }

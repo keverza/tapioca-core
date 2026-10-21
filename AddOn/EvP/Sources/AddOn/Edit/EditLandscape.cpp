@@ -231,6 +231,14 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         }
         operations.insert (v.id);
     }
+    for (const auto& op : s.operations)
+        for (Id input : op.inputs)
+            if (!sources.count (input) && !operations.count (input)) {
+                // Deleted sources retain their catalog entry. An unknown or
+                // wrong-domain ID is corrupt ancestry, not an orphan tombstone.
+                error = "landscape.operations.inputs: unknown source/operation identity";
+                return false;
+            }
     for (const auto& v : s.objects) {
         if (!claim (v.id) || v.kind > ObjectKind::Edge || !Material (v.baseMaterial) || !std::isfinite (v.thickness) ||
             v.thickness < 0 || !operations.count (v.footprintOperation) ||

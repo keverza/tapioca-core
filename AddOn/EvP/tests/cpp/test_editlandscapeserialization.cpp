@@ -260,3 +260,194 @@ TEST (EditLandscapeSerialization, DuplicateAuthoredIdsAndDagCyclesRefuseOnRead)
     EXPECT_FALSE (geo::ReadLandscape (cycle, loaded, error));
     EXPECT_NE (error.find ("DagCycle"), std::string::npos);
 }
+
+TEST (EditLandscapeSerialization, UnknownAndWrongDomainOperationInputsNeverMutateDestination)
+{
+    const auto original = Full ();
+    const auto valid = Write (original);
+    const auto source = original.landscape->sources[0].id;
+    for (const auto input : { original.nextId + 1, original.entities[0].id }) {
+        auto destination = original;
+        std::string error;
+        const auto text = Replace (valid, "\"inputs\":[\"" + std::to_string (source) + "\"]",
+                                   "\"inputs\":[\"" + std::to_string (input) + "\"]");
+        EXPECT_FALSE (geo::ReadLandscape (text, destination, error));
+        EXPECT_NE (error.find ("operations.inputs"), std::string::npos) << error;
+        Same (original, destination);
+    }
+}
+
+TEST (EditLandscapeSerialization, ExtraActiveIdentityRefusesInsteadOfBeingRetiredOnFirstRebuild)
+{
+    const auto original = Full ();
+    auto malformed = original;
+    auto extra = malformed.landscape->regions[0];
+    extra.id = edit::NewId (malformed);
+    // A structurally valid but nonmatching descriptor must not masquerade as an
+    // active footprint at ingress. Historical inactive records remain legal.
+    extra.descriptor.boundaries[0][0].reversed = !extra.descriptor.boundaries[0][0].reversed;
+    malformed.landscape->regions.push_back (extra);
+    std::string text = "unchanged", error;
+    EXPECT_FALSE (geo::WriteLandscape (malformed, geo::LandscapeStorage::Virtual, text, error));
+    EXPECT_EQ (text, "unchanged");
+    malformed.landscape->regions.back ().active = false;
+    const auto inactive = Write (malformed);
+    const auto corrupt = Replace (inactive, "\"active\":false", "\"active\":true");
+    auto destination = original;
+    EXPECT_FALSE (geo::ReadLandscape (corrupt, destination, error));
+    EXPECT_NE (error.find ("landscape.regions"), std::string::npos) << error;
+    Same (original, destination);
+    ASSERT_TRUE (geo::ReadLandscape (inactive, destination, error)) << error;
+    Same (malformed, destination);
+}
+
+TEST (EditLandscapeSerialization, MissingAndDuplicateActiveFootprintsRefuseOnWriteAndRead)
+{
+    const auto original = Full ();
+    for (bool duplicate : { false, true }) {
+        auto invalid = original;
+        if (duplicate) {
+            auto object = invalid.landscape->objects[0];
+            object.id = edit::NewId (invalid);
+            invalid.landscape->objects.push_back (object);
+        }
+        else {
+            invalid.landscape->assignments[0].valid = false;
+            invalid.landscape->regions[0].active = false;
+        }
+        std::string text = "unchanged", error;
+        EXPECT_FALSE (geo::WriteLandscape (invalid, geo::LandscapeStorage::Virtual, text, error));
+        EXPECT_EQ (text, "unchanged");
+        EXPECT_NE (error.find ("landscape.regions"), std::string::npos) << error;
+    }
+    const auto valid = Write (original);
+    auto destination = original;
+    std::string error;
+    auto missing = Replace (valid, "\"active\":true", "\"active\":false");
+    missing = Replace (missing, "\"valid\":true", "\"valid\":false");
+    EXPECT_FALSE (geo::ReadLandscape (missing, destination, error));
+    EXPECT_NE (error.find ("landscape.regions"), std::string::npos) << error;
+    Same (original, destination);
+}
+
+TEST (EditLandscapeSerialization, EmptySessionAndDeletedSourceHistoryRemainValidCheckpoints)
+{
+    edit::Document empty;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (empty, { 1 }, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (Write (empty), loaded, error)) << error;
+    Same (empty, loaded);
+    auto orphaned = Full ();
+    ASSERT_TRUE (geo::DeleteLandscapeSource (orphaned, orphaned.landscape->sources[0].id, error)) << error;
+    ASSERT_FALSE (orphaned.landscape->regions[0].active);
+    ASSERT_FALSE (orphaned.landscape->assignments[0].valid);
+    ASSERT_TRUE (
+        geo::ReadLandscape (Write (orphaned, geo::LandscapeStorage::Native), loaded, error, Capture (orphaned)))
+        << error;
+    Same (orphaned, loaded);
+    geo::LandscapeResult result;
+    ASSERT_TRUE (geo::RebuildLandscape (loaded, result, error)) << error;
+    Same (orphaned, loaded);
+    EXPECT_TRUE (result.regions.empty ());
+    EXPECT_FALSE (result.diagnostics.empty ());
+}
+
+TEST (EditLandscapeSerialization, ReloadSplitMergeRetainsInvalidAssignmentsPatchesAndBindings)
+{
+    auto original = Full ();
+    original.entities[0].vertices[0].in = {};
+    geo::LandscapeResult result;
+    std::string error;
+    ASSERT_TRUE (geo::RebuildLandscape (original, result, error)) << error;
+    const auto predecessor = result.regions[0].regionId;
+    edit::Document loaded;
+    ASSERT_TRUE (
+        geo::ReadLandscape (Write (original, geo::LandscapeStorage::Native), loaded, error, Capture (original)))
+        << error;
+    edit::Session session (loaded);
+    const auto entity = loaded.entities[0].id, vertex = loaded.entities[0].vertices[1].id;
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string& e) {
+        return edit::MoveVertex (d, entity, vertex, { 5, 15, 0 }, e);
+    })) << session.Message ();
+    ASSERT_TRUE (geo::EvaluateLandscape (session.Doc (), result)) << result.error;
+    ASSERT_EQ (result.regions.size (), 2u);
+    std::vector<edit::Id> children;
+    for (const auto& region : result.regions) {
+        EXPECT_EQ (region.predecessorRegions, (std::vector<edit::Id> { predecessor }));
+        children.push_back (region.regionId);
+        EXPECT_EQ (region.material, original.landscape->objects[0].baseMaterial);
+    }
+    EXPECT_FALSE (session.Doc ().landscape->assignments[0].valid);
+    EXPECT_EQ (session.Doc ().landscape->assignments[0].region, predecessor);
+    EXPECT_EQ (session.Doc ().landscape->patches, original.landscape->patches);
+    EXPECT_EQ (session.Doc ().landscape->bindings, original.landscape->bindings);
+    edit::Document split;
+    ASSERT_TRUE (geo::ReadLandscape (Write (session.Doc (), geo::LandscapeStorage::Native), split, error,
+                                     Capture (session.Doc ())))
+        << error;
+    Same (session.Doc (), split);
+    ASSERT_TRUE (geo::RebuildLandscape (split, result, error)) << error;
+    Same (session.Doc (), split);
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string& e) {
+        return edit::MoveVertex (d, entity, vertex, { 10, 0, 0 }, e);
+    })) << session.Message ();
+    ASSERT_TRUE (geo::EvaluateLandscape (session.Doc (), result)) << result.error;
+    ASSERT_EQ (result.regions.size (), 1u);
+    std::sort (children.begin (), children.end ());
+    EXPECT_EQ (result.regions[0].predecessorRegions, children);
+    EXPECT_NE (result.regions[0].regionId, predecessor);
+    EXPECT_FALSE (session.Doc ().landscape->assignments[0].valid);
+    const auto merged = session.Doc ();
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_EQ (session.Doc ().landscape, split.landscape);
+    ASSERT_TRUE (session.Redo ());
+    EXPECT_EQ (session.Doc ().landscape, merged.landscape);
+    edit::Document second;
+    ASSERT_TRUE (geo::ReadLandscape (Write (session.Doc ()), second, error)) << error;
+    Same (session.Doc (), second);
+}
+
+TEST (EditLandscapeSerialization, SingleSegmentGeneratedStrokeReloadEditKeepsIdentityWithoutClaimingExactSubdomains)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1 }, error)) << error;
+    geo::LandscapeSource source;
+    source.entityId = edit::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, false);
+    source.archicadGuid = kGuid;
+    edit::Id id = 0;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, source, id, error)) << error;
+    geo::LandscapeOperation op;
+    op.kind = geo::OperationKind::Stroke;
+    op.inputs = { id };
+    ASSERT_TRUE (geo::AddLandscapeOperation (doc, op, id, error)) << error;
+    geo::HardscapeObject object;
+    object.footprintOperation = id;
+    ASSERT_TRUE (geo::AddHardscapeObject (doc, object, id, error)) << error;
+    const auto identity = doc.landscape->regions[0].id;
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (Write (doc, geo::LandscapeStorage::Native), loaded, error, Capture (doc)))
+        << error;
+    edit::Session session (loaded);
+    const auto vertex = loaded.entities[0].vertices[1].id;
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string& e) {
+        return edit::MoveVertex (d, source.entityId, vertex, { 12, 0, 0 }, e);
+    })) << session.Message ();
+    geo::LandscapeResult result;
+    ASSERT_TRUE (geo::EvaluateLandscape (session.Doc (), result)) << result.error;
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_EQ (result.regions[0].regionId, identity);
+    EXPECT_NEAR (result.regions[0].area, 18 + 3.141592653589793 * 0.75 * 0.75, 0.01);
+    for (const auto& cycle : result.regions[0].boundary)
+        for (const auto& piece : cycle) {
+            EXPECT_TRUE (piece.generated);
+            EXPECT_TRUE (piece.parameters.empty ());
+            ASSERT_EQ (piece.support.size (), 1u);
+            EXPECT_EQ (piece.support[0].source, session.Doc ().landscape->sources[0].id);
+            EXPECT_EQ (piece.support[0].segment, loaded.entities[0].segments[0].id);
+        }
+    edit::Document second;
+    ASSERT_TRUE (geo::ReadLandscape (Write (session.Doc ()), second, error)) << error;
+    Same (session.Doc (), second);
+}

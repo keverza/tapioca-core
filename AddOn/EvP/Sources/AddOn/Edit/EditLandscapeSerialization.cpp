@@ -287,6 +287,29 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                                             { "patches", Value::Array (std::move (patches)) },
                                                             { "bindings", Value::Array (std::move (bindings)) } }) } });
 }
+
+bool ValidateStoredRegions (const edit::Document& doc, std::string& error)
+{
+    LandscapeResult rebuilt;
+    if (!EvaluateLandscape (doc, rebuilt)) {
+        error = rebuilt.error;
+        return false;
+    }
+    // Persistence is a checkpoint, not a repair operation: active durable IDs
+    // and current footprints must be a bijection. Inactive ancestry is retained.
+    std::set<Id> matched;
+    for (const auto& region : rebuilt.regions)
+        if (region.regionId == 0 || !matched.insert (region.regionId).second) {
+            error = "landscape.regions: footprint lacks a unique persisted active identity";
+            return false;
+        }
+    for (const auto& identity : doc.landscape->regions)
+        if (identity.active && !matched.count (identity.id)) {
+            error = "landscape.regions: active identity has no current footprint";
+            return false;
+        }
+    return true;
+}
 } // namespace tapioca::geometry::landscape_json
 
 namespace tapioca::geometry {
@@ -323,6 +346,8 @@ bool WriteLandscape (const geomsrv::edit::Document& doc, LandscapeStorage mode, 
             }
     }
     try {
+        if (!landscape_json::ValidateStoredRegions (doc, error))
+            return false;
         std::string candidate;
         landscape_json::WriteValue (landscape_json::DocumentValue (doc, mode), candidate);
         if (candidate.size () > 8 * 1024 * 1024) {
