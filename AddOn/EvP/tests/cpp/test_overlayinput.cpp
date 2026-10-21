@@ -8,6 +8,7 @@
 
 #include <windows.h>
 
+#include <cstdio>
 #include <string>
 
 namespace input = geomsrv::archviz::overlayinput;
@@ -259,9 +260,36 @@ TEST (OverlayInput, CursorLocationQueriesDoNotReenterThroughNativeHitTesting)
     const HWND canvas = Canvas ();
     ASSERT_NE (canvas, nullptr);
     POINT cursor = {};
-    ASSERT_TRUE (::GetCursorPos (&cursor));
+    if (!::GetCursorPos (&cursor)) {
+        ::DestroyWindow (canvas);
+        ::FreeLibrary (controls);
+        GTEST_SKIP () << "precondition: no pointer position on this desktop (locked or non-interactive session)";
+    }
     // Only this test's window, without moving the pointer or activating another application.
     ::SetWindowPos (canvas, HWND_TOPMOST, cursor.x - 100, cursor.y - 100, 300, 300, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    Pump ();
+    // The real pointer is the input: the case needs it over this canvas and no button held.
+    // A topmost window of another process, or a held button, is desktop state, not a result.
+    POINT now = {};
+    const HWND under = ::GetCursorPos (&now) ? ::WindowFromPoint (now) : nullptr;
+    const bool held =
+        (::GetAsyncKeyState (VK_LBUTTON) | ::GetAsyncKeyState (VK_RBUTTON) | ::GetAsyncKeyState (VK_MBUTTON)) < 0;
+    if (under != canvas || held) {
+        wchar_t name[128] = L"(none)";
+        if (under != nullptr)
+            ::GetClassNameW (under, name, 128);
+        DWORD process = 0;
+        if (under != nullptr)
+            ::GetWindowThreadProcessId (under, &process);
+        ::DestroyWindow (canvas);
+        Pump ();
+        ::FreeLibrary (controls);
+        char text[256];
+        std::snprintf (text, sizeof text, "%ls (process %lu)", name, process);
+        GTEST_SKIP () << "precondition: "
+                      << (held ? "a mouse button is held" : "the pointer is not over the test canvas") << " at ("
+                      << now.x << ", " << now.y << "); window under it: " << text;
+    }
     std::string error;
     ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
     Pump ();
@@ -271,7 +299,7 @@ TEST (OverlayInput, CursorLocationQueriesDoNotReenterThroughNativeHitTesting)
     map.locked = true;
     input::SetHitMap (input::View::Plan, map);
     const int lockingHitTests = s_hostHitTests;
-    EXPECT_GT (lockingHitTests, 0) << "the native hit-test path must actually be exercised";
+    EXPECT_GT (lockingHitTests, 0) << "the native hit-test path must actually be exercised (pointer over the canvas)";
     EXPECT_LT (lockingHitTests, 10) << "cursor resolution must not query itself through WM_NCHITTEST";
     EXPECT_TRUE (input::CurrentInput (input::View::Plan).pointer);
     s_hostHitTests = 0;
