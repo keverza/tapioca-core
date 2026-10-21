@@ -73,14 +73,17 @@ void FinishDrawing (Session& s)
             }
         }
         if (d.landscape) {
+            // A path is always a centreline source; the panel's role applies to drawn
+            // curves. A path can never be the property line, which is a closed ring.
+            const bool path = tool == Tool::Path;
             tapioca::geometry::LandscapeSource source;
-            source.entityId = tool == Tool::Path ? edit::kNoId : created;
-            source.pathId = tool == Tool::Path ? created : edit::kNoId;
-            source.role = landscapeRole;
+            source.entityId = path ? edit::kNoId : created;
+            source.pathId = path ? created : edit::kNoId;
+            source.role = path ? tapioca::geometry::SourceRole::PathCenterline : landscapeRole;
             edit::Id id = edit::kNoId;
             if (!tapioca::geometry::AddLandscapeSource (d, source, id, error))
                 return false;
-            if (landscapeRole == tapioca::geometry::SourceRole::PropertyLine)
+            if (!path && landscapeRole == tapioca::geometry::SourceRole::PropertyLine)
                 return tapioca::geometry::SetLandscapePropertyLine (d, id, error);
         }
         return true;

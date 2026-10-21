@@ -315,3 +315,47 @@ TEST (HudLandscape, LayerUsesDashedSourcesDistinctPropertyAndHoleAwareFill)
     EXPECT_NEAR (area, Area (s), 0.0001);
     EXPECT_NE (style.landscapeHover, style.landscapeSelected);
 }
+
+TEST (HudLandscape, DrawnPathFinishesWithEnterOrTheMenuAsACentrelineSource)
+{
+    // A path is registered as a centreline whatever role the panel holds; the
+    // property-line role belongs to drawn curves. Clicks stay clear of the panel.
+    Drive d;
+    KeepAll (d.S ());
+    const auto sources = d.S ().edits.Doc ().landscape->sources.size ();
+    const auto property = d.S ().edits.Doc ().landscape->propertyLineSourceId;
+    d.S ().landscapeRole = lg::SourceRole::PropertyLine;
+    d.input.keys = { { 'P', true } };
+    d.Frame ();
+    ASSERT_EQ (d.S ().tool, eh::Tool::Path);
+    d.S ().snapEnabled = false;
+    d.Click ({ 13, -6, 0 });
+    d.Click ({ 14, 6, 0 });
+    ASSERT_EQ (d.S ().drawing.size (), 2u);
+    d.input.keys = { { 0x0D, true } };
+    d.Frame ();
+    EXPECT_TRUE (d.S ().drawing.empty ()) << d.S ().message;
+    ASSERT_EQ (d.S ().edits.Doc ().paths.size (), 1u) << d.S ().message;
+    const auto& registered = d.S ().edits.Doc ().landscape->sources;
+    ASSERT_EQ (registered.size (), sources + 1);
+    EXPECT_EQ (registered.back ().pathId, d.S ().edits.Doc ().paths[0].id);
+    EXPECT_EQ (registered.back ().role, lg::SourceRole::PathCenterline);
+    EXPECT_EQ (d.S ().edits.Doc ().landscape->propertyLineSourceId, property);
+    // The right-click menu's Finish ends a second path the same way.
+    d.Click ({ 15, -6, 0 });
+    d.Click ({ 16, 6, 0 });
+    ASSERT_EQ (d.S ().drawing.size (), 2u);
+    d.input.buttons = { { 1, true } };
+    d.Frame ();
+    d.input.buttons = { { 1, false } };
+    d.Frame ();
+    ASSERT_TRUE (d.S ().menu.open);
+    EXPECT_EQ (d.S ().menu.target, eh::MenuTarget::Drawing);
+    eh::RunMenuItem (d.S (), "draw.finish");
+    EXPECT_TRUE (d.S ().drawing.empty ()) << d.S ().message;
+    EXPECT_EQ (d.S ().edits.Doc ().paths.size (), 2u) << d.S ().message;
+    EXPECT_EQ (d.S ().edits.Doc ().landscape->sources.size (), sources + 2);
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    EXPECT_EQ (d.S ().edits.Doc ().paths.size (), 1u);
+    EXPECT_EQ (d.S ().edits.Doc ().landscape->sources.size (), sources + 1);
+}
