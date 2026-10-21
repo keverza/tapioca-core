@@ -1758,7 +1758,7 @@ TEST (HudVirtualEditor, GumballHoldsEveryTransform)
     EXPECT_EQ (kindAt (742, 358), int (ed::HandleKind::Ring));
     EXPECT_EQ (kindAt (724, 376), int (ed::HandleKind::Plane));
     EXPECT_EQ (kindAt (810, 400), int (ed::HandleKind::Side));
-    EXPECT_EQ (kindAt (700, 400), int (ed::HandleKind::Centre));
+    EXPECT_NE (kindAt (700, 400), int (ed::HandleKind::Centre));
     EXPECT_EQ (kindAt (710, 400), int (ed::HandleKind::ScaleUniform)); // 0.14 of 70 px out
 
     // The side grip stretches: the right side out by 1 m.
@@ -2001,6 +2001,10 @@ TEST (HudVirtualEditor, GumballFollowsTheShapeAndKeepsAMovedPivot)
     EXPECT_NEAR (eh::GizmoFrame (d.S ()).axes[0].x, 1.0, 1e-12);
 
     // Dragging the centre moves the pivot, not the shape, and the pivot stays.
+    EXPECT_FALSE (eh::GizmoHandles (d.S (), ed::GizmoMode::Gumball)[0].movable);
+    EXPECT_TRUE (d.Offers ("gizmo.reposition"));
+    eh::RunMenuItem (d.S (), "gizmo.reposition");
+    ASSERT_TRUE (eh::GumballRepositioning (d.S ()));
     d.S ().localAxes = true;
     f = eh::GizmoFrame (d.S ());
     const float x = 600 + 20 * float (f.origin.x), y = 500 - 20 * float (f.origin.y);
@@ -2013,8 +2017,47 @@ TEST (HudVirtualEditor, GumballFollowsTheShapeAndKeepsAMovedPivot)
     const ed::Frame moved = eh::GizmoFrame (d.S ());
     EXPECT_NEAR (moved.origin.x, f.origin.x + 2.0, 1e-6);
     EXPECT_NEAR (moved.origin.y, f.origin.y, 1e-6);
+    EXPECT_FALSE (eh::GumballRepositioning (d.S ()));
+    EXPECT_FALSE (eh::GizmoHandles (d.S (), ed::GizmoMode::Gumball)[0].movable);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
     d.S ().selection.Clear (); // another selection has its own centre
     EXPECT_NEAR (eh::GizmoFrame (d.S ()).origin.x, 0.0, 1e-9);
+}
+
+TEST (HudVirtualEditor, RepositionGumballRequiresMenuActivationAndEscCancelsItsPreview)
+{
+    Drive d (Corner ());
+    d.S ().gizmo = ed::GizmoMode::Gumball;
+    d.S ().localAxes = false;
+    d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+    const auto before = d.D ();
+    EXPECT_FALSE (eh::GumballRepositioning (d.S ()));
+    const auto handles = eh::GizmoHandles (d.S (), d.S ().gizmo);
+    EXPECT_FALSE (handles[0].movable);
+    d.At (700, 400);
+    EXPECT_NE (d.S ().hoverHandle, 0);
+    eh::RunMenuItem (d.S (), "gizmo.reposition");
+    ASSERT_TRUE (eh::GumballRepositioning (d.S ()));
+    EXPECT_TRUE (d.Offers ("gizmo.reposition.cancel"));
+    EXPECT_FALSE (eh::SetGizmoMode (d.S (), ed::GizmoMode::Rotate));
+    d.Press (700, 400);
+    d.At (740, 400);
+    ASSERT_EQ (d.S ().drag, eh::Drag::Handle);
+    EXPECT_EQ (d.S ().heldControl.kind, ed::HandleKind::Centre);
+    d.Key (0x1B);
+    d.Release (740, 400);
+    EXPECT_FALSE (eh::GumballRepositioning (d.S ()));
+    EXPECT_FALSE (d.S ().pivot);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.D ().entities, before.entities);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_FALSE (d.S ().close);
+    ASSERT_TRUE (eh::BeginGumballReposition (d.S ()));
+    d.S ().selection.Clear ();
+    d.Frame ();
+    EXPECT_TRUE (d.S ().gumballRepositionFor.empty ());
+    d.S ().selection.Set ({ { before.entities[0].id, ed::Part::Entity, 0 } });
+    EXPECT_FALSE (eh::GumballRepositioning (d.S ()));
 }
 
 TEST (HudVirtualEditor, ClickingAGumballHandleAsksForItsNumber)

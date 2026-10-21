@@ -170,6 +170,8 @@ struct Input {
     struct Button {
         int button = 0;
         bool down = false;
+        bool hasPosition = false;
+        float x = 0.0f, y = 0.0f; // Canvas pixels at this event, before a later move/release.
     };
     std::vector<Button> buttons;     // since the last layout, in order
     bool hasButtonState = false;     // the runtime can reconcile a release missed outside its canvas

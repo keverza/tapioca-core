@@ -259,8 +259,14 @@ void Engine::Impl::HoverTint (const Hover& hover)
 void Engine::Impl::PointerButtons (const Input& input)
 {
     ImGuiIO& io = ImGui::GetIO ();
-    for (const Input::Button& button : input.buttons)
+    if (input.buttons.empty () || !input.buttons.front ().hasPosition)
+        io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
+    for (const Input::Button& button : input.buttons) {
+        if (button.hasPosition)
+            io.AddMousePosEvent (button.x, button.y);
         io.AddMouseButtonEvent (button.button, button.down);
+    }
+    io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
     if (input.hasButtonState)
         for (int button = 0; button < 5; ++button)
             if ((input.buttonsDown & (1u << button)) == 0 &&

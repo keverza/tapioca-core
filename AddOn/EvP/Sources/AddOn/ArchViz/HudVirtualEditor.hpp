@@ -35,6 +35,12 @@ namespace geomsrv::archviz::edithud {
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve };
 enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
+struct LandscapeCommand {
+    tapioca::geometry::OperationKind kind;
+    uint64_t revision = 0;
+    bool second = false;
+    std::vector<tapioca::geometry::RegionDescriptor> first;
+};
 enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner, Bezier, Bend, Kerb };
 
 // What a right click landed on, which decides what its menu offers.
@@ -67,6 +73,7 @@ struct Session {
     edit::Id landscapeObject = edit::kNoId;
     edit::Id landscapeSet = edit::kNoId, landscapeOperandSet = edit::kNoId;
     std::string landscapeSaved;
+    std::optional<LandscapeCommand> landscapeCommand;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
     bool fromEnd = false;  // a typed length or angle keeps the segment's end, not its start (F)
@@ -84,6 +91,8 @@ struct Session {
     // with it.
     std::optional<edit::Vec3> pivot;
     std::vector<edit::Ref> pivotFor;
+    std::vector<edit::Ref> gumballRepositionFor;
+    uint64_t gumballRepositionRevision = 0;
     uint32_t filter = edit::kPickAll;
     double pathWidth = 1.5;
     std::string role;  // the starting command's word for what it edits
@@ -267,6 +276,10 @@ bool CreateLandscapeFaceSet (Session& session);
 bool EditLandscapeFaceSet (Session& session, bool remove = false);
 bool SelectLandscapeFaceSet (Session& session);
 bool BooleanLandscapeFaceSets (Session& session, tapioca::geometry::OperationKind kind);
+bool BeginLandscapeCommand (Session& session, tapioca::geometry::OperationKind kind);
+bool AdvanceLandscapeCommand (Session& session);
+bool CancelLandscapeCommand (Session& session);
+const char* LandscapeCommandPrompt (const Session& session);
 bool ReloadLandscape (Session& session, const std::string& definition);
 void LandscapePanel (Session& session);
 
@@ -310,6 +323,10 @@ bool BeginFacePush (Session& session, const detail::Map& view, float x, float y,
 // True while a gesture or a numeric entry owns the input: a mode change waits for it rather
 // than re-naming the control the gesture captured.
 bool GizmoModeLocked (const Session& session);
+bool GumballRepositioning (const Session& session);
+bool CanRepositionGumball (const Session& session);
+bool BeginGumballReposition (Session& session);
+bool CancelGumballReposition (Session& session);
 bool SetGizmoMode (Session& session, edit::GizmoMode mode);
 
 // The path the profile canvas shows: the selected one, else the only one.

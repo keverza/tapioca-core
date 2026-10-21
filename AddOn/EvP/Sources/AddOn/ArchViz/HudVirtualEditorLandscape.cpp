@@ -27,6 +27,10 @@ const lg::LandscapeResult& Landscape (Session& s)
     const auto& doc = s.edits.Doc ();
     if (s.landscapeRevision == doc.revision)
         return s.landscape;
+    if (s.landscapeCommand && s.landscapeCommand->revision != doc.revision) {
+        CancelLandscapeCommand (s);
+        s.message = "The document changed. Command cancelled; start again.";
+    }
     // No face rank survives a document edit, undo or reload. Retained authored choices
     // live in RegionSelect descriptors, never in this transient Selection.
     auto refs = s.selection.Items ();
@@ -347,7 +351,7 @@ bool detail::LandscapeView (Session& s, const Map& m, ImVec2 mouse, bool hovered
     edit::Vec3 point;
     if (hovered && m.Onto (mouse.x, mouse.y, s.plane.origin.z, {}, point)) {
         const bool click = ImGui::IsMouseClicked (0);
-        PickLandscapeFace (s, point, click, ImGui::GetIO ().KeyShift);
+        PickLandscapeFace (s, point, click, s.landscapeCommand.has_value () || ImGui::GetIO ().KeyShift);
     }
     else
         s.selection.hover = {};

@@ -58,7 +58,56 @@ std::vector<edit::Handle> GizmoHandles (const Session& s, edit::GizmoMode mode)
 {
     const auto& doc = s.edits.InGesture () ? s.edits.Before () : s.edits.Doc ();
     const auto frame = s.drag == Drag::Handle ? s.frame : s.typedHandle >= 0 ? s.typedFrame : GizmoFrame (s);
-    return edit::Handles (mode, doc, s.selection.Items (), frame);
+    auto handles = edit::Handles (mode, doc, s.selection.Items (), frame);
+    const bool repositioning = GumballRepositioning (s);
+    for (auto& h : handles)
+        if ((h.kind == edit::HandleKind::Centre) != repositioning)
+            h.movable = false;
+    return handles;
+}
+
+bool GumballRepositioning (const Session& s)
+{
+    return !s.gumballRepositionFor.empty () && s.gumballRepositionFor == s.selection.Items () &&
+           s.gumballRepositionRevision == s.edits.Doc ().revision;
+}
+
+bool CanRepositionGumball (const Session& s)
+{
+    if (GizmoModeLocked (s) || !s.drawing.empty ())
+        return false;
+    const auto handles = edit::Handles (edit::GizmoMode::Gumball, s.edits.Doc (), s.selection.Items (), GizmoFrame (s));
+    return std::any_of (handles.begin (), handles.end (),
+                        [] (const auto& h) { return h.kind == edit::HandleKind::Centre && h.movable; });
+}
+
+bool BeginGumballReposition (Session& s)
+{
+    if (!CanRepositionGumball (s))
+        return false;
+    s.gizmo = edit::GizmoMode::Gumball;
+    s.gumballRepositionFor = s.selection.Items ();
+    s.gumballRepositionRevision = s.edits.Doc ().revision;
+    s.hoverHandle = -1;
+    s.message = "Drag the gumball centre to reposition it. Esc cancels.";
+    return true;
+}
+
+bool CancelGumballReposition (Session& s)
+{
+    if (s.gumballRepositionFor.empty ())
+        return false;
+    if (s.drag == Drag::Handle && s.heldControl.kind == edit::HandleKind::Centre) {
+        s.edits.Cancel ();
+        s.drag = Drag::None;
+        s.dragReleased = false;
+        s.dragPointerPause.reset ();
+        s.snap = {};
+    }
+    s.gumballRepositionFor.clear ();
+    s.hoverHandle = -1;
+    s.message.clear ();
+    return true;
 }
 
 bool GizmoAvailable (const Session& s, edit::GizmoMode mode)
@@ -80,8 +129,8 @@ bool GizmoModeLocked (const Session& s)
 {
     // A gesture holds a captured control and a typed value owns the number: a mode change under
     // either would re-name what they work on, so it waits for Enter/Esc or the release.
-    return s.drag != Drag::None || s.typedHandle >= 0 || s.tracker.State () == edit::TrackerState::Editing ||
-           s.planeTyping || s.profileTyping || s.labelOpen;
+    return s.landscapeCommand.has_value () || GumballRepositioning (s) || s.drag != Drag::None || s.typedHandle >= 0 ||
+           s.tracker.State () == edit::TrackerState::Editing || s.planeTyping || s.profileTyping || s.labelOpen;
 }
 
 bool SetGizmoMode (Session& s, edit::GizmoMode mode)

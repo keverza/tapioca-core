@@ -295,6 +295,98 @@ TEST (EditLandscape, MaterialMaskIsAConstraintWhileDifferenceMakesAHole)
     EXPECT_NEAR (Area (result), 100, 1.0e-6);
 }
 
+TEST (EditLandscape, HigherPriorityMaterialOverridesLowerConflictsInEveryCatalogOrder)
+{
+    auto doc = Start ();
+    Object (doc, Operation (doc, geo::OperationKind::RegionSelect, { Square (doc, 0, 0) }));
+    const auto region = Evaluate (doc).regions.front ().regionId;
+    for (int priority : { std::numeric_limits<int>::min (), -7, std::numeric_limits<int>::max () }) {
+        doc.landscape->assignments.clear ();
+        for (int i = 0; i < 3; ++i) {
+            geo::MaterialAssignment assignment;
+            assignment.id = edit::NewId (doc);
+            assignment.region = region;
+            assignment.priority = i == 2                                         ? priority
+                                  : priority == std::numeric_limits<int>::min () ? priority
+                                                                                 : priority - 1;
+            assignment.material.preset = i == 0 ? geo::MaterialPreset::Grass : geo::MaterialPreset::Gravel;
+            doc.landscape->assignments.push_back (assignment);
+        }
+        // At INT_MIN there is no lower rank; make the tied materials agree.
+        if (priority == std::numeric_limits<int>::min ())
+            doc.landscape->assignments[0].material = doc.landscape->assignments[2].material;
+        const auto expected = doc.landscape->assignments[2].material;
+        const auto original = doc.landscape->assignments;
+        std::vector<int> order { 0, 1, 2 };
+        do {
+            for (size_t i = 0; i < order.size (); ++i)
+                doc.landscape->assignments[i] = original[order[i]];
+            const auto before = doc;
+            geo::LandscapeResult result;
+            ASSERT_TRUE (geo::EvaluateLandscape (doc, result)) << result.error;
+            ASSERT_EQ (result.regions.size (), 1u);
+            EXPECT_EQ (result.regions[0].material, expected);
+            EXPECT_EQ (result.regions[0].regionId, region);
+            EXPECT_EQ (doc.landscape, before.landscape);
+            EXPECT_EQ (doc.nextId, before.nextId);
+        } while (std::next_permutation (order.begin (), order.end ()));
+    }
+}
+
+TEST (EditLandscape, ConflictingHighestPriorityMaterialsRefuseAtomicallyInEveryCatalogOrder)
+{
+    auto doc = Start ();
+    Object (doc, Operation (doc, geo::OperationKind::RegionSelect, { Square (doc, 0, 0) }));
+    const auto region = Evaluate (doc).regions.front ().regionId;
+    for (int i = 0; i < 3; ++i) {
+        geo::MaterialAssignment assignment;
+        assignment.id = edit::NewId (doc);
+        assignment.region = region;
+        assignment.priority = i == 0 ? -1 : 0;
+        assignment.material.preset = i == 2 ? geo::MaterialPreset::Grass : geo::MaterialPreset::Gravel;
+        doc.landscape->assignments.push_back (assignment);
+    }
+    const auto original = doc.landscape->assignments;
+    std::vector<int> order { 0, 1, 2 };
+    do {
+        for (size_t i = 0; i < order.size (); ++i)
+            doc.landscape->assignments[i] = original[order[i]];
+        const auto before = doc;
+        geo::LandscapeResult result;
+        std::string error;
+        EXPECT_FALSE (geo::RebuildLandscape (doc, result, error, &before));
+        EXPECT_NE (error.find ("ProvenanceConflict"), std::string::npos);
+        ASSERT_EQ (result.diagnostics.size (), 1u);
+        EXPECT_EQ (result.diagnostics[0].code, geo::LandscapeDiagnosticCode::ProvenanceConflict);
+        EXPECT_EQ (result.diagnostics[0].object, doc.landscape->objects[0].id);
+        EXPECT_EQ (doc.landscape, before.landscape);
+        EXPECT_EQ (doc.nextId, before.nextId);
+        EXPECT_EQ (doc.revision, before.revision);
+    } while (std::next_permutation (order.begin (), order.end ()));
+}
+
+TEST (EditLandscape, InvalidAndMaskedAssignmentsDoNotParticipateInWholeRegionPriority)
+{
+    auto doc = Start ();
+    const auto source = Square (doc, 0, 0);
+    const auto operation = Operation (doc, geo::OperationKind::RegionSelect, { source });
+    Object (doc, operation);
+    const auto region = Evaluate (doc).regions.front ().regionId;
+    for (int i = 0; i < 3; ++i) {
+        geo::MaterialAssignment assignment;
+        assignment.id = edit::NewId (doc);
+        assignment.region = region;
+        assignment.priority = i == 0 ? -1 : std::numeric_limits<int>::max ();
+        assignment.material.preset = i == 0 ? geo::MaterialPreset::Grass : geo::MaterialPreset::Gravel;
+        assignment.valid = i != 1;
+        assignment.mask = i == 2 ? operation : 0;
+        doc.landscape->assignments.push_back (assignment);
+    }
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_EQ (result.regions[0].material.preset, geo::MaterialPreset::Grass);
+}
+
 TEST (EditLandscape, InvalidMutationLeavesDocumentAndAllocatorUntouched)
 {
     auto doc = Start ();
@@ -543,6 +635,73 @@ TEST (EditLandscape, EquallyRankedConflictingAssignmentsRefuseWithProvenanceConf
     const auto resolved = Evaluate (doc);
     ASSERT_EQ (resolved.regions.size (), 1u);
     EXPECT_EQ (resolved.regions[0].material.preset, geo::MaterialPreset::Gravel);
+}
+
+TEST (EditLandscape, TerrainFootprintRefusesMalformedRingsBeforeClipping)
+{
+    auto doc = Start ();
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapePropertyLine (doc, Square (doc, 1, 1, 1), error)) << error;
+    const std::vector<edit::Vec3> square { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } };
+    std::vector<std::vector<edit::Vec3>> invalid {
+        {},
+        { { 0, 0, 0 }, { 10, 0, 0 } },
+        { { 0, 0, 0 }, { 10, 0, 0 }, { 20, 0, 0 } },
+        // Both lobes contain area; a Boolean alone accepts this bowtie.
+        { { 0, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 }, { 10, 0, 0 } },
+        // A retraced spur does not change area, but is not a simple ring.
+        { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 5, 10, 0 }, { 5, 12, 0 }, { 5, 10, 0 }, { 0, 10, 0 } }
+    };
+    for (double value : { std::numeric_limits<double>::quiet_NaN (), std::numeric_limits<double>::infinity (),
+                          -std::numeric_limits<double>::infinity (), 1.0e10 }) {
+        auto ring = square;
+        ring[2].x = value;
+        invalid.push_back (std::move (ring));
+    }
+    invalid.push_back (std::vector<edit::Vec3> (20001, { 0, 0, 0 }));
+    const auto before = doc;
+    for (size_t i = 0; i < invalid.size (); ++i) {
+        SCOPED_TRACE (i);
+        EXPECT_FALSE (geo::ValidateLandscapeTerrainEdit (doc, invalid[i], error));
+        EXPECT_NE (error.find ("PropertyLineOutside"), std::string::npos) << error;
+        EXPECT_EQ (doc.landscape, before.landscape);
+        EXPECT_EQ (doc.nextId, before.nextId);
+        EXPECT_EQ (doc.revision, before.revision);
+    }
+}
+
+TEST (EditLandscape, TerrainFootprintChecksWholeConcaveBoundaryInEitherWinding)
+{
+    auto doc = Start ();
+    std::string error;
+    const auto property = Square (doc, 1, 1, 8);
+    ASSERT_TRUE (geo::SetLandscapePropertyLine (doc, property, error)) << error;
+    std::vector<edit::Vec3> containing { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } };
+    // Every property vertex is inside, but its top edge crosses the notch.
+    std::vector<edit::Vec3> notched { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 6, 10, 0 },
+                                      { 6, 5, 0 }, { 4, 5, 0 },  { 4, 10, 0 },  { 0, 10, 0 } };
+    for (int winding = 0; winding < 2; ++winding) {
+        EXPECT_TRUE (geo::ValidateLandscapeTerrainEdit (doc, containing, error)) << error;
+        EXPECT_TRUE (error.empty ());
+        EXPECT_FALSE (geo::ValidateLandscapeTerrainEdit (doc, notched, error));
+        EXPECT_NE (error.find ("PropertyLineOutside"), std::string::npos);
+        std::reverse (containing.begin (), containing.end ());
+        std::reverse (notched.begin (), notched.end ());
+    }
+}
+
+TEST (EditLandscape, PropertyLineRefusesRetracedSpursAtomically)
+{
+    auto doc = Start ();
+    const auto property = Source (
+        doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 5, 10, 0 }, { 5, 12, 0 }, { 5, 10, 0 }, { 0, 10, 0 } });
+    const auto before = doc;
+    std::string error;
+    EXPECT_FALSE (geo::SetLandscapePropertyLine (doc, property, error));
+    EXPECT_NE (error.find ("PropertyLineOutside"), std::string::npos) << error;
+    EXPECT_EQ (doc.landscape, before.landscape);
+    EXPECT_EQ (doc.nextId, before.nextId);
+    EXPECT_EQ (doc.revision, before.revision);
 }
 
 TEST (EditLandscape, ShuffledCatalogsKeepRegionIdsAndFullHistory)

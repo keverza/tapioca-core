@@ -4,22 +4,6 @@
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
-namespace {
-void SetChoice (const char* label, edit::Id& chosen, const std::vector<lg::LandscapeOperation>& sets)
-{
-    const std::string preview = chosen ? "Set " + std::to_string (chosen) : "Choose a face set";
-    if (!ImGui::BeginCombo (label, preview.c_str ()))
-        return;
-    for (const auto& set : sets) {
-        const std::string name =
-            "Set " + std::to_string (set.id) + " (" + std::to_string (set.faces.size ()) + " faces)";
-        if (ImGui::Selectable (name.c_str (), chosen == set.id))
-            chosen = set.id;
-    }
-    ImGui::EndCombo ();
-}
-} // namespace
-
 void LandscapePanel (Session& s)
 {
     if (!s.edits.Doc ().landscape)
@@ -27,9 +11,9 @@ void LandscapePanel (Session& s)
     Landscape (s);
     ImGui::Separator ();
     ImGui::TextUnformatted ("Landscape. Sources remain editable.");
-    const char* modes[] = { "Select sources", "Draw source", "Pick faces" };
+    const char* modes[] = { "Select sources", "Draw source" };
     ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 2; ++i) {
         if (i)
             ImGui::SameLine ();
         if (ImGui::RadioButton (modes[i], int (s.landscapeMode) == i))
@@ -46,60 +30,31 @@ void LandscapePanel (Session& s)
     if (ImGui::SmallButton ("Reload"))
         ReloadLandscape (s, s.landscapeSaved);
     ImGui::EndDisabled ();
+    ImGui::EndDisabled ();
+    ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
+    if (ImGui::Button ("Union"))
+        BeginLandscapeCommand (s, lg::OperationKind::Union);
+    ImGui::SameLine ();
+    if (ImGui::Button ("Subtract"))
+        BeginLandscapeCommand (s, lg::OperationKind::Difference);
+    ImGui::SameLine ();
+    if (ImGui::Button ("Intersection"))
+        BeginLandscapeCommand (s, lg::OperationKind::Intersection);
+    ImGui::EndDisabled ();
+    if (s.landscapeCommand) {
+        const auto kind = s.landscapeCommand->kind;
+        ImGui::TextUnformatted (kind == lg::OperationKind::Union        ? "Union"
+                                : kind == lg::OperationKind::Difference ? "Subtract"
+                                                                        : "Intersection");
+    }
+    ImGui::TextWrapped ("%s", LandscapeCommandPrompt (s));
+    if (s.landscapeCommand) {
+        ImGui::Text ("%zu faces selected", s.selection.Items ().size ());
+        if (ImGui::SmallButton ("Cancel (Esc)"))
+            CancelLandscapeCommand (s);
+    }
+    ImGui::BeginDisabled (s.landscapeCommand.has_value ());
     if (hudshell::BeginSubTabs ("##landscape")) {
-        if (ImGui::BeginTabItem ("Sets")) {
-            if (ImGui::Button ("New face set"))
-                CreateLandscapeFaceSet (s);
-            // These are authored semantic RegionSelect operations, not a second
-            // selection store. Copy rows because an action can replace the document.
-            std::vector<lg::LandscapeOperation> sets;
-            for (const auto& op : s.edits.Doc ().landscape->operations)
-                if (IsLandscapeFaceSet (op))
-                    sets.push_back (op);
-            if (sets.empty ())
-                ImGui::TextWrapped ("Create a set, pick faces in the view, then add the selected faces to it.");
-            SetChoice ("Set A (active)", s.landscapeSet, sets);
-            ImGui::BeginDisabled (!s.landscapeSet);
-            if (ImGui::SmallButton ("Show set selection"))
-                SelectLandscapeFaceSet (s);
-            if (ImGui::Button ("Add selected faces to A"))
-                EditLandscapeFaceSet (s);
-            ImGui::SameLine ();
-            if (ImGui::Button ("Remove selected faces from A"))
-                EditLandscapeFaceSet (s, true);
-            ImGui::EndDisabled ();
-            ImGui::TextDisabled ("Click / Shift-click faces; picking never runs a Boolean.");
-            ImGui::Separator ();
-            SetChoice ("Set B (operand)", s.landscapeOperandSet, sets);
-            const auto objects = s.edits.Doc ().landscape->objects;
-            std::string resultLabel = "New result";
-            for (const auto& object : objects)
-                if (object.id == s.landscapeObject)
-                    resultLabel = object.name + " " + std::to_string (object.id);
-            if (ImGui::BeginCombo ("Output", resultLabel.c_str ())) {
-                if (ImGui::Selectable ("New result", !s.landscapeObject))
-                    s.landscapeObject = edit::kNoId;
-                for (const auto& object : objects) {
-                    const auto label = object.name + " " + std::to_string (object.id);
-                    if (ImGui::Selectable (label.c_str (), object.id == s.landscapeObject))
-                        s.landscapeObject = object.id;
-                }
-                ImGui::EndCombo ();
-            }
-            ImGui::BeginDisabled (!s.landscapeSet || !s.landscapeOperandSet || s.landscapeSet == s.landscapeOperandSet);
-            if (ImGui::Button ("Add A + B"))
-                BooleanLandscapeFaceSets (s, lg::OperationKind::Union);
-            ImGui::SameLine ();
-            if (ImGui::Button ("Subtract A - B"))
-                BooleanLandscapeFaceSets (s, lg::OperationKind::Difference);
-            ImGui::SameLine ();
-            if (ImGui::Button ("Intersect A & B"))
-                BooleanLandscapeFaceSets (s, lg::OperationKind::Intersection);
-            ImGui::EndDisabled ();
-            ImGui::TextWrapped (
-                "Operations use the saved face sets, not the current picks. Sets and source curves are retained.");
-            ImGui::EndTabItem ();
-        }
         if (ImGui::BeginTabItem ("Sources")) {
             const char* roles[] = { "Guide", "Cutter", "Property line" };
             const lg::SourceRole values[] = { lg::SourceRole::Guide, lg::SourceRole::Cutter,
@@ -110,8 +65,8 @@ void LandscapePanel (Session& s)
                 if (ImGui::RadioButton (roles[i], s.landscapeRole == values[i]))
                     s.landscapeRole = values[i];
             }
-            ImGui::TextWrapped ("Select source geometry directly in the view. Boolean operations live in Sets, not on "
-                                "individual lines.");
+            ImGui::TextWrapped (
+                "Select source geometry directly in the view. Start a command above to pick its faces.");
             edit::Id sourceId = edit::kNoId;
             if (s.selection.Items ().size () == 1)
                 for (const auto& source : s.edits.Doc ().landscape->sources)

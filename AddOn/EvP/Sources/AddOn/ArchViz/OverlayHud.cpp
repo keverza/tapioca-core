@@ -793,7 +793,6 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
     // The pointer and its buttons, queued once: ImGui takes a press and its release a
     // frame apart, and a press after a move a frame after the move.
     ImGuiIO& io = ImGui::GetIO ();
-    io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
     io.AddKeyEvent (ImGuiMod_Shift, input.shift);
     impl_->PointerButtons (input);
     impl_->KeyboardInput (input);

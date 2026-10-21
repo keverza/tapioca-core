@@ -8,17 +8,21 @@ ROOT = Path(__file__).parents[1] / "Sources" / "AddOn"
 SOURCE = ROOT / "NativeCommands" / "VirtualEditorCommands.cpp"
 
 
-def test_landscape_panel_operates_on_face_sets_not_individual_source_rows():
+def test_landscape_commands_replace_the_deprecated_saved_set_selection_ui():
     panel = (ROOT / "ArchViz" / "HudVirtualEditorLandscapePanel.cpp").read_text(encoding="utf-8")
-    assert 'BeginTabItem ("Sets")' in panel
-    assert '"New face set"' in panel
-    assert '"Set A (active)"' in panel and '"Set B (operand)"' in panel
-    assert '"Add selected faces to A"' in panel and '"Remove selected faces from A"' in panel
-    assert "BooleanLandscapeFaceSets (s, lg::OperationKind::Union)" in panel
-    assert "BooleanLandscapeFaceSets (s, lg::OperationKind::Difference)" in panel
-    assert "BooleanLandscape (s," not in panel
-    assert "KeepLandscapeFaces (s" not in panel
-    assert "s.selection.Contains (ref)" not in panel
+    for removed in (
+        '"Sets"',
+        '"New face set"',
+        '"Set A (active)"',
+        '"Set B (operand)"',
+        '"Show set selection"',
+        '"Output"',
+    ):
+        assert removed not in panel
+    for kind in ("Union", "Difference", "Intersection"):
+        assert f"BeginLandscapeCommand (s, lg::OperationKind::{kind})" in panel
+    assert "LandscapeCommandPrompt (s)" in panel
+    assert "BooleanLandscapeFaceSets (s," not in panel
 
 
 def _state_schema():

@@ -110,6 +110,8 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
 
 void Escape (Session& s)
 {
+    if (CancelLandscapeCommand (s) || CancelGumballReposition (s))
+        return;
     if (s.tracker.State () == edit::TrackerState::Editing) {
         s.tracker.Key ({ edit::TrackerKey::Kind::Escape });
         if (s.planeTyping || s.profileTyping)
@@ -383,6 +385,28 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
     CheckView (s, v); // stale numeric input cannot commit before the next view layout
     if (textInput || LabelKeys (s, v))
         return; // an ImGui text field, or a label open for typing, has the keyboard
+    if (s.landscapeCommand) {
+        for (const auto action : v.editActions)
+            if (action == overlayhud::Input::EditAction::Cancel)
+                CancelLandscapeCommand (s);
+        for (const auto& key : v.keys)
+            if (key.down && !key.repeat) {
+                if (key.code == 0x1B)
+                    CancelLandscapeCommand (s);
+                else if (key.code == 0x0D)
+                    AdvanceLandscapeCommand (s);
+            }
+        return;
+    }
+    if (GumballRepositioning (s)) {
+        for (const auto action : v.editActions)
+            if (action == overlayhud::Input::EditAction::Cancel)
+                CancelGumballReposition (s);
+        for (const auto& key : v.keys)
+            if (key.down && !key.repeat && key.code == 0x1B)
+                CancelGumballReposition (s);
+        return;
+    }
     using K = edit::TrackerKey::Kind;
     bool escaped = false;
     const auto escape = [&] {
@@ -537,6 +561,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     draw->PushClipRect ({ -1e6f, -1e6f }, { 1e6f, 1e6f }, false);
     const ImVec2 mouse = ImGui::GetIO ().MousePos;
     const bool shift = ImGui::GetIO ().KeyShift;
+    if (!s.gumballRepositionFor.empty () && !GumballRepositioning (s))
+        CancelGumballReposition (s);
     CheckView (s, v);
     UpdatePathDetail (s, m, scale);
     Navigate (s, m, mouse);
@@ -727,8 +753,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // the press snapped the grab point onto something nearby and the item jumped there). A drag
     // starts 3 px from its press; a press released inside that is a click. A gumball handle and
     // a pushed face wait the same: a hand's tremor on a click is not a move.
-    if (!s.navigation.blocked && ImGui::IsMouseDown (0) && (s.drag == Drag::Part || s.drag == Drag::Handle) &&
-        !s.dragStarted)
+    // A short native drag can arrive in one layout: its release still owns its final position.
+    const bool pointerHeld = ImGui::IsMouseDown (0) || ImGui::IsMouseReleased (0);
+    if (!s.navigation.blocked && pointerHeld && (s.drag == Drag::Part || s.drag == Drag::Handle) && !s.dragStarted)
         s.dragStarted = std::hypot (mouse.x - s.startX, mouse.y - s.startY) >= kDragPixels;
     // While a number is typed through a drag the number has it: the preview stays as it was
     // when typing began, and the pointer moves nothing until Esc gives the number up.
@@ -736,7 +763,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     if (s.dragPointerPause && (mouse.x != s.dragPointerPause->first || mouse.y != s.dragPointerPause->second))
         s.dragPointerPause.reset ();
     const bool pointerMoves = DragPointerMoves (s, mouse);
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Part && s.dragStarted && pointerMoves) {
+    if (pointerHeld && s.drag == Drag::Part && s.dragStarted && pointerMoves) {
         const auto moving = Moving (s, s.target);
         Vec3 at;
         if (Pointer (s, m, mouse, s.startCursor.z, s.startCursor, s.startCursor, Exclusions (Doc (s), moving), scale,
@@ -779,7 +806,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else
             s.message = "This view is edge-on to the working plane. Orbit or type a value.";
     }
-    if (ImGui::IsMouseDown (0) && s.drag == Drag::Handle && s.dragStarted && pointerMoves) {
+    if (pointerHeld && s.drag == Drag::Handle && s.dragStarted && pointerMoves) {
         edit::Ray now;
         const edit::Handle h = HeldControl (s);
         if (m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, now)) {
