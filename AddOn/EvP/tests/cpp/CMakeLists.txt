@@ -526,6 +526,12 @@ set (EVP_ARCHVIZ_SOURCES
     # look, dock and floating panel are HudShell's.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellStyle.cpp"
+    # TapiocaUI: the one HUD component library both surfaces draw through, and its gallery.
+    # Every translation unit under ArchViz/TapiocaUI is listed here; check_cpp.py fails
+    # the build gate when one is not, so a new widget cannot go untested by omission.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/ScopedStyle.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/Units.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Demo/WidgetGallery.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettingsUi.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentHudSunControls.cpp"
@@ -897,6 +903,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudown.cpp
     test_overlayhuddisplays.cpp
     test_hudshell.cpp
+    test_tapiocaui.cpp
     test_graphicssettings.cpp
     test_hudclip.cpp
     test_hudconsole.cpp

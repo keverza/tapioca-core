@@ -146,6 +146,13 @@ TIER_ASSIGNMENTS = {
     # Registry history lives under the ArchViz module; it is not compiled, but it
     # still needs an explicit assignment because the tier scan covers every folder.
     "ArchViz/task-history": "features",
+    # TapiocaUI: the HUD component library both ImGui surfaces draw through. It sits
+    # inside the ArchViz module, so its consumers there need no sideways exception,
+    # and _check_tapiocaui_boundary keeps it free of everything else ArchViz holds.
+    # A subfolder is declared when it gets its first file, never ahead of it.
+    "ArchViz/TapiocaUI": "features",
+    "ArchViz/TapiocaUI/Demo": "features",
+    "ArchViz/TapiocaUI/Foundation": "features",
     "Diagnostics": "features",
     # The virtual editor's kernel: documents, gestures, snapping, typed numbers
     # and handles. Services tier for the same reason as SunStudy/: no DevKit, no
@@ -1347,6 +1354,83 @@ def _check_overlay_contract(failures: list[str]) -> None:
             )
 
 
+TAPIOCAUI_DIR = "ArchViz/TapiocaUI"
+
+# The library's only reasons to reach outside itself, each file-specific. The gallery
+# draws today's hudshell controls as the baseline a later widget is compared against;
+# that exception goes when P6 retires the old controls.
+TAPIOCAUI_INCLUDE_EXCEPTIONS = {
+    ("ArchViz/TapiocaUI/Demo/WidgetGallery.cpp", "ArchViz/HudShell.hpp"),
+    ("ArchViz/TapiocaUI/Demo/WidgetGallery.cpp", "ArchViz/OverlayLayers.hpp"),
+}
+
+# Angle includes the library may use besides the extension-less standard headers.
+TAPIOCAUI_SYSTEM_INCLUDES = {"imgui.h", "imgui_internal.h"}
+
+_ANGLE_INCLUDE = re.compile(r"^\s*#\s*include\s+<([^>]+)>")
+# ImGui's own tooltip window: the HUD says every hover text through hudshell::Tip.
+_IMGUI_TOOLTIP = re.compile(r"\bImGui::(SetTooltip|SetItemTooltip|BeginTooltip|BeginItemTooltip)\b")
+# A mutable static: a function-local or file-scope one is shared by the overlay's
+# ImGui context and the viewer's, which the library must never do.
+_MUTABLE_STATIC = re.compile(r"\b(?:static|thread_local)\s+(?!const\b|constexpr\b|inline\b)")
+
+
+def _check_tapiocaui_boundary(failures: list[str]) -> None:
+    """TapiocaUI depends on ImGui and itself, and every one of its TUs is tested.
+
+    HANDOFF-TapiocaUI-Library.md section 3: the library must never include a
+    feature header, ACAPI, DG, Diligent, or an OverlayHud*/DiligentHud* header, or
+    the overlay and the viewer cannot both draw through it and it cannot be tested
+    headlessly. Section 12: the offline test CMake lists its sources by hand, so a
+    new widget left out of it would compile into the add-on and never be tested.
+    """
+    root = ADDON_SRC / TAPIOCAUI_DIR
+    if not root.is_dir():
+        return
+    test_cmake = REPO_ROOT / "AddOn" / "EvP" / "tests" / "cpp" / "CMakeLists.txt"
+    listed = test_cmake.read_text(encoding="utf-8") if test_cmake.is_file() else ""
+    for path in sorted(root.rglob("*")):
+        if path.suffix.lower() not in CPP_EXTENSIONS or not path.is_file():
+            continue
+        relative = _relative_addon_path(path)
+        body = path.read_text(encoding="utf-8")
+        for number, line in enumerate(body.splitlines(), 1):
+            local = LOCAL_INCLUDE.match(line)
+            if local is not None:
+                included = local.group(1)
+                if not included.startswith(TAPIOCAUI_DIR + "/") and (relative, included) not in TAPIOCAUI_INCLUDE_EXCEPTIONS:
+                    failures.append(
+                        f"TAPIOCAUI: {relative}:{number} includes {included}; the library includes only "
+                        "itself and ImGui. Pass the data in, or record a file-specific exception in "
+                        "TAPIOCAUI_INCLUDE_EXCEPTIONS with its reason."
+                    )
+                continue
+            system = _ANGLE_INCLUDE.match(line)
+            if system is not None:
+                included = system.group(1)
+                if "." in included and included not in TAPIOCAUI_SYSTEM_INCLUDES:
+                    failures.append(
+                        f"TAPIOCAUI: {relative}:{number} includes <{included}>; the library uses only "
+                        "the standard library and ImGui -- no SDK, DG, Diligent or platform header."
+                    )
+        code = _without_comments(body)
+        for match in _IMGUI_TOOLTIP.finditer(code):
+            failures.append(
+                f"TAPIOCAUI: {relative} calls ImGui::{match.group(1)}; every HUD hover text is said by "
+                "hudshell::Tip, TipAt or TipBeside, never ImGui's own tooltip window."
+            )
+        if _MUTABLE_STATIC.search(code):
+            failures.append(
+                f"TAPIOCAUI: {relative} declares a mutable static; the overlay and the viewer are two "
+                "ImGui contexts, so transient state lives in ImGuiStorage or caller-owned state."
+            )
+        if path.suffix.lower() == ".cpp" and f"/Sources/AddOn/{relative}" not in listed:
+            failures.append(
+                f"TAPIOCAUI: {relative} is not listed in AddOn/EvP/tests/cpp/CMakeLists.txt; the add-on "
+                "globs it but EvPGeomTests would never compile or test it."
+            )
+
+
 def _check_architecture_command_schemas(failures: list[str]) -> None:
     """Every R"json(...)json" literal must parse.
 
@@ -1455,6 +1539,7 @@ def _run_architecture(verbose: bool) -> int:
         ("CITATIONS entry-point docs cite symbols, not lines", _check_architecture_citations),
         ("SCHEMAS   every command schema literal parses as JSON", _check_architecture_command_schemas),
         ("OVERLAY   every overlay TU cites the invariants contract", _check_overlay_contract),
+        ("TAPIOCAUI the UI library includes only itself and ImGui, all tested", _check_tapiocaui_boundary),
         ("SRB       SRB-bound shader variables are never STATIC", _check_architecture_srb_variables),
         ("DANGLING  no handle taken out of a by-value graph snapshot", _check_architecture_document_temporaries),
     ]
