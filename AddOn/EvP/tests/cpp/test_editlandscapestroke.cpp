@@ -74,7 +74,10 @@ TEST (EditLandscapeStroke, QuarterArcRetainsAnalyticTubeAreaAndItsAuthoredSegmen
         for (const auto& piece : cycle) {
             ASSERT_FALSE (piece.support.empty ());
             EXPECT_TRUE (piece.generated);
-            EXPECT_TRUE (piece.parameters.empty ());
+            // The tube's sides and caps carry the one segment's subdomain they came from.
+            ASSERT_FALSE (piece.parameters.empty ());
+            for (const auto& p : piece.parameters)
+                EXPECT_EQ (p.source, doc.landscape->sources[0].id);
             for (const auto& support : piece.support) {
                 EXPECT_EQ (support.source, doc.landscape->sources[0].id);
                 EXPECT_EQ (support.segment, doc.entities[0].segments[0].id);

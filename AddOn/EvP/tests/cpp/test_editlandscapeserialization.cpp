@@ -408,7 +408,7 @@ TEST (EditLandscapeSerialization, ReloadSplitMergeRetainsInvalidAssignmentsPatch
     Same (session.Doc (), second);
 }
 
-TEST (EditLandscapeSerialization, SingleSegmentGeneratedStrokeReloadEditKeepsIdentityWithoutClaimingExactSubdomains)
+TEST (EditLandscapeSerialization, SingleSegmentGeneratedStrokeReloadEditKeepsIdentityAndItsSegmentSubdomain)
 {
     edit::Document doc;
     std::string error;
@@ -442,7 +442,9 @@ TEST (EditLandscapeSerialization, SingleSegmentGeneratedStrokeReloadEditKeepsIde
     for (const auto& cycle : result.regions[0].boundary)
         for (const auto& piece : cycle) {
             EXPECT_TRUE (piece.generated);
-            EXPECT_TRUE (piece.parameters.empty ());
+            ASSERT_FALSE (piece.parameters.empty ());
+            for (const auto& p : piece.parameters)
+                EXPECT_EQ (p.piece, 0u) << "the one segment's subdomain";
             ASSERT_EQ (piece.support.size (), 1u);
             EXPECT_EQ (piece.support[0].source, session.Doc ().landscape->sources[0].id);
             EXPECT_EQ (piece.support[0].segment, loaded.entities[0].segments[0].id);

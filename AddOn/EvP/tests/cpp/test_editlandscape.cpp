@@ -1062,7 +1062,9 @@ TEST (EditLandscape, BentStrokeBoundariesDoNotAcquireDistantSourceSegments)
                 EXPECT_EQ (piece.support[0].segment, segments[1].id);
             }
             EXPECT_TRUE (piece.generated);
-            EXPECT_TRUE (piece.parameters.empty ());
+            ASSERT_FALSE (piece.parameters.empty ()) << "a stroke side carries its centreline subdomain";
+            for (const auto& p : piece.parameters)
+                EXPECT_EQ (p.source, source);
             for (const auto& support : piece.support)
                 EXPECT_EQ (support.source, source);
         }

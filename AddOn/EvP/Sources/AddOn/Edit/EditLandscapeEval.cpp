@@ -168,7 +168,7 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
         // that can be attributed to every segment of the parent curve.
         struct Piece {
             uint32_t ordinal;
-            double start;
+            double start, end;
             Vec3 a, b;
             std::vector<Id> segments;
         };
@@ -177,7 +177,7 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
             for (const auto& p : edge.pieces) {
                 const Vec3 a = map.vertices[p.reversed ? edge.b : edge.a],
                            b = map.vertices[p.reversed ? edge.a : edge.b];
-                pieces.push_back ({ p.piece, p.sourceStart, a, b, curve.segments.at (p.piece) });
+                pieces.push_back ({ p.piece, p.sourceStart, p.sourceEnd, a, b, curve.segments.at (p.piece) });
             }
         std::sort (pieces.begin (), pieces.end (), [] (const auto& a, const auto& b) {
             return std::tie (a.ordinal, a.start) < std::tie (b.ordinal, b.start);
@@ -199,7 +199,10 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
             std::vector<BoundaryRef> support;
             for (Id id : piece.segments)
                 support.push_back ({ source->id, id, false });
-            segment.boundary = { { { piece.a, piece.b, support, {}, true } } };
+            // The capsule's centreline chord, a -> b over its source subdomain: its sides
+            // project onto it, its caps onto its ends.
+            const PlanarEdgePiece subdomain { source->id, piece.ordinal, piece.start, piece.end, false };
+            segment.boundary = { { { piece.a, piece.b, support, { subdomain }, true } } };
             Shape generated;
             if (!GeneratedShape (capsulePaths, { segment }, op.id, order, generated, error))
                 return false;
@@ -490,10 +493,21 @@ bool At (const SourceChords& chords, uint32_t piece, double u, Vec3& point)
 // An old fragment re-evaluated on the current revision of its authored sources.
 // Each boundary piece keeps its source subdomain and takes that subdomain's
 // current position, so a dragged vertex carries the fragment with it and a moved
-// cutter carries its hole away. Generated pieces, and pieces whose ordinal no
-// longer names the same authored segment, keep their old coordinates.
-cp::PathsD Transport (const DerivedRegion& old, const std::function<const SourceChords*(Id)>& chords)
+// cutter carries its hole away. A generated piece lies off its source, so it moves
+// by how far its subdomain moved since the before-state. Pieces whose ordinal no
+// longer names the same authored segment keep their old coordinates.
+cp::PathsD Transport (const DerivedRegion& old, const std::function<const SourceChords*(Id)>& chords,
+                      const std::function<const SourceChords*(Id)>& beforeChords)
 {
+    const auto names = [] (const SourceChords* table, const PlanarEdgePiece& p, const RegionBoundaryPiece& piece) {
+        return table && p.piece < table->segments.size () &&
+               std::any_of (
+                   piece.support.begin (), piece.support.end (),
+                   [&] (const BoundaryRef& ref) {
+                       const auto& now = table->segments[p.piece];
+                       return ref.source == p.source && std::find (now.begin (), now.end (), ref.segment) != now.end ();
+                   });
+    };
     cp::PathsD outer, holes;
     for (size_t r = 0; r < old.boundary.size (); ++r) {
         cp::PathD path;
@@ -501,20 +515,26 @@ cp::PathsD Transport (const DerivedRegion& old, const std::function<const Source
             Vec3 a = piece.a, b = piece.b;
             for (const auto& p : piece.parameters) {
                 const auto* table = chords (p.source);
-                if (!table || p.piece >= table->segments.size () ||
-                    std::none_of (piece.support.begin (), piece.support.end (), [&] (const BoundaryRef& ref) {
-                        const auto& now = table->segments[p.piece];
-                        return ref.source == p.source &&
-                               std::find (now.begin (), now.end (), ref.segment) != now.end ();
-                    }))
+                if (!names (table, p, piece))
                     continue;
+                const double ua = p.reversed ? p.sourceEnd : p.sourceStart;
+                const double ub = p.reversed ? p.sourceStart : p.sourceEnd;
                 Vec3 ta, tb;
-                if (At (*table, p.piece, p.reversed ? p.sourceEnd : p.sourceStart, ta) &&
-                    At (*table, p.piece, p.reversed ? p.sourceStart : p.sourceEnd, tb)) {
+                if (!At (*table, p.piece, ua, ta) || !At (*table, p.piece, ub, tb))
+                    continue;
+                if (piece.generated) {
+                    const auto* was = beforeChords (p.source);
+                    Vec3 wa, wb;
+                    if (!names (was, p, piece) || !At (*was, p.piece, ua, wa) || !At (*was, p.piece, ub, wb))
+                        continue;
+                    a = a + (ta - wa);
+                    b = b + (tb - wb);
+                }
+                else {
                     a = ta;
                     b = tb;
-                    break;
                 }
+                break;
             }
             path.push_back ({ a.x, a.y });
             path.push_back ({ b.x, b.y });
@@ -661,6 +681,18 @@ static bool Rebuild (edit::Document& doc, LandscapeResult& result, std::string& 
         }
         return found->second ? &*found->second : nullptr;
     };
+    std::map<Id, std::optional<SourceChords>> beforeCache;
+    const auto beforeChords = [&] (Id id) -> const SourceChords* {
+        auto found = beforeCache.find (id);
+        if (found == beforeCache.end ()) {
+            found = beforeCache.emplace (id, std::nullopt).first;
+            if (before != nullptr && before->landscape)
+                for (const auto& source : before->landscape->sources)
+                    if (SourceChords table; source.id == id && ReadChords (*before, source, table))
+                        found->second = std::move (table);
+        }
+        return found->second ? &*found->second : nullptr;
+    };
     for (auto& region : session.regions)
         region.active = false;
     for (size_t i = 0; i < result.regions.size (); ++i) {
@@ -698,7 +730,7 @@ static bool Rebuild (edit::Document& doc, LandscapeResult& result, std::string& 
                 result.error = error;
                 return false;
             }
-            if (Overlaps (Transport (old->second, chords), paths, result.boundaryTolerance))
+            if (Overlaps (Transport (old->second, chords, beforeChords), paths, result.boundaryTolerance))
                 predecessors.insert (identity.id);
         }
         region.predecessorRegions.assign (predecessors.begin (), predecessors.end ());

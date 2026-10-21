@@ -251,18 +251,23 @@ bool Attribute (DerivedRegion& output, const Shape& parents, Id operation, const
                                 support.reversed = support.reversed != reversed;
                                 piece.support.push_back (support);
                             }
-                            if (!generated)
-                                for (auto parameter : edge.parameters) {
-                                    const double ta = std::clamp (Along (piece.a, edge.a, edge.b), 0.0, 1.0);
-                                    const double tb = std::clamp (Along (piece.b, edge.a, edge.b), 0.0, 1.0);
-                                    const double u0 = parameter.reversed ? parameter.sourceEnd : parameter.sourceStart;
-                                    const double u1 = parameter.reversed ? parameter.sourceStart : parameter.sourceEnd;
-                                    const double ua = u0 + ta * (u1 - u0), ub = u0 + tb * (u1 - u0);
-                                    parameter.sourceStart = std::min (ua, ub);
-                                    parameter.sourceEnd = std::max (ua, ub);
-                                    parameter.reversed = ua > ub;
-                                    piece.parameters.push_back (parameter);
-                                }
+                            // A generated piece's subdomain is its projection onto the parent
+                            // edge; one whose middle lies past an end (a join) descends from
+                            // that end alone, a point of the edge.
+                            const double reach = Along (mid, edge.a, edge.b);
+                            const bool corner = generated && (reach <= 0.0 || reach >= 1.0);
+                            const double end = reach <= 0.0 ? 0.0 : 1.0;
+                            for (auto parameter : edge.parameters) {
+                                const double ta = corner ? end : std::clamp (Along (piece.a, edge.a, edge.b), 0.0, 1.0);
+                                const double tb = corner ? end : std::clamp (Along (piece.b, edge.a, edge.b), 0.0, 1.0);
+                                const double u0 = parameter.reversed ? parameter.sourceEnd : parameter.sourceStart;
+                                const double u1 = parameter.reversed ? parameter.sourceStart : parameter.sourceEnd;
+                                const double ua = u0 + ta * (u1 - u0), ub = u0 + tb * (u1 - u0);
+                                parameter.sourceStart = std::min (ua, ub);
+                                parameter.sourceEnd = std::max (ua, ub);
+                                parameter.reversed = ua > ub;
+                                piece.parameters.push_back (parameter);
+                            }
                             piece.generated = piece.generated || edge.generated;
                         }
                 std::sort (piece.support.begin (), piece.support.end (),
