@@ -547,6 +547,20 @@ void RefreshSources (edit::Document& doc)
         source.revision = hash;
     }
 }
+// A kernel refusal names its code first ("Code: why"). Sites without a result
+// (Boolean attribution) and product diagnostics (AmbiguousFace) still owe the
+// normative typed record, so a refusal never carries only a string.
+void TypeRefusal (LandscapeResult& result)
+{
+    result.regions.clear ();
+    for (int i = 0; i <= int (LandscapeDiagnosticCode::ClipEmpty); ++i) {
+        const auto code = LandscapeDiagnosticCode (i);
+        if (result.error.rfind (std::string (LandscapeDiagnosticCodeName (code)) + ":", 0) == 0 &&
+            std::none_of (result.diagnostics.begin (), result.diagnostics.end (),
+                          [=] (const auto& d) { return d.code == code; }))
+            Diagnostic (result, code, 0, result.error);
+    }
+}
 } // namespace
 
 bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
@@ -554,6 +568,7 @@ bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
     LandscapeResult candidate;
     try {
         if (!Evaluate (doc, candidate)) {
+            TypeRefusal (candidate);
             result = std::move (candidate);
             return false;
         }
@@ -568,7 +583,19 @@ bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
     return true;
 }
 
+static bool Rebuild (edit::Document& doc, LandscapeResult& result, std::string& error, const edit::Document* before);
+
 bool RebuildLandscape (edit::Document& doc, LandscapeResult& result, std::string& error, const edit::Document* before)
+{
+    if (Rebuild (doc, result, error, before))
+        return true;
+    if (result.error.empty ())
+        result.error = error;
+    TypeRefusal (result);
+    return false;
+}
+
+static bool Rebuild (edit::Document& doc, LandscapeResult& result, std::string& error, const edit::Document* before)
 {
     error.clear ();
     auto candidate = doc;

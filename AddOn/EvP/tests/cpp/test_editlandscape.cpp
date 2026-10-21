@@ -478,6 +478,73 @@ TEST (EditLandscape, PathStrokeCombinesWithAPlaygroundAndACircleCutter)
     EXPECT_EQ (result.regions[0].sources, (std::vector<edit::Id> { walk, playground, cutter }));
 }
 
+namespace {
+bool Has (const geo::LandscapeResult& result, geo::LandscapeDiagnosticCode code)
+{
+    return std::any_of (result.diagnostics.begin (), result.diagnostics.end (),
+                        [=] (const auto& d) { return d.code == code; });
+}
+} // namespace
+
+TEST (EditLandscape, ChangedFaceTopologyRefusesWithTheNormativeProvenanceDiagnostic)
+{
+    // The product selector reports AmbiguousFace; the kernel failure behind it is
+    // ProvenanceUnattributable, reported alongside it rather than replaced by it.
+    auto doc = Start ();
+    const auto a = Square (doc, 0, 0), b = Square (doc, 5, 0);
+    const auto faces = Evaluate (doc).faces;
+    const auto overlap =
+        std::find_if (faces.begin (), faces.end (), [] (const auto& f) { return f.seed.x > 5 && f.seed.x < 10; });
+    ASSERT_NE (overlap, faces.end ());
+    geo::LandscapeOperation select;
+    select.kind = geo::OperationKind::RegionSelect;
+    select.inputs = { a, b };
+    select.faces = { overlap->descriptor };
+    edit::Id id = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeOperation (doc, select, id, error)) << error;
+    Object (doc, id);
+    const auto before = doc;
+    const auto entity = doc.landscape->sources[1].entityId;
+    for (auto& v : edit::Find (doc, entity)->vertices)
+        v.p.x += 20; // the squares no longer overlap: the selected face is gone
+    const auto edited = doc;
+    geo::LandscapeResult result;
+    EXPECT_FALSE (geo::RebuildLandscape (doc, result, error, &before));
+    EXPECT_NE (error.find ("changed topology"), std::string::npos) << error;
+    EXPECT_TRUE (Has (result, geo::LandscapeDiagnosticCode::AmbiguousFace));
+    EXPECT_TRUE (Has (result, geo::LandscapeDiagnosticCode::ProvenanceUnattributable));
+    EXPECT_EQ (doc.landscape, edited.landscape);
+    EXPECT_EQ (doc.nextId, edited.nextId);
+    geo::LandscapeResult evaluated;
+    EXPECT_FALSE (geo::EvaluateLandscape (doc, evaluated));
+    EXPECT_TRUE (Has (evaluated, geo::LandscapeDiagnosticCode::ProvenanceUnattributable));
+}
+
+TEST (EditLandscape, EquallyRankedConflictingAssignmentsRefuseWithProvenanceConflict)
+{
+    auto doc = Start ();
+    Object (doc, Operation (doc, geo::OperationKind::RegionSelect, { Square (doc, 0, 0) }));
+    const auto region = Evaluate (doc).regions[0].regionId;
+    for (auto preset : { geo::MaterialPreset::Grass, geo::MaterialPreset::Gravel }) {
+        geo::MaterialAssignment assignment;
+        assignment.id = edit::NewId (doc);
+        assignment.region = region;
+        assignment.material.preset = preset;
+        doc.landscape->assignments.push_back (assignment);
+    }
+    geo::LandscapeResult result;
+    EXPECT_FALSE (geo::EvaluateLandscape (doc, result));
+    EXPECT_NE (result.error.find ("ProvenanceConflict"), std::string::npos) << result.error;
+    EXPECT_TRUE (Has (result, geo::LandscapeDiagnosticCode::ProvenanceConflict));
+    EXPECT_TRUE (result.regions.empty ());
+    // A higher priority is an explicit resolution, not a silent choice.
+    doc.landscape->assignments[1].priority = 1;
+    const auto resolved = Evaluate (doc);
+    ASSERT_EQ (resolved.regions.size (), 1u);
+    EXPECT_EQ (resolved.regions[0].material.preset, geo::MaterialPreset::Gravel);
+}
+
 TEST (EditLandscape, ShuffledCatalogsKeepRegionIdsAndFullHistory)
 {
     auto doc = Start ();
