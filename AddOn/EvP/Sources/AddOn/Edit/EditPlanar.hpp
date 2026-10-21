@@ -1,8 +1,8 @@
 #ifndef TAPIOCA_EDIT_PLANAR_HPP
 #define TAPIOCA_EDIT_PLANAR_HPP
 
-// Experimental H1 prototype: its review gate is incomplete. No production/native
-// output consumer may depend on it until the remaining precision cases pass.
+// H1 correctness checkpoint accepted for the documented numerical envelope.
+// This is an offline topology service, not a native output/write acceptance.
 // Planar arrangement of the editor's source curves. The input is immutable:
 // BuildPlanarMap reads sources and returns a planar graph with vertices, edges,
 // half-edges, bounded faces, holes and per-edge source provenance. It never

@@ -16,7 +16,6 @@ namespace tapioca::geometry::detail {
 
 namespace {
 
-constexpr double kParallelRelative = 1.0e-12;
 constexpr double kTangentAngle = 0.12; // Radians, about seven degrees.
 constexpr std::size_t kMaxGridCellsPerSegment = 256;
 
@@ -37,7 +36,12 @@ double Dot2 (Vec3 a, Vec3 b)
 
 double Cross2 (Vec3 a, Vec3 b)
 {
-    return a.x * b.y - a.y * b.x;
+    // Recover the rounded second product before subtracting. An angle cutoff
+    // loses genuine crossings of long, shallow segments; cancellation of the
+    // two products must not turn those intersections into parallel lines either.
+    const double second = a.y * b.x;
+    const double residual = std::fma (-a.y, b.x, second);
+    return std::fma (a.x, b.y, -second) + residual;
 }
 
 double Length2 (Vec3 a)
@@ -263,7 +267,7 @@ bool BuildIntersectionSplits (const std::vector<PieceSegment>& segments, const P
         const double toleranceA = splitTolerance (ia);
         const double toleranceB = splitTolerance (ib);
         const double cross = Cross2 (da, db);
-        const bool parallel = std::abs (cross) <= kParallelRelative * lengthA * lengthB;
+        const bool parallel = cross == 0.0;
 
         if (parallel) {
             const double distanceA = std::abs (Cross2 (da, Vec3 { b.a.x - a.a.x, b.a.y - a.a.y, 0.0 })) / lengthA;

@@ -528,3 +528,52 @@ TEST (EditPlanarRobustBuild, ShallowArcRetainsGeometricallyMeaningfulSagitta)
         EXPECT_NEAR (sagitta, 6.25e-5, options.chordTolerance);
     }
 }
+
+TEST (EditPlanarRobustBuild, ShallowCrossingStillSplitsBothSourceIntervals)
+{
+    for (bool reverse : { false, true }) {
+        PlanarCurve horizontal = Open (1, { P (0, 0), P (1.0e9, 0) });
+        PlanarCurve diagonal = Open (2, { P (0, -0.00025), P (1.0e9, 0.00025) });
+        if (reverse)
+            std::reverse (diagonal.points.begin (), diagonal.points.end ());
+        PlanarMap map;
+        std::string error;
+        ASSERT_TRUE (geo::BuildPlanarMap ({ horizontal, diagonal }, PlanarOptions {}, map, error)) << error;
+        ASSERT_EQ (map.edges.size (), 4u);
+        ASSERT_EQ (map.vertices.size (), 5u);
+        for (const auto& edge : map.edges) {
+            ASSERT_EQ (edge.pieces.size (), 1u);
+            const auto& piece = edge.pieces.front ();
+            EXPECT_TRUE ((piece.sourceStart == 0.0 && piece.sourceEnd == 0.5) ||
+                         (piece.sourceStart == 0.5 && piece.sourceEnd == 1.0));
+        }
+        EXPECT_EQ (std::count_if (map.vertices.begin (), map.vertices.end (),
+                                  [] (Vec3 p) { return p.x == 5.0e8 && p.y == 0.0; }),
+                   1);
+    }
+}
+
+TEST (EditPlanarRobustBuild, ShallowCrossingPartitionsARectangleIntoFourFaces)
+{
+    const PlanarCurve boundary = Closed (3, { P (0, -1), P (1.0e9, -1), P (1.0e9, 1), P (0, 1) });
+    const PlanarCurve horizontal = Open (1, { P (0, 0), P (1.0e9, 0) });
+    const PlanarCurve diagonal = Open (2, { P (0, -0.00025), P (1.0e9, 0.00025) });
+    PlanarOptions options;
+    options.snapTolerance = 1.0e-6;
+    PlanarMap expected;
+    std::string error;
+    ASSERT_TRUE (geo::BuildPlanarMap ({ boundary, horizontal, diagonal }, options, expected, error)) << error;
+    ASSERT_EQ (expected.faces.size (), 4u);
+    std::vector<double> areas;
+    for (const auto& face : expected.faces)
+        areas.push_back (face.area);
+    std::sort (areas.begin (), areas.end ());
+    // Two triangles: half the length times the endpoint separation / 2.
+    EXPECT_NEAR (areas[0], 62500.0, 1.0e-5);
+    EXPECT_NEAR (areas[1], 62500.0, 1.0e-5);
+    EXPECT_NEAR (areas[2], 1.0e9 - 62500.0, 1.0e-5);
+    EXPECT_NEAR (areas[3], 1.0e9 - 62500.0, 1.0e-5);
+    PlanarMap reordered;
+    ASSERT_TRUE (geo::BuildPlanarMap ({ diagonal, horizontal, boundary }, options, reordered, error)) << error;
+    ExpectSameFaces (expected, reordered);
+}
