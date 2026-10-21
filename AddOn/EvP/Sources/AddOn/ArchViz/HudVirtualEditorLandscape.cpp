@@ -197,7 +197,9 @@ bool ReloadLandscape (Session& s, const std::string& definition)
 
 bool IsLandscapeFaceSet (const lg::LandscapeOperation& operation)
 {
-    return operation.kind == lg::OperationKind::RegionSelect &&
+    // Disabled RegionSelect nodes bypass to their first input, not their saved
+    // face membership. They must be re-enabled before serving as set operands.
+    return operation.enabled && operation.kind == lg::OperationKind::RegionSelect &&
            (!operation.faces.empty () || operation.inputs.empty ());
 }
 

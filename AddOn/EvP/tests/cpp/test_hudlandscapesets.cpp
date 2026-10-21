@@ -144,8 +144,16 @@ TEST (HudLandscapeSets, InvalidOperandsAndStaleFaceSelectionRefuseWithoutAllocat
     hud::Session s (Demo ());
     ASSERT_TRUE (hud::CreateLandscapeFaceSet (s));
     const auto a = s.landscapeSet;
+    ASSERT_TRUE (hud::CreateLandscapeFaceSet (s));
+    const auto disabled = s.landscapeSet;
+    Pick (s, { 0 });
+    ASSERT_TRUE (hud::EditLandscapeFaceSet (s));
+    ASSERT_TRUE (s.edits.Apply ([=] (edit::Document& doc, std::string& error) {
+        return geo::SetLandscapeOperationEnabled (doc, disabled, false, error);
+    }));
+    s.landscapeSet = a;
     const auto before = s.edits.Doc ();
-    for (auto b : { edit::Id { 0 }, a, before.landscape->sources[0].id, before.nextId + 10 }) {
+    for (auto b : { edit::Id { 0 }, a, disabled, before.landscape->sources[0].id, before.nextId + 10 }) {
         s.landscapeOperandSet = b;
         EXPECT_FALSE (hud::BooleanLandscapeFaceSets (s, geo::OperationKind::Difference));
         EXPECT_EQ (s.edits.Doc ().landscape, before.landscape);
