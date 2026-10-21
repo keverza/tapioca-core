@@ -160,6 +160,14 @@ def test_vendored_bytes_must_be_protected_from_line_ending_conversion(workspace)
     assert any("-text" in error for error in check_rust.third_party(workspace))
 
 
+def test_ignored_vendored_files_are_re_included_and_must_exist(workspace):
+    (workspace / "vendor/.gitignore").write_text("# nothing re-included\n", encoding="utf-8")
+    (workspace / "vendor/spade-2.15.1/images/interpolation_nn_c0.jpg").unlink()
+    errors = check_rust.third_party(workspace)
+    assert any("re-include" in error for error in errors)
+    assert any("checksummed files are missing" in error for error in errors)
+
+
 def test_the_notice_must_list_every_crate(workspace):
     replace(workspace / "vendor/THIRD-PARTY.md", "| foldhash | 0.2.0 | Zlib |", "| foldhash | 0.2.0 | MIT |")
     assert any("row for foldhash" in error for error in check_rust.third_party(workspace))

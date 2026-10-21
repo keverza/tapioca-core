@@ -1,0 +1,4 @@
+# Every vendored file is listed in its crate's .cargo-checksum.json and must be tracked,
+# whatever the repository-wide ignore rules say (the root ignores *.jpg, for one).
+!*
+!*/

@@ -9,6 +9,7 @@ Exit 0 = clean, 1 = violation, 2 = missing/broken tool.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -133,6 +134,10 @@ def third_party(workspace: Path) -> list[str]:
     attributes = vendor / ".gitattributes"
     if not attributes.is_file() or "* -text" not in attributes.read_text(encoding="utf-8").splitlines():
         errors.append("vendor/.gitattributes must declare '* -text' so checkouts keep the checksummed bytes")
+    # Repository-wide ignore rules (the root ignores *.jpg) must not drop checksummed files.
+    ignores = vendor / ".gitignore"
+    if not ignores.is_file() or "!*" not in ignores.read_text(encoding="utf-8").splitlines():
+        errors.append("vendor/.gitignore must re-include every file ('!*') so no checksummed file goes untracked")
     notice = vendor / "THIRD-PARTY.md"
     notice_text = notice.read_text(encoding="utf-8") if notice.is_file() else ""
     for name, (version, licence) in THIRD_PARTY.items():
@@ -143,8 +148,14 @@ def third_party(workspace: Path) -> list[str]:
         crate = vendor / f"{name}-{version}"
         if not crate.is_dir():
             continue
-        if not (crate / ".cargo-checksum.json").is_file():
+        checksums = crate / ".cargo-checksum.json"
+        if not checksums.is_file():
             errors.append(f"vendor/{crate.name}: .cargo-checksum.json is required")
+        else:
+            listed = json.loads(checksums.read_text(encoding="utf-8")).get("files", {})
+            absent = sorted(name for name in listed if not (crate / name).is_file())
+            if absent:
+                errors.append(f"vendor/{crate.name}: checksummed files are missing: {absent[:3]}")
         if not any(p.name.upper().startswith(("LICENSE", "LICENCE", "COPYING")) for p in crate.iterdir()):
             errors.append(f"vendor/{crate.name}: the licence text must be vendored")
         manifest = tomllib.loads((crate / "Cargo.toml").read_text(encoding="utf-8"))["package"]
