@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 
 #include "GeometryExtractor.hpp"
+#include "ExtractionCapture.hpp"
 #include "MeshExtraction.hpp"
 #include "WireframeEdges.hpp"
 
@@ -69,6 +70,10 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
     VertexWelder welder (mesh);
     std::vector<ExtractionCorner> corners;
     ExtractionCounts counts;
+    // B04 capture: null unless a diagnostic armed it; extraction never reads it back.
+    ExtractionRecorder* const recorder = ActiveExtractionRecorder ();
+    if (recorder != nullptr)
+        recorder->BeginElement (mesh.guid, mesh.elemType);
 
     const Int32 nBodies = elem.GetTessellatedBodyCount ();
     for (Int32 iBody = 1; iBody <= nBodies; ++iBody) {
@@ -97,6 +102,8 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
         }
 
         welder.Reset (); // source indices below are body-local
+        if (recorder != nullptr)
+            recorder->BeginBody (iBody, bodyPos);
 
         for (Int32 iPoly = 1; iPoly <= nPoly; ++iPoly) {
             try {
@@ -128,6 +135,8 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                 polygon.GetMaterialIndex (matIdx);
                 const int32_t material = matIdx.GetIndex ();
                 const int32_t surfaceAttribute = ReadPolygonSurfaceAttribute (polygon);
+                if (recorder != nullptr)
+                    recorder->BeginPolygon (iPoly, material, surfaceAttribute, visibleEdges);
 
                 const Int32 nConvex = polygon.GetConvexPolygonCount ();
                 for (Int32 iConvex = 1; iConvex <= nConvex; ++iConvex) {
@@ -154,6 +163,8 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                     if (!indicesOk || corners.size () < 3)
                         continue;
 
+                    if (recorder != nullptr)
+                        recorder->Convex (corners); // raw SDK normals, before the seam normalizes them
                     // The SDK-free C++ production oracle owns normalization,
                     // fan omission, welding and all sidecars at one emission point.
                     AppendExtractedConvex (mesh, welder, bodyPos, corners,

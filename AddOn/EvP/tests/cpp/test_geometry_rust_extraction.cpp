@@ -1,7 +1,12 @@
 #include "mesh_extraction_replay.hpp"
+#include "Geometry/ExtractionCapture.hpp"
 #include "Geometry/GeometryRustMeshPrep.hpp"
 
+#include <cstdlib>
+#include <fstream>
 #include <limits>
+#include <map>
+#include <sstream>
 
 namespace replay = extraction_replay;
 namespace rust = tapioca::geometry;
@@ -273,4 +278,51 @@ TEST (GeometryRustExtraction, LegacyNormalOverflowTriggersWholeMeshSmoothFallbac
     const auto expected = replay::ReplayCpp (fixture);
     EXPECT_EQ (expected.mesh.normals[3 * 5], 0);
     EXPECT_EQ (expected.mesh.normals[3 * 5 + 2], -1);
+}
+
+// B04: a model recorded live by private/tools/capture_extraction_live.py. Every element the
+// native extractor kept replays to its exact vertex/triangle counts through the C++ seam, and
+// the Rust composition reproduces that replay bit for bit. Skipped unless a recording is named.
+TEST (GeometryRustExtraction, RecordedNativeModelReplaysThroughBothCompositions)
+{
+    const char* path = std::getenv ("TAPIOCA_EXTRACTION_CAPTURE");
+    if (path == nullptr || *path == 0)
+        GTEST_SKIP () << "set TAPIOCA_EXTRACTION_CAPTURE to a recorded .tpxcap";
+    std::ifstream file (path, std::ios::binary);
+    ASSERT_TRUE (file) << path;
+    const std::string bytes ((std::istreambuf_iterator<char> (file)), std::istreambuf_iterator<char> ());
+    geomsrv::ExtractionCapture capture;
+    std::string error;
+    ASSERT_TRUE (geomsrv::ReadExtractionCapture (bytes, capture, error)) << error;
+    std::map<std::string, std::pair<size_t, size_t>> counts;
+    std::ifstream lines (std::string (path).substr (0, std::string (path).rfind ('.')) + ".counts");
+    ASSERT_TRUE (lines) << "the run's .counts file sits beside the recording";
+    for (std::string guid; lines >> guid;)
+        lines >> counts[guid].first >> counts[guid].second;
+    size_t retained = 0;
+    for (const auto& element : capture.elements) {
+        const auto cpp = geomsrv::ReplayExtraction (element);
+        const auto expected = counts.find (element.guid);
+        if (!cpp.retained) {
+            EXPECT_EQ (expected, counts.end ()) << element.guid << ": the extractor kept what replays to nothing";
+            continue;
+        }
+        ++retained;
+        ASSERT_NE (expected, counts.end ()) << element.guid << ": replays to a mesh the snapshot lacks";
+        EXPECT_EQ (cpp.mesh.VertexCount (), expected->second.first) << element.guid;
+        EXPECT_EQ (cpp.mesh.TriangleCount (), expected->second.second) << element.guid;
+        replay::Fixture fixture;
+        fixture.guid = element.guid;
+        fixture.elemType = element.elemType;
+        for (const auto& body : element.bodies) {
+            replay::Body b { body.index, body.positions, {} };
+            for (const auto& polygon : body.polygons)
+                b.polygons.push_back (
+                    { polygon.index, polygon.material, polygon.surface, polygon.visibleEdges, polygon.convexes });
+            fixture.bodies.push_back (std::move (b));
+        }
+        replay::ExpectEqual ({ cpp.mesh, cpp.counts, cpp.retained }, replay::ReplayCpp (fixture));
+        Compare (fixture);
+    }
+    EXPECT_EQ (retained, counts.size ()) << "every extracted mesh was recorded";
 }

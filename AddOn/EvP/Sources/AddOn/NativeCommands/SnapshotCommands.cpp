@@ -5,6 +5,7 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 
+#include "Geometry/ExtractionCapture.hpp"
 #include "Geometry/GeometryExtractor.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp" // QueryIndexCache — invalidated on release
@@ -15,7 +16,10 @@
 #include "ArchViz/ScenePacketTrace.hpp"
 
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <memory>
+#include <optional>
 
 namespace geomsrv {
 
@@ -84,13 +88,23 @@ class BuildSnapshotCommand : public MainThreadCommand {
         const uint64_t stamp = MeshStore::Get ().CaptureStamp ();
         bool reuseShared = false;
         params.Get ("reuseShared", reuseShared);
-        auto snap =
-            reuseShared && !selectionOnly && MeshStore::Get ().CaptureActive () ? MeshStore::Get ().Shared () : nullptr;
+        // B04 diagnostic, opt-in: record what reached the extraction seam to this file so the
+        // model can be replayed offline. A recording always extracts afresh.
+        GS::UniString capturePath;
+        const bool record = params.Get ("extractionCapturePath", capturePath) && !capturePath.IsEmpty ();
+        ExtractionRecorder recorder;
+        std::optional<ScopedExtractionRecording> armed;
+        if (record)
+            armed.emplace (recorder);
+        auto snap = reuseShared && !record && !selectionOnly && MeshStore::Get ().CaptureActive ()
+                        ? MeshStore::Get ().Shared ()
+                        : nullptr;
         const bool sharedCapture = snap != nullptr && snap->captureStamp == stamp && snap->completeModel;
         if (!sharedCapture) {
             const uint64_t id = MeshStore::Get ().NextId ();
             snap = selectionOnly ? ExtractSelectedElements (id, stamp) : ExtractAllElements (id, stamp);
         }
+        armed.reset ();
         const double captureMs =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - captureStarted).count ();
 
@@ -161,6 +175,19 @@ class BuildSnapshotCommand : public MainThreadCommand {
                                                                         : "none"));
         os.Add ("metadataCancelled", cancelled);
         os.Add ("sharedCapture", sharedCapture);
+        if (record) {
+            const std::string bytes = WriteExtractionCapture (recorder.Capture ());
+            const std::string utf8 (capturePath.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+            std::ofstream file (std::filesystem::path (std::u8string (utf8.begin (), utf8.end ())),
+                                std::ios::binary | std::ios::trunc);
+            file.write (bytes.data (), std::streamsize (bytes.size ()));
+            GS::ObjectState capture;
+            capture.Add ("written", bool (file.flush ()));
+            capture.Add ("bytes", static_cast<GS::Int64> (bytes.size ()));
+            capture.Add ("elements", static_cast<GS::Int64> (recorder.Capture ().elements.size ()));
+            capture.Add ("truncated", recorder.Truncated ());
+            os.Add ("extractionCapture", capture);
+        }
         if (!excludeTypes.empty ()) {
             os.Add ("droppedElements", static_cast<GS::Int64> (droppedElems));
             os.Add ("droppedTriangles", static_cast<GS::Int64> (droppedTris));
@@ -300,6 +327,7 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
                 "scope":{"type":"string","enum":["all","selection"]},
                 "excludeTypes":{"type":"array","items":{"type":"integer"}},
                 "reuseShared":{"type":"boolean"},
+                "extractionCapturePath":{"type":"string","minLength":1},
                 "meta":{"oneOf":[
                     {"type":"boolean"},
                     {"type":"string","enum":["none","basic","full"]}
@@ -322,6 +350,17 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
                 "sharedCapture":{"type":"boolean"},
                 "droppedElements":{"type":"integer"},
                 "droppedTriangles":{"type":"integer"},
+                "extractionCapture":{
+                    "type":"object",
+                    "properties":{
+                        "written":{"type":"boolean"},
+                        "bytes":{"type":"integer","minimum":0},
+                        "elements":{"type":"integer","minimum":0},
+                        "truncated":{"type":"boolean"}
+                    },
+                    "additionalProperties":false,
+                    "required":["written","bytes","elements","truncated"]
+                },
                 "retainedBytes":{"type":"integer"}
             },
             "additionalProperties":false,

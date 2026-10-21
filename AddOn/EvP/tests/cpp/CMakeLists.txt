@@ -67,6 +67,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/SpatialQueries.cpp"
     "${GEOM_DIR}/VertexWeld.cpp"
     "${GEOM_DIR}/MeshExtraction.cpp"
+    "${GEOM_DIR}/ExtractionCapture.cpp"
     "${GEOM_DIR}/SnapshotAssembly.cpp"
     "${GEOM_DIR}/GeometryEngine.cpp"
     # Primitives.cpp builds the solids the node catalog offers. Pure maths with
@@ -811,6 +812,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
 
 set (EVP_TEST_SOURCES
+    test_extractioncapture.cpp
     test_mesh_extraction.cpp
     test_editdocument.cpp
     test_editsession.cpp
