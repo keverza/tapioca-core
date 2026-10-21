@@ -1,0 +1,3 @@
+# Cargo verifies every vendored file against .cargo-checksum.json: keep the exact bytes,
+# never convert line endings on checkout.
+* -text

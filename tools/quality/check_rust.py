@@ -24,6 +24,30 @@ WORKSPACE = REPO / "AddOn/EvP/rust"
 SKIP_DIRS = {"target", "build", "vendor", "generated", ".git"}
 PACKAGES = {"geometry": "tapioca-geometry", "ffi": "tapioca-core-ffi"}
 
+# S3a.0 dependency policy. The only third-party edge is geometry -> spade, pinned exactly.
+# THIRD_PARTY is its complete transitive set: each crate's exact version and licence as
+# vendored. A crate added, removed, re-versioned or relicensed is a policy change.
+DIRECT = {
+    "geometry": {"spade": "=2.15.1"},
+    "ffi": {"tapioca-geometry": {"path": "../geometry"}},
+}
+THIRD_PARTY = {
+    "spade": ("2.15.1", "MIT OR Apache-2.0"),
+    "robust": ("1.2.0", "MIT OR Apache-2.0"),
+    "smallvec": ("1.16.3", "MIT OR Apache-2.0"),
+    "num-traits": ("0.2.19", "MIT OR Apache-2.0"),
+    "autocfg": ("1.5.1", "Apache-2.0 OR MIT"),
+    "hashbrown": ("0.16.1", "MIT OR Apache-2.0"),
+    "allocator-api2": ("0.2.21", "MIT OR Apache-2.0"),
+    "equivalent": ("1.0.3", "Apache-2.0 OR MIT"),
+    "foldhash": ("0.2.0", "Zlib"),
+}
+LICENCES = {"MIT", "Apache-2.0", "Zlib"}  # permissive, GPL-3.0-or-later compatible
+# A vendored build script runs on the build machine; each one is reviewed by name.
+# num-traits probes the compiler for float/i128 support through autocfg.
+BUILD_SCRIPTS = {"num-traits"}
+CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
+
 
 def rust_sources(workspace: Path) -> list[Path]:
     """Walk owned code including untracked sources, excluding linked directories."""
@@ -51,15 +75,18 @@ def structure(workspace: Path) -> tuple[list[str], list[str]]:
             errors.append(f"{directory}: package identity and workspace lint inheritance are required")
         if "target" in package or package["package"].get("build"):
             errors.append(f"{directory}: platform dependencies/build scripts require architecture review")
-        expected = {"tapioca-geometry": {"path": "../geometry"}} if directory == "ffi" else {}
-        if package.get("dependencies", {}) != expected:
-            errors.append(f"{directory}: only the approved ffi -> geometry path dependency is allowed")
+        if package.get("dependencies", {}) != DIRECT[directory]:
+            errors.append(
+                f"{directory}: only the approved ffi -> geometry path and geometry -> spade (=2.15.1) "
+                "dependencies are allowed"
+            )
         if package.get("build-dependencies") or package.get("dev-dependencies"):
             errors.append(f"{directory}: new crates (including test/build crates) require dependency review")
         source = (workspace / directory / "src/lib.rs").read_text(encoding="utf-8")
         guard = "forbid" if directory == "geometry" else "deny"
         if not re.search(rf"^#!\[{guard}\(unsafe_code\)\]$", source, re.MULTILINE):
             errors.append(f"{directory}: crate root must retain #![{guard}(unsafe_code)]")
+    errors.extend(third_party(workspace))
     for path in rust_sources(workspace):
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(workspace).as_posix()
@@ -74,6 +101,59 @@ def structure(workspace: Path) -> tuple[list[str], list[str]]:
         elif count > 600:
             reviews.append(f"WARNING {relative}: {count} lines (>600); target 200-500, do not split mechanically")
     return errors, reviews
+
+
+def third_party(workspace: Path) -> list[str]:
+    """The lockfile, source replacement, vendor tree and notice must all name THIRD_PARTY."""
+    errors = []
+    lock = tomllib.loads((workspace / "Cargo.lock").read_text(encoding="utf-8"))
+    locked = {}
+    for package in lock.get("package", []):
+        source = package.get("source")
+        if source is None:
+            if package["name"] not in PACKAGES.values():
+                errors.append(f"Cargo.lock: unexpected local package {package['name']}")
+            continue
+        if source != CRATES_IO or not package.get("checksum"):
+            errors.append(f"Cargo.lock: {package['name']} must come from crates.io with a checksum")
+        locked[package["name"]] = package["version"]
+    if locked != {name: version for name, (version, _) in THIRD_PARTY.items()}:
+        errors.append(f"Cargo.lock: third-party set {sorted(locked.items())} differs from the reviewed allow-list")
+    config = tomllib.loads((workspace / ".cargo/config.toml").read_text(encoding="utf-8")).get("source", {})
+    if config.get("crates-io", {}).get("replace-with") != "vendored-sources" or config.get("vendored-sources", {}) != {
+        "directory": "vendor"
+    }:
+        errors.append(".cargo/config.toml: crates.io must be replaced by the tracked vendor/ directory")
+    vendor = workspace / "vendor"
+    present = sorted(p.name for p in vendor.iterdir() if p.is_dir()) if vendor.is_dir() else []
+    wanted = sorted(f"{name}-{version}" for name, (version, _) in THIRD_PARTY.items())
+    if present != wanted:
+        errors.append(f"vendor/: crates {present} differ from the reviewed allow-list {wanted}")
+    # Cargo checks each vendored file's bytes; a checkout that rewrites line endings breaks it.
+    attributes = vendor / ".gitattributes"
+    if not attributes.is_file() or "* -text" not in attributes.read_text(encoding="utf-8").splitlines():
+        errors.append("vendor/.gitattributes must declare '* -text' so checkouts keep the checksummed bytes")
+    notice = vendor / "THIRD-PARTY.md"
+    notice_text = notice.read_text(encoding="utf-8") if notice.is_file() else ""
+    for name, (version, licence) in THIRD_PARTY.items():
+        if not all(atom.strip() in LICENCES for atom in licence.split(" OR ")):
+            errors.append(f"{name}: licence {licence} is outside {sorted(LICENCES)}")
+        if f"| {name} | {version} | {licence} |" not in notice_text:
+            errors.append(f"vendor/THIRD-PARTY.md: missing the row for {name} {version} ({licence})")
+        crate = vendor / f"{name}-{version}"
+        if not crate.is_dir():
+            continue
+        if not (crate / ".cargo-checksum.json").is_file():
+            errors.append(f"vendor/{crate.name}: .cargo-checksum.json is required")
+        if not any(p.name.upper().startswith(("LICENSE", "LICENCE", "COPYING")) for p in crate.iterdir()):
+            errors.append(f"vendor/{crate.name}: the licence text must be vendored")
+        manifest = tomllib.loads((crate / "Cargo.toml").read_text(encoding="utf-8"))["package"]
+        if (manifest["name"], manifest["version"], manifest.get("license")) != (name, version, licence):
+            errors.append(f"vendor/{crate.name}: manifest identity or licence differs from the allow-list")
+        builds = bool(manifest.get("build")) or (crate / "build.rs").is_file()
+        if builds and name not in BUILD_SCRIPTS:
+            errors.append(f"vendor/{crate.name}: an unreviewed build script would run on the build machine")
+    return errors
 
 
 def find_rustup() -> str | None:

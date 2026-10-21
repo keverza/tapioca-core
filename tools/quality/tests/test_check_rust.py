@@ -32,7 +32,7 @@ def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
     assert ffi["dependencies"] == {"tapioca-geometry": {"path": "../geometry"}}
     geometry = tomllib.loads((workspace / "geometry/Cargo.toml").read_text(encoding="utf-8"))
     assert geometry["package"]["name"] == "tapioca-geometry"
-    assert geometry.get("dependencies", {}) == {}
+    assert geometry.get("dependencies", {}) == {"spade": "=2.15.1"}
 
 
 @pytest.mark.parametrize("crate", ["geometry", "ffi"])
@@ -42,10 +42,18 @@ def test_unsafe_crate_guards_cannot_disappear(workspace, crate):
     assert any("unsafe_code" in error for error in errors)
 
 
+SPADE = 'spade = "=2.15.1"'
+
+
+def replace(path, old, new):
+    text = path.read_text(encoding="utf-8")
+    assert old in text, old
+    path.write_text(text.replace(old, new), encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     "addition",
     [
-        '\n[dependencies]\nwindows = "0.1"\n',
         '\n[dev-dependencies]\nproptest = "1"\n',
         '\n[build-dependencies]\ncc = "1"\n',
         "\n[target.'cfg(windows)'.dependencies]\nwindows = \"0.1\"\n",
@@ -58,14 +66,108 @@ def test_unapproved_dependencies_fail_including_platform_and_test_crates(workspa
     assert errors
 
 
+@pytest.mark.parametrize(
+    "dependencies",
+    [
+        SPADE + '\nwindows = "0.1"',  # a second crate beside the approved one
+        'spade = "=2.15.0"',  # another version
+        'spade = "2.15.1"',  # a range, not an exact pin
+        'spade = { version = "=2.15.1", features = ["serde"] }',  # optional features
+        'spade = { git = "https://github.com/Stoeoef/spade" }',
+    ],
+)
+def test_the_spade_edge_is_one_exact_default_feature_pin(workspace, dependencies):
+    replace(workspace / "geometry/Cargo.toml", SPADE, dependencies)
+    errors, _ = check_rust.structure(workspace)
+    assert any("geometry -> spade" in error for error in errors)
+
+
 def test_reverse_dependency_is_rejected(workspace):
-    path = workspace / "geometry/Cargo.toml"
-    path.write_text(
-        path.read_text(encoding="utf-8") + '\n[dependencies]\ntapioca-core-ffi = { path = "../ffi" }\n',
-        encoding="utf-8",
-    )
+    replace(workspace / "geometry/Cargo.toml", SPADE, SPADE + '\ntapioca-core-ffi = { path = "../ffi" }')
     errors, _ = check_rust.structure(workspace)
     assert any("ffi -> geometry" in error for error in errors)
+
+
+def test_the_vendored_set_passes_as_reviewed(workspace):
+    assert check_rust.third_party(workspace) == []
+
+
+@pytest.mark.parametrize(
+    "old, new, message",
+    [
+        ('name = "smallvec"\nversion = "1.16.3"', 'name = "smallvec"\nversion = "1.16.4"', "differs from the reviewed"),
+        (
+            'source = "registry+https://github.com/rust-lang/crates.io-index"',
+            'source = "git+https://example.invalid/fork"',
+            "must come from crates.io",
+        ),
+    ],
+)
+def test_lockfile_drift_and_foreign_sources_fail(workspace, old, new, message):
+    path = workspace / "Cargo.lock"
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    assert old in text
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    assert any(message in error for error in check_rust.third_party(workspace))
+
+
+def test_an_extra_locked_crate_fails(workspace):
+    path = workspace / "Cargo.lock"
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + '\n[[package]]\nname = "rand"\nversion = "0.9.0"\n'
+        + 'source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "00"\n',
+        encoding="utf-8",
+    )
+    assert any("differs from the reviewed" in error for error in check_rust.third_party(workspace))
+
+
+def test_the_registry_must_stay_replaced_by_vendor(workspace):
+    replace(workspace / ".cargo/config.toml", 'replace-with = "vendored-sources"', 'replace-with = "mirror"')
+    assert any("tracked vendor/" in error for error in check_rust.third_party(workspace))
+
+
+def test_extra_and_missing_vendored_crates_fail(workspace):
+    shutil.copytree(workspace / "vendor/robust-1.2.0", workspace / "vendor/robust-1.1.0")
+    shutil.rmtree(workspace / "vendor/smallvec-1.16.3")
+    assert any("differ from the reviewed allow-list" in error for error in check_rust.third_party(workspace))
+
+
+def remove_licences(crate):
+    for path in crate.glob("LICENSE*"):
+        path.unlink()
+
+
+@pytest.mark.parametrize(
+    "mutate, message",
+    [
+        (lambda crate: (crate / ".cargo-checksum.json").unlink(), "checksum"),
+        (remove_licences, "licence text"),
+        (lambda crate: (crate / "build.rs").write_text("fn main() {}\n", encoding="utf-8"), "build script"),
+        (
+            lambda crate: replace(crate / "Cargo.toml", 'license = "MIT OR Apache-2.0"', 'license = "GPL-3.0"'),
+            "manifest identity or licence",
+        ),
+    ],
+)
+def test_a_tampered_vendored_crate_fails(workspace, mutate, message):
+    mutate(workspace / "vendor/smallvec-1.16.3")
+    assert any(message in error for error in check_rust.third_party(workspace))
+
+
+def test_vendored_bytes_must_be_protected_from_line_ending_conversion(workspace):
+    (workspace / "vendor/.gitattributes").write_text("* text=auto\n", encoding="utf-8")
+    assert any("-text" in error for error in check_rust.third_party(workspace))
+
+
+def test_the_notice_must_list_every_crate(workspace):
+    replace(workspace / "vendor/THIRD-PARTY.md", "| foldhash | 0.2.0 | Zlib |", "| foldhash | 0.2.0 | MIT |")
+    assert any("row for foldhash" in error for error in check_rust.third_party(workspace))
+
+
+def test_a_licence_outside_the_allow_list_fails(workspace, monkeypatch):
+    monkeypatch.setitem(check_rust.THIRD_PARTY, "foldhash", ("0.2.0", "BUSL-1.1"))
+    assert any("outside" in error for error in check_rust.third_party(workspace))
 
 
 def test_build_script_is_rejected(workspace):
@@ -98,7 +200,7 @@ def test_file_size_is_an_advisory_not_a_build_failure(workspace, count, prefix):
 def test_generated_and_vendored_rust_are_not_size_scanned(workspace, directory):
     baseline = check_rust.structure(workspace)
     path = workspace / directory
-    path.mkdir()
+    path.mkdir(exist_ok=True)  # vendor/ is real since S3a.0
     (path / "large.rs").write_text("// not owned\n" * 1001, encoding="utf-8")
     assert check_rust.structure(workspace) == baseline
 

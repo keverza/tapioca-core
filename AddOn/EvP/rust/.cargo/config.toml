@@ -2,3 +2,11 @@
 # Do not set a default target: host-native tests must also run on Linux in CI.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=-crt-static"]
+
+# S3a.0: third-party crates come only from the tracked vendor/ tree; --offline --locked
+# builds never reach a registry. check_rust.py enforces this replacement and the set.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
