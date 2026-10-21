@@ -210,7 +210,7 @@ Route Weigh (Target& target, const Event& event, POINT screen, bool removing)
         self->navigating = (event.held & Bit (Button::Middle)) != 0;
     const bool button = route == Route::Take && (event.kind == EventKind::Press || event.kind == EventKind::Release);
     if (button && self->buttons.size () < 32)
-        self->buttons.push_back ({ int (event.button), event.kind == EventKind::Press });
+        self->buttons.push_back ({ int (event.button), event.kind == EventKind::Press, true, self->x, self->y });
     // The wheel the HUD took: its page scrolls by it at the next layout.
     if (route == Route::Take && event.kind == EventKind::Wheel)
         self->wheel += event.wheel;

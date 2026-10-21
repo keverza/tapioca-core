@@ -238,6 +238,51 @@ TEST (HudLandscape, SourcePointerDragAndHistoryKeysRebuildTheKeptDefinition)
     EXPECT_NEAR (Area (d.S ()), area + 8, 1e-4);
 }
 
+TEST (HudLandscape, QueuedSourceDragRetainsPressPositionAndPublishesOneUndoStep)
+{
+    Drive d;
+    KeepAll (d.S ());
+    ASSERT_TRUE (eh::SetLandscapeMode (d.S (), eh::LandscapeMode::Select));
+    d.S ().snapEnabled = false;
+    d.At ({ 12, 8, 0 });
+    const auto before = d.S ().edits.Doc ();
+    const auto depth = d.S ().edits.UndoDepth ();
+    // The native queue can hold an entire short drag between two layouts. Its
+    // latest pointer is at release; the press belongs to the original vertex.
+    d.input.x = 860;
+    d.input.y = 320;
+    d.input.buttons = { { 0, true, true, 840, 340 }, { 0, false, true, 860, 320 } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_FALSE (d.S ().edits.InGesture ());
+    EXPECT_EQ (d.S ().edits.UndoDepth (), depth + 1);
+    EXPECT_NEAR (d.S ().edits.Doc ().entities[0].vertices[2].p.x, 13, 1e-6);
+    EXPECT_NEAR (d.S ().edits.Doc ().entities[0].vertices[2].p.y, 9, 1e-6);
+    EXPECT_NEAR (Area (d.S ()), 404, 1e-4);
+    ASSERT_TRUE (d.S ().edits.Undo ());
+    EXPECT_EQ (d.S ().edits.Doc ().entities, before.entities);
+    EXPECT_EQ (d.S ().edits.Doc ().landscape, before.landscape);
+    ASSERT_TRUE (d.S ().edits.Redo ());
+    EXPECT_NEAR (Area (d.S ()), 404, 1e-4);
+}
+
+TEST (HudLandscape, QueuedFacePressPicksItsOwnPositionRatherThanTheReleasePosition)
+{
+    Drive d;
+    const auto first = *lg::LandscapeFaceAt (eh::Landscape (d.S ()), { 2, 1, 0 });
+    const auto last = *lg::LandscapeFaceAt (eh::Landscape (d.S ()), { 2, -1, 0 });
+    d.At (first.seed);
+    const float fromX = d.input.x, fromY = d.input.y;
+    d.input.x = float (600 + last.seed.x * 20);
+    d.input.y = float (500 - last.seed.y * 20);
+    d.input.buttons = { { 0, true, true, fromX, fromY }, { 0, false, true, d.input.x, d.input.y } };
+    d.Frame ();
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].item, first.faceId);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+}
+
 TEST (HudLandscape, PreviewDatumChangeRepublishesWithoutReevaluatingGeometry)
 {
     eh::Session s (Demo ());
