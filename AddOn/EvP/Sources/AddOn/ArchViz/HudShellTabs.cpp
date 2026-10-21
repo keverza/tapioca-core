@@ -13,11 +13,17 @@ namespace hudshell {
 
 namespace {
 
-// ⚠️ THE HUD'S OWN TABS ARE GLYPHS (HANDOFF-TapiocaUI-Library.md section 7.8): Selection the
-// pointer, Settings the gear, Debug the bug; Stats and a caller's tabs keep their titles. The
-// title is still the tab's identity and is said as its tip; Debug's unseen count is its badge.
-ui::IconId IconOf (const std::string& key)
+// ⚠️ THE HUD'S OWN TABS ARE GLYPHS (HANDOFF-TapiocaUI-Library.md section 7.8; the user, 2026-10-21):
+// Stats the report columns, Selection the pointer, Settings the gear, Debug the bug; a caller's tab
+// is a glyph when it names one (HostTab::icon) and keeps its title otherwise. The title is still
+// the tab's identity and is said as its tip; Debug's unseen count is its badge.
+ui::IconId IconOf (const HostTab& tab)
 {
+    if (tab.icon != ui::IconId::None)
+        return tab.icon;
+    const std::string& key = tab.key;
+    if (key == kStatsKey)
+        return ui::IconId::ReportColumns;
     if (key == kSelectionKey)
         return ui::IconId::CursorPointer;
     if (key == kSettingsKey)
@@ -38,7 +44,7 @@ float TabGlyph ()
 float TabWidth (const HostTab& tab)
 {
     const ImGuiStyle& style = ImGui::GetStyle ();
-    if (IconOf (tab.key) == ui::IconId::None)
+    if (IconOf (tab) == ui::IconId::None)
         return ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * style.FramePadding.x;
     float width = 2.0f * style.FramePadding.x + TabGlyph ();
     if (!tab.badge.empty ())
@@ -49,7 +55,7 @@ float TabWidth (const HostTab& tab)
 bool TabItem (const HostTab& tab, ImGuiTabItemFlags flags)
 {
     const ImGuiStyle& style = ImGui::GetStyle ();
-    const ui::IconId icon = IconOf (tab.key);
+    const ui::IconId icon = IconOf (tab);
     if (icon != ui::IconId::None)
         ImGui::SetNextItemWidth (TabWidth (tab));
     const std::string label = (icon != ui::IconId::None ? std::string () : tab.title) + "###" + tab.key;

@@ -81,7 +81,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     // Analysis stays discoverable before the first run.
     std::vector<hudshell::HostTab> tabs = { { hudshell::kStatsKey, "Stats" },
                                             { hudshell::kSelectionKey, "Selection" } };
-    tabs.push_back ({ kSunStudyKey, "Analysis" });
+    tabs.push_back ({ kSunStudyKey, "Analysis", {}, archviz::ui::IconId::Glasses });
     tabs.push_back ({ hudshell::kSettingsKey, "Settings" });
     // The console's errors and warnings not shown yet, counted on the tab (HudConsole.hpp).
     const uint32_t unseen = hudconsole::Unseen (hudconsole::Entries (), shell.consoleSeen, shell.consoleCleared);

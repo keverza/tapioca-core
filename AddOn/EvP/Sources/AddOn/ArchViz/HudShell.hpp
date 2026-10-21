@@ -17,6 +17,7 @@
 // ImGuiContextLock and begun a frame. tests/cpp builds it with the vendored imgui.
 
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/TapiocaUI/Foundation/IconId.hpp"
 
 #include <imgui.h>
 
@@ -190,6 +191,9 @@ struct HostTab {
     std::string key;
     std::string title;
     std::string badge; // said beside an own tab's glyph: the Debug tab's unseen count
+    // A caller's page drawn as a glyph, its title then its tip (the user, 2026-10-21: Analysis the
+    // glasses, massing feasibility the house). None: the own tabs' glyph, or the title.
+    ui::IconId icon = ui::IconId::None;
 };
 
 struct HostSpec {

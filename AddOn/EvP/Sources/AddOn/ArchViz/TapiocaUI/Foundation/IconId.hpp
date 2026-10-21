@@ -45,6 +45,10 @@ enum class IconId : uint16_t {
     FrameSimple = 18,           // frame-simple.svg
     MagicWand = 19,             // magic-wand.svg
     Droplet = 20,               // droplet.svg
+    // More of the HUD's tabs (the user, 2026-10-21)
+    ReportColumns = 21, // report-columns.svg: Stats
+    Glasses = 22,       // glasses.svg: the viewer's Analysis
+    HomeSimple = 23,    // home-simple.svg: massing feasibility
 };
 
 } // namespace ui

@@ -292,7 +292,9 @@ TEST (TapiocaUiGallery, TheOverlaysDebugPageUnfoldsTheGalleryFromItsLastRow)
     ASSERT_GT (row, 0.0f);
     hud.Click ({}, left + 30, row);
     const hud::Layout open = hud.Lay ({}, At (600, 600));
-    EXPECT_GT (open.host.vertices.size (), folded.host.vertices.size () * 2)
+    // The gallery adds its controls to the page: thousands of vertices (5300 at this writing),
+    // while the page's own content is capped by the view's height, so a ratio would not hold.
+    EXPECT_GT (open.host.vertices.size (), folded.host.vertices.size () + 1000)
         << "the gallery's controls are drawn once its section is open";
 }
 

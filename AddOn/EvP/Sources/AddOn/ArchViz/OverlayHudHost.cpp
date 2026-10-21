@@ -371,7 +371,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     if (own.standalone) {
         spec.tabs.push_back ({ kStatsKey, "Stats" });
         spec.tabs.push_back ({ kSelectionKey, "Selection" });
-        spec.tabs.push_back ({ hudmassing::kTabKey, "Massing" });
+        spec.tabs.push_back ({ hudmassing::kTabKey, "Massing", {}, archviz::ui::IconId::HomeSimple });
     }
     for (const size_t i : titled)
         spec.tabs.push_back ({ keys[i], panels[i]->title });
