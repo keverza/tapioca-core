@@ -2,6 +2,7 @@
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <tuple>
 
@@ -51,6 +52,12 @@ bool On (Vec3 point, Vec3 a, Vec3 b)
     const double t = Along (point, a, b);
     return t >= -1.0e-12 && t <= 1.0 + 1.0e-12 &&
            edit::DistanceXY (point, edit::Lerp (a, b, std::clamp (t, 0.0, 1.0))) <= kBoundaryEpsilon;
+}
+double Distance (Vec3 point, Vec3 a, Vec3 b)
+{
+    if (edit::DistanceXY (a, b) == 0.0)
+        return edit::DistanceXY (point, a);
+    return edit::DistanceXY (point, edit::Lerp (a, b, std::clamp (Along (point, a, b), 0.0, 1.0)));
 }
 void CollectTree (const cp::PolyPathD& node, Shape& out)
 {
@@ -223,10 +230,21 @@ bool Attribute (DerivedRegion& output, const Shape& parents, Id operation, const
                     continue;
                 const Vec3 mid = edit::Lerp (piece.a, piece.b, 0.5);
                 piece.generated = generated;
+                // A generated edge lies on no parent edge. It descends from the
+                // parent pieces nearest it: an offset side from its parallel
+                // edge, a round join from both edges meeting at its corner, an
+                // outline side from its own centreline leg. Never all of them.
+                double nearest = std::numeric_limits<double>::infinity ();
+                if (generated)
+                    for (const auto* input : contributors)
+                        for (const auto& boundary : input->boundary)
+                            for (const auto& edge : boundary)
+                                nearest = std::min (nearest, Distance (mid, edge.a, edge.b));
                 for (const auto* input : contributors)
                     for (const auto& boundary : input->boundary)
                         for (const auto& edge : boundary) {
-                            if (!generated && !On (mid, edge.a, edge.b))
+                            if (generated ? Distance (mid, edge.a, edge.b) > nearest + kBoundaryEpsilon
+                                          : !On (mid, edge.a, edge.b))
                                 continue;
                             const bool reversed = edit::Dot (piece.b - piece.a, edge.b - edge.a) < 0.0;
                             for (auto support : edge.support) {

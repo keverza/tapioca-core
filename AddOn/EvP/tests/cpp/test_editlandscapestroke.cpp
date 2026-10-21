@@ -1,9 +1,11 @@
 #include "Edit/EditLandscapeSerialization.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
 #include "Edit/EditSession.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace geo = tapioca::geometry;
 namespace edit = geomsrv::edit;
@@ -192,4 +194,116 @@ TEST (EditLandscapeStroke, CrossedStrokeKeepsAHoleWithoutTaggingAllSegmentsOnEve
         }
     EXPECT_TRUE (rising);
     EXPECT_TRUE (falling);
+}
+
+namespace {
+// The authored segments (path legs for a path) a boundary piece claims.
+std::set<edit::Id> Segments (const geo::RegionBoundaryPiece& piece)
+{
+    std::set<edit::Id> segments;
+    for (const auto& support : piece.support)
+        segments.insert (support.segment);
+    return segments;
+}
+void Offset (edit::Document& doc, double distance)
+{
+    geo::LandscapeOperation op;
+    op.kind = geo::OperationKind::Offset;
+    op.inputs = { doc.landscape->sources[0].id };
+    op.offset = distance;
+    edit::Id id = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeOperation (doc, op, id, error)) << error;
+    geo::HardscapeObject object;
+    object.footprintOperation = id;
+    ASSERT_TRUE (geo::AddHardscapeObject (doc, object, id, error)) << error;
+}
+} // namespace
+
+TEST (EditLandscapeOffset, GrownEdgesKeepTheirParallelSegmentAndJoinsTheirCorner)
+{
+    auto doc = Source ({ { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+    Offset (doc, 1);
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_NEAR (result.regions[0].area, 140 + kPi, 0.015);
+    const auto& s = doc.entities[0].segments;
+    size_t sides = 0, joins = 0;
+    for (const auto& cycle : result.regions[0].boundary)
+        for (const auto& piece : cycle) {
+            EXPECT_TRUE (piece.generated);
+            const auto m = edit::Lerp (piece.a, piece.b, 0.5);
+            const bool inX = m.x > 0 && m.x < 10, inY = m.y > 0 && m.y < 10;
+            std::set<edit::Id> expected;
+            if (inX || inY) {
+                ++sides;
+                expected = { inX ? (m.y < 5 ? s[0].id : s[2].id) : (m.x > 5 ? s[1].id : s[3].id) };
+            }
+            else {
+                ++joins;
+                // Segment i runs from vertex i: the corner at vertex k joins k-1 and k.
+                const size_t k = m.x > 5 ? (m.y > 5 ? 2 : 1) : (m.y > 5 ? 3 : 0);
+                expected = { s[k].id, s[(k + 3) % 4].id };
+            }
+            EXPECT_EQ (Segments (piece), expected) << m.x << "," << m.y;
+        }
+    EXPECT_GE (sides, 4u);
+    EXPECT_GE (joins, 4u);
+}
+
+TEST (EditLandscapeOffset, InsetEdgesKeepOnlyTheirParallelSegment)
+{
+    auto doc = Source ({ { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+    Offset (doc, -2);
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_NEAR (result.regions[0].area, 36, 1.0e-4);
+    const auto& s = doc.entities[0].segments;
+    for (const auto& cycle : result.regions[0].boundary)
+        for (const auto& piece : cycle) {
+            const auto m = edit::Lerp (piece.a, piece.b, 0.5);
+            const auto side = std::abs (m.y - 2) < 1.0e-6   ? s[0].id
+                              : std::abs (m.x - 8) < 1.0e-6 ? s[1].id
+                              : std::abs (m.y - 8) < 1.0e-6 ? s[2].id
+                                                            : s[3].id;
+            EXPECT_EQ (Segments (piece), (std::set<edit::Id> { side })) << m.x << "," << m.y;
+        }
+}
+
+TEST (EditLandscapeStroke, PathOutlineSidesKeepTheirOwnCentrelineLeg)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1 }, error)) << error;
+    const auto path = edit::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, 2, "walk");
+    geo::LandscapeSource source;
+    source.pathId = path;
+    source.role = geo::SourceRole::PathCenterline;
+    edit::Id id = 0;
+    ASSERT_TRUE (geo::AddLandscapeSource (doc, source, id, error)) << error;
+    geo::LandscapeOperation op;
+    op.kind = geo::OperationKind::Stroke;
+    op.inputs = { id };
+    ASSERT_TRUE (geo::AddLandscapeOperation (doc, op, id, error)) << error;
+    geo::HardscapeObject object;
+    object.footprintOperation = id;
+    ASSERT_TRUE (geo::AddHardscapeObject (doc, object, id, error)) << error;
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    const auto& points = edit::FindPath (doc, path)->points;
+    size_t first = 0, second = 0;
+    for (const auto& cycle : result.regions[0].boundary)
+        for (const auto& piece : cycle) {
+            const auto m = edit::Lerp (piece.a, piece.b, 0.5);
+            if (m.x > 2 && m.x < 8 && std::abs (std::abs (m.y) - 1) < 1.0e-3) {
+                ++first;
+                EXPECT_EQ (Segments (piece), (std::set<edit::Id> { points[0].id })) << m.x << "," << m.y;
+            }
+            if (m.y > 2 && m.y < 8 && std::abs (std::abs (m.x - 10) - 1) < 1.0e-3) {
+                ++second;
+                EXPECT_EQ (Segments (piece), (std::set<edit::Id> { points[1].id })) << m.x << "," << m.y;
+            }
+        }
+    EXPECT_GE (first, 2u);
+    EXPECT_GE (second, 2u);
 }
