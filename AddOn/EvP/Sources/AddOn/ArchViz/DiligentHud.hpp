@@ -64,6 +64,9 @@ struct HudState {
     // expected. The checkbox in the HUD still turns it on for whoever is
     // measuring it.
     bool showGraphInteractionLab = false;
+    // The TapiocaUI widget gallery (TapiocaUI/Demo/WidgetGallery.hpp), opened from the Debug
+    // tab: every HUD control on one page, the reference a change of look is checked against.
+    bool showWidgetGallery = false;
     bool graphInteractionFastPath = false;
     bool graphInteractionActive = false;
     uint32_t frameLatency = 0;

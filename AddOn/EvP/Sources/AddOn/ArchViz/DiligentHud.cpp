@@ -11,6 +11,7 @@
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/ImGuiGraphInteractionLab.hpp"
 #include "ArchViz/SceneTextLiveCheck.hpp"
+#include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
@@ -64,6 +65,8 @@ struct DiligentHud::Impl {
     float heldWorstMs = 0.0f;
     double heldUntilSeconds = 0.0;
     ImGuiGraphInteractionLab graphInteractionLab;
+    // What the user did in the widget gallery: this context's own, never the overlay's.
+    ui::GalleryState gallery;
 
     // ⚠️ THE OVERLAYS' HUD IS THE TEMPLATE (the user, 2026-10-03): the same font, the same dense
     // style, the same dock and floating panel (DiligentHudShell.hpp), kept across frames here.
@@ -380,6 +383,8 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     if (state.showGraphInteractionLab)
         impl_->graphInteractionLab.Draw (width, height, input, state.frameLatency, state.showGraphInteractionLab,
                                          state.graphInteractionFastPath);
+    if (state.showWidgetGallery)
+        ui::GalleryWindow (impl_->gallery, state.showWidgetGallery);
     state.graphInteractionActive = ImGui::IsAnyItemActive ();
     DrawSunStudyInspectorTooltip (state, input, width, height);
     viewerhud::DrawVisibilityConeOverlay (state, viewProj, width, height);

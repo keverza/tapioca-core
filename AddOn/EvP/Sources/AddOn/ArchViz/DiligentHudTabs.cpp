@@ -204,6 +204,7 @@ void DebugPage (Shell& shell, HudState& state, const DiligentSceneStats& scene, 
     hudshell::Cards (cards, look, ui);
 
     ImGui::Checkbox ("graph interaction lab", &state.showGraphInteractionLab);
+    ImGui::Checkbox ("widget gallery", &state.showWidgetGallery);
     DrawSceneTextLiveCheckControls (state);
 }
 
