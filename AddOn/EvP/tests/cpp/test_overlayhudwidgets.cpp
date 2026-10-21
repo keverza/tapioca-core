@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -490,11 +491,17 @@ bool Shows (const hud::Layout& out, uint32_t rgba)
 // Where the tabs of the given kind are drawn: a tab not shown in the panel's text colour
 // faintly, the shown one in the accent faintly -- as is the line under the whole bar, so
 // the shown one's box is the bar's width.
+// ⚠️ TABS ARE THE CARD'S GREY INK, NOT ITS ACCENT (the user, 2026-10-21), and stronger on a dark
+// card (HudShell.cpp `PushLook`): the shown tab a step greyer than the others.
 bool TabBox (const hud::Layout& out, const layers::Panel& panel, bool selected, float box[4])
 {
-    const uint32_t text = panel.textRgba;
-    const uint32_t colour = selected ? (panel.accentRgba & 0xFFFFFF00u) | uint32_t (std::lround (255.0f * 0.20f))
-                                     : (text & 0xFFFFFF00u) | uint32_t (std::lround (255.0f * 0.06f));
+    const uint32_t ground = panel.backgroundRgba;
+    const float luminance = (0.299f * float ((ground >> 24) & 0xFFu) + 0.587f * float ((ground >> 16) & 0xFFu) +
+                             0.114f * float ((ground >> 8) & 0xFFu)) /
+                            255.0f;
+    const float alpha = (std::min) ((selected ? 0.16f : 0.06f) * (luminance < 0.5f ? 1.6f : 1.0f), 1.0f);
+    const uint32_t colour =
+        (panel.textRgba & 0xFFFFFF00u) | uint32_t (std::lround (float (panel.textRgba & 0xFFu) * alpha));
     return Box (out.panels[0], colour, box);
 }
 

@@ -29,8 +29,9 @@ uint32_t WithAlpha (uint32_t rgba, float factor)
 } // namespace
 
 // ⚠️ THE USER, 2026-09-29: a hand over what the HUD can press, and a tint on it. A
-// section's row is pressable: pointed at, it is tinted with the panel's accent and the
-// layout asks for the hand; over the panel's still parts, and off it, an arrow.
+// section's row is pressable: pointed at, it is tinted and the layout asks for the hand; over
+// the panel's still parts, and off it, an arrow. The tint is the card's grey ink, not its accent
+// (the user, 2026-10-21), and stronger on this dark card (HudShell.cpp `PushLook`).
 TEST (OverlayHudControls, APressableRowIsTintedAndShowsTheHand)
 {
     Fresh hud;
@@ -39,7 +40,7 @@ TEST (OverlayHudControls, APressableRowIsTintedAndShowsTheHand)
     layers::PanelItem gap = Item (layers::ItemKind::Spacing);
     gap.heightPixels = 40.0f;
     panel.items.push_back (gap);
-    const uint32_t tint = WithAlpha (panel.accentRgba, 0.16f);
+    const uint32_t tint = WithAlpha (panel.textRgba, 0.16f * 1.6f);
     // The panel at (16, 16), its padding in: the section's row, then the gap under it.
     const float left = 16.0f + panel.paddingPixels, top = 16.0f + panel.paddingPixels;
     const hud::Layout away = hud.Lay ({ &panel }, At (600.0f, 600.0f));
@@ -47,7 +48,7 @@ TEST (OverlayHudControls, APressableRowIsTintedAndShowsTheHand)
     EXPECT_FALSE (Drawn (away, tint));
     const hud::Layout row = hud.Lay ({ &panel }, At (left + 30.0f, top + 6.0f));
     EXPECT_TRUE (row.hand);
-    EXPECT_TRUE (Drawn (row, tint)) << "the row tinted with the accent";
+    EXPECT_TRUE (Drawn (row, tint)) << "the row tinted with the card's ink";
     const hud::Layout still = hud.Lay ({ &panel }, At (left + 30.0f, top + 45.0f));
     EXPECT_FALSE (still.hand) << "the gap under it is the HUD's, but nothing to press";
     EXPECT_FALSE (Drawn (still, tint));

@@ -15,6 +15,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <string>
@@ -291,4 +292,66 @@ TEST (TapiocaUiGallery, TheOverlaysDebugPageUnfoldsTheGalleryFromItsLastRow)
     const hud::Layout open = hud.Lay ({}, At (600, 600));
     EXPECT_GT (open.host.vertices.size (), folded.host.vertices.size () * 2)
         << "the gallery's controls are drawn once its section is open";
+}
+
+namespace {
+
+// WCAG's relative luminance of an sRGB colour, and the contrast ratio between two.
+double Relative (const ImVec4& c)
+{
+    const auto linear = [] (double v) { return v <= 0.04045 ? v / 12.92 : std::pow ((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * linear (c.x) + 0.7152 * linear (c.y) + 0.0722 * linear (c.z);
+}
+double Ratio (const ImVec4& a, const ImVec4& b)
+{
+    const double la = Relative (a), lb = Relative (b);
+    return ((std::max) (la, lb) + 0.05) / ((std::min) (la, lb) + 0.05);
+}
+// `over` laid on an opaque `ground` by its alpha.
+ImVec4 Over (const ImVec4& over, const ImVec4& ground)
+{
+    const float a = over.w;
+    return { over.x * a + ground.x * (1 - a), over.y * a + ground.y * (1 - a), over.z * a + ground.z * (1 - a), 1.0f };
+}
+
+} // namespace
+
+// ⚠️ THE USER, 2026-10-21, FROM THE GALLERY'S BASELINE SCREENSHOTS: tabs and sections are grey,
+// not blue, and nothing on either card may be illegible -- the light card's title read dark on
+// dark blue, and the dark card's radio circles, small buttons and muted text all but vanished.
+TEST (TapiocaUiLook, TabsAndSectionsAreTheCardsGreyInkAndBothCardsStayLegible)
+{
+    namespace shell = geomsrv::archviz::hudshell;
+    namespace layers = geomsrv::archviz::overlaylayers;
+    Context context;
+    layers::Panel darkLook;
+    darkLook.sizePixels = shell::PlainLook ().sizePixels;
+    const layers::Panel* const looks[] = { &shell::PlainLook (), &darkLook };
+    for (const layers::Panel* look : looks) {
+        const bool dark = look == &darkLook;
+        ImGui::NewFrame ();
+        const int colours = shell::PushLook (*look, 1.0f);
+        const ImVec4 ink = shell::Colour (look->textRgba);
+        const ImVec4 ground = shell::Colour (look->backgroundRgba | 0xFFu);
+        const auto colour = [] (ImGuiCol index) { return ImGui::GetStyleColorVec4 (index); };
+        const ImGuiCol greys[] = { ImGuiCol_Header,     ImGuiCol_HeaderHovered, ImGuiCol_HeaderActive,     ImGuiCol_Tab,
+                                   ImGuiCol_TabHovered, ImGuiCol_TabSelected,   ImGuiCol_TabDimmedSelected };
+        for (const ImGuiCol grey : greys) {
+            const ImVec4 c = colour (grey);
+            EXPECT_TRUE (c.x == ink.x && c.y == ink.y && c.z == ink.z)
+                << ImGui::GetStyleColorName (grey) << (dark ? " dark" : " light") << " is not the card's ink";
+        }
+        EXPECT_EQ (colour (ImGuiCol_TitleBgActive).w, 1.0f);
+        EXPECT_GE (Ratio (ink, colour (ImGuiCol_TitleBgActive)), 4.5) << (dark ? "dark" : "light");
+        EXPECT_GE (Ratio (Over (colour (ImGuiCol_TextDisabled), ground), ground), 3.0) << (dark ? "dark" : "light");
+        if (dark) {
+            EXPECT_GE (Ratio (Over (colour (ImGuiCol_FrameBg), ground), ground), 1.6)
+                << "a radio circle on the dark card";
+            EXPECT_GE (Ratio (Over (colour (ImGuiCol_Button), ground), ground), 1.3)
+                << "a small button on the dark card";
+        }
+        ImGui::PopStyleColor (colours);
+        ImGui::PopStyleVar (shell::kLookVars);
+        ImGui::Render ();
+    }
 }
