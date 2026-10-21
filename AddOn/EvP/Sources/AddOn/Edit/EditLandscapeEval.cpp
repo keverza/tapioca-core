@@ -20,6 +20,28 @@ const LandscapeSource* Source (const LandscapeSession& session, Id id)
             return &source;
     return nullptr;
 }
+bool SimpleRing (const PlanarCurve& curve, std::string& error)
+{
+    if (!curve.closed || curve.points.size () < 3 || curve.points.size () > 20000 ||
+        std::any_of (curve.points.begin (), curve.points.end (),
+                     [] (Vec3 p) { return !edit::Finite (p) || std::max (std::abs (p.x), std::abs (p.y)) > 1.0e9; })) {
+        error = "ring requires 3..20000 finite vertices within +/-1e9 metres";
+        return false;
+    }
+    PlanarMap map;
+    if (!BuildPlanarMap ({ curve }, PlanarOptions {}, map, error))
+        return false;
+    // One bounded face alone also accepts a ring with a retraced spur. Every
+    // edge must occur exactly once on that face and have one source interval.
+    if (map.faces.size () != 1 || !map.faces[0].holes.empty () || map.faces[0].halfEdges.size () != map.edges.size () ||
+        std::any_of (map.edges.begin (), map.edges.end (), [] (const auto& e) { return e.pieces.size () != 1; }) ||
+        std::any_of (map.diagnostics.begin (), map.diagnostics.end (),
+                     [] (const auto& d) { return d.code == PlanarDiagnosticCode::SelfIntersection; })) {
+        error = "ring must be simple, without crossings, holes or retraced edges";
+        return false;
+    }
+    return true;
+}
 bool PropertyLine (const edit::Document& doc, const std::map<Id, SourceCurve>& curves, LandscapeResult& out)
 {
     const auto& session = *doc.landscape;
@@ -28,6 +50,7 @@ bool PropertyLine (const edit::Document& doc, const std::map<Id, SourceCurve>& c
     const auto* source = Source (session, session.propertyLineSourceId);
     if (!source || source->deleted || source->role != SourceRole::PropertyLine || !curves.count (source->id)) {
         out.error = "PropertyLineOutside: property-line source is absent or invalid";
+        Diagnostic (out, LandscapeDiagnosticCode::PropertyLineOutside, 0, out.error);
         return false;
     }
     const auto& curve = curves.at (source->id).curve;
@@ -42,11 +65,8 @@ bool PropertyLine (const edit::Document& doc, const std::map<Id, SourceCurve>& c
         Diagnostic (out, LandscapeDiagnosticCode::PropertyLineArcUnsupported, 0, out.error);
         return false;
     }
-    PlanarMap map;
-    if (!curve.closed || !BuildPlanarMap ({ curve }, PlanarOptions {}, map, out.error) || map.faces.size () != 1 ||
-        std::any_of (map.diagnostics.begin (), map.diagnostics.end (),
-                     [] (const auto& d) { return d.code == PlanarDiagnosticCode::SelfIntersection; })) {
-        out.error = "PropertyLineOutside: property line must be a closed simple straight ring";
+    if (!SimpleRing (curve, out.error)) {
+        out.error = "PropertyLineOutside: property line must be a closed simple straight ring: " + out.error;
         Diagnostic (out, LandscapeDiagnosticCode::PropertyLineOutside, 0, out.error);
         return false;
     }
@@ -219,6 +239,8 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
         input.push_back (curve.curve);
         curves[source.id] = std::move (curve);
     }
+    if (!PropertyLine (doc, curves, out))
+        return false;
     PlanarMap arrangement;
     if (!BuildPlanarMap (input, PlanarOptions {}, arrangement, out.error)) {
         out.planarDiagnostics = std::move (arrangement.diagnostics);
@@ -227,8 +249,6 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
     out.planarDiagnostics = arrangement.diagnostics;
     for (const auto& face : arrangement.faces)
         out.faces.push_back (FaceRegion (arrangement, face, curves));
-    if (!PropertyLine (doc, curves, out))
-        return false;
     for (const auto& [id, curve] : curves) {
         Shape shape;
         if (curve.curve.closed) {
@@ -678,11 +698,19 @@ bool ValidateLandscapeTerrainEdit (const edit::Document& doc, const std::vector<
         error = "PropertyLineOutside: terrain edit requires a property line";
         return false;
     }
+    PlanarCurve footprint;
+    footprint.source = 1; // Request-local locator; no authored identity is allocated.
+    footprint.closed = true;
+    footprint.points = terrainBoundary;
+    if (!SimpleRing (footprint, error)) {
+        error = "PropertyLineOutside: terrain footprint is invalid: " + error;
+        return false;
+    }
     DerivedRegion property, terrain;
     property.rings = { result.propertyLine };
     terrain.rings = { terrainBoundary };
-    if (terrainBoundary.size () < 3 || std::abs (cp::Area (cp::Difference (Paths (property), Paths (terrain),
-                                                                           cp::FillRule::NonZero, kPrecision))) > 0) {
+    if (std::abs (cp::Area (cp::Difference (Paths (property), Paths (terrain), cp::FillRule::NonZero, kPrecision))) >
+        0) {
         error = "PropertyLineOutside: property line lies outside the terrain footprint";
         return false;
     }
