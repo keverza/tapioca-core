@@ -71,7 +71,7 @@ enum class OperationKind : uint8_t {
 struct LandscapeOperation {
     Id id = kNoId;
     OperationKind kind = OperationKind::Union;
-    std::vector<Id> inputs;              // Ordered: Difference is A minus B.
+    std::vector<Id> inputs;              // Ordered: Difference is A minus B. Empty RegionSelect is an empty face set.
     std::vector<RegionDescriptor> faces; // RegionSelect; no persisted face locators.
     bool enabled = true;
     double width = 1.5, offset = 0.0;

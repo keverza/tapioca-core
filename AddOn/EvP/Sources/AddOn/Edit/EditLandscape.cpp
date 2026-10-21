@@ -224,7 +224,7 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         const bool unary = v.kind == OperationKind::Stroke || v.kind == OperationKind::Offset;
         if (!claim (v.id) || v.kind > OperationKind::ProtectedZone || !Material (v.material) ||
             !std::isfinite (v.width) || !(v.width > 0.0) || !std::isfinite (v.offset) || (unary && n != 1) ||
-            (!unary && n < (v.kind == OperationKind::RegionSelect ? 1u : 2u)) ||
+            (!unary && v.kind != OperationKind::RegionSelect && n < 2u) ||
             (v.kind == OperationKind::Difference && n != 2)) {
             error = "landscape.operations: invalid ID, kind, arity, material or finite parameter";
             return false;

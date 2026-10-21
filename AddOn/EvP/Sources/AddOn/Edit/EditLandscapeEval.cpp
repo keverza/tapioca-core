@@ -250,7 +250,7 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
                         "operation retains an absent/deleted input");
             continue;
         }
-        Shape shape = values.at (op.inputs.front ());
+        Shape shape = op.inputs.empty () ? Shape {} : values.at (op.inputs.front ());
         if (!op.enabled) {
             values[id] = std::move (shape);
             continue;
@@ -340,7 +340,7 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
                     return false;
                 shape = std::move (combined);
             }
-        if (shape.empty ())
+        if (shape.empty () && !(op.kind == OperationKind::RegionSelect && op.inputs.empty ()))
             Diagnostic (out, LandscapeDiagnosticCode::ClipEmpty, id, "operation produced no footprint");
         values[id] = std::move (shape);
     }

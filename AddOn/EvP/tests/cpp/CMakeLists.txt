@@ -813,6 +813,7 @@ set (EVP_TEST_SOURCES
     test_editplanarrobustfaces.cpp
     test_editlandscape.cpp
     test_editlandscapestroke.cpp
+    test_hudlandscapesets.cpp
     test_editlandscapeserialization.cpp
     test_editpathnetwork.cpp
     test_fillet2d.cpp

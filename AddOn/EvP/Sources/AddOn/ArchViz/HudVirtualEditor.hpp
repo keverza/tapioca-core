@@ -65,6 +65,7 @@ struct Session {
     uint64_t landscapeRevision = UINT64_MAX, landscapeBuilds = 0;
     double publishedLandscapeZ = 0.0;
     edit::Id landscapeObject = edit::kNoId;
+    edit::Id landscapeSet = edit::kNoId, landscapeOperandSet = edit::kNoId;
     std::string landscapeSaved;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
@@ -261,6 +262,11 @@ bool SetLandscapeMode (Session& session, LandscapeMode mode);
 bool PickLandscapeFace (Session& session, edit::Vec3 point, bool click, bool additive = false);
 bool KeepLandscapeFaces (Session& session, bool subtract = false);
 bool BooleanLandscape (Session& session, tapioca::geometry::OperationKind kind, edit::Id cutter);
+bool IsLandscapeFaceSet (const tapioca::geometry::LandscapeOperation& operation);
+bool CreateLandscapeFaceSet (Session& session);
+bool EditLandscapeFaceSet (Session& session, bool remove = false);
+bool SelectLandscapeFaceSet (Session& session);
+bool BooleanLandscapeFaceSets (Session& session, tapioca::geometry::OperationKind kind);
 bool ReloadLandscape (Session& session, const std::string& definition);
 void LandscapePanel (Session& session);
 

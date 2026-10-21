@@ -198,15 +198,16 @@ TEST (HudLandscape, DraftSourceRegistersAndUndoesWithItsGeometry)
     EXPECT_EQ (s.edits.Doc ().entities.size (), 6u);
 }
 
-TEST (HudLandscape, ControlClickSubtractsFromTheObjectWithoutAKeyboardEvent)
+TEST (HudLandscape, ControlClickOnlySelectsFacesAndDoesNotRunAnOperation)
 {
     Drive d;
     KeepAll (d.S ());
     const auto face = eh::Landscape (d.S ()).faces.back ();
     d.input.ctrl = true;
     d.Click (face.seed);
-    EXPECT_NEAR (Area (d.S ()), 384 - face.area, 0.0001);
-    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+    EXPECT_NEAR (Area (d.S ()), 384, 0.0001);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ().size (), 1u);
     EXPECT_EQ (d.S ().edits.Doc ().landscape->sources.size (), 6u);
 }
 
