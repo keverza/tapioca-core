@@ -64,6 +64,28 @@ void AppendHistory (Shape& shape, Id operation, const std::vector<Id>& order)
         Describe (region);
     }
 }
+bool UnionStrokeParts (std::vector<Shape> parts, Id operation, const std::vector<Id>& order, Shape& out,
+                       std::string& error)
+{
+    // Pairwise assembly keeps internal capsule caps out of later attribution
+    // pools. A dense all-at-once union needlessly hits the work gate on curves.
+    while (parts.size () > 1) {
+        std::vector<Shape> combined;
+        for (size_t i = 0; i < parts.size (); i += 2) {
+            if (i + 1 == parts.size ()) {
+                combined.push_back (std::move (parts[i]));
+                continue;
+            }
+            Shape joined;
+            if (!BooleanShape (OperationKind::Union, parts[i], parts[i + 1], operation, order, joined, error))
+                return false;
+            combined.push_back (std::move (joined));
+        }
+        parts = std::move (combined);
+    }
+    out = parts.empty () ? Shape {} : std::move (parts[0]);
+    return true;
+}
 bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std::map<Id, SourceCurve>& curves,
              const std::vector<Id>& order, Shape& out, std::string& error)
 {
@@ -109,12 +131,19 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
     }
     else {
         const auto& curve = curves.at (source->id);
+        // Refuse before Clipper allocates a cap whose sagitta alone needs more
+        // vertices than the entire stroke budget (including rounded 1-ratio).
+        const double angle = std::acos (1.0 - std::min (1.0, 0.001 / (op.width * 0.5)));
+        if (!(angle > 0.0) || std::ceil (3.14159265358979323846 / angle) + 2 > 20000) {
+            error = "landscape stroke exceeds the 20000 capsule boundary segment budget";
+            return false;
+        }
         PlanarMap map;
         if (!BuildPlanarMap ({ curve.curve }, PlanarOptions {}, map, error))
             return false;
-        cp::PathD line;
-        // Assemble the flattened pieces in source-local order, retaining arcs
-        // and cubics instead of stroking the raw anchor chord.
+        // Retain flattened arcs/cubics and authored segment support. A round
+        // stroke is the union of segment capsules, not one generated boundary
+        // that can be attributed to every segment of the parent curve.
         struct Piece {
             uint32_t ordinal;
             double start;
@@ -131,15 +160,29 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
         std::sort (pieces.begin (), pieces.end (), [] (const auto& a, const auto& b) {
             return std::tie (a.ordinal, a.start) < std::tie (b.ordinal, b.start);
         });
+        std::vector<Shape> capsules;
+        size_t capsuleEdges = 0;
         for (const auto& piece : pieces) {
-            line.push_back ({ piece.a.x, piece.a.y });
-            support.push_back ({ piece.a, piece.b, { { source->id, piece.segment, false } }, {}, true });
+            const cp::PathD line { { piece.a.x, piece.a.y }, { piece.b.x, piece.b.y } };
+            const auto capsulePaths = cp::InflatePaths ({ line }, op.width * 0.5, cp::JoinType::Round,
+                                                        cp::EndType::Round, 2.0, kPrecision, 0.001);
+            for (const auto& ring : capsulePaths)
+                capsuleEdges += ring.size ();
+            if (capsuleEdges > 20000) {
+                error = "landscape stroke exceeds the 20000 capsule boundary segment budget";
+                return false;
+            }
+            DerivedRegion segment;
+            segment.sources = { source->id };
+            segment.boundary = { { { piece.a, piece.b, { { source->id, piece.segment, false } }, {}, true } } };
+            Shape generated;
+            if (!GeneratedShape (capsulePaths, { segment }, op.id, order, generated, error))
+                return false;
+            capsules.push_back (std::move (generated));
         }
-        if (!pieces.empty () && !curve.curve.closed)
-            line.push_back ({ pieces.back ().b.x, pieces.back ().b.y });
-        paths =
-            cp::InflatePaths (cp::PathsD { line }, op.width * 0.5, cp::JoinType::Round,
-                              curve.curve.closed ? cp::EndType::Joined : cp::EndType::Round, 2.0, kPrecision, 0.001);
+        // The existing Boolean bridge reconstructs boundary contributors from
+        // the capsule edges that actually survive, including at joins/crossings.
+        return UnionStrokeParts (std::move (capsules), op.id, order, out, error);
     }
     parent.boundary.push_back (std::move (support));
     return GeneratedShape (paths, { parent }, op.id, order, out, error);

@@ -5,6 +5,7 @@
 #include "Edit/EditPathEdit.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace geo = tapioca::geometry;
@@ -486,4 +487,45 @@ TEST (EditLandscape, BooleanBoundarySubdomainsStayOnTheirAuthoredSegments)
                 EXPECT_NEAR (edit::DistanceXY (piece.b, parameter.reversed ? p : q), 0, 2.0e-6);
             }
         }
+}
+
+TEST (EditLandscape, BentStrokeBoundariesDoNotAcquireDistantSourceSegments)
+{
+    auto doc = Start ();
+    const auto source = Source (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 } }, false);
+    geo::LandscapeOperation op;
+    op.kind = geo::OperationKind::Stroke;
+    op.inputs = { source };
+    op.width = 2;
+    edit::Id id = 0;
+    std::string error;
+    ASSERT_TRUE (geo::AddLandscapeOperation (doc, op, id, error)) << error;
+    Object (doc, id);
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    // Two width-2 rectangles overlap in one unit square. Exposed round parts
+    // are the two end semicircles and one outside quarter-circle at the bend.
+    EXPECT_NEAR (Area (result), 39 + 1.25 * 3.141592653589793, 0.015);
+    const auto& segments = doc.entities[0].segments;
+    bool horizontal = false, vertical = false;
+    for (const auto& cycle : result.regions[0].boundary)
+        for (const auto& piece : cycle) {
+            const auto midpoint = edit::Lerp (piece.a, piece.b, 0.5);
+            if (std::abs (midpoint.y + 1) < 1.0e-6 && midpoint.x > 1 && midpoint.x < 9) {
+                horizontal = true;
+                ASSERT_EQ (piece.support.size (), 1u);
+                EXPECT_EQ (piece.support[0].segment, segments[0].id);
+            }
+            if (std::abs (midpoint.x - 11) < 1.0e-6 && midpoint.y > 1 && midpoint.y < 9) {
+                vertical = true;
+                ASSERT_EQ (piece.support.size (), 1u);
+                EXPECT_EQ (piece.support[0].segment, segments[1].id);
+            }
+            EXPECT_TRUE (piece.generated);
+            EXPECT_TRUE (piece.parameters.empty ());
+            for (const auto& support : piece.support)
+                EXPECT_EQ (support.source, source);
+        }
+    EXPECT_TRUE (horizontal);
+    EXPECT_TRUE (vertical);
 }
