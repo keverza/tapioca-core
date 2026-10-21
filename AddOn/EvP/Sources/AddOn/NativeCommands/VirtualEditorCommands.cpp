@@ -9,6 +9,7 @@
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "Edit/EditLandscapeSerialization.hpp"
 
 // Tapioca.VirtualEditor opens, reports and closes the virtual editor; Tapioca.EditorState
 // is its read-only diagnostic. Neither writes to the model and neither opens an undo
@@ -48,6 +49,26 @@ std::string Role (const GS::ObjectState& item, const std::string& fallback)
 bool Seed (const GS::ObjectState& params, const std::string& role, edit::Document& doc, edit::SnapContext& context,
            std::string& error)
 {
+    GS::ObjectState landscape;
+    if (params.Get ("landscape", landscape)) {
+        if (params.Contains ("polylines") || params.Contains ("boxes") || params.Contains ("paths")) {
+            error = "Landscape definition/demo cannot be mixed with another geometry seed.";
+            return false;
+        }
+        bool demo = false;
+        GS::UniString definition;
+        landscape.Get ("demo", demo);
+        const bool hasDefinition = landscape.Get ("definition", definition);
+        if (demo == hasDefinition || (landscape.Contains ("demo") && !demo)) {
+            error = "Landscape requires exactly one of demo:true or a virtual definition.";
+            return false;
+        }
+        double z = 0;
+        params.Get ("planeZ", z);
+        if (demo ? !tapioca::geometry::SeedLandscapeDemo (doc, z, error)
+                 : !tapioca::geometry::ReadLandscape (Utf8 (definition), doc, error))
+            return false;
+    }
     GS::Array<GS::ObjectState> list;
     if (params.Get ("polylines", list))
         for (const auto& item : list) {
@@ -116,6 +137,44 @@ GS::ObjectState Point (edit::Vec3 p)
     return os;
 }
 
+GS::ObjectState LandscapeSummary (const edit::Document& doc, const std::string& exportWarning = {})
+{
+    GS::ObjectState summary;
+    tapioca::geometry::LandscapeResult evaluated;
+    if (!tapioca::geometry::EvaluateLandscape (doc, evaluated)) {
+        evaluated.faces.clear ();
+        evaluated.regions.clear ();
+    }
+    const auto& session = *doc.landscape;
+    summary.Add ("sources", static_cast<GS::Int64> (session.sources.size ()));
+    summary.Add ("operations", static_cast<GS::Int64> (session.operations.size ()));
+    summary.Add ("objects", static_cast<GS::Int64> (session.objects.size ()));
+    summary.Add ("faces", static_cast<GS::Int64> (evaluated.faces.size ()));
+    summary.Add ("propertyLine", GS::UniString (std::to_string (session.propertyLineSourceId).c_str ()));
+    GS::Array<GS::ObjectState> regions;
+    for (const auto& region : evaluated.regions) {
+        GS::ObjectState item;
+        item.Add ("id", GS::UniString (std::to_string (region.regionId).c_str ()));
+        item.Add ("object", GS::UniString (std::to_string (region.objectId).c_str ()));
+        item.Add ("area", region.area);
+        regions.Push (item);
+    }
+    summary.Add ("regions", regions);
+    GS::Array<GS::UniString> warnings;
+    if (!exportWarning.empty ())
+        warnings.Push (GS::UniString (exportWarning.c_str (), CC_UTF8));
+    if (!session.propertyLineSourceId)
+        warnings.Push ("No property line; terrain-affecting operations are unavailable.");
+    if (!evaluated.error.empty ())
+        warnings.Push (GS::UniString (evaluated.error.c_str (), CC_UTF8));
+    for (const auto& diagnostic : evaluated.diagnostics)
+        warnings.Push (GS::UniString (diagnostic.message.c_str (), CC_UTF8));
+    for (const auto& diagnostic : evaluated.planarDiagnostics)
+        warnings.Push (GS::UniString (diagnostic.message.c_str (), CC_UTF8));
+    summary.Add ("warnings", warnings);
+    return summary;
+}
+
 GS::ObjectState Export (const edit::Document& doc)
 {
     GS::Array<GS::ObjectState> polylines, paths;
@@ -175,6 +234,12 @@ GS::ObjectState Export (const edit::Document& doc)
     GS::ObjectState out;
     out.Add ("polylines", polylines);
     out.Add ("paths", paths);
+    if (doc.landscape) {
+        std::string definition, error;
+        if (tapioca::geometry::WriteLandscape (doc, tapioca::geometry::LandscapeStorage::Virtual, definition, error))
+            out.Add ("landscape", GS::UniString (definition.c_str (), CC_UTF8));
+        out.Add ("landscapeSummary", LandscapeSummary (doc, error));
+    }
     return out;
 }
 
@@ -228,6 +293,12 @@ class VirtualEditorCommand : public MainThreadCommand {
                                : tool == "path"   ? eh::Tool::Path
                                : tool == "curve"  ? eh::Tool::Curve
                                                   : eh::Tool::Select;
+            if (session.edits.Doc ().landscape) {
+                const auto startingTool = session.tool;
+                eh::SetLandscapeMode (session, session.tool == eh::Tool::Select ? eh::LandscapeMode::Face
+                                                                                : eh::LandscapeMode::DrawSource);
+                session.tool = startingTool;
+            }
             archviz::overlaylayers::Layer layer;
             eh::Follow (session, layer);
             error = archviz::overlaylayers::Validate (layer);
@@ -308,6 +379,8 @@ const char* KindName (edit::SelectionKind kind)
             return "break";
         case edit::SelectionKind::Range:
             return "range";
+        case edit::SelectionKind::LandscapeFace:
+            return "landscapeFace";
     }
     return "none";
 }
@@ -333,7 +406,10 @@ class EditorStateCommand : public MainThreadCommand {
         result.Add ("gesture", s->edits.InGesture ());
         result.Add ("selection", static_cast<GS::Int64> (s->selection.Items ().size ()));
         result.Add ("selectionKind", GS::UniString (KindName (s->selection.Kind ())));
-        result.Add ("hovering", s->selection.hover.entity != edit::kNoId);
+        result.Add ("hovering",
+                    s->selection.hover.entity != edit::kNoId || s->selection.hover.part == edit::Part::LandscapeFace);
+        if (s->edits.Doc ().landscape)
+            result.Add ("landscape", LandscapeSummary (s->edits.Doc ()));
         result.Add ("revision", static_cast<GS::Int64> (s->edits.Doc ().revision));
         result.Add ("publishedRevision", static_cast<GS::Int64> (s->publishedRevision));
         result.Add ("undoDepth", static_cast<GS::Int64> (s->edits.UndoDepth ()));
@@ -380,13 +456,22 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "action":{"type":"string","enum":["start","stop","state"]},"role":{"type":"string"},
                 "tool":{"type":"string","enum":["select","polyline","path","curve"]},
                 "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},
+                "landscape":{"type":"object","properties":{"demo":{"type":"boolean"},"definition":{"type":"string","maxLength":8388608}},"additionalProperties":false},
                 "polylines":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":20000,"items":{"$ref":"#Point3D"}},"closed":{"type":"boolean"},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
                 "boxes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"outline":{"type":"array","minItems":3,"maxItems":20000,"items":{"$ref":"#Point3D"}},"height":{"type":"number","exclusiveMinimum":0},"role":{"type":"string"}},"required":["outline","height"],"additionalProperties":false}},
                 "paths":{"type":"array","maxItems":200,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":2000,"items":{"$ref":"#Point3D"}},"width":{"type":"number","exclusiveMinimum":0,"maximum":100},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
                 "snapPoints":{"type":"array","maxItems":100000,"items":{"$ref":"#Point3D"}},
                 "snapSegments":{"type":"array","maxItems":100000,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"$ref":"#Point3D"}}}
               },"required":["action"],"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"active":{"type":"boolean"},"locked":{"type":"boolean"},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},"document":{"type":"object","properties":{"polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},"paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}}},"required":["polylines","paths"],"additionalProperties":false}},"required":["active","locked"],"additionalProperties":false})json" },
+          R"json({"type":"object","properties":{
+                "active":{"type":"boolean"},"locked":{"type":"boolean"},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},
+                "document":{"type":"object","properties":{
+                  "polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},
+                  "paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}},
+                  "landscape":{"type":"string","maxLength":8388608},
+                  "landscapeSummary":{"type":"object","properties":{"sources":{"type":"integer"},"operations":{"type":"integer"},"objects":{"type":"integer"},"faces":{"type":"integer"},"propertyLine":{"type":"string"},"regions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"object":{"type":"string"},"area":{"type":"number"}},"required":["id","object","area"],"additionalProperties":false}},"warnings":{"type":"array","items":{"type":"string"}}},"required":["sources","operations","objects","faces","propertyLine","regions","warnings"],"additionalProperties":false}
+                },"required":["polylines","paths"],"additionalProperties":false}
+              },"required":["active","locked"],"additionalProperties":false})json" },
         { "EditorState", &MakeRegisteredNativeCommand<EditorStateCommand>, true,
           R"json({"type":"object","properties":{},"additionalProperties":false})json",
           R"json({"type":"object","properties":{
@@ -395,7 +480,8 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "gizmo":{"type":"string","enum":["move","rotate","scale","stretch","extrude","gumball"]},
                 "drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend"]},
                 "gesture":{"type":"boolean"},"selection":{"type":"integer"},
-                "selectionKind":{"type":"string","enum":["none","vertex","segment","face","entity","mixed","pathPoint","break","range"]},
+                "selectionKind":{"type":"string","enum":["none","vertex","segment","face","entity","mixed","pathPoint","break","range","landscapeFace"]},
+                "landscape":{"type":"object","properties":{"sources":{"type":"integer"},"operations":{"type":"integer"},"objects":{"type":"integer"},"faces":{"type":"integer"},"propertyLine":{"type":"string"},"regions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"object":{"type":"string"},"area":{"type":"number"}},"required":["id","object","area"],"additionalProperties":false}},"warnings":{"type":"array","items":{"type":"string"}}},"required":["sources","operations","objects","faces","propertyLine","regions","warnings"],"additionalProperties":false},
                 "hovering":{"type":"boolean"},"revision":{"type":"integer"},"publishedRevision":{"type":"integer"},
                 "undoDepth":{"type":"integer"},"tracker":{"type":"string","enum":["hidden","showing","editing"]},
                 "drawing":{"type":"integer"},"entities":{"type":"integer"},"paths":{"type":"integer"},

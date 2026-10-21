@@ -737,6 +737,7 @@ overlayhud::Input InputOf (Target& target, bool take)
     input.viewIdentity = uint64_t (reinterpret_cast<uintptr_t> (target.canvas));
     // Read as the layout is: it follows the press that asked for it, the key held through both.
     input.shift = ::GetKeyState (VK_SHIFT) < 0;
+    input.ctrl = ::GetKeyState (VK_CONTROL) < 0;
     if (take) {
         input.buttons = std::move (target.buttons);
         input.editActions = std::move (target.editActions);

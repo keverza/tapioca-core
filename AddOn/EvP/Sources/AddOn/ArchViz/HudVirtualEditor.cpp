@@ -108,39 +108,6 @@ bool Pointer (Session& s, const Map& m, ImVec2 mouse, double z, Vec3 seed, std::
     return true;
 }
 
-// Ends a gumball drag at what it shows now: one undo entry when it changed anything.
-void EndHandleDrag (Session& s)
-{
-    s.edits.End ();
-    s.message = s.edits.Message ();
-    s.selection.Prune (Doc (s));
-    s.snap = {};
-    // A dragged pivot stays where it was put; one already set travels with its selection.
-    if (s.message.empty () && s.handle >= 0 &&
-        (s.dragTransform.relocate || (s.pivot && s.pivotFor == s.selection.Items ()))) {
-        s.pivot = edit::Moved (s.frame, s.dragTransform).origin;
-        s.pivotFor = s.selection.Items ();
-    }
-    s.facePush = false;
-    s.drag = Drag::None;
-    s.dragReleased = false;
-}
-
-void EndDrag (Session& s)
-{
-    if (s.drag == Drag::Handle)
-        EndHandleDrag (s);
-    else {
-        s.edits.End ();
-        s.drag = Drag::None;
-        s.dragReleased = false;
-        s.snap = {};
-    }
-    s.dragPointerPause.reset ();
-    s.selection.Prune (Doc (s));
-    s.message = s.edits.Message ();
-}
-
 void Escape (Session& s)
 {
     if (s.tracker.State () == edit::TrackerState::Editing) {
@@ -517,15 +484,19 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                     switch (key.code) {
                         case 'V':
                             s.tool = Tool::Select, s.drawing.clear ();
+                            s.landscapeMode = LandscapeMode::Select;
                             break;
                         case 'L':
                             s.tool = Tool::Polyline;
+                            s.landscapeMode = LandscapeMode::DrawSource;
                             break;
                         case 'P':
                             s.tool = Tool::Path;
+                            s.landscapeMode = LandscapeMode::DrawSource;
                             break;
                         case 'B':
                             s.tool = Tool::Curve; // the pen: clicks for corners, drags for curves
+                            s.landscapeMode = LandscapeMode::DrawSource;
                             break;
                         case 'G':
                             mode (edit::GizmoMode::Move);
@@ -572,6 +543,10 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
     // A resting profile binding (the panel's field) withholds the pointer from the view, as a
     // plane entry does: it owns the number until Enter, Esc or a digit takes it.
     hovered = hovered && !s.navigation.blocked && !s.planeTyping && !s.profileTyping;
+    if (LandscapeView (s, m, mouse, hovered, scale)) {
+        draw->PopClipRect ();
+        return;
+    }
     // A selection that no longer supports the mode it was left in falls back to the gumball,
     // which shows whatever it does support. Said once, when the mode actually changes.
     if (s.drag == Drag::None && s.typedHandle < 0 && !s.selection.Items ().empty () && !GizmoAvailable (s, s.gizmo)) {

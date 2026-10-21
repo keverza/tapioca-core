@@ -29,6 +29,36 @@ def test_editor_state_names_and_declares_kerb_drag():
     assert "kerb" in _state_schema()["drag"]["enum"]
 
 
+def test_landscape_seed_export_and_state_are_strict_and_use_the_versioned_codec():
+    source = SOURCE.read_text(encoding="utf-8")
+    schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]
+    seed = schemas[0]["properties"]["landscape"]
+    assert seed["additionalProperties"] is False
+    assert seed["properties"]["definition"] == {"type": "string", "maxLength": 8388608}
+    document = schemas[1]["properties"]["document"]["properties"]
+    assert document["landscape"]["type"] == "string"
+    summary = document["landscapeSummary"]
+    assert summary == _state_schema()["landscape"]
+    assert summary["additionalProperties"] is False
+    assert set(summary["required"]) == set(summary["properties"])
+    assert summary["properties"]["regions"]["items"]["additionalProperties"] is False
+    assert "landscapeFace" in _state_schema()["selectionKind"]["enum"]
+    assert "ReadLandscape" in source and "WriteLandscape" in source
+    assert "ACAPI_Element_Create" not in source
+    assert "ACAPI_CallUndoableCommand" not in source
+
+
+def test_landscape_live_request_fixture_matches_the_registered_input_contract():
+    import jsonschema
+
+    source = SOURCE.read_text(encoding="utf-8")
+    schema = json.loads(re.findall(r'R"json\((.*?)\)json"', source, re.S)[0])
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "landscape-m1.json").read_text(encoding="utf-8"))
+    jsonschema.validate(fixture["request"], schema)
+    assert fixture["expected"]["sources"] == 6
+    assert fixture["expected"]["propertyLineAreaM2"] == 24 * 16
+
+
 def test_working_plane_start_and_state_fields_have_strict_schemas():
     source = SOURCE.read_text(encoding="utf-8")
     schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]

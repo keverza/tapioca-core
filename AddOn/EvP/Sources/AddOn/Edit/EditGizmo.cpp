@@ -665,6 +665,7 @@ Operation TransformOperation (const std::vector<Ref>& selection, const Transform
                 case Part::PathPoint:
                 case Part::Break:
                 case Part::Range:
+                case Part::LandscapeFace:
                     break; // only on paths, handled above
             }
         }

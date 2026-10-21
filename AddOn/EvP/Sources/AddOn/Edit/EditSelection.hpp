@@ -62,7 +62,18 @@ struct PickGeometryCache {
 std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, double y, uint32_t filter,
                            double radius, PickGeometryCache* cache = nullptr);
 
-enum class SelectionKind : uint8_t { None, Vertex, Segment, Face, Entity, Mixed, PathPoint, Break, Range };
+enum class SelectionKind : uint8_t {
+    None,
+    Vertex,
+    Segment,
+    Face,
+    Entity,
+    Mixed,
+    PathPoint,
+    Break,
+    Range,
+    LandscapeFace
+};
 
 class Selection {
   public:

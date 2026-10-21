@@ -509,6 +509,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffBoundaries.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceTakeoffCriteria.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLayers.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/EditLandscapeLayers.cpp"
     # ArchViz/OverlayText.cpp and OverlayScene.cpp are what the Diligent guest draws on
     # the overlays -- labels laid out around their anchors, dimensions, styled meshes,
     # heatmaps and legends -- prepared without a device, so the placement is tested
@@ -567,6 +568,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDrawing.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapePanel.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorNavigation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPanel.cpp"
@@ -781,6 +784,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEval.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeGeometry.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapePreview.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeSerialization.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeDeserialize.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeJson.cpp"
@@ -824,6 +828,7 @@ set (EVP_TEST_SOURCES
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
+    test_hudlandscape.cpp
     test_hudvirtualeditorsnap.cpp
     test_hudvirtualeditorsnapcontrols.cpp
     test_hudvirtualeditormap.cpp

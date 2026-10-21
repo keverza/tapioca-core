@@ -2,6 +2,7 @@
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <utility>
 
 namespace geomsrv::edit {
@@ -59,6 +60,7 @@ int Rank (Part part)
         case Part::Segment:
             return 1;
         case Part::Face:
+        case Part::LandscapeFace:
             return 2;
         case Part::Entity:
             return 3;
@@ -112,7 +114,20 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
 {
     std::vector<PickHit> hits;
     const S2 p { x, y };
+    std::map<Id, const tapioca::geometry::LandscapeSource*> arcSources;
+    if (doc.landscape)
+        for (const auto& source : doc.landscape->sources)
+            if (!source.deleted && source.entityId &&
+                std::any_of (source.arcAngles.begin (), source.arcAngles.end (), [] (double a) { return a != 0; }))
+                arcSources.emplace (source.entityId, &source);
     for (const auto& e : doc.entities) {
+        std::vector<Vec3> analyticOutline;
+        if (const auto source = arcSources.find (e.id); source != arcSources.end ()) {
+            bool closed = false;
+            std::string error;
+            if (!tapioca::geometry::LandscapeSourcePreview (doc, *source->second, analyticOutline, closed, error))
+                analyticOutline.clear ();
+        }
         const Vec3 up { 0.0, 0.0, e.kind == Kind::Extrusion ? e.height : 0.0 };
         double entityBest = -1.0;
         const auto touch = [&] (double d) {
@@ -136,7 +151,15 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
                     hits.push_back ({ { e.id, Part::Vertex, v.id }, best });
             }
         }
-        for (const auto& edge : Edges (e)) {
+        auto edges = analyticOutline.empty () ? Edges (e) : std::vector<Edge> {};
+        // Explicit landscape arcs use their displayed geometry, not the hidden control
+        // chords. Their whole source is movable; existing authored vertices remain pickable.
+        if (!analyticOutline.empty ())
+            for (size_t i = 0; i + 1 < analyticOutline.size () + (e.closed ? 1u : 0u); ++i)
+                edges.push_back ({ analyticOutline[i],
+                                   analyticOutline[(i + 1) % analyticOutline.size ()],
+                                   { e.id, Part::Entity, 0 } });
+        for (const auto& edge : edges) {
             S2 a, b;
             if (!Project (view, edge.a, a) || !Project (view, edge.b, b))
                 continue;
@@ -162,9 +185,10 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
             }
         }
         else if (e.closed) {
-            std::vector<Vec3> ring;
-            for (const auto& v : e.vertices)
-                ring.push_back (v.p);
+            std::vector<Vec3> ring = analyticOutline;
+            if (ring.empty ())
+                for (const auto& v : e.vertices)
+                    ring.push_back (v.p);
             if (ProjectAll (view, ring, outline) && Inside (outline, p))
                 touch (0.0);
         }
@@ -298,6 +322,8 @@ SelectionKind Selection::Kind () const
             return SelectionKind::Break;
         case Part::Range:
             return SelectionKind::Range;
+        case Part::LandscapeFace:
+            return SelectionKind::LandscapeFace;
     }
     return SelectionKind::Mixed;
 }

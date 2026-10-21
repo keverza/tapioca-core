@@ -410,6 +410,7 @@ std::vector<Dimension> DimensionsFor (const Document& doc, const Ref& ref)
         case Part::PathPoint:
         case Part::Break:
         case Part::Range:
+        case Part::LandscapeFace:
             break;
     }
     return out;

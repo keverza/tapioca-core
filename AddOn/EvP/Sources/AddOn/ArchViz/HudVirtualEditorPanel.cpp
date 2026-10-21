@@ -63,20 +63,21 @@ void Panel (Session& s)
 {
     const auto& doc = Doc (s);
     s.profilePlaced.clear (); // the canvas republishes its labels every frame
+    LandscapePanel (s);
     ImGui::Text ("%zu objects   %zu paths   %zu selected", doc.entities.size (), doc.paths.size (),
                  s.selection.Items ().size ());
     ImGui::BeginDisabled (s.profileTyping);
     if (ImGui::RadioButton ("Select (V)", s.tool == Tool::Select))
-        s.tool = Tool::Select, s.drawing.clear ();
+        s.tool = Tool::Select, s.landscapeMode = LandscapeMode::Select, s.drawing.clear ();
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Polyline (L)", s.tool == Tool::Polyline))
-        s.tool = Tool::Polyline;
+        s.tool = Tool::Polyline, s.landscapeMode = LandscapeMode::DrawSource;
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Path (P)", s.tool == Tool::Path))
-        s.tool = Tool::Path;
+        s.tool = Tool::Path, s.landscapeMode = LandscapeMode::DrawSource;
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
-        s.tool = Tool::Curve;
+        s.tool = Tool::Curve, s.landscapeMode = LandscapeMode::DrawSource;
     // The gumball holds applicable transforms; the same table gates individual modes, and a
     // mode waits while a gesture or a typed value owns the control.
     const bool locked = GizmoModeLocked (s);
@@ -465,14 +466,19 @@ void Panel (Session& s)
 bool Follow (Session& s, overlaylayers::Layer& layer)
 {
     const auto& doc = Doc (s);
+    if (doc.landscape)
+        Landscape (s);
     if (doc.revision == s.publishedRevision && s.selection.Items () == s.publishedSelection &&
-        s.publishedPathStep == SurfaceStep (s) && s.quietPaths == s.publishedQuietPaths)
+        s.publishedPathStep == SurfaceStep (s) && s.quietPaths == s.publishedQuietPaths &&
+        (!doc.landscape || s.publishedLandscapeZ == s.plane.origin.z))
         return false;
     edit::Selection shown = s.selection;
     shown.hover = {}; // hover is the view's transient feedback, not the layer's
     editlayers::Feedback f;
     f.labelsInView = true; // placed with the dimensions, clear of them (DrawPathLabels)
     f.selection = &shown;
+    f.landscape = doc.landscape ? &s.landscape : nullptr;
+    f.landscapeZ = s.plane.origin.z;
     f.paved = &PavedSurface (s);
     f.quietPaths = &s.quietPaths;
     f.contours = s.contours ? &Contours (s) : nullptr;
@@ -487,6 +493,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     s.publishedPathStep = SurfaceStep (s);
     s.publishedSelection = s.selection.Items ();
     s.publishedQuietPaths = s.quietPaths;
+    s.publishedLandscapeZ = s.plane.origin.z;
     return true;
 }
 

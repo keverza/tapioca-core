@@ -1,0 +1,20 @@
+{
+  "request": {
+    "action": "start",
+    "role": "landscape-m1",
+    "planeZ": 0.0,
+    "landscape": { "demo": true }
+  },
+  "expected": {
+    "sources": 6,
+    "sourceEntities": 6,
+    "initialOperations": 0,
+    "initialObjects": 0,
+    "propertyLineAreaM2": 384.0,
+    "circleCenterXY": [2.0, 0.0],
+    "circleRadiusM": 3.0,
+    "circleAreaM2": 28.274333882308138,
+    "flattenedCircleAreaToleranceM2": 0.03
+  },
+  "basis": "Analytic 24 by 16 metre property rectangle and radius-3 circle. H1 chord tolerance is 0.001 m. A seeded response is not live input/rendering acceptance."
+}

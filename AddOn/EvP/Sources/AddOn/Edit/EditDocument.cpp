@@ -8,7 +8,7 @@ namespace geomsrv::edit {
 
 bool operator== (const Ref& a, const Ref& b)
 {
-    return a.entity == b.entity && a.part == b.part && a.item == b.item;
+    return a.entity == b.entity && a.part == b.part && a.item == b.item && a.revision == b.revision;
 }
 
 bool operator!= (const Ref& a, const Ref& b)
@@ -251,6 +251,7 @@ bool Exists (const Document& doc, const Ref& ref)
         case Part::PathPoint:
         case Part::Break:
         case Part::Range:
+        case Part::LandscapeFace:
             return false; // path parts on an entity
     }
     return false;
@@ -306,6 +307,7 @@ bool PointOf (const Document& doc, const Ref& ref, Vec3& point)
         case Part::PathPoint:
         case Part::Break:
         case Part::Range:
+        case Part::LandscapeFace:
             return false;
     }
     return false;

@@ -694,6 +694,7 @@ void AddRef (const edit::Document& doc, const edit::Ref& ref, uint32_t rgba, con
         case edit::Part::PathPoint:
         case edit::Part::Break:
         case edit::Part::Range:
+        case edit::Part::LandscapeFace:
             break; // drawn with their path
     }
 }
@@ -876,7 +877,11 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     vertices.rgba = style.geometry;
     vertices.sizePixels = style.vertexPixels;
     for (const auto& e : doc.entities) {
-        AddEntity (e, style.geometry, style.lineWidth, layer);
+        const bool source = f.landscape && doc.landscape &&
+                            std::any_of (doc.landscape->sources.begin (), doc.landscape->sources.end (),
+                                         [&] (const auto& s) { return s.entityId == e.id && !s.deleted; });
+        if (!source)
+            AddEntity (e, style.geometry, style.lineWidth, layer);
         if (e.kind == edit::Kind::Extrusion)
             AddSolid (e, style.solid, layer);
         for (const auto& v : e.vertices)
@@ -884,6 +889,8 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     }
     if (!vertices.points.empty ())
         layer.points.push_back (std::move (vertices));
+    if (f.landscape)
+        AddLandscape (doc, f, style, layer);
     const bool paved = !doc.paths.empty () && AddPaved (doc, style, layer, f.paved);
     if (f.contours != nullptr)
         for (const auto& c : *f.contours)

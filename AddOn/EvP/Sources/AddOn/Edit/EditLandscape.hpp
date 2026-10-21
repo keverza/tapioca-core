@@ -199,6 +199,12 @@ bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::str
 bool ValidateLandscapeTerrainEdit (const geomsrv::edit::Document& doc, const std::vector<Vec3>& terrainBoundary,
                                    std::string& error);
 const DerivedRegion* LandscapeFaceAt (const LandscapeResult& result, Vec3 point);
+// Virtual demonstration only. Refuses a nonempty document; never reads/writes the SDK.
+bool SeedLandscapeDemo (geomsrv::edit::Document& doc, double z, std::string& error);
+// Hole-aware preview triangulation. No third-party types leave Edit/.
+bool LandscapePreviewTriangles (const DerivedRegion& region, std::vector<Vec3>& triangles, std::string& error);
+bool LandscapeSourcePreview (const geomsrv::edit::Document& doc, const LandscapeSource& source,
+                             std::vector<Vec3>& points, bool& closed, std::string& error);
 
 } // namespace tapioca::geometry
 #endif

@@ -36,7 +36,10 @@ struct Style {
     uint32_t junctionBreak = 0x7A3FC4FFu;                      // a grade break shared with a crossing path
     uint32_t contour = 0x8C939CB4u, contourText = 0x6E7682FFu; // grading guides: thin, grey
     uint32_t limitedRadius = 0x7A3FC4FFu; // editor-radius-limited token: fitted kerb dimension text only
-    double pathStep = 0.5;                // metres between drawn path samples
+    uint32_t landscapeSource = 0x5A7F62FFu, propertyLine = 0x37523DFFu;
+    uint32_t landscapeFill = 0x5A7F6228u, landscapeEdge = 0x5A7F62FFu;
+    uint32_t landscapeHover = 0x839987FFu, landscapeSelected = 0x37523DFFu;
+    double pathStep = 0.5; // metres between drawn path samples
     float lineWidth = 2.0f, selectedWidth = 3.5f, vertexPixels = 7.0f;
     float textPixels = 12.0f;
 };
@@ -54,6 +57,8 @@ struct Feedback {
     // its own; the layer then leaves them out.
     bool labelsInView = false;
     const edit::Selection* selection = nullptr;
+    const tapioca::geometry::LandscapeResult* landscape = nullptr;
+    double landscapeZ = 0.0; // Explicit XY preview datum; not terrain draping.
     const edit::SnapResult* snap = nullptr;
     // The paths' contour lines (PathContours), drawn under their lines; the view writes
     // their heights. None when null.
@@ -143,6 +148,8 @@ std::vector<uint32_t> TriangulateXY (const std::vector<edit::Vec3>& polygon);
 
 overlaylayers::Layer Build (const edit::Document& doc, const Feedback& feedback, const Style& style = {},
                             const std::string& name = kLayer);
+void AddLandscape (const edit::Document& doc, const Feedback& feedback, const Style& style,
+                   overlaylayers::Layer& layer);
 
 } // namespace geomsrv::archviz::editlayers
 #endif

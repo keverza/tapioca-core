@@ -34,6 +34,7 @@ struct Input;
 namespace geomsrv::archviz::edithud {
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve };
+enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
 enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner, Bezier, Bend, Kerb };
 
 // What a right click landed on, which decides what its menu offers.
@@ -58,6 +59,13 @@ struct Session {
     edit::Tracker tracker;
     edit::SnapContext context; // host geometry snapshot, filled by the starting command
     Tool tool = Tool::Select;
+    LandscapeMode landscapeMode = LandscapeMode::Select;
+    tapioca::geometry::SourceRole landscapeRole = tapioca::geometry::SourceRole::Guide;
+    tapioca::geometry::LandscapeResult landscape;
+    uint64_t landscapeRevision = UINT64_MAX, landscapeBuilds = 0;
+    double publishedLandscapeZ = 0.0;
+    edit::Id landscapeObject = edit::kNoId;
+    std::string landscapeSaved;
     edit::GizmoMode gizmo = edit::GizmoMode::Gumball; // all applicable transform handles
     bool localAxes = true; // the gumball along the shape (EditGizmo SelectionFrame), else the world's
     bool fromEnd = false;  // a typed length or angle keeps the segment's end, not its start (F)
@@ -247,6 +255,14 @@ void Panel (Session& session);
 // The layer to publish when the document or the selection moved on; false when the
 // published one is current.
 bool Follow (Session& session, overlaylayers::Layer& layer);
+// Revision-local face locators use the existing Selection; operations retain semantic descriptors instead.
+const tapioca::geometry::LandscapeResult& Landscape (Session& session);
+bool SetLandscapeMode (Session& session, LandscapeMode mode);
+bool PickLandscapeFace (Session& session, edit::Vec3 point, bool click, bool additive = false);
+bool KeepLandscapeFaces (Session& session, bool subtract = false);
+bool BooleanLandscape (Session& session, tapioca::geometry::OperationKind kind, edit::Id cutter);
+bool ReloadLandscape (Session& session, const std::string& definition);
+void LandscapePanel (Session& session);
 
 // The snap groups the panel and the menu switch together.
 constexpr uint32_t kSnapPoints =

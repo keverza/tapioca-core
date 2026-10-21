@@ -186,6 +186,7 @@ struct Input {
     std::vector<Key> keys;
     std::u16string characters;
     bool shift = false; // held now: a shift-press extends a pick (the building section's)
+    bool ctrl = false;  // held at pointer input too, independently of queued keyboard events
     float wheel = 0.0f; // notches turned over a page that scrolls since the last layout
     Hover hover;
     // While the dock's lock is on: model metres onto this view, for the floor plan edited on it

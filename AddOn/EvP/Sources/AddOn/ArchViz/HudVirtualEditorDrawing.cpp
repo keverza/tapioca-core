@@ -6,6 +6,39 @@
 
 namespace geomsrv::archviz::edithud::detail {
 
+// Ends a gumball drag at what it shows now: one undo entry when it changed anything.
+void EndHandleDrag (Session& s)
+{
+    s.edits.End ();
+    s.message = s.edits.Message ();
+    s.selection.Prune (Doc (s));
+    s.snap = {};
+    // A dragged pivot stays where it was put; one already set travels with its selection.
+    if (s.message.empty () && s.handle >= 0 &&
+        (s.dragTransform.relocate || (s.pivot && s.pivotFor == s.selection.Items ()))) {
+        s.pivot = edit::Moved (s.frame, s.dragTransform).origin;
+        s.pivotFor = s.selection.Items ();
+    }
+    s.facePush = false;
+    s.drag = Drag::None;
+    s.dragReleased = false;
+}
+
+void EndDrag (Session& s)
+{
+    if (s.drag == Drag::Handle)
+        EndHandleDrag (s);
+    else {
+        s.edits.End ();
+        s.drag = Drag::None;
+        s.dragReleased = false;
+        s.snap = {};
+    }
+    s.dragPointerPause.reset ();
+    s.selection.Prune (Doc (s));
+    s.message = s.edits.Message ();
+}
+
 void FinishDrawing (Session& s)
 {
     if (s.drawing.size () < 2) {
@@ -23,7 +56,8 @@ void FinishDrawing (Session& s)
     const Tool tool = s.tool;
     const double width = s.pathWidth;
     const std::string role = s.role;
-    const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string&) {
+    const auto landscapeRole = s.landscapeRole;
+    const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string& error) {
         created =
             tool == Tool::Path ? edit::AddPath (d, points, width, role) : edit::AddPolyline (d, points, closed, role);
         if (tool == Tool::Path)
@@ -37,6 +71,17 @@ void FinishDrawing (Session& s)
                 std::string why;
                 edit::SetSmooth (d, created, e->vertices.front ().id, true, why);
             }
+        }
+        if (d.landscape) {
+            tapioca::geometry::LandscapeSource source;
+            source.entityId = tool == Tool::Path ? edit::kNoId : created;
+            source.pathId = tool == Tool::Path ? created : edit::kNoId;
+            source.role = landscapeRole;
+            edit::Id id = edit::kNoId;
+            if (!tapioca::geometry::AddLandscapeSource (d, source, id, error))
+                return false;
+            if (landscapeRole == tapioca::geometry::SourceRole::PropertyLine)
+                return tapioca::geometry::SetLandscapePropertyLine (d, id, error);
         }
         return true;
     });

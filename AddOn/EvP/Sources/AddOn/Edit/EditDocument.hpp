@@ -18,7 +18,7 @@ namespace geomsrv::edit {
 enum class Kind : uint8_t { Polyline, Extrusion };
 // A path's own parts: its plan control points, its grade breaks and its
 // cross-section ranges. `Entity` on a path's id means the whole path.
-enum class Part : uint8_t { Entity, Vertex, Segment, Face, PathPoint, Break, Range };
+enum class Part : uint8_t { Entity, Vertex, Segment, Face, PathPoint, Break, Range, LandscapeFace };
 
 struct Vertex {
     Id id = kNoId;
@@ -65,7 +65,8 @@ struct Document {
 struct Ref {
     Id entity = kNoId;
     Part part = Part::Entity;
-    Id item = kNoId; // the part's id, or a face index; unused for Part::Entity
+    Id item = kNoId;       // the part's id, or a face index; unused for Part::Entity
+    uint64_t revision = 0; // LandscapeFace only: a call-local locator, never authored identity.
 };
 bool operator== (const Ref& a, const Ref& b);
 bool operator!= (const Ref& a, const Ref& b);
