@@ -465,6 +465,11 @@ void Engine::Impl::DebugPage (float ui)
     hud.figures.push_back ({ "Atlas versions", std::to_string (stats.atlasVersions) });
     hud.note = "Activity counts reset every 60 seconds. Lifetime telemetry is unchanged.";
     hudshell::Cards ({ hud }, *look, ui);
+    // ⚠️ THE WIDGET GALLERY IS HERE TOO, FOLDED (the user, 2026-10-21: looked for it in the 3D
+    // view's HUD, not the separate viewer's). A section of this page, not a window of its own:
+    // no new window takes the pointer or joins the hit map. Folded, it costs one header row.
+    if (hudshell::Section ("Widget gallery"))
+        archviz::ui::DrawGallery (gallery);
 }
 
 } // namespace overlayhud

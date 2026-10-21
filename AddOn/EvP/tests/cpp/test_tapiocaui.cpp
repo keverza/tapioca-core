@@ -4,6 +4,9 @@
 // draws today's controls at every density and in both themes and leaves ImGui exactly as it
 // found it; and its log tells a commit from a cancel.
 
+#include "hud_fixture.hpp"
+
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 #include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
 #include "ArchViz/TapiocaUI/Foundation/Units.hpp"
@@ -260,4 +263,32 @@ TEST (TapiocaUiGallery, RecordKeepsOneEntryPerControlTheLatestFirst)
     EXPECT_FALSE (state.log[0].result.changed);
     EXPECT_EQ (state.log[1].control, "b");
     ImGui::Render ();
+}
+
+// ⚠️ THE OVERLAY'S DEBUG PAGE HAS IT TOO (the user, 2026-10-21: looked for it in the 3D view's HUD).
+// Through the overlays' real layout engine: folded, the gallery is one header row at the page's
+// end; pressing that row unfolds the whole gallery, laid out in the overlay's own font atlas.
+TEST (TapiocaUiGallery, TheOverlaysDebugPageUnfoldsTheGalleryFromItsLastRow)
+{
+    using namespace hudtest;
+    Watched hud;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    hud.engine.SetOwnPages (pages);
+    hud::SelectKey (*hud.state, geomsrv::archviz::hudshell::kDebugKey);
+    const hud::Layout folded = hud.Lay ({}, At (600, 600));
+    ASSERT_FALSE (folded.host.vertices.empty ());
+    const float left = folded.host.fraction[0] * 1200 + folded.host.offset[0];
+    const float top = folded.host.fraction[1] * 800 + folded.host.offset[1];
+
+    // The page's last pressable row, from its bottom up: the gallery's header.
+    float row = -1.0f;
+    for (float y = top + folded.host.height - 2; y > top && row < 0; y -= 2)
+        if (hud.Lay ({}, At (left + 30, y)).hand)
+            row = y;
+    ASSERT_GT (row, 0.0f);
+    hud.Click ({}, left + 30, row);
+    const hud::Layout open = hud.Lay ({}, At (600, 600));
+    EXPECT_GT (open.host.vertices.size (), folded.host.vertices.size () * 2)
+        << "the gallery's controls are drawn once its section is open";
 }

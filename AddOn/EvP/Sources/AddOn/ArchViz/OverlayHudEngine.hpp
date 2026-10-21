@@ -17,6 +17,7 @@
 #include "ArchViz/HudFloorSchemeEdit.hpp"
 #include "ArchViz/RoofSlopeHud.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 
 #include <climits>
 #include <imgui.h>
@@ -194,6 +195,8 @@ struct Engine::Impl {
     uint64_t atlasVersion = 0;
     Stats stats;
     huddebug::CounterWindow<2> debugCounters;
+    // What the user did in the Debug page's widget gallery: this engine's context's own.
+    archviz::ui::GalleryState gallery;
     bool ready = false;
     bool roofKeysActive = false;
 
