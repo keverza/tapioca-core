@@ -526,6 +526,7 @@ set (EVP_ARCHVIZ_SOURCES
     # look, dock and floating panel are HudShell's.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellStyle.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellTabs.cpp"
     # TapiocaUI: the one HUD component library both surfaces draw through, and its gallery.
     # Every translation unit under ArchViz/TapiocaUI is listed here; check_cpp.py fails
     # the build gate when one is not, so a new widget cannot go untested by omission.
