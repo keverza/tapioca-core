@@ -562,6 +562,41 @@ historical predecessors), self-aliasing and atomic refusal. Existing standalone
 C/C++ identity smoke and refusing stubs exercise the new symbol, without adding
 another executable or a test-only production export. Full S2b remains incomplete.
 
+## S3a.1 terrain TIN (`geometry::terrain`, Rust only)
+
+`terrain::triangulate` builds a constrained Delaunay TIN over spot points,
+boundary/hole rings and breaklines with the vendored `spade`; no `spade` type is
+public and nothing is exported over the ABI yet (S3a.2 owns the carrier and
+wrapper). Plan xy and z are world metres in `f64`.
+
+- **Pre-split:** proper crossings between constraint segments get a vertex before
+  triangulation (plain `f64` sweep); both segments' interpolated heights must
+  agree within the request's `z_tolerance`. Touching/overlapping constraints are
+  left to `spade`'s exact predicates. Rings crossing rings refuse.
+- **Insertion:** every vertex first (distinct input points in order, then
+  crossings by segment pair), then constraints via the non-panicking
+  `try_add_constraint`; a refused or gapped constraint path is
+  `TriangulationConstraint`.
+- **Domain:** regions separated by ring edges get a nesting depth (boundaries
+  minus holes containing one face; the hull counts as a boundary when none is
+  given). Depth 1 is kept, 0 excluded, anything else and any ring edge without
+  exactly one kept side is `HoleClassificationFailed`.
+- **Result and identity:** canonical CCW triangles (lowest vertex first, sorted),
+  per-input-point output vertex, crossing records naming their two segments,
+  one constraint-edge row per `(constraint, segment)` in path order with a kept
+  flag, and each kept face's bounding boundary ring.
+- **Proof helpers:** `extract_edges` and `verify_constraints` check the result
+  against its request without `spade`; `triangulate` runs the verifier before
+  returning, so `BreaklineUnenforced` refuses instead of returning a bridged TIN.
+
+Duplicate positions merge only within `z_tolerance`; zero-length segments,
+collinear input or an empty kept domain are `TriangulationDegenerate`. Tests
+cover rings, holes, islands, crossings, T-junctions, overlaps, tampered results,
+georeferenced coordinates, 64 seeded breakline networks on a plane (area, Euler
+characteristic, heights, repeatability) and a digest pinned to `spade` 2.15.1
+that catches hash-ordered output across runs. Refinement and the property-line
+mesh split are later S3a.1 increments.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

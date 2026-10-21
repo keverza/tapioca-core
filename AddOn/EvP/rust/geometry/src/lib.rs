@@ -22,4 +22,5 @@ mod native_guid;
 pub mod plane;
 pub mod polygon;
 pub mod polyline;
+pub mod terrain;
 pub mod value;
