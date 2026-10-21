@@ -295,6 +295,98 @@ TEST (EditLandscape, MaterialMaskIsAConstraintWhileDifferenceMakesAHole)
     EXPECT_NEAR (Area (result), 100, 1.0e-6);
 }
 
+TEST (EditLandscape, HigherPriorityMaterialOverridesLowerConflictsInEveryCatalogOrder)
+{
+    auto doc = Start ();
+    Object (doc, Operation (doc, geo::OperationKind::RegionSelect, { Square (doc, 0, 0) }));
+    const auto region = Evaluate (doc).regions.front ().regionId;
+    for (int priority : { std::numeric_limits<int>::min (), -7, std::numeric_limits<int>::max () }) {
+        doc.landscape->assignments.clear ();
+        for (int i = 0; i < 3; ++i) {
+            geo::MaterialAssignment assignment;
+            assignment.id = edit::NewId (doc);
+            assignment.region = region;
+            assignment.priority = i == 2                                         ? priority
+                                  : priority == std::numeric_limits<int>::min () ? priority
+                                                                                 : priority - 1;
+            assignment.material.preset = i == 0 ? geo::MaterialPreset::Grass : geo::MaterialPreset::Gravel;
+            doc.landscape->assignments.push_back (assignment);
+        }
+        // At INT_MIN there is no lower rank; make the tied materials agree.
+        if (priority == std::numeric_limits<int>::min ())
+            doc.landscape->assignments[0].material = doc.landscape->assignments[2].material;
+        const auto expected = doc.landscape->assignments[2].material;
+        const auto original = doc.landscape->assignments;
+        std::vector<int> order { 0, 1, 2 };
+        do {
+            for (size_t i = 0; i < order.size (); ++i)
+                doc.landscape->assignments[i] = original[order[i]];
+            const auto before = doc;
+            geo::LandscapeResult result;
+            ASSERT_TRUE (geo::EvaluateLandscape (doc, result)) << result.error;
+            ASSERT_EQ (result.regions.size (), 1u);
+            EXPECT_EQ (result.regions[0].material, expected);
+            EXPECT_EQ (result.regions[0].regionId, region);
+            EXPECT_EQ (doc.landscape, before.landscape);
+            EXPECT_EQ (doc.nextId, before.nextId);
+        } while (std::next_permutation (order.begin (), order.end ()));
+    }
+}
+
+TEST (EditLandscape, ConflictingHighestPriorityMaterialsRefuseAtomicallyInEveryCatalogOrder)
+{
+    auto doc = Start ();
+    Object (doc, Operation (doc, geo::OperationKind::RegionSelect, { Square (doc, 0, 0) }));
+    const auto region = Evaluate (doc).regions.front ().regionId;
+    for (int i = 0; i < 3; ++i) {
+        geo::MaterialAssignment assignment;
+        assignment.id = edit::NewId (doc);
+        assignment.region = region;
+        assignment.priority = i == 0 ? -1 : 0;
+        assignment.material.preset = i == 2 ? geo::MaterialPreset::Grass : geo::MaterialPreset::Gravel;
+        doc.landscape->assignments.push_back (assignment);
+    }
+    const auto original = doc.landscape->assignments;
+    std::vector<int> order { 0, 1, 2 };
+    do {
+        for (size_t i = 0; i < order.size (); ++i)
+            doc.landscape->assignments[i] = original[order[i]];
+        const auto before = doc;
+        geo::LandscapeResult result;
+        std::string error;
+        EXPECT_FALSE (geo::RebuildLandscape (doc, result, error, &before));
+        EXPECT_NE (error.find ("ProvenanceConflict"), std::string::npos);
+        ASSERT_EQ (result.diagnostics.size (), 1u);
+        EXPECT_EQ (result.diagnostics[0].code, geo::LandscapeDiagnosticCode::ProvenanceConflict);
+        EXPECT_EQ (result.diagnostics[0].object, doc.landscape->objects[0].id);
+        EXPECT_EQ (doc.landscape, before.landscape);
+        EXPECT_EQ (doc.nextId, before.nextId);
+        EXPECT_EQ (doc.revision, before.revision);
+    } while (std::next_permutation (order.begin (), order.end ()));
+}
+
+TEST (EditLandscape, InvalidAndMaskedAssignmentsDoNotParticipateInWholeRegionPriority)
+{
+    auto doc = Start ();
+    const auto source = Square (doc, 0, 0);
+    const auto operation = Operation (doc, geo::OperationKind::RegionSelect, { source });
+    Object (doc, operation);
+    const auto region = Evaluate (doc).regions.front ().regionId;
+    for (int i = 0; i < 3; ++i) {
+        geo::MaterialAssignment assignment;
+        assignment.id = edit::NewId (doc);
+        assignment.region = region;
+        assignment.priority = i == 0 ? -1 : std::numeric_limits<int>::max ();
+        assignment.material.preset = i == 0 ? geo::MaterialPreset::Grass : geo::MaterialPreset::Gravel;
+        assignment.valid = i != 1;
+        assignment.mask = i == 2 ? operation : 0;
+        doc.landscape->assignments.push_back (assignment);
+    }
+    const auto result = Evaluate (doc);
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_EQ (result.regions[0].material.preset, geo::MaterialPreset::Grass);
+}
+
 TEST (EditLandscape, InvalidMutationLeavesDocumentAndAllocatorUntouched)
 {
     auto doc = Start ();

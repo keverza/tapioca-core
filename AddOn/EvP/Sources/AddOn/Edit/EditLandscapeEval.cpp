@@ -364,17 +364,22 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
                 }
             const MaterialAssignment* chosen = nullptr;
             for (const auto& assignment : session.assignments)
-                if (assignment.valid && assignment.mask == 0 && assignment.region == region.regionId) {
-                    if (chosen && assignment.priority == chosen->priority &&
-                        !(assignment.material == chosen->material)) {
+                if (assignment.valid && assignment.mask == 0 && assignment.region == region.regionId &&
+                    (!chosen || assignment.priority > chosen->priority))
+                    chosen = &assignment;
+            // Only the winning rank can conflict. A lower-rank tie must not
+            // refuse a higher-rank override based on catalog iteration order.
+            if (chosen) {
+                for (const auto& assignment : session.assignments)
+                    if (assignment.valid && assignment.mask == 0 && assignment.region == region.regionId &&
+                        assignment.priority == chosen->priority && !(assignment.material == chosen->material)) {
                         out.error = "ProvenanceConflict: equally ranked region assignments require explicit resolution";
+                        Diagnostic (out, LandscapeDiagnosticCode::ProvenanceConflict, 0, out.error);
+                        out.diagnostics.back ().object = object.id;
                         return false;
                     }
-                    if (!chosen || assignment.priority > chosen->priority)
-                        chosen = &assignment;
-                }
-            if (chosen)
                 region.material = chosen->material;
+            }
             out.regions.push_back (std::move (region));
         }
     }
