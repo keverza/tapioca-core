@@ -271,8 +271,10 @@ from typing import Any
 # The virtual-editor branch raised the same stale count independently (it named
 # RoofSlopeEditor as the verb the bump had missed), so the merge counts it once:
 # 252 -> 254 with VirtualEditor and its read-only EditorState diagnostic, 254 -> 260
-# with the six read-only live-test bridge adapters (2026-10-16).
-EXPECTED_REGISTRY_COMMANDS = 260
+# with the six read-only live-test bridge adapters (2026-10-16), 260 -> 262 with
+# CalculateExteriorSurfaceTakeoff / ClearExteriorSurfaceTakeoff in
+# SurfaceTakeoffCommands.cpp, whose lane did not raise the count (2026-10-17).
+EXPECTED_REGISTRY_COMMANDS = 262
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -296,8 +298,9 @@ EXPECTED_LOCAL_COMMANDS = 19
 # (GetExposedSurfaceQuantities + PickPolygon).
 # 268 -> 271 with GetSnapshotSurfaces / CalculateSurfaceFragments and the same
 # stale registry verb; 271 -> 273 with VirtualEditor and EditorState, 273 -> 279 with
-# the same six live-test adapters.
-EXPECTED_TOTAL_COMMANDS = 279
+# the same six live-test adapters, 279 -> 281 with the two exterior-surface takeoff
+# verbs.
+EXPECTED_TOTAL_COMMANDS = 281
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = r'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

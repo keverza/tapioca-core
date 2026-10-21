@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 260,
+      "nativeRegistry": 262,
       "dispatcherLocal": 19,
-      "total": 279
+      "total": 281
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -408,6 +408,10 @@
           "reuseShared": {
             "type": "boolean"
           },
+          "extractionCapturePath": {
+            "type": "string",
+            "minLength": 1
+          },
           "meta": {
             "oneOf": [
               {
@@ -476,6 +480,32 @@
           "droppedTriangles": {
             "type": "integer"
           },
+          "extractionCapture": {
+            "type": "object",
+            "properties": {
+              "written": {
+                "type": "boolean"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "elements": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "written",
+              "bytes",
+              "elements",
+              "truncated"
+            ]
+          },
           "retainedBytes": {
             "type": "integer"
           }
@@ -492,6 +522,328 @@
           "metaLevel",
           "metadataCancelled",
           "retainedBytes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.CalculateExteriorSurfaceTakeoff",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "targetGuids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 38
+            }
+          },
+          "coverGuids": {
+            "type": "array",
+            "maxItems": 128,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 38
+            }
+          },
+          "coverScopeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "contactToleranceM": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.001
+          },
+          "regionMode": {
+            "type": "string",
+            "enum": [
+              "seededFacade",
+              "allWallFaces",
+              "allElementFaces"
+            ]
+          },
+          "seeds": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "guid": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 38
+                },
+                "point": {
+                  "$ref": "#/$defs/vector"
+                },
+                "normal": {
+                  "$ref": "#/$defs/vector"
+                }
+              },
+              "required": [
+                "guid",
+                "point",
+                "normal"
+              ]
+            }
+          },
+          "surfaceAttributeIndices": {
+            "type": "array",
+            "maxItems": 512,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "surfaceColors": {
+            "type": "array",
+            "maxItems": 512,
+            "description": "Legacy compatibility input; highlights use the fixed selection color.",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            }
+          },
+          "publishOverlay": {
+            "type": "boolean"
+          },
+          "compareNative": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "snapshotId",
+          "captureStamp",
+          "targetGuids",
+          "coverGuids",
+          "coverScopeId",
+          "seeds",
+          "surfaceAttributeIndices",
+          "publishOverlay",
+          "compareNative"
+        ],
+        "$defs": {
+          "vector": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "outputScheme": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshotId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "captureStamp": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "classification": {
+            "enum": [
+              "userExteriorSeeds-connectedCoplanar",
+              "allWallFaces-contactOnly",
+              "allElementFaces-contactOnly"
+            ]
+          },
+          "unit": {
+            "const": "m2"
+          },
+          "coverScopeId": {
+            "type": "string"
+          },
+          "coverGuids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contactToleranceM": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.001
+          },
+          "regionFaceCount": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "selectedTriangleCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverBodyCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "regionElementGuids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "selectedAreaM2": {
+            "type": "number",
+            "minimum": 0
+          },
+          "overlayPublished": {
+            "type": "boolean"
+          },
+          "nativeComparisonAvailable": {
+            "type": "boolean"
+          },
+          "nativeComparisonNote": {
+            "type": "string"
+          },
+          "nativeSurfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "surfaceAttributeIndex": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "areaM2": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "surfaceAttributeIndex",
+                "areaM2"
+              ]
+            }
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "surfaceAttributeIndex": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "rgba": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "areaM2": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "surfaceAttributeIndex",
+                "name",
+                "rgba",
+                "areaM2"
+              ]
+            }
+          },
+          "meshes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "guid": {
+                  "type": "string"
+                },
+                "sourceBody": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sourcePgon": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "surfaceAttributeIndex": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "areaM2": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "points": {
+                  "type": "array",
+                  "minItems": 9,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "triangles": {
+                  "type": "array",
+                  "minItems": 3,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "required": [
+                "guid",
+                "sourceBody",
+                "sourcePgon",
+                "surfaceAttributeIndex",
+                "areaM2",
+                "points",
+                "triangles"
+              ]
+            }
+          }
+        },
+        "required": [
+          "snapshotId",
+          "captureStamp",
+          "classification",
+          "unit",
+          "coverScopeId",
+          "coverGuids",
+          "contactToleranceM",
+          "regionFaceCount",
+          "coverBodyCount",
+          "regionElementGuids",
+          "selectedTriangleCount",
+          "selectedAreaM2",
+          "overlayPublished",
+          "nativeComparisonAvailable",
+          "nativeComparisonNote",
+          "nativeSurfaces",
+          "surfaces",
+          "meshes"
         ]
       }
     },
@@ -513,6 +865,11 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256
+          },
+          "contactToleranceM": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.001
           },
           "faces": {
             "type": "array",
@@ -622,6 +979,11 @@
             "type": "string",
             "minLength": 1
           },
+          "contactToleranceM": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.001
+          },
           "unit": {
             "const": "m2"
           },
@@ -725,6 +1087,7 @@
           "captureStamp",
           "algorithmVersion",
           "coverScopeId",
+          "contactToleranceM",
           "unit",
           "coordinateUnit",
           "indexSpace",
@@ -1449,6 +1812,27 @@
         "required": [
           "cleared"
         ]
+      }
+    },
+    {
+      "name": "Tapioca.ClearExteriorSurfaceTakeoff",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cleared"
+        ],
+        "additionalProperties": false
       }
     },
     {
@@ -4120,7 +4504,8 @@
               "rotate",
               "scale",
               "stretch",
-              "extrude"
+              "extrude",
+              "gumball"
             ]
           },
           "drag": {
@@ -4133,6 +4518,7 @@
               "profileBreak",
               "profileTangent",
               "corner",
+              "kerb",
               "bezier",
               "bend"
             ]
@@ -4154,8 +4540,68 @@
               "mixed",
               "pathPoint",
               "break",
-              "range"
+              "range",
+              "landscapeFace"
             ]
+          },
+          "landscape": {
+            "type": "object",
+            "properties": {
+              "sources": {
+                "type": "integer"
+              },
+              "operations": {
+                "type": "integer"
+              },
+              "objects": {
+                "type": "integer"
+              },
+              "faces": {
+                "type": "integer"
+              },
+              "propertyLine": {
+                "type": "string"
+              },
+              "regions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "type": "string"
+                    },
+                    "area": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "object",
+                    "area"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "sources",
+              "operations",
+              "objects",
+              "faces",
+              "propertyLine",
+              "regions",
+              "warnings"
+            ],
+            "additionalProperties": false
           },
           "hovering": {
             "type": "boolean"
@@ -4191,6 +4637,51 @@
           },
           "snapSegments": {
             "type": "integer"
+          },
+          "planeZ": {
+            "type": "number"
+          },
+          "planeLocked": {
+            "type": "boolean"
+          },
+          "planeSticky": {
+            "type": "boolean"
+          },
+          "planeSource": {
+            "type": "string",
+            "enum": [
+              "worldXY",
+              "face",
+              "pathPlan"
+            ]
+          },
+          "planeCaptured": {
+            "type": "boolean"
+          },
+          "planeOrigin": {
+            "$ref": "#Point3D"
+          },
+          "planeU": {
+            "$ref": "#Point3D"
+          },
+          "planeV": {
+            "$ref": "#Point3D"
+          },
+          "planeNormal": {
+            "$ref": "#Point3D"
+          },
+          "planeSourceEntity": {
+            "type": "integer"
+          },
+          "planeSourceFace": {
+            "type": "integer"
+          },
+          "planeSourceRevision": {
+            "type": "integer"
+          },
+          "planeSourceStation": {
+            "type": "number",
+            "minimum": 0
           },
           "message": {
             "type": "string"
@@ -34916,6 +35407,25 @@
               "curve"
             ]
           },
+          "planeZ": {
+            "type": "number"
+          },
+          "planeLocked": {
+            "type": "boolean"
+          },
+          "landscape": {
+            "type": "object",
+            "properties": {
+              "demo": {
+                "type": "boolean"
+              },
+              "definition": {
+                "type": "string",
+                "maxLength": 8388608
+              }
+            },
+            "additionalProperties": false
+          },
           "polylines": {
             "type": "array",
             "maxItems": 1000,
@@ -35204,6 +35714,69 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "landscape": {
+                "type": "string",
+                "maxLength": 8388608
+              },
+              "landscapeSummary": {
+                "type": "object",
+                "properties": {
+                  "sources": {
+                    "type": "integer"
+                  },
+                  "operations": {
+                    "type": "integer"
+                  },
+                  "objects": {
+                    "type": "integer"
+                  },
+                  "faces": {
+                    "type": "integer"
+                  },
+                  "propertyLine": {
+                    "type": "string"
+                  },
+                  "regions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "object": {
+                          "type": "string"
+                        },
+                        "area": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "object",
+                        "area"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "warnings": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "sources",
+                  "operations",
+                  "objects",
+                  "faces",
+                  "propertyLine",
+                  "regions",
+                  "warnings"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
