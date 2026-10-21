@@ -485,3 +485,37 @@ TEST (TapiocaUiIcons, AGlyphAtRestIsGreyAndOnlyTheSelectedOneIsFullInk)
     ImGui::End ();
     ImGui::Render ();
 }
+
+// ⚠️ THE HUD'S OWN TABS ARE GLYPHS (HANDOFF-TapiocaUI-Library.md section 7.8): Selection, Settings
+// and Debug draw the pointer, the gear and the bug, at rest in the card's grey ink and the shown
+// one in its full ink; Stats keeps its title. Through the overlays' real layout engine, on the
+// plain light card.
+TEST (TapiocaUiIcons, TheHudsOwnTabsAreGlyphsGreyAtRest)
+{
+    using namespace hudtest;
+    namespace shell = geomsrv::archviz::hudshell;
+    const uint32_t ink = shell::PlainLook ().textRgba;
+    const uint32_t rest = (ink & 0xFFFFFF00u) | uint32_t (std::lround (float (ink & 0xFFu) * ui::kIconRestAlpha));
+    const auto inTabRow = [] (const hud::Built& host, uint32_t rgba, float rowBottom) {
+        int count = 0;
+        for (const hud::Vertex& v : host.vertices)
+            if (v.rgba == rgba && v.y < rowBottom)
+                ++count;
+        return count;
+    };
+    Watched hud;
+    hud::OwnPages pages;
+    pages.standalone = true;
+    hud.engine.SetOwnPages (pages);
+    hud::SelectKey (*hud.state, shell::kStatsKey);
+    const hud::Layout stats = hud.Lay ({}, At (600, 600));
+    ASSERT_FALSE (stats.host.vertices.empty ());
+    float top = FLT_MAX;
+    for (const hud::Vertex& v : stats.host.vertices)
+        top = (std::min) (top, v.y);
+    const float rowBottom = top + 40.0f; // the tab row, under the panel's top edge
+    EXPECT_GT (inTabRow (stats.host, rest, rowBottom), 0) << "Selection, Settings and Debug at rest";
+    hud::SelectKey (*hud.state, shell::kSettingsKey);
+    const hud::Layout settings = hud.Lay ({}, At (600, 600));
+    EXPECT_GT (inTabRow (settings.host, rest, rowBottom), 0) << "Selection and Debug still at rest";
+}

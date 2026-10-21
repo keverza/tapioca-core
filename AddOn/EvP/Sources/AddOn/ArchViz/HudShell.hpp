@@ -189,6 +189,7 @@ struct Placement {
 struct HostTab {
     std::string key;
     std::string title;
+    std::string badge; // said beside an own tab's glyph: the Debug tab's unseen count
 };
 
 struct HostSpec {

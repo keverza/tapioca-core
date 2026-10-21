@@ -85,7 +85,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     tabs.push_back ({ hudshell::kSettingsKey, "Settings" });
     // The console's errors and warnings not shown yet, counted on the tab (HudConsole.hpp).
     const uint32_t unseen = hudconsole::Unseen (hudconsole::Entries (), shell.consoleSeen, shell.consoleCleared);
-    tabs.push_back ({ hudshell::kDebugKey, unseen > 0 ? "Debug (" + std::to_string (unseen) + ")" : "Debug" });
+    tabs.push_back ({ hudshell::kDebugKey, "Debug", unseen > 0 ? std::to_string (unseen) : std::string () });
     bool held = false;
     for (const hudshell::HostTab& tab : tabs)
         held = held || tab.key == shell.held;

@@ -4,6 +4,7 @@
 #include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/GraphicsSettingsUi.hpp"
 #include "ArchViz/GraphicsSettings.hpp"
+#include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
 
 #include <imgui_internal.h> // ImGuiWindow: where the panel is, and whether it is being dragged
 
@@ -22,6 +23,38 @@ namespace {
 
 // The close button at the end of the tab row.
 constexpr char kClose[] = "\xC3\x97##tapioca.close";
+
+// ⚠️ THE HUD'S OWN TABS ARE GLYPHS (HANDOFF-TapiocaUI-Library.md section 7.8): Selection the
+// pointer, Settings the gear, Debug the bug; Stats and a caller's tabs keep their titles. The
+// title is still the tab's identity and is said as its tip; Debug's unseen count is its badge.
+ui::IconId IconOf (const std::string& key)
+{
+    if (key == kSelectionKey)
+        return ui::IconId::CursorPointer;
+    if (key == kSettingsKey)
+        return ui::IconId::Settings;
+    if (key == kDebugKey)
+        return ui::IconId::Bug;
+    return ui::IconId::None;
+}
+
+// A glyph a little taller than the tab's text, whole pixels.
+float TabGlyph ()
+{
+    return std::round (ImGui::GetFontSize () * 1.2f);
+}
+
+// A tab's width in the row: a glyph tab's padding, glyph and badge; a titled tab's text.
+float TabWidth (const HostTab& tab)
+{
+    const ImGuiStyle& style = ImGui::GetStyle ();
+    if (IconOf (tab.key) == ui::IconId::None)
+        return ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * style.FramePadding.x;
+    float width = 2.0f * style.FramePadding.x + TabGlyph ();
+    if (!tab.badge.empty ())
+        width += style.ItemInnerSpacing.x + ImGui::CalcTextSize (tab.badge.c_str ()).x;
+    return width;
+}
 
 } // namespace
 
@@ -572,7 +605,7 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     const ImGuiStyle& style = ImGui::GetStyle ();
     float row = 2.0f * style.WindowPadding.x;
     for (const HostTab& tab : spec.tabs)
-        row += ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
+        row += TabWidth (tab) + style.ItemInnerSpacing.x;
     row += ImGui::CalcTextSize (kClose, nullptr, true).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
     const bool pageWidth = spec.pageWidthPixels > 0.0f;
     const float panelWidth =
@@ -609,7 +642,27 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
             return key == held && shownLast != held ? ImGuiTabItemFlags_SetSelected : 0;
         };
         for (const HostTab& tab : spec.tabs) {
-            if (ImGui::BeginTabItem ((tab.title + "###" + tab.key).c_str (), nullptr, asked (tab.key))) {
+            const archviz::ui::IconId icon = IconOf (tab.key);
+            if (icon != archviz::ui::IconId::None)
+                ImGui::SetNextItemWidth (TabWidth (tab));
+            const std::string label =
+                (icon != archviz::ui::IconId::None ? std::string () : tab.title) + "###" + tab.key;
+            const bool open =
+                ImGui::BeginTabItem (label.c_str (), nullptr, asked (tab.key) | ImGuiTabItemFlags_NoTooltip);
+            if (icon != archviz::ui::IconId::None) {
+                const ImVec2 min = ImGui::GetItemRectMin (), max = ImGui::GetItemRectMax ();
+                const float glyph = TabGlyph (), middle = (min.y + max.y) * 0.5f;
+                const float left = min.x + style.FramePadding.x;
+                ImDrawList* const draw = ImGui::GetWindowDrawList ();
+                archviz::ui::DrawIcon (draw, icon, ImVec2 (left + glyph * 0.5f, middle), glyph,
+                                       archviz::ui::IconInk (open));
+                if (!tab.badge.empty ())
+                    draw->AddText (
+                        ImVec2 (left + glyph + style.ItemInnerSpacing.x, middle - ImGui::GetFontSize () * 0.5f),
+                        ImGui::GetColorU32 (ImGuiCol_Text), tab.badge.c_str ());
+                Tip (tab.badge.empty () ? tab.title : tab.title + " (" + tab.badge + ")", TipSide::Below);
+            }
+            if (open) {
                 now = tab.key;
                 if (page)
                     result.scrolls = ScrollingPage (tab.key, page, tallest, footerLast, setWidth,
