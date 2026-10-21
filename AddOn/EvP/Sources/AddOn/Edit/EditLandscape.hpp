@@ -188,7 +188,12 @@ bool ValidateLandscape (const geomsrv::edit::Document& doc, std::string& error);
 bool ValidateLandscapeDag (const LandscapeSession& session, std::vector<Id>& order, std::string& error);
 bool EvaluateLandscape (const geomsrv::edit::Document& doc, LandscapeResult& result);
 // Transactional: publish durable IDs/invalidated assignments only on success.
-bool RebuildLandscape (geomsrv::edit::Document& doc, LandscapeResult& result, std::string& error);
+// `before` is the immutable document whose identity catalog `doc` still carries.
+// A new region's predecessors are the identities whose footprint there overlaps
+// it; when one is needed and that before-state is absent or another catalog's,
+// lineage is unprovable and the rebuild refuses.
+bool RebuildLandscape (geomsrv::edit::Document& doc, LandscapeResult& result, std::string& error,
+                       const geomsrv::edit::Document* before = nullptr);
 bool StartLandscape (geomsrv::edit::Document& doc, std::array<uint8_t, 16> uuid, std::string& error);
 bool AddLandscapeSource (geomsrv::edit::Document& doc, LandscapeSource source, Id& id, std::string& error);
 bool DeleteLandscapeSource (geomsrv::edit::Document& doc, Id id, std::string& error);

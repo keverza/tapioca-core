@@ -193,10 +193,11 @@ TEST (EditLandscape, SplitAllocatesNewRegionsWithLineageAndInvalidatesAssignment
     doc.landscape->assignments.push_back (assignment);
     const auto cutter = Source (doc, { { 4, -1, 0 }, { 6, -1, 0 }, { 6, 11, 0 }, { 4, 11, 0 } });
     const auto difference = Operation (doc, geo::OperationKind::Difference, { selected, cutter });
+    const auto before = doc;
     doc.landscape->objects.front ().footprintOperation = difference;
     geo::LandscapeResult result;
     std::string error;
-    ASSERT_TRUE (geo::RebuildLandscape (doc, result, error)) << error;
+    ASSERT_TRUE (geo::RebuildLandscape (doc, result, error, &before)) << error;
     ASSERT_EQ (result.regions.size (), 2u);
     for (const auto& r : result.regions) {
         EXPECT_NE (r.regionId, previous);
@@ -382,6 +383,123 @@ TEST (EditLandscape, SameSourceSetDoesNotPreserveRegionsAcrossSplitOrMerge)
     std::sort (predecessors.begin (), predecessors.end ());
     EXPECT_NE (merged.regions[0].regionId, old);
     EXPECT_EQ (merged.regions[0].predecessorRegions, predecessors);
+}
+
+namespace {
+bool Translate (edit::Document& doc, edit::Id entity, double dx)
+{
+    auto* found = edit::Find (doc, entity);
+    if (!found)
+        return false;
+    for (auto& v : found->vertices)
+        v.p.x += dx;
+    return true;
+}
+const geo::DerivedRegion* RegionLeftOf (const geo::LandscapeResult& result, double x, bool left)
+{
+    for (const auto& region : result.regions)
+        if ((region.seed.x < x) == left)
+            return &region;
+    return nullptr;
+}
+} // namespace
+
+TEST (EditLandscape, DisconnectedSiblingSharingAuthoredSegmentsIsNotAPredecessor)
+{
+    // Both pieces of the field are bounded by the field's own bottom and top
+    // segments. Sharing an authored segment is not evidence that area flowed.
+    auto doc = Start ();
+    const auto field = Source (doc, { { 0, 0, 0 }, { 20, 0, 0 }, { 20, 10, 0 }, { 0, 10, 0 } });
+    const auto strip = Source (doc, { { 8, -1, 0 }, { 12, -1, 0 }, { 12, 11, 0 }, { 8, 11, 0 } });
+    const auto notch = Square (doc, -10, 2, 2);
+    const auto pieces = Operation (doc, geo::OperationKind::Difference, { field, strip });
+    Object (doc, Operation (doc, geo::OperationKind::Difference, { pieces, notch }));
+    const auto initial = Evaluate (doc);
+    ASSERT_EQ (initial.regions.size (), 2u);
+    const auto left = RegionLeftOf (initial, 10, true)->regionId, right = RegionLeftOf (initial, 10, false)->regionId;
+    const auto notchEntity = doc.landscape->sources[2].entityId;
+    edit::Session session (doc);
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string&) { return Translate (d, notchEntity, 13); }))
+        << session.Message ();
+    const auto holed = Evaluate (session.Doc ());
+    ASSERT_EQ (holed.regions.size (), 2u);
+    const auto* changed = RegionLeftOf (holed, 10, true);
+    const auto* sibling = RegionLeftOf (holed, 10, false);
+    EXPECT_NEAR (changed->area, 76, 1.0e-6);
+    EXPECT_NE (changed->regionId, left);
+    EXPECT_EQ (changed->predecessorRegions, (std::vector<edit::Id> { left }));
+    EXPECT_EQ (sibling->regionId, right);
+    // One edit changes both siblings: each descends only from its own footprint.
+    const auto holedLeft = changed->regionId;
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string&) { return Translate (d, notchEntity, 10); }))
+        << session.Message ();
+    const auto moved = Evaluate (session.Doc ());
+    ASSERT_EQ (moved.regions.size (), 2u);
+    const auto* restored = RegionLeftOf (moved, 10, true);
+    const auto* notched = RegionLeftOf (moved, 10, false);
+    EXPECT_NEAR (restored->area, 80, 1.0e-6);
+    EXPECT_NEAR (notched->area, 76, 1.0e-6);
+    // The restored shape matches an inactive identity; history is not revived.
+    EXPECT_NE (restored->regionId, left);
+    EXPECT_EQ (restored->predecessorRegions, (std::vector<edit::Id> { holedLeft }));
+    EXPECT_NE (notched->regionId, right);
+    EXPECT_EQ (notched->predecessorRegions, (std::vector<edit::Id> { right }));
+}
+
+TEST (EditLandscape, ReplacedFootprintDescendsByAreaNotBySharedSegments)
+{
+    auto doc = Start ();
+    const auto first = Square (doc, 0, 0), overlapping = Square (doc, 5, 5), distant = Square (doc, 40, 0);
+    const auto object = Object (doc, Operation (doc, geo::OperationKind::RegionSelect, { first }));
+    const auto original = Evaluate (doc).regions.front ().regionId;
+    const auto overlap = Operation (doc, geo::OperationKind::RegionSelect, { overlapping });
+    const auto far = Operation (doc, geo::OperationKind::RegionSelect, { distant });
+    std::string error;
+    geo::LandscapeResult result;
+    auto before = doc;
+    doc.landscape->objects.front ().footprintOperation = overlap;
+    ASSERT_TRUE (geo::RebuildLandscape (doc, result, error, &before)) << error;
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_EQ (result.regions[0].objectId, object);
+    EXPECT_EQ (result.regions[0].predecessorRegions, (std::vector<edit::Id> { original }));
+    const auto replaced = result.regions[0].regionId;
+    before = doc;
+    doc.landscape->objects.front ().footprintOperation = far;
+    ASSERT_TRUE (geo::RebuildLandscape (doc, result, error, &before)) << error;
+    ASSERT_EQ (result.regions.size (), 1u);
+    EXPECT_NE (result.regions[0].regionId, replaced);
+    EXPECT_TRUE (result.regions[0].predecessorRegions.empty ());
+}
+
+TEST (EditLandscape, LineageWithoutMatchingBeforeStateRefusesAtomically)
+{
+    auto doc = Start ();
+    const auto a = Square (doc, 0, 0);
+    const auto selected = Operation (doc, geo::OperationKind::RegionSelect, { a });
+    Object (doc, selected);
+    const auto previous = Evaluate (doc).regions.front ().regionId;
+    const auto cutter = Source (doc, { { 4, -1, 0 }, { 6, -1, 0 }, { 6, 11, 0 }, { 4, 11, 0 } });
+    const auto difference = Operation (doc, geo::OperationKind::Difference, { selected, cutter });
+    const auto before = doc;
+    doc.landscape->objects.front ().footprintOperation = difference;
+    const auto edited = doc;
+    geo::LandscapeResult result;
+    std::string error;
+    EXPECT_FALSE (geo::RebuildLandscape (doc, result, error));
+    EXPECT_NE (error.find ("ProvenanceUnattributable"), std::string::npos) << error;
+    EXPECT_EQ (doc.landscape, edited.landscape);
+    EXPECT_EQ (doc.nextId, edited.nextId);
+    // A before-state with another identity catalog is not this document's past.
+    auto stranger = before;
+    stranger.landscape->regions.front ().predecessors = { previous };
+    EXPECT_FALSE (geo::RebuildLandscape (doc, result, error, &stranger));
+    EXPECT_NE (error.find ("ProvenanceUnattributable"), std::string::npos) << error;
+    EXPECT_EQ (doc.landscape, edited.landscape);
+    EXPECT_EQ (doc.nextId, edited.nextId);
+    ASSERT_TRUE (geo::RebuildLandscape (doc, result, error, &before)) << error;
+    ASSERT_EQ (result.regions.size (), 2u);
+    for (const auto& r : result.regions)
+        EXPECT_EQ (r.predecessorRegions, (std::vector<edit::Id> { previous }));
 }
 
 TEST (EditLandscape, StrokeAndOffsetUseCurrentSourceGeometryAndReportCollapse)

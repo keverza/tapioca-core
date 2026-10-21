@@ -3,8 +3,10 @@
 #include <bit>
 #include <cmath>
 #include <exception>
+#include <functional>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 
 namespace tapioca::geometry {
@@ -378,17 +380,109 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
     }
     return true;
 }
-bool SharesBoundary (const RegionDescriptor& a, const RegionDescriptor& b)
+// Regions of the identities the before-state emits, keyed by region ID. An
+// identity the before-state does not emit has no footprint and cannot be proven.
+std::map<Id, DerivedRegion> BeforeRegions (const edit::Document* before, const std::vector<RegionIdentity>& previous)
 {
-    if (a.object != b.object)
+    std::map<Id, DerivedRegion> regions;
+    LandscapeResult evaluated;
+    if (!before || !before->landscape || before->landscape->regions != previous ||
+        !EvaluateLandscape (*before, evaluated))
+        return regions;
+    for (auto& region : evaluated.regions)
+        if (region.regionId)
+            regions[region.regionId] = std::move (region);
+    return regions;
+}
+// Shared authored segments are not lineage: disconnected siblings share them.
+// Area flows only where footprints overlap by more than boundary contact, so an
+// overlap whose mean width (2 area / perimeter) is within tolerance is a touch.
+bool Overlaps (const cp::PathsD& before, const cp::PathsD& after, double tolerance)
+{
+    const auto common = cp::Intersect (before, after, cp::FillRule::NonZero, kPrecision);
+    double area = 0.0, perimeter = 0.0;
+    for (const auto& ring : common) {
+        area += cp::Area (ring);
+        for (size_t i = 0; i < ring.size (); ++i) {
+            const auto& a = ring[i];
+            const auto& b = ring[(i + 1) % ring.size ()];
+            perimeter += std::hypot (b.x - a.x, b.y - a.y);
+        }
+    }
+    return perimeter > 0.0 && 2.0 * std::abs (area) > tolerance * perimeter;
+}
+// One source's current flattened chords by H1 piece ordinal, each spanning the
+// analytic source parameters u0 -> u1 from a to b.
+struct SourceChords {
+    struct Chord {
+        double u0, u1;
+        Vec3 a, b;
+    };
+    std::vector<Id> segments;
+    std::map<uint32_t, std::vector<Chord>> pieces;
+};
+bool ReadChords (const edit::Document& doc, const LandscapeSource& source, SourceChords& out)
+{
+    SourceCurve curve;
+    PlanarMap map;
+    std::string error;
+    if (source.deleted || source.pathId || !ReadSourceCurve (doc, source, curve, error) ||
+        !BuildPlanarMap ({ curve.curve }, PlanarOptions {}, map, error))
         return false;
-    for (const auto& ca : a.boundaries)
-        for (const auto& ra : ca)
-            for (const auto& cb : b.boundaries)
-                for (const auto& rb : cb)
-                    if (ra.source == rb.source && ra.segment == rb.segment)
-                        return true;
+    out.segments = std::move (curve.segments);
+    for (const auto& edge : map.edges)
+        for (const auto& p : edge.pieces)
+            out.pieces[p.piece].push_back ({ p.sourceStart, p.sourceEnd, map.vertices[p.reversed ? edge.b : edge.a],
+                                             map.vertices[p.reversed ? edge.a : edge.b] });
+    return true;
+}
+bool At (const SourceChords& chords, uint32_t piece, double u, Vec3& point)
+{
+    const auto found = chords.pieces.find (piece);
+    if (found == chords.pieces.end ())
+        return false;
+    for (const auto& chord : found->second)
+        if (u >= std::min (chord.u0, chord.u1) - 1.0e-12 && u <= std::max (chord.u0, chord.u1) + 1.0e-12) {
+            const double t = chord.u1 == chord.u0 ? 0.0 : (u - chord.u0) / (chord.u1 - chord.u0);
+            point = edit::Lerp (chord.a, chord.b, std::clamp (t, 0.0, 1.0));
+            return true;
+        }
     return false;
+}
+// An old fragment re-evaluated on the current revision of its authored sources.
+// Each boundary piece keeps its source subdomain and takes that subdomain's
+// current position, so a dragged vertex carries the fragment with it and a moved
+// cutter carries its hole away. Generated pieces, and pieces whose ordinal no
+// longer names the same authored segment, keep their old coordinates.
+cp::PathsD Transport (const DerivedRegion& old, const std::function<const SourceChords*(Id)>& chords)
+{
+    cp::PathsD outer, holes;
+    for (size_t r = 0; r < old.boundary.size (); ++r) {
+        cp::PathD path;
+        for (const auto& piece : old.boundary[r]) {
+            Vec3 a = piece.a, b = piece.b;
+            for (const auto& p : piece.parameters) {
+                const auto* table = chords (p.source);
+                if (!table || p.piece >= table->segments.size () ||
+                    std::none_of (piece.support.begin (), piece.support.end (), [&] (const BoundaryRef& ref) {
+                        return ref.source == p.source && ref.segment == table->segments[p.piece];
+                    }))
+                    continue;
+                Vec3 ta, tb;
+                if (At (*table, p.piece, p.reversed ? p.sourceEnd : p.sourceStart, ta) &&
+                    At (*table, p.piece, p.reversed ? p.sourceStart : p.sourceEnd, tb)) {
+                    a = ta;
+                    b = tb;
+                    break;
+                }
+            }
+            path.push_back ({ a.x, a.y });
+            path.push_back ({ b.x, b.y });
+        }
+        (r == 0 ? outer : holes).push_back (std::move (path));
+    }
+    // A dragged vertex can fold the outer ring into lobes of either winding.
+    return cp::Difference (outer, holes, cp::FillRule::NonZero, kPrecision);
 }
 void RefreshSources (edit::Document& doc)
 {
@@ -474,7 +568,7 @@ bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
     return true;
 }
 
-bool RebuildLandscape (edit::Document& doc, LandscapeResult& result, std::string& error)
+bool RebuildLandscape (edit::Document& doc, LandscapeResult& result, std::string& error, const edit::Document* before)
 {
     error.clear ();
     auto candidate = doc;
@@ -487,6 +581,19 @@ bool RebuildLandscape (edit::Document& doc, LandscapeResult& result, std::string
         return true;
     auto& session = *candidate.landscape;
     const auto previous = session.regions;
+    // Lineage needs the before-state and current chords only for new regions.
+    std::optional<std::map<Id, DerivedRegion>> beforeRegions;
+    std::map<Id, std::optional<SourceChords>> chordCache;
+    const auto chords = [&] (Id id) -> const SourceChords* {
+        auto found = chordCache.find (id);
+        if (found == chordCache.end ()) {
+            found = chordCache.emplace (id, std::nullopt).first;
+            for (const auto& source : session.sources)
+                if (SourceChords table; source.id == id && ReadChords (candidate, source, table))
+                    found->second = std::move (table);
+        }
+        return found->second ? &*found->second : nullptr;
+    };
     for (auto& region : session.regions)
         region.active = false;
     for (size_t i = 0; i < result.regions.size (); ++i) {
@@ -510,9 +617,23 @@ bool RebuildLandscape (edit::Document& doc, LandscapeResult& result, std::string
         }
         region.regionId = edit::NewId (candidate);
         std::set<Id> predecessors;
-        for (const auto& identity : previous)
-            if (identity.active && SharesBoundary (identity.descriptor, region.descriptor))
+        const auto paths = Paths (region);
+        for (const auto& identity : previous) {
+            if (!identity.active || identity.descriptor.object != region.descriptor.object)
+                continue;
+            if (!beforeRegions)
+                beforeRegions = BeforeRegions (before, previous);
+            const auto old = beforeRegions->find (identity.id);
+            if (old == beforeRegions->end ()) {
+                error = "ProvenanceUnattributable: region lineage needs the before-state that carries this identity "
+                        "catalog";
+                Diagnostic (result, LandscapeDiagnosticCode::ProvenanceUnattributable, 0, error);
+                result.error = error;
+                return false;
+            }
+            if (Overlaps (Transport (old->second, chords), paths, result.boundaryTolerance))
                 predecessors.insert (identity.id);
+        }
         region.predecessorRegions.assign (predecessors.begin (), predecessors.end ());
         session.regions.push_back ({ region.regionId, region.descriptor, region.predecessorRegions, true });
     }

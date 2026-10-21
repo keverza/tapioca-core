@@ -128,7 +128,7 @@ bool Mutate (edit::Document& doc, const std::function<bool (edit::Document&, std
     if (!action (candidate, error))
         return false;
     LandscapeResult result;
-    if (!RebuildLandscape (candidate, result, error) || !edit::Validate (candidate, error))
+    if (!RebuildLandscape (candidate, result, error, &doc) || !edit::Validate (candidate, error))
         return false;
     candidate.revision = doc.revision + 1;
     doc = std::move (candidate);

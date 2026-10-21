@@ -43,8 +43,11 @@ bool Session::Accept (Document candidate, const std::string& refusal)
     if (error.empty ())
         LinkCrossings (candidate, before);
     if (error.empty () && candidate.landscape) {
+        // Region lineage is proven against the state whose identities the candidate
+        // carries: the gesture start for a Move, the latest accepted step otherwise.
+        const bool fromStart = before.landscape && before.landscape->regions == candidate.landscape->regions;
         tapioca::geometry::LandscapeResult landscape;
-        tapioca::geometry::RebuildLandscape (candidate, landscape, error);
+        tapioca::geometry::RebuildLandscape (candidate, landscape, error, fromStart ? &before : &doc);
     }
     if (error.empty ())
         Validate (candidate, error);
