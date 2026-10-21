@@ -179,6 +179,7 @@ struct Input {
     bool navigating = false;         // native navigation chord held now; never an editor-owned button
     uint64_t navigationRevision = 0; // native navigation events, including wheel, observed by this view
     uint64_t viewIdentity = 0;       // opaque host-window identity; a replacement cancels editor capture
+    bool viewActive = true;          // only the front host view may advance the shared editor's input
     enum class EditAction { Cancel, Undo, Redo, BlockedModelKey };
     std::vector<EditAction> editActions; // scoped to the active roof canvas, consumed once per Build
     struct Key {

@@ -385,6 +385,68 @@ TEST (HudLandscape, ChangedDocumentAndViewCancelPendingCommandOperands)
     EXPECT_EQ (s.edits.UndoDepth (), 1u);
 }
 
+TEST (HudLandscape, BackgroundViewLayoutCannotCancelOrAdvanceTheFrontViewsCommand)
+{
+    Drive d;
+    d.At ({ 2, 1, 0 });
+    ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Union));
+    d.Click ({ 2, 1, 0 });
+    d.input.keys = { { 0x0D, true } };
+    d.Frame ();
+    ASSERT_TRUE (d.S ().landscapeCommand->second);
+    d.input.viewActive = false;
+    d.input.planar = false;
+    d.input.pointer = false;
+    d.input.keys = { { 0x1B, true } };
+    d.Frame ();
+    ASSERT_TRUE (d.S ().landscapeCommand);
+    EXPECT_TRUE (d.S ().landscapeCommand->second);
+    EXPECT_TRUE (d.S ().selection.Items ().empty ());
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    d.input.viewActive = true;
+    d.input.planar = true;
+    d.input.pointer = true;
+    d.Click ({ 2, -1, 0 });
+    d.input.keys = { { 0x0D, true } };
+    d.Frame ();
+    EXPECT_FALSE (d.S ().landscapeCommand) << d.S ().message;
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    EXPECT_NEAR (Area (d.S ()), 25.168001133, 1e-5);
+    ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Union));
+    d.input.planar = false; // A real front-view change still cancels pending input.
+    d.input.pointer = false;
+    d.Frame ();
+    EXPECT_FALSE (d.S ().landscapeCommand);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudLandscape, BackgroundViewLayoutLeavesTheFrontViewsSourceDragCaptured)
+{
+    Drive d;
+    KeepAll (d.S ());
+    ASSERT_TRUE (eh::SetLandscapeMode (d.S (), eh::LandscapeMode::Select));
+    d.S ().snapEnabled = false;
+    d.At ({ 12, 8, 0 });
+    d.input.buttons = { { 0, true } };
+    d.Frame ();
+    ASSERT_EQ (d.S ().drag, eh::Drag::Part);
+    d.input.viewActive = false;
+    d.input.planar = false;
+    d.input.pointer = false;
+    d.Frame ();
+    EXPECT_EQ (d.S ().drag, eh::Drag::Part);
+    EXPECT_TRUE (d.S ().edits.InGesture ());
+    d.input.viewActive = true;
+    d.input.planar = true;
+    d.input.pointer = true;
+    d.At ({ 13, 9, 0 });
+    d.input.buttons = { { 0, false } };
+    d.Frame ();
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 2u);
+    EXPECT_NEAR (Area (d.S ()), 404, 1e-5);
+}
+
 TEST (HudLandscape, CircleSourceIsPickedOnItsDrawnArcNotItsHiddenControlChord)
 {
     const auto doc = Demo ();

@@ -382,6 +382,8 @@ const edit::Path* ProfilePath (const Session& s)
 
 void Keys (Session& s, const overlayhud::Input& v, bool textInput)
 {
+    if (!v.viewActive)
+        return;
     CheckView (s, v); // stale numeric input cannot commit before the next view layout
     if (textInput || LabelKeys (s, v))
         return; // an ImGui text field, or a label open for typing, has the keyboard
@@ -543,6 +545,8 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
 
 void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
 {
+    if (!v.viewActive)
+        return;
     const Map m { v };
     auto* draw = ImGui::GetWindowDrawList ();
     s.canvas.list = draw;

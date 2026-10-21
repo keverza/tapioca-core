@@ -862,6 +862,9 @@ void PublishLayers ()
     // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud), laid
     // out for where the pointer is now.
     overlayhud::Input hudInput = overlayinput::CurrentInput (overlayinput::View::ThreeD);
+    // A wanted 3D HUD is prepared even while plan owns input. Publishing its
+    // arrays must not switch or cancel the shared virtual editor's capture (§12).
+    hudInput.viewActive = runtime::Running () && g_servingView == ViewKind::ThreeD;
     overlayhover3d::Fill (hudInput);
     overlayhover3d::Projection (hudInput);
     overlayscene::Scene hud =
