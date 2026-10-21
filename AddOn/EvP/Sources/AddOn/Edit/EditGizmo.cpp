@@ -184,8 +184,7 @@ std::vector<Handle> Handles (GizmoMode mode)
             // Scale boxes before the arrows they sit on: a press on a box is the box's.
             add (HandleKind::Centre, -1, false, 2, Quantity::Distance);
             for (int a = 0; a < 3; ++a)
-                add (HandleKind::ScaleAxis, a, true, 3, Quantity::Factor);
-            add (HandleKind::ScaleUniform, 2, true, 3, Quantity::Factor); // every axis at once
+                add (HandleKind::ScaleAxis, a, true, 3, Quantity::Factor); // Shift: every axis at once
             for (int a = 0; a < 3; ++a)
                 add (HandleKind::Axis, a, true, 0, Quantity::Distance);
             for (int a = 0; a < 3; ++a)
@@ -280,7 +279,7 @@ DragResult Refuse (const char* why)
 
 } // namespace
 
-DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, const Ray& now)
+DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, const Ray& now, bool uniform)
 {
     if (!handle.movable)
         return Refuse ("this handle does not apply to the selection");
@@ -345,9 +344,12 @@ DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, con
             if (std::abs (t0) < 1.0e-9)
                 return Refuse ("the drag started on the pivot");
             r.value = t1 / t0;
-            (handle.axis == 0   ? r.transform.scale.x
-             : handle.axis == 1 ? r.transform.scale.y
-                                : r.transform.scale.z) = r.value;
+            if (uniform)
+                r.transform.scale = { r.value, r.value, r.value };
+            else
+                (handle.axis == 0   ? r.transform.scale.x
+                 : handle.axis == 1 ? r.transform.scale.y
+                                    : r.transform.scale.z) = r.value;
             break;
         }
         case HandleKind::ScaleUniform: {
@@ -367,7 +369,7 @@ DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, con
 }
 
 DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragResult& checkpoint, const Ray& start,
-                         const Ray& now)
+                         const Ray& now, bool uniform)
 {
     if (!checkpoint.ok)
         return Refuse ("there is no valid drag checkpoint");
@@ -375,7 +377,7 @@ DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragRes
     const int a = handle.axis >= 0 && handle.axis < 3 ? handle.axis : 2;
     if (handle.kind == HandleKind::Side)
         incremental.half[a] = 0.0; // validate the total width, not an isolated incremental delta
-    auto r = Drag (incremental, handle, start, now);
+    auto r = Drag (incremental, handle, start, now, uniform);
     if (!r.ok)
         return r;
     r.transform.scaleFrame = frame;
@@ -402,7 +404,16 @@ DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragRes
                 return Refuse ("that side would cross the other");
             break;
         }
-        case HandleKind::ScaleAxis:
+        case HandleKind::ScaleAxis: {
+            // The box's own factor carries over; Shift decides, now, whether it is every axis's.
+            r.value *= checkpoint.value;
+            r.transform.scale = { 1.0, 1.0, 1.0 };
+            if (uniform)
+                r.transform.scale = { r.value, r.value, r.value };
+            else
+                (a == 0 ? r.transform.scale.x : a == 1 ? r.transform.scale.y : r.transform.scale.z) = r.value;
+            break;
+        }
         case HandleKind::ScaleUniform:
             r.transform.scale = { before.scale.x * r.transform.scale.x, before.scale.y * r.transform.scale.y,
                                   before.scale.z * r.transform.scale.z };

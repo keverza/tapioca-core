@@ -1759,7 +1759,10 @@ TEST (HudVirtualEditor, GumballHoldsEveryTransform)
     EXPECT_EQ (kindAt (724, 376), int (ed::HandleKind::Plane));
     EXPECT_EQ (kindAt (810, 400), int (ed::HandleKind::Side));
     EXPECT_NE (kindAt (700, 400), int (ed::HandleKind::Centre));
-    EXPECT_EQ (kindAt (710, 400), int (ed::HandleKind::ScaleUniform)); // 0.14 of 70 px out
+    // No uniform-scale square round the pivot any more: Shift on a scale box does that.
+    EXPECT_EQ (kindAt (710, 400), -1);
+    for (const auto& h : eh::GizmoHandles (d.S (), d.S ().gizmo))
+        EXPECT_NE (h.kind, ed::HandleKind::ScaleUniform);
 
     // The side grip stretches: the right side out by 1 m.
     d.Press (810, 400);
@@ -1778,6 +1781,38 @@ TEST (HudVirtualEditor, GumballHoldsEveryTransform)
     EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Rotate);
     d.Key ('R');
     EXPECT_EQ (d.S ().gizmo, ed::GizmoMode::Gumball);
+}
+
+TEST (HudVirtualEditor, ShiftOnAGumballScaleBoxScalesEveryAxis)
+{
+    // The X scale box sits 35 px out from the box's centre (5, 5) at (700, 400): 1.75 m.
+    // Dragged to 70 px out it doubles; with Shift held, along Y too.
+    const auto scaled = [] (bool shift) {
+        Drive d (Corner ());
+        d.S ().gizmo = ed::GizmoMode::Gumball;
+        d.S ().localAxes = false;
+        d.S ().selection.Set ({ { d.D ().entities[0].id, ed::Part::Entity, 0 } });
+        d.At (735, 400);
+        EXPECT_EQ (int (eh::GizmoHandles (d.S (), d.S ().gizmo)[size_t (d.S ().hoverHandle)].kind),
+                   int (ed::HandleKind::ScaleAxis));
+        d.input.shift = shift;
+        d.Press (735, 400);
+        d.At (752, 400);
+        d.At (770, 400);
+        d.Release (770, 400);
+        d.input.shift = false;
+        EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+        return std::make_pair (d.D ().entities[0].vertices[0].p, d.D ().entities[0].vertices[2].p);
+    };
+    const auto [axisFirst, axisLast] = scaled (false);
+    EXPECT_NEAR (axisFirst.x, -5.0, 1e-6);
+    EXPECT_NEAR (axisFirst.y, 0.0, 1e-6);
+    EXPECT_NEAR (axisLast.y, 10.0, 1e-6);
+    const auto [uniformFirst, uniformLast] = scaled (true);
+    EXPECT_NEAR (uniformFirst.x, -5.0, 1e-6);
+    EXPECT_NEAR (uniformFirst.y, -5.0, 1e-6);
+    EXPECT_NEAR (uniformLast.x, 15.0, 1e-6);
+    EXPECT_NEAR (uniformLast.y, 15.0, 1e-6);
 }
 
 TEST (HudVirtualEditor, AClickedGumballHandleOffersItsField)

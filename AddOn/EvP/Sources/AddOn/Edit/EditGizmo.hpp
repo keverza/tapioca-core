@@ -14,8 +14,9 @@
 namespace geomsrv::edit {
 
 // Gumball: every transform at once, one handle set -- arrows to move, arcs to turn, boxes on
-// the axes to scale, squares to move in a plane, grips on the selection's box to stretch. The
-// single modes remain for a gizmo that shows one transform alone.
+// the axes to scale (Shift scales every axis by the same factor), squares to move in a plane,
+// grips on the selection's box to stretch. The single modes remain for a gizmo that shows one
+// transform alone.
 enum class GizmoMode : uint8_t { Move, Rotate, Scale, Stretch, Extrude, Gumball };
 enum class HandleKind : uint8_t { Centre, Axis, Plane, Ring, ScaleAxis, ScaleUniform, Face, Side };
 
@@ -87,12 +88,13 @@ struct DragResult {
     std::string error;
 };
 // Refuses edge-on views (a line pointing into the camera, a plane seen side-on) rather
-// than turning a tiny screen move into a huge model move.
-DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, const Ray& now);
+// than turning a tiny screen move into a huge model move. `uniform` (Shift held) makes an axis
+// scale box apply its factor to every axis; it is read on each move, so it toggles mid-drag.
+DragResult Drag (const Frame& frame, const Handle& handle, const Ray& start, const Ray& now, bool uniform = false);
 // Continue the same captured handle after navigation. `checkpoint` is the last valid total
 // transform; start/now use the updated view. No geometry baseline or pivot is changed.
 DragResult ContinueDrag (const Frame& frame, const Handle& handle, const DragResult& checkpoint, const Ray& start,
-                         const Ray& now);
+                         const Ray& now, bool uniform = false);
 // The same call a drag makes before it has moved: whether the handle's line, plane or ring can
 // be used from this ray at all, without the value refusals the first real move owns. A side grip
 // is asked with its width unset, since its opening value is the width it already has.

@@ -255,6 +255,29 @@ TEST (EditGizmo, ScaleAlongAnAxisAndUniformly)
     EXPECT_NEAR (u.value, 2.0, 1e-12);
 }
 
+TEST (EditGizmo, AnAxisScaleBoxScalesEveryAxisWhenAskedAndTogglesAcrossACheckpoint)
+{
+    ed::Frame f;
+    for (const auto& h : ed::Handles (ed::GizmoMode::Gumball))
+        EXPECT_NE (h.kind, ed::HandleKind::ScaleUniform); // Shift on a box replaces the square
+    const auto box = Find (ed::GizmoMode::Gumball, ed::HandleKind::ScaleAxis, 0);
+    const auto u = ed::Drag (f, box, Down (2, 0), Down (3, 0), true);
+    ASSERT_TRUE (u.ok);
+    EXPECT_NEAR (u.value, 1.5, 1e-12);
+    EXPECT_NEAR (u.transform.scale.x, 1.5, 1e-12);
+    EXPECT_NEAR (u.transform.scale.y, 1.5, 1e-12);
+    EXPECT_NEAR (u.transform.scale.z, 1.5, 1e-12);
+    // After navigation the total factor carries on; Shift released leaves it on the box's axis.
+    const auto axis = ed::ContinueDrag (f, box, u, Down (3, 0), Down (6, 0), false);
+    ASSERT_TRUE (axis.ok);
+    EXPECT_NEAR (axis.value, 3.0, 1e-12);
+    EXPECT_NEAR (axis.transform.scale.x, 3.0, 1e-12);
+    EXPECT_NEAR (axis.transform.scale.y, 1.0, 1e-12);
+    const auto again = ed::ContinueDrag (f, box, axis, Down (6, 0), Down (6, 0), true);
+    ASSERT_TRUE (again.ok);
+    EXPECT_NEAR (again.transform.scale.y, 3.0, 1e-12);
+}
+
 TEST (EditGizmo, TypedValuesMatchDrags)
 {
     ed::Frame f;

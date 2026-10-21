@@ -804,8 +804,8 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         const edit::Handle h = HeldControl (s);
         if (m.RayAt (mouse.x, mouse.y, s.frame.origin.z, s.frame.origin, now)) {
             const auto r = s.navigation.handleRebased
-                               ? edit::ContinueDrag (s.frame, h, s.navigation.handle, s.navigation.ray, now)
-                               : edit::Drag (s.frame, h, s.startRay, now);
+                               ? edit::ContinueDrag (s.frame, h, s.navigation.handle, s.navigation.ray, now, shift)
+                               : edit::Drag (s.frame, h, s.startRay, now, shift);
             if (!r.ok)
                 s.message = r.error;
             else if (!s.edits.Move (edit::TransformOperation (HeldRefs (s), r.transform)))
@@ -814,7 +814,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 s.dragTransform = r.transform;
                 s.dragValue = r.value;
                 char text[48];
-                std::snprintf (text, sizeof text, "%.2f %s", r.value, edit::QuantityUnit (h.quantity));
+                const bool everyAxis = shift && h.kind == edit::HandleKind::ScaleAxis;
+                std::snprintf (text, sizeof text, "%.2f %s%s", r.value, edit::QuantityUnit (h.quantity),
+                               everyAxis ? " uniform" : "");
                 s.snap = {};
                 s.snap.point = s.frame.origin;
                 s.snap.hint = text;
