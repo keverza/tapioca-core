@@ -53,6 +53,7 @@ struct GalleryState {
     int radio = 0;
     uint32_t colour = 0x2F6FD0FFu;
     char typed[64] = "1,5";
+    int activeIcon = -1; // the icon sheet's toggled button, -1 for none
 
     // One entry per control, the latest first.
     std::vector<GalleryEntry> log;

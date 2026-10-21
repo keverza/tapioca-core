@@ -531,6 +531,8 @@ set (EVP_ARCHVIZ_SOURCES
     # the build gate when one is not, so a new widget cannot go untested by omission.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/ScopedStyle.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/Units.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/Icons.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Foundation/Iconoir.gen.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/TapiocaUI/Demo/WidgetGallery.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettings.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/GraphicsSettingsUi.cpp"

@@ -8,6 +8,8 @@
 
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
+#include "ArchViz/TapiocaUI/Foundation/IconData.hpp"
+#include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
 #include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
 #include "ArchViz/TapiocaUI/Foundation/Units.hpp"
 
@@ -354,4 +356,98 @@ TEST (TapiocaUiLook, TabsAndSectionsAreTheCardsGreyInkAndBothCardsStayLegible)
         ImGui::PopStyleVar (shell::kLookVars);
         ImGui::Render ();
     }
+}
+
+// ⚠️ EVERY ID THE REGISTRY GIVES IS A GLYPH (HANDOFF-TapiocaUI-Library.md section 7): a file named,
+// strokes in the table, every point on the 24 grid's 0 to 1, and an id past the end draws the
+// placeholder rather than reading past the table.
+TEST (TapiocaUiIcons, EveryRegisteredIdIsAGlyphOnItsGrid)
+{
+    namespace data = ui::icondata;
+    ASSERT_GE (ui::IconCount (), 21u);
+    EXPECT_STREQ (ui::IconFile (ui::IconId::None), "");
+    EXPECT_STREQ (ui::IconName (ui::IconId::BooleanSubtract), "BooleanSubtract");
+    EXPECT_STREQ (ui::IconFile (ui::IconId::BooleanSubtract), "substract.svg"); // upstream's spelling
+    EXPECT_STREQ (ui::IconFile (ui::IconId (60000)), "");                       // past the end: None
+    uint32_t nextStroke = 0;
+    for (uint32_t id = 0; id < ui::IconCount (); ++id) {
+        const data::Glyph& glyph = data::GlyphAt (id);
+        EXPECT_EQ (glyph.first, nextStroke) << glyph.name;
+        EXPECT_GT (glyph.count, 0u) << glyph.name;
+        nextStroke = glyph.first + glyph.count;
+        if (id > 0)
+            EXPECT_NE (glyph.file[0], 0) << glyph.name;
+        for (uint16_t s = 0; s < glyph.count; ++s) {
+            const data::Stroke& stroke = data::Strokes ()[glyph.first + s];
+            ASSERT_GT (stroke.count, 0u) << glyph.name;
+            for (uint32_t i = stroke.first; i < stroke.first + stroke.count; ++i)
+                for (int axis = 0; axis < 2; ++axis) {
+                    const float v = data::Points ()[2 * i + axis];
+                    EXPECT_TRUE (v >= 0.0f && v <= 1.0f) << glyph.name << " point " << i;
+                }
+        }
+    }
+}
+
+// A glyph is drawn in the colour asked, inside its square (by at most half a stroke), at any size.
+TEST (TapiocaUiIcons, AGlyphIsDrawnInItsColourInsideItsSquare)
+{
+    Context context;
+    for (const float size : { 12.0f, 16.0f, 24.0f, 48.0f }) {
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos (ImVec2 (0, 0));
+        ImGui::Begin ("icons", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+        ImDrawList* const draw = ImGui::GetWindowDrawList ();
+        const ImU32 colour = IM_COL32 (12, 34, 56, 255);
+        const int before = draw->VtxBuffer.Size;
+        const ImVec2 at (100.0f, 200.0f);
+        ui::Icon (ui::IconId::BooleanUnion, at, size, colour);
+        ASSERT_GT (draw->VtxBuffer.Size, before) << size;
+        const float margin = (std::max) (1.5f / 24.0f * size, 1.0f) * 0.5f + 1.5f; // half a stroke, and AA
+        int inColour = 0;
+        for (int v = before; v < draw->VtxBuffer.Size; ++v) {
+            const ImDrawVert& vertex = draw->VtxBuffer[v];
+            if ((vertex.col & 0x00FFFFFFu) != (colour & 0x00FFFFFFu))
+                continue;
+            ++inColour;
+            EXPECT_GE (vertex.pos.x, at.x - margin) << size;
+            EXPECT_LE (vertex.pos.x, at.x + size + margin) << size;
+            EXPECT_GE (vertex.pos.y, at.y - margin) << size;
+            EXPECT_LE (vertex.pos.y, at.y + size + margin) << size;
+        }
+        EXPECT_GT (inColour, 0) << size;
+        ImGui::End ();
+        ImGui::Render ();
+    }
+}
+
+// An icon button answers a press with true once, and never while disabled.
+TEST (TapiocaUiIcons, AnIconButtonIsPressedOnceAndNeverWhileDisabled)
+{
+    Context context;
+    ImGuiIO& io = ImGui::GetIO ();
+    ImVec2 centre;
+    const auto frame = [&] (bool disabled, bool down) {
+        io.AddMousePosEvent (centre.x, centre.y);
+        io.AddMouseButtonEvent (0, down);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos (ImVec2 (10, 10));
+        ImGui::Begin ("buttons");
+        ImGui::BeginDisabled (disabled);
+        const ImVec2 at = ImGui::GetCursorScreenPos ();
+        const bool pressed = ui::IconButton ("cut", ui::IconId::Cut);
+        ImGui::EndDisabled ();
+        const float side = ImGui::GetFrameHeight ();
+        centre = ImVec2 (at.x + side * 0.5f, at.y + side * 0.5f);
+        ImGui::End ();
+        ImGui::Render ();
+        return pressed;
+    };
+    frame (false, false); // lays the button out: now its centre is known
+    frame (false, false);
+    EXPECT_FALSE (frame (false, true));
+    EXPECT_TRUE (frame (false, false)) << "a click is a press and a release on the button";
+    EXPECT_FALSE (frame (false, false));
+    EXPECT_FALSE (frame (true, true));
+    EXPECT_FALSE (frame (true, false)) << "disabled, the same click does nothing";
 }

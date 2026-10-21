@@ -2,6 +2,7 @@
 
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
 #include "ArchViz/TapiocaUI/Foundation/ScopedStyle.hpp"
 #include "ArchViz/TapiocaUI/Foundation/Units.hpp"
 
@@ -9,6 +10,7 @@
 #include <imgui_internal.h> // ImGuiItemFlags_MixedValue: the indeterminate checkbox
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace geomsrv::archviz::ui {
@@ -195,6 +197,41 @@ void TipSamples ()
     shell::Tip ("A disabled control still says its tip", shell::TipSide::Right);
 }
 
+// ⚠️ THE ICON SHEET IS THE GLYPHS' VISUAL CONTRACT (HANDOFF-TapiocaUI-Library.md section 9): every
+// id at 16, 24 and 32 px, disabled and as a button that toggles, with its name and the upstream
+// file it was generated from -- a missing, malformed or mismatched glyph shows here before it
+// reaches a toolbar. Light and dark are the gallery's own switch.
+void IconSamples (GalleryState& state, float scale)
+{
+    const float sizes[] = { 16.0f, 24.0f, 32.0f };
+    const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
+    for (uint32_t i = 0; i < IconCount (); ++i) {
+        const IconId icon = IconId (i);
+        ImGui::PushID (int (i));
+        for (const float pixels : sizes) {
+            const float side = std::round (pixels * scale);
+            Icon (icon, ImGui::GetCursorScreenPos (), side, ink);
+            ImGui::Dummy (ImVec2 (side, side));
+            ImGui::SameLine ();
+        }
+        ImGui::BeginDisabled ();
+        IconButton ("disabled", icon);
+        ImGui::EndDisabled ();
+        ImGui::SameLine ();
+        if (IconButton ("toggle", icon, state.activeIcon == int (i))) {
+            state.activeIcon = state.activeIcon == int (i) ? -1 : int (i);
+            EditResult toggled;
+            toggled.changed = toggled.committed = true;
+            Record (state, IconName (icon), toggled);
+        }
+        ImGui::SameLine ();
+        ImGui::TextUnformatted (IconName (icon));
+        ImGui::SameLine ();
+        ImGui::TextDisabled ("%s", IconFile (icon)[0] != 0 ? IconFile (icon) : "placeholder");
+        ImGui::PopID ();
+    }
+}
+
 void LogTable (GalleryState& state)
 {
     if (state.log.empty ()) {
@@ -285,6 +322,8 @@ void DrawGallery (GalleryState& state)
         CardSamples (look, scale);
     if (shell::Section ("Tips"))
         TipSamples ();
+    if (shell::Section ("Icons", true))
+        IconSamples (state, scale);
     if (shell::Section ("Interaction log", true))
         LogTable (state);
     ImGui::PopID ();
