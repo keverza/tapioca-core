@@ -103,3 +103,13 @@ pub use mesh_prep::{
     MeshAnalysisOutput, MeshAnalysisRequest, MeshAnalysisSummary, WeldOutput, WeldRequest,
     tapioca_analyze_mesh, tapioca_weld_corners,
 };
+
+#[allow(
+    unsafe_code,
+    reason = "Terrain flat POD/pool preflight and atomic caller-owned support mapping publication"
+)]
+mod terrain;
+pub use terrain::{
+    TerrainConstraint, TerrainCounts, TerrainMapping, TerrainOutput, TerrainRefinement,
+    TerrainRequest, TerrainSplitRequest, tapioca_terrain_split_mesh, tapioca_terrain_triangulate,
+};

@@ -2,10 +2,12 @@
 #define TAPIOCA_GEOMETRY_RUST_TERRAIN_HPP
 
 #include <cstdint>
+#include <cstddef>
 #include <array>
 #include <string>
 #include <span>
 #include <vector>
+#include <optional>
 #include "GeometryIdentity.hpp"
 
 namespace geomsrv {
@@ -21,8 +23,9 @@ namespace tapioca::geometry {
 
 // Service facade over the Rust geometry ABI. Legacy geometry-only and structural
 // authored-attribution gates are separate; neither changes or copies geometry.
-// This does not certify geometric contributor truth or D14 algorithms, or
-// implement terrain math. Complete detached value/catalog validation is a
+// Validation alone does not certify geometric contributor truth or D14 algorithms.
+// Terrain services below return support mappings and retain the input catalog;
+// no terrain math is implemented in C++. Complete value/catalog validation is a
 // separate opt-in gate; all snapshots and catalogs stay C++ owned.
 //
 // Bulk or unbounded validation should run on a worker. Keep synchronous calls
@@ -142,6 +145,66 @@ struct ArcRequest {
 // Result is unchanged on refusal; centre/normal are copied to POD, never
 // reinterpreted or retained. Worker by default, no consumer flip.
 bool MakeArc (const ArcRequest& request, std::vector<double>& result, std::string& error);
+
+enum class TerrainConstraintRole : uint32_t { Boundary = 1, Hole = 2, Breakline = 3 };
+struct TerrainConstraint {
+    TerrainConstraintRole role;
+    std::span<const uint32_t> vertices; // Implicitly closed for rings.
+};
+struct TerrainRefinement {
+    double minAngleDegrees = 0;
+    std::optional<double> maxAreaSquareMetres;
+    uint32_t maxAddedVertices = 0;
+};
+struct TerrainRequest {
+    std::span<const double> points; // xyz f64 world metres.
+    std::span<const TerrainConstraint> constraints;
+    double zTolerance = 0;
+    std::optional<TerrainRefinement> refinement;
+    const ProvenanceRequest& provenance; // N vertices + flattened constraint-segment edges, domains=3.
+};
+struct TerrainSplitRequest {
+    std::span<const double> points;
+    std::span<const uint32_t> triangles;
+    std::span<const double> line, arcAngles;
+    const ProvenanceRequest& provenance; // Mesh then line vertices, line edges, baseline faces; domains=7.
+};
+enum class TerrainMappingKind : uint32_t {
+    InputVertex = 1,
+    FaceBoundary = 2,
+    Crossing = 3,
+    ConstraintEdge = 4,
+    SteinerSegment = 5,
+    SteinerEdge = 6,
+    SteinerFace = 7,
+    SplitFace = 8,
+    SplitVertex = 9,
+    LineVertex = 10,
+    LineEdge = 11
+};
+// Lossless support records; indices/values have the documented ABI v1 row
+// meanings (GeometryRustFfi.h), not semantic IDs. Source IDs, operation DAG,
+// object owners and native GUIDs resolve through the retained input table.
+struct TerrainMapping {
+    TerrainMappingKind kind;
+    uint32_t index = 0;
+    std::array<uint32_t, 6> values {};
+    bool operator== (const TerrainMapping&) const = default;
+};
+struct TerrainResult {
+    std::vector<double> points;
+    std::vector<uint32_t> triangles;
+    std::vector<TerrainMapping> mappings;
+    ProvenanceRequest inputProvenance; // Complete unchanged catalog, retained support and native bindings.
+    size_t inputPointCount = 0;        // Split line vertex i has input provenance index inputPointCount+i.
+    bool operator== (const TerrainResult&) const = default;
+};
+// Pure worker-classified services, no Edit/SDK state or semantic-ID allocation.
+// Query then fill recomputes in Rust (no retained handle); publishes the whole
+// owned result only on success. Inputs may borrow a prior result. No latency or
+// allocation-free claim; no C++ terrain algorithm or production consumer flip.
+bool TriangulateTerrain (const TerrainRequest& request, TerrainResult& result, std::string& error);
+bool SplitTerrainMesh (const TerrainSplitRequest& request, TerrainResult& result, std::string& error);
 
 } // namespace tapioca::geometry
 

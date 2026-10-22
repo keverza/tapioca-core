@@ -1182,6 +1182,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_builders.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_plane.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_polygon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_terrain.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_extraction.cpp")
     TapiocaLinkRustCore (EvPGeomTests)

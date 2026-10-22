@@ -1,5 +1,13 @@
 # Rust kernel foundation
 
+S3a.2 adds opt-in terrain triangulate/refine and mesh split through
+`tapioca_terrain_triangulate` / `tapioca_terrain_split_mesh` and the existing C++
+`GeometryRustTerrain` services facade. Mandatory schema-v1 input provenance and
+lossless support mappings preserve attribution; caller-owned query/fill outputs
+publish atomically without retained Rust handles or semantic-ID allocation.
+Both calls are worker-classified. See the guide's S3a.2 contract; no production
+consumer, native terrain acceptance or full-stage performance gate is implied.
+
 The aggregate `tapioca-core-ffi` staticlib exports `tapioca_version` and shared
 legacy geometry-only mesh/snapshot validators, with status/error handling and
 panic containment. The add-on and offline C++ suite link it by default through a

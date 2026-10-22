@@ -8,6 +8,11 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaSnapshotView) == 56, "Rust/
 static_assert (sizeof (void*) != 8 || offsetof (TapiocaSnapshotView, meshes) == 40,
                "Rust/C++ snapshot field offset mismatch");
 
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainRequest) == 368, "Terrain request ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainSplitRequest) == 344, "Terrain split ABI mismatch");
+static_assert (sizeof (TapiocaTerrainMapping) == 32, "Terrain mapping ABI mismatch");
+static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainOutput, queryOnly) == 56, "Terrain output ABI mismatch");
+
 extern "C" int TapiocaCppHeaderCheck (void)
 {
     uint32_t version = 0;

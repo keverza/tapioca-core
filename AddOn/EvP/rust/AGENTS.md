@@ -82,7 +82,11 @@ reviews do not fail CI; record the cohesion reason when a trigger is crossed.
   and attributed polygon value copying. G1 also exposes body-local corner welding
   with complete corner remaps and non-topology-changing mesh analysis (tight
   supplied-vertex bounds, fallback normals, roundoff flags and wire masks).
-  Neither call implements SDK extraction, allocates semantic identity or replaces
+   S3a.2 additionally exposes terrain triangulate/refine and split through
+   `tapioca_terrain_triangulate` / `tapioca_terrain_split_mesh`, with mandatory
+   schema-v1 input provenance, lossless POD support rows and caller-owned
+   query/fill output arrays. Queries recompute rather than retain a Rust handle.
+   Neither mesh-preparation call implements SDK extraction, allocates semantic identity or replaces
   retained capture bounds; full-capacity preflight precedes atomic publication. No production
   geometry family is switched by its parity harness.
   Geometry algorithms still require their own implementation and tests.

@@ -8,6 +8,8 @@ S2b `tapioca_transform_vectors`, `tapioca_compose_transforms` and
 `tapioca_sample_polyline`, `tapioca_divide_polyline`, `tapioca_make_arc`, `tapioca_build_transform` and
 `tapioca_project_to_plane` and `tapioca_copy_attributed_polygon`
 primitives, plus G1 `tapioca_weld_corners` / `tapioca_analyze_mesh` (additive ABI v1).
+S3a.2 adds `tapioca_terrain_triangulate` / `tapioca_terrain_split_mesh` with
+validated input provenance and complete kernel support mappings (see below).
 The C++ services wrapper and add-on/offline-suite archive link are enabled by
 default. Startup reads/logs the ABI before callbacks/workers arm and refuses an
 unsupported ABI; explicit CMake OFF is the legacy rollback path. Structural identity
@@ -566,8 +568,8 @@ another executable or a test-only production export. Full S2b remains incomplete
 
 `terrain::triangulate` builds a constrained Delaunay TIN over spot points,
 boundary/hole rings and breaklines with the vendored `spade`; no `spade` type is
-public and nothing is exported over the ABI yet (S3a.2 owns the carrier and
-wrapper). Plan xy and z are world metres in `f64`.
+public. S3a.2 exports the implemented operations through POD carriers and the
+existing services facade (below). Plan xy and z are world metres in `f64`.
 
 - **Pre-split:** proper crossings between constraint segments get a vertex before
   triangulation (plain `f64` sweep); both segments' interpolated heights must
@@ -659,6 +661,68 @@ and across a mesh hole, malformed meshes, and 48 seeded star lines over seeded
 TINs (parent areas preserved, untouched triangles verbatim, heights on the
 surface, inside area equal to the line's area, conforming boundary, closed line
 path, repeatability).
+
+## S3a.2 terrain ABI and owned C++ facade
+
+`GeometryRustTerrain.hpp/.cpp` now adds `TriangulateTerrain` and `SplitTerrainMesh`
+beside its existing general services; the facade is not renamed. C++ borrows flat
+world-metre arrays, explicitly copies constraint descriptors and catalogs, and
+publishes one owned `TerrainResult`. `Edit/` integration still belongs to S4.
+
+The two additive ABI-v1 exports accept a `TapiocaTerrainOutput` descriptor. Because
+crossings/refinement/splitting have data-dependent sizes, `queryOnly=1` computes the
+same result and publishes only scalar/row counts; all capacities must be zero.
+The caller then allocates its own arrays and calls with `queryOnly=0`. The second
+call **recomputes** (no cache/handle/retained borrow); unchanged inputs yield the
+same sizes and ordering. Full-capacity preflight precedes foreign slice borrowing.
+Insufficient capacity/refusal/contained unwind preserves every count and output
+array, including unused tails. On success only result prefixes are written. Shared
+UTF-8 error/status and foreign-allocation/OOM/abort caveats apply.
+
+Input provenance is mandatory, validated by the existing schema-v1 validator:
+
+- **TIN**, domains `3`: input point vertices and constraint segments flattened in
+  constraint order as edges (closed rings have N segments, open breaklines N-1).
+  Face/patch counts are zero. No single-contour value carrier is used for holes.
+- **Split**, domains `7`: baseline mesh vertices **then** property-line vertices;
+  property-line segments as edges; baseline triangle faces; zero patches. The
+  facade retains `inputPointCount` so line vertex i resolves vertex N+i.
+- Source IDs, operation DAG/ordered parents, object owners, native GUID/metadata
+  bindings and retained support tables cross as the existing POD pools. Structural
+  missing/conflicting/stale provenance returns `ERR_STATE` with the named schema
+  diagnostic; transport/geometry errors return `ERR_ARG`. Default object ownership
+  remains fail-closed; a source-only primitive must explicitly opt out.
+
+`TerrainResult::inputProvenance` retains the **entire unchanged input** request.
+`mappings` is a lossless tagged-POD encoding of kernel input remaps, face boundary,
+crossings, constraint edge paths, all Steiner supports, split parents/inside flags,
+new-vertex origin/host and line vertex/edge maps. Exact row fields/kinds 1..11 are
+documented in `GeometryRustFfi.h`. Crossings, constraint edges and Steiner segment
+rows additionally name the flattened input-provenance edge index. Original Steiner
+edge/face corners resolve recursively through input/crossing rows. These supports
+are not semantic IDs or a newly minted output `ProvenanceTable`: C++ session/DAG
+consumers resolve support against their retained catalog, allocate persistent
+identity and enforce unambiguous output ownership at integration. Bare geometry
+cannot be returned without the mapping; no ID, GUID or patch token is invented.
+
+The facade shares the existing explicit catalog converter through the internal
+`GeometryRustIdentityAbi.hpp`; no second identity validator/converter or bridge
+translation unit is added. Query/fill counts and support tags are checked before
+whole-result publication. Inputs may borrow the prior owned result. Dirty-refusal
+stubs cover both calls, query/fill disagreement and invalid tags. Query/fill doubles
+geometry computation and allocates temporary geometry/support arrays; no latency,
+allocation-free or peak-heap claim. Both services remain worker-classified.
+
+Rust boundary tests compare the safe kernel and POD outputs (including refinement
+and split mappings), cover every provenance pool/output pair, malformed peer ranges,
+uninitialized output, capacity/mode refusal, and unwind before publication. A
+failing-first regression protects recognizable input pools from diagnostic writes
+even when the output descriptor is unreadable. C/C++ smoke calls both real exports;
+`EvPGeomTests` compares the facade with raw ABI and independent area/surface/parent
+invariants, full retained catalogs, holes/crossings, 24 seeded survey cases, atomic
+refusal and self-publication. This is not native terrain/UI acceptance or a geometry
+family flip. S3a.3 still owns curated native-terrain fixtures and reproducible
+runtime/allocation/copy/peak-memory evidence.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

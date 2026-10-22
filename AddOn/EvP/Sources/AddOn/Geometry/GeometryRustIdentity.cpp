@@ -2,6 +2,7 @@
 #include "Geometry/GeometryRustPolygon.hpp"
 
 #include "GeometryRustFfi.h"
+#include "GeometryRustIdentityAbi.hpp"
 #include "Mesh.hpp"
 
 #include <algorithm>
@@ -85,21 +86,7 @@ TapiocaMeshView MakeMeshView (const geomsrv::Mesh& mesh)
 
 // Owns only POD copies of the C++ catalogs. Mesh coordinates and sidecars stay
 // borrowed by the caller and are never copied here.
-struct AbiProvenanceStorage {
-    TapiocaIdentityContext context {};
-    std::vector<TapiocaSourceRecord> sources;
-    std::vector<TapiocaOperationRecord> operations;
-    std::vector<TapiocaObjectRecord> objects;
-    std::vector<TapiocaBindingRecord> bindings;
-    std::vector<uint64_t> bindingRefs;
-    std::vector<uint64_t> sourceIds;
-    std::vector<uint64_t> operationIds;
-    std::vector<TapiocaPredecessorRecord> predecessors;
-    std::vector<TapiocaMappingRecord> mappings;
-    std::vector<uint8_t> roleBytes;
-    std::vector<TapiocaSupportTable> supportTables;
-    TapiocaProvenanceView view {};
-};
+using detail::AbiProvenanceStorage;
 
 void ConvertProvenance (const ProvenanceTable& table, AbiProvenanceStorage& storage)
 {
@@ -250,6 +237,12 @@ TapiocaStatus CallAttributedMesh (const geomsrv::Mesh& mesh, const ProvenanceReq
 }
 
 } // namespace
+
+TapiocaProvenanceRequest detail::ConvertProvenanceRequest (const ProvenanceRequest& request,
+                                                           AbiProvenanceStorage& storage)
+{
+    return MakeAbiRequest (request, storage);
+}
 
 bool ValidateProvenance (const ProvenanceRequest& request, ProvenanceDiagnostic& diagnostic, std::string& error)
 {

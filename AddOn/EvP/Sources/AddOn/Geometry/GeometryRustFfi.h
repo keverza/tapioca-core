@@ -308,6 +308,77 @@ typedef struct {
     TapiocaProvenanceView table;
 } TapiocaProvenanceRequest;
 
+// S3a.2 terrain: u32 indices and f64 world metres. TIN provenance domains=3:
+// input points as vertices, constraint segments flattened in constraint order
+// as edges, zero faces/patches. Split provenance domains=7: mesh THEN line
+// vertices, line segments as edges, baseline triangles as faces, zero patches.
+// Provenance validation is mandatory. Caller retains the immutable input table;
+// output supports reference it by input index, never newly allocated semantic ID.
+// No spade type crosses C.
+enum { TAPIOCA_TERRAIN_BOUNDARY = 1, TAPIOCA_TERRAIN_HOLE = 2, TAPIOCA_TERRAIN_BREAKLINE = 3 };
+typedef struct {
+    uint32_t role, offset, count;
+} TapiocaTerrainConstraint;
+typedef struct {
+    double minAngleDegrees, maxAreaSquareMetres;
+    uint32_t maxAddedVertices, enabled, hasMaxArea;
+} TapiocaTerrainRefinement;
+typedef struct {
+    TapiocaDoubleView points;
+    struct {
+        const TapiocaTerrainConstraint* data;
+        size_t count;
+    } constraints;
+    TapiocaIndexView constraintVertices;
+    double zTolerance;
+    TapiocaTerrainRefinement refinement;
+    TapiocaProvenanceRequest provenance;
+} TapiocaTerrainRequest;
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    TapiocaDoubleView line, arcAngles;
+    TapiocaProvenanceRequest provenance;
+} TapiocaTerrainSplitRequest;
+typedef struct {
+    size_t points, triangles, mappings;
+} TapiocaTerrainCounts;
+
+// Support rows preserve kernel ordering; unused values are zero. Fields:
+// 1 Input point: index=input vertex; v0=output vertex.
+// 2 TIN face: index=output face; v0=boundary constraint (UINT32_MAX for hull).
+//   Contributors resolve through corner support and bounding ring rows.
+// 3 Crossing: index=output vertex; v0/v1=constraint/segment A, v2/v3=B;
+//   v4/v5=flattened input edge indices A/B.
+// 4 Constraint edge: index=constraint; v0=segment, v1/v2=output endpoints,
+//   v3=kept (0/1), v4=flattened input edge index.
+// 5 Steiner segment: index=output vertex; v0/v1=constraint/segment,
+//   v2=flattened input edge index. One row per support, including overlaps.
+// 6 Steiner edge: index=output vertex; v0/v1=original output endpoints.
+// 7 Steiner face: index=output vertex; v0/v1/v2=original output face corners.
+// 8 Split face: index=output face; v0=input parent face, v1=inside (0/1).
+// 9 Split vertex: index=output vertex; v0=origin (1 line vertex, 2 crossing),
+//   v1=line vertex/segment, v2=host (1 mesh edge, 2 mesh face), v3/v4=host
+//   endpoints or v3=host face with v4=0. Unchanged mesh vertices map directly.
+// 10 Line vertex: index=input line vertex; v0=output vertex.
+// 11 Line edge: index=input line segment; v0/v1=output endpoints.
+// Original output vertices/corners in 6/7 resolve recursively via 1/3.
+// Line vertex i resolves input provenance vertex meshVertexCount+i.
+// These rows allocate no authored identity, persistent patch key or native GUID.
+typedef struct {
+    uint32_t kind, index, values[6];
+} TapiocaTerrainMapping;
+typedef struct {
+    TapiocaTerrainCounts* counts;
+    double* points;
+    size_t pointCapacity;
+    uint32_t* triangles;
+    size_t triangleCapacity;
+    TapiocaTerrainMapping* mappings;
+    size_t mappingCapacity;
+    uint32_t queryOnly;
+} TapiocaTerrainOutput;
+
 typedef struct {
     TapiocaDoubleView points;
     TapiocaProvenanceRequest provenance;
@@ -632,6 +703,20 @@ TapiocaStatus tapioca_weld_corners (const TapiocaWeldRequest* request, const Tap
                                     size_t errorCapacity);
 TapiocaStatus tapioca_analyze_mesh (const TapiocaMeshAnalysisRequest* request, const TapiocaMeshAnalysisOutput* output,
                                     char* error, size_t errorCapacity);
+
+// QueryOnly=1 computes and publishes only counts; all capacities must be zero.
+// QueryOnly=0 recomputes with unchanged input and requires full capacities.
+// Counts and array prefixes publish atomically, never on refusal/unwind.
+// Full capacities, counts, input descriptors/pools and error must be disjoint
+// wherever either is writable. Null arrays need zero count/capacity. Caller
+// guarantees live aligned allocations and initialized immutable input. No pointer,
+// Rust allocation or handle is retained. Unwind is contained, not OOM/abort/UB.
+// Worker-classified: query/fill compute and allocate twice. Attribution refusals
+// return STATE with schema text; geometry/parameter refusals return ARG.
+TapiocaStatus tapioca_terrain_triangulate (const TapiocaTerrainRequest* request, const TapiocaTerrainOutput* output,
+                                           char* error, size_t errorCapacity);
+TapiocaStatus tapioca_terrain_split_mesh (const TapiocaTerrainSplitRequest* request, const TapiocaTerrainOutput* output,
+                                          char* error, size_t errorCapacity);
 
 #ifdef __cplusplus
 }

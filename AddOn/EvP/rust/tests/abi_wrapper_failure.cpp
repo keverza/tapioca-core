@@ -13,6 +13,7 @@ TapiocaStatus s_status = TAPIOCA_OK;
 uint32_t s_version = TAPIOCA_ABI_VERSION;
 bool s_message = true;
 uint32_t s_diagnostic = TAPIOCA_DIAGNOSTIC_NONE;
+int s_terrainMode = 0;
 } // namespace
 
 extern "C" TapiocaStatus tapioca_version (uint32_t* version, char* error, size_t capacity)
@@ -100,6 +101,24 @@ extern "C" TapiocaStatus tapioca_copy_attributed_polygon (const TapiocaAttribute
             std::memcpy (error, message, std::strlen (message) + 1);
     }
     return s_status;
+}
+
+extern "C" TapiocaStatus tapioca_terrain_triangulate (const TapiocaTerrainRequest*, const TapiocaTerrainOutput* output,
+                                                      char*, size_t)
+{
+    *output->counts = { 3, 3, 1 };
+    if (output->queryOnly)
+        return s_terrainMode == 0 ? TAPIOCA_ERR_INTERNAL : TAPIOCA_OK;
+    output->points[0] = -999; // Dirty provisional storage before refusing.
+    output->mappings[0].kind = s_terrainMode == 3 ? 99U : 1U;
+    if (s_terrainMode == 2)
+        ++output->counts->points;
+    return s_terrainMode == 1 ? TAPIOCA_ERR_STATE : TAPIOCA_OK;
+}
+extern "C" TapiocaStatus tapioca_terrain_split_mesh (const TapiocaTerrainSplitRequest*,
+                                                     const TapiocaTerrainOutput* output, char* error, size_t capacity)
+{
+    return tapioca_terrain_triangulate (nullptr, output, error, capacity);
 }
 
 int main ()
@@ -214,6 +233,17 @@ int main ()
                 composed.m[0][3] != 77 || error.empty ())
                 return 13;
         }
+    }
+    for (int mode = 0; mode < 4; ++mode) {
+        s_terrainMode = mode;
+        TerrainResult terrain;
+        terrain.points = { 77 };
+        terrain.inputProvenance.expectedRevision = 42;
+        const auto before = terrain;
+        if (TriangulateTerrain ({ {}, {}, 0, {}, request }, terrain, error) || terrain != before || error.empty ())
+            return 18;
+        if (SplitTerrainMesh ({ {}, {}, {}, {}, request }, terrain, error) || terrain != before || error.empty ())
+            return 19;
     }
     return 0;
 }

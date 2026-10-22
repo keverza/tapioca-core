@@ -194,6 +194,59 @@ int main (void)
     if (tapioca_divide_polyline (&division, divided, 9, error, sizeof (error)) != TAPIOCA_OK || divided[2] != 0 ||
         divided[5] != 4 || divided[8] != 8)
         return 29;
+    const uint32_t ringIndices[] = { 0, 1, 2 };
+    const TapiocaTerrainConstraint constraint = { TAPIOCA_TERRAIN_BOUNDARY, 0, 3 };
+    TapiocaTerrainRequest terrain = { 0 };
+    terrain.points = polygon.points;
+    terrain.constraints.data = &constraint;
+    terrain.constraints.count = 1;
+    terrain.constraintVertices.data = ringIndices;
+    terrain.constraintVertices.count = 3;
+    terrain.provenance = polygon.provenance;
+    terrain.provenance.domains = 3;
+    terrain.provenance.counts.faces = 0;
+    terrain.provenance.table.mappings.count = 6;
+    TapiocaTerrainCounts terrainCounts = { 0 };
+    TapiocaTerrainOutput terrainOutput = { 0 };
+    terrainOutput.counts = &terrainCounts;
+    terrainOutput.queryOnly = 1;
+    if (tapioca_terrain_triangulate (&terrain, &terrainOutput, error, sizeof (error)) != TAPIOCA_OK ||
+        terrainCounts.points != 9 || terrainCounts.triangles != 3 || terrainCounts.mappings != 7)
+        return 30;
+    double terrainPoints[9];
+    uint32_t terrainTriangles[3];
+    TapiocaTerrainMapping terrainMappings[7];
+    terrainOutput.points = terrainPoints;
+    terrainOutput.pointCapacity = 9;
+    terrainOutput.triangles = terrainTriangles;
+    terrainOutput.triangleCapacity = 3;
+    terrainOutput.mappings = terrainMappings;
+    terrainOutput.mappingCapacity = 7;
+    terrainOutput.queryOnly = 0;
+    if (tapioca_terrain_triangulate (&terrain, &terrainOutput, error, sizeof (error)) != TAPIOCA_OK ||
+        memcmp (terrainPoints, triangle, sizeof (triangle)) != 0 || terrainTriangles[0] != 0 ||
+        terrainTriangles[1] != 1 || terrainTriangles[2] != 2)
+        return 31;
+    TapiocaMappingRecord splitRows[10] = { 0 };
+    for (size_t index = 0; index < 10; ++index) {
+        splitRows[index].domain = index < 6   ? TAPIOCA_DOMAIN_VERTEX
+                                  : index < 9 ? TAPIOCA_DOMAIN_EDGE
+                                              : TAPIOCA_DOMAIN_FACE;
+        splitRows[index].kind = TAPIOCA_MAPPING_GENERATED;
+        splitRows[index].outputIndex = index < 6 ? index : index < 9 ? index - 6 : 0;
+        splitRows[index].sources.count = splitRows[index].operations.count = 1;
+    }
+    TapiocaTerrainSplitRequest splitTerrain = { 0 };
+    splitTerrain.points = splitTerrain.line = terrain.points;
+    splitTerrain.triangles.data = ringIndices;
+    splitTerrain.triangles.count = 3;
+    splitTerrain.provenance = polygon.provenance;
+    splitTerrain.provenance.counts.vertices = 6;
+    splitTerrain.provenance.table.mappings.data = splitRows;
+    splitTerrain.provenance.table.mappings.count = 10;
+    if (tapioca_terrain_split_mesh (&splitTerrain, &terrainOutput, error, sizeof (error)) != TAPIOCA_OK ||
+        memcmp (terrainPoints, triangle, sizeof (triangle)) != 0 || terrainCounts.mappings != 7)
+        return 32;
     printf ("Tapioca aggregate ABI v%u: C and C++ link/status checks passed\n", (unsigned) version);
     return 0;
 }
