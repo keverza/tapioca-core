@@ -1,0 +1,99 @@
+# S3a.3 neutral landscape corpus v1. Metres, RH Z-up; NOT a native capture.
+# case name area inside_area min_crossings refinement_max_area
+# points N local xyz; constraints N (role count indices); line N local xyz; end
+# Survey origin is added in both languages. No random generator or inferred IDs.
+case wall_sides 400 36 0 0
+points 9
+0 0 0 20 0 3 20 20 3 0 20 0
+6 0 0 6 20 0 6.2 0 3 6.2 20 3
+18 10 3
+constraints 3
+1 4 0 1 2 3
+3 2 4 5
+3 2 6 7
+line 4
+4 4 0 10 4 0 10 10 0 4 10 0
+end
+
+# A 150 mm curb ramp, explicitly constrained on both sides. Bridging across
+# either authored side produces the sawtooth/surface failure this case targets.
+case steep_curb 400 36 0 1
+points 9
+0 0 0 20 0 0.18 20 20 0.18 0 20 0
+12 0 0 12 20 0 12.15 0 0.18 12.15 20 0.18
+18 10 0.18
+constraints 3
+1 4 0 1 2 3
+3 2 4 5
+3 2 6 7
+line 4
+10 4 0 16 4 0 16 10 0 10 10 0
+end
+
+# Three stair riser ramps, separated by treads, not vertical duplicate xy.
+case stair_treads 400 64 0 0
+points 17
+0 0 0 20 0 0.6 20 20 0.6 0 20 0
+5 0 0 5 20 0 5.1 0 0.2 5.1 20 0.2
+7 0 0.2 7 20 0.2 7.1 0 0.4 7.1 20 0.4
+9 0 0.4 9 20 0.4 9.1 0 0.6 9.1 20 0.6
+18 10 0.6
+constraints 7
+1 4 0 1 2 3
+3 2 4 5
+3 2 6 7
+3 2 8 9
+3 2 10 11
+3 2 12 13
+3 2 14 15
+line 4
+3 3 0 11 3 0 11 11 0 3 11 0
+end
+
+# Crossing feature-derived path sides on z=.1*x+.05*y; four proper crossings.
+case crossing_paths 400 64 4 0
+points 13
+0 0 0 20 0 2 20 20 3 0 20 1
+0 8 0.4 20 8 2.4 0 12 0.6 20 12 2.6
+8 0 0.8 8 20 1.8 12 0 1.2 12 20 2.2
+18 10 2.3
+constraints 5
+1 4 0 1 2 3
+3 2 4 5
+3 2 6 7
+3 2 8 9
+3 2 10 11
+line 4
+6 6 0 14 6 0 14 14 0 6 14 0
+end
+
+# A courtyard and separate island; property line stays in the outer terrain.
+case courtyard_island 368 9 0 0
+points 13
+0 0 0 20 0 2 20 20 3 0 20 1
+7 7 1.05 13 7 1.65 13 13 1.95 7 13 1.35
+9 9 1.35 11 9 1.55 11 11 1.65 9 11 1.45
+18 10 2.3
+constraints 3
+1 4 0 1 2 3
+2 4 4 5 6 7
+1 4 8 9 10 11
+line 4
+2 2 0 5 2 0 5 5 0 2 5 0
+end
+
+# Overlapping features and a T junction retain every segment's support.
+case overlap_junction 400 36 0 2
+points 11
+0 0 0 20 0 2 20 20 3 0 20 1
+0 10 0.5 20 10 2.5 5 10 1 15 10 2
+10 10 1.5 10 20 2
+18 10 2.3
+constraints 4
+1 4 0 1 2 3
+3 2 4 5
+3 2 6 7
+3 2 8 9
+line 4
+3 8 0 9 8 0 9 14 0 3 14 0
+end

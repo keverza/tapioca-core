@@ -1183,14 +1183,19 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_plane.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_polygon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_terrain.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_terrain_corpus.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_extraction.cpp")
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
 option (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS "Build opt-in geometry measurement executables" OFF)
+if (TAPIOCA_LINK_RUST_GEOMETRY)
+    set_source_files_properties (test_geometry_rust_terrain_corpus.cpp PROPERTIES COMPILE_DEFINITIONS
+        TAPIOCA_TERRAIN_CORPUS="${EVP_ROOT}/rust/tests/fixtures/landscape.terrain")
+endif ()
 if (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS)
     if (NOT TAPIOCA_LINK_RUST_GEOMETRY OR EVP_SANITIZE)
-        message (FATAL_ERROR "Composition measurements require Rust ON and sanitizers OFF")
+        message (FATAL_ERROR "Geometry measurements require Rust ON and sanitizers OFF")
     endif ()
     add_executable (TapiocaCompositionBench benchmark_composition.cpp
         "${GEOM_DIR}/Transforms.cpp" "${GEOM_DIR}/GeometryEngine.cpp" "${GEOM_DIR}/GeometryRustAffine.cpp")
@@ -1203,6 +1208,17 @@ if (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS)
         target_link_libraries (TapiocaCompositionBench PRIVATE psapi)
     endif ()
     TapiocaLinkRustCore (TapiocaCompositionBench)
+    add_executable (TapiocaTerrainBench benchmark_terrain.cpp
+        "${GEOM_DIR}/GeometryRustTerrain.cpp" "${GEOM_DIR}/GeometryRustIdentity.cpp")
+    target_compile_features (TapiocaTerrainBench PRIVATE cxx_std_20)
+    target_include_directories (TapiocaTerrainBench PRIVATE "${EVP_ROOT}/Sources/AddOn" "${GEOM_DIR}")
+    target_compile_definitions (TapiocaTerrainBench PRIVATE
+        TAPIOCA_BENCH_CONFIG="$<CONFIG>"
+        TAPIOCA_TERRAIN_CORPUS="${EVP_ROOT}/rust/tests/fixtures/landscape.terrain")
+    if (WIN32)
+        target_link_libraries (TapiocaTerrainBench PRIVATE psapi)
+    endif ()
+    TapiocaLinkRustCore (TapiocaTerrainBench)
 endif ()
 
 # The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):

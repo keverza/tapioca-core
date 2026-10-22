@@ -724,6 +724,25 @@ refusal and self-publication. This is not native terrain/UI acceptance or a geom
 family flip. S3a.3 still owns curated native-terrain fixtures and reproducible
 runtime/allocation/copy/peak-memory evidence.
 
+## S3a.3 neutral landscape fixture increment
+
+The shared hand-authored `rust/tests/fixtures/landscape.terrain` corpus covers
+wall sides, a steep curb, stair treads, crossing path sides, courtyard/island and
+overlap/T-junction features at survey coordinates. Rust integration tests and C++
+raw-ABI/facade differentials use the same inputs and independent analytic area,
+piecewise-surface and split-parent oracles. Every fixture must include actual
+untouched remote triangles, not vacuous preservation checks. No native capture,
+feature producer, patch re-evaluation or second C++ terrain algorithm is implied.
+
+`terrain_measure` (standalone Rust example) and opt-in `TapiocaTerrainBench` measure
+the pure kernel and complete two-pass owned facade. `tools/benchmark_terrain.py`
+checks geometry digests/counts across fresh processes and records raw timings,
+source/binary identity, requested-allocation counters and scoped memory/copy data.
+See [`rust/tests/fixtures/README.md`](../../AddOn/EvP/rust/tests/fixtures/README.md)
+for reproducible commands, exact workload and probe limitations. Full S3a.3 remains
+open: ordinary C++ new and kernel-only requested heap are not combined facade
+Rust+C++ peak heap, and a source copy ledger is not measured memory traffic.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:
