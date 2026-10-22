@@ -30,11 +30,15 @@
 
 mod classify;
 mod constrain;
+pub mod edit;
+pub mod field;
 mod input;
+mod plan;
 mod presplit;
 mod refine;
 mod split;
 mod verify;
+pub mod volume;
 
 #[cfg(test)]
 mod profile;

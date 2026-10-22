@@ -832,6 +832,42 @@ six for 3621 binding cut/fill bounds (about 80 ms), seven plus the split for a
 slope limit with about 7100 binding edges (about 260 ms median, 284 ms p95). The
 grading services are worker-classified; no ABI or production caller uses them yet.
 
+## S3b.2 terrain field, local operators and cut/fill (`geometry::terrain`)
+
+`terrain::field::Field` samples a mesh's **upward** faces (unit normal z above
+0.001; a closed terrain solid's sides and bottom are not the surface). Heights
+name their original triangle; on a shared edge the lowest triangle index wins.
+`gradient_at` takes central differences at `+-step`, one-sided where a side
+leaves the surface and the face plane where both do, and says which per axis;
+`slope_at` is `atan(|gradient|)`, `aspect_at` the downslope bearing clockwise from
++y. `raster` + `Raster::bilinear` resample on a regular node grid; `bounds` and
+`coverage` describe what the field covers. Lookups use a uniform plan grid.
+
+`terrain::edit::edit_terrain` moves **only vertex heights**, so indices, plan
+positions and triangles keep their identity, and reports per vertex the edit that
+moved it, the changed faces with their owning edits, and per edit how many
+vertices it moved and how many a daylight extension or the maximum distance cut
+off (the dangling-edge diagnostic). Targets are a point (flat radius), curve
+(band), area ring (level or flatten to the inside mean), path (band plus a
+crossfall that twists about the centreline toward a named hand) or another
+surface. A falloff transition uses `1 - SmootherStep(d / blur)`; a daylight
+transition marches separate cut and fill slopes (any `Slope`, vertical allowed)
+with per-side extensions, absolute mode only. `Effect::Cut` keeps `min`,
+`Effect::Fill` `max`; strength scales the displacement; overlapping edits keep the
+largest displacement (lower index on ties). Vertices outside or on the property
+ring, or inside or on a protected ring, never move. Optional Gaussian relaxation
+(`sigma = radius / 3`, renormalized) covers vertices near moved ones.
+
+`terrain::volume::cut_fill` samples a regular grid over the existing bounds (or a
+domain) at cell centres, or at `k x k` sub-cell centres, with partial edge cells
+and `diff = proposed - existing`. Samples outside a property ring are reported
+as context, not dropped. For an edited surface on the same mesh, each sample's
+difference is the barycentric blend of owned vertex displacements, so per-edit
+`net` sums exactly to the total. The opt-in `terrain_volume` example reads a
+plain-text mesh pair for external oracle comparison; on the private analysis
+oracle's identical grids it agrees to 1e-14 relative with identical counts.
+All three services are worker-classified.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:
