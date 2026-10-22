@@ -47,6 +47,14 @@ struct EditTerrainOperationReport {
     TerrainEditReport report;
     bool operator== (const EditTerrainOperationReport&) const = default;
 };
+// Where an operation left a vertex in place (its report counters, located).
+struct EditTerrainClip {
+    OperationId operation = 0;
+    uint32_t vertex = 0; // Baseline vertex locator, never an authored ID.
+    TerrainClipKind kind = TerrainClipKind::Limit;
+    double distance = 0, withheld = 0;
+    bool operator== (const EditTerrainClip&) const = default;
+};
 struct EditTerrainOperationVolume {
     OperationId operation = 0;
     double cut = 0, fill = 0, net = 0, area = 0;
@@ -67,6 +75,7 @@ struct EditTerrainResult {
     std::vector<std::optional<OperationId>> vertexOperations;
     std::vector<EditTerrainFaceOwner> faces;
     std::vector<EditTerrainOperationReport> reports;
+    std::vector<EditTerrainClip> clips; // By vertex then operation.
     std::vector<TerrainSample> samples;
     TerrainFieldSummary summary;
     std::optional<EditTerrainVolumes> volumes;

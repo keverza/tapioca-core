@@ -162,3 +162,47 @@ TEST (GeometryRustHybridTerrain, RefusalsKeepTheOwnedResult)
     EXPECT_EQ (error.rfind ("TerrainHybridCamber", 0), 0U) << error;
     EXPECT_EQ (result, before);
 }
+
+TEST (GeometryRustHybridTerrain, ConflictsAreLocatedForRefusedAndRestrictedBands)
+{
+    const Base base;
+    const auto provenance = Provenance (base.Counts (), 7);
+    auto shortReach = std::array { Station (0, 10), Station (40, 12) };
+    for (auto& station : shortReach)
+        station.cutLimit = station.fillLimit = .5;
+    const HybridTerrainRequest refused { { base.points, base.triangles }, kRegion, shortReach,
+                                         TerrainEditEffect::Both,         1e-6,    provenance };
+    HybridTerrainResult result;
+    std::string error;
+    EXPECT_FALSE (BuildHybridTerrain (refused, result, error));
+    std::vector<HybridConflict> conflicts;
+    ASSERT_TRUE (AssessHybridTerrain (refused, conflicts, error)) << error;
+    ASSERT_EQ (conflicts.size (), 4U);
+    for (const auto& conflict : conflicts) {
+        EXPECT_EQ (conflict.code, HybridConflictCode::DaylightBeyondLimit);
+        EXPECT_TRUE (conflict.hard);
+        EXPECT_NEAR (conflict.magnitude, 4.0 / 3.0, 1e-9);
+        EXPECT_NEAR (std::abs (conflict.position[1]), 2.5, 1e-12);
+    }
+    EXPECT_STREQ (HybridConflictName (conflicts[0].code), "DaylightBeyondLimit");
+    // Fill only: the right edge is in cut, built and reported soft.
+    const std::array stations { Station (0, 10), Station (40, 12) };
+    ASSERT_TRUE (BuildHybridTerrain (
+        { { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Fill, 1e-6, provenance }, result,
+        error))
+        << error;
+    ASSERT_EQ (result.conflicts.size (), 2U);
+    for (const auto& conflict : result.conflicts) {
+        EXPECT_EQ (conflict.code, HybridConflictCode::EdgeContradictsEffect);
+        EXPECT_EQ (conflict.side, TerrainHand::Right);
+        EXPECT_FALSE (conflict.hard);
+        EXPECT_NEAR (conflict.magnitude, -.4, 1e-12);
+    }
+    // An attribution refusal leaves the list unchanged.
+    const auto wrong = Provenance ({ base.points.size () / 3, 0, base.triangles.size () / 3, 0 }, 5);
+    const auto before = conflicts;
+    EXPECT_FALSE (AssessHybridTerrain (
+        { { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, wrong }, conflicts,
+        error));
+    EXPECT_EQ (conflicts, before);
+}

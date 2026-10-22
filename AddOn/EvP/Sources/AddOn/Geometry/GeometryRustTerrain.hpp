@@ -345,11 +345,21 @@ struct TerrainFaceOwner {
     uint32_t face = 0, edit = 0;
     bool operator== (const TerrainFaceOwner&) const = default;
 };
+enum class TerrainClipKind : uint32_t { Extension = 1, Limit = 2 };
+// Where an edit left a vertex in place: the rows behind the report counters.
+struct TerrainClip {
+    uint32_t edit = 0, vertex = 0; // Vertex xyz is the position.
+    TerrainClipKind kind = TerrainClipKind::Limit;
+    double distance = 0; // From the edit's core, metres.
+    double withheld = 0; // Signed height change not applied, metres.
+    bool operator== (const TerrainClip&) const = default;
+};
 struct TerrainEditResult {
     std::vector<double> heights;
     std::vector<std::optional<uint32_t>> owners;
     std::vector<TerrainFaceOwner> faces; // Ascending (face, edit).
     std::vector<TerrainEditReport> reports;
+    std::vector<TerrainClip> clips;    // By vertex then edit; sum to the counters.
     ProvenanceRequest inputProvenance; // Retained unchanged input catalog.
 };
 bool EditTerrain (const TerrainEditRequest& request, TerrainEditResult& result, std::string& error);

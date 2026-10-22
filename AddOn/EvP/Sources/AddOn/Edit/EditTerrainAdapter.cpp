@@ -131,6 +131,13 @@ bool Evaluate (const geomsrv::edit::Document& doc, const EditTerrainRequest& req
     }
     for (size_t i = 0; i < edited.reports.size (); ++i)
         candidate.reports.push_back ({ operations.at (i), edited.reports[i] });
+    for (const auto& clip : edited.clips) {
+        if (clip.vertex >= input.mesh.points.size () / 3) {
+            error = "TerrainOutputShape: terrain adapter received an unknown clipped vertex";
+            return false;
+        }
+        candidate.clips.push_back ({ operations.at (clip.edit), clip.vertex, clip.kind, clip.distance, clip.withheld });
+    }
     if (!SampleTerrain ({ candidate.points, candidate.triangles }, request.queriesXY, request.sampleStep,
                         candidate.samples, candidate.summary, error))
         return false;

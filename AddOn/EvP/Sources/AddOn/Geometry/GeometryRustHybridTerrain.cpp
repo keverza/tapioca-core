@@ -50,6 +50,71 @@ TapiocaTerrainStation Station (const TerrainStation& station)
     return raw;
 }
 
+struct Input {
+    detail::AbiProvenanceStorage storage;
+    std::vector<TapiocaTerrainStation> stations;
+    TapiocaTerrainHybridRequest raw {};
+};
+
+bool Convert (const HybridTerrainRequest& request, Input& input, std::string& error)
+{
+    input.raw.provenance = detail::ConvertProvenanceRequest (request.provenance, input.storage);
+    input.raw.points = { request.mesh.points.data (), request.mesh.points.size () };
+    input.raw.triangles = { request.mesh.triangles.data (), request.mesh.triangles.size () };
+    input.raw.region = { request.region.data (), request.region.size () };
+    input.stations.reserve (request.stations.size ());
+    for (const auto& station : request.stations) {
+        if (station.crossfall && station.crown) {
+            error = "TerrainHybridCamber: a station has either a one-way crossfall or a crown";
+            return false;
+        }
+        input.stations.push_back (Station (station));
+    }
+    input.raw.stations = { input.stations.data (), input.stations.size () };
+    input.raw.tolerance = request.tolerance;
+    input.raw.effect = static_cast<uint32_t> (request.effect);
+    return true;
+}
+
+bool Conflicts (const TapiocaTerrainHybridRequest& input, std::vector<HybridConflict>& result, std::string& error)
+{
+    std::array<char, 256> buffer {};
+    size_t count = 0;
+    TapiocaTerrainConflictOutput output { &count, nullptr, 0, 1, 0 };
+    auto status = tapioca_terrain_hybrid_conflicts (&input, &output, buffer.data (), buffer.size ());
+    if (status != TAPIOCA_OK) {
+        error = Failure (status, buffer);
+        return false;
+    }
+    std::vector<TapiocaTerrainConflict> rows (count);
+    const size_t expected = count;
+    output = { &count, rows.data (), rows.size (), 0, 0 };
+    status = tapioca_terrain_hybrid_conflicts (&input, &output, buffer.data (), buffer.size ());
+    if (status != TAPIOCA_OK) {
+        error = Failure (status, buffer);
+        return false;
+    }
+    if (count != expected) {
+        error = "TerrainOutputShape: conflict query/fill counts disagree";
+        return false;
+    }
+    std::vector<HybridConflict> candidate;
+    for (const auto& row : rows) {
+        if (row.code < 1 || row.code > 5 || row.side < 1 || row.side > 2 || row.hard > 1) {
+            error = "TerrainOutputShape: unknown conflict row";
+            return false;
+        }
+        candidate.push_back ({ static_cast<HybridConflictCode> (row.code),
+                               row.station,
+                               static_cast<TerrainHand> (row.side),
+                               { row.position[0], row.position[1], row.position[2] },
+                               row.magnitude,
+                               row.hard == 1 });
+    }
+    result = std::move (candidate);
+    return true;
+}
+
 HybridVolumes Volumes (const TapiocaTerrainHybridVolumes& raw)
 {
     return { raw.cut, raw.fill, raw.net, raw.area, raw.triangles };
@@ -57,26 +122,59 @@ HybridVolumes Volumes (const TapiocaTerrainHybridVolumes& raw)
 
 } // namespace
 
+const char* HybridConflictName (HybridConflictCode code)
+{
+    switch (code) {
+        case HybridConflictCode::DaylightNotReached:
+            return "DaylightNotReached";
+        case HybridConflictCode::DaylightBeyondLimit:
+            return "DaylightBeyondLimit";
+        case HybridConflictCode::VerticalFace:
+            return "VerticalFace";
+        case HybridConflictCode::DaylightTopology:
+            return "DaylightTopology";
+        case HybridConflictCode::EdgeContradictsEffect:
+            return "EdgeContradictsEffect";
+    }
+    return "UnknownConflict";
+}
+
+const char* HybridConflictSuggestion (HybridConflictCode code)
+{
+    switch (code) {
+        case HybridConflictCode::DaylightNotReached:
+            return "steepen the side slope, widen the limit or add a retaining wall";
+        case HybridConflictCode::DaylightBeyondLimit:
+            return "raise the side's limit to the reported reach";
+        case HybridConflictCode::VerticalFace:
+            return "use a separate wall surface or a finite side slope";
+        case HybridConflictCode::DaylightTopology:
+            return "split the band where the ground changes or adjust the profile so the side stays one kind";
+        case HybridConflictCode::EdgeContradictsEffect:
+            return "clear the cut/fill restriction or change the elevation";
+    }
+    return "";
+}
+
+bool AssessHybridTerrain (const HybridTerrainRequest& request, std::vector<HybridConflict>& conflicts,
+                          std::string& error)
+{
+    Input input;
+    std::vector<HybridConflict> candidate;
+    if (!Convert (request, input, error) || !Conflicts (input.raw, candidate, error))
+        return false;
+    conflicts = std::move (candidate);
+    error.clear ();
+    return true;
+}
+
 bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResult& result, std::string& error)
 {
-    detail::AbiProvenanceStorage storage;
-    TapiocaTerrainHybridRequest input {};
-    input.provenance = detail::ConvertProvenanceRequest (request.provenance, storage);
-    input.points = { request.mesh.points.data (), request.mesh.points.size () };
-    input.triangles = { request.mesh.triangles.data (), request.mesh.triangles.size () };
-    input.region = { request.region.data (), request.region.size () };
-    std::vector<TapiocaTerrainStation> stations;
-    stations.reserve (request.stations.size ());
-    for (const auto& station : request.stations) {
-        if (station.crossfall && station.crown) {
-            error = "TerrainHybridCamber: a station has either a one-way crossfall or a crown";
-            return false;
-        }
-        stations.push_back (Station (station));
-    }
-    input.stations = { stations.data (), stations.size () };
-    input.tolerance = request.tolerance;
-    input.effect = static_cast<uint32_t> (request.effect);
+    Input converted;
+    if (!Convert (request, converted, error))
+        return false;
+    const auto& input = converted.raw;
+    const auto& stations = converted.stations;
 
     std::array<char, 256> buffer {};
     TapiocaTerrainHybridCounts counts {};
@@ -162,6 +260,12 @@ bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResul
         candidate.owners.push_back (owner == kNoOwner ? std::nullopt : std::optional<uint32_t> (owner));
     candidate.site = Volumes (site);
     candidate.context = Volumes (context);
+    std::vector<HybridConflict> located;
+    if (!Conflicts (input, located, error))
+        return false;
+    for (const auto& conflict : located)
+        if (!conflict.hard)
+            candidate.conflicts.push_back (conflict);
     candidate.inputProvenance = request.provenance;
     candidate.inputPointCount = request.mesh.points.size () / 3;
     result = std::move (candidate);

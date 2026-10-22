@@ -465,3 +465,88 @@ fn volumes_publish_site_cells_and_edit_rows() {
     assert_eq!((status, text.as_str()), (1, "TerrainOutputTooSmall"));
     assert_eq!((short.count, short.site), (99, TerrainVolumes::default()));
 }
+
+fn clips_run(
+    request: &TerrainEditRequest,
+    count: &mut usize,
+    rows: &mut [TerrainClip],
+    query: bool,
+) -> (i32, String) {
+    let output = TerrainClipOutput {
+        count: std::ptr::from_mut(count),
+        rows: if query {
+            std::ptr::null_mut()
+        } else {
+            rows.as_mut_ptr()
+        },
+        capacity: if query { 0 } else { rows.len() },
+        query_only: u32::from(query),
+        reserved: 0,
+    };
+    let mut error = [0_u8; 160];
+    // SAFETY: live disjoint locals.
+    let status = unsafe {
+        tapioca_terrain_edit_clips(
+            std::ptr::from_ref(request),
+            &raw const output,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    (status, message(&error))
+}
+
+#[test]
+fn edit_clips_locate_every_counted_vertex() {
+    let mut fixture = edit_fixture();
+    if let Some(raise) = fixture.edits.first_mut() {
+        raise.max_distance = 1.0; // The 2 m blur reaches further: limit clips.
+    }
+    let request = edit_request(&fixture);
+    let mut count = 7777;
+    assert_eq!(
+        clips_run(&request, &mut count, &mut [], true),
+        (0, String::new())
+    );
+    assert!(count > 0);
+    let mut rows = vec![TerrainClip::default(); count + 1];
+    let mut filled = 0;
+    assert_eq!(
+        clips_run(&request, &mut filled, &mut rows, false),
+        (0, String::new())
+    );
+    assert_eq!(filled, count);
+    assert_eq!(rows.last(), Some(&TerrainClip::default()), "tail untouched");
+    // The counters of the edit export agree with the rows by kind.
+    let mut out = edit_outputs(25, 96, 2);
+    assert_eq!(edit_run(&request, &mut out), (0, String::new()));
+    let limit = out
+        .reports
+        .iter()
+        .map(|r| r.limit_clipped as usize)
+        .sum::<usize>();
+    let extension = out
+        .reports
+        .iter()
+        .map(|r| r.extension_clipped as usize)
+        .sum::<usize>();
+    let rows = rows.get(..count).unwrap_or(&[]);
+    assert_eq!(rows.iter().filter(|r| r.kind == 2).count(), limit);
+    assert_eq!(rows.iter().filter(|r| r.kind == 1).count(), extension);
+    assert!(
+        rows.iter()
+            .filter(|r| r.kind == 2)
+            .all(|r| r.edit == 0 && r.distance > 1.0 && r.withheld > 0.0)
+    );
+    // A short capacity and a bad mode refuse without writing.
+    let mut short = vec![TerrainClip::default(); count - 1];
+    let mut kept = 42;
+    let (status, text) = clips_run(&request, &mut kept, &mut short, false);
+    assert_eq!(
+        (status, text.as_str(), kept),
+        (1, "TerrainOutputTooSmall", 42)
+    );
+    assert!(short.iter().all(|r| *r == TerrainClip::default()));
+    let (status, text) = clips_run(&request, &mut kept, &mut short, true);
+    assert_eq!((status, text.as_str(), kept), (0, "", count));
+}

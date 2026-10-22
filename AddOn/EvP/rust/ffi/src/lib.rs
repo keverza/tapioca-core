@@ -126,13 +126,15 @@ pub use grading::{
 )]
 mod terrain;
 pub use terrain::{
-    TerrainConstraint, TerrainCounts, TerrainDaylight, TerrainEdit, TerrainEditOutput,
-    TerrainEditReport, TerrainEditRequest, TerrainEditVolumes, TerrainFaceOwner,
-    TerrainFieldSummary, TerrainHybridCounts, TerrainHybridLine, TerrainHybridOutput,
-    TerrainHybridRequest, TerrainHybridSide, TerrainHybridVolumes, TerrainMapping, TerrainOutput,
-    TerrainRefinement, TerrainRequest, TerrainRing, TerrainSample, TerrainSampleOutput,
+    TerrainClip, TerrainClipOutput, TerrainConflict, TerrainConflictOutput, TerrainConstraint,
+    TerrainCounts, TerrainDaylight, TerrainEdit, TerrainEditOutput, TerrainEditReport,
+    TerrainEditRequest, TerrainEditVolumes, TerrainFaceOwner, TerrainFieldSummary,
+    TerrainHybridCounts, TerrainHybridLine, TerrainHybridOutput, TerrainHybridRequest,
+    TerrainHybridSide, TerrainHybridVolumes, TerrainMapping, TerrainOutput, TerrainRefinement,
+    TerrainRequest, TerrainRing, TerrainRowsOutput, TerrainSample, TerrainSampleOutput,
     TerrainSampleRequest, TerrainSlope, TerrainSplitRequest, TerrainStation, TerrainSurfaceView,
     TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes, tapioca_terrain_edit,
-    tapioca_terrain_hybrid_build, tapioca_terrain_sample, tapioca_terrain_split_mesh,
-    tapioca_terrain_triangulate, tapioca_terrain_volume,
+    tapioca_terrain_edit_clips, tapioca_terrain_hybrid_build, tapioca_terrain_hybrid_conflicts,
+    tapioca_terrain_sample, tapioca_terrain_split_mesh, tapioca_terrain_triangulate,
+    tapioca_terrain_volume,
 };

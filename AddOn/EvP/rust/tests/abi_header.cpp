@@ -38,6 +38,10 @@ static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainHybridRequest, pro
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridCounts) == 32, "Band counts ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridOutput) == 144, "Band output ABI mismatch");
 static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainHybridOutput, queryOnly) == 136, "Band output mismatch");
+static_assert (sizeof (TapiocaTerrainConflict) == 48 && sizeof (TapiocaTerrainClip) == 32, "Conflict ABI mismatch");
+static_assert (sizeof (void*) != 8 ||
+                   (sizeof (TapiocaTerrainConflictOutput) == 32 && sizeof (TapiocaTerrainClipOutput) == 32),
+               "Conflict output mismatch");
 
 extern "C" int TapiocaCppHeaderCheck (void)
 {

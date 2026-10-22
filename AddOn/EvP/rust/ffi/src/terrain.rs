@@ -5,6 +5,7 @@ use crate::boundary::{Failure, call, memory_range};
 use crate::identity::ProvenanceRequest;
 use tapioca_geometry::{identity as id, terrain as kernel};
 
+mod conflict;
 mod edit;
 mod hybrid;
 mod result;
@@ -12,6 +13,10 @@ mod sample;
 mod storage;
 mod volume;
 
+pub use conflict::{
+    TerrainClip, TerrainClipOutput, TerrainConflict, TerrainConflictOutput, TerrainRowsOutput,
+    tapioca_terrain_edit_clips, tapioca_terrain_hybrid_conflicts,
+};
 pub use edit::{
     TerrainDaylight, TerrainEdit, TerrainEditOutput, TerrainEditReport, TerrainEditRequest,
     TerrainFaceOwner, TerrainRing, TerrainSlope, TerrainSurfaceView, tapioca_terrain_edit,

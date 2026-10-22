@@ -419,3 +419,27 @@ TEST (EditTerrainAdapter, CallerCanBorrowThePreviousOutputUntilAtomicPublication
     EXPECT_EQ (result.samples[0].height, 0);
 }
 } // namespace
+
+TEST (EditTerrainAdapter, ClipsNameTheOperationThatLeftAVertex)
+{
+    TerrainFixture fixture;
+    const auto input = fixture.Input ();
+    TerrainEdit fill;
+    fill.position = { 3, 3, 1 };
+    fill.blur = 3;
+    fill.maxDistance = 1;
+    const std::array<EditTerrainOperation, 1> operations { { { kSecond, fill } } };
+    EditTerrainRequest request { input };
+    request.operations = operations;
+    request.property = fixture.property;
+    EditTerrainResult result;
+    std::string error;
+    ASSERT_TRUE (EvaluateEditTerrain (fixture.doc, request, result, error)) << error;
+    ASSERT_EQ (result.reports.size (), 1U);
+    ASSERT_EQ (result.clips.size (), size_t (result.reports[0].report.limitClipped));
+    ASSERT_FALSE (result.clips.empty ());
+    for (const auto& clip : result.clips) {
+        EXPECT_EQ (clip.operation, kSecond);
+        EXPECT_FALSE (result.vertexOperations.at (clip.vertex).has_value ());
+    }
+}

@@ -189,3 +189,31 @@ TEST (GeometryRustTerrainField, VolumesReconcilePerEditWithTheEditedSurface)
     EXPECT_TRUE (report.edits.empty ());
 }
 } // namespace
+
+TEST (GeometryRustTerrainField, ClippedVerticesAreLocatedAndSumToTheCounters)
+{
+    const Grid grid = MakeGrid (7, [] (double, double) { return 0.0; });
+    const ProvenanceRequest provenance = Provenance (49, 72);
+    std::array<TerrainEdit, 1> edits {};
+    edits[0].target = TerrainEditTarget::Point;
+    edits[0].position = { 3, 3, 2 };
+    edits[0].mode = TerrainEditMode::Absolute;
+    edits[0].blur = 3;
+    edits[0].maxDistance = 1; // The 3 m falloff reaches further than allowed.
+    TerrainEditResult result;
+    std::string error;
+    ASSERT_TRUE (EditTerrain ({ grid.View (), edits, {}, {}, {}, std::nullopt, provenance }, result, error)) << error;
+    ASSERT_EQ (result.reports.size (), 1U);
+    ASSERT_GT (result.reports[0].limitClipped, 0U);
+    ASSERT_EQ (result.clips.size (), size_t (result.reports[0].limitClipped) + result.reports[0].extensionClipped);
+    for (const auto& clip : result.clips) {
+        EXPECT_EQ (clip.kind, TerrainClipKind::Limit);
+        EXPECT_GT (clip.distance, 1.0);
+        EXPECT_GT (clip.withheld, 0.0);
+        EXPECT_FALSE (result.owners.at (clip.vertex).has_value ()); // Left where it was.
+    }
+    // Unclipped edits carry no rows.
+    edits[0].maxDistance = 10;
+    ASSERT_TRUE (EditTerrain ({ grid.View (), edits, {}, {}, {}, std::nullopt, provenance }, result, error)) << error;
+    EXPECT_TRUE (result.clips.empty ());
+}

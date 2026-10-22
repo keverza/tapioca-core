@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdio>
 #include <exception>
 #include <set>
 #include <stdexcept>
@@ -373,18 +374,86 @@ bool VerifyOutside (const HybridTerrainResult& build, std::string& error)
     return true;
 }
 
+bool Parameters (const TerrainDesignOptions& options, std::string& error)
+{
+    if (!(options.maxStep > 0) || !std::isfinite (options.maxStep) || !(options.taper > 0) ||
+        !std::isfinite (options.taper) || !std::isfinite (options.cutLimit) || !std::isfinite (options.fillLimit) ||
+        options.cutLimit < 0 || options.fillLimit < 0) {
+        error = "TerrainDesignParameters: step, taper and limits must be finite, step and taper positive";
+        return false;
+    }
+    return true;
+}
+
+// Kernel station indices become path stations.
+bool Locate (const std::vector<HybridConflict>& located, const std::vector<double>& stations,
+             std::vector<TerrainDesignConflict>& result, std::string& error)
+{
+    for (const auto& conflict : located) {
+        if (conflict.station >= stations.size ()) {
+            error = "TerrainOutputShape: a conflict names an unknown station";
+            return false;
+        }
+        result.push_back ({ conflict.code, stations[conflict.station], conflict.side, conflict.position,
+                            conflict.magnitude, conflict.hard });
+    }
+    return true;
+}
+
+// "<kernel message> at station S m, side, x y: fix; N located".
+void Describe (const std::vector<TerrainDesignConflict>& conflicts, std::string& error)
+{
+    const auto first = std::find_if (conflicts.begin (), conflicts.end (), [] (const auto& c) { return c.hard; });
+    if (first == conflicts.end ())
+        return;
+    char text[192];
+    std::snprintf (text, sizeof (text), " at station %.2f m, %s, %.3f %.3f: %s; %zu located", first->station,
+                   first->side == TerrainHand::Left ? "left" : "right", first->position[0], first->position[1],
+                   HybridConflictSuggestion (first->code),
+                   static_cast<size_t> (
+                       std::count_if (conflicts.begin (), conflicts.end (), [] (const auto& c) { return c.hard; })));
+    error += text;
+}
+
 } // namespace
+
+bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
+                          const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,
+                          std::string& error)
+{
+    try {
+        if (!Parameters (options, error))
+            return false;
+        const edit::Path* path = nullptr;
+        const IdentityObject* owner = nullptr;
+        ProvenanceRequest combined;
+        if (!Prepare (doc, input, options, path, owner, combined, error))
+            return false;
+        std::vector<double> sampled;
+        std::vector<TerrainStation> stations;
+        std::vector<HybridConflict> located;
+        std::vector<TerrainDesignConflict> candidate;
+        if (!Stations (*path, options, sampled, stations, error) ||
+            !AssessHybridTerrain ({ input.mesh, options.region, stations, options.effect, options.tolerance, combined },
+                                  located, error) ||
+            !Locate (located, sampled, candidate, error))
+            return false;
+        conflicts = std::move (candidate);
+        error.clear ();
+        return true;
+    }
+    catch (const std::exception& exception) {
+        error = std::string ("TerrainDesignRefused: ") + exception.what ();
+        return false;
+    }
+}
 
 bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                             const TerrainDesignOptions& options, TerrainDesignResult& result, std::string& error)
 {
     try {
-        if (!(options.maxStep > 0) || !std::isfinite (options.maxStep) || !(options.taper > 0) ||
-            !std::isfinite (options.taper) || !std::isfinite (options.cutLimit) || !std::isfinite (options.fillLimit) ||
-            options.cutLimit < 0 || options.fillLimit < 0) {
-            error = "TerrainDesignParameters: step, taper and limits must be finite, step and taper positive";
+        if (!Parameters (options, error))
             return false;
-        }
         const edit::Path* path = nullptr;
         const IdentityObject* owner = nullptr;
         ProvenanceRequest combined;
@@ -394,9 +463,19 @@ bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrai
         std::vector<TerrainStation> stations;
         if (!Stations (*path, options, candidate.stations, stations, error))
             return false;
-        if (!BuildHybridTerrain ({ input.mesh, options.region, stations, options.effect, options.tolerance, combined },
-                                 candidate.build, error) ||
-            !VerifyOutside (candidate.build, error))
+        const HybridTerrainRequest band { input.mesh,     options.region,    stations,
+                                          options.effect, options.tolerance, combined };
+        if (!BuildHybridTerrain (band, candidate.build, error)) {
+            // Name where, when the refusal is a located conflict.
+            std::vector<HybridConflict> located;
+            std::vector<TerrainDesignConflict> placed;
+            std::string ignored;
+            if (AssessHybridTerrain (band, located, ignored) && Locate (located, candidate.stations, placed, ignored))
+                Describe (placed, error);
+            return false;
+        }
+        if (!VerifyOutside (candidate.build, error) ||
+            !Locate (candidate.build.conflicts, candidate.stations, candidate.conflicts, error))
             return false;
         Remapper remapper (input, options, *owner, candidate);
         if (!remapper.Run (error))

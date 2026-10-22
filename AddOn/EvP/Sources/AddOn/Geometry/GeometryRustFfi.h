@@ -643,6 +643,36 @@ typedef struct {
     uint32_t queryOnly, reserved;
 } TapiocaTerrainHybridOutput;
 
+// S4.3 located conflicts, additive to the build/edit records and counters.
+// Band conflict code: 1 DaylightNotReached (magnitude: z_cone - z_base where the
+// search stopped), 2 DaylightBeyondLimit (reach needed, metres from the edge),
+// 3 VerticalFace (0), 4 DaylightTopology (root count here, 0 at grade), 5
+// EdgeContradictsEffect (z_edge - z_base; soft, the band is held at the ground).
+// side 1 left, 2 right; hard 1 when the build refuses on it. position: the band
+// edge, or where a face search stopped. A request the build refuses still
+// assesses successfully. Edit clip kind: 1 beyond a daylight extension, 2 beyond
+// the maximum distance; rows by vertex then edit, summing to the edit counters.
+typedef struct {
+    double position[3], magnitude;
+    uint32_t code, station, side, hard;
+} TapiocaTerrainConflict;
+typedef struct {
+    double distance, withheld; /* From the edit's core; signed metres after strength. */
+    uint32_t edit, vertex, kind, reserved;
+} TapiocaTerrainClip;
+typedef struct {
+    size_t* count; /* Required. */
+    TapiocaTerrainConflict* rows;
+    size_t capacity;
+    uint32_t queryOnly, reserved;
+} TapiocaTerrainConflictOutput;
+typedef struct {
+    size_t* count; /* Required. */
+    TapiocaTerrainClip* rows;
+    size_t capacity;
+    uint32_t queryOnly, reserved;
+} TapiocaTerrainClipOutput;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -999,6 +1029,12 @@ TapiocaStatus tapioca_terrain_volume (const TapiocaTerrainVolumeRequest* request
 TapiocaStatus tapioca_terrain_hybrid_build (const TapiocaTerrainHybridRequest* request,
                                             const TapiocaTerrainHybridOutput* output, char* error,
                                             size_t errorCapacity);
+// S4.3: query/fill row exports with the same request records and contracts.
+TapiocaStatus tapioca_terrain_hybrid_conflicts (const TapiocaTerrainHybridRequest* request,
+                                                const TapiocaTerrainConflictOutput* output, char* error,
+                                                size_t errorCapacity);
+TapiocaStatus tapioca_terrain_edit_clips (const TapiocaTerrainEditRequest* request,
+                                          const TapiocaTerrainClipOutput* output, char* error, size_t errorCapacity);
 
 #ifdef __cplusplus
 }

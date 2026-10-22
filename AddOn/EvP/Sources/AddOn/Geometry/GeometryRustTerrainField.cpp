@@ -181,8 +181,34 @@ bool EditTerrain (const TerrainEditRequest& request, TerrainEditResult& result, 
         candidate.owners.push_back (owner == kNoOwner ? std::nullopt : std::optional<uint32_t> (owner));
     for (size_t row = 0; row < faceCount; ++row)
         candidate.faces.push_back ({ faces[row].face, faces[row].edit });
-    for (const auto& report : reports)
+    size_t clipped = 0;
+    for (const auto& report : reports) {
         candidate.reports.push_back ({ report.moved, report.extensionClipped, report.limitClipped });
+        clipped += size_t (report.extensionClipped) + report.limitClipped;
+    }
+    // Located rows only when something was clipped; their count is known.
+    if (clipped != 0) {
+        std::vector<TapiocaTerrainClip> rows (clipped);
+        size_t count = 0;
+        const TapiocaTerrainClipOutput located { &count, rows.data (), rows.size (), 0, 0 };
+        const auto clipStatus = tapioca_terrain_edit_clips (&input, &located, buffer.data (), buffer.size ());
+        if (clipStatus != TAPIOCA_OK) {
+            error = Failure ("terrain edit clips", clipStatus, buffer);
+            return false;
+        }
+        if (count != clipped) {
+            error = "TerrainOutputShape: clip rows disagree with the report counters";
+            return false;
+        }
+        for (const auto& row : rows) {
+            if (row.kind < 1 || row.kind > 2) {
+                error = "TerrainOutputShape: unknown clip kind";
+                return false;
+            }
+            candidate.clips.push_back (
+                { row.edit, row.vertex, static_cast<TerrainClipKind> (row.kind), row.distance, row.withheld });
+        }
+    }
     candidate.inputProvenance = request.provenance;
     result = std::move (candidate);
     error.clear ();

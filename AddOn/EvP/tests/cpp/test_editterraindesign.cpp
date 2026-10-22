@@ -305,3 +305,36 @@ TEST (EditTerrainDesign, ARangeChangeIsAShortTaperNotARamp)
     EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error));
     EXPECT_EQ (error.rfind ("TerrainDesignParameters", 0), 0U) << error;
 }
+
+TEST (EditTerrainDesign, ConflictsNameStationsSidesAndPlaces)
+{
+    DesignFixture fixture;
+    auto options = fixture.Options ();
+    options.cutLimit = options.fillLimit = .5;
+    TerrainDesignResult result;
+    std::string error;
+    EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error));
+    EXPECT_EQ (error.rfind ("DaylightNotReached", 0), 0U) << error;
+    EXPECT_NE (error.find ("at station 0.00 m, left"), std::string::npos) << error;
+    EXPECT_NE (error.find ("18 located"), std::string::npos) << error;
+    std::vector<TerrainDesignConflict> conflicts;
+    ASSERT_TRUE (AssessTerrainDesign (fixture.doc, fixture.Input (), options, conflicts, error)) << error;
+    ASSERT_EQ (conflicts.size (), 18U); // Nine stations, both sides.
+    EXPECT_EQ (conflicts.front ().station, 0.0);
+    EXPECT_EQ (conflicts.back ().station, 40.0);
+    EXPECT_EQ (conflicts.back ().side, TerrainHand::Right);
+    for (const auto& conflict : conflicts) {
+        EXPECT_EQ (conflict.code, HybridConflictCode::DaylightBeyondLimit);
+        EXPECT_NEAR (conflict.magnitude, 4.0 / 3.0, 1e-9);
+    }
+    // Fill only: the right side is held at the ground at every station.
+    options = fixture.Options ();
+    options.effect = TerrainEditEffect::Fill;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error)) << error;
+    ASSERT_EQ (result.conflicts.size (), 9U);
+    for (const auto& conflict : result.conflicts) {
+        EXPECT_EQ (conflict.code, HybridConflictCode::EdgeContradictsEffect);
+        EXPECT_EQ (conflict.side, TerrainHand::Right);
+        EXPECT_FALSE (conflict.hard);
+    }
+}

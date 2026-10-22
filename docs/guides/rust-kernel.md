@@ -928,6 +928,23 @@ runs a range change over a short explicit taper (`TerrainDesignOptions::taper`,
 0.5 m) ending at the range start. A zero-length step would make the band
 discontinuous; its end faces need corner fans, which belong to composition.
 
+**Located conflicts (S4.3).** `terrain::hybrid::conflict` names where a band
+cannot be built as authored, each with station, side, position, magnitude and a
+suggested fix: `DaylightNotReached`, `DaylightBeyondLimit`, `VerticalFace` and
+`DaylightTopology` are hard (the build still refuses on the first, with its
+existing code), `EdgeContradictsEffect` is soft (the band is held at the ground
+there and `Built::conflicts` says where). `hybrid::assess` lists all of them
+without building. The edit operator's soft tier gains `Edited::clips`, one row
+per vertex behind the unchanged `extension_clipped`/`limit_clipped` counters.
+
+Both reach C through additive query/fill exports that reuse the existing request
+records, so the refusal contract (no write on refusal) and every pinned output
+record are unchanged: `tapioca_terrain_hybrid_conflicts` (succeeds for a band the
+build refuses) and `tapioca_terrain_edit_clips`. `AssessHybridTerrain`,
+`HybridTerrainResult::conflicts`, `TerrainEditResult::clips` and
+`EditTerrainResult::clips` carry them in C++; `AssessTerrainDesign` reports them in
+path stations, and a refused `EvaluateTerrainDesign` names its first place.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

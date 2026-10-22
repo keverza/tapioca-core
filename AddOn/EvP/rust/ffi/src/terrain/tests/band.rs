@@ -412,3 +412,100 @@ fn a_crowned_station_adds_the_centreline_line() {
     assert!(storage.site.fill >= 40.0 * 0.576 - 1e-9);
     assert!(storage.site.cut >= 40.0 * (0.44 + 0.5 * 0.44 * 22.0 / 15.0) - 1e-9);
 }
+
+fn conflicts_run(
+    input: &TerrainHybridRequest,
+    count: &mut usize,
+    rows: &mut [TerrainConflict],
+    query: bool,
+) -> (i32, String) {
+    let output = TerrainConflictOutput {
+        count: std::ptr::from_mut(count),
+        rows: if query {
+            std::ptr::null_mut()
+        } else {
+            rows.as_mut_ptr()
+        },
+        capacity: if query { 0 } else { rows.len() },
+        query_only: u32::from(query),
+        reserved: 0,
+    };
+    let mut error = [0_u8; 160];
+    // SAFETY: live immutable fixture pools and disjoint caller-owned outputs.
+    let status = unsafe {
+        tapioca_terrain_hybrid_conflicts(
+            std::ptr::from_ref(input),
+            &raw const output,
+            error.as_mut_ptr(),
+            error.len(),
+        )
+    };
+    let length = error.iter().position(|&b| b == 0).unwrap_or(error.len());
+    (
+        status,
+        String::from_utf8_lossy(error.get(..length).unwrap_or(&[])).into_owned(),
+    )
+}
+
+#[test]
+fn conflict_layouts_and_a_refused_band_assesses_with_locations() {
+    assert_eq!(size_of::<TerrainConflict>(), 48);
+    assert_eq!(size_of::<TerrainClip>(), 32);
+    if size_of::<usize>() == 8 {
+        assert_eq!(size_of::<TerrainConflictOutput>(), 32);
+        assert_eq!(size_of::<TerrainClipOutput>(), 32);
+    }
+    let (points, triangles) = base();
+    let short = [
+        TerrainStation {
+            cut_limit: 0.5,
+            fill_limit: 0.5,
+            ..station(0.0, 10.0)
+        },
+        TerrainStation {
+            cut_limit: 0.5,
+            fill_limit: 0.5,
+            ..station(40.0, 12.0)
+        },
+    ];
+    let rows = rows(counts_in(&points, &triangles));
+    let input = request(&points, &triangles, &short, &rows);
+    // The build refuses ...
+    let mut storage = Storage::new();
+    assert!(
+        run(&input, &storage.output(true))
+            .1
+            .starts_with("DaylightNotReached")
+    );
+    // ... and the assessment names all four places.
+    let mut count = 0;
+    assert_eq!(
+        conflicts_run(&input, &mut count, &mut [], true),
+        (0, String::new())
+    );
+    assert_eq!(count, 4);
+    let mut found = vec![TerrainConflict::default(); count];
+    assert_eq!(
+        conflicts_run(&input, &mut count, &mut found, false),
+        (0, String::new())
+    );
+    assert!(
+        found
+            .iter()
+            .all(|c| c.code == 2 && c.hard == 1 && (c.magnitude - 4.0 / 3.0).abs() < 1e-9)
+    );
+    let sides: Vec<[u32; 2]> = found.iter().map(|c| [c.side, c.station]).collect();
+    assert_eq!(sides, vec![[1, 0], [1, 1], [2, 0], [2, 1]]);
+    assert!(
+        found
+            .first()
+            .is_some_and(|c| c.position[0].abs() < 1e-12 && (c.position[1] - 2.5).abs() < 1e-12)
+    );
+    // Attribution still refuses with STATE and writes nothing.
+    let mut wrong = input;
+    wrong.provenance.domains = 5;
+    let mut kept = 9;
+    let (status, text) = conflicts_run(&wrong, &mut kept, &mut found, false);
+    assert_eq!((status, kept), (2, 9));
+    assert!(text.starts_with("ProvenanceConflict"));
+}

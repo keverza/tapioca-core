@@ -46,6 +46,26 @@ struct HybridVolumes {
     uint32_t triangles = 0;
     bool operator== (const HybridVolumes&) const = default;
 };
+enum class HybridConflictCode : uint32_t {
+    DaylightNotReached = 1,    // Magnitude: z_cone - z_base where the face search stopped.
+    DaylightBeyondLimit = 2,   // Magnitude: the reach needed, metres from the edge.
+    VerticalFace = 3,          // A wall is a separate surface.
+    DaylightTopology = 4,      // Magnitude: root count here (0 at grade).
+    EdgeContradictsEffect = 5, // Soft. Magnitude: z_edge - z_base.
+};
+struct HybridConflict {
+    HybridConflictCode code = HybridConflictCode::DaylightNotReached;
+    uint32_t station = 0;
+    TerrainHand side = TerrainHand::Left;
+    std::array<double, 3> position {}; // Band edge, or where a face search stopped.
+    double magnitude = 0;
+    bool hard = true; // The build refuses on it.
+    bool operator== (const HybridConflict&) const = default;
+};
+// The stable code text and its suggested fix.
+const char* HybridConflictName (HybridConflictCode code);
+const char* HybridConflictSuggestion (HybridConflictCode code);
+
 struct HybridTerrainResult {
     std::vector<double> points;                  // Proposed xyz; plan equals the rebuilt base.
     std::vector<double> base;                    // Base height per output vertex.
@@ -55,6 +75,7 @@ struct HybridTerrainResult {
     std::vector<HybridLine> lines;                // Indexed by the line of rows 13..16.
     std::vector<std::array<HybridSide, 2>> sides; // [left, right] per station.
     HybridVolumes site, context;                  // Inside / outside the region.
+    std::vector<HybridConflict> conflicts;        // Soft only: where the band is held back.
     ProvenanceRequest inputProvenance;            // Retained unchanged input catalog.
     size_t inputPointCount = 0;                   // Ring vertex i has input provenance index inputPointCount+i.
     bool operator== (const HybridTerrainResult&) const = default;
@@ -63,6 +84,10 @@ struct HybridTerrainResult {
 // success. Refusals carry the kernel's code: DaylightNotReached, HybridVertical,
 // HybridDaylightTopology, Region*, Design*, or a Provenance* attribution refusal.
 bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResult& result, std::string& error);
+// Every located conflict, hard and soft, without building; succeeds for a band
+// the build refuses. Same attribution refusals; conflicts unchanged on refusal.
+bool AssessHybridTerrain (const HybridTerrainRequest& request, std::vector<HybridConflict>& conflicts,
+                          std::string& error);
 
 } // namespace tapioca::geometry
 #endif
