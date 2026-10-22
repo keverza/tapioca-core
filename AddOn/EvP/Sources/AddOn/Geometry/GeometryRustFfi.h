@@ -570,6 +570,79 @@ typedef struct {
     size_t editCapacity;
 } TapiocaTerrainVolumeOutput;
 
+// S4.2 hybrid band: one path band on a base mesh inside a closed straight region
+// ring, rebuilt as a constrained TIN (band edges, shoulder ends, daylight lines and
+// end sections as breaklines; every base edge kept), with exact per-triangle
+// cut/fill (site inside the region, context outside). Provenance domains=7 as for
+// split: mesh THEN ring vertices, ring segments as edges, base triangles as faces.
+// Stations carry no entity rows. effect: 1 cut, 2 fill, 3 both. crossfallHand: 0
+// none, 1 left, 2 right. Line kind: 1 band edge, 2 shoulder end, 3 daylight, 4 end
+// section; side 1 left, 2 right (0 for an end); root = daylight root outward, or
+// 0 first / 1 last end. sides: [left, right] per station, roots 0 = at grade.
+// owners[v] is 0 when the band changed the height, else UINT32_MAX; base[v] is
+// the base height. Support rows reuse TapiocaTerrainMapping:
+// 9 Split vertex (as above; line = region ring).
+// 12 Region face: index=output face; v0=input parent face, v1=inside, v2=kept
+//    (verbatim input triangle).
+// 13 Region line vertex: index=output vertex; v0=line, v1=line vertex.
+// 14 Region crossing: index=output vertex; v0=1 base edge (v1/v2 output
+//    endpoints, ascending) or 2 line (v1/v2 line/segment). Two rows per vertex.
+// 15 Line vertex: index=line; v0=station ordinal, v1=output vertex.
+// 16 Line edge: index=line; v0=segment, v1/v2=output endpoints in line order.
+// 17 Ring vertex: index=ring position; v0=output vertex (closed chain).
+// Output vertices below the input count are the input vertices unchanged.
+typedef struct {
+    double position[3], halfLeft, halfRight, shoulderLeft, shoulderRight, cutLimit, fillLimit;
+    TapiocaTerrainSlope cut, fill, crossfall;
+    uint32_t crossfallHand, reserved;
+} TapiocaTerrainStation;
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    TapiocaDoubleView region;
+    struct {
+        const TapiocaTerrainStation* data;
+        size_t count;
+    } stations;
+    double tolerance;
+    uint32_t effect, reserved;
+    TapiocaProvenanceRequest provenance;
+} TapiocaTerrainHybridRequest;
+typedef struct {
+    size_t points, triangles, mappings, lines;
+} TapiocaTerrainHybridCounts;
+typedef struct {
+    double cut, fill, net, area;
+    uint32_t triangles, reserved;
+} TapiocaTerrainHybridVolumes;
+typedef struct {
+    uint32_t kind, side, root, reserved;
+} TapiocaTerrainHybridLine;
+typedef struct {
+    double first, last;
+    uint32_t roots, reserved;
+} TapiocaTerrainHybridSide;
+typedef struct {
+    TapiocaTerrainHybridCounts* counts;   /* Required. */
+    TapiocaTerrainHybridVolumes* site;    /* Required. */
+    TapiocaTerrainHybridVolumes* context; /* Required. */
+    double* points;
+    size_t pointCapacity;
+    double* base;
+    size_t baseCapacity; /* At least points / 3. */
+    uint32_t* owners;
+    size_t ownerCapacity; /* At least points / 3. */
+    uint32_t* triangles;
+    size_t triangleCapacity;
+    TapiocaTerrainMapping* mappings;
+    size_t mappingCapacity;
+    TapiocaTerrainHybridLine* lines;
+    size_t lineCapacity;
+    TapiocaTerrainHybridSide* sides;
+    size_t sideCapacity; /* At least 2 x stations. */
+    uint32_t queryOnly, reserved;
+} TapiocaTerrainHybridOutput;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -917,6 +990,15 @@ TapiocaStatus tapioca_terrain_edit (const TapiocaTerrainEditRequest* request, co
                                     char* error, size_t errorCapacity);
 TapiocaStatus tapioca_terrain_volume (const TapiocaTerrainVolumeRequest* request,
                                       const TapiocaTerrainVolumeOutput* output, char* error, size_t errorCapacity);
+
+// S4.2: query/fill like tapioca_terrain_triangulate (queryOnly=1 publishes only
+// counts; all capacities zero). Atomic, unchanged on refusal. Attribution
+// refusals return STATE; geometry/parameter refusals ARG with the kernel code
+// (DaylightNotReached, HybridVertical, HybridDaylightTopology, Region*, Design*).
+// Worker-classified; P1 rebuilds the whole region interior per call.
+TapiocaStatus tapioca_terrain_hybrid_build (const TapiocaTerrainHybridRequest* request,
+                                            const TapiocaTerrainHybridOutput* output, char* error,
+                                            size_t errorCapacity);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,157 @@
+#include "Geometry/GeometryRustHybridTerrain.hpp"
+#include "GeometryRustFfi.h"
+#include <gtest/gtest.h>
+#include <bit>
+#include <cmath>
+
+namespace {
+using namespace tapioca::geometry;
+
+const std::array<double, 12> kRegion { -10, -15, 0, 50, -15, 0, 50, 15, 0, -10, 15, 0 };
+
+ProvenanceRequest Provenance (EntityCounts counts, uint32_t domains)
+{
+    ProvenanceRequest request;
+    request.expectedSession = { 1 };
+    request.counts = counts;
+    request.domains = domains;
+    auto& table = request.table;
+    table.context = { 1, request.expectedSession, 0, 100 };
+    table.sources = { { 0x20000000000001ULL, {} } };
+    table.operations = { { 12, {} } };
+    table.objects = { { 13, 12 } };
+    table.sourceIds = { 0x20000000000001ULL };
+    table.operationIds = { 12 };
+    for (auto [domain, count] : { std::pair { IdentityDomain::Vertex, counts.vertices },
+                                  { IdentityDomain::Edge, counts.edges },
+                                  { IdentityDomain::Face, counts.faces } }) {
+        for (uint64_t index = 0; index < count; ++index) {
+            EntityMapping row;
+            row.domain = domain;
+            row.kind = MappingKind::Generated;
+            row.outputIndex = index;
+            row.sources = { 0, 1 };
+            row.operations = { 0, 1 };
+            row.object = 13;
+            table.mappings.push_back (row);
+        }
+    }
+    return request;
+}
+
+// 17 x 13 vertices at 5 m on z = 10 + 0.05x - 0.2y, offset off the band's lines.
+struct Base {
+    std::vector<double> points;
+    std::vector<uint32_t> triangles;
+    Base ()
+    {
+        for (uint32_t row = 0; row < 13; ++row)
+            for (uint32_t column = 0; column < 17; ++column) {
+                const double x = -20.5 + 5.0 * column, y = -30.5 + 5.0 * row;
+                points.insert (points.end (), { x, y, 10 + .05 * x - .2 * y });
+            }
+        for (uint32_t row = 0; row < 12; ++row)
+            for (uint32_t column = 0; column < 16; ++column) {
+                const uint32_t a = row * 17 + column;
+                triangles.insert (triangles.end (), { a, a + 1, a + 18, a, a + 18, a + 17 });
+            }
+    }
+    EntityCounts Counts () const
+    {
+        return { points.size () / 3 + 4, 4, triangles.size () / 3, 0 };
+    }
+};
+
+TerrainStation Station (double x, double z)
+{
+    TerrainStation station;
+    station.position = { x, 0, z };
+    station.halfLeft = station.halfRight = 2;
+    station.cut = station.fill = { TerrainSlope::Unit::RiseRun, 1, 2 };
+    station.cutLimit = station.fillLimit = 10;
+    return station;
+}
+} // namespace
+
+TEST (GeometryRustHybridTerrain, AbiLayouts)
+{
+    static_assert (sizeof (TapiocaTerrainStation) == 152);
+    static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridRequest) == 360);
+    static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridOutput) == 144);
+    SUCCEED ();
+}
+
+TEST (GeometryRustHybridTerrain, WorkedBandBuildsWithExactDaylightAndUntouchedOutside)
+{
+    const Base base;
+    const auto provenance = Provenance (base.Counts (), 7);
+    const std::array stations { Station (0, 10), Station (40, 12) };
+    HybridTerrainResult result;
+    std::string error;
+    ASSERT_TRUE (BuildHybridTerrain (
+        { { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, provenance }, result,
+        error))
+        << error;
+    EXPECT_EQ (result.inputProvenance, provenance);
+    EXPECT_EQ (result.inputPointCount, base.points.size () / 3);
+    // The input vertices are an unchanged prefix of the rebuilt base.
+    ASSERT_GE (result.points.size (), base.points.size ());
+    const std::vector<HybridLine> lines {
+        { HybridLineKind::Edge, TerrainHand::Left, 0 },  { HybridLineKind::Daylight, TerrainHand::Left, 0 },
+        { HybridLineKind::Edge, TerrainHand::Right, 0 }, { HybridLineKind::Daylight, TerrainHand::Right, 0 },
+        { HybridLineKind::End, std::nullopt, 0 },        { HybridLineKind::End, std::nullopt, 1 }
+    };
+    EXPECT_EQ (result.lines, lines);
+    ASSERT_EQ (result.sides.size (), 2U);
+    for (const auto& pair : result.sides)
+        for (const auto& side : pair) {
+            EXPECT_EQ (side.roots, 1U);
+            EXPECT_NEAR (side.first, 4.0 / 3.0, 1e-9);
+        }
+    // Site totals include the unconstrained end caps (S4.1 evidence).
+    EXPECT_NEAR (result.site.fill, 27.9444, 1e-3);
+    EXPECT_NEAR (result.site.cut, 27.7778, 1e-3);
+    EXPECT_EQ (result.context.fill, 0.0);
+    EXPECT_EQ (result.context.cut, 0.0);
+    ASSERT_EQ (result.base.size (), result.points.size () / 3);
+    ASSERT_EQ (result.owners.size (), result.base.size ());
+    size_t moved = 0;
+    for (size_t v = 0; v < result.base.size (); ++v) {
+        const double x = result.points[v * 3], y = result.points[v * 3 + 1], z = result.points[v * 3 + 2];
+        if (x < -10 || x > 50 || std::abs (y) > 15) {
+            EXPECT_EQ (std::bit_cast<uint64_t> (z), std::bit_cast<uint64_t> (result.base[v]));
+            EXPECT_FALSE (result.owners[v].has_value ());
+        }
+        moved += result.owners[v].has_value ();
+    }
+    EXPECT_GT (moved, 0U);
+    size_t faces = 0, ring = 0;
+    for (const auto& row : result.mappings) {
+        faces += row.kind == TerrainMappingKind::RegionFace;
+        ring += row.kind == TerrainMappingKind::RingVertex;
+    }
+    EXPECT_EQ (faces * 3, result.triangles.size ());
+    EXPECT_GE (ring, 4U);
+}
+
+TEST (GeometryRustHybridTerrain, RefusalsKeepTheOwnedResult)
+{
+    const Base base;
+    const auto provenance = Provenance (base.Counts (), 7);
+    HybridTerrainResult result;
+    result.points = { 77 };
+    const auto before = result;
+    std::string error;
+    auto unmet = std::array { Station (0, 10), Station (40, 12) };
+    unmet[0].cutLimit = unmet[0].fillLimit = .5;
+    EXPECT_FALSE (BuildHybridTerrain (
+        { { base.points, base.triangles }, kRegion, unmet, TerrainEditEffect::Both, 1e-6, provenance }, result, error));
+    EXPECT_EQ (error.rfind ("DaylightNotReached", 0), 0U) << error;
+    EXPECT_EQ (result, before);
+    const std::array stations { Station (0, 10), Station (40, 12) };
+    const auto wrong = Provenance ({ base.points.size () / 3, 0, base.triangles.size () / 3, 0 }, 5);
+    EXPECT_FALSE (BuildHybridTerrain (
+        { { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, wrong }, result, error));
+    EXPECT_EQ (error.rfind ("ProvenanceConflict", 0), 0U) << error;
+    EXPECT_EQ (result, before);
+}

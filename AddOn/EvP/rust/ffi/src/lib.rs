@@ -128,9 +128,11 @@ mod terrain;
 pub use terrain::{
     TerrainConstraint, TerrainCounts, TerrainDaylight, TerrainEdit, TerrainEditOutput,
     TerrainEditReport, TerrainEditRequest, TerrainEditVolumes, TerrainFaceOwner,
-    TerrainFieldSummary, TerrainMapping, TerrainOutput, TerrainRefinement, TerrainRequest,
-    TerrainRing, TerrainSample, TerrainSampleOutput, TerrainSampleRequest, TerrainSlope,
-    TerrainSplitRequest, TerrainSurfaceView, TerrainVolumeOutput, TerrainVolumeRequest,
-    TerrainVolumes, tapioca_terrain_edit, tapioca_terrain_sample, tapioca_terrain_split_mesh,
+    TerrainFieldSummary, TerrainHybridCounts, TerrainHybridLine, TerrainHybridOutput,
+    TerrainHybridRequest, TerrainHybridSide, TerrainHybridVolumes, TerrainMapping, TerrainOutput,
+    TerrainRefinement, TerrainRequest, TerrainRing, TerrainSample, TerrainSampleOutput,
+    TerrainSampleRequest, TerrainSlope, TerrainSplitRequest, TerrainStation, TerrainSurfaceView,
+    TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes, tapioca_terrain_edit,
+    tapioca_terrain_hybrid_build, tapioca_terrain_sample, tapioca_terrain_split_mesh,
     tapioca_terrain_triangulate, tapioca_terrain_volume,
 };

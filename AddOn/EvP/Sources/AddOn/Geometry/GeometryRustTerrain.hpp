@@ -181,7 +181,14 @@ enum class TerrainMappingKind : uint32_t {
     SplitFace = 8,
     SplitVertex = 9,
     LineVertex = 10,
-    LineEdge = 11
+    LineEdge = 11,
+    // Hybrid band rows (GeometryRustHybridTerrain.hpp); never from TIN or split.
+    RegionFace = 12,
+    RegionLineVertex = 13,
+    RegionCrossing = 14,
+    DesignLineVertex = 15,
+    DesignLineEdge = 16,
+    RingVertex = 17
 };
 // Lossless support records; indices/values have the documented ABI v1 row
 // meanings (GeometryRustFfi.h), not semantic IDs. Source IDs, operation DAG,

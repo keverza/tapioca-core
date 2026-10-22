@@ -29,6 +29,15 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainEditOutput) == 72, "
 static_assert (sizeof (TapiocaTerrainVolumes) == 40 && sizeof (TapiocaTerrainEditVolumes) == 40, "Volume ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeRequest) == 176, "Volume request ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeOutput) == 48, "Volume output ABI mismatch");
+static_assert (sizeof (TapiocaTerrainStation) == 152 && sizeof (TapiocaTerrainHybridLine) == 16, "Band ABI mismatch");
+static_assert (sizeof (TapiocaTerrainHybridVolumes) == 40 && sizeof (TapiocaTerrainHybridSide) == 24,
+               "Band ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridRequest) == 360, "Band request ABI mismatch");
+static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainHybridRequest, provenance) == 80,
+               "Band request mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridCounts) == 32, "Band counts ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridOutput) == 144, "Band output ABI mismatch");
+static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainHybridOutput, queryOnly) == 136, "Band output mismatch");
 
 extern "C" int TapiocaCppHeaderCheck (void)
 {

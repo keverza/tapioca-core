@@ -1,6 +1,7 @@
 use super::*;
 use crate::identity::ProvenanceView;
 
+mod band;
 mod memory;
 mod operators;
 

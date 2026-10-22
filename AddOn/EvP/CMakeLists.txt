@@ -299,7 +299,7 @@ file (GLOB_RECURSE AddOnHeaderFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.h 
 file (GLOB_RECURSE AddOnSourceFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.c ${AddOnSourcesFolder}/*.cpp)
 if (NOT TAPIOCA_LINK_RUST_GEOMETRY)
     list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Edit/Edit(TerrainAdapter|TerrainTriangulation|SparseSolve|LandscapeTerrain|LandscapeTerrainSplit|LandscapeTerrainSolve)\\.cpp$")
-    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRust(Terrain|TerrainField|Grading|Identity|Value|Affine|Polyline|Arc|Plane|MeshPrep)\\.cpp$")
+    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRust(Terrain|TerrainField|HybridTerrain|Grading|Identity|Value|Affine|Polyline|Arc|Plane|MeshPrep)\\.cpp$")
 endif ()
 
 # ---- ArchViz: the Diligent renderer ----------------------------------------

@@ -892,6 +892,33 @@ The facade declarations live in `GeometryRustTerrain.hpp`; implementations are
 `GeometryRustGrading.cpp` and `GeometryRustTerrainField.cpp`, excluded from the
 add-on when Rust is not linked. No `Edit/` caller exists yet.
 
+## S4.2 hybrid band ABI and C++ facade
+
+`tapioca_terrain_hybrid_build` is additive: its request, counts and output
+records are new, so the pinned `TapiocaTerrainRequest`/`TapiocaTerrainOutput`
+stay unchanged. It follows the query/fill contract of
+`tapioca_terrain_triangulate` (query publishes only counts with zero
+capacities; fill recomputes and publishes atomically). Input provenance is the
+split's (`domains = 7`: mesh then region-ring vertices, ring segments as edges,
+base triangles as faces); stations are authored parameters without entity rows.
+
+| Output | Meaning |
+|---|---|
+| `points`, `base` | proposed xyz and base height per output vertex (plan identical) |
+| `owners` | `0` where the band changed the height, `UINT32_MAX` otherwise |
+| `triangles`, `mappings` | rebuilt mesh; rows 9 (split vertex) and 12..17 (region face, region line vertex, crossing support, line vertex, line edge, ring vertex) |
+| `lines` | per design line: band edge, shoulder end, daylight (root outward) or end section |
+| `sides` | per station `[left, right]` daylight root count, first and last root |
+| `site`, `context` | exact triangle-sum cut/fill inside / outside the region |
+
+Record sizes are pinned in `terrain/tests/band.rs` and `rust/tests/abi_header.cpp`.
+The facade is `BuildHybridTerrain` in `GeometryRustHybridTerrain.hpp`; it never
+reinterprets a row, it only checks kinds and query/fill agreement. P1 limits
+stay explicit: whole-region rebuild per call, constant daylight root count per
+side, unconstrained end caps counted in the site total, no crown (a crowned
+section needs a centreline crease), and no height-error refinement between
+stations.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

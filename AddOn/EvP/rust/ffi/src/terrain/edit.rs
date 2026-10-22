@@ -187,7 +187,7 @@ pub struct TerrainEditOutput {
     pub report_capacity: usize,
 }
 
-fn slope(value: TerrainSlope) -> Result<Slope, Failure> {
+pub(super) fn slope(value: TerrainSlope) -> Result<Slope, Failure> {
     Ok(match value.kind {
         1 => Slope::Angle { radians: value.a },
         2 => Slope::Percent(value.a),

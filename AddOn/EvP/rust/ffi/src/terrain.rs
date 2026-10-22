@@ -6,6 +6,7 @@ use crate::identity::ProvenanceRequest;
 use tapioca_geometry::{identity as id, terrain as kernel};
 
 mod edit;
+mod hybrid;
 mod result;
 mod sample;
 mod storage;
@@ -14,6 +15,10 @@ mod volume;
 pub use edit::{
     TerrainDaylight, TerrainEdit, TerrainEditOutput, TerrainEditReport, TerrainEditRequest,
     TerrainFaceOwner, TerrainRing, TerrainSlope, TerrainSurfaceView, tapioca_terrain_edit,
+};
+pub use hybrid::{
+    TerrainHybridCounts, TerrainHybridLine, TerrainHybridOutput, TerrainHybridRequest,
+    TerrainHybridSide, TerrainHybridVolumes, TerrainStation, tapioca_terrain_hybrid_build,
 };
 pub use sample::{
     TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,
