@@ -2,6 +2,7 @@ use super::*;
 use crate::identity::ProvenanceView;
 
 mod memory;
+mod operators;
 
 const POINTS: [f64; 12] = [
     0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 8.0, 0.0, 10.0, 0.0,

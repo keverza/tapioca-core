@@ -868,6 +868,30 @@ plain-text mesh pair for external oracle comparison; on the private analysis
 oracle's identical grids it agrees to 1e-14 relative with identical counts.
 All three services are worker-classified.
 
+## S3b.3 grading and terrain ABI and C++ facade
+
+Four additive ABI v1 exports, each a single compute into caller-sized outputs (no
+query mode, no retained handle), with the S3a.2 preflight/atomicity contract
+shared through `ffi::pools`:
+
+| Export | Outputs | Facade |
+|---|---|---|
+| `tapioca_grading_solve` | one value per unknown + summary (objective, iterations, factorizations, active) | `SolveGrading` |
+| `tapioca_terrain_sample` | per `x y` query: height, face, normal, gradient and method per axis, slope, aspect, flags; field summary | `SampleTerrain` |
+| `tapioca_terrain_edit` | heights, owners (`UINT32_MAX` none), face-owner rows (at most three per triangle, count published), one report per edit | `EditTerrain` |
+| `tapioca_terrain_volume` | site, context, cell counts, per-edit rows | `MeasureTerrainVolumes` |
+
+Records are `f64`-first with explicit `reserved` words; their sizes are pinned by
+Rust `size_of` tests and `rust/tests/abi_header.cpp`. The edit export requires
+schema-v1 input provenance over the mesh's vertices and faces (`domains = 5`) and
+retains the catalog in the facade result; attribution refusals are `STATE`,
+everything else `ARG`. Surface targets are separate mesh views whose own pools are
+preflighted in a second pass before any borrow. Edit geometry (curves, paths,
+rings, clip and protected rings) is one flat xyz pool addressed by scalar range.
+The facade declarations live in `GeometryRustTerrain.hpp`; implementations are
+`GeometryRustGrading.cpp` and `GeometryRustTerrainField.cpp`, excluded from the
+add-on when Rust is not linked. No `Edit/` caller exists yet.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

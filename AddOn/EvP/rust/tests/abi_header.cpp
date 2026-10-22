@@ -13,6 +13,23 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainSplitRequest) == 344
 static_assert (sizeof (TapiocaTerrainMapping) == 32, "Terrain mapping ABI mismatch");
 static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainOutput, queryOnly) == 56, "Terrain output ABI mismatch");
 
+// S3b.3 records; pinned against the Rust layout tests.
+static_assert (sizeof (TapiocaGradingTerm) == 16 && sizeof (TapiocaGradingRow) == 24, "Grading pool ABI mismatch");
+static_assert (sizeof (TapiocaGradingFixed) == 16 && sizeof (TapiocaGradingBound) == 24, "Grading pool ABI mismatch");
+static_assert (sizeof (TapiocaGradingDifference) == 24 && sizeof (TapiocaGradingSummary) == 24, "Grading ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaGradingRequest) == 128, "Grading request ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaGradingOutput) == 24, "Grading output ABI mismatch");
+static_assert (sizeof (TapiocaTerrainSample) == 72 && sizeof (TapiocaTerrainFieldSummary) == 64, "Sample ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainSampleRequest) == 56, "Sample request ABI mismatch");
+static_assert (sizeof (TapiocaTerrainSlope) == 24 && sizeof (TapiocaTerrainDaylight) == 40, "Slope ABI mismatch");
+static_assert (sizeof (TapiocaTerrainEdit) == 208 && sizeof (TapiocaTerrainRing) == 8, "Edit ABI mismatch");
+static_assert (sizeof (TapiocaTerrainFaceOwner) == 8 && sizeof (TapiocaTerrainEditReport) == 16, "Edit row mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainEditRequest) == 400, "Edit request ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainEditOutput) == 72, "Edit output ABI mismatch");
+static_assert (sizeof (TapiocaTerrainVolumes) == 40 && sizeof (TapiocaTerrainEditVolumes) == 40, "Volume ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeRequest) == 176, "Volume request ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainVolumeOutput) == 48, "Volume output ABI mismatch");
+
 extern "C" int TapiocaCppHeaderCheck (void)
 {
     uint32_t version = 0;

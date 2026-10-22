@@ -5,8 +5,24 @@ use crate::boundary::{Failure, call, memory_range};
 use crate::identity::ProvenanceRequest;
 use tapioca_geometry::{identity as id, terrain as kernel};
 
+mod edit;
 mod result;
+mod sample;
 mod storage;
+mod volume;
+
+pub use edit::{
+    TerrainDaylight, TerrainEdit, TerrainEditOutput, TerrainEditReport, TerrainEditRequest,
+    TerrainFaceOwner, TerrainRing, TerrainSlope, TerrainSurfaceView, tapioca_terrain_edit,
+};
+pub use sample::{
+    TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,
+    tapioca_terrain_sample,
+};
+pub use volume::{
+    TerrainEditVolumes, TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes,
+    tapioca_terrain_volume,
+};
 #[cfg(test)]
 mod tests;
 

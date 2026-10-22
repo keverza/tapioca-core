@@ -384,6 +384,192 @@ typedef struct {
     TapiocaProvenanceRequest provenance;
 } TapiocaAttributedPolygonRequest;
 
+// S3b.3 grading solve: weighted sparse least squares over a term pool; fixed
+// unknowns are eliminated. constrained=0 requires empty bounds/differences/start.
+// Infinite bound/difference sides are open. Values: one per unknown.
+typedef struct {
+    double coefficient;
+    uint32_t unknown, reserved;
+} TapiocaGradingTerm;
+typedef struct {
+    double target, weight;
+    uint32_t first, count;
+} TapiocaGradingRow;
+typedef struct {
+    double value;
+    uint32_t unknown, reserved;
+} TapiocaGradingFixed;
+typedef struct {
+    double lower, upper;
+    uint32_t unknown, reserved;
+} TapiocaGradingBound;
+typedef struct {
+    double min, max; /* min <= x[a] - x[b] <= max */
+    uint32_t a, b;
+} TapiocaGradingDifference;
+typedef struct {
+    struct {
+        const TapiocaGradingTerm* data;
+        size_t count;
+    } terms;
+    struct {
+        const TapiocaGradingRow* data;
+        size_t count;
+    } rows;
+    struct {
+        const TapiocaGradingFixed* data;
+        size_t count;
+    } fixed;
+    struct {
+        const TapiocaGradingBound* data;
+        size_t count;
+    } bounds;
+    struct {
+        const TapiocaGradingDifference* data;
+        size_t count;
+    } differences;
+    TapiocaDoubleView start; /* Empty or one per unknown (constrained only). */
+    double feasibility, residual;
+    uint32_t unknowns, maxIterations, constrained, reserved;
+} TapiocaGradingRequest;
+typedef struct {
+    double objective;
+    uint32_t iterations, factorizations, active, reserved;
+} TapiocaGradingSummary;
+typedef struct {
+    TapiocaGradingSummary* summary; /* Required. */
+    double* values;
+    size_t valueCapacity; /* At least unknowns. */
+} TapiocaGradingOutput;
+
+// S3b.3 terrain field, edits and volumes over upward faces (unit normal z >
+// 0.001). Sample flags: bit0 on surface (else all zero), bit1 aspect valid, bits
+// 2-3 / 4-5 x / y gradient method (1 central, 2 one-sided, 3 face plane).
+enum { TAPIOCA_SAMPLE_ON_SURFACE = 1, TAPIOCA_SAMPLE_HAS_ASPECT = 2 };
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    TapiocaDoubleView queries; /* x y pairs */
+    double step;               /* Gradient step, metres. */
+} TapiocaTerrainSampleRequest;
+typedef struct {
+    double height, normal[3], gradient[2], slope, aspect; /* Radians; aspect from +y clockwise. */
+    uint32_t face, flags;
+} TapiocaTerrainSample;
+typedef struct {
+    double min[3], max[3], area;
+    uint32_t faces, excluded;
+} TapiocaTerrainFieldSummary;
+typedef struct {
+    TapiocaTerrainFieldSummary* summary; /* Required. */
+    TapiocaTerrainSample* samples;
+    size_t sampleCapacity; /* At least queries.count / 2. */
+} TapiocaTerrainSampleOutput;
+
+// Edits move vertex heights only; indices and triangles keep their identity.
+// Provenance domains=5 (mesh vertices, mesh triangles) is mandatory. Slope kind:
+// 1 angle (a radians), 2 percent (a), 3 rise:run (a:b), 4 height (a m over b m).
+// Edit target: 1 point, 2 curve, 3 area, 4 path, 5 surface. mode: 1 absolute,
+// 2 relative. effect: 1 cut, 2 fill, 3 both. transition: 1 falloff, 2 daylight
+// (absolute only). levelKind: 1 height, 2 flatten. crossfallHand: 0 none, 1 left,
+// 2 right. Curves, paths and rings are xyz scalar ranges of the geometry pool.
+// owners[v] is UINT32_MAX for an unmoved vertex; face rows are at most three
+// per triangle and faceCount is published.
+typedef struct {
+    double a, b;
+    uint32_t kind, reserved;
+} TapiocaTerrainSlope;
+typedef struct {
+    TapiocaTerrainSlope slope;
+    double extension;
+    uint32_t hasExtension, reserved;
+} TapiocaTerrainDaylight;
+typedef struct {
+    double position[3], width, level, blur, maxDistance, strength;
+    TapiocaTerrainDaylight cut, fill;
+    TapiocaTerrainSlope crossfall;
+    uint32_t target, mode, effect, transition, geometryOffset, geometryCount, levelKind, crossfallHand, surface,
+        reserved;
+} TapiocaTerrainEdit;
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+} TapiocaTerrainSurfaceView;
+typedef struct {
+    uint32_t offset, count;
+} TapiocaTerrainRing;
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    struct {
+        const TapiocaTerrainEdit* data;
+        size_t count;
+    } edits;
+    TapiocaDoubleView geometry;
+    struct {
+        const TapiocaTerrainSurfaceView* data;
+        size_t count;
+    } surfaces;
+    struct {
+        const TapiocaTerrainRing* data;
+        size_t count;
+    } protectedRings;
+    TapiocaTerrainRing clip;
+    uint32_t hasClip, hasSmoothing;
+    double smoothing;
+    TapiocaProvenanceRequest provenance;
+} TapiocaTerrainEditRequest;
+typedef struct {
+    uint32_t face, edit;
+} TapiocaTerrainFaceOwner;
+typedef struct {
+    uint32_t moved, extensionClipped, limitClipped, reserved;
+} TapiocaTerrainEditReport;
+typedef struct {
+    size_t* faceCount; /* Required. */
+    double* heights;
+    size_t heightCapacity;
+    uint32_t* owners;
+    size_t ownerCapacity;
+    TapiocaTerrainFaceOwner* faces;
+    size_t faceCapacity;
+    TapiocaTerrainEditReport* reports;
+    size_t reportCapacity;
+} TapiocaTerrainEditOutput;
+
+// Volumes: oracle grid semantics (cell count rule, partial cells, centres or
+// k x k sub-centres), diff = proposed - existing. proposed: 1 mesh, 2 plane,
+// 3 existing mesh with heights + owners (per-edit rows, ascending edit).
+// Outside or on the property ring is context.
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    TapiocaDoubleView proposedPoints;
+    TapiocaIndexView proposedTriangles;
+    TapiocaDoubleView heights;
+    TapiocaIndexView owners;
+    TapiocaDoubleView property;
+    double domain[4]; /* xMin yMin xMax yMax when hasDomain. */
+    double plane, cell;
+    uint32_t proposed, subdivisions, hasDomain, reserved;
+} TapiocaTerrainVolumeRequest;
+typedef struct {
+    double cut, fill, net, area;
+    uint32_t samples, excluded;
+} TapiocaTerrainVolumes;
+typedef struct {
+    double cut, fill, net, area;
+    uint32_t edit, reserved;
+} TapiocaTerrainEditVolumes;
+typedef struct {
+    TapiocaTerrainVolumes* site;    /* Required. */
+    TapiocaTerrainVolumes* context; /* Required. */
+    uint32_t* cells;                /* Required: two counts. */
+    size_t* editCount;              /* Required. */
+    TapiocaTerrainEditVolumes* edits;
+    size_t editCapacity;
+} TapiocaTerrainVolumeOutput;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -717,6 +903,20 @@ TapiocaStatus tapioca_terrain_triangulate (const TapiocaTerrainRequest* request,
                                            char* error, size_t errorCapacity);
 TapiocaStatus tapioca_terrain_split_mesh (const TapiocaTerrainSplitRequest* request, const TapiocaTerrainOutput* output,
                                           char* error, size_t errorCapacity);
+
+// S3b.3: single compute, caller-sized outputs (no query mode). The same
+// live/aligned/disjoint/atomic contract as above applies, including every
+// nested surface pool of an edit. Outputs are unchanged on any refusal.
+// Edit attribution refusals return STATE; all other refusals ARG.
+// Worker-classified; each call allocates.
+TapiocaStatus tapioca_grading_solve (const TapiocaGradingRequest* request, const TapiocaGradingOutput* output,
+                                     char* error, size_t errorCapacity);
+TapiocaStatus tapioca_terrain_sample (const TapiocaTerrainSampleRequest* request,
+                                      const TapiocaTerrainSampleOutput* output, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_terrain_edit (const TapiocaTerrainEditRequest* request, const TapiocaTerrainEditOutput* output,
+                                    char* error, size_t errorCapacity);
+TapiocaStatus tapioca_terrain_volume (const TapiocaTerrainVolumeRequest* request,
+                                      const TapiocaTerrainVolumeOutput* output, char* error, size_t errorCapacity);
 
 #ifdef __cplusplus
 }

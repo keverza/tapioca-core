@@ -112,10 +112,25 @@ pub use mesh_prep::{
 
 #[allow(
     unsafe_code,
+    reason = "Grading POD pool preflight and atomic caller-owned value/summary publication"
+)]
+mod grading;
+pub use grading::{
+    GradingBound, GradingDifference, GradingFixed, GradingOutput, GradingRequest, GradingRow,
+    GradingSummary, GradingTerm, tapioca_grading_solve,
+};
+
+#[allow(
+    unsafe_code,
     reason = "Terrain flat POD/pool preflight and atomic caller-owned support mapping publication"
 )]
 mod terrain;
 pub use terrain::{
-    TerrainConstraint, TerrainCounts, TerrainMapping, TerrainOutput, TerrainRefinement,
-    TerrainRequest, TerrainSplitRequest, tapioca_terrain_split_mesh, tapioca_terrain_triangulate,
+    TerrainConstraint, TerrainCounts, TerrainDaylight, TerrainEdit, TerrainEditOutput,
+    TerrainEditReport, TerrainEditRequest, TerrainEditVolumes, TerrainFaceOwner,
+    TerrainFieldSummary, TerrainMapping, TerrainOutput, TerrainRefinement, TerrainRequest,
+    TerrainRing, TerrainSample, TerrainSampleOutput, TerrainSampleRequest, TerrainSlope,
+    TerrainSplitRequest, TerrainSurfaceView, TerrainVolumeOutput, TerrainVolumeRequest,
+    TerrainVolumes, tapioca_terrain_edit, tapioca_terrain_sample, tapioca_terrain_split_mesh,
+    tapioca_terrain_triangulate, tapioca_terrain_volume,
 };
