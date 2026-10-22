@@ -215,7 +215,7 @@ bool Stroke (const edit::Document& doc, const LandscapeOperation& op, const std:
     parent.boundary.push_back (std::move (support));
     return GeneratedShape (paths, { parent }, op.id, order, out, error);
 }
-bool Evaluate (const edit::Document& doc, LandscapeResult& out)
+bool Evaluate (const edit::Document& doc, LandscapeResult& out, std::map<Id, Shape>* operationValues)
 {
     out.revision = doc.revision;
     if (!doc.landscape)
@@ -339,26 +339,50 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
                 Diagnostic (out, LandscapeDiagnosticCode::PropertyLineOutside, id,
                             "terrain constraint has no property line to bound it");
             bool reached = false;
+            std::set<std::pair<size_t, size_t>> reachedMasks;
+            std::optional<std::set<std::pair<size_t, size_t>>> firstMasks;
+            bool uniformScope = true;
             for (auto& region : shape) {
+                std::set<std::pair<size_t, size_t>> regionMasks;
                 std::set<Id> sources (region.sources.begin (), region.sources.end ());
                 std::set<Id> history (region.operations.begin (), region.operations.end ());
                 for (size_t i = 1; i < op.inputs.size (); ++i)
-                    for (const auto& mask : values.at (op.inputs[i]))
+                    for (size_t maskIndex = 0; maskIndex < values.at (op.inputs[i]).size (); ++maskIndex) {
+                        const auto& mask = values.at (op.inputs[i])[maskIndex];
                         if (std::abs (cp::Area (
                                 cp::Intersect (Paths (region), Paths (mask), cp::FillRule::NonZero, kPrecision))) > 0) {
                             reached = true;
+                            if (operationValues)
+                                regionMasks.emplace (i, maskIndex);
                             sources.insert (mask.sources.begin (), mask.sources.end ());
                             history.insert (mask.operations.begin (), mask.operations.end ());
                         }
+                    }
                 region.sources.assign (sources.begin (), sources.end ());
                 region.operations.clear ();
                 for (Id parent : order)
                     if (history.count (parent))
                         region.operations.push_back (parent);
+                if (operationValues) {
+                    reachedMasks.insert (regionMasks.begin (), regionMasks.end ());
+                    if (firstMasks)
+                        uniformScope = uniformScope && *firstMasks == regionMasks;
+                    else
+                        firstMasks = std::move (regionMasks);
+                }
             }
             // The footprint survives; a mask that clips none of it constrains nothing.
             if (!reached && !shape.empty ())
                 Diagnostic (out, LandscapeDiagnosticCode::ClipEmpty, id, "constraint mask reaches no region");
+            if (operationValues && reached && op.kind != OperationKind::MaterialMask) {
+                LandscapeTerrainConstraint constraint;
+                constraint.operation = id;
+                constraint.kind = op.kind;
+                constraint.uniformScope = uniformScope;
+                for (const auto& [inputIndex, maskIndex] : reachedMasks)
+                    constraint.masks.push_back (values.at (op.inputs[inputIndex])[maskIndex]);
+                out.terrainConstraints.push_back (std::move (constraint));
+            }
             AppendHistory (shape, id, order);
         }
         else if (op.kind == OperationKind::RegionSelect)
@@ -419,6 +443,8 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out)
             out.regions.push_back (std::move (region));
         }
     }
+    if (operationValues)
+        *operationValues = std::move (values);
     return true;
 }
 // Regions of the identities the before-state emits, keyed by region ID. An
@@ -613,6 +639,7 @@ void RefreshSources (edit::Document& doc)
 void TypeRefusal (LandscapeResult& result)
 {
     result.regions.clear ();
+    result.terrainConstraints.clear ();
     for (int i = 0; i <= int (LandscapeDiagnosticCode::ClipEmpty); ++i) {
         const auto code = LandscapeDiagnosticCode (i);
         if (result.error.rfind (std::string (LandscapeDiagnosticCodeName (code)) + ":", 0) == 0 &&
@@ -623,11 +650,13 @@ void TypeRefusal (LandscapeResult& result)
 }
 } // namespace
 
-bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
+bool landscape_detail::EvaluateLandscapeOperations (const edit::Document& doc, LandscapeResult& result,
+                                                    std::map<Id, Shape>* values)
 {
     LandscapeResult candidate;
+    std::map<Id, Shape> candidateValues;
     try {
-        if (!Evaluate (doc, candidate)) {
+        if (!Evaluate (doc, candidate, values ? &candidateValues : nullptr)) {
             TypeRefusal (candidate);
             result = std::move (candidate);
             return false;
@@ -636,11 +665,19 @@ bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
     catch (const std::exception& e) {
         candidate.error = std::string ("landscape evaluation refused: ") + e.what ();
         candidate.regions.clear ();
+        candidate.terrainConstraints.clear ();
         result = std::move (candidate);
         return false;
     }
     result = std::move (candidate);
+    if (values)
+        *values = std::move (candidateValues);
     return true;
+}
+
+bool EvaluateLandscape (const edit::Document& doc, LandscapeResult& result)
+{
+    return landscape_detail::EvaluateLandscapeOperations (doc, result, nullptr);
 }
 
 static bool Rebuild (edit::Document& doc, LandscapeResult& result, std::string& error, const edit::Document* before);

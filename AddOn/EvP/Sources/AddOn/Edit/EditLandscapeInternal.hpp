@@ -33,5 +33,9 @@ bool SplitShape (const Shape& surface, const Shape& guides, Id operation, const 
                  std::string& error);
 bool BoundaryLess (const std::vector<BoundaryRef>& a, const std::vector<BoundaryRef>& b);
 void Diagnostic (LandscapeResult& out, LandscapeDiagnosticCode code, Id op, const std::string& message);
+// Optional revision-local operation footprints for terrain request compilation.
+// The normal planar entrypoint does not retain them. On refusal values is unchanged.
+bool EvaluateLandscapeOperations (const geomsrv::edit::Document& doc, LandscapeResult& result,
+                                  std::map<Id, Shape>* values);
 } // namespace tapioca::geometry::landscape_detail
 #endif

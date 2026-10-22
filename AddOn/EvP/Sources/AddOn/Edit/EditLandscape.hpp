@@ -170,11 +170,21 @@ struct DerivedRegion {
     Vec3 seed;
     MaterialSpec material;
 };
+// Derived constraint inputs, not stored terrain or a second authoring model.
+// Only masks reaching a footprint participate; full mask extents are retained
+// because grading/protection also acts on the surrounding transition.
+struct LandscapeTerrainConstraint {
+    Id operation = kNoId;
+    OperationKind kind = OperationKind::GradingLimit;
+    bool uniformScope = true; // Every disconnected input region reaches the same mask pieces.
+    std::vector<DerivedRegion> masks;
+};
 struct LandscapeResult {
     uint64_t revision = 0;
     std::vector<DerivedRegion> faces, regions;
     std::vector<PlanarDiagnostic> planarDiagnostics;
     std::vector<LandscapeDiagnostic> diagnostics;
+    std::vector<LandscapeTerrainConstraint> terrainConstraints; // Opt-in terrain evaluation only.
     std::vector<Vec3> propertyLine;
     uint64_t propertyLineRevision = 0;
     double boundaryTolerance = 0.001;
