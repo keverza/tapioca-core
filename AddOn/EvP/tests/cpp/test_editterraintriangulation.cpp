@@ -399,6 +399,33 @@ TEST (EditTerrainTriangulation, ClockwisePropertyEdgesRemainConnectedAndExterior
     EXPECT_GT (result.preservation.outsideFaces, 0U);
 }
 
+TEST (EditTerrainTriangulation, InteriorGuideVerticesKeepTheirFaceAndGuideSupports)
+{
+    SplitFixture fixture;
+    fixture.Property ({ Vec3 { 1, .5, 80 }, { 7, .5, 80 }, { 7, 7.5, 80 }, { 1, 7.5, 80 } });
+    const auto input = fixture.Input ();
+    EditTerrainSplitResult result;
+    std::string error;
+    ASSERT_TRUE (SplitEditTerrain (fixture.doc, input, fixture.Options (), result, error)) << error;
+    size_t faceHosted = 0;
+    for (const auto& support : result.split.mappings)
+        if (support.kind == TerrainMappingKind::SplitVertex && support.values[2] == 2) {
+            ++faceHosted;
+            const auto& row = Row (result.meshProvenance, IdentityDomain::Vertex, support.index);
+            ASSERT_EQ (row.predecessors.count, 2U);
+            const auto& face = result.meshProvenance.table.predecessors.at (row.predecessors.offset);
+            EXPECT_EQ (face.domain, IdentityDomain::Face);
+            EXPECT_EQ (face.entityIndex, support.values[3]);
+            const auto& guide = result.meshProvenance.table.predecessors.at (row.predecessors.offset + 1);
+            EXPECT_EQ (guide.domain, IdentityDomain::Vertex);
+            EXPECT_EQ (guide.entityIndex, fixture.provenance.counts.vertices + support.values[1]);
+            EXPECT_NEAR (result.split.points[support.index * 3 + 2],
+                         Surface (result.split.points[support.index * 3], result.split.points[support.index * 3 + 1]),
+                         1e-12);
+        }
+    EXPECT_EQ (faceHosted, 4U);
+}
+
 TEST (EditTerrainTriangulation, VerifierRejectsUnpreparedAndMalformedSplitMetadata)
 {
     EditTerrainPreservation report { 77, 88, 99 };
