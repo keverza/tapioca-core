@@ -12,7 +12,7 @@
 #include <stdexcept>
 
 namespace tapioca::geometry {
-namespace {
+namespace terrain_detail {
 bool Validate (const ProvenanceRequest& provenance, std::string& error)
 {
     ProvenanceDiagnostic diagnostic = ProvenanceDiagnostic::None;
@@ -38,21 +38,97 @@ EntityMapping Supported (const EntityMapping& input, IdentityDomain domain, uint
     return row;
 }
 
-struct InputRows {
-    std::vector<const EntityMapping*> vertices, edges, faces;
-    explicit InputRows (const ProvenanceRequest& input)
-        : vertices (input.counts.vertices), edges (input.counts.edges), faces (input.counts.faces)
-    {
-        for (const auto& row : input.table.mappings) {
-            if (row.domain == IdentityDomain::Vertex)
-                vertices.at (row.outputIndex) = &row;
-            if (row.domain == IdentityDomain::Face)
-                faces.at (row.outputIndex) = &row;
-            if (row.domain == IdentityDomain::Edge)
-                edges.at (row.outputIndex) = &row;
+bool NewTables (const ProvenanceRequest& input, uint64_t first, uint64_t second)
+{
+    std::set<uint64_t> tokens { input.table.context.tableId };
+    for (const auto& support : input.table.supportTables)
+        tokens.insert (support.context.tableId);
+    return first != 0 && second != 0 && tokens.insert (first).second && tokens.insert (second).second;
+}
+
+const IdentityObject* UniformOwner (const ProvenanceRequest& input, ObjectId object)
+{
+    const auto owner = std::find_if (input.table.objects.begin (), input.table.objects.end (),
+                                     [&] (const auto& value) { return value.id == object; });
+    if (!input.requireObject || object == 0 || owner == input.table.objects.end () ||
+        std::any_of (input.table.mappings.begin (), input.table.mappings.end (),
+                     [&] (const auto& row) { return row.object != object; }))
+        return nullptr;
+    return &*owner;
+}
+
+bool CurrentParents (const geomsrv::edit::Document& doc, const ProvenanceRequest& input, OperationId operation)
+{
+    const auto found = std::find_if (doc.landscape->operations.begin (), doc.landscape->operations.end (),
+                                     [&] (const auto& op) { return op.id == operation; });
+    const auto row = std::find_if (input.table.operations.begin (), input.table.operations.end (),
+                                   [&] (const auto& op) { return op.id == operation; });
+    std::vector<Id> parents;
+    for (Id id : found->inputs)
+        if (std::any_of (doc.landscape->operations.begin (), doc.landscape->operations.end (),
+                         [=] (const auto& op) { return op.id == id; }))
+            parents.push_back (id);
+    return parents.size () == row->parents.count &&
+           std::equal (parents.begin (), parents.end (), input.table.operationIds.begin () + row->parents.offset);
+}
+
+bool CatalogSource (const geomsrv::edit::Document& doc, const ProvenanceRequest& input, SourceId id, const char* what,
+                    std::string& error)
+{
+    const auto source = std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (),
+                                      [=] (const auto& value) { return value.id == id; });
+    const auto row = std::find_if (input.table.sources.begin (), input.table.sources.end (),
+                                   [=] (const auto& value) { return value.id == id; });
+    if (source == doc.landscape->sources.end () || row == input.table.sources.end ()) {
+        error = std::string ("ProvenanceUnattributable: ") + what + " is absent from the terrain catalog";
+        return false;
+    }
+    if (!source->archicadGuid.empty ()) {
+        bool bound = false;
+        for (uint64_t i = 0; i < row->bindings.count; ++i) {
+            const auto& table = input.table;
+            const auto& binding = table.bindings.at (table.bindingRefs.at (row->bindings.offset + i));
+            bound =
+                bound || (binding.logicalKind == LogicalKind::Source && binding.logicalId == id &&
+                          std::string (binding.nativeGuid.begin (), binding.nativeGuid.end ()) == source->archicadGuid);
+        }
+        if (!bound) {
+            error = std::string ("ProvenanceUnattributable: ") + what + " native binding is absent";
+            return false;
         }
     }
-};
+    return true;
+}
+
+EntityMapping Fragment (const ProvenanceRequest& input, std::span<const EntityMapping* const> parents,
+                        IdentityDomain domain, uint64_t index, OperationId operation, SourceId guide,
+                        std::span<const EntityPredecessor> predecessors, ProvenanceRequest& output)
+{
+    EntityMapping row;
+    row.domain = domain;
+    row.outputIndex = index;
+    row.kind = MappingKind::Split;
+    row.object = parents.front ()->object;
+    // A face fragment retains its one known patch membership. Interpolated
+    // vertices need multiple parents; patch matching is not guessed there.
+    row.patchKey = parents.size () == 1 ? parents.front ()->patchKey : 0;
+    std::set<uint64_t> sources { guide }, operations { operation };
+    for (const auto* parent : parents) {
+        for (uint64_t i = 0; i < parent->sources.count; ++i)
+            sources.insert (input.table.sourceIds.at (parent->sources.offset + i));
+        for (uint64_t i = 0; i < parent->operations.count; ++i)
+            operations.insert (input.table.operationIds.at (parent->operations.offset + i));
+    }
+    row.sources = Append (output.table.sourceIds, sources);
+    row.operations = Append (output.table.operationIds, operations);
+    row.predecessors = { output.table.predecessors.size (), predecessors.size () };
+    output.table.predecessors.insert (output.table.predecessors.end (), predecessors.begin (), predecessors.end ());
+    return row;
+}
+} // namespace terrain_detail
+
+namespace {
+using namespace terrain_detail;
 
 bool Prepare (const geomsrv::edit::Document& doc, const EditTerrainInput& input, const EditTerrainSplitOptions& options,
               LandscapeResult& landscape, ProvenanceRequest& combined, EditTerrainSplitResult& candidate,
@@ -62,35 +138,16 @@ bool Prepare (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
         !terrain_detail::ValidateOperations (doc, input.provenance, std::array<OperationId, 1> { options.operation },
                                              error))
         return false;
-    std::set<uint64_t> tokens { input.provenance.table.context.tableId };
-    for (const auto& support : input.provenance.table.supportTables)
-        tokens.insert (support.context.tableId);
-    if (options.splitTable == 0 || options.meshTable == 0 || !tokens.insert (options.splitTable).second ||
-        !tokens.insert (options.meshTable).second) {
+    if (!NewTables (input.provenance, options.splitTable, options.meshTable)) {
         error = "ProvenanceConflict: split and mesh table tokens must be new and distinct";
         return false;
     }
-    const auto owner = std::find_if (input.provenance.table.objects.begin (), input.provenance.table.objects.end (),
-                                     [&] (const auto& object) { return object.id == options.object; });
-    if (!input.provenance.requireObject || options.object == 0 || owner == input.provenance.table.objects.end () ||
-        std::any_of (input.provenance.table.mappings.begin (), input.provenance.table.mappings.end (),
-                     [&] (const auto& row) { return row.object != options.object; })) {
+    const auto* owner = UniformOwner (input.provenance, options.object);
+    if (!owner) {
         error = "ProvenanceConflict: property split requires one existing, uniformly attributed terrain owner";
         return false;
     }
-    const auto operation = std::find_if (doc.landscape->operations.begin (), doc.landscape->operations.end (),
-                                         [&] (const auto& op) { return op.id == options.operation; });
-    const auto operationRow =
-        std::find_if (input.provenance.table.operations.begin (), input.provenance.table.operations.end (),
-                      [&] (const auto& op) { return op.id == options.operation; });
-    std::vector<Id> parents;
-    for (Id id : operation->inputs)
-        if (std::any_of (doc.landscape->operations.begin (), doc.landscape->operations.end (),
-                         [=] (const auto& op) { return op.id == id; }))
-            parents.push_back (id);
-    if (parents.size () != operationRow->parents.count ||
-        !std::equal (parents.begin (), parents.end (),
-                     input.provenance.table.operationIds.begin () + operationRow->parents.offset)) {
+    if (!CurrentParents (doc, input.provenance, options.operation)) {
         error = "ProvenanceStale: split operation parents differ from the current document";
         return false;
     }
@@ -103,28 +160,10 @@ bool Prepare (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
         return false;
     }
     const Id property = doc.landscape->propertyLineSourceId;
+    if (!CatalogSource (doc, input.provenance, property, "property guide", error))
+        return false;
     const auto source = std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (),
                                       [=] (const auto& value) { return value.id == property; });
-    const auto sourceRow = std::find_if (input.provenance.table.sources.begin (), input.provenance.table.sources.end (),
-                                         [=] (const auto& value) { return value.id == property; });
-    if (sourceRow == input.provenance.table.sources.end ()) {
-        error = "ProvenanceUnattributable: property guide is absent from the terrain catalog";
-        return false;
-    }
-    if (!source->archicadGuid.empty ()) {
-        bool bound = false;
-        for (uint64_t i = 0; i < sourceRow->bindings.count; ++i) {
-            const auto& table = input.provenance.table;
-            const auto& binding = table.bindings.at (table.bindingRefs.at (sourceRow->bindings.offset + i));
-            bound =
-                bound || (binding.logicalKind == LogicalKind::Source && binding.logicalId == property &&
-                          std::string (binding.nativeGuid.begin (), binding.nativeGuid.end ()) == source->archicadGuid);
-        }
-        if (!bound) {
-            error = "ProvenanceUnattributable: property guide native binding is absent";
-            return false;
-        }
-    }
     const auto* entity = geomsrv::edit::Find (doc, source->entityId);
     if (!entity || entity->vertices.size () != landscape.propertyLine.size () ||
         entity->segments.size () != landscape.propertyLine.size ()) {
@@ -159,32 +198,6 @@ bool Prepare (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
         combined.table.mappings.push_back (guide);
     }
     return Validate (combined, error);
-}
-
-EntityMapping Fragment (const ProvenanceRequest& input, std::span<const EntityMapping* const> parents,
-                        IdentityDomain domain, uint64_t index, OperationId operation, SourceId guide,
-                        std::span<const EntityPredecessor> predecessors, ProvenanceRequest& output)
-{
-    EntityMapping row;
-    row.domain = domain;
-    row.outputIndex = index;
-    row.kind = MappingKind::Split;
-    row.object = parents.front ()->object;
-    // A face fragment retains its one known patch membership. Interpolated
-    // vertices need multiple parents; patch matching is not guessed there.
-    row.patchKey = parents.size () == 1 ? parents.front ()->patchKey : 0;
-    std::set<uint64_t> sources { guide }, operations { operation };
-    for (const auto* parent : parents) {
-        for (uint64_t i = 0; i < parent->sources.count; ++i)
-            sources.insert (input.table.sourceIds.at (parent->sources.offset + i));
-        for (uint64_t i = 0; i < parent->operations.count; ++i)
-            operations.insert (input.table.operationIds.at (parent->operations.offset + i));
-    }
-    row.sources = Append (output.table.sourceIds, sources);
-    row.operations = Append (output.table.operationIds, operations);
-    row.predecessors = { output.table.predecessors.size (), predecessors.size () };
-    output.table.predecessors.insert (output.table.predecessors.end (), predecessors.begin (), predecessors.end ());
-    return row;
 }
 
 bool Remap (const EditTerrainInput& input, const EditTerrainSplitOptions& options, Id property,
