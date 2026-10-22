@@ -813,7 +813,9 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
 
 if (TAPIOCA_LINK_RUST_GEOMETRY)
-    list (APPEND EVP_EDIT_SOURCES "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainAdapter.cpp")
+    list (APPEND EVP_EDIT_SOURCES
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainAdapter.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditSparseSolve.cpp")
 endif ()
 
 set (EVP_TEST_SOURCES
@@ -1194,6 +1196,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_terrain_corpus.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_terrain_field.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editterrainadapter.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_editsparsesolve.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_grading.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_extraction.cpp")

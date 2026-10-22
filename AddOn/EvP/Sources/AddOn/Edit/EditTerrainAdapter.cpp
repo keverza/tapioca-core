@@ -1,21 +1,29 @@
 #include "Edit/EditTerrainAdapter.hpp"
+#include "Edit/EditTerrainAdapterInternal.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditLandscape.hpp"
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <map>
 #include <set>
 
 namespace tapioca::geometry {
-namespace {
+namespace terrain_detail {
 
-bool ValidateInput (const geomsrv::edit::Document& doc, const EditTerrainRequest& request, std::string& error)
+bool ValidateInput (const geomsrv::edit::Document& doc, const EditTerrainInput& input, std::string& error)
 {
-    const auto& input = request.input;
     const auto& provenance = input.provenance;
     if (!doc.landscape || input.revision != doc.revision || provenance.expectedRevision != doc.revision ||
         provenance.expectedSession != doc.landscape->sessionUuid) {
         error = "ProvenanceStale: terrain input does not belong to this landscape session/revision";
+        return false;
+    }
+    if (std::any_of (input.mesh.points.begin (), input.mesh.points.end (),
+                     [] (double value) { return !std::isfinite (value); }) ||
+        std::any_of (input.mesh.triangles.begin (), input.mesh.triangles.end (),
+                     [&] (uint32_t index) { return index >= input.mesh.points.size () / 3; })) {
+        error = "TerrainShape: terrain requires finite coordinates and valid triangle indices";
         return false;
     }
     if (input.sourceTerrainGuid != doc.landscape->sourceTerrainGuid) {
@@ -38,8 +46,14 @@ bool ValidateInput (const geomsrv::edit::Document& doc, const EditTerrainRequest
             error = "ProvenanceUnattributable: terrain attribution refused";
         return false;
     }
-    if ((!request.operations.empty () || request.smoothing) && request.property.empty ()) {
-        error = "PropertyLineOutside: terrain deformation requires a property line";
+    return true;
+}
+
+bool ValidateOperations (const geomsrv::edit::Document& doc, const ProvenanceRequest& provenance,
+                         std::span<const OperationId> operations, std::string& error)
+{
+    if (!doc.landscape) {
+        error = "ProvenanceStale: terrain operation has no landscape session";
         return false;
     }
     std::vector<Id> order;
@@ -53,13 +67,13 @@ bool ValidateInput (const geomsrv::edit::Document& doc, const EditTerrainRequest
         catalog.insert (operation.id);
     std::set<OperationId> seen;
     size_t previous = 0;
-    for (const auto& operation : request.operations) {
+    for (OperationId operation : operations) {
         const auto found = std::find_if (doc.landscape->operations.begin (), doc.landscape->operations.end (),
-                                         [&] (const auto& op) { return op.id == operation.operation; });
-        const auto position = rank.find (operation.operation);
-        if (operation.operation == 0 || !seen.insert (operation.operation).second ||
-            !catalog.count (operation.operation) || found == doc.landscape->operations.end () || !found->enabled ||
-            position == rank.end () || (seen.size () > 1 && position->second <= previous)) {
+                                         [&] (const auto& op) { return op.id == operation; });
+        const auto position = rank.find (operation);
+        if (operation == 0 || !seen.insert (operation).second || !catalog.count (operation) ||
+            found == doc.landscape->operations.end () || !found->enabled || position == rank.end () ||
+            (seen.size () > 1 && position->second <= previous)) {
             error = "ProvenanceUnattributable: terrain edits require unique enabled DAG operations in evaluation order";
             return false;
         }
@@ -67,17 +81,25 @@ bool ValidateInput (const geomsrv::edit::Document& doc, const EditTerrainRequest
     }
     return true;
 }
+} // namespace terrain_detail
+namespace {
 
 bool Evaluate (const geomsrv::edit::Document& doc, const EditTerrainRequest& request, EditTerrainResult& candidate,
                std::string& error)
 {
-    if (!ValidateInput (doc, request, error))
+    if (!terrain_detail::ValidateInput (doc, request.input, error))
         return false;
     std::vector<TerrainEdit> edits;
     std::vector<OperationId> operations;
     for (const auto& operation : request.operations) {
         edits.push_back (operation.parameters);
         operations.push_back (operation.operation);
+    }
+    if (!terrain_detail::ValidateOperations (doc, request.input.provenance, operations, error))
+        return false;
+    if ((!request.operations.empty () || request.smoothing) && request.property.empty ()) {
+        error = "PropertyLineOutside: terrain deformation requires a property line";
+        return false;
     }
     TerrainEditResult edited;
     const auto& input = request.input;
