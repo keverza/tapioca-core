@@ -923,6 +923,10 @@ from the centreline (`-g * |lateral|`), and `terrain::hybrid` then adds the
 centreline as a breakline (`crossfallHand = 3`, line kind 5) with a centre
 vertex in each end section, so the crease is a mesh edge and the triangle-sum
 volume stays exact (crowned Appendix A: fill 23.04, cut 30.5067 m³ over 40 m).
+`EditTerrainDesign` gives each station the cross-section range in force there and
+runs a range change over a short explicit taper (`TerrainDesignOptions::taper`,
+0.5 m) ending at the range start. A zero-length step would make the band
+discontinuous; its end faces need corner fans, which belong to composition.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

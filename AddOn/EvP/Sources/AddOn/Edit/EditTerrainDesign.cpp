@@ -27,7 +27,18 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
     edit::AlignmentGeometry geometry;
     if (!edit::ValidatePath (path, geometry, error))
         return false;
-    for (double station : edit::SampleStations (path, geometry, options.maxStep)) {
+    // Each range change happens over `taper` metres ending at its start: the
+    // station `taper` before it still evaluates the range in force there.
+    auto samples = edit::SampleStations (path, geometry, options.maxStep);
+    for (size_t i = 1; i < path.sections.size (); ++i) {
+        const double before = path.sections[i].station - options.taper;
+        if (before > 0)
+            samples.push_back (before);
+    }
+    std::sort (samples.begin (), samples.end ());
+    samples.erase (std::unique (samples.begin (), samples.end (), [] (double a, double b) { return b - a < 1.0e-6; }),
+                   samples.end ());
+    for (double station : samples) {
         edit::StationFrame frame;
         if (!edit::Evaluate (path, geometry, station, frame)) {
             error = "TerrainDesignStation: the path cannot be evaluated at a sampled station";
@@ -368,9 +379,10 @@ bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrai
                             const TerrainDesignOptions& options, TerrainDesignResult& result, std::string& error)
 {
     try {
-        if (!(options.maxStep > 0) || !std::isfinite (options.maxStep) || !std::isfinite (options.cutLimit) ||
-            !std::isfinite (options.fillLimit) || options.cutLimit < 0 || options.fillLimit < 0) {
-            error = "TerrainDesignParameters: step and limits must be finite, the step positive";
+        if (!(options.maxStep > 0) || !std::isfinite (options.maxStep) || !(options.taper > 0) ||
+            !std::isfinite (options.taper) || !std::isfinite (options.cutLimit) || !std::isfinite (options.fillLimit) ||
+            options.cutLimit < 0 || options.fillLimit < 0) {
+            error = "TerrainDesignParameters: step, taper and limits must be finite, step and taper positive";
             return false;
         }
         const edit::Path* path = nullptr;

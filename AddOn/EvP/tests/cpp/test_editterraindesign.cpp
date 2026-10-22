@@ -266,3 +266,42 @@ TEST (EditTerrainDesign, CrownedPathBuildsACentrelineCrease)
     }
     EXPECT_EQ (result.meshProvenance.counts.vertices, build.points.size () / 3);
 }
+
+TEST (EditTerrainDesign, ARangeChangeIsAShortTaperNotARamp)
+{
+    DesignFixture fixture;
+    std::string error;
+    Id wide = 0;
+    ASSERT_TRUE (edit::SplitPathSection (fixture.doc, fixture.path, 20, error, &wide)) << error;
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [&] (edit::Path& value, std::string& why) { return edit::SetWidth (value.sections, wide, 3, 3, why); }, error))
+        << error;
+    fixture.Capture ();
+    TerrainDesignResult result;
+    auto options = fixture.Options ();
+    options.taper = .5;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error)) << error;
+    // Every 5 m plus the taper start 0.5 m before the range.
+    const std::vector<double> expected { 0, 5, 10, 15, 19.5, 20, 25, 30, 35, 40 };
+    EXPECT_EQ (result.stations, expected);
+    // The left band edge is 2 m out up to the taper start and 3 m from the range on.
+    const auto& build = result.build;
+    const auto edge =
+        std::find (build.lines.begin (), build.lines.end (), HybridLine { HybridLineKind::Edge, TerrainHand::Left, 0 });
+    ASSERT_NE (edge, build.lines.end ());
+    const auto line = static_cast<uint32_t> (edge - build.lines.begin ());
+    size_t checked = 0;
+    for (const auto& row : build.mappings) {
+        if (row.kind != TerrainMappingKind::DesignLineVertex || row.index != line)
+            continue;
+        const double station = result.stations.at (row.values[0]);
+        const double y = build.points.at (row.values[1] * 3 + 1);
+        EXPECT_NEAR (y, station <= 19.5 ? 2.0 : 3.0, 1e-9) << station;
+        ++checked;
+    }
+    EXPECT_EQ (checked, expected.size ());
+    options.taper = 0;
+    EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error));
+    EXPECT_EQ (error.rfind ("TerrainDesignParameters", 0), 0U) << error;
+}

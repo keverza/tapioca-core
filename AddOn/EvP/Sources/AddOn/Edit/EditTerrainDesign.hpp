@@ -14,7 +14,11 @@ struct TerrainDesignOptions {
     // Closed straight xyz ring bounding the rebuild (z ignored). P1 takes it from
     // the caller; deriving it from the band's reach is the composition phase's.
     std::span<const double> region;
-    double maxStep = 2.0;                 // Station spacing, metres (plus every break).
+    double maxStep = 2.0; // Station spacing, metres (plus every break).
+    // A cross-section range change (width, crossfall, shoulder, slopes) runs over
+    // this many metres ending at the range start. A zero-length step would make
+    // the band discontinuous; its end faces need corner fans (composition phase).
+    double taper = 0.5;
     double cutLimit = 10, fillLimit = 10; // Plan reach of each face, metres.
     TerrainEditEffect effect = TerrainEditEffect::Both;
     double tolerance = 1e-3; // At-grade height band, metres.
@@ -40,7 +44,9 @@ struct TerrainDesignResult {
 // path itself (SampleStations, Evaluate: profile height, range widths, shoulder,
 // crossfall or crown and cut/fill percents as Slope::Percent); nothing is
 // re-solved here and no terrain math is implemented in C++. A crowned range makes
-// the centreline a breakline (the crown's crease). Publishes the whole result once,
+// the centreline a breakline (the crown's crease). Each station carries the
+// range in force there; a range change is a short explicit taper (`taper`)
+// rather than a ramp across the whole sample spacing. Publishes the whole result once,
 // after checking that every outside-region vertex kept its base height bits.
 // No history, persistence or native write; the host rechecks revision/session.
 bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
