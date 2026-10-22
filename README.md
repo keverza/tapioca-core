@@ -9,13 +9,8 @@ Tapioca exposes more AC29 C++ SDK calls and can call upon Tapir and ArchiCAD pyt
 
 ## Architecture and dependencies
 
-![Tapioca dependencies graph](./docs/static/diagram.svg)
-
-Currently in testing waters phase.
-Archicad remains the source of truth. Tapioca copies only the data required by a
-command before downstream rendering or analysis. Diligent is compiled into the
-native add-on; three.js is used only by browser-based viewers. Tapir extends the
-available command surface when its add-on is installed.
+Tapioca uses AC29 SDK and Tapir for API access. It has Diligent Render Engine for preview
+and viewport overlay.
 
 ## Download and install
 
