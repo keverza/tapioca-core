@@ -2,6 +2,7 @@
 #define TAPIOCA_EDIT_LANDSCAPE_TERRAIN_HPP
 
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditSparseSolve.hpp"
 #include "Edit/EditTerrainAdapter.hpp"
 #include "Edit/EditTerrainTriangulation.hpp"
 
@@ -57,6 +58,32 @@ struct SplitLandscapeTerrainResult {
 bool EvaluateSplitLandscapeTerrain (const geomsrv::edit::Document& doc, const LandscapeTerrainRequest& request,
                                     const EditTerrainSplitOptions& options, SplitLandscapeTerrainResult& result,
                                     std::string& error);
+
+struct SplitLandscapeSolveRequest {
+    const EditTerrainSplitResult& baseline; // Prepared mesh; unknown locators index its vertices.
+    OperationId operation = 0;
+    std::span<const uint32_t> vertices; // Unknown i is this prepared vertex's height (metres).
+    const GradingRequest& system;       // Caller-assembled; Rust certifies the solution.
+    std::span<const double> queriesXY;  // Sample the solved surface.
+    double sampleStep = 0.25;
+    std::optional<EditTerrainVolumeOptions> volumes;
+};
+struct SplitLandscapeSolveResult {
+    EditSparseSolveResult solve;
+    EditTerrainResult terrain; // Solved heights on unchanged split topology.
+    EditTerrainPreservation preservation;
+};
+// Applies a certified grading solve to the prepared split baseline. Unknowns are
+// checked against the operation's document-derived scope before solving: a vertex
+// on or inside a positional protection mask, or on or outside a reached grading-limit
+// envelope, refuses with its own diagnostic (the two are never merged). Outside-face
+// and property-edge vertices are left to the bitwise exterior verifier, the single
+// authority for property preservation. Vertices whose solved height differs from the
+// baseline are attributed to `operation`. Masks remain vertex-soft (a triangle that
+// straddles a mask edge still tilts), and authored locked heights do not exist yet.
+// No objective assembly, history or native write; atomic publication.
+bool ApplySplitLandscapeSolve (const geomsrv::edit::Document& doc, const SplitLandscapeSolveRequest& request,
+                               SplitLandscapeSolveResult& result, std::string& error);
 
 } // namespace tapioca::geometry
 #endif

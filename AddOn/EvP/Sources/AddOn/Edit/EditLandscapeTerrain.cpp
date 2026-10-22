@@ -1,5 +1,5 @@
 #include "Edit/EditLandscapeTerrain.hpp"
-#include "Edit/EditLandscapeInternal.hpp"
+#include "Edit/EditLandscapeTerrainInternal.hpp"
 #include "Edit/EditTerrainAdapterInternal.hpp"
 #include <algorithm>
 #include <exception>
@@ -153,13 +153,14 @@ bool ValidateCatalog (const geomsrv::edit::Document& doc, const ProvenanceReques
     return true;
 }
 
-bool BuildMasks (const LandscapeResult& landscape, const Scope& scope, std::vector<std::vector<double>>& protectedRings,
-                 std::vector<LandscapeConstraintHeights>& constraints, std::string& error)
+bool ScopedMasks (const LandscapeResult& landscape, const Scope& scope, landscape_terrain_detail::ScopeMasks& masks,
+                  std::vector<LandscapeConstraintHeights>& constraints, std::string& error)
 {
     DerivedRegion propertyRegion;
     propertyRegion.rings = { landscape.propertyLine };
     const auto property = Paths (propertyRegion);
     cp::PathsD allowed = property, protectedPaths;
+    bool envelope = false;
     size_t sampleCount = 0;
     for (const auto& constraint : landscape.terrainConstraints) {
         if (!scope.count (constraint.operation))
@@ -182,15 +183,27 @@ bool BuildMasks (const LandscapeResult& landscape, const Scope& scope, std::vect
         }
         sampleCount += report.points.size ();
         constraints.push_back (std::move (report));
-        if (constraint.kind == OperationKind::GradingLimit)
+        if (constraint.kind == OperationKind::GradingLimit) {
             allowed = cp::Intersect (allowed, mask, cp::FillRule::NonZero, kPrecision);
+            envelope = true;
+        }
         else
             protectedPaths.insert (protectedPaths.end (), mask.begin (), mask.end ());
         if (!MaskBudget (allowed, error) || !MaskBudget (protectedPaths, error))
             return false;
     }
-    auto excluded = cp::Difference (property, allowed, cp::FillRule::NonZero, kPrecision);
-    excluded.insert (excluded.end (), protectedPaths.begin (), protectedPaths.end ());
+    masks = { property, std::move (allowed), std::move (protectedPaths), envelope };
+    return true;
+}
+
+bool BuildMasks (const LandscapeResult& landscape, const Scope& scope, std::vector<std::vector<double>>& protectedRings,
+                 std::vector<LandscapeConstraintHeights>& constraints, std::string& error)
+{
+    landscape_terrain_detail::ScopeMasks masks;
+    if (!ScopedMasks (landscape, scope, masks, constraints, error))
+        return false;
+    auto excluded = cp::Difference (masks.property, masks.allowed, cp::FillRule::NonZero, kPrecision);
+    excluded.insert (excluded.end (), masks.protectedPaths.begin (), masks.protectedPaths.end ());
     excluded = cp::Union (excluded, cp::FillRule::NonZero, kPrecision);
     if (!MaskBudget (excluded, error))
         return false;
@@ -327,6 +340,29 @@ bool Evaluate (const geomsrv::edit::Document& doc, const LandscapeTerrainRequest
     return true;
 }
 } // namespace
+
+namespace landscape_terrain_detail {
+bool DeriveScopeMasks (const geomsrv::edit::Document& doc, const ProvenanceRequest& provenance, OperationId operation,
+                       LandscapeResult& landscape, ScopeMasks& masks, std::string& error)
+{
+    std::map<Id, Shape> footprints;
+    if (!EvaluateLandscapeOperations (doc, landscape, &footprints)) {
+        error = landscape.error;
+        return false;
+    }
+    std::map<Id, Scope> scopes;
+    if (!ConstraintScopes (*doc.landscape, landscape, scopes, error))
+        return false;
+    const auto scope = scopes.find (operation);
+    if (scope == scopes.end () || scope->second.count (kNoId)) {
+        error = "TerrainConstraintScopeUnsupported: operation requires one unmixed constraint scope";
+        return false;
+    }
+    std::vector<LandscapeConstraintHeights> constraints;
+    return ValidateCatalog (doc, provenance, footprints, {}, scope->second, landscape, error) &&
+           ScopedMasks (landscape, scope->second, masks, constraints, error);
+}
+} // namespace landscape_terrain_detail
 
 bool EvaluateLandscapeTerrain (const geomsrv::edit::Document& doc, const LandscapeTerrainRequest& request,
                                LandscapeTerrainResult& result, std::string& error)
