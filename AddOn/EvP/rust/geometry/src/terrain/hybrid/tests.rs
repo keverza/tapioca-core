@@ -3,6 +3,7 @@ use crate::slope::Slope;
 use crate::terrain::daylight::Locus;
 use crate::terrain::design::{Camber, Station};
 use crate::terrain::edit::Effect;
+use crate::terrain::hybrid::conflict::{Conflict, ConflictCode};
 use crate::terrain::volume::exact::triangle_cut_fill;
 use crate::terrain::volume::{Grid, Proposed, VolumeRequest, cut_fill};
 
@@ -330,5 +331,150 @@ fn a_crown_is_a_centreline_crease_and_stays_exact() -> Result<(), HybridError> {
             assert!(!(low < -1e-9 && high > 1e-9), "{triple:?}");
         }
     }
+    Ok(())
+}
+
+fn request<'a>(
+    points: &'a [f64],
+    triangles: &'a [u32],
+    stations: &'a [Station],
+    effect: Effect,
+) -> BuildRequest<'a> {
+    BuildRequest {
+        points,
+        triangles,
+        region: &REGION,
+        band: Band { stations, effect },
+        tolerance: 1e-6,
+    }
+}
+
+fn codes(conflicts: &[Conflict]) -> Vec<(ConflictCode, u32, Hand)> {
+    conflicts
+        .iter()
+        .map(|c| (c.code, c.station, c.side))
+        .collect()
+}
+
+#[test]
+fn every_hard_conflict_is_located() -> Result<(), HybridError> {
+    // Ground falling 70 % to the left: neither the left 1:2 fill nor the right
+    // 1:2 cut ever meets it; the build refuses at the first, assess finds all.
+    let (steep, triangles) = base(|x, y| 10.0 + 0.05 * x - 0.7 * y);
+    let stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];
+    let found = assess(&request(&steep, &triangles, &stations, Effect::Both))?;
+    assert_eq!(
+        codes(&found),
+        vec![
+            (ConflictCode::DaylightNotReached, 0, Hand::Left),
+            (ConflictCode::DaylightNotReached, 1, Hand::Left),
+            (ConflictCode::DaylightNotReached, 0, Hand::Right),
+            (ConflictCode::DaylightNotReached, 1, Hand::Right),
+        ]
+    );
+    // Each search stopped out beyond its own edge, still off the ground.
+    assert!(found.iter().all(|c| {
+        let outside = if c.side == Hand::Left {
+            c.position[1] > 2.0
+        } else {
+            c.position[1] < -2.0
+        };
+        outside && c.magnitude.abs() > 0.0
+    }));
+    assert_eq!(
+        run(&steep, &triangles, &stations).err(),
+        Some(HybridError::DaylightNotReached {
+            station: 0,
+            side: Hand::Left
+        })
+    );
+
+    // Limits shorter than the 4/3 m daylight: located at the limit, reach 4/3.
+    let (points, triangles) = base(worked);
+    let mut short = stations;
+    for station in &mut short {
+        station.cut_limit = 0.5;
+        station.fill_limit = 0.5;
+    }
+    let found = assess(&request(&points, &triangles, &short, Effect::Both))?;
+    assert_eq!(found.len(), 4);
+    let first = found.first().copied().ok_or(HybridError::Field)?;
+    assert_eq!(first.code, ConflictCode::DaylightBeyondLimit);
+    assert!(close(first.position[0], 0.0, 1e-12) && close(first.position[1], 2.5, 1e-12));
+    assert!(close(first.magnitude, 4.0 / 3.0, 1e-9));
+    assert!(close(first.position[2], worked(0.0, 2.5), 1e-12));
+
+    // A vertical cut face on the right.
+    let mut walls = stations;
+    for station in &mut walls {
+        station.cut = Slope::Angle {
+            radians: std::f64::consts::FRAC_PI_2,
+        };
+    }
+    let found = assess(&request(&points, &triangles, &walls, Effect::Both))?;
+    assert_eq!(
+        codes(&found),
+        vec![
+            (ConflictCode::VerticalFace, 0, Hand::Right),
+            (ConflictCode::VerticalFace, 1, Hand::Right),
+        ]
+    );
+    assert!(found.iter().all(|c| close(c.position[1], -2.0, 1e-12)));
+
+    // The left edge reaches the ground at the last station: fill, then at grade.
+    let graded = [station(0.0, 10.0, 0.0), station(40.0, 11.6, 0.0)];
+    let found = assess(&request(&points, &triangles, &graded, Effect::Both))?;
+    assert_eq!(
+        codes(&found),
+        vec![(ConflictCode::DaylightTopology, 1, Hand::Left)]
+    );
+    assert!(found.iter().all(|c| c.magnitude == 0.0 && c.code.hard()));
+    assert_eq!(
+        run(&points, &triangles, &graded).err(),
+        Some(HybridError::DaylightTopology { side: Hand::Left })
+    );
+    assert!(
+        ConflictCode::DaylightTopology
+            .suggestion()
+            .contains("split")
+    );
+    Ok(())
+}
+
+#[test]
+fn a_contradicted_edge_is_a_soft_located_conflict() -> Result<(), HybridError> {
+    // Fill only: the right edge is in cut, so the band is held at the ground
+    // there, but the band still builds and says where.
+    let (points, triangles) = base(worked);
+    let stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];
+    let built = build(&request(&points, &triangles, &stations, Effect::Fill))?;
+    assert_eq!(
+        codes(&built.conflicts),
+        vec![
+            (ConflictCode::EdgeContradictsEffect, 0, Hand::Right),
+            (ConflictCode::EdgeContradictsEffect, 1, Hand::Right),
+        ]
+    );
+    assert!(
+        built
+            .conflicts
+            .iter()
+            .all(|c| close(c.magnitude, -0.4, 1e-12) && !c.code.hard())
+    );
+    assert_eq!(
+        built
+            .conflicts
+            .first()
+            .map(|c| [c.position[0], c.position[1]]),
+        Some([0.0, -2.0])
+    );
+    // Nothing on the right moved down.
+    let [_, cut] = between(&built, 0.0, 40.0);
+    assert!(close(cut, 0.0, 1e-12), "{cut}");
+    // The unrestricted band has none.
+    assert_eq!(
+        run(&points, &triangles, &stations)?.conflicts,
+        Vec::<Conflict>::new()
+    );
     Ok(())
 }

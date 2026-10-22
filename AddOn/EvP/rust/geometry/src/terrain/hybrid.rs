@@ -22,6 +22,9 @@
 //! constraints), so [`exact_cut_fill`] gives the exact cut/fill of the two
 //! triangulated surfaces: site inside the region, context outside it.
 //!
+//! Conflicts are located ([`conflict`]): the build refuses on the first hard
+//! one; [`assess`] lists them all, and soft ones ride on [`Built::conflicts`].
+//!
 //! P1 rebuilds the whole region interior per call; region-limited rebuilds,
 //! areas, spots, several bands and conflict reporting are later phases.
 
@@ -86,6 +89,8 @@ pub struct Built {
     pub daylight: Vec<[Option<Locus>; 2]>,
     /// Exact cut/fill: site inside the region, context outside.
     pub volumes: ExactReport,
+    /// Soft located conflicts: where the band is held back but still built.
+    pub conflicts: Vec<Conflict>,
 }
 
 /// Build refusals.
@@ -141,6 +146,9 @@ impl HybridError {
         }
     }
 }
+
+pub mod conflict;
+pub use conflict::{Conflict, ConflictCode, assess};
 
 /// Per station of one side: its shoulder and daylight roots; `None` at grade.
 type SideOffsets = Option<Vec<(f64, Vec<f64>)>>;
@@ -295,6 +303,10 @@ pub fn build(request: &BuildRequest<'_>) -> Result<Built, HybridError> {
         Design::new(&request.band, &field, request.tolerance).map_err(HybridError::Design)?;
     let daylight = design.daylight().map_err(HybridError::Design)?;
     let offsets = offsets(&design, &daylight)?;
+    let conflicts: Vec<Conflict> = conflict::locate(&design, &field, &daylight)?
+        .into_iter()
+        .filter(|c| !c.code.hard())
+        .collect();
     let (polylines, kinds) = lines(&design, &offsets)?;
     let breaklines: Vec<&[f64]> = polylines.iter().map(Vec::as_slice).collect();
     let mesh = retriangulate_region(&RegionRequest {
@@ -364,6 +376,7 @@ pub fn build(request: &BuildRequest<'_>) -> Result<Built, HybridError> {
         owners,
         daylight,
         volumes,
+        conflicts,
     })
 }
 

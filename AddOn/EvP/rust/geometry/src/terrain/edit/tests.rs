@@ -186,6 +186,18 @@ fn daylight_cuts_vertically_fills_at_one_in_three_and_reports_the_dangling_edge(
     assert!(close(height(&filled, 21, 17, 10), 0.0, 0.0)); // d = 5 > extension
     let clipped = filled.reports.first().map_or(0, |r| r.extension_clipped);
     assert!(clipped > 0, "the terminated fill must be reported");
+    // Located: one row per counted vertex, each beyond the 4 m extension, raising.
+    let rows: Vec<&Clip> = filled
+        .clips
+        .iter()
+        .filter(|c| c.kind == ClipKind::Extension)
+        .collect();
+    assert_eq!(rows.len(), clipped as usize);
+    assert!(
+        rows.iter()
+            .all(|c| c.edit == 0 && c.distance > 4.0 && c.withheld > 0.0)
+    );
+    assert!(rows.iter().any(|c| c.vertex == 10 * 21 + 17));
     // Without a limit the same daylight meets the ground at d = 6: nothing clipped.
     let full = edit_terrain(&request(&low, &triangles, &[platform(None)]))?;
     assert!(close(height(&full, 21, 17, 10), 1.0 / 3.0, 1e-12));
@@ -335,6 +347,18 @@ fn clip_and_protected_rings_freeze_vertices_and_limits_are_reported() -> Result<
     let near = edit_terrain(&request(&points, &triangles, &limited))?;
     assert!(close(height(&near, 11, 7, 5), 0.0, 0.0));
     assert!(near.reports.first().is_some_and(|r| r.limit_clipped > 0));
+    let limit = near.reports.first().map_or(0, |r| r.limit_clipped) as usize;
+    assert_eq!(near.clips.len(), limit);
+    assert!(
+        near.clips
+            .iter()
+            .all(|c| c.kind == ClipKind::Limit && c.distance > 1.0 && c.withheld > 0.0)
+    );
+    assert!(
+        near.clips
+            .windows(2)
+            .all(|pair| matches!(pair, [a, b] if (a.vertex, a.edit) < (b.vertex, b.edit)))
+    );
     Ok(())
 }
 

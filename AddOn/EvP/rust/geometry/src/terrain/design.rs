@@ -311,6 +311,12 @@ impl<'a> Design<'a> {
         self.stations.get(index)
     }
 
+    /// Which way the band may move the surface.
+    #[must_use]
+    pub const fn effect(&self) -> Effect {
+        self.effect
+    }
+
     /// Whether any station has a nonzero crown, so the centreline is a crease.
     #[must_use]
     pub fn crowned(&self) -> bool {

@@ -209,6 +209,31 @@ pub struct EditReport {
     pub limit_clipped: u32,
 }
 
+/// Why an edit left a vertex where it was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipKind {
+    /// Beyond a daylight extension (counted in [`EditReport::extension_clipped`]).
+    Extension,
+    /// Beyond the maximum distance (counted in [`EditReport::limit_clipped`]).
+    Limit,
+}
+
+/// One located soft-tier clip: where an edit would have moved a vertex and did
+/// not. Additive to the [`EditReport`] counters, which they sum to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Clip {
+    /// Edit index.
+    pub edit: u32,
+    /// Input vertex; its xyz is the position.
+    pub vertex: u32,
+    /// Which limit held it.
+    pub kind: ClipKind,
+    /// Plan distance from the edit's core, metres.
+    pub distance: f64,
+    /// The height change withheld, metres (signed, after strength).
+    pub withheld: f64,
+}
+
 /// The edited heights and their attribution.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Edited {
@@ -220,6 +245,8 @@ pub struct Edited {
     pub faces: Vec<FaceOwner>,
     /// One report per edit.
     pub reports: Vec<EditReport>,
+    /// Located clips by vertex, then edit.
+    pub clips: Vec<Clip>,
 }
 
 /// Edit refusals. Nothing partial is returned.
@@ -469,6 +496,8 @@ struct Outcome {
     displacement: f64,
     extension_clipped: bool,
     limit_clipped: bool,
+    distance: f64,
+    withheld: f64,
 }
 
 fn evaluate(prepared: &Prepared<'_>, x: f64, y: f64, old: f64) -> Option<Outcome> {
@@ -479,6 +508,7 @@ fn evaluate(prepared: &Prepared<'_>, x: f64, y: f64, old: f64) -> Option<Outcome
     let edit = prepared.edit;
     let (d, base) = locate(&prepared.core, x, y)?;
     let mut extension_clipped = false;
+    let mut withheld = 0.0;
     let raw = match (edit.transition, prepared.faces) {
         (Transition::Daylight { .. }, Some(([cut, fill], [cut_extension, fill_extension]))) => {
             let (candidate, beyond) = if old > base {
@@ -490,6 +520,7 @@ fn evaluate(prepared: &Prepared<'_>, x: f64, y: f64, old: f64) -> Option<Outcome
             };
             if beyond {
                 extension_clipped = (candidate - old).abs() > 0.0;
+                withheld = edit.strength * (candidate - old);
                 old
             } else {
                 candidate
@@ -521,12 +552,16 @@ fn evaluate(prepared: &Prepared<'_>, x: f64, y: f64, old: f64) -> Option<Outcome
             displacement: 0.0,
             extension_clipped: false,
             limit_clipped: displacement != 0.0,
+            distance: d,
+            withheld: displacement,
         });
     }
     Some(Outcome {
         displacement,
         extension_clipped,
         limit_clipped: false,
+        distance: d,
+        withheld,
     })
 }
 
@@ -582,8 +617,9 @@ pub fn edit_terrain(request: &EditRequest<'_>) -> Result<Edited, EditError> {
     let mut heights: Vec<f64> = vertices.iter().map(|&[_, _, z]| z).collect();
     let mut owners: Vec<Option<u32>> = vec![None; vertices.len()];
     let mut reports = vec![EditReport::default(); prepared.len()];
-    for (vertex, &[x, y, old]) in vertices.iter().enumerate() {
-        if !movable.get(vertex).copied().unwrap_or(false) {
+    let mut clips = Vec::new();
+    for (vertex, &[x, y, old]) in (0_u32..).zip(vertices) {
+        if !movable.get(vertex as usize).copied().unwrap_or(false) {
             continue;
         }
         let mut best: Option<(f64, u32)> = None;
@@ -593,6 +629,20 @@ pub fn edit_terrain(request: &EditRequest<'_>) -> Result<Edited, EditError> {
             };
             report.extension_clipped += u32::from(outcome.extension_clipped);
             report.limit_clipped += u32::from(outcome.limit_clipped);
+            for (clipped, kind) in [
+                (outcome.extension_clipped, ClipKind::Extension),
+                (outcome.limit_clipped, ClipKind::Limit),
+            ] {
+                if clipped {
+                    clips.push(Clip {
+                        edit: index,
+                        vertex,
+                        kind,
+                        distance: outcome.distance,
+                        withheld: outcome.withheld,
+                    });
+                }
+            }
             if outcome.displacement != 0.0
                 && best.is_none_or(|(most, _)| outcome.displacement.abs() > most.abs())
             {
@@ -600,10 +650,10 @@ pub fn edit_terrain(request: &EditRequest<'_>) -> Result<Edited, EditError> {
             }
         }
         if let Some((displacement, index)) = best {
-            if let Some(slot) = heights.get_mut(vertex) {
+            if let Some(slot) = heights.get_mut(vertex as usize) {
                 *slot = old + displacement;
             }
-            if let Some(slot) = owners.get_mut(vertex) {
+            if let Some(slot) = owners.get_mut(vertex as usize) {
                 *slot = Some(index);
             }
             if let Some(report) = reports.get_mut(index as usize) {
@@ -634,6 +684,7 @@ pub fn edit_terrain(request: &EditRequest<'_>) -> Result<Edited, EditError> {
         owners,
         faces,
         reports,
+        clips,
     })
 }
 

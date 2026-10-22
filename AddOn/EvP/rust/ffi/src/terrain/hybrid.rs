@@ -289,6 +289,7 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
         owners,
         daylight,
         volumes: report,
+        conflicts: _,
     } = built;
     let mut mappings = Vec::new();
     for (face, ((&parent, &inside), &kept)) in mesh
