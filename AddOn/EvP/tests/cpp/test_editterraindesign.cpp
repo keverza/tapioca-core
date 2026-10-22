@@ -338,3 +338,66 @@ TEST (EditTerrainDesign, ConflictsNameStationsSidesAndPlaces)
         EXPECT_FALSE (conflict.hard);
     }
 }
+
+namespace {
+// Plan distance from (x, y) to the fixture's centreline segment (0,0)-(40,0).
+double FromCentre (double x, double y)
+{
+    const double t = std::clamp (x, 0.0, 40.0);
+    return std::hypot (x - t, y);
+}
+} // namespace
+
+TEST (EditTerrainDesign, AnEmptyRegionIsDerivedFromTheBandsReach)
+{
+    DesignFixture fixture;
+    auto options = fixture.Options ();
+    options.region = {};
+    TerrainDesignResult result;
+    std::string error;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error)) << error;
+    // Reach = 2 m half width + 10 m limit + 1 m margin, round ends.
+    ASSERT_GE (result.region.size (), 3 * 8U);
+    for (size_t i = 0; i < result.region.size (); i += 3) {
+        const double d = FromCentre (result.region[i], result.region[i + 1]);
+        EXPECT_GT (d, 13 - options.arcTolerance - 1e-6);
+        EXPECT_LT (d, 13 + 1e-3);
+    }
+    EXPECT_GE (result.build.site.fill, 80.0 / 3.0 - 1e-9);
+    EXPECT_EQ (result.build.context.fill, 0.0);
+    // The derived ring is attributed like a caller's: its vertices follow the input prefix.
+    EXPECT_EQ (result.build.inputProvenance.counts.edges, result.region.size () / 3);
+}
+
+TEST (EditTerrainDesign, TheDerivedRegionIsClippedToThePropertyLine)
+{
+    DesignFixture fixture;
+    std::string error;
+    auto property = [&] (std::vector<Vec3> ring) {
+        LandscapeSource source;
+        source.entityId = edit::AddPolyline (fixture.doc, ring, true);
+        Id id = 0;
+        EXPECT_TRUE (AddLandscapeSource (fixture.doc, source, id, error)) << error;
+        EXPECT_TRUE (SetLandscapePropertyLine (fixture.doc, id, error)) << error;
+        fixture.Capture ();
+    };
+    property ({ { -5, -8, 0 }, { 45, -8, 0 }, { 45, 8, 0 }, { -5, 8, 0 } });
+    auto options = fixture.Options ();
+    options.region = {};
+    TerrainDesignResult result;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error)) << error;
+    for (size_t i = 0; i < result.region.size (); i += 3) {
+        EXPECT_GE (result.region[i], -5 - 1e-6);
+        EXPECT_LE (result.region[i], 45 + 1e-6);
+        EXPECT_LE (std::abs (result.region[i + 1]), 8 + 1e-6);
+    }
+    EXPECT_GE (result.build.site.fill, 80.0 / 3.0 - 1e-9);
+    // A property line the band never reaches leaves no region.
+    DesignFixture far;
+    fixture = std::move (far);
+    property ({ { 100, 100, 0 }, { 110, 100, 0 }, { 110, 110, 0 }, { 100, 110, 0 } });
+    TerrainDesignResult untouched;
+    EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, untouched, error));
+    EXPECT_EQ (error.rfind ("TerrainDesignRegion", 0), 0U) << error;
+    EXPECT_TRUE (untouched.region.empty ());
+}

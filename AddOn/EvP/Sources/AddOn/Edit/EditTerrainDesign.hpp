@@ -11,10 +11,13 @@ struct TerrainDesignOptions {
     OperationId operation = 0; // Enabled DAG operation that consumes `source`.
     ObjectId object = 0;       // One existing terrain owner; mixed ownership refuses.
     Id source = kNoId;         // PathCenterline source naming the document path.
-    // Closed straight xyz ring bounding the rebuild (z ignored). P1 takes it from
-    // the caller; deriving it from the band's reach is the composition phase's.
+    // Closed straight xyz ring bounding the rebuild (z ignored). Empty derives it
+    // from the band's reach: the stations offset by the widest half width,
+    // shoulder and face limit plus `margin` (round joins and ends, chords within
+    // `arcTolerance`), clipped to the property line; exactly one ring must remain.
     std::span<const double> region;
-    double maxStep = 2.0; // Station spacing, metres (plus every break).
+    double margin = 1.0, arcTolerance = 0.05; // Metres.
+    double maxStep = 2.0;                     // Station spacing, metres (plus every break).
     // A cross-section range change (width, crossfall, shoulder, slopes) runs over
     // this many metres ending at the range start. A zero-length step would make
     // the band discontinuous; its end faces need corner fans (composition phase).
@@ -40,6 +43,7 @@ struct TerrainDesignResult {
     uint64_t revision = 0;
     std::string sourceTerrainGuid;
     std::vector<double> stations; // Path stations the band was sampled at.
+    std::vector<double> region;   // The ring actually rebuilt (caller's or derived), xyz.
     HybridTerrainResult build;    // Rust result; inputProvenance is the design input (domains=7).
     // Vertex/face attribution of the rebuilt base mesh (domains=5): input
     // vertices and verbatim faces exact, split and crossing vertices and
