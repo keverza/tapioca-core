@@ -777,6 +777,61 @@ for the uninstrumented-call probes. End-to-end reports and exact remaining limit
 are in the dated private S3a.3 evidence; full acceptance still requires the facade
 runtime target and combined heap/copy evidence. Both terrain services stay workers.
 
+## S3b.0 `faer` vendoring
+
+`geometry` depends on `faer =0.24.4` with **no default features** and only
+`sparse-linalg`: no `rayon` (threads), `rand`, `npy` or `std`, so the
+factorization is sequential and its maths is `libm`'s. Its closure is vendored
+like `spade`'s and `check_rust.py` holds it exactly, keyed by `(crate, version)`
+because `equator`/`equator-macro` are present at two versions. The policy also
+names every reviewed build script and proc-macro, parses licence expressions atom
+by atom (`OR`, `AND`, legacy `/`), lists the published crates whose MIT text had
+to be supplied from their upstream repository, and declares `faer`'s embedded
+notices for code it ports (SuiteSparse AMD/COLAMD and LAPACK, BSD-3-Clause; Eigen,
+MPL-2.0, for a dense SVD Tapioca does not use). See `rust/vendor/THIRD-PARTY.md`.
+
+## S3b.1 grading solve (`geometry::grading`, Rust only)
+
+`solve_sparse_ls` minimizes `sum weight * (a . x - target)^2` over borrowed rows
+(a term pool addressed by `Row::first/count`), with `Fixed` unknowns eliminated
+rather than penalized. `solve_constrained_ls` adds `Bound`s (`lower <= x <= upper`,
+cut/fill limits) and `Difference` limits (`min <= x_a - x_b <= max`, slope limits).
+`reduce_slope` is a consumer: the nearest heights (least squares) whose every
+distinct triangle edge has grade at most a `Slope`, with chosen vertices held.
+`slope::Slope` is the one slope value type (angle, percent, rise:run, height over
+a run) and converts to a gradient only at the point of use; vertical is infinite.
+
+`faer` only factorizes: Tapioca assembles the reduced normal equations (merging
+duplicate triplets by a stable sort), owns every constraint and refusal, and
+refines the solve against its own assembled matrix to `Limits::residual`. All
+constraints involve one or two unknowns, so they form a graph with a ground node:
+
+- **Feasibility is exact.** Shortest paths over the constraint graph give a
+  feasible start at or below the caller's start, or prove a negative cycle:
+  `SolveInconsistent`. Contradictory fixed values are refused the same way.
+- **Groups, not penalties.** Active limits merge unknowns into groups with exact
+  offsets along a spanning tree, so every subproblem is symmetric positive
+  definite and of the same reduced form.
+- **Three phases, one budget.** `Limits::max_iterations` counts factorized solves.
+  A cold primal-dual active set settles in a few factorizations when constraints
+  are bounds; it gives up as soon as its flip count stops shrinking. On a steep
+  mesh, tight edges of one triangle close cycles, which a cold working set cannot
+  resolve; an operator-splitting (ADMM) estimate is then polished at tightening
+  accuracies. A primal active set is the exact fallback. Exhaustion is
+  `SolveNotConverged`; nothing partial is returned.
+- **Certified optimality.** A result is returned only when no limit is violated
+  beyond `Limits::feasibility` and non-negative multipliers on the tight limits
+  balance the gradient. Where tight limits close cycles the multipliers are not
+  unique, so this is decided by a maximum flow, not by spanning-tree flows.
+
+Determinism: fixed orders everywhere; bit-reproducible on one machine (`faer`
+selects SIMD kernels by CPU feature). Measure with
+`cargo run --release --offline --locked -p tapioca-core-ffi --example grading_measure`
+(10k unknowns): one factorization for an unconstrained solve (14-21 ms median),
+six for 3621 binding cut/fill bounds (about 80 ms), seven plus the split for a
+slope limit with about 7100 binding edges (about 260 ms median, 284 ms p95). The
+grading services are worker-classified; no ABI or production caller uses them yet.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

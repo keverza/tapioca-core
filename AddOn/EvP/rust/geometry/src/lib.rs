@@ -19,6 +19,7 @@ extern crate self as tapioca_geometry;
 
 pub mod affine;
 pub mod arc;
+pub mod grading;
 pub mod identity;
 pub mod mesh;
 pub mod mesh_prep;
@@ -26,5 +27,6 @@ mod native_guid;
 pub mod plane;
 pub mod polygon;
 pub mod polyline;
+pub mod slope;
 pub mod terrain;
 pub mod value;
