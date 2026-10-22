@@ -313,11 +313,13 @@ struct Computed {
 
 // SAFETY: every pool, including each surface's nested pools, is preflighted
 // disjoint from outputs and error before any foreign borrow or write.
-unsafe fn compute(
+pub(super) unsafe fn with_edit<O: Copy>(
     input: *const TerrainEditRequest,
-    output: *const TerrainEditOutput,
+    output: *const O,
     error: Range,
-) -> Result<Computed, Failure> {
+    writable: fn(O) -> Vec<Checked>,
+    sized: impl FnOnce(&O, usize, usize) -> Result<(), Failure>,
+) -> Result<(kernel::Edited, O), Failure> {
     // SAFETY: descriptors validates both POD shapes before copying them.
     let (request, target, context): (_, _, BorrowContext) =
         unsafe { pools::descriptors(input, output, error)? };
@@ -333,7 +335,7 @@ unsafe fn compute(
             memory_range(r.protected.data, r.protected.count),
         ]);
     }
-    let writable = target.map_or_else(Vec::new, outputs);
+    let writable = target.map_or_else(Vec::new, writable);
     pools::preflight(&inputs, &writable, error)?;
     let request = request.ok_or(Failure::Argument("TerrainInputDescriptor"))?;
     let target = target.ok_or(Failure::Argument("TerrainOutputDescriptor"))?;
@@ -371,13 +373,7 @@ unsafe fn compute(
         },
         5,
     )?;
-    let vertices = points.len() / 3;
-    if target.height_capacity < vertices
-        || target.owner_capacity < vertices
-        || target.report_capacity < edits.len()
-    {
-        return Err(Failure::Argument("TerrainOutputTooSmall"));
-    }
+    sized(&target, points.len() / 3, edits.len())?;
     let mut fields = Vec::with_capacity(surfaces.len());
     for surface in surfaces {
         // SAFETY: both nested pools were preflighted in the second pass.
@@ -416,6 +412,27 @@ unsafe fn compute(
         smoothing,
     })
     .map_err(|error| Failure::Argument(error.message()))?;
+    Ok((edited, target))
+}
+
+// SAFETY: as [`with_edit`].
+unsafe fn compute(
+    input: *const TerrainEditRequest,
+    output: *const TerrainEditOutput,
+    error: Range,
+) -> Result<Computed, Failure> {
+    // SAFETY: forwarded unchanged; with_edit preflights everything first.
+    let (edited, target) = unsafe {
+        with_edit(input, output, error, outputs, |target, vertices, edits| {
+            if target.height_capacity < vertices
+                || target.owner_capacity < vertices
+                || target.report_capacity < edits
+            {
+                return Err(Failure::Argument("TerrainOutputTooSmall"));
+            }
+            Ok(())
+        })?
+    };
     if target.face_capacity < edited.faces.len() {
         return Err(Failure::Argument("TerrainOutputTooSmall"));
     }

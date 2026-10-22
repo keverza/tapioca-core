@@ -415,13 +415,25 @@ fn plan_heights(points: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-// SAFETY: every top-level pool is preflighted disjoint from all outputs and
-// the error buffer before any foreign borrow.
-unsafe fn compute(
+/// An output record's writable ranges and its mode check.
+#[derive(Clone, Copy)]
+pub(super) struct Shape<O> {
+    /// Every writable range of the record.
+    pub(super) writable: fn(O) -> Vec<Checked>,
+    /// Query/fill and reserved-field validation, run right after preflight.
+    pub(super) mode: fn(&O) -> Result<(), Failure>,
+}
+
+// SAFETY: every top-level pool is preflighted disjoint from all of `output`'s
+// writable ranges and the error buffer before any foreign borrow; `mode` runs
+// right after preflight, before attribution, as for every terrain export.
+pub(super) unsafe fn with_band<O: Copy, R>(
     input: *const TerrainHybridRequest,
-    output: *const TerrainHybridOutput,
+    output: *const O,
     error: Range,
-) -> Result<(Encoded, TerrainHybridOutput), Failure> {
+    shape: Shape<O>,
+    run: impl FnOnce(&kernel::BuildRequest<'_>) -> Result<R, Failure>,
+) -> Result<(R, O), Failure> {
     // SAFETY: descriptors validates both POD shapes before copying them.
     let (request, target, context): (_, _, BorrowContext) =
         unsafe { pools::descriptors(input, output, error)? };
@@ -435,24 +447,11 @@ unsafe fn compute(
             memory_range(r.stations.data, r.stations.count),
         ]);
     }
-    let outputs = target.map_or_else(Vec::new, writable);
+    let outputs = target.map_or_else(Vec::new, shape.writable);
     pools::preflight(&inputs, &outputs, error)?;
     let request = request.ok_or(Failure::Argument("TerrainInputDescriptor"))?;
     let target = target.ok_or(Failure::Argument("TerrainOutputDescriptor"))?;
-    if target.query_only > 1
-        || target.reserved != 0
-        || (target.query_only == 1
-            && (target.point_capacity
-                | target.base_capacity
-                | target.owner_capacity
-                | target.triangle_capacity
-                | target.mapping_capacity
-                | target.line_capacity
-                | target.side_capacity)
-                != 0)
-    {
-        return Err(Failure::Argument("TerrainOutputMode"));
-    }
+    (shape.mode)(&target)?;
     // SAFETY: every pool was preflighted above; no borrow escapes this call.
     let (points, triangles, region, raw_stations, provenance) = unsafe {
         (
@@ -489,7 +488,7 @@ unsafe fn compute(
         .iter()
         .map(station)
         .collect::<Result<Vec<_>, _>>()?;
-    let built = kernel::build(&kernel::BuildRequest {
+    let result = run(&kernel::BuildRequest {
         points,
         triangles,
         region,
@@ -498,16 +497,48 @@ unsafe fn compute(
             effect,
         },
         tolerance: request.tolerance,
-    })
-    .map_err(|error| Failure::Argument(error.message()))?;
-    Ok((encode(built)?, target))
+    })?;
+    Ok((result, target))
+}
+
+fn mode(target: &TerrainHybridOutput) -> Result<(), Failure> {
+    if target.query_only > 1
+        || target.reserved != 0
+        || (target.query_only == 1
+            && (target.point_capacity
+                | target.base_capacity
+                | target.owner_capacity
+                | target.triangle_capacity
+                | target.mapping_capacity
+                | target.line_capacity
+                | target.side_capacity)
+                != 0)
+    {
+        return Err(Failure::Argument("TerrainOutputMode"));
+    }
+    Ok(())
+}
+
+// SAFETY: as [`with_band`].
+unsafe fn compute(
+    input: *const TerrainHybridRequest,
+    output: *const TerrainHybridOutput,
+    error: Range,
+) -> Result<(Encoded, TerrainHybridOutput), Failure> {
+    // SAFETY: forwarded unchanged; with_band preflights everything first.
+    unsafe {
+        let shape = Shape { writable, mode };
+        with_band(input, output, error, shape, |request| {
+            encode(kernel::build(request).map_err(|error| Failure::Argument(error.message()))?)
+        })
+    }
 }
 
 /// Copy a nonempty POD prefix.
 ///
 /// # Safety
 /// `to` holds at least `from.len()` exclusively writable elements.
-unsafe fn copy<T: Copy>(from: &[T], to: *mut T) {
+pub(super) unsafe fn copy<T: Copy>(from: &[T], to: *mut T) {
     if !from.is_empty() {
         // SAFETY: capacity and disjointness were verified by the caller.
         unsafe { std::ptr::copy_nonoverlapping(from.as_ptr(), to, from.len()) };
