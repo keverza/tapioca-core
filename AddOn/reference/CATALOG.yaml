@@ -44,6 +44,24 @@ entries:
       url: https://github.com/AngusJohnson/Clipper2/archive/refs/tags/Clipper2_2.0.1.zip
       archive_subpath: Clipper2-Clipper2_2.0.1
 
+  - path: earstrip-main
+    kind: directory
+    profiles: [build, test]
+    authority: "earstrip"
+    version: "v0.2.0"
+    source: "https://github.com/GLMap/earstrip"
+    provenance: >-
+      Pinned header-only ear-clipping and constrained-Delaunay polygon
+      triangulator, ISC licensed and compiled into the native add-on. Used behind
+      Tapioca's planar patch triangulation only; Clipper2 remains the
+      boolean/offset authority and Rust spade remains the terrain TIN. The path
+      label follows the existing Clipper2-main convention; the download is the
+      v0.2.0 tag archive, never a branch.
+    download:
+      url: https://github.com/GLMap/earstrip/archive/refs/tags/v0.2.0.zip
+      archive_subpath: earstrip-0.2.0
+      sha256: 9b4ac6b4c34c7ec636c8439be2083552cfe8a9c54f186b974e7af1c5b736cc90
+
   - path: DiligentEngine-master
     kind: directory
     profiles: [build]
