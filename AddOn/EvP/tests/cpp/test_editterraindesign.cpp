@@ -1,4 +1,5 @@
 #include "Edit/EditTerrainDesign.hpp"
+#include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPath.hpp"
 #include "Edit/EditPathEdit.hpp"
@@ -400,4 +401,89 @@ TEST (EditTerrainDesign, TheDerivedRegionIsClippedToThePropertyLine)
     EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, untouched, error));
     EXPECT_EQ (error.rfind ("TerrainDesignRegion", 0), 0U) << error;
     EXPECT_TRUE (untouched.region.empty ());
+}
+
+namespace {
+std::shared_ptr<const TerrainCapture> Capture (const DesignFixture& fixture)
+{
+    auto capture = std::make_shared<TerrainCapture> ();
+    capture->points = fixture.points;
+    capture->triangles = fixture.triangles;
+    capture->provenance = fixture.provenance;
+    capture->revision = fixture.doc.revision;
+    capture->sourceTerrainGuid = fixture.doc.landscape->sourceTerrainGuid;
+    return capture;
+}
+} // namespace
+
+TEST (EditTerrainDesignJob, AWorkerResultPublishesOnlyForTheDocumentItWasComputedAgainst)
+{
+    DesignFixture fixture;
+    TerrainDesignPublisher publisher;
+    TerrainDesignJob job;
+    std::string error;
+    auto options = fixture.Options ();
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, {}, job, error)) << error;
+    EXPECT_EQ (job.generation, 1U);
+    // The worker runs off the main thread against its own snapshot.
+    auto outcome = LaunchTerrainDesign (job).get ();
+    ASSERT_TRUE (outcome.built) << outcome.error;
+    EXPECT_EQ (outcome.revision, fixture.doc.revision);
+    EXPECT_FALSE (outcome.result.region.empty ()); // Derived reach.
+    const auto copy = outcome;
+    ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (outcome), error)) << error;
+    const auto* current = publisher.Current (fixture.doc);
+    ASSERT_NE (current, nullptr);
+    EXPECT_EQ (current->result, copy.result);
+    EXPECT_EQ (current->result, RunTerrainDesign (job).result); // Deterministic.
+
+    // An edit moves the revision: the cached result no longer describes it, and
+    // a result computed against the old revision is refused.
+    auto edited = fixture.doc;
+    ASSERT_TRUE (edit::EditPath (
+        edited, fixture.path,
+        [] (edit::Path& value, std::string&) {
+            value.sections.front ().widthLeft = 2.5;
+            return true;
+        },
+        error))
+        << error;
+    ++edited.revision; // The session publishes an accepted edit as a new revision.
+    EXPECT_EQ (publisher.Current (edited), nullptr);
+    EXPECT_FALSE (publisher.Publish (edited, copy, error));
+    EXPECT_EQ (error.rfind ("ProvenanceStale", 0), 0U) << error;
+    // A capture stamped for the old revision cannot start a job for the new one.
+    TerrainDesignJob stale;
+    EXPECT_FALSE (publisher.Prepare (edited, Capture (fixture), options, {}, stale, error));
+    EXPECT_EQ (error.rfind ("ProvenanceStale", 0), 0U) << error;
+    EXPECT_EQ (publisher.Latest (), 1U);
+}
+
+TEST (EditTerrainDesignJob, LaterRequestsSupersedeAndRefusalsCarryTheirPlaces)
+{
+    DesignFixture fixture;
+    TerrainDesignPublisher publisher;
+    std::string error;
+    TerrainDesignJob first, second;
+    auto options = fixture.Options ();
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, kRegion, first, error)) << error;
+    options.cutLimit = options.fillLimit = .5;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, kRegion, second, error)) << error;
+    auto late = std::async (std::launch::async, [first] { return RunTerrainDesign (first); });
+    auto refused = RunTerrainDesign (second);
+    // The first job finishes, but it was superseded: discarded, nothing published.
+    EXPECT_FALSE (publisher.Publish (fixture.doc, late.get (), error));
+    EXPECT_EQ (error.rfind ("TerrainDesignSuperseded", 0), 0U) << error;
+    EXPECT_EQ (publisher.Current (fixture.doc), nullptr);
+    // The latest is a refusal; it publishes with its located places.
+    ASSERT_FALSE (refused.built);
+    EXPECT_EQ (refused.error.rfind ("DaylightNotReached", 0), 0U) << refused.error;
+    EXPECT_EQ (refused.conflicts.size (), 18U);
+    ASSERT_TRUE (publisher.Publish (fixture.doc, refused, error)) << error;
+    const auto* current = publisher.Current (fixture.doc);
+    ASSERT_NE (current, nullptr);
+    EXPECT_FALSE (current->built);
+    EXPECT_EQ (current->conflicts.front ().code, HybridConflictCode::DaylightBeyondLimit);
+    // A job without a snapshot is an outcome, not a crash.
+    EXPECT_FALSE (RunTerrainDesign (TerrainDesignJob {}).built);
 }

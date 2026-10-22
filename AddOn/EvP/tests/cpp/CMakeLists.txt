@@ -820,6 +820,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSolve.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainTriangulation.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainDesign.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainDesignJob.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditSparseSolve.cpp")
 endif ()
 
