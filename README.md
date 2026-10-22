@@ -5,18 +5,17 @@
 
 The steamed potato sidecar for ArchiCAD needs.
 Tapioca is an UI for Python automation scripts.
-Tapioca exposes more AC29 C++ SDK calls and can call upon Tapir and ArchiCAD python API if installed. Check examples for possibilities.
+Tapioca exposes more AC29 C++ SDK calls and can call upon Tapir and ArchiCAD python API if installed. 
+It has Diligent Render Engine for preview and viewport overlay (currently floor plan and 3D).
 
-## Architecture and dependencies
-
-Tapioca uses AC29 SDK and Tapir for API access. It has Diligent Render Engine for preview
-and viewport overlay.
+Check examples for possibilities.
+Goal is to have design helpers and automation without leaving archicad:
+Sunstudy, viewstudy, heatmap overlays, landscape design, massing feasibility ...
 
 ## Download and install
 
 Download **Tapioca-AC29.zip** from the [Releases page](https://github.com/keverza/tapioca-core/releases)
-and extract the complete `Tapioca` folder to a permanent location. A repository
-checkout is not required. Prerequisites are **64-bit Windows**, **Archicad 29**,
+and extract the complete `Tapioca` folder to a permanent location. Prerequisites are **64-bit Windows**, **Archicad 29**,
 **PowerShell 5.1+**, the **x64 Visual C++ v14 Redistributable**, and internet access
 for runtime/package downloads. With Archicad closed, run this from the extracted
 `Tapioca` folder:
@@ -38,23 +37,6 @@ Then:
 3. Choose Add and select the extracted Tapioca.apx. Keep EvPPy.dll and PyPackage beside it.
 4. Open Tapioca Panel from the Tapioca menu, open a project, and press Rescan.
 5. Run Hello Tapioca. Tapir is optional and needed only by commands that declare it.
-
-## First command
-
-```python
-import tapioca
-
-@tapioca.command(title="Hello", category="Examples")
-def run(name: tapioca.Text = "Archicad"):
-    tapioca.ui.text("Hello, " + name)
-```
-
-For a release installation, save it as
-`%LOCALAPPDATA%\Tapioca\Commands\MyCommand\command.py` and press Rescan.
-Repository authors can instead save under `Examples\`, run
-`AddOn\EvP\Sync-Commands.ps1` from the repository root, and press Rescan. The
-`Examples\` directory contains small runnable patterns for inputs, selection
-reads, result tables, and built-in properties.
 
 ## Build from source
 
