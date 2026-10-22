@@ -15,7 +15,8 @@ namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
 
 struct TerrainDesignState {
-    std::shared_ptr<const Mesh> baseline;
+    TerrainDesignBaseline baseline;
+    bool invalid = false;
     lg::TerrainDesignOptions options;
     lg::TerrainDesignPublisher publisher;
     std::future<lg::TerrainDesignOutcome> worker;
@@ -77,16 +78,25 @@ bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, lg::TerrainDe
 
 bool StartTerrainDesign (Session& s, std::shared_ptr<const Mesh> mesh, edit::Id path)
 {
-    if (!mesh || !Idle (s) || (s.terrainDesign && s.terrainDesign->worker.valid ())) {
+    return StartTerrainDesign (s, TerrainDesignBaseline { std::move (mesh), false, {} }, path);
+}
+
+bool StartTerrainDesign (Session& s, TerrainDesignBaseline baseline, edit::Id path)
+{
+    if (!baseline.mesh || !Idle (s) || (s.terrainDesign && s.terrainDesign->worker.valid ())) {
         s.message = "Finish the current input and terrain build before starting a design.";
         return false;
     }
     auto state = std::make_shared<TerrainDesignState> ();
-    state->baseline = std::move (mesh);
+    if (baseline.current && !baseline.current ()) {
+        s.message = "TerrainCaptureStale: capture the terrain again.";
+        return false;
+    }
+    state->baseline = std::move (baseline);
     // Validate on a candidate before opening history. Apply returns false on a
     // no-op, so an already-authored path is bound without manufacturing an edit.
     auto candidate = s.edits.Doc ();
-    if (!Author (candidate, *state->baseline, path, state->options, s.message))
+    if (!Author (candidate, *state->baseline.mesh, path, state->options, s.message))
         return false;
     if (candidate.landscape != s.edits.Doc ().landscape &&
         !s.edits.Apply ([candidate] (edit::Document& doc, std::string&) {
@@ -108,23 +118,30 @@ void PollTerrainDesign (Session& s)
         return;
     auto& state = *s.terrainDesign;
     const auto& doc = s.edits.Doc ();
+    if (!state.invalid && state.baseline.current && !state.baseline.current ()) {
+        state.invalid = true;
+        state.error = "TerrainCaptureStale: native terrain changed; capture it again.";
+        s.publishedRevision = UINT64_MAX;
+    }
     if (state.worker.valid ()) {
         if (state.worker.wait_for (std::chrono::seconds (0)) != std::future_status::ready)
             return;
         auto outcome = state.worker.get ();
         std::string error;
-        if (state.publisher.Publish (doc, std::move (outcome), error))
+        if (!state.invalid && state.publisher.Publish (doc, std::move (outcome), error))
             s.publishedRevision = UINT64_MAX;
     }
-    if (!Idle (s) || state.requestedRevision == doc.revision)
+    if (state.invalid || !Idle (s) || state.requestedRevision == doc.revision)
         return;
     state.requestedRevision = doc.revision; // Refusals retry only after an edit.
     state.error.clear ();
     auto capture = std::make_shared<lg::TerrainCapture> ();
     lg::TerrainDesignJob job;
-    if (!lg::CaptureLandscapeTerrain (doc, *state.baseline, { state.options.object, 2, 1 }, *capture, state.error) ||
+    if (!lg::CaptureLandscapeTerrain (doc, *state.baseline.mesh, { state.options.object, 2, 1 }, *capture,
+                                      state.error) ||
         !state.publisher.Prepare (doc, capture, state.options, {}, job, state.error))
         return;
+    job.surfaceTable = state.baseline.nativeSolid ? 5 : 0;
     try {
         state.worker = lg::LaunchTerrainDesign (std::move (job));
     }
@@ -135,7 +152,37 @@ void PollTerrainDesign (Session& s)
 
 const lg::TerrainDesignOutcome* CurrentTerrainDesign (const Session& s)
 {
-    return s.terrainDesign && !s.edits.InGesture () ? s.terrainDesign->publisher.Current (s.edits.Doc ()) : nullptr;
+    if (!s.terrainDesign || s.edits.InGesture () || s.terrainDesign->invalid ||
+        (s.terrainDesign->baseline.current && !s.terrainDesign->baseline.current ()))
+        return nullptr;
+    return s.terrainDesign->publisher.Current (s.edits.Doc ());
+}
+
+TerrainDesignStatus GetTerrainDesignStatus (const Session& s)
+{
+    TerrainDesignStatus status;
+    if (!s.terrainDesign)
+        return status;
+    const auto& state = *s.terrainDesign;
+    status.active = true;
+    status.pending = state.worker.valid ();
+    status.error = state.error;
+    if (state.baseline.current && !state.baseline.current ())
+        status.error = "TerrainCaptureStale: native terrain changed; capture it again.";
+    if (const auto* current = CurrentTerrainDesign (s)) {
+        status.current = true;
+        status.built = current->built;
+        status.revision = current->revision;
+        status.error = current->error;
+        status.conflicts = current->built ? current->result.conflicts.size () : current->conflicts.size ();
+        if (current->built) {
+            status.vertices = current->result.build.points.size () / 3;
+            status.triangles = current->result.build.triangles.size () / 3;
+            status.cut = current->result.build.site.cut;
+            status.fill = current->result.build.site.fill;
+        }
+    }
+    return status;
 }
 
 void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
@@ -179,14 +226,13 @@ void TerrainDesignPanel (Session& s)
     ImGui::Separator ();
     if (state.worker.valid ())
         ImGui::TextUnformatted ("Building terrain...");
-    if (!state.error.empty ())
-        ImGui::TextWrapped ("%s", state.error.c_str ());
+    const auto status = GetTerrainDesignStatus (s);
+    if (!status.error.empty ())
+        ImGui::TextWrapped ("%s", status.error.c_str ());
     const auto* current = CurrentTerrainDesign (s);
     if (!current)
         return;
-    if (!current->built)
-        ImGui::TextWrapped ("%s", current->error.c_str ());
-    else
+    if (current->built)
         ImGui::Text ("Cut %.3f m3   Fill %.3f m3", current->result.build.site.cut, current->result.build.site.fill);
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
     for (const auto& conflict : conflicts)
@@ -202,6 +248,14 @@ bool StartTerrainDesign (Session& s, std::shared_ptr<const Mesh>, edit::Id)
 {
     s.message = "Terrain design requires the Rust geometry build.";
     return false;
+}
+bool StartTerrainDesign (Session& s, TerrainDesignBaseline, edit::Id path)
+{
+    return StartTerrainDesign (s, std::shared_ptr<const Mesh> {}, path);
+}
+TerrainDesignStatus GetTerrainDesignStatus (const Session&)
+{
+    return {};
 }
 void PollTerrainDesign (Session&)
 {

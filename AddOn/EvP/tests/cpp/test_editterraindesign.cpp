@@ -801,3 +801,35 @@ TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic
     EXPECT_TRUE (layers::Validate (layer).empty ()) << layers::Validate (layer);
     EXPECT_EQ (refused.edits.UndoDepth (), 1U);
 }
+
+TEST (HudTerrainDesign, NativeSurfaceBuildsOnWorkerAndNativeChangeHidesItWithoutHistory)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    auto valid = std::make_shared<bool> (true);
+    eh::TerrainDesignBaseline baseline { fixture.mesh, true, [valid] { return *valid; } };
+    ASSERT_TRUE (eh::StartTerrainDesign (session, baseline, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto* outcome = eh::CurrentTerrainDesign (session);
+    ASSERT_NE (outcome, nullptr);
+    ASSERT_NE (outcome->capture, nullptr);
+    EXPECT_NE (outcome->capture->native, nullptr);
+    EXPECT_EQ (outcome->capture->provenance.table.context.tableId, 5U);
+    const auto depth = session.edits.UndoDepth ();
+    const auto revision = session.edits.Doc ().revision;
+    *valid = false;
+    EXPECT_EQ (eh::CurrentTerrainDesign (session), nullptr);
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer), nullptr);
+    const auto status = eh::GetTerrainDesignStatus (session);
+    EXPECT_FALSE (status.current);
+    EXPECT_EQ (status.error.find ("TerrainCaptureStale"), 0U);
+    EXPECT_EQ (session.edits.Doc ().revision, revision);
+    EXPECT_EQ (session.edits.UndoDepth (), depth);
+    EXPECT_FALSE (eh::StartTerrainDesign (session, baseline, fixture.path));
+    *valid = true;
+    ASSERT_TRUE (eh::StartTerrainDesign (session, baseline, fixture.path));
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_EQ (session.edits.UndoDepth (), depth);
+}

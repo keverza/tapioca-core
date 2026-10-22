@@ -1,6 +1,7 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
 #include "NativeCommands/VirtualEditorCommands.hpp"
+#include "NativeCommands/VirtualEditorTerrain.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
@@ -270,6 +271,14 @@ class VirtualEditorCommand : public MainThreadCommand {
             result.Add ("document", Export (s->edits.Doc ()));
         if (action == "stop")
             Stop (*state, "Tapioca.VirtualEditor stop");
+        else if (action == "terrain") {
+            auto* session = hud::VirtualEditor (*state);
+            std::string error;
+            if (!session || !StartNativeTerrainDesign (*session, params, error))
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (GS::UniString (session ? error.c_str () : "Open a landscape editor first.", CC_UTF8),
+                              "starting terrain design"));
+        }
         else if (action == "surface") {
             GS::UniString surface;
             if (!hud::VirtualEditorActive (*state) || !params.Get ("surface", surface) ||
@@ -338,6 +347,7 @@ class VirtualEditorCommand : public MainThreadCommand {
             result.Add ("revision", static_cast<GS::Int64> (s->edits.Doc ().revision));
             result.Add ("undoDepth", static_cast<GS::Int64> (s->edits.UndoDepth ()));
             result.Add ("message", GS::UniString (s->message.c_str (), CC_UTF8));
+            result.Add ("terrainDesign", VirtualTerrainStatus (*s));
         }
         return result;
     }
@@ -423,6 +433,7 @@ class EditorStateCommand : public MainThreadCommand {
                     s->selection.hover.entity != edit::kNoId || s->selection.hover.part == edit::Part::LandscapeFace);
         if (s->edits.Doc ().landscape)
             result.Add ("landscape", LandscapeSummary (s->edits.Doc ()));
+        result.Add ("terrainDesign", VirtualTerrainStatus (*s));
         result.Add ("revision", static_cast<GS::Int64> (s->edits.Doc ().revision));
         result.Add ("publishedRevision", static_cast<GS::Int64> (s->publishedRevision));
         result.Add ("undoDepth", static_cast<GS::Int64> (s->edits.UndoDepth ()));
@@ -466,7 +477,8 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
         // cancelled, as the roof editor's does; it never writes to the model.
         { "VirtualEditor", &MakeRegisteredNativeCommand<VirtualEditorCommand>, true,
           R"json({"type":"object","properties":{
-                "action":{"type":"string","enum":["start","stop","state","surface"]},"role":{"type":"string"},
+                "action":{"type":"string","enum":["start","stop","state","surface","terrain"]},"role":{"type":"string"},
+                "terrainGuid":{"type":"string","minLength":36,"maxLength":36},"pathId":{"type":"string","pattern":"^[1-9][0-9]*$","maxLength":20},
                 "surface":{"type":"string","enum":["overlay","viewer"]},
                 "tool":{"type":"string","enum":["select","polyline","path","curve"]},
                 "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},
@@ -479,6 +491,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
               },"required":["action"],"additionalProperties":false})json",
           R"json({"type":"object","properties":{
                 "active":{"type":"boolean"},"locked":{"type":"boolean"},"surface":{"type":"string","enum":["overlay","viewer"]},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},
+                "terrainDesign":{"type":"object","properties":{"active":{"type":"boolean"},"pending":{"type":"boolean"},"current":{"type":"boolean"},"built":{"type":"boolean"},"revision":{"type":"integer"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"conflicts":{"type":"integer"},"cut":{"type":"number"},"fill":{"type":"number"},"error":{"type":"string"}},"required":["active","pending","current","built","revision","vertices","triangles","conflicts","cut","fill","error"],"additionalProperties":false},
                 "document":{"type":"object","properties":{
                   "polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},
                   "paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}},
@@ -495,6 +508,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend"]},
                 "gesture":{"type":"boolean"},"selection":{"type":"integer"},
                 "selectionKind":{"type":"string","enum":["none","vertex","segment","face","entity","mixed","pathPoint","break","range","landscapeFace"]},
+                "terrainDesign":{"type":"object","properties":{"active":{"type":"boolean"},"pending":{"type":"boolean"},"current":{"type":"boolean"},"built":{"type":"boolean"},"revision":{"type":"integer"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"conflicts":{"type":"integer"},"cut":{"type":"number"},"fill":{"type":"number"},"error":{"type":"string"}},"required":["active","pending","current","built","revision","vertices","triangles","conflicts","cut","fill","error"],"additionalProperties":false},
                 "landscape":{"type":"object","properties":{"sources":{"type":"integer"},"operations":{"type":"integer"},"objects":{"type":"integer"},"faces":{"type":"integer"},"propertyLine":{"type":"string"},"regions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"object":{"type":"string"},"area":{"type":"number"}},"required":["id","object","area"],"additionalProperties":false}},"warnings":{"type":"array","items":{"type":"string"}}},"required":["sources","operations","objects","faces","propertyLine","regions","warnings"],"additionalProperties":false},
                 "hovering":{"type":"boolean"},"revision":{"type":"integer"},"publishedRevision":{"type":"integer"},
                 "undoDepth":{"type":"integer"},"tracker":{"type":"string","enum":["hidden","showing","editing"]},

@@ -409,6 +409,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayHud.hpp"),
     ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayInput.hpp"),
     ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/SurfaceSwitch.hpp"),
+    # The same editor boundary's request-shaped native Mesh capture and status,
+    # kept outside command registration. No camera, renderer or model writes.
+    ("NativeCommands/VirtualEditorTerrain.cpp", "ArchViz/HudVirtualEditor.hpp"),
+    ("NativeCommands/VirtualEditorTerrain.cpp", "ArchViz/HudVirtualEditorTerrain.hpp"),
     # The layer verbs' parameters, read into the same store the verbs fill: split out
     # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),
