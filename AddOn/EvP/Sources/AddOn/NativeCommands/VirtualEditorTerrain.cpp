@@ -72,8 +72,11 @@ bool StartNativeTerrainDesign (archviz::edithud::Session& session, const GS::Obj
 #endif
 }
 
-GS::ObjectState VirtualTerrainStatus (const archviz::edithud::Session& session)
+GS::ObjectState VirtualTerrainStatus (archviz::edithud::Session& session)
 {
+    // A status request is also a main-thread completion point when both views
+    // are closed. Poll touches only derived cache state, never document history.
+    archviz::edithud::PollTerrainDesign (session);
     const auto status = archviz::edithud::GetTerrainDesignStatus (session);
     GS::ObjectState result;
     result.Add ("active", status.active);

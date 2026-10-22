@@ -339,7 +339,7 @@ class VirtualEditorCommand : public MainThreadCommand {
                           "opening the virtual editor"));
         }
         Republish ();
-        const eh::Session* s = hud::VirtualEditor (static_cast<const hud::State&> (*state));
+        eh::Session* s = hud::VirtualEditor (*state);
         result.Add ("active", s != nullptr);
         result.Add ("locked", hud::EditLocked (*state));
         result.Add ("surface", GS::UniString (archviz::surfaceswitch::ViewerOpen () ? "viewer" : "overlay"));
@@ -412,7 +412,7 @@ class EditorStateCommand : public MainThreadCommand {
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         auto state = archviz::guesttext::HudState ();
-        const eh::Session* s = hud::VirtualEditor (static_cast<const hud::State&> (*state));
+        eh::Session* s = hud::VirtualEditor (*state);
         GS::ObjectState result;
         result.Add ("active", s != nullptr);
         result.Add ("locked", hud::EditLocked (*state));

@@ -9,6 +9,6 @@ struct Session;
 namespace geomsrv {
 // Main thread: read one requested Mesh, no selection or model writes.
 bool StartNativeTerrainDesign (archviz::edithud::Session& session, const GS::ObjectState& params, std::string& error);
-GS::ObjectState VirtualTerrainStatus (const archviz::edithud::Session& session);
+GS::ObjectState VirtualTerrainStatus (archviz::edithud::Session& session);
 } // namespace geomsrv
 #endif
