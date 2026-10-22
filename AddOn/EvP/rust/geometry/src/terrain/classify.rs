@@ -16,11 +16,25 @@ use std::collections::{BTreeMap, VecDeque};
 use super::input::Prepared;
 use super::{ConstraintEdge, Error, Role};
 
+mod adjacency;
+use adjacency::Adjacency;
+
 /// Per-face keep flag and, for kept faces, the boundary ring that bounds the
 /// face's region (`None` when the domain is the convex hull).
 pub(super) struct Classified {
     pub kept: Vec<bool>,
     pub boundary: Vec<Option<u32>>,
+    adjacent: Adjacency,
+}
+
+impl Classified {
+    /// Resolve authored path edges against the SAME incidence/depth result,
+    /// without constructing a third map for every edge in the whole TIN.
+    pub(super) fn edge_kept(&self, edge: [u32; 2]) -> bool {
+        self.adjacent
+            .faces(edge)
+            .any(|face| self.kept.get(face).copied().unwrap_or(false))
+    }
 }
 
 pub(super) fn classify(
@@ -41,7 +55,8 @@ pub(super) fn classify(
         }
     }
     let has_boundary = roles.values().any(|(role, _)| *role == Role::Boundary);
-    let depths = winding(faces, &weights, i64::from(!has_boundary))
+    let adjacent = Adjacency::new(faces);
+    let depths = winding_with_adjacency(faces, &weights, i64::from(!has_boundary), &adjacent)
         .ok_or(Error::HoleClassificationFailed)?;
     let mut kept = Vec::with_capacity(faces.len());
     for depth in depths {
@@ -51,13 +66,11 @@ pub(super) fn classify(
             _ => return Err(Error::HoleClassificationFailed),
         }
     }
-    let adjacent = adjacency(faces);
     for edge in ring_edges.keys() {
-        let sides = adjacent.get(edge).map_or(0, |list| {
-            list.iter()
-                .filter(|&&face| kept.get(face).copied().unwrap_or(false))
-                .count()
-        });
+        let sides = adjacent
+            .faces(*edge)
+            .filter(|&face| kept.get(face).copied().unwrap_or(false))
+            .count();
         if sides != 1 {
             return Err(Error::HoleClassificationFailed);
         }
@@ -83,7 +96,11 @@ pub(super) fn classify(
             }
         }
     }
-    Ok(Classified { kept, boundary })
+    Ok(Classified {
+        kept,
+        boundary,
+        adjacent,
+    })
 }
 
 /// Winding depth of every face of a triangle list.
@@ -98,15 +115,23 @@ pub(super) fn winding(
     weights: &BTreeMap<[u32; 2], i64>,
     outside: i64,
 ) -> Option<Vec<i64>> {
+    winding_with_adjacency(faces, weights, outside, &Adjacency::new(faces))
+}
+
+fn winding_with_adjacency(
+    faces: &[[u32; 3]],
+    weights: &BTreeMap<[u32; 2], i64>,
+    outside: i64,
+    adjacent: &Adjacency,
+) -> Option<Vec<i64>> {
     let rise = |[a, b]: [u32; 2]| {
         weights.get(&[a, b]).copied().unwrap_or(0) - weights.get(&[b, a]).copied().unwrap_or(0)
     };
-    let adjacent = adjacency(faces);
     let mut depths: Vec<Option<i64>> = vec![None; faces.len()];
     let mut queue = VecDeque::new();
     for (index, face) in faces.iter().enumerate() {
-        for edge in face_edges(*face) {
-            if adjacent.get(&key(edge)).is_some_and(|list| list.len() == 1) {
+        for (slot, edge) in face_edges(*face).into_iter().enumerate() {
+            if adjacent.faces_at(index, slot).count() == 1 {
                 assign(&mut depths, &mut queue, index, outside + rise(edge))?;
             }
         }
@@ -114,8 +139,8 @@ pub(super) fn winding(
     while let Some(index) = queue.pop_front() {
         let depth = depths.get(index).copied().flatten()?;
         let face = faces.get(index)?;
-        for edge in face_edges(*face) {
-            for &next in adjacent.get(&key(edge)).into_iter().flatten() {
+        for (slot, edge) in face_edges(*face).into_iter().enumerate() {
+            for next in adjacent.faces_at(index, slot) {
                 if next != index {
                     assign(&mut depths, &mut queue, next, depth - rise(edge))?;
                 }
@@ -143,31 +168,10 @@ fn assign(
     }
 }
 
-/// Whether an undirected edge borders at least one kept face.
-pub(super) fn edge_kept(faces: &[[u32; 3]], kept: &[bool]) -> BTreeMap<[u32; 2], bool> {
-    let mut result: BTreeMap<[u32; 2], bool> = BTreeMap::new();
-    for (face, &keep) in faces.iter().zip(kept) {
-        for edge in face_edges(*face) {
-            *result.entry(key(edge)).or_default() |= keep;
-        }
-    }
-    result
-}
-
-fn adjacency(faces: &[[u32; 3]]) -> BTreeMap<[u32; 2], Vec<usize>> {
-    let mut adjacent: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
-    for (index, face) in faces.iter().enumerate() {
-        for edge in face_edges(*face) {
-            adjacent.entry(key(edge)).or_default().push(index);
-        }
-    }
-    adjacent
-}
-
 /// Collect one region and the ring constraints on its border.
 fn flood(
     faces: &[[u32; 3]],
-    adjacent: &BTreeMap<[u32; 2], Vec<usize>>,
+    adjacent: &Adjacency,
     ring_edges: &BTreeMap<[u32; 2], Vec<u32>>,
     region: &mut [bool],
     seed: usize,
@@ -183,12 +187,12 @@ fn flood(
         let Some(vertices) = faces.get(face) else {
             continue;
         };
-        for edge in face_edges(*vertices).map(key) {
+        for (slot, edge) in face_edges(*vertices).map(key).into_iter().enumerate() {
             if let Some(constraints) = ring_edges.get(&edge) {
                 borders.extend_from_slice(constraints);
                 continue;
             }
-            for &next in adjacent.get(&edge).into_iter().flatten() {
+            for next in adjacent.faces_at(face, slot) {
                 if let Some(flag) = region.get_mut(next).filter(|flag| !**flag) {
                     *flag = true;
                     stack.push(next);
@@ -238,4 +242,38 @@ pub(super) const fn face_edges([a, b, c]: [u32; 3]) -> [[u32; 2]; 3] {
 
 pub(super) const fn key([a, b]: [u32; 2]) -> [u32; 2] {
     if a < b { [a, b] } else { [b, a] }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queried_kept_flags_match_the_former_whole_mesh_map_for_every_mask() {
+        // Includes three faces on one edge: kept means ANY incident face,
+        // never only the first/last pair. Absent edges must remain false.
+        let faces = [[0, 1, 2], [1, 0, 3], [0, 1, 4]];
+        for mask in 0..8 {
+            let kept: Vec<_> = (0..3).map(|face| mask & (1 << face) != 0).collect();
+            let mut oracle: BTreeMap<[u32; 2], bool> = BTreeMap::new();
+            for (face, &keep) in faces.iter().zip(&kept) {
+                for edge in face_edges(*face) {
+                    *oracle.entry(key(edge)).or_default() |= keep;
+                }
+            }
+            let classified = Classified {
+                kept,
+                boundary: vec![None; faces.len()],
+                adjacent: Adjacency::new(&faces),
+            };
+            for first in 0..6 {
+                for second in 0..6 {
+                    assert_eq!(
+                        classified.edge_kept([first, second]),
+                        oracle.get(&key([first, second])).copied().unwrap_or(false)
+                    );
+                }
+            }
+        }
+    }
 }

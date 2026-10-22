@@ -90,3 +90,20 @@ not measured memcpy traffic, retained catalog/descriptor/internal/reallocation
 copies. These limits keep **full S3a.3 acceptance open** even when the timing target
 passes. Probes, parsers and measurement binaries never change the production ABI,
 allocator, dependencies, editor integration or worker classification.
+
+## Private stage attribution
+
+The ignored `terrain::profile::terrain_stages` unit test can separately attribute
+cost inside the kernel. From `AddOn/EvP/rust/` run:
+
+```powershell
+cargo test -p tapioca-geometry terrain::profile::terrain_stages --release --locked --offline -- --ignored --nocapture
+```
+
+It runs three warmups and nine samples per fixture/grid, emits JSON stage records,
+and checks full `Tin` equality against the ordinary entry point. Clock calls and
+orchestration replay are test-only; no production profiling API is exposed.
+The default debug/release gate intentionally ignores this timing test, but runs
+all correctness tests. Do not run it concurrently with end-to-end measurements.
+Stage categories can change when a temporary is eliminated or its lifetime is
+shortened; use end-to-end reports for the actual cost comparison.

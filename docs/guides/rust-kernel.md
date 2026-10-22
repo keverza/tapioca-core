@@ -743,6 +743,40 @@ for reproducible commands, exact workload and probe limitations. Full S3a.3 rema
 open: ordinary C++ new and kernel-only requested heap are not combined facade
 Rust+C++ peak heap, and a source copy ledger is not measured memory traffic.
 
+### S3a.3 topology cost slice
+
+The private classifier now builds one sorted edge/face-corner incidence vector,
+with cached incidence spans for each face/local edge. Winding and region flood
+reuse that index; authored constraint rows query the same result for kept flags,
+instead of constructing another whole-mesh map. Original face-corner ordinals
+preserve the old ordered-multimap traversal, including repeated incidences and
+edges with more than two neighbours. No manifoldness shortcut, centroid test or
+hash-dependent ordering replaces the winding checks. The index and temporary
+face list are released after output flags/owners are copied, before independent
+constraint verification allocates its proof sets.
+
+Three additional unit tests compare both query forms against the former
+`BTreeMap` representation and exhaust kept masks, including missing/duplicate/
+nonmanifold incidences. Existing terrain/refinement/split digests and the shared
+analytic corpus remain the geometry/support oracle. This changes no public Rust
+API, ABI, provenance schema, two-pass ownership contract or production caller.
+
+An **ignored, opt-in** private-stage test replays the orchestration through the
+same owners and asserts complete `Tin` equality with `triangulate`. It emits JSON
+stage timings only from the test binary; no clock/profiling API or dependency is
+added to shipped geometry. Run separately from end-to-end measurement:
+
+```powershell
+# From AddOn/EvP/rust, release only; no concurrent benchmark/build/test process.
+cargo test -p tapioca-geometry terrain::profile::terrain_stages --release --locked --offline -- --ignored --nocapture
+```
+
+The stage test uses the six fixtures plus fixed grid, three warmups and nine
+samples. It is diagnostic attribution, not a performance assertion or substitute
+for the uninstrumented-call probes. End-to-end reports and exact remaining limits
+are in the dated private S3a.3 evidence; full acceptance still requires the facade
+runtime target and combined heap/copy evidence. Both terrain services stay workers.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

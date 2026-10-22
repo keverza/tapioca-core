@@ -37,6 +37,8 @@ mod split;
 mod verify;
 
 #[cfg(test)]
+mod profile;
+#[cfg(test)]
 mod tests;
 
 pub use refine::{Refinement, Steiner, SteinerOrigin};
@@ -234,7 +236,6 @@ pub fn triangulate(request: &Request<'_>) -> Result<Tin, Error> {
     let mut faces: Vec<[u32; 3]> = built.faces.into_iter().map(canonical).collect();
     faces.sort_unstable();
     let classified = classify::classify(&prepared, &faces, &built.rows)?;
-    let kept_edges = classify::edge_kept(&faces, &classified.kept);
     let mut triangles = Vec::new();
     let mut face_boundary = Vec::new();
     for ((face, keep), boundary) in faces.iter().zip(&classified.kept).zip(&classified.boundary) {
@@ -250,13 +251,14 @@ pub fn triangulate(request: &Request<'_>) -> Result<Tin, Error> {
         .rows
         .into_iter()
         .map(|row| ConstraintEdge {
-            kept: kept_edges
-                .get(&classify::key(row.vertices))
-                .copied()
-                .unwrap_or(false),
+            kept: classified.edge_kept(row.vertices),
             ..row
         })
         .collect();
+    // Authoritative kept flags/owners are now copied into output rows. Do not
+    // overlap the private incidence index with the independent verifier's sets.
+    drop(classified);
+    drop(faces);
     let tin = Tin {
         points: prepared.positions.iter().flatten().copied().collect(),
         triangles,

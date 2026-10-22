@@ -13,6 +13,10 @@
 
 #![forbid(unsafe_code)]
 
+// Shared external-fixture reader is also used by the opt-in private-stage test.
+#[cfg(test)]
+extern crate self as tapioca_geometry;
+
 pub mod affine;
 pub mod arc;
 pub mod identity;
