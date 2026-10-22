@@ -2,9 +2,9 @@
 //!
 //! `spade` accepts only constraints that touch at vertices, so every proper
 //! crossing (interiors intersect at one point) gets a vertex before
-//! triangulation. Touching cases are left to `spade`'s exact predicates: an
-//! endpoint on another segment, or collinear overlap, splits that constraint at
-//! the existing vertex. A crossing classified here in plain `f64` but not by
+//! triangulation. The constraint builder resolves exact touching vertices on
+//! each original segment before inserting its rounded crossing pieces, using
+//! `spade`'s exact predicates. A crossing classified here in plain `f64` but not by
 //! the exact predicates is reported by the triangulator as a conflict, never
 //! silently skipped.
 

@@ -103,6 +103,28 @@ fn between(built: &Built, x0: f64, x1: f64) -> [f64; 2] {
 }
 
 #[test]
+fn worked_dense_stations() -> Result<(), HybridError> {
+    let (points, triangles) = base(worked);
+    for count in [8, 16, 20, 40] {
+        let stations: Vec<_> = (0..=count)
+            .map(|i| {
+                let x = f64::from(i) * 40.0 / f64::from(count);
+                station(x, 10.0 + 0.05 * x, 0.0)
+            })
+            .collect();
+        let built = run(&points, &triangles, &stations)?;
+        assert_eq!(run(&points, &triangles, &stations)?, built);
+        let [fill, cut] = between(&built, 0.0, 40.0);
+        assert!(
+            close(fill, 80.0 / 3.0, 1e-9),
+            "{count} segments: fill {fill}"
+        );
+        assert!(close(cut, 80.0 / 3.0, 1e-9), "{count} segments: cut {cut}");
+    }
+    Ok(())
+}
+
+#[test]
 fn worked_fixture_is_exact_on_the_built_tin() -> Result<(), HybridError> {
     let (points, triangles) = base(worked);
     let stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];

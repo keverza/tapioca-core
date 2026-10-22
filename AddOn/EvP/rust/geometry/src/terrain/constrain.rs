@@ -6,9 +6,12 @@
 //! constraint edge, once added, is never split or flipped by a later one.
 
 use spade::handles::FixedVertexHandle;
-use spade::{ConstrainedDelaunayTriangulation, Point2, Triangulation};
+use spade::{
+    ConstrainedDelaunayTriangulation, Intersection, LineIntersectionIterator, Point2, Triangulation,
+};
+use std::borrow::Cow;
 
-use super::input::Prepared;
+use super::input::{Prepared, Segment};
 use super::presplit::Split;
 use super::{ConstraintEdge, Error};
 
@@ -40,8 +43,16 @@ pub(super) fn constrain(prepared: &Prepared, split: &Split) -> Result<Built, Err
     if cdt.num_inner_faces() == 0 {
         return Err(Error::TriangulationDegenerate);
     }
+    // Resolve exact touches against the original segments BEFORE rounded
+    // crossing vertices bend their inserted pieces away from those segments.
+    let chains = prepared
+        .segments
+        .iter()
+        .zip(&split.pieces)
+        .map(|(segment, chain)| complete_chain(&cdt, prepared, &handles, segment, chain))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut rows = Vec::new();
-    for (segment, chain) in prepared.segments.iter().zip(&split.pieces) {
+    for (segment, chain) in prepared.segments.iter().zip(&chains) {
         for piece in chain.windows(2) {
             let &[from, to] = piece else {
                 return Err(Error::TriangulationDegenerate);
@@ -63,6 +74,49 @@ pub(super) fn constrain(prepared: &Prepared, split: &Split) -> Result<Built, Err
     }
     let faces = faces(&cdt)?;
     Ok(Built { cdt, faces, rows })
+}
+
+fn complete_chain<'a>(
+    cdt: &Cdt,
+    prepared: &Prepared,
+    handles: &[FixedVertexHandle],
+    segment: &Segment,
+    chain: &'a [u32],
+) -> Result<Cow<'a, [u32]>, Error> {
+    let [a, b] = segment.ends.map(|v| prepared.position(v));
+    let (a, b) = (a?, b?);
+    let vertical = (b[1] - a[1]).abs() > (b[0] - a[0]).abs();
+    let coordinate = |p: [f64; 3]| if vertical { p[1] } else { p[0] };
+    let mut vertices = Vec::new();
+    let [from, to] = segment.ends.map(|v| handles.get(v as usize).copied());
+    let (from, to) = (from.ok_or(Error::Index)?, to.ok_or(Error::Index)?);
+    for intersection in LineIntersectionIterator::new_from_handles(cdt, from, to) {
+        if let Intersection::VertexIntersection(vertex) = intersection {
+            let vertex = u32::try_from(vertex.index()).map_err(|_| Error::Shape)?;
+            if !chain.contains(&vertex) {
+                vertices.push(vertex);
+            }
+        }
+    }
+    if vertices.is_empty() {
+        return Ok(Cow::Borrowed(chain));
+    }
+    // Copy only when exact touches were absent from the crossing-only chain.
+    vertices.extend_from_slice(chain);
+    let mut ordered = vertices
+        .into_iter()
+        .map(|v| Ok((coordinate(prepared.position(v)?), v)))
+        .collect::<Result<Vec<_>, Error>>()?;
+    ordered.sort_by(|&(x, v), &(y, w)| {
+        let order = if coordinate(b) > coordinate(a) {
+            x.total_cmp(&y)
+        } else {
+            y.total_cmp(&x)
+        };
+        order.then(v.cmp(&w))
+    });
+    ordered.dedup_by_key(|item| item.1);
+    Ok(Cow::Owned(ordered.into_iter().map(|(_, v)| v).collect()))
 }
 
 pub(super) fn faces(cdt: &Cdt) -> Result<Vec<[u32; 3]>, Error> {

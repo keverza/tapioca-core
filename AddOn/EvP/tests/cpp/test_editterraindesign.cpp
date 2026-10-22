@@ -204,6 +204,34 @@ TEST (EditTerrainDesign, PathBandBuildsWithAttributedMeshAndExactOutside)
     EXPECT_EQ (again, result);
 }
 
+TEST (EditTerrainDesign, DenseStationsOnTheWorkedGridKeepExactTouchingVertices)
+{
+    DesignFixture fixture;
+    std::string error;
+    for (bool derived : { false, true }) {
+        auto options = fixture.Options ();
+        options.maxStep = 2;
+        if (derived)
+            options.region = {};
+        TerrainDesignResult result;
+        ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error)) << error;
+        EXPECT_EQ (result.stations.size (), 21U);
+        EXPECT_EQ (result.build.context.cut, 0);
+        EXPECT_EQ (result.build.context.fill, 0);
+        // Every station at y=2 which lies exactly on a grid diagonal remains
+        // a design vertex even when another crossing rounds off that diagonal.
+        for (double x : { 2.0, 12.0, 22.0, 32.0 }) {
+            bool found = false;
+            for (size_t i = 0; i < result.build.points.size (); i += 3)
+                if (result.build.points[i] == x && result.build.points[i + 1] == 2) {
+                    EXPECT_NEAR (result.build.points[i + 2], 10 + .05 * x, 1e-12);
+                    found = true;
+                }
+            EXPECT_TRUE (found) << x;
+        }
+    }
+}
+
 TEST (EditTerrainDesign, RefusalsLeaveTheResultUnchanged)
 {
     DesignFixture fixture;
