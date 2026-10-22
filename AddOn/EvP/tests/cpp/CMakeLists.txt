@@ -819,6 +819,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSplit.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeTerrainSolve.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainTriangulation.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainDesign.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditSparseSolve.cpp")
 endif ()
 
@@ -1205,6 +1206,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editlandscapeterrain.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editlandscapeterrainsolve.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editterraintriangulation.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_editterraindesign.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_editsparsesolve.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_grading.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_mesh_prep.cpp"
