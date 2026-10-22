@@ -23,6 +23,7 @@
 #include "Edit/EditTracker.hpp"
 #include "Edit/EditWorkingPlane.hpp"
 #include <optional>
+#include <memory>
 #include <array>
 #include <string>
 #include <vector>
@@ -32,6 +33,8 @@ struct Input;
 }
 
 namespace geomsrv::archviz::edithud {
+
+struct TerrainDesignState;
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve };
 enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
@@ -59,6 +62,7 @@ struct ContextMenu {
 
 struct Session {
     edit::Session edits;
+    std::shared_ptr<TerrainDesignState> terrainDesign; // Derived worker/cache follows this session between hosts.
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;

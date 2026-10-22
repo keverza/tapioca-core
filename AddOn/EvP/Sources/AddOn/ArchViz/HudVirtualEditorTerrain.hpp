@@ -1,0 +1,32 @@
+#ifndef TAPIOCA_HUD_VIRTUAL_EDITOR_TERRAIN_HPP
+#define TAPIOCA_HUD_VIRTUAL_EDITOR_TERRAIN_HPP
+
+#include "Edit/EditDocument.hpp"
+#include <memory>
+
+namespace geomsrv {
+struct Mesh;
+}
+namespace tapioca::geometry {
+struct TerrainDesignOutcome;
+}
+namespace geomsrv::archviz::overlaylayers {
+struct Layer;
+}
+namespace geomsrv::archviz::edithud {
+struct Session;
+struct TerrainDesignState;
+
+// Detached plan-view terrain, captured by the host on the main thread. Starts
+// one path design in the existing document/history; selection stays the same.
+// The immutable baseline is retained across edits and surface switches. Closed
+// native solids require an attributed surface adapter before this entrypoint.
+bool StartTerrainDesign (Session& session, std::shared_ptr<const Mesh> mesh, edit::Id path);
+// Main-thread, nonblocking poll. One worker at a time; changed revisions coalesce
+// until input ends. Results never enter document state or its undo history.
+void PollTerrainDesign (Session& session);
+const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session& session);
+void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
+void TerrainDesignPanel (Session& session);
+} // namespace geomsrv::archviz::edithud
+#endif

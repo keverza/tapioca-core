@@ -582,6 +582,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscape.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapeCommand.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapePanel.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrain.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorNavigation.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorPanel.cpp"
@@ -1180,6 +1181,7 @@ target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 Tapio
                                            ${TAPIOCA_TEXT_LIBS})
 if (TAPIOCA_LINK_RUST_GEOMETRY)
     include ("${EVP_ROOT}/cmake/RustKernel.cmake")
+    target_compile_definitions (EvPGeomTests PRIVATE TAPIOCA_GEOMETRY_RUST=1)
     target_sources (EvPGeomTests PRIVATE "${GEOM_DIR}/GeometryRustTerrain.cpp"
         "${GEOM_DIR}/GeometryRustIdentity.cpp"
         "${GEOM_DIR}/GeometryRustValue.cpp"

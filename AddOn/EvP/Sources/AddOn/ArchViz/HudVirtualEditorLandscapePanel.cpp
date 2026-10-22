@@ -1,4 +1,5 @@
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudShellTabs.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 
@@ -9,6 +10,7 @@ void LandscapePanel (Session& s)
     if (!s.edits.Doc ().landscape)
         return;
     Landscape (s);
+    TerrainDesignPanel (s);
     ImGui::Separator ();
     ImGui::TextUnformatted ("Landscape. Sources remain editable.");
     const char* modes[] = { "Select sources", "Draw source" };

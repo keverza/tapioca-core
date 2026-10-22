@@ -1,0 +1,220 @@
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "ArchViz/HudVirtualEditor.hpp"
+#include "Geometry/Mesh.hpp"
+#include <imgui.h>
+
+// OVERLAY-INVARIANTS.md §§8,12,14: session-owned derived geometry only;
+// both hosts consume the same layer, with no camera or renderer changes.
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "Edit/EditTerrainCapture.hpp"
+#include <algorithm>
+#include <chrono>
+#include <exception>
+
+namespace geomsrv::archviz::edithud {
+namespace lg = tapioca::geometry;
+
+struct TerrainDesignState {
+    std::shared_ptr<const Mesh> baseline;
+    lg::TerrainDesignOptions options;
+    lg::TerrainDesignPublisher publisher;
+    std::future<lg::TerrainDesignOutcome> worker;
+    uint64_t requestedRevision = UINT64_MAX;
+    std::string error;
+};
+
+namespace {
+bool Idle (const Session& s)
+{
+    return !s.edits.InGesture () && !GizmoModeLocked (s) && s.drawing.empty ();
+}
+
+bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, lg::TerrainDesignOptions& options,
+             std::string& error)
+{
+    if (!doc.landscape || !doc.landscape->propertyLineSourceId || !edit::FindPath (doc, path)) {
+        error = "Choose a landscape path and a property line before starting terrain design.";
+        return false;
+    }
+    edit::Id terrain = 0;
+    if (!lg::SetLandscapeTerrain (doc, mesh.guid, terrain, error))
+        return false;
+    for (const auto& source : doc.landscape->sources)
+        if (!source.deleted && source.role == lg::SourceRole::PathCenterline && source.pathId == path)
+            options.source = source.id;
+    if (!options.source) {
+        error = "Terrain design requires a live path centreline source.";
+        return false;
+    }
+    for (const auto& object : doc.landscape->objects)
+        if (object.kind == lg::ObjectKind::Path && object.pathId == path) {
+            options.object = object.id;
+            options.operation = object.footprintOperation;
+            break;
+        }
+    if (!options.object) {
+        lg::LandscapeOperation stroke;
+        stroke.kind = lg::OperationKind::Stroke;
+        stroke.inputs = { options.source };
+        if (!lg::AddLandscapeOperation (doc, stroke, options.operation, error))
+            return false;
+        lg::HardscapeObject object;
+        object.kind = lg::ObjectKind::Path;
+        object.pathId = path;
+        object.name = "Path terrain design";
+        object.footprintOperation = options.operation;
+        if (!lg::AddHardscapeObject (doc, object, options.object, error))
+            return false;
+    }
+    // Tokens are local to this detached request's retained support set, never
+    // allocated from Document::nextId. Every revision starts a fresh capture.
+    options.designTable = 3;
+    options.meshTable = 4;
+    lg::TerrainCapture capture;
+    return lg::CaptureLandscapeTerrain (doc, mesh, { options.object, 2, 1 }, capture, error);
+}
+} // namespace
+
+bool StartTerrainDesign (Session& s, std::shared_ptr<const Mesh> mesh, edit::Id path)
+{
+    if (!mesh || !Idle (s) || (s.terrainDesign && s.terrainDesign->worker.valid ())) {
+        s.message = "Finish the current input and terrain build before starting a design.";
+        return false;
+    }
+    auto state = std::make_shared<TerrainDesignState> ();
+    state->baseline = std::move (mesh);
+    // Validate on a candidate before opening history. Apply returns false on a
+    // no-op, so an already-authored path is bound without manufacturing an edit.
+    auto candidate = s.edits.Doc ();
+    if (!Author (candidate, *state->baseline, path, state->options, s.message))
+        return false;
+    if (candidate.landscape != s.edits.Doc ().landscape &&
+        !s.edits.Apply ([candidate] (edit::Document& doc, std::string&) {
+            doc = candidate;
+            return true;
+        })) {
+        s.message = s.edits.Message ();
+        return false;
+    }
+    s.terrainDesign = std::move (state);
+    s.publishedRevision = UINT64_MAX;
+    s.message.clear ();
+    return true;
+}
+
+void PollTerrainDesign (Session& s)
+{
+    if (!s.terrainDesign)
+        return;
+    auto& state = *s.terrainDesign;
+    const auto& doc = s.edits.Doc ();
+    if (state.worker.valid ()) {
+        if (state.worker.wait_for (std::chrono::seconds (0)) != std::future_status::ready)
+            return;
+        auto outcome = state.worker.get ();
+        std::string error;
+        if (state.publisher.Publish (doc, std::move (outcome), error))
+            s.publishedRevision = UINT64_MAX;
+    }
+    if (!Idle (s) || state.requestedRevision == doc.revision)
+        return;
+    state.requestedRevision = doc.revision; // Refusals retry only after an edit.
+    state.error.clear ();
+    auto capture = std::make_shared<lg::TerrainCapture> ();
+    lg::TerrainDesignJob job;
+    if (!lg::CaptureLandscapeTerrain (doc, *state.baseline, { state.options.object, 2, 1 }, *capture, state.error) ||
+        !state.publisher.Prepare (doc, capture, state.options, {}, job, state.error))
+        return;
+    try {
+        state.worker = lg::LaunchTerrainDesign (std::move (job));
+    }
+    catch (const std::exception& exception) {
+        state.error = std::string ("TerrainDesignWorker: ") + exception.what ();
+    }
+}
+
+const lg::TerrainDesignOutcome* CurrentTerrainDesign (const Session& s)
+{
+    return s.terrainDesign && !s.edits.InGesture () ? s.terrainDesign->publisher.Current (s.edits.Doc ()) : nullptr;
+}
+
+void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
+{
+    const auto* current = CurrentTerrainDesign (s);
+    if (!current)
+        return;
+    if (current->built) {
+        overlaylayers::Mesh mesh;
+        mesh.points = current->result.build.points;
+        mesh.indices = current->result.build.triangles;
+        mesh.rgba = 0x5A7F6280u;
+        layer.meshes.push_back (std::move (mesh));
+        overlaylayers::Polyline ring;
+        // The kernel's ordered ring includes every split crossing and its
+        // actual terrain height; the input region is plan-only (z ignored).
+        const auto& build = current->result.build;
+        for (const auto& row : build.mappings)
+            if (row.kind == lg::TerrainMappingKind::RingVertex) {
+                const size_t at = size_t (row.values[0]) * 3;
+                ring.points.insert (ring.points.end (), build.points.begin () + at, build.points.begin () + at + 3);
+            }
+        ring.closed = true;
+        ring.rgba = 0x37523DFFu;
+        layer.polylines.push_back (std::move (ring));
+    }
+    const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
+    for (const auto& conflict : conflicts) {
+        overlaylayers::PointSet place;
+        place.points.assign (conflict.position.begin (), conflict.position.end ());
+        place.rgba = conflict.hard ? 0xD93A49FFu : 0xF59E0BFFu;
+        layer.points.push_back (std::move (place));
+    }
+}
+
+void TerrainDesignPanel (Session& s)
+{
+    if (!s.terrainDesign)
+        return;
+    const auto& state = *s.terrainDesign;
+    ImGui::Separator ();
+    if (state.worker.valid ())
+        ImGui::TextUnformatted ("Building terrain...");
+    if (!state.error.empty ())
+        ImGui::TextWrapped ("%s", state.error.c_str ());
+    const auto* current = CurrentTerrainDesign (s);
+    if (!current)
+        return;
+    if (!current->built)
+        ImGui::TextWrapped ("%s", current->error.c_str ());
+    else
+        ImGui::Text ("Cut %.3f m3   Fill %.3f m3", current->result.build.site.cut, current->result.build.site.fill);
+    const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
+    for (const auto& conflict : conflicts)
+        ImGui::TextWrapped ("%s at %.2f m, %s: %s", lg::HybridConflictName (conflict.code), conflict.station,
+                            conflict.side == lg::TerrainHand::Left ? "left" : "right",
+                            lg::HybridConflictSuggestion (conflict.code));
+}
+} // namespace geomsrv::archviz::edithud
+
+#else
+namespace geomsrv::archviz::edithud {
+bool StartTerrainDesign (Session& s, std::shared_ptr<const Mesh>, edit::Id)
+{
+    s.message = "Terrain design requires the Rust geometry build.";
+    return false;
+}
+void PollTerrainDesign (Session&)
+{
+}
+const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session&)
+{
+    return nullptr;
+}
+void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
+{
+}
+void TerrainDesignPanel (Session&)
+{
+}
+} // namespace geomsrv::archviz::edithud
+#endif

@@ -2,6 +2,7 @@
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorDetail.hpp"
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditPathContours.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include <imgui.h>
@@ -465,6 +466,7 @@ void Panel (Session& s)
 
 bool Follow (Session& s, overlaylayers::Layer& layer)
 {
+    PollTerrainDesign (s);
     const auto& doc = Doc (s);
     if (doc.landscape)
         Landscape (s);
@@ -485,6 +487,7 @@ bool Follow (Session& s, overlaylayers::Layer& layer)
     // The live dimensions are the view's (HudVirtualEditorDraw.cpp): placed in pixels, they
     // can stand clear of the gizmo and the tracker, which model-anchored text cannot know.
     layer = editlayers::Build (doc, f);
+    DrawTerrainDesign (s, layer);
     auto panel = hudshell::PlainLook ();
     panel.title = kPanelTitle;
     panel.widthPixels = 400;

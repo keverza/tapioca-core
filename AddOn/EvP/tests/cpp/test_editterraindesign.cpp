@@ -1,4 +1,6 @@
 #include "Edit/EditTerrainDesign.hpp"
+#include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Geometry/Mesh.hpp"
@@ -10,6 +12,8 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <thread>
+#include <chrono>
 
 namespace {
 using namespace tapioca::geometry;
@@ -552,4 +556,162 @@ TEST (EditTerrainCapture, ASnapshotMeshBecomesAValidatedCaptureTheWorkerCanBuild
     EXPECT_FALSE (CaptureLandscapeTerrain (fixture.doc, broken, { owner, 300, 290 }, capture, error));
     EXPECT_EQ (error.rfind ("TerrainShape", 0), 0U) << error;
     EXPECT_EQ (capture.provenance, before);
+}
+
+namespace {
+namespace eh = geomsrv::archviz::edithud;
+namespace layers = geomsrv::archviz::overlaylayers;
+
+struct TerrainHostFixture : DesignFixture {
+    std::shared_ptr<const geomsrv::Mesh> mesh;
+    TerrainHostFixture ()
+    {
+        std::string error;
+        // Keep the controller fixture flat along the path. The twisted Appendix
+        // A mesh above covers the kernel separately at its explicit 5 m spacing.
+        EXPECT_TRUE (edit::EditPath (
+            doc, path,
+            [] (edit::Path& value, std::string&) {
+                for (auto& point : value.profile)
+                    point.z = 10;
+                return true;
+            },
+            error))
+            << error;
+        LandscapeSource property;
+        property.entityId =
+            edit::AddPolyline (doc, { { -15, -20, 0 }, { 55, -20, 0 }, { 55, 20, 0 }, { -15, 20, 0 } }, true);
+        Id id = 0;
+        EXPECT_TRUE (AddLandscapeSource (doc, property, id, error)) << error;
+        EXPECT_TRUE (SetLandscapePropertyLine (doc, id, error)) << error;
+        auto base = std::make_shared<geomsrv::Mesh> ();
+        base->guid = doc.landscape->sourceTerrainGuid;
+        base->vertices = { -20.5, -30.5, 16.1, 59.5, -30.5, 16.1, 59.5, 29.5, 4.1, -20.5, 29.5, 4.1 };
+        base->triangles = { 0, 1, 2, 0, 2, 3 };
+        mesh = base;
+    }
+};
+
+const layers::Mesh* TerrainMesh (const layers::Layer& layer)
+{
+    for (const auto& mesh : layer.meshes)
+        if (mesh.rgba == 0x5A7F6280u)
+            return &mesh;
+    return nullptr;
+}
+
+bool AwaitTerrain (eh::Session& session, layers::Layer& layer, bool refused = false)
+{
+    const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+    while (std::chrono::steady_clock::now () < deadline) {
+        eh::Follow (session, layer);
+        const auto* current = eh::CurrentTerrainDesign (session);
+        if (current && (refused ? !current->built : current->built))
+            return true;
+        if (current && !refused && !current->built) {
+            ADD_FAILURE () << current->error;
+            return false;
+        }
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    return false;
+}
+} // namespace
+
+TEST (HudTerrainDesign, OneHistoryOwnsTheDesignAndItsDerivedWorkerLayer)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.selection.Set ({ { fixture.path, edit::Part::Entity, 0 } });
+    const auto selection = session.selection.Items ();
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    EXPECT_EQ (session.selection.Items (), selection);
+    const auto& objects = session.edits.Doc ().landscape->objects;
+    ASSERT_EQ (objects.size (), 1U);
+    EXPECT_EQ (objects[0].kind, ObjectKind::Path);
+    EXPECT_EQ (objects[0].pathId, fixture.path);
+    const auto authored = session.edits.Doc ();
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_TRUE (layers::Validate (layer).empty ()) << layers::Validate (layer);
+    EXPECT_EQ (session.edits.Doc ().landscape, authored.landscape);
+    EXPECT_EQ (session.edits.Doc ().revision, authored.revision);
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    const auto baseline = TerrainMesh (layer)->points;
+    // Every field of the derived state stays on the same shared session when
+    // another host takes it; rebinding the same path creates no authored edit.
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_EQ (TerrainMesh (layer)->points, baseline);
+    ASSERT_TRUE (session.edits.Undo ());
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer), nullptr);
+    ASSERT_TRUE (session.edits.Redo ());
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_EQ (TerrainMesh (layer)->points, baseline);
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+}
+
+TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
+    layers::Layer layer;
+    eh::Follow (session, layer); // launch the original revision
+    ASSERT_TRUE (session.edits.Begin ());
+    const auto raise = [&] (edit::Document& doc, std::string& error) {
+        return edit::EditPath (
+            doc, fixture.path,
+            [] (edit::Path& path, std::string&) {
+                for (auto& point : path.profile)
+                    point.z += 0.1;
+                return true;
+            },
+            error);
+    };
+    ASSERT_TRUE (session.edits.Move (raise));
+    const auto depth = session.edits.UndoDepth ();
+    for (int i = 0; i < 20; ++i) {
+        eh::Follow (session, layer);
+        EXPECT_EQ (TerrainMesh (layer), nullptr);
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    EXPECT_EQ (session.edits.UndoDepth (), depth);
+    ASSERT_TRUE (session.edits.End ());
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_EQ (session.edits.UndoDepth (), depth + 1);
+    ASSERT_NE (eh::CurrentTerrainDesign (session), nullptr);
+    EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.conflicts.empty ());
+}
+
+TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    auto bad = std::make_shared<geomsrv::Mesh> (*fixture.mesh);
+    bad->triangles[0] = UINT32_MAX;
+    const auto before = session.edits.Doc ().landscape;
+    EXPECT_FALSE (eh::StartTerrainDesign (session, bad, fixture.path));
+    EXPECT_EQ (session.edits.Doc ().landscape, before);
+    EXPECT_EQ (session.edits.UndoDepth (), 0U);
+    EXPECT_FALSE (session.terrainDesign);
+    std::string error;
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [] (edit::Path& path, std::string&) {
+            for (auto& section : path.sections)
+                section.cutSlope = section.fillSlope = 0.1;
+            return true;
+        },
+        error));
+    eh::Session refused (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (refused, fixture.mesh, fixture.path));
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (refused, layer, true));
+    EXPECT_EQ (TerrainMesh (layer), nullptr);
+    EXPECT_TRUE (layers::Validate (layer).empty ()) << layers::Validate (layer);
+    EXPECT_EQ (refused.edits.UndoDepth (), 1U);
 }
