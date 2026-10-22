@@ -1,5 +1,7 @@
 #include "Edit/EditTerrainDesign.hpp"
+#include "Edit/EditTerrainCapture.hpp"
 #include "Edit/EditTerrainDesignJob.hpp"
+#include "Geometry/Mesh.hpp"
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPath.hpp"
 #include "Edit/EditPathEdit.hpp"
@@ -7,6 +9,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <limits>
 
 namespace {
 using namespace tapioca::geometry;
@@ -486,4 +489,67 @@ TEST (EditTerrainDesignJob, LaterRequestsSupersedeAndRefusalsCarryTheirPlaces)
     EXPECT_EQ (current->conflicts.front ().code, HybridConflictCode::DaylightBeyondLimit);
     // A job without a snapshot is an outcome, not a crash.
     EXPECT_FALSE (RunTerrainDesign (TerrainDesignJob {}).built);
+}
+
+TEST (EditTerrainCapture, ASnapshotMeshBecomesAValidatedCaptureTheWorkerCanBuildOn)
+{
+    DesignFixture fixture;
+    std::string error;
+    Id terrain = 0, owner = 0;
+    const std::string guid = "9bb0abd8-b1f3-4d78-855b-9106fd753bda";
+    ASSERT_TRUE (SetLandscapeTerrain (fixture.doc, guid, terrain, error)) << error;
+    HardscapeObject object;
+    object.kind = ObjectKind::Path;
+    object.pathId = fixture.path;
+    object.footprintOperation = fixture.stroke;
+    object.name = "path";
+    ASSERT_TRUE (AddHardscapeObject (fixture.doc, object, owner, error)) << error;
+    geomsrv::Mesh mesh;
+    mesh.guid = guid;
+    mesh.vertices = fixture.points;
+    mesh.triangles = fixture.triangles;
+    TerrainCapture capture;
+    ASSERT_TRUE (CaptureLandscapeTerrain (fixture.doc, mesh, { owner, 300, 290 }, capture, error)) << error;
+    EXPECT_EQ (capture.revision, fixture.doc.revision);
+    EXPECT_EQ (capture.sourceTerrainGuid, fixture.doc.landscape->sourceTerrainGuid);
+    EXPECT_EQ (capture.provenance.counts,
+               (EntityCounts { mesh.vertices.size () / 3, 0, mesh.triangles.size () / 3, 0 }));
+    // Every captured row cites the terrain source and its owner.
+    const auto& table = capture.provenance.table;
+    for (const auto& row : table.mappings) {
+        ASSERT_EQ (row.sources.count, 1U);
+        EXPECT_EQ (table.sourceIds.at (row.sources.offset), terrain);
+        EXPECT_EQ (row.object, owner);
+        EXPECT_EQ (row.kind, MappingKind::Exact);
+    }
+
+    // Main thread prepares, a worker builds, the main thread publishes.
+    TerrainDesignPublisher publisher;
+    TerrainDesignJob job;
+    auto options = fixture.Options ();
+    options.object = owner;
+    ASSERT_TRUE (
+        publisher.Prepare (fixture.doc, std::make_shared<const TerrainCapture> (capture), options, {}, job, error))
+        << error;
+    auto outcome = LaunchTerrainDesign (job).get ();
+    ASSERT_TRUE (outcome.built) << outcome.error;
+    EXPECT_GE (outcome.result.build.site.fill, 80.0 / 3.0 - 1e-9);
+    EXPECT_EQ (outcome.result.meshProvenance.table.objects.front ().id, owner);
+    ASSERT_TRUE (publisher.Publish (fixture.doc, std::move (outcome), error)) << error;
+    EXPECT_NE (publisher.Current (fixture.doc), nullptr);
+
+    // Refusals leave the capture as it was.
+    const auto before = capture.provenance;
+    auto other = mesh;
+    other.guid = "AABBCCDD-1122-3344-5566-778899AABBCC";
+    EXPECT_FALSE (CaptureLandscapeTerrain (fixture.doc, other, { owner, 300, 290 }, capture, error));
+    EXPECT_EQ (error.rfind ("ProvenanceStale", 0), 0U) << error;
+    EXPECT_FALSE (CaptureLandscapeTerrain (fixture.doc, mesh, { owner + 1000, 300, 290 }, capture, error));
+    EXPECT_EQ (error.rfind ("ProvenanceUnattributable", 0), 0U) << error;
+    EXPECT_FALSE (CaptureLandscapeTerrain (fixture.doc, mesh, { owner, 300, 300 }, capture, error));
+    auto broken = mesh;
+    broken.vertices[2] = std::numeric_limits<double>::quiet_NaN ();
+    EXPECT_FALSE (CaptureLandscapeTerrain (fixture.doc, broken, { owner, 300, 290 }, capture, error));
+    EXPECT_EQ (error.rfind ("TerrainShape", 0), 0U) << error;
+    EXPECT_EQ (capture.provenance, before);
 }
