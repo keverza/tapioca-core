@@ -224,21 +224,45 @@ TEST (EditTerrainDesign, RefusalsLeaveTheResultUnchanged)
     options = fixture.Options ();
     options.maxStep = 0;
     expectRefusal (fixture.doc, fixture.Input (), options, "TerrainDesignParameters");
-    // A crowned section cannot be one twisted plane.
-    auto crowned = fixture.doc;
-    EXPECT_TRUE (edit::EditPath (
-        crowned, fixture.path,
-        [] (edit::Path& value, std::string&) {
-            value.sections.front ().crossfall = 2;
-            value.sections.front ().fall = edit::Fall::Crown;
-            return true;
-        },
-        error));
-    fixture.doc = crowned;
-    fixture.Capture ();
-    expectRefusal (fixture.doc, fixture.Input (), fixture.Options (), "TerrainDesignCrown");
     // A stale capture refuses before any geometry.
     auto stale = fixture.Input ();
     stale.revision += 1;
     expectRefusal (fixture.doc, stale, fixture.Options (), "ProvenanceStale");
+}
+
+TEST (EditTerrainDesign, CrownedPathBuildsACentrelineCrease)
+{
+    DesignFixture fixture;
+    std::string error;
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [] (edit::Path& value, std::string&) {
+            for (auto& section : value.sections) {
+                section.crossfall = 2;
+                section.fall = edit::Fall::Crown;
+            }
+            return true;
+        },
+        error))
+        << error;
+    fixture.Capture ();
+    TerrainDesignResult result;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), fixture.Options (), result, error)) << error;
+    const auto& build = result.build;
+    EXPECT_EQ (std::count_if (build.lines.begin (), build.lines.end (),
+                              [] (const auto& line) { return line.kind == HybridLineKind::Crown; }),
+               1);
+    // The downhill (left) edge fills to 1.2 m, the uphill one cuts to 22/15 m.
+    for (const auto& pair : build.sides) {
+        EXPECT_NEAR (pair[0].first, 1.2, 1e-9);
+        EXPECT_NEAR (pair[1].first, 22.0 / 15.0, 1e-9);
+    }
+    EXPECT_GE (build.site.fill, 40 * .576 - 1e-9);
+    EXPECT_GE (build.site.cut, 40 * (.44 + .5 * .44 * 22.0 / 15.0) - 1e-9);
+    for (size_t v = 0; v < build.base.size (); ++v) {
+        const double x = build.points[v * 3], y = build.points[v * 3 + 1];
+        if (x >= 0 && x <= 40 && std::abs (y) <= 2 + 1e-12)
+            EXPECT_NEAR (build.points[v * 3 + 2], 10 + .05 * x - .02 * std::abs (y), 1e-12);
+    }
+    EXPECT_EQ (result.meshProvenance.counts.vertices, build.points.size () / 3);
 }

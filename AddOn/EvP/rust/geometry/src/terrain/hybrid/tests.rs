@@ -1,6 +1,7 @@
 use super::*;
 use crate::slope::Slope;
-use crate::terrain::design::Station;
+use crate::terrain::daylight::Locus;
+use crate::terrain::design::{Camber, Station};
 use crate::terrain::edit::Effect;
 use crate::terrain::volume::exact::triangle_cut_fill;
 use crate::terrain::volume::{Grid, Proposed, VolumeRequest, cut_fill};
@@ -259,4 +260,75 @@ fn unmet_vertical_and_escaping_designs_refuse() {
         .message()
         .starts_with("DaylightNotReached:")
     );
+}
+
+#[test]
+fn a_crown_is_a_centreline_crease_and_stays_exact() -> Result<(), HybridError> {
+    let (points, triangles) = base(worked);
+    let mut stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];
+    for station in &mut stations {
+        station.crossfall = Some(Camber::Crown(Slope::Percent(2.0)));
+    }
+    let built = run(&points, &triangles, &stations)?;
+    assert_eq!(
+        built.lines,
+        vec![
+            LineKind::Edge(Hand::Left),
+            LineKind::Daylight {
+                side: Hand::Left,
+                root: 0
+            },
+            LineKind::Edge(Hand::Right),
+            LineKind::Daylight {
+                side: Hand::Right,
+                root: 0
+            },
+            LineKind::Crown,
+            LineKind::End(false),
+            LineKind::End(true),
+        ]
+    );
+    // Edges 0.04 m below the centreline: the left (downhill) edge is now 0.36 m
+    // above the ground (fill, daylight 1.2 m), the right 0.44 m below (cut,
+    // daylight 22/15 m). Per metre: fill 0.36 + 0.216, cut 0.44 + 0.3227.
+    let roots: Vec<f64> = built
+        .daylight
+        .iter()
+        .flat_map(|pair| pair.iter())
+        .filter_map(|side| match side {
+            Some(Locus::Met { roots }) => roots.first().copied(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(roots.len(), 4);
+    assert!(roots.chunks(2).all(|pair| matches!(pair, [l, r]
+        if close(*l, 1.2, 1e-9) && close(*r, 22.0 / 15.0, 1e-9))));
+    let [fill, cut] = between(&built, 0.0, 40.0);
+    assert!(
+        close(fill, 40.0 * 0.576, 1e-9)
+            && close(cut, 40.0 * (0.44 + 0.5 * 0.44 * 22.0 / 15.0), 1e-9),
+        "{fill} {cut}"
+    );
+    // The centreline vertices are exact and no band triangle straddles it.
+    let proposed = plan::vertices(&built.points);
+    for &[x, y, z] in proposed {
+        if (0.0..=40.0).contains(&x) && y.abs() <= 2.0 + 1e-12 {
+            assert!(close(z, 10.0 + 0.05 * x - 0.02 * y.abs(), 1e-12), "{x},{y}");
+        }
+    }
+    for triple in built.mesh.triangles.as_chunks::<3>().0 {
+        let corners: Vec<[f64; 3]> = triple
+            .iter()
+            .filter_map(|&v| proposed.get(v as usize).copied())
+            .collect();
+        if corners.iter().all(|c| (0.0..=40.0).contains(&c[0])) {
+            let low = corners.iter().map(|c| c[1]).fold(f64::INFINITY, f64::min);
+            let high = corners
+                .iter()
+                .map(|c| c[1])
+                .fold(f64::NEG_INFINITY, f64::max);
+            assert!(!(low < -1e-9 && high > 1e-9), "{triple:?}");
+        }
+    }
+    Ok(())
 }

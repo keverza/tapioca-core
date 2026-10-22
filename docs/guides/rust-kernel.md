@@ -907,7 +907,7 @@ base triangles as faces); stations are authored parameters without entity rows.
 | `points`, `base` | proposed xyz and base height per output vertex (plan identical) |
 | `owners` | `0` where the band changed the height, `UINT32_MAX` otherwise |
 | `triangles`, `mappings` | rebuilt mesh; rows 9 (split vertex) and 12..17 (region face, region line vertex, crossing support, line vertex, line edge, ring vertex) |
-| `lines` | per design line: band edge, shoulder end, daylight (root outward) or end section |
+| `lines` | per design line: band edge, shoulder end, daylight (root outward), end section or crowned centreline |
 | `sides` | per station `[left, right]` daylight root count, first and last root |
 | `site`, `context` | exact triangle-sum cut/fill inside / outside the region |
 
@@ -915,9 +915,14 @@ Record sizes are pinned in `terrain/tests/band.rs` and `rust/tests/abi_header.cp
 The facade is `BuildHybridTerrain` in `GeometryRustHybridTerrain.hpp`; it never
 reinterprets a row, it only checks kinds and query/fill agreement. P1 limits
 stay explicit: whole-region rebuild per call, constant daylight root count per
-side, unconstrained end caps counted in the site total, no crown (a crowned
-section needs a centreline crease), and no height-error refinement between
-stations.
+side, unconstrained end caps counted in the site total, and no height-error
+refinement between stations.
+
+S4.3 adds the crown: `Camber::Crown` in `terrain::design` falls both halves away
+from the centreline (`-g * |lateral|`), and `terrain::hybrid` then adds the
+centreline as a breakline (`crossfallHand = 3`, line kind 5) with a centre
+vertex in each end section, so the crease is a mesh edge and the triangle-sum
+volume stays exact (crowned Appendix A: fill 23.04, cut 30.5067 m³ over 40 m).
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

@@ -4,7 +4,8 @@
 //! **Lines.** From the validated [`Design`]: each side's band edge, its shoulder
 //! end (only when a shoulder is non-zero), one daylight line per root, and a
 //! cross-section at the first and last station (the band's ends are creases
-//! too). Daylight must be met on every transition side: a side that is not
+//! too), plus the centreline when a station is crowned (the crown's crease;
+//! the end sections then carry a centre vertex). Daylight must be met on every transition side: a side that is not
 //! reached within its limit, or that needs a vertical face, refuses rather than
 //! being clamped. Every station of a side must have the same root count; a
 //! changing count (a locus that splits or merges) is a later phase.
@@ -66,6 +67,8 @@ pub enum LineKind {
     },
     /// The cross-section at the first (`false`) or last (`true`) station.
     End(bool),
+    /// The centreline, a crease of a crowned band.
+    Crown,
 }
 
 /// The built surface and its mapping.
@@ -250,11 +253,23 @@ fn lines(
             kinds.push(kind);
         }
     }
+    let crowned = design.crowned();
+    if crowned {
+        let mut line = Vec::with_capacity(count * 3);
+        for station in 0..count {
+            let [x, y, _] = design.station(station).ok_or(missing)?.position;
+            line.extend([x, y, 0.0]);
+        }
+        polylines.push(line);
+        kinds.push(LineKind::Crown);
+    }
     for (last, station) in [(false, 0), (true, count.saturating_sub(1))] {
         let pair = sections.get(station).ok_or(missing)?;
         let mut line: Vec<f64> = Vec::new();
         let (left, right) = (pair.first().ok_or(missing)?, pair.get(1).ok_or(missing)?);
-        for &[x, y] in left.iter().rev().chain(right) {
+        let [cx, cy, _] = design.station(station).ok_or(missing)?.position;
+        let centre: &[[f64; 2]] = if crowned { &[[cx, cy]] } else { &[] };
+        for &[x, y] in left.iter().rev().chain(centre).chain(right) {
             let duplicate = line.len() >= 3
                 && matches!(line.get(line.len() - 3..), Some(&[px, py, _]) if (px - x).hypot(py - y) <= plan::ON);
             if !duplicate {

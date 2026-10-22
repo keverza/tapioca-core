@@ -38,11 +38,9 @@ struct TerrainDesignResult {
 
 // Worker-only P1 band evaluation for one document path. Stations come from the
 // path itself (SampleStations, Evaluate: profile height, range widths, shoulder,
-// crossfall and cut/fill percents as Slope::Percent); nothing is re-solved here
-// and no terrain math is implemented in C++. A crowned range with a nonzero
-// crossfall refuses (TerrainDesignCrown): the kernel twists one plane about the
-// centreline and a crown needs a centreline crease. Width steps at a range
-// start become a ramp to the previous station. Publishes the whole result once,
+// crossfall or crown and cut/fill percents as Slope::Percent); nothing is
+// re-solved here and no terrain math is implemented in C++. A crowned range makes
+// the centreline a breakline (the crown's crease). Publishes the whole result once,
 // after checking that every outside-region vertex kept its base height bits.
 // No history, persistence or native write; the host rechecks revision/session.
 bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,

@@ -15,14 +15,15 @@ use super::{
 use crate::pools::{self, Checked, Range};
 use tapioca_geometry::identity as id;
 use tapioca_geometry::terrain::daylight::Locus;
-use tapioca_geometry::terrain::design::{Band, Station};
+use tapioca_geometry::terrain::design::{Band, Camber, Station};
 use tapioca_geometry::terrain::edit::{Crossfall, Effect, Hand};
 use tapioca_geometry::terrain::hybrid::{self as kernel, Built, LineKind};
 use tapioca_geometry::terrain::region::{RegionVertex, Support};
 use tapioca_geometry::terrain::volume::exact::TriangleVolumes;
 use tapioca_geometry::terrain::{Host, Origin};
 
-/// One band station. `crossfall_hand`: 0 none, 1 falls to the left, 2 right.
+/// One band station. `crossfall_hand`: 0 level, 1 falls to the left, 2 to the
+/// right, 3 crown (both halves fall away from the centreline at `crossfall`).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TerrainStation {
@@ -44,7 +45,7 @@ pub struct TerrainStation {
     pub cut: TerrainSlope,
     /// Fill face grade.
     pub fill: TerrainSlope,
-    /// Crossfall grade when `crossfall_hand` is nonzero.
+    /// Crossfall or crown grade when `crossfall_hand` is nonzero.
     pub crossfall: TerrainSlope,
     /// Crossfall hand.
     pub crossfall_hand: u32,
@@ -109,8 +110,8 @@ pub struct TerrainHybridVolumes {
 }
 
 /// What a design line is. `kind`: 1 band edge, 2 shoulder end, 3 daylight, 4
-/// end section. `side`: 1 left, 2 right (0 for an end). `root`: the daylight
-/// root counted outward, or 0 first / 1 last for an end.
+/// end section, 5 crowned centreline. `side`: 1 left, 2 right (0 for an end). `root`: the daylight
+/// root counted outward, or 0 first / 1 last for an end (0 for a centreline).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TerrainHybridLine {
@@ -216,10 +217,11 @@ fn station(raw: &TerrainStation) -> Result<Station, Failure> {
         half_right: raw.half_right,
         crossfall: match raw.crossfall_hand {
             0 => None,
-            hand @ (1 | 2) => Some(Crossfall {
+            hand @ (1 | 2) => Some(Camber::OneWay(Crossfall {
                 slope: slope(raw.crossfall)?,
                 falls_to: if hand == 1 { Hand::Left } else { Hand::Right },
-            }),
+            })),
+            3 => Some(Camber::Crown(slope(raw.crossfall)?)),
             _ => return Err(Failure::Argument("TerrainHybridHand")),
         },
         shoulder_left: raw.shoulder_left,
@@ -361,6 +363,7 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
                 LineKind::Shoulder(side) => (2, hand(side), 0),
                 LineKind::Daylight { side, root } => (3, hand(side), root),
                 LineKind::End(last) => (4, 0, u32::from(last)),
+                LineKind::Crown => (5, 0, 0),
             };
             TerrainHybridLine {
                 kind,

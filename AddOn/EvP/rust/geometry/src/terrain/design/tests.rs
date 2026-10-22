@@ -238,10 +238,10 @@ fn crossfall_twists_both_ways_and_per_side_widths_hold() -> Result<(), DesignErr
         for station in &mut stations {
             station.half_left = 3.0;
             station.half_right = 1.0;
-            station.crossfall = Some(Crossfall {
+            station.crossfall = Some(Camber::OneWay(Crossfall {
                 slope: Slope::Percent(2.0),
                 falls_to: hand,
-            });
+            }));
         }
         let band = Band {
             stations: &stations,
@@ -358,12 +358,14 @@ fn malformed_bands_refuse_with_stable_codes() -> Result<(), DesignError> {
     bad[0].fill = Slope::Percent(f64::NAN);
     assert_eq!(make(&bad, 0.0), Some(DesignError::Slope));
     let mut bad = good;
-    bad[0].crossfall = Some(Crossfall {
+    bad[0].crossfall = Some(Camber::OneWay(Crossfall {
         slope: Slope::Angle {
             radians: std::f64::consts::FRAC_PI_2,
         },
         falls_to: Hand::Left,
-    });
+    }));
+    assert_eq!(make(&bad, 0.0), Some(DesignError::Slope));
+    bad[0].crossfall = Some(Camber::Crown(Slope::Percent(f64::INFINITY)));
     assert_eq!(make(&bad, 0.0), Some(DesignError::Slope));
     let mut wide = good;
     wide[0].half_left = 100.0;
@@ -381,5 +383,37 @@ fn malformed_bands_refuse_with_stable_codes() -> Result<(), DesignError> {
             .message()
             .starts_with("DaylightSlope:")
     );
+    Ok(())
+}
+
+#[test]
+fn a_crown_falls_both_ways_from_the_centreline() -> Result<(), DesignError> {
+    let field = plane([-10.0, -20.0, 50.0, 20.0], |_, _| 0.0)?;
+    let mut stations = [station(0.0, 1.0), station(40.0, 1.0)];
+    for station in &mut stations {
+        station.half_left = 3.0;
+        station.half_right = 1.0;
+        station.crossfall = Some(Camber::Crown(Slope::Percent(2.0)));
+    }
+    let band = Band {
+        stations: &stations,
+        effect: Effect::Both,
+    };
+    let design = Design::new(&band, &field, 1e-6)?;
+    assert!(design.crowned());
+    let edges = design.edges(0).ok_or(DesignError::Stations)?;
+    assert!(close(edges[0][2], 0.94, 1e-12) && close(edges[1][2], 0.98, 1e-12));
+    for (y, z) in [(0.0, 1.0), (1.5, 0.97), (-0.5, 0.99)] {
+        let sample = design.height(20.0, y)?.ok_or(DesignError::Coverage)?;
+        assert!(close(sample.height, z, 1e-12), "{y}: {}", sample.height);
+        assert_eq!(sample.region, Region::Band);
+    }
+    stations[0].crossfall = Some(Camber::Crown(Slope::Percent(0.0)));
+    stations[1].crossfall = None;
+    let flat = Band {
+        stations: &stations,
+        effect: Effect::Both,
+    };
+    assert!(!Design::new(&flat, &field, 1e-6)?.crowned());
     Ok(())
 }

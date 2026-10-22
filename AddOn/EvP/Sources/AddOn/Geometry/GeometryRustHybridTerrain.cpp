@@ -43,6 +43,10 @@ TapiocaTerrainStation Station (const TerrainStation& station)
         raw.crossfall = Slope (station.crossfall->slope);
         raw.crossfallHand = static_cast<uint32_t> (station.crossfall->fallsTo);
     }
+    else if (station.crown) {
+        raw.crossfall = Slope (*station.crown);
+        raw.crossfallHand = 3;
+    }
     return raw;
 }
 
@@ -63,8 +67,13 @@ bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResul
     input.region = { request.region.data (), request.region.size () };
     std::vector<TapiocaTerrainStation> stations;
     stations.reserve (request.stations.size ());
-    for (const auto& station : request.stations)
+    for (const auto& station : request.stations) {
+        if (station.crossfall && station.crown) {
+            error = "TerrainHybridCamber: a station has either a one-way crossfall or a crown";
+            return false;
+        }
         stations.push_back (Station (station));
+    }
     input.stations = { stations.data (), stations.size () };
     input.tolerance = request.tolerance;
     input.effect = static_cast<uint32_t> (request.effect);
@@ -135,7 +144,7 @@ bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResul
         candidate.mappings.push_back (row);
     }
     for (const auto& line : lines) {
-        if (line.kind < 1 || line.kind > 4 || line.side > 2 || (line.kind == 4) != (line.side == 0)) {
+        if (line.kind < 1 || line.kind > 5 || line.side > 2 || (line.kind >= 4) != (line.side == 0)) {
             error = "TerrainOutputShape: unknown hybrid line kind";
             return false;
         }

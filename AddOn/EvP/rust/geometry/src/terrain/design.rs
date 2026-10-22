@@ -6,9 +6,11 @@
 //! sections; nothing is re-solved here). Between two stations every parameter is
 //! linear in the centreline parameter, so the band edge is a straight 3D segment.
 //! Inside `-half_right <= lateral <= half_left` the height is the centreline
-//! height plus the crossfall twist, using the [`Crossfall`] convention of the
-//! edit operator: `-g * lateral` when it falls to the left, `+g * lateral` to the
-//! right, `lateral` positive to the left of the travel direction.
+//! height plus the [`Camber`] twist, `lateral` positive to the left of the travel
+//! direction. A one-way fall uses the [`Crossfall`] convention of the edit
+//! operator: `-g * lateral` when it falls to the left, `+g * lateral` to the
+//! right. A crown falls both ways from the centreline, `-g * |lateral|`, so the
+//! centreline is a crease (the hybrid build makes it a breakline).
 //!
 //! **Classification** is per side, from the edge against the ground:
 //! `delta = z_edge - z_base(edge)`, cut below `-tolerance`, fill above
@@ -38,8 +40,8 @@ pub struct Station {
     pub half_left: f64,
     /// Band width right of the centreline, metres, non-negative.
     pub half_right: f64,
-    /// Cross slope twisting about the centreline.
-    pub crossfall: Option<Crossfall>,
+    /// Cross slope about the centreline; `None` is level.
+    pub crossfall: Option<Camber>,
     /// Level run beyond the left edge before its face, metres.
     pub shoulder_left: f64,
     /// Level run beyond the right edge before its face, metres.
@@ -52,6 +54,15 @@ pub struct Station {
     pub cut_limit: f64,
     /// Plan reach of a fill face from the edge, metres.
     pub fill_limit: f64,
+}
+
+/// How a cross-section falls across the band.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Camber {
+    /// One plane falling to one side.
+    OneWay(Crossfall),
+    /// Both halves fall away from the centreline at this grade.
+    Crown(Slope),
 }
 
 /// A path band: at least two stations with distinct consecutive plan positions.
@@ -146,7 +157,14 @@ impl DesignError {
 struct Grades {
     cut: f64,
     fill: f64,
-    fall: Option<(f64, Hand)>,
+    fall: Option<Fall>,
+}
+
+/// A resolved [`Camber`].
+#[derive(Clone, Copy, Debug)]
+enum Fall {
+    OneWay(f64, Hand),
+    Crown(f64),
 }
 
 /// A validated band over a base surface.
@@ -178,11 +196,13 @@ struct Section {
     twist: [f64; 3],
 }
 
-fn twist(fall: Option<(f64, Hand)>, lateral: f64) -> f64 {
-    fall.map_or(0.0, |(gradient, hand)| match hand {
-        Hand::Left => -gradient * lateral,
-        Hand::Right => gradient * lateral,
-    })
+fn twist(fall: Option<Fall>, lateral: f64) -> f64 {
+    match fall {
+        None => 0.0,
+        Some(Fall::OneWay(gradient, Hand::Left)) => -gradient * lateral,
+        Some(Fall::OneWay(gradient, Hand::Right)) => gradient * lateral,
+        Some(Fall::Crown(gradient)) => -gradient * lateral.abs(),
+    }
 }
 
 fn unit(x: f64, y: f64) -> Option<[f64; 2]> {
@@ -210,13 +230,15 @@ fn grades(station: &Station) -> Result<Grades, DesignError> {
     }
     let cut = station.cut.gradient().map_err(|_| DesignError::Slope)?;
     let fill = station.fill.gradient().map_err(|_| DesignError::Slope)?;
-    let crossfall = station
-        .crossfall
-        .map(|fall| match fall.slope.gradient() {
-            Ok(g) if g.is_finite() => Ok((g, fall.falls_to)),
-            _ => Err(DesignError::Slope),
-        })
-        .transpose()?;
+    let finite = |slope: Slope| match slope.gradient() {
+        Ok(g) if g.is_finite() => Ok(g),
+        _ => Err(DesignError::Slope),
+    };
+    let crossfall = match station.crossfall {
+        None => None,
+        Some(Camber::OneWay(oneway)) => Some(Fall::OneWay(finite(oneway.slope)?, oneway.falls_to)),
+        Some(Camber::Crown(slope)) => Some(Fall::Crown(finite(slope)?)),
+    };
     Ok(Grades {
         cut,
         fill,
@@ -287,6 +309,14 @@ impl<'a> Design<'a> {
     #[must_use]
     pub fn station(&self, index: usize) -> Option<&Station> {
         self.stations.get(index)
+    }
+
+    /// Whether any station has a nonzero crown, so the centreline is a crease.
+    #[must_use]
+    pub fn crowned(&self) -> bool {
+        self.grades
+            .iter()
+            .any(|g| matches!(g.fall, Some(Fall::Crown(gradient)) if gradient != 0.0))
     }
 
     /// Left and right edge positions and design heights of station `index`.

@@ -154,4 +154,11 @@ TEST (GeometryRustHybridTerrain, RefusalsKeepTheOwnedResult)
         { { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, wrong }, result, error));
     EXPECT_EQ (error.rfind ("ProvenanceConflict", 0), 0U) << error;
     EXPECT_EQ (result, before);
+    auto both = std::array { Station (0, 10), Station (40, 12) };
+    both[0].crown = TerrainSlope { TerrainSlope::Unit::Percent, 2, 0 };
+    both[0].crossfall = TerrainCrossfall { { TerrainSlope::Unit::Percent, 2, 0 }, TerrainHand::Left };
+    EXPECT_FALSE (BuildHybridTerrain (
+        { { base.points, base.triangles }, kRegion, both, TerrainEditEffect::Both, 1e-6, provenance }, result, error));
+    EXPECT_EQ (error.rfind ("TerrainHybridCamber", 0), 0U) << error;
+    EXPECT_EQ (result, before);
 }

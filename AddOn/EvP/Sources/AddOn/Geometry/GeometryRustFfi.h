@@ -576,13 +576,13 @@ typedef struct {
 // cut/fill (site inside the region, context outside). Provenance domains=7 as for
 // split: mesh THEN ring vertices, ring segments as edges, base triangles as faces.
 // Stations carry no entity rows. effect: 1 cut, 2 fill, 3 both. crossfallHand: 0
-// none, 1 left, 2 right. Line kind: 1 band edge, 2 shoulder end, 3 daylight, 4 end
-// section; side 1 left, 2 right (0 for an end); root = daylight root outward, or
-// 0 first / 1 last end. sides: [left, right] per station, roots 0 = at grade.
-// owners[v] is 0 when the band changed the height, else UINT32_MAX; base[v] is
-// the base height. Support rows reuse TapiocaTerrainMapping:
-// 9 Split vertex (as above; line = region ring).
-// 12 Region face: index=output face; v0=input parent face, v1=inside, v2=kept
+// level, 1 left, 2 right, 3 crown (both halves fall from the centreline). Line kind:
+// 1 band edge, 2 shoulder end, 3 daylight, 4 end section, 5 crowned centreline (a
+// crease; end sections then carry a centre vertex); side 1 left, 2 right (0 for an
+// end or centreline); root = daylight root outward, or 0 first / 1 last end. sides: [left, right] per station, roots 0
+// = at grade. owners[v] is 0 when the band changed the height, else UINT32_MAX; base[v] is the base height. Support
+// rows reuse TapiocaTerrainMapping: 9 Split vertex (as above; line = region ring). 12 Region face: index=output face;
+// v0=input parent face, v1=inside, v2=kept
 //    (verbatim input triangle).
 // 13 Region line vertex: index=output vertex; v0=line, v1=line vertex.
 // 14 Region crossing: index=output vertex; v0=1 base edge (v1/v2 output

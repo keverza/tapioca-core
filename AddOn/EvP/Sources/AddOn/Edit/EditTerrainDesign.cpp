@@ -38,11 +38,9 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
         value.position = { frame.centre.x, frame.centre.y, frame.centre.z };
         value.halfLeft = section.widthLeft;
         value.halfRight = section.widthRight;
-        if (section.crossfall != 0.0) {
-            if (section.fall == edit::Fall::Crown) {
-                error = "TerrainDesignCrown: a crowned section needs a centreline crease; set a one-way crossfall";
-                return false;
-            }
+        if (section.crossfall != 0.0 && section.fall == edit::Fall::Crown)
+            value.crown = TerrainSlope { TerrainSlope::Unit::Percent, section.crossfall, 0 };
+        else if (section.crossfall != 0.0) {
             value.crossfall = TerrainCrossfall {
                 { TerrainSlope::Unit::Percent, section.crossfall, 0 },
                 section.fall == edit::Fall::Left ? TerrainHand::Left : TerrainHand::Right,

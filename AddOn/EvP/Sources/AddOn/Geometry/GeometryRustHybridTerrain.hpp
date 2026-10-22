@@ -15,7 +15,8 @@ namespace tapioca::geometry {
 struct TerrainStation {
     std::array<double, 3> position {}; // Centreline x, y and design height, world metres.
     double halfLeft = 0, halfRight = 0;
-    std::optional<TerrainCrossfall> crossfall; // Twists about the centreline; no crown.
+    std::optional<TerrainCrossfall> crossfall; // One-way fall about the centreline.
+    std::optional<TerrainSlope> crown;         // Both halves fall away; exclusive with crossfall.
     double shoulderLeft = 0, shoulderRight = 0;
     TerrainSlope cut, fill;             // Face grades below / above the ground.
     double cutLimit = 0, fillLimit = 0; // Plan reach of each face, metres.
@@ -28,10 +29,10 @@ struct HybridTerrainRequest {
     double tolerance = 1e-3;             // At-grade height band, metres.
     const ProvenanceRequest& provenance; // Mesh then ring vertices, ring edges, mesh faces; domains=7.
 };
-enum class HybridLineKind : uint32_t { Edge = 1, Shoulder = 2, Daylight = 3, End = 4 };
+enum class HybridLineKind : uint32_t { Edge = 1, Shoulder = 2, Daylight = 3, End = 4, Crown = 5 };
 struct HybridLine {
     HybridLineKind kind = HybridLineKind::Edge;
-    std::optional<TerrainHand> side; // Absent for an end section.
+    std::optional<TerrainHand> side; // Absent for an end section or the crowned centreline.
     uint32_t root = 0;               // Daylight root outward; an end's 0 first / 1 last.
     bool operator== (const HybridLine&) const = default;
 };

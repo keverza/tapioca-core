@@ -331,7 +331,7 @@ fn refusals_preserve_every_output() {
     let long = [station(-20.0, 9.0), station(40.0, 12.0)];
     let bad_hand = [
         TerrainStation {
-            crossfall_hand: 3,
+            crossfall_hand: 4,
             ..station(0.0, 10.0)
         },
         station(40.0, 12.0),
@@ -383,4 +383,32 @@ fn refusals_preserve_every_output() {
         assert!(storage.owners.iter().all(|&v| v == 77));
         assert_eq!(storage.site, TerrainHybridVolumes::default());
     }
+}
+
+#[test]
+fn a_crowned_station_adds_the_centreline_line() {
+    let (points, triangles) = base();
+    let crowned = |x: f64, z: f64| TerrainStation {
+        crossfall: TerrainSlope {
+            a: 2.0,
+            b: 0.0,
+            kind: 2,
+            reserved: 0,
+        },
+        crossfall_hand: 3,
+        ..station(x, z)
+    };
+    let stations = [crowned(0.0, 10.0), crowned(40.0, 12.0)];
+    let rows = rows(counts_in(&points, &triangles));
+    let input = request(&points, &triangles, &stations, &rows);
+    let mut storage = Storage::new();
+    assert_eq!(run(&input, &storage.output(true)), (0, String::new()));
+    storage.size(stations.len());
+    assert_eq!(run(&input, &storage.output(false)), (0, String::new()));
+    let crown: Vec<_> = storage.lines.iter().filter(|l| l.kind == 5).collect();
+    assert_eq!(crown.len(), 1);
+    assert!(crown.iter().all(|l| l.side == 0 && l.root == 0));
+    // Fill 0.576 and cut 0.7627 m3 per metre between the ends, plus the caps.
+    assert!(storage.site.fill >= 40.0 * 0.576 - 1e-9);
+    assert!(storage.site.cut >= 40.0 * (0.44 + 0.5 * 0.44 * 22.0 / 15.0) - 1e-9);
 }
