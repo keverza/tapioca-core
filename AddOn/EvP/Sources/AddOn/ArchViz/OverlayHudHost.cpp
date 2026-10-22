@@ -231,7 +231,7 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
         hudshell::Circle top = own.standalone ? own.overlay : hudshell::Circle ();
         if (!own.standalone)
             top.phase = hudshell::Phase::Ready;
-        top.active = store->shown;
+        top.active = !own.viewerSurface && store->shown;
         const hudshell::DockPress press =
             hudshell::DockTab ("##hud", showing, colours, open, top, own.standalone ? &own.viewer : nullptr,
                                ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale, &store->editLocked);
@@ -251,11 +251,14 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
                                  {},
                                  true });
         }
-        if (press.bottom) {
+        if (press.top && own.viewerSurface) {
+            store->viewerRequested = true; // owner interprets as switch away from its surface
+        }
+        else if (press.bottom && !own.viewerSurface) {
             store->viewerRequested = true;
             changes.push_back ({ "surface", std::string (), std::string (), std::string (), -1, 1.0, "viewer", true });
         }
-        else if (press.top) {
+        else if (press.top && !own.viewerSurface) {
             ShowOverlay (!store->shown);
         }
         else if (pressed) {

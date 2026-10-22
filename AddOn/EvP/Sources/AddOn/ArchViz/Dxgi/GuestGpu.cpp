@@ -216,7 +216,8 @@ bool Upload (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer, const
 
 } // namespace
 
-bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& source, Pipelines& out, std::string& error)
+bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& source, Pipelines& out, std::string& error,
+            Diligent::TEXTURE_FORMAT colour, Diligent::TEXTURE_FORMAT depthFormat)
 {
     out = Pipelines {};
     out.kind = kind;
@@ -257,8 +258,8 @@ bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& sourc
         // ⚠️ THE FORMATS ARE FOR DILIGENT'S VALIDATION ONLY: a D3D11 pipeline records
         // none, and the target is Archicad's, bound natively (DiligentGuest.hpp).
         gp.NumRenderTargets = 1;
-        gp.RTVFormats[0] = Diligent::TEX_FORMAT_BGRA8_UNORM;
-        gp.DSVFormat = kind == Kind::Scene ? Diligent::TEX_FORMAT_D32_FLOAT : Diligent::TEX_FORMAT_UNKNOWN;
+        gp.RTVFormats[0] = colour;
+        gp.DSVFormat = kind == Kind::Scene ? depthFormat : Diligent::TEX_FORMAT_UNKNOWN;
         gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         gp.RasterizerDesc.CullMode = cullBack ? Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
         // A mesh written with outward normals winds counter-clockwise seen from outside.

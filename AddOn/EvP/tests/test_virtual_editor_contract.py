@@ -8,6 +8,16 @@ ROOT = Path(__file__).parents[1] / "Sources" / "AddOn"
 SOURCE = ROOT / "NativeCommands" / "VirtualEditorCommands.cpp"
 
 
+def test_surface_switch_uses_deferred_owner_and_strict_transport_enums():
+    source = SOURCE.read_text(encoding="utf-8")
+    schemas = [json.loads(text) for text in re.findall(r'R"json\((.*?)\)json"', source, re.S)]
+    assert "surface" in schemas[0]["properties"]["action"]["enum"]
+    for schema in (schemas[0], schemas[1], schemas[-1]):
+        assert schema["properties"]["surface"]["enum"] == ["overlay", "viewer"]
+        assert schema["additionalProperties"] is False
+    assert "archviz::surfaceswitch::Request" in source
+
+
 def test_landscape_commands_replace_the_deprecated_saved_set_selection_ui():
     panel = (ROOT / "ArchViz" / "HudVirtualEditorLandscapePanel.cpp").read_text(encoding="utf-8")
     for removed in (

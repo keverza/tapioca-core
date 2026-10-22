@@ -32,6 +32,7 @@
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/Uniforms.hpp"
 #include "ArchViz/ViewerPlanMode.hpp"
+#include "ArchViz/ViewerEditorDraw.hpp"
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "Screenshot/ScreenshotStore.hpp"
 
@@ -82,10 +83,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
     DiligentPickBuffer pick;
     DiligentGpuTimings gpuTimings;
     SceneTextLayer textLayer;
+    ViewerEditorDraw editorDraw;
 
     // Give back the HWND. See the long note at the call site in the success
     // path; this is that same teardown, reachable from both.
     auto releaseEverything = [&] () {
+        editorDraw.Clear ();
         gpuTimings.Collect ();
         gpuTimings.Shutdown ();
         scene.Shutdown ();
@@ -535,6 +538,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // this line sees the cursor at 0,0.
             if (!offscreen)
                 PollHardwareInput (surface.nwh, input);
+            // The main-thread editor owns left/right and its HUD wheel. Native
+            // middle-button navigation still belongs to this viewer camera.
+            if (vieweredit::Active ())
+                hudState.wantsMouse = false, hudState.viewpointOwnsMouse = false;
             if (!offscreen)
                 ServiceViewpointInput (camera, hudState, input, width, height);
             // ⚠️ THE HUD'S ANSWER IS FROM THE PREVIOUS FRAME, AND THAT IS
@@ -590,7 +597,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // second before the first sync lands, and over a PLAN it would
             // replace a parallel top view with a tilted one that then has to be
             // undone. The cube is what this is for, and the cube has no camera.
-            if (!userHasNavigated && !framedRealGeometry && !cameraStart.valid) {
+            if (!userHasNavigated && !framedRealGeometry && !cameraStart.valid && !vieweredit::Active ()) {
                 const double age = std::chrono::duration<double> (std::chrono::steady_clock::now () - started).count ();
                 camera.SetOrbit (float (age * 0.35) - 0.9f, 0.6f);
             }
@@ -874,6 +881,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
+            if (!offscreen && surface.mode == SurfaceMode::PaletteChild)
+                editorDraw.Update (device, context, rtv, dsv, view, stableProj, width, height);
             if (!offscreen && !annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
@@ -884,7 +893,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
             // hides content drawn from a stale POSE; the panels have no pose to be
             // wrong about, and blanking them read as the viewer having crashed.
-            if (!offscreen && hud.IsReady ()) {
+            if (!offscreen && hud.IsReady () && !vieweredit::Active ()) {
                 const DiligentSceneStats hudScene = scene.Stats ();
                 {
                     // ⚠️ THE LOCK ENDS HERE, BEFORE Draw. `mutex_` is what the

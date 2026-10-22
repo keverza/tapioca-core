@@ -299,6 +299,7 @@ struct Displays {
 // caller set a layer; false, the HUD is the caller's panels and Settings, as it was.
 struct OwnPages {
     bool standalone = false;
+    bool viewerSurface = false; // same editor HUD, hosted by the separate viewer
     std::vector<hudshell::Card> stats;
     std::shared_ptr<const massingslices::Result> massingStats;
     hudshell::SelectionPage selection;
@@ -372,6 +373,10 @@ edithud::Session* VirtualEditor (State& state);
 bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear);
 // The open virtual editor was started by the palette command `command` (its catalog path).
 bool VirtualEditorOwnedBy (const State& state, const std::string& command);
+// Surface handoff only: cancel unfinished input, retain the session/history, then
+// restore it after the old surface has released its HUD resources.
+std::shared_ptr<edithud::Session> TakeVirtualEditor (State& state);
+void RestoreVirtualEditor (State& state, std::shared_ptr<edithud::Session> session);
 std::string SelectedKey (const State& state);
 void SetHudOpen (State& state, bool open);
 void SelectKey (State& state, const std::string& key);

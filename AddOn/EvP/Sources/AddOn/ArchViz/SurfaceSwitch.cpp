@@ -13,6 +13,9 @@
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/OverlayGuestText.hpp"
+#include "ArchViz/OverlayHud.hpp"
+#include "ArchViz/ViewerEditor.hpp"
 
 #include <windows.h>
 
@@ -134,15 +137,20 @@ void BeforeOverlayStarts ()
     if (!ViewerOpen ())
         return;
     ArchVizLog ("SURFACE      an overlay starts: the viewer closes");
+    vieweredit::Stop (true);
     ArchVizPanel::CloseViewer ();
 }
 
 void BeforeViewerOpens ()
 {
     namespace control = overlaycontrol;
+    auto state = guesttext::HudState ();
+    auto editor = overlayhud::TakeVirtualEditor (*state);
     for (const control::Overlay which : { control::Overlay::ThreeD, control::Overlay::TwoD })
         if (control::Describe (which).wanted)
             control::SetWanted (which, false, "viewer");
+    overlayhud::RestoreVirtualEditor (*state, std::move (editor));
+    control::FollowHudState ();
 }
 
 Stats GetStats ()

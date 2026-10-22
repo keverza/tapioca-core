@@ -89,7 +89,9 @@ struct Pipelines {
 
 // Compiles `source` -- the plan's, or the 3D body composed for one camera slot --
 // and builds every pipeline the kind uses. The plan builds "over" only.
-bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& source, Pipelines& out, std::string& error);
+bool Build (Diligent::IRenderDevice* device, Kind kind, const std::string& source, Pipelines& out, std::string& error,
+            Diligent::TEXTURE_FORMAT colour = Diligent::TEX_FORMAT_BGRA8_UNORM,
+            Diligent::TEXTURE_FORMAT depth = Diligent::TEX_FORMAT_D32_FLOAT);
 
 // One atlas page on the GPU, kept across content changes by the page's id.
 struct Page {

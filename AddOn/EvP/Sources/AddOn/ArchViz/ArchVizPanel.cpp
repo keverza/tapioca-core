@@ -12,6 +12,7 @@
 #include "ArchViz/ViewportCursor.hpp"
 #include "ArchViz/SelectionBridge.hpp"
 #include "ArchViz/SurfaceSwitch.hpp" // the viewer or the overlay, never both
+#include "ArchViz/ViewerEditor.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SceneRenderMode -- the overlay starts in wireframe
@@ -174,6 +175,8 @@ void ArchVizPanel::OpenViewer (bool planMode)
     // The viewer or the overlay, never both (SurfaceSwitch.hpp).
     geomsrv::archviz::surfaceswitch::BeforeViewerOpens ();
     OpenDiligentViewport (planMode);
+    if (HasInstance () && geomsrv::archviz::surfaceswitch::ViewerOpen ())
+        geomsrv::archviz::vieweredit::Start (GetInstance ().ViewportWindow ());
 }
 
 void ArchVizPanel::OpenDiligentProbe ()
@@ -326,6 +329,11 @@ void ArchVizPanel::OpenDiligentViewport (bool planMode)
         // over the splitter leaves a resize arrow on the 3D view. See
         // ViewportCursor: nobody answers WM_SETCURSOR for a DG::UserItem.
         geomsrv::archviz::viewportcursor::Attach (surface.nwh);
+        if (!geomsrv::archviz::vieweredit::Start (surface.nwh)) {
+            geomsrv::archviz::DiligentViewport::Get ().Stop ();
+            panel.statusText.SetText ("Viewer editor input unavailable; editor retained. Reopen the overlay.");
+            return;
+        }
         // The geometry the user actually wants to look at. LIVE, not a one-shot
         // pass. The producer side (ExtractionWorker -> SceneCmdQueue) is
         // renderer-free by design, which is what let the viewer change underneath
@@ -661,6 +669,7 @@ void* ArchVizPanel::ViewportWindow () const
 
 void ArchVizPanel::StopRenderer ()
 {
+    geomsrv::archviz::vieweredit::Stop ();
     geomsrv::sunfollow::Disable ();
     // ⚠️ UNCONDITIONALLY, AND BEFORE THE EARLY RETURN. The timer is a
     // process-wide Win32 resource that outlives this palette if it is not

@@ -2,7 +2,9 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
+#include "ArchViz/HudVirtualEditorDetail.hpp"
 #include <cmath>
+#include <utility>
 
 // The virtual editor's lifecycle on the HUD's state, in the roof editor's pattern: a
 // session borrows the dock's lock and owns only its command-scoped layer, and stopping
@@ -81,6 +83,44 @@ edithud::Session* VirtualEditor (State& state)
 bool VirtualEditorOwnedBy (const State& state, const std::string& command)
 {
     return state.virtualEditor && !command.empty () && state.virtualEditor->owner == command;
+}
+
+std::shared_ptr<edithud::Session> TakeVirtualEditor (State& state)
+{
+    if (!state.virtualEditor)
+        return {};
+    edithud::detail::CancelViewEdit (*state.virtualEditor, "Surface changed; unfinished input was cancelled.");
+    auto& session = *state.virtualEditor;
+    session.edits.Cancel ();
+    session.drag = edithud::Drag::None;
+    session.profileTyping = false;
+    session.tracker.Hide ();
+    session.drawing.clear ();
+    session.drawHandles.clear ();
+    session.capturedPlane.reset ();
+    session.placed.clear ();
+    session.profilePlaced.clear ();
+    session.viewIdentity = 0;
+    session.viewPlanar.reset ();
+    state.editLocked = state.virtualEditor->previousLock;
+    return std::exchange (state.virtualEditor, {});
+}
+
+void RestoreVirtualEditor (State& state, std::shared_ptr<edithud::Session> session)
+{
+    if (!session)
+        return;
+    session->publishedRevision = UINT64_MAX;
+    state.virtualEditor = std::move (session);
+    state.editLocked = true;
+    state.shown = true;
+    state.host.open = true;
+    state.host.selected = std::string (editlayers::kLayer) + "#0";
+    state.hidden.erase (editlayers::kLayer);
+    ++state.revision;
+    overlaylayers::Layer layer;
+    if (edithud::Follow (*state.virtualEditor, layer))
+        overlaylayers::Set (std::move (layer));
 }
 
 bool FollowVirtualEditor (State& state, overlaylayers::Layer& layer, bool& clear)

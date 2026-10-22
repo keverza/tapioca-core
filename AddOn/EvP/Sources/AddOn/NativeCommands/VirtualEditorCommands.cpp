@@ -8,9 +8,11 @@
 #include "ArchViz/OverlayGuestText.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayInput.hpp"
+#include "ArchViz/SurfaceSwitch.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
 
+// OVERLAY-INVARIANTS.md: switch only via the deferred main-thread surface owner.
 // Tapioca.VirtualEditor opens, reports and closes the virtual editor; Tapioca.EditorState
 // is its read-only diagnostic. Neither writes to the model and neither opens an undo
 // scope: the editor's edits live in its own history until a later Accept commits them.
@@ -268,6 +270,15 @@ class VirtualEditorCommand : public MainThreadCommand {
             result.Add ("document", Export (s->edits.Doc ()));
         if (action == "stop")
             Stop (*state, "Tapioca.VirtualEditor stop");
+        else if (action == "surface") {
+            GS::UniString surface;
+            if (!hud::VirtualEditorActive (*state) || !params.Get ("surface", surface) ||
+                (surface != "viewer" && surface != "overlay"))
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("Open an editor and choose viewer or overlay.", "switching the virtual editor"));
+            archviz::surfaceswitch::Request (surface == "viewer" ? archviz::surfaceswitch::Surface::Viewer
+                                                                 : archviz::surfaceswitch::Surface::Overlay);
+        }
         else if (action == "start") {
             const std::string role = Role (params, "");
             edit::Document doc;
@@ -322,6 +333,7 @@ class VirtualEditorCommand : public MainThreadCommand {
         const eh::Session* s = hud::VirtualEditor (static_cast<const hud::State&> (*state));
         result.Add ("active", s != nullptr);
         result.Add ("locked", hud::EditLocked (*state));
+        result.Add ("surface", GS::UniString (archviz::surfaceswitch::ViewerOpen () ? "viewer" : "overlay"));
         if (s != nullptr) {
             result.Add ("revision", static_cast<GS::Int64> (s->edits.Doc ().revision));
             result.Add ("undoDepth", static_cast<GS::Int64> (s->edits.UndoDepth ()));
@@ -395,6 +407,7 @@ class EditorStateCommand : public MainThreadCommand {
         result.Add ("active", s != nullptr);
         result.Add ("locked", hud::EditLocked (*state));
         result.Add ("layerShown", hud::ContentShown (*state) && hud::LayerShown (*state, el::kLayer));
+        result.Add ("surface", GS::UniString (archviz::surfaceswitch::ViewerOpen () ? "viewer" : "overlay"));
         if (s == nullptr)
             return result;
         const char* tools[] = { "select", "polyline", "path", "curve" };
@@ -453,7 +466,8 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
         // cancelled, as the roof editor's does; it never writes to the model.
         { "VirtualEditor", &MakeRegisteredNativeCommand<VirtualEditorCommand>, true,
           R"json({"type":"object","properties":{
-                "action":{"type":"string","enum":["start","stop","state"]},"role":{"type":"string"},
+                "action":{"type":"string","enum":["start","stop","state","surface"]},"role":{"type":"string"},
+                "surface":{"type":"string","enum":["overlay","viewer"]},
                 "tool":{"type":"string","enum":["select","polyline","path","curve"]},
                 "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},
                 "landscape":{"type":"object","properties":{"demo":{"type":"boolean"},"definition":{"type":"string","maxLength":8388608}},"additionalProperties":false},
@@ -464,7 +478,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "snapSegments":{"type":"array","maxItems":100000,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"$ref":"#Point3D"}}}
               },"required":["action"],"additionalProperties":false})json",
           R"json({"type":"object","properties":{
-                "active":{"type":"boolean"},"locked":{"type":"boolean"},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},
+                "active":{"type":"boolean"},"locked":{"type":"boolean"},"surface":{"type":"string","enum":["overlay","viewer"]},"revision":{"type":"integer"},"undoDepth":{"type":"integer"},"message":{"type":"string"},
                 "document":{"type":"object","properties":{
                   "polylines":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"kind":{"type":"string","enum":["polyline","extrusion"]},"role":{"type":"string"},"closed":{"type":"boolean"},"height":{"type":"number"},"points":{"type":"array","items":{"$ref":"#Point3D"}}},"required":["id","kind","role","closed","height","points"],"additionalProperties":false}},
                   "paths":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"role":{"type":"string"},"length":{"type":"number"},"points":{"type":"array","items":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"}},"required":["x","y","radius"],"additionalProperties":false}},"profile":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"z":{"type":"number"},"curve":{"type":"number"},"fixed":{"type":"boolean"},"binding":{"type":"string"}},"required":["station","z","curve","fixed","binding"],"additionalProperties":false}},"sections":{"type":"array","items":{"type":"object","properties":{"station":{"type":"number"},"widthLeft":{"type":"number"},"widthRight":{"type":"number"},"crossfall":{"type":"number"},"fall":{"type":"string","enum":["crown","left","right"]}},"required":["station","widthLeft","widthRight","crossfall","fall"],"additionalProperties":false}}},"required":["id","role","length","points","profile","sections"],"additionalProperties":false}},
@@ -475,7 +489,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
         { "EditorState", &MakeRegisteredNativeCommand<EditorStateCommand>, true,
           R"json({"type":"object","properties":{},"additionalProperties":false})json",
           R"json({"type":"object","properties":{
-                "active":{"type":"boolean"},"locked":{"type":"boolean"},"layerShown":{"type":"boolean"},
+                "active":{"type":"boolean"},"locked":{"type":"boolean"},"layerShown":{"type":"boolean"},"surface":{"type":"string","enum":["overlay","viewer"]},
                 "tool":{"type":"string","enum":["select","polyline","path","curve"]},
                 "gizmo":{"type":"string","enum":["move","rotate","scale","stretch","extrude","gumball"]},
                 "drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend"]},

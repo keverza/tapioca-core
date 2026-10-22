@@ -408,6 +408,7 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayGuestText.hpp"),
     ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayHud.hpp"),
     ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/OverlayInput.hpp"),
+    ("NativeCommands/VirtualEditorCommands.cpp", "ArchViz/SurfaceSwitch.hpp"),
     # The layer verbs' parameters, read into the same store the verbs fill: split out
     # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),

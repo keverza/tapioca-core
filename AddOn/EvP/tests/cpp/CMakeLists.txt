@@ -576,6 +576,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/RoofSlopeReport.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudRoof.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHudVirtualEditor.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ViewerEditorFrame.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDrawing.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscape.cpp"
@@ -845,6 +846,7 @@ set (EVP_TEST_SOURCES
     test_editpath.cpp
     test_editprofileview.cpp
     test_hudvirtualeditor.cpp
+    test_viewereditor.cpp
     test_hudlandscape.cpp
     test_hudvirtualeditorsnap.cpp
     test_hudvirtualeditorsnapcontrols.cpp
