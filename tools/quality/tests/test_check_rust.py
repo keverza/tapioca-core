@@ -32,7 +32,10 @@ def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
     assert ffi["dependencies"] == {"tapioca-geometry": {"path": "../geometry"}}
     geometry = tomllib.loads((workspace / "geometry/Cargo.toml").read_text(encoding="utf-8"))
     assert geometry["package"]["name"] == "tapioca-geometry"
-    assert geometry.get("dependencies", {}) == {"spade": "=2.15.1"}
+    assert geometry.get("dependencies", {}) == {
+        "spade": "=2.15.1",
+        "faer": {"version": "=0.24.4", "default-features": False, "features": ["sparse-linalg"]},
+    }
 
 
 @pytest.mark.parametrize("crate", ["geometry", "ffi"])
@@ -80,6 +83,25 @@ def test_the_spade_edge_is_one_exact_default_feature_pin(workspace, dependencies
     replace(workspace / "geometry/Cargo.toml", SPADE, dependencies)
     errors, _ = check_rust.structure(workspace)
     assert any("geometry -> spade" in error for error in errors)
+
+
+FAER = 'faer = { version = "=0.24.4", default-features = false, features = ["sparse-linalg"] }'
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    [
+        'faer = { version = "=0.24.4", features = ["sparse-linalg"] }',  # default features: rayon, rand, std
+        'faer = { version = "=0.24.4", default-features = false, features = ["sparse-linalg", "rayon"] }',
+        'faer = { version = "0.24.4", default-features = false, features = ["sparse-linalg"] }',  # a range
+        'faer = { version = "=0.24.3", default-features = false, features = ["sparse-linalg"] }',
+        "",  # the edge removed while its closure stays vendored
+    ],
+)
+def test_the_faer_edge_is_one_exact_pin_without_default_features(workspace, dependency):
+    replace(workspace / "geometry/Cargo.toml", FAER, dependency)
+    errors, _ = check_rust.structure(workspace)
+    assert any("geometry -> faer" in error for error in errors)
 
 
 def test_reverse_dependency_is_rejected(workspace):
@@ -173,9 +195,78 @@ def test_the_notice_must_list_every_crate(workspace):
     assert any("row for foldhash" in error for error in check_rust.third_party(workspace))
 
 
-def test_a_licence_outside_the_allow_list_fails(workspace, monkeypatch):
-    monkeypatch.setitem(check_rust.THIRD_PARTY, "foldhash", ("0.2.0", "BUSL-1.1"))
+@pytest.mark.parametrize(
+    "licence",
+    [
+        "BUSL-1.1",
+        "MIT OR BUSL-1.1",  # an OR alternative is not a loophole
+        "(MIT OR Apache-2.0) AND BUSL-1.1",  # nor is a conjunct
+        "MIT/BUSL-1.1",  # nor the legacy slash form
+    ],
+)
+def test_a_licence_outside_the_allow_list_fails(workspace, monkeypatch, licence):
+    monkeypatch.setitem(check_rust.THIRD_PARTY, ("foldhash", "0.2.0"), licence)
     assert any("outside" in error for error in check_rust.third_party(workspace))
+
+
+@pytest.mark.parametrize(
+    "expression, atoms",
+    [
+        ("(MIT OR Apache-2.0) AND Unicode-3.0", ["MIT", "Apache-2.0", "Unicode-3.0"]),
+        ("MIT/Apache-2.0", ["MIT", "Apache-2.0"]),
+        ("Zlib OR Apache-2.0 OR MIT", ["Zlib", "Apache-2.0", "MIT"]),
+    ],
+)
+def test_licence_expressions_name_every_atom(expression, atoms):
+    assert check_rust.licence_atoms(expression) == atoms
+
+
+def test_an_unreviewed_proc_macro_fails(workspace, monkeypatch):
+    monkeypatch.setattr(check_rust, "PROC_MACROS", check_rust.PROC_MACROS - {"seq-macro"})
+    assert any(
+        "seq-macro-0.3.6: an unreviewed proc-macro" in error for error in check_rust.third_party(workspace)
+    )
+
+
+def test_an_unreviewed_build_script_in_the_faer_closure_fails(workspace, monkeypatch):
+    monkeypatch.setattr(check_rust, "BUILD_SCRIPTS", check_rust.BUILD_SCRIPTS - {"pulp"})
+    assert any("pulp-0.22.3: an unreviewed build script" in error for error in check_rust.third_party(workspace))
+
+
+def test_a_supplied_upstream_licence_cannot_disappear(workspace):
+    (workspace / "vendor/nano-gemm-core-0.2.1/LICENSE").unlink()
+    assert any("nano-gemm-core-0.2.1: the licence text" in error for error in check_rust.third_party(workspace))
+
+
+def test_an_unpublished_licence_text_must_be_declared(workspace, monkeypatch):
+    supplied = dict(check_rust.SUPPLIED_LICENCES)
+    del supplied[("pulp-wasm-simd-flag", "0.1.1")]
+    monkeypatch.setattr(check_rust, "SUPPLIED_LICENCES", supplied)
+    assert any("needs a SUPPLIED_LICENCES entry" in error for error in check_rust.third_party(workspace))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda crate: (crate / "COPYING.EIGEN.MPL2").unlink(),
+        lambda crate: (crate / "COPYING.UNDECLARED").write_text("GPL-2.0-only\n", encoding="utf-8"),
+    ],
+)
+def test_embedded_notices_must_match_the_declaration(workspace, mutate):
+    mutate(workspace / "vendor/faer-0.24.4")
+    assert any("embedded notices" in error for error in check_rust.third_party(workspace))
+
+
+def test_an_embedded_notice_licence_must_be_reviewed(workspace, monkeypatch):
+    notices = {key: dict(value) for key, value in check_rust.EMBEDDED_NOTICES.items()}
+    notices[("faer", "0.24.4")]["COPYING.EIGEN.MPL2"] = "GPL-2.0-only"
+    monkeypatch.setattr(check_rust, "EMBEDDED_NOTICES", notices)
+    assert any("not GPL-compatible-reviewed" in error for error in check_rust.third_party(workspace))
+
+
+def test_both_versions_of_a_twice_vendored_crate_are_required(workspace):
+    shutil.rmtree(workspace / "vendor/equator-0.2.2")
+    assert any("differ from the reviewed allow-list" in error for error in check_rust.third_party(workspace))
 
 
 def test_build_script_is_rejected(workspace):

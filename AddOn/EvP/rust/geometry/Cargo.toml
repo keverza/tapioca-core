@@ -11,6 +11,9 @@ description = "Platform-independent geometry kernel scaffold; no algorithms yet.
 # default features only (std). check_rust.py holds the complete transitive allow-list.
 [dependencies]
 spade = "=2.15.1"
+# S3b.0: sparse factorization for the grading solve (G12). No default features: no
+# rayon/rand/npy/std; sequential and libm-based. check_rust.py holds the closure.
+faer = { version = "=0.24.4", default-features = false, features = ["sparse-linalg"] }
 
 [lints]
 workspace = true
