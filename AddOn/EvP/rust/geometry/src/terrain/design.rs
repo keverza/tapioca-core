@@ -270,6 +270,25 @@ impl<'a> Design<'a> {
         })
     }
 
+    /// Unit left normal of station `index` (averaged tangent at interior
+    /// stations); the left side's outward direction.
+    #[must_use]
+    pub fn normal(&self, index: usize) -> Option<[f64; 2]> {
+        self.normals.get(index).copied()
+    }
+
+    /// Number of stations.
+    #[must_use]
+    pub const fn stations(&self) -> usize {
+        self.stations.len()
+    }
+
+    /// Station `index`.
+    #[must_use]
+    pub fn station(&self, index: usize) -> Option<&Station> {
+        self.stations.get(index)
+    }
+
     /// Left and right edge positions and design heights of station `index`.
     #[must_use]
     pub fn edges(&self, index: usize) -> Option<[[f64; 3]; 2]> {

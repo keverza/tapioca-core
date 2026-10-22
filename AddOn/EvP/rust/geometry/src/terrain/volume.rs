@@ -23,6 +23,8 @@
 //! the edit that owns it. Per edit, `net` sums exactly to the total net; `cut`
 //! and `fill` are the signed parts of each sample's contribution.
 
+pub mod exact;
+
 use super::field::Field;
 use super::plan;
 
