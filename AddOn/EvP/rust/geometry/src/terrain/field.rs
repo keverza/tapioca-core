@@ -432,6 +432,63 @@ impl Field {
         }))
     }
 
+    /// Ray parameters in `[0, length]` where `origin + t * direction` crosses an
+    /// upward face edge, ascending and deduplicated, always including both ends.
+    /// Between consecutive parameters the ray lies in one face (or off the
+    /// surface), so the height along it is affine there. Faces are gathered from
+    /// the grid cells of the ray's plan bounding box; `direction` need not be
+    /// unit, and `t` is in its units.
+    pub(super) fn ray_breaks(
+        &self,
+        origin: [f64; 2],
+        direction: [f64; 2],
+        length: f64,
+    ) -> Vec<f64> {
+        let [ox, oy] = origin;
+        let [dx, dy] = direction;
+        let (ex, ey) = (ox + dx * length, oy + dy * length);
+        let (c0, r0) = self.cell_of(ox.min(ex), oy.min(ey));
+        let (c1, r1) = self.cell_of(ox.max(ex), oy.max(ey));
+        let mut positions = Vec::new();
+        for row in r0..=r1 {
+            for column in c0..=c1 {
+                if let Some(bucket) = self
+                    .buckets
+                    .get(row as usize * self.columns as usize + column as usize)
+                {
+                    positions.extend_from_slice(bucket);
+                }
+            }
+        }
+        positions.sort_unstable();
+        positions.dedup();
+        let mut breaks = vec![0.0, length];
+        for face in positions.iter().filter_map(|&p| self.faces.get(p as usize)) {
+            for index in 0..3 {
+                let (Some(&[ax, ay, _]), Some(&[bx, by, _])) =
+                    (face.points.get(index), face.points.get((index + 1) % 3))
+                else {
+                    continue;
+                };
+                // origin + t d = a + s (b - a), solved by Cramer's rule.
+                let (sx, sy) = (bx - ax, by - ay);
+                let denominator = dx * sy - dy * sx;
+                if denominator == 0.0 {
+                    continue; // Parallel: its endpoints are crossings of the adjacent edges.
+                }
+                let (qx, qy) = (ax - ox, ay - oy);
+                let t = (qx * sy - qy * sx) / denominator;
+                let s = (qx * dy - qy * dx) / denominator;
+                if (0.0..=1.0).contains(&s) && (0.0..=length).contains(&t) {
+                    breaks.push(t);
+                }
+            }
+        }
+        breaks.sort_by(f64::total_cmp);
+        breaks.dedup_by(|a, b| (*a - *b).abs() <= plan::ON);
+        breaks
+    }
+
     /// Number of input vertices.
     pub(super) fn vertex_count(&self) -> usize {
         self.heights.len()

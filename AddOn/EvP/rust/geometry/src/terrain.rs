@@ -30,6 +30,8 @@
 
 mod classify;
 mod constrain;
+pub mod daylight;
+pub mod design;
 pub mod edit;
 pub mod field;
 mod input;
