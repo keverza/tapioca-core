@@ -402,7 +402,6 @@ bool SetLandscapeTerrain (edit::Document& doc, const std::string& guid, Id& sour
             for (auto& s : d.landscape->sources)
                 if (s.role == SourceRole::Terrain && !s.deleted) {
                     s.archicadGuid = canonical;
-                    ++s.revision;
                     named = s.id;
                     return true;
                 }
