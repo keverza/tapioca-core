@@ -3,6 +3,7 @@
 
 #include "Edit/EditLandscape.hpp"
 #include "Edit/EditTerrainAdapter.hpp"
+#include "Edit/EditTerrainTriangulation.hpp"
 
 namespace tapioca::geometry {
 
@@ -43,6 +44,19 @@ struct LandscapeTerrainResult {
 // outside/zone surface preservation; those remain the split/rebuild lane's gate.
 bool EvaluateLandscapeTerrain (const geomsrv::edit::Document& doc, const LandscapeTerrainRequest& request,
                                LandscapeTerrainResult& result, std::string& error);
+
+struct SplitLandscapeTerrainResult {
+    EditTerrainSplitResult baseline;
+    LandscapeTerrainResult evaluation;
+    EditTerrainPreservation preservation;
+};
+// Explicit split-first variant. The original baseline surface is split in Rust,
+// then edits/quantities use its field-ready attribution, and publication waits for
+// bitwise outside/boundary verification. Protection/grading-mask boundaries are
+// still vertex-soft: this certifies the property exterior, not every inner zone.
+bool EvaluateSplitLandscapeTerrain (const geomsrv::edit::Document& doc, const LandscapeTerrainRequest& request,
+                                    const EditTerrainSplitOptions& options, SplitLandscapeTerrainResult& result,
+                                    std::string& error);
 
 } // namespace tapioca::geometry
 #endif
