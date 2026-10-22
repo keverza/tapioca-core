@@ -18,6 +18,21 @@ def test_surface_switch_uses_deferred_owner_and_strict_transport_enums():
     assert "archviz::surfaceswitch::Request" in source
 
 
+def test_viewer_editor_stores_the_overlays_encoded_colours_through_a_unorm_view():
+    # The overlay's prepared colours are sRGB-encoded; the viewer's swap-chain view is
+    # _SRGB and would encode them twice (washed-out panels). Pin the UNORM twin, the
+    # per-frame lifetime and the rebind of the viewer's own target.
+    source = (ROOT / "ArchViz" / "ViewerEditorDraw.cpp").read_text(encoding="utf-8")
+    for srgb, unorm in (("RGBA8_UNORM_SRGB", "RGBA8_UNORM"), ("BGRA8_UNORM_SRGB", "BGRA8_UNORM")):
+        assert re.search(rf"case Diligent::TEX_FORMAT_{srgb}:\s*return Diligent::TEX_FORMAT_{unorm};", source)
+    update = source[source.index("void ViewerEditorDraw::Update") : source.index("bool ViewerEditorDraw::Draw")]
+    draw = update.index("Draw (device, context, bound->GetDesc ().Format")
+    assert update.index("StoredEncodingView (target)") < draw
+    assert update.count("SetRenderTargets (1, &target, depth") == 1
+    assert update.index("SetRenderTargets (1, &target, depth") > draw
+    assert "stored_" not in source  # never a retained swap-chain view
+
+
 def test_landscape_commands_replace_the_deprecated_saved_set_selection_ui():
     panel = (ROOT / "ArchViz" / "HudVirtualEditorLandscapePanel.cpp").read_text(encoding="utf-8")
     for removed in (

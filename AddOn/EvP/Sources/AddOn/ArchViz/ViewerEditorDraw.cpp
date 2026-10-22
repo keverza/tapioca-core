@@ -6,6 +6,7 @@
 #include <cstring>
 #include <algorithm>
 #include <stdexcept>
+#include <Texture.h>
 #include <TextureView.h>
 
 namespace geomsrv::archviz {
@@ -28,6 +29,40 @@ bool Upload (Diligent::IRenderDevice* device, const gpu::Pipelines& pipelines, c
     arrays.solid = scene.solid;
     return gpu::Upload (device, pipelines, pages, arrays, scene.fillDraws, scene.glyphDraws, scene.pages, content,
                         error);
+}
+// ⚠️ THE OVERLAY'S COLOURS ARE ALREADY sRGB-ENCODED BYTES. The injected path writes
+// them as-is into Archicad's UNORM back buffer; the viewer's swap-chain RTV is
+// _SRGB, which encodes them a second time and lifts every panel toward white.
+// Diligent's flip chain keeps the TEXTURE UNORM and only the view _SRGB
+// (SwapChainD3DBase), so the editor draws through a UNORM view of the same
+// texture and stores exactly the bytes the overlay stores.
+Diligent::TEXTURE_FORMAT StoredEncoding (Diligent::TEXTURE_FORMAT format)
+{
+    switch (format) {
+        case Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB:
+            return Diligent::TEX_FORMAT_RGBA8_UNORM;
+        case Diligent::TEX_FORMAT_BGRA8_UNORM_SRGB:
+            return Diligent::TEX_FORMAT_BGRA8_UNORM;
+        case Diligent::TEX_FORMAT_BGRX8_UNORM_SRGB:
+            return Diligent::TEX_FORMAT_BGRX8_UNORM;
+        default:
+            return format;
+    }
+}
+// Per frame, never cached: a retained view of a swap-chain buffer makes
+// ResizeBuffers fail (OVERLAY-INVARIANTS.md §11). Null keeps the caller's view.
+Diligent::RefCntAutoPtr<Diligent::ITextureView> StoredEncodingView (Diligent::ITextureView* target)
+{
+    Diligent::RefCntAutoPtr<Diligent::ITextureView> view;
+    Diligent::ITexture* texture = target != nullptr ? target->GetTexture () : nullptr;
+    const auto format = target != nullptr ? target->GetDesc ().Format : Diligent::TEX_FORMAT_UNKNOWN;
+    if (texture == nullptr || StoredEncoding (format) == format)
+        return view;
+    Diligent::TextureViewDesc desc = target->GetDesc ();
+    desc.Name = "Viewer editor UNORM target";
+    desc.Format = StoredEncoding (format);
+    texture->CreateView (desc, &view);
+    return view;
 }
 bool Matrix (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer, const std::array<float, 16>& matrix)
 {
@@ -60,14 +95,20 @@ void ViewerEditorDraw::Update (Diligent::IRenderDevice* device, Diligent::IDevic
     frame.width = width;
     frame.height = height;
     vieweredit::PublishFrame (frame);
-    context->SetRenderTargets (1, &target, depth, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    const auto stored = StoredEncodingView (target);
+    Diligent::ITextureView* bound = stored ? stored.RawPtr () : target;
+    context->SetRenderTargets (1, &bound, depth, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     Diligent::Viewport viewport;
     viewport.Width = float (width);
     viewport.Height = float (height);
     context->SetViewports (1, &viewport, width, height);
     std::string error;
-    if (!Draw (device, context, target->GetDesc ().Format,
-               depth ? depth->GetDesc ().Format : Diligent::TEX_FORMAT_UNKNOWN, frame, error))
+    const bool drawn = Draw (device, context, bound->GetDesc ().Format,
+                             depth ? depth->GetDesc ().Format : Diligent::TEX_FORMAT_UNKNOWN, frame, error);
+    // The viewer's own layers follow on its _SRGB view, and the context must not
+    // keep the per-frame view alive into Present or a resize.
+    context->SetRenderTargets (1, &target, depth, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    if (!drawn)
         throw std::runtime_error ("Viewer editor: " + error);
 }
 
