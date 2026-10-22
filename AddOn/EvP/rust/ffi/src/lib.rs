@@ -34,6 +34,12 @@ mod borrow;
 
 #[allow(
     unsafe_code,
+    reason = "Shared descriptor copy after full-capacity pool preflight"
+)]
+mod pools;
+
+#[allow(
+    unsafe_code,
     reason = "Provenance POD ingress and checked nonoverlapping diagnostic output at the C boundary"
 )]
 mod identity;
