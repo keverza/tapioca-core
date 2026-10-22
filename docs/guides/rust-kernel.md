@@ -596,8 +596,44 @@ collinear input or an empty kept domain are `TriangulationDegenerate`. Tests
 cover rings, holes, islands, crossings, T-junctions, overlaps, tampered results,
 georeferenced coordinates, 64 seeded breakline networks on a plane (area, Euler
 characteristic, heights, repeatability) and a digest pinned to `spade` 2.15.1
-that catches hash-ordered output across runs. Refinement is a later S3a.1
-increment.
+that catches hash-ordered output across runs. `refinement: None` retains that
+unrefined path and digest.
+
+### Bounded surface-preserving refinement
+
+`Request::refinement: Some(Refinement)` opts into a minimum plan angle in degrees
+(finite, 0..=30; zero disables angle refinement), optional positive finite maximum
+plan area in square metres, and a `u32` maximum added-vertex count. Invalid settings
+return `RefinementParameters`; exhaustion returns `RefinementLimit` with no partial
+TIN. Angle/area settings are spade refinement targets, not unconditional quality
+guarantees at acute input constraints or floating-point resolution limits.
+
+Before `spade::refine`, every original TIN edge is retained as a private constraint.
+Sampling old heights alone would not preserve a nonplanar surface if a diagonal
+flipped. These private edges are not authored breaklines and do not affect domain
+classification. No `exclude_outer_faces` or hash-ordered excluded-face list is used:
+the whole convex hull is refined (and charged against the budget), then the existing
+topological winding classifier alone keeps boundaries/holes/islands.
+
+One original CDT snapshot is retained for spatial point location. Split original
+edges are recovered by fixed-edge graph paths: original vertices are junctions,
+Steiner edge vertices have two fixed neighbours. This avoids exact collinearity
+assumptions for rounded midpoints on oblique survey edges. Paths rebuild every
+authored `(constraint, segment)` row, in its original direction, including overlaps.
+No constraints are reinserted after refinement. Edge Steiner z is linear on the
+original edge (dominant-coordinate parameter); interior z is barycentric in the
+original face, never sampled from an already refined surface.
+
+`Tin::steiner` is in insertion order after inputs/crossings. Each record names all
+original `SegmentRef`s, sorted/deduplicated, or an original edge's endpoints or
+canonical CCW face corners. Thus excluded-domain vertices also have support.
+Existing input/crossing indices are unchanged; `verify_constraints` still runs
+before publication. Tests cover nonplanar surface samples, all support variants,
+overlapping breaklines, holes/islands, invalid options/budget exhaustion, 32 seeded
+surfaces and 16 oblique crossing networks at survey coordinates, repeatability and
+a separate refined digest pinned to spade 2.15.1. No ABI/export or production caller
+is added. The snapshot, graph and mapping arrays allocate; refinement remains
+worker-classified, with no latency/allocation/peak-heap claim (S3a.3 owns measurement).
 
 `terrain::split_mesh` makes a closed straight property line a path of edges of
 an existing plan-view mesh. Arcs (any nonzero per-segment arc angle) refuse with

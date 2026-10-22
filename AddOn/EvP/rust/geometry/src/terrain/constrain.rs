@@ -1,6 +1,7 @@
 //! The `spade` constrained triangulation: insertion and constraint chains.
 //!
-//! No `spade` type leaves this file. Every vertex is inserted, in output order,
+//! `spade` types are shared only with the private refinement module.
+//! Every vertex is inserted, in output order,
 //! before any constraint, so adding a constraint never creates a vertex and a
 //! constraint edge, once added, is never split or flipped by a later one.
 
@@ -11,11 +12,12 @@ use super::input::Prepared;
 use super::presplit::Split;
 use super::{ConstraintEdge, Error};
 
-type Cdt = ConstrainedDelaunayTriangulation<Point2<f64>>;
+pub(super) type Cdt = ConstrainedDelaunayTriangulation<Point2<f64>>;
 
 /// All inner faces (counter-clockwise output vertex triples) and one row per
 /// constraint edge, in segment order and along each segment's direction.
 pub(super) struct Built {
+    pub cdt: Cdt,
     pub faces: Vec<[u32; 3]>,
     pub rows: Vec<ConstraintEdge>,
 }
@@ -59,14 +61,19 @@ pub(super) fn constrain(prepared: &Prepared, split: &Split) -> Result<Built, Err
             }));
         }
     }
-    let faces = cdt
-        .inner_faces()
+    let faces = faces(&cdt)?;
+    Ok(Built { cdt, faces, rows })
+}
+
+pub(super) fn faces(cdt: &Cdt) -> Result<Vec<[u32; 3]>, Error> {
+    cdt.inner_faces()
         .map(|face| {
-            let [a, b, c] = face.vertices().map(|vertex| owner(&owners, vertex.fix()));
+            let [a, b, c] = face
+                .vertices()
+                .map(|vertex| u32::try_from(vertex.index()).map_err(|_| Error::Shape));
             Ok([a?, b?, c?])
         })
-        .collect::<Result<Vec<_>, Error>>()?;
-    Ok(Built { faces, rows })
+        .collect()
 }
 
 fn owner(owners: &[u32], handle: FixedVertexHandle) -> Result<u32, Error> {
@@ -82,7 +89,7 @@ fn owner(owners: &[u32], handle: FixedVertexHandle) -> Result<u32, Error> {
 /// piece would cross an existing constraint. The returned edges are reordered
 /// into a path by walking from `from`; a gap or a path that does not reach `to`
 /// is a refusal, as is any path edge that is not then a constraint edge.
-fn add_piece(
+pub(super) fn add_piece(
     cdt: &mut Cdt,
     handles: &[FixedVertexHandle],
     owners: &[u32],

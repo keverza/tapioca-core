@@ -727,6 +727,7 @@ impl<'a> Mesh<'a> {
             vertices: line,
         }));
         let request = Request {
+            refinement: None,
             points: &points,
             constraints: &constraints,
             z_tolerance: 0.0,

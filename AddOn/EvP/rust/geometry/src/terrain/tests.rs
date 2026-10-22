@@ -15,6 +15,7 @@ fn request<'a>(points: &'a [f64], constraints: &'a [Constraint<'a>]) -> Request<
         points,
         constraints,
         z_tolerance: 1e-9,
+        refinement: None,
     }
 }
 

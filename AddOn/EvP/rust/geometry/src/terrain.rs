@@ -25,19 +25,21 @@
 //! [`split_mesh`] makes a closed property line a path of edges of an existing
 //! terrain mesh, rebuilding only the triangles it touches.
 //!
-//! Not yet implemented here: refinement (quality/area Steiner points), a later
-//! S3a.1 increment.
+//! Optional refinement subdivides the original piecewise-linear surface; every
+//! Steiner point names its original constraint segments, edge or face.
 
 mod classify;
 mod constrain;
 mod input;
 mod presplit;
+mod refine;
 mod split;
 mod verify;
 
 #[cfg(test)]
 mod tests;
 
+pub use refine::{Refinement, Steiner, SteinerOrigin};
 pub use split::{Host, LineEdge, NewVertex, Origin, SplitMesh, SplitRequest, split_mesh};
 pub use verify::{extract_edges, verify_constraints};
 
@@ -73,6 +75,9 @@ pub struct Request<'a> {
     pub constraints: &'a [Constraint<'a>],
     /// Absolute height tolerance in metres for merged points and crossings.
     pub z_tolerance: f64,
+    /// Optional bounded surface-preserving refinement; `None` retains the
+    /// original triangulation and its pinned ordering exactly.
+    pub refinement: Option<Refinement>,
 }
 
 /// One input constraint segment: `segment` joins the constraint's vertex
@@ -110,7 +115,8 @@ pub struct ConstraintEdge {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tin {
     /// Flat xyz output vertices: the distinct input points in first-occurrence
-    /// order, then crossing vertices in [`Tin::crossings`] order.
+    /// order, then crossing vertices in [`Tin::crossings`] order, then Steiner
+    /// vertices in [`Tin::steiner`] insertion order.
     pub points: Vec<f64>,
     /// Kept triangles, three output vertex indices each (see the module docs).
     pub triangles: Vec<u32>,
@@ -124,6 +130,9 @@ pub struct Tin {
     /// Constraint edges ordered by segment, then along the segment. An edge
     /// shared by several segments has one row per segment.
     pub constraint_edges: Vec<ConstraintEdge>,
+    /// Refinement vertices in insertion order, after inputs and crossings.
+    /// Empty when refinement is disabled.
+    pub steiner: Vec<Steiner>,
 }
 
 /// Request refusals and the terrain triangulation failure codes.
@@ -161,6 +170,10 @@ pub enum Error {
     PropertyLineOutside,
     /// The property line has an arc segment; only straight segments split.
     PropertyLineArcUnsupported,
+    /// Invalid angle/area or an unrepresentable refinement vertex budget.
+    RefinementParameters,
+    /// Refinement exhausted its vertex budget; no partial TIN is returned.
+    RefinementLimit,
 }
 
 impl Error {
@@ -191,14 +204,19 @@ impl Error {
             Self::PropertyLineArcUnsupported => {
                 "PropertyLineArcUnsupported: property line requires straight segments"
             }
+            Self::RefinementParameters => {
+                "RefinementParameters: require angle 0..30 degrees, positive area and bounded vertices"
+            }
+            Self::RefinementLimit => "RefinementLimit: additional vertex budget exhausted",
         }
     }
 }
 
 /// Triangulate a terrain request.
 ///
-/// O((n + c) log n) expected for the triangulation plus a bounding-box sweep
-/// over constraint segment pairs; allocates the result. Worker-classified.
+/// O((n + c) log n) expected before optional refinement, plus a bounding-box
+/// sweep over constraint segment pairs. Refinement fixes the original edges
+/// and bounds added vertices, not latency. Allocates; worker-classified.
 ///
 /// # Errors
 /// See [`Error`]; nothing partial is returned.
@@ -206,6 +224,13 @@ pub fn triangulate(request: &Request<'_>) -> Result<Tin, Error> {
     let mut prepared = input::prepare(request)?;
     let split = presplit::presplit(&mut prepared)?;
     let built = constrain::constrain(&prepared, &split)?;
+    let (built, steiner) = if let Some(parameters) = request.refinement {
+        refine::refine(&mut prepared, built, parameters)?
+    } else {
+        (built, Vec::new())
+    };
+    // The topology snapshot is no longer needed during classification/output.
+    drop(built.cdt);
     let mut faces: Vec<[u32; 3]> = built.faces.into_iter().map(canonical).collect();
     faces.sort_unstable();
     let classified = classify::classify(&prepared, &faces, &built.rows)?;
@@ -239,6 +264,7 @@ pub fn triangulate(request: &Request<'_>) -> Result<Tin, Error> {
         input_vertices: prepared.input_vertices,
         crossings: split.crossings,
         constraint_edges,
+        steiner,
     };
     verify_constraints(request, &tin)?;
     Ok(tin)

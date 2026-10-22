@@ -287,6 +287,7 @@ fn line_across_a_mesh_hole_is_outside() -> Result<(), Error> {
         },
     ];
     let tin = triangulate(&Request {
+        refinement: None,
         points: &square,
         constraints: &constraints,
         z_tolerance: 0.0,
@@ -365,6 +366,7 @@ fn seeded_star_lines_over_seeded_tins() -> Result<(), Error> {
             points.extend([x, y, plane(x, y)]);
         }
         let tin = triangulate(&Request {
+            refinement: None,
             points: &points,
             constraints: &[Constraint {
                 role: Role::Boundary,
