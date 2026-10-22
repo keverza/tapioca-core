@@ -12,6 +12,7 @@ namespace tapioca::geometry {
 // host's capture buffers. Detached: the host stamps it from the document it was
 // captured against; it is never document state.
 struct TerrainCapture {
+    std::shared_ptr<const TerrainCapture> native; // Full parent capture for a compacted native surface.
     std::vector<double> points;
     std::vector<uint32_t> triangles;
     ProvenanceRequest provenance; // Mesh vertices + faces (domains=5).
@@ -26,6 +27,7 @@ struct TerrainCapture {
 // One immutable worker request. Everything it reads is owned or shared-const:
 // the document snapshot, the capture and the options (region rebound at run).
 struct TerrainDesignJob {
+    uint64_t surfaceTable = 0; // Nonzero: extract a native solid's surface on the worker into this new table.
     uint64_t generation = 0;
     std::shared_ptr<const geomsrv::edit::Document> doc;
     std::shared_ptr<const TerrainCapture> capture;
@@ -35,6 +37,7 @@ struct TerrainDesignJob {
 
 // What a worker produced, stamped with what it was computed against.
 struct TerrainDesignOutcome {
+    std::shared_ptr<const TerrainCapture> capture; // Retains full input/native ancestry behind the result.
     uint64_t generation = 0, revision = 0;
     std::array<uint8_t, 16> session {};
     std::string sourceTerrainGuid;

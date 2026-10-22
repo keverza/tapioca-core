@@ -673,6 +673,19 @@ typedef struct {
     uint32_t queryOnly, reserved;
 } TapiocaTerrainClipOutput;
 
+// Native solid -> compact upward plan surface. Input provenance domains=5.
+// Uses TapiocaTerrainOutput query/fill. Mapping 18: index=output vertex,
+// values[0]=input vertex (one per contributor, including exact-position merges).
+// Mapping 19: index=output face, values[0]=input face. All other values zero.
+// First referenced input vertex order/bits win; faces keep native order.
+// Same field upward rule; unequal heights at one xy and bad topology refuse.
+// Native height-field input required; arbitrary overlapping sheets unverified.
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    TapiocaProvenanceRequest provenance;
+} TapiocaTerrainSurfaceRequest;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -1006,6 +1019,8 @@ TapiocaStatus tapioca_terrain_triangulate (const TapiocaTerrainRequest* request,
                                            char* error, size_t errorCapacity);
 TapiocaStatus tapioca_terrain_split_mesh (const TapiocaTerrainSplitRequest* request, const TapiocaTerrainOutput* output,
                                           char* error, size_t errorCapacity);
+TapiocaStatus tapioca_terrain_surface (const TapiocaTerrainSurfaceRequest* request, const TapiocaTerrainOutput* output,
+                                       char* error, size_t errorCapacity);
 
 // S3b.3: single compute, caller-sized outputs (no query mode). The same
 // live/aligned/disjoint/atomic contract as above applies, including every

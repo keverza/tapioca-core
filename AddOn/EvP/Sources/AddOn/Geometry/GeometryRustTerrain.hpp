@@ -188,7 +188,9 @@ enum class TerrainMappingKind : uint32_t {
     RegionCrossing = 14,
     DesignLineVertex = 15,
     DesignLineEdge = 16,
-    RingVertex = 17
+    RingVertex = 17,
+    SurfaceVertex = 18, // Output vertex -> each contributing native input vertex.
+    SurfaceFace = 19    // Output face -> native input face.
 };
 // Lossless support records; indices/values have the documented ABI v1 row
 // meanings (GeometryRustFfi.h), not semantic IDs. Source IDs, operation DAG,
@@ -275,6 +277,11 @@ struct TerrainMeshView {
     std::span<const double> points;      // xyz world metres
     std::span<const uint32_t> triangles; // vertex triples
 };
+// Native height-field solid -> upward compact plan surface. Exact xy/z merges
+// only, all contributing input vertices/faces retained as rows 18/19. No repair
+// or arbitrary-sheet overlap certification. Mandatory input domains=5; worker.
+bool ExtractTerrainSurface (const TerrainMeshView& mesh, const ProvenanceRequest& provenance, TerrainResult& result,
+                            std::string& error);
 enum class TerrainGradientMethod : uint32_t { Central = 1, OneSided = 2, Face = 3 };
 struct TerrainSample {
     bool onSurface = false; // Every other field is zero when false.

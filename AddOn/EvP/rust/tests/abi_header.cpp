@@ -10,6 +10,9 @@ static_assert (sizeof (void*) != 8 || offsetof (TapiocaSnapshotView, meshes) == 
 
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainRequest) == 368, "Terrain request ABI mismatch");
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainSplitRequest) == 344, "Terrain split ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainSurfaceRequest) == 312, "Terrain surface ABI mismatch");
+static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainSurfaceRequest, provenance) == 32,
+               "Surface ABI mismatch");
 static_assert (sizeof (TapiocaTerrainMapping) == 32, "Terrain mapping ABI mismatch");
 static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainOutput, queryOnly) == 56, "Terrain output ABI mismatch");
 

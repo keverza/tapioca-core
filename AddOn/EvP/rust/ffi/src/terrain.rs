@@ -11,6 +11,7 @@ mod hybrid;
 mod result;
 mod sample;
 mod storage;
+mod surface;
 mod volume;
 
 pub use conflict::{
@@ -29,6 +30,7 @@ pub use sample::{
     TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,
     tapioca_terrain_sample,
 };
+pub use surface::{TerrainSurfaceRequest, tapioca_terrain_surface};
 pub use volume::{
     TerrainEditVolumes, TerrainVolumeOutput, TerrainVolumeRequest, TerrainVolumes,
     tapioca_terrain_volume,

@@ -28,6 +28,11 @@ struct TerrainCaptureOptions {
 // unchanged on refusal. Main-thread safe: reads the document and mesh only.
 bool CaptureLandscapeTerrain (const geomsrv::edit::Document& doc, const geomsrv::Mesh& mesh,
                               const TerrainCaptureOptions& options, TerrainCapture& capture, std::string& error);
+// Worker-side native solid -> compact attributed surface. New table token,
+// explicit Rust support only; exact/merged native vertex and exact face rows.
+// Retains the complete original capture as `native`; no C++ surface algorithm.
+bool PrepareTerrainSurface (std::shared_ptr<const TerrainCapture> input, uint64_t table, TerrainCapture& surface,
+                            std::string& error);
 
 } // namespace tapioca::geometry
 #endif

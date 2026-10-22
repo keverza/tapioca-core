@@ -19,6 +19,20 @@ production geometry authorities; no algorithm or consumer flag is switched.
 
 ## G1 mesh-preparation parity services
 
+S4 native terrain ingress additionally exposes `tapioca_terrain_surface` through
+`ExtractTerrainSurface`. Its input is an attributed native height-field solid
+(vertex/face domains=5); it selects faces with the existing field upward rule
+and merges only exactly equal xy/z render vertices. Unequal heights at one xy,
+duplicate faces and inconsistent/non-manifold edge incidence refuse. It does
+not certify arbitrary overlapping sheets or repair a surface. Query/fill uses
+the existing terrain output records, with rows 18 (each output vertex/input
+vertex contributor) and 19 (output face/input face), unchanged existing layouts.
+Full-capacity alias preflight and atomic publication apply. No IDs are allocated.
+`PrepareTerrainSurface` builds exact/merged provenance rows in a fresh table and
+retains its complete native parent capture; `RunTerrainDesign` can do this on
+its worker before building the band. Native capture and host freshness stay in
+C++; there is no C++ surface-selection or weld algorithm.
+
 `GeometryRustMeshPrep.hpp` exposes two coarse opt-in calls without switching
 `GeometryExtractor`. The pure oracles are `VertexWeld.cpp`, `Aabb.hpp`,
 `TriangleDegeneracy.hpp` and `WireframeEdges.cpp`, compiled into `EvPGeomTests`.

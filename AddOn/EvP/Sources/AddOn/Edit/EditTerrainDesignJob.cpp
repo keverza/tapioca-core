@@ -1,4 +1,5 @@
 #include "Edit/EditTerrainDesignJob.hpp"
+#include "Edit/EditTerrainCapture.hpp"
 #include <exception>
 
 namespace tapioca::geometry {
@@ -26,7 +27,14 @@ TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job)
         outcome.sourceTerrainGuid = job.doc->landscape->sourceTerrainGuid;
         auto options = job.options;
         options.region = job.region;
-        const auto input = job.capture->Input ();
+        outcome.capture = job.capture;
+        if (job.surfaceTable != 0) {
+            auto surface = std::make_shared<TerrainCapture> ();
+            if (!PrepareTerrainSurface (job.capture, job.surfaceTable, *surface, outcome.error))
+                return outcome;
+            outcome.capture = std::move (surface);
+        }
+        const auto input = outcome.capture->Input ();
         outcome.built = EvaluateTerrainDesign (*job.doc, input, options, outcome.result, outcome.error);
         if (!outcome.built) {
             // Located places for the refusal; a refusal without a location keeps none.

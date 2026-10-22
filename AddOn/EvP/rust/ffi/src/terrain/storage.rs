@@ -15,7 +15,7 @@ fn outputs(target: TerrainOutput) -> [Checked; 4] {
     ]
 }
 
-fn finish(
+pub(super) fn finish(
     inputs: &[Checked],
     target: Option<TerrainOutput>,
     error: Range,

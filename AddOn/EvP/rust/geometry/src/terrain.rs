@@ -41,6 +41,7 @@ mod presplit;
 mod refine;
 pub mod region;
 mod split;
+pub mod surface;
 mod verify;
 pub mod volume;
 

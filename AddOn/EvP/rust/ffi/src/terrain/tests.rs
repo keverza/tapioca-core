@@ -4,6 +4,7 @@ use crate::identity::ProvenanceView;
 mod band;
 mod memory;
 mod operators;
+mod surface;
 
 const POINTS: [f64; 12] = [
     0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 10.0, 10.0, 8.0, 0.0, 10.0, 0.0,

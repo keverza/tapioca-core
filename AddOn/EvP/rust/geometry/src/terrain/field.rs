@@ -213,6 +213,10 @@ fn upward(points: &[[f64; 3]; 3]) -> bool {
 }
 
 impl Field {
+    pub(super) fn surface_faces(&self) -> impl Iterator<Item = (u32, [u32; 3])> + '_ {
+        self.faces.iter().map(|face| (face.original, face.corners))
+    }
+
     /// Build a field over the upward faces of a triangle mesh.
     ///
     /// # Errors

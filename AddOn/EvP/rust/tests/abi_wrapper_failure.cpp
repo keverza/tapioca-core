@@ -120,6 +120,11 @@ extern "C" TapiocaStatus tapioca_terrain_split_mesh (const TapiocaTerrainSplitRe
 {
     return tapioca_terrain_triangulate (nullptr, output, error, capacity);
 }
+extern "C" TapiocaStatus tapioca_terrain_surface (const TapiocaTerrainSurfaceRequest*,
+                                                  const TapiocaTerrainOutput* output, char* error, size_t capacity)
+{
+    return tapioca_terrain_triangulate (nullptr, output, error, capacity);
+}
 
 int main ()
 {
@@ -242,6 +247,8 @@ int main ()
         const auto before = terrain;
         if (TriangulateTerrain ({ {}, {}, 0, {}, request }, terrain, error) || terrain != before || error.empty ())
             return 18;
+        if (ExtractTerrainSurface ({ {}, {} }, request, terrain, error) || terrain != before || error.empty ())
+            return 20;
         if (SplitTerrainMesh ({ {}, {}, {}, {}, request }, terrain, error) || terrain != before || error.empty ())
             return 19;
     }

@@ -2,6 +2,7 @@
 
 #include "GeometryRustFfi.h"
 #include "GeometryRustIdentityAbi.hpp"
+#include <type_traits>
 #include "Mesh.hpp"
 
 #include <array>
@@ -155,7 +156,8 @@ bool TerrainCall (const Request& input, Function function, const ProvenanceReque
         return false;
     }
     for (const auto& mapping : mappings) {
-        if (mapping.kind < 1 || mapping.kind > 11) {
+        const bool surface = std::is_same_v<Request, TapiocaTerrainSurfaceRequest>;
+        if (surface ? (mapping.kind != 18 && mapping.kind != 19) : (mapping.kind < 1 || mapping.kind > 11)) {
             error = "TerrainOutputShape: unknown support kind";
             return false;
         }
@@ -212,6 +214,17 @@ bool SplitTerrainMesh (const TerrainSplitRequest& request, TerrainResult& result
     input.arcAngles = { request.arcAngles.data (), request.arcAngles.size () };
     return TerrainCall (input, tapioca_terrain_split_mesh, request.provenance, request.points.size () / 3, result,
                         error);
+}
+
+bool ExtractTerrainSurface (const TerrainMeshView& mesh, const ProvenanceRequest& provenance, TerrainResult& result,
+                            std::string& error)
+{
+    detail::AbiProvenanceStorage storage;
+    TapiocaTerrainSurfaceRequest input {};
+    input.points = { mesh.points.data (), mesh.points.size () };
+    input.triangles = { mesh.triangles.data (), mesh.triangles.size () };
+    input.provenance = detail::ConvertProvenanceRequest (provenance, storage);
+    return TerrainCall (input, tapioca_terrain_surface, provenance, mesh.points.size () / 3, result, error);
 }
 
 } // namespace tapioca::geometry

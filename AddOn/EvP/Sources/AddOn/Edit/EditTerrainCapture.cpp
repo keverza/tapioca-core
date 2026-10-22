@@ -142,4 +142,83 @@ bool CaptureLandscapeTerrain (const geomsrv::edit::Document& doc, const geomsrv:
     return true;
 }
 
+bool PrepareTerrainSurface (std::shared_ptr<const TerrainCapture> input, uint64_t token, TerrainCapture& surface,
+                            std::string& error)
+{
+    using namespace terrain_detail;
+    if (!input || token == 0 || input->provenance.table.context.tableId == token ||
+        std::any_of (input->provenance.table.supportTables.begin (), input->provenance.table.supportTables.end (),
+                     [=] (const auto& support) { return support.context.tableId == token; })) {
+        error = "ProvenanceConflict: the surface table must be new to the capture";
+        return false;
+    }
+    TerrainResult extracted;
+    if (!ExtractTerrainSurface ({ input->points, input->triangles }, input->provenance, extracted, error))
+        return false;
+    TerrainCapture candidate;
+    candidate.points = std::move (extracted.points);
+    candidate.triangles = std::move (extracted.triangles);
+    candidate.revision = input->revision;
+    candidate.sourceTerrainGuid = input->sourceTerrainGuid;
+    candidate.provenance = input->provenance;
+    auto& request = candidate.provenance;
+    auto& table = request.table;
+    table.context.tableId = token;
+    request.counts = { candidate.points.size () / 3, 0, candidate.triangles.size () / 3, 0 };
+    table.supportTables.push_back ({ input->provenance.table.context, input->provenance.counts, false });
+    table.mappings.clear ();
+    const InputRows rows (input->provenance);
+    std::vector<std::vector<uint32_t>> vertices (request.counts.vertices), faces (request.counts.faces);
+    for (const auto& row : extracted.mappings) {
+        auto& pool = row.kind == TerrainMappingKind::SurfaceVertex ? vertices : faces;
+        if (row.index >= pool.size () ||
+            row.values[0] >=
+                (row.kind == TerrainMappingKind::SurfaceVertex ? rows.vertices.size () : rows.faces.size ())) {
+            error = "ProvenanceUnattributable: invalid native surface support";
+            return false;
+        }
+        pool.at (row.index).push_back (row.values[0]);
+    }
+    for (auto domain : { IdentityDomain::Vertex, IdentityDomain::Face }) {
+        const auto& pool = domain == IdentityDomain::Vertex ? vertices : faces;
+        const auto& parents = domain == IdentityDomain::Vertex ? rows.vertices : rows.faces;
+        for (size_t i = 0; i < pool.size (); ++i) {
+            const auto& support = pool[i];
+            if (support.empty () || (domain == IdentityDomain::Face && support.size () != 1)) {
+                error = "ProvenanceUnattributable: incomplete native surface support";
+                return false;
+            }
+            auto row = Supported (*parents.at (support[0]), domain, i, input->provenance.table.context.tableId, table);
+            if (support.size () > 1) {
+                row.kind = MappingKind::Merged;
+                std::set<uint64_t> sources, operations;
+                for (size_t j = 0; j < support.size (); ++j) {
+                    const auto& parent = *parents.at (support[j]);
+                    if (parent.object != row.object) {
+                        error = "ProvenanceConflict: merged native surface vertices have different owners";
+                        return false;
+                    }
+                    for (size_t k = 0; k < parent.sources.count; ++k)
+                        sources.insert (input->provenance.table.sourceIds.at (parent.sources.offset + k));
+                    for (size_t k = 0; k < parent.operations.count; ++k)
+                        operations.insert (input->provenance.table.operationIds.at (parent.operations.offset + k));
+                    if (j != 0) {
+                        table.predecessors.push_back ({ input->provenance.table.context.tableId, domain, support[j] });
+                        ++row.predecessors.count;
+                    }
+                }
+                row.sources = Append (table.sourceIds, sources);
+                row.operations = Append (table.operationIds, operations);
+            }
+            table.mappings.push_back (row);
+        }
+    }
+    if (!Validate (request, error))
+        return false;
+    candidate.native = std::move (input);
+    surface = std::move (candidate);
+    error.clear ();
+    return true;
+}
+
 } // namespace tapioca::geometry

@@ -586,6 +586,64 @@ TEST (EditTerrainCapture, ASnapshotMeshBecomesAValidatedCaptureTheWorkerCanBuild
     EXPECT_EQ (capture.provenance, before);
 }
 
+TEST (EditTerrainCapture, NativeSolidSurfaceKeepsMergedAndFaceAncestryOnTheWorker)
+{
+    DesignFixture fixture;
+    std::string error;
+    Id terrain = 0, owner = 0;
+    ASSERT_TRUE (SetLandscapeTerrain (fixture.doc, fixture.doc.landscape->sourceTerrainGuid, terrain, error));
+    HardscapeObject object;
+    object.kind = ObjectKind::Path;
+    object.pathId = fixture.path;
+    object.footprintOperation = fixture.stroke;
+    ASSERT_TRUE (AddHardscapeObject (fixture.doc, object, owner, error)) << error;
+    geomsrv::Mesh native;
+    native.guid = fixture.doc.landscape->sourceTerrainGuid;
+    native.vertices = fixture.points;
+    native.triangles = fixture.triangles;
+    const uint32_t duplicate = static_cast<uint32_t> (native.VertexCount ());
+    native.vertices.insert (native.vertices.end (), fixture.points.begin (), fixture.points.begin () + 3);
+    native.triangles[0] = duplicate;
+    native.triangles.insert (native.triangles.end (), { 0, 18, 1 }); // downward native face
+    auto capture = std::make_shared<TerrainCapture> ();
+    ASSERT_TRUE (CaptureLandscapeTerrain (fixture.doc, native, { owner, 200, 100 }, *capture, error)) << error;
+    TerrainCapture surface;
+    ASSERT_TRUE (PrepareTerrainSurface (capture, 300, surface, error)) << error;
+    EXPECT_EQ (surface.native, capture);
+    EXPECT_EQ (surface.points, fixture.points);
+    EXPECT_EQ (surface.triangles, fixture.triangles);
+    EXPECT_EQ (surface.provenance.table.context.tableId, 300U);
+    bool merged = false;
+    for (const auto& row : surface.provenance.table.mappings) {
+        EXPECT_EQ (row.object, owner);
+        if (row.domain == IdentityDomain::Vertex && row.outputIndex == 0) {
+            EXPECT_EQ (row.kind, MappingKind::Merged);
+            ASSERT_EQ (row.predecessors.count, 2U);
+            const auto& first = surface.provenance.table.predecessors.at (row.predecessors.offset);
+            const auto& second = surface.provenance.table.predecessors.at (row.predecessors.offset + 1);
+            EXPECT_EQ (first.tableId, 200U);
+            EXPECT_EQ (first.entityIndex, 0U);
+            EXPECT_EQ (second.entityIndex, duplicate);
+            merged = true;
+        }
+    }
+    EXPECT_TRUE (merged);
+    const auto before = surface.provenance;
+    EXPECT_FALSE (PrepareTerrainSurface (capture, 100, surface, error));
+    EXPECT_EQ (surface.provenance, before);
+    auto options = fixture.Options ();
+    options.object = owner;
+    TerrainDesignPublisher publisher;
+    TerrainDesignJob job;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, capture, options, kRegion, job, error));
+    job.surfaceTable = 300;
+    auto outcome = LaunchTerrainDesign (job).get ();
+    ASSERT_TRUE (outcome.built) << outcome.error;
+    ASSERT_NE (outcome.capture, nullptr);
+    EXPECT_EQ (outcome.capture->native, capture);
+    EXPECT_EQ (outcome.result.build.inputProvenance.table.supportTables.back ().context.tableId, 300U);
+}
+
 namespace {
 namespace eh = geomsrv::archviz::edithud;
 namespace layers = geomsrv::archviz::overlaylayers;
