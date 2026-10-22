@@ -19,7 +19,10 @@ enum class SourceRole : uint8_t {
     Cutter,
     MaterialBoundary,
     GradingLimit,
-    ProtectedZone
+    ProtectedZone,
+    // The session's native base terrain: no curve or path; its GUID is the
+    // session's sourceTerrainGuid. Captured terrain rows cite it.
+    Terrain
 };
 enum class MaterialPreset : uint8_t { None, HardPaving, RubberPlayground, Gravel, Asphalt, ReinforcedGrass, Grass };
 struct MaterialSpec {
@@ -211,6 +214,10 @@ bool AddLandscapeOperation (geomsrv::edit::Document& doc, LandscapeOperation ope
 bool SetLandscapeOperationEnabled (geomsrv::edit::Document& doc, Id id, bool enabled, std::string& error);
 bool AddHardscapeObject (geomsrv::edit::Document& doc, HardscapeObject object, Id& id, std::string& error);
 bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::string& error);
+// Names the session's base terrain: sets sourceTerrainGuid and keeps exactly one
+// live Terrain source carrying that GUID (created on first use, otherwise
+// updated), returning its ID. One authored edit; no geometry is read.
+bool SetLandscapeTerrain (geomsrv::edit::Document& doc, const std::string& guid, Id& source, std::string& error);
 bool ValidateLandscapeTerrainEdit (const geomsrv::edit::Document& doc, const std::vector<Vec3>& terrainBoundary,
                                    std::string& error);
 const DerivedRegion* LandscapeFaceAt (const LandscapeResult& result, Vec3 point);

@@ -453,3 +453,52 @@ TEST (EditLandscapeSerialization, SingleSegmentGeneratedStrokeReloadEditKeepsIde
     ASSERT_TRUE (geo::ReadLandscape (Write (session.Doc ()), second, error)) << error;
     Same (session.Doc (), second);
 }
+
+TEST (EditLandscapeSerialization, TheTerrainSourceNamesTheSessionTerrainAndRoundTrips)
+{
+    edit::Document doc;
+    std::string error;
+    ASSERT_TRUE (geo::StartLandscape (doc, { 1 }, error)) << error;
+    edit::Id terrain = 0;
+    ASSERT_TRUE (geo::SetLandscapeTerrain (doc, "9bb0abd8-b1f3-4d78-855b-9106fd753bda", terrain, error)) << error;
+    const std::string canonical = "9BB0ABD8-B1F3-4D78-855B-9106FD753BDA";
+    EXPECT_EQ (doc.landscape->sourceTerrainGuid, canonical);
+    ASSERT_EQ (doc.landscape->sources.size (), 1u);
+    const auto& source = doc.landscape->sources.front ();
+    EXPECT_EQ (source.id, terrain);
+    EXPECT_EQ (source.role, geo::SourceRole::Terrain);
+    EXPECT_EQ (source.archicadGuid, canonical);
+    EXPECT_EQ (source.entityId, 0u);
+    // Renaming keeps the one source and its ID.
+    edit::Id again = 0;
+    ASSERT_TRUE (geo::SetLandscapeTerrain (doc, "AABBCCDD-1122-3344-5566-778899AABBCC", again, error)) << error;
+    EXPECT_EQ (again, terrain);
+    EXPECT_EQ (doc.landscape->sources.size (), 1u);
+    EXPECT_EQ (doc.landscape->sources.front ().archicadGuid, doc.landscape->sourceTerrainGuid);
+    EXPECT_FALSE (geo::SetLandscapeTerrain (doc, "not a guid", again, error));
+    // It never becomes the property line and is not a planar input.
+    EXPECT_FALSE (geo::SetLandscapePropertyLine (doc, terrain, error));
+    geo::LandscapeResult result;
+    EXPECT_TRUE (geo::EvaluateLandscape (doc, result)) << result.error;
+    // The model refuses a second live terrain source, one with a curve and a
+    // terrain source that disagrees with the session.
+    for (int kind = 0; kind < 3; ++kind) {
+        auto bad = doc;
+        auto& sources = bad.landscape->sources;
+        if (kind == 0)
+            sources.push_back ({ bad.nextId++, 0, 0, geo::SourceRole::Terrain, sources.front ().archicadGuid });
+        if (kind == 1)
+            sources.front ().entityId = edit::AddPolyline (bad, { { 0, 0, 0 }, { 1, 0, 0 } }, false);
+        if (kind == 2)
+            sources.front ().archicadGuid = canonical;
+        EXPECT_FALSE (geo::ValidateLandscape (bad, error)) << kind;
+    }
+    // Virtual storage keeps the role.
+    std::string text;
+    ASSERT_TRUE (geo::WriteLandscape (doc, geo::LandscapeStorage::Virtual, text, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
+    ASSERT_EQ (loaded.landscape->sources.size (), 1u);
+    EXPECT_EQ (loaded.landscape->sources.front ().role, geo::SourceRole::Terrain);
+    EXPECT_EQ (loaded.landscape->sources.front ().archicadGuid, loaded.landscape->sourceTerrainGuid);
+}

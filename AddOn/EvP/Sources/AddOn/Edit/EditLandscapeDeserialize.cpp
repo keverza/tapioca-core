@@ -175,7 +175,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
         source.id = item.Field ("id").Identifier ();
         source.entityId = item.Field ("entity").Identifier ();
         source.pathId = item.Field ("path").Identifier ();
-        source.role = Enum (item.Field ("role"), SourceRole::ProtectedZone);
+        source.role = Enum (item.Field ("role"), SourceRole::Terrain);
         source.archicadGuid = Guid (item.Field ("guid"));
         source.revision = item.Field ("revision").Identifier ();
         source.deleted = item.Field ("deleted").Flag ();
@@ -274,6 +274,8 @@ bool ReadLandscape (const std::string& text, geomsrv::edit::Document& doc, std::
         if (mode == LandscapeStorage::Native) {
             std::set<Id> captured;
             for (const auto& source : candidate.landscape->sources) {
+                if (source.role == SourceRole::Terrain)
+                    continue; // No authored points; its GUID is checked against the session's.
                 if (source.archicadGuid.empty ())
                     lj::Fail ("landscape.sources.guid", "native storage requires source GUIDs");
                 if (!capture)

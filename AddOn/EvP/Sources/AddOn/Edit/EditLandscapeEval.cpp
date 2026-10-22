@@ -235,7 +235,8 @@ bool Evaluate (const edit::Document& doc, LandscapeResult& out, std::map<Id, Sha
             unavailable.insert (source.id);
             continue;
         }
-        if (source.pathId) {
+        // Path and terrain sources have no planar curve.
+        if (source.pathId || source.role == SourceRole::Terrain) {
             values[source.id] = {};
             continue;
         }

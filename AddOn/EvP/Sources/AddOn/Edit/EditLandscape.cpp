@@ -199,10 +199,18 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
                 return false;
             }
     }
+    size_t terrains = 0;
     for (const auto& v : s.sources) {
-        if (!claim (v.id) || v.role > SourceRole::ProtectedZone || !Guid (v.archicadGuid) ||
-            ((v.entityId == 0) == (v.pathId == 0)) || (v.pathId && v.role != SourceRole::PathCenterline)) {
+        const bool terrain = v.role == SourceRole::Terrain;
+        if (!claim (v.id) || v.role > SourceRole::Terrain || !Guid (v.archicadGuid) ||
+            (terrain ? (v.entityId != 0 || v.pathId != 0 || !v.arcAngles.empty ())
+                     : ((v.entityId == 0) == (v.pathId == 0))) ||
+            (v.pathId && v.role != SourceRole::PathCenterline)) {
             error = "landscape.sources: conflicting ID, role, geometry reference or GUID";
+            return false;
+        }
+        if (terrain && !v.deleted && (++terrains > 1 || v.archicadGuid != s.sourceTerrainGuid)) {
+            error = "landscape.sources: one live terrain source must carry the session's terrain GUID";
             return false;
         }
         if (!v.deleted && ((v.entityId && edit::Find (doc, v.entityId) == nullptr) ||
@@ -379,6 +387,40 @@ bool StartLandscape (edit::Document& doc, std::array<uint8_t, 16> uuid, std::str
     return true;
 }
 
+bool SetLandscapeTerrain (edit::Document& doc, const std::string& guid, Id& source, std::string& error)
+{
+    Id named = 0;
+    const bool ok = Mutate (
+        doc,
+        [&] (edit::Document& d, std::string& e) {
+            std::string canonical;
+            if (!CanonicalLandscapeGuid (guid, canonical)) {
+                e = "invalid terrain GUID";
+                return false;
+            }
+            d.landscape->sourceTerrainGuid = canonical;
+            for (auto& s : d.landscape->sources)
+                if (s.role == SourceRole::Terrain && !s.deleted) {
+                    s.archicadGuid = canonical;
+                    ++s.revision;
+                    named = s.id;
+                    return true;
+                }
+            if (!Allocate (d, named, e))
+                return false;
+            LandscapeSource terrain;
+            terrain.id = named;
+            terrain.role = SourceRole::Terrain;
+            terrain.archicadGuid = canonical;
+            d.landscape->sources.push_back (terrain);
+            return true;
+        },
+        error);
+    if (ok)
+        source = named;
+    return ok;
+}
+
 bool AddLandscapeSource (edit::Document& doc, LandscapeSource source, Id& id, std::string& error)
 {
     Id allocated = 0;
@@ -505,7 +547,7 @@ bool SetLandscapePropertyLine (edit::Document& doc, Id source, std::string& erro
         doc,
         [=] (edit::Document& d, std::string& e) {
             for (auto& s : d.landscape->sources)
-                if (s.id == source && !s.deleted) {
+                if (s.id == source && !s.deleted && s.role != SourceRole::Terrain) {
                     s.role = SourceRole::PropertyLine;
                     d.landscape->propertyLineSourceId = source;
                     return true;
