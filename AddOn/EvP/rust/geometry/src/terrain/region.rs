@@ -335,7 +335,6 @@ pub fn retriangulate_region_with_points(
         }
     };
     let tin_points = plan::vertices(&tin.points);
-    let distinct = tin_points.len() - tin.crossings.len();
     let mut origin: Vec<Option<Result<u32, RegionVertex>>> = vec![None; tin_points.len()];
     let mesh_count = mesh_vertices.len();
     for (input, &out) in tin.input_vertices.iter().enumerate() {
@@ -353,13 +352,20 @@ pub fn retriangulate_region_with_points(
             });
         }
     }
-    for (offset, crossing) in tin.crossings.iter().enumerate() {
+    for crossing in &tin.crossings {
         let [a, b] = crossing.segments;
         let kind = RegionVertex::Crossing([
             support(a.constraint, a.segment)?,
             support(b.constraint, b.segment)?,
         ]);
-        if let Some(slot) = origin.get_mut(distinct + offset) {
+        // Crossing records are segment pairs, not newly allocated vertices:
+        // several pairs may meet at one vertex, including an original input.
+        // Preserve that input origin and use the first pair for a genuinely
+        // new vertex. All incident supports survive in `line_edges` as well.
+        let slot = origin
+            .get_mut(crossing.vertex as usize)
+            .ok_or(RegionError::Topology)?;
+        if slot.is_none() {
             *slot = Some(Err(kind));
         }
     }

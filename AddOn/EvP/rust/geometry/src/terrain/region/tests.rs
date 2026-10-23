@@ -234,6 +234,33 @@ fn empty_point_pool_is_identical_and_invalid_or_boundary_points_refuse() -> Resu
 }
 
 #[test]
+fn multiway_crossings_reuse_their_actual_vertex_without_overwriting_input_origins()
+-> Result<(), RegionError> {
+    let (points, triangles) = grid(9);
+    let region = ring(&[[1.5, 1.5], [6.5, 1.5], [6.5, 6.5], [1.5, 6.5]]);
+    let a = [2.0, 3.0, 0.0, 6.0, 5.0, 0.0];
+    let b = [2.0, 5.0, 0.0, 6.0, 3.0, 0.0];
+    let request = RegionRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &region,
+        breaklines: &[&a, &b, &a],
+    };
+    let mesh = retriangulate_region_with_points(&request, &[4.0, 4.0, 0.0])?;
+    let centre = 4 * 9 + 4;
+    assert_eq!(mesh.point_vertices, [centre]);
+    assert_eq!(mesh.points.get(..points.len()), Some(&points[..]));
+    for line in 0..3 {
+        assert!(
+            mesh.line_edges
+                .iter()
+                .any(|edge| edge.line == line && edge.vertices.contains(&centre))
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn breaklines_leaving_the_region_and_base_holes_refuse() {
     let (points, triangles) = grid(9);
     let notched = ring(&[
