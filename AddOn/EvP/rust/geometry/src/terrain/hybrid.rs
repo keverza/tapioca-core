@@ -334,13 +334,71 @@ pub fn build(request: &BuildRequest<'_>) -> Result<Built, HybridError> {
 /// See [`HybridError`]. Controls on/outside the region refuse through
 /// [`RegionError`]; surface/area locks and soft-tier composition are not provided.
 pub fn build_locked(request: &BuildRequest<'_>, locked: Locked<'_>) -> Result<Built, HybridError> {
+    evaluate_locked(request, locked, &mut locked::Diagnostics::default())
+}
+
+/// Station-side diagnostics and all fixed-control disagreements on the candidate
+/// TIN. Fixed diagnostics require successful band topology/region preparation;
+/// a hard station-side refusal returns those station rows without claiming that
+/// controls were assessed. Invalid controls/geometry still refuse atomically.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LockedAssessment {
+    /// All hard and soft station-side diagnostics.
+    pub band: Vec<Conflict>,
+    /// Every contributor differing from its vertex's canonical first height,
+    /// then each canonical vertex versus grading, in deterministic traversal order.
+    pub locked: Vec<LockedConflict>,
+    /// False when a hard band diagnostic prevented construction of the TIN.
+    pub fixed_complete: bool,
+}
+
+/// Assess fixed controls without publishing a surface or changing build's
+/// first-refusal contract. All contributors compare to the first input height,
+/// not to a transitive tolerance cluster or an averaged height.
+///
+/// # Errors
+/// See [`HybridError`]. Non-located geometry/parameter failures are not hidden.
+pub fn assess_locked(
+    request: &BuildRequest<'_>,
+    locked: Locked<'_>,
+) -> Result<LockedAssessment, HybridError> {
+    locked::validate(locked)?;
+    let band = assess(request)?;
+    let mut conflicts = locked::Diagnostics {
+        rows: Vec::new(),
+        exhaustive: true,
+    };
+    match evaluate_locked(request, locked, &mut conflicts) {
+        Ok(_) | Err(HybridError::LockedConflict(_)) => Ok(LockedAssessment {
+            band,
+            locked: conflicts.rows,
+            fixed_complete: true,
+        }),
+        Err(
+            HybridError::DaylightNotReached { .. }
+            | HybridError::Vertical { .. }
+            | HybridError::DaylightTopology { .. },
+        ) if band.iter().any(|c| c.code.hard()) => Ok(LockedAssessment {
+            band,
+            locked: Vec::new(),
+            fixed_complete: false,
+        }),
+        Err(error) => Err(error),
+    }
+}
+
+fn evaluate_locked(
+    request: &BuildRequest<'_>,
+    locked: Locked<'_>,
+    conflicts: &mut locked::Diagnostics,
+) -> Result<Built, HybridError> {
     locked::validate(locked)?;
     let field = Field::new(request.points, request.triangles).map_err(|_| HybridError::Field)?;
     let design =
         Design::new(&request.band, &field, request.tolerance).map_err(HybridError::Design)?;
     let daylight = design.daylight().map_err(HybridError::Design)?;
     let offsets = offsets(&design, &daylight)?;
-    let conflicts: Vec<Conflict> = conflict::locate(&design, &field, &daylight)?
+    let band_conflicts: Vec<Conflict> = conflict::locate(&design, &field, &daylight)?
         .into_iter()
         .filter(|c| !c.code.hard())
         .collect();
@@ -365,7 +423,7 @@ pub fn build_locked(request: &BuildRequest<'_>, locked: Locked<'_>) -> Result<Bu
         locked.points,
     )
     .map_err(HybridError::Region)?;
-    let controls = locked::resolve(&mesh, locked, request.tolerance)?;
+    let controls = locked::resolve(&mesh, locked, request.tolerance, conflicts)?;
 
     let vertices = plan::vertices(&mesh.points);
     let mut fixed = vec![false; vertices.len()];
@@ -412,7 +470,7 @@ pub fn build_locked(request: &BuildRequest<'_>, locked: Locked<'_>) -> Result<Bu
         base.push(z);
         owners.push((height.to_bits() != z.to_bits()).then_some(0));
     }
-    locked::apply(&mut points, &controls, request.tolerance, &fixed)?;
+    locked::apply(&mut points, &controls, request.tolerance, &fixed, conflicts)?;
     for control in &controls {
         if let Some(owner) = owners.get_mut(control.vertex as usize) {
             *owner = None;
@@ -432,7 +490,7 @@ pub fn build_locked(request: &BuildRequest<'_>, locked: Locked<'_>) -> Result<Bu
         owners,
         daylight,
         volumes,
-        conflicts,
+        conflicts: band_conflicts,
         locked: controls,
     })
 }

@@ -134,22 +134,44 @@ fn height(first: [f64; 3], last: [f64; 3], point: [f64; 3]) -> Result<f64, Hybri
     Ok(z)
 }
 
+#[derive(Default)]
+pub(super) struct Diagnostics {
+    pub rows: Vec<LockedConflict>,
+    pub exhaustive: bool,
+}
+
+impl Diagnostics {
+    fn report(&mut self, conflict: LockedConflict) -> Result<(), HybridError> {
+        if !self.exhaustive {
+            return Err(HybridError::LockedConflict(conflict));
+        }
+        self.rows.push(conflict);
+        Ok(())
+    }
+}
+
 struct Controls<'a> {
     mesh: &'a RegionMesh,
     tolerance: f64,
     vertices: BTreeMap<u32, LockedVertex>,
+    conflicts: &'a mut Diagnostics,
 }
 
 impl Controls<'_> {
     fn insert(&mut self, vertex: u32, z: f64, control: LockRef) -> Result<(), HybridError> {
         let [x, y, _] = at(self.mesh, vertex)?;
         if let Some(first) = self.vertices.get_mut(&vertex) {
+            // A split segment occurs at both ends of adjacent edge rows. It is
+            // one contributor, not a second conflict with itself.
+            if first.supports.contains(&control) {
+                return Ok(());
+            }
             let magnitude = z - first.height;
             if !magnitude.is_finite() {
                 return Err(HybridError::LockedParameters);
             }
             if magnitude.abs() > self.tolerance {
-                return Err(HybridError::LockedConflict(LockedConflict {
+                let conflict = LockedConflict {
                     control: *first
                         .supports
                         .first()
@@ -158,11 +180,10 @@ impl Controls<'_> {
                     vertex,
                     position: [x, y, first.height],
                     magnitude,
-                }));
+                };
+                self.conflicts.report(conflict)?;
             }
-            if !first.supports.contains(&control) {
-                first.supports.push(control);
-            }
+            first.supports.push(control);
         } else {
             self.vertices.insert(
                 vertex,
@@ -183,11 +204,13 @@ pub(super) fn resolve(
     mesh: &RegionMesh,
     locked: Locked<'_>,
     tolerance: f64,
+    conflicts: &mut Diagnostics,
 ) -> Result<Vec<LockedVertex>, HybridError> {
     let mut controls = Controls {
         mesh,
         tolerance,
         vertices: BTreeMap::new(),
+        conflicts,
     };
     for edge in &mesh.line_edges {
         let Some(line) = locked.lines.get(edge.line as usize) else {
@@ -233,6 +256,7 @@ pub(super) fn apply(
     locks: &[LockedVertex],
     tolerance: f64,
     fixed: &[bool],
+    conflicts: &mut Diagnostics,
 ) -> Result<(), HybridError> {
     for lock in locks {
         let point = plan::vertices(points)
@@ -249,14 +273,17 @@ pub(super) fn apply(
             .copied()
             .ok_or(HybridError::LockedParameters)?;
         if magnitude.abs() > tolerance || (exact && point[2].to_bits() != lock.height.to_bits()) {
-            return Err(HybridError::LockedConflict(LockedConflict {
+            conflicts.report(LockedConflict {
                 control: *lock.supports.first().ok_or(HybridError::LockedParameters)?,
                 other: None,
                 vertex: lock.vertex,
                 position: [point[0], point[1], lock.height],
                 magnitude,
-            }));
+            })?;
         }
+    }
+    if let Some(&first) = conflicts.rows.first() {
+        return Err(HybridError::LockedConflict(first));
     }
     for lock in locks {
         let z = points

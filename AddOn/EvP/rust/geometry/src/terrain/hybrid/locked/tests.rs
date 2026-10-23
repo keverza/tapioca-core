@@ -2,7 +2,7 @@ use super::*;
 use crate::terrain::design::Band;
 use crate::terrain::edit::Effect;
 use crate::terrain::hybrid::tests::{REGION, base, between, station, worked};
-use crate::terrain::hybrid::{BuildRequest, Built, LineKind, build, build_locked};
+use crate::terrain::hybrid::{BuildRequest, Built, LineKind, assess_locked, build, build_locked};
 use crate::terrain::region::RegionError;
 
 fn request<'a>(
@@ -391,6 +391,23 @@ fn fixed_heights_do_not_weaken_bitwise_daylight_preservation() -> Result<(), Hyb
     assert!(
         matches!(error, Some(HybridError::LockedConflict(c)) if c.magnitude.abs() < input.tolerance)
     );
+    let assessed = assess_locked(
+        &input,
+        Locked {
+            points: &[x, y, z + 0.5e-6],
+            lines: &[],
+        },
+    )?;
+    assert!(assessed.fixed_complete);
+    assert_eq!(assessed.locked.len(), 1);
+    assert_eq!(
+        assessed
+            .locked
+            .first()
+            .copied()
+            .map(HybridError::LockedConflict),
+        error
+    );
     Ok(())
 }
 
@@ -451,5 +468,160 @@ fn seeded_controls_hold_at_survey_coordinates_without_narrowing() -> Result<(), 
             assert_eq!(at(&built, vertex), Some(*spot));
         }
     }
+    Ok(())
+}
+
+#[test]
+fn assessment_enumerates_separate_points_and_every_canonical_disagreement()
+-> Result<(), HybridError> {
+    let (points, triangles) = base(worked);
+    let stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];
+    let input = request(&points, &triangles, &stations);
+    let spots = [
+        10.0, 0.0, 10.5, 10.0, 0.0, 11.5, 10.0, 0.0, 12.5, 20.0, 0.0, 12.0, 30.0, 0.0, 12.5,
+    ];
+    let locked = Locked {
+        points: &spots,
+        lines: &[],
+    };
+    let assessed = assess_locked(&input, locked)?;
+    assert!(assessed.fixed_complete);
+    assert_eq!(assessed.band, Vec::new());
+    assert_eq!(assessed.locked.len(), 4);
+    let pairs: Vec<_> = assessed
+        .locked
+        .iter()
+        .filter_map(|c| c.other.map(|other| (c.control, other)))
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            (LockRef::Point(0), LockRef::Point(1)),
+            (LockRef::Point(0), LockRef::Point(2))
+        ]
+    );
+    let grading: Vec<_> = assessed
+        .locked
+        .iter()
+        .filter(|c| c.other.is_none())
+        .map(|c| c.control)
+        .collect();
+    assert_eq!(grading, [LockRef::Point(3), LockRef::Point(4)]);
+    assert_eq!(
+        build_locked(&input, locked).err(),
+        assessed
+            .locked
+            .first()
+            .copied()
+            .map(HybridError::LockedConflict)
+    );
+    assert_eq!(assess_locked(&input, locked)?, assessed);
+    Ok(())
+}
+
+#[test]
+fn assessment_does_not_duplicate_split_supports_or_hide_grading_behind_control_conflicts()
+-> Result<(), HybridError> {
+    let (points, triangles) = base(worked);
+    let stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];
+    let input = request(&points, &triangles, &stations);
+    let a = [5.0, -1.0, 11.25, 35.0, 1.0, 12.75];
+    let b = [5.0, 1.0, 12.25, 35.0, -1.0, 13.75];
+    let assessed = assess_locked(
+        &input,
+        Locked {
+            points: &[20.0, 0.0, 14.0],
+            lines: &[&a, &b],
+        },
+    )?;
+    assert!(assessed.fixed_complete);
+    assert!(assessed.locked.iter().filter(|c| c.other.is_none()).count() > 5);
+    assert_eq!(
+        assessed.locked.iter().filter(|c| c.other.is_some()).count(),
+        2
+    );
+    for (i, row) in assessed.locked.iter().enumerate() {
+        assert!(!assessed.locked.iter().skip(i + 1).any(|other| row == other));
+        assert!(row.magnitude.is_finite());
+    }
+    Ok(())
+}
+
+#[test]
+fn assessment_preserves_first_height_tolerance_and_daylight_bits() -> Result<(), HybridError> {
+    let (points, triangles) = base(|_, _| 0.0);
+    let stations = [station(0.0, 0.0, 0.0), station(40.0, 0.0, 0.0)];
+    let input = request(&points, &triangles, &stations);
+    // Both contributors agree with the canonical first, not necessarily each
+    // other. Assessment must not invent a hard conflict for a successful build.
+    let spots = [10.0, 0.0, -0.0, 10.0, 0.0, 0.75e-6, 10.0, 0.0, -0.75e-6];
+    let locked = Locked {
+        points: &spots,
+        lines: &[],
+    };
+    assert_eq!(assess_locked(&input, locked)?.locked, Vec::new());
+    let built = build_locked(&input, locked)?;
+    assert_eq!(
+        built.locked.first().map(|c| c.height.to_bits()),
+        Some((-0.0_f64).to_bits())
+    );
+    Ok(())
+}
+
+#[test]
+fn assessment_refuses_malformed_or_off_region_controls_without_partial_diagnostics() {
+    let (points, triangles) = base(worked);
+    let stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];
+    let input = request(&points, &triangles, &stations);
+    for spots in [
+        &[10.0, 0.0, f64::NAN][..],
+        &[-10.0, 0.0, 20.0][..],
+        &[10.0, 0.0, -1e308, 10.0, 0.0, 1e308][..],
+    ] {
+        assert!(
+            assess_locked(
+                &input,
+                Locked {
+                    points: spots,
+                    lines: &[]
+                }
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn hard_band_diagnostics_explicitly_leave_fixed_assessment_incomplete() -> Result<(), HybridError> {
+    let (points, triangles) = base(worked);
+    let mut stations = [station(0.0, 10.0, 0.0), station(40.0, 12.0, 0.0)];
+    for station in &mut stations {
+        station.cut_limit = 0.5;
+        station.fill_limit = 0.5;
+    }
+    let input = request(&points, &triangles, &stations);
+    let assessed = assess_locked(
+        &input,
+        Locked {
+            points: &[10.0, 0.0, 99.0],
+            lines: &[],
+        },
+    )?;
+    assert!(!assessed.fixed_complete);
+    assert_eq!(assessed.band.len(), 4);
+    assert!(assessed.band.iter().all(|c| c.code.hard()));
+    assert_eq!(assessed.locked, Vec::new());
+    // Invalid control storage is still an error, not an incomplete success.
+    assert_eq!(
+        assess_locked(
+            &input,
+            Locked {
+                points: &[10.0, 0.0, f64::NAN],
+                lines: &[]
+            }
+        )
+        .err(),
+        Some(HybridError::LockedParameters)
+    );
     Ok(())
 }
