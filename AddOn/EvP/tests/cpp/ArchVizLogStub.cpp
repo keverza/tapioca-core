@@ -3,12 +3,28 @@
 // what it did (OverlayInput.cpp) can be tested for what it does.
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "archviz_log_fixture.hpp"
+#include <utility>
 
 namespace geomsrv {
 namespace archviz {
+namespace {
+thread_local test::LogCapture* s_capture = nullptr;
+}
 
-void ArchVizLog (const std::string&)
+test::LogCapture::LogCapture () : previous (std::exchange (s_capture, this))
 {
+}
+
+test::LogCapture::~LogCapture ()
+{
+    s_capture = previous;
+}
+
+void ArchVizLog (const std::string& line)
+{
+    if (s_capture)
+        s_capture->lines.push_back (line);
 }
 
 void ArchVizLogClose ()

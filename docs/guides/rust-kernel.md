@@ -1078,6 +1078,16 @@ or ambiguous native selections; the existing native action validates Mesh type
 and retains its freshness stamp. Recapture does not depend on current selection.
 This is path-driven preview, not a terrain brush, area/spot authoring or native bake.
 
+**Overlay diagnosis.** `archviz.log` now records `TERRAIN` lifecycle transitions:
+capture request/queue/dispatch/finish (including cancellation and refusals),
+start input counts, worker launch/completion, native surface preparation,
+publication acceptance/discard and proposed-layer counts/guest routing. Refused
+builds log their error and conflict count with `layer no-proposal`; native source
+invalidation logs once. Unchanged polling does not produce per-frame lines. A
+retained raw native capture after preparation failure is not a drawable surface.
+Layer emission is CPU publication evidence, not proof of GPU visibility; diagnose
+the first absent/refused transition before changing camera, depth or shading.
+
 **Setup and authored cross-sections.** An empty landscape now offers **Draw design
 path** and **Draw property line** using the existing tools, rather than an empty
 selector and disabled capture controls. Finishing a landscape path binds its

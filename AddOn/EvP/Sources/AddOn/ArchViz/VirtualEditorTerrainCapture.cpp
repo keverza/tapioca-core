@@ -3,6 +3,7 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
 #include "ArchViz/VirtualEditorTerrainCapture.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
@@ -74,12 +75,18 @@ bool SelectedGuid (std::string& guid, std::string& error)
 void Run (const std::shared_ptr<overlayhud::State>& state, const std::shared_ptr<eh::Session>& session,
           const std::shared_ptr<const eh::TerrainCaptureRequest>& request)
 {
+    const auto log = [&] (const std::string& event) {
+        ArchVizLog ("TERRAIN capture " + event + " revision=" + std::to_string (request->revision) +
+                    " path=" + std::to_string (request->path));
+    };
+    log ("dispatch");
     const auto current = [&] {
         return state == guesttext::HudState () && state->virtualEditor == session &&
                eh::TerrainCaptureIsCurrent (*session, request) && state->shown && state->editLocked &&
                overlayhud::LayerShown (*state, editlayers::kLayer);
     };
     const auto finish = [&] (const std::string& message) {
+        log ("finish: " + message);
         if (session->terrainCapture != request)
             return;
         session->terrainCapture.reset ();
@@ -104,6 +111,7 @@ void Run (const std::shared_ptr<overlayhud::State>& state, const std::shared_ptr
         return;
     }
     V result;
+    log ("native-read guid=" + guid);
     if (!Call ("Tapioca.VirtualEditor",
                V::Object ({ { "action", V::String ("terrain") },
                             { "terrainGuid", V::String (guid) },
@@ -123,12 +131,16 @@ void FollowTerrainCapture (const std::shared_ptr<overlayhud::State>& state)
         return;
     const auto request = session->terrainCapture;
     session->terrainCaptureQueued = true;
+    ArchVizLog ("TERRAIN capture queue revision=" + std::to_string (request->revision) +
+                " path=" + std::to_string (request->path) +
+                (request->terrainGuid.empty () ? " source=selection" : " source=bound"));
     GS::UniString error;
     if (!evp::MainThreadGate::Get ().Post ([state, session, request] { Run (state, session, request); }, error)) {
         session->terrainCaptureQueued = false;
         session->terrainCapture.reset ();
         session->message =
             "Topography capture was not queued: " + std::string (error.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+        ArchVizLog ("TERRAIN capture queue-refused: " + session->message);
     }
 }
 } // namespace geomsrv::archviz

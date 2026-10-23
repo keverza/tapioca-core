@@ -7,6 +7,7 @@
 #include "Edit/EditDocument.hpp"
 #include "Edit/EditPath.hpp"
 #include "Edit/EditPathEdit.hpp"
+#include "archviz_log_fixture.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <bit>
@@ -704,6 +705,38 @@ bool AwaitTerrain (eh::Session& session, layers::Layer& layer, bool refused = fa
 }
 } // namespace
 
+TEST (HudTerrainDesign, LifecycleLogsDistinguishCaptureBuildPublicationAndLayerWithoutPerFrameSpam)
+{
+    geomsrv::archviz::test::LogCapture log;
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.terrainPath = fixture.path;
+    ASSERT_TRUE (eh::RequestTerrainCapture (session, true));
+    session.terrainCapture.reset (); // Native bridge is exercised only by the SDK host.
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path));
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto contains = [&] (const std::string& text) {
+        return std::any_of (log.lines.begin (), log.lines.end (),
+                            [&] (const auto& line) { return line.find (text) != std::string::npos; });
+    };
+    EXPECT_TRUE (contains ("TERRAIN capture requested"));
+    EXPECT_TRUE (contains ("TERRAIN start accepted"));
+    EXPECT_TRUE (contains ("inputVertices=4 inputTriangles=2"));
+    EXPECT_TRUE (contains ("TERRAIN worker launch"));
+    EXPECT_TRUE (contains ("TERRAIN worker completed"));
+    EXPECT_TRUE (contains ("built=1"));
+    EXPECT_TRUE (contains ("TERRAIN publication accepted"));
+    EXPECT_TRUE (contains ("TERRAIN layer proposed"));
+    const auto count = log.lines.size ();
+    for (int i = 0; i < 20; ++i)
+        eh::Follow (session, layer);
+    EXPECT_EQ (log.lines.size (), count);
+    const auto* terrain = TerrainMesh (layer);
+    ASSERT_NE (terrain, nullptr);
+    EXPECT_TRUE (layers::DrawnByGuest (*terrain, layer)); // Existing Fade layer already uses the guest renderer.
+}
+
 TEST (HudTerrainDesign, CaptureUIRequestIsExplicitRevisionBoundAndDoesNotAuthorHistory)
 {
     TerrainHostFixture fixture;
@@ -984,6 +1017,7 @@ TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
 
 TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic)
 {
+    geomsrv::archviz::test::LogCapture log;
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
     auto bad = std::make_shared<geomsrv::Mesh> (*fixture.mesh);
@@ -1009,10 +1043,23 @@ TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic
     EXPECT_EQ (TerrainMesh (layer), nullptr);
     EXPECT_TRUE (layers::Validate (layer).empty ()) << layers::Validate (layer);
     EXPECT_EQ (refused.edits.UndoDepth (), 1U);
+    const auto status = eh::GetTerrainDesignStatus (refused);
+    ASSERT_FALSE (status.error.empty ());
+    EXPECT_TRUE (std::any_of (log.lines.begin (), log.lines.end (), [&] (const auto& line) {
+        return line.find ("TERRAIN worker completed") != std::string::npos &&
+               line.find ("built=0") != std::string::npos && line.find (status.error) != std::string::npos;
+    }));
+    EXPECT_TRUE (std::any_of (log.lines.begin (), log.lines.end (), [] (const auto& line) {
+        return line.find ("TERRAIN layer no-proposal") != std::string::npos;
+    }));
+    EXPECT_FALSE (std::any_of (log.lines.begin (), log.lines.end (), [] (const auto& line) {
+        return line.find ("TERRAIN layer proposed") != std::string::npos;
+    }));
 }
 
 TEST (HudTerrainDesign, NativeSurfaceBuildsOnWorkerAndNativeChangeHidesItWithoutHistory)
 {
+    geomsrv::archviz::test::LogCapture log;
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
     auto valid = std::make_shared<bool> (true);
@@ -1025,6 +1072,10 @@ TEST (HudTerrainDesign, NativeSurfaceBuildsOnWorkerAndNativeChangeHidesItWithout
     ASSERT_NE (outcome->capture, nullptr);
     EXPECT_NE (outcome->capture->native, nullptr);
     EXPECT_EQ (outcome->capture->provenance.table.context.tableId, 5U);
+    EXPECT_TRUE (std::any_of (log.lines.begin (), log.lines.end (), [] (const auto& line) {
+        return line.find ("TERRAIN worker completed") != std::string::npos &&
+               line.find ("surfacePrepared=1") != std::string::npos;
+    }));
     const auto depth = session.edits.UndoDepth ();
     const auto revision = session.edits.Doc ().revision;
     *valid = false;
@@ -1036,9 +1087,41 @@ TEST (HudTerrainDesign, NativeSurfaceBuildsOnWorkerAndNativeChangeHidesItWithout
     EXPECT_EQ (status.error.find ("TerrainCaptureStale"), 0U);
     EXPECT_EQ (session.edits.Doc ().revision, revision);
     EXPECT_EQ (session.edits.UndoDepth (), depth);
+    const auto logCount = log.lines.size ();
+    eh::Follow (session, layer);
+    EXPECT_EQ (log.lines.size (), logCount); // One invalidation transition, not a log per frame.
+    EXPECT_TRUE (std::any_of (log.lines.begin (), log.lines.end (), [] (const auto& line) {
+        return line.find ("TERRAIN baseline invalidated: TerrainCaptureStale") != std::string::npos;
+    }));
     EXPECT_FALSE (eh::StartTerrainDesign (session, baseline, fixture.path));
     *valid = true;
     ASSERT_TRUE (eh::StartTerrainDesign (session, baseline, fixture.path));
     ASSERT_TRUE (AwaitTerrain (session, layer));
     EXPECT_EQ (session.edits.UndoDepth (), depth);
+}
+
+TEST (HudTerrainDesign, NativeSurfacePreparationRefusalIsLoggedWithoutDrawingTheRawSolid)
+{
+    geomsrv::archviz::test::LogCapture log;
+    TerrainHostFixture fixture;
+    auto mesh = std::make_shared<geomsrv::Mesh> (*fixture.mesh);
+    for (size_t i = 0; i < mesh->triangles.size (); i += 3)
+        std::swap (mesh->triangles[i + 1], mesh->triangles[i + 2]); // No upward surface.
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, eh::TerrainDesignBaseline { mesh, true, {} }, fixture.path));
+    const auto depth = session.edits.UndoDepth ();
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer, true));
+    EXPECT_EQ (TerrainMesh (layer), nullptr);
+    const auto* outcome = eh::CurrentTerrainDesign (session);
+    ASSERT_NE (outcome, nullptr);
+    ASSERT_NE (outcome->capture, nullptr);
+    EXPECT_FALSE (outcome->capture->native); // Retained raw capture is not proof of a drawable surface.
+    EXPECT_FALSE (outcome->error.empty ());
+    EXPECT_EQ (session.edits.UndoDepth (), depth);
+    EXPECT_TRUE (std::any_of (log.lines.begin (), log.lines.end (), [&] (const auto& line) {
+        return line.find ("TERRAIN worker completed") != std::string::npos &&
+               line.find ("built=0 surfacePrepared=0") != std::string::npos &&
+               line.find (outcome->error) != std::string::npos;
+    }));
 }

@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/Mesh.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -8,32 +9,46 @@
 // OVERLAY-INVARIANTS.md §§8,12,14: session-owned derived geometry only;
 // both hosts consume the same layer, with no camera or renderer changes.
 namespace geomsrv::archviz::edithud {
+namespace {
+// Lifecycle transitions only, never status polling or per-frame rendering.
+void LogTerrain (const Session& s, const std::string& event)
+{
+    ArchVizLog ("TERRAIN " + event + " revision=" + std::to_string (s.edits.Doc ().revision) +
+                " path=" + std::to_string (s.terrainPath));
+}
+} // namespace
+
 bool RequestTerrainCapture (Session& s, bool fromSelection)
 {
 #if !defined(TAPIOCA_GEOMETRY_RUST)
     (void) fromSelection;
     s.message = "Terrain design requires the Rust geometry build.";
+    LogTerrain (s, "capture refused: " + s.message);
     return false;
 #else
     if (s.close || s.terrainCapture || s.edits.InGesture () || GizmoModeLocked (s) || !s.drawing.empty () ||
         s.landscapeCommand || GetTerrainDesignStatus (s).pending) {
         s.message = "Finish the current input or terrain build before capturing topography.";
+        LogTerrain (s, "capture refused: " + s.message);
         return false;
     }
     const auto path = ResolveTerrainDesignPath (s);
     const auto& doc = s.edits.Doc ();
     if (!doc.landscape || !doc.landscape->propertyLineSourceId || !path) {
         s.message = "Choose a landscape path and a property line before capturing topography.";
+        LogTerrain (s, "capture refused: " + s.message);
         return false;
     }
     if (!fromSelection && doc.landscape->sourceTerrainGuid.empty ()) {
         s.message = "Capture a selected Archicad Mesh before recapturing terrain.";
+        LogTerrain (s, "capture refused: " + s.message);
         return false;
     }
     s.terrainCapture = std::make_shared<TerrainCaptureRequest> (
         TerrainCaptureRequest { path, doc.revision, fromSelection ? "" : doc.landscape->sourceTerrainGuid });
     s.terrainCaptureQueued = false;
     s.message = "Topography capture requested.";
+    LogTerrain (s, fromSelection ? "capture requested source=selection" : "capture requested source=bound");
     return true;
 #endif
 }
@@ -210,31 +225,41 @@ bool StartTerrainDesign (Session& s, TerrainDesignBaseline baseline, edit::Id pa
 {
     if (!baseline.mesh || !Idle (s) || (s.terrainDesign && s.terrainDesign->worker.valid ())) {
         s.message = "Finish the current input and terrain build before starting a design.";
+        LogTerrain (s, "start refused: " + s.message);
         return false;
     }
     auto state = std::make_shared<TerrainDesignState> ();
     if (baseline.current && !baseline.current ()) {
         s.message = "TerrainCaptureStale: capture the terrain again.";
+        LogTerrain (s, "start refused: " + s.message);
         return false;
     }
     state->baseline = std::move (baseline);
     // Validate on a candidate before opening history. Apply returns false on a
     // no-op, so an already-authored path is bound without manufacturing an edit.
     auto candidate = s.edits.Doc ();
-    if (!Author (candidate, *state->baseline.mesh, path, state->options, s.message))
+    if (!Author (candidate, *state->baseline.mesh, path, state->options, s.message)) {
+        LogTerrain (s, "start refused requestedPath=" + std::to_string (path) + ": " + s.message);
         return false;
+    }
     if (candidate.landscape != s.edits.Doc ().landscape &&
         !s.edits.Apply ([candidate] (edit::Document& doc, std::string&) {
             doc = candidate;
             return true;
         })) {
         s.message = s.edits.Message ();
+        LogTerrain (s, "start refused: " + s.message);
         return false;
     }
     s.terrainDesign = std::move (state);
     s.terrainPath = path;
     s.publishedRevision = UINT64_MAX;
     s.message.clear ();
+    const auto& started = *s.terrainDesign;
+    LogTerrain (s, "start accepted guid=" + started.baseline.mesh->guid +
+                       " nativeSolid=" + std::to_string (started.baseline.nativeSolid) +
+                       " inputVertices=" + std::to_string (started.baseline.mesh->vertices.size () / 3) +
+                       " inputTriangles=" + std::to_string (started.baseline.mesh->triangles.size () / 3));
     return true;
 }
 
@@ -247,15 +272,32 @@ void PollTerrainDesign (Session& s)
     if (!state.invalid && state.baseline.current && !state.baseline.current ()) {
         state.invalid = true;
         state.error = "TerrainCaptureStale: native terrain changed; capture it again.";
+        LogTerrain (s, "baseline invalidated: " + state.error);
         s.publishedRevision = UINT64_MAX;
     }
     if (state.worker.valid ()) {
         if (state.worker.wait_for (std::chrono::seconds (0)) != std::future_status::ready)
             return;
         auto outcome = state.worker.get ();
+        const auto& capture = outcome.capture;
+        LogTerrain (
+            s, "worker completed generation=" + std::to_string (outcome.generation) +
+                   " builtRevision=" + std::to_string (outcome.revision) + " built=" + std::to_string (outcome.built) +
+                   " surfacePrepared=" + std::to_string (capture && capture->native) +
+                   " captureVertices=" + std::to_string (capture ? capture->points.size () / 3 : 0) +
+                   " captureTriangles=" + std::to_string (capture ? capture->triangles.size () / 3 : 0) +
+                   " vertices=" + std::to_string (outcome.result.build.points.size () / 3) +
+                   " triangles=" + std::to_string (outcome.result.build.triangles.size () / 3) + " conflicts=" +
+                   std::to_string (outcome.built ? outcome.result.conflicts.size () : outcome.conflicts.size ()) +
+                   " error=" + outcome.error);
         std::string error;
-        if (!state.invalid && state.publisher.Publish (doc, std::move (outcome), error))
+        if (!state.invalid && state.publisher.Publish (doc, std::move (outcome), error)) {
             s.publishedRevision = UINT64_MAX;
+            LogTerrain (s, "publication accepted");
+        }
+        else {
+            LogTerrain (s, "publication discarded: " + (state.invalid ? state.error : error));
+        }
     }
     if (state.invalid || !Idle (s) || state.requestedRevision == doc.revision)
         return;
@@ -265,14 +307,19 @@ void PollTerrainDesign (Session& s)
     lg::TerrainDesignJob job;
     if (!lg::CaptureLandscapeTerrain (doc, *state.baseline.mesh, { state.options.object, 2, 1 }, *capture,
                                       state.error) ||
-        !state.publisher.Prepare (doc, capture, state.options, {}, job, state.error))
+        !state.publisher.Prepare (doc, capture, state.options, {}, job, state.error)) {
+        LogTerrain (s, "worker prepare refused: " + state.error);
         return;
+    }
     job.surfaceTable = state.baseline.nativeSolid ? 5 : 0;
     try {
+        LogTerrain (s, "worker launch generation=" + std::to_string (job.generation) +
+                           " nativeSurfaceRequired=" + std::to_string (job.surfaceTable != 0));
         state.worker = lg::LaunchTerrainDesign (std::move (job));
     }
     catch (const std::exception& exception) {
         state.error = std::string ("TerrainDesignWorker: ") + exception.what ();
+        LogTerrain (s, "worker launch refused: " + state.error);
     }
 }
 
@@ -321,6 +368,9 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         mesh.points = current->result.build.points;
         mesh.indices = current->result.build.triangles;
         mesh.rgba = 0x5A7F6280u;
+        LogTerrain (s, "layer proposed vertices=" + std::to_string (mesh.points.size () / 3) +
+                           " triangles=" + std::to_string (mesh.indices.size () / 3) +
+                           " guest=" + std::to_string (overlaylayers::DrawnByGuest (mesh, layer)));
         layer.meshes.push_back (std::move (mesh));
         overlaylayers::Polyline ring;
         // The kernel's ordered ring includes every split crossing and its
@@ -336,6 +386,9 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         layer.polylines.push_back (std::move (ring));
     }
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
+    if (!current->built)
+        LogTerrain (s,
+                    "layer no-proposal conflicts=" + std::to_string (conflicts.size ()) + " error=" + current->error);
     for (const auto& conflict : conflicts) {
         overlaylayers::PointSet place;
         place.points.assign (conflict.position.begin (), conflict.position.end ());
@@ -390,6 +443,7 @@ namespace geomsrv::archviz::edithud {
 bool StartTerrainDesign (Session& s, std::shared_ptr<const Mesh>, edit::Id)
 {
     s.message = "Terrain design requires the Rust geometry build.";
+    LogTerrain (s, "start refused: " + s.message);
     return false;
 }
 bool StartTerrainDesign (Session& s, TerrainDesignBaseline, edit::Id path)
