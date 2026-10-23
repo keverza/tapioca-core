@@ -166,6 +166,74 @@ fn a_breakline_vertex_on_a_mesh_vertex_reuses_it() -> Result<(), RegionError> {
 }
 
 #[test]
+fn isolated_controls_become_vertices_with_complete_coincident_mappings() -> Result<(), RegionError>
+{
+    let (points, triangles) = grid(9);
+    let region = ring(&[[1.5, 1.5], [6.5, 1.5], [6.5, 6.5], [1.5, 6.5]]);
+    let line = [2.2, 3.3, 0.0, 5.7, 3.3, 0.0];
+    let spots = [
+        3.0, 3.0, 99.0, 3.4, 3.3, 99.0, 4.2, 4.3, 99.0, 4.2, 4.3, 0.0,
+    ];
+    let request = RegionRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &region,
+        breaklines: &[&line],
+    };
+    let mesh = retriangulate_region_with_points(&request, &spots)?;
+    assert_eq!(retriangulate_region_with_points(&request, &spots)?, mesh);
+    assert_eq!(mesh.point_vertices.len(), 4);
+    assert_eq!(mesh.point_vertices.first(), Some(&(3 * 9 + 3)));
+    assert_eq!(mesh.point_vertices.get(2), mesh.point_vertices.get(3));
+    for (&vertex, &[x, y, _]) in mesh.point_vertices.iter().zip(plan::vertices(&spots)) {
+        let position = plan::vertices(&mesh.points).get(vertex as usize).copied();
+        assert!(
+            matches!(position, Some([px, py, z]) if px.to_bits() == x.to_bits() && py.to_bits() == y.to_bits() && close(z, surface(x, y), 1e-12))
+        );
+        assert!(mesh.triangles.contains(&vertex));
+    }
+    let on_line = mesh.point_vertices.get(1).copied();
+    assert!(
+        mesh.line_edges
+            .iter()
+            .any(|edge| edge.vertices.iter().any(|&v| Some(v) == on_line))
+    );
+    assert!(mesh.new_vertices.contains(&RegionVertex::Point(2)));
+    assert_eq!(mesh.points.get(..points.len()), Some(&points[..]));
+    Ok(())
+}
+
+#[test]
+fn empty_point_pool_is_identical_and_invalid_or_boundary_points_refuse() -> Result<(), RegionError>
+{
+    let (points, triangles) = grid(9);
+    let region = ring(&[[1.5, 1.5], [6.5, 1.5], [6.5, 6.5], [1.5, 6.5]]);
+    let request = RegionRequest {
+        points: &points,
+        triangles: &triangles,
+        region: &region,
+        breaklines: &[],
+    };
+    assert_eq!(
+        retriangulate_region(&request)?,
+        retriangulate_region_with_points(&request, &[])?
+    );
+    for spots in [
+        &[3.0, 3.0][..],
+        &[3.0, 3.0, f64::NAN],
+        &[f64::INFINITY, 3.0, 0.0],
+        &[1.5, 3.0, 0.0],
+        &[7.0, 3.0, 0.0],
+    ] {
+        assert_eq!(
+            retriangulate_region_with_points(&request, spots).err(),
+            Some(RegionError::Point)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn breaklines_leaving_the_region_and_base_holes_refuse() {
     let (points, triangles) = grid(9);
     let notched = ring(&[

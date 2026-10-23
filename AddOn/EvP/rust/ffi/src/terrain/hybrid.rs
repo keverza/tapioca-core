@@ -330,6 +330,11 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
                 .ok_or(Failure::Argument("TerrainCountOverflow"))?,
         )?;
         match *vertex {
+            RegionVertex::Point(_) => {
+                // This ABI has no isolated-point input. Never discard an
+                // unsupported ancestry if a future caller changes that.
+                return Err(Failure::Argument("TerrainHybridPointUnsupported"));
+            }
             RegionVertex::Breakline { line, vertex } => {
                 mappings.push(row(13, at, [line, vertex, 0, 0, 0, 0]));
             }

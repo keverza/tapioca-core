@@ -59,6 +59,8 @@ pub enum Support {
 /// Why an appended vertex exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegionVertex {
+    /// An isolated caller point, indexed in the supplied flat xyz point pool.
+    Point(u32),
     /// A caller breakline vertex that is not an existing mesh vertex.
     Breakline {
         /// Index into [`RegionRequest::breaklines`].
@@ -102,6 +104,8 @@ pub struct RegionMesh {
     pub new_vertices: Vec<RegionVertex>,
     /// Per breakline, per vertex, its output vertex.
     pub breakline_vertices: Vec<Vec<u32>>,
+    /// Per isolated caller point, its output vertex (including coincident inputs).
+    pub point_vertices: Vec<u32>,
     /// Breakline edges by line, then segment, then along the segment.
     pub line_edges: Vec<RegionLineEdge>,
     /// The region ring as a closed chain of output vertices.
@@ -122,6 +126,8 @@ pub enum RegionError {
     Topology,
     /// A new vertex is off the base surface.
     Coverage,
+    /// Isolated points need whole finite xyz triples strictly inside the region.
+    Point,
 }
 
 impl RegionError {
@@ -140,6 +146,7 @@ impl RegionError {
                 "RegionTopology: the region must be one hole-free manifold disc of the base mesh"
             }
             Self::Coverage => "RegionCoverage: a new vertex is off the base surface",
+            Self::Point => "RegionPoint: points need finite xyz triples strictly inside the region",
         }
     }
 }
@@ -177,9 +184,33 @@ fn validate_breaklines(request: &RegionRequest<'_>) -> Result<(), RegionError> {
 /// # Errors
 /// See [`RegionError`].
 pub fn retriangulate_region(request: &RegionRequest<'_>) -> Result<RegionMesh, RegionError> {
+    retriangulate_region_with_points(request, &[])
+}
+
+/// Rebuild a region with breaklines and isolated points (for fixed-height
+/// controls). Points become vertices, not artificial zero-length constraints;
+/// their z is ignored and their base height is sampled as for breaklines.
+/// Input order and all coincident point mappings are retained. The original
+/// entrypoint is exactly this operation with an empty point pool.
+///
+/// # Errors
+/// See [`RegionError`]. Points on/outside the ring refuse rather than changing
+/// its stitch to the untouched exterior.
+pub fn retriangulate_region_with_points(
+    request: &RegionRequest<'_>,
+    spots: &[f64],
+) -> Result<RegionMesh, RegionError> {
     let field = Field::new(request.points, request.triangles)
         .map_err(|_| RegionError::Terrain(Error::Shape))?;
     validate_breaklines(request)?;
+    if !spots.len().is_multiple_of(3)
+        || spots.iter().any(|value| !value.is_finite())
+        || plan::vertices(spots)
+            .iter()
+            .any(|&[x, y, _]| plan::inside(plan::vertices(request.region), x, y) != Some(true))
+    {
+        return Err(RegionError::Point);
+    }
     let split = split_mesh(&SplitRequest {
         points: request.points,
         triangles: request.triangles,
@@ -254,6 +285,10 @@ pub fn retriangulate_region(request: &RegionRequest<'_>) -> Result<RegionMesh, R
         }
         lines.push(chain);
     }
+    let spot_start = points.len() / 3;
+    for &[x, y, _] in plan::vertices(spots) {
+        points.extend([x, y, 0.0]);
+    }
     let boundary = ring
         .iter()
         .map(|&v| local(v))
@@ -308,11 +343,13 @@ pub fn retriangulate_region(request: &RegionRequest<'_>) -> Result<RegionMesh, R
         if slot.is_none() {
             *slot = Some(if input < mesh_count {
                 Ok(*mesh_vertices.get(input).ok_or(RegionError::Topology)?)
-            } else {
+            } else if input < spot_start {
                 let &(line, vertex) = owners
                     .get(input - mesh_count)
                     .ok_or(RegionError::Topology)?;
                 Err(RegionVertex::Breakline { line, vertex })
+            } else {
+                Err(RegionVertex::Point(index(input - spot_start)?))
             });
         }
     }
@@ -382,6 +419,13 @@ pub fn retriangulate_region(request: &RegionRequest<'_>) -> Result<RegionMesh, R
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let point_vertices = tin
+        .input_vertices
+        .get(spot_start..)
+        .ok_or(RegionError::Topology)?
+        .iter()
+        .map(|&vertex| map(vertex))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let input_corners = request.triangles.as_chunks::<3>().0;
     let mut triangles = Vec::new();
@@ -424,6 +468,7 @@ pub fn retriangulate_region(request: &RegionRequest<'_>) -> Result<RegionMesh, R
         split_vertices: split.new_vertices,
         new_vertices,
         breakline_vertices,
+        point_vertices,
         line_edges,
         ring,
     })
