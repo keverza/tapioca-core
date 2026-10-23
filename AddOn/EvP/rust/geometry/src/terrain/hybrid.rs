@@ -26,7 +26,8 @@
 //! one; [`assess`] lists them all, and soft ones ride on [`Built::conflicts`].
 //!
 //! P1 rebuilds the whole region interior per call; region-limited rebuilds,
-//! areas, spots, several bands and conflict reporting are later phases.
+//! areas, grading spots and several bands are later phases. [`build_locked`]
+//! adds fixed-height point/line constraints without a second surface authority.
 
 use super::Error;
 use super::daylight::Locus;
@@ -34,7 +35,7 @@ use super::design::{Band, Design, DesignError};
 use super::edit::Hand;
 use super::field::Field;
 use super::plan;
-use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_region};
+use super::region::{RegionError, RegionMesh, RegionRequest, retriangulate_region_with_points};
 use super::volume::VolumeError;
 use super::volume::exact::{ExactReport, ExactRequest, exact_cut_fill};
 
@@ -72,6 +73,8 @@ pub enum LineKind {
     End(bool),
     /// The centreline, a crease of a crowned band.
     Crown,
+    /// A fixed-height line, indexed in [`Locked::lines`].
+    Locked(u32),
 }
 
 /// The built surface and its mapping.
@@ -91,10 +94,13 @@ pub struct Built {
     pub volumes: ExactReport,
     /// Soft located conflicts: where the band is held back but still built.
     pub conflicts: Vec<Conflict>,
+    /// Fixed-height vertices, with every contributing control. Their heights
+    /// are owned by those controls, not by the band (`owners` is `None`).
+    pub locked: Vec<LockedVertex>,
 }
 
 /// Build refusals.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HybridError {
     /// The base mesh is not a field.
     Field,
@@ -123,6 +129,10 @@ pub enum HybridError {
         /// The side.
         side: Hand,
     },
+    /// Invalid fixed-height point/line pool or unusable line interpolation.
+    LockedParameters,
+    /// The grading surface or another control disagrees with a fixed height.
+    LockedConflict(LockedConflict),
 }
 
 impl HybridError {
@@ -143,12 +153,20 @@ impl HybridError {
             Self::DaylightTopology { .. } => {
                 "HybridDaylightTopology: a side's daylight count or classification changes along the band"
             }
+            Self::LockedParameters => {
+                "LockedParameters: finite xyz controls and nonzero open line segments required"
+            }
+            Self::LockedConflict(_) => {
+                "LockedConflict: the grading surface or another control disagrees with a fixed height; narrow the band or align the elevations"
+            }
         }
     }
 }
 
 pub mod conflict;
 pub use conflict::{Conflict, ConflictCode, assess};
+mod locked;
+pub use locked::{LockRef, Locked, LockedConflict, LockedVertex};
 
 /// Per station of one side: its shoulder and daylight roots; `None` at grade.
 type SideOffsets = Option<Vec<(f64, Vec<f64>)>>;
@@ -298,6 +316,25 @@ fn lines(
 /// # Errors
 /// See [`HybridError`].
 pub fn build(request: &BuildRequest<'_>) -> Result<Built, HybridError> {
+    build_locked(request, Locked::default())
+}
+
+/// Build with a fixed-height tier. Controls are constrained in the same TIN as
+/// the band; independent points are inserted as vertices and every split of a
+/// line takes its linearly interpolated fixed height. Conflicting controls, or
+/// grading that would move a control by more than `request.tolerance`, return a
+/// located [`HybridError::LockedConflict`]. Compatible values retain the fixed
+/// height exactly. No implicit ramp, clamping or objective penalty is introduced.
+/// At daylight vertices the stronger bitwise base-preservation contract wins:
+/// any different fixed height refuses, even within the compatibility tolerance.
+/// Controls are constraints on the proposed surface, not independent grading
+/// tools; use a band/profile to reach a control that differs from the base.
+///
+/// # Errors
+/// See [`HybridError`]. Controls on/outside the region refuse through
+/// [`RegionError`]; surface/area locks and soft-tier composition are not provided.
+pub fn build_locked(request: &BuildRequest<'_>, locked: Locked<'_>) -> Result<Built, HybridError> {
+    locked::validate(locked)?;
     let field = Field::new(request.points, request.triangles).map_err(|_| HybridError::Field)?;
     let design =
         Design::new(&request.band, &field, request.tolerance).map_err(HybridError::Design)?;
@@ -307,15 +344,28 @@ pub fn build(request: &BuildRequest<'_>) -> Result<Built, HybridError> {
         .into_iter()
         .filter(|c| !c.code.hard())
         .collect();
-    let (polylines, kinds) = lines(&design, &offsets)?;
-    let breaklines: Vec<&[f64]> = polylines.iter().map(Vec::as_slice).collect();
-    let mesh = retriangulate_region(&RegionRequest {
-        points: request.points,
-        triangles: request.triangles,
-        region: request.region,
-        breaklines: &breaklines,
-    })
+    let (polylines, design_kinds) = lines(&design, &offsets)?;
+    let mut kinds = (0..locked.lines.len())
+        .map(|line| index(line).map(LineKind::Locked))
+        .collect::<Result<Vec<_>, _>>()?;
+    kinds.extend(design_kinds);
+    let breaklines: Vec<&[f64]> = locked
+        .lines
+        .iter()
+        .copied()
+        .chain(polylines.iter().map(Vec::as_slice))
+        .collect();
+    let mesh = retriangulate_region_with_points(
+        &RegionRequest {
+            points: request.points,
+            triangles: request.triangles,
+            region: request.region,
+            breaklines: &breaklines,
+        },
+        locked.points,
+    )
     .map_err(HybridError::Region)?;
+    let controls = locked::resolve(&mesh, locked, request.tolerance)?;
 
     let vertices = plan::vertices(&mesh.points);
     let mut fixed = vec![false; vertices.len()];
@@ -362,6 +412,12 @@ pub fn build(request: &BuildRequest<'_>) -> Result<Built, HybridError> {
         base.push(z);
         owners.push((height.to_bits() != z.to_bits()).then_some(0));
     }
+    locked::apply(&mut points, &controls, request.tolerance, &fixed)?;
+    for control in &controls {
+        if let Some(owner) = owners.get_mut(control.vertex as usize) {
+            *owner = None;
+        }
+    }
     let volumes = exact_cut_fill(&ExactRequest {
         points: &points,
         base: &base,
@@ -377,6 +433,7 @@ pub fn build(request: &BuildRequest<'_>) -> Result<Built, HybridError> {
         daylight,
         volumes,
         conflicts,
+        locked: controls,
     })
 }
 

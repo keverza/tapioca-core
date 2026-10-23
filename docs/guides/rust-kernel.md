@@ -959,6 +959,44 @@ build refuses) and `tapioca_terrain_edit_clips`. `AssessHybridTerrain`,
 `EditTerrainResult::clips` carry them in C++; `AssessTerrainDesign` reports them in
 path stations, and a refused `EvaluateTerrainDesign` names its first place.
 
+## S4.3 fixed-height controls (Rust kernel checkpoint)
+
+`terrain::hybrid::build_locked(request, Locked { lines, points })` adds fixed
+xyz points and open xyz polylines to the same region TIN as the path band.
+`retriangulate_region_with_points` inserts isolated controls without making
+zero-length constraints; every input point maps to an output vertex, including
+coincident points. Existing region/build entrypoints use empty control pools.
+Multiway crossing records map by their actual `Crossing::vertex`, not by a
+presumed appended offset (several segment pairs can share an existing vertex).
+
+Locked lines precede the design lines and constrain every split edge. Heights
+interpolate linearly along each control segment, with supplied endpoint bits
+retained. `Built::locked` lists output vertices, exact fixed heights and **all**
+point/segment contributors; `LineKind::Locked` locates each input line. These
+locators are not authored IDs: a future wrapper resolves them through retained
+input provenance. Locked height ownership is separate from band ownership.
+
+Conflicting controls or grading that misses a control by more than the request's
+absolute metre tolerance return `HybridError::LockedConflict`, carrying the
+control(s), candidate vertex, world position, signed height mismatch and suggested
+fix. Compatible controls keep the first input height (lines, then points), and
+the proposed surface takes that height exactly. Daylight vertices have a stronger
+bitwise base-preservation contract: even a within-tolerance difference refuses.
+Malformed/non-finite pools, unusable interpolation and overflowing differences
+refuse `LockedParameters`; boundary/outside controls retain the region refusals.
+
+These are constraints, not independent grading tools: an incompatible control
+does not generate an unauthored ramp, clamp the band or launch a solve. The whole
+candidate is discarded on refusal. Base-edge constraints and exact triangle-sum
+volumes remain in force. Controls are strictly inside the rebuild ring.
+
+**Not exposed through C yet.** Every pinned ABI record/export stays unchanged;
+the old hybrid encoder explicitly refuses fixed-control ancestry rather than
+discarding it. Additive ABI/facade transport with required control provenance,
+all-conflict assessment, document persistence/UI, locked surfaces and enforcement
+in the separate soft-edit/solve lanes remain downstream. No native or performance
+acceptance is implied. The existing between-station chord-error limit remains.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

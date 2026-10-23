@@ -13,7 +13,7 @@ fn close(left: f64, right: f64, tolerance: f64) -> bool {
 
 /// A 5-m grid over `[-20.5, 59.5] x [-30.5, 29.5]` carrying `z`; the half-metre
 /// offset keeps grid lines off the band's own lines.
-fn base(z: impl Fn(f64, f64) -> f64) -> (Vec<f64>, Vec<u32>) {
+pub(super) fn base(z: impl Fn(f64, f64) -> f64) -> (Vec<f64>, Vec<u32>) {
     let (columns, rows) = (17_u32, 13_u32);
     let mut points = Vec::new();
     for row in 0..rows {
@@ -35,11 +35,11 @@ fn base(z: impl Fn(f64, f64) -> f64) -> (Vec<f64>, Vec<u32>) {
     (points, triangles)
 }
 
-fn worked(x: f64, y: f64) -> f64 {
+pub(super) fn worked(x: f64, y: f64) -> f64 {
     10.0 + 0.05 * x - 0.2 * y
 }
 
-const REGION: [f64; 12] = [
+pub(super) const REGION: [f64; 12] = [
     -10.0, -15.0, 0.0, 50.0, -15.0, 0.0, 50.0, 15.0, 0.0, -10.0, 15.0, 0.0,
 ];
 
@@ -48,7 +48,7 @@ const HALF: Slope = Slope::RiseRun {
     run: 2.0,
 };
 
-fn station(x: f64, z: f64, shoulder: f64) -> Station {
+pub(super) fn station(x: f64, z: f64, shoulder: f64) -> Station {
     Station {
         position: [x, 0.0, z],
         half_left: 2.0,
@@ -77,7 +77,7 @@ fn run(points: &[f64], triangles: &[u32], stations: &[Station]) -> Result<Built,
 }
 
 /// `[fill, cut]` of the built triangles whose centroid lies in `x0 < x < x1`.
-fn between(built: &Built, x0: f64, x1: f64) -> [f64; 2] {
+pub(super) fn between(built: &Built, x0: f64, x1: f64) -> [f64; 2] {
     let proposed = plan::vertices(&built.points);
     let based = plan::vertices(&built.mesh.points);
     let mut total = [0.0, 0.0];

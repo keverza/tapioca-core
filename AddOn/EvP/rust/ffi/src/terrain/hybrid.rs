@@ -290,7 +290,11 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
         daylight,
         volumes: report,
         conflicts: _,
+        locked,
     } = built;
+    if !locked.is_empty() {
+        return Err(Failure::Argument("TerrainHybridLockedUnsupported"));
+    }
     let mut mappings = Vec::new();
     for (face, ((&parent, &inside), &kept)) in mesh
         .parents
@@ -370,15 +374,18 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
                 LineKind::Daylight { side, root } => (3, hand(side), root),
                 LineKind::End(last) => (4, 0, u32::from(last)),
                 LineKind::Crown => (5, 0, 0),
+                LineKind::Locked(_) => {
+                    return Err(Failure::Argument("TerrainHybridLockedUnsupported"));
+                }
             };
-            TerrainHybridLine {
+            Ok(TerrainHybridLine {
                 kind,
                 side,
                 root,
                 reserved: 0,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<_, Failure>>()?;
     let mut sides = Vec::with_capacity(daylight.len() * 2);
     for pair in &daylight {
         for side in pair {
