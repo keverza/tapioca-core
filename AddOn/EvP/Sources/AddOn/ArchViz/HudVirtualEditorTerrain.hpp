@@ -22,6 +22,11 @@ struct TerrainCaptureRequest {
     uint64_t revision = 0;
     std::string terrainGuid; // Empty: read exactly one native selected Mesh; otherwise recapture this source.
 };
+struct TerrainSectionDraft {
+    edit::Id path = edit::kNoId, section = edit::kNoId;
+    uint64_t revision = 0;
+    edit::Section value; // Only the existing section's dimensional fields are editable here.
+};
 struct TerrainDesignBaseline {
     std::shared_ptr<const Mesh> mesh;
     bool nativeSolid = false; // Compact the upward surface on the worker.
@@ -60,6 +65,10 @@ bool EditTerrainDesignPath (Session& session);
 bool DrawTerrainDesignPath (Session& session);
 bool DrawTerrainPropertyLine (Session& session);
 void TerrainSetupPanel (Session& session);
+// One explicit Apply through the existing Session history. Drafts are revision-
+// bound; stale/missing ranges refuse rather than retarget or overwrite newer edits.
+bool BeginTerrainSectionEdit (Session& session, edit::Id section);
+bool ApplyTerrainSectionEdit (Session& session);
 // Selected guide vertices become point controls; selected whole open polylines
 // become line controls. One existing Session history entry for the whole set.
 bool SetTerrainControlSelection (Session& session, bool enabled);

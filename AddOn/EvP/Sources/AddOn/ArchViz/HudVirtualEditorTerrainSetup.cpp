@@ -1,5 +1,6 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
+#include "Edit/EditPathEdit.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <set>
@@ -80,6 +81,8 @@ bool ChooseTerrainDesignPath (Session& s, edit::Id path)
         return false;
     }
     s.terrainPath = path;
+    if (s.terrainSectionDraft && s.terrainSectionDraft->path != path)
+        s.terrainSectionDraft.reset ();
     s.message.clear ();
     return true;
 }
@@ -110,6 +113,123 @@ bool DrawTerrainPropertyLine (Session& s)
 {
     return BeginDrawing (s, true);
 }
+
+bool BeginTerrainSectionEdit (Session& s, edit::Id section)
+{
+    if (!Ready (s))
+        return false;
+    const auto path = ResolveTerrainDesignPath (s);
+    const auto* authored = edit::FindPath (s.edits.Doc (), path);
+    if (authored)
+        for (const auto& value : authored->sections)
+            if (value.id == section) {
+                s.terrainSectionDraft = std::make_shared<TerrainSectionDraft> (
+                    TerrainSectionDraft { path, section, s.edits.Doc ().revision, value });
+                s.message.clear ();
+                return true;
+            }
+    s.message = "TerrainSectionMissing: the chosen path range no longer exists.";
+    return false;
+}
+
+bool ApplyTerrainSectionEdit (Session& s)
+{
+    if (!Ready (s))
+        return false;
+    const auto draft = s.terrainSectionDraft;
+    if (!draft || draft->revision != s.edits.Doc ().revision || draft->path != ResolveTerrainDesignPath (s)) {
+        s.message = "TerrainSectionStale: reload section values before applying over a changed document.";
+        return false;
+    }
+    const auto request = *draft; // The operation owns its typed values, never a mutable UI borrow.
+    const bool changed = s.edits.Apply ([request] (edit::Document& doc, std::string& error) {
+        return edit::EditPath (
+            doc, request.path,
+            [request] (edit::Path& path, std::string& error) {
+                for (auto& section : path.sections)
+                    if (section.id == request.section) {
+                        if (request.value.id != section.id || request.value.station != section.station ||
+                            (request.value.fall != edit::Fall::Left && request.value.fall != edit::Fall::Right &&
+                             request.value.fall != edit::Fall::Crown)) {
+                            error = "TerrainSectionIdentity: use path tools to change ranges, not dimensional fields.";
+                            return false;
+                        }
+                        section = request.value;
+                        return true;
+                    }
+                error = "TerrainSectionMissing: the edited range no longer exists.";
+                return false;
+            },
+            error);
+    });
+    if (!changed) {
+        s.message = s.edits.Message ().empty () ? "Cross-section unchanged." : s.edits.Message ();
+        return false;
+    }
+    s.terrainSectionDraft = std::make_shared<TerrainSectionDraft> (
+        TerrainSectionDraft { request.path, request.section, s.edits.Doc ().revision, request.value });
+    s.publishedRevision = UINT64_MAX;
+    s.message = "Cross-section applied. Terrain preview follows the document revision.";
+    return true;
+}
+
+namespace {
+void SectionPanel (Session& s, edit::Id path)
+{
+    const auto* authored = edit::FindPath (s.edits.Doc (), path);
+    if (!authored || authored->sections.empty () || !ImGui::TreeNode ("Terrain cross-section"))
+        return;
+    const auto sections = authored->sections;
+    if ((!s.terrainSectionDraft || s.terrainSectionDraft->path != path) && Idle (s))
+        BeginTerrainSectionEdit (s, sections.front ().id);
+    if (!s.terrainSectionDraft || s.terrainSectionDraft->path != path) {
+        ImGui::TextDisabled ("Finish the current input to edit section values.");
+        ImGui::TreePop ();
+        return;
+    }
+    const auto range = "Range " + std::to_string (s.terrainSectionDraft->section);
+    if (ImGui::BeginCombo ("Section range", range.c_str ())) {
+        for (const auto& section : sections) {
+            const auto label =
+                "Range " + std::to_string (section.id) + " from " + std::to_string (section.station) + " m";
+            if (ImGui::Selectable (label.c_str (), section.id == s.terrainSectionDraft->section))
+                BeginTerrainSectionEdit (s, section.id);
+        }
+        ImGui::EndCombo ();
+    }
+    const auto draft = s.terrainSectionDraft;
+    const bool stale = draft->revision != s.edits.Doc ().revision;
+    if (stale)
+        ImGui::TextWrapped (
+            "Section values are stale. Reload before applying; newer document edits will not be overwritten.");
+    ImGui::BeginDisabled (stale);
+    auto& value = draft->value;
+    ImGui::InputDouble ("Left width (m)", &value.widthLeft, 0, 0, "%.3f");
+    ImGui::InputDouble ("Right width (m)", &value.widthRight, 0, 0, "%.3f");
+    ImGui::InputDouble ("Crossfall (%)", &value.crossfall, 0, 0, "%.3f");
+    const char* fall = value.fall == edit::Fall::Left ? "Left" : value.fall == edit::Fall::Right ? "Right" : "Crown";
+    if (ImGui::BeginCombo ("Falls to", fall)) {
+        for (auto hand : { edit::Fall::Left, edit::Fall::Right, edit::Fall::Crown }) {
+            const char* name = hand == edit::Fall::Left ? "Left" : hand == edit::Fall::Right ? "Right" : "Crown";
+            if (ImGui::Selectable (name, value.fall == hand))
+                value.fall = hand;
+        }
+        ImGui::EndCombo ();
+    }
+    ImGui::InputDouble ("Shoulder (m)", &value.shoulder, 0, 0, "%.3f");
+    ImGui::InputDouble ("Cut slope (%)", &value.cutSlope, 0, 0, "%.3f");
+    ImGui::InputDouble ("Fill slope (%)", &value.fillSlope, 0, 0, "%.3f");
+    if (ImGui::Button ("Apply cross-section"))
+        ApplyTerrainSectionEdit (s);
+    ImGui::EndDisabled ();
+    ImGui::SameLine ();
+    if (ImGui::Button ("Reload section values"))
+        BeginTerrainSectionEdit (s, draft->section);
+    ImGui::TextWrapped (
+        "Values apply together as one undo step. Profile elevations remain in the path profile controls.");
+    ImGui::TreePop ();
+}
+} // namespace
 
 void TerrainSetupPanel (Session& s)
 {
@@ -144,6 +264,8 @@ void TerrainSetupPanel (Session& s)
         if (ImGui::Button ("Edit design path"))
             EditTerrainDesignPath (s);
     }
+    if (chosen)
+        SectionPanel (s, chosen);
     if (!doc.landscape->propertyLineSourceId) {
         ImGui::TextWrapped ("A property line is needed for terrain capture, not for drawing or editing the path.");
         if (ImGui::Button ("Draw property line"))

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <limits>
 
 namespace {
 namespace eh = geomsrv::archviz::edithud;
@@ -155,4 +156,122 @@ TEST (HudTerrainSetup, PathEditingIsAvailableBeforeAPropertyLineAndSetupRefusesA
     session.drawing = { { 0, 0, 10 } };
     EXPECT_FALSE (eh::DrawTerrainPropertyLine (session));
     EXPECT_EQ (session.drawing.size (), 1U);
+}
+
+TEST (HudTerrainSetup, SectionFieldsApplyTogetherInOneHistoryEntryAndPersistInTheExistingPathCodec)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto before = edit::FindPath (doc, path)->sections.front ();
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+    auto& value = session.terrainSectionDraft->value;
+    value.widthLeft = 2;
+    value.widthRight = 3;
+    value.crossfall = 3;
+    value.fall = edit::Fall::Right;
+    value.shoulder = .25;
+    value.cutSlope = 60;
+    value.fillSlope = 40;
+    const auto expected = value;
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+    EXPECT_EQ (session.edits.UndoDepth (), 0U);
+    ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), expected);
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session)); // No-op is not an extra history entry.
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    std::string text, error;
+    ASSERT_TRUE (lg::WriteLandscape (session.edits.Doc (), lg::LandscapeStorage::Virtual, text, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (lg::ReadLandscape (text, loaded, error)) << error;
+    EXPECT_EQ (edit::FindPath (loaded, path)->sections.front (), expected);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+    EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session)); // A draft from before Undo is stale.
+    EXPECT_NE (session.message.find ("TerrainSectionStale:"), std::string::npos);
+    ASSERT_TRUE (session.edits.Redo ());
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), expected);
+}
+
+TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAndRemainCorrectable)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto before = edit::FindPath (doc, path)->sections.front ();
+    eh::Session session (doc);
+    for (int mutation = 0; mutation < 7; ++mutation) {
+        ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+        auto& value = session.terrainSectionDraft->value;
+        switch (mutation) {
+            case 0:
+                value.widthLeft = -1;
+                break;
+            case 1:
+                value.cutSlope = 0;
+                break;
+            case 2:
+                value.fillSlope = std::numeric_limits<double>::infinity ();
+                break;
+            case 3:
+                value.crossfall = std::numeric_limits<double>::quiet_NaN ();
+                break;
+            case 4:
+                ++value.id;
+                break;
+            case 5:
+                value.station += 1;
+                break;
+            case 6:
+                value.fall = static_cast<edit::Fall> (255);
+                break;
+        }
+        EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session)) << mutation;
+        EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+        EXPECT_EQ (session.edits.Doc ().revision, doc.revision);
+        EXPECT_EQ (session.edits.UndoDepth (), 0U);
+    }
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+    session.terrainSectionDraft->value.cutSlope = 65;
+    ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front ().cutSlope, 65);
+}
+
+TEST (HudTerrainSetup, DraftsCannotCrossPathsOverwriteNewerEditsOrApplyDuringInput)
+{
+    auto doc = EmptyLandscape ();
+    const auto first = AddDesignPath (doc);
+    const auto second = AddDesignPath (doc, 10);
+    const auto section = edit::FindPath (doc, first)->sections.front ().id;
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::ChooseTerrainDesignPath (session, first));
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, section));
+    session.terrainSectionDraft->value.cutSlope = 65;
+    ASSERT_TRUE (session.edits.Begin ());
+    EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session));
+    session.edits.Cancel ();
+    ASSERT_TRUE (session.edits.Apply ([=] (edit::Document& value, std::string& error) {
+        return edit::SetPathWidth (value, first, section, 4, 4, error);
+    }));
+    EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session));
+    EXPECT_NE (session.message.find ("TerrainSectionStale:"), std::string::npos);
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), first)->sections.front ().widthLeft, 4);
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, section)); // Explicit reload reads the new values.
+    EXPECT_EQ (session.terrainSectionDraft->value.widthLeft, 4);
+    ASSERT_TRUE (eh::ChooseTerrainDesignPath (session, second));
+    EXPECT_FALSE (session.terrainSectionDraft);
+    EXPECT_FALSE (eh::BeginTerrainSectionEdit (session, section));
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+}
+
+TEST (HudTerrainSetup, PanelRendersExplicitSectionParametersInsteadOfOnlyCaptureButtons)
+{
+    auto doc = EmptyLandscape ();
+    AddDesignPath (doc);
+    eh::Session session (doc);
+    const auto text = PanelText (session);
+    for (const char* label : { "Left width (m)", "Right width (m)", "Crossfall (%)", "Shoulder (m)", "Cut slope (%)",
+                               "Fill slope (%)", "Apply cross-section" })
+        EXPECT_NE (text.find (label), std::string::npos) << label << "\n" << text;
+    EXPECT_EQ (session.edits.UndoDepth (), 0U);
 }

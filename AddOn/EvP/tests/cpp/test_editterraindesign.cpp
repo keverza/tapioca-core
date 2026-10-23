@@ -866,6 +866,36 @@ TEST (HudTerrainDesign, OneHistoryOwnsTheDesignAndItsDerivedWorkerLayer)
     EXPECT_EQ (session.edits.UndoDepth (), 1U);
 }
 
+TEST (HudTerrainDesign, TypedCrossSectionApplyRebuildsTheExistingPreviewWithoutAddingWorkerHistory)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_EQ (session.terrainPath, fixture.path);
+    const auto original = eh::CurrentTerrainDesign (session)->result.build.points;
+    const auto section = edit::FindPath (session.edits.Doc (), fixture.path)->sections.front ().id;
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, section)) << session.message;
+    session.terrainSectionDraft->value.widthLeft = 2;
+    session.terrainSectionDraft->value.widthRight = 2;
+    session.terrainSectionDraft->value.crossfall = 1;
+    session.terrainSectionDraft->value.fall = edit::Fall::Crown;
+    session.terrainSectionDraft->value.cutSlope = 60;
+    const auto depth = session.edits.UndoDepth ();
+    ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
+    EXPECT_EQ (session.edits.UndoDepth (), depth + 1);
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer), nullptr);
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_NE (eh::CurrentTerrainDesign (session)->result.build.points, original);
+    EXPECT_GT (eh::CurrentTerrainDesign (session)->result.build.site.cut, 0);
+    EXPECT_EQ (session.edits.UndoDepth (), depth + 1);
+    ASSERT_TRUE (session.edits.Undo ());
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_EQ (eh::CurrentTerrainDesign (session)->result.build.points, original);
+}
+
 TEST (HudTerrainDesign, EditsCoalesceUntilReleaseAndStaleWorkersNeverDraw)
 {
     TerrainHostFixture fixture;

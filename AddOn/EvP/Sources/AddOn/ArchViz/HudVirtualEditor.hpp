@@ -36,6 +36,7 @@ namespace geomsrv::archviz::edithud {
 
 struct TerrainDesignState;
 struct TerrainCaptureRequest;
+struct TerrainSectionDraft;
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve };
 enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
@@ -68,6 +69,7 @@ struct Session {
     std::shared_ptr<const TerrainCaptureRequest> terrainCapture;
     bool terrainCaptureQueued = false;
     edit::Id terrainPath = edit::kNoId;
+    std::shared_ptr<TerrainSectionDraft> terrainSectionDraft; // Uncommitted typed fields; not document state.
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;
