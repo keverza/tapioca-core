@@ -704,6 +704,67 @@ bool AwaitTerrain (eh::Session& session, layers::Layer& layer, bool refused = fa
 }
 } // namespace
 
+TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer)
+{
+    TerrainHostFixture fixture;
+    LandscapeSource guide;
+    guide.entityId = edit::AddPolyline (fixture.doc, { { 10, -1, 10 }, { 20, 1, 10 } }, false);
+    Id source = 0;
+    std::string error;
+    ASSERT_TRUE (AddLandscapeSource (fixture.doc, guide, source, error)) << error;
+    const auto vertex = edit::Find (fixture.doc, guide.entityId)->vertices.front ().id;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    const auto initialDepth = session.edits.UndoDepth ();
+    session.selection.Set (
+        { { guide.entityId, edit::Part::Entity, 0 }, { guide.entityId, edit::Part::Vertex, vertex } });
+    const auto selection = session.selection.Items ();
+    session.selection.Set ({ { guide.entityId, edit::Part::Vertex, vertex }, { fixture.path, edit::Part::Range, 0 } });
+    EXPECT_FALSE (eh::SetTerrainControlSelection (session, true));
+    EXPECT_TRUE (session.edits.Doc ().landscape->terrainControls.empty ());
+    EXPECT_EQ (session.edits.UndoDepth (), initialDepth);
+    session.selection.Set ({ { guide.entityId, edit::Part::Vertex, 0 } });
+    EXPECT_FALSE (eh::SetTerrainControlSelection (session, true));
+    session.selection.Set (selection);
+    ASSERT_TRUE (eh::SetTerrainControlSelection (session, true)) << session.message;
+    EXPECT_EQ (session.edits.UndoDepth (), initialDepth + 1);
+    EXPECT_EQ (session.selection.Items (), selection);
+    EXPECT_EQ (session.edits.Doc ().landscape->terrainControls.size (), 2U);
+    EXPECT_FALSE (eh::SetTerrainControlSelection (session, true)); // No-op, no history.
+    EXPECT_EQ (session.edits.UndoDepth (), initialDepth + 1);
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto* current = eh::CurrentTerrainDesign (session);
+    ASSERT_NE (current, nullptr);
+    EXPECT_FALSE (current->result.locked.empty ());
+    EXPECT_EQ (session.edits.UndoDepth (), initialDepth + 1);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_TRUE (session.edits.Doc ().landscape->terrainControls.empty ());
+    ASSERT_TRUE (session.edits.Redo ());
+    ASSERT_TRUE (session.edits.Apply ([=] (edit::Document& doc, std::string&) {
+        edit::Find (doc, guide.entityId)->vertices.front ().p.z += 1;
+        return true;
+    }));
+    const auto depth = session.edits.UndoDepth ();
+    eh::Follow (session, layer);
+    EXPECT_EQ (TerrainMesh (layer), nullptr); // Stale old build never draws.
+    ASSERT_TRUE (AwaitTerrain (session, layer, true));
+    current = eh::CurrentTerrainDesign (session);
+    ASSERT_NE (current, nullptr);
+    ASSERT_FALSE (current->conflicts.empty ());
+    EXPECT_EQ (current->conflicts.front ().code, HybridConflictCode::LockedConflict);
+    ASSERT_TRUE (current->conflicts.front ().control);
+    EXPECT_EQ (current->conflicts.front ().control->source, source);
+    EXPECT_FALSE (layer.points.empty ());
+    EXPECT_EQ (session.edits.UndoDepth (), depth); // Worker outcomes never author history.
+    ASSERT_TRUE (session.edits.Begin ());
+    EXPECT_FALSE (eh::SetTerrainControlSelection (session, false));
+    session.edits.Cancel ();
+    ASSERT_TRUE (eh::SetTerrainControlSelection (session, false));
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.locked.empty ());
+}
+
 TEST (HudTerrainDesign, OneHistoryOwnsTheDesignAndItsDerivedWorkerLayer)
 {
     TerrainHostFixture fixture;

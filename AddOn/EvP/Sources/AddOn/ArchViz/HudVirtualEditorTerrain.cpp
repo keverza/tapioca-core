@@ -2,9 +2,97 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "Geometry/Mesh.hpp"
 #include <imgui.h>
+#include <algorithm>
+#include <set>
 
 // OVERLAY-INVARIANTS.md §§8,12,14: session-owned derived geometry only;
 // both hosts consume the same layer, with no camera or renderer changes.
+namespace geomsrv::archviz::edithud {
+bool SetTerrainControlSelection (Session& s, bool enabled)
+{
+    if (!s.edits.Doc ().landscape || s.edits.InGesture () || GizmoModeLocked (s) || !s.drawing.empty ()) {
+        s.message = "Finish the current input before changing terrain controls.";
+        return false;
+    }
+    const auto refs = s.selection.Items ();
+    if (refs.empty ()) {
+        s.message = "Select guide vertices or whole open polylines for fixed terrain heights.";
+        return false;
+    }
+    const bool changed = s.edits.Apply ([refs, enabled] (edit::Document& doc, std::string& error) {
+        bool changed = false;
+        std::set<std::pair<edit::Id, edit::Id>> controls;
+        for (const auto& ref : refs) {
+            if ((ref.part != edit::Part::Vertex && ref.part != edit::Part::Entity) || !edit::Exists (doc, ref)) {
+                error = "TerrainControl: select guide vertices or whole open polylines.";
+                return false;
+            }
+            edit::Id source = 0;
+            for (const auto& candidate : doc.landscape->sources)
+                if (!candidate.deleted && candidate.entityId == ref.entity) {
+                    if (source) {
+                        error = "TerrainControl: the selected geometry has multiple source identities.";
+                        return false;
+                    }
+                    source = candidate.id;
+                }
+            if (!source) {
+                error = "TerrainControl: the selection has no live landscape guide source.";
+                return false;
+            }
+            controls.emplace (source, ref.part == edit::Part::Vertex ? ref.item : 0);
+        }
+        for (const auto& [source, vertex] : controls) {
+            if (tapioca::geometry::SetLandscapeTerrainControl (doc, source, vertex, enabled, error))
+                changed = true;
+            else if (!error.empty ())
+                return false;
+        }
+        return changed;
+    });
+    s.message = changed ? "Fixed terrain heights updated; guide geometry remains editable." : s.edits.Message ();
+    if (changed)
+        s.publishedRevision = UINT64_MAX;
+    return changed;
+}
+
+namespace {
+void TerrainControlsPanel (Session& s)
+{
+    if (!s.edits.Doc ().landscape || !ImGui::CollapsingHeader ("Fixed terrain heights"))
+        return;
+    ImGui::BeginDisabled (s.edits.InGesture () || GizmoModeLocked (s) || !s.drawing.empty ());
+    ImGui::TextWrapped ("Select guide vertices or an open straight polyline. Its authored Z is fixed in the terrain; "
+                        "this is not an object movement lock. Controls must be inside the rebuild region.");
+    if (ImGui::Button ("Fix selected heights"))
+        SetTerrainControlSelection (s, true);
+    ImGui::SameLine ();
+    if (ImGui::Button ("Release selected heights"))
+        SetTerrainControlSelection (s, false);
+    const auto controls = s.edits.Doc ().landscape->terrainControls;
+    for (size_t i = 0; i < controls.size (); ++i) {
+        const auto control = controls[i];
+        ImGui::PushID (static_cast<int> (i));
+        bool enabled = control.enabled;
+        if (ImGui::Checkbox ("##enabled", &enabled)) {
+            const bool changed = s.edits.Apply ([control, enabled] (edit::Document& doc, std::string& error) {
+                return tapioca::geometry::SetLandscapeTerrainControl (doc, control.source, control.vertex, enabled,
+                                                                      error);
+            });
+            s.message = s.edits.Message ();
+            if (changed)
+                s.publishedRevision = UINT64_MAX;
+        }
+        ImGui::SameLine ();
+        ImGui::Text ("Source %llu / %s %llu", static_cast<unsigned long long> (control.source),
+                     control.vertex ? "vertex" : "line", static_cast<unsigned long long> (control.vertex));
+        ImGui::PopID ();
+    }
+    ImGui::EndDisabled ();
+}
+} // namespace
+} // namespace geomsrv::archviz::edithud
+
 #if defined(TAPIOCA_GEOMETRY_RUST)
 #include "Edit/EditTerrainCapture.hpp"
 #include <algorithm>
@@ -220,6 +308,7 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
 
 void TerrainDesignPanel (Session& s)
 {
+    TerrainControlsPanel (s);
     if (!s.terrainDesign)
         return;
     const auto& state = *s.terrainDesign;
@@ -236,9 +325,14 @@ void TerrainDesignPanel (Session& s)
         ImGui::Text ("Cut %.3f m3   Fill %.3f m3", current->result.build.site.cut, current->result.build.site.fill);
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
     for (const auto& conflict : conflicts)
-        ImGui::TextWrapped ("%s at %.2f m, %s: %s", lg::HybridConflictName (conflict.code), conflict.station,
-                            conflict.side == lg::TerrainHand::Left ? "left" : "right",
-                            lg::HybridConflictSuggestion (conflict.code));
+        if (conflict.control)
+            ImGui::TextWrapped ("%s at fixed source %llu (%.3f m): %s", lg::HybridConflictName (conflict.code),
+                                static_cast<unsigned long long> (conflict.control->source), conflict.magnitude,
+                                lg::HybridConflictSuggestion (conflict.code));
+        else
+            ImGui::TextWrapped ("%s at %.2f m, %s: %s", lg::HybridConflictName (conflict.code), conflict.station,
+                                conflict.side == lg::TerrainHand::Left ? "left" : "right",
+                                lg::HybridConflictSuggestion (conflict.code));
 }
 } // namespace geomsrv::archviz::edithud
 
@@ -267,8 +361,9 @@ const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Sessi
 void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
 {
 }
-void TerrainDesignPanel (Session&)
+void TerrainDesignPanel (Session& s)
 {
+    TerrainControlsPanel (s);
 }
 } // namespace geomsrv::archviz::edithud
 #endif

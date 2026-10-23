@@ -45,5 +45,8 @@ void PollTerrainDesign (Session& session);
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session& session);
 void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
 void TerrainDesignPanel (Session& session);
+// Selected guide vertices become point controls; selected whole open polylines
+// become line controls. One existing Session history entry for the whole set.
+bool SetTerrainControlSelection (Session& session, bool enabled);
 } // namespace geomsrv::archviz::edithud
 #endif

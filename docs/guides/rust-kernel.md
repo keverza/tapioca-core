@@ -1021,6 +1021,31 @@ Locked surfaces, enumeration beyond the first fixed conflict, and enforcement in
 the separate soft-edit/solve lanes remain downstream. No native acceptance is
 implied; the between-station chord-error limit remains.
 
+**Document/editor integration.** `LandscapeSession::terrainControls` stores only
+`{source, vertex, enabled}`: vertex 0 is a whole open straight source polyline,
+otherwise an authored vertex on that source's entity. Heights remain in the
+universal document's geometry, never copied into a second editable control model.
+The optional v1 codec field is strict when present; older payloads without it
+load an empty fixed tier. Unknown/duplicate records refuse. Deleted references
+remain explicit orphans; enabled orphans refuse evaluation until resolved or
+disabled. Curved/closed whole-line controls refuse rather than being flattened.
+
+`EditTerrainControls` compiles current references on the worker, checks the
+same revision's source/native catalog, and appends their vertex/edge rows to the
+design input. `EditTerrainDesign` resolves **all** fixed contributors into its
+mesh table, including controls coincident with original base vertices. It also
+retains the actual authored vertex/segment IDs beside each fixed output vertex
+and conflict. Native bindings and predecessor tables remain retained.
+
+The landscape panel's **Fixed terrain heights** actions fix/release selected
+guide vertices or whole open straight polylines, as one existing `Session` undo
+entry for the whole selection. Stored controls can be bypassed individually.
+The guide's Z remains editable; a change updates the fixed height, invalidates
+the old preview and follows the existing revision-coalescing worker/publisher.
+Fixed conflicts draw through the existing shared layer and name the authored
+source, not a fake path station. Publication adds no history. Native capture/start
+is unchanged; actual UI/rendering and native quantity acceptance remain separate.
+
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 
 The standalone CMake entry needs no DevKit or Diligent:

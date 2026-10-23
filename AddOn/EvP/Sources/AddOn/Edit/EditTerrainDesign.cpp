@@ -3,6 +3,7 @@
 #include "Edit/EditPath.hpp"
 #include "Edit/EditLandscapeInternal.hpp"
 #include "Edit/EditTerrainAdapterInternal.hpp"
+#include "Edit/EditTerrainControls.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -203,9 +204,9 @@ struct Ancestry {
 class Remapper {
   public:
     Remapper (const EditTerrainInput& input, const TerrainDesignOptions& options, const IdentityObject& owner,
-              TerrainDesignResult& candidate)
+              TerrainDesignResult& candidate, const TerrainControls& controls)
         : input_ (input), options_ (options), owner_ (owner), candidate_ (candidate),
-          rows_ (candidate.build.inputProvenance), inputs_ (input.mesh.points.size () / 3)
+          rows_ (candidate.build.inputProvenance), inputs_ (input.mesh.points.size () / 3), controls_ (controls)
     {
     }
 
@@ -225,6 +226,12 @@ class Remapper {
             }
         split_.assign (vertices, nullptr);
         region_.assign (vertices, {});
+        fixed_.assign (vertices, nullptr);
+        for (const auto& fixed : build.locked) {
+            if (fixed_.at (fixed.vertex) || fixed.supports.empty ())
+                throw std::runtime_error ("duplicate/empty fixed vertex support");
+            fixed_.at (fixed.vertex) = &fixed;
+        }
         faceRows_.assign (faces, nullptr);
         std::vector<uint32_t> children (input_.provenance.counts.faces);
         std::set<std::pair<uint32_t, uint32_t>> edges;
@@ -250,6 +257,7 @@ class Remapper {
                     break;
                 case TerrainMappingKind::RegionLineVertex:
                 case TerrainMappingKind::RegionCrossing:
+                case TerrainMappingKind::RegionPoint:
                     if (row.index < inputs_ || split_.at (row.index) || region_.at (row.index).size () > 1)
                         throw std::runtime_error ("duplicate/invalid region vertex support");
                     region_.at (row.index).push_back (&row);
@@ -267,6 +275,14 @@ class Remapper {
                     if (row.values[0] >= vertices)
                         throw std::runtime_error ("invalid ring vertex");
                     break;
+                case TerrainMappingKind::ControlPointVertex:
+                    if (row.index >= controls_.pointSupport.size () || row.values[0] >= vertices)
+                        throw std::runtime_error ("invalid control point remap");
+                    break;
+                case TerrainMappingKind::LockedVertex:
+                    if (!fixed_.at (row.index))
+                        throw std::runtime_error ("missing fixed vertex support");
+                    break;
                 default:
                     throw std::runtime_error ("unexpected design support kind");
             }
@@ -278,7 +294,8 @@ class Remapper {
         for (size_t v = 0; v < vertices; ++v) {
             if (v >= inputs_ && !split_[v]) {
                 const auto& rows = region_[v];
-                const bool line = rows.size () == 1 && rows[0]->kind == TerrainMappingKind::RegionLineVertex;
+                const bool line = rows.size () == 1 && (rows[0]->kind == TerrainMappingKind::RegionLineVertex ||
+                                                        rows[0]->kind == TerrainMappingKind::RegionPoint);
                 const bool crossing = rows.size () == 2 && rows[0]->kind == TerrainMappingKind::RegionCrossing &&
                                       rows[1]->kind == TerrainMappingKind::RegionCrossing;
                 if (!line && !crossing) {
@@ -297,12 +314,15 @@ class Remapper {
             throw std::runtime_error ("design vertex ancestry does not terminate");
         Ancestry result;
         const auto table = options_.designTable;
+        const auto add = [&] (const EntityMapping* row) {
+            result.parents.insert (row);
+            result.support.insert ({ table, row->domain, row->outputIndex });
+        };
         if (vertex < inputs_) {
             result.parents.insert (rows_.vertices.at (vertex));
             result.support.insert ({ table, IdentityDomain::Vertex, vertex });
-            return result;
         }
-        if (const auto* row = split_.at (vertex)) {
+        else if (const auto* row = split_.at (vertex)) {
             const auto& v = row->values;
             if (v[2] == 1) {
                 if (v[3] >= inputs_ || v[4] >= inputs_ || v[3] == v[4])
@@ -323,20 +343,41 @@ class Remapper {
             const auto* guide = v[0] == 1 ? rows_.vertices.at (inputs_ + v[1]) : rows_.edges.at (v[1]);
             result.parents.insert (guide);
             result.support.insert ({ table, guide->domain, guide->outputIndex });
-            return result;
         }
-        for (const auto* row : region_.at (vertex)) {
-            // A crossing on a base edge inherits both ends' ancestry; a line
-            // vertex or a line-line crossing has none in the base.
-            if (row->kind == TerrainMappingKind::RegionCrossing && row->values[0] == 1)
-                for (uint32_t end : { row->values[1], row->values[2] }) {
-                    auto inner = Resolve (end, depth + 1);
-                    result.parents.insert (inner.parents.begin (), inner.parents.end ());
-                    result.support.insert (inner.support.begin (), inner.support.end ());
+        else
+            for (const auto* row : region_.at (vertex)) {
+                // A crossing on a base edge inherits both ends' ancestry; a line
+                // vertex or a line-line crossing has none in the base.
+                if (row->kind == TerrainMappingKind::RegionCrossing && row->values[0] == 1)
+                    for (uint32_t end : { row->values[1], row->values[2] }) {
+                        auto inner = Resolve (end, depth + 1);
+                        result.parents.insert (inner.parents.begin (), inner.parents.end ());
+                        result.support.insert (inner.support.begin (), inner.support.end ());
+                    }
+                else if (row->kind == TerrainMappingKind::RegionCrossing && row->values[0] != 2)
+                    throw std::runtime_error ("unknown crossing support");
+                if (row->kind == TerrainMappingKind::RegionLineVertex) {
+                    const auto& line = candidate_.build.lines.at (row->values[0]);
+                    if (line.kind == HybridLineKind::Locked)
+                        add (rows_.vertices.at (candidate_.build.inputControlLineStarts.at (line.root) +
+                                                row->values[1]));
                 }
-            else if (row->kind == TerrainMappingKind::RegionCrossing && row->values[0] != 2)
-                throw std::runtime_error ("unknown crossing support");
-        }
+                if (row->kind == TerrainMappingKind::RegionPoint)
+                    add (rows_.vertices.at (candidate_.build.inputControlPointStart + row->values[0]));
+            }
+        // Fixed-height ancestry is additive even at an existing base vertex;
+        // no coincident control or shared segment contributor may disappear.
+        if (const auto* fixed = fixed_.at (vertex))
+            for (const auto& ref : fixed->supports) {
+                if (ref.kind == HybridControlRef::Kind::Point)
+                    add (rows_.vertices.at (candidate_.build.inputControlPointStart + ref.index));
+                else {
+                    size_t edge = candidate_.build.inputRegionCount;
+                    for (size_t line = 0; line < ref.index; ++line)
+                        edge += controls_.lineSupport.at (line).size ();
+                    add (rows_.edges.at (edge + ref.segment));
+                }
+            }
         return result;
     }
 
@@ -352,7 +393,7 @@ class Remapper {
         output.table.supportTables.push_back ({ combined.table.context, combined.counts, false });
         output.table.mappings.clear ();
         for (size_t v = 0; v < vertices; ++v) {
-            if (v < inputs_) {
+            if (v < inputs_ && !fixed_[v]) {
                 output.table.mappings.push_back (
                     Supported (*rows_.vertices.at (v), IdentityDomain::Vertex, v, options_.designTable, output.table));
                 continue;
@@ -404,6 +445,8 @@ class Remapper {
     TerrainDesignResult& candidate_;
     InputRows rows_;
     size_t inputs_ = 0;
+    const TerrainControls& controls_;
+    std::vector<const HybridTerrainResult::FixedVertex*> fixed_;
     std::vector<const TerrainMapping*> split_, faceRows_;
     std::vector<std::vector<const TerrainMapping*>> region_;
 };
@@ -443,9 +486,22 @@ bool Parameters (const TerrainDesignOptions& options, std::string& error)
 
 // Kernel station indices become path stations.
 bool Locate (const std::vector<HybridConflict>& located, const std::vector<double>& stations,
-             std::vector<TerrainDesignConflict>& result, std::string& error)
+             const TerrainControls& controls, std::vector<TerrainDesignConflict>& result, std::string& error)
 {
     for (const auto& conflict : located) {
+        if (conflict.code == HybridConflictCode::LockedConflict) {
+            if (!conflict.control)
+                throw std::runtime_error ("fixed conflict has no authored control");
+            TerrainDesignConflict value;
+            value.code = conflict.code;
+            value.position = conflict.position;
+            value.magnitude = conflict.magnitude;
+            value.control = ResolveTerrainControl (controls, *conflict.control);
+            if (conflict.other)
+                value.other = ResolveTerrainControl (controls, *conflict.other);
+            result.push_back (value);
+            continue;
+        }
         if (conflict.station >= stations.size ()) {
             error = "TerrainOutputShape: a conflict names an unknown station";
             return false;
@@ -463,6 +519,15 @@ void Describe (const std::vector<TerrainDesignConflict>& conflicts, std::string&
     if (first == conflicts.end ())
         return;
     char text[192];
+    if (first->control) {
+        std::snprintf (text, sizeof (text), " at fixed source %llu, vertex %llu, segment %llu, %.3f %.3f: %s",
+                       static_cast<unsigned long long> (first->control->source),
+                       static_cast<unsigned long long> (first->control->vertices[0]),
+                       static_cast<unsigned long long> (first->control->segment), first->position[0],
+                       first->position[1], HybridConflictSuggestion (first->code));
+        error += text;
+        return;
+    }
     std::snprintf (text, sizeof (text), " at station %.2f m, %s, %.3f %.3f: %s; %zu located", first->station,
                    first->side == TerrainHand::Left ? "left" : "right", first->position[0], first->position[1],
                    HybridConflictSuggestion (first->code),
@@ -483,6 +548,7 @@ bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainI
         const edit::Path* path = nullptr;
         const IdentityObject* owner = nullptr;
         ProvenanceRequest combined;
+        TerrainControls controls;
         std::vector<double> sampled, region;
         std::vector<TerrainStation> stations;
         std::vector<HybridConflict> located;
@@ -490,9 +556,12 @@ bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainI
         if (!Prepare (doc, input, options, path, owner, error) ||
             !Stations (*path, options, sampled, stations, error) || !Region (doc, stations, options, region, error) ||
             !Combine (input, options, *owner, region, combined, error) ||
-            !AssessHybridTerrain ({ input.mesh, region, stations, options.effect, options.tolerance, combined },
+            !CompileTerrainControls (doc, input.provenance, controls, error) ||
+            !AppendTerrainControls (controls, options, *owner, combined, error) ||
+            !AssessHybridTerrain ({ input.mesh, region, stations, options.effect, options.tolerance, combined,
+                                    controls.lines, controls.points },
                                   located, error) ||
-            !Locate (located, sampled, candidate, error))
+            !Locate (located, sampled, controls, candidate, error))
             return false;
         conflicts = std::move (candidate);
         error.clear ();
@@ -514,29 +583,39 @@ bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrai
         const IdentityObject* owner = nullptr;
         ProvenanceRequest combined;
         TerrainDesignResult candidate;
+        TerrainControls controls;
         std::vector<TerrainStation> stations;
         if (!Prepare (doc, input, options, path, owner, error) ||
             !Stations (*path, options, candidate.stations, stations, error) ||
             !Region (doc, stations, options, candidate.region, error) ||
-            !Combine (input, options, *owner, candidate.region, combined, error))
+            !Combine (input, options, *owner, candidate.region, combined, error) ||
+            !CompileTerrainControls (doc, input.provenance, controls, error) ||
+            !AppendTerrainControls (controls, options, *owner, combined, error))
             return false;
-        const HybridTerrainRequest band { input.mesh,     candidate.region,  stations,
-                                          options.effect, options.tolerance, combined };
+        const HybridTerrainRequest band { input.mesh,        candidate.region, stations,       options.effect,
+                                          options.tolerance, combined,         controls.lines, controls.points };
         if (!BuildHybridTerrain (band, candidate.build, error)) {
             // Name where, when the refusal is a located conflict.
             std::vector<HybridConflict> located;
             std::vector<TerrainDesignConflict> placed;
             std::string ignored;
-            if (AssessHybridTerrain (band, located, ignored) && Locate (located, candidate.stations, placed, ignored))
+            if (AssessHybridTerrain (band, located, ignored) &&
+                Locate (located, candidate.stations, controls, placed, ignored))
                 Describe (placed, error);
             return false;
         }
         if (!VerifyOutside (candidate.build, error) ||
-            !Locate (candidate.build.conflicts, candidate.stations, candidate.conflicts, error))
+            !Locate (candidate.build.conflicts, candidate.stations, controls, candidate.conflicts, error))
             return false;
-        Remapper remapper (input, options, *owner, candidate);
+        Remapper remapper (input, options, *owner, candidate, controls);
         if (!remapper.Run (error))
             return false;
+        for (const auto& fixed : candidate.build.locked) {
+            TerrainDesignResult::FixedVertex value { fixed.vertex, {} };
+            for (const auto& support : fixed.supports)
+                value.supports.push_back (ResolveTerrainControl (controls, support));
+            candidate.locked.push_back (std::move (value));
+        }
         candidate.vertexOperations.reserve (candidate.build.owners.size ());
         for (const auto& owned : candidate.build.owners)
             candidate.vertexOperations.push_back (owned ? std::optional<OperationId> (options.operation)

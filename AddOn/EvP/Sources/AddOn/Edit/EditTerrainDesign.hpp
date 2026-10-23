@@ -29,7 +29,14 @@ struct TerrainDesignOptions {
     // input's retained support set and distinct from each other.
     uint64_t designTable = 0, meshTable = 0;
 };
-// A located conflict in the path's own terms.
+// An authored control reference, resolved from explicit kernel input locators.
+// Segment controls retain both endpoint IDs; points use vertices[0] only.
+struct TerrainDesignControlRef {
+    Id source = kNoId, segment = kNoId;
+    std::array<Id, 2> vertices {};
+    bool operator== (const TerrainDesignControlRef&) const = default;
+};
+// A located conflict in the path's own terms, or on an authored fixed control.
 struct TerrainDesignConflict {
     HybridConflictCode code = HybridConflictCode::DaylightNotReached;
     double station = 0; // Path station, metres from its start.
@@ -37,6 +44,7 @@ struct TerrainDesignConflict {
     std::array<double, 3> position {}; // World metres: the band edge or where a face search stopped.
     double magnitude = 0;              // Per code (GeometryRustHybridTerrain.hpp).
     bool hard = true;                  // The build refuses on it.
+    std::optional<TerrainDesignControlRef> control, other; // LockedConflict has no station/side semantics.
     bool operator== (const TerrainDesignConflict&) const = default;
 };
 struct TerrainDesignResult {
@@ -52,6 +60,12 @@ struct TerrainDesignResult {
     ProvenanceRequest meshProvenance;
     std::vector<std::optional<OperationId>> vertexOperations; // Band-moved heights.
     std::vector<TerrainDesignConflict> conflicts;             // Soft: where the band is held back.
+    struct FixedVertex {
+        uint32_t vertex = 0;
+        std::vector<TerrainDesignControlRef> supports;
+        bool operator== (const FixedVertex&) const = default;
+    };
+    std::vector<FixedVertex> locked; // Exact height is build.points[vertex*3+2].
     bool operator== (const TerrainDesignResult&) const = default;
 };
 
