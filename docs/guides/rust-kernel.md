@@ -1067,6 +1067,26 @@ or ambiguous native selections; the existing native action validates Mesh type
 and retains its freshness stamp. Recapture does not depend on current selection.
 This is path-driven preview, not a terrain brush, area/spot authoring or native bake.
 
+**Setup and authored cross-sections.** An empty landscape now offers **Draw design
+path** and **Draw property line** using the existing tools, rather than an empty
+selector and disabled capture controls. Finishing a landscape path binds its
+surviving ID as the design choice. Only live authored centreline paths appear;
+initial choice follows one selected path or the sole eligible path. An invalid
+explicit choice is not silently retargeted. Readiness is re-evaluated after combo
+selection in the same frame. Path editing does not require a property line;
+capture does. Successful command/API start also synchronizes the path choice.
+
+The **Terrain cross-section** fields edit the existing path range's left/right
+widths, crossfall/hand, shoulder and cut/fill slope percentages. They are a
+revision-bound transient draft, not a second authoring model. **Apply
+cross-section** validates through `EditPath` and commits the group in one existing
+`Session` undo entry; invalid values and attempts to change range identity/station
+refuse atomically. Undo/redo or any intervening document edit makes a draft stale;
+**Reload section values** is explicit, so a field cannot overwrite newer edits.
+The existing path codec already persists every field, and the existing terrain
+worker follows that revision without extra history. This advances path-parameter
+authoring only; spot/area tools and field-edit/solve publication remain separate.
+
 **Fail-closed downstream tiers.** Until soft-edit/smoothing and caller-assembled
 solve requests transport prepared fixed support, enabled document controls refuse
 with `TerrainControlTierUnsupported` in the common `EditTerrainAdapter` and
