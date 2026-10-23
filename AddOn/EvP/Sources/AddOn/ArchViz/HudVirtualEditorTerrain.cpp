@@ -360,8 +360,11 @@ void TerrainDesignPanel (Session& s)
     const auto* current = CurrentTerrainDesign (s);
     if (!current)
         return;
-    if (current->built)
+    if (current->built) {
         ImGui::Text ("Cut %.3f m3   Fill %.3f m3", current->result.build.site.cut, current->result.build.site.fill);
+        ImGui::Text ("Path-conforming preview: %zu vertices, %zu triangles", current->result.build.points.size () / 3,
+                     current->result.build.triangles.size () / 3);
+    }
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
     if (s.edits.Doc ().landscape &&
         std::any_of (conflicts.begin (), conflicts.end (),

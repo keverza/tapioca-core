@@ -830,6 +830,59 @@ TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer
     EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.locked.empty ());
 }
 
+TEST (HudTerrainDesign, SimpleTwoTriangleMeshIsRebuiltAroundThePathInsteadOfBridgingItsProfile)
+{
+    TerrainHostFixture fixture;
+    auto mesh = std::make_shared<geomsrv::Mesh> (*fixture.mesh);
+    for (size_t i = 2; i < mesh->vertices.size (); i += 3)
+        mesh->vertices[i] = 10;
+    std::string error;
+    Id peak = 0;
+    ASSERT_TRUE (edit::InsertPathBreak (fixture.doc, fixture.path, 20, error, &peak)) << error;
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [] (edit::Path& path, std::string&) {
+            for (auto& point : path.profile)
+                point.z = point.station == 20 ? 13 : 11;
+            for (auto& section : path.sections) {
+                section.widthLeft = section.widthRight = 8;
+                section.crossfall = 0;
+            }
+            return true;
+        },
+        error))
+        << error;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, mesh, fixture.path)) << session.message;
+    const auto depth = session.edits.UndoDepth ();
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto* current = eh::CurrentTerrainDesign (session);
+    ASSERT_NE (current, nullptr);
+    const auto& result = current->result;
+    EXPECT_GT (result.build.points.size (), mesh->vertices.size ());
+    EXPECT_GT (result.build.triangles.size (), mesh->triangles.size ());
+    EXPECT_EQ (result.build.inputPointCount, 4U);
+    EXPECT_EQ (result.meshProvenance.counts.vertices, result.build.points.size () / 3);
+    EXPECT_EQ (result.meshProvenance.counts.faces, result.build.triangles.size () / 3);
+    EXPECT_GT (std::count_if (result.build.lines.begin (), result.build.lines.end (),
+                              [] (const auto& line) { return line.kind == HybridLineKind::Section; }),
+               1);
+    const std::array<double, 6> queries { 20, -7, 20, 0, 20, 7 };
+    std::vector<TerrainSample> samples;
+    TerrainFieldSummary summary;
+    ASSERT_TRUE (SampleTerrain ({ result.build.points, result.build.triangles }, queries, .25, samples, summary, error))
+        << error;
+    for (const auto& sample : samples) {
+        EXPECT_TRUE (sample.onSurface);
+        EXPECT_NEAR (sample.height, 13, 1e-9);
+    }
+    EXPECT_NE (TerrainMesh (layer), nullptr);
+    EXPECT_EQ (session.edits.UndoDepth (), depth); // Derived detail is never authored geometry/history.
+    EXPECT_EQ (mesh->vertices.size (), 12U);
+    EXPECT_EQ (mesh->triangles.size (), 6U);
+}
+
 TEST (HudTerrainDesign, OneHistoryOwnsTheDesignAndItsDerivedWorkerLayer)
 {
     TerrainHostFixture fixture;

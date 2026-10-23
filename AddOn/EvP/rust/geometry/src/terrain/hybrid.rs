@@ -3,7 +3,7 @@
 //!
 //! **Lines.** From the validated [`Design`]: each side's band edge, its shoulder
 //! end (only when a shoulder is non-zero), one daylight line per root, and a
-//! cross-section at the first and last station (the band's ends are creases
+//! cross-section at every station (the band's ends are creases
 //! too), plus the centreline when a station is crowned (the crown's crease;
 //! the end sections then carry a centre vertex). Daylight must be met on every transition side: a side that is not
 //! reached within its limit, or that needs a vertical face, refuses rather than
@@ -75,6 +75,8 @@ pub enum LineKind {
     Crown,
     /// A fixed-height line, indexed in [`Locked::lines`].
     Locked(u32),
+    /// Internal sampled cross-section, indexed in the input band stations.
+    Section(u32),
 }
 
 /// The built surface and its mapping.
@@ -289,7 +291,14 @@ fn lines(
         polylines.push(line);
         kinds.push(LineKind::Crown);
     }
-    for (last, station) in [(false, 0), (true, count.saturating_sub(1))] {
+    // Keep the two existing end-line positions stable, then constrain every
+    // internal station across the band, shoulders and daylight roots. Without
+    // these transverse edges, a sparse base diagonal can bridge over a sampled
+    // profile/width change even though both longitudinal edges contain it.
+    for station in [0, count.saturating_sub(1)]
+        .into_iter()
+        .chain(1..count.saturating_sub(1))
+    {
         let pair = sections.get(station).ok_or(missing)?;
         let mut line: Vec<f64> = Vec::new();
         let (left, right) = (pair.first().ok_or(missing)?, pair.get(1).ok_or(missing)?);
@@ -303,7 +312,13 @@ fn lines(
             }
         }
         polylines.push(line);
-        kinds.push(LineKind::End(last));
+        kinds.push(if station == 0 {
+            LineKind::End(false)
+        } else if station + 1 == count {
+            LineKind::End(true)
+        } else {
+            LineKind::Section(index(station)?)
+        });
     }
     Ok((polylines, kinds))
 }

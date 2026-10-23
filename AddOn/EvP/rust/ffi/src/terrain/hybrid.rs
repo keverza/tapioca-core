@@ -110,8 +110,8 @@ pub struct TerrainHybridVolumes {
 }
 
 /// What a design line is. `kind`: 1 band edge, 2 shoulder end, 3 daylight, 4
-/// end section, 5 crowned centreline. `side`: 1 left, 2 right (0 for an end). `root`: the daylight
-/// root counted outward, or 0 first / 1 last for an end (0 for a centreline).
+/// end section, 5 crowned centreline, 7 internal station section. `side`: 1 left, 2 right (0 for a section). `root`: the daylight
+/// root counted outward, 0 first / 1 last for an end, or the input station for kind 7 (0 for a centreline).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TerrainHybridLine {
@@ -391,6 +391,7 @@ pub(super) fn encode_build(built: Built, controls: bool) -> Result<Encoded, Fail
                 LineKind::Daylight { side, root } => (3, hand(side), root),
                 LineKind::End(last) => (4, 0, u32::from(last)),
                 LineKind::Crown => (5, 0, 0),
+                LineKind::Section(station) => (7, 0, station),
                 LineKind::Locked(line) if controls => (6, 0, line),
                 LineKind::Locked(_) => {
                     return Err(Failure::Argument("TerrainHybridLockedUnsupported"));

@@ -17,7 +17,7 @@ struct TerrainDesignOptions {
     // `arcTolerance`), clipped to the property line; exactly one ring must remain.
     std::span<const double> region;
     double margin = 1.0, arcTolerance = 0.05; // Metres.
-    double maxStep = 2.0;                     // Station spacing, metres (plus every break).
+    double maxStep = 2.0; // Station spacing, metres (plus every break); each constrains a mesh section.
     // A cross-section range change (width, crossfall, shoulder, slopes) runs over
     // this many metres ending at the range start. A zero-length step would make
     // the band discontinuous; its end faces need corner fans (composition phase).

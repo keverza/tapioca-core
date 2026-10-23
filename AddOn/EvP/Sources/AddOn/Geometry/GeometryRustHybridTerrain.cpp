@@ -351,8 +351,9 @@ bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResul
         }
     }
     for (const auto& line : lines) {
-        if (line.kind < 1 || line.kind > (converted.locked ? 6u : 5u) || line.side > 2 ||
-            (line.kind >= 4) != (line.side == 0) || (line.kind == 6 && line.root >= request.controlLines.size ())) {
+        if (line.kind < 1 || line.kind > 7 || line.side > 2 || (line.kind >= 4) != (line.side == 0) ||
+            (line.kind == 6 && (!converted.locked || line.root >= request.controlLines.size ())) ||
+            (line.kind == 7 && (line.root == 0 || size_t (line.root) + 1 >= request.stations.size ()))) {
             error = "TerrainOutputShape: unknown hybrid line kind";
             return false;
         }

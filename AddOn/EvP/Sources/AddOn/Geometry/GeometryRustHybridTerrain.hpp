@@ -33,11 +33,19 @@ struct HybridTerrainRequest {
     std::span<const std::vector<double>> controlLines;
     std::span<const double> controlPoints;
 };
-enum class HybridLineKind : uint32_t { Edge = 1, Shoulder = 2, Daylight = 3, End = 4, Crown = 5, Locked = 6 };
+enum class HybridLineKind : uint32_t {
+    Edge = 1,
+    Shoulder = 2,
+    Daylight = 3,
+    End = 4,
+    Crown = 5,
+    Locked = 6,
+    Section = 7
+};
 struct HybridLine {
     HybridLineKind kind = HybridLineKind::Edge;
-    std::optional<TerrainHand> side; // Absent for an end, crown or fixed line.
-    uint32_t root = 0;               // Daylight root; end 0/1; fixed input line index.
+    std::optional<TerrainHand> side; // Absent for a section, crown or fixed line.
+    uint32_t root = 0;               // Daylight root; end 0/1; fixed line index; internal section's input station.
     bool operator== (const HybridLine&) const = default;
 };
 struct HybridSide {

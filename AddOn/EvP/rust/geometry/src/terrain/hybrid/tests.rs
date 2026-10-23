@@ -7,6 +7,8 @@ use crate::terrain::hybrid::conflict::{Conflict, ConflictCode};
 use crate::terrain::volume::exact::triangle_cut_fill;
 use crate::terrain::volume::{Grid, Proposed, VolumeRequest, cut_fill};
 
+mod coarse;
+
 fn close(left: f64, right: f64, tolerance: f64) -> bool {
     (left - right).abs() <= tolerance
 }

@@ -208,6 +208,59 @@ fn hybrid_layouts_are_the_documented_c_records() {
 }
 
 #[test]
+fn coarse_source_query_fill_transports_station_sections_and_refuses_short_line_storage_atomically()
+{
+    let points = [
+        -20.0, -30.0, 10.0, 60.0, -30.0, 10.0, 60.0, 30.0, 10.0, -20.0, 30.0, 10.0,
+    ];
+    let triangles = [0, 1, 2, 0, 2, 3];
+    let mut stations = [station(0.0, 11.0), station(20.0, 13.0), station(40.0, 11.0)];
+    for station in &mut stations {
+        station.half_left = 8.0;
+        station.half_right = 8.0;
+    }
+    let catalog = rows(counts_in(&points, &triangles));
+    let input = request(&points, &triangles, &stations, &catalog);
+    let mut storage = Storage::new();
+    assert_eq!(run(&input, &storage.output(true)), (0, String::new()));
+    storage.size(stations.len());
+    let before = storage.clone();
+    let mut short = storage.output(false);
+    short.line_capacity -= 1;
+    assert_ne!(run(&input, &short).0, 0);
+    assert_eq!(storage, before);
+    assert_eq!(run(&input, &storage.output(false)), (0, String::new()));
+    let sections: Vec<_> = storage
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.kind == 7)
+        .collect();
+    assert_eq!(sections.len(), 1);
+    assert!(
+        sections
+            .iter()
+            .all(|(_, line)| line.side == 0 && line.root == 1 && line.reserved == 0)
+    );
+    assert!(sections.iter().all(|(index, _)| {
+        storage
+            .mappings
+            .iter()
+            .any(|row| row.kind == 16 && row.index as usize == *index)
+    }));
+    let field = tapioca_geometry::terrain::field::Field::new(&storage.points, &storage.triangles);
+    assert!(field.is_ok());
+    let Ok(field) = field else { return };
+    for y in [-7.0, 0.0, 7.0] {
+        assert!(
+            field
+                .height_at(20.0, y)
+                .is_some_and(|sample| (sample.height - 13.0).abs() < 1e-10)
+        );
+    }
+}
+
+#[test]
 fn query_then_fill_publishes_the_kernel_build_exactly() {
     let (points, triangles) = base();
     let stations = [station(0.0, 10.0), station(40.0, 12.0)];

@@ -921,7 +921,7 @@ base triangles as faces); stations are authored parameters without entity rows.
 | `points`, `base` | proposed xyz and base height per output vertex (plan identical) |
 | `owners` | `0` where the band changed the height, `UINT32_MAX` otherwise |
 | `triangles`, `mappings` | rebuilt mesh; rows 9 (split vertex) and 12..17 (region face, region line vertex, crossing support, line vertex, line edge, ring vertex) |
-| `lines` | per design line: band edge, shoulder end, daylight (root outward), end section or crowned centreline |
+| `lines` | per design line: band edge, shoulder end, daylight (root outward), end/internal station section or crowned centreline |
 | `sides` | per station `[left, right]` daylight root count, first and last root |
 | `site`, `context` | exact triangle-sum cut/fill inside / outside the region |
 
@@ -931,6 +931,17 @@ reinterprets a row, it only checks kinds and query/fill agreement. P1 limits
 stay explicit: whole-region rebuild per call, constant daylight root count per
 side, unconstrained end caps counted in the site total, and no height-error
 refinement between stations.
+
+Each sampled station now constrains a transverse section through the band,
+shoulders and daylight roots. This prevents a coarse source diagonal from
+bridging across an intermediate sampled profile/width change. The two existing
+end sections retain their positions; internal sections follow them in station
+order. Additive line kind 7 has side 0 and `root` equal to its input station
+index (excluding the first/last). Existing records, support mappings and ABI
+layouts are unchanged; these are derived constraints, not authored geometry or
+extra history. The editor samples at most 2 m apart plus authored breaks by
+default. This does not certify a height-error bound between stations or add
+blanket refinement outside the rebuild region.
 
 S4.3 adds the crown: `Camber::Crown` in `terrain::design` falls both halves away
 from the centreline (`-g * |lateral|`), and `terrain::hybrid` then adds the

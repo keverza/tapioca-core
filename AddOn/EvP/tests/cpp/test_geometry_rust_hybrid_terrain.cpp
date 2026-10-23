@@ -193,6 +193,42 @@ TEST (GeometryRustHybridTerrain, FixedAssessmentTransportsAllCanonicalConflictsI
     EXPECT_EQ (result, again);
 }
 
+TEST (GeometryRustHybridTerrain, SparseSourceGetsTransverseStationDetailWithRetainedProvenance)
+{
+    const std::vector<double> points { -20, -30, 10, 60, -30, 10, 60, 30, 10, -20, 30, 10 };
+    const std::vector<uint32_t> triangles { 0, 1, 2, 0, 2, 3 };
+    auto stations =
+        std::array { Station (0, 11), Station (18, 11), Station (20, 13), Station (22, 11), Station (40, 11) };
+    stations[2].halfLeft = stations[2].halfRight = 8;
+    const auto provenance = Provenance ({ 8, 4, 2, 0 }, 7);
+    HybridTerrainResult result;
+    std::string error;
+    ASSERT_TRUE (BuildHybridTerrain (
+        { { points, triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, provenance }, result, error))
+        << error;
+    EXPECT_EQ (result.inputProvenance, provenance);
+    EXPECT_EQ (result.inputPointCount, 4U);
+    EXPECT_GT (result.points.size (), points.size ());
+    EXPECT_GT (result.triangles.size (), triangles.size ());
+    std::vector<uint32_t> sections;
+    for (const auto& line : result.lines)
+        if (line.kind == HybridLineKind::Section) {
+            EXPECT_FALSE (line.side);
+            sections.push_back (line.root);
+        }
+    EXPECT_EQ (sections, (std::vector<uint32_t> { 1, 2, 3 }));
+    const std::array<double, 10> queries { 20, -7, 20, -3, 20, 0, 20, 3, 20, 7 };
+    std::vector<TerrainSample> samples;
+    TerrainFieldSummary summary;
+    ASSERT_TRUE (SampleTerrain ({ result.points, result.triangles }, queries, .25, samples, summary, error)) << error;
+    for (const auto& sample : samples) {
+        EXPECT_TRUE (sample.onSurface);
+        EXPECT_NEAR (sample.height, 13, 1e-9);
+    }
+    EXPECT_EQ (result.context.cut, 0);
+    EXPECT_EQ (result.context.fill, 0);
+}
+
 TEST (GeometryRustHybridTerrain, WorkedBandBuildsWithExactDaylightAndUntouchedOutside)
 {
     const Base base;
