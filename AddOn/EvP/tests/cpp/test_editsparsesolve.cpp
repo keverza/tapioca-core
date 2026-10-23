@@ -190,6 +190,30 @@ TEST (EditSparseSolve, SubsetBoundsAndDifferencesUseTheCertifiedRustSolve)
     EXPECT_GE (result.solution.active, 1U);
 }
 
+TEST (EditSparseSolve, EnabledAuthoredControlsCannotBeIgnoredByACallerAssembledSystem)
+{
+    SolveFixture fixture;
+    const auto input = fixture.Input ();
+    const auto rows = Chain (3);
+    const std::array<uint32_t, 3> vertices { 0, 1, 2 };
+    const std::array<GradingFixed, 2> fixed { GradingFixed { 0, 1 }, GradingFixed { 2, 3 } };
+    GradingRequest system;
+    system.unknowns = 3;
+    system.rows = rows.rows;
+    system.fixed = fixed;
+    std::string error;
+    for (Id vertex : { Id (0), Id (12) }) {
+        fixture.doc.landscape->terrainControls = { { 10, vertex, true } };
+        auto result = Sentinel ();
+        EXPECT_FALSE (SolveEditTerrain (fixture.doc, { input, kOperation, vertices, system }, result, error));
+        EXPECT_EQ (error.find ("TerrainControlTierUnsupported:"), 0U) << error;
+        ExpectSentinel (result);
+        fixture.doc.landscape->terrainControls.front ().enabled = false;
+        ASSERT_TRUE (SolveEditTerrain (fixture.doc, { input, kOperation, vertices, system }, result, error)) << error;
+        EXPECT_NEAR (result.solution.values.at (1), 2, 1e-12);
+    }
+}
+
 TEST (EditSparseSolve, ContradictoryFixedValuesAndUnanchoredSystemsNeverPublish)
 {
     SolveFixture fixture;

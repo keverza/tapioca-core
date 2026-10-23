@@ -12,7 +12,8 @@ bool Solve (const geomsrv::edit::Document& doc, const EditSparseSolveRequest& re
 {
     if (!terrain_detail::ValidateInput (doc, request.input, error) ||
         !terrain_detail::ValidateOperations (doc, request.input.provenance,
-                                             std::array<OperationId, 1> { request.operation }, error))
+                                             std::array<OperationId, 1> { request.operation }, error) ||
+        !terrain_detail::ValidateUnconstrainedTerrainTier (doc, error))
         return false;
     if (request.vertices.size () != request.system.unknowns) {
         error = "SolveShape: every unknown requires one baseline vertex locator";

@@ -150,6 +150,38 @@ TEST (EditTerrainAdapter, SamplesTiltedBaselineWithoutChangingDocumentOrCapture)
                               [] (const auto& id) { return !id; }));
 }
 
+TEST (EditTerrainAdapter, EnabledFixedControlsCannotBeSilentlyMovedBySoftEditsOrSmoothing)
+{
+    TerrainFixture fixture;
+    const auto input = fixture.Input ();
+    const std::array<EditTerrainOperation, 1> operations { { { kFirst, fixture.Area () } } };
+    EditTerrainRequest request { input };
+    request.operations = operations;
+    request.property = fixture.property;
+    std::string error;
+    for (Id vertex : { Id (0), Id (12) }) {
+        fixture.doc.landscape->terrainControls = { { 10, vertex, true } };
+        auto result = Sentinel ();
+        EXPECT_FALSE (EvaluateEditTerrain (fixture.doc, request, result, error));
+        EXPECT_EQ (error.find ("TerrainControlTierUnsupported:"), 0U) << error;
+        ExpectSentinel (result);
+        fixture.doc.landscape->terrainControls.front ().enabled = false;
+        ASSERT_TRUE (EvaluateEditTerrain (fixture.doc, request, result, error)) << error;
+        EXPECT_NE (result.points, fixture.points);
+    }
+    fixture.doc.landscape->terrainControls = { { 10, 12, true } };
+    request.operations = {};
+    request.smoothing = 2;
+    auto result = Sentinel ();
+    EXPECT_FALSE (EvaluateEditTerrain (fixture.doc, request, result, error));
+    EXPECT_EQ (error.find ("TerrainControlTierUnsupported:"), 0U) << error;
+    ExpectSentinel (result);
+    // Read-only sampling is still allowed; it makes no constraint claim.
+    request.smoothing.reset ();
+    ASSERT_TRUE (EvaluateEditTerrain (fixture.doc, request, result, error)) << error;
+    EXPECT_EQ (result.points, fixture.points);
+}
+
 TEST (EditTerrainAdapter, AreaFillHasAnalyticVolumesAndStableOperationOwners)
 {
     TerrainFixture fixture;

@@ -13,6 +13,10 @@ namespace tapioca::geometry::terrain_detail {
 bool ValidateInput (const geomsrv::edit::Document& doc, const EditTerrainInput& input, std::string& error);
 bool ValidateOperations (const geomsrv::edit::Document& doc, const ProvenanceRequest& provenance,
                          std::span<const OperationId> operations, std::string& error);
+// Until soft/solve requests carry prepared fixed support, fail closed instead of
+// silently dropping the document's enabled height constraints. Not a positional
+// mask and not a claim that arbitrary controls have been inserted into this mesh.
+bool ValidateUnconstrainedTerrainTier (const geomsrv::edit::Document& doc, std::string& error);
 
 // Provenance remapping shared by the split and design adapters
 // (EditTerrainTriangulation.cpp). Rows are copied, never guessed: an exact row

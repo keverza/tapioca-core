@@ -180,6 +180,42 @@ TEST (EditLandscapeTerrain, AreaGeometryAndPropertyComeFromTheAuthoritativeDocum
     EXPECT_EQ (result.terrain.volumes->context.fill, 0);
 }
 
+TEST (EditLandscapeTerrain, FixedControlsRefuseBothSoftEntryPointsUntilSupportIsPrepared)
+{
+    LandscapeFixture fixture;
+    const Id root = fixture.Select (fixture.footprint);
+    const auto source = std::find_if (fixture.doc.landscape->sources.begin (), fixture.doc.landscape->sources.end (),
+                                      [&] (const auto& value) { return value.id == fixture.footprint; });
+    ASSERT_NE (source, fixture.doc.landscape->sources.end ());
+    const auto vertex = edit::Find (fixture.doc, source->entityId)->vertices.front ().id;
+    std::string error;
+    for (bool enabled : { true, false }) {
+        ASSERT_TRUE (SetLandscapeTerrainControl (fixture.doc, fixture.footprint, vertex, enabled, error)) << error;
+        fixture.Capture ();
+        const auto input = fixture.Input ();
+        const std::array<EditTerrainOperation, 1> edits { fixture.Area (root) };
+        LandscapeTerrainRequest request { input };
+        request.edits = edits;
+        request.smoothing = 1;
+        auto result = Sentinel ();
+        SplitLandscapeTerrainResult split;
+        split.evaluation = Sentinel ();
+        const EditTerrainSplitOptions options { root, fixture.provenance.table.objects.front ().id, 101, 102 };
+        if (enabled) {
+            EXPECT_FALSE (EvaluateLandscapeTerrain (fixture.doc, request, result, error));
+            EXPECT_EQ (error.find ("TerrainControlTierUnsupported:"), 0U) << error;
+            ExpectSentinel (result);
+            EXPECT_FALSE (EvaluateSplitLandscapeTerrain (fixture.doc, request, options, split, error));
+            EXPECT_EQ (error.find ("TerrainControlTierUnsupported:"), 0U) << error;
+            ExpectSentinel (split.evaluation);
+        }
+        else {
+            EXPECT_TRUE (EvaluateLandscapeTerrain (fixture.doc, request, result, error)) << error;
+            EXPECT_TRUE (EvaluateSplitLandscapeTerrain (fixture.doc, request, options, split, error)) << error;
+        }
+    }
+}
+
 TEST (EditLandscapeTerrain, GradingLimitAndProtectionConsultBaselineAndProposedHeights)
 {
     LandscapeFixture fixture;

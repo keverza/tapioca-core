@@ -81,6 +81,16 @@ bool ValidateOperations (const geomsrv::edit::Document& doc, const ProvenanceReq
     }
     return true;
 }
+bool ValidateUnconstrainedTerrainTier (const geomsrv::edit::Document& doc, std::string& error)
+{
+    if (doc.landscape && std::any_of (doc.landscape->terrainControls.begin (), doc.landscape->terrainControls.end (),
+                                      [] (const auto& control) { return control.enabled; })) {
+        error = "TerrainControlTierUnsupported: enabled fixed heights require the hybrid design tier; "
+                "soft edits, smoothing and caller-assembled solves do not yet carry fixed support";
+        return false;
+    }
+    return true;
+}
 } // namespace terrain_detail
 namespace {
 
@@ -96,6 +106,9 @@ bool Evaluate (const geomsrv::edit::Document& doc, const EditTerrainRequest& req
         operations.push_back (operation.operation);
     }
     if (!terrain_detail::ValidateOperations (doc, request.input.provenance, operations, error))
+        return false;
+    if ((!request.operations.empty () || request.smoothing) &&
+        !terrain_detail::ValidateUnconstrainedTerrainTier (doc, error))
         return false;
     if ((!request.operations.empty () || request.smoothing) && request.property.empty ()) {
         error = "PropertyLineOutside: terrain deformation requires a property line";

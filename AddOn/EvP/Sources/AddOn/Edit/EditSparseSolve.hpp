@@ -27,6 +27,8 @@ struct EditSparseSolveResult {
 // refusal, then Geometry::SolveGrading. Rust owns assembly, bounds and KKT
 // certification. No C++ solver/residual math, mesh mutation or history entry.
 // Result is unchanged on any refusal; inputs may borrow its previous arrays.
+// Enabled authored fixed controls refuse with TerrainControlTierUnsupported
+// until the request can carry their prepared support; they are never ignored.
 // A caller applying heights must also enforce its property/locked constraints
 // and recheck the retained session/revision before publication.
 bool SolveEditTerrain (const geomsrv::edit::Document& doc, const EditSparseSolveRequest& request,

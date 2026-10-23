@@ -88,6 +88,9 @@ struct EditTerrainResult {
 // unchanged. The host must recheck revision AND session before worker publication.
 // Property splitting and derivation of grading/protection masks are caller work;
 // this adapter forwards already-derived rings, not LandscapeOperation semantics.
+// Enabled authored fixed controls currently refuse deformation/smoothing with
+// TerrainControlTierUnsupported; pure sampling remains available. This guard
+// prevents silent constraint loss until prepared fixed support is transported.
 bool EvaluateEditTerrain (const geomsrv::edit::Document& doc, const EditTerrainRequest& request,
                           EditTerrainResult& result, std::string& error);
 

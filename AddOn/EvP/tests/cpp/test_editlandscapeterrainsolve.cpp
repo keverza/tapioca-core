@@ -241,6 +241,28 @@ TEST (EditLandscapeTerrainSolve, CertifiedHeightsApplyInsideWhileTheExteriorStay
     EXPECT_NEAR (terrain.volumes->operations[0].fill, terrain.volumes->site.fill, 1e-9);
 }
 
+TEST (EditLandscapeTerrainSolve, AuthoredFixedControlCannotDisappearInSplitSolveApplication)
+{
+    SolveFixture fixture;
+    const Id root = fixture.Operation (OperationKind::RegionSelect, { fixture.footprint });
+    const auto source = std::find_if (fixture.doc.landscape->sources.begin (), fixture.doc.landscape->sources.end (),
+                                      [&] (const auto& value) { return value.id == fixture.footprint; });
+    ASSERT_NE (source, fixture.doc.landscape->sources.end ());
+    const auto vertex = edit::Find (fixture.doc, source->entityId)->vertices.front ().id;
+    std::string error;
+    ASSERT_TRUE (SetLandscapeTerrainControl (fixture.doc, fixture.footprint, vertex, true, error)) << error;
+    fixture.Prepare (root);
+    const std::vector<uint32_t> vertices { fixture.Vertex (3, 3) };
+    EXPECT_EQ (Refusal (fixture, root, vertices).find ("TerrainControlTierUnsupported:"), 0U);
+    ASSERT_TRUE (SetLandscapeTerrainControl (fixture.doc, fixture.footprint, vertex, false, error)) << error;
+    fixture.Prepare (root);
+    const Lift lift (fixture.split, vertices, 1);
+    SplitLandscapeSolveResult result;
+    ASSERT_TRUE (ApplySplitLandscapeSolve (fixture.doc, { fixture.split, root, vertices, lift.system }, result, error))
+        << error;
+    EXPECT_NEAR (result.terrain.points.at (vertices[0] * 3 + 2), Surface (3, 3) + 1, 1e-12);
+}
+
 TEST (EditLandscapeTerrainSolve, ProtectedZoneUnknownsRefuseOnTheirEdgeAndInside)
 {
     SolveFixture fixture;
