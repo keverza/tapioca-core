@@ -69,7 +69,8 @@ struct TerrainDesignResult {
     bool operator== (const TerrainDesignResult&) const = default;
 };
 
-// Worker-only P1 band evaluation for one document path. Stations come from the
+// Worker-only band evaluation for one document path and the session's enabled
+// fixed point/line references. Stations come from the
 // path itself (SampleStations, Evaluate: profile height, range widths, shoulder,
 // crossfall or crown and cut/fill percents as Slope::Percent); nothing is
 // re-solved here and no terrain math is implemented in C++. A crowned range makes
@@ -83,9 +84,9 @@ struct TerrainDesignResult {
 bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                             const TerrainDesignOptions& options, TerrainDesignResult& result, std::string& error);
 
-// Every located conflict of the path's band, hard and soft, without building:
-// the same validation and stations as EvaluateTerrainDesign, nothing published
-// but `conflicts` (unchanged on refusal).
+// Every station-side conflict and the first fixed-control conflict, using the
+// same authored references/validation as evaluation. Controls require a TIN
+// build; nothing publishes but `conflicts`, unchanged on non-located refusal.
 bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                           const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,
                           std::string& error);

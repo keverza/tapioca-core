@@ -36,8 +36,8 @@ struct HybridTerrainRequest {
 enum class HybridLineKind : uint32_t { Edge = 1, Shoulder = 2, Daylight = 3, End = 4, Crown = 5, Locked = 6 };
 struct HybridLine {
     HybridLineKind kind = HybridLineKind::Edge;
-    std::optional<TerrainHand> side; // Absent for an end section or the crowned centreline.
-    uint32_t root = 0;               // Daylight root outward; an end's 0 first / 1 last.
+    std::optional<TerrainHand> side; // Absent for an end, crown or fixed line.
+    uint32_t root = 0;               // Daylight root; end 0/1; fixed input line index.
     bool operator== (const HybridLine&) const = default;
 };
 struct HybridSide {
@@ -85,7 +85,7 @@ struct HybridTerrainResult {
     std::vector<double> base;                    // Base height per output vertex.
     std::vector<std::optional<uint32_t>> owners; // 0 where the band changed the height.
     std::vector<uint32_t> triangles;
-    std::vector<TerrainMapping> mappings;         // Kinds 9 and 12..17 (GeometryRustFfi.h).
+    std::vector<TerrainMapping> mappings;         // Kinds 9, 12..17 and fixed controls 20..22 (GeometryRustFfi.h).
     std::vector<HybridLine> lines;                // Indexed by the line of rows 13..16.
     std::vector<std::array<HybridSide, 2>> sides; // [left, right] per station.
     HybridVolumes site, context;                  // Inside / outside the region.
@@ -104,10 +104,11 @@ struct HybridTerrainResult {
 };
 // Query then fill (no retained handle); the whole result publishes only on
 // success. Refusals carry the kernel's code: DaylightNotReached, HybridVertical,
-// HybridDaylightTopology, Region*, Design*, or a Provenance* attribution refusal.
+// HybridDaylightTopology, LockedConflict, Region*, Design*, or a Provenance* attribution refusal.
 bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResult& result, std::string& error);
-// Every located conflict, hard and soft, without building; succeeds for a band
-// the build refuses. Same attribution refusals; conflicts unchanged on refusal.
+// Every station-side conflict and the first fixed-control conflict. Controls
+// require a TIN build; worker-classified, query/fill recomputes. Succeeds for
+// located build refusals; same attribution gates and atomic publication.
 bool AssessHybridTerrain (const HybridTerrainRequest& request, std::vector<HybridConflict>& conflicts,
                           std::string& error);
 

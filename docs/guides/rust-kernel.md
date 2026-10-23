@@ -959,7 +959,7 @@ build refuses) and `tapioca_terrain_edit_clips`. `AssessHybridTerrain`,
 `EditTerrainResult::clips` carry them in C++; `AssessTerrainDesign` reports them in
 path stations, and a refused `EvaluateTerrainDesign` names its first place.
 
-## S4.3 fixed-height controls (Rust kernel checkpoint)
+## S4.3 fixed-height controls, ABI and editor integration
 
 `terrain::hybrid::build_locked(request, Locked { lines, points })` adds fixed
 xyz points and open xyz polylines to the same region TIN as the path band.

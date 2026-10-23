@@ -43,12 +43,12 @@ struct TerrainDesignOutcome {
     std::string sourceTerrainGuid;
     bool built = false;
     TerrainDesignResult result;                   // When built.
-    std::vector<TerrainDesignConflict> conflicts; // When refused: every located place (may be empty).
+    std::vector<TerrainDesignConflict> conflicts; // When refused: station places and first fixed conflict.
     std::string error;                            // When refused.
 };
 
 // Worker side: pure, never throws, touches nothing shared. A refusal is an
-// outcome too, with the located conflicts when the band itself is the cause.
+// outcome too, with located band/fixed-control conflicts when available.
 TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job);
 // Runs it on its own thread; the host polls the future from the main thread.
 std::future<TerrainDesignOutcome> LaunchTerrainDesign (TerrainDesignJob job);
