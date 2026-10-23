@@ -190,7 +190,10 @@ enum class TerrainMappingKind : uint32_t {
     DesignLineEdge = 16,
     RingVertex = 17,
     SurfaceVertex = 18, // Output vertex -> each contributing native input vertex.
-    SurfaceFace = 19    // Output face -> native input face.
+    SurfaceFace = 19,   // Output face -> native input face.
+    RegionPoint = 20,
+    ControlPointVertex = 21,
+    LockedVertex = 22
 };
 // Lossless support records; indices/values have the documented ABI v1 row
 // meanings (GeometryRustFfi.h), not semantic IDs. Source IDs, operation DAG,

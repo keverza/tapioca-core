@@ -643,6 +643,47 @@ typedef struct {
     uint32_t queryOnly, reserved;
 } TapiocaTerrainHybridOutput;
 
+// Fixed-control build, additive to the pinned hybrid records. One mandatory
+// domains=7 catalog: mesh, ring, all line vertices, then independent points;
+// edges: ring segments then line segments in line order; faces: base triangles.
+// Line ranges partition linePoints in order, in xyz scalar units, >=6 each.
+// All controls must be strictly inside the region. Existing query/fill,
+// full-capacity alias preflight and atomic refusal contracts apply.
+typedef struct {
+    TapiocaTerrainHybridRequest band;
+    TapiocaDoubleView linePoints;
+    struct {
+        const TapiocaTerrainRing* data;
+        size_t count;
+    } lines;
+    TapiocaDoubleView points;
+} TapiocaTerrainHybridLockedRequest;
+// Output adds line kind 6 (side=0, root=input control line) and mapping kinds:
+// 20 Region point: index=output vertex, v0=independent control point.
+// 21 Point input remap: index=control point, v0=output vertex (all contributors).
+// 22 Fixed vertex support: index=output vertex, v0=1 line segment / 2 point,
+//    v1=input line/point, v2=segment (0 for points). One row per contributor.
+// Unused values zero. Fixed vertices have no band owner; their height in points
+// is exact. Compatible controls retain the first input height (lines then points).
+// Daylight height bits remain exact, even within the compatibility tolerance.
+typedef struct {
+    double position[3], magnitude;
+    uint32_t code, station, side, hard, vertex;
+    uint32_t controlKind, controlIndex, controlSegment;
+    uint32_t otherKind, otherIndex, otherSegment, reserved;
+} TapiocaTerrainHybridDiagnostic;
+typedef struct {
+    size_t* count;
+    TapiocaTerrainHybridDiagnostic* rows;
+    size_t capacity;
+    uint32_t queryOnly, reserved;
+} TapiocaTerrainHybridDiagnosticOutput;
+// Assessment carries station-side codes 1..5 and the FIRST LockedConflict (6).
+// For code 6: station=UINT32_MAX, side=0, hard=1, vertex=candidate vertex;
+// control kind 1 segment / 2 point; other kind 0 means grading disagrees.
+// magnitude=other/proposed minus fixed height. Other fields unused/zero.
+// Assessment builds a TIN; worker-classified, not a cheap per-point query.
+
 // S4.3 located conflicts, additive to the build/edit records and counters.
 // Band conflict code: 1 DaylightNotReached (magnitude: z_cone - z_base where the
 // search stopped), 2 DaylightBeyondLimit (reach needed, metres from the edge),
@@ -1044,6 +1085,12 @@ TapiocaStatus tapioca_terrain_volume (const TapiocaTerrainVolumeRequest* request
 TapiocaStatus tapioca_terrain_hybrid_build (const TapiocaTerrainHybridRequest* request,
                                             const TapiocaTerrainHybridOutput* output, char* error,
                                             size_t errorCapacity);
+TapiocaStatus tapioca_terrain_hybrid_locked_build (const TapiocaTerrainHybridLockedRequest* request,
+                                                   const TapiocaTerrainHybridOutput* output, char* error,
+                                                   size_t errorCapacity);
+TapiocaStatus tapioca_terrain_hybrid_locked_assess (const TapiocaTerrainHybridLockedRequest* request,
+                                                    const TapiocaTerrainHybridDiagnosticOutput* output, char* error,
+                                                    size_t errorCapacity);
 // S4.3: query/fill row exports with the same request records and contracts.
 TapiocaStatus tapioca_terrain_hybrid_conflicts (const TapiocaTerrainHybridRequest* request,
                                                 const TapiocaTerrainConflictOutput* output, char* error,

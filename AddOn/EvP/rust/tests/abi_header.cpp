@@ -42,6 +42,13 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridCounts) == 32,
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridOutput) == 144, "Band output ABI mismatch");
 static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainHybridOutput, queryOnly) == 136, "Band output mismatch");
 static_assert (sizeof (TapiocaTerrainConflict) == 48 && sizeof (TapiocaTerrainClip) == 32, "Conflict ABI mismatch");
+static_assert (sizeof (TapiocaTerrainHybridDiagnostic) == 80, "Fixed-control diagnostic ABI mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridLockedRequest) == 408,
+               "Fixed-control request ABI mismatch");
+static_assert (sizeof (void*) != 8 || offsetof (TapiocaTerrainHybridLockedRequest, linePoints) == 360,
+               "Fixed-control request offset mismatch");
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridDiagnosticOutput) == 32,
+               "Fixed-control diagnostic output ABI mismatch");
 static_assert (sizeof (void*) != 8 ||
                    (sizeof (TapiocaTerrainConflictOutput) == 32 && sizeof (TapiocaTerrainClipOutput) == 32),
                "Conflict output mismatch");

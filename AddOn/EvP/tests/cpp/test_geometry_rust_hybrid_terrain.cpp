@@ -78,7 +78,79 @@ TEST (GeometryRustHybridTerrain, AbiLayouts)
     static_assert (sizeof (TapiocaTerrainStation) == 152);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridRequest) == 360);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridOutput) == 144);
+    static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridLockedRequest) == 408);
+    static_assert (sizeof (TapiocaTerrainHybridDiagnostic) == 80);
     SUCCEED ();
+}
+
+TEST (GeometryRustHybridTerrain, FixedControlsRetainTheirCatalogAndEveryCrossingContributor)
+{
+    const Base base;
+    const std::array stations { Station (0, 10), Station (40, 12) };
+    const std::array<std::vector<double>, 2> lines { std::vector<double> { 5, -1, 10.25, 35, 1, 11.75 },
+                                                     std::vector<double> { 5, 1, 10.25, 35, -1, 11.75 } };
+    const std::vector<double> points { 20, 0, 11, 20, 0, 11 };
+    auto counts = base.Counts ();
+    counts.vertices += 6;
+    counts.edges += 2;
+    auto provenance = Provenance (counts, 7);
+    const HybridTerrainRequest request {
+        { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, provenance, lines, points
+    };
+    HybridTerrainResult result;
+    std::string error;
+    ASSERT_TRUE (BuildHybridTerrain (request, result, error)) << error;
+    EXPECT_EQ (result.inputProvenance, provenance);
+    EXPECT_EQ (result.inputRegionCount, 4U);
+    EXPECT_EQ (result.inputControlLineStarts,
+               (std::vector<size_t> { base.points.size () / 3 + 4, base.points.size () / 3 + 6 }));
+    EXPECT_EQ (result.inputControlPointStart, base.points.size () / 3 + 8);
+    ASSERT_GT (result.locked.size (), 5U);
+    bool shared = false;
+    for (const auto& vertex : result.locked) {
+        EXPECT_FALSE (result.owners.at (vertex.vertex));
+        EXPECT_NEAR (result.points.at (vertex.vertex * 3 + 2), 10 + .05 * result.points.at (vertex.vertex * 3), 1e-12);
+        shared |= vertex.supports.size () == 4;
+    }
+    EXPECT_TRUE (shared);
+    EXPECT_EQ (result.lines.front ().kind, HybridLineKind::Locked);
+    auto broken = provenance;
+    broken.counts.vertices -= 1;
+    const auto before = result;
+    EXPECT_FALSE (BuildHybridTerrain (
+        { request.mesh, kRegion, stations, request.effect, request.tolerance, broken, lines, points }, result, error));
+    EXPECT_EQ (result, before);
+    EXPECT_NE (error.find ("Provenance"), std::string::npos);
+}
+
+TEST (GeometryRustHybridTerrain, FixedConflictAssessmentCarriesInputLocatorsWithoutPublishingAMesh)
+{
+    const Base base;
+    const std::array stations { Station (0, 10), Station (40, 12) };
+    const std::vector<double> points { 20, 0, 12 };
+    auto counts = base.Counts ();
+    ++counts.vertices;
+    const auto provenance = Provenance (counts, 7);
+    const HybridTerrainRequest request {
+        { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, provenance, {}, points
+    };
+    HybridTerrainResult result;
+    result.points = { 77 };
+    const auto before = result;
+    std::string error;
+    EXPECT_FALSE (BuildHybridTerrain (request, result, error));
+    EXPECT_EQ (result, before);
+    EXPECT_EQ (error.rfind ("LockedConflict:", 0), 0U);
+    std::vector<HybridConflict> conflicts;
+    ASSERT_TRUE (AssessHybridTerrain (request, conflicts, error)) << error;
+    ASSERT_EQ (conflicts.size (), 1U);
+    const auto& conflict = conflicts.front ();
+    EXPECT_EQ (conflict.code, HybridConflictCode::LockedConflict);
+    EXPECT_EQ (conflict.control, (std::optional<HybridControlRef> { { HybridControlRef::Kind::Point, 0, 0 } }));
+    EXPECT_FALSE (conflict.other);
+    EXPECT_EQ (conflict.station, UINT32_MAX);
+    EXPECT_EQ (conflict.position, (std::array<double, 3> { 20, 0, 12 }));
+    EXPECT_NEAR (conflict.magnitude, -1, 1e-12);
 }
 
 TEST (GeometryRustHybridTerrain, WorkedBandBuildsWithExactDaylightAndUntouchedOutside)

@@ -990,12 +990,36 @@ does not generate an unauthored ramp, clamp the band or launch a solve. The whol
 candidate is discarded on refusal. Base-edge constraints and exact triangle-sum
 volumes remain in force. Controls are strictly inside the rebuild ring.
 
-**Not exposed through C yet.** Every pinned ABI record/export stays unchanged;
-the old hybrid encoder explicitly refuses fixed-control ancestry rather than
-discarding it. Additive ABI/facade transport with required control provenance,
-all-conflict assessment, document persistence/UI, locked surfaces and enforcement
-in the separate soft-edit/solve lanes remain downstream. No native or performance
-acceptance is implied. The existing between-station chord-error limit remains.
+**Additive ABI/facade transport.** `tapioca_terrain_hybrid_locked_build` takes a
+new `TapiocaTerrainHybridLockedRequest` (408 bytes on x64) and the existing pinned
+hybrid output. Its mandatory domains=7 catalog covers mesh vertices, ring
+vertices, all control-line vertices, then independent control points; edges are
+ring segments followed by control segments in line order. Line scalar ranges
+partition one flat xyz pool; no nested foreign pointer or borrowed handle escapes.
+Every complete pool/capacity is preflighted against outputs and diagnostics before
+borrowing. Refusals and contained panics leave all outputs unchanged.
+
+Line kind 6 names a control line (`root` is its input index, side 0). Additive
+mapping kinds 20 (new isolated-point origin), 21 (every independent input point's
+output vertex, including coincident contributors) and 22 (every fixed vertex's
+point/segment contributor) preserve control ancestry. All existing pinned
+records/exports remain unchanged; the legacy encoder still refuses fixed inputs.
+
+`tapioca_terrain_hybrid_locked_assess` carries station-side diagnostics and the
+**first** fixed-control conflict in a new 80-byte diagnostic record. Code 6 is
+`LockedConflict`, with control/optional other control, candidate vertex, world
+position and signed mismatch; it has no path-station/hand semantics. This
+assessment builds a TIN, unlike the old station-only assessment. Query/fill
+recomputes; no cheap-query or latency claim is implied.
+
+The existing `BuildHybridTerrain`/`AssessHybridTerrain` facade selects the new
+exports only when controls are present. It retains the full combined input
+catalog, control-row offsets and every `HybridTerrainResult::locked` contributor.
+Control conflicts use typed input locators, not invented semantic IDs. The build
+publishes atomically, and assessment can report a refused build without geometry.
+Locked surfaces, enumeration beyond the first fixed conflict, and enforcement in
+the separate soft-edit/solve lanes remain downstream. No native acceptance is
+implied; the between-station chord-error limit remains.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

@@ -8,6 +8,7 @@ use tapioca_geometry::{identity as id, terrain as kernel};
 mod conflict;
 mod edit;
 mod hybrid;
+mod locked;
 mod result;
 mod sample;
 mod storage;
@@ -25,6 +26,10 @@ pub use edit::{
 pub use hybrid::{
     TerrainHybridCounts, TerrainHybridLine, TerrainHybridOutput, TerrainHybridRequest,
     TerrainHybridSide, TerrainHybridVolumes, TerrainStation, tapioca_terrain_hybrid_build,
+};
+pub use locked::{
+    TerrainHybridDiagnostic, TerrainHybridDiagnosticOutput, TerrainHybridLockedRequest,
+    tapioca_terrain_hybrid_locked_assess, tapioca_terrain_hybrid_locked_build,
 };
 pub use sample::{
     TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,

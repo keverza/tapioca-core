@@ -4,6 +4,8 @@ use tapioca_geometry::terrain::design::{Band, Station};
 use tapioca_geometry::terrain::edit::Effect;
 use tapioca_geometry::terrain::hybrid as band_kernel;
 
+mod locked;
+
 const REGION: [f64; 12] = [
     -10.0, -15.0, 0.0, 50.0, -15.0, 0.0, 50.0, 15.0, 0.0, -10.0, 15.0, 0.0,
 ];
@@ -78,6 +80,7 @@ fn request<'a>(
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 struct Storage {
     counts: TerrainHybridCounts,
     site: TerrainHybridVolumes,

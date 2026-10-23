@@ -184,7 +184,7 @@ pub struct TerrainHybridOutput {
     pub reserved: u32,
 }
 
-fn writable(target: TerrainHybridOutput) -> Vec<Checked> {
+pub(super) fn writable(target: TerrainHybridOutput) -> Vec<Checked> {
     vec![
         memory_range(target.counts.cast_const(), 1),
         memory_range(target.site.cast_const(), 1),
@@ -282,6 +282,11 @@ pub(super) struct Encoded {
 /// Encode a build losslessly: faces (12), split vertices (9), region vertices
 /// (13, 14), design line vertices (15) and edges (16), the ring (17).
 pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
+    encode_build(built, false)
+}
+
+/// The additive fixed-control export retains all control supports.
+pub(super) fn encode_build(built: Built, controls: bool) -> Result<Encoded, Failure> {
     let Built {
         points,
         mesh,
@@ -292,7 +297,7 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
         conflicts: _,
         locked,
     } = built;
-    if !locked.is_empty() {
+    if !controls && !locked.is_empty() {
         return Err(Failure::Argument("TerrainHybridLockedUnsupported"));
     }
     let mut mappings = Vec::new();
@@ -334,6 +339,9 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
                 .ok_or(Failure::Argument("TerrainCountOverflow"))?,
         )?;
         match *vertex {
+            RegionVertex::Point(point) if controls => {
+                mappings.push(row(20, at, [point, 0, 0, 0, 0, 0]));
+            }
             RegionVertex::Point(_) => {
                 // This ABI has no isolated-point input. Never discard an
                 // unsupported ancestry if a future caller changes that.
@@ -365,6 +373,15 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
     for (position, &vertex) in mesh.ring.iter().enumerate() {
         mappings.push(row(17, index(position)?, [vertex, 0, 0, 0, 0, 0]));
     }
+    for (point, &vertex) in mesh.point_vertices.iter().enumerate() {
+        mappings.push(row(21, index(point)?, [vertex, 0, 0, 0, 0, 0]));
+    }
+    for vertex in &locked {
+        for &source in &vertex.supports {
+            let [kind, input, segment] = super::locked::control(source);
+            mappings.push(row(22, vertex.vertex, [kind, input, segment, 0, 0, 0]));
+        }
+    }
     let lines = lines
         .iter()
         .map(|kind| {
@@ -374,6 +391,7 @@ pub(super) fn encode(built: Built) -> Result<Encoded, Failure> {
                 LineKind::Daylight { side, root } => (3, hand(side), root),
                 LineKind::End(last) => (4, 0, u32::from(last)),
                 LineKind::Crown => (5, 0, 0),
+                LineKind::Locked(line) if controls => (6, 0, line),
                 LineKind::Locked(_) => {
                     return Err(Failure::Argument("TerrainHybridLockedUnsupported"));
                 }
@@ -465,7 +483,7 @@ pub(super) unsafe fn with_band<O: Copy, R>(
     let target = target.ok_or(Failure::Argument("TerrainOutputDescriptor"))?;
     (shape.mode)(&target)?;
     // SAFETY: all pools were preflighted above, before any borrow.
-    let result = unsafe { evaluate_band(&context, &request, run)? };
+    let result = unsafe { evaluate_band(&context, &request, [0, 0], run)? };
     Ok((result, target))
 }
 
@@ -474,6 +492,7 @@ pub(super) unsafe fn with_band<O: Copy, R>(
 pub(super) unsafe fn evaluate_band<R>(
     context: &BorrowContext,
     request: &TerrainHybridRequest,
+    extra: [u64; 2],
     run: impl FnOnce(&kernel::BuildRequest<'_>) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
     // SAFETY: every pool was preflighted above; no borrow escapes this call.
@@ -492,8 +511,11 @@ pub(super) unsafe fn evaluate_band<R>(
         id::EntityCounts {
             vertices: count(points.len() / 3)?
                 .checked_add(count(ring)?)
+                .and_then(|n| n.checked_add(extra[0]))
                 .ok_or(Failure::Argument("TerrainCountOverflow"))?,
-            edges: count(ring)?,
+            edges: count(ring)?
+                .checked_add(extra[1])
+                .ok_or(Failure::Argument("TerrainCountOverflow"))?,
             faces: count(triangles.len() / 3)?,
             patches: 0,
         },
@@ -524,7 +546,7 @@ pub(super) unsafe fn evaluate_band<R>(
     })
 }
 
-fn mode(target: &TerrainHybridOutput) -> Result<(), Failure> {
+pub(super) fn mode(target: &TerrainHybridOutput) -> Result<(), Failure> {
     if target.query_only > 1
         || target.reserved != 0
         || (target.query_only == 1
@@ -570,7 +592,7 @@ pub(super) unsafe fn copy<T: Copy>(from: &[T], to: *mut T) {
 
 // SAFETY: target ranges were preflighted disjoint from every input, the error
 // buffer and each other.
-unsafe fn publish(data: &Encoded, target: TerrainHybridOutput) -> Result<(), Failure> {
+pub(super) unsafe fn publish(data: &Encoded, target: TerrainHybridOutput) -> Result<(), Failure> {
     let counts = TerrainHybridCounts {
         points: data.points.len(),
         triangles: data.triangles.len(),

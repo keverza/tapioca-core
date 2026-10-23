@@ -83,14 +83,14 @@ pub type TerrainConflictOutput = TerrainRowsOutput<TerrainConflict>;
 /// Located edit clips output.
 pub type TerrainClipOutput = TerrainRowsOutput<TerrainClip>;
 
-fn writable<T>(target: TerrainRowsOutput<T>) -> Vec<Checked> {
+pub(super) fn writable<T>(target: TerrainRowsOutput<T>) -> Vec<Checked> {
     vec![
         memory_range(target.count.cast_const(), 1),
         memory_range(target.rows.cast_const(), target.capacity),
     ]
 }
 
-fn mode<T>(target: &TerrainRowsOutput<T>) -> Result<(), Failure> {
+pub(super) fn mode<T>(target: &TerrainRowsOutput<T>) -> Result<(), Failure> {
     if target.query_only > 1
         || target.reserved != 0
         || (target.query_only == 1 && target.capacity != 0)
@@ -102,7 +102,10 @@ fn mode<T>(target: &TerrainRowsOutput<T>) -> Result<(), Failure> {
 
 // SAFETY: the target ranges were preflighted disjoint from every input, the
 // error buffer and each other.
-unsafe fn publish<T: Copy>(rows: &[T], target: TerrainRowsOutput<T>) -> Result<(), Failure> {
+pub(super) unsafe fn publish<T: Copy>(
+    rows: &[T],
+    target: TerrainRowsOutput<T>,
+) -> Result<(), Failure> {
     if target.query_only == 0 && target.capacity < rows.len() {
         return Err(Failure::Argument("TerrainOutputTooSmall"));
     }
@@ -116,7 +119,7 @@ unsafe fn publish<T: Copy>(rows: &[T], target: TerrainRowsOutput<T>) -> Result<(
     Ok(())
 }
 
-const fn code(value: ConflictCode) -> u32 {
+pub(super) const fn code(value: ConflictCode) -> u32 {
     match value {
         ConflictCode::DaylightNotReached => 1,
         ConflictCode::DaylightBeyondLimit => 2,
