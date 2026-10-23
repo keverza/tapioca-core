@@ -704,6 +704,68 @@ bool AwaitTerrain (eh::Session& session, layers::Layer& layer, bool refused = fa
 }
 } // namespace
 
+TEST (HudTerrainDesign, CaptureUIRequestIsExplicitRevisionBoundAndDoesNotAuthorHistory)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    session.terrainPath = fixture.path;
+    const auto doc = session.edits.Doc ();
+    ASSERT_TRUE (eh::RequestTerrainCapture (session, true)) << session.message;
+    const auto request = session.terrainCapture;
+    ASSERT_TRUE (request);
+    EXPECT_EQ (request->path, fixture.path);
+    EXPECT_TRUE (request->terrainGuid.empty ());
+    EXPECT_TRUE (eh::TerrainCaptureIsCurrent (session, request));
+    EXPECT_EQ (session.edits.Doc ().landscape, doc.landscape);
+    EXPECT_EQ (session.edits.Doc ().entities, doc.entities);
+    EXPECT_EQ (session.edits.Doc ().paths, doc.paths);
+    EXPECT_EQ (session.edits.Doc ().revision, doc.revision);
+    EXPECT_EQ (session.edits.Doc ().nextId, doc.nextId);
+    EXPECT_EQ (session.edits.UndoDepth (), 0U);
+    EXPECT_FALSE (eh::RequestTerrainCapture (session, true));
+    EXPECT_EQ (session.terrainCapture, request);
+    ASSERT_TRUE (session.edits.Apply ([=] (edit::Document& value, std::string&) {
+        edit::FindPath (value, fixture.path)->profile.front ().z += 1;
+        return true;
+    }));
+    EXPECT_FALSE (eh::TerrainCaptureIsCurrent (session, request));
+    session.terrainCapture.reset ();
+    ASSERT_TRUE (eh::RequestTerrainCapture (session, true));
+    EXPECT_FALSE (eh::TerrainCaptureIsCurrent (session, request)); // An old queued action cannot consume the new one.
+    EXPECT_TRUE (eh::TerrainCaptureIsCurrent (session, session.terrainCapture));
+    session.close = true;
+    EXPECT_FALSE (eh::TerrainCaptureIsCurrent (session, session.terrainCapture));
+}
+
+TEST (HudTerrainDesign, CaptureUIRequiresAnIdleLandscapePathAndRecaptureUsesTheBoundMesh)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    EXPECT_FALSE (eh::RequestTerrainCapture (session, true)); // No path chosen.
+    session.terrainPath = fixture.path;
+    ASSERT_TRUE (session.edits.Begin ());
+    EXPECT_FALSE (eh::RequestTerrainCapture (session, true));
+    session.edits.Cancel ();
+    session.landscapeCommand.emplace ();
+    EXPECT_FALSE (eh::RequestTerrainCapture (session, true));
+    session.landscapeCommand.reset ();
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto depth = session.edits.UndoDepth ();
+    ASSERT_TRUE (eh::RequestTerrainCapture (session, false));
+    ASSERT_TRUE (session.terrainCapture);
+    EXPECT_EQ (session.terrainCapture->terrainGuid, fixture.mesh->guid);
+    EXPECT_EQ (session.edits.UndoDepth (), depth);
+    session.terrainCapture.reset ();
+    auto noProperty = fixture.doc;
+    noProperty.landscape->propertyLineSourceId = 0;
+    eh::Session other (noProperty);
+    other.terrainPath = fixture.path;
+    EXPECT_FALSE (eh::RequestTerrainCapture (other, true));
+    EXPECT_FALSE (other.terrainCapture);
+}
+
 TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer)
 {
     TerrainHostFixture fixture;

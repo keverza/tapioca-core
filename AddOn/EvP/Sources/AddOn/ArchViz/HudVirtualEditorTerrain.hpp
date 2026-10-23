@@ -17,6 +17,11 @@ struct Layer;
 namespace geomsrv::archviz::edithud {
 struct Session;
 struct TerrainDesignState;
+struct TerrainCaptureRequest {
+    edit::Id path = edit::kNoId;
+    uint64_t revision = 0;
+    std::string terrainGuid; // Empty: read exactly one native selected Mesh; otherwise recapture this source.
+};
 struct TerrainDesignBaseline {
     std::shared_ptr<const Mesh> mesh;
     bool nativeSolid = false; // Compact the upward surface on the worker.
@@ -48,5 +53,8 @@ void TerrainDesignPanel (Session& session);
 // Selected guide vertices become point controls; selected whole open polylines
 // become line controls. One existing Session history entry for the whole set.
 bool SetTerrainControlSelection (Session& session, bool enabled);
+// Pure UI request/ownership gate, no native read or document/history mutation.
+bool RequestTerrainCapture (Session& session, bool fromSelection);
+bool TerrainCaptureIsCurrent (const Session& session, const std::shared_ptr<const TerrainCaptureRequest>& request);
 } // namespace geomsrv::archviz::edithud
 #endif

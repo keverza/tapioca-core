@@ -1005,19 +1005,27 @@ output vertex, including coincident contributors) and 22 (every fixed vertex's
 point/segment contributor) preserve control ancestry. All existing pinned
 records/exports remain unchanged; the legacy encoder still refuses fixed inputs.
 
-`tapioca_terrain_hybrid_locked_assess` carries station-side diagnostics and the
-**first** fixed-control conflict in a new 80-byte diagnostic record. Code 6 is
+`tapioca_terrain_hybrid_locked_assess` carries station-side diagnostics and
+canonical fixed-control conflicts in the existing 80-byte diagnostic record. Code 6 is
 `LockedConflict`, with control/optional other control, candidate vertex, world
 position and signed mismatch; it has no path-station/hand semantics. This
 assessment builds a TIN, unlike the old station-only assessment. Query/fill
-recomputes; no cheap-query or latency claim is implied.
+recomputes; no cheap-query or latency claim is implied. `hybrid::assess_locked`
+enumerates every contributor disagreeing with the first height at its vertex,
+then every canonical fixed vertex disagreeing with grading. Adjacent split edges
+do not duplicate a segment contributor. This deliberately uses the same
+first-height tolerance rule as build, not all unordered contributor pairs or
+transitive clustering. Build still refuses on its original first conflict and
+never publishes a partial surface. Hard band rows (codes 1..4) prevent a candidate
+TIN, so fixed assessment is then incomplete (`LockedAssessment::fixed_complete`
+is false in Rust; the row codes convey this at the unchanged C ABI).
 
 The existing `BuildHybridTerrain`/`AssessHybridTerrain` facade selects the new
 exports only when controls are present. It retains the full combined input
 catalog, control-row offsets and every `HybridTerrainResult::locked` contributor.
 Control conflicts use typed input locators, not invented semantic IDs. The build
 publishes atomically, and assessment can report a refused build without geometry.
-Locked surfaces, enumeration beyond the first fixed conflict, and enforcement in
+Locked surfaces and prepared fixed-support enforcement in
 the separate soft-edit/solve lanes remain downstream. No native acceptance is
 implied; the between-station chord-error limit remains.
 
@@ -1045,6 +1053,27 @@ the old preview and follows the existing revision-coalescing worker/publisher.
 Fixed conflicts draw through the existing shared layer and name the authored
 source, not a fake path station. Publication adds no history. Native capture/start
 is unchanged; actual UI/rendering and native quantity acceptance remain separate.
+
+**Topography UI entry.** The landscape editor's **Topography preview** section
+chooses an authored path, captures one selected Archicad Mesh, or recaptures the
+bound terrain GUID. **Edit design path** opens the existing path selection/profile
+controls; changes flow through the existing revision-coalescing worker and shared
+preview layer. UI capture requests contain only path/revision/source and create
+no history. `FollowTerrainCapture` posts native reads through `MainThreadGate`,
+checks project/session/request identity and revision again at dispatch, reads
+`Tapioca.GetSelection`, and invokes the existing `Tapioca.VirtualEditor` terrain
+action. No capture or model write runs from layout/Present. Capture rejects empty
+or ambiguous native selections; the existing native action validates Mesh type
+and retains its freshness stamp. Recapture does not depend on current selection.
+This is path-driven preview, not a terrain brush, area/spot authoring or native bake.
+
+**Fail-closed downstream tiers.** Until soft-edit/smoothing and caller-assembled
+solve requests transport prepared fixed support, enabled document controls refuse
+with `TerrainControlTierUnsupported` in the common `EditTerrainAdapter` and
+`EditSparseSolve` gates, including landscape/split wrappers. They are not silently
+ignored or converted into positional masks. Disabled controls leave old behavior
+unchanged, and pure field sampling remains available. This is a safety refusal,
+not completed soft/solve constraint enforcement.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

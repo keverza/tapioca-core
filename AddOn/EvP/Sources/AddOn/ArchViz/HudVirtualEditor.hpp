@@ -35,6 +35,7 @@ struct Input;
 namespace geomsrv::archviz::edithud {
 
 struct TerrainDesignState;
+struct TerrainCaptureRequest;
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve };
 enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
@@ -63,6 +64,10 @@ struct ContextMenu {
 struct Session {
     edit::Session edits;
     std::shared_ptr<TerrainDesignState> terrainDesign; // Derived worker/cache follows this session between hosts.
+    // Explicit UI capture action; the controller posts native reads out of layout.
+    std::shared_ptr<const TerrainCaptureRequest> terrainCapture;
+    bool terrainCaptureQueued = false;
+    edit::Id terrainPath = edit::kNoId;
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;

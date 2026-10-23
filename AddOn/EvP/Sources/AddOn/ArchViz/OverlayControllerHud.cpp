@@ -29,6 +29,7 @@
 #include "ArchViz/HudConsole.hpp"
 #include "ArchViz/HudFloorPlanFiles.hpp"
 #include "ArchViz/RoofSlopeBake.hpp"
+#include "ArchViz/VirtualEditorTerrainCapture.hpp"
 #include "Palette/ProgrammeDialog.hpp"
 
 #include <algorithm>
@@ -90,6 +91,7 @@ void FollowHudState ()
     const std::shared_ptr<overlayhud::State> state = guesttext::HudState ();
     bool recoloured = false;
     roofslopebake::Follow (state);
+    FollowTerrainCapture (state);
     overlaylayers::Layer roof;
     bool clearRoof = false;
     if (overlayhud::FollowRoofEditor (*state, roof, clearRoof)) {

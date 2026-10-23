@@ -8,6 +8,42 @@
 // OVERLAY-INVARIANTS.md §§8,12,14: session-owned derived geometry only;
 // both hosts consume the same layer, with no camera or renderer changes.
 namespace geomsrv::archviz::edithud {
+bool RequestTerrainCapture (Session& s, bool fromSelection)
+{
+#if !defined(TAPIOCA_GEOMETRY_RUST)
+    (void) fromSelection;
+    s.message = "Terrain design requires the Rust geometry build.";
+    return false;
+#else
+    if (s.close || s.terrainCapture || s.edits.InGesture () || GizmoModeLocked (s) || !s.drawing.empty () ||
+        s.landscapeCommand || GetTerrainDesignStatus (s).pending) {
+        s.message = "Finish the current input or terrain build before capturing topography.";
+        return false;
+    }
+    const auto& doc = s.edits.Doc ();
+    if (!doc.landscape || !doc.landscape->propertyLineSourceId || !edit::FindPath (doc, s.terrainPath)) {
+        s.message = "Choose a landscape path and a property line before capturing topography.";
+        return false;
+    }
+    if (!fromSelection && doc.landscape->sourceTerrainGuid.empty ()) {
+        s.message = "Capture a selected Archicad Mesh before recapturing terrain.";
+        return false;
+    }
+    s.terrainCapture = std::make_shared<TerrainCaptureRequest> (
+        TerrainCaptureRequest { s.terrainPath, doc.revision, fromSelection ? "" : doc.landscape->sourceTerrainGuid });
+    s.terrainCaptureQueued = false;
+    s.message = "Topography capture requested.";
+    return true;
+#endif
+}
+
+bool TerrainCaptureIsCurrent (const Session& s, const std::shared_ptr<const TerrainCaptureRequest>& request)
+{
+    return request && s.terrainCapture == request && !s.close && s.edits.Doc ().revision == request->revision &&
+           s.edits.Doc ().landscape && edit::FindPath (s.edits.Doc (), request->path) && !s.edits.InGesture () &&
+           !GizmoModeLocked (s) && s.drawing.empty () && !s.landscapeCommand;
+}
+
 bool SetTerrainControlSelection (Session& s, bool enabled)
 {
     if (!s.edits.Doc ().landscape || s.edits.InGesture () || GizmoModeLocked (s) || !s.drawing.empty ()) {
@@ -57,6 +93,51 @@ bool SetTerrainControlSelection (Session& s, bool enabled)
 }
 
 namespace {
+void TopographyPanel (Session& s)
+{
+    const auto& doc = s.edits.Doc ();
+    if (!doc.landscape || !ImGui::CollapsingHeader ("Topography preview", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+    ImGui::TextWrapped (
+        "Select one Archicad Mesh before locking the view. Choose a design path and capture the Mesh. "
+        "The preview follows edits to that path's profile and cross-section; no native terrain is written.");
+    const auto* chosen = edit::FindPath (doc, s.terrainPath);
+    const auto label = chosen ? "Path " + std::to_string (chosen->id) : "Choose a design path";
+    ImGui::BeginDisabled (s.terrainCapture || GetTerrainDesignStatus (s).pending || s.edits.InGesture () ||
+                          GizmoModeLocked (s) || !s.drawing.empty () || s.landscapeCommand.has_value ());
+    if (ImGui::BeginCombo ("Design path", label.c_str ())) {
+        for (const auto& path : doc.paths) {
+            const auto name = "Path " + std::to_string (path.id);
+            if (ImGui::Selectable (name.c_str (), s.terrainPath == path.id))
+                s.terrainPath = path.id;
+        }
+        ImGui::EndCombo ();
+    }
+    ImGui::BeginDisabled (!chosen || !doc.landscape->propertyLineSourceId);
+    if (ImGui::Button ("Capture selected Mesh"))
+        RequestTerrainCapture (s, true);
+    ImGui::SameLine ();
+    ImGui::BeginDisabled (doc.landscape->sourceTerrainGuid.empty ());
+    if (ImGui::Button ("Recapture current terrain"))
+        RequestTerrainCapture (s, false);
+    ImGui::EndDisabled ();
+    if (ImGui::Button ("Edit design path")) {
+        s.selection.Set ({ { s.terrainPath, edit::Part::Entity, 0 } });
+        s.profilePath = s.terrainPath;
+        s.publishedRevision = UINT64_MAX;
+    }
+    ImGui::EndDisabled ();
+    ImGui::EndDisabled ();
+    if (!doc.landscape->propertyLineSourceId)
+        ImGui::TextWrapped ("Set a source as the property line in Sources first.");
+    if (doc.paths.empty ())
+        ImGui::TextWrapped ("Draw a landscape Path with the Path tool below first.");
+    if (s.terrainCapture)
+        ImGui::TextUnformatted ("Capturing topography...");
+    if (!doc.landscape->sourceTerrainGuid.empty ())
+        ImGui::TextWrapped ("Terrain Mesh: %s", doc.landscape->sourceTerrainGuid.c_str ());
+}
+
 void TerrainControlsPanel (Session& s)
 {
     if (!s.edits.Doc ().landscape || !ImGui::CollapsingHeader ("Fixed terrain heights"))
@@ -298,12 +379,6 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         layer.polylines.push_back (std::move (ring));
     }
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
-    if (std::any_of (conflicts.begin (), conflicts.end (),
-                     [] (const auto& conflict) { return conflict.hard && !conflict.control; }) &&
-        std::any_of (s.edits.Doc ().landscape->terrainControls.begin (),
-                     s.edits.Doc ().landscape->terrainControls.end (),
-                     [] (const auto& control) { return control.enabled; }))
-        ImGui::TextWrapped ("Fixed heights could not be assessed: resolve the band conflicts first.");
     for (const auto& conflict : conflicts) {
         overlaylayers::PointSet place;
         place.points.assign (conflict.position.begin (), conflict.position.end ());
@@ -314,6 +389,7 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
 
 void TerrainDesignPanel (Session& s)
 {
+    TopographyPanel (s);
     TerrainControlsPanel (s);
     if (!s.terrainDesign)
         return;
@@ -330,6 +406,13 @@ void TerrainDesignPanel (Session& s)
     if (current->built)
         ImGui::Text ("Cut %.3f m3   Fill %.3f m3", current->result.build.site.cut, current->result.build.site.fill);
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
+    if (s.edits.Doc ().landscape &&
+        std::any_of (conflicts.begin (), conflicts.end (),
+                     [] (const auto& conflict) { return conflict.hard && !conflict.control; }) &&
+        std::any_of (s.edits.Doc ().landscape->terrainControls.begin (),
+                     s.edits.Doc ().landscape->terrainControls.end (),
+                     [] (const auto& control) { return control.enabled; }))
+        ImGui::TextWrapped ("Fixed heights could not be assessed: resolve the band conflicts first.");
     for (const auto& conflict : conflicts)
         if (conflict.control)
             ImGui::TextWrapped ("%s at fixed source %llu (%.3f m): %s", lg::HybridConflictName (conflict.code),
@@ -369,6 +452,7 @@ void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
 }
 void TerrainDesignPanel (Session& s)
 {
+    TopographyPanel (s);
     TerrainControlsPanel (s);
 }
 } // namespace geomsrv::archviz::edithud
