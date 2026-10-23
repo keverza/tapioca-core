@@ -741,7 +741,8 @@ TEST (HudTerrainDesign, CaptureUIRequiresAnIdleLandscapePathAndRecaptureUsesTheB
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
-    EXPECT_FALSE (eh::RequestTerrainCapture (session, true)); // No path chosen.
+    session.terrainPath = fixture.doc.nextId;
+    EXPECT_FALSE (eh::RequestTerrainCapture (session, true)); // A stale explicit path must not be retargeted.
     session.terrainPath = fixture.path;
     ASSERT_TRUE (session.edits.Begin ());
     EXPECT_FALSE (eh::RequestTerrainCapture (session, true));

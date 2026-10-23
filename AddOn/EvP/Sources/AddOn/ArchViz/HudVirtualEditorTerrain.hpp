@@ -50,6 +50,16 @@ void PollTerrainDesign (Session& session);
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session& session);
 void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
 void TerrainDesignPanel (Session& session);
+// Setup uses only live authored centreline paths, never native/model GUIDs as
+// virtual path IDs. Initial choice follows one selected path or the sole eligible
+// path; an unavailable explicit choice is not silently retargeted.
+std::vector<edit::Id> TerrainDesignPaths (const Session& session);
+edit::Id ResolveTerrainDesignPath (Session& session);
+bool ChooseTerrainDesignPath (Session& session, edit::Id path);
+bool EditTerrainDesignPath (Session& session);
+bool DrawTerrainDesignPath (Session& session);
+bool DrawTerrainPropertyLine (Session& session);
+void TerrainSetupPanel (Session& session);
 // Selected guide vertices become point controls; selected whole open polylines
 // become line controls. One existing Session history entry for the whole set.
 bool SetTerrainControlSelection (Session& session, bool enabled);

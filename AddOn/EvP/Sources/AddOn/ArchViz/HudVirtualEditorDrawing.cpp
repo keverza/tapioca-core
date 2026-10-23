@@ -103,6 +103,10 @@ void FinishDrawing (Session& s)
                 if (std::find (createdPoints.begin (), createdPoints.end (), point.id) != createdPoints.end ())
                     created = path.id;
     s.selection.Set ({ { created, edit::Part::Entity, 0 } });
+    if (tool == Tool::Path && Doc (s).landscape) {
+        s.terrainPath = created;
+        s.profilePath = created;
+    }
     s.message.clear ();
 }
 

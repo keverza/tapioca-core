@@ -20,8 +20,9 @@ bool RequestTerrainCapture (Session& s, bool fromSelection)
         s.message = "Finish the current input or terrain build before capturing topography.";
         return false;
     }
+    const auto path = ResolveTerrainDesignPath (s);
     const auto& doc = s.edits.Doc ();
-    if (!doc.landscape || !doc.landscape->propertyLineSourceId || !edit::FindPath (doc, s.terrainPath)) {
+    if (!doc.landscape || !doc.landscape->propertyLineSourceId || !path) {
         s.message = "Choose a landscape path and a property line before capturing topography.";
         return false;
     }
@@ -30,7 +31,7 @@ bool RequestTerrainCapture (Session& s, bool fromSelection)
         return false;
     }
     s.terrainCapture = std::make_shared<TerrainCaptureRequest> (
-        TerrainCaptureRequest { s.terrainPath, doc.revision, fromSelection ? "" : doc.landscape->sourceTerrainGuid });
+        TerrainCaptureRequest { path, doc.revision, fromSelection ? "" : doc.landscape->sourceTerrainGuid });
     s.terrainCaptureQueued = false;
     s.message = "Topography capture requested.";
     return true;
@@ -93,51 +94,6 @@ bool SetTerrainControlSelection (Session& s, bool enabled)
 }
 
 namespace {
-void TopographyPanel (Session& s)
-{
-    const auto& doc = s.edits.Doc ();
-    if (!doc.landscape || !ImGui::CollapsingHeader ("Topography preview", ImGuiTreeNodeFlags_DefaultOpen))
-        return;
-    ImGui::TextWrapped (
-        "Select one Archicad Mesh before locking the view. Choose a design path and capture the Mesh. "
-        "The preview follows edits to that path's profile and cross-section; no native terrain is written.");
-    const auto* chosen = edit::FindPath (doc, s.terrainPath);
-    const auto label = chosen ? "Path " + std::to_string (chosen->id) : "Choose a design path";
-    ImGui::BeginDisabled (s.terrainCapture || GetTerrainDesignStatus (s).pending || s.edits.InGesture () ||
-                          GizmoModeLocked (s) || !s.drawing.empty () || s.landscapeCommand.has_value ());
-    if (ImGui::BeginCombo ("Design path", label.c_str ())) {
-        for (const auto& path : doc.paths) {
-            const auto name = "Path " + std::to_string (path.id);
-            if (ImGui::Selectable (name.c_str (), s.terrainPath == path.id))
-                s.terrainPath = path.id;
-        }
-        ImGui::EndCombo ();
-    }
-    ImGui::BeginDisabled (!chosen || !doc.landscape->propertyLineSourceId);
-    if (ImGui::Button ("Capture selected Mesh"))
-        RequestTerrainCapture (s, true);
-    ImGui::SameLine ();
-    ImGui::BeginDisabled (doc.landscape->sourceTerrainGuid.empty ());
-    if (ImGui::Button ("Recapture current terrain"))
-        RequestTerrainCapture (s, false);
-    ImGui::EndDisabled ();
-    if (ImGui::Button ("Edit design path")) {
-        s.selection.Set ({ { s.terrainPath, edit::Part::Entity, 0 } });
-        s.profilePath = s.terrainPath;
-        s.publishedRevision = UINT64_MAX;
-    }
-    ImGui::EndDisabled ();
-    ImGui::EndDisabled ();
-    if (!doc.landscape->propertyLineSourceId)
-        ImGui::TextWrapped ("Set a source as the property line in Sources first.");
-    if (doc.paths.empty ())
-        ImGui::TextWrapped ("Draw a landscape Path with the Path tool below first.");
-    if (s.terrainCapture)
-        ImGui::TextUnformatted ("Capturing topography...");
-    if (!doc.landscape->sourceTerrainGuid.empty ())
-        ImGui::TextWrapped ("Terrain Mesh: %s", doc.landscape->sourceTerrainGuid.c_str ());
-}
-
 void TerrainControlsPanel (Session& s)
 {
     if (!s.edits.Doc ().landscape || !ImGui::CollapsingHeader ("Fixed terrain heights"))
@@ -276,6 +232,7 @@ bool StartTerrainDesign (Session& s, TerrainDesignBaseline baseline, edit::Id pa
         return false;
     }
     s.terrainDesign = std::move (state);
+    s.terrainPath = path;
     s.publishedRevision = UINT64_MAX;
     s.message.clear ();
     return true;
@@ -389,7 +346,7 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
 
 void TerrainDesignPanel (Session& s)
 {
-    TopographyPanel (s);
+    TerrainSetupPanel (s);
     TerrainControlsPanel (s);
     if (!s.terrainDesign)
         return;
@@ -452,7 +409,7 @@ void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
 }
 void TerrainDesignPanel (Session& s)
 {
-    TopographyPanel (s);
+    TerrainSetupPanel (s);
     TerrainControlsPanel (s);
 }
 } // namespace geomsrv::archviz::edithud
