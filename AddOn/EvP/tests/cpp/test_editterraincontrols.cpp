@@ -243,3 +243,42 @@ TEST (EditTerrainControls, ConflictingControlSourcesAndCorruptDuplicateReference
     EXPECT_FALSE (terrain_detail::CompileTerrainControls (f.doc, capture.provenance, result, error));
     EXPECT_NE (error.find ("duplicate control"), std::string::npos);
 }
+
+TEST (EditTerrainControls, AllFixedConflictsResolveAuthoredVerticesWithoutPublishingGeometry)
+{
+    Fixture f;
+    std::vector<Id> sources, vertices;
+    std::string error;
+    for (const auto point : { edit::Vec3 { 10, 0, 10.5 }, edit::Vec3 { 10, 0, 11.5 }, edit::Vec3 { 10, 0, 12.5 },
+                              edit::Vec3 { 20, 0, 12 }, edit::Vec3 { 30, 0, 12.5 } }) {
+        const auto [source, entity] = f.Guide ({ point, { point.x + 1, point.y, point.z } });
+        const auto vertex = edit::Find (f.doc, entity)->vertices.front ().id;
+        ASSERT_TRUE (SetLandscapeTerrainControl (f.doc, source, vertex, true, error)) << error;
+        sources.push_back (source);
+        vertices.push_back (vertex);
+    }
+    const auto capture = f.Capture ();
+    std::vector<TerrainDesignConflict> conflicts;
+    ASSERT_TRUE (AssessTerrainDesign (f.doc, capture.Input (), f.Options (), conflicts, error)) << error;
+    ASSERT_EQ (conflicts.size (), 4U);
+    for (size_t i = 0; i < conflicts.size (); ++i) {
+        ASSERT_TRUE (conflicts[i].control);
+        const auto input = i < 2 ? 0 : i + 1;
+        EXPECT_EQ (conflicts[i].control->source, sources[input]);
+        EXPECT_EQ (conflicts[i].control->vertices[0], vertices[input]);
+        EXPECT_EQ (conflicts[i].control->segment, 0U);
+        if (i < 2) {
+            ASSERT_TRUE (conflicts[i].other);
+            EXPECT_EQ (conflicts[i].other->source, sources[i + 1]);
+            EXPECT_EQ (conflicts[i].other->vertices[0], vertices[i + 1]);
+        }
+        else
+            EXPECT_FALSE (conflicts[i].other);
+    }
+    TerrainDesignResult result;
+    result.stations = { 77 };
+    const auto before = result;
+    EXPECT_FALSE (EvaluateTerrainDesign (f.doc, capture.Input (), f.Options (), result, error));
+    EXPECT_EQ (result, before);
+    EXPECT_NE (error.find ("at fixed source " + std::to_string (sources[0])), std::string::npos);
+}

@@ -298,6 +298,12 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         layer.polylines.push_back (std::move (ring));
     }
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
+    if (std::any_of (conflicts.begin (), conflicts.end (),
+                     [] (const auto& conflict) { return conflict.hard && !conflict.control; }) &&
+        std::any_of (s.edits.Doc ().landscape->terrainControls.begin (),
+                     s.edits.Doc ().landscape->terrainControls.end (),
+                     [] (const auto& control) { return control.enabled; }))
+        ImGui::TextWrapped ("Fixed heights could not be assessed: resolve the band conflicts first.");
     for (const auto& conflict : conflicts) {
         overlaylayers::PointSet place;
         place.points.assign (conflict.position.begin (), conflict.position.end ());

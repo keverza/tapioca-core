@@ -8,7 +8,7 @@ use super::edit::TerrainRing;
 use super::hybrid::{self, Shape, TerrainHybridOutput, TerrainHybridRequest};
 use super::{Failure, SliceView, call, memory_range};
 use crate::pools::{self, Range};
-use tapioca_geometry::terrain::hybrid::{self as kernel, HybridError, LockRef, Locked};
+use tapioca_geometry::terrain::hybrid::{self as kernel, LockRef, Locked};
 
 /// The pinned band request plus fixed controls. Line descriptors partition
 /// `line_points` in order (xyz scalar offsets/counts). Independent points follow
@@ -26,7 +26,7 @@ pub struct TerrainHybridLockedRequest {
     pub points: SliceView<f64>,
 }
 
-/// Band diagnostics (codes 1..5) and the first fixed-control conflict (code 6).
+/// Band diagnostics (codes 1..5) and fixed-control conflicts (code 6).
 /// For code 6 station is MAX, side 0, hard 1; the control kinds are 1 segment,
 /// 2 point, 0 absent. Indices are line/point locators; segments unused for points.
 #[repr(C)]
@@ -217,8 +217,10 @@ fn assess(
     band: &kernel::BuildRequest<'_>,
     controls: Locked<'_>,
 ) -> Result<Vec<TerrainHybridDiagnostic>, Failure> {
-    let mut rows: Vec<_> = kernel::assess(band)
-        .map_err(|e| Failure::Argument(e.message()))?
+    let assessed =
+        kernel::assess_locked(band, controls).map_err(|e| Failure::Argument(e.message()))?;
+    let mut rows: Vec<_> = assessed
+        .band
         .iter()
         .map(|c| TerrainHybridDiagnostic {
             position: c.position,
@@ -234,39 +236,33 @@ fn assess(
             ..TerrainHybridDiagnostic::default()
         })
         .collect();
-    match kernel::build_locked(band, controls) {
-        Ok(_) => {}
-        Err(HybridError::LockedConflict(c)) => {
-            let [control_kind, control_index, control_segment] = control(c.control);
-            let [other_kind, other_index, other_segment] = c.other.map_or([0; 3], control);
-            rows.push(TerrainHybridDiagnostic {
-                position: c.position,
-                magnitude: c.magnitude,
-                code: 6,
-                station: u32::MAX,
-                side: 0,
-                hard: 1,
-                vertex: c.vertex,
-                control_kind,
-                control_index,
-                control_segment,
-                other_kind,
-                other_index,
-                other_segment,
-                reserved: 0,
-            });
-        }
-        Err(
-            HybridError::DaylightNotReached { .. }
-            | HybridError::Vertical { .. }
-            | HybridError::DaylightTopology { .. },
-        ) if rows.iter().any(|c| c.hard == 1) => {}
-        Err(error) => return Err(Failure::Argument(error.message())),
+    for c in assessed.locked {
+        let [control_kind, control_index, control_segment] = control(c.control);
+        let [other_kind, other_index, other_segment] = c.other.map_or([0; 3], control);
+        rows.push(TerrainHybridDiagnostic {
+            position: c.position,
+            magnitude: c.magnitude,
+            code: 6,
+            station: u32::MAX,
+            side: 0,
+            hard: 1,
+            vertex: c.vertex,
+            control_kind,
+            control_index,
+            control_segment,
+            other_kind,
+            other_index,
+            other_segment,
+            reserved: 0,
+        });
     }
     Ok(rows)
 }
 
-/// Assess all station-side diagnostics and the first fixed-control conflict.
+/// Assess all station-side diagnostics and fixed-control conflicts. Hard band
+/// rows (codes 1..4) mean no candidate TIN exists and fixed assessment is incomplete.
+/// Otherwise each disagreeing contributor versus its vertex's first control,
+/// then each canonical fixed vertex versus grading, is returned exactly once.
 /// Control assessment requires a TIN build (worker-classified), not a cheap query.
 ///
 /// # Safety

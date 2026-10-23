@@ -743,6 +743,7 @@ TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer
     ASSERT_TRUE (session.edits.Redo ());
     ASSERT_TRUE (session.edits.Apply ([=] (edit::Document& doc, std::string&) {
         edit::Find (doc, guide.entityId)->vertices.front ().p.z += 1;
+        edit::Find (doc, guide.entityId)->vertices.back ().p.z += 1;
         return true;
     }));
     const auto depth = session.edits.UndoDepth ();
@@ -752,6 +753,7 @@ TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer
     current = eh::CurrentTerrainDesign (session);
     ASSERT_NE (current, nullptr);
     ASSERT_FALSE (current->conflicts.empty ());
+    EXPECT_GT (current->conflicts.size (), 1U); // Every displaced split of the fixed line is shown.
     EXPECT_EQ (current->conflicts.front ().code, HybridConflictCode::LockedConflict);
     ASSERT_TRUE (current->conflicts.front ().control);
     EXPECT_EQ (current->conflicts.front ().control->source, source);

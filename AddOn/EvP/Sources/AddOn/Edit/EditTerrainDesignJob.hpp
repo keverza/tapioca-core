@@ -43,7 +43,7 @@ struct TerrainDesignOutcome {
     std::string sourceTerrainGuid;
     bool built = false;
     TerrainDesignResult result;                   // When built.
-    std::vector<TerrainDesignConflict> conflicts; // When refused: station places and first fixed conflict.
+    std::vector<TerrainDesignConflict> conflicts; // Station places and canonical fixed conflicts (if TIN exists).
     std::string error;                            // When refused.
 };
 

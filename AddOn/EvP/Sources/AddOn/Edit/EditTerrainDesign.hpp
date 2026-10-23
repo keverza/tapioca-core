@@ -84,9 +84,10 @@ struct TerrainDesignResult {
 bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                             const TerrainDesignOptions& options, TerrainDesignResult& result, std::string& error);
 
-// Every station-side conflict and the first fixed-control conflict, using the
+// Every station-side and canonical fixed-control conflict, using the
 // same authored references/validation as evaluation. Controls require a TIN
-// build; nothing publishes but `conflicts`, unchanged on non-located refusal.
+// build; hard band rows prevent fixed assessment. Nothing publishes but
+// `conflicts`, unchanged on non-located refusal.
 bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                           const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,
                           std::string& error);

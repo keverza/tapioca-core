@@ -678,7 +678,11 @@ typedef struct {
     size_t capacity;
     uint32_t queryOnly, reserved;
 } TapiocaTerrainHybridDiagnosticOutput;
-// Assessment carries station-side codes 1..5 and the FIRST LockedConflict (6).
+// Assessment carries station-side codes 1..5 and fixed conflicts (6). Hard band
+// rows (1..4) prevent the candidate TIN: fixed assessment is then incomplete.
+// Otherwise: each disagreeing contributor versus the canonical first height,
+// then each canonical fixed vertex versus grading. Deterministic, no duplicate
+// segment contributor from adjacent split edges; not all unordered control pairs.
 // For code 6: station=UINT32_MAX, side=0, hard=1, vertex=candidate vertex;
 // control kind 1 segment / 2 point; other kind 0 means grading disagrees.
 // magnitude=other/proposed minus fixed height. Other fields unused/zero.

@@ -296,3 +296,110 @@ fn a_refused_fixed_control_assesses_with_its_provenance_locators() {
     assert_eq!(count, 99);
     assert_eq!(row, before);
 }
+
+fn diagnostics(input: &TerrainHybridLockedRequest, output: &TerrainHybridDiagnosticOutput) -> i32 {
+    let mut error = [0_u8; 256];
+    // SAFETY: callers supply live fixture pools, with deliberate aliases only
+    // for preflight refusal tests. No write is permitted in those cases.
+    unsafe { tapioca_terrain_hybrid_locked_assess(input, output, error.as_mut_ptr(), error.len()) }
+}
+
+#[test]
+fn all_fixed_rows_query_fill_and_capacity_alias_refusals_preserve_storage() {
+    let (points, triangles) = base();
+    let stations = [station(0.0, 10.0), station(40.0, 12.0)];
+    let controls = [
+        10.0, 0.0, 10.5, 10.0, 0.0, 11.5, 10.0, 0.0, 12.5, 20.0, 0.0, 12.0, 30.0, 0.0, 12.5,
+    ];
+    let counts = counts(&points, &triangles, &[], &controls, 0);
+    let catalog = rows(counts);
+    let mut band = request(&points, &triangles, &stations, &catalog);
+    band.provenance = provenance(&catalog, counts, 7);
+    let input = locked_request(&band, &[], &[], &controls);
+    let mut count = 99;
+    let query = TerrainHybridDiagnosticOutput {
+        count: &raw mut count,
+        rows: std::ptr::null_mut(),
+        capacity: 0,
+        query_only: 1,
+        reserved: 0,
+    };
+    assert_eq!(diagnostics(&input, &query), 0);
+    assert_eq!(count, 4);
+    let sentinel = TerrainHybridDiagnostic {
+        code: 99,
+        ..TerrainHybridDiagnostic::default()
+    };
+    let mut output_rows = vec![sentinel; count + 1];
+    let mut fill = TerrainHybridDiagnosticOutput {
+        count: &raw mut count,
+        rows: output_rows.as_mut_ptr(),
+        capacity: output_rows.len(),
+        query_only: 0,
+        reserved: 0,
+    };
+    assert_eq!(diagnostics(&input, &fill), 0);
+    assert_eq!(count, 4);
+    assert_eq!(output_rows.last(), Some(&sentinel));
+    let locators: Vec<_> = output_rows
+        .iter()
+        .take(count)
+        .map(|r| (r.control_index, r.other_kind, r.other_index))
+        .collect();
+    assert_eq!(locators, [(0, 2, 1), (0, 2, 2), (3, 0, 0), (4, 0, 0)]);
+    let before = output_rows.clone();
+    count = 99;
+    fill.capacity = 3;
+    assert_ne!(diagnostics(&input, &fill), 0);
+    assert_eq!(count, 99);
+    assert_eq!(output_rows, before);
+    // Full capacity (including the unused tail) must not overlap the count.
+    fill.capacity = output_rows.len();
+    fill.count = output_rows.as_mut_ptr().wrapping_add(4).cast::<usize>();
+    assert_ne!(diagnostics(&input, &fill), 0);
+    assert_eq!(output_rows, before);
+    fill.count = &raw mut count;
+    let mut stale = input;
+    stale.band.provenance.expected_revision += 1;
+    assert_ne!(diagnostics(&stale, &fill), 0);
+    assert_eq!(count, 99);
+    assert_eq!(output_rows, before);
+}
+
+#[test]
+fn hard_station_rows_do_not_claim_fixed_assessment_and_invalid_controls_still_refuse() {
+    let (points, triangles) = base();
+    let mut stations = [station(0.0, 10.0), station(40.0, 12.0)];
+    for station in &mut stations {
+        station.cut_limit = 0.5;
+        station.fill_limit = 0.5;
+    }
+    let controls = [10.0, 0.0, 99.0];
+    let counts = counts(&points, &triangles, &[], &controls, 0);
+    let catalog = rows(counts);
+    let mut band = request(&points, &triangles, &stations, &catalog);
+    band.provenance = provenance(&catalog, counts, 7);
+    let mut input = locked_request(&band, &[], &[], &controls);
+    let mut count = 0;
+    let mut output_rows = [TerrainHybridDiagnostic::default(); 4];
+    let output = TerrainHybridDiagnosticOutput {
+        count: &raw mut count,
+        rows: output_rows.as_mut_ptr(),
+        capacity: 4,
+        query_only: 0,
+        reserved: 0,
+    };
+    assert_eq!(diagnostics(&input, &output), 0);
+    assert_eq!(count, 4);
+    assert!(
+        output_rows
+            .iter()
+            .all(|row| row.code == 2 && row.hard == 1 && row.control_kind == 0)
+    );
+    let before = output_rows;
+    let malformed = [10.0, 0.0, f64::NAN];
+    input.points = view(&malformed);
+    assert_ne!(diagnostics(&input, &output), 0);
+    assert_eq!(output_rows, before);
+    assert_eq!(count, 4);
+}

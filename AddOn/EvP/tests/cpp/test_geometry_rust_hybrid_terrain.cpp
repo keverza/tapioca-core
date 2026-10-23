@@ -153,6 +153,46 @@ TEST (GeometryRustHybridTerrain, FixedConflictAssessmentCarriesInputLocatorsWith
     EXPECT_NEAR (conflict.magnitude, -1, 1e-12);
 }
 
+TEST (GeometryRustHybridTerrain, FixedAssessmentTransportsAllCanonicalConflictsInStableOrder)
+{
+    const Base base;
+    const std::array stations { Station (0, 10), Station (40, 12) };
+    const std::vector<double> points { 10, 0, 10.5, 10, 0, 11.5, 10, 0, 12.5, 20, 0, 12, 30, 0, 12.5 };
+    auto counts = base.Counts ();
+    counts.vertices += 5;
+    const auto provenance = Provenance (counts, 7);
+    const HybridTerrainRequest request {
+        { base.points, base.triangles }, kRegion, stations, TerrainEditEffect::Both, 1e-6, provenance, {}, points
+    };
+    std::vector<HybridConflict> result;
+    std::string error;
+    ASSERT_TRUE (AssessHybridTerrain (request, result, error)) << error;
+    ASSERT_EQ (result.size (), 4U);
+    for (size_t i = 0; i < result.size (); ++i) {
+        const auto& conflict = result[i];
+        EXPECT_EQ (conflict.code, HybridConflictCode::LockedConflict);
+        EXPECT_TRUE (conflict.hard);
+        ASSERT_TRUE (conflict.control);
+        EXPECT_EQ (conflict.control->kind, HybridControlRef::Kind::Point);
+        EXPECT_EQ (conflict.control->index, i < 2 ? 0U : static_cast<uint32_t> (i + 1));
+        if (i < 2) {
+            ASSERT_TRUE (conflict.other);
+            EXPECT_EQ (conflict.other->index, i + 1);
+            EXPECT_EQ (conflict.position, (std::array<double, 3> { 10, 0, 10.5 }));
+        }
+        else
+            EXPECT_FALSE (conflict.other);
+    }
+    std::vector<HybridConflict> again;
+    ASSERT_TRUE (AssessHybridTerrain (request, again, error)) << error;
+    EXPECT_EQ (again, result);
+    auto bad = provenance;
+    ++bad.expectedRevision;
+    EXPECT_FALSE (AssessHybridTerrain (
+        { request.mesh, kRegion, stations, request.effect, request.tolerance, bad, {}, points }, result, error));
+    EXPECT_EQ (result, again);
+}
+
 TEST (GeometryRustHybridTerrain, WorkedBandBuildsWithExactDaylightAndUntouchedOutside)
 {
     const Base base;

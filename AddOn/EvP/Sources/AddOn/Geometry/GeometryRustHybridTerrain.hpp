@@ -106,7 +106,8 @@ struct HybridTerrainResult {
 // success. Refusals carry the kernel's code: DaylightNotReached, HybridVertical,
 // HybridDaylightTopology, LockedConflict, Region*, Design*, or a Provenance* attribution refusal.
 bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResult& result, std::string& error);
-// Every station-side conflict and the first fixed-control conflict. Controls
+// Every station-side and canonical fixed-control conflict. Hard station-side
+// rows mean fixed assessment is incomplete (no candidate TIN). Controls
 // require a TIN build; worker-classified, query/fill recomputes. Succeeds for
 // located build refusals; same attribution gates and atomic publication.
 bool AssessHybridTerrain (const HybridTerrainRequest& request, std::vector<HybridConflict>& conflicts,
