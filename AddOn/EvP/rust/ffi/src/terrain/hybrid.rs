@@ -464,6 +464,18 @@ pub(super) unsafe fn with_band<O: Copy, R>(
     let request = request.ok_or(Failure::Argument("TerrainInputDescriptor"))?;
     let target = target.ok_or(Failure::Argument("TerrainOutputDescriptor"))?;
     (shape.mode)(&target)?;
+    // SAFETY: all pools were preflighted above, before any borrow.
+    let result = unsafe { evaluate_band(&context, &request, run)? };
+    Ok((result, target))
+}
+
+// SAFETY: the descriptor and all pools (including provenance) must already be
+// preflighted against the caller's complete output capacities and error buffer.
+pub(super) unsafe fn evaluate_band<R>(
+    context: &BorrowContext,
+    request: &TerrainHybridRequest,
+    run: impl FnOnce(&kernel::BuildRequest<'_>) -> Result<R, Failure>,
+) -> Result<R, Failure> {
     // SAFETY: every pool was preflighted above; no borrow escapes this call.
     let (points, triangles, region, raw_stations, provenance) = unsafe {
         (
@@ -500,7 +512,7 @@ pub(super) unsafe fn with_band<O: Copy, R>(
         .iter()
         .map(station)
         .collect::<Result<Vec<_>, _>>()?;
-    let result = run(&kernel::BuildRequest {
+    run(&kernel::BuildRequest {
         points,
         triangles,
         region,
@@ -509,8 +521,7 @@ pub(super) unsafe fn with_band<O: Copy, R>(
             effect,
         },
         tolerance: request.tolerance,
-    })?;
-    Ok((result, target))
+    })
 }
 
 fn mode(target: &TerrainHybridOutput) -> Result<(), Failure> {
