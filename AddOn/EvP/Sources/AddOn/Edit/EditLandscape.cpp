@@ -156,7 +156,7 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         return false;
     }
     if (s.sources.size () > 4096 || s.operations.size () > 4096 || s.objects.size () > 4096 ||
-        s.regions.size () > 65536) {
+        s.regions.size () > 65536 || s.terrainControls.size () > 4096) {
         error = "landscape exceeds its source/operation/object/region budget";
         return false;
     }
@@ -227,6 +227,13 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
                     return false;
                 }
     }
+    std::set<std::pair<Id, Id>> controls;
+    for (const auto& control : s.terrainControls)
+        if (!sources.count (control.source) || control.vertex >= doc.nextId ||
+            !controls.emplace (control.source, control.vertex).second) {
+            error = "landscape.terrainControls: unknown source, invalid vertex or duplicate control";
+            return false;
+        }
     for (const auto& v : s.operations) {
         const size_t n = v.inputs.size ();
         const bool unary = v.kind == OperationKind::Stroke || v.kind == OperationKind::Offset;
@@ -418,6 +425,36 @@ bool SetLandscapeTerrain (edit::Document& doc, const std::string& guid, Id& sour
     if (ok)
         source = named;
     return ok;
+}
+
+bool SetLandscapeTerrainControl (edit::Document& doc, Id source, Id vertex, bool enabled, std::string& error)
+{
+    return Mutate (
+        doc,
+        [=] (edit::Document& d, std::string& e) {
+            auto& controls = d.landscape->terrainControls;
+            auto found = std::find_if (controls.begin (), controls.end (),
+                                       [=] (const auto& c) { return c.source == source && c.vertex == vertex; });
+            if ((found != controls.end () && found->enabled == enabled) || (found == controls.end () && !enabled))
+                return false;
+            if (enabled) {
+                const auto input = std::find_if (d.landscape->sources.begin (), d.landscape->sources.end (),
+                                                 [=] (const auto& s) { return s.id == source && !s.deleted; });
+                const auto* entity = input == d.landscape->sources.end () ? nullptr : edit::Find (d, input->entityId);
+                if (!entity || entity->kind != edit::Kind::Polyline ||
+                    (vertex ? edit::VertexIndex (*entity, vertex) < 0
+                            : (entity->closed || entity->vertices.size () < 2))) {
+                    e = "TerrainControl: select a live guide vertex or open polyline";
+                    return false;
+                }
+            }
+            if (found == controls.end ())
+                controls.push_back ({ source, vertex, enabled });
+            else
+                found->enabled = enabled;
+            return true;
+        },
+        error);
 }
 
 bool AddLandscapeSource (edit::Document& doc, LandscapeSource source, Id& id, std::string& error)

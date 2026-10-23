@@ -107,6 +107,72 @@ geo::LandscapeCapture Capture (const edit::Document& original)
 }
 } // namespace
 
+TEST (EditLandscapeSerialization, FixedControlsReferenceAuthoredGeometryAndRoundTripInBothModes)
+{
+    auto doc = Full (0x20000000000001ULL);
+    const auto source = doc.landscape->sources.front ();
+    const auto vertex = edit::Find (doc, source.entityId)->vertices.front ().id;
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapeTerrainControl (doc, source.id, vertex, true, error)) << error;
+    for (auto mode : { geo::LandscapeStorage::Virtual, geo::LandscapeStorage::Native }) {
+        const auto text = Write (doc, mode);
+        EXPECT_NE (text.find ("terrainControls"), std::string::npos);
+        edit::Document loaded;
+        ASSERT_TRUE (geo::ReadLandscape (text, loaded, error, Capture (doc))) << error;
+        Same (doc, loaded);
+    }
+    // Older v1 payloads have no control field; they still read as an empty tier.
+    auto legacy = Full ();
+    const auto text = Replace (Write (legacy), ",\"terrainControls\":[]", "");
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (text, loaded, error)) << error;
+    EXPECT_TRUE (loaded.landscape->terrainControls.empty ());
+}
+
+TEST (EditLandscapeSerialization, FixedControlMutationUsesOneHistoryAndRejectsNoOpsAndBadReferences)
+{
+    auto doc = Full ();
+    const auto source = doc.landscape->sources.front ();
+    const auto vertex = edit::Find (doc, source.entityId)->vertices.front ().id;
+    edit::Session session (doc);
+    ASSERT_TRUE (session.Apply ([=] (edit::Document& d, std::string& e) {
+        return geo::SetLandscapeTerrainControl (d, source.id, vertex, true, e);
+    }));
+    const auto revision = session.Doc ().revision;
+    EXPECT_FALSE (session.Apply ([=] (edit::Document& d, std::string& e) {
+        return geo::SetLandscapeTerrainControl (d, source.id, vertex, true, e);
+    }));
+    EXPECT_EQ (session.Doc ().revision, revision);
+    ASSERT_TRUE (session.Undo ());
+    EXPECT_TRUE (session.Doc ().landscape->terrainControls.empty ());
+    ASSERT_TRUE (session.Redo ());
+    EXPECT_EQ (session.Doc ().landscape->terrainControls.size (), 1U);
+    std::string error;
+    EXPECT_FALSE (geo::SetLandscapeTerrainControl (doc, source.id, doc.nextId, true, error));
+    EXPECT_TRUE (doc.landscape->terrainControls.empty ());
+    EXPECT_FALSE (geo::SetLandscapeTerrainControl (doc, source.id, 0, true, error)); // Closed ring, not a line.
+}
+
+TEST (EditLandscapeSerialization, FixedControlsRejectDuplicateUnknownAndWrongDomainIdsAtomically)
+{
+    auto doc = Full ();
+    const auto source = doc.landscape->sources.front ();
+    const auto vertex = edit::Find (doc, source.entityId)->vertices.front ().id;
+    std::string error;
+    ASSERT_TRUE (geo::SetLandscapeTerrainControl (doc, source.id, vertex, true, error)) << error;
+    const auto before = doc;
+    for (const auto& control : { geo::LandscapeTerrainControl { source.id, vertex, true },
+                                 geo::LandscapeTerrainControl { doc.nextId, vertex, true } }) {
+        auto invalid = doc;
+        invalid.landscape->terrainControls.push_back (control);
+        EXPECT_FALSE (geo::ValidateLandscape (invalid, error));
+    }
+    const auto invalid = Replace (Write (doc), "\"vertex\":\"" + std::to_string (vertex) + "\"",
+                                  "\"vertex\":\"" + std::to_string (doc.nextId) + "\"");
+    EXPECT_FALSE (geo::ReadLandscape (invalid, doc, error));
+    Same (doc, before);
+}
+
 TEST (EditLandscapeSerialization, MinimalRevisionZeroAndUnsignedIdsRoundTrip)
 {
     for (edit::Id first : { edit::Id { 1 }, (edit::Id { 1 } << 60) + 7 }) {

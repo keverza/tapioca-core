@@ -121,6 +121,15 @@ struct LandscapeBinding {
     uint64_t revision = 0;
     bool operator== (const LandscapeBinding&) const = default;
 };
+// A fixed-height constraint references existing authored geometry, never copied
+// coordinates. vertex=0 means the whole open straight polyline; otherwise it is
+// an authored vertex ID on the source's entity. Disabled/orphaned references
+// persist for explicit resolution; enabled orphans refuse terrain evaluation.
+struct LandscapeTerrainControl {
+    Id source = kNoId, vertex = kNoId;
+    bool enabled = true;
+    bool operator== (const LandscapeTerrainControl&) const = default;
+};
 struct LandscapeSession {
     std::array<uint8_t, 16> sessionUuid {};
     std::string sourceTerrainGuid;
@@ -132,6 +141,7 @@ struct LandscapeSession {
     std::vector<MaterialAssignment> assignments;
     std::vector<LandscapePatch> patches;
     std::vector<LandscapeBinding> bindings;
+    std::vector<LandscapeTerrainControl> terrainControls;
     // Document::nextId/revision are the sole allocator/publication authority.
     bool operator== (const LandscapeSession&) const = default;
 };
@@ -218,6 +228,9 @@ bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::str
 // live Terrain source carrying that GUID (created on first use, otherwise
 // updated), returning its ID. One authored edit; no geometry is read.
 bool SetLandscapeTerrain (geomsrv::edit::Document& doc, const std::string& guid, Id& source, std::string& error);
+// One document edit; repeated values are a no-op. Height follows the authored
+// guide geometry. This does not set a positional edit lock or deform terrain.
+bool SetLandscapeTerrainControl (geomsrv::edit::Document& doc, Id source, Id vertex, bool enabled, std::string& error);
 bool ValidateLandscapeTerrainEdit (const geomsrv::edit::Document& doc, const std::vector<Vec3>& terrainBoundary,
                                    std::string& error);
 const DerivedRegion* LandscapeFaceAt (const LandscapeResult& result, Vec3 point);

@@ -209,7 +209,11 @@ Value DescriptorValue (const RegionDescriptor& d)
 Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
 {
     const auto& s = *doc.landscape;
-    Array sources, operations, objects, regions, assignments, patches, bindings;
+    Array sources, operations, objects, regions, assignments, patches, bindings, controls;
+    for (const auto& control : s.terrainControls)
+        controls.push_back (Value::Object ({ { "source", IdValue (control.source) },
+                                             { "vertex", IdValue (control.vertex) },
+                                             { "enabled", Flag (control.enabled) } }));
     for (const auto& v : s.sources)
         sources.push_back (Value::Object ({ { "id", IdValue (v.id) },
                                             { "entity", IdValue (v.entityId) },
@@ -270,22 +274,24 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                              { "role", Text (v.role) },
                                              { "revision", IdValue (v.revision) } }));
     }
-    return Value::Object ({ { "version", Integer (1) },
-                            { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
-                            { "sessionUuid", Text (UuidText (s.sessionUuid)) },
-                            { "nextId", IdValue (doc.nextId) },
-                            { "revision", IdValue (doc.revision) },
-                            { "entities", Entities (doc, mode) },
-                            { "paths", PathsValue (doc, mode) },
-                            { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
-                                                            { "propertyLine", IdValue (s.propertyLineSourceId) },
-                                                            { "sources", Value::Array (std::move (sources)) },
-                                                            { "operations", Value::Array (std::move (operations)) },
-                                                            { "objects", Value::Array (std::move (objects)) },
-                                                            { "regions", Value::Array (std::move (regions)) },
-                                                            { "assignments", Value::Array (std::move (assignments)) },
-                                                            { "patches", Value::Array (std::move (patches)) },
-                                                            { "bindings", Value::Array (std::move (bindings)) } }) } });
+    return Value::Object (
+        { { "version", Integer (1) },
+          { "mode", Text (mode == LandscapeStorage::Virtual ? "virtual" : "native") },
+          { "sessionUuid", Text (UuidText (s.sessionUuid)) },
+          { "nextId", IdValue (doc.nextId) },
+          { "revision", IdValue (doc.revision) },
+          { "entities", Entities (doc, mode) },
+          { "paths", PathsValue (doc, mode) },
+          { "landscape", Value::Object ({ { "sourceTerrainGuid", Text (s.sourceTerrainGuid) },
+                                          { "propertyLine", IdValue (s.propertyLineSourceId) },
+                                          { "sources", Value::Array (std::move (sources)) },
+                                          { "operations", Value::Array (std::move (operations)) },
+                                          { "objects", Value::Array (std::move (objects)) },
+                                          { "regions", Value::Array (std::move (regions)) },
+                                          { "assignments", Value::Array (std::move (assignments)) },
+                                          { "patches", Value::Array (std::move (patches)) },
+                                          { "bindings", Value::Array (std::move (bindings)) },
+                                          { "terrainControls", Value::Array (std::move (controls)) } }) } });
 }
 
 bool ValidateStoredRegions (const edit::Document& doc, std::string& error)

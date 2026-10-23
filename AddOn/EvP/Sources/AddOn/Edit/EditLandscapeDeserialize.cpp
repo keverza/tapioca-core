@@ -164,11 +164,17 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     const auto landscape = root.Field ("landscape");
     landscape.Fields ({ "sourceTerrainGuid", "propertyLine", "sources", "operations", "objects", "regions",
                         "assignments", "patches", "bindings" },
-                      { "edges" });
+                      { "edges", "terrainControls" });
     if (landscape.Has ("edges") && !landscape.Field ("edges").Items ().empty ())
         Fail (landscape.path + ".edges", "edge definitions require a later declared schema");
     s.sourceTerrainGuid = Guid (landscape.Field ("sourceTerrainGuid"));
     s.propertyLineSourceId = landscape.Field ("propertyLine").Identifier ();
+    if (landscape.Has ("terrainControls"))
+        Each (landscape.Field ("terrainControls"), [&] (const Reader& item) {
+            item.Fields ({ "source", "vertex", "enabled" });
+            s.terrainControls.push_back ({ item.Field ("source").Identifier (), item.Field ("vertex").Identifier (),
+                                           item.Field ("enabled").Flag () });
+        });
     Each (landscape.Field ("sources"), [&] (const Reader& item) {
         item.Fields ({ "id", "entity", "path", "role", "guid", "revision", "deleted", "arcAngles" });
         LandscapeSource source;
