@@ -8,6 +8,7 @@
 #include "Edit/EditPath.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "archviz_log_fixture.hpp"
+#include "Edit/EditPathNetwork.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <bit>
@@ -682,7 +683,7 @@ struct TerrainHostFixture : DesignFixture {
 const layers::Mesh* TerrainMesh (const layers::Layer& layer)
 {
     for (const auto& mesh : layer.meshes)
-        if (mesh.rgba == 0x5A7F6280u)
+        if (mesh.rgba == 0x6E9A72FFu)
             return &mesh;
     return nullptr;
 }
@@ -861,6 +862,49 @@ TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer
     ASSERT_TRUE (eh::SetTerrainControlSelection (session, false));
     ASSERT_TRUE (AwaitTerrain (session, layer));
     EXPECT_TRUE (eh::CurrentTerrainDesign (session)->result.locked.empty ());
+}
+
+// The user, 2026-10-24: the edited topography was barely visible, and only from below. It lies on
+// the host terrain it was captured from, and unstyled it took the layer's Fade there. It is drawn
+// lit and held through its host now, and carries contour lines on its own triangles.
+TEST (HudTerrainDesign, TheProposedTerrainReadsThroughItsHostAndCarriesContours)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    layer = {};
+    session.publishedRevision = UINT64_MAX;
+    ASSERT_TRUE (eh::Follow (session, layer));
+    const auto* terrain = TerrainMesh (layer);
+    ASSERT_NE (terrain, nullptr);
+    EXPECT_TRUE (terrain->styled);
+    EXPECT_EQ (terrain->style.shading, layers::Shading::Lit);
+    EXPECT_GE (terrain->style.occludedOpacity * terrain->style.opacity, 0.6f) << "readable where its host is in front";
+    const auto& build = eh::CurrentTerrainDesign (session)->result.build;
+    edit::PavedArea surface;
+    for (size_t i = 0; i + 2 < build.points.size (); i += 3)
+        surface.vertices.push_back ({ build.points[i], build.points[i + 1], build.points[i + 2] });
+    surface.triangles = build.triangles;
+    size_t lines = 0;
+    for (const auto& line : layer.polylines) {
+        if (line.behind != layers::Behind::Show || (line.rgba != 0x2F4A35E6u && line.rgba != 0x37523D99u))
+            continue;
+        ++lines;
+        for (size_t k = 0; k + 2 < line.points.size (); k += 3) {
+            double z = 0.0;
+            ASSERT_TRUE (edit::PavedHeight (surface, { line.points[k], line.points[k + 1], 0 }, z));
+            EXPECT_NEAR (z, line.points[k + 2], 1e-6);
+        }
+    }
+    EXPECT_GE (lines, 5u) << "the 12 m the surface falls, about ten levels";
+    session.contours = false;
+    layer = {};
+    session.publishedRevision = UINT64_MAX;
+    ASSERT_TRUE (eh::Follow (session, layer));
+    for (const auto& line : layer.polylines)
+        EXPECT_FALSE (line.behind == layers::Behind::Show && line.rgba == 0x37523D99u) << "hidden with the paths'";
 }
 
 TEST (HudTerrainDesign, SimpleTwoTriangleMeshIsRebuiltAroundThePathInsteadOfBridgingItsProfile)

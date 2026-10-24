@@ -2,6 +2,10 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "Geometry/Mesh.hpp"
+#include "Edit/EditPathContours.hpp"
+#include "Edit/EditPathNetwork.hpp"
+#include "ArchViz/OverlayLayers.hpp"
+#include <cmath>
 #include <imgui.h>
 #include <algorithm>
 #include <set>
@@ -162,6 +166,12 @@ struct TerrainDesignState {
     std::future<lg::TerrainDesignOutcome> worker;
     uint64_t requestedRevision = UINT64_MAX;
     std::string error;
+    // The built surface's contour lines, traced once per outcome and interval (DrawTerrainDesign):
+    // a selection change republishes the layer and must not trace a large mesh again.
+    const lg::TerrainDesignOutcome* contoursFor = nullptr;
+    size_t contoursTriangles = 0;
+    double contoursInterval = 0.0;
+    std::vector<edit::Contour> contours;
 };
 
 namespace {
@@ -367,7 +377,17 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         overlaylayers::Mesh mesh;
         mesh.points = current->result.build.points;
         mesh.indices = current->result.build.triangles;
-        mesh.rgba = 0x5A7F6280u;
+        // ⚠️ THE PROPOSAL LIES ON THE TERRAIN IT WAS CAPTURED FROM (the user, 2026-10-24: barely
+        // visible, and only from below). Unstyled, it took the layer's Fade, so wherever the host
+        // surface is coincident or above it -- everywhere outside the cut -- it drew at the faded
+        // pass's 0.3 of an alpha that was itself one half. Lit, mostly opaque and held at most of
+        // its strength through the surface it replaces, it reads as the ground it proposes.
+        mesh.rgba = 0x6E9A72FFu;
+        mesh.styled = true;
+        mesh.style.shading = overlaylayers::Shading::Lit;
+        mesh.style.opacity = 0.9f;
+        mesh.style.behind = overlaylayers::Behind::Fade;
+        mesh.style.occludedOpacity = 0.75f;
         LogTerrain (s, "layer proposed vertices=" + std::to_string (mesh.points.size () / 3) +
                            " triangles=" + std::to_string (mesh.indices.size () / 3) +
                            " guest=" + std::to_string (overlaylayers::DrawnByGuest (mesh, layer)));
@@ -384,6 +404,40 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
         ring.closed = true;
         ring.rgba = 0x37523DFFu;
         layer.polylines.push_back (std::move (ring));
+        // Its contours, as the paths' are drawn: the interval asked, else about ten over the heights
+        // the surface spans; every fifth level an index line. On the surface's own triangles, so a
+        // line lies on the face the user sees, and drawn whole through the host surface it lies on.
+        if (s.contours) {
+            auto& state = *s.terrainDesign;
+            double lo = INFINITY, hi = -INFINITY;
+            for (size_t i = 2; i < build.points.size (); i += 3)
+                lo = std::min (lo, build.points[i]), hi = std::max (hi, build.points[i]);
+            const double interval = s.contourStep > 0.0 ? s.contourStep
+                                    : hi > lo           ? std::max (edit::NiceStep (hi - lo, 10), 0.1)
+                                                        : 0.0;
+            if (state.contoursFor != current || state.contoursTriangles != build.triangles.size () ||
+                state.contoursInterval != interval) {
+                edit::PavedArea surface;
+                for (size_t i = 0; i + 2 < build.points.size (); i += 3)
+                    surface.vertices.push_back ({ build.points[i], build.points[i + 1], build.points[i + 2] });
+                surface.triangles = build.triangles;
+                state.contours =
+                    interval > 0.0 ? edit::SurfaceContours (surface, interval) : std::vector<edit::Contour> {};
+                state.contoursFor = current;
+                state.contoursTriangles = build.triangles.size ();
+                state.contoursInterval = interval;
+            }
+            for (const auto& c : state.contours) {
+                overlaylayers::Polyline line;
+                for (const auto& p : c.points)
+                    line.points.insert (line.points.end (), { p.x, p.y, p.z });
+                const bool index = std::fmod (std::abs (std::round (c.z / interval)), 5.0) == 0.0;
+                line.rgba = index ? 0x2F4A35E6u : 0x37523D99u;
+                line.widthPixels = index ? 1.75f : 1.0f;
+                line.behind = overlaylayers::Behind::Show;
+                layer.polylines.push_back (std::move (line));
+            }
+        }
     }
     const auto& conflicts = current->built ? current->result.conflicts : current->conflicts;
     if (!current->built)
