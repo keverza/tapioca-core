@@ -22,7 +22,7 @@ use tapioca_sunstudy::winding::WindingReport;
 
 /// Opaque result handle.
 pub struct SurfaceResultHandle {
-    result: SurfaceSamplingResult,
+    pub(super) result: SurfaceSamplingResult,
 }
 
 /// Sampling settings.

@@ -16,6 +16,7 @@ pub mod occlusion;
 pub mod patch_atlas;
 pub mod patch_sampler;
 pub mod raster;
+pub mod rays;
 pub mod reading;
 pub mod receivers;
 pub mod reuse;
@@ -29,6 +30,8 @@ pub mod summary;
 pub mod surface_patch;
 pub mod surface_sampling;
 pub mod texture_delta;
+pub mod viewpoint;
+pub mod visibility;
 pub mod winding;
 
 /// Version of the sun-study C ABI surface (`SunStudyRustFfi.h`).

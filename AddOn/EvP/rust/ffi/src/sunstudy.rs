@@ -26,6 +26,8 @@ mod steps;
 mod study;
 mod study_read;
 mod surface;
+mod views;
+mod visibility;
 mod winding;
 
 pub use atlas::{
@@ -107,6 +109,16 @@ pub use surface::{
     SurfaceBuildRequest, SurfaceOptionsRecord, SurfaceReadOutput, SurfaceResultHandle,
     SurfaceResultSummary, tapioca_sunstudy_surface_build, tapioca_sunstudy_surface_destroy,
     tapioca_sunstudy_surface_read, tapioca_sunstudy_surface_summary,
+};
+pub use views::{
+    FirstHitRayRecord, OcclusionRayRecord, RayHitRecord, RayQueryVtable, ViewpointOutput,
+    ViewpointRequest, tapioca_sunstudy_viewpoint,
+};
+pub use visibility::{
+    VisibilityHandle, VisibilityOptionsRecord, VisibilityReadOutput, VisibilityRunRequest,
+    VisibilitySummary, tapioca_sunstudy_visibility_destroy, tapioca_sunstudy_visibility_grids,
+    tapioca_sunstudy_visibility_read, tapioca_sunstudy_visibility_run,
+    tapioca_sunstudy_visibility_summary,
 };
 pub use winding::{
     WindingOutput, WindingReportOutput, WindingRequest, tapioca_sunstudy_orient_outward,
@@ -229,6 +241,16 @@ const _: () = {
     assert!(size_of::<FollowerEvent>() == 72);
     assert!(size_of::<FollowerSnapshot>() == 96);
     assert!(size_of::<FollowerTextOutput>() == 32);
+    assert!(size_of::<FirstHitRayRecord>() == 56);
+    assert!(size_of::<RayHitRecord>() == 16);
+    assert!(size_of::<OcclusionRayRecord>() == 64);
+    assert!(size_of::<RayQueryVtable>() == 40);
+    assert!(size_of::<ViewpointRequest>() == 80);
+    assert!(size_of::<ViewpointOutput>() == 32);
+    assert!(size_of::<VisibilityOptionsRecord>() == 120);
+    assert!(size_of::<VisibilityRunRequest>() == 192);
+    assert!(size_of::<VisibilitySummary>() == 88);
+    assert!(size_of::<VisibilityReadOutput>() == 112);
 };
 
 type Range = Option<(usize, usize)>;

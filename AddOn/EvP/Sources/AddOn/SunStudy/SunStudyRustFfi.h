@@ -1228,6 +1228,108 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_follower_text (TapiocaSunStudyFollower* handle, const TapiocaFollowerTextOutput* output,
                                               char* error, size_t errorCapacity);
 
+/* ---- visibility and viewpoint studies (policy in Rust) ---------------- */
+
+typedef struct {
+    double origin[3];
+    double dir[3]; /* unit */
+    double length;
+} TapiocaFirstHitRay;
+
+typedef struct {
+    double t;
+    uint32_t mesh; /* snapshot mesh index */
+    uint8_t hit;
+} TapiocaRayHit;
+
+typedef struct {
+    double origin[3];
+    double dir[3];
+    double tmin;
+    double tmax;
+} TapiocaBoundedRay;
+
+/* The host scene index. Callbacks return 1 done, 0 cancelled, 2 failed and
+ * must not throw; a null mask is the whole model. */
+typedef struct {
+    void* context;
+    uint8_t (*prepare) (void* context); /* nullable */
+    uint8_t (*firstHits) (void* context, const TapiocaFirstHitRay* rays, size_t count, const uint8_t* mask,
+                          size_t maskCount, TapiocaRayHit* out, size_t maxParallel);
+    uint8_t (*occludeRays) (void* context, const TapiocaBoundedRay* rays, size_t count, uint8_t* out,
+                            size_t maxParallel);
+    uint8_t (*isCancelled) (void* context); /* nullable */
+} TapiocaRayQueryVtable;
+
+typedef struct {
+    TapiocaReuseMeshArray meshes; /* only the GUIDs are read */
+    TapiocaTextArrayView context;
+    double point[3];
+    double radius;
+    size_t rays;
+    const TapiocaRayQueryVtable* queries;
+} TapiocaViewpointRequest;
+
+typedef struct {
+    double (*perimeter)[3];
+    size_t capacity;
+    size_t (*counts)[2]; /* points, collisions */
+    double* area;
+} TapiocaViewpointOutput;
+
+/* RunViewpointStudy; a refusal returns TAPIOCA_ERR_STATE with its message. */
+TapiocaStatus tapioca_sunstudy_viewpoint (const TapiocaViewpointRequest* request, const TapiocaViewpointOutput* output,
+                                          char* error, size_t errorCapacity);
+
+typedef struct {
+    double reals[4];   /* spacing, normalOffset, tmin, coneDegrees */
+    size_t limits[4];  /* maxSamples, maxAimPoints, maxRays, maxParallel */
+    double point[3];
+    double direction[3];
+    uint8_t origin; /* VisibilityOrigin */
+    uint8_t domain; /* SamplingDomain */
+    uint8_t explicitContext;
+} TapiocaVisibilityOptions;
+
+typedef struct {
+    TapiocaReuseMeshArray meshes;
+    TapiocaTextArrayView roles[3]; /* from, to, context */
+    TapiocaVisibilityOptions options;
+    const TapiocaRayQueryVtable* queries;
+} TapiocaVisibilityRequest;
+
+typedef struct TapiocaVisibilityResult TapiocaVisibilityResult;
+
+/* RunVisibilityStudy; a refusal returns TAPIOCA_ERR_STATE with its message. */
+TapiocaStatus tapioca_sunstudy_visibility_run (const TapiocaVisibilityRequest* request, TapiocaVisibilityResult** out,
+                                               char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_visibility_destroy (TapiocaVisibilityResult* handle, char* error, size_t errorCapacity);
+
+typedef struct {
+    size_t sizes[8]; /* values, aims, rays, visible, triangle tiles, triangle texels,
+                        patch allocations, patch allocation text bytes */
+    double reals[2]; /* meanVisibility, analysedArea */
+    uint8_t domain;
+} TapiocaVisibilitySummary;
+
+TapiocaStatus tapioca_sunstudy_visibility_summary (const TapiocaVisibilityResult* handle,
+                                                   TapiocaVisibilitySummary* out, char* error, size_t errorCapacity);
+
+typedef struct {
+    double* values;
+    size_t valueCapacity;
+    TapiocaAtlasOutput atlas;
+    TapiocaPatchAtlasStateOutput patchAtlas;
+} TapiocaVisibilityReadOutput;
+
+TapiocaStatus tapioca_sunstudy_visibility_read (const TapiocaVisibilityResult* handle,
+                                                const TapiocaVisibilityReadOutput* output, char* error,
+                                                size_t errorCapacity);
+
+/* The result's grids as a surface result (read and destroy as one). */
+TapiocaStatus tapioca_sunstudy_visibility_grids (const TapiocaVisibilityResult* handle, TapiocaSurfaceResult** out,
+                                                 char* error, size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 

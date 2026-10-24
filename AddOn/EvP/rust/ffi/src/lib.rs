@@ -182,6 +182,14 @@ pub use sunstudy::{
     tapioca_sunstudy_sample_grid,
 };
 pub use sunstudy::{
+    FirstHitRayRecord, OcclusionRayRecord, RayHitRecord, RayQueryVtable, ViewpointOutput,
+    ViewpointRequest, VisibilityHandle, VisibilityOptionsRecord, VisibilityReadOutput,
+    VisibilityRunRequest, VisibilitySummary, tapioca_sunstudy_viewpoint,
+    tapioca_sunstudy_visibility_destroy, tapioca_sunstudy_visibility_grids,
+    tapioca_sunstudy_visibility_read, tapioca_sunstudy_visibility_run,
+    tapioca_sunstudy_visibility_summary,
+};
+pub use sunstudy::{
     FollowerEvent, FollowerHandle, FollowerSnapshot, FollowerTextOutput,
     tapioca_sunstudy_follower_apply, tapioca_sunstudy_follower_create,
     tapioca_sunstudy_follower_destroy, tapioca_sunstudy_follower_text,

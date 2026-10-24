@@ -208,7 +208,7 @@ unsafe fn read_state(
     Ok(PatchAtlas::from_state(cursor.into(), allocations))
 }
 
-fn register_state_output(regions: &mut Regions, target: &PatchAtlasStateOutput) {
+pub(super) fn register_state_output(regions: &mut Regions, target: &PatchAtlasStateOutput) {
     regions.output(target.cursor, 1);
     regions.output(target.allocations, target.allocation_capacity);
     regions.output(target.allocation_count, 1);
@@ -217,7 +217,10 @@ fn register_state_output(regions: &mut Regions, target: &PatchAtlasStateOutput) 
 }
 
 // SAFETY: the output's regions were registered and checked disjoint.
-unsafe fn write_state(atlas: &PatchAtlas, target: &PatchAtlasStateOutput) -> Result<(), Failure> {
+pub(super) unsafe fn write_state(
+    atlas: &PatchAtlas,
+    target: &PatchAtlasStateOutput,
+) -> Result<(), Failure> {
     let mut text: Vec<u8> = Vec::new();
     let mut offsets: BTreeMap<&str, usize> = BTreeMap::new();
     let mut records = Vec::new();
