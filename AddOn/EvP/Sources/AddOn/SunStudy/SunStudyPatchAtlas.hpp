@@ -69,8 +69,26 @@ struct PatchAtlasUpdate {
     bool resized = false; // the atlas itself had to grow
 };
 
+// A patch atlas held by value: what SunStudyPatchAtlas keeps privately (the
+// shelf cursor and generation counter) made explicit, so the state can cross
+// the Rust ABI and come back. Default-constructed it equals a fresh atlas.
+struct PatchAtlasState {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t penX = 0;
+    uint32_t penY = 0;
+    uint32_t shelfHeight = 0;
+    uint32_t nextGeneration = 1;
+    std::map<PatchKey, PatchAtlasAllocation> allocations;
+};
+
 class SunStudyPatchAtlas final {
   public:
+    // The atlas `state` describes, cursor and generation included, so a later
+    // Fit continues exactly where the atlas that produced it would have.
+    static SunStudyPatchAtlas FromState (PatchAtlasState state);
+    PatchAtlasState State () const;
+
     // Fit `grid`'s patches, keeping every allocation whose key and lattice size
     // are unchanged. Returns what it did.
     //

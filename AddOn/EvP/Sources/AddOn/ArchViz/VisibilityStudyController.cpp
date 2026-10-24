@@ -50,9 +50,9 @@ class Worker final {
         const uint64_t displayGeneration = displayGeneration_;
         thread_ =
             std::thread ([this, request = std::move (request), generation, captureStamp, displayGeneration] () mutable {
-                auto result =
-                    evp::sunstudy::RunVisibilityStudy (request.snapshot, request.fromElements, request.toElements,
-                                                       request.options, [this] { return cancelled_.load (); });
+                auto result = evp::sunstudy::RunSelectedVisibilityStudy (request.snapshot, request.fromElements,
+                                                                         request.toElements, request.options,
+                                                                         [this] { return cancelled_.load (); });
                 result.id = "visibility-viewer-" + std::to_string (generation);
                 std::string displayError;
                 std::unique_ptr<SunStudyAtlasUpload> upload;

@@ -92,8 +92,8 @@ class RunVisibilityStudyCommand : public MainThreadCommand {
         const uint64_t displayGeneration = show ? archviz::SceneCmdQueue::Get ().ClaimAnalysisDisplay (1) : 0;
 
         processControl.SetProcessName ("Tapioca: visibility study");
-        auto result = evp::sunstudy::RunVisibilityStudy (snapshot, from, to, options,
-                                                         [&processControl] { return processControl.TestBreak (); });
+        auto result = evp::sunstudy::RunSelectedVisibilityStudy (
+            snapshot, from, to, options, [&processControl] { return processControl.TestBreak (); });
         if (!result.valid)
             return NativeCommandResult::Failure (Text (result.error));
         const auto current = MeshStore::Get ().Current ();

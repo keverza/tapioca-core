@@ -3,7 +3,9 @@
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/CpuTraversalWork.hpp"
+#include "SunStudy/SunStudyCoreSelection.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
+#include "SunStudy/SunStudyRustViews.hpp"
 #include "SunStudy/SunStudySurfaceSampling.hpp"
 
 #include <algorithm>
@@ -11,6 +13,7 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include <utility>
 
 namespace evp::sunstudy {
 
@@ -462,6 +465,19 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
         std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
     result.valid = true;
     return result;
+}
+
+VisibilityStudyResult RunSelectedVisibilityStudy (std::shared_ptr<const geomsrv::Snapshot> snapshot,
+                                                  const std::vector<std::string>& fromElements,
+                                                  const std::vector<std::string>& toElements,
+                                                  const VisibilityStudyOptions& options,
+                                                  const std::function<bool ()>& isCancelled)
+{
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
+        return rust::RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
+#endif
+    return RunVisibilityStudy (std::move (snapshot), fromElements, toElements, options, isCancelled);
 }
 
 } // namespace evp::sunstudy

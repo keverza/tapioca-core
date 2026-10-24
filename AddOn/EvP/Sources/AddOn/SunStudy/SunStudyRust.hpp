@@ -132,18 +132,8 @@ bool BuildPatchSampleGrid (const double* vertices, size_t vertexCount, const uin
 // BuildSunStudyAtlas.
 bool BuildSunStudyAtlas (const SampleGrid& grid, const AtlasOptions& options, SunStudyAtlas& out, std::string& error);
 
-// A patch atlas held by value: what SunStudyPatchAtlas keeps privately (the
-// shelf cursor and generation counter) made explicit, so the state can cross
-// the ABI. Default-constructed it equals a fresh SunStudyPatchAtlas.
-struct PatchAtlasState {
-    uint32_t width = 0;
-    uint32_t height = 0;
-    uint32_t penX = 0;
-    uint32_t penY = 0;
-    uint32_t shelfHeight = 0;
-    uint32_t nextGeneration = 1;
-    std::map<PatchKey, PatchAtlasAllocation> allocations;
-};
+// The patch atlas state lives beside the class it restores.
+using evp::sunstudy::PatchAtlasState;
 
 // SunStudyPatchAtlas::Fit on `state`.
 bool FitPatchAtlas (PatchAtlasState& state, const PatchSampleGrid& grid, uint32_t gutter, uint32_t maxDimension,

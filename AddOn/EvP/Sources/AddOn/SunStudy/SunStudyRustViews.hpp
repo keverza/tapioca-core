@@ -22,33 +22,12 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
                                         const std::vector<std::string>& context, const ViewpointOptions& options,
                                         const std::function<bool ()>& isCancelled = {});
 
-// VisibilityStudyResult with the patch atlas as its state (the C++ class
-// cannot be restored from one). analysisMilliseconds is not measured.
-struct RustVisibilityResult {
-    bool valid = false;
-    std::string error;
-    uint64_t snapshotId = 0;
-    VisibilityOrigin origin = VisibilityOrigin::Surfaces;
-    SamplingDomain domain = SamplingDomain::SurfacePatch;
-    double spacing = 0.0;
-    std::vector<std::string> displayElements;
-    SampleGrid grid;
-    SunStudyAtlas atlas;
-    PatchSampleGrid patchGrid;
-    PatchAtlasState patchAtlas;
-    std::vector<double> values;
-    size_t aimPointCount = 0;
-    size_t rayCount = 0;
-    size_t visibleSamples = 0;
-    double meanVisibility = 0.0;
-    double analysedArea = 0.0;
-};
-
-RustVisibilityResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapshot> snapshot,
-                                         const std::vector<std::string>& fromElements,
-                                         const std::vector<std::string>& toElements,
-                                         const VisibilityStudyOptions& options = VisibilityStudyOptions (),
-                                         const std::function<bool ()>& isCancelled = {});
+// analysisMilliseconds is measured around the whole call, as the C++ study does.
+VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapshot> snapshot,
+                                          const std::vector<std::string>& fromElements,
+                                          const std::vector<std::string>& toElements,
+                                          const VisibilityStudyOptions& options = VisibilityStudyOptions (),
+                                          const std::function<bool ()>& isCancelled = {});
 
 } // namespace evp::sunstudy::rust
 

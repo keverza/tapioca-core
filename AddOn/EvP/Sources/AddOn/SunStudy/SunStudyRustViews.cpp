@@ -5,6 +5,7 @@
 #include "SunStudy/CpuTraversalWork.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <memory>
 
 namespace evp::sunstudy::rust {
@@ -166,13 +167,14 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     return result;
 }
 
-RustVisibilityResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapshot> snapshot,
-                                         const std::vector<std::string>& fromElements,
-                                         const std::vector<std::string>& toElements,
-                                         const VisibilityStudyOptions& options,
-                                         const std::function<bool ()>& isCancelled)
+VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapshot> snapshot,
+                                          const std::vector<std::string>& fromElements,
+                                          const std::vector<std::string>& toElements,
+                                          const VisibilityStudyOptions& options,
+                                          const std::function<bool ()>& isCancelled)
 {
-    RustVisibilityResult result;
+    const auto started = std::chrono::steady_clock::now ();
+    VisibilityStudyResult result;
     result.origin = options.origin;
     result.domain = options.domain;
     result.spacing = options.spacing;
@@ -240,13 +242,15 @@ RustVisibilityResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapshot
                  result.error))
         return result;
     result.atlas = AtlasOf (atlas);
-    result.patchAtlas = StateOf (state);
+    result.patchAtlas = SunStudyPatchAtlas::FromState (StateOf (state));
     result.aimPointCount = summary.sizes[1];
     result.rayCount = summary.sizes[2];
     result.visibleSamples = summary.sizes[3];
     result.meanVisibility = summary.reals[0];
     result.analysedArea = summary.reals[1];
     result.displayElements = options.origin == VisibilityOrigin::Point ? toElements : fromElements;
+    result.analysisMilliseconds =
+        std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
     result.valid = true;
     return result;
 }

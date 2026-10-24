@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <utility>
 
 namespace evp::sunstudy {
 
@@ -17,6 +18,32 @@ uint32_t NextPowerOfTwo (uint32_t value)
 }
 
 } // namespace
+
+SunStudyPatchAtlas SunStudyPatchAtlas::FromState (PatchAtlasState state)
+{
+    SunStudyPatchAtlas atlas;
+    atlas.allocations_ = std::move (state.allocations);
+    atlas.width_ = state.width;
+    atlas.height_ = state.height;
+    atlas.penX_ = state.penX;
+    atlas.penY_ = state.penY;
+    atlas.shelfHeight_ = state.shelfHeight;
+    atlas.nextGeneration_ = state.nextGeneration;
+    return atlas;
+}
+
+PatchAtlasState SunStudyPatchAtlas::State () const
+{
+    PatchAtlasState state;
+    state.width = width_;
+    state.height = height_;
+    state.penX = penX_;
+    state.penY = penY_;
+    state.shelfHeight = shelfHeight_;
+    state.nextGeneration = nextGeneration_;
+    state.allocations = allocations_;
+    return state;
+}
 
 void SunStudyPatchAtlas::Clear ()
 {

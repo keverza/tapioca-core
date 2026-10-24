@@ -98,7 +98,7 @@ std::shared_ptr<const geomsrv::Snapshot> Scene (Lcg& lcg, uint64_t id)
     return snapshot;
 }
 
-void ExpectSameVisibility (const VisibilityStudyResult& e, const rs::RustVisibilityResult& a, const std::string& what)
+void ExpectSameVisibility (const VisibilityStudyResult& e, const VisibilityStudyResult& a, const std::string& what)
 {
     ASSERT_EQ (a.valid, e.valid) << what << ": cpp '" << e.error << "' rust '" << a.error << "'";
     if (!e.valid) {
@@ -112,20 +112,28 @@ void ExpectSameVisibility (const VisibilityStudyResult& e, const rs::RustVisibil
     EXPECT_TRUE (SameBits (a.meanVisibility, e.meanVisibility)) << what << " mean";
     EXPECT_TRUE (SameBits (a.analysedArea, e.analysedArea)) << what << " area";
     EXPECT_EQ (a.displayElements, e.displayElements) << what;
+    EXPECT_EQ (a.snapshotId, e.snapshotId) << what;
     EXPECT_TRUE (SameBits (a.grid.positions, e.grid.positions)) << what << " triangle cells";
     EXPECT_TRUE (SameBits (a.patchGrid.positions, e.patchGrid.positions)) << what << " patch cells";
     EXPECT_EQ (a.atlas.width, e.atlas.width) << what;
     EXPECT_EQ (a.atlas.height, e.atlas.height) << what;
     EXPECT_EQ (a.atlas.texels, e.atlas.texels) << what;
     EXPECT_EQ (a.atlas.valid, e.atlas.valid) << what;
-    ASSERT_EQ (a.patchAtlas.allocations.size (), e.patchAtlas.AllocationCount ()) << what;
-    EXPECT_EQ (a.patchAtlas.width, e.patchAtlas.Width ()) << what;
-    for (const auto& [key, x] : e.patchAtlas.Allocations ()) {
-        const auto found = a.patchAtlas.allocations.find (key);
-        ASSERT_NE (found, a.patchAtlas.allocations.end ()) << what;
-        const auto& y = found->second;
-        EXPECT_TRUE (x.x == y.x && x.y == y.y && x.width == y.width && x.height == y.height &&
-                     x.generation == y.generation)
+    EXPECT_EQ (a.AtlasWidth (), e.AtlasWidth ()) << what;
+    EXPECT_EQ (a.AtlasHeight (), e.AtlasHeight ()) << what;
+    // The whole patch atlas state, cursor and generation included: a later Fit
+    // on the restored atlas must continue where the C++ atlas would have.
+    const PatchAtlasState x = e.patchAtlas.State (), y = a.patchAtlas.State ();
+    EXPECT_TRUE (x.width == y.width && x.height == y.height && x.penX == y.penX && x.penY == y.penY &&
+                 x.shelfHeight == y.shelfHeight && x.nextGeneration == y.nextGeneration)
+        << what << " atlas cursor";
+    ASSERT_EQ (y.allocations.size (), x.allocations.size ()) << what;
+    for (const auto& [key, ex] : x.allocations) {
+        const auto found = y.allocations.find (key);
+        ASSERT_NE (found, y.allocations.end ()) << what;
+        const auto& ac = found->second;
+        EXPECT_TRUE (ex.x == ac.x && ex.y == ac.y && ex.width == ac.width && ex.height == ac.height &&
+                     ex.generation == ac.generation)
             << what << " allocation";
     }
 }
@@ -274,5 +282,52 @@ TEST (SunStudyRustViewsParity, TheSelectedViewpointMatchesTheCppStudyUnderEither
         EXPECT_EQ (std::memcmp (actual.perimeter.data (), expected.perimeter.data (),
                                 expected.perimeter.size () * sizeof (double) * 3),
                    0);
+    }
+}
+
+TEST (SunStudyRustViewsParity, TheSelectedVisibilityMatchesTheCppStudyUnderEitherCore)
+{
+    Lcg lcg (0x42c0ffeeull);
+    const auto snapshot = Scene (lcg, 401);
+    for (const auto domain : { SamplingDomain::SurfacePatch, SamplingDomain::TriangleLegacy }) {
+        VisibilityStudyOptions options;
+        options.domain = domain;
+        options.spacing = 0.9;
+        const auto expected = RunVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
+        ASSERT_TRUE (expected.valid) << expected.error;
+        for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
+            OverrideSunStudyCore (kind);
+            const auto actual = RunSelectedVisibilityStudy (snapshot, { kFloor }, { kTower, kShed }, options);
+            OverrideSunStudyCore (std::nullopt);
+            ExpectSameVisibility (expected, actual, kind == SunStudyCoreKind::Rust ? "rust" : "cpp");
+        }
+    }
+}
+
+TEST (SunStudyRustViewsParity, ARestoredPatchAtlasRefitsLikeTheOriginal)
+{
+    Lcg lcg (0x9a7c4ull);
+    const auto snapshot = Scene (lcg, 402);
+    VisibilityStudyOptions options;
+    options.spacing = 0.8;
+    const auto cpp = RunVisibilityStudy (snapshot, { kFloor }, { kTower }, options);
+    const auto rust = rs::RunVisibilityStudy (snapshot, { kFloor }, { kTower }, options);
+    ASSERT_TRUE (cpp.valid && rust.valid) << cpp.error << rust.error;
+    // Refit both against a finer lattice of the same surfaces: every patch
+    // moves, so the restored cursor and generation decide every rectangle.
+    options.spacing = 0.5;
+    const auto finer = RunVisibilityStudy (snapshot, { kFloor }, { kTower }, options);
+    ASSERT_TRUE (finer.valid) << finer.error;
+    SunStudyPatchAtlas a = cpp.patchAtlas, b = SunStudyPatchAtlas::FromState (rust.patchAtlas.State ());
+    const auto ua = a.Fit (finer.patchGrid), ub = b.Fit (finer.patchGrid);
+    EXPECT_TRUE (ua.retained == ub.retained && ua.reused == ub.reused && ua.moved == ub.moved && ua.added == ub.added &&
+                 ua.removed == ub.removed && ua.resized == ub.resized);
+    EXPECT_GT (ua.added + ua.moved, 0u) << "the refit must place new rectangles or it proves nothing";
+    const PatchAtlasState x = a.State (), y = b.State ();
+    EXPECT_TRUE (x.penX == y.penX && x.penY == y.penY && x.nextGeneration == y.nextGeneration);
+    ASSERT_EQ (x.allocations.size (), y.allocations.size ());
+    for (const auto& [key, ex] : x.allocations) {
+        const auto& ac = y.allocations.at (key);
+        EXPECT_TRUE (ex.x == ac.x && ex.y == ac.y && ex.generation == ac.generation);
     }
 }

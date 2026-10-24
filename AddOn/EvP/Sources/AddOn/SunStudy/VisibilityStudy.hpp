@@ -89,6 +89,14 @@ VisibilityStudyResult RunVisibilityStudy (std::shared_ptr<const geomsrv::Snapsho
                                           const VisibilityStudyOptions& options = VisibilityStudyOptions (),
                                           const std::function<bool ()>& isCancelled = {});
 
+// RunVisibilityStudy on the core TAPIOCA_SUNSTUDY_CORE selects (P5); the
+// Rust policy returns the same result through the same C++ query index.
+VisibilityStudyResult RunSelectedVisibilityStudy (std::shared_ptr<const geomsrv::Snapshot> snapshot,
+                                                  const std::vector<std::string>& fromElements,
+                                                  const std::vector<std::string>& toElements,
+                                                  const VisibilityStudyOptions& options = VisibilityStudyOptions (),
+                                                  const std::function<bool ()>& isCancelled = {});
+
 } // namespace evp::sunstudy
 
 #endif
