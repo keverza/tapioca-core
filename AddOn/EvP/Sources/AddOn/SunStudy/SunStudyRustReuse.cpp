@@ -15,17 +15,6 @@ struct StudyViews {
     TapiocaReuseStudyView view {};
 };
 
-std::vector<TapiocaReuseMeshView> MeshViews (const geomsrv::Snapshot& snapshot)
-{
-    std::vector<TapiocaReuseMeshView> meshes;
-    meshes.reserve (snapshot.meshes.size ());
-    for (const geomsrv::Mesh& mesh : snapshot.meshes)
-        meshes.push_back ({ { mesh.guid.data (), mesh.guid.size () },
-                            { mesh.vertices.data (), mesh.vertices.size () },
-                            { mesh.triangles.data (), mesh.triangles.size () } });
-    return meshes;
-}
-
 void Fill (StudyViews& views, const StudyRecord& record)
 {
     views.meshes = MeshViews (*record.snapshot);

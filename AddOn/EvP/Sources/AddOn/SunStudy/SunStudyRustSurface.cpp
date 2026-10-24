@@ -27,64 +27,6 @@ TapiocaSurfaceOptions OptionsPod (const SurfaceSamplingOptions& options)
              static_cast<uint8_t> (options.domain) };
 }
 
-std::vector<TapiocaReuseMeshView> MeshViews (const geomsrv::Snapshot& snapshot)
-{
-    std::vector<TapiocaReuseMeshView> meshes;
-    meshes.reserve (snapshot.meshes.size ());
-    for (const geomsrv::Mesh& mesh : snapshot.meshes)
-        meshes.push_back ({ { mesh.guid.data (), mesh.guid.size () },
-                            { mesh.vertices.data (), mesh.vertices.size () },
-                            { mesh.triangles.data (), mesh.triangles.size () } });
-    return meshes;
-}
-
-TapiocaFaceLayout LayoutPod (const FaceLayout& layout)
-{
-    TapiocaFaceLayout pod {};
-    std::copy (layout.origin, layout.origin + 3, pod.origin);
-    std::copy (layout.uAxis, layout.uAxis + 3, pod.uAxis);
-    std::copy (layout.vAxis, layout.vAxis + 3, pod.vAxis);
-    pod.uStart = layout.uStart;
-    pod.vStart = layout.vStart;
-    pod.columns = layout.columns;
-    pod.rows = layout.rows;
-    pod.gridded = layout.gridded ? 1 : 0;
-    return pod;
-}
-
-FaceLayout LayoutOf (const TapiocaFaceLayout& pod)
-{
-    FaceLayout layout;
-    std::copy (pod.origin, pod.origin + 3, layout.origin);
-    std::copy (pod.uAxis, pod.uAxis + 3, layout.uAxis);
-    std::copy (pod.vAxis, pod.vAxis + 3, layout.vAxis);
-    layout.uStart = static_cast<long> (pod.uStart);
-    layout.vStart = static_cast<long> (pod.vStart);
-    layout.columns = pod.columns;
-    layout.rows = pod.rows;
-    layout.gridded = pod.gridded != 0;
-    return layout;
-}
-
-TapiocaPatchSpan SpanPod (const PatchSampleSpan& span)
-{
-    TapiocaPatchSpan pod {};
-    pod.first = span.first;
-    pod.count = span.count;
-    pod.plane = span.key.plane;
-    pod.occurrence = span.key.occurrence;
-    pod.columns = span.columns;
-    pod.rows = span.rows;
-    std::copy (span.origin, span.origin + 3, pod.frame[0]);
-    std::copy (span.uAxis, span.uAxis + 3, pod.frame[1]);
-    std::copy (span.vAxis, span.vAxis + 3, pod.frame[2]);
-    std::copy (span.normal, span.normal + 3, pod.frame[3]);
-    std::copy (span.boundsMin, span.boundsMin + 3, pod.bounds[0]);
-    std::copy (span.boundsMax, span.boundsMax + 3, pod.bounds[1]);
-    pod.area = span.area;
-    return pod;
-}
-
 PatchSampleSpan SpanOf (const TapiocaPatchSpan& pod, std::string element)
 {
     PatchSampleSpan span;
@@ -295,6 +237,68 @@ bool Read (const TapiocaSurfaceResult* handle, SurfaceSamplingResult& out, std::
 }
 
 } // namespace
+
+namespace detail {
+
+std::vector<TapiocaReuseMeshView> MeshViews (const geomsrv::Snapshot& snapshot)
+{
+    std::vector<TapiocaReuseMeshView> meshes;
+    meshes.reserve (snapshot.meshes.size ());
+    for (const geomsrv::Mesh& mesh : snapshot.meshes)
+        meshes.push_back ({ { mesh.guid.data (), mesh.guid.size () },
+                            { mesh.vertices.data (), mesh.vertices.size () },
+                            { mesh.triangles.data (), mesh.triangles.size () } });
+    return meshes;
+}
+
+TapiocaFaceLayout LayoutPod (const FaceLayout& layout)
+{
+    TapiocaFaceLayout pod {};
+    std::copy (layout.origin, layout.origin + 3, pod.origin);
+    std::copy (layout.uAxis, layout.uAxis + 3, pod.uAxis);
+    std::copy (layout.vAxis, layout.vAxis + 3, pod.vAxis);
+    pod.uStart = layout.uStart;
+    pod.vStart = layout.vStart;
+    pod.columns = layout.columns;
+    pod.rows = layout.rows;
+    pod.gridded = layout.gridded ? 1 : 0;
+    return pod;
+}
+
+FaceLayout LayoutOf (const TapiocaFaceLayout& pod)
+{
+    FaceLayout layout;
+    std::copy (pod.origin, pod.origin + 3, layout.origin);
+    std::copy (pod.uAxis, pod.uAxis + 3, layout.uAxis);
+    std::copy (pod.vAxis, pod.vAxis + 3, layout.vAxis);
+    layout.uStart = static_cast<long> (pod.uStart);
+    layout.vStart = static_cast<long> (pod.vStart);
+    layout.columns = pod.columns;
+    layout.rows = pod.rows;
+    layout.gridded = pod.gridded != 0;
+    return layout;
+}
+
+TapiocaPatchSpan SpanPod (const PatchSampleSpan& span)
+{
+    TapiocaPatchSpan pod {};
+    pod.first = span.first;
+    pod.count = span.count;
+    pod.plane = span.key.plane;
+    pod.occurrence = span.key.occurrence;
+    pod.columns = span.columns;
+    pod.rows = span.rows;
+    std::copy (span.origin, span.origin + 3, pod.frame[0]);
+    std::copy (span.uAxis, span.uAxis + 3, pod.frame[1]);
+    std::copy (span.vAxis, span.vAxis + 3, pod.frame[2]);
+    std::copy (span.normal, span.normal + 3, pod.frame[3]);
+    std::copy (span.boundsMin, span.boundsMin + 3, pod.bounds[0]);
+    std::copy (span.boundsMax, span.boundsMax + 3, pod.bounds[1]);
+    pod.area = span.area;
+    return pod;
+}
+
+} // namespace detail
 
 bool BuildSurfaceSampling (const geomsrv::Snapshot& snapshot, const std::vector<uint8_t>& sampleMask,
                            const SurfaceSamplingOptions& options, const StudyRecord* previous,

@@ -105,6 +105,13 @@ struct TraversalShim {
 // Rust. `shim` must outlive every call made with the vtable.
 TapiocaTraversalVtable VtableOf (TraversalShim& shim);
 
+// Borrowed views over a snapshot's meshes; valid while the snapshot lives.
+std::vector<TapiocaReuseMeshView> MeshViews (const geomsrv::Snapshot& snapshot);
+
+TapiocaFaceLayout LayoutPod (const FaceLayout& layout);
+FaceLayout LayoutOf (const TapiocaFaceLayout& pod);
+TapiocaPatchSpan SpanPod (const PatchSampleSpan& span);
+
 TapiocaOcclusionTrace TraceOf (const TapiocaTraversalVtable& vtable, const SampleSet& samples, double tmin, double tmax,
                                size_t maxParallel);
 
