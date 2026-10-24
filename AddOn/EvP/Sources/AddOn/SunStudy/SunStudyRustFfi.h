@@ -707,6 +707,77 @@ TapiocaStatus tapioca_sunstudy_occlusion_read (TapiocaSunStudyOcclusion* handle,
                                                const TapiocaOcclusionReadOutput* output, char* error,
                                                size_t errorCapacity);
 
+/* ---- study session (Rust-owned, internally synchronised) --------------- */
+
+/* May be shared across threads: a concurrent advance resolves 0 steps, other
+ * calls wait. Only destroy needs exclusivity. A poisoned session (after a
+ * contained panic) returns TAPIOCA_ERR_STATE; destroy it. */
+typedef struct TapiocaSunStudySession TapiocaSunStudySession;
+
+TapiocaStatus tapioca_sunstudy_session_create (TapiocaSunStudySession** out, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_session_destroy (TapiocaSunStudySession* handle, char* error, size_t errorCapacity);
+
+typedef struct {
+    uint64_t versions[3];     /* geometry, sun, grid; 0 = no such input */
+    TapiocaSunStepView steps; /* kept steps, used as they are */
+    int32_t timestepMinutes;
+    size_t sourceStepCount;
+    uint64_t seriesVersion;
+    size_t sampleCount;
+} TapiocaSessionSyncRequest;
+
+TapiocaStatus tapioca_sunstudy_session_sync (const TapiocaSunStudySession* handle,
+                                             const TapiocaSessionSyncRequest* request, char* error,
+                                             size_t errorCapacity);
+
+typedef struct {
+    const TapiocaSunStudySession* source;
+    const size_t* map; /* SIZE_MAX traces afresh */
+    size_t mapCount;
+    const uint64_t* dirty;
+    size_t dirtyCount;
+} TapiocaSessionSeedRequest;
+
+TapiocaStatus tapioca_sunstudy_session_seed (const TapiocaSunStudySession* handle,
+                                             const TapiocaSessionSeedRequest* request, uint8_t* accepted, char* error,
+                                             size_t errorCapacity);
+
+/* Runs on the advancing thread with the session locked: must not throw or
+ * call into the session. */
+typedef struct {
+    void* context;
+    void (*observe) (void* context, size_t step, double wallMs, const TapiocaOcclusionState* state); /* nullable */
+} TapiocaStepObserver;
+
+typedef struct {
+    TapiocaOcclusionTrace trace; /* sampleCount must match the last sync */
+    size_t maxSteps;
+    TapiocaStepObserver observer;
+} TapiocaSessionAdvanceRequest;
+
+TapiocaStatus tapioca_sunstudy_session_advance (const TapiocaSunStudySession* handle,
+                                                const TapiocaSessionAdvanceRequest* request, size_t* resolved,
+                                                char* error, size_t errorCapacity);
+
+typedef struct {
+    uint64_t generation;
+    size_t resolvedSteps;
+    size_t totalSteps;
+    size_t sampleCount;
+    TapiocaOcclusionState accumulator;
+    uint8_t converged;
+    uint8_t empty;
+    uint8_t advancing;
+} TapiocaSessionProgress;
+
+TapiocaStatus tapioca_sunstudy_session_progress (const TapiocaSunStudySession* handle, TapiocaSessionProgress* out,
+                                                 char* error, size_t errorCapacity);
+
+/* hoursPerStep is ignored: hours use the session's own day. */
+TapiocaStatus tapioca_sunstudy_session_read (const TapiocaSunStudySession* handle,
+                                             const TapiocaOcclusionReadOutput* output, char* error,
+                                             size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 

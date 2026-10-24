@@ -78,6 +78,11 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaOcclusionStepRequest) == 10
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaOcclusionRangeRequest) == 104);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaOcclusionState) == 72);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaOcclusionReadOutput) == 56);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSessionSyncRequest) == 72);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSessionSeedRequest) == 40);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaStepObserver) == 16);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSessionAdvanceRequest) == 96);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSessionProgress) == 112);
 
 using namespace detail;
 

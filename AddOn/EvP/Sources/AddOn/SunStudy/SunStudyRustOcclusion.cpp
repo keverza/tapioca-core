@@ -8,14 +8,10 @@ namespace evp::sunstudy::rust {
 
 using namespace detail;
 
-namespace {
+namespace detail {
 
 // The C++ side of a traversal call: the ITraversal and the caller's cancel
 // check, reached through the vtable's context pointer for one call.
-struct TraversalShim {
-    const ITraversal* traversal = nullptr;
-    const std::function<bool ()>* isCancelled = nullptr;
-};
 
 uint8_t ShimOccludeDirectional (void* context, const double* origins, size_t count, const double* direction,
                                 double tmin, double tmax, uint8_t* out, size_t maxParallel)
@@ -74,7 +70,7 @@ TapiocaOcclusionTrace TraceOf (const TapiocaTraversalVtable& vtable, const Sampl
     return trace;
 }
 
-} // namespace
+} // namespace detail
 
 RustOcclusionAccumulator::RustOcclusionAccumulator (size_t sampleCount, size_t stepCount)
 {

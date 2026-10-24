@@ -161,6 +161,25 @@ impl SunSeries {
         series
     }
 
+    /// Rebuild a series that was already filtered (for example by the C++
+    /// `SunSeries` or [`Self::from_steps`]) without filtering or renormalising
+    /// its steps again, so their bits are kept exactly. `timestep_minutes` is
+    /// raised to 1 as in `from_steps`.
+    #[must_use]
+    pub fn from_parts(
+        steps: Vec<SunStep>,
+        timestep_minutes: i32,
+        source_step_count: usize,
+        version: u64,
+    ) -> Self {
+        Self {
+            steps,
+            timestep_minutes: timestep_minutes.max(1),
+            source_step_count,
+            version,
+        }
+    }
+
     /// Steps kept after the horizon filter.
     #[must_use]
     pub fn steps(&self) -> &[SunStep] {

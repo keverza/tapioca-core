@@ -19,6 +19,7 @@ pub mod receivers;
 pub mod roles;
 pub mod sampler;
 pub mod series;
+pub mod session;
 pub mod step_atlas;
 pub mod surface_patch;
 pub mod texture_delta;

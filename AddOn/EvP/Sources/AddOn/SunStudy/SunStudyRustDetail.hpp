@@ -94,6 +94,20 @@ inline TapiocaTextArrayView ArrayView (const std::vector<TapiocaTextView>& views
     return TapiocaTextArrayView { views.data (), views.size () };
 }
 
+// The C++ side of a traversal call: the ITraversal and the caller's cancel
+// check, reached through the vtable's context pointer for one call.
+struct TraversalShim {
+    const ITraversal* traversal = nullptr;
+    const std::function<bool ()>* isCancelled = nullptr;
+};
+
+// A vtable whose callbacks forward to `shim` and never let an exception reach
+// Rust. `shim` must outlive every call made with the vtable.
+TapiocaTraversalVtable VtableOf (TraversalShim& shim);
+
+TapiocaOcclusionTrace TraceOf (const TapiocaTraversalVtable& vtable, const SampleSet& samples, double tmin, double tmax,
+                               size_t maxParallel);
+
 } // namespace evp::sunstudy::rust::detail
 
 #endif

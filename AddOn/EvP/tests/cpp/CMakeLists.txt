@@ -1214,6 +1214,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustSampling.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustAtlas.cpp"
         "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustOcclusion.cpp"
+        "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRustSession.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_sunstudy_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp"

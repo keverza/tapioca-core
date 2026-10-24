@@ -188,3 +188,9 @@ pub use sunstudy::{
     PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
     tapioca_sunstudy_patch_grid,
 };
+pub use sunstudy::{
+    SessionAdvanceRequest, SessionHandle, SessionProgress, SessionSeedRequest, SessionSyncRequest,
+    StepObserverCallback, tapioca_sunstudy_session_advance, tapioca_sunstudy_session_create,
+    tapioca_sunstudy_session_destroy, tapioca_sunstudy_session_progress,
+    tapioca_sunstudy_session_read, tapioca_sunstudy_session_seed, tapioca_sunstudy_session_sync,
+};

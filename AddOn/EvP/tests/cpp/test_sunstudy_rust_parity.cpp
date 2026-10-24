@@ -14,7 +14,10 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <bit>
+#include <chrono>
+#include <thread>
 #include <cmath>
 #include <cctype>
 #include <cstdio>
@@ -1406,4 +1409,161 @@ TEST (SunStudyRustParity, OcclusionSeededReuseMatches)
         if (::testing::Test::HasFatalFailure ())
             return;
     }
+}
+
+// ---------------------------------------------------------------------------
+// P3b: the study session
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void ExpectSameSession (const SunStudySession& e, const rs::RustSunStudySession& a, const char* what)
+{
+    ASSERT_TRUE (a.LastError ().empty ()) << what << ": " << a.LastError ();
+    const StudyProgress x = e.Progress (), y = a.Progress ();
+    EXPECT_EQ (y.generation, x.generation) << what;
+    EXPECT_EQ (y.resolvedSteps, x.resolvedSteps) << what;
+    EXPECT_EQ (y.totalSteps, x.totalSteps) << what;
+    EXPECT_EQ (y.sampleCount, x.sampleCount) << what;
+    EXPECT_EQ (y.converged, x.converged) << what;
+    EXPECT_EQ (y.empty, x.empty) << what;
+    EXPECT_EQ (a.Bits (), e.Accumulator ().Bits ()) << what;
+    ExpectSameBits (e.SunHours (), a.SunHours (), what);
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, SessionMatchesAcrossSyncsSlicesAndSeeds)
+{
+    Lcg lcg (0x5e55ull);
+    for (int trial = 0; trial < 16; ++trial) {
+        OcclusionScene scene = MakeOcclusionScene (lcg, 240, static_cast<size_t> (lcg.Int (2, 90)));
+        const SunSeries otherDay = SunSeries::FromSteps (
+            std::vector<SunStep> (scene.steps.begin (), scene.steps.begin () + scene.steps.size () / 2), 30);
+        SunStudySession expected;
+        rs::RustSunStudySession actual;
+        ASSERT_TRUE (actual.Valid ()) << actual.LastError ();
+        StudyInputs inputs { 1, 1, 1 };
+        size_t count = 200;
+        const SunSeries* day = &scene.series;
+        for (int round = 0; round < 12; ++round) {
+            switch (lcg.Int (0, 6)) { // occasionally invalidate something
+                case 0:
+                    ++inputs.geometryVersion;
+                    break;
+                case 1:
+                    ++inputs.sunVersion;
+                    day = day == &scene.series ? &otherDay : &scene.series;
+                    break;
+                case 2:
+                    ++inputs.gridVersion;
+                    break;
+                case 3:
+                    count = static_cast<size_t> (lcg.Int (0, 240)); // count change without a version bump
+                    break;
+                default:
+                    break; // unchanged inputs: the cheap path
+            }
+            SampleSet samples { scene.positions.data (), trial % 2 == 0 ? scene.normals.data () : nullptr, count };
+            expected.Sync (inputs, *day, samples);
+            actual.Sync (inputs, *day, samples);
+            const size_t budget = static_cast<size_t> (lcg.Int (0, 12));
+            EXPECT_EQ (actual.Advance (*scene.traversal, budget), expected.Advance (*scene.traversal, budget));
+            ExpectSameSession (expected, actual, "round");
+            if (::testing::Test::HasFatalFailure ())
+                return;
+        }
+        // Seed a fresh study from the converged one (both sides).
+        expected.Advance (*scene.traversal, 1000);
+        actual.Advance (*scene.traversal, 1000);
+        SunStudySession expectedSeeded;
+        rs::RustSunStudySession actualSeeded;
+        SampleSet samples { scene.positions.data (), nullptr, count };
+        StudyInputs fresh = inputs;
+        ++fresh.geometryVersion;
+        expectedSeeded.Sync (fresh, *day, samples);
+        actualSeeded.Sync (fresh, *day, samples);
+        std::vector<size_t> map (count);
+        for (size_t s = 0; s < count; ++s)
+            map[s] = lcg.Int (0, 4) == 0 ? OcclusionAccumulator::kNoReuse : s;
+        EXPECT_EQ (actualSeeded.SeedReusable (actual, map), expectedSeeded.SeedReusable (expected.Accumulator (), map));
+        EXPECT_FALSE (actualSeeded.SeedReusable (actualSeeded, map)) << "a session cannot seed from itself";
+        EXPECT_EQ (actualSeeded.Advance (*scene.traversal, 1000), expectedSeeded.Advance (*scene.traversal, 1000));
+        ExpectSameSession (expectedSeeded, actualSeeded, "seeded");
+    }
+}
+
+TEST (SunStudyRustParity, SessionObserverReportsTheSameSteps)
+{
+    Lcg lcg (0x0b5eull);
+    OcclusionScene scene = MakeOcclusionScene (lcg, 150, 12);
+    SampleSet samples { scene.positions.data (), scene.normals.data (), 150 };
+    SunStudySession expected;
+    rs::RustSunStudySession actual;
+    std::vector<std::pair<size_t, size_t>> seenExpected, seenActual;
+    expected.SetStepObserver ([&] (size_t step, const OcclusionAccumulator& accumulator, double) {
+        seenExpected.emplace_back (step, accumulator.LastRayCount ());
+    });
+    actual.SetStepObserver ([&] (size_t step, const TapiocaOcclusionState& state, double) {
+        seenActual.emplace_back (step, state.lastRayCount);
+    });
+    expected.Sync ({ 1, 1, 1 }, scene.series, samples);
+    actual.Sync ({ 1, 1, 1 }, scene.series, samples);
+    expected.Advance (*scene.traversal, 7);
+    actual.Advance (*scene.traversal, 7);
+    EXPECT_EQ (seenActual, seenExpected);
+    EXPECT_EQ (seenActual.size (), 7u);
+}
+
+namespace {
+
+// A traversal that is slow enough for two advances to overlap.
+class SlowTraversal final : public ITraversal {
+  public:
+    explicit SlowTraversal (const ITraversal& inner) : inner_ (inner)
+    {
+    }
+    void OccludeDirectional (const double* origins, size_t count, const double dir[3], double tmin, double tmax,
+                             uint8_t* out, size_t maxParallel) const override
+    {
+        std::this_thread::sleep_for (std::chrono::milliseconds (15));
+        inner_.OccludeDirectional (origins, count, dir, tmin, tmax, out, maxParallel);
+    }
+    void OccludeRays (const OcclusionRay* rays, size_t count, uint8_t* out, size_t maxParallel) const override
+    {
+        inner_.OccludeRays (rays, count, out, maxParallel);
+    }
+    uint64_t SceneVersion () const override
+    {
+        return inner_.SceneVersion ();
+    }
+
+  private:
+    const ITraversal& inner_;
+};
+
+} // namespace
+
+TEST (SunStudyRustParity, ConcurrentSessionAdvancesThroughTheAbiNeverDoubleClaim)
+{
+    Lcg lcg (0xc0c0ull);
+    OcclusionScene scene = MakeOcclusionScene (lcg, 100, 10);
+    SampleSet samples { scene.positions.data (), nullptr, 100 };
+    rs::RustSunStudySession session;
+    session.Sync ({ 1, 1, 1 }, scene.series, samples);
+    const SlowTraversal slow (*scene.traversal);
+    std::atomic<size_t> first { 0 }, second { 0 };
+    std::thread a ([&] { first = session.Advance (slow, 4); });
+    std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    std::thread b ([&] { second = session.Advance (slow, 4); });
+    a.join ();
+    b.join ();
+    EXPECT_EQ (first + second, 4u) << "the loser is refused, not queued";
+    EXPECT_EQ (session.Progress ().resolvedSteps, 4u);
+    EXPECT_FALSE (session.Advancing ());
+    // The result equals an uncontended run of the same steps.
+    SunStudySession reference;
+    reference.Sync ({ 1, 1, 1 }, scene.series, samples);
+    reference.Advance (*scene.traversal, 4);
+    EXPECT_EQ (session.Bits (), reference.Accumulator ().Bits ());
 }

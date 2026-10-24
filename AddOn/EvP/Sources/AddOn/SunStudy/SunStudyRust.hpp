@@ -22,6 +22,7 @@
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
+#include "SunStudy/SunStudySession.hpp"
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
@@ -29,6 +30,8 @@
 #include "SunStudy/SunStudyRustFfi.h"
 
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -208,6 +211,53 @@ class RustOcclusionAccumulator final {
   private:
     TapiocaOcclusionState State () const;
     TapiocaSunStudyOcclusion* handle_ = nullptr;
+    mutable std::string error_;
+};
+
+// SunStudySession backed by the Rust core. Same contract: Sync keeps the
+// caller's (non-owning) sample arrays for later Advance calls, a concurrent
+// Advance is refused (returns 0), and SunHours is too low until converged.
+// Thread-safe like the C++ session; the observer receives the accumulator's
+// counters instead of the accumulator itself.
+class RustSunStudySession final {
+  public:
+    using StepObserver = std::function<void (size_t, const TapiocaOcclusionState&, double)>;
+
+    RustSunStudySession ();
+    ~RustSunStudySession ();
+    RustSunStudySession (const RustSunStudySession&) = delete;
+    RustSunStudySession& operator= (const RustSunStudySession&) = delete;
+
+    bool Valid () const
+    {
+        return handle_ != nullptr;
+    }
+    std::string LastError () const;
+
+    void Sync (const StudyInputs& inputs, const SunSeries& series, const SampleSet& samples);
+    bool SeedReusable (const RustSunStudySession& source, const std::vector<size_t>& sourceSamples,
+                       const std::vector<uint64_t>& dirtySteps = {});
+    void SetStepObserver (StepObserver observer);
+    size_t Advance (const ITraversal& traversal, size_t maxSteps, double tmin = 0.001, double tmax = 0.0,
+                    size_t maxParallel = 0, const std::function<bool ()>& isCancelled = {});
+    bool Advancing () const;
+    StudyProgress Progress () const;
+    std::vector<double> SunHours () const;
+    std::vector<uint64_t> Bits () const;
+    std::vector<uint8_t> StepsResolved () const;
+    uint64_t Generation () const;
+
+  private:
+    TapiocaSessionProgress RawProgress () const;
+    void SetError (const std::string& error) const;
+
+    TapiocaSunStudySession* handle_ = nullptr;
+    // Written by Sync on the caller's thread and read by Advance; the caller
+    // serialises those as with the C++ session (Sync is not called during an
+    // Advance it owns).
+    SampleSet samples_;
+    StepObserver observer_;
+    mutable std::mutex errorMutex_;
     mutable std::string error_;
 };
 

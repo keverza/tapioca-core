@@ -49,12 +49,12 @@ pub struct TraversalVtable {
     pub is_cancelled: Option<unsafe extern "C" fn(context: *mut core::ffi::c_void) -> u8>,
 }
 
-struct VtableTraversal {
+pub(super) struct VtableTraversal {
     vtable: TraversalVtable,
 }
 
 impl VtableTraversal {
-    fn cancelled(&self) -> bool {
+    pub(super) fn cancelled(&self) -> bool {
         // SAFETY: the caller guarantees the callback and context are valid for
         // the call and that the callback does not unwind.
         self.vtable
@@ -109,7 +109,9 @@ impl Traversal for VtableTraversal {
 ///
 /// SAFETY: `handle` must be null or a live handle from `create`, used by no
 /// other thread during the call.
-unsafe fn handle_mut<'a>(handle: *mut OcclusionHandle) -> Result<&'a mut OcclusionHandle, Failure> {
+pub(super) unsafe fn handle_mut<'a>(
+    handle: *mut OcclusionHandle,
+) -> Result<&'a mut OcclusionHandle, Failure> {
     memory_range(handle.cast_const(), 1)?;
     // SAFETY: non-null and aligned (checked); liveness/exclusivity are the
     // caller's contract.
@@ -294,22 +296,22 @@ pub struct OcclusionRangeRequest {
     pub max_steps: usize,
 }
 
-struct Prepared<'a> {
-    traversal: VtableTraversal,
-    samples: SampleSet<'a>,
-    tmin: f64,
-    tmax: f64,
-    max_parallel: usize,
+pub(super) struct Prepared<'a> {
+    pub(super) traversal: VtableTraversal,
+    pub(super) samples: SampleSet<'a>,
+    pub(super) tmin: f64,
+    pub(super) tmax: f64,
+    pub(super) max_parallel: usize,
 }
 
-fn register_trace(regions: &mut Regions, trace: &OcclusionTrace) {
+pub(super) fn register_trace(regions: &mut Regions, trace: &OcclusionTrace) {
     regions.input(trace.traversal, 1);
     regions.input(trace.positions.data, trace.positions.count);
     regions.input(trace.normals.data, trace.normals.count);
 }
 
 // SAFETY: the trace's regions were registered and checked.
-unsafe fn prepare<'a>(
+pub(super) unsafe fn prepare<'a>(
     context: &'a BorrowContext,
     trace: &OcclusionTrace,
 ) -> Result<Prepared<'a>, Failure> {

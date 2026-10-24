@@ -19,6 +19,7 @@ mod patches;
 mod roles;
 mod sampler;
 mod series;
+mod session;
 mod steps;
 mod winding;
 
@@ -63,6 +64,12 @@ pub use sampler::{
     tapioca_sunstudy_sample_grid,
 };
 pub use series::{SunSeriesOutput, SunSeriesRequest, SunSeriesSummary, tapioca_sunstudy_series};
+pub use session::{
+    SessionAdvanceRequest, SessionHandle, SessionProgress, SessionSeedRequest, SessionSyncRequest,
+    StepObserverCallback, tapioca_sunstudy_session_advance, tapioca_sunstudy_session_create,
+    tapioca_sunstudy_session_destroy, tapioca_sunstudy_session_progress,
+    tapioca_sunstudy_session_read, tapioca_sunstudy_session_seed, tapioca_sunstudy_session_sync,
+};
 pub use steps::{
     StepMaskOutput, StepMaskRequest, StepScheduleOutput, StepScheduleRequest, TextureDeltaOutput,
     TextureDeltaRequest, tapioca_sunstudy_step_masks, tapioca_sunstudy_step_schedule,
@@ -147,6 +154,11 @@ const _: () = {
     assert!(size_of::<OcclusionRangeRequest>() == 104);
     assert!(size_of::<OcclusionState>() == 72);
     assert!(size_of::<OcclusionReadOutput>() == 56);
+    assert!(size_of::<SessionSyncRequest>() == 72);
+    assert!(size_of::<SessionSeedRequest>() == 40);
+    assert!(size_of::<StepObserverCallback>() == 16);
+    assert!(size_of::<SessionAdvanceRequest>() == 96);
+    assert!(size_of::<SessionProgress>() == 112);
 };
 
 type Range = Option<(usize, usize)>;
