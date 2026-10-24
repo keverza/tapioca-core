@@ -301,10 +301,12 @@ bool ImportSelectedDrafting (eh::Session& s, DraftingImport as, std::string& mes
             if (d.landscape) {
                 if (!lg::SetLandscapeSourceRole (d, id, role, error))
                     return false;
-                // The source keeps the element it references, for a later refresh from Archicad.
-                for (auto& source : d.landscape->sources)
-                    if (source.entityId == id && !source.deleted)
-                        source.archicadGuid = shape.guid;
+                // A property line or building is a reference: locked here, Archicad's to edit. Plain
+                // lines are copies the editor owns, with no tie to the element they came from.
+                if (as != DraftingImport::Lines && !shape.guid.empty ())
+                    for (auto& source : d.landscape->sources)
+                        if (source.entityId == id && !source.deleted)
+                            source.archicadGuid = shape.guid, source.reference = true;
             }
             made.push_back (id);
             ++counts.added;

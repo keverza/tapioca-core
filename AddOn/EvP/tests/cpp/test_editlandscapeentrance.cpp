@@ -4,7 +4,9 @@
 #include "Edit/EditPath.hpp"
 #include "Edit/EditPathEdit.hpp"
 #include "Edit/EditPolyline.hpp"
+#include "Edit/EditSession.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 
 namespace {
 namespace edit = geomsrv::edit;
@@ -96,4 +98,33 @@ TEST (EditLandscapeEntrance, APathReachesAnEntranceAtItsThresholdHeight)
     EXPECT_DOUBLE_EQ (end.z, 0.45);
     EXPECT_EQ (end.binding, EntranceBinding (door));
     EXPECT_FALSE (p.profile.front ().fixed) << "the other end is free";
+}
+
+TEST (EditLandscapeEntrance, ALineReferencedFromArchicadIsLockedInTheEditor)
+{
+    Site site;
+    for (auto& s : site.doc.landscape->sources)
+        if (s.id == site.source)
+            s.archicadGuid = "9BB0ABD8-B1F3-4D78-855B-9106FD753BDA", s.reference = true;
+    edit::Session session (site.doc);
+    const auto move = [&] (edit::Document& d, std::string&) {
+        edit::Find (d, site.outline)->vertices[0].p.x -= 1;
+        return true;
+    };
+    EXPECT_FALSE (session.Apply (move));
+    EXPECT_NE (session.Message ().find ("referenced from Archicad"), std::string::npos) << session.Message ();
+    EXPECT_FALSE (session.Apply ([&] (edit::Document& d, std::string& e) {
+        d.entities.erase (std::remove_if (d.entities.begin (), d.entities.end (),
+                                          [&] (const edit::Entity& x) { return x.id == site.outline; }),
+                          d.entities.end ());
+        return DeleteLandscapeSource (d, site.source, e);
+    }));
+    // Entrances on it, its role and other lines stay editable.
+    Id door = 0;
+    EXPECT_TRUE (session.Apply ([&] (edit::Document& d, std::string& e) {
+        return AddLandscapeEntrance (d, site.source, { 5, -1, 0 }, 0, "", door, e);
+    })) << session.Message ();
+    EXPECT_TRUE (session.Apply ([&] (edit::Document& d, std::string& e) {
+        return edit::MovePathPoint (d, site.path, edit::FindPath (d, site.path)->points[0].id, { 22, 3, 0 }, e);
+    })) << session.Message ();
 }

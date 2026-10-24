@@ -81,6 +81,13 @@ void LandscapePanel (Session& s)
                          { "Cutter", lg::SourceRole::Cutter },
                          { "Material boundary", lg::SourceRole::MaterialBoundary },
                          { "Property line", lg::SourceRole::PropertyLine } };
+            // A reference is Archicad's line: shown, used, but changed only in Archicad.
+            size_t references = 0;
+            for (const auto& source : s.edits.Doc ().landscape->sources)
+                references += !source.deleted && source.reference;
+            if (references)
+                ImGui::TextDisabled ("%zu line%s referenced from Archicad: locked here, edit in Archicad.", references,
+                                     references == 1 ? "" : "s");
             ImGui::TextUnformatted ("Use selected lines as:");
             for (size_t i = 0; i < std::size (uses); ++i) {
                 if (i % 2)

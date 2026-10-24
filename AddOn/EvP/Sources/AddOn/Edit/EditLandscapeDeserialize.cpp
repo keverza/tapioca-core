@@ -191,7 +191,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
             s.entrances.push_back (std::move (entrance));
         });
     Each (landscape.Field ("sources"), [&] (const Reader& item) {
-        item.Fields ({ "id", "entity", "path", "role", "guid", "revision", "deleted", "arcAngles" });
+        item.Fields ({ "id", "entity", "path", "role", "guid", "revision", "deleted", "arcAngles" }, { "reference" });
         LandscapeSource source;
         source.id = item.Field ("id").Identifier ();
         source.entityId = item.Field ("entity").Identifier ();
@@ -200,6 +200,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
         source.archicadGuid = Guid (item.Field ("guid"));
         source.revision = item.Field ("revision").Identifier ();
         source.deleted = item.Field ("deleted").Flag ();
+        source.reference = item.Has ("reference") && item.Field ("reference").Flag ();
         Each (item.Field ("arcAngles"), [&] (const Reader& angle) { source.arcAngles.push_back (angle.Number ()); });
         s.sources.push_back (std::move (source));
     });
