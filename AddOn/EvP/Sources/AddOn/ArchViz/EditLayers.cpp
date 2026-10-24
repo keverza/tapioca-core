@@ -555,10 +555,8 @@ void AddPathMarks (const edit::Document& doc, const edit::Path& path, const edit
 
 // The paths paved as one area: crossings and junctions united, corners rounded by their
 // kerb radii, the surface triangulated with the paths' heights.
-bool AddPaved (const edit::Document& doc, const Style& style, layers::Layer& layer, const edit::PavedArea* cached)
+bool AddPaved (const edit::PavedArea& paved, const Style& style, layers::Layer& layer)
 {
-    const auto built = cached ? edit::PavedArea {} : edit::Pave (doc.paths, style.pathStep);
-    const auto& paved = cached ? *cached : built;
     if (paved.rings.empty ())
         return false;
     if (!paved.triangles.empty ()) {
@@ -614,7 +612,9 @@ void AddPath (const edit::Document& doc, const edit::Path& path, const Style& st
 }
 
 // A selected or hovered part of a path.
-void AddPathRef (const edit::Path& path, const edit::Ref& ref, uint32_t rgba, const Style& style, layers::Layer& layer)
+// `paved`: the paths' one surface, which a range's edges are drawn on (OntoPavedSurface).
+void AddPathRef (const edit::Path& path, const edit::Ref& ref, uint32_t rgba, const Style& style, layers::Layer& layer,
+                 const edit::PavedArea* paved)
 {
     edit::PathOutline o;
     std::string error;
@@ -649,6 +649,8 @@ void AddPathRef (const edit::Path& path, const edit::Ref& ref, uint32_t rgba, co
                     right.push_back (o.right[i]);
                 }
             if (left.size () >= 2) {
+                if (paved != nullptr)
+                    edit::OntoPavedSurface (*paved, left), edit::OntoPavedSurface (*paved, right);
                 layer.polylines.push_back (Line (left, false, rgba, style.selectedWidth));
                 layer.polylines.push_back (Line (right, false, rgba, style.selectedWidth));
             }
@@ -660,10 +662,11 @@ void AddPathRef (const edit::Path& path, const edit::Ref& ref, uint32_t rgba, co
 }
 
 // The geometry a reference stands for, drawn in `rgba`.
-void AddRef (const edit::Document& doc, const edit::Ref& ref, uint32_t rgba, const Style& style, layers::Layer& layer)
+void AddRef (const edit::Document& doc, const edit::Ref& ref, uint32_t rgba, const Style& style, layers::Layer& layer,
+             const edit::PavedArea* paved)
 {
     if (const edit::Path* path = edit::FindPath (doc, ref.entity)) {
-        AddPathRef (*path, ref, rgba, style, layer);
+        AddPathRef (*path, ref, rgba, style, layer, paved);
         return;
     }
     const edit::Entity* e = edit::Find (doc, ref.entity);
@@ -891,7 +894,11 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
         layer.points.push_back (std::move (vertices));
     if (f.landscape)
         AddLandscape (doc, f, style, layer);
-    const bool paved = !doc.paths.empty () && AddPaved (doc, style, layer, f.paved);
+    // The paths' one surface, paved once for the fill, its outline and the parts drawn on it.
+    const edit::PavedArea built =
+        f.paved || doc.paths.empty () ? edit::PavedArea {} : edit::Pave (doc.paths, style.pathStep);
+    const edit::PavedArea* surface = doc.paths.empty () ? nullptr : f.paved ? f.paved : &built;
+    const bool paved = surface != nullptr && AddPaved (*surface, style, layer);
     if (f.contours != nullptr)
         for (const auto& c : *f.contours)
             layer.polylines.push_back (Line (c.points, false, style.contour, 1.0f));
@@ -903,10 +910,10 @@ layers::Layer Build (const edit::Document& doc, const Feedback& f, const Style& 
     if (f.selection != nullptr) {
         for (const auto& ref : f.selection->Items ())
             if (!quiet (ref.entity))
-                AddRef (doc, ref, style.selected, style, layer);
+                AddRef (doc, ref, style.selected, style, layer, paved ? surface : nullptr);
         if (f.selection->hover.entity != edit::kNoId && !f.selection->Contains (f.selection->hover) &&
             !quiet (f.selection->hover.entity))
-            AddRef (doc, f.selection->hover, style.hover, style, layer);
+            AddRef (doc, f.selection->hover, style.hover, style, layer, paved ? surface : nullptr);
     }
     for (const auto& d : f.dimensions)
         if (!quiet (d.ref.entity))

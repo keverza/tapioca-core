@@ -455,3 +455,36 @@ TEST (EditLayers, ContoursDrawThinAndGreyUnderThePaths)
     EXPECT_LT (last, centre); // the centreline is drawn over them
     EXPECT_EQ (count (el::Build (doc, {}), last), 0u);
 }
+
+// The user, 2026-10-24: in 3D the path did not conform to its outline lines. A range's edges were
+// drawn at each cross-section's own height, and on the inside of a bend two sections fold onto one
+// plan point with two heights -- a 0.2 m step on this 20 % leg -- so the selected edge left the
+// surface it outlines. Drawn on that surface, every vertex of it is on the fill.
+TEST (EditLayers, ASelectedRangesEdgesLieOnTheSurfaceThroughABend)
+{
+    ed::Document doc;
+    const auto id = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 2 } }, 2);
+    const auto area = ed::Pave (doc.paths);
+    ed::Selection selected;
+    selected.Set ({ { id, ed::Part::Range, doc.paths[0].sections[0].id } });
+    el::Feedback f;
+    f.selection = &selected;
+    f.paved = &area;
+    const auto layer = el::Build (doc, f);
+    size_t edges = 0, checked = 0;
+    for (const auto& line : layer.polylines) {
+        if (line.rgba != el::Style {}.selected || line.closed)
+            continue;
+        ++edges;
+        for (size_t k = 0; k + 2 < line.points.size (); k += 3) {
+            const ed::Vec3 p { line.points[k], line.points[k + 1], line.points[k + 2] };
+            double z = 0.0;
+            if (!ed::PavedHeight (area, p, z))
+                continue;
+            ++checked;
+            EXPECT_NEAR (p.z, z, 1e-9) << "(" << p.x << ", " << p.y << ")";
+        }
+    }
+    EXPECT_EQ (edges, 2u);
+    EXPECT_GT (checked, 40u);
+}

@@ -833,6 +833,9 @@ void DrawHover (Session& s, const Map& m, float scale)
             for (size_t i = 0; i < o.stations.size (); ++i)
                 if (o.range[i] == hover.item)
                     left.push_back (o.left[i]), right.push_back (o.right[i]);
+            // On the surface the view shows, not each section's own height: they part at a bend.
+            edit::OntoPavedSurface (PavedSurface (s), left);
+            edit::OntoPavedSurface (PavedSurface (s), right);
             run (left, false, 3.5f);
             run (right, false, 3.5f);
             return;

@@ -83,6 +83,15 @@ bool PavedHeight (const PavedArea& area, Vec3 point, double& z)
     return false;
 }
 
+void OntoPavedSurface (const PavedArea& area, std::vector<Vec3>& points)
+{
+    for (auto& p : points) {
+        double z = 0.0;
+        if (PavedHeight (area, p, z))
+            p.z = z;
+    }
+}
+
 bool BuildLinearSurface (PavedArea& area, const Path& path, const AlignmentGeometry& geometry)
 {
     if (geometry.elements.size () != 1 || geometry.elements[0].kind != ElementKind::Line ||

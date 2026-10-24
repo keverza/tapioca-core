@@ -65,6 +65,11 @@ struct StationSpan {
 std::vector<StationSpan> PathAnnotationSpans (const std::vector<Path>& paths, Id path, double from, double to);
 // Height on the actual unified piecewise-linear surface, not an independent strip.
 bool PavedHeight (const PavedArea& area, Vec3 point, double& z);
+// Points along a path's own outline (its edges, a range's) lifted onto that one surface where it
+// covers them. An outline edge carries its cross-section's height, and on the inside of a bend two
+// sections fold onto one plan point with two heights; a line drawn from them leaves the surface
+// it outlines (a 0.2 m step at a 20 % grade's inner corner). Points it does not cover keep theirs.
+void OntoPavedSurface (const PavedArea& area, std::vector<Vec3>& points);
 
 // A corner's grip: on its bisector at its arc's middle, or `minInset` metres into a sharp
 // corner; the radius whose arc's middle is where `p` falls on the bisector (0 inside it).

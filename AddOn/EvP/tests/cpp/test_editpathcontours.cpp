@@ -166,3 +166,28 @@ TEST (EditPathContours, AJunctionsRoundingIsContouredToo)
     }
     EXPECT_GT (between, 0u);
 }
+
+TEST (EditPathContours, OutlineEdgesLiftedOntoThePavedSurfaceLoseTheirFoldAtABend)
+{
+    ed::Document doc;
+    ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 2 } }, 2.0);
+    const auto area = ed::Pave (doc.paths);
+    ed::PathOutline o;
+    std::string error;
+    ASSERT_TRUE (ed::Outline (doc.paths[0], 0.5, o, error)) << error;
+    // As built, the inside edge meets the corner twice, at two heights.
+    double before = 0.0;
+    for (size_t i = 0; i + 1 < o.left.size (); ++i)
+        if (ed::DistanceXY (o.left[i], o.left[i + 1]) < 1e-9)
+            before = std::max (before, std::abs (o.left[i].z - o.left[i + 1].z));
+    EXPECT_GT (before, 0.1);
+    auto left = o.left;
+    ed::OntoPavedSurface (area, left);
+    for (size_t i = 0; i < left.size (); ++i) {
+        double z = 0.0;
+        ASSERT_TRUE (ed::PavedHeight (area, left[i], z));
+        EXPECT_DOUBLE_EQ (left[i].z, z);
+        if (i > 0 && ed::DistanceXY (left[i - 1], left[i]) < 1e-9)
+            EXPECT_NEAR (left[i - 1].z, left[i].z, 1e-9) << "one plan point, one height";
+    }
+}
