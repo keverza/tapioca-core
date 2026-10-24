@@ -58,6 +58,8 @@ void SlopeArrow (ImDrawList* list, ImVec2 from, ImVec2 to, ImU32 colour, float s
     list->AddTriangleFilled (to, { base.x + nx * half, base.y + ny * half }, { base.x - nx * half, base.y - ny * half },
                              colour);
 }
+// A sharp break's smoothing nubs stand this far out from it, so there is something to grab.
+constexpr double kNubPixels = 16.0;
 } // namespace
 
 void Panel (Session& s)
@@ -232,6 +234,22 @@ void Panel (Session& s)
         if (part != nullptr && part->part == edit::Part::Break)
             for (const auto& b : path->profile)
                 if (b.id == part->item) {
+                    // Its smoothing: the vertical curve's length, as its nubs on the canvas set it.
+                    size_t index = 0;
+                    while (index < path->profile.size () && path->profile[index].id != b.id)
+                        ++index;
+                    const double room = edit::MaxCurve (*path, index);
+                    if (room > 0.0) {
+                        float length = float (b.curve);
+                        ImGui::SetNextItemWidth (140.0f);
+                        if (ImGui::SliderFloat ("Smoothing", &length, 0.0f, float (room), "%.2f m") &&
+                            s.drag == Drag::None) {
+                            const auto op = edit::DragCurve (path->id, b.id, double (length));
+                            if (!s.edits.Apply (op))
+                                s.message = s.edits.Message ();
+                        }
+                        ImGui::SameLine ();
+                    }
                     if (ImGui::SmallButton (b.fixed ? "Unfix elevation" : "Fix elevation")) {
                         const edit::Id id = path->id, bid = b.id;
                         const double station = b.station, z = b.z;
@@ -295,7 +313,7 @@ void Panel (Session& s)
         const float lineHeight = ImGui::GetTextLineHeight ();
         const float margin = 14.0f + lineHeight;
         edit::ProfileView& frozen = s.profileView;
-        const bool dragging = s.drag == Drag::ProfileBreak || s.drag == Drag::ProfileTangent;
+        const bool dragging = ProfileDrag (s.drag);
         const edit::ProfileView view =
             dragging ? frozen : edit::FitProfile (*path, min.x + gutter, min.y, width - gutter, height, margin);
         // The canvas clips its own drawing: a label that runs past an edge, or that the page has
@@ -379,6 +397,27 @@ void Panel (Session& s)
                 SlopeArrow (list, percent > 0.0 ? to : from, percent > 0.0 ? from : to, kInk, 1.0f);
             }
         }
+        // Each interior break's smoothing nubs, where its curve meets its tangents, and a faint ring
+        // through them: how far the rounding reaches. Hollow while the break is sharp.
+        for (size_t i = 1; i + 1 < path->profile.size (); ++i) {
+            std::pair<double, double> nubs[2];
+            if (!edit::CurveNubs (*path, view, i, kNubPixels, nubs))
+                continue;
+            const auto& b = path->profile[i];
+            const ImVec2 at = screen (b.station, b.z);
+            const bool held = s.drag == Drag::ProfileCurve && s.profileIndex == i;
+            const ImU32 colour = b.curve > 0.0 || held ? kAccent : kGridText;
+            float reach = 0.0f;
+            for (const auto& [station, z] : nubs) {
+                const ImVec2 n = screen (station, z);
+                reach = std::max (reach, std::hypot (n.x - at.x, n.y - at.y));
+                if (b.curve > 0.0)
+                    list->AddCircleFilled (n, 4.0f, colour);
+                else
+                    list->AddCircle (n, 4.0f, colour, 0, 1.5f);
+            }
+            list->AddCircle (at, reach, IM_COL32 (62, 99, 221, held ? 110 : 45), 48, 1.0f);
+        }
         for (const auto& b : drawing.breaks) {
             const ImVec2 at = screen (b.station, b.z);
             const bool chosen = part != nullptr && part->part == edit::Part::Break && part->item == b.id;
@@ -428,15 +467,16 @@ void Panel (Session& s)
                     break;
                 }
         if (!labelClick && over && ImGui::IsMouseClicked (0) && s.drag == Drag::None) {
-            const auto hits = edit::PickProfile (*path, view, mouse.x, mouse.y, 7.0);
+            const auto hits = edit::PickProfile (*path, view, mouse.x, mouse.y, 7.0, kNubPixels);
             if (!hits.empty () && s.edits.Begin ()) {
                 s.profileTyping = false; // the drag owns the tracker now
                 frozen = view;
                 s.profileIndex = hits.front ().index;
                 s.profileStartY = mouse.y;
                 s.profileStartZ = path->profile[hits.front ().index].z;
-                if (hits.front ().kind == edit::ProfileHit::Kind::Break) {
-                    s.drag = Drag::ProfileBreak;
+                if (hits.front ().kind != edit::ProfileHit::Kind::Tangent) {
+                    s.drag =
+                        hits.front ().kind == edit::ProfileHit::Kind::Break ? Drag::ProfileBreak : Drag::ProfileCurve;
                     s.selection.Set ({ { path->id, edit::Part::Break, path->profile[s.profileIndex].id } });
                 }
                 else
@@ -464,6 +504,13 @@ void Panel (Session& s)
                 if (!hint.empty ())
                     s.message = "Grade " + hint;
             }
+            else if (before != nullptr && s.drag == Drag::ProfileCurve && s.profileIndex < before->profile.size ()) {
+                const double length = edit::CurveFromNub (*before, frozen, s.profileIndex, station, kNubPixels);
+                op = edit::DragCurve (before->id, before->profile[s.profileIndex].id, length);
+                char text[48];
+                std::snprintf (text, sizeof text, "Smoothing %.2f m", length);
+                s.message = text;
+            }
             else if (before != nullptr) {
                 double s0 = 0.0, z0 = 0.0;
                 edit::ProfileFromScreen (frozen, mouse.x, s.profileStartY, s0, z0);
@@ -479,7 +526,9 @@ void Panel (Session& s)
         if (s.profileTyping)
             ImGui::TextDisabled ("Type the clicked label's value; Enter applies it, Esc gives it up.");
         else
-            ImGui::TextDisabled ("Drag breaks and tangents; double-click adds a break. Grades snap to 0.5 %%.");
+            ImGui::TextDisabled (
+                "Drag breaks and tangents, or a break's nubs to smooth it; double-click adds a break. Grades snap to "
+                "0.5 %%.");
     }
     if (!s.message.empty ()) {
         ImGui::Separator ();

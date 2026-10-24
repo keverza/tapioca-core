@@ -26,12 +26,31 @@ void ProfileToScreen (const ProfileView& view, double station, double z, double&
 void ProfileFromScreen (const ProfileView& view, double x, double y, double& station, double& z);
 
 struct ProfileHit {
-    enum class Kind : uint8_t { Break, Tangent } kind = Kind::Break;
+    // A curve hit is one of a break's two smoothing nubs (CurveNubs).
+    enum class Kind : uint8_t { Break, Tangent, Curve } kind = Kind::Break;
     size_t index = 0; // the break, or the tangent from break `index` to `index + 1`
     double distance = 0.0;
 };
-// Breaks before tangents, then nearest; within `radius` pixels.
-std::vector<ProfileHit> PickProfile (const Path& path, const ProfileView& view, double x, double y, double radius);
+// Breaks, then curve nubs, then tangents, then nearest; within `radius` pixels. `nubPixels` is the
+// least distance a sharp break's nubs stand out from it (CurveNubs).
+std::vector<ProfileHit> PickProfile (const Path& path, const ProfileView& view, double x, double y, double radius,
+                                     double nubPixels = 16.0);
+
+// ⚠️ A GRADE BREAK'S SMOOTHING IS A FILLET'S GRIP (the user, 2026-10-24). Its vertical curve's two
+// ends lie on its two tangents, `curve / 2` metres of station either side; a nub stands at each,
+// and dragging one along its tangent sets the length the curve rounds the grade change over.
+// A sharp break's nubs stand `nubPixels` out on screen, so there is something to grab. Interior
+// breaks only: the end breaks carry no curve. (station, elevation) of the backward and forward nub.
+bool CurveNubs (const Path& path, const ProfileView& view, size_t index, double nubPixels,
+                std::pair<double, double> nubs[2]);
+// The longest curve break `index` can take: the room its tangents leave after the neighbouring
+// breaks' own half curves, so curves never overlap. 0 for an end break.
+double MaxCurve (const Path& path, size_t index);
+// The curve length a nub dragged to `station` asks for: twice its distance from the break, 0 within
+// half a sharp nub's offset, clamped to MaxCurve.
+double CurveFromNub (const Path& path, const ProfileView& view, size_t index, double station, double nubPixels = 16.0);
+// Sets the break's curve length; clamped to [0, MaxCurve] when the drag ran past it.
+Operation DragCurve (Id path, Id gradeBreak, double length);
 
 struct ProfileSnap {
     double stationStep = 0.0;    // metres; 0 leaves stations free

@@ -51,7 +51,24 @@ struct LandscapeCommand {
     bool second = false;
     std::vector<tapioca::geometry::RegionDescriptor> first;
 };
-enum class Drag : uint8_t { None, Part, Handle, Marquee, ProfileBreak, ProfileTangent, Corner, Bezier, Bend, Kerb };
+enum class Drag : uint8_t {
+    None,
+    Part,
+    Handle,
+    Marquee,
+    ProfileBreak,
+    ProfileTangent,
+    Corner,
+    Bezier,
+    Bend,
+    Kerb,
+    ProfileCurve // a grade break's smoothing nub (EditProfileView.hpp CurveNubs)
+};
+// A drag on the panel's profile canvas, not the view: native navigation and a view change leave it be.
+constexpr bool ProfileDrag (Drag drag)
+{
+    return drag == Drag::ProfileBreak || drag == Drag::ProfileTangent || drag == Drag::ProfileCurve;
+}
 
 // What a right click landed on, which decides what its menu offers.
 enum class MenuTarget : uint8_t { View, Drawing, Vertex, Segment, Object, Path, PathPoint, GradeBreak, Range };

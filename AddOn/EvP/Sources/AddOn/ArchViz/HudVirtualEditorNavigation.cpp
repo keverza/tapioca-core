@@ -94,7 +94,7 @@ void Navigate (Session& s, const Map& m, ImVec2 mouse)
         s.message.clear ();
     n.notice.clear ();
     n.blocked = false;
-    if (s.drag == Drag::ProfileBreak || s.drag == Drag::ProfileTangent)
+    if (ProfileDrag (s.drag))
         return; // native navigation does not change the panel canvas's independent mapping
     if (s.drag == Drag::None && !s.penDown) {
         n = {};

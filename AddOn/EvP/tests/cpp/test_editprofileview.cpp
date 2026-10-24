@@ -155,3 +155,40 @@ TEST (EditProfileView, DrawingCarriesLineMarkersCurvesAndGrades)
         if (std::abs (s - 40.0) < 1e-9)
             EXPECT_LT (z, 102.0);
 }
+
+// The user, 2026-10-24: a break's smoothing, set like a fillet by nubs on its two tangents.
+TEST (EditProfileView, ABreaksNubsSetItsVerticalCurveLikeAFillet)
+{
+    Ramp r;
+    const auto v = ed::FitProfile (r.P (), 0, 0, 420, 140, 10); // 4 px per metre of station
+    std::pair<double, double> nubs[2];
+    // Sharp: 16 px (4 m) out along each tangent, on it.
+    ASSERT_TRUE (ed::CurveNubs (r.P (), v, 1, 16.0, nubs));
+    EXPECT_NEAR (nubs[0].first, 36.0, 1e-9);
+    EXPECT_NEAR (nubs[0].second, 102.0 - 0.05 * 4, 1e-9);
+    EXPECT_NEAR (nubs[1].first, 44.0, 1e-9);
+    EXPECT_NEAR (nubs[1].second, 102.0 + 4.0 / 60.0, 1e-9);
+    EXPECT_FALSE (ed::CurveNubs (r.P (), v, 0, 16.0, nubs)) << "the end breaks carry no curve";
+    EXPECT_DOUBLE_EQ (ed::MaxCurve (r.P (), 1), 80.0);
+
+    double x = 0, y = 0;
+    ed::ProfileToScreen (v, nubs[1].first, nubs[1].second, x, y);
+    const auto hits = ed::PickProfile (r.P (), v, x, y + 1, 6, 16.0);
+    ASSERT_FALSE (hits.empty ());
+    EXPECT_EQ (hits[0].kind, ed::ProfileHit::Kind::Curve) << "the nub before the tangent it sits on";
+    EXPECT_EQ (hits[0].index, 1u);
+
+    EXPECT_DOUBLE_EQ (ed::CurveFromNub (r.P (), v, 1, 50.0), 20.0);
+    EXPECT_DOUBLE_EQ (ed::CurveFromNub (r.P (), v, 1, 41.0), 0.0) << "pulled back into the break: sharp";
+    EXPECT_DOUBLE_EQ (ed::CurveFromNub (r.P (), v, 1, 200.0), 80.0) << "never past the room the tangents leave";
+
+    const ed::Id mid = r.P ().profile[1].id;
+    std::string error;
+    ASSERT_TRUE (ed::DragCurve (r.path, mid, 20.0) (r.doc, error)) << error;
+    EXPECT_DOUBLE_EQ (r.P ().profile[1].curve, 20.0);
+    ASSERT_TRUE (ed::CurveNubs (r.P (), v, 1, 16.0, nubs));
+    EXPECT_NEAR (nubs[0].first, 30.0, 1e-9);
+    EXPECT_NEAR (nubs[1].first, 50.0, 1e-9);
+    ASSERT_TRUE (ed::DragCurve (r.path, mid, 500.0) (r.doc, error)) << error;
+    EXPECT_DOUBLE_EQ (r.P ().profile[1].curve, 80.0);
+}

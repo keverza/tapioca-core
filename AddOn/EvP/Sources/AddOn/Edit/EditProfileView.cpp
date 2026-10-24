@@ -70,7 +70,8 @@ void ProfileFromScreen (const ProfileView& v, double x, double y, double& statio
     z = v.zMax - (y - v.top) / (sx * v.exaggeration);
 }
 
-std::vector<ProfileHit> PickProfile (const Path& path, const ProfileView& v, double x, double y, double radius)
+std::vector<ProfileHit> PickProfile (const Path& path, const ProfileView& v, double x, double y, double radius,
+                                     double nubPixels)
 {
     std::vector<ProfileHit> hits;
     const auto& b = path.profile;
@@ -82,15 +83,96 @@ std::vector<ProfileHit> PickProfile (const Path& path, const ProfileView& v, dou
         if (d <= radius)
             hits.push_back ({ ProfileHit::Kind::Break, i, d });
     }
+    for (size_t i = 1; i + 1 < b.size (); ++i) {
+        std::pair<double, double> nubs[2];
+        if (!CurveNubs (path, v, i, nubPixels, nubs))
+            continue;
+        double best = -1.0;
+        for (const auto& [station, z] : nubs) {
+            double nx = 0.0, ny = 0.0;
+            ProfileToScreen (v, station, z, nx, ny);
+            const double d = std::hypot (nx - x, ny - y);
+            if (d <= radius && (best < 0.0 || d < best))
+                best = d;
+        }
+        if (best >= 0.0)
+            hits.push_back ({ ProfileHit::Kind::Curve, i, best });
+    }
     for (size_t i = 0; i + 1 < b.size (); ++i) {
         const double d = PointToSegment (x, y, s[i].first, s[i].second, s[i + 1].first, s[i + 1].second);
         if (d <= radius)
             hits.push_back ({ ProfileHit::Kind::Tangent, i, d });
     }
-    std::stable_sort (hits.begin (), hits.end (), [] (const ProfileHit& a, const ProfileHit& c) {
-        return a.kind != c.kind ? a.kind == ProfileHit::Kind::Break : a.distance < c.distance;
+    const auto rank = [] (ProfileHit::Kind kind) {
+        return kind == ProfileHit::Kind::Break ? 0 : kind == ProfileHit::Kind::Curve ? 1 : 2;
+    };
+    std::stable_sort (hits.begin (), hits.end (), [&] (const ProfileHit& a, const ProfileHit& c) {
+        return a.kind != c.kind ? rank (a.kind) < rank (c.kind) : a.distance < c.distance;
     });
     return hits;
+}
+
+namespace {
+// Horizontal pixels per metre of station.
+double StationPixels (const ProfileView& v)
+{
+    const double span = v.stationMax - v.stationMin;
+    return span > 0.0 ? v.width / span : 0.0;
+}
+} // namespace
+
+double MaxCurve (const Path& path, size_t index)
+{
+    const auto& b = path.profile;
+    if (index == 0 || index + 1 >= b.size ())
+        return 0.0;
+    const double back = b[index].station - b[index - 1].station - b[index - 1].curve * 0.5;
+    const double ahead = b[index + 1].station - b[index].station - b[index + 1].curve * 0.5;
+    return std::max (0.0, 2.0 * std::min (back, ahead));
+}
+
+bool CurveNubs (const Path& path, const ProfileView& v, size_t index, double nubPixels,
+                std::pair<double, double> nubs[2])
+{
+    const auto& b = path.profile;
+    const double ppm = StationPixels (v);
+    if (index == 0 || index + 1 >= b.size () || !(ppm > 0.0))
+        return false;
+    const double half = std::min (std::max (b[index].curve * 0.5, nubPixels / ppm), MaxCurve (path, index) * 0.5);
+    if (!(half > 0.0))
+        return false;
+    const double back = TangentGrade (b, index - 1), ahead = TangentGrade (b, index);
+    nubs[0] = { b[index].station - half, b[index].z - back * half };
+    nubs[1] = { b[index].station + half, b[index].z + ahead * half };
+    return true;
+}
+
+double CurveFromNub (const Path& path, const ProfileView& v, size_t index, double station, double nubPixels)
+{
+    const auto& b = path.profile;
+    const double ppm = StationPixels (v);
+    if (index == 0 || index + 1 >= b.size () || !(ppm > 0.0))
+        return 0.0;
+    const double half = std::abs (station - b[index].station);
+    if (half * ppm < nubPixels * 0.5)
+        return 0.0; // pulled back into the break: sharp again
+    return std::min (2.0 * half, MaxCurve (path, index));
+}
+
+Operation DragCurve (Id path, Id gradeBreak, double length)
+{
+    return [=] (Document& doc, std::string& error) {
+        return EditPath (
+            doc, path,
+            [&] (Path& p, std::string& why) {
+                for (size_t i = 0; i < p.profile.size (); ++i)
+                    if (p.profile[i].id == gradeBreak)
+                        return SetCurve (p.profile, gradeBreak, std::clamp (length, 0.0, MaxCurve (p, i)), why);
+                why = "there is no such grade break";
+                return false;
+            },
+            error);
+    };
 }
 
 void SnapBreak (const Path& path, size_t index, double& station, double& z, const ProfileSnap& snap, std::string& hint)
