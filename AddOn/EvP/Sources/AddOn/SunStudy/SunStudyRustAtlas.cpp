@@ -40,13 +40,30 @@ SamplesView ViewOf (const SampleGrid& grid)
     return out;
 }
 
-// Destination for an atlas; sized for the grid.
-struct AtlasBuffers {
-    std::vector<TapiocaAtlasTile> tiles;
-    std::vector<uint32_t> texels;
-    TapiocaAtlasSummary summary {};
-    TapiocaAtlasOutput output {};
-};
+// A state's allocations as views; valid while `state` lives.
+std::vector<TapiocaPatchAllocationView> AllocationViews (const PatchAtlasState& state)
+{
+    std::vector<TapiocaPatchAllocationView> views;
+    views.reserve (state.allocations.size ());
+    for (const auto& [key, a] : state.allocations)
+        views.push_back ({ { { key.element.data (), key.element.size () }, key.plane, key.occurrence },
+                           { a.x, a.y, a.width, a.height, a.generation } });
+    return views;
+}
+
+TapiocaPatchAtlasStateView StateView (const PatchAtlasState& state,
+                                      const std::vector<TapiocaPatchAllocationView>& views)
+{
+    TapiocaPatchAtlasStateView out {};
+    out.cursor = { { state.width, state.height, state.penX, state.penY, state.shelfHeight, state.nextGeneration } };
+    out.allocations = views.data ();
+    out.allocationCount = views.size ();
+    return out;
+}
+
+} // namespace
+
+namespace detail {
 
 void Prepare (AtlasBuffers& buffers, const SampleGrid& grid)
 {
@@ -70,36 +87,6 @@ SunStudyAtlas AtlasOf (const AtlasBuffers& buffers)
     atlas.valid = buffers.summary.valid != 0;
     return atlas;
 }
-
-// A state's allocations as views; valid while `state` lives.
-std::vector<TapiocaPatchAllocationView> AllocationViews (const PatchAtlasState& state)
-{
-    std::vector<TapiocaPatchAllocationView> views;
-    views.reserve (state.allocations.size ());
-    for (const auto& [key, a] : state.allocations)
-        views.push_back ({ { { key.element.data (), key.element.size () }, key.plane, key.occurrence },
-                           { a.x, a.y, a.width, a.height, a.generation } });
-    return views;
-}
-
-TapiocaPatchAtlasStateView StateView (const PatchAtlasState& state,
-                                      const std::vector<TapiocaPatchAllocationView>& views)
-{
-    TapiocaPatchAtlasStateView out {};
-    out.cursor = { { state.width, state.height, state.penX, state.penY, state.shelfHeight, state.nextGeneration } };
-    out.allocations = views.data ();
-    out.allocationCount = views.size ();
-    return out;
-}
-
-struct StateBuffers {
-    TapiocaPatchAtlasCursor cursor {};
-    std::vector<TapiocaPatchAllocation> allocations;
-    size_t allocationCount = 0;
-    std::vector<char> text;
-    size_t textLength = 0;
-    TapiocaPatchAtlasStateOutput output {};
-};
 
 void Prepare (StateBuffers& buffers, size_t allocations, size_t textBytes)
 {
@@ -136,7 +123,7 @@ PatchAtlasState StateOf (const StateBuffers& buffers)
     return state;
 }
 
-} // namespace
+} // namespace detail
 
 bool BuildSunStudyAtlas (const SampleGrid& grid, const AtlasOptions& options, SunStudyAtlas& out, std::string& error)
 {

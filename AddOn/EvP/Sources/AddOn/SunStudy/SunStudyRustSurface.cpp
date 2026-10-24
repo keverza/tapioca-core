@@ -193,6 +193,10 @@ TapiocaSurfaceReadOutput Size (SurfaceSamplingResult& result, ReadBuffers& b, co
 }
 
 // Copies a result out of its handle.
+} // namespace
+
+namespace detail {
+
 bool Read (const TapiocaSurfaceResult* handle, SurfaceSamplingResult& out, std::string& error)
 {
     TapiocaSurfaceResultSummary summary {};
@@ -235,10 +239,6 @@ bool Read (const TapiocaSurfaceResult* handle, SurfaceSamplingResult& out, std::
     out = std::move (result);
     return true;
 }
-
-} // namespace
-
-namespace detail {
 
 std::vector<TapiocaReuseMeshView> MeshViews (const geomsrv::Snapshot& snapshot)
 {

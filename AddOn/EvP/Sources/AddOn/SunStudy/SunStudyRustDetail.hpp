@@ -112,6 +112,31 @@ TapiocaFaceLayout LayoutPod (const FaceLayout& layout);
 FaceLayout LayoutOf (const TapiocaFaceLayout& pod);
 TapiocaPatchSpan SpanPod (const PatchSampleSpan& span);
 
+// Destination for an atlas, sized for a grid's layouts and samples.
+struct AtlasBuffers {
+    std::vector<TapiocaAtlasTile> tiles;
+    std::vector<uint32_t> texels;
+    TapiocaAtlasSummary summary {};
+    TapiocaAtlasOutput output {};
+};
+void Prepare (AtlasBuffers& buffers, const SampleGrid& grid);
+SunStudyAtlas AtlasOf (const AtlasBuffers& buffers);
+
+// Destination for a patch-atlas state.
+struct StateBuffers {
+    TapiocaPatchAtlasCursor cursor {};
+    std::vector<TapiocaPatchAllocation> allocations;
+    size_t allocationCount = 0;
+    std::vector<char> text;
+    size_t textLength = 0;
+    TapiocaPatchAtlasStateOutput output {};
+};
+void Prepare (StateBuffers& buffers, size_t allocations, size_t textBytes);
+PatchAtlasState StateOf (const StateBuffers& buffers);
+
+// Every array of a surface-result handle, read into the C++ result.
+bool Read (const TapiocaSurfaceResult* handle, SurfaceSamplingResult& out, std::string& error);
+
 TapiocaOcclusionTrace TraceOf (const TapiocaTraversalVtable& vtable, const SampleSet& samples, double tmin, double tmax,
                                size_t maxParallel);
 
