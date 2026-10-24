@@ -229,6 +229,7 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                             { "guid", Text (v.archicadGuid) },
                                             { "revision", IdValue (v.revision) },
                                             { "deleted", Flag (v.deleted) },
+                                            { "reference", Flag (v.reference) },
                                             { "arcAngles", Numbers (v.arcAngles) } }));
     for (const auto& v : s.operations)
         operations.push_back (Value::Object ({ { "id", IdValue (v.id) },

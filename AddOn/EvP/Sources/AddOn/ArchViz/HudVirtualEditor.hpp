@@ -45,7 +45,7 @@ constexpr bool ShapeTool (Tool tool)
 {
     return tool == Tool::Rectangle || tool == Tool::Polygon || tool == Tool::Ellipse;
 }
-enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
+enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean, Entrance };
 struct LandscapeCommand {
     tapioca::geometry::OperationKind kind;
     uint64_t revision = 0;
@@ -104,6 +104,8 @@ struct Session {
     // A cross-section slider is held: its gesture applies every change live (the terrain worker
     // keeps building on it) and its release is the one undo step.
     bool terrainSectionDrag = false;
+    // Grade along the chosen design path's band only, instead of every path's paved outline.
+    bool terrainBand = false;
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;
@@ -347,6 +349,13 @@ bool SetSelectedSourceRole (Session& session, tapioca::geometry::SourceRole role
 // The role the selected lines share, or none when they have no source or differ.
 std::optional<tapioca::geometry::SourceRole> SelectedSourceRole (const Session& session);
 void LandscapePanel (Session& session);
+// A building entrance where `point` lies within `reach` metres of a building outline, at the
+// working plane's height; one undo step (HudVirtualEditorEntrances.cpp).
+bool PlaceEntrance (Session& session, edit::Vec3 point, double reach);
+// The selected path's nearer end onto the entrance nearest either of its ends, fixed at its
+// threshold; one undo step.
+bool ReachSelectedPathEntrance (Session& session);
+void EntrancesPanel (Session& session);
 
 // The snap groups the panel and the menu switch together.
 constexpr uint32_t kSnapPoints =

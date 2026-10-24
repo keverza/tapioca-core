@@ -23,6 +23,10 @@ struct TerrainDesignOptions {
     // With a cover: only the longest run of stations whose band lies on it is designed, so a
     // path running off the terrain still grades the part over it.
     bool trimToCover = false;
+    double trimMargin = 0.05; // Metres a kept station's band edges stay inside the cover.
+    // The worker grades from the paved outline of every path (EditTerrainOutline) instead of
+    // this one path's band; `source` then only names the path whose cross-section grades it.
+    bool outline = false;
     double margin = 1.0, arcTolerance = 0.05; // Metres.
     double maxStep = 2.0; // Station spacing, metres (plus every break); each constrains a mesh section.
     // A cross-section range change (width, crossfall, shoulder, slopes) runs over
@@ -98,6 +102,9 @@ bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrai
 // The plan outline of a mesh's triangles, inset by `inset` metres so a ring on it is strictly
 // covered (the kernel refuses a region the mesh does not cover). Empty when it has no area.
 std::vector<double> TerrainFootprint (const TerrainMeshView& mesh, double inset = 0.01);
+// Where a design may change the terrain: the mesh's footprint, inside the property line when
+// the landscape has one (the largest piece). Empty when nothing is left.
+std::vector<double> TerrainDesignArea (const geomsrv::edit::Document& doc, const TerrainMeshView& mesh);
 
 bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                           const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,

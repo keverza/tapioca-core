@@ -13,6 +13,33 @@ static bool SameContent (const Document& a, const Document& b)
     return a.paths == b.paths && a.entities == b.entities && a.landscape == b.landscape;
 }
 
+// A line referenced from Archicad is Archicad's to edit (the user, 2026-10-24: "editable only
+// from Archicad, and in the virtual editor only as locked references"). Every line whose live
+// landscape source in `from` is a reference to an Archicad element must come out of the edit unchanged and
+// still referenced (LandscapeSource::reference); new references (an import) and dropping a
+// reference are edits of their own.
+static bool ReferencesKept (const Document& candidate, const Document& from, std::string& error)
+{
+    if (!from.landscape)
+        return true;
+    for (const auto& source : from.landscape->sources) {
+        if (source.deleted || !source.reference || !source.entityId)
+            continue;
+        const Entity* was = Find (from, source.entityId);
+        const Entity* now = Find (candidate, source.entityId);
+        bool referenced = false;
+        if (candidate.landscape)
+            for (const auto& s : candidate.landscape->sources)
+                referenced |= s.id == source.id && !s.deleted && s.reference;
+        // Deleting the line deletes its source too, so a missing line is refused as well.
+        if (was && (!now || (referenced && !(*now == *was)))) {
+            error = "That line is referenced from Archicad and locked here: edit it in Archicad.";
+            return false;
+        }
+    }
+    return true;
+}
+
 Session::Session (Document start, size_t undoCap)
     : doc (std::move (start)), before (doc), cap (std::max<size_t> (undoCap, 1))
 {
@@ -40,6 +67,8 @@ bool Session::Accept (Document candidate, const std::string& refusal)
 {
     std::string error = refusal;
     // Paths that cross or meet share a height there, whichever of them the edit touched.
+    if (error.empty ())
+        ReferencesKept (candidate, doc, error);
     if (error.empty ())
         LinkCrossings (candidate, before);
     if (error.empty () && candidate.landscape) {

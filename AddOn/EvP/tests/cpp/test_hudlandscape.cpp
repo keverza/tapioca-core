@@ -621,3 +621,31 @@ TEST (HudLandscape, AnyLineTakesALandscapeRoleInOneUndoStep)
     EXPECT_FALSE (lg::SetLandscapeSourceRole (copy, open, lg::SourceRole::PathCenterline, error));
     EXPECT_EQ (before.landscape->sources.size () + 2, s.edits.Doc ().landscape->sources.size ());
 }
+
+TEST (HudLandscape, EntrancesArePlacedOnABuildingOutlineAndAPathIsSentToOne)
+{
+    namespace lg = tapioca::geometry;
+    ed::Document doc;
+    std::string error;
+    ASSERT_TRUE (lg::StartLandscape (doc, { 1 }, error)) << error;
+    const auto outline = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 6, 0 }, { 0, 6, 0 } }, true);
+    const auto path = ed::AddPath (doc, { { 20, 3, 0 }, { 14, 3, 0 } }, 2.0);
+    eh::Session s (doc);
+    s.plane.origin.z = 0.3;
+    s.selection.Set ({ { outline, ed::Part::Entity, 0 } });
+    // Not a building yet: a click on it places nothing.
+    EXPECT_FALSE (eh::PlaceEntrance (s, { 10.1, 3, 0 }, 0.5));
+    ASSERT_TRUE (eh::SetSelectedSourceRole (s, lg::SourceRole::Building)) << s.message;
+    EXPECT_FALSE (eh::PlaceEntrance (s, { 12, 3, 0 }, 0.5)) << "too far from the outline";
+    const auto depth = s.edits.UndoDepth ();
+    ASSERT_TRUE (eh::PlaceEntrance (s, { 10.1, 3, 0 }, 0.5)) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), depth + 1);
+    ASSERT_EQ (s.edits.Doc ().landscape->entrances.size (), 1U);
+    EXPECT_DOUBLE_EQ (s.edits.Doc ().landscape->entrances[0].z, 0.3) << "the working plane's height";
+    s.selection.Set ({ { path, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::ReachSelectedPathEntrance (s)) << s.message;
+    const auto& p = *ed::FindPath (s.edits.Doc (), path);
+    EXPECT_NEAR (p.points.back ().p.x, 10, 1e-9);
+    EXPECT_TRUE (p.profile.back ().fixed);
+    EXPECT_DOUBLE_EQ (p.profile.back ().z, 0.3);
+}

@@ -221,7 +221,7 @@ fn twist(fall: Option<Fall>, lateral: f64) -> f64 {
 /// The rounded top of a face: the cubic Hermite over `[0, length]` from the edge
 /// height leaving at grade `leaving` to the straight face (`edge + rise * length`)
 /// arriving at its grade `rise`.
-fn top(edge: f64, leaving: f64, rise: f64, length: f64, run: f64) -> f64 {
+pub(crate) fn top(edge: f64, leaving: f64, rise: f64, length: f64, run: f64) -> f64 {
     let t = run / length;
     let (t2, t3) = (t * t, t * t * t);
     let h00 = 2.0f64.mul_add(t3, -3.0 * t2) + 1.0;
@@ -233,7 +233,7 @@ fn top(edge: f64, leaving: f64, rise: f64, length: f64, run: f64) -> f64 {
 
 /// The face against the ground: a cut keeps the lower, a fill the higher; within
 /// `blend` metres of height of the ground the face eases onto it (0 is sharp).
-fn toe(base: f64, face: f64, cut: bool, blend: f64) -> f64 {
+pub(crate) fn toe(base: f64, face: f64, cut: bool, blend: f64) -> f64 {
     let gap = if cut { base - face } else { face - base };
     if gap <= 0.0 {
         return base;

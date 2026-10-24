@@ -36,6 +36,7 @@ pub mod edit;
 pub mod field;
 pub mod hybrid;
 mod input;
+pub mod outline;
 mod plan;
 mod presplit;
 mod refine;

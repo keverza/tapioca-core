@@ -582,6 +582,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorDrawing.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorEntrances.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapeCommand.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorLandscapePanel.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudVirtualEditorTerrain.cpp"
@@ -831,6 +832,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainDesign.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainControls.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainDesignJob.cpp"
+        "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainOutline.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditTerrainCapture.cpp"
         "${EVP_ROOT}/Sources/AddOn/Edit/EditSparseSolve.cpp")
 endif ()
@@ -1207,6 +1209,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
         "${GEOM_DIR}/GeometryRustGrading.cpp"
         "${GEOM_DIR}/GeometryRustTerrainField.cpp"
         "${GEOM_DIR}/GeometryRustHybridTerrain.cpp"
+        "${GEOM_DIR}/GeometryRustOutlineTerrain.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_parity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_identity.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test_geometry_rust_value.cpp"

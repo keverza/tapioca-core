@@ -8,7 +8,8 @@ struct Session;
 namespace geomsrv {
 // What the selection becomes. Lines: editor lines, region boundaries in a landscape. Property:
 // the one closed shape becomes the property line. Building: each closed shape a building
-// outline. Each of those keeps its Archicad element's GUID on its landscape source. Entrances:
+// outline. Each of those is a locked reference to its Archicad element (LandscapeSource::reference):
+// the editor refuses to change it. Entrances:
 // the selected doors become entrances on the building outline they stand on.
 enum class DraftingImport { Lines, Property, Building, Entrances };
 // Main thread. The current selection's Lines, PolyLines, circular Arcs and Circles, and Fills'

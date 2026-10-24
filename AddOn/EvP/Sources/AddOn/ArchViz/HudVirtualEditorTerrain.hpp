@@ -61,6 +61,9 @@ void PollTerrainDesign (Session& session);
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session& session);
 void DrawTerrainDesign (const Session& session, overlaylayers::Layer& layer);
 void TerrainDesignPanel (Session& session);
+// Grade along the chosen path's band only (true), or from every path's paved outline (false, the
+// default); a running design rebuilds the other way on the next idle poll.
+void SetTerrainBand (Session& session, bool band);
 // Setup uses only live authored centreline paths, never native/model GUIDs as
 // virtual path IDs. Initial choice follows one selected path or the sole eligible
 // path; an unavailable explicit choice is not silently retargeted.

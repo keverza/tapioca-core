@@ -767,3 +767,25 @@ TEST (EditPathNetwork, CentrelineBendsKeepTheirOffsetsAndAreNotBoundaryFilletedA
         ExpectMeshFillsItsOutline (area);
     }
 }
+
+TEST (EditPathNetwork, AJunctionOnABendStillTakesItsKerbRadius)
+{
+    // Path A turns a 12 m bend; path B crosses it at the bend's middle, square to it.
+    ed::Document doc;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 30, 0, 0 }, { 30, 30, 0 } }, 4.0);
+    const ed::Id b = ed::AddPath (doc, { { 20, 10, 0 }, { 34, -4, 0 } }, 4.0);
+    std::string error;
+    ASSERT_TRUE (ed::SetPathRadius (doc, a, ed::FindPath (doc, a)->points[1].id, 12.0, error)) << error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, a, 1.5, error)) << error;
+    ASSERT_TRUE (ed::SetPathEdgeRadius (doc, b, 1.5, error)) << error;
+    const auto paved = ed::Pave (doc.paths, 0.5, false);
+    ASSERT_TRUE (paved.warning.empty ()) << paved.warning;
+    size_t junctions = 0;
+    for (const auto& c : paved.corners)
+        if (c.Involves (a) && c.Involves (b)) {
+            ++junctions;
+            // Before, a corner on the bend's sampled chords got a few centimetres.
+            EXPECT_GT (c.key.radius, 1.2) << c.at.x << " " << c.at.y;
+        }
+    EXPECT_EQ (junctions, 4U);
+}

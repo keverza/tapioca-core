@@ -519,22 +519,69 @@ std::shared_ptr<const TerrainCapture> Capture (const DesignFixture& fixture)
 }
 } // namespace
 
-TEST (EditTerrainDesignJob, APathRunningOffTheTerrainStillBuildsAndSaysWhy)
+TEST (EditTerrainDesignJob, APathMayLeaveTheTerrainAndThePropertyLineAndIsGradedOnlyInside)
 {
     DesignFixture fixture;
     std::string error;
+    // Off the terrain at its west end (the mesh starts at x = -20.5) ...
     ASSERT_TRUE (
         edit::MovePathPoint (fixture.doc, fixture.path, fixture.doc.paths[0].points[0].id, { -30, 0, 0 }, error))
         << error;
+    // ... and past a property line that stops at x = 30.
+    LandscapeSource property;
+    property.entityId =
+        edit::AddPolyline (fixture.doc, { { -40, -20, 0 }, { 30, -20, 0 }, { 30, 20, 0 }, { -40, 20, 0 } }, true);
+    Id id = 0;
+    ASSERT_TRUE (AddLandscapeSource (fixture.doc, property, id, error)) << error;
+    ASSERT_TRUE (SetLandscapePropertyLine (fixture.doc, id, error)) << error;
     fixture.Capture ();
     TerrainDesignPublisher publisher;
     TerrainDesignJob job;
     ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), fixture.Options (), {}, job, error)) << error;
     const auto outcome = RunTerrainDesign (job);
     ASSERT_TRUE (outcome.built) << outcome.error;
-    EXPECT_TRUE (std::any_of (outcome.unmet.begin (), outcome.unmet.end (), [] (const std::string& line) {
-        return line.rfind ("The path runs off the captured terrain", 0) == 0;
-    }));
+    EXPECT_TRUE (outcome.unmet.empty ()) << "leaving them is allowed, not a condition missed";
+    // Nothing is graded outside: the region and its stations stay inside both.
+    for (size_t i = 0; i < outcome.result.region.size (); i += 3) {
+        EXPECT_GE (outcome.result.region[i], -20.5);
+        EXPECT_LE (outcome.result.region[i], 30.0);
+    }
+    EXPECT_GT (outcome.result.stations.front (), 9.0);
+}
+
+TEST (EditTerrainDesignJob, OutlineGradingShapesTheTerrainFromEveryPath)
+{
+    DesignFixture fixture;
+    std::string error;
+    // A second path crossing the first, raised 1.5 m above the ground there.
+    const auto second = edit::AddPath (fixture.doc, { { 20, -12, 13.5 }, { 20, 12, 13.5 } }, 3.0);
+    ASSERT_NE (second, edit::kNoId);
+    fixture.Capture ();
+    TerrainDesignPublisher publisher;
+    TerrainDesignJob job;
+    auto options = fixture.Options ();
+    options.region = {};
+    options.outline = true;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, {}, job, error)) << error;
+    const auto outcome = RunTerrainDesign (job);
+    ASSERT_TRUE (outcome.built) << outcome.error;
+    const auto& build = outcome.result.build;
+    std::vector<TerrainSample> samples;
+    TerrainFieldSummary summary;
+    // On each path the terrain is that path's paved surface.
+    const std::array<double, 4> queries { 5, 0, 20, -8 };
+    ASSERT_TRUE (SampleTerrain ({ build.points, build.triangles }, queries, .25, samples, summary, error)) << error;
+    double paved = 0;
+    const auto paths = edit::Pave (fixture.doc.paths);
+    ASSERT_TRUE (edit::PavedHeight (paths, { 5, 0, 0 }, paved));
+    EXPECT_NEAR (samples[0].height, paved, 0.05);
+    ASSERT_TRUE (edit::PavedHeight (paths, { 20, -8, 0 }, paved));
+    EXPECT_NEAR (samples[1].height, paved, 0.05) << "the second path shapes the terrain too";
+    EXPECT_GT (build.site.fill, 0.0);
+    // The region ring is published for drawing.
+    EXPECT_FALSE (outcome.result.region.empty ());
+    EXPECT_TRUE (std::any_of (build.mappings.begin (), build.mappings.end (),
+                              [] (const auto& row) { return row.kind == TerrainMappingKind::RingVertex; }));
 }
 
 TEST (EditTerrainDesignJob, AWorkerResultPublishesOnlyForTheDocumentItWasComputedAgainst)
@@ -1040,6 +1087,7 @@ TEST (HudTerrainDesign, SimpleTwoTriangleMeshIsRebuiltAroundThePathInsteadOfBrid
         error))
         << error;
     eh::Session session (fixture.doc);
+    session.terrainBand = true; // the band's own lines and provenance
     ASSERT_TRUE (eh::StartTerrainDesign (session, mesh, fixture.path)) << session.message;
     const auto depth = session.edits.UndoDepth ();
     layers::Layer layer;
@@ -1068,6 +1116,27 @@ TEST (HudTerrainDesign, SimpleTwoTriangleMeshIsRebuiltAroundThePathInsteadOfBrid
     EXPECT_EQ (session.edits.UndoDepth (), depth); // Derived detail is never authored geometry/history.
     EXPECT_EQ (mesh->vertices.size (), 12U);
     EXPECT_EQ (mesh->triangles.size (), 6U);
+}
+
+TEST (HudTerrainDesign, TheOutlineGradesByDefaultAndTheBandIsOneSwitchAway)
+{
+    TerrainHostFixture fixture;
+    eh::Session session (fixture.doc);
+    ASSERT_TRUE (eh::StartTerrainDesign (session, fixture.mesh, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer));
+    const auto lines = [&] { return eh::CurrentTerrainDesign (session)->result.build.lines.size (); };
+    EXPECT_EQ (lines (), 0U) << "outline grading has no band lines";
+    const auto depth = session.edits.UndoDepth ();
+    eh::SetTerrainBand (session, true);
+    const auto deadline = std::chrono::steady_clock::now () + std::chrono::seconds (10);
+    while (std::chrono::steady_clock::now () < deadline && (!eh::CurrentTerrainDesign (session) || lines () == 0)) {
+        eh::Follow (session, layer);
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    ASSERT_NE (eh::CurrentTerrainDesign (session), nullptr);
+    EXPECT_GT (lines (), 0U) << "the band's edges, ends and sections";
+    EXPECT_EQ (session.edits.UndoDepth (), depth) << "switching authors nothing";
 }
 
 TEST (HudTerrainDesign, OneHistoryOwnsTheDesignAndItsDerivedWorkerLayer)
@@ -1191,6 +1260,7 @@ TEST (HudTerrainDesign, RefusedDesignDrawsLocatedPlacesAndStartRefusalsAreAtomic
         },
         error));
     eh::Session refused (fixture.doc);
+    refused.terrainBand = true; // located refusals are the band's
     ASSERT_TRUE (eh::StartTerrainDesign (refused, fixture.mesh, fixture.path));
     layers::Layer layer;
     ASSERT_TRUE (AwaitTerrain (refused, layer, true));

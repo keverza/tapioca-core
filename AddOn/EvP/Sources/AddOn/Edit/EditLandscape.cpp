@@ -203,6 +203,7 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
     for (const auto& v : s.sources) {
         const bool terrain = v.role == SourceRole::Terrain;
         if (!claim (v.id) || v.role > SourceRole::Building || !Guid (v.archicadGuid) ||
+            (v.reference && (v.archicadGuid.empty () || !v.entityId)) ||
             (terrain ? (v.entityId != 0 || v.pathId != 0 || !v.arcAngles.empty ())
                      : ((v.entityId == 0) == (v.pathId == 0))) ||
             (v.pathId && v.role != SourceRole::PathCenterline)) {

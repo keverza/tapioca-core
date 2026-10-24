@@ -44,6 +44,10 @@ struct LandscapeSource {
     std::vector<double> arcAngles;
     uint64_t revision = 0;
     bool deleted = false;
+    // Archicad's own drafting brought in by reference (`archicadGuid` names it): the editor
+    // shows it locked and only Archicad changes its geometry. Otherwise the editor owns the
+    // line and `archicadGuid` is only where native storage writes it.
+    bool reference = false;
     bool operator== (const LandscapeSource&) const = default;
 };
 

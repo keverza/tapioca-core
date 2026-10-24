@@ -257,8 +257,52 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
     return out;
 }
 
-bool Round (const cp::PathsD& sharp, PavedArea& out, cp::PathsD& rounded)
+// A kerb corner where a curved edge meets another (the user, 2026-10-24: "intersection of arc and
+// straight line allows too small fillets"). The curve arrives as its sampled chords, and a fillet
+// can only use the chord beside it, so a corner on a curve got a radius of a few centimetres. Each
+// requested corner's sampled neighbours within its radius -- slight turns that are not corners of
+// their own -- are dropped, so its leg on the curve is one chord as long as the fillet needs.
+cp::PathD Thinned (const cp::PathD& ring, const std::vector<PavedCorner>& corners)
 {
+    const size_t n = ring.size ();
+    const auto requested = [&] (const cp::PointD& p) {
+        for (const auto& c : corners)
+            if (c.at.x == p.x && c.at.y == p.y)
+                return c.requestedRadius;
+        return 0.0;
+    };
+    const auto slight = [&] (size_t i) {
+        const auto &a = ring[(i + n - 1) % n], &b = ring[i], &c = ring[(i + 1) % n];
+        const double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y;
+        return std::abs (std::atan2 (ux * vy - uy * vx, ux * vx + uy * vy)) < kMinTurn;
+    };
+    std::vector<bool> keep (n, true);
+    for (size_t i = 0; i < n && n > 4; ++i) {
+        const double radius = requested (ring[i]);
+        if (!(radius > 0))
+            continue;
+        for (const int dir : { -1, 1 }) {
+            for (size_t step = 1; step + 2 < n; ++step) {
+                const size_t j = (i + n + dir * step) % n;
+                const double d = std::hypot (ring[j].x - ring[i].x, ring[j].y - ring[i].y);
+                if (d >= radius || requested (ring[j]) > 0 || !slight (j))
+                    break;
+                keep[j] = false;
+            }
+        }
+    }
+    cp::PathD thinned;
+    for (size_t i = 0; i < n; ++i)
+        if (keep[i])
+            thinned.push_back (ring[i]);
+    return thinned.size () >= 3 ? thinned : ring;
+}
+
+bool Round (const cp::PathsD& sharpRings, PavedArea& out, cp::PathsD& rounded)
+{
+    cp::PathsD sharp;
+    for (const auto& ring : sharpRings)
+        sharp.push_back (Thinned (ring, out.corners));
     std::vector<fillet2d::InputRing> input;
     for (const auto& ring : sharp) {
         fillet2d::InputRing made;
