@@ -14,21 +14,16 @@ mod camera;
 mod ground;
 mod limits;
 mod occlusion;
+mod patch_atlas;
 mod patches;
 mod roles;
 mod sampler;
 mod series;
+mod steps;
 mod winding;
 
 pub use atlas::{
-    AtlasMeshView, AtlasOutput, AtlasSamplesView, AtlasSummary, AtlasTileRecord,
-    PatchAllocationRecord, PatchAllocationView, PatchAtlasCursorRecord, PatchAtlasFitOutput,
-    PatchAtlasFitRequest, PatchAtlasStateOutput, PatchAtlasStateView, PatchAtlasUpdateRecord,
-    PatchKeyView, PatchShapeView, StableAtlasOutput, StableAtlasRequest, StepMaskOutput,
-    StepMaskRequest, StepScheduleOutput, StepScheduleRequest, TextureDeltaOutput,
-    TextureDeltaRequest, TriangleAtlasRequest, tapioca_sunstudy_patch_atlas_fit,
-    tapioca_sunstudy_stable_triangle_atlas, tapioca_sunstudy_step_masks,
-    tapioca_sunstudy_step_schedule, tapioca_sunstudy_texture_delta,
+    AtlasOutput, AtlasSamplesView, AtlasSummary, AtlasTileRecord, TriangleAtlasRequest,
     tapioca_sunstudy_triangle_atlas,
 };
 pub use camera::{
@@ -47,6 +42,12 @@ pub use occlusion::{
     tapioca_sunstudy_occlusion_reset, tapioca_sunstudy_occlusion_seed,
     tapioca_sunstudy_occlusion_state, tapioca_sunstudy_occlusion_step,
 };
+pub use patch_atlas::{
+    AtlasMeshView, PatchAllocationRecord, PatchAllocationView, PatchAtlasCursorRecord,
+    PatchAtlasFitOutput, PatchAtlasFitRequest, PatchAtlasStateOutput, PatchAtlasStateView,
+    PatchAtlasUpdateRecord, PatchKeyView, PatchShapeView, StableAtlasOutput, StableAtlasRequest,
+    tapioca_sunstudy_patch_atlas_fit, tapioca_sunstudy_stable_triangle_atlas,
+};
 pub use patches::{
     PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
     tapioca_sunstudy_patch_grid,
@@ -62,6 +63,11 @@ pub use sampler::{
     tapioca_sunstudy_sample_grid,
 };
 pub use series::{SunSeriesOutput, SunSeriesRequest, SunSeriesSummary, tapioca_sunstudy_series};
+pub use steps::{
+    StepMaskOutput, StepMaskRequest, StepScheduleOutput, StepScheduleRequest, TextureDeltaOutput,
+    TextureDeltaRequest, tapioca_sunstudy_step_masks, tapioca_sunstudy_step_schedule,
+    tapioca_sunstudy_texture_delta,
+};
 pub use winding::{
     WindingOutput, WindingReportOutput, WindingRequest, tapioca_sunstudy_orient_outward,
 };
