@@ -167,7 +167,7 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     const auto landscape = root.Field ("landscape");
     landscape.Fields ({ "sourceTerrainGuid", "propertyLine", "sources", "operations", "objects", "regions",
                         "assignments", "patches", "bindings" },
-                      { "edges", "terrainControls" });
+                      { "edges", "terrainControls", "entrances" });
     if (landscape.Has ("edges") && !landscape.Field ("edges").Items ().empty ())
         Fail (landscape.path + ".edges", "edge definitions require a later declared schema");
     s.sourceTerrainGuid = Guid (landscape.Field ("sourceTerrainGuid"));
@@ -178,13 +178,25 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
             s.terrainControls.push_back ({ item.Field ("source").Identifier (), item.Field ("vertex").Identifier (),
                                            item.Field ("enabled").Flag () });
         });
+    if (landscape.Has ("entrances"))
+        Each (landscape.Field ("entrances"), [&] (const Reader& item) {
+            item.Fields ({ "id", "source", "along", "z" }, { "door" });
+            LandscapeEntrance entrance;
+            entrance.id = item.Field ("id").Identifier ();
+            entrance.source = item.Field ("source").Identifier ();
+            entrance.along = item.Field ("along").Number ();
+            entrance.z = item.Field ("z").Number ();
+            if (item.Has ("door"))
+                entrance.doorGuid = item.Field ("door").Text ();
+            s.entrances.push_back (std::move (entrance));
+        });
     Each (landscape.Field ("sources"), [&] (const Reader& item) {
         item.Fields ({ "id", "entity", "path", "role", "guid", "revision", "deleted", "arcAngles" });
         LandscapeSource source;
         source.id = item.Field ("id").Identifier ();
         source.entityId = item.Field ("entity").Identifier ();
         source.pathId = item.Field ("path").Identifier ();
-        source.role = Enum (item.Field ("role"), SourceRole::Terrain);
+        source.role = Enum (item.Field ("role"), SourceRole::Building);
         source.archicadGuid = Guid (item.Field ("guid"));
         source.revision = item.Field ("revision").Identifier ();
         source.deleted = item.Field ("deleted").Flag ();

@@ -210,7 +210,13 @@ Value DescriptorValue (const RegionDescriptor& d)
 Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
 {
     const auto& s = *doc.landscape;
-    Array sources, operations, objects, regions, assignments, patches, bindings, controls;
+    Array sources, operations, objects, regions, assignments, patches, bindings, controls, entrances;
+    for (const auto& e : s.entrances)
+        entrances.push_back (Value::Object ({ { "id", IdValue (e.id) },
+                                              { "source", IdValue (e.source) },
+                                              { "along", Number (e.along) },
+                                              { "z", Number (e.z) },
+                                              { "door", Text (e.doorGuid) } }));
     for (const auto& control : s.terrainControls)
         controls.push_back (Value::Object ({ { "source", IdValue (control.source) },
                                              { "vertex", IdValue (control.vertex) },
@@ -292,7 +298,8 @@ Value DocumentValue (const edit::Document& doc, LandscapeStorage mode)
                                           { "assignments", Value::Array (std::move (assignments)) },
                                           { "patches", Value::Array (std::move (patches)) },
                                           { "bindings", Value::Array (std::move (bindings)) },
-                                          { "terrainControls", Value::Array (std::move (controls)) } }) } });
+                                          { "terrainControls", Value::Array (std::move (controls)) },
+                                          { "entrances", Value::Array (std::move (entrances)) } }) } });
 }
 
 bool ValidateStoredRegions (const edit::Document& doc, std::string& error)

@@ -25,6 +25,8 @@ const char* RoleName (SourceRole role)
             return "grading";
         case SourceRole::ProtectedZone:
             return "protected";
+        case SourceRole::Building:
+            return "building";
         case SourceRole::Terrain:
             return "terrain";
     }

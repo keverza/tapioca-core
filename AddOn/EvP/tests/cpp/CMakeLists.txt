@@ -800,6 +800,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFlatten.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFaces.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEntrance.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEval.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapePreview.cpp"
@@ -845,6 +846,7 @@ set (EVP_TEST_SOURCES
     test_editplanarrobustbuild.cpp
     test_editplanarrobustfaces.cpp
     test_editlandscape.cpp
+    test_editlandscapeentrance.cpp
     test_editlandscapeconstraints.cpp
     test_editlandscapefillet.cpp
     test_editlandscapegenerated.cpp

@@ -22,7 +22,10 @@ enum class SourceRole : uint8_t {
     ProtectedZone,
     // The session's native base terrain: no curve or path; its GUID is the
     // session's sourceTerrainGuid. Captured terrain rows cite it.
-    Terrain
+    Terrain,
+    // A closed building footprint: a boundary like any other, and the outline its
+    // entrances (LandscapeEntrance) sit on.
+    Building
 };
 enum class MaterialPreset : uint8_t { None, HardPaving, RubberPlayground, Gravel, Asphalt, ReinforcedGrass, Grass };
 struct MaterialSpec {
@@ -130,6 +133,15 @@ struct LandscapeTerrainControl {
     bool enabled = true;
     bool operator== (const LandscapeTerrainControl&) const = default;
 };
+// A place on a Building source's outline that a path must reach, at its threshold height.
+// `along` is plan metres along the outline from its first vertex, so the entrance follows the
+// outline as it is edited; `doorGuid` names the Archicad door it was read from, if any.
+struct LandscapeEntrance {
+    Id id = kNoId, source = kNoId;
+    double along = 0.0, z = 0.0;
+    std::string doorGuid;
+    bool operator== (const LandscapeEntrance&) const = default;
+};
 struct LandscapeSession {
     std::array<uint8_t, 16> sessionUuid {};
     std::string sourceTerrainGuid;
@@ -142,6 +154,7 @@ struct LandscapeSession {
     std::vector<LandscapePatch> patches;
     std::vector<LandscapeBinding> bindings;
     std::vector<LandscapeTerrainControl> terrainControls;
+    std::vector<LandscapeEntrance> entrances;
     // Document::nextId/revision are the sole allocator/publication authority.
     bool operator== (const LandscapeSession&) const = default;
 };
@@ -226,7 +239,8 @@ bool AddHardscapeObject (geomsrv::edit::Document& doc, HardscapeObject object, I
 bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::string& error);
 // A virtual line (an entity, not a path) takes `role`: its live source is re-roled, or one is
 // added. PropertyLine makes it the session's property line and returns the previous one to Guide.
-// A path's centreline and the terrain are not roles a line can be given.
+// A path's centreline and the terrain are not roles a line can be given; Building needs a closed
+// line. A line that stops being a building loses its entrances.
 bool SetLandscapeSourceRole (geomsrv::edit::Document& doc, Id entity, SourceRole role, std::string& error);
 // Names the session's base terrain: sets sourceTerrainGuid and keeps exactly one
 // live Terrain source carrying that GUID (created on first use, otherwise

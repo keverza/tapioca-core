@@ -156,7 +156,7 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
         return false;
     }
     if (s.sources.size () > 4096 || s.operations.size () > 4096 || s.objects.size () > 4096 ||
-        s.regions.size () > 65536 || s.terrainControls.size () > 4096) {
+        s.regions.size () > 65536 || s.terrainControls.size () > 4096 || s.entrances.size () > 4096) {
         error = "landscape exceeds its source/operation/object/region budget";
         return false;
     }
@@ -202,7 +202,7 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
     size_t terrains = 0;
     for (const auto& v : s.sources) {
         const bool terrain = v.role == SourceRole::Terrain;
-        if (!claim (v.id) || v.role > SourceRole::Terrain || !Guid (v.archicadGuid) ||
+        if (!claim (v.id) || v.role > SourceRole::Building || !Guid (v.archicadGuid) ||
             (terrain ? (v.entityId != 0 || v.pathId != 0 || !v.arcAngles.empty ())
                      : ((v.entityId == 0) == (v.pathId == 0))) ||
             (v.pathId && v.role != SourceRole::PathCenterline)) {
@@ -234,6 +234,16 @@ bool ValidateLandscape (const edit::Document& doc, std::string& error)
             error = "landscape.terrainControls: unknown source, invalid vertex or duplicate control";
             return false;
         }
+    for (const auto& entrance : s.entrances) {
+        const auto source = std::find_if (s.sources.begin (), s.sources.end (),
+                                          [&] (const LandscapeSource& v) { return v.id == entrance.source; });
+        if (!claim (entrance.id) || source == s.sources.end () || source->deleted ||
+            source->role != SourceRole::Building || !(entrance.along >= 0) || !std::isfinite (entrance.along) ||
+            !std::isfinite (entrance.z) || !Guid (entrance.doorGuid)) {
+            error = "landscape.entrances: an entrance needs a live building outline, a finite place and height";
+            return false;
+        }
+    }
     for (const auto& v : s.operations) {
         const size_t n = v.inputs.size ();
         const bool unary = v.kind == OperationKind::Stroke || v.kind == OperationKind::Offset;
@@ -493,6 +503,10 @@ bool DeleteLandscapeSource (edit::Document& doc, Id id, std::string& error)
                     source.deleted = true;
                     if (d.landscape->propertyLineSourceId == id)
                         d.landscape->propertyLineSourceId = 0;
+                    auto& entrances = d.landscape->entrances;
+                    entrances.erase (std::remove_if (entrances.begin (), entrances.end (),
+                                                     [id] (const LandscapeEntrance& e) { return e.source == id; }),
+                                     entrances.end ());
                     return true;
                 }
             e = "source does not exist";
@@ -599,6 +613,10 @@ bool SetLandscapeSourceRole (edit::Document& doc, Id entity, SourceRole role, st
         error = "a line cannot be given that role";
         return false;
     }
+    if (const auto* line = edit::Find (doc, entity); role == SourceRole::Building && line && !line->closed) {
+        error = "a building outline must be a closed line";
+        return false;
+    }
     return Mutate (
         doc,
         [=] (edit::Document& d, std::string& e) {
@@ -620,6 +638,13 @@ bool SetLandscapeSourceRole (edit::Document& doc, Id entity, SourceRole role, st
                 found = sources.end () - 1;
             }
             const Id previous = d.landscape->propertyLineSourceId;
+            if (found->role == SourceRole::Building && role != SourceRole::Building) {
+                auto& entrances = d.landscape->entrances;
+                const Id id = found->id;
+                entrances.erase (std::remove_if (entrances.begin (), entrances.end (),
+                                                 [id] (const LandscapeEntrance& e) { return e.source == id; }),
+                                 entrances.end ());
+            }
             found->role = role;
             if (role == SourceRole::PropertyLine) {
                 for (auto& s : sources)
