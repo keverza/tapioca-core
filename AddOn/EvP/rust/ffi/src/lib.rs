@@ -155,3 +155,9 @@ pub use sunstudy::{
     tapioca_sunstudy_ground_grid, tapioca_sunstudy_limits, tapioca_sunstudy_orient_outward,
     tapioca_sunstudy_series, tapioca_sunstudy_shadow_camera, tapioca_sunstudy_version,
 };
+pub use sunstudy::{
+    BindingOutput, BindingRequest, BoundListView, MaterialTransparency, PresetAdviceOutput,
+    PresetAdviceRequest, ReceiverMeshView, ReceiversOutput, ReceiversRequest, ReceiversSummary,
+    RolesOutput, RolesRequest, RolesSummary, tapioca_sunstudy_preset_advice,
+    tapioca_sunstudy_receivers, tapioca_sunstudy_refresh_binding, tapioca_sunstudy_resolve_roles,
+};

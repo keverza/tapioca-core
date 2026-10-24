@@ -13,6 +13,8 @@
 
 #include <bit>
 #include <cmath>
+#include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 
@@ -402,6 +404,214 @@ TEST (SunStudyRustParity, AnalysisLimitsMatch)
                     }
                 }
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P2a: roles, receivers, preset advice, selection binding
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A GUID universe with spelling variants the host really produces: braced or
+// bare, either case, stray C whitespace.
+std::string Spell (const std::string& guid, Lcg& lcg)
+{
+    std::string out;
+    for (const char c : guid)
+        out.push_back (lcg.Int (0, 1) == 0 ? c : static_cast<char> (std::tolower (static_cast<unsigned char> (c))));
+    switch (lcg.Int (0, 4)) {
+        case 0:
+            return "{" + out + "}";
+        case 1:
+            return " " + out + "\t";
+        case 2:
+            return "{" + out + "}\v";
+        default:
+            return out;
+    }
+}
+
+std::vector<std::string> Pick (const std::vector<std::string>& universe, Lcg& lcg, int maxCount)
+{
+    std::vector<std::string> picked;
+    const int count = lcg.Int (0, maxCount);
+    for (int i = 0; i < count; ++i)
+        picked.push_back (
+            Spell (universe[static_cast<size_t> (lcg.Int (0, static_cast<int> (universe.size ()) - 1))], lcg));
+    if (count > 0 && lcg.Int (0, 5) == 0)
+        picked.push_back (lcg.Int (0, 1) == 0 ? "{}" : "  "); // blank picks
+    return picked;
+}
+
+std::vector<std::string> Universe (Lcg& lcg, int count)
+{
+    std::vector<std::string> guids;
+    for (int i = 0; i < count; ++i) {
+        char buffer[40];
+        std::snprintf (buffer, sizeof (buffer), "%08X-AB%02d-4C%02d", static_cast<unsigned> (lcg.Uniform (0, 4e9)), i,
+                       lcg.Int (0, 99));
+        guids.push_back (buffer);
+    }
+    return guids;
+}
+
+void ExpectSameRoles (const ElementRoles& e, const ElementRoles& a)
+{
+    EXPECT_EQ (a.roles, e.roles);
+    EXPECT_EQ (a.analysis, e.analysis);
+    EXPECT_EQ (a.context, e.context);
+    EXPECT_EQ (a.ignored, e.ignored);
+    EXPECT_EQ (a.unmatchedAnalysis, e.unmatchedAnalysis);
+    EXPECT_EQ (a.unmatchedContext, e.unmatchedContext);
+    EXPECT_EQ (a.unmatchedIgnored, e.unmatchedIgnored);
+    EXPECT_EQ (a.analysisNamedButAbsent, e.analysisNamedButAbsent);
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, RolesMatchOverRandomPickCombinations)
+{
+    Lcg lcg (0x701e5ull);
+    for (int trial = 0; trial < 400; ++trial) {
+        const std::vector<std::string> universe = Universe (lcg, lcg.Int (1, 12));
+        std::vector<std::string> elements;
+        for (const std::string& guid : universe)
+            if (lcg.Int (0, 4) != 0)
+                elements.push_back (Spell (guid, lcg)); // some picks will be absent from the model
+        const auto analysis = Pick (universe, lcg, trial % 4 == 0 ? 0 : 4);
+        const auto context = Pick (universe, lcg, trial % 3 == 0 ? 0 : 4);
+        const auto ignored = Pick (universe, lcg, trial % 2 == 0 ? 0 : 3);
+        const ElementRoles expected = evp::sunstudy::ResolveElementRoles (elements, analysis, context, ignored);
+        ElementRoles actual;
+        std::string error;
+        ASSERT_TRUE (rs::ResolveElementRoles (elements, analysis, context, ignored, actual, error)) << error;
+        ExpectSameRoles (expected, actual);
+    }
+}
+
+TEST (SunStudyRustParity, ReceiversMatchOverRandomMaterialPools)
+{
+    Lcg lcg (0x9a55ull);
+    const double nan = std::numeric_limits<double>::quiet_NaN ();
+    for (int trial = 0; trial < 300; ++trial) {
+        geomsrv::Snapshot snapshot;
+        std::vector<std::string> guids;
+        const int meshCount = lcg.Int (0, 6);
+        for (int m = 0; m < meshCount; ++m) {
+            geomsrv::Mesh mesh;
+            mesh.guid = "M" + std::to_string (m);
+            const int faces = lcg.Int (0, 14);
+            mesh.triangles.assign (static_cast<size_t> (faces) * 3, 0u);
+            const int materials = lcg.Int (0, 3) == 0 ? lcg.Int (0, faces) : faces; // sometimes short
+            for (int f = 0; f < materials; ++f)
+                mesh.triMaterial.push_back (lcg.Int (0, 5));
+            guids.push_back (mesh.guid);
+            snapshot.meshes.push_back (mesh);
+        }
+        std::map<int32_t, double> pool;
+        for (int material = 0; material < 6; ++material)
+            if (lcg.Int (0, 3) != 0)
+                pool[material] = lcg.Int (0, 6) == 0 ? nan : lcg.Uniform (0, 1);
+        const auto pick = [&] (int keep) {
+            std::vector<std::string> out;
+            for (const auto& g : guids)
+                if (lcg.Int (0, keep) == 0)
+                    out.push_back (g);
+            return out;
+        };
+        const auto analysisPick = pick (3);
+        const auto contextPick = pick (3);
+        const auto ignoredPick = pick (5);
+        const ElementRoles roles =
+            evp::sunstudy::ResolveElementRoles (snapshot, analysisPick, contextPick, ignoredPick);
+        for (const bool glassOnly : { false, true }) {
+            for (const double threshold : { 0.4, 0.0, 1.0, nan }) {
+                const SunStudyReceivers e =
+                    evp::sunstudy::BuildSunStudyReceivers (snapshot, roles, glassOnly, pool, threshold);
+                SunStudyReceivers a;
+                std::string error;
+                ASSERT_TRUE (rs::BuildSunStudyReceivers (snapshot, roles, glassOnly, pool, threshold, a, error))
+                    << error;
+                ExpectSameRoles (e.roles, a.roles);
+                EXPECT_EQ (a.faces, e.faces);
+                EXPECT_EQ (a.analysisFaces, e.analysisFaces);
+                EXPECT_EQ (a.contextFaces, e.contextFaces);
+                EXPECT_EQ (a.unknownMaterialFaces, e.unknownMaterialFaces);
+            }
+        }
+    }
+}
+
+TEST (SunStudyRustParity, ReceiversWithMismatchedRolesStayUnchanged)
+{
+    geomsrv::Snapshot snapshot;
+    snapshot.meshes.resize (2);
+    const ElementRoles roles = evp::sunstudy::ResolveElementRoles (std::vector<std::string> { "a" }, {}, {}, {});
+    const SunStudyReceivers e = evp::sunstudy::BuildSunStudyReceivers (snapshot, roles, true, {}, 0.4);
+    SunStudyReceivers a;
+    std::string error;
+    ASSERT_TRUE (rs::BuildSunStudyReceivers (snapshot, roles, true, {}, 0.4, a, error)) << error;
+    ExpectSameRoles (e.roles, a.roles);
+    EXPECT_EQ (a.faces, e.faces);
+}
+
+TEST (SunStudyRustParity, PresetAdviceMatches)
+{
+    for (const size_t triangles : { size_t { 0 }, size_t { 1 }, size_t { 43959 }, size_t { 50000 }, size_t { 50001 },
+                                    size_t { 100000 }, size_t { 249999 }, size_t { 250000 }, size_t { 818230 } }) {
+        for (const std::string preset : { "early", "late", "", "Early", "custom" }) {
+            std::string actual = "stale";
+            std::string error;
+            ASSERT_TRUE (rs::SunStudyPresetAdvice (triangles, preset, actual, error)) << error;
+            EXPECT_EQ (actual, evp::sunstudy::SunStudyPresetAdvice (triangles, preset)) << triangles << " " << preset;
+        }
+    }
+}
+
+TEST (SunStudyRustParity, SelectionBindingMatchesOverScriptedRefreshes)
+{
+    Lcg lcg (0xb1dull);
+    const std::vector<std::string> universe = Universe (lcg, 6);
+    for (int trial = 0; trial < 300; ++trial) {
+        SunStudySelectionBinding binding;
+        if (lcg.Int (0, 4) != 0) {
+            binding.generation = static_cast<uint64_t> (lcg.Int (1, 3));
+            binding.contextSet = lcg.Int (0, 2) == 0 ? "" : "Context";
+            binding.ignoredSet = lcg.Int (0, 2) == 0 ? "" : "Ignored";
+            binding.analysisSet = lcg.Int (0, 2) == 0 ? "" : "Analysis";
+            binding.revision = 10;
+        }
+        SunStudySelectionBinding rustBinding = binding;
+        std::vector<std::string> context = Pick (universe, lcg, 3);
+        std::vector<std::string> ignored = Pick (universe, lcg, 3);
+        std::vector<std::string> analysis = Pick (universe, lcg, 3);
+        std::vector<std::string> rustContext = context;
+        std::vector<std::string> rustIgnored = ignored;
+        std::vector<std::string> rustAnalysis = analysis;
+        const bool withAnalysis = lcg.Int (0, 1) == 1;
+        for (int step = 0; step < 4; ++step) {
+            const uint64_t current = static_cast<uint64_t> (lcg.Int (1, 3));
+            const auto liveC = lcg.Int (0, 1) == 0 ? context : Pick (universe, lcg, 3);
+            const auto liveI = lcg.Int (0, 1) == 0 ? ignored : Pick (universe, lcg, 3);
+            const auto liveA = lcg.Int (0, 1) == 0 ? analysis : Pick (universe, lcg, 3);
+            const SelectionBindingRefresh e =
+                binding.Refresh (current, liveC, liveI, context, ignored, liveA, withAnalysis ? &analysis : nullptr);
+            SelectionBindingRefresh a = SelectionBindingRefresh::Inactive;
+            std::string error;
+            ASSERT_TRUE (rs::RefreshSelectionBinding (rustBinding, current, liveC, liveI, rustContext, rustIgnored,
+                                                      liveA, withAnalysis ? &rustAnalysis : nullptr, a, error))
+                << error;
+            ASSERT_EQ (a, e) << "trial " << trial << " step " << step;
+            EXPECT_EQ (rustContext, context);
+            EXPECT_EQ (rustIgnored, ignored);
+            EXPECT_EQ (rustAnalysis, analysis);
+            EXPECT_EQ (rustBinding.generation, binding.generation);
+            EXPECT_EQ (rustBinding.contextSet, binding.contextSet);
+            EXPECT_EQ (rustBinding.ignoredSet, binding.ignoredSet);
+            EXPECT_EQ (rustBinding.analysisSet, binding.analysisSet);
+            EXPECT_EQ (rustBinding.revision, binding.revision);
         }
     }
 }

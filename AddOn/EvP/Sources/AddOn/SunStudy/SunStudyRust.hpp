@@ -14,7 +14,9 @@
 
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
+#include "SunStudy/SunStudyPreset.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
+#include "SunStudy/SunStudySelectionBinding.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
 
 #include <cstdint>
@@ -73,6 +75,29 @@ bool OrientOutward (const std::vector<double>& vertices, const std::vector<uint3
 // grid that keeps `analysedArea` within the ceiling.
 bool ComputeAnalysisLimits (const MachineResources& machine, size_t steps, double occupancy, double analysedArea,
                             AnalysisLimits& out, double& finestGridSpacing, std::string& error);
+
+// ResolveElementRoles over GUID lists.
+bool ResolveElementRoles (const std::vector<std::string>& elements, const std::vector<std::string>& analysisPicked,
+                          const std::vector<std::string>& contextPicked, const std::vector<std::string>& ignoredPicked,
+                          ElementRoles& out, std::string& error);
+
+// BuildSunStudyReceivers. A role count that disagrees with the mesh count
+// returns the roles unchanged and no faces, as the C++ original does, without
+// crossing the ABI.
+bool BuildSunStudyReceivers (const geomsrv::Snapshot& snapshot, const ElementRoles& roles, bool glassOnly,
+                             const std::map<int32_t, double>& transparency, double threshold, SunStudyReceivers& out,
+                             std::string& error);
+
+bool SunStudyPresetAdvice (size_t triangleCount, const std::string& selectedPreset, std::string& out,
+                           std::string& error);
+
+// SunStudySelectionBinding::Refresh with the decision made in Rust: the same
+// list replacement and the same reset of `binding` on Detached.
+bool RefreshSelectionBinding (SunStudySelectionBinding& binding, uint64_t currentGeneration,
+                              const std::vector<std::string>& context, const std::vector<std::string>& ignored,
+                              std::vector<std::string>& studyContext, std::vector<std::string>& studyIgnored,
+                              const std::vector<std::string>& analysis, std::vector<std::string>* studyAnalysis,
+                              SelectionBindingRefresh& out, std::string& error);
 
 } // namespace evp::sunstudy::rust
 

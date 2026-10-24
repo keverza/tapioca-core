@@ -6,12 +6,13 @@
 //! writable ones, the complete result is computed in Rust-owned memory, and only
 //! then is it copied out. A refusal writes nothing but the error buffer.
 
-use crate::borrow::BorrowContext;
+use crate::borrow::{BorrowContext, SliceView};
 use crate::boundary::{Failure, call, memory_range, overlaps};
 
 mod camera;
 mod ground;
 mod limits;
+mod roles;
 mod series;
 mod winding;
 
@@ -23,6 +24,12 @@ pub use ground::{
     GroundGridOutput, GroundGridRequest, GroundGridSummary, tapioca_sunstudy_ground_grid,
 };
 pub use limits::{LimitsOutput, LimitsRequest, tapioca_sunstudy_limits};
+pub use roles::{
+    BindingOutput, BindingRequest, BoundListView, MaterialTransparency, PresetAdviceOutput,
+    PresetAdviceRequest, ReceiverMeshView, ReceiversOutput, ReceiversRequest, ReceiversSummary,
+    RolesOutput, RolesRequest, RolesSummary, tapioca_sunstudy_preset_advice,
+    tapioca_sunstudy_receivers, tapioca_sunstudy_refresh_binding, tapioca_sunstudy_resolve_roles,
+};
 pub use series::{SunSeriesOutput, SunSeriesRequest, SunSeriesSummary, tapioca_sunstudy_series};
 pub use winding::{
     WindingOutput, WindingReportOutput, WindingRequest, tapioca_sunstudy_orient_outward,
@@ -50,6 +57,19 @@ const _: () = {
     assert!(size_of::<WindingOutput>() == 24);
     assert!(size_of::<LimitsRequest>() == 48);
     assert!(size_of::<LimitsOutput>() == 80);
+    assert!(size_of::<RolesRequest>() == 64);
+    assert!(size_of::<RolesSummary>() == 56);
+    assert!(size_of::<RolesOutput>() == 24);
+    assert!(size_of::<ReceiverMeshView>() == 24);
+    assert!(size_of::<MaterialTransparency>() == 16);
+    assert!(size_of::<ReceiversRequest>() == 64);
+    assert!(size_of::<ReceiversSummary>() == 56);
+    assert!(size_of::<ReceiversOutput>() == 48);
+    assert!(size_of::<PresetAdviceRequest>() == 24);
+    assert!(size_of::<PresetAdviceOutput>() == 24);
+    assert!(size_of::<BoundListView>() == 40);
+    assert!(size_of::<BindingRequest>() == 136);
+    assert!(size_of::<BindingOutput>() == 4);
 };
 
 type Range = Option<(usize, usize)>;
@@ -91,6 +111,26 @@ impl Regions {
             error_range: self.error,
             output_range: None,
         }
+    }
+
+    /// Register a list of UTF-8 text views: the list itself is checked and copied,
+    /// then each text is registered as an input for the next [`Self::check`].
+    ///
+    /// SAFETY: a nonempty list must be live, initialized, immutable storage of
+    /// `view.count` text descriptors for the call.
+    pub(crate) unsafe fn text_list(
+        &mut self,
+        view: SliceView<SliceView<u8>>,
+    ) -> Result<Vec<SliceView<u8>>, Failure> {
+        self.input(view.data, view.count);
+        self.check()?;
+        let context = self.context();
+        // SAFETY: shape and error disjointness checked; descriptors are copied.
+        let list = unsafe { context.slice(view)? }.to_vec();
+        for text in &list {
+            self.input(text.data, text.count);
+        }
+        Ok(list)
     }
 
     /// Overlap with the error buffer is reported first, before any shape error,

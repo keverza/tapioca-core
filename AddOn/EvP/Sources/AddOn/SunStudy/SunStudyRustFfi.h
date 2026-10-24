@@ -192,6 +192,113 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_limits (const TapiocaLimitsRequest* request, TapiocaLimits* output, char* error,
                                        size_t errorCapacity);
 
+/* GUID lists: length-delimited UTF-8 texts; non-UTF-8 text is refused. */
+typedef struct {
+    const TapiocaTextView* data;
+    size_t count;
+} TapiocaTextArrayView;
+
+typedef struct {
+    TapiocaTextArrayView elements; /* one GUID per element, element order */
+    TapiocaTextArrayView analysis;
+    TapiocaTextArrayView context;
+    TapiocaTextArrayView ignored;
+} TapiocaRolesRequest;
+
+typedef struct {
+    size_t counts[3];    /* analysis, context, ignored elements */
+    size_t unmatched[3]; /* distinct canonical picks matching no element */
+    uint8_t analysisNamedButAbsent;
+} TapiocaRolesSummary;
+
+typedef struct {
+    uint8_t* roles; /* one ElementRole byte per element; capacity >= elements */
+    size_t capacity;
+    TapiocaRolesSummary* summary;
+} TapiocaRolesOutput;
+
+/* ResolveElementRoles over GUID lists. */
+TapiocaStatus tapioca_sunstudy_resolve_roles (const TapiocaRolesRequest* request, const TapiocaRolesOutput* output,
+                                              char* error, size_t errorCapacity);
+
+typedef struct {
+    size_t triangleCount;
+    TapiocaIntView triMaterial; /* may be shorter than triangleCount */
+} TapiocaReceiverMeshView;
+
+typedef struct {
+    int32_t material;
+    double transparency; /* model pool 0..1 */
+} TapiocaSunStudyTransparency;
+
+typedef struct {
+    const TapiocaReceiverMeshView* meshes;
+    size_t meshCount;
+    TapiocaByteView roles; /* one ElementRole byte per mesh */
+    const TapiocaSunStudyTransparency* transparency;
+    size_t transparencyCount; /* material indices must be unique */
+    double threshold;
+    uint8_t glassOnly; /* 0 or 1 */
+} TapiocaReceiversRequest;
+
+typedef struct {
+    size_t analysisFaces;
+    size_t contextFaces;
+    size_t unknownMaterialFaces;
+    size_t counts[3]; /* analysis, context, ignored meshes after demotion */
+    size_t maskCount; /* bytes written to faceMask */
+} TapiocaReceiversSummary;
+
+typedef struct {
+    uint8_t* roles;   /* per mesh, after demotion */
+    uint8_t* hasMask; /* per mesh: 1 mask populated, 0 every face */
+    size_t meshCapacity;
+    uint8_t* faceMask; /* concatenated per-mesh masks; zero where hasMask is 0 */
+    size_t maskCapacity;
+    TapiocaReceiversSummary* summary;
+} TapiocaReceiversOutput;
+
+/* BuildSunStudyReceivers over per-mesh triangle counts and materials. */
+TapiocaStatus tapioca_sunstudy_receivers (const TapiocaReceiversRequest* request, const TapiocaReceiversOutput* output,
+                                          char* error, size_t errorCapacity);
+
+typedef struct {
+    size_t triangleCount;
+    TapiocaTextView preset;
+} TapiocaPresetAdviceRequest;
+
+typedef struct {
+    char* text; /* UTF-8, not NUL-terminated */
+    size_t capacity;
+    size_t* length; /* 0 when there is no advice */
+} TapiocaPresetAdviceOutput;
+
+TapiocaStatus tapioca_sunstudy_preset_advice (const TapiocaPresetAdviceRequest* request,
+                                              const TapiocaPresetAdviceOutput* output, char* error,
+                                              size_t errorCapacity);
+
+typedef struct {
+    uint8_t present; /* 0: list not supplied (e.g. no study analysis list) */
+    uint8_t bound;   /* the binding names a set for this role */
+    TapiocaTextArrayView live;
+    TapiocaTextArrayView study;
+} TapiocaBoundList;
+
+typedef struct {
+    uint64_t generation; /* 0 = unbound */
+    uint64_t currentGeneration;
+    TapiocaBoundList lists[3]; /* context, ignored, analysis */
+} TapiocaBindingRequest;
+
+typedef struct {
+    uint8_t refresh;    /* SelectionBindingRefresh value */
+    uint8_t replace[3]; /* copy live into context, ignored, analysis */
+} TapiocaBindingOutput;
+
+/* The decision half of SunStudySelectionBinding::Refresh. */
+TapiocaStatus tapioca_sunstudy_refresh_binding (const TapiocaBindingRequest* request, TapiocaBindingOutput* output,
+                                                char* error, size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 
