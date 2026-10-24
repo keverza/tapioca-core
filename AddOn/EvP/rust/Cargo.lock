@@ -467,6 +467,7 @@ name = "tapioca-core-ffi"
 version = "0.0.0"
 dependencies = [
  "tapioca-geometry",
+ "tapioca-sunstudy",
 ]
 
 [[package]]
@@ -476,6 +477,10 @@ dependencies = [
  "faer",
  "spade",
 ]
+
+[[package]]
+name = "tapioca-sunstudy"
+version = "0.0.0"
 
 [[package]]
 name = "unicode-ident"

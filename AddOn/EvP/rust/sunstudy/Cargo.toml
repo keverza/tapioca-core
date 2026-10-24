@@ -1,0 +1,11 @@
+[package]
+name = "tapioca-sunstudy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Pure sun-study analysis core: series, shadow-camera arithmetic, winding and limits."
+
+[lints]
+workspace = true

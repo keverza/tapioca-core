@@ -12,6 +12,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 tapioca-geometry = { path = "../geometry" }
+tapioca-sunstudy = { path = "../sunstudy" }
 
 [lints]
 workspace = true

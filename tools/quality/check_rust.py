@@ -23,7 +23,7 @@ import check_secrets
 REPO = Path(__file__).resolve().parents[2]
 WORKSPACE = REPO / "AddOn/EvP/rust"
 SKIP_DIRS = {"target", "build", "vendor", "generated", ".git"}
-PACKAGES = {"geometry": "tapioca-geometry", "ffi": "tapioca-core-ffi"}
+PACKAGES = {"geometry": "tapioca-geometry", "sunstudy": "tapioca-sunstudy", "ffi": "tapioca-core-ffi"}
 
 # Dependency policy. The only third-party edges are geometry -> spade (S3a.0) and
 # geometry -> faer (S3b.0), both pinned exactly. THIRD_PARTY is their complete transitive
@@ -36,7 +36,13 @@ DIRECT = {
         # Sparse LLT only: no rayon/rand/npy/std, so the solve is sequential and libm-based.
         "faer": {"version": "=0.24.4", "default-features": False, "features": ["sparse-linalg"]},
     },
-    "ffi": {"tapioca-geometry": {"path": "../geometry"}},
+    # The sun-study analysis core is pure and dependency-free; a sunstudy -> geometry
+    # edge is added only when a sunstudy module consumes geometry.
+    "sunstudy": {},
+    "ffi": {
+        "tapioca-geometry": {"path": "../geometry"},
+        "tapioca-sunstudy": {"path": "../sunstudy"},
+    },
 }
 THIRD_PARTY = {
     # S3a.0: spade and its closure.
@@ -179,13 +185,13 @@ def structure(workspace: Path) -> tuple[list[str], list[str]]:
             errors.append(f"{directory}: platform dependencies/build scripts require architecture review")
         if package.get("dependencies", {}) != DIRECT[directory]:
             errors.append(
-                f"{directory}: only the approved ffi -> geometry path, geometry -> spade (=2.15.1) and "
+                f"{directory}: only the approved ffi -> geometry/sunstudy paths, geometry -> spade (=2.15.1) and "
                 "geometry -> faer (=0.24.4, sparse-linalg, no default features) dependencies are allowed"
             )
         if package.get("build-dependencies") or package.get("dev-dependencies"):
             errors.append(f"{directory}: new crates (including test/build crates) require dependency review")
         source = (workspace / directory / "src/lib.rs").read_text(encoding="utf-8")
-        guard = "forbid" if directory == "geometry" else "deny"
+        guard = "deny" if directory == "ffi" else "forbid"
         if not re.search(rf"^#!\[{guard}\(unsafe_code\)\]$", source, re.MULTILINE):
             errors.append(f"{directory}: crate root must retain #![{guard}(unsafe_code)]")
     errors.extend(third_party(workspace))

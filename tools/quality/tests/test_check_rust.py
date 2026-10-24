@@ -29,7 +29,13 @@ def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
     ffi = tomllib.loads((workspace / "ffi/Cargo.toml").read_text(encoding="utf-8"))
     assert ffi["package"]["name"] == "tapioca-core-ffi"
     assert ffi["lib"]["crate-type"] == ["staticlib", "rlib"]
-    assert ffi["dependencies"] == {"tapioca-geometry": {"path": "../geometry"}}
+    assert ffi["dependencies"] == {
+        "tapioca-geometry": {"path": "../geometry"},
+        "tapioca-sunstudy": {"path": "../sunstudy"},
+    }
+    sunstudy = tomllib.loads((workspace / "sunstudy/Cargo.toml").read_text(encoding="utf-8"))
+    assert sunstudy["package"]["name"] == "tapioca-sunstudy"
+    assert sunstudy.get("dependencies", {}) == {}
     geometry = tomllib.loads((workspace / "geometry/Cargo.toml").read_text(encoding="utf-8"))
     assert geometry["package"]["name"] == "tapioca-geometry"
     assert geometry.get("dependencies", {}) == {
@@ -38,7 +44,7 @@ def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
     }
 
 
-@pytest.mark.parametrize("crate", ["geometry", "ffi"])
+@pytest.mark.parametrize("crate", ["geometry", "sunstudy", "ffi"])
 def test_unsafe_crate_guards_cannot_disappear(workspace, crate):
     (workspace / crate / "src/lib.rs").write_text("//! Scaffold.\n", encoding="utf-8")
     errors, _ = check_rust.structure(workspace)
@@ -102,6 +108,27 @@ def test_the_faer_edge_is_one_exact_pin_without_default_features(workspace, depe
     replace(workspace / "geometry/Cargo.toml", FAER, dependency)
     errors, _ = check_rust.structure(workspace)
     assert any("geometry -> faer" in error for error in errors)
+
+
+def test_sunstudy_forbids_rather_than_denies_unsafe(workspace):
+    replace(workspace / "sunstudy/src/lib.rs", "#![forbid(unsafe_code)]", "#![deny(unsafe_code)]")
+    errors, _ = check_rust.structure(workspace)
+    assert any("sunstudy: crate root must retain #![forbid(unsafe_code)]" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "addition",
+    [
+        '\n[dependencies]\ntapioca-geometry = { path = "../geometry" }\n',
+        '\n[dependencies]\ntapioca-core-ffi = { path = "../ffi" }\n',
+        '\n[dependencies]\nspade = "=2.15.1"\n',
+    ],
+)
+def test_sunstudy_takes_no_dependency_until_one_is_reviewed(workspace, addition):
+    path = workspace / "sunstudy/Cargo.toml"
+    path.write_text(path.read_text(encoding="utf-8") + addition, encoding="utf-8")
+    errors, _ = check_rust.structure(workspace)
+    assert any(error.startswith("sunstudy: only the approved") for error in errors)
 
 
 def test_reverse_dependency_is_rejected(workspace):

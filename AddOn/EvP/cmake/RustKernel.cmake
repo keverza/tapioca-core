@@ -55,7 +55,7 @@ function (TapiocaLinkRustCore target)
             set (_archive "${CMAKE_BINARY_DIR}/rust/release/libtapioca_core_ffi.a")
         endif ()
         file (GLOB_RECURSE _rustSources CONFIGURE_DEPENDS
-            "${_workspace}/geometry/src/*.rs" "${_workspace}/ffi/src/*.rs")
+            "${_workspace}/geometry/src/*.rs" "${_workspace}/sunstudy/src/*.rs" "${_workspace}/ffi/src/*.rs")
         # Cargo owns incremental rebuilds; always invoke it to cover manifests,
         # config and checker policy as well as CMake's explicitly tracked sources.
         add_custom_target (TapiocaRustCoreBuild
@@ -63,7 +63,7 @@ function (TapiocaLinkRustCore target)
                 --build ${_targetArgs} --target-dir "${CMAKE_BINARY_DIR}/rust"
             DEPENDS ${_rustSources} "${_workspace}/Cargo.toml" "${_workspace}/Cargo.lock"
                 "${_workspace}/rust-toolchain.toml" "${_workspace}/.cargo/config.toml"
-                "${_workspace}/geometry/Cargo.toml" "${_workspace}/ffi/Cargo.toml"
+                "${_workspace}/geometry/Cargo.toml" "${_workspace}/sunstudy/Cargo.toml" "${_workspace}/ffi/Cargo.toml"
                 "${_repo}/tools/quality/check_rust.py"
             BYPRODUCTS "${_archive}"
             WORKING_DIRECTORY "${_workspace}"

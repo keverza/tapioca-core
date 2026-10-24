@@ -62,6 +62,7 @@
 
 #if defined(TAPIOCA_GEOMETRY_RUST)
 #include "Geometry/GeometryRustTerrain.hpp"
+#include "SunStudy/SunStudyRust.hpp"
 #endif
 
 // The floor-plan overlay: its hook and device go before the unload, and the plan
@@ -479,6 +480,15 @@ GSErrCode Initialize (void)
         return APIERR_GENERAL;
     }
     RecordStartupEvent (("Rust geometry ABI v" + std::to_string (geometryAbiVersion)).c_str ());
+
+    // Logged, not enforced: no sun-study consumer calls the Rust core yet, so a
+    // skew is recorded for diagnosis rather than refusing the add-on.
+    uint32_t sunStudyAbiVersion = 0;
+    std::string sunStudyAbiError;
+    if (evp::sunstudy::rust::ReadAbiVersion (sunStudyAbiVersion, sunStudyAbiError))
+        RecordStartupEvent (("Rust sun-study ABI v" + std::to_string (sunStudyAbiVersion)).c_str ());
+    else
+        RecordStartupEvent (("Rust sun-study ABI unavailable: " + sunStudyAbiError).c_str ());
 #endif
 
     // The node-graph runtime reaches Archicad through exactly this one object.

@@ -141,3 +141,10 @@ pub use terrain::{
     tapioca_terrain_outline_build, tapioca_terrain_sample, tapioca_terrain_split_mesh,
     tapioca_terrain_surface, tapioca_terrain_triangulate, tapioca_terrain_volume,
 };
+
+#[allow(
+    unsafe_code,
+    reason = "Sun-study POD ingress and checked caller-owned publication at the C boundary"
+)]
+mod sunstudy;
+pub use sunstudy::tapioca_sunstudy_version;
