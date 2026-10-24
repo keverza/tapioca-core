@@ -41,7 +41,7 @@ unsafe fn session<'a>(handle: *const SessionHandle) -> Result<&'a SunStudySessio
         .ok_or(Failure::Argument("SessionHandle: null"))
 }
 
-fn state_of(a: &OcclusionAccumulator) -> OcclusionState {
+pub(super) fn state_of(a: &OcclusionAccumulator) -> OcclusionState {
     OcclusionState {
         sample_count: a.sample_count(),
         step_count: a.step_count(),

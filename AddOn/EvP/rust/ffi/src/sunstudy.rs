@@ -22,6 +22,8 @@ mod sampler;
 mod series;
 mod session;
 mod steps;
+mod study;
+mod study_read;
 mod surface;
 mod winding;
 
@@ -81,6 +83,18 @@ pub use steps::{
     StepMaskOutput, StepMaskRequest, StepScheduleOutput, StepScheduleRequest, TextureDeltaOutput,
     TextureDeltaRequest, tapioca_sunstudy_step_masks, tapioca_sunstudy_step_schedule,
     tapioca_sunstudy_texture_delta,
+};
+pub use study::{
+    StudyAdvanceRequest, StudyCreateRequest, StudyHandle, StudyMeshesView, StudyReuseOutcome,
+    StudyReuseRequest, tapioca_sunstudy_study_advance, tapioca_sunstudy_study_create,
+    tapioca_sunstudy_study_destroy, tapioca_sunstudy_study_progress, tapioca_sunstudy_study_reuse,
+    tapioca_sunstudy_study_set_sample_meshes, tapioca_sunstudy_study_sync,
+};
+pub use study_read::{
+    StudyArraysOutput, StudyImageOutput, StudyImageSummary, StudyInfo, StudyReadAtRequest,
+    StudyReadingRecord, StudyStepMaskOutput, StudyStepMaskSummary, tapioca_sunstudy_study_arrays,
+    tapioca_sunstudy_study_image, tapioca_sunstudy_study_info, tapioca_sunstudy_study_read_at,
+    tapioca_sunstudy_study_step_masks, tapioca_sunstudy_study_summary,
 };
 pub use surface::{
     MeshSpanRecord, PatchGridView, PatchSpanView, PreviousView, SampleGridView,
@@ -193,6 +207,19 @@ const _: () = {
     assert!(size_of::<SurfaceBuildRequest>() == 512);
     assert!(size_of::<SurfaceResultSummary>() == 224);
     assert!(size_of::<SurfaceReadOutput>() == 160);
+    assert!(size_of::<StudyCreateRequest>() == 440);
+    assert!(size_of::<StudyMeshesView>() == 16);
+    assert!(size_of::<StudyReuseRequest>() == 96);
+    assert!(size_of::<StudyReuseOutcome>() == 24);
+    assert!(size_of::<StudyAdvanceRequest>() == 56);
+    assert!(size_of::<StudyInfo>() == 88);
+    assert!(size_of::<StudyArraysOutput>() == 48);
+    assert!(size_of::<StudyImageOutput>() == 48);
+    assert!(size_of::<StudyImageSummary>() == 32);
+    assert!(size_of::<StudyStepMaskOutput>() == 32);
+    assert!(size_of::<StudyStepMaskSummary>() == 40);
+    assert!(size_of::<StudyReadAtRequest>() == 32);
+    assert!(size_of::<StudyReadingRecord>() == 32);
 };
 
 type Range = Option<(usize, usize)>;

@@ -1018,6 +1018,176 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_surface_read (const TapiocaSurfaceResult* handle, const TapiocaSurfaceReadOutput* output,
                                              char* error, size_t errorCapacity);
 
+/* ---- study core (the portable half of a split StudyRecord) ------------ */
+
+/* create, setSampleMeshes and reuse need exclusive use (the study is still
+ * being prepared); afterwards any thread may call with a shared handle: a
+ * concurrent advance resolves 0 steps, other calls wait. Only destroy needs
+ * exclusivity again. A poisoned session returns TAPIOCA_ERR_STATE. */
+typedef struct TapiocaSunStudyStudy TapiocaSunStudyStudy;
+
+typedef struct {
+    const TapiocaAtlasMeshView* data;
+    size_t count;
+} TapiocaAtlasMeshArray;
+
+/* Only the arrays of `domain` are read. */
+typedef struct {
+    uint8_t domain; /* 0 ground, 1 triangle, 2 patch */
+    TapiocaSeriesView series;
+    double spacing;
+    TapiocaDoubleView positions;          /* ground */
+    TapiocaDoubleView normals;            /* ground; empty: always facing */
+    TapiocaSampleGridView sampleGrid;     /* triangle, with layouts */
+    TapiocaAtlasMeshArray meshes;         /* triangle: stable tile identities */
+    uint32_t atlas[2];                    /* gutter (triangle), maxDimension */
+    TapiocaPatchGridView patchGrid;       /* patch */
+    const TapiocaSunStudyStudy* previous; /* the study being rerun, or null */
+} TapiocaStudyCreateRequest;
+
+/* outcome: 0 created (out written), 1 inconsistent samples, 2 patch atlas
+ * refused. */
+TapiocaStatus tapioca_sunstudy_study_create (const TapiocaStudyCreateRequest* request, TapiocaSunStudyStudy** out,
+                                             uint8_t* outcome, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_study_destroy (TapiocaSunStudyStudy* handle, char* error, size_t errorCapacity);
+
+/* geometry, sun, grid; 0 = no such input */
+TapiocaStatus tapioca_sunstudy_study_sync (const TapiocaSunStudyStudy* handle, const uint64_t (*versions)[3],
+                                           char* error, size_t errorCapacity);
+
+typedef struct {
+    TapiocaReuseMeshArray meshes;
+} TapiocaStudyMeshesView;
+
+TapiocaStatus tapioca_sunstudy_study_set_sample_meshes (TapiocaSunStudyStudy* handle,
+                                                        const TapiocaStudyMeshesView* view, char* error,
+                                                        size_t errorCapacity);
+
+typedef struct {
+    const TapiocaSunStudyStudy* source; /* converged, not the target */
+    TapiocaReuseMeshArray sourceMeshes;
+    TapiocaByteView sourceRoles;
+    TapiocaReuseMeshArray targetMeshes;
+    TapiocaByteView targetRoles;
+    uint8_t sourceDefaultRayBounds;
+    TapiocaCancelCallback cancel;
+} TapiocaStudyReuseRequest;
+
+typedef struct {
+    size_t reusedSamples;
+    size_t reusedSampleSteps;
+    uint8_t seeded; /* 0: nothing seeded */
+} TapiocaStudyReuseOutcome;
+
+TapiocaStatus tapioca_sunstudy_study_reuse (TapiocaSunStudyStudy* handle, const TapiocaStudyReuseRequest* request,
+                                            TapiocaStudyReuseOutcome* out, char* error, size_t errorCapacity);
+
+typedef struct {
+    const TapiocaTraversalVtable* traversal;
+    double tmin;
+    double tmax;
+    size_t maxParallel;
+    size_t maxSteps;
+    TapiocaStepObserver observer;
+} TapiocaStudyAdvanceRequest;
+
+TapiocaStatus tapioca_sunstudy_study_advance (const TapiocaSunStudyStudy* handle,
+                                              const TapiocaStudyAdvanceRequest* request, size_t* resolved, char* error,
+                                              size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_study_progress (const TapiocaSunStudyStudy* handle, TapiocaSessionProgress* out,
+                                               char* error, size_t errorCapacity);
+
+/* Domain read statuses: 0 ok, 1 no triangle (model-surface) atlas, 2 no patch
+ * atlas, 3 a patch the atlas did not place. A refusal writes no array. */
+typedef struct {
+    size_t sampleCount;
+    size_t stepCount;
+    size_t sampleMeshCount;
+    size_t reuse[2]; /* reusedSamples, reusedSampleSteps */
+    size_t displayFaces;
+    double spacing;
+    double daylightHours;
+    double analysedArea;
+    uint32_t displaySize[2];
+    uint8_t domain;
+    uint8_t displayStatus;
+} TapiocaStudyInfo;
+
+TapiocaStatus tapioca_sunstudy_study_info (const TapiocaSunStudyStudy* handle, TapiocaStudyInfo* out, char* error,
+                                           size_t errorCapacity);
+
+/* Capacity 0 skips an array; otherwise it must hold the whole array. */
+typedef struct {
+    double* hours;
+    size_t hoursCapacity;
+    uint8_t* stepBits; /* one byte per (sample, step), sample-major */
+    size_t stepBitsCapacity;
+    uint32_t* sampleMeshes;
+    size_t sampleMeshesCapacity;
+} TapiocaStudyArraysOutput;
+
+TapiocaStatus tapioca_sunstudy_study_arrays (const TapiocaSunStudyStudy* handle, const TapiocaStudyArraysOutput* output,
+                                             char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_study_summary (const TapiocaSunStudyStudy* handle, TapiocaResultSummary* out,
+                                              char* error, size_t errorCapacity);
+
+/* Shape-then-fill: zero capacities report the sizes only. */
+typedef struct {
+    uint8_t kind; /* 0 triangle image, 1 patch image, 2 display data */
+    float* image;
+    size_t imageCapacity;
+    TapiocaAtlasTile* tiles;    /* display data */
+    TapiocaFaceLayout* layouts; /* display data */
+    size_t faceCapacity;
+} TapiocaStudyImageOutput;
+
+typedef struct {
+    size_t texels;
+    size_t faces;
+    uint32_t width;
+    uint32_t height;
+    uint8_t status;
+} TapiocaStudyImageSummary;
+
+TapiocaStatus tapioca_sunstudy_study_image (const TapiocaSunStudyStudy* handle, const TapiocaStudyImageOutput* output,
+                                            TapiocaStudyImageSummary* summary, char* error, size_t errorCapacity);
+
+typedef struct {
+    uint32_t* masks;
+    size_t maskCapacity;
+    uint16_t* minutes;
+    size_t minuteCapacity;
+} TapiocaStudyStepMaskOutput;
+
+typedef struct {
+    size_t maskCount;
+    size_t minuteCount;
+    uint32_t shape[5]; /* width, height, words, steps, solar-noon step */
+    uint8_t status;
+} TapiocaStudyStepMaskSummary;
+
+TapiocaStatus tapioca_sunstudy_study_step_masks (const TapiocaSunStudyStudy* handle,
+                                                 const TapiocaStudyStepMaskOutput* output,
+                                                 TapiocaStudyStepMaskSummary* summary, char* error,
+                                                 size_t errorCapacity);
+
+typedef struct {
+    size_t face;
+    double point[3];
+} TapiocaStudyReadAtRequest;
+
+typedef struct {
+    double hours;
+    size_t sample;
+    uint32_t cell[2]; /* column, row */
+    uint8_t measured;
+    uint8_t nearest;
+} TapiocaStudyReading;
+
+TapiocaStatus tapioca_sunstudy_study_read_at (const TapiocaSunStudyStudy* handle,
+                                              const TapiocaStudyReadAtRequest* request, TapiocaStudyReading* out,
+                                              char* error, size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 

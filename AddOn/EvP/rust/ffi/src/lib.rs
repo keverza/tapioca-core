@@ -205,3 +205,13 @@ pub use sunstudy::{
     tapioca_sunstudy_session_destroy, tapioca_sunstudy_session_progress,
     tapioca_sunstudy_session_read, tapioca_sunstudy_session_seed, tapioca_sunstudy_session_sync,
 };
+pub use sunstudy::{
+    StudyAdvanceRequest, StudyArraysOutput, StudyCreateRequest, StudyHandle, StudyImageOutput,
+    StudyImageSummary, StudyInfo, StudyMeshesView, StudyReadAtRequest, StudyReadingRecord,
+    StudyReuseOutcome, StudyReuseRequest, StudyStepMaskOutput, StudyStepMaskSummary,
+    tapioca_sunstudy_study_advance, tapioca_sunstudy_study_arrays, tapioca_sunstudy_study_create,
+    tapioca_sunstudy_study_destroy, tapioca_sunstudy_study_image, tapioca_sunstudy_study_info,
+    tapioca_sunstudy_study_progress, tapioca_sunstudy_study_read_at, tapioca_sunstudy_study_reuse,
+    tapioca_sunstudy_study_set_sample_meshes, tapioca_sunstudy_study_step_masks,
+    tapioca_sunstudy_study_summary, tapioca_sunstudy_study_sync,
+};

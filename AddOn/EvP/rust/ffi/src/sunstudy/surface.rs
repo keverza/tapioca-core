@@ -184,13 +184,13 @@ fn options(record: &SurfaceOptionsRecord) -> Result<SurfaceSamplingOptions, Fail
 
 /// Registers every array a build reads, checking in stages so nested lists
 /// are read only after their own shape was proven.
-struct Reader<'r> {
-    regions: &'r mut Regions,
+pub(super) struct Reader<'r> {
+    pub(super) regions: &'r mut Regions,
 }
 
 impl Reader<'_> {
     // SAFETY: the list must be live and immutable for the call.
-    unsafe fn list<T: Copy>(&mut self, view: SliceView<T>) -> Result<Vec<T>, Failure> {
+    pub(super) unsafe fn list<T: Copy>(&mut self, view: SliceView<T>) -> Result<Vec<T>, Failure> {
         self.regions.input(view.data, view.count);
         self.regions.check()?;
         let context = self.regions.context();
@@ -198,7 +198,7 @@ impl Reader<'_> {
         Ok(unsafe { context.slice(view)? }.to_vec())
     }
 
-    fn meshes(&mut self, list: &[ReuseMeshView]) {
+    pub(super) fn meshes(&mut self, list: &[ReuseMeshView]) {
         for m in list {
             self.regions.input(m.guid.data, m.guid.count);
             self.regions.input(m.vertices.data, m.vertices.count);
@@ -206,7 +206,7 @@ impl Reader<'_> {
         }
     }
 
-    fn sample_grid(&mut self, g: &SampleGridView) {
+    pub(super) fn sample_grid(&mut self, g: &SampleGridView) {
         let r = &mut *self.regions;
         r.input(g.positions.data, g.positions.count);
         r.input(g.normals.data, g.normals.count);
@@ -218,7 +218,7 @@ impl Reader<'_> {
         r.input(g.cell_rows.data, g.cell_rows.count);
     }
 
-    fn patch_grid(&mut self, g: &PatchGridView) {
+    pub(super) fn patch_grid(&mut self, g: &PatchGridView) {
         let r = &mut *self.regions;
         r.input(g.positions.data, g.positions.count);
         r.input(g.normals.data, g.normals.count);
@@ -263,7 +263,7 @@ fn layout_of(record: &FaceLayoutRecord) -> FaceLayout {
 }
 
 // SAFETY: the grid's arrays were registered and checked.
-unsafe fn sample_grid_of(
+pub(super) unsafe fn sample_grid_of(
     context: &BorrowContext,
     g: &SampleGridView,
 ) -> Result<SampleGrid, Failure> {
@@ -288,7 +288,7 @@ unsafe fn sample_grid_of(
 }
 
 // SAFETY: the grid's arrays and every span's text were registered and checked.
-unsafe fn patch_grid_of(
+pub(super) unsafe fn patch_grid_of(
     context: &BorrowContext,
     g: &PatchGridView,
     spans: &[PatchSpanView],

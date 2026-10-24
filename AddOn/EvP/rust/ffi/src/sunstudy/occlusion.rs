@@ -50,7 +50,7 @@ pub struct TraversalVtable {
 }
 
 pub(super) struct VtableTraversal {
-    vtable: TraversalVtable,
+    pub(super) vtable: TraversalVtable,
 }
 
 impl VtableTraversal {
