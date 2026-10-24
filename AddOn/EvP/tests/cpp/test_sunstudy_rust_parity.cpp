@@ -7,6 +7,8 @@
 // and large enough to reach the branches (pole flip, zero sun, refusals) that a
 // handful of literals would miss.
 
+#include "Geometry/QueryEngine.hpp"
+#include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAtlasReuse.hpp"
 #include "SunStudy/SunStudyRust.hpp"
 
@@ -1209,5 +1211,199 @@ TEST (SunStudyRustParity, StepScheduleMatches)
             EXPECT_EQ (fan, evp::sunstudy::FanSteps (evp::sunstudy::StepMinutes (series), interval));
             EXPECT_EQ (noon, evp::sunstudy::SolarNoonStep (series));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P3a: the occlusion accumulator over the real CPU traversal
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::shared_ptr<const geomsrv::Snapshot> BoxCity (Lcg& lcg)
+{
+    auto snapshot = std::make_shared<geomsrv::Snapshot> ();
+    snapshot->id = 7;
+    const int boxes = lcg.Int (1, 8);
+    for (int b = 0; b < boxes; ++b) {
+        SamplerCase soup;
+        const double x = lcg.Uniform (-15, 15), y = lcg.Uniform (-15, 15);
+        const double w = lcg.Uniform (1, 6), d = lcg.Uniform (1, 6), h = lcg.Uniform (2, 20);
+        AppendRectangle (soup, { x, y, h }, { 1, 0, 0 }, { 0, 1, 0 }, w, d, 1, 0, false);     // roof
+        AppendRectangle (soup, { x, y, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, w, h, 1, 0, true);      // south
+        AppendRectangle (soup, { x, y + d, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, w, h, 1, 0, false); // north
+        AppendRectangle (soup, { x, y, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, d, h, 1, 0, false);     // west
+        AppendRectangle (soup, { x + w, y, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, d, h, 1, 0, true);  // east
+        geomsrv::Mesh mesh;
+        mesh.guid = "B" + std::to_string (b);
+        mesh.vertices = soup.vertices;
+        mesh.triangles = soup.triangles;
+        snapshot->meshes.push_back (std::move (mesh));
+    }
+    return snapshot;
+}
+
+struct OcclusionScene {
+    std::shared_ptr<CpuTraversal> traversal;
+    std::vector<double> positions;
+    std::vector<double> normals;
+    std::vector<SunStep> steps;
+    SunSeries series;
+};
+
+OcclusionScene MakeOcclusionScene (Lcg& lcg, size_t samples, size_t stepCount)
+{
+    OcclusionScene scene;
+    scene.traversal = std::make_shared<CpuTraversal> (std::make_shared<geomsrv::QueryEngine> (BoxCity (lcg)));
+    for (size_t s = 0; s < samples; ++s) {
+        scene.positions.insert (scene.positions.end (),
+                                { lcg.Uniform (-25, 25), lcg.Uniform (-25, 25), lcg.Uniform (0.05, 8) });
+        Vec3 n { lcg.Uniform (-1, 1), lcg.Uniform (-1, 1), lcg.Uniform (-1, 1) };
+        if (s % 17 == 3)
+            n = { std::numeric_limits<double>::quiet_NaN (), 0, 0 }; // traced, not culled
+        scene.normals.insert (scene.normals.end (), { n[0], n[1], n[2] });
+    }
+    for (size_t i = 0; i < stepCount; ++i) {
+        SunStep step;
+        step.time = TimeOfDay { static_cast<int> (i / 4), static_cast<int> ((i % 4) * 15) };
+        const double azimuth = lcg.Uniform (0, 6.283), altitude = lcg.Uniform (0.05, 1.4);
+        step.direction[0] = std::cos (altitude) * std::cos (azimuth);
+        step.direction[1] = std::cos (altitude) * std::sin (azimuth);
+        step.direction[2] = std::sin (altitude);
+        step.altitudeDegrees = altitude * 57.29;
+        scene.steps.push_back (step);
+    }
+    scene.series = SunSeries::FromSteps (scene.steps, 15);
+    return scene;
+}
+
+void ExpectSameOcclusion (const OcclusionAccumulator& e, const rs::RustOcclusionAccumulator& a, const char* what)
+{
+    ASSERT_TRUE (a.LastError ().empty ()) << what << ": " << a.LastError ();
+    EXPECT_EQ (a.ResolvedStepCount (), e.ResolvedStepCount ()) << what;
+    EXPECT_EQ (a.Complete (), e.Complete ()) << what;
+    EXPECT_EQ (a.ActiveSampleCount (), e.ActiveSampleCount ()) << what;
+    EXPECT_EQ (a.LastRayCount (), e.LastRayCount ()) << what;
+    EXPECT_EQ (a.Bits (), e.Bits ()) << what;
+    const std::vector<uint8_t> flags = a.StepsResolved ();
+    for (size_t step = 0; step < e.StepCount (); ++step)
+        ASSERT_EQ (flags[step] != 0, e.StepResolved (step)) << what << " step " << step;
+    ExpectSameBits (e.SunHours (0.25), a.SunHours (0.25), what);
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, OcclusionMatchesOverSlicedRanges)
+{
+    Lcg lcg (0x0cc1ull);
+    size_t rays = 0;
+    for (int trial = 0; trial < 24; ++trial) {
+        const size_t steps = static_cast<size_t> (lcg.Int (1, 140));
+        OcclusionScene scene = MakeOcclusionScene (lcg, static_cast<size_t> (lcg.Int (0, 400)), steps);
+        SampleSet samples;
+        samples.positions = scene.positions.data ();
+        samples.normals = trial % 3 == 0 ? nullptr : scene.normals.data ();
+        samples.count = scene.positions.size () / 3;
+        OcclusionAccumulator expected (samples.count, scene.series.StepCount ());
+        rs::RustOcclusionAccumulator actual (samples.count, scene.series.StepCount ());
+        ASSERT_TRUE (actual.Valid ()) << actual.LastError ();
+        const size_t parallel = trial % 2 == 0 ? 1 : 0;
+        size_t cursor = 0;
+        while (cursor < scene.series.StepCount ()) {
+            const size_t slice = static_cast<size_t> (lcg.Int (1, 9));
+            const size_t e =
+                expected.AccumulateRange (*scene.traversal, samples, scene.series, cursor, slice, 0.001, 0.0, parallel);
+            const size_t a =
+                actual.AccumulateRange (*scene.traversal, samples, scene.series, cursor, slice, 0.001, 0.0, parallel);
+            ASSERT_EQ (a, e);
+            cursor += e;
+            rays += expected.LastRayCount ();
+            ExpectSameOcclusion (expected, actual, "slice");
+            if (::testing::Test::HasFatalFailure ())
+                return;
+        }
+        // Re-resolving an early step with a different sun replaces its bits.
+        if (scene.series.StepCount () > 1) {
+            const double* other = scene.series.Step (scene.series.StepCount () - 1).direction;
+            EXPECT_EQ (actual.AccumulateStep (*scene.traversal, samples, 0, other),
+                       expected.AccumulateStep (*scene.traversal, samples, 0, other));
+            ExpectSameOcclusion (expected, actual, "re-resolve");
+        }
+        // Out-of-range and mismatched calls change nothing on either side.
+        EXPECT_FALSE (actual.AccumulateStep (*scene.traversal, samples, steps + 5, scene.steps[0].direction));
+        SampleSet wrong = samples;
+        wrong.count = samples.count + 1;
+        EXPECT_EQ (actual.AccumulateStep (*scene.traversal, wrong, 0, scene.steps[0].direction),
+                   expected.AccumulateStep (*scene.traversal, wrong, 0, scene.steps[0].direction));
+        ExpectSameOcclusion (expected, actual, "refusals");
+    }
+    EXPECT_GT (rays, 10000u);
+}
+
+TEST (SunStudyRustParity, OcclusionCancellationCommitsNothingOnEitherSide)
+{
+    Lcg lcg (0xca9cull);
+    OcclusionScene scene = MakeOcclusionScene (lcg, 300, 20);
+    SampleSet samples { scene.positions.data (), scene.normals.data (), scene.positions.size () / 3 };
+    OcclusionAccumulator expected (samples.count, scene.series.StepCount ());
+    rs::RustOcclusionAccumulator actual (samples.count, scene.series.StepCount ());
+    bool cancel = false;
+    const std::function<bool ()> isCancelled = [&cancel] { return cancel; };
+    for (size_t step = 0; step < scene.series.StepCount (); ++step) {
+        cancel = step % 3 == 1; // cancelled before anything is traced
+        const double* sun = scene.series.Step (step).direction;
+        EXPECT_EQ (actual.AccumulateStep (*scene.traversal, samples, step, sun, 0.001, 0.0, 0, isCancelled),
+                   expected.AccumulateStep (*scene.traversal, samples, step, sun, 0.001, 0.0, 0, isCancelled));
+    }
+    ExpectSameOcclusion (expected, actual, "cancellation");
+    EXPECT_FALSE (expected.Complete ());
+}
+
+TEST (SunStudyRustParity, OcclusionSeededReuseMatches)
+{
+    Lcg lcg (0x5eedull);
+    for (int trial = 0; trial < 30; ++trial) {
+        const size_t steps = static_cast<size_t> (lcg.Int (1, 130));
+        OcclusionScene scene = MakeOcclusionScene (lcg, static_cast<size_t> (lcg.Int (1, 200)), steps);
+        SampleSet samples { scene.positions.data (), scene.normals.data (), scene.positions.size () / 3 };
+        const size_t count = samples.count, stepCount = scene.series.StepCount ();
+        OcclusionAccumulator expectedSource (count, stepCount);
+        rs::RustOcclusionAccumulator actualSource (count, stepCount);
+        expectedSource.AccumulateRange (*scene.traversal, samples, scene.series, 0, stepCount);
+        actualSource.AccumulateRange (*scene.traversal, samples, scene.series, 0, stepCount);
+        std::vector<size_t> map (count);
+        for (size_t s = 0; s < count; ++s)
+            map[s] = lcg.Int (0, 6) == 0 ? OcclusionAccumulator::kNoReuse
+                                         : static_cast<size_t> (lcg.Int (0, int (count) - 1));
+        if (trial % 7 == 3 && count > 0)
+            map[0] = count + 4; // out of range: refused
+        const size_t words = (stepCount + 63) / 64;
+        std::vector<uint64_t> dirty;
+        if (trial % 2 == 1) {
+            dirty.assign (count * words, 0);
+            for (size_t s = 0; s < count; ++s) {
+                for (size_t w = 0; w < words; ++w) {
+                    const size_t remaining = stepCount - w * 64;
+                    const uint64_t valid = remaining >= 64 ? ~0ull : (1ull << remaining) - 1ull;
+                    uint64_t bits =
+                        map[s] == OcclusionAccumulator::kNoReuse ? valid : (lcg.Int (0, 3) == 0 ? valid : 0ull);
+                    if (map[s] != OcclusionAccumulator::kNoReuse && lcg.Int (0, 4) == 0)
+                        bits = (static_cast<uint64_t> (lcg.Uniform (0, 4e9)) << 20) & valid;
+                    dirty[s * words + w] = bits;
+                }
+            }
+            if (trial % 11 == 5 && !dirty.empty ())
+                dirty[0] |= ~0ull; // beyond the steps when stepCount % 64 != 0: refused
+        }
+        OcclusionAccumulator expected (count, stepCount);
+        rs::RustOcclusionAccumulator actual (count, stepCount);
+        ASSERT_EQ (actual.SeedReusable (actualSource, map, dirty), expected.SeedReusable (expectedSource, map, dirty))
+            << "trial " << trial;
+        ExpectSameOcclusion (expected, actual, "seeded");
+        expected.AccumulateRange (*scene.traversal, samples, scene.series, 0, stepCount);
+        actual.AccumulateRange (*scene.traversal, samples, scene.series, 0, stepCount);
+        ExpectSameOcclusion (expected, actual, "after seeded trace");
+        if (::testing::Test::HasFatalFailure ())
+            return;
     }
 }

@@ -11,6 +11,7 @@
 
 pub mod atlas;
 pub mod limits;
+pub mod occlusion;
 pub mod patch_atlas;
 pub mod patch_sampler;
 pub mod raster;

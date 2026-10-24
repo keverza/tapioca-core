@@ -15,6 +15,7 @@
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
+#include "SunStudy/SunStudyOcclusion.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
@@ -24,6 +25,8 @@
 #include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
+
+#include "SunStudy/SunStudyRustFfi.h"
 
 #include <cstdint>
 #include <string>
@@ -157,6 +160,56 @@ bool AtlasChangedRegions (uint32_t width, uint32_t height, uint32_t layers, cons
 // StepMinutes, SolarNoonStep and FanSteps for a series.
 bool StepSchedule (const SunSeries& series, double fanIntervalMinutes, std::vector<uint16_t>& minutes,
                    std::vector<uint32_t>& fan, uint32_t& solarNoon, std::string& error);
+
+// OcclusionAccumulator backed by the Rust core. Same contract as the C++
+// class: one thread at a time, AccumulateStep commits a whole step or nothing.
+// A failed traversal or ABI refusal is reported through `LastError()` and the
+// call returns false. Movable, not copyable; the Rust handle is released in
+// the destructor.
+class RustOcclusionAccumulator final {
+  public:
+    RustOcclusionAccumulator (size_t sampleCount, size_t stepCount);
+    ~RustOcclusionAccumulator ();
+    RustOcclusionAccumulator (RustOcclusionAccumulator&& other) noexcept;
+    RustOcclusionAccumulator& operator= (RustOcclusionAccumulator&& other) noexcept;
+    RustOcclusionAccumulator (const RustOcclusionAccumulator&) = delete;
+    RustOcclusionAccumulator& operator= (const RustOcclusionAccumulator&) = delete;
+
+    bool Valid () const
+    {
+        return handle_ != nullptr;
+    }
+    const std::string& LastError () const
+    {
+        return error_;
+    }
+
+    void Reset ();
+    bool SeedReusable (const RustOcclusionAccumulator& source, const std::vector<size_t>& sourceSamples,
+                       const std::vector<uint64_t>& dirtySteps = {});
+    bool AccumulateStep (const ITraversal& traversal, const SampleSet& samples, size_t stepIndex,
+                         const double sunDirection[3], double tmin = 0.001, double tmax = 0.0, size_t maxParallel = 0,
+                         const std::function<bool ()>& isCancelled = {});
+    size_t AccumulateRange (const ITraversal& traversal, const SampleSet& samples, const SunSeries& series,
+                            size_t firstStep, size_t maxSteps, double tmin = 0.001, double tmax = 0.0,
+                            size_t maxParallel = 0, const std::function<bool ()>& isCancelled = {});
+
+    size_t SampleCount () const;
+    size_t StepCount () const;
+    size_t WordsPerSample () const;
+    size_t ResolvedStepCount () const;
+    size_t ActiveSampleCount () const;
+    size_t LastRayCount () const;
+    bool Complete () const;
+    std::vector<uint64_t> Bits () const;
+    std::vector<uint8_t> StepsResolved () const;
+    std::vector<double> SunHours (double hoursPerStep) const;
+
+  private:
+    TapiocaOcclusionState State () const;
+    TapiocaSunStudyOcclusion* handle_ = nullptr;
+    mutable std::string error_;
+};
 
 } // namespace evp::sunstudy::rust
 

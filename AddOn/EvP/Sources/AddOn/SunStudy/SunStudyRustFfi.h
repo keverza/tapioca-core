@@ -611,6 +611,102 @@ TapiocaStatus tapioca_sunstudy_step_schedule (const TapiocaStepScheduleRequest* 
                                               const TapiocaStepScheduleOutput* output, char* error,
                                               size_t errorCapacity);
 
+/* ---- occlusion accumulator (Rust-owned handle) ------------------------- */
+
+/* ITraversal as callbacks. Callbacks must not throw, run on the calling thread
+ * during the call only, and `context` must outlive the call. */
+typedef struct {
+    void* context;
+    /* 1 complete, 0 cancelled (nothing committed), 2 failed. */
+    uint8_t (*occludeDirectional) (void* context, const double* origins, size_t count, const double* direction,
+                                   double tmin, double tmax, uint8_t* out, size_t maxParallel);
+    uint64_t (*sceneVersion) (void* context);
+    uint8_t (*isCancelled) (void* context); /* nullable; 1 cancelled */
+} TapiocaTraversalVtable;
+
+/* One thread at a time per handle; destroy after a TAPIOCA_ERR_INTERNAL. */
+typedef struct TapiocaSunStudyOcclusion TapiocaSunStudyOcclusion;
+
+TapiocaStatus tapioca_sunstudy_occlusion_create (size_t sampleCount, size_t stepCount, TapiocaSunStudyOcclusion** out,
+                                                 char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_occlusion_destroy (TapiocaSunStudyOcclusion* handle, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_occlusion_reset (TapiocaSunStudyOcclusion* handle, char* error, size_t errorCapacity);
+
+typedef struct {
+    const TapiocaSunStudyOcclusion* source;
+    const size_t* map; /* source sample per sample; SIZE_MAX traces afresh */
+    size_t mapCount;
+    const uint64_t* dirty; /* optional sample-major dirty-step words */
+    size_t dirtyCount;
+} TapiocaOcclusionSeedRequest;
+
+TapiocaStatus tapioca_sunstudy_occlusion_seed (TapiocaSunStudyOcclusion* handle,
+                                               const TapiocaOcclusionSeedRequest* request, uint8_t* accepted,
+                                               char* error, size_t errorCapacity);
+
+typedef struct {
+    const TapiocaTraversalVtable* traversal;
+    TapiocaDoubleView positions;
+    TapiocaDoubleView normals; /* empty: every sample faces the sun */
+    size_t sampleCount;
+    double tmin;
+    double tmax;
+    size_t maxParallel;
+} TapiocaOcclusionTrace;
+
+typedef struct {
+    TapiocaOcclusionTrace trace;
+    size_t step;
+    double sun[3];
+} TapiocaOcclusionStepRequest;
+
+/* outcome: 0 committed, 1 refused, 2 cancelled. A failed traversal returns
+ * TAPIOCA_ERR_STATE. */
+TapiocaStatus tapioca_sunstudy_occlusion_step (TapiocaSunStudyOcclusion* handle,
+                                               const TapiocaOcclusionStepRequest* request, uint8_t* outcome,
+                                               char* error, size_t errorCapacity);
+
+typedef struct {
+    TapiocaOcclusionTrace trace;
+    TapiocaDoubleView directions; /* xyz per series step */
+    size_t first;
+    size_t maxSteps;
+} TapiocaOcclusionRangeRequest;
+
+TapiocaStatus tapioca_sunstudy_occlusion_range (TapiocaSunStudyOcclusion* handle,
+                                                const TapiocaOcclusionRangeRequest* request, size_t* done, char* error,
+                                                size_t errorCapacity);
+
+typedef struct {
+    size_t sampleCount;
+    size_t stepCount;
+    size_t wordsPerSample;
+    size_t resolvedSteps;
+    size_t activeSamples;
+    size_t lastRayCount;
+    double compactMs;
+    double traceMs;
+    uint8_t complete;
+} TapiocaOcclusionState;
+
+TapiocaStatus tapioca_sunstudy_occlusion_state (TapiocaSunStudyOcclusion* handle, TapiocaOcclusionState* out,
+                                                char* error, size_t errorCapacity);
+
+/* Each array may be NULL with capacity 0 to skip it. */
+typedef struct {
+    uint64_t* bits; /* sampleCount * wordsPerSample */
+    size_t bitCapacity;
+    uint8_t* stepsResolved;
+    size_t stepCapacity;
+    double* sunHours;
+    size_t hoursCapacity;
+    double hoursPerStep;
+} TapiocaOcclusionReadOutput;
+
+TapiocaStatus tapioca_sunstudy_occlusion_read (TapiocaSunStudyOcclusion* handle,
+                                               const TapiocaOcclusionReadOutput* output, char* error,
+                                               size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 

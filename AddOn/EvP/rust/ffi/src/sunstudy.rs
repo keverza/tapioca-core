@@ -13,6 +13,7 @@ mod atlas;
 mod camera;
 mod ground;
 mod limits;
+mod occlusion;
 mod patches;
 mod roles;
 mod sampler;
@@ -38,6 +39,14 @@ pub use ground::{
     GroundGridOutput, GroundGridRequest, GroundGridSummary, tapioca_sunstudy_ground_grid,
 };
 pub use limits::{LimitsOutput, LimitsRequest, tapioca_sunstudy_limits};
+pub use occlusion::{
+    OcclusionHandle, OcclusionRangeRequest, OcclusionReadOutput, OcclusionSeedRequest,
+    OcclusionState, OcclusionStepRequest, OcclusionTrace, TraversalVtable,
+    tapioca_sunstudy_occlusion_create, tapioca_sunstudy_occlusion_destroy,
+    tapioca_sunstudy_occlusion_range, tapioca_sunstudy_occlusion_read,
+    tapioca_sunstudy_occlusion_reset, tapioca_sunstudy_occlusion_seed,
+    tapioca_sunstudy_occlusion_state, tapioca_sunstudy_occlusion_step,
+};
 pub use patches::{
     PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
     tapioca_sunstudy_patch_grid,
@@ -125,6 +134,13 @@ const _: () = {
     assert!(size_of::<StepScheduleRequest>() == 24);
     assert!(size_of::<StepScheduleOutput>() == 40);
     assert!(size_of::<tapioca_sunstudy::texture_delta::AtlasRegion>() == 20);
+    assert!(size_of::<TraversalVtable>() == 32);
+    assert!(size_of::<OcclusionSeedRequest>() == 40);
+    assert!(size_of::<OcclusionTrace>() == 72);
+    assert!(size_of::<OcclusionStepRequest>() == 104);
+    assert!(size_of::<OcclusionRangeRequest>() == 104);
+    assert!(size_of::<OcclusionState>() == 72);
+    assert!(size_of::<OcclusionReadOutput>() == 56);
 };
 
 type Range = Option<(usize, usize)>;

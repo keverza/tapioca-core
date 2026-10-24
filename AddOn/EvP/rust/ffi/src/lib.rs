@@ -177,6 +177,14 @@ pub use sunstudy::{
     tapioca_sunstudy_sample_grid,
 };
 pub use sunstudy::{
+    OcclusionHandle, OcclusionRangeRequest, OcclusionReadOutput, OcclusionSeedRequest,
+    OcclusionState, OcclusionStepRequest, OcclusionTrace, TraversalVtable,
+    tapioca_sunstudy_occlusion_create, tapioca_sunstudy_occlusion_destroy,
+    tapioca_sunstudy_occlusion_range, tapioca_sunstudy_occlusion_read,
+    tapioca_sunstudy_occlusion_reset, tapioca_sunstudy_occlusion_seed,
+    tapioca_sunstudy_occlusion_state, tapioca_sunstudy_occlusion_step,
+};
+pub use sunstudy::{
     PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
     tapioca_sunstudy_patch_grid,
 };
