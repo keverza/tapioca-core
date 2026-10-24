@@ -96,6 +96,9 @@ struct Session {
     bool terrainCaptureQueued = false;
     // Explicit UI request to add the Archicad selection's drafting; posted out of layout like the capture.
     bool draftingImport = false, draftingImportQueued = false;
+    // What the queued import makes of Archicad's selection: "lines", "property", "building" or
+    // "entrances" (the selected doors) -- Tapioca.VirtualEditor's importAs.
+    std::string draftingImportAs = "lines";
     edit::Id terrainPath = edit::kNoId;
     std::shared_ptr<TerrainSectionDraft> terrainSectionDraft; // Uncommitted typed fields; not document state.
     // A cross-section slider is held: its gesture applies every change live (the terrain worker

@@ -35464,6 +35464,15 @@
           "role": {
             "type": "string"
           },
+          "importAs": {
+            "type": "string",
+            "enum": [
+              "lines",
+              "property",
+              "building",
+              "entrances"
+            ]
+          },
           "terrainGuid": {
             "type": "string",
             "minLength": 36,

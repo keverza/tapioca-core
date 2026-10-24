@@ -4,6 +4,8 @@
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "Edit/EditImport.hpp"
 #include "Edit/EditLandscape.hpp"
+#include "Edit/EditLandscapeEntrance.hpp"
+#include <algorithm>
 #include <cmath>
 #include <variant>
 #include <vector>
@@ -13,15 +15,33 @@
 namespace geomsrv {
 namespace {
 namespace eh = archviz::edithud;
-using Shape = std::variant<edit::ImportedCurve, edit::ImportedEllipse>;
+using Curve = std::variant<edit::ImportedCurve, edit::ImportedEllipse>;
+// A shape read from one element, and the element's canonical GUID.
+struct Shape {
+    Curve curve;
+    std::string guid;
+};
 
 struct Counts {
-    size_t added = 0, unsupported = 0, elliptic = 0, unreadable = 0, degenerate = 0;
+    size_t added = 0, unsupported = 0, elliptic = 0, unreadable = 0, degenerate = 0, open = 0, away = 0;
 };
+
+std::string Canonical (const API_Guid& guid)
+{
+    std::string canonical;
+    tapioca::geometry::CanonicalLandscapeGuid (APIGuidToString (guid).ToCStr ().Get (), canonical);
+    return canonical;
+}
+
+bool Closed (const Curve& curve)
+{
+    return std::holds_alternative<edit::ImportedEllipse> (curve) ? std::get<edit::ImportedEllipse> (curve).whole
+                                                                 : std::get<edit::ImportedCurve> (curve).closed;
+}
 
 // One polygon's contours from its memo (1-based coordinates; each contour repeats its first point
 // at its end; arcs named by their start and end coordinate indices).
-bool Contours (const API_Guid& guid, bool closedOnly, double z, std::vector<Shape>& out)
+bool Contours (const API_Guid& guid, bool closedOnly, double z, std::vector<Curve>& out)
 {
     API_ElementMemo memo {};
     if (ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_Polygon) != NoError || memo.coords == nullptr ||
@@ -59,7 +79,7 @@ bool Contours (const API_Guid& guid, bool closedOnly, double z, std::vector<Shap
     return ok;
 }
 
-void Read (const API_Neig& neig, double z, std::vector<Shape>& out, Counts& counts)
+void ReadCurves (const API_Neig& neig, double z, std::vector<Curve>& out, Counts& counts)
 {
     API_Element element {};
     element.header.guid = neig.guid;
@@ -105,6 +125,102 @@ void Read (const API_Neig& neig, double z, std::vector<Shape>& out, Counts& coun
     }
 }
 
+void Read (const API_Neig& neig, double z, std::vector<Shape>& out, Counts& counts)
+{
+    std::vector<Curve> curves;
+    ReadCurves (neig, z, curves, counts);
+    const auto guid = Canonical (neig.guid);
+    for (auto& curve : curves)
+        out.push_back ({ std::move (curve), guid });
+}
+
+// The storey's elevation, metres; 0 when the settings cannot be read.
+double StoreyLevel (short index)
+{
+    API_StoryInfo info {};
+    double level = 0.0;
+    if (ACAPI_ProjectSetting_GetStorySettings (&info) != NoError || info.data == nullptr)
+        return level;
+    for (short i = 0; i <= info.lastStory - info.firstStory; ++i)
+        if ((*info.data)[i].index == index)
+            level = (*info.data)[i].level;
+    BMKillHandle (reinterpret_cast<GSHandle*> (&info.data));
+    return level;
+}
+
+// A door's threshold: its plan centre on its straight wall's reference line, at the wall's
+// storey and base plus its sill. False for a door in a curved or polygonal wall.
+bool DoorThreshold (const API_Guid& guid, edit::Vec3& at)
+{
+    API_Element door {};
+    door.header.guid = guid;
+    if (ACAPI_Element_Get (&door) != NoError || door.header.type.typeID != API_DoorID)
+        return false;
+    API_Element wall {};
+    wall.header.guid = door.door.owner;
+    if (ACAPI_Element_Get (&wall) != NoError || wall.header.type.typeID != API_WallID ||
+        std::abs (wall.wall.angle) > 1e-9)
+        return false;
+    const double dx = wall.wall.endC.x - wall.wall.begC.x, dy = wall.wall.endC.y - wall.wall.begC.y;
+    const double length = std::hypot (dx, dy);
+    if (!(length > 0))
+        return false;
+    at = { wall.wall.begC.x + dx / length * door.door.objLoc, wall.wall.begC.y + dy / length * door.door.objLoc,
+           StoreyLevel (wall.header.floorInd) + wall.wall.bottomOffset + door.door.lower };
+    return true;
+}
+
+bool ImportEntrances (eh::Session& s, const GS::Array<API_Neig>& neigs, std::string& message)
+{
+    struct Door {
+        edit::Vec3 at;
+        std::string guid;
+    };
+    std::vector<Door> doors;
+    size_t other = 0;
+    for (const API_Neig& neig : neigs) {
+        Door door;
+        if (DoorThreshold (neig.guid, door.at))
+            door.guid = Canonical (neig.guid), doors.push_back (std::move (door));
+        else
+            ++other;
+    }
+    if (doors.empty ()) {
+        message = "Select Archicad doors in straight walls to add them as entrances.";
+        return false;
+    }
+    size_t added = 0, away = 0;
+    const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string& error) {
+        added = away = 0;
+        for (const auto& door : doors) {
+            // A door stands in its wall: its building's outline passes within a wall's width.
+            const auto building = tapioca::geometry::BuildingNear (d, door.at, 1.0);
+            if (!building) {
+                ++away;
+                continue;
+            }
+            tapioca::geometry::Id made = 0;
+            if (!tapioca::geometry::AddLandscapeEntrance (d, building, door.at, door.at.z, door.guid, made, error))
+                return false;
+            ++added;
+        }
+        if (!added)
+            error = "No selected door stands on a building outline: set the building's outline first.";
+        return added > 0;
+    });
+    if (!ok) {
+        message = s.edits.Message ();
+        return false;
+    }
+    message = std::to_string (added) + (added == 1 ? " entrance" : " entrances") + " added from Archicad doors";
+    if (away)
+        message += "; " + std::to_string (away) + " not on a building outline";
+    if (other)
+        message += "; " + std::to_string (other) + " skipped (not a door in a straight wall)";
+    message += ".";
+    return true;
+}
+
 std::string Say (const Counts& c)
 {
     std::string text = std::to_string (c.added) + (c.added == 1 ? " line" : " lines") + " added from Archicad";
@@ -116,12 +232,15 @@ std::string Say (const Counts& c)
     skip (c.elliptic, "elliptic arcs are not imported yet");
     skip (c.unreadable, "could not be read");
     skip (c.degenerate, "no length");
+    skip (c.open, "not closed");
+    skip (c.away, "a property line is one closed shape");
     return text + ".";
 }
 } // namespace
 
-bool ImportSelectedDrafting (eh::Session& s, std::string& message)
+bool ImportSelectedDrafting (eh::Session& s, DraftingImport as, std::string& message)
 {
+    namespace lg = tapioca::geometry;
     if (s.edits.InGesture () || !s.drawing.empty () || eh::GizmoModeLocked (s)) {
         message = "Finish the current input or Esc it before adding Archicad lines.";
         return false;
@@ -132,18 +251,39 @@ bool ImportSelectedDrafting (eh::Session& s, std::string& message)
     if (info.marquee.coords != nullptr)
         BMKillHandle (reinterpret_cast<GSHandle*> (&info.marquee.coords));
     if ((selected != NoError && selected != APIERR_NOSEL) || neigs.IsEmpty ()) {
-        message = "Select Archicad lines, polylines, arcs, circles or fills first.";
+        message = as == DraftingImport::Entrances ? "Select Archicad doors first."
+                                                  : "Select Archicad lines, polylines, arcs, circles or fills first.";
         return false;
     }
+    if (as != DraftingImport::Lines && !s.edits.Doc ().landscape) {
+        message = "Property lines, buildings and entrances belong to a landscape: start one first.";
+        return false;
+    }
+    if (as == DraftingImport::Entrances)
+        return ImportEntrances (s, neigs, message);
     const double z = s.plane.origin.z;
     std::vector<Shape> shapes;
     Counts counts;
     for (const API_Neig& neig : neigs)
         Read (neig, z, shapes, counts);
+    // A property line or a building is a closed outline; a property line is exactly one.
+    if (as != DraftingImport::Lines) {
+        const auto open =
+            std::remove_if (shapes.begin (), shapes.end (), [] (const Shape& shape) { return !Closed (shape.curve); });
+        counts.open += size_t (shapes.end () - open);
+        shapes.erase (open, shapes.end ());
+    }
+    if (as == DraftingImport::Property && shapes.size () > 1) {
+        counts.away = shapes.size () - 1;
+        shapes.resize (1);
+    }
     if (shapes.empty ()) {
         message = Say (counts);
         return false;
     }
+    const lg::SourceRole role = as == DraftingImport::Property   ? lg::SourceRole::PropertyLine
+                                : as == DraftingImport::Building ? lg::SourceRole::Building
+                                                                 : lg::SourceRole::Guide;
     std::vector<edit::Id> made;
     const bool ok = s.edits.Apply ([&] (edit::Document& d, std::string& error) {
         made.clear ();
@@ -151,16 +291,21 @@ bool ImportSelectedDrafting (eh::Session& s, std::string& message)
         for (const auto& shape : shapes) {
             std::string why;
             const edit::Id id =
-                std::holds_alternative<edit::ImportedCurve> (shape)
-                    ? edit::AddImportedCurve (d, std::get<edit::ImportedCurve> (shape), "imported", why)
-                    : edit::AddImportedEllipse (d, std::get<edit::ImportedEllipse> (shape), "imported", why);
+                std::holds_alternative<edit::ImportedCurve> (shape.curve)
+                    ? edit::AddImportedCurve (d, std::get<edit::ImportedCurve> (shape.curve), "imported", why)
+                    : edit::AddImportedEllipse (d, std::get<edit::ImportedEllipse> (shape.curve), "imported", why);
             if (id == edit::kNoId) {
                 ++counts.degenerate;
                 continue;
             }
-            if (d.landscape &&
-                !tapioca::geometry::SetLandscapeSourceRole (d, id, tapioca::geometry::SourceRole::Guide, error))
-                return false;
+            if (d.landscape) {
+                if (!lg::SetLandscapeSourceRole (d, id, role, error))
+                    return false;
+                // The source keeps the element it references, for a later refresh from Archicad.
+                for (auto& source : d.landscape->sources)
+                    if (source.entityId == id && !source.deleted)
+                        source.archicadGuid = shape.guid;
+            }
             made.push_back (id);
             ++counts.added;
         }

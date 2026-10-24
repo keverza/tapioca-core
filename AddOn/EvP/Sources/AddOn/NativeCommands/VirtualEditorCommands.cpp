@@ -284,7 +284,13 @@ class VirtualEditorCommand : public MainThreadCommand {
             // The selection's drafting into the open editor: lines, polylines, arcs, circles, fills.
             auto* session = hud::VirtualEditor (*state);
             std::string message = "Open the virtual editor first.";
-            const bool ok = session != nullptr && ImportSelectedDrafting (*session, message);
+            GS::UniString as;
+            params.Get ("importAs", as);
+            const auto kind = as == "property"    ? DraftingImport::Property
+                              : as == "building"  ? DraftingImport::Building
+                              : as == "entrances" ? DraftingImport::Entrances
+                                                  : DraftingImport::Lines;
+            const bool ok = session != nullptr && ImportSelectedDrafting (*session, kind, message);
             if (session != nullptr)
                 session->message = message;
             if (!ok)
@@ -516,6 +522,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
         { "VirtualEditor", &MakeRegisteredNativeCommand<VirtualEditorCommand>, true,
           R"json({"type":"object","properties":{
                 "action":{"type":"string","enum":["start","stop","state","surface","terrain","import"]},"role":{"type":"string"},
+                "importAs":{"type":"string","enum":["lines","property","building","entrances"]},
                 "terrainGuid":{"type":"string","minLength":36,"maxLength":36},"pathId":{"type":"string","pattern":"^[1-9][0-9]*$","maxLength":20},
                 "surface":{"type":"string","enum":["overlay","viewer"]},
                 "tool":{"type":"string","enum":["select","polyline","path","curve","rectangle","polygon","ellipse"]},

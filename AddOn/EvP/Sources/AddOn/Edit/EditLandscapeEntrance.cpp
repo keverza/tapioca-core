@@ -135,6 +135,29 @@ bool LandscapeEntrancePoint (const edit::Document& doc, const LandscapeEntrance&
     return false;
 }
 
+Id BuildingNear (const edit::Document& doc, Vec3 point, double reach)
+{
+    Id best = kNoId;
+    double nearest = reach;
+    if (!doc.landscape)
+        return best;
+    for (const auto& source : doc.landscape->sources) {
+        if (source.deleted || source.role != SourceRole::Building)
+            continue;
+        const auto outline = Outline (doc, source);
+        for (size_t i = 0; i + 1 < outline.size (); ++i) {
+            const Vec3 a = outline[i], b = outline[i + 1];
+            const double dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy;
+            const double t =
+                length2 > 0 ? std::clamp (((point.x - a.x) * dx + (point.y - a.y) * dy) / length2, 0.0, 1.0) : 0.0;
+            const double d = std::hypot (a.x + dx * t - point.x, a.y + dy * t - point.y);
+            if (d <= nearest)
+                nearest = d, best = source.id;
+        }
+    }
+    return best;
+}
+
 const LandscapeEntrance* EntranceNear (const edit::Document& doc, Vec3 point, double reach)
 {
     if (!doc.landscape)

@@ -21,6 +21,9 @@ bool RemoveLandscapeEntrance (geomsrv::edit::Document& doc, Id entrance, std::st
 bool LandscapeEntrancePoint (const geomsrv::edit::Document& doc, const LandscapeEntrance& entrance, Vec3& at);
 // The entrance nearest `point` in plan within `reach` metres; null when none is.
 const LandscapeEntrance* EntranceNear (const geomsrv::edit::Document& doc, Vec3 point, double reach);
+// The building source whose outline passes nearest `point` in plan, within `reach` metres;
+// kNoId when none does (a door read from Archicad finds its building this way).
+Id BuildingNear (const geomsrv::edit::Document& doc, Vec3 point, double reach);
 // The path's end nearer the entrance moves onto it, and that end's grade break takes the
 // threshold height, fixed and bound to the entrance (EntranceBinding). One document edit.
 bool ReachLandscapeEntrance (geomsrv::edit::Document& doc, Id path, Id entrance, std::string& error);

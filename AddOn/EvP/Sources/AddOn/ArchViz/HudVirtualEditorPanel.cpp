@@ -98,7 +98,21 @@ void Panel (Session& s)
     // Archicad's own drafting brought in as editor lines: what is selected in Archicad now.
     ImGui::BeginDisabled (s.draftingImport || s.edits.InGesture () || !s.drawing.empty ());
     if (ImGui::SmallButton (s.draftingImport ? "Adding Archicad lines..." : "Add selected Archicad lines and fills"))
-        s.draftingImport = true;
+        s.draftingImport = true, s.draftingImportAs = "lines";
+    // The same selection as a landscape's reference outlines, or its doors as entrances.
+    if (s.edits.Doc ().landscape) {
+        const struct {
+            const char *label, *as;
+        } refs[] = { { "As property line", "property" },
+                     { "As building outline", "building" },
+                     { "Doors as entrances", "entrances" } };
+        for (size_t i = 0; i < std::size (refs); ++i) {
+            if (i)
+                ImGui::SameLine ();
+            if (ImGui::SmallButton (refs[i].label))
+                s.draftingImport = true, s.draftingImportAs = refs[i].as;
+        }
+    }
     ImGui::EndDisabled ();
     if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip ("Lines, polylines, arcs, circles and fill outlines selected in Archicad, at the "

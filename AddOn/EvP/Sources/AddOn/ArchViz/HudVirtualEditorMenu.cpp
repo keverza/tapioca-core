@@ -382,7 +382,7 @@ void RunMenuItem (Session& s, const std::string& id)
                                   : id == "role.material" ? tapioca::geometry::SourceRole::MaterialBoundary
                                                           : tapioca::geometry::SourceRole::PropertyLine);
     else if (id == "import.drafting")
-        s.draftingImport = true;
+        s.draftingImport = true, s.draftingImportAs = "lines";
     else if (id == "tool.select")
         s.tool = Tool::Select, s.drawing.clear ();
     else if (id == "tool.polyline")

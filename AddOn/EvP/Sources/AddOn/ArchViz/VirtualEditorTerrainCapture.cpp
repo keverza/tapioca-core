@@ -159,6 +159,7 @@ void FollowDraftingImport (const std::shared_ptr<overlayhud::State>& state)
         return;
     session->draftingImportQueued = true;
     const uint64_t revision = session->edits.Doc ().revision;
+    const std::string as = session->draftingImportAs.empty () ? "lines" : session->draftingImportAs;
     const auto done = [session] (const std::string& message) {
         session->draftingImport = session->draftingImportQueued = false;
         if (!message.empty ())
@@ -168,7 +169,7 @@ void FollowDraftingImport (const std::shared_ptr<overlayhud::State>& state)
     };
     GS::UniString error;
     if (!evp::MainThreadGate::Get ().Post (
-            [state, session, revision, done] {
+            [state, session, revision, as, done] {
                 // The editor, its view and its document as they were asked from; else nothing is read.
                 if (state != guesttext::HudState () || state->virtualEditor != session || !state->shown ||
                     !state->editLocked || session->edits.Doc ().revision != revision) {
@@ -179,7 +180,9 @@ void FollowDraftingImport (const std::shared_ptr<overlayhud::State>& state)
                 // session's message.
                 V result;
                 std::string failure;
-                Call ("Tapioca.VirtualEditor", V::Object ({ { "action", V::String ("import") } }), result, failure);
+                Call ("Tapioca.VirtualEditor",
+                      V::Object ({ { "action", V::String ("import") }, { "importAs", V::String (as) } }), result,
+                      failure);
                 done ({});
             },
             error))
