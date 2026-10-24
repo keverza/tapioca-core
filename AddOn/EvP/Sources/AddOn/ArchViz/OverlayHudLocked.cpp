@@ -70,7 +70,7 @@ void Engine::Impl::LockedView (const Input& input, float ui, ImVec2 view)
                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollWithMouse;
-    if (ImGui::Begin ("###tapioca.lockedView", nullptr, flags)) {
+    if (ImGui::Begin (kLockedViewWindow, nullptr, flags)) {
         if (store->roofEditor && LayerShown (*store, roofslope::kLayer)) {
             const auto style = roofslope::EditorStyle ();
             const int colours = hudshell::PushLook (style, ui);

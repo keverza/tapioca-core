@@ -253,7 +253,7 @@ void Engine::Impl::HoverTint (const Hover& hover)
 {
     const ImGuiWindow* window = ImGui::GetCurrentContext ()->HoveredWindow;
     tinted = hover.active && !hover.tintModel.empty () && !highlight.active &&
-             (window == nullptr || window == ImGui::FindWindowByName ("###tapioca.lockedView"));
+             (window == nullptr || window == ImGui::FindWindowByName (kLockedViewWindow));
 }
 
 void Engine::Impl::PointerButtons (const Input& input)

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 
 namespace geomsrv {
@@ -632,7 +633,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
         readout = Hover {};
     else if (!input.overHud && !onLegend &&
              (ImGui::GetCurrentContext ()->HoveredWindow == nullptr ||
-              ImGui::GetCurrentContext ()->HoveredWindow == ImGui::FindWindowByName ("###tapioca.lockedView")))
+              ImGui::GetCurrentContext ()->HoveredWindow == ImGui::FindWindowByName (kLockedViewWindow)))
         readout = input.hover;
     Dock (panels, ui, view);
     if (known && store->shown && store->editLocked)
@@ -685,6 +686,14 @@ int Engine::Impl::PanelOf (const ImDrawList* list) const
         return -1;
     }
     return -1;
+}
+
+bool Engine::Impl::LockedViewOf (const ImDrawList* list) const
+{
+    for (ImGuiWindow* window : ImGui::GetCurrentContext ()->Windows)
+        if (window->DrawList == list)
+            return window->RootWindow != nullptr && std::strcmp (window->RootWindow->Name, kLockedViewWindow) == 0;
+    return false;
 }
 
 Engine::Engine () : impl_ (new Impl ())

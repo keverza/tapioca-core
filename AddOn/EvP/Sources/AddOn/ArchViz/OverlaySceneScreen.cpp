@@ -340,6 +340,30 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
         }
         return true;
     };
+    // The free-standing HUD drawing, in view pixels from its top-left or hung from model points.
+    // No region: it takes nothing, and a pointer over it is over what it describes.
+    const auto loose = [&] (size_t from, size_t to) {
+        DraftGlyph tip;
+        tip.behind = kBehindShow;
+        for (size_t k = from; k < to; ++k) {
+            const overlayhud::Vertex& v = layout.overlay.vertices[k];
+            tip.flags = kPlainTexture | kPhysicalPixels | (v.modelAnchored ? 0u : kScreenAnchored) |
+                        (v.turn ? kAlongDirection : 0u);
+            std::copy (v.model.begin (), v.model.end (), tip.anchor);
+            std::copy (v.direction.begin (), v.direction.end (), tip.dir);
+            tip.rgba = v.rgba;
+            tip.page = kHudPageBase + v.page;
+            if (!PushGlyphVertex (tip, v.modelAnchored ? v.modelOffset[0] : v.x,
+                                  v.modelAnchored ? v.modelOffset[1] : v.y, v.u, v.v))
+                return false;
+        }
+        return true;
+    };
+    // The locked view's own drawing -- an editor's grips, gizmo and marquee -- first, under the
+    // panels: its window is kept behind them, and so is what it draws.
+    const size_t behind = std::min (layout.behind, layout.overlay.vertices.size ());
+    if (!loose (0, behind))
+        return;
     for (size_t i = 0; i < panels.size (); ++i)
         if (!emit (layout.panels[i], overlayinput::RegionKind::Panel, refs[i].layer, refs[i].index))
             return;
@@ -360,22 +384,8 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
         all.rect[2] = all.rect[3] = 1.0e6f;
         draft_.regions.push_back (std::move (all));
     }
-    // The tooltips, over the panels, in view pixels from its top-left. No region: they
-    // take nothing, and a pointer over one is over what it describes.
-    DraftGlyph tip;
-    tip.flags = kScreenAnchored | kPlainTexture | kPhysicalPixels;
-    tip.behind = kBehindShow;
-    for (const overlayhud::Vertex& v : layout.overlay.vertices) {
-        tip.flags = kPlainTexture | kPhysicalPixels | (v.modelAnchored ? 0u : kScreenAnchored) |
-                    (v.turn ? kAlongDirection : 0u);
-        std::copy (v.model.begin (), v.model.end (), tip.anchor);
-        std::copy (v.direction.begin (), v.direction.end (), tip.dir);
-        tip.rgba = v.rgba;
-        tip.page = kHudPageBase + v.page;
-        if (!PushGlyphVertex (tip, v.modelAnchored ? v.modelOffset[0] : v.x, v.modelAnchored ? v.modelOffset[1] : v.y,
-                              v.u, v.v))
-            return;
-    }
+    // The tooltips, popups and menus, over the panels.
+    loose (behind, layout.overlay.vertices.size ());
 }
 
 void Builder::AddLegend (const layers::Layer& layer, const layers::Legend& legend, uint32_t index)

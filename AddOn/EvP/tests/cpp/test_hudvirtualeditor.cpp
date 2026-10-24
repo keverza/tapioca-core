@@ -2010,6 +2010,26 @@ TEST (HudVirtualEditor, TransientFeedbackIsAnchoredToTheModel)
     EXPECT_GT (anchored, 0u) << "gizmo handles reproject at Present like the roof grips";
 }
 
+// The user, 2026-10-24: the curve gizmos and nubs were drawn over the ImGui panels. The locked
+// view's window is kept behind the panels, but everything it drew was composed with the
+// tooltips, after them. Its own drawing now leads the stream and is composed under the panels;
+// a menu it opens still goes over everything.
+TEST (HudVirtualEditor, TheViewsOwnDrawingIsComposedBehindThePanels)
+{
+    Drive d (Corner ());
+    d.Press (800, 300);
+    d.Release (800, 300);
+    const auto out = d.Frame ();
+    ASSERT_GT (out.behind, 0u);
+    ASSERT_LE (out.behind, out.overlay.vertices.size ());
+    for (size_t i = out.behind; i < out.overlay.vertices.size (); ++i)
+        EXPECT_FALSE (out.overlay.vertices[i].modelAnchored) << "an anchored grip after the view's own range";
+    d.RightClick (800, 300);
+    ASSERT_TRUE (d.S ().menu.open);
+    const auto menu = d.Frame ();
+    EXPECT_GT (menu.overlay.vertices.size (), menu.behind) << "the menu is over the panels, not behind them";
+}
+
 TEST (HudVirtualEditor, PerspectiveGizmoSizeDoesNotFollowThePointerDepth)
 {
     Drive d (Corner ());

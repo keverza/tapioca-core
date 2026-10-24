@@ -238,6 +238,10 @@ struct Change {
 struct Layout {
     std::vector<Built> panels; // a titled panel's (a tab of the host) or a hidden layer's is empty
     Built overlay;
+    // The first `behind` of `overlay`'s vertices are the locked view's own (its editors' grips,
+    // gizmos, marquee): composed BEHIND the panels, as the view's window is kept behind them.
+    // The rest -- tooltips, popups, menus -- go over everything.
+    size_t behind = 0;
     // The dock's one tab, at the view's right edge half-way down, and the host -- the
     // floating panel the titled panels are tabs of, and the key of the one it shows. Both
     // empty without a layer in the view; the host empty while it is closed or hidden. A titled panel's

@@ -11,9 +11,12 @@ void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
     if (!data)
         return;
     std::vector<hudclip::Corner> cut;
+    // The locked view's own lists, collected apart and put first: they compose behind the panels.
+    Built view;
     for (const ImDrawList* list : data->CmdLists) {
         const int panel = PanelOf (list);
-        Built& into = panel < 0                              ? out.overlay
+        Built& into = panel < 0 && LockedViewOf (list)       ? view
+                      : panel < 0                            ? out.overlay
                       : size_t (panel) < out.panels.size ()  ? out.panels[size_t (panel)]
                       : size_t (panel) == out.panels.size () ? out.dock
                                                              : out.host;
@@ -46,5 +49,7 @@ void Engine::Impl::Collect (Layout& out, uint32_t& unsampled)
             }
         }
     }
+    out.behind = view.vertices.size ();
+    out.overlay.vertices.insert (out.overlay.vertices.begin (), view.vertices.begin (), view.vertices.end ());
 }
 } // namespace geomsrv::archviz::overlayhud

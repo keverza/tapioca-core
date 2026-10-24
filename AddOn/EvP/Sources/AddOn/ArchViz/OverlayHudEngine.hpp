@@ -37,6 +37,8 @@ namespace archviz {
 namespace overlayhud {
 
 namespace layers = overlaylayers;
+// The locked view's borderless window (OverlayHudLocked.cpp), by its ImGui name.
+inline constexpr char kLockedViewWindow[] = "###tapioca.lockedView";
 struct FloorCells; // a building's cell complex, and its flats and cells inside their walls (OverlayHudFloorPlans.cpp)
 
 // The host's own tabs (HudShell.hpp): Stats and Selection before the panels', Settings and
@@ -361,6 +363,8 @@ struct Engine::Impl {
     // Which of the set's windows a draw list belongs to -- the panels', then the dock's and
     // the host's -- and -1 for what floats over them.
     int PanelOf (const ImDrawList* list) const;
+    // Whether the list is the locked view's (OverlayHudLocked.cpp), drawn behind the panels.
+    bool LockedViewOf (const ImDrawList* list) const;
 
     // The last frame's triangles, each panel's from its top-left, against the pages as
     // they stand.
