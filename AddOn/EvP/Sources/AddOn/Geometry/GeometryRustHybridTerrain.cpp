@@ -37,6 +37,7 @@ TapiocaTerrainStation Station (const TerrainStation& station)
     raw.shoulderRight = station.shoulderRight;
     raw.cutLimit = station.cutLimit;
     raw.fillLimit = station.fillLimit;
+    raw.rounding = station.rounding;
     raw.cut = Slope (station.cut);
     raw.fill = Slope (station.fill);
     if (station.crossfall) {
@@ -351,7 +352,8 @@ bool BuildHybridTerrain (const HybridTerrainRequest& request, HybridTerrainResul
         }
     }
     for (const auto& line : lines) {
-        if (line.kind < 1 || line.kind > 7 || line.side > 2 || (line.kind >= 4) != (line.side == 0) ||
+        const bool sided = line.kind <= 3 || line.kind == 8;
+        if (line.kind < 1 || line.kind > 8 || line.side > 2 || sided == (line.side == 0) ||
             (line.kind == 6 && (!converted.locked || line.root >= request.controlLines.size ())) ||
             (line.kind == 7 && (line.root == 0 || size_t (line.root) + 1 >= request.stations.size ()))) {
             error = "TerrainOutputShape: unknown hybrid line kind";

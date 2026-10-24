@@ -8,6 +8,7 @@ use crate::terrain::volume::exact::triangle_cut_fill;
 use crate::terrain::volume::{Grid, Proposed, VolumeRequest, cut_fill};
 
 mod coarse;
+mod rounding;
 
 fn close(left: f64, right: f64, tolerance: f64) -> bool {
     (left - right).abs() <= tolerance
@@ -62,6 +63,7 @@ pub(super) fn station(x: f64, z: f64, shoulder: f64) -> Station {
         fill: HALF,
         cut_limit: 10.0,
         fill_limit: 10.0,
+        rounding: 0.0,
     }
 }
 

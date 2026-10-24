@@ -44,6 +44,7 @@ struct DesignFixture {
                 for (auto& section : value.sections) {
                     section.crossfall = 0;
                     section.cutSlope = section.fillSlope = 50; // 1:2
+                    section.rounding = 0;                      // the worked volumes are the sharp ones
                 }
                 return true;
             },
@@ -438,6 +439,35 @@ TEST (EditTerrainDesign, TheDerivedRegionIsClippedToThePropertyLine)
     EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, untouched, error));
     EXPECT_EQ (error.rfind ("TerrainDesignRegion", 0), 0U) << error;
     EXPECT_TRUE (untouched.region.empty ());
+}
+
+TEST (EditTerrainDesign, ARoundedSectionLinesItsFacesAndEasesTheirVolume)
+{
+    DesignFixture fixture;
+    std::string error;
+    TerrainDesignResult sharp, rounded;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), fixture.Options (), sharp, error)) << error;
+    ASSERT_TRUE (edit::EditPath (
+        fixture.doc, fixture.path,
+        [] (edit::Path& value, std::string&) {
+            for (auto& section : value.sections)
+                section.rounding = 1.0;
+            return true;
+        },
+        error))
+        << error;
+    fixture.Capture ();
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), fixture.Options (), rounded, error)) << error;
+    const auto faces = [] (const TerrainDesignResult& result) {
+        return std::count_if (result.build.lines.begin (), result.build.lines.end (),
+                              [] (const auto& line) { return line.kind == HybridLineKind::Face; });
+    };
+    EXPECT_EQ (faces (sharp), 0);
+    EXPECT_EQ (faces (rounded), 16) << "eight lines across each side's face";
+    // Rounding takes the corners off both the cut and the fill.
+    EXPECT_LT (rounded.build.site.fill, sharp.build.site.fill);
+    EXPECT_LT (rounded.build.site.cut, sharp.build.site.cut);
+    EXPECT_GT (rounded.build.site.fill, 0.8 * sharp.build.site.fill);
 }
 
 TEST (EditTerrainDesign, ACoverClipsTheDerivedRegionToTheTerrainsFootprint)

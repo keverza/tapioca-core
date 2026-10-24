@@ -628,6 +628,7 @@ void RefreshSources (edit::Document& doc)
                 number (s.shoulder);
                 number (s.cutSlope);
                 number (s.fillSlope);
+                number (s.rounding);
             }
             number (path->edgeRadius);
         }

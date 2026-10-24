@@ -194,7 +194,7 @@ fn run(input: &TerrainHybridRequest, output: &TerrainHybridOutput) -> (i32, Stri
 
 #[test]
 fn hybrid_layouts_are_the_documented_c_records() {
-    assert_eq!(size_of::<TerrainStation>(), 152);
+    assert_eq!(size_of::<TerrainStation>(), 160);
     assert_eq!(size_of::<TerrainHybridVolumes>(), 40);
     assert_eq!(size_of::<TerrainHybridLine>(), 16);
     assert_eq!(size_of::<TerrainHybridSide>(), 24);
@@ -358,6 +358,7 @@ fn hybrid_station(raw: &TerrainStation) -> Station {
         fill: slope(raw.fill),
         cut_limit: raw.cut_limit,
         fill_limit: raw.fill_limit,
+        rounding: raw.rounding,
     }
 }
 

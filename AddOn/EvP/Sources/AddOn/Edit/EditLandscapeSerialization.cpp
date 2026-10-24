@@ -106,7 +106,8 @@ Value PathsValue (const edit::Document& doc, LandscapeStorage mode)
                                                  { "fall", Integer (int (s.fall)) },
                                                  { "shoulder", Number (s.shoulder) },
                                                  { "cutSlope", Number (s.cutSlope) },
-                                                 { "fillSlope", Number (s.fillSlope) } }));
+                                                 { "fillSlope", Number (s.fillSlope) },
+                                                 { "rounding", Number (s.rounding) } }));
         for (const auto& k : path.kerbs)
             kerbs.push_back (Value::Object ({ { "point", IdValue (k.point) },
                                               { "other", IdValue (k.other) },

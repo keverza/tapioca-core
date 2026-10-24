@@ -75,7 +75,7 @@ TerrainStation Station (double x, double z)
 
 TEST (GeometryRustHybridTerrain, AbiLayouts)
 {
-    static_assert (sizeof (TapiocaTerrainStation) == 152);
+    static_assert (sizeof (TapiocaTerrainStation) == 160);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridRequest) == 360);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridOutput) == 144);
     static_assert (sizeof (void*) != 8 || sizeof (TapiocaTerrainHybridLockedRequest) == 408);

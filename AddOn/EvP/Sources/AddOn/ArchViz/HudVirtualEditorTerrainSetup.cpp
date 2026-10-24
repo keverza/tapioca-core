@@ -219,6 +219,7 @@ void SectionPanel (Session& s, edit::Id path)
     ImGui::InputDouble ("Shoulder (m)", &value.shoulder, 0, 0, "%.3f");
     ImGui::InputDouble ("Cut slope (%)", &value.cutSlope, 0, 0, "%.3f");
     ImGui::InputDouble ("Fill slope (%)", &value.fillSlope, 0, 0, "%.3f");
+    ImGui::InputDouble ("Rounding (m)", &value.rounding, 0, 0, "%.2f");
     if (ImGui::Button ("Apply cross-section"))
         ApplyTerrainSectionEdit (s);
     ImGui::EndDisabled ();

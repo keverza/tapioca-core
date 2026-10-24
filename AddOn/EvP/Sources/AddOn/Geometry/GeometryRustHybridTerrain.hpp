@@ -20,6 +20,9 @@ struct TerrainStation {
     double shoulderLeft = 0, shoulderRight = 0;
     TerrainSlope cut, fill;             // Face grades below / above the ground.
     double cutLimit = 0, fillLimit = 0; // Plan reach of each face, metres.
+    // Plan metres over which each face rounds into the band at its top and into the ground at
+    // its toe (tangent at both); the face between is the sharp one. 0 keeps both creases.
+    double rounding = 0;
 };
 struct HybridTerrainRequest {
     TerrainMeshView mesh;
@@ -40,7 +43,8 @@ enum class HybridLineKind : uint32_t {
     End = 4,
     Crown = 5,
     Locked = 6,
-    Section = 7
+    Section = 7,
+    Face = 8 // A line across a rounded face (side set; root counts outward from the edge).
 };
 struct HybridLine {
     HybridLineKind kind = HybridLineKind::Edge;

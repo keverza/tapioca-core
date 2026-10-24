@@ -23,6 +23,15 @@
 //! later phase), the design leaves the base untouched. A vertical face ends the
 //! design at the edge. [`Effect`] then restricts the result as in the operator.
 //!
+//! **Rounding.** A station's `rounding` (plan metres, 0 sharp) rounds a face's
+//! two creases. Its top: the face's first `rounding` metres are the cubic that
+//! leaves the edge (or the level shoulder) at the band's own outward grade and
+//! arrives on the straight face with the face's grade, so beyond it the face and
+//! its daylight are exactly the sharp ones. Its toe: where the face is within
+//! `grade * rounding` of the ground it blends into it as `base +/- gap * s(gap /
+//! (grade * rounding))`, `s` the smoothstep -- the same height at the daylight
+//! and on the face, and the same slope at both ends of the blend.
+//!
 //! Plan positions are world metres in `f64`; heights in metres.
 
 use super::daylight::{DaylightError, Locus, Ray, Sense, daylight_roots};
@@ -54,6 +63,9 @@ pub struct Station {
     pub cut_limit: f64,
     /// Plan reach of a fill face from the edge, metres.
     pub fill_limit: f64,
+    /// Plan length over which each face rounds into the band and into the
+    /// ground, metres, non-negative; 0 keeps both creases sharp.
+    pub rounding: f64,
 }
 
 /// How a cross-section falls across the band.
@@ -192,6 +204,7 @@ struct Section {
     shoulder: [f64; 2],
     grades: [f64; 2],
     limits: [f64; 2],
+    rounding: f64,
     /// Twist at the left edge, the right edge and the clamped query offset.
     twist: [f64; 3],
 }
@@ -203,6 +216,34 @@ fn twist(fall: Option<Fall>, lateral: f64) -> f64 {
         Some(Fall::OneWay(gradient, Hand::Right)) => gradient * lateral,
         Some(Fall::Crown(gradient)) => -gradient * lateral.abs(),
     }
+}
+
+/// The rounded top of a face: the cubic Hermite over `[0, length]` from the edge
+/// height leaving at grade `leaving` to the straight face (`edge + rise * length`)
+/// arriving at its grade `rise`.
+fn top(edge: f64, leaving: f64, rise: f64, length: f64, run: f64) -> f64 {
+    let t = run / length;
+    let (t2, t3) = (t * t, t * t * t);
+    let h00 = 2.0f64.mul_add(t3, -3.0 * t2) + 1.0;
+    let h10 = t3 - 2.0 * t2 + t;
+    let h01 = (-2.0f64).mul_add(t3, 3.0 * t2);
+    let h11 = t3 - t2;
+    h00 * edge + h10 * leaving * length + h01 * (edge + rise * length) + h11 * rise * length
+}
+
+/// The face against the ground: a cut keeps the lower, a fill the higher; within
+/// `blend` metres of height of the ground the face eases onto it (0 is sharp).
+fn toe(base: f64, face: f64, cut: bool, blend: f64) -> f64 {
+    let gap = if cut { base - face } else { face - base };
+    if gap <= 0.0 {
+        return base;
+    }
+    if blend <= 0.0 || blend.is_nan() || gap >= blend {
+        return face;
+    }
+    let s = gap / blend;
+    let eased = gap * s * s * 2.0f64.mul_add(-s, 3.0);
+    if cut { base - eased } else { base + eased }
 }
 
 fn unit(x: f64, y: f64) -> Option<[f64; 2]> {
@@ -222,6 +263,7 @@ fn grades(station: &Station) -> Result<Grades, DesignError> {
         station.shoulder_right,
         station.cut_limit,
         station.fill_limit,
+        station.rounding,
     ];
     if station.position.iter().any(|v| !v.is_finite())
         || numbers.iter().any(|v| !(v.is_finite() && *v >= 0.0))
@@ -462,6 +504,7 @@ impl<'a> Design<'a> {
                 mix(first.cut_limit, second.cut_limit),
                 mix(first.fill_limit, second.fill_limit),
             ],
+            rounding: mix(first.rounding, second.rounding),
             twist: [
                 mix(twist(from.fall, half[0]), twist(to.fall, half[0])),
                 mix(twist(from.fall, -half[1]), twist(to.fall, -half[1])),
@@ -519,16 +562,31 @@ impl<'a> Design<'a> {
             return Ok(Some(untouched));
         }
         let run = (distance - shoulder).max(0.0);
-        let design = if kind == 0 {
-            base.min(edge[2] + grade * run)
+        // The face's rise per metre outward, and the band's own where the face leaves it.
+        let rise = if kind == 0 { grade } else { -grade };
+        let leaving = if shoulder > 0.0 || half <= 0.0 {
+            0.0
         } else {
-            base.max(edge[2] - grade * run)
+            edge_twist / half
         };
+        let rounding = section.rounding;
+        let cone = if rounding > 0.0 && run < rounding {
+            top(edge[2], leaving, rise, rounding, run)
+        } else {
+            edge[2] + rise * run
+        };
+        let design = toe(base, cone, kind == 0, grade * rounding);
         let region = Region::Transition {
             side,
             classification: class.classification,
         };
         Ok(Some(self.restrict(base, design, region)))
+    }
+
+    /// Rounding length at station `index`, metres.
+    #[must_use]
+    pub fn rounding(&self, index: usize) -> f64 {
+        self.stations.get(index).map_or(0.0, |s| s.rounding)
     }
 
     fn restrict(&self, base: f64, design: f64, region: Region) -> DesignSample {

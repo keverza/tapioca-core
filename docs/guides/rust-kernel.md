@@ -953,6 +953,18 @@ runs a range change over a short explicit taper (`TerrainDesignOptions::taper`,
 0.5 m) ending at the range start. A zero-length step would make the band
 discontinuous; its end faces need corner fans, which belong to composition.
 
+**Rounded faces.** A station's `rounding` (plan metres, appended to
+`TapiocaTerrainStation` after `reserved`; the struct grows from 152 to 160 bytes)
+eases each face into the band at its top and into the ground at its toe. The top
+is a cubic Hermite over the first `rounding` metres from the edge's own outward
+grade to the face's; the toe blends as `base +/- gap * smoothstep(gap / (grade *
+rounding))`, so the daylight height and position are the sharp ones and both ends
+are tangent. A side that rounds carries eight additive line kind 8 (`side` set,
+`root` counting outward): four evenly over each end's rounding, clamped to 6-45 %
+of the face, so the curve has vertices to lie on. `rounding = 0` builds exactly
+what it did before. The editor's path cross-section carries it (`Section::rounding`,
+default 1 m; files saved without it load as 0).
+
 **Located conflicts (S4.3).** `terrain::hybrid::conflict` names where a band
 cannot be built as authored, each with station, side, position, magnitude and a
 suggested fix: `DaylightNotReached`, `DaylightBeyondLimit`, `VerticalFace` and

@@ -41,6 +41,7 @@ fn station(x: f64, z: f64) -> Station {
         fill: HALF,
         cut_limit: 30.0,
         fill_limit: 30.0,
+        rounding: 0.0,
     }
 }
 

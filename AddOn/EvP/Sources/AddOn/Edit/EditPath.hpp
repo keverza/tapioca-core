@@ -113,6 +113,8 @@ enum class Fall : uint8_t { Crown, Left, Right };
 // A cross-section template that applies from `station` to the next range's station.
 // Widths are measured from the centreline in plan; crossfall, cut and fill slopes are
 // percentages (50 % is 1:2). The shoulder runs out level-with-the-edge before grading.
+// `rounding` is the plan length over which the grading faces ease into the path at their top
+// and into the ground at their toe (0 leaves both creases sharp).
 struct Section {
     Id id = kNoId;
     double station = 0.0;
@@ -121,6 +123,7 @@ struct Section {
     Fall fall = Fall::Crown;
     double shoulder = 0.0;
     double cutSlope = 50.0, fillSlope = 33.0;
+    double rounding = 1.0;
     bool operator== (const Section&) const = default;
 };
 // The first range starts at 0, ranges ascend inside the path, and every range is

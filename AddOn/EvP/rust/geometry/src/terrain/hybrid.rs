@@ -77,6 +77,14 @@ pub enum LineKind {
     Locked(u32),
     /// Internal sampled cross-section, indexed in the input band stations.
     Section(u32),
+    /// A line across a rounded face, so its curve has vertices to lie on;
+    /// `step` counts outward from the edge.
+    Face {
+        /// The side.
+        side: Hand,
+        /// Line index across the face, ascending outward.
+        step: u32,
+    },
 }
 
 /// The built surface and its mapping.
@@ -175,6 +183,32 @@ type SideOffsets = Option<Vec<(f64, Vec<f64>)>>;
 
 const SIDES: [(usize, Hand, f64); 2] = [(0, Hand::Left, 1.0), (1, Hand::Right, -1.0)];
 
+/// Lines across each rounded face, evenly between its start and its first daylight.
+const FACE_LINES: usize = 2 * FACE_LINES_PER_END;
+/// Lines inside each rounded end of a face, evenly over its rounding length.
+const FACE_LINES_PER_END: usize = 4;
+/// Smallest share of a face each rounded end spans, and the largest: the ends
+/// never meet, and a station that does not round still holds its lines apart.
+const FACE_END_SHARE: (f64, f64) = (0.06, 0.45);
+
+/// Per side: whether its faces carry [`FACE_LINES`] lines -- some station rounds
+/// and every station's face is long enough to hold them apart.
+fn face_lines(design: &Design<'_>, offsets: &[SideOffsets; 2]) -> [bool; 2] {
+    SIDES.map(|(slot, _, _)| {
+        offsets
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_some_and(|stations| {
+                (0..stations.len()).any(|i| design.rounding(i) > 0.0)
+                    && stations.iter().all(|(shoulder, roots)| {
+                        roots.first().is_some_and(|&root| {
+                            root - shoulder > 4.0 * plan::ON / FACE_END_SHARE.0
+                        })
+                    })
+            })
+    })
+}
+
 fn index(value: usize) -> Result<u32, HybridError> {
     u32::try_from(value).map_err(|_| HybridError::Region(RegionError::Terrain(Error::Shape)))
 }
@@ -215,6 +249,41 @@ fn offsets(
     Ok(result)
 }
 
+/// Which lines a side carries beyond its edge.
+struct Outward {
+    shoulder: bool,
+    faces: bool,
+}
+
+impl Outward {
+    /// One station's outward offsets from the edge: the shoulder's end, the face
+    /// lines -- [`FACE_LINES_PER_END`] evenly over its `rounding` from the face's
+    /// start and as many back from its first daylight -- then the daylight roots.
+    fn offsets(&self, shoulder: f64, roots: &[f64], rounding: f64) -> Vec<f64> {
+        let mut offsets = Vec::with_capacity(roots.len() + FACE_LINES + 1);
+        if self.shoulder {
+            offsets.push(shoulder);
+        }
+        if self.faces
+            && let Some(&first) = roots.first()
+        {
+            let span = first - shoulder;
+            let (least, most) = FACE_END_SHARE;
+            let end = rounding.clamp(span * least, span * most);
+            let mut ends = [0.0; FACE_LINES_PER_END];
+            let mut share = 0.0;
+            for slot in &mut ends {
+                share += 1.0 / 4.0;
+                *slot = end * share;
+            }
+            offsets.extend(ends.iter().map(|d| shoulder + d));
+            offsets.extend(ends.iter().rev().map(|d| first - d));
+        }
+        offsets.extend_from_slice(roots);
+        offsets
+    }
+}
+
 /// The design lines in plan (z ignored) and what each one is.
 fn lines(
     design: &Design<'_>,
@@ -229,7 +298,8 @@ fn lines(
             .and_then(Option::as_ref)
             .is_some_and(|stations| stations.iter().any(|(s, _)| *s > 0.0))
     });
-    // Station -> side -> ordered outward points (edge, shoulder, roots).
+    let faces = face_lines(design, offsets);
+    // Station -> side -> ordered outward points (edge, shoulder, face lines, roots).
     let mut sections: Vec<[Vec<[f64; 2]>; 2]> = Vec::with_capacity(count);
     for station in 0..count {
         let edges = design.edges(station).ok_or(missing)?;
@@ -244,10 +314,17 @@ fn lines(
             if let Some(Some(stations)) = offsets.get(slot)
                 && let Some((shoulder, roots)) = stations.get(station)
             {
-                if shoulders.get(slot).copied().unwrap_or(false) {
-                    points.push(at(*shoulder));
-                }
-                points.extend(roots.iter().map(|&root| at(root)));
+                let lines = Outward {
+                    shoulder: shoulders.get(slot).copied().unwrap_or(false),
+                    faces: faces.get(slot).copied().unwrap_or(false),
+                };
+                let rounding = design.rounding(station);
+                points.extend(
+                    lines
+                        .offsets(*shoulder, roots, rounding)
+                        .into_iter()
+                        .map(at),
+                );
             }
         }
         sections.push(pair);
@@ -260,13 +337,23 @@ fn lines(
             .and_then(|pair| pair.get(slot))
             .map_or(0, Vec::len);
         let shoulder = shoulders.get(slot).copied().unwrap_or(false);
+        let across = if faces.get(slot).copied().unwrap_or(false) {
+            FACE_LINES
+        } else {
+            0
+        };
+        let first_face = 1 + usize::from(shoulder);
         for position in 0..width {
             let kind = match position {
                 0 => LineKind::Edge(side),
                 1 if shoulder => LineKind::Shoulder(side),
+                p if p < first_face + across => LineKind::Face {
+                    side,
+                    step: index(p - first_face)?,
+                },
                 _ => LineKind::Daylight {
                     side,
-                    root: index(position - 1 - usize::from(shoulder))?,
+                    root: index(position - first_face - across)?,
                 },
             };
             let mut line = Vec::with_capacity(count * 3);

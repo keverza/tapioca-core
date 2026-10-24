@@ -51,6 +51,8 @@ pub struct TerrainStation {
     pub crossfall_hand: u32,
     /// Zero.
     pub reserved: u32,
+    /// Plan length each face rounds over into the band and the ground, metres; 0 sharp.
+    pub rounding: f64,
 }
 
 /// The base mesh, the region ring, the band and the input provenance.
@@ -230,6 +232,7 @@ fn station(raw: &TerrainStation) -> Result<Station, Failure> {
         fill: slope(raw.fill)?,
         cut_limit: raw.cut_limit,
         fill_limit: raw.fill_limit,
+        rounding: raw.rounding,
     })
 }
 
@@ -392,6 +395,7 @@ pub(super) fn encode_build(built: Built, controls: bool) -> Result<Encoded, Fail
                 LineKind::End(last) => (4, 0, u32::from(last)),
                 LineKind::Crown => (5, 0, 0),
                 LineKind::Section(station) => (7, 0, station),
+                LineKind::Face { side, step } => (8, hand(side), step),
                 LineKind::Locked(line) if controls => (6, 0, line),
                 LineKind::Locked(_) => {
                     return Err(Failure::Argument("TerrainHybridLockedUnsupported"));

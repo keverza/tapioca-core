@@ -598,6 +598,7 @@ typedef struct {
     double position[3], halfLeft, halfRight, shoulderLeft, shoulderRight, cutLimit, fillLimit;
     TapiocaTerrainSlope cut, fill, crossfall;
     uint32_t crossfallHand, reserved;
+    double rounding; // Plan metres each face rounds over into the band and the ground; 0 sharp.
 } TapiocaTerrainStation;
 typedef struct {
     TapiocaDoubleView points;

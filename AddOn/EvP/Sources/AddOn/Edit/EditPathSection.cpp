@@ -33,6 +33,10 @@ bool Fine (const Section& s, std::string& error)
         error = "shoulders and grading slopes must be positive";
         return false;
     }
+    if (!(s.rounding >= 0.0) || !std::isfinite (s.rounding)) {
+        error = "a rounding cannot be negative";
+        return false;
+    }
     return true;
 }
 

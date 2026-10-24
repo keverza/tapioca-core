@@ -125,7 +125,8 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode)
         });
         Each (item.Field ("sections"), [&] (const Reader& section) {
             section.Fields ({ "id", "station", "widthLeft", "widthRight", "crossfall", "fall", "shoulder", "cutSlope",
-                              "fillSlope" });
+                              "fillSlope" },
+                            { "rounding" });
             edit::Section s;
             s.id = section.Field ("id").Identifier ();
             s.station = section.Field ("station").Number ();
@@ -136,6 +137,8 @@ void Entities (const Reader& root, edit::Document& doc, LandscapeStorage mode)
             s.shoulder = section.Field ("shoulder").Number ();
             s.cutSlope = section.Field ("cutSlope").Number ();
             s.fillSlope = section.Field ("fillSlope").Number ();
+            // Saved before rounding existed: the creases those files were built with.
+            s.rounding = section.Has ("rounding") ? section.Field ("rounding").Number () : 0.0;
             path.sections.push_back (s);
         });
         Each (item.Field ("kerbs"), [&] (const Reader& kerb) {
