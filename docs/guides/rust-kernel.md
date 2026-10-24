@@ -101,8 +101,10 @@ Its equivalent service boundary is enforced by `tools/quality/check_rust.py`:
 
 ```text
 Geometry/GeometryRustTerrain.hpp (tapioca::geometry services wrapper)
+SunStudy/SunStudyRust.hpp        (evp::sunstudy::rust services wrapper)
     -> tapioca-core-ffi (aggregate staticlib, unsafe denied by default)
         -> tapioca-geometry (safe library, unsafe forbidden)
+        -> tapioca-sunstudy (safe library, unsafe forbidden, no dependencies)
 ```
 
 Only the local FFI-to-geometry dependency is approved; no third-party/test/build
@@ -1143,6 +1145,32 @@ with `TerrainControlTierUnsupported` in the common `EditTerrainAdapter` and
 ignored or converted into positional masks. Disabled controls leave old behavior
 unchanged, and pure field sampling remains available. This is a safety refusal,
 not completed soft/solve constraint enforcement.
+
+## Sun-study core (`tapioca-sunstudy`)
+
+The SDK-free sun-study analysis core is being ported from `Sources/AddOn/SunStudy/`
+in phases; the C++ core stays the production authority and the parity oracle until
+the integration flip, and nothing in production calls the Rust path yet.
+
+- **P0:** the crate, its `check_rust.py` registration (no dependencies; a
+  `sunstudy -> geometry` edge is added only with a consumer) and
+  `tapioca_sunstudy_version`, logged at add-on startup (logged, not enforced).
+- **P1:** the pure kernels -- `series` (horizon filter, normalisation, FNV-1a
+  content version), `raster` (frustum fit, light view-projection, RTC origin,
+  bias, accumulator layout, ground grid, grid ladder), `winding` (closed-element
+  outward proof) and `limits` (study ceilings; the OS memory query and the
+  published GPU facts stay C++). Exports: `tapioca_sunstudy_series`,
+  `_shadow_camera`, `_accum_layout`, `_grid_ladder`, `_ground_grid`,
+  `_orient_outward`, `_limits`, declared in `SunStudy/SunStudyRustFfi.h`.
+
+Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
+runs each kernel and its C++ original over fixed-seed generated corpora and
+compares IEEE bits. Ports therefore mirror C++ evaluation order exactly, including
+`std::min`/`std::max` NaN semantics and `(lo + hi) * 0.5` rather than a midpoint.
+Where the C++ original has undefined behaviour (integer overflow in timestep
+enumeration, out-of-range float-to-integer casts, a group list shorter than the
+face count), Rust refuses or clamps and the difference is documented at the
+function. Record layouts are size-asserted on both sides of the ABI.
 
 ## CMake / Visual Studio (opt-in, standalone ABI link)
 

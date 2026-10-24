@@ -9,6 +9,11 @@
 
 #![forbid(unsafe_code)]
 
+pub mod limits;
+pub mod raster;
+pub mod series;
+pub mod winding;
+
 /// Version of the sun-study C ABI surface (`SunStudyRustFfi.h`).
 ///
 /// Bumped only when an exported sun-study record or call changes shape, so the

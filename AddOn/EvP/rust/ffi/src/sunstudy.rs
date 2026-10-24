@@ -1,7 +1,131 @@
 //! Sun-study C ABI (`SunStudyRustFfi.h`). Envelope and panic containment are shared
 //! with the geometry exports; the analysis itself lives in `tapioca-sunstudy`.
+//!
+//! Every export follows one shape: a request record and an output descriptor are
+//! read, every foreign region is shape-checked and proven disjoint from the
+//! writable ones, the complete result is computed in Rust-owned memory, and only
+//! then is it copied out. A refusal writes nothing but the error buffer.
 
+use crate::borrow::BorrowContext;
 use crate::boundary::{Failure, call, memory_range, overlaps};
+
+mod camera;
+mod ground;
+mod limits;
+mod series;
+mod winding;
+
+pub use camera::{
+    AccumLayoutOutput, GridLadderOutput, GridLadderRequest, ShadowCamera, ShadowCameraRequest,
+    tapioca_sunstudy_accum_layout, tapioca_sunstudy_grid_ladder, tapioca_sunstudy_shadow_camera,
+};
+pub use ground::{
+    GroundGridOutput, GroundGridRequest, GroundGridSummary, tapioca_sunstudy_ground_grid,
+};
+pub use limits::{LimitsOutput, LimitsRequest, tapioca_sunstudy_limits};
+pub use series::{SunSeriesOutput, SunSeriesRequest, SunSeriesSummary, tapioca_sunstudy_series};
+pub use winding::{
+    WindingOutput, WindingReportOutput, WindingRequest, tapioca_sunstudy_orient_outward,
+};
+
+// Layouts are mirrored field for field in SunStudyRustFfi.h; SunStudyRust.cpp
+// asserts the same sizes, so drift on either side fails to compile.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    use tapioca_sunstudy::series::SunStep;
+    assert!(size_of::<SunStep>() == 40);
+    assert!(size_of::<SunSeriesRequest>() == 32);
+    assert!(size_of::<SunSeriesSummary>() == 48);
+    assert!(size_of::<SunSeriesOutput>() == 24);
+    assert!(size_of::<ShadowCameraRequest>() == 96);
+    assert!(size_of::<ShadowCamera>() == 584);
+    assert!(size_of::<AccumLayoutOutput>() == 12);
+    assert!(size_of::<GridLadderRequest>() == 32);
+    assert!(size_of::<GridLadderOutput>() == 32);
+    assert!(size_of::<GroundGridRequest>() == 80);
+    assert!(size_of::<GroundGridSummary>() == 48);
+    assert!(size_of::<GroundGridOutput>() == 24);
+    assert!(size_of::<WindingRequest>() == 56);
+    assert!(size_of::<WindingReportOutput>() == 40);
+    assert!(size_of::<WindingOutput>() == 24);
+    assert!(size_of::<LimitsRequest>() == 48);
+    assert!(size_of::<LimitsOutput>() == 80);
+};
+
+type Range = Option<(usize, usize)>;
+
+/// Foreign regions of one call. Writable regions must be disjoint from every
+/// other region, including the error buffer; read-only regions may alias.
+pub(crate) struct Regions {
+    error: Range,
+    inputs: Vec<Result<Range, &'static str>>,
+    outputs: Vec<Result<Range, &'static str>>,
+}
+
+fn shape<T>(pointer: *const T, count: usize) -> Result<Range, &'static str> {
+    memory_range(pointer, count).map_err(|failure| match failure {
+        Failure::Argument(message) | Failure::State(message) => message,
+        Failure::Overlap | Failure::Internal => "Malformed buffer",
+    })
+}
+
+impl Regions {
+    pub(crate) fn new(error: *mut u8, capacity: usize) -> Result<Self, Failure> {
+        Ok(Self {
+            error: memory_range(error.cast_const(), capacity)?,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        })
+    }
+
+    pub(crate) fn input<T>(&mut self, pointer: *const T, count: usize) {
+        self.inputs.push(shape(pointer, count));
+    }
+
+    pub(crate) fn output<T>(&mut self, pointer: *mut T, count: usize) {
+        self.outputs.push(shape(pointer.cast_const(), count));
+    }
+
+    pub(crate) fn context(&self) -> BorrowContext {
+        BorrowContext {
+            error_range: self.error,
+            output_range: None,
+        }
+    }
+
+    /// Overlap with the error buffer is reported first, before any shape error,
+    /// so the diagnostic write cannot land in a live region.
+    pub(crate) fn check(&self) -> Result<(), Failure> {
+        let known = self.inputs.iter().chain(&self.outputs).flatten();
+        if known.clone().any(|range| overlaps(*range, self.error)) {
+            return Err(Failure::Overlap);
+        }
+        let mut inputs = Vec::with_capacity(self.inputs.len());
+        for range in &self.inputs {
+            inputs.push((*range).map_err(Failure::Argument)?);
+        }
+        let mut outputs = Vec::with_capacity(self.outputs.len());
+        for range in &self.outputs {
+            outputs.push((*range).map_err(Failure::Argument)?);
+        }
+        for (index, output) in outputs.iter().enumerate() {
+            let others = outputs.iter().skip(index + 1).chain(&inputs);
+            if others.clone().any(|other| overlaps(*output, *other)) {
+                return Err(Failure::Overlap);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Decode a C `uint8_t` flag that must be 0 or 1.
+pub(crate) fn flag(value: u8, message: &'static str) -> Result<bool, Failure> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(Failure::Argument(message)),
+    }
+}
 
 /// Read the sun-study ABI version (currently 1), independent of the aggregate
 /// `tapioca_version`, so the C++ wrapper can refuse a mismatched archive.

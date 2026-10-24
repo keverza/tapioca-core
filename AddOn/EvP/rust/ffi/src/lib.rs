@@ -147,4 +147,11 @@ pub use terrain::{
     reason = "Sun-study POD ingress and checked caller-owned publication at the C boundary"
 )]
 mod sunstudy;
-pub use sunstudy::tapioca_sunstudy_version;
+pub use sunstudy::{
+    AccumLayoutOutput, GridLadderOutput, GridLadderRequest, GroundGridOutput, GroundGridRequest,
+    GroundGridSummary, LimitsOutput, LimitsRequest, ShadowCamera, ShadowCameraRequest,
+    SunSeriesOutput, SunSeriesRequest, SunSeriesSummary, WindingOutput, WindingReportOutput,
+    WindingRequest, tapioca_sunstudy_accum_layout, tapioca_sunstudy_grid_ladder,
+    tapioca_sunstudy_ground_grid, tapioca_sunstudy_limits, tapioca_sunstudy_orient_outward,
+    tapioca_sunstudy_series, tapioca_sunstudy_shadow_camera, tapioca_sunstudy_version,
+};

@@ -8,6 +8,8 @@ invariants, C++ parity oracle, and tests. Keep changes independently verifiable.
 
 ## Ownership and organization
 
+- `sunstudy/` owns the pure sun-study analysis core (no dependencies, unsafe
+  forbidden); C++ remains its parity oracle. See the guide's sun-study section.
 - `geometry/` owns pure computation; `ffi/` may depend on `geometry/`, never the
   reverse. Cargo and `check_rust.py` enforce this crate-level dependency boundary.
 - No Archicad, Diligent, ImGui, Windows, CPython, process, filesystem, network, or
