@@ -94,16 +94,7 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
         host.known = true;
         host.open = true;
     }
-    // ⚠️ A PANEL THAT JUST ARRIVED IS SHOWN: the user ran what made it. Once -- a layer set
-    // again with the same panels takes nothing from the tab the user chose since.
-    if (standalone) {
-        std::string arrived;
-        for (const size_t i : titled)
-            if (store->seenPanels.insert (keys[i]).second && arrived.empty ())
-                arrived = keys[i];
-        if (!arrived.empty ())
-            host.selected = arrived;
-    }
+    // Background publication never changes the page the user is inspecting.
     // The tab held is one of them or an own page: otherwise Stats, or -- without own pages --
     // the first panel, when the one held is gone.
     bool held = host.selected == kSettingsKey ||

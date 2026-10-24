@@ -108,9 +108,6 @@ struct State {
         hudshell::Placement placement;
     };
     Host host;
-    // The titled panels' keys the HUD has shown a tab for: a key not among them is a panel
-    // that just arrived, and a standalone HUD turns to it -- the user ran what made it.
-    std::set<std::string> seenPanels;
     // The viewer's circle pressed, and not yet taken by the owner (TakeViewerRequest).
     bool viewerRequested = false;
     bool logsRequested = false;

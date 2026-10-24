@@ -130,36 +130,24 @@ TEST (OverlayHudOwn, CallerPageWidthDoesNotWidenOtherTabsOrLoseFocusOnSelection)
     EXPECT_LE (hud.Lay ({ &parking }, narrow).host.width, 800);
 }
 
-// Stats, Selection, the caller's panel, Settings, Debug and the close button, along the row.
-// A panel that just arrived is shown -- once: the user's own choice after that is kept when
-// the layer is set again, and the next new panel is shown in its turn.
-TEST (OverlayHudOwn, TheOwnTabsSurroundTheCallersPanelsAndANewPanelIsShownOnce)
+// Background arrivals and republishes must preserve explicit navigation.
+TEST (OverlayHudOwn, NewPanelsNeverReplaceTheUsersPage)
 {
     Watched hud;
     hud.engine.SetOwnPages (Standalone ());
     hud.Lay ({}, At (600.0f, 600.0f));
     EXPECT_EQ (hud.engine.Selected (), shell::kStatsKey);
     const layers::Panel sun = Titled ("Sun study", 0x11AA22FFu);
-    const hud::Layout arrived = hud.Lay ({ &sun }, At (600.0f, 600.0f));
-    EXPECT_EQ (hud.engine.Selected (), "hud#0") << "the panel that just arrived";
-    float box[4] = {};
-    EXPECT_TRUE (Box (arrived.host, 0x11AA22FFu, box));
-    const float y = RowY (hud, { &sun }, arrived.host);
-    ASSERT_GT (y, 0.0f);
-    const std::vector<std::pair<float, float>> runs = Presses (hud, { &sun }, arrived.host, y);
-    ASSERT_EQ (runs.size (), 7u) << "Stats, Selection, Massing, the panel, Settings, Debug, close";
-    hud.Click ({ &sun }, Middle (runs[0]), y);
+    hud.Lay ({ &sun }, At (600.0f, 600.0f));
     EXPECT_EQ (hud.engine.Selected (), shell::kStatsKey);
-    ASSERT_FALSE (hud.heard.empty ());
-    EXPECT_EQ (hud.heard.back ().kind, "panel");
-    EXPECT_EQ (hud.heard.back ().text, "Stats");
-    EXPECT_TRUE (hud.heard.back ().key.empty ()) << "an own page names no layer's panel";
-    const layers::Panel sunAgain = Titled ("Sun study", 0x11AA22FFu);
-    hud.Lay ({ &sunAgain }, At (600.0f, 600.0f));
-    EXPECT_EQ (hud.engine.Selected (), shell::kStatsKey) << "set again, it does not take the tab back";
+    hud::SelectKey (*hud.state, "hud#0");
+    hud.Lay ({ &sun }, At (600.0f, 600.0f));
+    EXPECT_EQ (hud.engine.Selected (), "hud#0");
     const layers::Panel area = Titled ("Area", 0x3355CCFFu);
-    hud.Lay ({ &sunAgain, &area }, At (600.0f, 600.0f));
-    EXPECT_EQ (hud.engine.Selected (), "hud#1") << "the next new panel is shown in its turn";
+    hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
+    EXPECT_EQ (hud.engine.Selected (), "hud#0");
+    hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
+    EXPECT_EQ (hud.engine.Selected (), "hud#0");
 }
 
 // A panel that asks for Stats is a card there: no tab and no window of its own, its items on
