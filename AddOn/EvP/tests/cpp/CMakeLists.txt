@@ -649,6 +649,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInput.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputCursor.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputKeyboard.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayInputResidue.cpp"
     # Independent sun-analysis compute device; no renderer, window or ACAPI.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyGpuTraversal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ArchVizLogStub.cpp"

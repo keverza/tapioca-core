@@ -11,6 +11,7 @@ using Sink = bool (*) (HWND window, const overlayhud::Input::Key& key, const std
 // unlike a canvas-only WM_KEYDOWN rewrite. No focus steal, ACAPI or ImGui here.
 bool Install (Sink sink);
 void Stop ();
+bool Installed ();
 void Message (MSG& message, bool take);
 } // namespace geomsrv::archviz::overlayinput::keyboard
 #endif

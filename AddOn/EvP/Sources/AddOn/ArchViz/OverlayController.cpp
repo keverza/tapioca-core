@@ -326,6 +326,19 @@ void StopRenderers (bool teardown)
         ArchVizPanel::CloseDiligentOverlay ();
 }
 
+// ⚠️ INPUT RESIDUE AT EVERY STOP (OverlayInput.hpp `Residue`; the user, 2026-10-24: after the
+// overlay was turned off while the view was locked, the mouse stayed dead, a new project
+// included). One line: what of the input layer and of the thread's own mouse state survived the
+// stop, and the HUD's lock and editors, which the next session's first layout would publish again.
+void SayResidue (const char* when)
+{
+    const auto state = guesttext::HudState ();
+    ArchVizLog (std::string ("INPUT RESIDUE  ") + when + ": " + overlayinput::Residue () + "; HUD lock " +
+                (overlayhud::EditLocked (*state) ? "on" : "off") + ", virtual editor " +
+                (overlayhud::VirtualEditorActive (*state) ? "open" : "closed") + ", roof editor " +
+                (overlayhud::RoofEditorActive (*state) ? "open" : "closed"));
+}
+
 // MAIN THREAD, with `which`'s view in front: start its renderer and record the
 // outcome on its intent.
 //
@@ -588,6 +601,7 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
             overlayrelease::Shared ();
             FollowHudState ();
         }
+        SayResidue (which == Overlay::ThreeD ? "3D overlay off" : "plan overlay off");
         intent.code = "None";
         intent.message = "off";
         intent.retryable = false;
@@ -824,6 +838,7 @@ void StopAll ()
     StopHeartbeat ();
     StopRenderers (true);
     overlayinput::Shutdown ();
+    SayResidue ("every overlay stopped");
     overlayvisibility::SetContentShown (true);
     overlayvisibility::SetWireframeShown (true);
 }

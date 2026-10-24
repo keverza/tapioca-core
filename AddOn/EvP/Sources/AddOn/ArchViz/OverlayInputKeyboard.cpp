@@ -64,6 +64,10 @@ void Stop ()
     s_hook = nullptr, s_sink = nullptr;
     s_ctrl = s_shift = s_alt = false;
 }
+bool Installed ()
+{
+    return s_hook != nullptr;
+}
 void Message (MSG& message, bool take)
 {
     if (!s_sink)

@@ -949,7 +949,16 @@ Stats GetStats ()
         stats.regions[i] = uint32_t (g_targets[i].map.regions.size ());
         stats.canvasOnThread[i] = g_targets[i].ownThread;
         stats.subclassed[i] = g_targets[i].subclassed;
+        stats.locked[i] = g_targets[i].map.locked;
     }
+    stats.keyboardHook = keyboard::Installed ();
+    stats.idleHook = g_idleHook != nullptr;
+    stats.returnHook = s_returnHook != nullptr;
+    stats.inputWindow = g_window != nullptr;
+    stats.roofEditKeys = s_roofEditKeys;
+    stats.hudTextKeys = s_hudTextKeys;
+    stats.gestureHeld = s_gestureTarget != nullptr;
+    stats.buttonsDown = g_down;
     return stats;
 }
 

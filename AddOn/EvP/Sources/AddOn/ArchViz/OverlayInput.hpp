@@ -168,8 +168,20 @@ struct Stats {
     uint64_t activations = 0;
     // Keys taken because the pointer was on the locked view while the focus was elsewhere.
     uint64_t keysByPointer = 0;
+    // What a teardown must leave behind as nothing (§8): the other hooks and the input window,
+    // the keyboard latches, each view's lock, a gesture's owner and the buttons it holds down.
+    bool keyboardHook = false, idleHook = false, returnHook = false, inputWindow = false;
+    bool roofEditKeys = false, hudTextKeys = false, gestureHeld = false;
+    bool locked[2] = { false, false };
+    uint32_t buttonsDown = 0;
 };
 Stats GetStats ();
+// ⚠️ "INPUT RESIDUE": what of the input layer, and of the thread's own mouse state, could still
+// own or block the pointer after a teardown -- each hook, a view still attached or locked, a held
+// gesture, Win32 capture, a cursor clip, a hidden cursor, a disabled top-level window. "none" when
+// nothing does. Logged by the controller at every overlay stop, so a mouse that stays dead after
+// one names its first divergent state (§0) rather than being guessed at. MAIN THREAD.
+std::string Residue ();
 
 } // namespace overlayinput
 } // namespace archviz

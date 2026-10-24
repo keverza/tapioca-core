@@ -387,6 +387,37 @@ TEST (OverlayInput, RoofEscapeIsScopedToItsLockedCanvasAndStopsWithTheSession)
     ::DestroyWindow (canvas);
 }
 
+// The user, 2026-10-24: the mouse stayed dead after the overlay was turned off on a locked view.
+// The residue report names what of the input layer outlived a stop, so a live repro says which.
+TEST (OverlayInput, TheResidueReportNamesWhatOutlivesAStop)
+{
+    const HWND canvas = Canvas ();
+    std::string error;
+    ASSERT_TRUE (input::Attach (input::View::Plan, canvas, Owner (), error)) << error;
+    input::HitMap map;
+    map.locked = true;
+    input::SetHitMap (input::View::Plan, map);
+    input::EnableRoofEditKeys (true);
+    const std::string held = input::Residue ();
+    const std::string plan = input::ViewName (input::View::Plan);
+    EXPECT_NE (held.find ("message hook"), std::string::npos) << held;
+    EXPECT_NE (held.find (plan + " locked"), std::string::npos) << held;
+    EXPECT_NE (held.find ("roof edit keys latched"), std::string::npos) << held;
+
+    input::Detach (input::View::Plan);
+    const std::string detached = input::Residue ();
+    EXPECT_EQ (detached.find ("hook"), std::string::npos) << detached;
+    EXPECT_EQ (detached.find (plan + " "), std::string::npos) << detached;
+    // Only Shutdown forgets the keyboard latch; a Detach leaves it, and the report says so.
+    EXPECT_NE (detached.find ("roof edit keys latched"), std::string::npos) << detached;
+
+    input::Shutdown ();
+    const std::string down = input::Residue ();
+    for (const char* item : { "hook", "input window", "latched", "attached", "locked", "subclassed", "gesture" })
+        EXPECT_EQ (down.find (item), std::string::npos) << down;
+    ::DestroyWindow (canvas);
+}
+
 TEST (OverlayInput, LockedCanvasCancelsOldHoverAndRejectsStationaryHostFeedbackOnlyWhileLocked)
 {
     const HMODULE controls = ::LoadLibraryW (L"comctl32.dll"); // Archicad loads this before its canvas is attached
