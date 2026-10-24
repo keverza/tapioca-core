@@ -11,7 +11,7 @@ namespace {
 SunStudyCoreKind FromEnvironment ()
 {
     const char* value = std::getenv ("TAPIOCA_SUNSTUDY_CORE");
-    return value != nullptr && std::string (value) == "rust" ? SunStudyCoreKind::Rust : SunStudyCoreKind::Cpp;
+    return value != nullptr && std::string (value) == "cpp" ? SunStudyCoreKind::Cpp : SunStudyCoreKind::Rust;
 }
 
 // -1: no override; otherwise the SunStudyCoreKind value.

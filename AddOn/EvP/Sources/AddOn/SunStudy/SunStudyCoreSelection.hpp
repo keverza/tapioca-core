@@ -1,13 +1,13 @@
 #ifndef EVP_SUNSTUDY_SUNSTUDYCORESELECTION_HPP
 #define EVP_SUNSTUDY_SUNSTUDYCORESELECTION_HPP
 
-// SunStudy/SunStudyCoreSelection -- which core runs a NEW study (P5 flip).
+// SunStudy/SunStudyCoreSelection -- which core runs a NEW study.
 //
-// `TAPIOCA_SUNSTUDY_CORE=rust` attaches the Rust study core to every study
-// started afterwards; anything else, or a build without the Rust archive,
-// keeps the C++ core. Read once per process: a study keeps the core it
-// started with, so a running session never mixes the two. The C++ core stays
-// compiled as the oracle until the default flips (P6).
+// The Rust study core is the default (P6). `TAPIOCA_SUNSTUDY_CORE=cpp`, or a
+// build without the Rust archive, keeps the C++ core; any other value,
+// including unset, selects Rust. Read once per process: a study keeps the
+// core it started with, so a running session never mixes the two. The C++
+// core stays compiled as the oracle and the escape hatch until P7.
 
 #include <cstdint>
 #include <optional>

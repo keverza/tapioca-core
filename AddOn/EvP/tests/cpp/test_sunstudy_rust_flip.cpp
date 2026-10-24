@@ -280,13 +280,19 @@ struct Cleanup {
 
 } // namespace
 
-TEST (SunStudyRustFlip, SelectionDefaultsToCppAndCanBeOverridden)
+TEST (SunStudyRustFlip, SelectionDefaultsToRustAndCanBeOverridden)
 {
     Cleanup cleanup;
-    if (std::getenv ("TAPIOCA_SUNSTUDY_CORE") == nullptr)
-        EXPECT_EQ (SelectedSunStudyCore (), SunStudyCoreKind::Cpp);
+    const SunStudyCoreKind available = RustSunStudyCoreAvailable () ? SunStudyCoreKind::Rust : SunStudyCoreKind::Cpp;
+    const char* value = std::getenv ("TAPIOCA_SUNSTUDY_CORE");
+    if (value == nullptr)
+        EXPECT_EQ (SelectedSunStudyCore (), available) << "the default is the Rust core (P6)";
+    else if (std::string (value) == "cpp")
+        EXPECT_EQ (SelectedSunStudyCore (), SunStudyCoreKind::Cpp) << "the escape hatch";
     OverrideSunStudyCore (SunStudyCoreKind::Rust);
-    EXPECT_EQ (SelectedSunStudyCore (), RustSunStudyCoreAvailable () ? SunStudyCoreKind::Rust : SunStudyCoreKind::Cpp);
+    EXPECT_EQ (SelectedSunStudyCore (), available);
+    OverrideSunStudyCore (SunStudyCoreKind::Cpp);
+    EXPECT_EQ (SelectedSunStudyCore (), SunStudyCoreKind::Cpp);
     OverrideSunStudyCore (std::nullopt);
 }
 
