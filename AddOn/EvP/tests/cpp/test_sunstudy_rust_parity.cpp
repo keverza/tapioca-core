@@ -10,6 +10,8 @@
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAtlasReuse.hpp"
+#include "SunStudy/SunStudyReuse.hpp"
+#include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyRust.hpp"
 
 #include <gtest/gtest.h>
@@ -1566,4 +1568,265 @@ TEST (SunStudyRustParity, ConcurrentSessionAdvancesThroughTheAbiNeverDoubleClaim
     reference.Sync ({ 1, 1, 1 }, scene.series, samples);
     reference.Advance (*scene.traversal, 4);
     EXPECT_EQ (session.Bits (), reference.Accumulator ().Bits ());
+}
+
+// ---------------------------------------------------------------------------
+// P3c: reuse planning, patch sample maps, result summary
+// ---------------------------------------------------------------------------
+
+namespace {
+
+geomsrv::Mesh ReuseBox (const std::string& guid, double x, double y, double w, double d, double h)
+{
+    SamplerCase soup;
+    AppendRectangle (soup, { x, y, h }, { 1, 0, 0 }, { 0, 1, 0 }, w, d, 2, 0, false);
+    AppendRectangle (soup, { x, y, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, w, h, 1, 0, true);
+    AppendRectangle (soup, { x, y + d, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, w, h, 1, 0, false);
+    AppendRectangle (soup, { x, y, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, d, h, 1, 0, false);
+    AppendRectangle (soup, { x + w, y, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, d, h, 1, 0, true);
+    geomsrv::Mesh mesh;
+    mesh.guid = guid;
+    mesh.vertices = soup.vertices;
+    mesh.triangles = soup.triangles;
+    mesh.triMaterial.assign (mesh.triangles.size () / 3, 0);
+    return mesh;
+}
+
+geomsrv::Mesh ReuseFloor (const std::string& guid, double x, double w)
+{
+    SamplerCase soup;
+    AppendRectangle (soup, { x, -20, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, w, 40, 3, 0, false);
+    geomsrv::Mesh mesh;
+    mesh.guid = guid;
+    mesh.vertices = soup.vertices;
+    mesh.triangles = soup.triangles;
+    mesh.triMaterial.assign (mesh.triangles.size () / 3, 0);
+    return mesh;
+}
+
+SunSeries ReuseDay (size_t count)
+{
+    std::vector<SunStep> steps;
+    for (size_t i = 0; i < count; ++i) {
+        SunStep step;
+        step.time = { 7 + static_cast<int> (i / 4), static_cast<int> ((i % 4) * 15) };
+        const double azimuth = 0.3 + 0.21 * static_cast<double> (i),
+                     altitude = 0.25 + 0.05 * static_cast<double> (i % 9);
+        step.direction[0] = std::cos (altitude) * std::cos (azimuth);
+        step.direction[1] = std::cos (altitude) * std::sin (azimuth);
+        step.direction[2] = std::sin (altitude);
+        step.altitudeDegrees = altitude * 57.29;
+        steps.push_back (step);
+    }
+    return SunSeries::FromSteps (steps, 15);
+}
+
+std::unique_ptr<StudyRecord> ReuseRecord (std::shared_ptr<const geomsrv::Snapshot> snapshot, bool patch, size_t steps,
+                                          const std::vector<std::string>& context)
+{
+    auto record = std::make_unique<StudyRecord> ();
+    record->snapshot = snapshot;
+    record->snapshotId = snapshot->id;
+    record->series = ReuseDay (steps);
+    record->gridSpacing = 1.5;
+    const auto roles = evp::sunstudy::ResolveElementRoles (*snapshot, {}, context, {});
+    record->traversal = std::make_shared<CpuTraversal> (std::make_shared<geomsrv::QueryEngine> (snapshot));
+    for (const auto role : roles.roles)
+        record->elementRoles.push_back (static_cast<uint8_t> (role));
+    const auto sampleMask = roles.SampleMask ();
+    std::vector<double> vertices;
+    std::vector<uint32_t> triangles, groups;
+    std::vector<std::string> elements;
+    for (size_t m = 0; m < snapshot->meshes.size (); ++m) {
+        const auto& mesh = snapshot->meshes[m];
+        const uint32_t base = static_cast<uint32_t> (vertices.size () / 3);
+        vertices.insert (vertices.end (), mesh.vertices.begin (), mesh.vertices.end ());
+        for (const uint32_t index : mesh.triangles)
+            triangles.push_back (base + index);
+        groups.resize (triangles.size () / 3, static_cast<uint32_t> (m));
+        elements.push_back (mesh.guid);
+    }
+    if (patch) {
+        record->domain = SamplingDomain::SurfacePatch;
+        PatchSamplerOptions options;
+        options.spacing = record->gridSpacing;
+        options.sampleGroup = &sampleMask;
+        record->patchGrid =
+            evp::sunstudy::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
+                                                 triangles.size () / 3, groups.data (), elements, options);
+        record->positions = record->patchGrid.positions;
+        record->normals = record->patchGrid.normals;
+    }
+    else {
+        SamplerOptions options;
+        options.spacing = record->gridSpacing;
+        options.sampleGroup = &sampleMask;
+        record->sampleGrid = evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
+                                                             triangles.size () / 3, groups.data (), options);
+        record->positions = record->sampleGrid.positions;
+        record->normals = record->sampleGrid.normals;
+    }
+    evp::sunstudy::SetSampleMeshes (*record);
+    record->session.Sync ({ snapshot->id, record->series.Version (), 1 }, record->series, record->Samples ());
+    return record;
+}
+
+std::shared_ptr<geomsrv::Snapshot> ReuseScene (Lcg& lcg, int edit, const geomsrv::Snapshot* base)
+{
+    auto snapshot = std::make_shared<geomsrv::Snapshot> ();
+    if (base == nullptr) {
+        snapshot->id = 1;
+        snapshot->meshes = { ReuseFloor ("near", -10, 30), ReuseBox ("tower", 2, -2, 4, 4, 9),
+                             ReuseBox ("shed", 12, 6, 3, 2, 3), ReuseFloor ("far", 80, 20) };
+        return snapshot;
+    }
+    *snapshot = *base;
+    snapshot->id = base->id + 1;
+    switch (edit) {
+        case 0: // move the tower
+            snapshot->meshes[1] = ReuseBox ("tower", 2 + lcg.Uniform (0.5, 3), -2, 4, 4, 9);
+            break;
+        case 1: // add a box
+            snapshot->meshes.push_back (ReuseBox ("new", lcg.Uniform (-5, 15), lcg.Uniform (-10, 10), 2, 2, 5));
+            break;
+        case 2: // delete the shed
+            snapshot->meshes.erase (snapshot->meshes.begin () + 2);
+            break;
+        case 3: // reorder without changing geometry
+            std::swap (snapshot->meshes[0], snapshot->meshes[3]);
+            break;
+        default: // unchanged geometry (role change happens on the record)
+            break;
+    }
+    return snapshot;
+}
+
+void ExpectSameReuse (StudyRecord& expected, StudyRecord& actual, size_t e, size_t a, const char* what)
+{
+    EXPECT_EQ (a, e) << what;
+    EXPECT_EQ (actual.reusedSamples, expected.reusedSamples) << what;
+    EXPECT_EQ (actual.reusedSampleSteps, expected.reusedSampleSteps) << what;
+    EXPECT_EQ (actual.session.Accumulator ().ActiveSampleCount (), expected.session.Accumulator ().ActiveSampleCount ())
+        << what;
+    EXPECT_EQ (actual.session.Accumulator ().Bits (), expected.session.Accumulator ().Bits ()) << what;
+    expected.session.Advance (*expected.traversal, 1000, 0.001, 0.0, 1);
+    actual.session.Advance (*actual.traversal, 1000, 0.001, 0.0, 1);
+    EXPECT_EQ (actual.session.Accumulator ().Bits (), expected.session.Accumulator ().Bits ()) << what << " traced";
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, ReusePlanningMatchesAcrossEditsDomainsAndRoles)
+{
+    Lcg lcg (0x4e05eull);
+    size_t reusedTotal = 0, cases = 0;
+    for (const bool patch : { false, true }) {
+        for (int edit = 0; edit < 6; ++edit) {
+            for (const size_t steps : { size_t { 5 }, size_t { 70 } }) {
+                const auto base = ReuseScene (lcg, -1, nullptr);
+                auto source = ReuseRecord (base, patch, steps, {});
+                source->session.Advance (*source->traversal, 1000, 0.001, 0.0, 1);
+                ASSERT_TRUE (source->session.Progress ().converged);
+                const auto edited = ReuseScene (lcg, edit, base.get ());
+                const std::vector<std::string> context =
+                    edit == 5 ? std::vector<std::string> { "shed" } : std::vector<std::string> {};
+                auto expected = ReuseRecord (edited, patch, steps, context);
+                auto actual = ReuseRecord (edited, patch, steps, context);
+                const std::atomic<bool> notCancelled { false };
+                const size_t e = evp::sunstudy::ReuseUnaffectedSamples (*source, *expected, notCancelled);
+                std::string error;
+                const size_t a = rs::ReuseUnaffectedSamples (*source, *actual, notCancelled, error);
+                ASSERT_TRUE (error.empty ()) << error;
+                ExpectSameReuse (*expected, *actual, e, a, patch ? "patch" : "triangle");
+                if (::testing::Test::HasFatalFailure ())
+                    return;
+                reusedTotal += e;
+                ++cases;
+            }
+        }
+    }
+    EXPECT_EQ (cases, 24u);
+    EXPECT_GT (reusedTotal, 100u) << "the corpus must actually reuse something";
+}
+
+TEST (SunStudyRustParity, ReuseRefusalsMatch)
+{
+    Lcg lcg (0x4ef5ull);
+    const auto base = ReuseScene (lcg, -1, nullptr);
+    auto source = ReuseRecord (base, false, 6, {});
+    auto unfinished = ReuseRecord (base, false, 6, {});
+    source->session.Advance (*source->traversal, 1000);
+    const std::atomic<bool> cancelled { true }, running { false };
+    for (int scenario = 0; scenario < 4; ++scenario) {
+        auto expected = ReuseRecord (base, false, scenario == 2 ? 7 : 6, {});
+        auto actual = ReuseRecord (base, false, scenario == 2 ? 7 : 6, {});
+        const StudyRecord& from = scenario == 0 ? *unfinished : *source;
+        const std::atomic<bool>& stop = scenario == 1 ? cancelled : running;
+        if (scenario == 3) { // ambiguous identity
+            auto ambiguous = std::make_shared<geomsrv::Snapshot> (*base);
+            ambiguous->meshes[3].guid = "{NEAR}";
+            expected = ReuseRecord (ambiguous, false, 6, {});
+            actual = ReuseRecord (ambiguous, false, 6, {});
+        }
+        std::string error;
+        EXPECT_EQ (rs::ReuseUnaffectedSamples (from, *actual, stop, error),
+                   evp::sunstudy::ReuseUnaffectedSamples (from, *expected, stop))
+            << "scenario " << scenario;
+        EXPECT_EQ (actual->session.Accumulator ().Bits (), expected->session.Accumulator ().Bits ());
+    }
+}
+
+TEST (SunStudyRustParity, PatchSampleMeshesMatch)
+{
+    Lcg lcg (0x5a3eull);
+    for (int trial = 0; trial < 6; ++trial) {
+        const auto base = ReuseScene (lcg, -1, nullptr);
+        auto snapshot = std::make_shared<geomsrv::Snapshot> (*base);
+        auto expected = ReuseRecord (snapshot, true, 3, {});
+        StudyRecord actual;
+        actual.snapshot = expected->snapshot;
+        actual.domain = expected->domain;
+        actual.patchGrid = expected->patchGrid;
+        actual.positions = expected->positions;
+        if (trial == 1)
+            actual.patchGrid.spans[0].key.element = "gone"; // bad span: cleared
+        if (trial == 2) {                                   // ambiguous meshes: untouched
+            auto dup = std::make_shared<geomsrv::Snapshot> (*snapshot);
+            dup->meshes[1].guid = "NEAR";
+            actual.snapshot = dup;
+        }
+        StudyRecord oracle;
+        oracle.snapshot = actual.snapshot;
+        oracle.domain = actual.domain;
+        oracle.patchGrid = actual.patchGrid;
+        oracle.positions = actual.positions;
+        actual.sampleMeshes = { 7, 7 };
+        oracle.sampleMeshes = { 7, 7 };
+        evp::sunstudy::SetSampleMeshes (oracle);
+        std::string error;
+        ASSERT_TRUE (rs::SetSampleMeshes (actual, error)) << error;
+        EXPECT_EQ (actual.sampleMeshes, oracle.sampleMeshes) << "trial " << trial;
+    }
+}
+
+TEST (SunStudyRustParity, ResultSummaryMatchesEveryBit)
+{
+    Lcg lcg (0x50aaull);
+    for (int trial = 0; trial < 50; ++trial) {
+        std::vector<double> hours (static_cast<size_t> (lcg.Int (0, 300)));
+        const double daylight = lcg.Uniform (0, 16);
+        for (auto& h : hours)
+            h = lcg.Int (0, 5) == 0 ? daylight : (lcg.Int (0, 5) == 0 ? 0.0 : lcg.Uniform (0, daylight));
+        const SunStudyResultSummary e = evp::sunstudy::SummarizeSunHours (hours, daylight);
+        SunStudyResultSummary a;
+        std::string error;
+        ASSERT_TRUE (rs::SummarizeSunHours (hours, daylight, a, error)) << error;
+        EXPECT_EQ (a.count, e.count);
+        EXPECT_EQ (a.fullyLit, e.fullyLit);
+        EXPECT_EQ (a.fullyShaded, e.fullyShaded);
+        EXPECT_TRUE (SameBits (e.minHours, a.minHours));
+        EXPECT_TRUE (SameBits (e.meanHours, a.meanHours));
+        EXPECT_TRUE (SameBits (e.maxHours, a.maxHours));
+        EXPECT_TRUE (SameBits (e.daylightHours, a.daylightHours));
+    }
 }

@@ -20,6 +20,7 @@
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
+#include "SunStudy/SunStudyResultSummary.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
 #include "SunStudy/SunStudySession.hpp"
@@ -29,11 +30,16 @@
 
 #include "SunStudy/SunStudyRustFfi.h"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
+
+namespace evp::sunstudy {
+struct StudyRecord;
+}
 
 namespace evp::sunstudy::rust {
 
@@ -260,6 +266,18 @@ class RustSunStudySession final {
     mutable std::mutex errorMutex_;
     mutable std::string error_;
 };
+
+// ReuseUnaffectedSamples with the plan computed in Rust; the target's (C++)
+// session is seeded exactly where the C++ function seeds it. Returns the
+// reused sample count (0 for no reuse), as the C++ function does.
+size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, const std::atomic<bool>& cancelled,
+                               std::string& error);
+
+// SetSampleMeshes, with the patch-domain map built in Rust.
+bool SetSampleMeshes (StudyRecord& record, std::string& error);
+
+bool SummarizeSunHours (const std::vector<double>& hours, double daylightHours, SunStudyResultSummary& out,
+                        std::string& error);
 
 } // namespace evp::sunstudy::rust
 

@@ -83,6 +83,18 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaSessionSeedRequest) == 40);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaStepObserver) == 16);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSessionAdvanceRequest) == 96);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSessionProgress) == 112);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaReuseMeshView) == 48);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSeriesView) == 40);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaReuseStudyView) == 136);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaCancelCallback) == 16);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaReusePlanRequest) == 296);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaReusePlanSummary) == 24);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaReusePlanOutput) == 40);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSpanOwnerView) == 32);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleMeshRequest) == 40);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleMeshOutput) == 24);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSummaryRequest) == 24);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaResultSummary) == 56);
 
 using namespace detail;
 

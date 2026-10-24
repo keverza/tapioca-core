@@ -173,6 +173,11 @@ pub use sunstudy::{
     tapioca_sunstudy_receivers, tapioca_sunstudy_refresh_binding, tapioca_sunstudy_resolve_roles,
 };
 pub use sunstudy::{
+    CancelCallback, ReuseMeshView, ReusePlanOutput, ReusePlanRequest, ReusePlanSummary,
+    ReuseStudyView, SampleMeshOutput, SampleMeshRequest, SeriesView, SpanOwnerView, SummaryRequest,
+    tapioca_sunstudy_patch_sample_meshes, tapioca_sunstudy_plan_reuse, tapioca_sunstudy_summarize,
+};
+pub use sunstudy::{
     FaceLayoutRecord, SampleGridOutput, SampleGridRequest, SampleGridSummary,
     tapioca_sunstudy_sample_grid,
 };

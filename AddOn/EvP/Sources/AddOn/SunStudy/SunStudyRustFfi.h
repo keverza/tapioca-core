@@ -778,6 +778,106 @@ TapiocaStatus tapioca_sunstudy_session_read (const TapiocaSunStudySession* handl
                                              const TapiocaOcclusionReadOutput* output, char* error,
                                              size_t errorCapacity);
 
+/* ---- reuse planning, patch sample maps, result summary ----------------- */
+
+typedef struct {
+    TapiocaTextView guid;
+    TapiocaDoubleView vertices;
+    TapiocaIndexView triangles;
+} TapiocaReuseMeshView;
+
+typedef struct {
+    TapiocaSunStepView steps; /* kept steps, used as they are */
+    int32_t timestepMinutes;
+    size_t sourceStepCount;
+    uint64_t version;
+} TapiocaSeriesView;
+
+typedef struct {
+    const TapiocaReuseMeshView* meshes;
+    size_t meshCount;
+    TapiocaByteView roles; /* one per mesh */
+    TapiocaDoubleView positions;
+    TapiocaDoubleView normals;
+    TapiocaIndexView sampleMeshes; /* mesh index per sample */
+    TapiocaSeriesView series;
+    double gridSpacing;
+    uint8_t domain; /* SamplingDomain */
+} TapiocaReuseStudyView;
+
+typedef struct {
+    void* context;
+    uint8_t (*isCancelled) (void* context); /* nullable; must not throw */
+} TapiocaCancelCallback;
+
+typedef struct {
+    TapiocaReuseStudyView source;
+    TapiocaReuseStudyView target;
+    TapiocaCancelCallback cancel;
+    uint8_t sourceConverged;
+    uint8_t sourceDefaultRayBounds;
+} TapiocaReusePlanRequest;
+
+typedef struct {
+    size_t reusedSamples;
+    size_t reusedSampleSteps;
+    uint8_t planned; /* 0: no reuse, outputs untouched */
+} TapiocaReusePlanSummary;
+
+typedef struct {
+    size_t* map; /* one per target sample */
+    size_t mapCapacity;
+    uint64_t* dirty; /* target samples x ceil(steps / 64) */
+    size_t dirtyCapacity;
+    TapiocaReusePlanSummary* summary;
+} TapiocaReusePlanOutput;
+
+/* The planning half of ReuseUnaffectedSamples; the caller seeds the session. */
+TapiocaStatus tapioca_sunstudy_plan_reuse (const TapiocaReusePlanRequest* request, const TapiocaReusePlanOutput* output,
+                                           char* error, size_t errorCapacity);
+
+typedef struct {
+    TapiocaTextView element;
+    size_t first;
+    size_t count;
+} TapiocaSpanOwnerView;
+
+typedef struct {
+    const TapiocaReuseMeshView* meshes;
+    size_t meshCount;
+    const TapiocaSpanOwnerView* spans;
+    size_t spanCount;
+    size_t sampleCount;
+} TapiocaSampleMeshRequest;
+
+typedef struct {
+    uint32_t* meshes; /* written only when outcome is 0 */
+    size_t capacity;
+    uint8_t* outcome; /* 0 written, 1 ambiguous (keep), 2 bad span (clear) */
+} TapiocaSampleMeshOutput;
+
+TapiocaStatus tapioca_sunstudy_patch_sample_meshes (const TapiocaSampleMeshRequest* request,
+                                                    const TapiocaSampleMeshOutput* output, char* error,
+                                                    size_t errorCapacity);
+
+typedef struct {
+    TapiocaDoubleView hours;
+    double daylightHours;
+} TapiocaSummaryRequest;
+
+typedef struct {
+    size_t count;
+    size_t fullyLit;
+    size_t fullyShaded;
+    double minHours;
+    double meanHours;
+    double maxHours;
+    double daylightHours;
+} TapiocaResultSummary;
+
+TapiocaStatus tapioca_sunstudy_summarize (const TapiocaSummaryRequest* request, TapiocaResultSummary* out, char* error,
+                                          size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 

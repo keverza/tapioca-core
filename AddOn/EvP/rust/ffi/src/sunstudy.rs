@@ -16,6 +16,7 @@ mod limits;
 mod occlusion;
 mod patch_atlas;
 mod patches;
+mod reuse;
 mod roles;
 mod sampler;
 mod series;
@@ -52,6 +53,11 @@ pub use patch_atlas::{
 pub use patches::{
     PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
     tapioca_sunstudy_patch_grid,
+};
+pub use reuse::{
+    CancelCallback, ReuseMeshView, ReusePlanOutput, ReusePlanRequest, ReusePlanSummary,
+    ReuseStudyView, SampleMeshOutput, SampleMeshRequest, SeriesView, SpanOwnerView, SummaryRequest,
+    tapioca_sunstudy_patch_sample_meshes, tapioca_sunstudy_plan_reuse, tapioca_sunstudy_summarize,
 };
 pub use roles::{
     BindingOutput, BindingRequest, BoundListView, MaterialTransparency, PresetAdviceOutput,
@@ -159,6 +165,18 @@ const _: () = {
     assert!(size_of::<StepObserverCallback>() == 16);
     assert!(size_of::<SessionAdvanceRequest>() == 96);
     assert!(size_of::<SessionProgress>() == 112);
+    assert!(size_of::<ReuseMeshView>() == 48);
+    assert!(size_of::<SeriesView>() == 40);
+    assert!(size_of::<ReuseStudyView>() == 136);
+    assert!(size_of::<CancelCallback>() == 16);
+    assert!(size_of::<ReusePlanRequest>() == 296);
+    assert!(size_of::<ReusePlanSummary>() == 24);
+    assert!(size_of::<ReusePlanOutput>() == 40);
+    assert!(size_of::<SpanOwnerView>() == 32);
+    assert!(size_of::<SampleMeshRequest>() == 40);
+    assert!(size_of::<SampleMeshOutput>() == 24);
+    assert!(size_of::<SummaryRequest>() == 24);
+    assert!(size_of::<tapioca_sunstudy::summary::SunStudyResultSummary>() == 56);
 };
 
 type Range = Option<(usize, usize)>;
