@@ -94,6 +94,9 @@ struct Session {
     bool draftingImport = false, draftingImportQueued = false;
     edit::Id terrainPath = edit::kNoId;
     std::shared_ptr<TerrainSectionDraft> terrainSectionDraft; // Uncommitted typed fields; not document state.
+    // A cross-section slider is held: its gesture applies every change live (the terrain worker
+    // keeps building on it) and its release is the one undo step.
+    bool terrainSectionDrag = false;
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;

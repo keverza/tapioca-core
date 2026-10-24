@@ -15,6 +15,31 @@ bool Idle (const Session& s)
            !GizmoModeLocked (s) && s.drawing.empty () && !s.landscapeCommand;
 }
 
+// The section draft as one document edit: identity and range stations are the path tools'.
+edit::Operation SectionOperation (const TerrainSectionDraft& request)
+{
+    return [request] (edit::Document& doc, std::string& error) {
+        return edit::EditPath (
+            doc, request.path,
+            [request] (edit::Path& path, std::string& error) {
+                for (auto& section : path.sections)
+                    if (section.id == request.section) {
+                        if (request.value.id != section.id || request.value.station != section.station ||
+                            (request.value.fall != edit::Fall::Left && request.value.fall != edit::Fall::Right &&
+                             request.value.fall != edit::Fall::Crown)) {
+                            error = "TerrainSectionIdentity: use path tools to change ranges, not dimensional fields.";
+                            return false;
+                        }
+                        section = request.value;
+                        return true;
+                    }
+                error = "TerrainSectionMissing: the edited range no longer exists.";
+                return false;
+            },
+            error);
+    };
+}
+
 bool Ready (Session& s)
 {
     if (s.edits.Doc ().landscape && Idle (s))
@@ -142,26 +167,7 @@ bool ApplyTerrainSectionEdit (Session& s)
         return false;
     }
     const auto request = *draft; // The operation owns its typed values, never a mutable UI borrow.
-    const bool changed = s.edits.Apply ([request] (edit::Document& doc, std::string& error) {
-        return edit::EditPath (
-            doc, request.path,
-            [request] (edit::Path& path, std::string& error) {
-                for (auto& section : path.sections)
-                    if (section.id == request.section) {
-                        if (request.value.id != section.id || request.value.station != section.station ||
-                            (request.value.fall != edit::Fall::Left && request.value.fall != edit::Fall::Right &&
-                             request.value.fall != edit::Fall::Crown)) {
-                            error = "TerrainSectionIdentity: use path tools to change ranges, not dimensional fields.";
-                            return false;
-                        }
-                        section = request.value;
-                        return true;
-                    }
-                error = "TerrainSectionMissing: the edited range no longer exists.";
-                return false;
-            },
-            error);
-    });
+    const bool changed = s.edits.Apply (SectionOperation (request));
     if (!changed) {
         s.message = s.edits.Message ().empty () ? "Cross-section unchanged." : s.edits.Message ();
         return false;
@@ -171,6 +177,43 @@ bool ApplyTerrainSectionEdit (Session& s)
     s.publishedRevision = UINT64_MAX;
     s.message = "Cross-section applied. Terrain preview follows the document revision.";
     return true;
+}
+
+bool BeginTerrainSectionDrag (Session& s)
+{
+    const auto draft = s.terrainSectionDraft;
+    if (s.terrainSectionDrag || !Ready (s) || !draft || draft->revision != s.edits.Doc ().revision ||
+        !s.edits.Begin ({ draft->path, edit::Part::Entity, 0 })) {
+        if (s.message.empty ())
+            s.message = "TerrainSectionStale: reload section values before changing them.";
+        return false;
+    }
+    s.terrainSectionDrag = true;
+    return true;
+}
+
+bool MoveTerrainSectionDrag (Session& s)
+{
+    const auto draft = s.terrainSectionDraft;
+    if (!s.terrainSectionDrag || !draft)
+        return false;
+    // Each move from the gesture's start: the draft holds every slider's value, not a delta.
+    const bool moved = s.edits.Move (SectionOperation (*draft));
+    draft->revision = s.edits.Doc ().revision;
+    s.publishedRevision = UINT64_MAX;
+    s.message = moved ? "" : s.edits.Message ();
+    return moved;
+}
+
+void EndTerrainSectionDrag (Session& s)
+{
+    if (!s.terrainSectionDrag)
+        return;
+    s.terrainSectionDrag = false;
+    s.edits.End ();
+    if (s.terrainSectionDraft)
+        s.terrainSectionDraft->revision = s.edits.Doc ().revision;
+    s.publishedRevision = UINT64_MAX;
 }
 
 namespace {
@@ -198,18 +241,24 @@ void SectionPanel (Session& s, edit::Id path)
         ImGui::EndCombo ();
     }
     const auto draft = s.terrainSectionDraft;
-    const bool stale = draft->revision != s.edits.Doc ().revision;
+    const bool stale = draft->revision != s.edits.Doc ().revision && !s.terrainSectionDrag;
     if (stale)
         ImGui::TextWrapped (
             "Section values are stale. Reload before applying; newer document edits will not be overwritten.");
     ImGui::BeginDisabled (stale);
     auto& value = draft->value;
-    // Sliders (the user, 2026-10-24); a release applies, so a drag is one undo step and the
-    // preview rebuilds once. Ctrl+click types a value, outside the slider's range too.
+    // Sliders (the user, 2026-10-24): "apply while dragging and only release becomes an undo
+    // step". Holding one opens an editor gesture, every change moves it (the preview rebuilds
+    // live) and the release ends it as one undo entry. Ctrl+click types a value, the same way.
     bool release = false;
-    const auto slide = [&release] (const char* label, double& field, double lo, double hi, const char* format) {
+    const auto slide = [&s] (const char* label, double& field, double lo, double hi, const char* format) {
         ImGui::SliderScalar (label, ImGuiDataType_Double, &field, &lo, &hi, format);
-        release |= ImGui::IsItemDeactivatedAfterEdit ();
+        if (ImGui::IsItemActivated ())
+            BeginTerrainSectionDrag (s);
+        if (ImGui::IsItemEdited ())
+            MoveTerrainSectionDrag (s);
+        if (ImGui::IsItemDeactivated ())
+            EndTerrainSectionDrag (s);
     };
     slide ("Left width", value.widthLeft, 0.0, 10.0, "%.2f m");
     slide ("Right width", value.widthRight, 0.0, 10.0, "%.2f m");
@@ -249,7 +298,7 @@ void TerrainSetupPanel (Session& s)
                         "No native terrain is written.");
     const auto paths = TerrainDesignPaths (s);
     ResolveTerrainDesignPath (s);
-    ImGui::BeginDisabled (!Idle (s));
+    ImGui::BeginDisabled (!Idle (s) && !s.terrainSectionDrag);
     if (paths.empty ())
         ImGui::TextWrapped ("No authored design paths yet. Draw one in the view to begin.");
     else {

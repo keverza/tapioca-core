@@ -175,9 +175,10 @@ struct TerrainDesignState {
 };
 
 namespace {
+// A cross-section slider's gesture is the one the worker builds through: it is the live edit.
 bool Idle (const Session& s)
 {
-    return !s.edits.InGesture () && !GizmoModeLocked (s) && s.drawing.empty ();
+    return (!s.edits.InGesture () || s.terrainSectionDrag) && !GizmoModeLocked (s) && s.drawing.empty ();
 }
 
 bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, lg::TerrainDesignOptions& options,
@@ -335,7 +336,7 @@ void PollTerrainDesign (Session& s)
 
 const lg::TerrainDesignOutcome* CurrentTerrainDesign (const Session& s)
 {
-    if (!s.terrainDesign || s.edits.InGesture () || s.terrainDesign->invalid ||
+    if (!s.terrainDesign || (s.edits.InGesture () && !s.terrainSectionDrag) || s.terrainDesign->invalid ||
         (s.terrainDesign->baseline.current && !s.terrainDesign->baseline.current ()))
         return nullptr;
     return s.terrainDesign->publisher.Current (s.edits.Doc ());

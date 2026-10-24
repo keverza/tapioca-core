@@ -194,6 +194,33 @@ TEST (HudTerrainSetup, SectionFieldsApplyTogetherInOneHistoryEntryAndPersistInTh
     EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), expected);
 }
 
+TEST (HudTerrainSetup, ASliderDragAppliesLiveAndItsReleaseIsOneUndoStep)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto before = edit::FindPath (doc, path)->sections.front ();
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
+    ASSERT_TRUE (eh::BeginTerrainSectionDrag (session)) << session.message;
+    EXPECT_FALSE (eh::BeginTerrainSectionDrag (session)) << "one held slider at a time";
+    auto& value = session.terrainSectionDraft->value;
+    for (const double width : { 1.5, 2.5, 3.5 }) {
+        value.widthLeft = width;
+        ASSERT_TRUE (eh::MoveTerrainSectionDrag (session)) << session.message;
+        // Live: the document follows the slider while it is held, and no undo entry yet.
+        EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front ().widthLeft, width);
+        EXPECT_EQ (session.edits.UndoDepth (), 0U);
+        EXPECT_TRUE (session.edits.InGesture ());
+    }
+    eh::EndTerrainSectionDrag (session);
+    EXPECT_FALSE (session.edits.InGesture ());
+    EXPECT_FALSE (session.terrainSectionDrag);
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    EXPECT_EQ (session.terrainSectionDraft->revision, session.edits.Doc ().revision) << "the draft stays current";
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before) << "one step back to the start";
+}
+
 TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAndRemainCorrectable)
 {
     auto doc = EmptyLandscape ();
@@ -270,8 +297,8 @@ TEST (HudTerrainSetup, PanelRendersExplicitSectionParametersInsteadOfOnlyCapture
     AddDesignPath (doc);
     eh::Session session (doc);
     const auto text = PanelText (session);
-    for (const char* label : { "Left width (m)", "Right width (m)", "Crossfall (%)", "Shoulder (m)", "Cut slope (%)",
-                               "Fill slope (%)", "Apply cross-section" })
+    for (const char* label : { "Left width", "Right width", "Crossfall", "Shoulder", "Cut slope", "Fill slope",
+                               "Rounding", "Reload section values" })
         EXPECT_NE (text.find (label), std::string::npos) << label << "\n" << text;
     EXPECT_EQ (session.edits.UndoDepth (), 0U);
 }

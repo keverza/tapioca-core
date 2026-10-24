@@ -69,6 +69,11 @@ void TerrainSetupPanel (Session& session);
 // bound; stale/missing ranges refuse rather than retarget or overwrite newer edits.
 bool BeginTerrainSectionEdit (Session& session, edit::Id section);
 bool ApplyTerrainSectionEdit (Session& session);
+// A cross-section slider held, moved and released: the draft applies live within one editor
+// gesture, the terrain preview rebuilding as it goes, and the release records one undo step.
+bool BeginTerrainSectionDrag (Session& session);
+bool MoveTerrainSectionDrag (Session& session);
+void EndTerrainSectionDrag (Session& session);
 // Selected guide vertices become point controls; selected whole open polylines
 // become line controls. One existing Session history entry for the whole set.
 bool SetTerrainControlSelection (Session& session, bool enabled);
