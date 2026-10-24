@@ -395,11 +395,11 @@ class StartSunStudyCommand : public MainThreadCommand {
         inputs.geometryVersion = snapshot->id;
         inputs.sunVersion = record->series.Version ();
         inputs.gridVersion = gridVersion;
-        record->session.Sync (inputs, record->series, record->Samples ());
+        StartSunStudyCore (*record, *snapshot, reuseSource.get (), inputs);
         FinishSunStudyPreparation (*record, snapshot, reuseSource.get (), cancelled_, occluders);
         trace.Mark ("reuse-seed", record->session.Accumulator ().Bits ().size () * sizeof (uint64_t));
 
-        const StudyProgress progress = record->session.Progress ();
+        const StudyProgress progress = record->CurrentProgress ();
         const double daylightHours = record->series.DaylightHours ();
         const size_t sourceSteps = record->sourceStepCount;
 

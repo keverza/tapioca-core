@@ -1,4 +1,6 @@
 #include "NativeCommands/SunStudyPreparation.hpp"
+#include "NativeCommands/SunStudyCommandsSupport.hpp"
+#include "SunStudy/SunStudyCoreSelection.hpp"
 #include "SunStudy/SunStudyReuse.hpp"
 #include "SunStudy/SunStudyOccluders.hpp"
 #include "ArchViz/ArchVizLog.hpp"
@@ -63,6 +65,20 @@ void SunStudyPreparationTrace::Mark (const char* stage, size_t payloadBytes)
     last_ = std::chrono::steady_clock::now (); // exclude this diagnostic write
 }
 
+void StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
+                        const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs)
+{
+    if (evp::sunstudy::SelectedSunStudyCore () == evp::sunstudy::SunStudyCoreKind::Rust) {
+        const auto limits = MachineAnalysisLimits (record.series.StepCount (), record.IsPatchDomain ());
+        std::string error;
+        const bool attached = evp::sunstudy::AttachRustStudyCore (
+            record, snapshot, reuseSource, record.IsPatchDomain () ? limits.maxAtlasDimension : 8192u, error);
+        archviz::ArchVizLog ("pipeline: stage=sun-core snapshot=" + std::to_string (snapshot.id) +
+                             " core=" + (attached ? "rust" : "cpp") + (attached ? "" : " reason=" + error));
+    }
+    evp::sunstudy::SyncStudy (record, inputs);
+}
+
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
                                 const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
                                 std::shared_ptr<const QueryEngine> occluders)
@@ -95,6 +111,17 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
         " reusedSampleSteps=" + std::to_string (record.reusedSampleSteps) + " dirtySampleSteps=" +
         std::to_string (record.positions.size () / 3 * record.series.StepCount () - record.reusedSampleSteps) +
         " gridM=" + std::to_string (record.gridSpacing));
+    if (record.rustCore != nullptr) {
+        record.rustStepObserver = [snapshotId] (size_t step, const TapiocaOcclusionState& state, double wallMs) {
+            archviz::ArchVizLog (
+                "pipeline: stage=sun-step snapshot=" + std::to_string (snapshotId) +
+                " core=rust step=" + std::to_string (step + 1) + "/" + std::to_string (state.stepCount) +
+                " samples=" + std::to_string (state.sampleCount) + " dirty=" + std::to_string (state.activeSamples) +
+                " rays=" + std::to_string (state.lastRayCount) + " compactMs=" + std::to_string (state.compactMs) +
+                " traceMs=" + std::to_string (state.traceMs) + " wallMs=" + std::to_string (wallMs));
+        };
+        return;
+    }
     record.session.SetStepObserver ([snapshotId] (size_t step, const evp::sunstudy::OcclusionAccumulator& accumulator,
                                                   double wallMs) {
         const size_t rays = accumulator.LastRayCount ();

@@ -1,8 +1,13 @@
 #include "SunStudy/SunStudyStore.hpp"
 
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "SunStudy/SunStudyRustStudy.hpp"
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <exception>
+#include <stdexcept>
 
 namespace evp::sunstudy {
 
@@ -10,12 +15,40 @@ namespace {
 
 SunStudyResultSummary SummarizeRecord (const StudyRecord& record)
 {
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore != nullptr) {
+        SunStudyResultSummary summary;
+        std::string error;
+        record.rustCore->Summary (summary, error);
+        return summary;
+    }
+#endif
     const auto& accumulator = record.session.Accumulator ();
     const double quantum = record.series.HoursPerStep ();
     return SummarizeSunHours (
         accumulator.SampleCount (), record.series.DaylightHours (),
         [&accumulator, quantum] (size_t sample) { return accumulator.LitStepCount (sample) * quantum; });
 }
+
+#if defined(TAPIOCA_GEOMETRY_RUST)
+// The store's refusal text for a Rust read status, as the C++ readers word it.
+std::string RefusalText (const std::string& id, bool patchDomain, rust::StudyReadStatus status)
+{
+    switch (status) {
+        case rust::StudyReadStatus::NoTriangleAtlas:
+            return patchDomain
+                       ? "study '" + id + "' is a patch-domain study - ask for its patch atlas, not the triangle one"
+                       : "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+        case rust::StudyReadStatus::NoPatchAtlas:
+            return "study '" + id + "' is not a patch-domain study with a packed atlas";
+        case rust::StudyReadStatus::UnplacedPatch:
+            return "study '" + id + "' has a patch the patch atlas did not place - the two are not one study";
+        case rust::StudyReadStatus::Ok:
+            break;
+    }
+    return std::string ();
+}
+#endif
 
 // The patch atlas image as the hours stand. Called with the store's lock HELD,
 // by both readers that serve it, so the whole-study image has one definition.
@@ -145,7 +178,7 @@ std::string SunStudyStore::Insert (std::unique_ptr<StudyRecord> record)
         return std::string (); // never replace the session of an in-flight slice
     record->storeRevision = nextRevision_++;
     advancing_[id] = false;
-    progress_[id] = record->session.Progress ();
+    progress_[id] = record->CurrentProgress ();
     studies_[id] = std::move (record);
     return id;
 }
@@ -201,12 +234,24 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         while (lane.owns_lock () && !isCancelled () && !sessionLock.try_lock_for (std::chrono::milliseconds (10))) {
         }
         start = std::chrono::steady_clock::now ();
-        if (lane.owns_lock () && sessionLock.owns_lock () && !isCancelled () && record->traversal != nullptr)
+        const bool ready =
+            lane.owns_lock () && sessionLock.owns_lock () && !isCancelled () && record->traversal != nullptr;
+#if defined(TAPIOCA_GEOMETRY_RUST)
+        if (ready && record->rustCore != nullptr) {
+            std::string coreError;
+            if (!record->rustCore->Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel, isCancelled,
+                                            record->rustStepObserver, advanced, coreError))
+                throw std::runtime_error (coreError);
+        }
+        else
+#endif
+            if (ready)
             advanced = record->session.Advance (*record->traversal, maxSteps, tmin, tmax, maxParallel, isCancelled);
-        if (sessionLock.owns_lock () && record->session.Progress ().converged) {
+        const StudyProgress now = record->CurrentProgress ();
+        if (sessionLock.owns_lock () && now.converged) {
             record->resultSummary = SummarizeRecord (*record);
-            record->summaryGeneration = record->session.Progress ().generation;
-            record->summaryResolvedSteps = record->session.Progress ().resolvedSteps;
+            record->summaryGeneration = now.generation;
+            record->summaryResolvedSteps = now.resolvedSteps;
         }
     }
     catch (const std::exception& exception) {
@@ -228,7 +273,7 @@ bool SunStudyStore::Advance (const std::string& id, size_t maxSteps, size_t maxP
         if (found != studies_.end () && found->second == record) {
             found->second->analysisMilliseconds += elapsed;
             found->second->admissionMilliseconds += std::chrono::duration<double, std::milli> (start - queued).count ();
-            progress_[id] = record->session.Progress ();
+            progress_[id] = record->CurrentProgress ();
             advancing_[id] = false;
         }
     }
@@ -300,6 +345,14 @@ bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours,
     }
     if (!SessionReadable (id, error))
         return false;
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (found->second->rustCore != nullptr) {
+        if (!found->second->rustCore->SunHours (hours, error))
+            return false;
+        positions = found->second->positions;
+        return true;
+    }
+#endif
     hours = found->second->session.SunHours ();
     positions = found->second->positions;
     return true;
@@ -321,6 +374,16 @@ bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, 
     const StudyRecord& record = *found->second;
     if (progress != nullptr)
         *progress = progress_.at (id);
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore != nullptr) {
+        if (!record.rustCore->SunHours (hours, error) ||
+            (stepBits != nullptr && !record.rustCore->StepBits (*stepBits, error)))
+            return false;
+        positions = includePositions ? record.positions : std::vector<double> ();
+        normals = includePositions ? record.normals : std::vector<double> ();
+        return true;
+    }
+#endif
     hours = record.session.SunHours ();
     if (includePositions) {
         positions = record.positions;
@@ -448,6 +511,15 @@ bool SunStudyStore::AtlasImage (const std::string& id, uint32_t& width, uint32_t
     if (!SessionReadable (id, error))
         return false;
     const StudyRecord& record = *found->second;
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore != nullptr) {
+        rust::StudyReadStatus status = rust::StudyReadStatus::Ok;
+        if (!record.rustCore->AtlasImage (width, height, image, status, error))
+            return false;
+        error = RefusalText (id, record.IsPatchDomain (), status);
+        return status == rust::StudyReadStatus::Ok;
+    }
+#endif
     if (!record.atlas.valid) {
         // ⚠️ THE PATCH CASE IS NAMED SEPARATELY BECAUSE THE GENERAL MESSAGE IS
         // A LIE FOR IT. A patch study WAS sampled on model surfaces; what it has
@@ -482,6 +554,15 @@ bool SunStudyStore::PatchAtlasImage (const std::string& id, uint32_t& width, uin
     if (!SessionReadable (id, error))
         return false;
     const StudyRecord& record = *found->second;
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore != nullptr) {
+        rust::StudyReadStatus status = rust::StudyReadStatus::Ok;
+        if (!record.rustCore->PatchAtlasImage (width, height, image, status, error))
+            return false;
+        error = RefusalText (id, record.IsPatchDomain (), status);
+        return status == rust::StudyReadStatus::Ok;
+    }
+#endif
     if (!record.IsPatchDomain () || !record.patchGrid.valid || record.patchAtlas.Width () == 0) {
         error = "study '" + id + "' is not a patch-domain study with a packed atlas";
         return false;
@@ -507,6 +588,27 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
     if (!SessionReadable (id, error))
         return false;
     const StudyRecord& record = *found->second;
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore != nullptr) {
+        rust::StudyReadStatus status = rust::StudyReadStatus::Ok;
+        if (!record.rustCore->DisplayData (tiles, layouts, width, height, image, status, error))
+            return false;
+        if (status != rust::StudyReadStatus::Ok) {
+            error = record.IsPatchDomain () && status == rust::StudyReadStatus::NoPatchAtlas
+                        ? "study '" + id + "' is a patch-domain study with no packed patch atlas"
+                    : status == rust::StudyReadStatus::NoTriangleAtlas
+                        ? "study '" + id + "' has no atlas - it was not sampled on model surfaces"
+                        : RefusalText (id, record.IsPatchDomain (), status);
+            return false;
+        }
+        spacing = record.gridSpacing;
+        daylightHours = record.series.DaylightHours ();
+        const StudyProgress progress = progress_.at (id);
+        converged = progress.converged;
+        generation = progress.generation;
+        return true;
+    }
+#endif
     if (record.IsPatchDomain ()) {
         if (!record.patchGrid.valid || record.patchAtlas.Width () == 0) {
             error = "study '" + id + "' is a patch-domain study with no packed patch atlas";
@@ -566,6 +668,10 @@ bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t f
     if (meshIndex < record.elementRoles.size ())
         role = record.elementRoles[meshIndex];
     daylightHours = record.series.DaylightHours ();
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore != nullptr)
+        return record.rustCore->ReadAt (face, point, reading, error);
+#endif
     const std::vector<double>& hours = record.session.SunHours ();
     reading = record.IsPatchDomain () ? ReadPatchStudyAt (record.patchGrid, record.gridSpacing, hours, face, point)
                                       : ReadTriangleStudyAt (record.sampleGrid, record.gridSpacing, hours, face, point);
@@ -584,6 +690,18 @@ bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std:
     if (!SessionReadable (id, error))
         return false;
     const StudyRecord& record = *found->second;
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (record.rustCore != nullptr) {
+        rust::StudyReadStatus status = rust::StudyReadStatus::Ok;
+        if (!record.rustCore->StepMasks (atlas, stepMinutes, noonStep, status, error))
+            return false;
+        if (status == rust::StudyReadStatus::NoPatchAtlas)
+            error = "study '" + id + "' has no packed patch atlas";
+        else if (status != rust::StudyReadStatus::Ok)
+            error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+        return status == rust::StudyReadStatus::Ok;
+    }
+#endif
     const OcclusionAccumulator& accumulator = record.session.Accumulator ();
 
     // Where each sample's value sits in the atlas this study DISPLAYS -- the

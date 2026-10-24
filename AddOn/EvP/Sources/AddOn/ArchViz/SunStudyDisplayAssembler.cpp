@@ -13,7 +13,7 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
                                                                         const std::function<bool ()>& isCancelled)
 {
     const auto cancelled = [&] { return record.cancelRequested.load () || (isCancelled && isCancelled ()); };
-    const auto progress = record.session.Progress ();
+    const auto progress = record.CurrentProgress ();
     if (record.snapshotId != snapshot.id || (options.preview && !progress.converged)) {
         error = "sun study display source is stale or the preview has not completed its day";
         return nullptr;

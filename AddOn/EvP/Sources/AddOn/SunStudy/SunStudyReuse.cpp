@@ -2,6 +2,10 @@
 
 #include "SunStudy/SunStudyRoles.hpp"
 
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "SunStudy/SunStudyRustStudy.hpp"
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -112,6 +116,14 @@ size_t DirtyShadowSteps (const double* point, const double* normal, const std::v
 
 void SetSampleMeshes (StudyRecord& record)
 {
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    // The Rust core keeps its own map for its own reuse; the record's stays
+    // filled below for every C++ reader.
+    if (record.rustCore != nullptr && record.snapshot != nullptr) {
+        std::string error;
+        record.rustCore->SetSampleMeshes (*record.snapshot, error);
+    }
+#endif
     if (!record.IsPatchDomain ()) {
         record.sampleMeshes = record.sampleGrid.groups;
         return;
@@ -135,6 +147,29 @@ void SetSampleMeshes (StudyRecord& record)
 
 size_t ReuseUnaffectedSamples (const StudyRecord& source, StudyRecord& target, const std::atomic<bool>& cancelled)
 {
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    // ⚠️ A RUST TARGET SEEDS ONLY FROM A RUST SOURCE. Its session lives in the
+    // core, and a C++ source's bits are in a session the core cannot read; a
+    // flag change mid-session therefore traces the first Rust study afresh.
+    if (target.rustCore != nullptr) {
+        if (source.rustCore == nullptr || source.snapshot == nullptr || target.snapshot == nullptr)
+            return 0;
+        rust::RustStudyCore::ReuseInputs inputs;
+        inputs.sourceSnapshot = source.snapshot.get ();
+        inputs.sourceRoles = &source.elementRoles;
+        inputs.targetSnapshot = target.snapshot.get ();
+        inputs.targetRoles = &target.elementRoles;
+        inputs.sourceDefaultRayBounds = source.defaultRayBounds;
+        inputs.cancelled = &cancelled;
+        size_t reused = 0, reusedSteps = 0;
+        std::string error;
+        if (!target.rustCore->ReuseFrom (*source.rustCore, inputs, reused, reusedSteps, error) || reusedSteps == 0)
+            return 0;
+        target.reusedSamples = reused;
+        target.reusedSampleSteps = reusedSteps;
+        return reused;
+    }
+#endif
     if (source.snapshot == nullptr || target.snapshot == nullptr || !source.defaultRayBounds ||
         !source.session.Progress ().converged || !SameSun (source.series, target.series) ||
         source.positions.size () % 3 != 0 || target.positions.size () % 3 != 0 ||

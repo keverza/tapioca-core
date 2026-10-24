@@ -12,6 +12,11 @@ void LogSunStudySurfaceSampling (uint64_t snapshot, const evp::sunstudy::Surface
 std::shared_ptr<const evp::sunstudy::SunStudyOccluders>
 PrepareSunStudyOccluders (std::shared_ptr<const Snapshot> snapshot, const evp::sunstudy::ElementRoles& roles,
                           const evp::sunstudy::StudyRecord* previous, const std::function<bool ()>& isCancelled);
+// Attach the Rust core when TAPIOCA_SUNSTUDY_CORE=rust selects it (P5), then
+// sync whichever core runs the study. A refused core is logged and the study
+// runs on the C++ core.
+void StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snapshot,
+                        const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs);
 void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_ptr<const Snapshot> snapshot,
                                 const evp::sunstudy::StudyRecord* reuseSource, const std::atomic<bool>* cancelled,
                                 std::shared_ptr<const QueryEngine> occluders);
