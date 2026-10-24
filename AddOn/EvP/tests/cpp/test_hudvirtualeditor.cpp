@@ -31,6 +31,9 @@ struct Drive {
     explicit Drive (ed::Document doc)
     {
         EXPECT_TRUE (hud::StartVirtualEditor (*view.state, std::move (doc), "test"));
+        // Keep the attached inspector clear of the fixture's central viewport gestures.
+        view.state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Left;
+        view.state->host.dock.along = 0;
         input.planar = true;
         input.plan[0] = 20, input.plan[2] = 600, input.plan[4] = -20, input.plan[5] = 500;
         // The single Move gizmo, whose layout most of these tests press on; the gumball's own

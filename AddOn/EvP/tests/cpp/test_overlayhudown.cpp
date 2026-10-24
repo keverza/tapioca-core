@@ -105,26 +105,28 @@ TEST (OverlayHudOwn, CallerPageWidthDoesNotWidenOtherTabsOrLoseFocusOnSelection)
     layers::Panel parking = Titled ("Parking Solver", 0x11AA22FFu);
     parking.widthPixels = 220;
     parking.pageWidthPixels = 900;
+    hud.Lay ({ &parking }, At (0, 0));
+    hud::SelectKey (*hud.state, "hud#0");
     const auto initial = hud.Lay ({ &parking }, At (1100, 700));
     EXPECT_EQ (hud.engine.Selected (), "hud#0");
-    EXPECT_GE (initial.host.width, 899);
+    EXPECT_NEAR (initial.host.width, 320, 1);
     pages.selection.known = true;
     pages.selection.count = 1;
     pages.selection.elements.push_back ({ "road", "Polyline", "", "Drafting", "Ground" });
     hud.engine.SetOwnPages (pages);
     const auto selected = hud.Lay ({ &parking }, At (1100, 700));
     EXPECT_EQ (hud.engine.Selected (), "hud#0") << "a model selection is not a tab press";
-    EXPECT_GE (selected.host.width, 899);
+    EXPECT_FLOAT_EQ (selected.host.width, initial.host.width);
     hud::SelectKey (*hud.state, shell::kStatsKey);
     const auto stats = hud.Lay ({ &parking }, At (1100, 700));
     EXPECT_EQ (hud.engine.Selected (), shell::kStatsKey);
-    EXPECT_LT (stats.host.width, initial.host.width - 200);
+    EXPECT_FLOAT_EQ (stats.host.width, initial.host.width);
     for (const auto* key : { shell::kSelectionKey, shell::kSettingsKey, shell::kDebugKey }) {
         hud::SelectKey (*hud.state, key);
-        EXPECT_LT (hud.Lay ({ &parking }, At (1100, 700)).host.width, initial.host.width - 200);
+        EXPECT_FLOAT_EQ (hud.Lay ({ &parking }, At (1100, 700)).host.width, initial.host.width);
     }
     hud::SelectKey (*hud.state, "hud#0");
-    EXPECT_GE (hud.Lay ({ &parking }, At (1100, 700)).host.width, 899);
+    EXPECT_FLOAT_EQ (hud.Lay ({ &parking }, At (1100, 700)).host.width, initial.host.width);
     auto narrow = At (800, 700);
     narrow.width = 800;
     EXPECT_LE (hud.Lay ({ &parking }, narrow).host.width, 800);
@@ -163,8 +165,7 @@ TEST (OverlayHudOwn, APanelThatAsksForStatsIsACardThere)
     EXPECT_EQ (hud.engine.Selected (), shell::kStatsKey) << "a card arrives on Stats, not as a tab";
     float box[4] = {};
     EXPECT_TRUE (Box (out.host, 0x8E44ADFFu, box)) << "its items on the Stats page";
-    const float y = RowY (hud, { &massing }, out.host);
-    EXPECT_EQ (Presses (hud, { &massing }, out.host, y).size (), 6u) << "the own tabs and close only";
+    EXPECT_FALSE (out.popup) << "publishing a card does not open navigation";
 
     Fresh before;
     const hud::Layout legacy = before.Lay ({ &massing }, At (600.0f, 600.0f));
@@ -179,15 +180,12 @@ TEST (OverlayHudOwn, ThePagesShowWhatTheOwnerSaid)
     hud::OwnPages pages = Standalone ();
     hud.engine.SetOwnPages (pages);
     const hud::Layout stats = hud.Lay ({}, At (600.0f, 600.0f));
-    const float y = RowY (hud, {}, stats.host);
-    std::vector<std::pair<float, float>> runs = Presses (hud, {}, stats.host, y);
-    ASSERT_EQ (runs.size (), 6u) << "Stats, Selection, Massing, Settings, Debug, close";
-    hud.Click ({}, Middle (runs[4]), y);
+    Navigate (hud, {}, "show Debug");
     EXPECT_EQ (hud.engine.Selected (), shell::kDebugKey);
     float box[4] = {};
     EXPECT_TRUE (Box (hud.Lay ({}, At (600.0f, 600.0f)).host, 0xC0392BFFu, box)) << "the figure's own colour";
 
-    hud.Click ({}, Middle (runs[1]), y);
+    Navigate (hud, {}, "show Selection");
     EXPECT_EQ (hud.engine.Selected (), shell::kSelectionKey);
     const float empty = hud.Lay ({}, At (600.0f, 600.0f)).host.height;
     pages.selection.known = true;

@@ -45,6 +45,9 @@ struct Drive {
     Drive ()
     {
         EXPECT_TRUE (hud::StartVirtualEditor (*view.state, Demo (), "landscape"));
+        // Keep the attached inspector clear of the fixture's central viewport gestures.
+        view.state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Left;
+        view.state->host.dock.along = 0;
         input.planar = true;
         input.plan[0] = 20;
         input.plan[2] = 600;

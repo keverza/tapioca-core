@@ -20,19 +20,6 @@ namespace {
 
 namespace layers = overlaylayers;
 
-std::string TitleOf (const std::string& key)
-{
-    if (key == hudshell::kSelectionKey)
-        return "Selection";
-    if (key == hudshell::kSettingsKey)
-        return "Settings";
-    if (key == hudshell::kDebugKey)
-        return "Debug";
-    if (key == kSunStudyKey)
-        return "Analysis";
-    return "Stats";
-}
-
 // The overlays' plain card, wider: the viewer's pages hold the render settings' labelled
 // sliders, which the overlays' 220 px leaves no room to name.
 const layers::Panel& ViewerLook ()
@@ -92,36 +79,19 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     if (!held)
         shell.held = hudshell::kStatsKey;
 
-    // ---- the dock: at the view's right edge, half-way down -----------------------------------
-    // ⚠️ THE OVERLAYS' DOCK (OverlayHudHost.cpp), the viewer's circle the shown one here: the
-    // overlay's, pressed, switches to the overlay of the view in front.
-    ImGui::SetNextWindowPos (ImVec2 (view.x, std::floor (view.y * 0.5f)), ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0.0f, 0.0f));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0.0f, 0.0f));
-    ImGui::PushFont (font, hudshell::kDockFontPixels * ui);
-    const ImGuiWindowFlags dockFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                                       ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-                                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
-                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-                                       ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground;
-    float inset = 0.0f;
-    if (ImGui::Begin ("###tapioca.dock", nullptr, dockFlags)) {
-        hudshell::Circle overlay;
-        overlay.tip = "The overlay: press to switch to it (the viewer closes)";
-        const hudshell::Circle viewer = ViewerCircle (scene);
-        const hudshell::DockPress press =
-            hudshell::DockTab ("##hud", TitleOf (shell.held), look, shell.open, overlay, &viewer,
-                               ImVec2 (hudshell::kDockPadding[0] * ui, hudshell::kDockPadding[1] * ui), ui);
-        if (press.top)
-            surfaceswitch::Request (surfaceswitch::Surface::Overlay);
-        else if (press.title)
-            shell.open = !shell.open;
-    }
-    inset = ImGui::GetCurrentWindow ()->Size.x + hudshell::kDockGap * ui;
-    ImGui::End ();
-    ImGui::PopFont ();
-    ImGui::PopStyleVar (3);
+    hudshell::Circle overlay;
+    overlay.tip = "The overlay: press to switch to it (the viewer closes)";
+    const hudshell::Circle viewer = ViewerCircle (scene);
+    const auto dock =
+        hudshell::Dock (shell.dock, view, scale, ui, font,
+                        shell.navigation.workflowTitle.empty () ? "Tapioca" : shell.navigation.workflowTitle, look,
+                        shell.open, overlay, &viewer);
+    if (dock.press.top)
+        surfaceswitch::Request (surfaceswitch::Surface::Overlay);
+    if (dock.press.title)
+        shell.open = true;
+    if (dock.press.collapse)
+        shell.open = !shell.open;
 
     // ---- the floating panel -------------------------------------------------------------------
     if (!shell.open)
@@ -132,7 +102,11 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     spec.scale = scale;
     spec.ui = ui;
     spec.view = view;
-    spec.inset = inset;
+    spec.attached = true;
+    spec.dockMin = dock.window->Pos;
+    spec.dockMax = ImVec2 (dock.window->Pos.x + dock.window->Size.x, dock.window->Pos.y + dock.window->Size.y);
+    spec.dockEdge = shell.dock.edge;
+    spec.dockHorizontal = shell.dock.horizontal;
     spec.tabs = tabs;
     const auto page = [&] (const std::string& key) {
         // ⚠️ A CONTROL LEAVES ITS LABEL HALF THE ROW: ImGui's own width in an auto-sized window
@@ -151,7 +125,7 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
         ImGui::PopItemWidth ();
     };
     const hudshell::HostResult result =
-        hudshell::Host (spec, shell.held, shell.shownLast, shell.placement, page, nullptr);
+        hudshell::Host (spec, shell.held, shell.shownLast, shell.placement, page, nullptr, &shell.navigation);
     if (!result.pressed.empty ())
         shell.held = result.pressed;
     if (result.closed)

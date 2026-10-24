@@ -528,6 +528,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShell.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellStyle.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellTabs.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellDock.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/HudShellNavigation.cpp"
     # TapiocaUI: the one HUD component library both surfaces draw through, and its gallery.
     # Every translation unit under ArchViz/TapiocaUI is listed here; check_cpp.py fails
     # the build gate when one is not, so a new widget cannot go untested by omission.
@@ -939,6 +941,7 @@ set (EVP_TEST_SOURCES
     test_overlayhudown.cpp
     test_overlayhuddisplays.cpp
     test_hudshell.cpp
+    test_hudhierarchy.cpp
     test_tapiocaui.cpp
     test_graphicssettings.cpp
     test_hudclip.cpp

@@ -266,8 +266,8 @@ TEST (HudMetadata, ATogglePressedOnTheSelectionPageIsAnEdit)
 
     // Below the tab row, the first thing the pointer shows the hand over: the toggle.
     float x = 0.0f, y = 0.0f;
-    for (float down = 52.0f; down < 16.0f + out.host.height && x == 0.0f; down += 2.0f)
-        for (float across = 18.0f; across < 16.0f + out.host.width; across += 2.0f)
+    for (float down = Top (out.host) + 90; down < Top (out.host) + out.host.height - 36 && x == 0.0f; down += 2.0f)
+        for (float across = Left (out.host) + 10; across < Left (out.host) + out.host.width; across += 2.0f)
             if (hud.Lay ({}, At (across, down)).hand) {
                 x = across;
                 y = down;

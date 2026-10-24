@@ -254,8 +254,8 @@ TEST (HudSection, FloorsArePickedByAPressAShiftPressAndADrag)
     ASSERT_GT (out.host.height, 0.0f);
 
     // The section's top edge: the first hand down the host's middle, below the tab row.
-    const float x = 16.0f + out.host.width * 0.5f;
-    const float top = SectionTop (hud, x, 16.0f + out.host.height);
+    const float x = Left (out.host) + out.host.width * 0.5f;
+    const float top = SectionTop (hud, x, Top (out.host) + out.host.height - 36);
     ASSERT_GT (top, 0.0f) << "the section is on the page";
     // Three rows of floor (13 x 1.2) px and a pixel apart; the highest floor on top.
     const float pitch = std::floor (13.0f * 1.2f) + 1.0f;
@@ -297,8 +297,8 @@ TEST (HudSection, ARightClickAssignsAValueToThePickedFloors)
     hud.engine.SetOwnPages (pages);
     hud::SelectKey (*hud.state, shell::kSelectionKey);
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
-    const float x = 16.0f + out.host.width * 0.5f;
-    const float top = SectionTop (hud, x, 16.0f + out.host.height);
+    const float x = Left (out.host) + out.host.width * 0.5f;
+    const float top = SectionTop (hud, x, Top (out.host) + out.host.height - 36);
     ASSERT_GT (top, 0.0f);
     const float pitch = std::floor (13.0f * 1.2f) + 1.0f;
     // Floors 3 down to 0, top first: pick floors 1-2 by a drag, then right-click on floor 2.

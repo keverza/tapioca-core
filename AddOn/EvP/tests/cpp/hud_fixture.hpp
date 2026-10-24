@@ -100,6 +100,40 @@ struct Watched : Fresh {
     }
 };
 
+inline float Left (const hud::Built& box)
+{
+    return box.fraction[0] * 1200 + box.offset[0];
+}
+inline float Top (const hud::Built& box)
+{
+    return box.fraction[1] * 800 + box.offset[1];
+}
+
+// Exercise the real navigation input instead of assuming an old tab-row index.
+inline void Navigate (Fresh& view, const std::vector<const layers::Panel*>& panels, const std::string& title)
+{
+    auto out = view.Lay (panels, At (0, 0));
+    const float x = Left (out.host) + 30, y = Top (out.host) + out.host.height - 20;
+    view.Click (panels, x, y);
+    auto input = At (x, y);
+    input.characters.assign (title.begin (), title.end ());
+    view.Lay (panels, input);
+    input.characters.clear ();
+    input.keys = { { 0x0D, true } };
+    view.Lay (panels, input);
+    input.keys = { { 0x0D, false } };
+    view.Lay (panels, input);
+    view.Click (panels, Left (out.host) + 2, Top (out.host) + 2);
+}
+
+inline void Navigate (Watched& view, const std::vector<const layers::Panel*>& panels, const std::string& title)
+{
+    Navigate (static_cast<Fresh&> (view), panels, title);
+    view.heard.erase (std::remove_if (view.heard.begin (), view.heard.end (),
+                                      [] (const auto& c) { return c.kind == "criteriaTextFocus"; }),
+                      view.heard.end ());
+}
+
 // Whether any of a set's triangles is in `rgba`, the panels' and what floats over them.
 inline bool Drawn (const hud::Layout& layout, uint32_t rgba)
 {

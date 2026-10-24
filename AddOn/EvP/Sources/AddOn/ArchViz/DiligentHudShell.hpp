@@ -47,6 +47,8 @@ struct Shell {
     std::string held = hudshell::kStatsKey;
     std::string shownLast;
     hudshell::Placement placement;
+    hudshell::DockPlacement dock;
+    hudshell::NavigationState navigation;
     uint32_t fontStep = hudshell::kFontStepDefault;
     hudsection::Run floors; // the building section's floors picked on the Selection tab
     // The Debug tab's console marks (HudConsole.hpp `Draw`): shown, and hidden by its Clear.

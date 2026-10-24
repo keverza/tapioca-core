@@ -91,13 +91,13 @@ TEST (HudMassing, NativeTabDrawsWithoutAnyPythonPanelOrLayer)
     // Locate the first five-button row below the Define header and property label.
     // Horizontal control islands are discovered from real ImGui hover, not guessed.
     float row = 0;
-    for (float y = 80; y < 150; y += 1)
-        if (hud.Lay ({}, At (40, y)).hand) {
+    for (float y = Top (out.host) + 65; y < Top (out.host) + 185; y += 1)
+        if (hud.Lay ({}, At (Left (out.host) + 24, y)).hand) {
             row = y + 2;
             break;
         }
     ASSERT_GT (row, 0);
-    hud.Click ({}, 40, row);
+    hud.Click ({}, Left (out.host) + 24, row);
     const auto requests = hud::TakeMassingRequests (*hud.state);
     ASSERT_EQ (requests.size (), 1u);
     EXPECT_EQ (requests[0].group, hm::Group::PropertyLine);
@@ -116,10 +116,14 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
     hud::SelectKey (*hud.state, hm::kTabKey);
     hud.Lay ({}, At (600, 600));
     const auto layout = hud.Lay ({}, At (600, 600));
+    const auto clickControl = [&] (float y) {
+        const auto current = hud.Lay ({}, At (0, 0));
+        hud.Click ({}, Left (current.host) + 24, y + Top (current.host) - Top (layout.host));
+    };
     std::vector<float> controls;
     bool inControl = false;
-    for (float y = 16 + layout.host.height - 1; y > 60; --y)
-        if (hud.Lay ({}, At (40, y)).hand) {
+    for (float y = Top (layout.host) + layout.host.height - 40; y > Top (layout.host) + 90; --y)
+        if (hud.Lay ({}, At (Left (layout.host) + 24, y)).hand) {
             if (!inControl)
                 controls.push_back (y - 4);
             inControl = true;
@@ -133,16 +137,16 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
         << "Preview and Bake options owns all controls, including the cell complex and its stair cells";
     EXPECT_FALSE (hud.state->previewCells);
     EXPECT_FALSE (hud.state->previewStairs);
-    hud.Click ({}, 40, controls[0]);
+    clickControl (controls[0]);
     EXPECT_TRUE (hud.state->previewCells) << "the cell complex's toggle, last";
     EXPECT_FALSE (hud.state->previewStairs);
     EXPECT_EQ (hud.heard.back ().kind, "massingPlanPreview");
-    hud.Click ({}, 40, controls[1]);
+    clickControl (controls[1]);
     EXPECT_TRUE (hud.state->previewStairs);
     EXPECT_TRUE (hud.state->previewCells);
     EXPECT_EQ (hud.heard.back ().kind, "massingPlanPreview");
-    hud.Click ({}, 40, controls[0]);
-    hud.Click ({}, 40, controls[1]);
+    clickControl (controls[0]);
+    clickControl (controls[1]);
     EXPECT_FALSE (hud.state->previewCells);
     EXPECT_FALSE (hud.state->previewStairs);
     EXPECT_TRUE (hud::TakeMassingBakes (*hud.state).empty ());
@@ -153,7 +157,7 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
                                 std::make_pair (4u, bake::Kind::Envelope) }) {
         std::vector<std::pair<float, float>> runs;
         bool in = false;
-        for (float x = 30; x < layout.host.width - 12; x += 2) {
+        for (float x = Left (layout.host) + 30; x < Left (layout.host) + layout.host.width - 12; x += 2) {
             const bool hand = hud.Lay ({}, At (x, controls[target.first])).hand;
             if (hand && !in)
                 runs.emplace_back (x, x);
@@ -172,32 +176,32 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
         hud::Displays unchanged;
         EXPECT_FALSE (hud::TakeDisplays (*hud.state, unchanged));
     }
-    hud.Click ({}, 40, controls[7]);
+    clickControl (controls[7]);
     hud::Displays off;
     ASSERT_TRUE (hud::TakeDisplays (*hud.state, off));
     EXPECT_FALSE (off.massingSlicesOn);
     EXPECT_EQ (off.slices.label, pages.displays.slices.label);
     pages.displays = off;
     hud.engine.SetOwnPages (pages);
-    hud.Click ({}, 40, controls[7]);
+    clickControl (controls[7]);
     hud::Displays on;
     ASSERT_TRUE (hud::TakeDisplays (*hud.state, on));
     EXPECT_TRUE (on.massingSlicesOn);
     pages.displays = on;
     hud.engine.SetOwnPages (pages);
-    hud.Click ({}, 40, controls[3]);
+    clickControl (controls[3]);
     EXPECT_FALSE (hud::LayerShown (*hud.state, "tapioca.massing.lines"));
-    hud.Click ({}, 40, controls[5]);
+    clickControl (controls[5]);
     EXPECT_TRUE (hud::MassingCollapseZone (*hud.state));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "tapioca.massing.collapseZone.terrain"));
-    hud.Click ({}, 40, controls[5]);
+    clickControl (controls[5]);
     EXPECT_FALSE (hud::MassingCollapseZone (*hud.state));
     const float lastControl = controls[4]; // envelope, after massing lines
     ASSERT_GT (lastControl, 60);
     hud::TakeMassingCalculations (*hud.state); // Discard the existing initial Massing-page preview request.
     constexpr const char* envelope = geomsrv::archviz::massingcalculation::kEnvelopeLayer;
     EXPECT_TRUE (hud::LayerShown (*hud.state, envelope));
-    hud.Click ({}, 40, lastControl);
+    clickControl (lastControl);
     EXPECT_FALSE (hud::LayerShown (*hud.state, envelope));
     EXPECT_FALSE (hud::MassingCollapseZone (*hud.state));
     ASSERT_FALSE (hud.heard.empty ());
@@ -206,30 +210,30 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
     hud.engine.SetLayers ({ envelope });
     hud.Lay ({}, At (600, 600));
     EXPECT_FALSE (hud::LayerShown (*hud.state, envelope)) << "New envelope publication keeps the visibility choice";
-    hud.Click ({}, 40, lastControl);
+    clickControl (lastControl);
     EXPECT_TRUE (hud::LayerShown (*hud.state, envelope));
     EXPECT_TRUE (hud::TakeMassingCalculations (*hud.state).empty ());
     EXPECT_FALSE (hud::UniqueBuildings (*hud.state));
-    hud.Click ({}, 40, controls[2]);
+    clickControl (controls[2]);
     EXPECT_TRUE (hud::UniqueBuildings (*hud.state));
     EXPECT_EQ (hud.heard.back ().kind, "uniqueBuildings");
     EXPECT_FALSE (hud::MarkLargeFloors (*hud.state));
-    hud.Click ({}, 40, controls[1]);
+    clickControl (controls[1]);
     EXPECT_TRUE (hud::MarkLargeFloors (*hud.state));
     EXPECT_EQ (hud.heard.back ().kind, "markLargeFloors");
     EXPECT_TRUE (hud::TakeMassingCalculations (*hud.state).empty ());
     EXPECT_TRUE (hud::TakeMetadataEdits (*hud.state).empty ());
-    hud.Click ({}, 40, controls[1]);
+    clickControl (controls[1]);
     EXPECT_FALSE (hud::MarkLargeFloors (*hud.state));
-    hud.Click ({}, 40, controls[1]);
+    clickControl (controls[1]);
     EXPECT_TRUE (hud::MarkLargeFloors (*hud.state));
     EXPECT_FALSE (hud::ShowLowHeadroom (*hud.state));
-    hud.Click ({}, 40, controls[0]);
+    clickControl (controls[0]);
     EXPECT_TRUE (hud::ShowLowHeadroom (*hud.state));
     EXPECT_EQ (hud.heard.back ().kind, "lowHeadroom");
-    hud.Click ({}, 40, controls[0]);
+    clickControl (controls[0]);
     EXPECT_FALSE (hud::ShowLowHeadroom (*hud.state));
-    hud.Click ({}, 40, controls[0]);
+    clickControl (controls[0]);
     hud::ClearState (*hud.state);
     EXPECT_FALSE (hud::MarkLargeFloors (*hud.state));
     EXPECT_FALSE (hud::ShowLowHeadroom (*hud.state));

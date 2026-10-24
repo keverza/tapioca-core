@@ -106,6 +106,7 @@ struct State {
         bool open = true;
         std::string selected;
         hudshell::Placement placement;
+        hudshell::DockPlacement dock;
     };
     Host host;
     // The viewer's circle pressed, and not yet taken by the owner (TakeViewerRequest).
@@ -233,6 +234,7 @@ struct Engine::Impl {
     std::string nextFloorBuilding;
     hudsection::Run nextFloorHover;
     // The tab the host's tab bar showed in this context's last frame: a panel key.
+    hudshell::NavigationState navigation; // text focus and draft are per ImGui context
     std::string shownHost;
     // The page the host shows scrolls (hudshell::HostResult::scrolls): the wheel over it is the HUD's.
     bool hostScrolls = false;
@@ -289,7 +291,7 @@ struct Engine::Impl {
 
     // The dock: one tab at the view's right edge, its title turned a quarter, that opens and
     // closes the host, and a circle on it that shows and hides the whole overlay.
-    void Dock (const std::vector<const layers::Panel*>& panels, float scale, ImVec2 view);
+    void Dock (const std::vector<const layers::Panel*>& panels, float scale, float ui, ImVec2 view);
 
     // The host: one floating panel, a tab per titled panel, then Settings, the close button
     // at the end of its tab row; where the user dragged it, kept.

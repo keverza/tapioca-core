@@ -287,7 +287,7 @@ TEST (TapiocaUiGallery, TheOverlaysDebugPageUnfoldsTheGalleryFromItsLastRow)
 
     // The page's last pressable row, from its bottom up: the gallery's header.
     float row = -1.0f;
-    for (float y = top + folded.host.height - 2; y > top && row < 0; y -= 2)
+    for (float y = top + folded.host.height - 36; y > top && row < 0; y -= 2)
         if (hud.Lay ({}, At (left + 30, y)).hand)
             row = y;
     ASSERT_GT (row, 0.0f);
@@ -516,7 +516,7 @@ TEST (TapiocaUiIcons, TheHudsOwnTabsAreGlyphsGreyAtRest)
     float top = FLT_MAX;
     for (const hud::Vertex& v : stats.host.vertices)
         top = (std::min) (top, v.y);
-    const float rowBottom = top + 40.0f; // the tab row, under the panel's top edge
+    const float rowBottom = top + 100.0f; // workflow selector and utility navigation
     EXPECT_GT (inTabRow (stats.host, rest, rowBottom), 0) << "Selection, Settings and Debug at rest";
     hud::SelectKey (*hud.state, shell::kSettingsKey);
     const hud::Layout settings = hud.Lay ({}, At (600, 600));

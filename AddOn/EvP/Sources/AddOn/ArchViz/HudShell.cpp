@@ -19,13 +19,6 @@ namespace hudshell {
 
 namespace layers = overlaylayers;
 
-namespace {
-
-// The close button at the end of the tab row.
-constexpr char kClose[] = "\xC3\x97##tapioca.close";
-
-} // namespace
-
 ImVec4 Colour (uint32_t rgba)
 {
     return ImVec4 (float ((rgba >> 24) & 0xFFu) / 255.0f, float ((rgba >> 16) & 0xFFu) / 255.0f,
@@ -289,120 +282,6 @@ uint32_t CircleColour (const Circle& circle, uint32_t ink, double seconds)
     return ink;
 }
 
-// ⚠️ ONE TAB, ITS TITLE TURNED, AND ITS SURFACES' CIRCLES (the user, 2026-09-30: one tab, its
-// text rotated 90 degrees, that opens and closes the panel; 2026-10-03: the overlay's circle at
-// its top, the separate viewer's at its bottom -- a switch between the two).
-DockPress DockTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, const Circle& top,
-                   const Circle* bottom, ImVec2 padding, float scale, const bool* locked)
-{
-    DockPress press;
-    const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
-    const float across = std::ceil (text.y + 2.0f * padding.x);
-    const float r = (std::min) (float (graphicssettings::Number ("ui.dock.rounding", 6)) * scale, across * 0.5f);
-    const uint32_t fill = open ? graphicssettings::Colour ("ui.dock.activeBackground", panel.accentRgba)
-                               : graphicssettings::Colour ("ui.dock.background", panel.backgroundRgba);
-    const uint32_t ink = graphicssettings::Colour ("ui.dock.text", open ? Contrast (fill) : panel.textRgba);
-    const double seconds = ImGui::GetTime ();
-    ImDrawList* draw = ImGui::GetWindowDrawList ();
-    // One part: its ground, its tint when pointed at and pressed, its edge while closed.
-    const auto part = [&] (ImVec2 a, ImVec2 b, ImDrawFlags corners) {
-        const bool hovered = ImGui::IsItemHovered (), held = ImGui::IsItemActive ();
-        draw->AddRectFilled (a, b, Packed (fill), r, corners);
-        if (hovered || held) {
-            // White over the open tab, the accent over the closed one.
-            const uint32_t tint = graphicssettings::Colour (held ? "ui.dock.pressed" : "ui.dock.hover",
-                                                            open ? WithAlpha (0xFFFFFFFFu, held ? 0.30f : 0.18f)
-                                                                 : WithAlpha (panel.accentRgba, held ? 0.48f : 0.30f));
-            draw->AddRectFilled (a, b, Packed (tint), r, corners);
-        }
-    };
-    // A circle: its square, a disc while its surface is shown or a ring, an arc while busy.
-    const auto circle = [&] (const char* name, const Circle& c, ImDrawFlags corners, ImVec2& from, ImVec2& to) {
-        const bool pressed = ImGui::InvisibleButton (name, ImVec2 (across, across));
-        from = ImGui::GetItemRectMin ();
-        to = ImGui::GetItemRectMax ();
-        part (from, to, corners);
-        const ImVec2 centre (std::floor ((from.x + to.x) * 0.5f), std::floor ((from.y + to.y) * 0.5f));
-        const float radius =
-            std::floor (across * float (graphicssettings::Number ("ui.dock.circleRadius", 0.22))) + 0.5f;
-        const ImU32 colour = Packed (CircleColour (c, ink, seconds));
-        const float stroke = (std::max) (1.0f, 1.5f * scale);
-        if (c.active)
-            draw->AddCircleFilled (centre, radius, colour);
-        else
-            draw->AddCircle (centre, radius, colour, 0, stroke);
-        if (c.phase == Phase::Busy) {
-            // How far, clockwise from the top; turning a quarter round when it cannot say.
-            const float start =
-                c.progress >= 0.0f ? -0.5f * kPi : -0.5f * kPi + float (std::fmod (seconds, 1.0)) * 2.0f * kPi;
-            const float sweep = c.progress >= 0.0f ? 2.0f * kPi * (std::min) (c.progress, 1.0f) : 0.5f * kPi;
-            if (sweep > 0.0f) {
-                draw->PathArcTo (centre, radius + 2.5f * scale, start, start + sweep, 24);
-                draw->PathStroke (Packed (graphicssettings::Colour ("ui.dock.busy", kBusyRgba)), 0, stroke);
-            }
-        }
-        // Beside the circle, out over the view: the dock is at the view's right edge.
-        Tip (c.tip, TipSide::Left);
-        return pressed;
-    };
-    ImGui::PushID (id);
-    ImVec2 topFrom, topTo, bottomFrom, bottomTo;
-    press.top = circle ("##shown", top, ImDrawFlags_RoundCornersTopLeft, topFrom, topTo);
-    if (locked != nullptr) {
-        // The lock: a padlock, shut while the view's clicks are the HUD's.
-        press.lock = ImGui::InvisibleButton ("##lock", ImVec2 (across, across));
-        const ImVec2 from = ImGui::GetItemRectMin (), to = ImGui::GetItemRectMax ();
-        part (from, to, ImDrawFlags_RoundCornersNone);
-        if (*locked)
-            draw->AddRectFilled (from, to, Packed (WithAlpha (panel.accentRgba, 0.55f)), 0.0f);
-        const ImVec2 c (std::floor ((from.x + to.x) * 0.5f), std::floor ((from.y + to.y) * 0.5f) + 2.0f * scale);
-        const float w = std::floor (across * 0.18f) + 0.5f, h = std::floor (across * 0.14f) + 0.5f;
-        const ImU32 colour = Packed (ink);
-        const float stroke = (std::max) (1.0f, 1.5f * scale);
-        draw->AddRectFilled (ImVec2 (c.x - w, c.y - h * 0.4f), ImVec2 (c.x + w, c.y + h * 1.4f), colour, scale);
-        // The shackle: closed over the body while locked, swung up and open otherwise.
-        const float lift = *locked ? 0.0f : 2.5f * scale;
-        draw->PathArcTo (ImVec2 (c.x, c.y - h * 0.4f - lift), w * 0.7f, kPi, 2.0f * kPi, 12);
-        draw->PathStroke (colour, 0, stroke);
-        if (!*locked)
-            draw->AddLine (ImVec2 (c.x + w * 0.7f, c.y - h * 0.4f - lift), ImVec2 (c.x + w * 0.7f, c.y - h * 0.4f),
-                           colour, stroke);
-        Tip (*locked ? "Locked: clicks on the view edit the floor plan; the wheel and the middle button navigate. "
-                       "Press to give the view back to Archicad."
-                     : "Lock the view to edit the floor plan on it: clicks are the HUD's, the wheel and the middle "
-                       "button still navigate.",
-             TipSide::Left);
-    }
-    // The title, under it.
-    press.title = ImGui::InvisibleButton ("##title", ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
-    const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
-    part (a, b, bottom != nullptr ? ImDrawFlags_RoundCornersNone : ImDrawFlags_RoundCornersBottomLeft);
-    ImVec2 last = b;
-    if (bottom != nullptr) {
-        press.bottom = circle ("##viewer", *bottom, ImDrawFlags_RoundCornersBottomLeft, bottomFrom, bottomTo);
-        last = bottomTo;
-    }
-    ImGui::PopID ();
-    if (!open) {
-        const uint32_t edge = (panel.borderRgba & 0xFFu) != 0 ? panel.borderRgba : WithAlpha (panel.textRgba, 0.25f);
-        draw->AddRect (topFrom, last, Packed (edge), r, ImDrawFlags_RoundCornersLeft, (std::max) (1.0f, scale));
-    }
-    // Laid out across, round the title's middle, then turned: every corner stays on a
-    // whole pixel. Unclipped while across -- the window is as narrow as the text is tall.
-    const ImVec2 middle (std::floor ((a.x + b.x) * 0.5f), std::floor ((a.y + b.y) * 0.5f));
-    const int first = draw->VtxBuffer.Size;
-    draw->PushClipRect (ImVec2 (-32768.0f, -32768.0f), ImVec2 (32768.0f, 32768.0f), false);
-    draw->AddText (ImVec2 (middle.x - std::floor (text.x * 0.5f), middle.y - std::floor (text.y * 0.5f)), Packed (ink),
-                   label.c_str ());
-    draw->PopClipRect ();
-    for (int k = first; k < draw->VtxBuffer.Size; ++k) {
-        ImDrawVert& v = draw->VtxBuffer[k];
-        const float dx = v.pos.x - middle.x, dy = v.pos.y - middle.y;
-        v.pos = ImVec2 (middle.x - dy, middle.y + dx);
-    }
-    return press;
-}
-
 namespace {
 
 // A control opens on press; the HUD's fallback menu opens on release, potentially many frames later.
@@ -508,6 +387,7 @@ bool ScrollingPage (const std::string& key, const std::function<void (const std:
     ImGui::SetNextWindowSizeConstraints (ImVec2 (setWidth ? 0.0f : least, 0.0f), ImVec2 (FLT_MAX, most));
     const ImGuiChildFlags sizing = ImGuiChildFlags_AutoResizeY | (setWidth ? 0 : ImGuiChildFlags_AutoResizeX);
     bool scrolls = false;
+    ImGui::PushID (key.c_str ());
     if (ImGui::BeginChild ("##page", ImVec2 (0.0f, 0.0f), sizing, ImGuiWindowFlags_NoNav)) {
         if (setWidth)
             ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + ImGui::GetContentRegionAvail ().x);
@@ -517,13 +397,15 @@ bool ScrollingPage (const std::string& key, const std::function<void (const std:
         scrolls = ImGui::GetScrollMaxY () > 0.0f;
     }
     ImGui::EndChild ();
+    ImGui::PopID ();
     return scrolls;
 }
 
 } // namespace
 
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
-                 const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer)
+                 const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer,
+                 NavigationState* navigation)
 {
     HostResult result;
     const layers::Panel& panel = spec.look != nullptr ? *spec.look : PlainLook ();
@@ -542,7 +424,7 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
         placement.offset[1] = (std::max) (view.y / scale - placement.offset[1] - height / scale, 0.0f);
         placement.corner &= 1u;
     }
-    if (!moving) {
+    if (!moving && !spec.attached) {
         if (placement.placed) {
             const ImVec2 size = existing != nullptr ? existing->Size : ImVec2 (0.0f, 0.0f);
             const bool right = (placement.corner & 1u) != 0;
@@ -569,27 +451,31 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     }
     const int colours = PushLook (panel, ui);
     ImGui::PushFont (spec.font, panel.sizePixels * ui);
-    // As wide as its tab row needs, or the look's width when that is wider.
     const ImGuiStyle& style = ImGui::GetStyle ();
-    float row = 2.0f * style.WindowPadding.x;
-    for (const HostTab& tab : spec.tabs)
-        row += TabWidth (tab) + style.ItemInnerSpacing.x;
-    row += ImGui::CalcTextSize (kClose, nullptr, true).x + 2.0f * style.FramePadding.x + style.ItemInnerSpacing.x;
-    const bool pageWidth = spec.pageWidthPixels > 0.0f;
+    const bool pageWidth = !spec.attached && spec.pageWidthPixels > 0.0f;
     const float panelWidth =
-        pageWidth ? spec.pageWidthPixels : float (graphicssettings::Number ("ui.panelWidth", panel.widthPixels));
-    float width = (std::max) (std::ceil (row), panelWidth * ui);
-    if (pageWidth)
-        width = (std::min) (width, (std::max) (80.0f, view.x - 2.0f * kViewMargin * scale));
-    const float tallest =
-        (std::max) (TallestPanel (panel, placement, scale, view.y), 2.0f * kLeastPageEm * panel.sizePixels * ui);
+        pageWidth ? spec.pageWidthPixels
+                  : float (graphicssettings::Number ("ui.panelWidth", spec.attached ? 320.0f : panel.widthPixels));
+    float width = (std::max) (320.0f * ui, panelWidth * ui);
+    width = (std::min) (width, view.x);
+    float tallest = TallestPanel (panel, placement, scale, view.y);
+    if (spec.attached) {
+        const auto bounds = PanelAtDock (view, spec.dockMin, spec.dockMax, spec.dockEdge, spec.dockHorizontal,
+                                         ImVec2 (width, view.y), kDockGap * ui);
+        width = bounds.size.x;
+        tallest = bounds.size.y;
+        const float height = existing ? (std::min) (existing->Size.y, tallest) : (std::min) (250.0f * ui, tallest);
+        const auto rect = PanelAtDock (view, spec.dockMin, spec.dockMax, spec.dockEdge, spec.dockHorizontal,
+                                       ImVec2 (width, height), kDockGap * ui);
+        ImGui::SetNextWindowPos (rect.position);
+    }
     ImGui::SetNextWindowSizeConstraints (ImVec2 (width, 0.0f),
                                          ImVec2 (pageWidth || panel.widthPixels > 0.0f ? width : FLT_MAX, tallest));
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                                   ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                                   ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoCollapse;
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav |
+        ImGuiWindowFlags_NoCollapse | (spec.attached ? ImGuiWindowFlags_NoMove : 0);
     result.drawn = ImGui::Begin (spec.window, nullptr, flags);
     result.window = ImGui::GetCurrentWindow ();
     // The footer's height in the last frame, kept with the window: what the page leaves for it.
@@ -604,35 +490,37 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     const bool wrapped = result.drawn && setWidth;
     if (wrapped)
         ImGui::PushTextWrapPos (ImGui::GetCursorPosX () + ImGui::GetContentRegionAvail ().x);
-    if (result.drawn && ImGui::BeginTabBar ("##hud")) {
-        std::string now;
-        const auto asked = [&] (const std::string& key) {
-            return key == held && shownLast != held ? ImGuiTabItemFlags_SetSelected : 0;
-        };
-        for (const HostTab& tab : spec.tabs) {
-            const bool open = TabItem (tab, asked (tab.key));
-            if (open) {
-                now = tab.key;
-                if (page)
-                    result.scrolls = ScrollingPage (tab.key, page, tallest, footerLast, setWidth,
-                                                    width - 2.0f * style.WindowPadding.x);
-                ImGui::EndTabItem ();
-            }
-        }
-        result.closed = ImGui::TabItemButton (kClose, ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip);
-        ImGui::EndTabBar ();
-        // The user's press on another tab: one this context did not show last frame, and
-        // not the held one it was asked to show.
-        if (!now.empty () && !shownLast.empty () && now != shownLast && now != held)
-            result.pressed = now;
-        shownLast = now;
-        result.shown = now;
+    NavigationState fallback;
+    NavigationState& nav = navigation ? *navigation : fallback;
+    const bool commandAbove =
+        spec.dockEdge == DockEdge::Top ||
+        (spec.dockEdge == DockEdge::Floating && spec.dockHorizontal && spec.dockMin.y < view.y - spec.dockMax.y);
+    if (result.drawn) {
+        if (commandAbove)
+            result.pressed = NavigationInput (spec, nav, result.textActive);
+        const auto chosen = NavigationHeader (spec, held, nav, result.closed);
+        if (!chosen.empty ())
+            result.pressed = chosen;
+        result.shown = held;
+        shownLast = held;
+        const bool available =
+            std::any_of (spec.tabs.begin (), spec.tabs.end (), [&] (const auto& tab) { return tab.key == held; });
+        if (available && page)
+            result.scrolls = ScrollingPage (
+                held, page, tallest,
+                (std::max) (footerLast, (commandAbove ? 0.0f : 3.0f) * ImGui::GetFrameHeightWithSpacing ()), true,
+                width - 2 * style.WindowPadding.x);
+        else
+            ImGui::TextWrapped ("This workflow is no longer available. Choose a workflow to continue.");
     }
     if (result.drawn) {
         const float before = ImGui::GetCursorPosY ();
         if (footer)
             footer ();
-        storage->SetFloat (footerId, footer ? ImGui::GetCursorPosY () - before : 0.0f);
+        const std::string command = commandAbove ? std::string () : NavigationInput (spec, nav, result.textActive);
+        if (!command.empty ())
+            result.pressed = command;
+        storage->SetFloat (footerId, ImGui::GetCursorPosY () - before);
     }
     if (wrapped)
         ImGui::PopTextWrapPos ();
@@ -641,7 +529,7 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     ImGui::PopStyleColor (colours);
     ImGui::PopStyleVar (kLookVars);
     // Dragged: where to, from the view's nearer side and its top, in logical pixels.
-    if (moving) {
+    if (moving && !spec.attached) {
         const ImVec2 pos = result.window->Pos, size = result.window->Size;
         const bool right = pos.x + size.x * 0.5f > view.x * 0.5f;
         placement.placed = true;

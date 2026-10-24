@@ -3,8 +3,8 @@
 
 // ArchViz/HudShell -- what every Tapioca HUD looks like and how its frame behaves, in
 // Dear ImGui: the look (the overlays' dense card, light or dark), the text size's steps,
-// the dock's turned tab at the view's right edge, and the one floating panel whose tab row
-// is its head. The overlays' HUD (OverlayHud.hpp) and the viewer's (DiligentHud.hpp) both
+// the movable edge-aware dock, explicit workflow navigation and attached panel.
+// The overlays' HUD (OverlayHud.hpp) and the viewer's (DiligentHud.hpp) both
 // draw through it, so the two are one design rather than two that drift.
 //
 // ⚠️ THE OVERLAYS' HUD IS THE TEMPLATE (the user, 2026-10-03). Everything here was that
@@ -142,6 +142,9 @@ struct DockPress {
     bool top = false;
     bool bottom = false;
     bool lock = false;
+    bool collapse = false;
+    bool dragging = false;
+    ImVec2 delta;
 };
 
 // The dock's tab: `top` at its top, then `label` turned a quarter clockwise -- it reads top to
@@ -153,7 +156,34 @@ struct DockPress {
 // clicks are the HUD's -- the floor plan is edited on the view itself -- and only the wheel and
 // the middle button reach Archicad, to navigate. A closed padlock while locked, open otherwise.
 DockPress DockTab (const char* id, const std::string& label, const overlaylayers::Panel& look, bool open,
-                   const Circle& top, const Circle* bottom, ImVec2 padding, float scale, const bool* locked = nullptr);
+                   const Circle& top, const Circle* bottom, ImVec2 padding, float scale, const bool* locked = nullptr,
+                   bool horizontal = false);
+
+enum class DockEdge : uint8_t { Floating, Top, Bottom, Left, Right };
+struct DockPlacement {
+    DockEdge edge = DockEdge::Right;
+    float along = 0.5f;
+    ImVec2 freePosition = ImVec2 (100, 100); // logical pixels
+    bool horizontal = false;
+    bool dragging = false;
+};
+ImVec2 DockPosition (const DockPlacement& placement, ImVec2 view, ImVec2 size, float scale);
+ImVec2 DockFraction (const DockPlacement& placement);
+void SnapDock (DockPlacement& placement, ImVec2 position, ImVec2 view, ImVec2 size, float scale);
+struct DockResult {
+    DockPress press;
+    ImGuiWindow* window = nullptr;
+};
+DockResult Dock (DockPlacement& placement, ImVec2 view, float scale, float ui, ImFont* font, const std::string& label,
+                 const overlaylayers::Panel& look, bool open, const Circle& top, const Circle* bottom,
+                 const bool* locked = nullptr);
+struct DockPanelRect {
+    ImVec2 position;
+    ImVec2 size;
+    DockEdge side = DockEdge::Right;
+};
+DockPanelRect PanelAtDock (ImVec2 view, ImVec2 dockMin, ImVec2 dockMax, DockEdge edge, bool horizontal, ImVec2 wanted,
+                           float gap);
 
 // ⚠️ A RIGHT CLICK A CONTROL ANSWERS IS THE CONTROL'S: the HUD's own menu opens on a right click
 // anywhere on the HUD (OverlayHudHost.cpp `Menu`) unless a control -- the building section's
@@ -206,9 +236,25 @@ struct HostSpec {
     float inset = 0.0f;           // how far the view's right column moves in: the dock's width and a gap
     float pageWidthPixels = 0.0f; // selected caller page only; 0 keeps the shared/default width
     std::vector<HostTab> tabs;
+    bool attached = false;
+    ImVec2 dockMin, dockMax;
+    DockEdge dockEdge = DockEdge::Right;
+    bool dockHorizontal = false;
+    bool textInput = false;
 };
 
+struct NavigationState {
+    char input[256] = {};
+    std::string message;
+    std::string workflow;
+    std::string workflowTitle;
+};
+std::string ResolveNavigation (const std::string& input, const std::vector<HostTab>& tabs);
+std::string NavigationHeader (const HostSpec& spec, const std::string& held, NavigationState& state, bool& collapse);
+std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool& active);
+
 struct HostResult {
+    bool textActive = false;
     bool drawn = false;
     bool closed = false;  // the close button at the tab row's end
     std::string pressed;  // the tab the user pressed in this frame; empty for none
@@ -242,7 +288,8 @@ constexpr float kLeastPageEm = 4.0f;
 // the tab row and over the footer scrolls inside it, by the wheel and by its bar, each tab's
 // at its own place.
 HostResult Host (const HostSpec& spec, const std::string& held, std::string& shownLast, Placement& placement,
-                 const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer);
+                 const std::function<void (const std::string& key)>& page, const std::function<void ()>& footer,
+                 NavigationState* navigation = nullptr);
 
 // ---- widgets every page uses (HANDOFF-HudTabs.md's shared helpers) -----------------------
 

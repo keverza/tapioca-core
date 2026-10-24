@@ -629,7 +629,7 @@ TEST (OverlayHud, TheDesignsCardLaysOutInItsColours)
     const hud::Layout out = hud.Lay ({ &panel }, At (10.0f, 790.0f));
     ASSERT_EQ (out.panels.size (), 1u);
     const hud::Built& card = out.host; // a titled panel: the host's tab
-    EXPECT_NEAR (card.width, 420.0f, 0.5f);
+    EXPECT_NEAR (card.width, 320.0f, 0.5f);
     EXPECT_GT (card.height, 200.0f); // dense: every figure of the design, in about 300 pixels
     float box[4] = {};
     EXPECT_TRUE (Box (card, 0xFFFFFFF2u, box)) << "the light card";
@@ -654,10 +654,12 @@ TEST (OverlayHud, APointedSegmentOrBarSaysWhatItIs)
     ASSERT_TRUE (Box (out.host, RampStart ("sunhours"), bar));
     // The panel's top-left is at (16, 16) on the view.
     const hud::Layout onSegment =
-        hud.Lay ({ &panel }, At (16.0f + (segment[0] + segment[2]) * 0.5f, 16.0f + (segment[1] + segment[3]) * 0.5f));
+        hud.Lay ({ &panel }, At ((out.host.fraction[0] * 1200 + out.host.offset[0]) + (segment[0] + segment[2]) * 0.5f,
+                                 (out.host.fraction[1] * 800 + out.host.offset[1]) + (segment[1] + segment[3]) * 0.5f));
     EXPECT_FALSE (onSegment.overlay.vertices.empty ());
     const hud::Layout onBar =
-        hud.Lay ({ &panel }, At (16.0f + (bar[0] + bar[2]) * 0.5f, 16.0f + (bar[1] + bar[3]) * 0.5f));
+        hud.Lay ({ &panel }, At ((out.host.fraction[0] * 1200 + out.host.offset[0]) + (bar[0] + bar[2]) * 0.5f,
+                                 (out.host.fraction[1] * 800 + out.host.offset[1]) + (bar[1] + bar[3]) * 0.5f));
     EXPECT_FALSE (onBar.overlay.vertices.empty ());
     EXPECT_NE (onBar.overlay.vertices.size (), 0u);
 }

@@ -266,9 +266,9 @@ TEST (HudBuildingPlan, NativeSelectionPlanDefaultsToLowestThenClickSwitchesButHo
     const auto& plan = pages.buildings[0].plan;
     ASSERT_TRUE (draft.known);
     EXPECT_EQ (bp::Displayed (plan, draft)->z, 0);
-    const float x = 16 + layout.host.width * 0.6f;
+    const float x = hudtest::Left (layout.host) + layout.host.width * 0.6f;
     float rowY = 0;
-    for (float y = 60; y < 16 + layout.host.height; y += 2) {
+    for (float y = 60; y < hudtest::Top (layout.host) + layout.host.height - 36; y += 2) {
         gui.Lay ({}, hudtest::At (x, y));
         if (!gui.state->hoveredFloors.Empty ()) {
             rowY = y + 3;
@@ -303,8 +303,8 @@ TEST (HudBuildingPlan, SelectionHasOneEditableSection)
     int bands = 0;
     bool wasHover = false;
     int previous = (std::numeric_limits<int>::min) ();
-    for (float y = 60; y < 16 + normal.host.height; y += 1) {
-        gui.Lay ({}, hudtest::At (16 + normal.host.width * 0.6f, y));
+    for (float y = 60; y < hudtest::Top (normal.host) + normal.host.height - 36; y += 1) {
+        gui.Lay ({}, hudtest::At (hudtest::Left (normal.host) + normal.host.width * 0.6f, y));
         const bool hover = !gui.state->hoveredFloors.Empty ();
         bands += hover && (!wasHover || gui.state->hoveredFloors.first != previous);
         previous = gui.state->hoveredFloors.first;
@@ -374,8 +374,8 @@ TEST (HudBuildingPlan, LockedTheSelectionTabKeepsTheBuildingsBeingEdited)
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     const auto layout = gui.Lay ({}, hudtest::At (600, 600));
     bool floors = false;
-    for (float y = 60; y < 16 + layout.host.height && !floors; y += 2) {
-        gui.Lay ({}, hudtest::At (16 + layout.host.width * 0.6f, y));
+    for (float y = 60; y < hudtest::Top (layout.host) + layout.host.height - 36 && !floors; y += 2) {
+        gui.Lay ({}, hudtest::At (hudtest::Left (layout.host) + layout.host.width * 0.6f, y));
         floors = !gui.state->hoveredFloors.Empty ();
     }
     EXPECT_TRUE (floors) << "the building's section is on the Selection tab";

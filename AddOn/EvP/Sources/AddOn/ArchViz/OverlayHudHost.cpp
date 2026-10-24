@@ -102,7 +102,7 @@ void Engine::Impl::Gather (const std::vector<const layers::Panel*>& panels, cons
                                 host.selected == kDebugKey || host.selected == hudmassing::kTabKey));
     for (const size_t i : titled)
         held = held || keys[i] == host.selected;
-    if (!held)
+    if (!held && host.selected.empty ())
         host.selected = standalone        ? std::string (kStatsKey)
                         : titled.empty () ? std::string (kSettingsKey)
                                           : keys[titled.front ()];
@@ -184,8 +184,7 @@ void Engine::Impl::SetFontStep (uint32_t step)
 
 void Engine::Impl::ResetPosition ()
 {
-    if (!store->host.placement.placed)
-        return;
+    store->host.dock = {};
     store->host.placement.placed = false;
     changes.push_back ({ "position", std::string (), std::string (), std::string (), -1, 0.0, "reset", true });
 }
@@ -196,36 +195,26 @@ void Engine::Impl::ResetPosition ()
 // edge, half-way down; it says the tab the host shows. Laid out before the host, so a press
 // takes effect in this frame -- and drawn over it, so a host dragged there never hides it.
 // Hidden, it is all that is drawn; its title then shows everything again.
-void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float scale, ImVec2 view)
+void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float scale, float ui, ImVec2 view)
 {
     inset = 0.0f;
     if (!present)
         return;
     const layers::Panel& colours = *look;
-    ImGui::SetNextWindowPos (ImVec2 (view.x, std::floor (view.y * 0.5f)), ImGuiCond_Always, ImVec2 (1.0f, 0.5f));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0.0f, 0.0f));
-    ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0.0f, 0.0f));
-    ImGui::PushFont (font, kDockFontPixels * scale);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                   ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-                                   ImGuiWindowFlags_NoBackground;
-    const bool drawn = ImGui::Begin ("###tapioca.dock", nullptr, flags);
-    ImGuiWindow* const window = ImGui::GetCurrentWindow ();
+    const bool open = HudOpen (*store) && store->shown;
+    hudshell::Circle top = own.standalone ? own.overlay : hudshell::Circle ();
+    if (!own.standalone)
+        top.phase = hudshell::Phase::Ready;
+    top.active = !own.viewerSurface && store->shown;
+    const auto dock = hudshell::Dock (store->host.dock, view, scale, ui, font,
+                                      navigation.workflowTitle.empty () ? "Tapioca" : navigation.workflowTitle, colours,
+                                      open, top, own.standalone ? &own.viewer : nullptr, &store->editLocked);
+    ImGuiWindow* const window = dock.window;
     windows[windows.size () - 2] = window;
-    if (drawn) {
-        const bool open = HudOpen (*store) && store->shown;
-        // The overlay's circle says its state and whether it is shown; the viewer's, where the
-        // HUD is the overlay's own, is the switch to it. Without own pages: the one circle.
-        hudshell::Circle top = own.standalone ? own.overlay : hudshell::Circle ();
-        if (!own.standalone)
-            top.phase = hudshell::Phase::Ready;
-        top.active = !own.viewerSurface && store->shown;
-        const hudshell::DockPress press =
-            hudshell::DockTab ("##hud", showing, colours, open, top, own.standalone ? &own.viewer : nullptr,
-                               ImVec2 (kDockPadding[0] * scale, kDockPadding[1] * scale), scale, &store->editLocked);
+    {
+        const auto& press = dock.press;
+        if (press.collapse)
+            SetOpen (!open);
         const bool pressed = press.title;
         if (press.lock) {
             store->editLocked = !store->editLocked;
@@ -255,13 +244,10 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
         else if (pressed) {
             // Hidden, the title brings everything back, the panel open.
             ShowOverlay (true);
-            SetOpen (!open);
+            SetOpen (true);
         }
     }
-    ImGui::End ();
-    ImGui::PopFont ();
-    ImGui::PopStyleVar (3);
-    inset = window->Size.x + kDockGap * scale;
+    inset = store->host.dock.edge == hudshell::DockEdge::Right ? window->Size.x + kDockGap * ui : 0;
     dockMin = window->Pos, dockMax = ImVec2 (window->Pos.x + window->Size.x, window->Pos.y + window->Size.y);
 }
 
@@ -359,6 +345,12 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     spec.ui = ui;
     spec.view = view;
     spec.inset = inset;
+    spec.attached = true;
+    spec.dockMin = dockMin;
+    spec.dockMax = dockMax;
+    spec.dockEdge = store->host.dock.edge;
+    spec.dockHorizontal = store->host.dock.horizontal;
+    spec.textInput = true;
     spec.pageWidthPixels = showsPanel ? panels[shown]->pageWidthPixels : 0.0f;
     // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
     // Settings.
@@ -423,7 +415,9 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
         [&] () {
             if (store->hover && ReadoutOnPage (readout, pageKey, titledPanelKeys))
                 Readout ();
-        });
+        },
+        &navigation);
+    store->criteriaTextActive = store->criteriaTextActive || result.textActive;
     windows.back () = result.window;
     hostScrolls = result.scrolls;
     if (!result.pressed.empty ()) {
@@ -490,7 +484,7 @@ void Engine::Impl::Menu (float ui)
             }
             ImGui::EndMenu ();
         }
-        if (ImGui::MenuItem ("Reset position", nullptr, false, store->host.placement.placed))
+        if (ImGui::MenuItem ("Reset position", nullptr, false, true))
             ResetPosition ();
         ImGui::EndPopup ();
     }

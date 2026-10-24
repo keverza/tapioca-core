@@ -205,9 +205,9 @@ TEST (MassingBuildings, RealPreviewFloorHoverAndClickEmitHighlightChangesButNoMe
     gui.engine.SetOwnPages (pages);
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     const auto layout = gui.Lay ({}, hudtest::At (600, 600));
-    const float x = 16 + layout.host.width * 0.6f;
+    const float x = hudtest::Left (layout.host) + layout.host.width * 0.6f;
     float rowY = 0;
-    for (float y = 60; y < 16 + layout.host.height; y += 2) {
+    for (float y = hudtest::Top (layout.host) + 70; y < hudtest::Top (layout.host) + layout.host.height - 36; y += 2) {
         gui.Lay ({}, hudtest::At (x, y));
         if (!gui.state->hoveredFloors.Empty ()) {
             rowY = y + 4;
@@ -251,11 +251,11 @@ TEST (MassingBuildings, WholeBuildingCheckboxIsMouseAccessible)
     gui.engine.SetOwnPages (pages);
     hud::SelectKey (*gui.state, geomsrv::archviz::hudshell::kSelectionKey);
     const auto layout = gui.Lay ({}, hudtest::At (600, 600));
-    const float x = 16 + layout.host.width * 0.5f;
+    const float x = hudtest::Left (layout.host) + 30;
     float buttonY = 0;
     int islands = 0;
     bool wasHand = false;
-    for (float y = 60; y < 16 + layout.host.height; y += 2) {
+    for (float y = hudtest::Top (layout.host) + 70; y < hudtest::Top (layout.host) + layout.host.height - 36; y += 2) {
         const bool hand = gui.Lay ({}, hudtest::At (x, y)).hand;
         if (hand && !wasHand && ++islands == 2) { // Editor header, then the retained building checkbox.
             buttonY = y + 4;

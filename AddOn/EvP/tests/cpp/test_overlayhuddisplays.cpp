@@ -35,7 +35,7 @@ std::vector<std::pair<float, float>> Presses (Watched& hud, float x, float botto
 {
     std::vector<std::pair<float, float>> runs;
     bool in = false;
-    for (float y = 52.0f; y < bottom; y += 2.0f) {
+    for (float y = 52.0f; y < bottom - 36; y += 2.0f) {
         const bool hand = hud.Lay ({}, At (x, y)).hand;
         if (hand && !in)
             runs.push_back ({ y, y });

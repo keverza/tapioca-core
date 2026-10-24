@@ -110,7 +110,7 @@ std::vector<std::pair<float, float>> Controls (Fresh& hud, const std::vector<con
 {
     std::vector<std::pair<float, float>> runs;
     bool in = false;
-    for (float y = kRowY + 12.0f; y < 16.0f + host.height; y += 2.0f) {
+    for (float y = Top (host) + 100; y < Top (host) + host.height - 36; y += 2.0f) {
         const bool hand = hud.Lay (panels, At (x, y)).hand;
         if (hand && !in)
             runs.push_back ({ y, y });
@@ -149,12 +149,9 @@ std::vector<std::pair<float, float>> Rows (const hud::Built& built, uint32_t rgb
 }
 
 // The host on its Settings tab: the press before the close button along the tab row.
-void OpenSettings (Fresh& hud, const std::vector<const layers::Panel*>& panels)
+void OpenSettings (Watched& hud, const std::vector<const layers::Panel*>& panels)
 {
-    const hud::Layout open = hud.Lay (panels, At (600.0f, 600.0f));
-    const std::vector<std::pair<float, float>> runs = Presses (hud, panels, open.host);
-    ASSERT_GE (runs.size (), 2u);
-    hud.Click (panels, Middle (runs[runs.size () - 2]), kRowY);
+    Navigate (hud, panels, "show Settings");
 }
 
 } // namespace
@@ -176,9 +173,7 @@ TEST (OverlayHudControls, TitledPanelsAreTabsOfOneHost)
     EXPECT_TRUE (Box (first.host, 0x11AA22FFu, box)) << "the first tab's page";
     EXPECT_FALSE (Box (first.host, 0x3355CCFFu, box));
     EXPECT_EQ (first.hostKey, "hud#0");
-    const std::vector<std::pair<float, float>> runs = Presses (hud, { &sun, &area }, first.host);
-    ASSERT_EQ (runs.size (), 4u) << "two tabs, Settings and the close button";
-    hud.Click ({ &sun, &area }, Middle (runs[1]), kRowY);
+    Navigate (hud, { &sun, &area }, "workflow Area metrics");
     const hud::Layout second = hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
     EXPECT_TRUE (Box (second.host, 0x3355CCFFu, box));
     EXPECT_FALSE (Box (second.host, 0x11AA22FFu, box));
@@ -214,7 +209,8 @@ TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
     const float y = 400.0f + open.dock.offset[1] + open.dock.height * 0.5f;
     EXPECT_TRUE (hud.Lay ({ &panel }, At (x, y)).hand);
 
-    hud.Click ({ &panel }, x, y);
+    const float collapseY = 400.0f + open.dock.offset[1] + open.dock.height - open.dock.width * 0.5f;
+    hud.Click ({ &panel }, x, collapseY);
     const hud::Layout closed = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_FALSE (hud.engine.Open ());
     EXPECT_TRUE (closed.host.vertices.empty ());
@@ -224,9 +220,7 @@ TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
 
     // The close button, last along the tab row.
     const hud::Layout again = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    const std::vector<std::pair<float, float>> runs = Presses (hud, { &panel }, again.host);
-    ASSERT_EQ (runs.size (), 3u);
-    hud.Click ({ &panel }, Middle (runs.back ()), kRowY);
+    hud.Click ({ &panel }, Left (again.host) + again.host.width - 26, Top (again.host) + 18);
     EXPECT_FALSE (hud.engine.Open ());
     ASSERT_EQ (hud.heard.size (), 3u);
     EXPECT_EQ (hud.heard[0].kind, "hud");
@@ -261,39 +255,25 @@ TEST (OverlayHudControls, TheHostStartsClosedWhenAskedAndAnUntitledPanelStandsAl
 // ⚠️ THE USER, 2026-09-30: floating, for the user to place wherever they want in the view.
 // Dragged by its background, the host goes with the pointer; left nearer the view's
 // bottom-right corner, it keeps its distance from that corner's edges when the view grows.
-TEST (OverlayHudControls, TheHostStaysWhereItIsDragged)
+TEST (OverlayHudControls, TheDockMovesTheAttachedHost)
 {
     Watched hud;
     const layers::Panel panel = Titled ();
-    const hud::Layout before = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    // Its background: in the padding under its last item.
-    const float x = 16.0f + before.host.width * 0.5f, y = 16.0f + before.host.height - 4.0f;
-    EXPECT_FALSE (hud.Lay ({ &panel }, At (x, y)).hand) << "the background: nothing to press";
+    const auto before = hud.Lay ({ &panel }, At (0, 0));
+    const float x = Left (before.dock) + before.dock.width / 2;
+    const float y = Top (before.dock) + before.dock.width * 2 + 12;
+    hud.Lay ({ &panel }, At (x, y));
     hud.Lay ({ &panel }, At (x, y, { { 0, true } }));
-    hud.Lay ({ &panel }, At (x + 400.0f, y + 250.0f));
-    hud.Lay ({ &panel }, At (x + 800.0f, y + 500.0f));
-    const hud::Layout dropped = hud.Lay ({ &panel }, At (x + 800.0f, y + 500.0f, { { 0, false } }));
-    // Held from the right edge and the top now, where it was left: a shorter page keeps its top.
-    EXPECT_FLOAT_EQ (dropped.host.fraction[0], 1.0f);
-    EXPECT_FLOAT_EQ (dropped.host.fraction[1], 0.0f);
-    EXPECT_NEAR (1200.0f + dropped.host.offset[0], 16.0f + 800.0f, 1.0f);
-    EXPECT_NEAR (dropped.host.offset[1], 16.0f + 500.0f, 1.0f);
-    // A bigger view: as far from its right edge and its top.
-    hud::Input bigger = At (100.0f, 100.0f);
-    bigger.width = 1600.0f;
-    bigger.height = 1000.0f;
-    const hud::Layout grown = hud.Lay ({ &panel }, bigger);
-    EXPECT_FLOAT_EQ (grown.host.offset[0], dropped.host.offset[0]);
-    EXPECT_FLOAT_EQ (grown.host.offset[1], dropped.host.offset[1]);
-    // A smaller one than it was left in: still wholly inside.
-    hud::Input smaller = At (10.0f, 10.0f);
-    smaller.width = 500.0f;
-    smaller.height = 400.0f;
-    const hud::Layout shrunk = hud.Lay ({ &panel }, smaller);
-    EXPECT_GE (500.0f + shrunk.host.offset[0], 0.0f);
-    EXPECT_GE (shrunk.host.offset[1], 0.0f);
-    EXPECT_LE (shrunk.host.offset[1] + shrunk.host.height, 400.0f + 0.5f);
-    EXPECT_TRUE (hud.heard.empty ()) << "a move is not a change to report";
+    hud.Lay ({ &panel }, At (x - 300, y - 120));
+    hud.Lay ({ &panel }, At (x - 300, y - 120, { { 0, false } }));
+    const auto after = hud.Lay ({ &panel }, At (0, 0));
+    EXPECT_NEAR (Left (after.dock), Left (before.dock) - 300, 1);
+    EXPECT_NEAR (Top (after.dock), Top (before.dock) - 120, 1);
+    EXPECT_NE (Left (after.host), Left (before.host));
+    EXPECT_TRUE (hud.engine.Open ());
+    EXPECT_GE (Left (after.host), 0);
+    EXPECT_LE (Left (after.host) + after.host.width, 1200);
+    EXPECT_TRUE (hud.heard.empty ()) << "moving never navigates or executes";
 }
 
 // A panel without a title on the view's right column moves in beside the dock.
@@ -322,7 +302,7 @@ TEST (OverlayHudControls, TheViewsShareWhatTheUserDid)
     const layers::Panel panel = Titled ();
     const hud::Layout open = threeD.Lay ({ &panel }, At (600.0f, 600.0f));
     const float x = 1200.0f + open.dock.offset[0] + open.dock.width * 0.5f;
-    const float y = 400.0f + open.dock.offset[1] + open.dock.height * 0.5f;
+    const float y = 400.0f + open.dock.offset[1] + open.dock.height - open.dock.width * 0.5f;
     threeD.Click ({ &panel }, x, y);
     EXPECT_FALSE (plan.engine.Open ());
     EXPECT_TRUE (plan.Lay ({ &panel }, At (600.0f, 600.0f)).host.vertices.empty ());
@@ -385,7 +365,7 @@ TEST (OverlayHudControls, SettingsSetsTheTextSizeInBothViews)
     EXPECT_FLOAT_EQ (threeD.engine.FontScale (), 1.0f);
     // The dropdown: the first control down the page's right half.
     const hud::Layout settings = threeD.Lay ({ &panel }, At (600.0f, 600.0f));
-    const float x = 16.0f + settings.host.width * 0.75f;
+    const float x = Left (settings.host) + settings.host.width * 0.75f;
     const std::vector<std::pair<float, float>> controls = Controls (threeD, { &panel }, settings.host, x);
     ASSERT_GE (controls.size (), 1u) << "the text size";
     threeD.Click ({ &panel }, x, Middle (controls[0]));
@@ -405,7 +385,7 @@ TEST (OverlayHudControls, SettingsSetsTheTextSizeInBothViews)
     const float grew = larger.host.height / before.host.height;
     EXPECT_GT (grew, 1.04f);
     EXPECT_LT (grew, 1.2f);
-    EXPECT_NEAR (larger.host.offset[0], 16.0f, 0.5f) << "the distance from the view's edge stays";
+    EXPECT_LE (Left (larger.host) + larger.host.width, 1200);
     // Set from Python: the nearest step, and never past the ends.
     threeD.engine.SetFontScale (1.3f);
     EXPECT_FLOAT_EQ (plan.engine.FontScale (), 1.25f);
@@ -460,7 +440,7 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     OpenSettings (hud, { &panel });
     const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     // The check boxes, at the page's left: Show overlay, Hover readout, then one per layer.
-    const float x = 16.0f + 24.0f;
+    const float x = Left (settings.host) + 24.0f;
     std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
     ASSERT_EQ (boxes.size (), 5u); // The collapsed Graphics style lab follows the layer checkboxes.
     const uint64_t revision = hud::Revision (*hud.state);
@@ -473,12 +453,12 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     EXPECT_EQ (hud.heard.back ().text, "hidden");
     // Its panel is no tab now: Settings alone, in the plain card.
     const hud::Layout without = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    EXPECT_EQ (Presses (hud, { &panel }, without.host).size (), 2u) << "Settings and the close button";
+    EXPECT_EQ (hud.engine.Selected (), "tapioca.settings");
     boxes = Controls (hud, { &panel }, without.host, x);
     ASSERT_EQ (boxes.size (), 5u);
     hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "hud"));
-    EXPECT_EQ (Presses (hud, { &panel }, hud.Lay ({ &panel }, At (600.0f, 600.0f)).host).size (), 3u);
+    EXPECT_EQ (hud.engine.Selected (), "tapioca.settings") << "visibility does not navigate";
 }
 
 // A layer with no titled panel -- slices, lines -- still has the dock: its circle and its
@@ -530,11 +510,11 @@ TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_FALSE (RightClick (hud, { &panel }, 600.0f, 600.0f).popup) << "off the HUD";
     // The host's background.
-    const float x = 16.0f + open.host.width * 0.5f, y = 16.0f + open.host.height - 4.0f;
+    const float x = Left (open.host) + open.host.width * 0.5f, y = Top (open.host) + open.host.height - 4.0f;
     const hud::Layout menu = RightClick (hud, { &panel }, x, y);
     ASSERT_TRUE (menu.popup);
     std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 5u) << "show overlay, show panel, Settings, hover readout, text size -- reset position "
+    ASSERT_EQ (items.size (), 6u) << "show overlay, show panel, Settings, hover readout, text size -- reset position "
                                      "disabled";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
@@ -548,12 +528,12 @@ TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
     EXPECT_EQ (hud.heard[0].kind, "overlay");
     // The dock's title, the only thing left.
     const float dx = 1200.0f + hidden.dock.offset[0] + hidden.dock.width * 0.5f;
-    const float dy = 400.0f + hidden.dock.offset[1] + hidden.dock.height * 0.6f;
+    const float dy = 400.0f + hidden.dock.offset[1] + hidden.dock.width * 0.5f;
     const hud::Layout again = RightClick (hud, { &panel }, dx, dy);
     ASSERT_TRUE (again.popup);
     EXPECT_FALSE (hud::ContentShown (*hud.state)) << "a right click is not the title's press";
     items = Rows (again.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 5u);
+    ASSERT_EQ (items.size (), 6u);
     ASSERT_TRUE (Box (again.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
     EXPECT_TRUE (hud::ContentShown (*hud.state));
@@ -569,10 +549,10 @@ TEST (OverlayHudControls, TheMenuOpensSettingsAndSetsTheTextSize)
     hud.engine.SetLayers ({ "hud" });
     const layers::Panel panel = Titled ();
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    const float x = 16.0f + open.host.width * 0.5f, y = 16.0f + open.host.height - 4.0f;
+    const float x = Left (open.host) + open.host.width * 0.5f, y = Top (open.host) + open.host.height - 4.0f;
     hud::Layout menu = RightClick (hud, { &panel }, x, y);
     std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 6u) << "the five, then the layers";
+    ASSERT_EQ (items.size (), 7u) << "the actions, layers and reset";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[2]));
@@ -583,9 +563,10 @@ TEST (OverlayHudControls, TheMenuOpensSettingsAndSetsTheTextSize)
 
     // The text size: pointed at, its submenu opens beside the menu.
     const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    menu = RightClick (hud, { &panel }, 16.0f + settings.host.width * 0.5f, 16.0f + settings.host.height - 4.0f);
+    menu = RightClick (hud, { &panel }, Left (settings.host) + settings.host.width * 0.5f,
+                       Top (settings.host) + settings.host.height - 4.0f);
     items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 6u);
+    ASSERT_EQ (items.size (), 7u);
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     float frame[4] = {};
     ASSERT_TRUE (Box (menu.overlay, (panel.backgroundRgba & 0xFFFFFF00u) | 0xF6u, frame));
@@ -600,9 +581,10 @@ TEST (OverlayHudControls, TheMenuOpensSettingsAndSetsTheTextSize)
 
     // Hover readout, after Settings: turned on and said.
     const hud::Layout after = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    menu = RightClick (hud, { &panel }, 16.0f + after.host.width * 0.5f, 16.0f + after.host.height - 4.0f);
+    menu = RightClick (hud, { &panel }, Left (after.host) + after.host.width * 0.5f,
+                       Top (after.host) + after.host.height - 4.0f);
     items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 6u);
+    ASSERT_EQ (items.size (), 7u);
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[3]));
     EXPECT_TRUE (hud::HoverMode (*hud.state));
@@ -623,18 +605,19 @@ TEST (OverlayHudControls, ASectionFoldedInTheHostIsSaidOnce)
     // The section's row: under the tab row, the swatch and the row. Found by pointing down
     // the page until the hand shows below the tab row.
     float row = 0.0f;
-    for (float probeY = kRowY + 14.0f; probeY < 16.0f + open.host.height && row == 0.0f; probeY += 2.0f)
-        if (hud.Lay ({ &panel }, At (16.0f + 60.0f, probeY)).hand)
+    for (float probeY = Top (open.host) + 70; probeY < Top (open.host) + open.host.height && row == 0.0f;
+         probeY += 2.0f)
+        if (hud.Lay ({ &panel }, At (Left (open.host) + 60.0f, probeY)).hand)
             row = probeY;
     ASSERT_GT (row, 0.0f) << "the section's row";
-    hud.Click ({ &panel }, 16.0f + 60.0f, row + 2.0f);
+    hud.Click ({ &panel }, Left (open.host) + 60.0f, row + 2.0f);
     ASSERT_EQ (hud.heard.size (), 1u);
     EXPECT_EQ (hud.heard[0].kind, "section");
     EXPECT_EQ (hud.heard[0].key, "hud#0");
     EXPECT_EQ (hud.heard[0].title, "Area metrics");
     EXPECT_EQ (hud.heard[0].id, "Spacing metrics");
     EXPECT_EQ (hud.heard[0].text, "folded");
-    hud.Lay ({ &panel }, At (16.0f + 60.0f, row + 2.0f));
+    hud.Lay ({ &panel }, At (Left (open.host) + 60.0f, row + 2.0f));
     hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_EQ (hud.heard.size (), 1u);
 }
@@ -683,14 +666,14 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     Watched hud;
     hud.engine.SetLayers ({ "tapioca.storeySlices" });
     const layers::Panel panel = Titled ("Area metrics");
-    hud::Input input = At (900.0f, 500.0f);
+    hud::Input input = At (600.0f, 500.0f);
     input.hover.picks = true;
     input.hover.active = true;
     input.hover.title = "A-01 F2";
     input.hover.rows = { { "Area", "184.0 mÂ²" } };
     input.hover.tintModel = { 0, 0, 3, 10, 0, 3, 10, 10, 3 }; // the slice's triangle, in model metres
     // The same view with nothing under the pointer.
-    hud::Input nothing = At (900.0f, 500.0f);
+    hud::Input nothing = At (600.0f, 500.0f);
     nothing.hover.picks = true;
 
     const hud::Layout off = hud.Lay ({ &panel }, input);
@@ -699,7 +682,7 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     // On in Settings: the check box after Show overlay.
     OpenSettings (hud, { &panel });
     const hud::Layout settings = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    const float x = 16.0f + 24.0f;
+    const float x = Left (settings.host) + 24.0f;
     const std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
     ASSERT_EQ (boxes.size (), 4u) << "Show overlay, Hover readout, the layer, Graphics style lab";
     hud.Click ({ &panel }, x, Middle (boxes[1]));
@@ -722,8 +705,8 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     // Gone to the panel to read it: the pointer on the host, what is under it there says
     // nothing -- the readout holds what the pointer was on, and nothing is tinted.
     hud::Input onPanel = nothing;
-    onPanel.x = 40.0f;
-    onPanel.y = kRowY + 30.0f;
+    onPanel.x = Left (on.host) + 40;
+    onPanel.y = Top (on.host) + 110;
     hud.Lay ({ &panel }, onPanel);
     const hud::Layout reading = hud.Lay ({ &panel }, onPanel);
     EXPECT_FALSE (reading.hoverTint);
@@ -748,11 +731,11 @@ TEST (OverlayHudControls, HoverModeOpensThePanelItReadsOutIn)
     ASSERT_EQ (closed.host.vertices.size (), 0u) << "closed to the dock";
     // The dock's title: the menu from there.
     const float dx = 1200.0f + closed.dock.offset[0] + closed.dock.width * 0.5f;
-    const float dy = 400.0f + closed.dock.offset[1] + closed.dock.height * 0.6f;
+    const float dy = 400.0f + closed.dock.offset[1] + closed.dock.width * 0.5f;
     const hud::Layout menu = RightClick (hud, { &panel }, dx, dy);
     ASSERT_TRUE (menu.popup);
     const std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 6u) << "show overlay, show panel, Settings, hover readout, text size, layers";
+    ASSERT_EQ (items.size (), 7u) << "show overlay, show panel, Settings, hover readout, text size, layers, reset";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[3]));

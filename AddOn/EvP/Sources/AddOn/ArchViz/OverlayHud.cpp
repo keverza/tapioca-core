@@ -635,7 +635,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
              (ImGui::GetCurrentContext ()->HoveredWindow == nullptr ||
               ImGui::GetCurrentContext ()->HoveredWindow == ImGui::FindWindowByName (kLockedViewWindow)))
         readout = input.hover;
-    Dock (panels, ui, view);
+    Dock (panels, scale, ui, view);
     if (known && store->shown && store->editLocked)
         LockedView (input, ui, view);
     // Hidden by the dock's circle: the dock alone.
@@ -843,8 +843,9 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         if (const ImGuiWindow* const dock = impl_->windows[panels.size ()]; dock != nullptr) {
             out.dock.width = dock->Size.x;
             out.dock.height = dock->Size.y;
-            out.dock.fraction[0] = 1.0f;
-            out.dock.fraction[1] = 0.5f;
+            const ImVec2 fraction = hudshell::DockFraction (impl_->store->host.dock);
+            out.dock.fraction[0] = fraction.x;
+            out.dock.fraction[1] = fraction.y;
             out.dock.offset[0] = -dock->Size.x;
             out.dock.offset[1] = -std::floor (dock->Size.y * 0.5f);
             if (known)
@@ -858,13 +859,9 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
             built.height = host->Size.y;
             built.scrolls = impl_->hostScrolls;
             const State::Host& state = impl_->store->host;
-            if (state.placement.placed) {
-                built.fraction[0] = (state.placement.corner & 1u) != 0 ? 1.0f : 0.0f;
-                built.fraction[1] = (state.placement.corner & 2u) != 0 ? 1.0f : 0.0f;
-            }
-            else {
-                Place (*impl_->look, built.width, built.height, at, built.fraction, built.offset, impl_->inset);
-            }
+            const ImVec2 fraction = hudshell::DockFraction (state.dock);
+            built.fraction[0] = fraction.x;
+            built.fraction[1] = fraction.y;
             if (known)
                 Settle (built, host->Pos, input);
             out.hostKey = state.selected;
