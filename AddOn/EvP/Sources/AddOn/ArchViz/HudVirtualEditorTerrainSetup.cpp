@@ -204,30 +204,38 @@ void SectionPanel (Session& s, edit::Id path)
             "Section values are stale. Reload before applying; newer document edits will not be overwritten.");
     ImGui::BeginDisabled (stale);
     auto& value = draft->value;
-    ImGui::InputDouble ("Left width (m)", &value.widthLeft, 0, 0, "%.3f");
-    ImGui::InputDouble ("Right width (m)", &value.widthRight, 0, 0, "%.3f");
-    ImGui::InputDouble ("Crossfall (%)", &value.crossfall, 0, 0, "%.3f");
+    // Sliders (the user, 2026-10-24); a release applies, so a drag is one undo step and the
+    // preview rebuilds once. Ctrl+click types a value, outside the slider's range too.
+    bool release = false;
+    const auto slide = [&release] (const char* label, double& field, double lo, double hi, const char* format) {
+        ImGui::SliderScalar (label, ImGuiDataType_Double, &field, &lo, &hi, format);
+        release |= ImGui::IsItemDeactivatedAfterEdit ();
+    };
+    slide ("Left width", value.widthLeft, 0.0, 10.0, "%.2f m");
+    slide ("Right width", value.widthRight, 0.0, 10.0, "%.2f m");
+    slide ("Crossfall", value.crossfall, 0.0, 10.0, "%.1f %%");
     const char* fall = value.fall == edit::Fall::Left ? "Left" : value.fall == edit::Fall::Right ? "Right" : "Crown";
     if (ImGui::BeginCombo ("Falls to", fall)) {
         for (auto hand : { edit::Fall::Left, edit::Fall::Right, edit::Fall::Crown }) {
             const char* name = hand == edit::Fall::Left ? "Left" : hand == edit::Fall::Right ? "Right" : "Crown";
-            if (ImGui::Selectable (name, value.fall == hand))
+            if (ImGui::Selectable (name, value.fall == hand) && value.fall != hand) {
                 value.fall = hand;
+                release = true;
+            }
         }
         ImGui::EndCombo ();
     }
-    ImGui::InputDouble ("Shoulder (m)", &value.shoulder, 0, 0, "%.3f");
-    ImGui::InputDouble ("Cut slope (%)", &value.cutSlope, 0, 0, "%.3f");
-    ImGui::InputDouble ("Fill slope (%)", &value.fillSlope, 0, 0, "%.3f");
-    ImGui::InputDouble ("Rounding (m)", &value.rounding, 0, 0, "%.2f");
-    if (ImGui::Button ("Apply cross-section"))
+    slide ("Shoulder", value.shoulder, 0.0, 5.0, "%.2f m");
+    slide ("Cut slope", value.cutSlope, 5.0, 200.0, "%.0f %%");
+    slide ("Fill slope", value.fillSlope, 5.0, 200.0, "%.0f %%");
+    slide ("Rounding", value.rounding, 0.0, 10.0, "%.2f m");
+    if (release)
         ApplyTerrainSectionEdit (s);
     ImGui::EndDisabled ();
-    ImGui::SameLine ();
     if (ImGui::Button ("Reload section values"))
         BeginTerrainSectionEdit (s, draft->section);
     ImGui::TextWrapped (
-        "Values apply together as one undo step. Profile elevations remain in the path profile controls.");
+        "Each change applies when released, as one undo step. Profile elevations stay in the path profile.");
     ImGui::TreePop ();
 }
 } // namespace
