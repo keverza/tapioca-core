@@ -24,6 +24,7 @@ pub mod session;
 pub mod step_atlas;
 pub mod summary;
 pub mod surface_patch;
+pub mod surface_sampling;
 pub mod texture_delta;
 pub mod winding;
 

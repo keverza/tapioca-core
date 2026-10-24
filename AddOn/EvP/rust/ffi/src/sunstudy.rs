@@ -22,6 +22,7 @@ mod sampler;
 mod series;
 mod session;
 mod steps;
+mod surface;
 mod winding;
 
 pub use atlas::{
@@ -80,6 +81,12 @@ pub use steps::{
     StepMaskOutput, StepMaskRequest, StepScheduleOutput, StepScheduleRequest, TextureDeltaOutput,
     TextureDeltaRequest, tapioca_sunstudy_step_masks, tapioca_sunstudy_step_schedule,
     tapioca_sunstudy_texture_delta,
+};
+pub use surface::{
+    MeshSpanRecord, PatchGridView, PatchSpanView, PreviousView, SampleGridView,
+    SurfaceBuildRequest, SurfaceOptionsRecord, SurfaceReadOutput, SurfaceResultHandle,
+    SurfaceResultSummary, tapioca_sunstudy_surface_build, tapioca_sunstudy_surface_destroy,
+    tapioca_sunstudy_surface_read, tapioca_sunstudy_surface_summary,
 };
 pub use winding::{
     WindingOutput, WindingReportOutput, WindingRequest, tapioca_sunstudy_orient_outward,
@@ -177,6 +184,15 @@ const _: () = {
     assert!(size_of::<SampleMeshOutput>() == 24);
     assert!(size_of::<SummaryRequest>() == 24);
     assert!(size_of::<tapioca_sunstudy::summary::SunStudyResultSummary>() == 56);
+    assert!(size_of::<SurfaceOptionsRecord>() == 40);
+    assert!(size_of::<MeshSpanRecord>() == 136);
+    assert!(size_of::<SampleGridView>() == 160);
+    assert!(size_of::<PatchSpanView>() == 208);
+    assert!(size_of::<PatchGridView>() == 160);
+    assert!(size_of::<PreviousView>() == 400);
+    assert!(size_of::<SurfaceBuildRequest>() == 512);
+    assert!(size_of::<SurfaceResultSummary>() == 224);
+    assert!(size_of::<SurfaceReadOutput>() == 160);
 };
 
 type Range = Option<(usize, usize)>;

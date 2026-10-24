@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -24,6 +25,8 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <stdexcept>
 #include <limits>
 
 namespace {
@@ -1828,5 +1831,207 @@ TEST (SunStudyRustParity, ResultSummaryMatchesEveryBit)
         EXPECT_TRUE (SameBits (e.meanHours, a.meanHours));
         EXPECT_TRUE (SameBits (e.maxHours, a.maxHours));
         EXPECT_TRUE (SameBits (e.daylightHours, a.daylightHours));
+    }
+}
+
+namespace {
+
+void ExpectSameSurface (const SurfaceSamplingResult& e, const SurfaceSamplingResult& a, const std::string& what)
+{
+    SCOPED_TRACE (what);
+    ASSERT_EQ (a.valid, e.valid);
+    EXPECT_EQ (a.reusedMeshes, e.reusedMeshes);
+    EXPECT_EQ (a.rebuiltMeshes, e.rebuiltMeshes);
+    EXPECT_EQ (a.reusedSamples, e.reusedSamples);
+    EXPECT_EQ (a.generatedSamples, e.generatedSamples);
+    EXPECT_EQ (a.winding.groups, e.winding.groups);
+    EXPECT_EQ (a.winding.closed, e.winding.closed);
+    EXPECT_EQ (a.winding.flipped, e.winding.flipped);
+    EXPECT_EQ (a.winding.flippedTriangles, e.winding.flippedTriangles);
+    const SurfaceSamplingLayout &x = e.layout, &y = a.layout;
+    ASSERT_EQ (y.valid, x.valid);
+    EXPECT_EQ (y.options.domain, x.options.domain);
+    EXPECT_TRUE (SameBits (y.options.spacing, x.options.spacing));
+    EXPECT_TRUE (SameBits (y.options.normalOffset, x.options.normalOffset));
+    EXPECT_TRUE (SameBits (y.options.jitter, x.options.jitter));
+    EXPECT_EQ (y.options.maxSamples, x.options.maxSamples);
+    ASSERT_EQ (y.meshes.size (), x.meshes.size ());
+    for (size_t m = 0; m < x.meshes.size (); ++m) {
+        const SurfaceMeshSampling &p = x.meshes[m], &q = y.meshes[m];
+        EXPECT_EQ (q.firstFace, p.firstFace) << "mesh " << m;
+        EXPECT_EQ (q.faceCount, p.faceCount) << "mesh " << m;
+        EXPECT_EQ (q.firstSample, p.firstSample) << "mesh " << m;
+        EXPECT_EQ (q.sampleCount, p.sampleCount) << "mesh " << m;
+        EXPECT_EQ (q.firstPatch, p.firstPatch) << "mesh " << m;
+        EXPECT_EQ (q.patchCount, p.patchCount) << "mesh " << m;
+        EXPECT_EQ (q.degenerate, p.degenerate) << "mesh " << m;
+        EXPECT_EQ (q.undersized, p.undersized) << "mesh " << m;
+        EXPECT_EQ (q.excluded, p.excluded) << "mesh " << m;
+        EXPECT_EQ (q.sampled, p.sampled) << "mesh " << m;
+        EXPECT_EQ (q.sampleFaces, p.sampleFaces) << "mesh " << m;
+        EXPECT_EQ (q.winding.groups, p.winding.groups) << "mesh " << m;
+        EXPECT_EQ (q.winding.closed, p.winding.closed) << "mesh " << m;
+        EXPECT_EQ (q.winding.flipped, p.winding.flipped) << "mesh " << m;
+        EXPECT_EQ (q.winding.flippedTriangles, p.winding.flippedTriangles) << "mesh " << m;
+    }
+    if (!e.valid)
+        return; // a refused build publishes no grid on either side
+    ExpectSameSampleGrids (e.triangles, a.triangles);
+    ExpectSamePatchGrids (e.patches, a.patches);
+}
+
+// The fields BuildSurfaceSampling reads from an earlier study.
+std::unique_ptr<StudyRecord> SampledRecord (std::shared_ptr<const geomsrv::Snapshot> snapshot,
+                                            const SurfaceSamplingResult& result, SamplingDomain domain)
+{
+    auto record = std::make_unique<StudyRecord> ();
+    record->snapshot = std::move (snapshot);
+    record->domain = domain;
+    record->samplingLayout = result.layout;
+    record->sampleGrid = result.triangles;
+    record->patchGrid = result.patches;
+    return record;
+}
+
+struct SurfaceCase {
+    std::vector<uint8_t> sampleMask;
+    SurfaceSamplingOptions options;
+    std::vector<std::vector<uint8_t>> faceMasks;
+};
+
+void ExpectSurfaceParity (const geomsrv::Snapshot& snapshot, const SurfaceCase& c, const StudyRecord* previous,
+                          const std::function<bool ()>& isCancelled, const std::string& what)
+{
+    const auto expected =
+        BuildSurfaceSampling (snapshot, c.sampleMask, c.options, previous, isCancelled, c.faceMasks);
+    SurfaceSamplingResult actual;
+    std::string error;
+    ASSERT_TRUE (
+        rs::BuildSurfaceSampling (snapshot, c.sampleMask, c.options, previous, isCancelled, c.faceMasks, actual, error))
+        << error;
+    ExpectSameSurface (expected, actual, what);
+}
+
+SurfaceCase CaseFor (const geomsrv::Snapshot& snapshot, SamplingDomain domain, double jitter)
+{
+    SurfaceCase c;
+    c.sampleMask.assign (snapshot.meshes.size (), 1);
+    c.options.domain = domain;
+    c.options.spacing = 1.5;
+    c.options.jitter = jitter;
+    return c;
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, SurfaceSamplingMatchesColdAndReusedAcrossEdits)
+{
+    Lcg lcg (0x5a3d17);
+    for (const SamplingDomain domain : { SamplingDomain::TriangleLegacy, SamplingDomain::SurfacePatch }) {
+        for (const double jitter : { 0.0, 0.35 }) {
+            if (domain == SamplingDomain::SurfacePatch && jitter != 0.0)
+                continue; // the patch sampler has no jitter
+            const std::shared_ptr<const geomsrv::Snapshot> base = ReuseScene (lcg, -1, nullptr);
+            const SurfaceCase cold = CaseFor (*base, domain, jitter);
+            const std::string label = std::string (domain == SamplingDomain::SurfacePatch ? "patch" : "triangle") +
+                                      " jitter " + std::to_string (jitter);
+            ExpectSurfaceParity (*base, cold, nullptr, {}, label + " cold");
+            const auto first = BuildSurfaceSampling (*base, cold.sampleMask, cold.options);
+            ASSERT_TRUE (first.valid);
+            const auto previous = SampledRecord (base, first, domain);
+            for (int edit = 0; edit <= 4; ++edit) {
+                const std::shared_ptr<const geomsrv::Snapshot> edited = ReuseScene (lcg, edit, base.get ());
+                const SurfaceCase c = CaseFor (*edited, domain, jitter);
+                ExpectSurfaceParity (*edited, c, previous.get (), {}, label + " edit " + std::to_string (edit));
+                if (edit == 4) // unchanged geometry must take the reuse path, or it tests nothing
+                    EXPECT_EQ (BuildSurfaceSampling (*edited, c.sampleMask, c.options, previous.get ()).reusedMeshes,
+                               edited->meshes.size ());
+            }
+            SurfaceCase finer = cold;
+            finer.options.spacing = 1.25;
+            ExpectSurfaceParity (*base, finer, previous.get (), {}, label + " settings change");
+            SurfaceCase context = cold;
+            context.sampleMask[2] = 0;
+            ExpectSurfaceParity (*base, context, previous.get (), {}, label + " context mesh");
+            SurfaceCase masked = cold;
+            masked.faceMasks.resize (base->meshes.size ());
+            masked.faceMasks[1].assign (base->meshes[1].triangles.size () / 3, 1);
+            for (size_t f = 0; f < masked.faceMasks[1].size (); f += 3)
+                masked.faceMasks[1][f] = 0;
+            ExpectSurfaceParity (*base, masked, nullptr, {}, label + " face mask cold");
+            ExpectSurfaceParity (*base, masked, previous.get (), {}, label + " face mask reused");
+            const auto maskedFirst =
+                BuildSurfaceSampling (*base, masked.sampleMask, masked.options, nullptr, {}, masked.faceMasks);
+            const auto maskedPrevious = SampledRecord (base, maskedFirst, domain);
+            ExpectSurfaceParity (*base, masked, maskedPrevious.get (), {}, label + " face mask unchanged");
+            ExpectSurfaceParity (*base, cold, maskedPrevious.get (), {}, label + " face mask removed");
+        }
+    }
+}
+
+TEST (SunStudyRustParity, SurfaceSamplingRefusalsAndFallbacksMatch)
+{
+    Lcg lcg (0x77e1);
+    for (const SamplingDomain domain : { SamplingDomain::TriangleLegacy, SamplingDomain::SurfacePatch }) {
+        const std::shared_ptr<const geomsrv::Snapshot> base = ReuseScene (lcg, -1, nullptr);
+        const SurfaceCase cold = CaseFor (*base, domain, 0.0);
+        const auto first = BuildSurfaceSampling (*base, cold.sampleMask, cold.options);
+        const auto previous = SampledRecord (base, first, domain);
+
+        auto ambiguous = std::make_shared<geomsrv::Snapshot> (*base);
+        ambiguous->meshes[3].guid = ambiguous->meshes[0].guid;
+        ExpectSurfaceParity (*ambiguous, cold, nullptr, {}, "ambiguous cold");
+        ExpectSurfaceParity (*ambiguous, cold, previous.get (), {}, "ambiguous with previous");
+        const auto ambiguousFirst = BuildSurfaceSampling (*ambiguous, cold.sampleMask, cold.options);
+        const auto ambiguousPrevious = SampledRecord (ambiguous, ambiguousFirst, domain);
+        ExpectSurfaceParity (*base, cold, ambiguousPrevious.get (), {}, "ambiguous previous");
+
+        SurfaceCase capped = cold;
+        capped.options.maxSamples = 20;
+        ExpectSurfaceParity (*base, capped, nullptr, {}, "sample cap");
+        SurfaceCase shortMask = cold;
+        shortMask.sampleMask.pop_back ();
+        ExpectSurfaceParity (*base, shortMask, nullptr, {}, "short sample mask");
+        SurfaceCase badSpacing = cold;
+        badSpacing.options.spacing = std::numeric_limits<double>::quiet_NaN ();
+        ExpectSurfaceParity (*base, badSpacing, nullptr, {}, "NaN spacing");
+        SurfaceCase shortFaces = cold;
+        shortFaces.faceMasks.resize (base->meshes.size () - 1);
+        ExpectSurfaceParity (*base, shortFaces, nullptr, {}, "short face masks");
+
+        auto otherDomain = SampledRecord (base, first,
+                                          domain == SamplingDomain::SurfacePatch ? SamplingDomain::TriangleLegacy
+                                                                                 : SamplingDomain::SurfacePatch);
+        ExpectSurfaceParity (*base, cold, otherDomain.get (), {}, "domain mismatch");
+        StudyRecord noSnapshot;
+        ExpectSurfaceParity (*base, cold, &noSnapshot, {}, "previous without snapshot");
+
+        ExpectSurfaceParity (*base, cold, nullptr, [] { return true; }, "cancelled cold");
+        ExpectSurfaceParity (*base, cold, previous.get (), [] { return true; }, "cancelled reuse");
+        for (int after = 1; after <= 6; ++after) {
+            const std::array<const StudyRecord*, 2> sources { nullptr, previous.get () };
+            for (const StudyRecord* source : sources) {
+                // Each side gets its own counter: the polls must fall at the
+                // same points for the outcomes to agree.
+                int expectedPolls = 0, actualPolls = 0;
+                const auto expected = BuildSurfaceSampling (*base, cold.sampleMask, cold.options, source,
+                                                            [&] { return ++expectedPolls > after; });
+                SurfaceSamplingResult actual;
+                std::string error;
+                ASSERT_TRUE (rs::BuildSurfaceSampling (*base, cold.sampleMask, cold.options, source,
+                                                       [&] { return ++actualPolls > after; }, {}, actual, error))
+                    << error;
+                ExpectSameSurface (expected, actual, "cancel after " + std::to_string (after));
+                EXPECT_EQ (actualPolls, expectedPolls) << "cancel after " << after;
+            }
+        }
+        // A throwing poll is a cancellation in Rust, never an escaped exception.
+        SurfaceSamplingResult thrown;
+        std::string error;
+        ASSERT_TRUE (rs::BuildSurfaceSampling (
+            *base, cold.sampleMask, cold.options, nullptr, [] () -> bool { throw std::runtime_error ("poll"); }, {},
+            thrown, error))
+            << error;
+        EXPECT_FALSE (thrown.valid);
     }
 }

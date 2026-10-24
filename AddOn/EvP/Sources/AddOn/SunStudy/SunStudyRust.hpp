@@ -25,6 +25,7 @@
 #include "SunStudy/SunStudySelectionBinding.hpp"
 #include "SunStudy/SunStudySession.hpp"
 #include "SunStudy/SunStudyStepAtlas.hpp"
+#include "SunStudy/SunStudySurfaceSampling.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
 
@@ -278,6 +279,15 @@ bool SetSampleMeshes (StudyRecord& record, std::string& error);
 
 bool SummarizeSunHours (const std::vector<double>& hours, double daylightHours, SunStudyResultSummary& out,
                         std::string& error);
+
+// BuildSurfaceSampling with the sampling in Rust. False only for an ABI
+// failure; a refused or cancelled build succeeds with an invalid result, as
+// the C++ function returns one.
+bool BuildSurfaceSampling (const geomsrv::Snapshot& snapshot, const std::vector<uint8_t>& sampleMask,
+                           const SurfaceSamplingOptions& options, const StudyRecord* previous,
+                           const std::function<bool ()>& isCancelled,
+                           const std::vector<std::vector<uint8_t>>& faceMasks, SurfaceSamplingResult& out,
+                           std::string& error);
 
 } // namespace evp::sunstudy::rust
 

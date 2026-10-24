@@ -182,6 +182,12 @@ pub use sunstudy::{
     tapioca_sunstudy_sample_grid,
 };
 pub use sunstudy::{
+    MeshSpanRecord, PatchGridView, PatchSpanView, PreviousView, SampleGridView,
+    SurfaceBuildRequest, SurfaceOptionsRecord, SurfaceReadOutput, SurfaceResultHandle,
+    SurfaceResultSummary, tapioca_sunstudy_surface_build, tapioca_sunstudy_surface_destroy,
+    tapioca_sunstudy_surface_read, tapioca_sunstudy_surface_summary,
+};
+pub use sunstudy::{
     OcclusionHandle, OcclusionRangeRequest, OcclusionReadOutput, OcclusionSeedRequest,
     OcclusionState, OcclusionStepRequest, OcclusionTrace, TraversalVtable,
     tapioca_sunstudy_occlusion_create, tapioca_sunstudy_occlusion_destroy,

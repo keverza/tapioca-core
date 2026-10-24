@@ -878,6 +878,146 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_summarize (const TapiocaSummaryRequest* request, TapiocaResultSummary* out, char* error,
                                           size_t errorCapacity);
 
+/* ---- surface sampling ------------------------------------------------- */
+
+typedef struct TapiocaSurfaceResult TapiocaSurfaceResult;
+
+typedef struct {
+    double spacing;
+    double normalOffset;
+    double jitter;
+    size_t maxSamples;
+    uint8_t domain; /* SamplingDomain: 0 triangle, 1 patch */
+} TapiocaSurfaceOptions;
+
+/* One mesh's layout span. On input sampleFaces is that mesh's mask; on output
+ * sampleFaces.data is null, sampleFaces.count its length and maskOffset its
+ * start in the read buffer. */
+typedef struct {
+    size_t ranges[9]; /* firstFace, faceCount, firstSample, sampleCount, firstPatch,
+                         patchCount, degenerate, undersized, excluded */
+    size_t winding[4]; /* groups, closed, flipped, flippedTriangles */
+    TapiocaByteView sampleFaces;
+    size_t maskOffset;
+    uint8_t sampled;
+} TapiocaMeshSpan;
+
+typedef struct {
+    const TapiocaMeshSpan* data;
+    size_t count;
+} TapiocaMeshSpanView;
+
+typedef struct {
+    const TapiocaFaceLayout* data;
+    size_t count;
+} TapiocaFaceLayoutView;
+
+typedef struct {
+    TapiocaDoubleView positions;
+    TapiocaDoubleView normals;
+    TapiocaDoubleView areas;
+    TapiocaIndexView faces;
+    TapiocaIndexView groups;
+    TapiocaFaceLayoutView layouts;
+    TapiocaIndexView cellColumns;
+    TapiocaIndexView cellRows;
+    size_t counters[3]; /* degenerate, excluded, undersized */
+    uint8_t valid;
+} TapiocaSampleGridView;
+
+typedef struct {
+    TapiocaPatchSpan record;
+    TapiocaTextView element;
+} TapiocaPatchSpanEntry;
+
+typedef struct {
+    const TapiocaPatchSpanEntry* data;
+    size_t count;
+} TapiocaPatchSpanEntryView;
+
+typedef struct {
+    TapiocaDoubleView positions;
+    TapiocaDoubleView normals;
+    TapiocaDoubleView areas;
+    TapiocaIndexView cellColumns;
+    TapiocaIndexView cellRows;
+    TapiocaIndexView spanOf;
+    TapiocaPatchSpanEntryView spans;
+    TapiocaIndexView patchOfTriangle;
+    size_t counters[3]; /* degenerateFaces, centroidPatches, excludedPatches */
+    uint8_t sampleLimitExceeded;
+    uint8_t valid;
+} TapiocaPatchGridView;
+
+typedef struct {
+    const TapiocaReuseMeshView* data;
+    size_t count;
+} TapiocaReuseMeshArray;
+
+typedef struct {
+    TapiocaReuseMeshArray meshes;
+    TapiocaSurfaceOptions options;
+    TapiocaMeshSpanView spans;
+    TapiocaSampleGridView sampleGrid;
+    TapiocaPatchGridView patchGrid;
+    uint8_t layoutValid;
+    uint8_t domain;
+} TapiocaPreviousSampling;
+
+typedef struct {
+    const TapiocaByteView* data;
+    size_t count;
+} TapiocaByteViewArray;
+
+typedef struct {
+    TapiocaReuseMeshArray meshes;
+    TapiocaByteView sampleMask;     /* one per mesh */
+    TapiocaByteViewArray faceMasks; /* empty: none; an empty entry: every face */
+    TapiocaSurfaceOptions options;
+    TapiocaPreviousSampling previous; /* read only when hasPrevious */
+    TapiocaCancelCallback cancel;
+    uint8_t hasPrevious;
+} TapiocaSurfaceBuildRequest;
+
+/* BuildSurfaceSampling. The result is an immutable Rust-owned handle that any
+ * thread may read; destroy it exactly once. */
+TapiocaStatus tapioca_sunstudy_surface_build (const TapiocaSurfaceBuildRequest* request, TapiocaSurfaceResult** out,
+                                              char* error, size_t errorCapacity);
+
+TapiocaStatus tapioca_sunstudy_surface_destroy (TapiocaSurfaceResult* handle, char* error, size_t errorCapacity);
+
+typedef struct {
+    size_t sizes[8]; /* triangle samples, triangle layouts, patch samples, patch spans,
+                        patchOfTriangle, layout meshes, mask bytes, span text bytes */
+    size_t counts[4];  /* reusedMeshes, rebuiltMeshes, reusedSamples, generatedSamples */
+    size_t winding[4]; /* summed WindingReport */
+    size_t triangleCounters[3];
+    size_t patchCounters[3];
+    TapiocaSurfaceOptions options; /* the layout's */
+    uint8_t flags[5]; /* result, triangle grid, patch grid, layout valid; sample limit */
+} TapiocaSurfaceResultSummary;
+
+TapiocaStatus tapioca_sunstudy_surface_summary (const TapiocaSurfaceResult* handle, TapiocaSurfaceResultSummary* out,
+                                                char* error, size_t errorCapacity);
+
+/* Each destination holds the size the summary reported (xyz: three per
+ * sample); null only where that size is zero. */
+typedef struct {
+    double* triangleReals[3];      /* positions, normals, areas */
+    uint32_t* triangleIndices[4];  /* faces, groups, cellColumns, cellRows */
+    TapiocaFaceLayout* triangleLayouts;
+    double* patchReals[3];     /* positions, normals, areas */
+    uint32_t* patchIndices[4]; /* cellColumns, cellRows, spanOf, patchOfTriangle */
+    TapiocaPatchSpan* spans;
+    size_t* spanTextOffsets; /* element of span i starts here in text */
+    char* text;
+    TapiocaMeshSpan* meshSpans;
+    uint8_t* masks;
+} TapiocaSurfaceReadOutput;
+
+TapiocaStatus tapioca_sunstudy_surface_read (const TapiocaSurfaceResult* handle, const TapiocaSurfaceReadOutput* output,
+                                             char* error, size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 
