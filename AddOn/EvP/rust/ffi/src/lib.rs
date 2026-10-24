@@ -156,6 +156,17 @@ pub use sunstudy::{
     tapioca_sunstudy_series, tapioca_sunstudy_shadow_camera, tapioca_sunstudy_version,
 };
 pub use sunstudy::{
+    AtlasMeshView, AtlasOutput, AtlasSamplesView, AtlasSummary, AtlasTileRecord,
+    PatchAllocationRecord, PatchAllocationView, PatchAtlasCursorRecord, PatchAtlasFitOutput,
+    PatchAtlasFitRequest, PatchAtlasStateOutput, PatchAtlasStateView, PatchAtlasUpdateRecord,
+    PatchKeyView, PatchShapeView, StableAtlasOutput, StableAtlasRequest, StepMaskOutput,
+    StepMaskRequest, StepScheduleOutput, StepScheduleRequest, TextureDeltaOutput,
+    TextureDeltaRequest, TriangleAtlasRequest, tapioca_sunstudy_patch_atlas_fit,
+    tapioca_sunstudy_stable_triangle_atlas, tapioca_sunstudy_step_masks,
+    tapioca_sunstudy_step_schedule, tapioca_sunstudy_texture_delta,
+    tapioca_sunstudy_triangle_atlas,
+};
+pub use sunstudy::{
     BindingOutput, BindingRequest, BoundListView, MaterialTransparency, PresetAdviceOutput,
     PresetAdviceRequest, ReceiverMeshView, ReceiversOutput, ReceiversRequest, ReceiversSummary,
     RolesOutput, RolesRequest, RolesSummary, tapioca_sunstudy_preset_advice,

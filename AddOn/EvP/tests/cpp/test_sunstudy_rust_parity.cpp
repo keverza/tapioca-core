@@ -7,6 +7,7 @@
 // and large enough to reach the branches (pole flip, zero sun, refusals) that a
 // handful of literals would miss.
 
+#include "SunStudy/SunStudyAtlasReuse.hpp"
 #include "SunStudy/SunStudyRust.hpp"
 
 #include <gtest/gtest.h>
@@ -925,4 +926,288 @@ TEST (SunStudyRustParity, PatchGridMatchesEveryBit)
     EXPECT_GT (refused, 0u);
     EXPECT_GT (spans, 1000u);
     EXPECT_GT (samples, 20000u);
+}
+
+// ---------------------------------------------------------------------------
+// P2d: the atlas family
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void ExpectSameAtlas (const SunStudyAtlas& e, const SunStudyAtlas& a, const char* what)
+{
+    ASSERT_EQ (a.valid, e.valid) << what;
+    EXPECT_EQ (a.width, e.width) << what;
+    EXPECT_EQ (a.height, e.height) << what;
+    EXPECT_EQ (a.placedFaces, e.placedFaces) << what;
+    EXPECT_EQ (a.texels, e.texels) << what;
+    ASSERT_EQ (a.tiles.size (), e.tiles.size ()) << what;
+    for (size_t i = 0; i < e.tiles.size (); ++i) {
+        EXPECT_EQ (a.tiles[i].x, e.tiles[i].x) << what << " tile " << i;
+        EXPECT_EQ (a.tiles[i].y, e.tiles[i].y) << what << " tile " << i;
+        EXPECT_EQ (a.tiles[i].width, e.tiles[i].width) << what << " tile " << i;
+        EXPECT_EQ (a.tiles[i].height, e.tiles[i].height) << what << " tile " << i;
+    }
+}
+
+void ExpectSameAllocations (const SunStudyPatchAtlas& e, const rs::PatchAtlasState& a, const char* what)
+{
+    EXPECT_EQ (a.width, e.Width ()) << what;
+    EXPECT_EQ (a.height, e.Height ()) << what;
+    ASSERT_EQ (a.allocations.size (), e.Allocations ().size ()) << what;
+    auto x = e.Allocations ().begin ();
+    for (const auto& [key, y] : a.allocations) {
+        EXPECT_TRUE (key == x->first) << what << " key " << key.element;
+        EXPECT_EQ (y.x, x->second.x) << what;
+        EXPECT_EQ (y.y, x->second.y) << what;
+        EXPECT_EQ (y.width, x->second.width) << what;
+        EXPECT_EQ (y.height, x->second.height) << what;
+        EXPECT_EQ (y.generation, x->second.generation) << what;
+        ++x;
+    }
+}
+
+SampleGrid LayoutGrid (Lcg& lcg)
+{
+    const SamplerCase soup = RandomSoup (lcg, false);
+    SamplerOptions options;
+    options.spacing = lcg.Int (0, 1) == 0 ? 0.5 : 1.3;
+    options.wantLayouts = true;
+    return evp::sunstudy::BuildSampleGrid (soup.vertices.data (), soup.vertices.size () / 3, soup.triangles.data (),
+                                           soup.triangles.size () / 3, nullptr, options);
+}
+
+PatchSampleGrid SpanGrid (Lcg& lcg)
+{
+    // Spans only matter for their keys and lattice sizes; vary both.
+    PatchSampleGrid grid;
+    const int count = lcg.Int (0, 30);
+    for (int i = 0; i < count; ++i) {
+        PatchSampleSpan span;
+        span.key.element = std::string (1, static_cast<char> ('A' + lcg.Int (0, 4)));
+        span.key.plane = static_cast<uint64_t> (lcg.Int (0, 12));
+        span.key.occurrence = static_cast<uint32_t> (lcg.Int (0, 1));
+        span.columns = static_cast<uint32_t> (lcg.Int (0, 3) == 0 ? lcg.Int (1, 40) : lcg.Int (1, 8));
+        span.rows = static_cast<uint32_t> (lcg.Int (1, 8));
+        bool duplicate = false;
+        for (const auto& existing : grid.spans)
+            duplicate = duplicate || existing.key == span.key;
+        if (!duplicate)
+            grid.spans.push_back (span);
+    }
+    return grid;
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, TriangleAtlasMatches)
+{
+    Lcg lcg (0xa71a5ull);
+    size_t placed = 0;
+    for (int trial = 0; trial < 120; ++trial) {
+        SampleGrid grid = LayoutGrid (lcg);
+        if (trial % 9 == 4)
+            grid.layouts.clear (); // no layouts: no atlas
+        AtlasOptions options;
+        options.gutter = static_cast<uint32_t> (lcg.Int (0, 3));
+        options.maxDimension = trial % 7 == 3 ? 16u : 8192u;
+        const SunStudyAtlas e = evp::sunstudy::BuildSunStudyAtlas (grid, options);
+        SunStudyAtlas a;
+        std::string error;
+        ASSERT_TRUE (rs::BuildSunStudyAtlas (grid, options, a, error)) << error;
+        ExpectSameAtlas (e, a, "triangle atlas");
+        placed += e.placedFaces;
+    }
+    EXPECT_GT (placed, 500u);
+}
+
+TEST (SunStudyRustParity, PatchAtlasFitsMatchInLockstep)
+{
+    Lcg lcg (0xf17ull);
+    size_t retained = 0, resized = 0;
+    for (int trial = 0; trial < 40; ++trial) {
+        SunStudyPatchAtlas expected;
+        rs::PatchAtlasState actual;
+        const uint32_t gutter = static_cast<uint32_t> (lcg.Int (0, 2));
+        const uint32_t maxDimension = trial % 5 == 2 ? 64u : 8192u;
+        PatchSampleGrid grid = SpanGrid (lcg);
+        for (int step = 0; step < 6; ++step) {
+            if (step > 0 && lcg.Int (0, 2) != 0) { // edit: resize, drop or add some spans
+                for (auto& span : grid.spans)
+                    if (lcg.Int (0, 5) == 0)
+                        span.columns += 1;
+                if (!grid.spans.empty () && lcg.Int (0, 3) == 0)
+                    grid.spans.erase (grid.spans.begin ());
+                const PatchSampleGrid more = SpanGrid (lcg);
+                for (const auto& span : more.spans) {
+                    bool duplicate = false;
+                    for (const auto& existing : grid.spans)
+                        duplicate = duplicate || existing.key == span.key;
+                    if (!duplicate && lcg.Int (0, 3) == 0)
+                        grid.spans.push_back (span);
+                }
+            }
+            const PatchAtlasUpdate e = expected.Fit (grid, gutter, maxDimension);
+            PatchAtlasUpdate a;
+            std::string error;
+            ASSERT_TRUE (rs::FitPatchAtlas (actual, grid, gutter, maxDimension, a, error)) << error;
+            EXPECT_EQ (a.retained, e.retained);
+            EXPECT_EQ (a.reused, e.reused);
+            EXPECT_EQ (a.moved, e.moved);
+            EXPECT_EQ (a.added, e.added);
+            EXPECT_EQ (a.removed, e.removed);
+            EXPECT_EQ (a.resized, e.resized);
+            ExpectSameAllocations (expected, actual, "fit");
+            if (::testing::Test::HasFatalFailure ())
+                return;
+            retained += e.retained;
+            resized += e.resized ? 1 : 0;
+        }
+    }
+    EXPECT_GT (retained, 100u);
+    EXPECT_GT (resized, 10u);
+}
+
+TEST (SunStudyRustParity, StableTriangleAtlasMatchesAcrossEdits)
+{
+    Lcg lcg (0x57ab1eull);
+    for (int trial = 0; trial < 40; ++trial) {
+        geomsrv::Snapshot snapshot;
+        SamplerCase soup;
+        const int meshes = lcg.Int (1, 4);
+        for (int m = 0; m < meshes; ++m) {
+            geomsrv::Mesh mesh;
+            mesh.guid = m == 0 && trial % 6 == 5 ? "{dup}" : "{M" + std::to_string (m) + "}";
+            if (m == 1 && trial % 6 == 5)
+                mesh.guid = "DUP"; // canonical duplicate: falls back
+            const SamplerCase part = RandomSoup (lcg, false);
+            mesh.vertices = part.vertices;
+            mesh.triangles = part.triangles;
+            for (uint32_t& index : mesh.triangles)
+                if (index >= mesh.vertices.size () / 3)
+                    index = 0;
+            const uint32_t base = static_cast<uint32_t> (soup.vertices.size () / 3);
+            soup.vertices.insert (soup.vertices.end (), mesh.vertices.begin (), mesh.vertices.end ());
+            for (const uint32_t index : mesh.triangles)
+                soup.triangles.push_back (base + index);
+            snapshot.meshes.push_back (mesh);
+        }
+        SamplerOptions sampling;
+        sampling.spacing = 0.8;
+        sampling.wantLayouts = true;
+        const SampleGrid grid =
+            evp::sunstudy::BuildSampleGrid (soup.vertices.data (), soup.vertices.size () / 3, soup.triangles.data (),
+                                            soup.triangles.size () / 3, nullptr, sampling);
+        AtlasOptions options;
+        options.maxDimension = trial % 8 == 7 ? 32u : 8192u;
+        SunStudyPatchAtlas expectedFirst, expectedSecond;
+        rs::PatchAtlasState actualFirst, actualSecond;
+        std::string error;
+        const SunStudyAtlas e1 =
+            evp::sunstudy::BuildStableTriangleAtlas (grid, snapshot, expectedFirst, nullptr, options);
+        SunStudyAtlas a1;
+        ASSERT_TRUE (rs::BuildStableTriangleAtlas (grid, snapshot, actualFirst, nullptr, options, a1, error)) << error;
+        ExpectSameAtlas (e1, a1, "first");
+        ExpectSameAllocations (expectedFirst, actualFirst, "first allocations");
+        // Rebuild seeded from the first study, as the store does after an edit.
+        const SunStudyAtlas e2 =
+            evp::sunstudy::BuildStableTriangleAtlas (grid, snapshot, expectedSecond, &expectedFirst, options);
+        SunStudyAtlas a2;
+        ASSERT_TRUE (rs::BuildStableTriangleAtlas (grid, snapshot, actualSecond, &actualFirst, options, a2, error))
+            << error;
+        ExpectSameAtlas (e2, a2, "second");
+        ExpectSameAllocations (expectedSecond, actualSecond, "second allocations");
+        if (::testing::Test::HasFatalFailure ())
+            return;
+    }
+}
+
+TEST (SunStudyRustParity, StepMasksMatch)
+{
+    Lcg lcg (0x57e9ull);
+    for (int trial = 0; trial < 60; ++trial) {
+        const size_t samples = static_cast<size_t> (lcg.Int (0, 40));
+        const size_t steps = static_cast<size_t> (lcg.Int (0, 100));
+        std::vector<uint8_t> bits ((samples * steps + 7) / 8);
+        for (auto& byte : bits)
+            byte = static_cast<uint8_t> (lcg.Int (0, 255));
+        const uint32_t width = static_cast<uint32_t> (lcg.Int (1, 9)), height = static_cast<uint32_t> (lcg.Int (1, 9));
+        std::vector<int64_t> texels (samples + (trial % 3 == 0 ? 0 : 3)); // sometimes longer than the samples
+        for (auto& texel : texels)
+            texel = lcg.Int (0, 5) == 0 ? -1 : lcg.Int (0, static_cast<int> (width * height) + 2);
+        const auto lit = [&] (size_t sample, size_t step) {
+            const size_t bit = sample * steps + step;
+            return ((bits[bit >> 3] >> (bit & 7)) & 1) != 0;
+        };
+        const StepMaskAtlas e = evp::sunstudy::PackStepMasks (samples, steps, lit, texels, width, height);
+        StepMaskAtlas a;
+        std::string error;
+        ASSERT_TRUE (rs::PackStepMasks (samples, steps, bits, texels, width, height, a, error)) << error;
+        EXPECT_EQ (a.width, e.width);
+        EXPECT_EQ (a.height, e.height);
+        EXPECT_EQ (a.words, e.words);
+        EXPECT_EQ (a.steps, e.steps);
+        EXPECT_EQ (a.masks, e.masks);
+    }
+}
+
+TEST (SunStudyRustParity, TextureDeltasMatch)
+{
+    Lcg lcg (0xde17aull);
+    for (int trial = 0; trial < 120; ++trial) {
+        const uint32_t width = static_cast<uint32_t> (lcg.Int (1, 24)),
+                       height = static_cast<uint32_t> (lcg.Int (1, 16)),
+                       layers = static_cast<uint32_t> (lcg.Int (1, 3));
+        const size_t count = static_cast<size_t> (width) * height * layers;
+        std::vector<float> before (count), after;
+        for (auto& texel : before)
+            texel = lcg.Int (0, 4) == 0 ? -1.0f : static_cast<float> (lcg.Int (0, 12));
+        after = before;
+        const int edits = lcg.Int (0, 60);
+        for (int i = 0; i < edits; ++i) {
+            const size_t at = static_cast<size_t> (lcg.Uniform (0, static_cast<double> (count)));
+            after[std::min (at, count - 1)] = lcg.Int (0, 3) == 0 ? -0.0f : static_cast<float> (lcg.Int (0, 12));
+        }
+        if (trial % 10 == 9)
+            after.pop_back (); // inconsistent: full upload
+        const size_t maxRegions = trial % 4 == 0 ? 3 : 512;
+        const auto e = evp::sunstudy::AtlasChangedRegions (width, height, layers, before, after, maxRegions);
+        std::vector<AtlasRegion> a;
+        std::string error;
+        ASSERT_TRUE (rs::AtlasChangedRegions (width, height, layers, before, after, maxRegions, a, error)) << error;
+        ASSERT_EQ (a.size (), e.size ());
+        for (size_t i = 0; i < e.size (); ++i) {
+            EXPECT_EQ (a[i].x, e[i].x);
+            EXPECT_EQ (a[i].y, e[i].y);
+            EXPECT_EQ (a[i].width, e[i].width);
+            EXPECT_EQ (a[i].height, e[i].height);
+            EXPECT_EQ (a[i].layer, e[i].layer);
+        }
+    }
+}
+
+TEST (SunStudyRustParity, StepScheduleMatches)
+{
+    Lcg lcg (0x5c4edull);
+    for (int trial = 0; trial < 60; ++trial) {
+        std::vector<SunStep> steps;
+        const int timestep = trial % 3 == 0 ? 15 : (trial % 3 == 1 ? 30 : 60);
+        for (const TimeOfDay& time : EnumerateTimesteps (timestep)) {
+            SunStep step;
+            step.time = time;
+            step.altitudeDegrees = 60.0 - std::abs (time.hour * 60 + time.minute - lcg.Uniform (600, 900)) / 8.0;
+            steps.push_back (step);
+        }
+        const SunSeries series = SunSeries::FromSteps (steps, timestep);
+        for (const double interval : { 60.0, 30.0, 0.0, 45.0, 120.0 }) {
+            std::vector<uint16_t> minutes;
+            std::vector<uint32_t> fan;
+            uint32_t noon = 99;
+            std::string error;
+            ASSERT_TRUE (rs::StepSchedule (series, interval, minutes, fan, noon, error)) << error;
+            EXPECT_EQ (minutes, evp::sunstudy::StepMinutes (series));
+            EXPECT_EQ (fan, evp::sunstudy::FanSteps (evp::sunstudy::StepMinutes (series), interval));
+            EXPECT_EQ (noon, evp::sunstudy::SolarNoonStep (series));
+        }
+    }
 }

@@ -13,12 +13,16 @@
 // swaps an implementation, not a vocabulary.
 
 #include "SunStudy/SunSeries.hpp"
+#include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
+#include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
+#include "SunStudy/SunStudyStepAtlas.hpp"
+#include "SunStudy/SunStudyTextureDelta.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
 
 #include <cstdint>
@@ -111,6 +115,48 @@ bool BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t
 bool BuildPatchSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
                            const uint32_t* groups, const std::vector<std::string>& elementOf,
                            const PatchSamplerOptions& options, PatchSampleGrid& out, std::string& error);
+
+// BuildSunStudyAtlas.
+bool BuildSunStudyAtlas (const SampleGrid& grid, const AtlasOptions& options, SunStudyAtlas& out, std::string& error);
+
+// A patch atlas held by value: what SunStudyPatchAtlas keeps privately (the
+// shelf cursor and generation counter) made explicit, so the state can cross
+// the ABI. Default-constructed it equals a fresh SunStudyPatchAtlas.
+struct PatchAtlasState {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t penX = 0;
+    uint32_t penY = 0;
+    uint32_t shelfHeight = 0;
+    uint32_t nextGeneration = 1;
+    std::map<PatchKey, PatchAtlasAllocation> allocations;
+};
+
+// SunStudyPatchAtlas::Fit on `state`.
+bool FitPatchAtlas (PatchAtlasState& state, const PatchSampleGrid& grid, uint32_t gutter, uint32_t maxDimension,
+                    PatchAtlasUpdate& out, std::string& error);
+
+// BuildStableTriangleAtlas with `allocations` in/out and an optional previous
+// study's state.
+bool BuildStableTriangleAtlas (const SampleGrid& grid, const geomsrv::Snapshot& snapshot, PatchAtlasState& allocations,
+                               const PatchAtlasState* previous, const AtlasOptions& options, SunStudyAtlas& out,
+                               std::string& error);
+
+// PackStepMasks over the store's packed step bits (sample-major, LSB-first,
+// `stepCount` bits per sample) instead of a callback.
+bool PackStepMasks (size_t sampleCount, size_t stepCount, const std::vector<uint8_t>& stepBits,
+                    const std::vector<int64_t>& texelOfSample, uint32_t width, uint32_t height, StepMaskAtlas& out,
+                    std::string& error);
+
+// AtlasChangedRegions for 32-bit texels (float or uint32_t images).
+template <typename T>
+bool AtlasChangedRegions (uint32_t width, uint32_t height, uint32_t layers, const std::vector<T>& before,
+                          const std::vector<T>& after, size_t maxRegionsPerLayer, std::vector<AtlasRegion>& out,
+                          std::string& error);
+
+// StepMinutes, SolarNoonStep and FanSteps for a series.
+bool StepSchedule (const SunSeries& series, double fanIntervalMinutes, std::vector<uint16_t>& minutes,
+                   std::vector<uint32_t>& fan, uint32_t& solarNoon, std::string& error);
 
 } // namespace evp::sunstudy::rust
 

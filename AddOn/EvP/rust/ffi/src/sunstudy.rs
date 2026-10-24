@@ -9,6 +9,7 @@
 use crate::borrow::{BorrowContext, SliceView};
 use crate::boundary::{Failure, call, memory_range, overlaps};
 
+mod atlas;
 mod camera;
 mod ground;
 mod limits;
@@ -18,6 +19,17 @@ mod sampler;
 mod series;
 mod winding;
 
+pub use atlas::{
+    AtlasMeshView, AtlasOutput, AtlasSamplesView, AtlasSummary, AtlasTileRecord,
+    PatchAllocationRecord, PatchAllocationView, PatchAtlasCursorRecord, PatchAtlasFitOutput,
+    PatchAtlasFitRequest, PatchAtlasStateOutput, PatchAtlasStateView, PatchAtlasUpdateRecord,
+    PatchKeyView, PatchShapeView, StableAtlasOutput, StableAtlasRequest, StepMaskOutput,
+    StepMaskRequest, StepScheduleOutput, StepScheduleRequest, TextureDeltaOutput,
+    TextureDeltaRequest, TriangleAtlasRequest, tapioca_sunstudy_patch_atlas_fit,
+    tapioca_sunstudy_stable_triangle_atlas, tapioca_sunstudy_step_masks,
+    tapioca_sunstudy_step_schedule, tapioca_sunstudy_texture_delta,
+    tapioca_sunstudy_triangle_atlas,
+};
 pub use camera::{
     AccumLayoutOutput, GridLadderOutput, GridLadderRequest, ShadowCamera, ShadowCameraRequest,
     tapioca_sunstudy_accum_layout, tapioca_sunstudy_grid_ladder, tapioca_sunstudy_shadow_camera,
@@ -88,6 +100,31 @@ const _: () = {
     assert!(size_of::<PatchSpanRecord>() == 192);
     assert!(size_of::<PatchGridSummary>() == 56);
     assert!(size_of::<PatchGridOutput>() == 96);
+    assert!(size_of::<AtlasSamplesView>() == 64);
+    assert!(size_of::<AtlasTileRecord>() == 16);
+    assert!(size_of::<AtlasOutput>() == 40);
+    assert!(size_of::<AtlasSummary>() == 40);
+    assert!(size_of::<TriangleAtlasRequest>() == 72);
+    assert!(size_of::<PatchKeyView>() == 32);
+    assert!(size_of::<PatchAllocationView>() == 56);
+    assert!(size_of::<PatchShapeView>() == 40);
+    assert!(size_of::<PatchAtlasCursorRecord>() == 24);
+    assert!(size_of::<PatchAtlasStateView>() == 40);
+    assert!(size_of::<PatchAllocationRecord>() == 48);
+    assert!(size_of::<PatchAtlasStateOutput>() == 56);
+    assert!(size_of::<PatchAtlasUpdateRecord>() == 48);
+    assert!(size_of::<PatchAtlasFitRequest>() == 64);
+    assert!(size_of::<PatchAtlasFitOutput>() == 64);
+    assert!(size_of::<AtlasMeshView>() == 24);
+    assert!(size_of::<StableAtlasRequest>() == 176);
+    assert!(size_of::<StableAtlasOutput>() == 96);
+    assert!(size_of::<StepMaskRequest>() == 56);
+    assert!(size_of::<StepMaskOutput>() == 24);
+    assert!(size_of::<TextureDeltaRequest>() == 56);
+    assert!(size_of::<TextureDeltaOutput>() == 24);
+    assert!(size_of::<StepScheduleRequest>() == 24);
+    assert!(size_of::<StepScheduleOutput>() == 40);
+    assert!(size_of::<tapioca_sunstudy::texture_delta::AtlasRegion>() == 20);
 };
 
 type Range = Option<(usize, usize)>;

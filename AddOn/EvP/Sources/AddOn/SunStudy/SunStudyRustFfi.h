@@ -413,6 +413,204 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_patch_grid (const TapiocaPatchGridRequest* request, const TapiocaPatchGridOutput* output,
                                            char* error, size_t errorCapacity);
 
+/* ---- atlas family ------------------------------------------------------ */
+
+typedef struct {
+    const TapiocaFaceLayout* layouts; /* one per source face */
+    size_t layoutCount;
+    TapiocaIndexView faces; /* per sample */
+    TapiocaIndexView cellColumns;
+    TapiocaIndexView cellRows;
+} TapiocaAtlasSamplesView;
+
+typedef struct {
+    uint32_t x, y, width, height; /* width 0: not placed */
+} TapiocaAtlasTile;
+
+typedef struct {
+    size_t tileCount; /* tiles written: layouts, or 0 */
+    size_t texelCount;
+    size_t placedFaces;
+    uint32_t width;
+    uint32_t height;
+    uint8_t valid;
+} TapiocaAtlasSummary;
+
+/* Capacities: one tile per layout, one texel per sample. */
+typedef struct {
+    TapiocaAtlasTile* tiles;
+    size_t tileCapacity;
+    uint32_t* texels;
+    size_t texelCapacity;
+    TapiocaAtlasSummary* summary;
+} TapiocaAtlasOutput;
+
+typedef struct {
+    TapiocaAtlasSamplesView samples;
+    uint32_t gutter;
+    uint32_t maxDimension;
+} TapiocaTriangleAtlasRequest;
+
+TapiocaStatus tapioca_sunstudy_triangle_atlas (const TapiocaTriangleAtlasRequest* request,
+                                               const TapiocaAtlasOutput* output, char* error, size_t errorCapacity);
+
+/* A patch atlas crosses by value until the store moves to Rust. */
+typedef struct {
+    TapiocaTextView element;
+    uint64_t plane;
+    uint32_t occurrence;
+} TapiocaPatchKeyView;
+
+typedef struct {
+    TapiocaPatchKeyView key;
+    uint32_t rect[5]; /* x, y, width, height, generation */
+} TapiocaPatchAllocationView;
+
+typedef struct {
+    TapiocaPatchKeyView key;
+    uint32_t columns;
+    uint32_t rows;
+} TapiocaPatchShapeView;
+
+typedef struct {
+    uint32_t fields[6]; /* width, height, penX, penY, shelfHeight, nextGeneration */
+} TapiocaPatchAtlasCursor;
+
+typedef struct {
+    TapiocaPatchAtlasCursor cursor;
+    const TapiocaPatchAllocationView* allocations; /* keys unique */
+    size_t allocationCount;
+} TapiocaPatchAtlasStateView;
+
+/* element = text[elementOffset .. elementOffset + elementLength] */
+typedef struct {
+    size_t elementOffset;
+    size_t elementLength;
+    uint64_t plane;
+    uint32_t occurrence;
+    uint32_t rect[5];
+} TapiocaPatchAllocation;
+
+typedef struct {
+    TapiocaPatchAtlasCursor* cursor;
+    TapiocaPatchAllocation* allocations; /* key order */
+    size_t allocationCapacity;           /* the shape/triangle count suffices */
+    size_t* allocationCount;
+    char* text; /* deduplicated element GUIDs */
+    size_t textCapacity;
+    size_t* textLength;
+} TapiocaPatchAtlasStateOutput;
+
+typedef struct {
+    size_t counts[5]; /* retained, reused, moved, added, removed */
+    uint8_t resized;
+} TapiocaPatchAtlasUpdate;
+
+typedef struct {
+    TapiocaPatchAtlasStateView state;
+    const TapiocaPatchShapeView* shapes;
+    size_t shapeCount;
+    uint32_t gutter;
+    uint32_t maxDimension;
+} TapiocaPatchAtlasFitRequest;
+
+typedef struct {
+    TapiocaPatchAtlasStateOutput state;
+    TapiocaPatchAtlasUpdate* update;
+} TapiocaPatchAtlasFitOutput;
+
+/* SunStudyPatchAtlas::Fit on a state passed by value. */
+TapiocaStatus tapioca_sunstudy_patch_atlas_fit (const TapiocaPatchAtlasFitRequest* request,
+                                                const TapiocaPatchAtlasFitOutput* output, char* error,
+                                                size_t errorCapacity);
+
+typedef struct {
+    TapiocaTextView guid; /* any spelling */
+    size_t triangleCount;
+} TapiocaAtlasMeshView;
+
+typedef struct {
+    TapiocaAtlasSamplesView samples;
+    const TapiocaAtlasMeshView* meshes;
+    size_t meshCount;
+    TapiocaPatchAtlasStateView allocations;
+    TapiocaPatchAtlasStateView previous;
+    uint8_t hasPrevious;
+    uint32_t gutter;
+    uint32_t maxDimension;
+} TapiocaStableAtlasRequest;
+
+typedef struct {
+    TapiocaAtlasOutput atlas;
+    TapiocaPatchAtlasStateOutput state;
+} TapiocaStableAtlasOutput;
+
+/* BuildStableTriangleAtlas on states passed by value. */
+TapiocaStatus tapioca_sunstudy_stable_triangle_atlas (const TapiocaStableAtlasRequest* request,
+                                                      const TapiocaStableAtlasOutput* output, char* error,
+                                                      size_t errorCapacity);
+
+typedef struct {
+    TapiocaByteView stepBits; /* sample-major, LSB-first, stepCount bits per sample */
+    const int64_t* texelOfSample;
+    size_t texelOfSampleCount;
+    size_t sampleCount;
+    size_t stepCount;
+    uint32_t width;
+    uint32_t height;
+} TapiocaStepMaskRequest;
+
+typedef struct {
+    uint32_t* masks; /* words * width * height, slice-major */
+    size_t capacity;
+    uint32_t* words;
+} TapiocaStepMaskOutput;
+
+TapiocaStatus tapioca_sunstudy_step_masks (const TapiocaStepMaskRequest* request, const TapiocaStepMaskOutput* output,
+                                           char* error, size_t errorCapacity);
+
+typedef struct {
+    uint32_t x, y, width, height, layer;
+} TapiocaAtlasRegion;
+
+/* f32 and u32 images both compare bytes, so both pass as 32-bit texels. */
+typedef struct {
+    const uint32_t* before;
+    size_t beforeCount;
+    const uint32_t* after;
+    size_t afterCount;
+    uint32_t size[3]; /* width, height, layers */
+    size_t maxRegionsPerLayer;
+} TapiocaTextureDeltaRequest;
+
+typedef struct {
+    TapiocaAtlasRegion* regions; /* layers * max(1, maxRegionsPerLayer) suffices */
+    size_t capacity;
+    size_t* count;
+} TapiocaTextureDeltaOutput;
+
+TapiocaStatus tapioca_sunstudy_texture_delta (const TapiocaTextureDeltaRequest* request,
+                                              const TapiocaTextureDeltaOutput* output, char* error,
+                                              size_t errorCapacity);
+
+typedef struct {
+    TapiocaSunStepView steps; /* a filtered series' kept steps */
+    double fanIntervalMinutes;
+} TapiocaStepScheduleRequest;
+
+typedef struct {
+    uint16_t* minutes; /* one per step */
+    uint32_t* fan;     /* at most one per step */
+    size_t capacity;
+    size_t* fanCount;
+    uint32_t* solarNoon;
+} TapiocaStepScheduleOutput;
+
+/* StepMinutes, SolarNoonStep and FanSteps. */
+TapiocaStatus tapioca_sunstudy_step_schedule (const TapiocaStepScheduleRequest* request,
+                                              const TapiocaStepScheduleOutput* output, char* error,
+                                              size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 

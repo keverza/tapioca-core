@@ -9,14 +9,18 @@
 
 #![forbid(unsafe_code)]
 
+pub mod atlas;
 pub mod limits;
+pub mod patch_atlas;
 pub mod patch_sampler;
 pub mod raster;
 pub mod receivers;
 pub mod roles;
 pub mod sampler;
 pub mod series;
+pub mod step_atlas;
 pub mod surface_patch;
+pub mod texture_delta;
 pub mod winding;
 
 /// Version of the sun-study C ABI surface (`SunStudyRustFfi.h`).

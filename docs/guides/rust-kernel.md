@@ -1162,6 +1162,18 @@ the integration flip, and nothing in production calls the Rust path yet.
   published GPU facts stay C++). Exports: `tapioca_sunstudy_series`,
   `_shadow_camera`, `_accum_layout`, `_grid_ladder`, `_ground_grid`,
   `_orient_outward`, `_limits`, declared in `SunStudy/SunStudyRustFfi.h`.
+- **P2:** `roles` (canonical GUIDs, the role table, binding-refresh decisions),
+  `receivers` (glass-only receiver masks, preset advice), `sampler` (triangle
+  domain), `surface_patch` and `patch_sampler` (patch domain and the live
+  `PatchKey` helpers), and the atlas family: `atlas`, `patch_atlas` (including
+  the stable triangle atlas), `step_atlas` and `texture_delta`. The patch
+  atlas is stateful in C++; until the store moves to Rust its state crosses the
+  ABI by value (allocations and the shelf cursor in, the updated ones out).
+  Samplers use shape-then-fill calls. `SunStudySurfaceSampling` moves with the
+  store (P3) because its reuse path reads `StudyRecord`. Atlas helpers whose
+  only consumers are the store and the display (scatter, UV, texel lookup,
+  rectangle read-back) are ported and unit-tested but cross the ABI with those
+  consumers.
 
 Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
 runs each kernel and its C++ original over fixed-seed generated corpora and
