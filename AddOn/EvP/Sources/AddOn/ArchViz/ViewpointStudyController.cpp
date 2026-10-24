@@ -113,8 +113,8 @@ class Worker {
                 settings = settings_;
                 generation = pendingGeneration_;
             }
-            auto result = evp::sunstudy::RunViewpointStudy (snapshot, settings->context, settings->options,
-                                                            [&] { return generation_.load () != generation; });
+            auto result = evp::sunstudy::RunSelectedViewpointStudy (snapshot, settings->context, settings->options,
+                                                                    [&] { return generation_.load () != generation; });
             std::lock_guard<std::mutex> lock (mutex_);
             if (generation_.load () != generation)
                 continue;

@@ -32,5 +32,12 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
                                         const std::vector<std::string>& context, const ViewpointOptions& options,
                                         const std::function<bool ()>& isCancelled = {});
 
+// RunViewpointStudy on the core TAPIOCA_SUNSTUDY_CORE selects (P5); the
+// Rust policy returns the same result through the same C++ query index.
+ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
+                                                const std::vector<std::string>& context,
+                                                const ViewpointOptions& options,
+                                                const std::function<bool ()>& isCancelled = {});
+
 } // namespace evp::sunstudy
 #endif

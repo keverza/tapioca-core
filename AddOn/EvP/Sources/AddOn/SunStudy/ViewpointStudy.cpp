@@ -1,6 +1,11 @@
 #include "SunStudy/ViewpointStudy.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
+#include "SunStudy/SunStudyCoreSelection.hpp"
+
+#if defined(TAPIOCA_GEOMETRY_RUST)
+#include "SunStudy/SunStudyRustViews.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -72,6 +77,18 @@ ViewpointStudyResult RunViewpointStudy (const std::shared_ptr<const geomsrv::Sna
     }
     result.valid = true;
     return result;
+}
+
+ViewpointStudyResult RunSelectedViewpointStudy (const std::shared_ptr<const geomsrv::Snapshot>& snapshot,
+                                                const std::vector<std::string>& context,
+                                                const ViewpointOptions& options,
+                                                const std::function<bool ()>& isCancelled)
+{
+#if defined(TAPIOCA_GEOMETRY_RUST)
+    if (SelectedSunStudyCore () == SunStudyCoreKind::Rust)
+        return rust::RunViewpointStudy (snapshot, context, options, isCancelled);
+#endif
+    return RunViewpointStudy (snapshot, context, options, isCancelled);
 }
 
 } // namespace evp::sunstudy

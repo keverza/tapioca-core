@@ -4,6 +4,7 @@
 // refusals must carry the same message.
 
 #include "Geometry/QueryEngine.hpp"
+#include "SunStudy/SunStudyCoreSelection.hpp"
 #include "SunStudy/SunStudyRustViews.hpp"
 #include "SunStudy/ViewpointStudy.hpp"
 #include "SunStudy/VisibilityStudy.hpp"
@@ -252,5 +253,26 @@ TEST (SunStudyRustViewsParity, ViewpointMatchesEveryBit)
         EXPECT_FALSE (e.valid);
         EXPECT_EQ (a.valid, e.valid);
         EXPECT_EQ (a.error, e.error);
+    }
+}
+
+TEST (SunStudyRustViewsParity, TheSelectedViewpointMatchesTheCppStudyUnderEitherCore)
+{
+    Lcg lcg (0x715b4ull);
+    const auto snapshot = Scene (lcg, 400);
+    ViewpointOptions options;
+    options.point = { 2.0, 8.0, 1.6 };
+    const std::vector<std::string> context { kTower, kWall };
+    const auto expected = RunViewpointStudy (snapshot, context, options);
+    for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
+        OverrideSunStudyCore (kind);
+        const auto actual = RunSelectedViewpointStudy (snapshot, context, options);
+        OverrideSunStudyCore (std::nullopt);
+        ASSERT_TRUE (actual.valid) << actual.error;
+        EXPECT_EQ (actual.collisionCount, expected.collisionCount);
+        EXPECT_TRUE (SameBits (actual.area, expected.area));
+        EXPECT_EQ (std::memcmp (actual.perimeter.data (), expected.perimeter.data (),
+                                expected.perimeter.size () * sizeof (double) * 3),
+                   0);
     }
 }

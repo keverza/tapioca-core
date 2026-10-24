@@ -1196,6 +1196,22 @@ the integration flip, and nothing in production calls the Rust path yet.
   display tiles and layouts, step masks, footprint, the hover `reading`), and
   `test_sunstudy_rust_study.cpp` compares each with the store's after every
   slice. On this path the patch atlas no longer crosses the ABI by value.
+- **P4:** `follower` (the staleness/debounce/generation state machine;
+  `rust::RustSunStudyFollower`, one event export), `rays` (the host scene
+  index as a ray-query vtable: first hits with an optional mesh mask, any-hit
+  occlusion), `viewpoint` and `visibility` (the studies' policies over that
+  index and the ported sampler/atlases; `rust::RunViewpointStudy`,
+  `rust::RunVisibilityStudy`). Parity: lockstep scripted follower runs and
+  the C++ studies over the same BVH, bit for bit.
+- **P5 (flip behind `TAPIOCA_SUNSTUDY_CORE=rust`, default `cpp`):** studies
+  started under the flag attach the Rust core (`AttachRustStudyCore` refuses
+  a core whose atlas disagrees with the record's) and `SunStudyStore`,
+  display preparation, sample meshes and reuse delegate to it; the follower
+  driver runs `SelectableSunStudyFollower`; the viewpoint controller calls
+  `RunSelectedViewpointStudy`. Visibility is not flipped yet (its controller
+  holds a `SunStudyPatchAtlas`, which cannot be restored from a state).
+  `test_sunstudy_rust_flip.cpp` compares a C++-core and a Rust-core study
+  through every store reader and the display packet.
 
 Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
 runs each kernel and its C++ original over fixed-seed generated corpora and
