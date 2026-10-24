@@ -1203,15 +1203,22 @@ the integration flip, and nothing in production calls the Rust path yet.
   index and the ported sampler/atlases; `rust::RunViewpointStudy`,
   `rust::RunVisibilityStudy`). Parity: lockstep scripted follower runs and
   the C++ studies over the same BVH, bit for bit.
-- **P5 (flip behind `TAPIOCA_SUNSTUDY_CORE=rust`, default `cpp`):** studies
+- **P5 (flip behind `TAPIOCA_SUNSTUDY_CORE`):** studies
   started under the flag attach the Rust core (`AttachRustStudyCore` refuses
   a core whose atlas disagrees with the record's) and `SunStudyStore`,
   display preparation, sample meshes and reuse delegate to it; the follower
   driver runs `SelectableSunStudyFollower`; the viewpoint controller calls
-  `RunSelectedViewpointStudy`. Visibility is not flipped yet (its controller
-  holds a `SunStudyPatchAtlas`, which cannot be restored from a state).
-  `test_sunstudy_rust_flip.cpp` compares a C++-core and a Rust-core study
-  through every store reader and the display packet.
+  `RunSelectedViewpointStudy`, and the visibility controller and command call
+  `RunSelectedVisibilityStudy` (the Rust result restores its
+  `SunStudyPatchAtlas` with `FromState`). `test_sunstudy_rust_flip.cpp`
+  compares a C++-core and a Rust-core study through every store reader and
+  the display packet.
+- **P6 (default `rust`):** an unset flag selects the Rust core;
+  `TAPIOCA_SUNSTUDY_CORE=cpp` keeps the C++ core, which stays compiled as the
+  oracle and the escape hatch until it is deleted (P7). Offline, store
+  `Advance` to convergence costs the same on both cores (0.88-1.09x over
+  7k-74k samples, 48 steps, 1 and 8 workers): both trace through the same
+  C++ index.
 
 Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
 runs each kernel and its C++ original over fixed-seed generated corpora and
