@@ -112,11 +112,13 @@ void Run (const std::shared_ptr<overlayhud::State>& state, const std::shared_ptr
     }
     V result;
     log ("native-read guid=" + guid);
-    if (!Call ("Tapioca.VirtualEditor",
-               V::Object ({ { "action", V::String ("terrain") },
-                            { "terrainGuid", V::String (guid) },
-                            { "pathId", V::String (std::to_string (request->path)) } }),
-               result, error)) {
+    // No design path yet: pathId is left out (its schema admits no 0) and the terrain is held.
+    auto params = V::Object ({ { "action", V::String ("terrain") }, { "terrainGuid", V::String (guid) } });
+    if (request->path)
+        params = V::Object ({ { "action", V::String ("terrain") },
+                              { "terrainGuid", V::String (guid) },
+                              { "pathId", V::String (std::to_string (request->path)) } });
+    if (!Call ("Tapioca.VirtualEditor", params, result, error)) {
         finish (error);
         return;
     }

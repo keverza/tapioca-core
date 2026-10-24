@@ -26,7 +26,7 @@ bool StartNativeTerrainDesign (archviz::edithud::Session& session, const GS::Obj
         error = "Supply a terrain Mesh GUID (and, optionally, an authored landscape pathId).";
         return false;
     }
-    // No pathId, or 0: the terrain is set alone and its design waits for a path.
+    // No pathId: the terrain is set alone and its design waits for a path.
     edit::Id path = 0;
     if (params.Get ("pathId", pathText)) {
         const std::string pathValue = pathText.ToCStr (0, MaxUSize, CC_UTF8).Get ();
