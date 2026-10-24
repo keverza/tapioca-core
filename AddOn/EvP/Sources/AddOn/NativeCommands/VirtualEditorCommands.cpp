@@ -309,10 +309,13 @@ class VirtualEditorCommand : public MainThreadCommand {
             session.owner = archviz::overlaycontrol::RunningCommand ();
             GS::UniString tool;
             if (params.Get ("tool", tool))
-                session.tool = tool == "polyline" ? eh::Tool::Polyline
-                               : tool == "path"   ? eh::Tool::Path
-                               : tool == "curve"  ? eh::Tool::Curve
-                                                  : eh::Tool::Select;
+                session.tool = tool == "polyline"    ? eh::Tool::Polyline
+                               : tool == "path"      ? eh::Tool::Path
+                               : tool == "curve"     ? eh::Tool::Curve
+                               : tool == "rectangle" ? eh::Tool::Rectangle
+                               : tool == "polygon"   ? eh::Tool::Polygon
+                               : tool == "ellipse"   ? eh::Tool::Ellipse
+                                                     : eh::Tool::Select;
             if (session.edits.Doc ().landscape) {
                 const auto startingTool = session.tool;
                 eh::SetLandscapeMode (session, session.tool == eh::Tool::Select ? eh::LandscapeMode::Face
@@ -376,8 +379,32 @@ const char* DragName (eh::Drag drag)
             return "bezier";
         case eh::Drag::Bend:
             return "bend";
+        case eh::Drag::ProfileCurve:
+            return "profileCurve";
     }
     return "none";
+}
+
+// Every tool by name: a table indexed by the enum read past its end when a tool was added.
+const char* ToolName (eh::Tool tool)
+{
+    switch (tool) {
+        case eh::Tool::Select:
+            return "select";
+        case eh::Tool::Polyline:
+            return "polyline";
+        case eh::Tool::Path:
+            return "path";
+        case eh::Tool::Curve:
+            return "curve";
+        case eh::Tool::Rectangle:
+            return "rectangle";
+        case eh::Tool::Polygon:
+            return "polygon";
+        case eh::Tool::Ellipse:
+            return "ellipse";
+    }
+    return "select";
 }
 
 const char* KindName (edit::SelectionKind kind)
@@ -420,10 +447,9 @@ class EditorStateCommand : public MainThreadCommand {
         result.Add ("surface", GS::UniString (archviz::surfaceswitch::ViewerOpen () ? "viewer" : "overlay"));
         if (s == nullptr)
             return result;
-        const char* tools[] = { "select", "polyline", "path", "curve" };
         const char* modes[] = { "move", "rotate", "scale", "stretch", "extrude", "gumball" };
         const char* tracker[] = { "hidden", "showing", "editing" };
-        result.Add ("tool", GS::UniString (tools[int (s->tool)]));
+        result.Add ("tool", GS::UniString (ToolName (s->tool)));
         result.Add ("gizmo", GS::UniString (modes[int (s->gizmo)]));
         result.Add ("drag", GS::UniString (DragName (s->drag)));
         result.Add ("gesture", s->edits.InGesture ());
@@ -480,7 +506,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
                 "action":{"type":"string","enum":["start","stop","state","surface","terrain"]},"role":{"type":"string"},
                 "terrainGuid":{"type":"string","minLength":36,"maxLength":36},"pathId":{"type":"string","pattern":"^[1-9][0-9]*$","maxLength":20},
                 "surface":{"type":"string","enum":["overlay","viewer"]},
-                "tool":{"type":"string","enum":["select","polyline","path","curve"]},
+                "tool":{"type":"string","enum":["select","polyline","path","curve","rectangle","polygon","ellipse"]},
                 "planeZ":{"type":"number"},"planeLocked":{"type":"boolean"},
                 "landscape":{"type":"object","properties":{"demo":{"type":"boolean"},"definition":{"type":"string","maxLength":8388608}},"additionalProperties":false},
                 "polylines":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{"points":{"type":"array","minItems":2,"maxItems":20000,"items":{"$ref":"#Point3D"}},"closed":{"type":"boolean"},"role":{"type":"string"}},"required":["points"],"additionalProperties":false}},
@@ -503,9 +529,9 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
           R"json({"type":"object","properties":{},"additionalProperties":false})json",
           R"json({"type":"object","properties":{
                 "active":{"type":"boolean"},"locked":{"type":"boolean"},"layerShown":{"type":"boolean"},"surface":{"type":"string","enum":["overlay","viewer"]},
-                "tool":{"type":"string","enum":["select","polyline","path","curve"]},
+                "tool":{"type":"string","enum":["select","polyline","path","curve","rectangle","polygon","ellipse"]},
                 "gizmo":{"type":"string","enum":["move","rotate","scale","stretch","extrude","gumball"]},
-                "drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend"]},
+                "drag":{"type":"string","enum":["none","part","handle","marquee","profileBreak","profileTangent","corner","kerb","bezier","bend","profileCurve"]},
                 "gesture":{"type":"boolean"},"selection":{"type":"integer"},
                 "selectionKind":{"type":"string","enum":["none","vertex","segment","face","entity","mixed","pathPoint","break","range","landscapeFace"]},
                 "terrainDesign":{"type":"object","properties":{"active":{"type":"boolean"},"pending":{"type":"boolean"},"current":{"type":"boolean"},"built":{"type":"boolean"},"revision":{"type":"integer"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"conflicts":{"type":"integer"},"cut":{"type":"number"},"fill":{"type":"number"},"error":{"type":"string"}},"required":["active","pending","current","built","revision","vertices","triangles","conflicts","cut","fill","error"],"additionalProperties":false},

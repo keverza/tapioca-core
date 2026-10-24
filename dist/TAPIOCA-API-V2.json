@@ -4501,7 +4501,10 @@
               "select",
               "polyline",
               "path",
-              "curve"
+              "curve",
+              "rectangle",
+              "polygon",
+              "ellipse"
             ]
           },
           "gizmo": {
@@ -4527,7 +4530,8 @@
               "corner",
               "kerb",
               "bezier",
-              "bend"
+              "bend",
+              "profileCurve"
             ]
           },
           "gesture": {
@@ -35482,7 +35486,10 @@
               "select",
               "polyline",
               "path",
-              "curve"
+              "curve",
+              "rectangle",
+              "polygon",
+              "ellipse"
             ]
           },
           "planeZ": {
