@@ -299,7 +299,7 @@ void PollTerrainDesign (Session& s)
                    " vertices=" + std::to_string (outcome.result.build.points.size () / 3) +
                    " triangles=" + std::to_string (outcome.result.build.triangles.size () / 3) + " conflicts=" +
                    std::to_string (outcome.built ? outcome.result.conflicts.size () : outcome.conflicts.size ()) +
-                   " error=" + outcome.error);
+                   " unmet=" + std::to_string (outcome.unmet.size ()) + " error=" + outcome.error);
         std::string error;
         if (!state.invalid && state.publisher.Publish (doc, std::move (outcome), error)) {
             s.publishedRevision = UINT64_MAX;
@@ -462,9 +462,17 @@ void TerrainDesignPanel (Session& s)
     if (state.worker.valid ())
         ImGui::TextUnformatted ("Building terrain...");
     const auto status = GetTerrainDesignStatus (s);
-    if (!status.error.empty ())
-        ImGui::TextWrapped ("%s", status.error.c_str ());
     const auto* current = CurrentTerrainDesign (s);
+    // The worker always tries to build; what it could not satisfy is listed, not thrown at the
+    // user as a refusal code (the raw message stays in the log and the status command).
+    if (current && !current->unmet.empty ()) {
+        ImGui::TextUnformatted (current->built ? "Built, but not everything asked for is met:"
+                                               : "Not built. Not satisfied:");
+        for (const auto& line : current->unmet)
+            ImGui::BulletText ("%s", line.c_str ());
+    }
+    else if (!status.error.empty ())
+        ImGui::TextWrapped ("%s", lg::TerrainConditionText (status.error).c_str ());
     if (!current)
         return;
     if (current->built) {

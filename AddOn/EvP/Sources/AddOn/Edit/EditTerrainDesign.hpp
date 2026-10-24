@@ -16,6 +16,13 @@ struct TerrainDesignOptions {
     // shoulder and face limit plus `margin` (round joins and ends, chords within
     // `arcTolerance`), clipped to the property line; exactly one ring must remain.
     std::span<const double> region;
+    // Closed plan ring (xyz, z ignored) a derived region is also clipped to: the captured
+    // terrain's own footprint, so a property line reaching past the mesh still leaves a region.
+    // Empty clips to nothing. Where the clip leaves several pieces, the largest is rebuilt.
+    std::vector<double> cover;
+    // With a cover: only the longest run of stations whose band lies on it is designed, so a
+    // path running off the terrain still grades the part over it.
+    bool trimToCover = false;
     double margin = 1.0, arcTolerance = 0.05; // Metres.
     double maxStep = 2.0; // Station spacing, metres (plus every break); each constrains a mesh section.
     // A cross-section range change (width, crossfall, shoulder, slopes) runs over
@@ -88,6 +95,10 @@ bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrai
 // same authored references/validation as evaluation. Controls require a TIN
 // build; hard band rows prevent fixed assessment. Nothing publishes but
 // `conflicts`, unchanged on non-located refusal.
+// The plan outline of a mesh's triangles, inset by `inset` metres so a ring on it is strictly
+// covered (the kernel refuses a region the mesh does not cover). Empty when it has no area.
+std::vector<double> TerrainFootprint (const TerrainMeshView& mesh, double inset = 0.01);
+
 bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                           const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,
                           std::string& error);

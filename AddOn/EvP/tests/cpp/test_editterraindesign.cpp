@@ -440,6 +440,42 @@ TEST (EditTerrainDesign, TheDerivedRegionIsClippedToThePropertyLine)
     EXPECT_TRUE (untouched.region.empty ());
 }
 
+TEST (EditTerrainDesign, ACoverClipsTheDerivedRegionToTheTerrainsFootprint)
+{
+    DesignFixture fixture;
+    // The fixture's mesh spans x -20.5..59.5, y -30.5..29.5; its footprint is inset 1 cm.
+    const auto footprint = TerrainFootprint ({ fixture.points, fixture.triangles });
+    ASSERT_GE (footprint.size (), 12U);
+    for (size_t i = 0; i < footprint.size (); i += 3) {
+        EXPECT_GE (footprint[i], -20.5 + 0.01 - 1e-6);
+        EXPECT_LE (footprint[i + 1], 29.5 - 0.01 + 1e-6);
+    }
+    // A path starting 2 m inside the mesh's left edge: its 13 m reach leaves the mesh.
+    std::string error;
+    ASSERT_TRUE (
+        edit::MovePathPoint (fixture.doc, fixture.path, fixture.doc.paths[0].points[0].id, { -18, 0, 0 }, error))
+        << error;
+    fixture.Capture ();
+    auto options = fixture.Options ();
+    options.region = {};
+    TerrainDesignResult result;
+    EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error));
+    options.cover = footprint;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error)) << error;
+    for (size_t i = 0; i < result.region.size (); i += 3)
+        EXPECT_GE (result.region[i], -20.5);
+    // Past the edge, the band itself is off the terrain: trimmed, the part over it is graded.
+    ASSERT_TRUE (
+        edit::MovePathPoint (fixture.doc, fixture.path, fixture.doc.paths[0].points[0].id, { -30, 0, 0 }, error))
+        << error;
+    fixture.Capture ();
+    EXPECT_FALSE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error));
+    EXPECT_EQ (error.rfind ("DesignCoverage", 0), 0U) << error;
+    options.trimToCover = true;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), options, result, error)) << error;
+    EXPECT_GT (result.stations.front (), 9.0) << "stations off the terrain are dropped";
+}
+
 namespace {
 std::shared_ptr<const TerrainCapture> Capture (const DesignFixture& fixture)
 {
@@ -452,6 +488,24 @@ std::shared_ptr<const TerrainCapture> Capture (const DesignFixture& fixture)
     return capture;
 }
 } // namespace
+
+TEST (EditTerrainDesignJob, APathRunningOffTheTerrainStillBuildsAndSaysWhy)
+{
+    DesignFixture fixture;
+    std::string error;
+    ASSERT_TRUE (
+        edit::MovePathPoint (fixture.doc, fixture.path, fixture.doc.paths[0].points[0].id, { -30, 0, 0 }, error))
+        << error;
+    fixture.Capture ();
+    TerrainDesignPublisher publisher;
+    TerrainDesignJob job;
+    ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), fixture.Options (), {}, job, error)) << error;
+    const auto outcome = RunTerrainDesign (job);
+    ASSERT_TRUE (outcome.built) << outcome.error;
+    EXPECT_TRUE (std::any_of (outcome.unmet.begin (), outcome.unmet.end (), [] (const std::string& line) {
+        return line.rfind ("The path runs off the captured terrain", 0) == 0;
+    }));
+}
 
 TEST (EditTerrainDesignJob, AWorkerResultPublishesOnlyForTheDocumentItWasComputedAgainst)
 {
@@ -507,20 +561,21 @@ TEST (EditTerrainDesignJob, LaterRequestsSupersedeAndRefusalsCarryTheirPlaces)
     options.cutLimit = options.fillLimit = .5;
     ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), options, kRegion, second, error)) << error;
     auto late = std::async (std::launch::async, [first] { return RunTerrainDesign (first); });
-    auto refused = RunTerrainDesign (second);
+    auto relaxed = RunTerrainDesign (second);
     // The first job finishes, but it was superseded: discarded, nothing published.
     EXPECT_FALSE (publisher.Publish (fixture.doc, late.get (), error));
     EXPECT_EQ (error.rfind ("TerrainDesignSuperseded", 0), 0U) << error;
     EXPECT_EQ (publisher.Current (fixture.doc), nullptr);
-    // The latest is a refusal; it publishes with its located places.
-    ASSERT_FALSE (refused.built);
-    EXPECT_EQ (refused.error.rfind ("DaylightNotReached", 0), 0U) << refused.error;
-    EXPECT_EQ (refused.conflicts.size (), 18U);
-    ASSERT_TRUE (publisher.Publish (fixture.doc, refused, error)) << error;
+    // The latest's slopes do not reach the ground within 0.5 m: the worker builds anyway with a
+    // wider reach, and says so.
+    ASSERT_TRUE (relaxed.built) << relaxed.error;
+    ASSERT_EQ (relaxed.unmet.size (), 1U);
+    EXPECT_EQ (relaxed.unmet[0].rfind ("The side slopes do not meet the ground within 0.5 m", 0), 0U)
+        << relaxed.unmet[0];
+    ASSERT_TRUE (publisher.Publish (fixture.doc, relaxed, error)) << error;
     const auto* current = publisher.Current (fixture.doc);
     ASSERT_NE (current, nullptr);
-    EXPECT_FALSE (current->built);
-    EXPECT_EQ (current->conflicts.front ().code, HybridConflictCode::DaylightBeyondLimit);
+    EXPECT_TRUE (current->built);
     // A job without a snapshot is an outcome, not a crash.
     EXPECT_FALSE (RunTerrainDesign (TerrainDesignJob {}).built);
 }

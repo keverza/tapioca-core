@@ -72,6 +72,49 @@ bool Stations (const edit::Path& path, const TerrainDesignOptions& options, std:
     return true;
 }
 
+// The longest run of stations whose band edges lie on `options.cover` (trimToCover only).
+bool TrimToCover (const TerrainDesignOptions& options, std::vector<double>& sampled,
+                  std::vector<TerrainStation>& stations, std::string& error)
+{
+    if (!options.trimToCover || options.cover.size () < 9)
+        return true;
+    cp::PathD cover;
+    for (size_t i = 0; i + 2 < options.cover.size (); i += 3)
+        cover.push_back ({ options.cover[i], options.cover[i + 1] });
+    const size_t n = stations.size ();
+    std::vector<bool> on (n, false);
+    for (size_t i = 0; i < n; ++i) {
+        const auto& a = stations[i > 0 ? i - 1 : i].position;
+        const auto& b = stations[i + 1 < n ? i + 1 : i].position;
+        const double dx = b[0] - a[0], dy = b[1] - a[1], length = std::hypot (dx, dy);
+        if (!(length > 0))
+            continue;
+        const double nx = -dy / length, ny = dx / length;
+        const auto& c = stations[i].position;
+        const auto inside = [&] (double d) {
+            return cp::PointInPolygon (cp::PointD { c[0] + nx * d, c[1] + ny * d }, cover) !=
+                   cp::PointInPolygonResult::IsOutside;
+        };
+        on[i] = inside (stations[i].halfLeft) && inside (-stations[i].halfRight);
+    }
+    size_t best = 0, bestLength = 0;
+    for (size_t i = 0; i < n;) {
+        size_t j = i;
+        while (j < n && on[j])
+            ++j;
+        if (j - i > bestLength)
+            best = i, bestLength = j - i;
+        i = j + 1;
+    }
+    if (bestLength < 2) {
+        error = "DesignCoverage: the path does not run over the captured terrain";
+        return false;
+    }
+    sampled = std::vector<double> (sampled.begin () + best, sampled.begin () + best + bestLength);
+    stations = std::vector<TerrainStation> (stations.begin () + best, stations.begin () + best + bestLength);
+    return true;
+}
+
 // Framing, the operation, the owner and the path centreline source.
 bool Prepare (const geomsrv::edit::Document& doc, const EditTerrainInput& input, const TerrainDesignOptions& options,
               const edit::Path*& path, const IdentityObject*& owner, std::string& error)
@@ -131,6 +174,19 @@ bool Reach (const geomsrv::edit::Document& doc, const std::vector<TerrainStation
         for (const auto& point : landscape.propertyLine)
             property.push_back ({ point.x, point.y });
         shape = cp::Intersect (shape, { property }, cp::FillRule::NonZero, landscape_detail::kPrecision);
+    }
+    if (options.cover.size () >= 9) {
+        cp::PathD cover;
+        for (size_t i = 0; i + 2 < options.cover.size (); i += 3)
+            cover.push_back ({ options.cover[i], options.cover[i + 1] });
+        shape = cp::Intersect (shape, { cover }, cp::FillRule::NonZero, landscape_detail::kPrecision);
+        // Clipped to the terrain, a band may leave crumbs at the mesh's edge: the largest piece.
+        if (shape.size () > 1) {
+            std::sort (shape.begin (), shape.end (), [] (const cp::PathD& a, const cp::PathD& b) {
+                return std::abs (cp::Area (a)) > std::abs (cp::Area (b));
+            });
+            shape.resize (1);
+        }
     }
     if (shape.size () != 1 || shape.front ().size () < 3 || cp::Area (shape.front ()) <= 0) {
         error = "TerrainDesignRegion: the band's reach does not leave one region inside the property line";
@@ -538,6 +594,36 @@ void Describe (const std::vector<TerrainDesignConflict>& conflicts, std::string&
 
 } // namespace
 
+std::vector<double> TerrainFootprint (const TerrainMeshView& mesh, double inset)
+{
+    cp::PathsD triangles;
+    for (size_t t = 0; t + 2 < mesh.triangles.size (); t += 3) {
+        cp::PathD triangle;
+        for (size_t k = 0; k < 3; ++k) {
+            const size_t v = size_t (mesh.triangles[t + k]) * 3;
+            if (v + 2 >= mesh.points.size ())
+                return {};
+            triangle.push_back ({ mesh.points[v], mesh.points[v + 1] });
+        }
+        if (cp::Area (triangle) < 0)
+            std::reverse (triangle.begin (), triangle.end ());
+        if (cp::Area (triangle) > 1.0e-12)
+            triangles.push_back (std::move (triangle));
+    }
+    auto shape = cp::Union (triangles, cp::FillRule::NonZero, landscape_detail::kPrecision);
+    shape =
+        cp::InflatePaths (shape, -inset, cp::JoinType::Miter, cp::EndType::Polygon, 2.0, landscape_detail::kPrecision);
+    const auto largest = std::max_element (shape.begin (), shape.end (), [] (const cp::PathD& a, const cp::PathD& b) {
+        return std::abs (cp::Area (a)) < std::abs (cp::Area (b));
+    });
+    std::vector<double> ring;
+    if (largest == shape.end () || largest->size () < 3)
+        return ring;
+    for (const auto& point : *largest)
+        ring.insert (ring.end (), { point.x, point.y, 0.0 });
+    return ring;
+}
+
 bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainInput& input,
                           const TerrainDesignOptions& options, std::vector<TerrainDesignConflict>& conflicts,
                           std::string& error)
@@ -554,7 +640,8 @@ bool AssessTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrainI
         std::vector<HybridConflict> located;
         std::vector<TerrainDesignConflict> candidate;
         if (!Prepare (doc, input, options, path, owner, error) ||
-            !Stations (*path, options, sampled, stations, error) || !Region (doc, stations, options, region, error) ||
+            !Stations (*path, options, sampled, stations, error) || !TrimToCover (options, sampled, stations, error) ||
+            !Region (doc, stations, options, region, error) ||
             !Combine (input, options, *owner, region, combined, error) ||
             !CompileTerrainControls (doc, input.provenance, controls, error) ||
             !AppendTerrainControls (controls, options, *owner, combined, error) ||
@@ -587,6 +674,7 @@ bool EvaluateTerrainDesign (const geomsrv::edit::Document& doc, const EditTerrai
         std::vector<TerrainStation> stations;
         if (!Prepare (doc, input, options, path, owner, error) ||
             !Stations (*path, options, candidate.stations, stations, error) ||
+            !TrimToCover (options, candidate.stations, stations, error) ||
             !Region (doc, stations, options, candidate.region, error) ||
             !Combine (input, options, *owner, candidate.region, combined, error) ||
             !CompileTerrainControls (doc, input.provenance, controls, error) ||

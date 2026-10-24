@@ -8,6 +8,9 @@
 
 namespace tapioca::geometry {
 
+// The widest a side slope's plan reach is widened to when it does not meet the ground, metres.
+constexpr double kMaxSlopeReach = 100.0;
+
 // The storage behind an EditTerrainInput, owned so a worker can outlive the
 // host's capture buffers. Detached: the host stamps it from the document it was
 // captured against; it is never document state.
@@ -45,10 +48,21 @@ struct TerrainDesignOutcome {
     TerrainDesignResult result;                   // When built.
     std::vector<TerrainDesignConflict> conflicts; // Station places and canonical fixed conflicts (if TIN exists).
     std::string error;                            // When refused.
+    // What the strict design asked for and could not have, in the user's words: each condition
+    // the worker relaxed to build anyway, then -- when it still refused -- the one left.
+    std::vector<std::string> unmet;
 };
+
+// The condition a refusal code stands for, said plainly; the raw message when it has none.
+std::string TerrainConditionText (const std::string& error);
 
 // Worker side: pure, never throws, touches nothing shared. A refusal is an
 // outcome too, with located band/fixed-control conflicts when available.
+// It always tries to build (the user, 2026-10-24: "always try to create a mesh and in the
+// panel just write which conditions are not satisfied"): a strict refusal it can work round is
+// retried once per condition -- the region clipped to the captured terrain's footprint, the
+// side slopes' reach widened (up to kMaxSlopeReach), finer stations -- and each one taken is
+// listed in `unmet`. The result is then the relaxed design, never presented as the strict one.
 TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job);
 // Runs it on its own thread; the host polls the future from the main thread.
 std::future<TerrainDesignOutcome> LaunchTerrainDesign (TerrainDesignJob job);
