@@ -8,6 +8,7 @@
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
 #include "ArchViz/OverlayHud.hpp"
+#include "Edit/EditPrimitives.hpp"
 #include <imgui.h>
 #include <string>
 
@@ -156,6 +157,13 @@ void DrawTracker (Session& s, ImVec2 mouse, bool hovered, float scale);
 const edit::Document& Doc (const Session& s);
 // Ends the line a drawing tool is placing: a polyline or a path, selected.
 void FinishDrawing (Session& s);
+// A shape tool's two clicks as the kernel's input (`second` the pointer's point), and the shape
+// they make, added and selected as FinishDrawing's line is (HudVirtualEditorDrawing.cpp).
+edit::PrimitiveInput ShapeInput (const Session& s, edit::Vec3 second, bool uniform);
+void FinishShape (Session& s, edit::Vec3 second, bool uniform);
+void DrawingPreview (Session& s, const Map& m, bool shift, float scale);
+// A tool's letter (V L P B Q N O), or Up/Down for the polygon's sides: true when it was one.
+bool ToolKey (Session& s, uint32_t code);
 bool LandscapeCommandKeys (Session& s, const overlayhud::Input& input);
 void History (Session& s, bool undo);
 void EndHandleDrag (Session& s);

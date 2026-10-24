@@ -491,27 +491,11 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                 else if (!typing && !key.ctrl && !key.alt && (s.drag != Drag::None || s.planeTyping)) {
                     // No tool or gumball mode changes under a gesture: the handle held is one of
                     // this mode's, and the panel's tools are off until it ends too.
-                    if (key.code < 0x80 && key.code != 0 && std::strchr ("VLPBGRSTFE", int (key.code)) != nullptr)
+                    if (key.code < 0x80 && key.code != 0 && std::strchr ("VLPBGRSTFEQNO", int (key.code)) != nullptr)
                         s.message = "Finish the drag, or Esc it, before switching tool or mode.";
                 }
                 else if (!typing && !key.ctrl && !key.alt) {
                     switch (key.code) {
-                        case 'V':
-                            s.tool = Tool::Select, s.drawing.clear ();
-                            s.landscapeMode = LandscapeMode::Select;
-                            break;
-                        case 'L':
-                            s.tool = Tool::Polyline;
-                            s.landscapeMode = LandscapeMode::DrawSource;
-                            break;
-                        case 'P':
-                            s.tool = Tool::Path;
-                            s.landscapeMode = LandscapeMode::DrawSource;
-                            break;
-                        case 'B':
-                            s.tool = Tool::Curve; // the pen: clicks for corners, drags for curves
-                            s.landscapeMode = LandscapeMode::DrawSource;
-                            break;
                         case 'G':
                             mode (edit::GizmoMode::Move);
                             break;
@@ -531,6 +515,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                             mode (edit::GizmoMode::Extrude);
                             break;
                         default:
+                            ToolKey (s, key.code); // the drawing tools' letters, a polygon's sides
                             break;
                     }
                 }
@@ -611,7 +596,14 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             if (!s.drawing.empty ())
                 anchor = s.drawing.back ();
             if (Pointer (s, m, mouse, z, s.drawing.empty () ? Vec3 {} : s.drawing.back (), anchor, {}, scale, p)) {
-                if (!s.drawing.empty () && edit::Distance (p, s.drawing.back ()) < 1.0e-6)
+                if (ShapeTool (s.tool)) {
+                    // A shape is two clicks: the corner or centre, then the size.
+                    if (s.drawing.empty ())
+                        s.drawing.push_back (p);
+                    else
+                        FinishShape (s, p, shift);
+                }
+                else if (!s.drawing.empty () && edit::Distance (p, s.drawing.back ()) < 1.0e-6)
                     FinishDrawing (s); // a second click on the last point ends the line
                 else if (s.drawing.size () >= 3 && edit::Distance (p, s.drawing.front ()) < 1.0e-6) {
                     s.drawing.push_back (p); // back on the start: a closed outline
@@ -891,16 +883,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 if (edit::Normalize (Vec3 { p.x - anchor->x, p.y - anchor->y, 0.0 }, dir))
                     s.snap.point = *anchor + dir * *length;
             }
-            if (s.tool == Tool::Curve)
-                PenPreview (s, m, s.snap.point, scale);
-            else {
-                for (size_t i = 0; i + 1 < s.drawing.size (); ++i)
-                    Line (s, m, s.drawing[i], s.drawing[i + 1], kAccent, 2.5f * scale);
-                if (!s.drawing.empty ())
-                    Line (s, m, s.drawing.back (), s.snap.point, kAccent, 1.5f * scale);
-                for (const auto& q : s.drawing)
-                    Dot (s, m, q, 4.0f * scale, kAccent);
-            }
+            DrawingPreview (s, m, shift, scale);
         }
     }
 

@@ -38,7 +38,12 @@ struct TerrainDesignState;
 struct TerrainCaptureRequest;
 struct TerrainSectionDraft;
 
-enum class Tool : uint8_t { Select, Polyline, Path, Curve };
+enum class Tool : uint8_t { Select, Polyline, Path, Curve, Rectangle, Polygon, Ellipse };
+// The tools that place a closed shape from two clicks (edit::Primitive), not a run of points.
+constexpr bool ShapeTool (Tool tool)
+{
+    return tool == Tool::Rectangle || tool == Tool::Polygon || tool == Tool::Ellipse;
+}
 enum class LandscapeMode : uint8_t { Select, DrawSource, Face, Boolean };
 struct LandscapeCommand {
     tapioca::geometry::OperationKind kind;
@@ -106,8 +111,9 @@ struct Session {
     uint64_t gumballRepositionRevision = 0;
     uint32_t filter = edit::kPickAll;
     double pathWidth = 1.5;
-    std::string role;  // the starting command's word for what it edits
-    std::string owner; // the palette command that opened it: its own later runs keep it
+    int polygonSides = 6; // the polygon tool's, Up and Down while it is placed
+    std::string role;     // the starting command's word for what it edits
+    std::string owner;    // the palette command that opened it: its own later runs keep it
 
     // The gesture in progress.
     Drag drag = Drag::None;

@@ -932,6 +932,56 @@ TEST (HudVirtualEditor, ACtrlDragLassoesAndThePanelChoiceSwapsIt)
     }
 }
 
+// The user, 2026-10-24: rectangle, polygon (Up/Down for its sides) and ellipse tools.
+TEST (HudVirtualEditor, ShapeToolsPlaceAClosedOutlineFromTwoClicksInOneUndoStep)
+{
+    Drive d (ed::Document {});
+    d.S ().snapEnabled = false;
+    d.Key ('Q');
+    ASSERT_EQ (d.S ().tool, eh::Tool::Rectangle);
+    d.Press (600, 500);
+    d.Release (600, 500); // (0, 0)
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    EXPECT_TRUE (d.D ().entities.empty ());
+    d.At (680, 440);
+    d.Press (680, 440);
+    d.Release (680, 440); // (4, 3)
+    ASSERT_EQ (d.D ().entities.size (), 1u);
+    const auto& rectangle = d.D ().entities[0];
+    EXPECT_TRUE (rectangle.closed);
+    EXPECT_EQ (rectangle.vertices.size (), 4u);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+    EXPECT_TRUE (d.S ().drawing.empty ());
+    EXPECT_TRUE (d.S ().selection.Contains ({ rectangle.id, ed::Part::Entity, 0 }));
+
+    d.Key ('N');
+    ASSERT_EQ (d.S ().tool, eh::Tool::Polygon);
+    const int sides = d.S ().polygonSides;
+    d.Key (0x26);
+    d.Key (0x26);
+    d.Key (0x28);
+    EXPECT_EQ (d.S ().polygonSides, sides + 1);
+    d.Press (900, 500);
+    d.Release (900, 500);
+    d.Press (940, 500);
+    d.Release (940, 500);
+    ASSERT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_EQ (d.D ().entities[1].vertices.size (), size_t (sides + 1));
+
+    d.Key ('O');
+    d.Press (600, 200);
+    d.Release (600, 200);
+    d.Press (600, 200); // no size: refused, and the first click stays for another try
+    d.Release (600, 200);
+    EXPECT_EQ (d.D ().entities.size (), 2u);
+    EXPECT_EQ (d.S ().drawing.size (), 1u);
+    d.Press (640, 180);
+    d.Release (640, 180);
+    ASSERT_EQ (d.D ().entities.size (), 3u);
+    EXPECT_TRUE (d.D ().entities[2].vertices[0].smooth);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 3u);
+}
+
 TEST (HudVirtualEditor, WindowReplacementCancelsBeforeNumericEnterCanApply)
 {
     Drive d (Corner ());

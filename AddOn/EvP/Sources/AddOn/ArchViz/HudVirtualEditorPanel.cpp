@@ -79,6 +79,20 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
         s.tool = Tool::Curve, s.landscapeMode = LandscapeMode::DrawSource;
+    if (ImGui::RadioButton ("Rectangle (Q)", s.tool == Tool::Rectangle))
+        s.tool = Tool::Rectangle, s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
+    ImGui::SameLine ();
+    if (ImGui::RadioButton ("Polygon (N)", s.tool == Tool::Polygon))
+        s.tool = Tool::Polygon, s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
+    ImGui::SameLine ();
+    if (ImGui::RadioButton ("Ellipse (O)", s.tool == Tool::Ellipse))
+        s.tool = Tool::Ellipse, s.landscapeMode = LandscapeMode::DrawSource, s.drawing.clear ();
+    if (s.tool == Tool::Polygon) {
+        ImGui::SetNextItemWidth (120);
+        ImGui::SliderInt ("Sides (Up/Down)", &s.polygonSides, 3, edit::kMaxPolygonSides);
+    }
+    if (ShapeTool (s.tool))
+        ImGui::TextDisabled ("Click a corner or centre, then the size. Shift: square, circle.");
     // How a drag from empty space (or from inside an unselected region) selects; Ctrl at the
     // press takes the other one for that drag.
     if (ImGui::RadioButton ("Window select", !s.lasso))

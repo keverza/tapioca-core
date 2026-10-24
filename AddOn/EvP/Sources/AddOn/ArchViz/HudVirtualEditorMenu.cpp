@@ -306,6 +306,9 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("tool.polyline", "Draw polyline", "L", true, s.tool == Tool::Polyline));
             items.push_back (Item ("tool.path", "Draw path", "P", true, s.tool == Tool::Path));
             items.push_back (Item ("tool.curve", "Draw curves (pen)", "B", true, s.tool == Tool::Curve));
+            items.push_back (Item ("tool.rectangle", "Draw rectangle", "Q", true, s.tool == Tool::Rectangle));
+            items.push_back (Item ("tool.polygon", "Draw polygon", "N", true, s.tool == Tool::Polygon));
+            items.push_back (Item ("tool.ellipse", "Draw ellipse or circle", "O", true, s.tool == Tool::Ellipse));
             Rule (items);
             items.push_back (Item ("select.all", "Select all", {}, !doc.entities.empty () || !doc.paths.empty ()));
             items.push_back (Item ("select.none", "Deselect", "Esc", !s.selection.Items ().empty ()));
@@ -367,6 +370,11 @@ void RunMenuItem (Session& s, const std::string& id)
         s.tool = Tool::Path;
     else if (id == "tool.curve")
         s.tool = Tool::Curve;
+    else if (id == "tool.rectangle" || id == "tool.polygon" || id == "tool.ellipse")
+        s.tool = id == "tool.rectangle" ? Tool::Rectangle
+                 : id == "tool.polygon" ? Tool::Polygon
+                                        : Tool::Ellipse,
+        s.drawing.clear ();
     else if (id == "select.none")
         s.selection.Clear ();
     else if (id == "select.all") {
