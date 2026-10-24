@@ -250,6 +250,8 @@ std::vector<MenuItem> MenuItems (const Session& s)
                                        role == lg::SourceRole::MaterialBoundary));
                 items.push_back (Item ("role.property", "Use as property line", {}, e->closed,
                                        role == lg::SourceRole::PropertyLine));
+                items.push_back (
+                    Item ("role.building", "Use as building outline", {}, e->closed, role == lg::SourceRole::Building));
             }
             if (e != nullptr && e->kind == edit::Kind::Polyline && !e->closed)
                 AddActions (s, items, {});
@@ -376,10 +378,12 @@ void RunMenuItem (Session& s, const std::string& id)
         UsePathPartPlane (s, s.menu.ref);
     else if (id == "plane.pathStation")
         BeginPathPlaneEntry (s, s.menu.ref.entity);
-    else if (id == "role.guide" || id == "role.cutter" || id == "role.material" || id == "role.property")
+    else if (id == "role.guide" || id == "role.cutter" || id == "role.material" || id == "role.property" ||
+             id == "role.building")
         SetSelectedSourceRole (s, id == "role.guide"      ? tapioca::geometry::SourceRole::Guide
                                   : id == "role.cutter"   ? tapioca::geometry::SourceRole::Cutter
                                   : id == "role.material" ? tapioca::geometry::SourceRole::MaterialBoundary
+                                  : id == "role.building" ? tapioca::geometry::SourceRole::Building
                                                           : tapioca::geometry::SourceRole::PropertyLine);
     else if (id == "import.drafting")
         s.draftingImport = true, s.draftingImportAs = "lines";

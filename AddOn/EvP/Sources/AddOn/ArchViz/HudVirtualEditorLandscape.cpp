@@ -402,6 +402,8 @@ bool detail::LandscapeView (Session& s, const Map& m, ImVec2 mouse, bool hovered
     if (!s.edits.Doc ().landscape)
         return false;
     const auto& result = Landscape (s);
+    if (EntrancesView (s, m, mouse, hovered, scale))
+        return true;
     if (s.landscapeMode != LandscapeMode::Face && s.landscapeMode != LandscapeMode::Boolean)
         return false;
     edit::Vec3 point;

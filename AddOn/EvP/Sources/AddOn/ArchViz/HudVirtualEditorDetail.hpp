@@ -52,6 +52,8 @@ void Line (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, f
 void Dot (Session& s, const Map& m, edit::Vec3 p, float radius, ImU32 colour, bool filled = true);
 void DashedLine (Session& s, const Map& m, edit::Vec3 a, edit::Vec3 b, ImU32 colour, float width);
 bool LandscapeView (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
+// Every entrance drawn; in the Entrance mode the pointer places one (true: it took the view).
+bool EntrancesView (Session& s, const Map& m, ImVec2 mouse, bool hovered, float scale);
 void Note (Session& s, const Map& m, edit::Vec3 p, ImVec2 offset, const std::string& text, ImU32 colour);
 
 // Drafting aids (HudVirtualEditorSnap.cpp): the session's snap settings and references

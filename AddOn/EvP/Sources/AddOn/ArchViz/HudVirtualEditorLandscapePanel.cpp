@@ -23,6 +23,7 @@ void LandscapePanel (Session& s)
             SetLandscapeMode (s, LandscapeMode (i));
     }
     ImGui::EndDisabled ();
+    EntrancesPanel (s);
     ImGui::Text ("%zu faces   %zu regions   XY preview at %.2f m", s.landscape.faces.size (),
                  s.landscape.regions.size (), s.plane.origin.z);
     ImGui::BeginDisabled (GizmoModeLocked (s) || !s.drawing.empty ());
@@ -80,7 +81,8 @@ void LandscapePanel (Session& s)
             } uses[] = { { "Region boundary", lg::SourceRole::Guide },
                          { "Cutter", lg::SourceRole::Cutter },
                          { "Material boundary", lg::SourceRole::MaterialBoundary },
-                         { "Property line", lg::SourceRole::PropertyLine } };
+                         { "Property line", lg::SourceRole::PropertyLine },
+                         { "Building outline", lg::SourceRole::Building } };
             // A reference is Archicad's line: shown, used, but changed only in Archicad.
             size_t references = 0;
             for (const auto& source : s.edits.Doc ().landscape->sources)
