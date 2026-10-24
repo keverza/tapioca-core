@@ -11,6 +11,7 @@ use crate::boundary::{Failure, call, memory_range, overlaps};
 
 mod atlas;
 mod camera;
+mod follower;
 mod ground;
 mod limits;
 mod occlusion;
@@ -34,6 +35,11 @@ pub use atlas::{
 pub use camera::{
     AccumLayoutOutput, GridLadderOutput, GridLadderRequest, ShadowCamera, ShadowCameraRequest,
     tapioca_sunstudy_accum_layout, tapioca_sunstudy_grid_ladder, tapioca_sunstudy_shadow_camera,
+};
+pub use follower::{
+    FollowerEvent, FollowerHandle, FollowerSnapshot, FollowerTextOutput,
+    tapioca_sunstudy_follower_apply, tapioca_sunstudy_follower_create,
+    tapioca_sunstudy_follower_destroy, tapioca_sunstudy_follower_text,
 };
 pub use ground::{
     GroundGridOutput, GroundGridRequest, GroundGridSummary, tapioca_sunstudy_ground_grid,
@@ -220,6 +226,9 @@ const _: () = {
     assert!(size_of::<StudyStepMaskSummary>() == 40);
     assert!(size_of::<StudyReadAtRequest>() == 32);
     assert!(size_of::<StudyReadingRecord>() == 32);
+    assert!(size_of::<FollowerEvent>() == 72);
+    assert!(size_of::<FollowerSnapshot>() == 96);
+    assert!(size_of::<FollowerTextOutput>() == 32);
 };
 
 type Range = Option<(usize, usize)>;

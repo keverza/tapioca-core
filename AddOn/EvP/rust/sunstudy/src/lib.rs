@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod atlas;
+pub mod follower;
 pub mod limits;
 pub mod occlusion;
 pub mod patch_atlas;

@@ -1188,6 +1188,46 @@ TapiocaStatus tapioca_sunstudy_study_read_at (const TapiocaSunStudyStudy* handle
                                               const TapiocaStudyReadAtRequest* request, TapiocaStudyReading* out,
                                               char* error, size_t errorCapacity);
 
+/* ---- follower policy (Rust-owned; one thread at a time) ---------------- */
+
+typedef struct TapiocaSunStudyFollower TapiocaSunStudyFollower;
+
+TapiocaStatus tapioca_sunstudy_follower_create (TapiocaSunStudyFollower** out, char* error, size_t errorCapacity);
+TapiocaStatus tapioca_sunstudy_follower_destroy (TapiocaSunStudyFollower* handle, char* error, size_t errorCapacity);
+
+typedef struct {
+    uint8_t kind; /* 0 adopt, 1 observe, 2 shouldStart, 3 msUntilStart, 4 noteStarted, 5 canPublish,
+                     6 noteCompleted, 7 noteFailed, 8 clear, 9 setDebounce, 10 read only */
+    uint64_t signature[3]; /* geometry, sun, sampling */
+    int64_t nowMs;
+    uint64_t generation;
+    int64_t debounceMs;
+    TapiocaTextView studyId;
+} TapiocaFollowerEvent;
+
+typedef struct {
+    int64_t answer; /* flag 0/1, generation bits, or milliseconds */
+    uint64_t study[3];
+    uint64_t world[3];
+    uint64_t counters[3]; /* generation, reruns, discarded */
+    int64_t debounceMs;
+    uint8_t state;       /* SunStudyFollowState */
+    uint8_t dirtyReason; /* SunStudyDirtyReason */
+} TapiocaFollowerSnapshot;
+
+TapiocaStatus tapioca_sunstudy_follower_apply (TapiocaSunStudyFollower* handle, const TapiocaFollowerEvent* event,
+                                               TapiocaFollowerSnapshot* out, char* error, size_t errorCapacity);
+
+typedef struct {
+    uint8_t which; /* 0 study id, 1 description */
+    char* text;
+    size_t capacity;
+    size_t* length; /* written even when the text did not fit */
+} TapiocaFollowerTextOutput;
+
+TapiocaStatus tapioca_sunstudy_follower_text (TapiocaSunStudyFollower* handle, const TapiocaFollowerTextOutput* output,
+                                              char* error, size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 
