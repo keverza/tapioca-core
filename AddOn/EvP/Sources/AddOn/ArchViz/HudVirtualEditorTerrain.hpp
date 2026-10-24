@@ -18,7 +18,7 @@ namespace geomsrv::archviz::edithud {
 struct Session;
 struct TerrainDesignState;
 struct TerrainCaptureRequest {
-    edit::Id path = edit::kNoId;
+    edit::Id path = edit::kNoId; // kNoId: set the terrain alone; a design starts once a path exists.
     uint64_t revision = 0;
     std::string terrainGuid; // Empty: read exactly one native selected Mesh; otherwise recapture this source.
 };
@@ -48,6 +48,12 @@ struct TerrainDesignStatus {
 // native solids require an attributed surface adapter before this entrypoint.
 bool StartTerrainDesign (Session& session, std::shared_ptr<const Mesh> mesh, edit::Id path);
 bool StartTerrainDesign (Session& session, TerrainDesignBaseline baseline, edit::Id path);
+// The terrain first (the user, 2026-10-24: "allow set terrain first"): with a design path the
+// design starts at once; without one the baseline is held and PollTerrainDesign starts the
+// design as soon as one can be resolved. No document edit until then.
+bool SetTerrainBaseline (Session& session, TerrainDesignBaseline baseline, edit::Id path);
+// The GUID of the terrain set, whether a design owns it yet or not; empty when none is.
+std::string TerrainGuid (const Session& session);
 TerrainDesignStatus GetTerrainDesignStatus (const Session& session);
 // Main-thread, nonblocking poll. One worker at a time; changed revisions coalesce
 // until input ends. Results never enter document state or its undo history.

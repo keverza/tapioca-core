@@ -120,7 +120,14 @@ void Run (const std::shared_ptr<overlayhud::State>& state, const std::shared_ptr
         finish (error);
         return;
     }
-    finish ("Topography captured. Edit the design path's profile and cross-section to update the preview.");
+    // Read from the selection, the Mesh is in the workflow now: Archicad's highlight on it would
+    // only distract (the user, 2026-10-24), so the selection is cleared.
+    if (request->terrainGuid.empty ()) {
+        const GSErrCode deselected = ACAPI_Selection_DeselectAll ();
+        log ("selection cleared=" + std::to_string (deselected == NoError));
+    }
+    finish (request->path ? "Terrain set. Edit the design path's profile and cross-section to update the preview."
+                          : "Terrain set. Draw or select a design path to grade it.");
 }
 } // namespace
 

@@ -856,12 +856,15 @@ TEST (HudTerrainDesign, CaptureUIRequestIsExplicitRevisionBoundAndDoesNotAuthorH
     EXPECT_FALSE (eh::TerrainCaptureIsCurrent (session, session.terrainCapture));
 }
 
-TEST (HudTerrainDesign, CaptureUIRequiresAnIdleLandscapePathAndRecaptureUsesTheBoundMesh)
+TEST (HudTerrainDesign, CaptureUIRequiresIdleInputButNeitherAPathNorAPropertyLine)
 {
     TerrainHostFixture fixture;
     eh::Session session (fixture.doc);
+    // A stale explicit path is not retargeted: the terrain is set alone.
     session.terrainPath = fixture.doc.nextId;
-    EXPECT_FALSE (eh::RequestTerrainCapture (session, true)); // A stale explicit path must not be retargeted.
+    ASSERT_TRUE (eh::RequestTerrainCapture (session, true)) << session.message;
+    EXPECT_EQ (session.terrainCapture->path, edit::kNoId);
+    session.terrainCapture.reset ();
     session.terrainPath = fixture.path;
     ASSERT_TRUE (session.edits.Begin ());
     EXPECT_FALSE (eh::RequestTerrainCapture (session, true));
@@ -878,12 +881,34 @@ TEST (HudTerrainDesign, CaptureUIRequiresAnIdleLandscapePathAndRecaptureUsesTheB
     EXPECT_EQ (session.terrainCapture->terrainGuid, fixture.mesh->guid);
     EXPECT_EQ (session.edits.UndoDepth (), depth);
     session.terrainCapture.reset ();
-    auto noProperty = fixture.doc;
-    noProperty.landscape->propertyLineSourceId = 0;
-    eh::Session other (noProperty);
-    other.terrainPath = fixture.path;
-    EXPECT_FALSE (eh::RequestTerrainCapture (other, true));
-    EXPECT_FALSE (other.terrainCapture);
+    // The terrain first: no property line and no path needed to set it.
+    auto bare = fixture.doc;
+    bare.landscape->propertyLineSourceId = 0;
+    eh::Session other (bare);
+    ASSERT_TRUE (eh::RequestTerrainCapture (other, true)) << other.message;
+    EXPECT_TRUE (other.terrainCapture);
+}
+
+TEST (HudTerrainDesign, ATerrainSetBeforeItsPathWaitsAndTheDesignStartsWhenOneIsChosen)
+{
+    TerrainHostFixture fixture;
+    fixture.doc.landscape->propertyLineSourceId = 0;
+    eh::Session session (fixture.doc);
+    session.terrainPath = fixture.doc.nextId; // unresolvable: nothing to grade yet
+    ASSERT_TRUE (eh::SetTerrainBaseline (session, eh::TerrainDesignBaseline { fixture.mesh, false, {} }, 0))
+        << session.message;
+    EXPECT_TRUE (session.terrainBaseline);
+    EXPECT_FALSE (session.terrainDesign);
+    EXPECT_EQ (eh::TerrainGuid (session), fixture.mesh->guid);
+    EXPECT_EQ (session.edits.UndoDepth (), 0U) << "setting the terrain authors nothing";
+    eh::PollTerrainDesign (session);
+    EXPECT_TRUE (session.terrainBaseline) << "still waiting";
+    ASSERT_TRUE (eh::ChooseTerrainDesignPath (session, fixture.path)) << session.message;
+    layers::Layer layer;
+    ASSERT_TRUE (AwaitTerrain (session, layer)) << session.message;
+    EXPECT_FALSE (session.terrainBaseline) << "the design owns it now";
+    ASSERT_NE (eh::CurrentTerrainDesign (session), nullptr);
+    EXPECT_TRUE (eh::CurrentTerrainDesign (session)->built) << eh::CurrentTerrainDesign (session)->error;
 }
 
 TEST (HudTerrainDesign, FixedControlSelectionSharesHistoryWorkerAndConflictLayer)

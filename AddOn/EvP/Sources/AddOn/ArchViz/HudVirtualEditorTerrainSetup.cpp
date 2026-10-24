@@ -325,28 +325,29 @@ void TerrainSetupPanel (Session& s)
     if (chosen)
         SectionPanel (s, chosen);
     if (!doc.landscape->propertyLineSourceId) {
-        ImGui::TextWrapped ("A property line is needed for terrain capture, not for drawing or editing the path.");
+        ImGui::TextWrapped ("Optional: a property line limits the design area.");
         if (ImGui::Button ("Draw property line"))
             DrawTerrainPropertyLine (s);
     }
-    if (chosen && doc.landscape->propertyLineSourceId) {
 #if defined(TAPIOCA_GEOMETRY_RUST)
-        ImGui::TextWrapped ("Select exactly one Archicad Mesh before locking the view, then capture it.");
-        if (ImGui::Button ("Capture selected Mesh"))
-            RequestTerrainCapture (s, true);
-        if (!doc.landscape->sourceTerrainGuid.empty ()) {
-            ImGui::SameLine ();
-            if (ImGui::Button ("Recapture current terrain"))
-                RequestTerrainCapture (s, false);
-        }
-#else
-        ImGui::TextDisabled ("Terrain preview requires the Rust geometry build.");
-#endif
+    // The terrain first, in any order with the path (the user, 2026-10-24).
+    ImGui::TextWrapped ("Select the terrain Mesh in Archicad before locking the view, then set it here. The "
+                        "selection is cleared once it is read.");
+    if (ImGui::Button ("Set terrain from selection"))
+        RequestTerrainCapture (s, true);
+    if (!TerrainGuid (s).empty ()) {
+        ImGui::SameLine ();
+        if (ImGui::Button ("Recapture terrain"))
+            RequestTerrainCapture (s, false);
     }
+#else
+    ImGui::TextDisabled ("Terrain preview requires the Rust geometry build.");
+#endif
     ImGui::EndDisabled ();
     if (s.terrainCapture)
         ImGui::TextUnformatted ("Capturing topography...");
-    if (!doc.landscape->sourceTerrainGuid.empty ())
-        ImGui::TextWrapped ("Terrain Mesh: %s", doc.landscape->sourceTerrainGuid.c_str ());
+    if (const auto guid = TerrainGuid (s); !guid.empty ())
+        ImGui::TextWrapped ("Terrain Mesh: %s%s", guid.c_str (),
+                            s.terrainBaseline ? " (waiting for a design path)" : "");
 }
 } // namespace geomsrv::archviz::edithud

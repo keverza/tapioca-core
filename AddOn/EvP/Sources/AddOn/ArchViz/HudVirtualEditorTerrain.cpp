@@ -36,20 +36,22 @@ bool RequestTerrainCapture (Session& s, bool fromSelection)
         LogTerrain (s, "capture refused: " + s.message);
         return false;
     }
+    // The terrain comes first: neither a path nor a property line is needed to set it.
     const auto path = ResolveTerrainDesignPath (s);
     const auto& doc = s.edits.Doc ();
-    if (!doc.landscape || !doc.landscape->propertyLineSourceId || !path) {
-        s.message = "Choose a landscape path and a property line before capturing topography.";
+    const auto bound = TerrainGuid (s);
+    if (!doc.landscape) {
+        s.message = "Start a landscape before setting its terrain.";
         LogTerrain (s, "capture refused: " + s.message);
         return false;
     }
-    if (!fromSelection && doc.landscape->sourceTerrainGuid.empty ()) {
-        s.message = "Capture a selected Archicad Mesh before recapturing terrain.";
+    if (!fromSelection && bound.empty ()) {
+        s.message = "Set the terrain from a selected Archicad Mesh before recapturing it.";
         LogTerrain (s, "capture refused: " + s.message);
         return false;
     }
     s.terrainCapture = std::make_shared<TerrainCaptureRequest> (
-        TerrainCaptureRequest { path, doc.revision, fromSelection ? "" : doc.landscape->sourceTerrainGuid });
+        TerrainCaptureRequest { path, doc.revision, fromSelection ? "" : bound });
     s.terrainCaptureQueued = false;
     s.message = "Topography capture requested.";
     LogTerrain (s, fromSelection ? "capture requested source=selection" : "capture requested source=bound");
@@ -60,8 +62,8 @@ bool RequestTerrainCapture (Session& s, bool fromSelection)
 bool TerrainCaptureIsCurrent (const Session& s, const std::shared_ptr<const TerrainCaptureRequest>& request)
 {
     return request && s.terrainCapture == request && !s.close && s.edits.Doc ().revision == request->revision &&
-           s.edits.Doc ().landscape && edit::FindPath (s.edits.Doc (), request->path) && !s.edits.InGesture () &&
-           !GizmoModeLocked (s) && s.drawing.empty () && !s.landscapeCommand;
+           s.edits.Doc ().landscape && (!request->path || edit::FindPath (s.edits.Doc (), request->path)) &&
+           !s.edits.InGesture () && !GizmoModeLocked (s) && s.drawing.empty () && !s.landscapeCommand;
 }
 
 bool SetTerrainControlSelection (Session& s, bool enabled)
@@ -184,8 +186,9 @@ bool Idle (const Session& s)
 bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, lg::TerrainDesignOptions& options,
              std::string& error)
 {
-    if (!doc.landscape || !doc.landscape->propertyLineSourceId || !edit::FindPath (doc, path)) {
-        error = "Choose a landscape path and a property line before starting terrain design.";
+    // No property line: the design area is the path's reach on the terrain (the worker clips it).
+    if (!doc.landscape || !edit::FindPath (doc, path)) {
+        error = "Choose a landscape path before starting terrain design.";
         return false;
     }
     edit::Id terrain = 0;
@@ -274,8 +277,40 @@ bool StartTerrainDesign (Session& s, TerrainDesignBaseline baseline, edit::Id pa
     return true;
 }
 
+bool SetTerrainBaseline (Session& s, TerrainDesignBaseline baseline, edit::Id path)
+{
+    if (!baseline.mesh) {
+        s.message = "TerrainCaptureSource: the terrain has no mesh.";
+        return false;
+    }
+    if (path)
+        return StartTerrainDesign (s, std::move (baseline), path);
+    // A new terrain replaces the one a design was built on: that design is over.
+    s.terrainDesign.reset ();
+    s.terrainBaseline = std::make_shared<TerrainDesignBaseline> (std::move (baseline));
+    s.publishedRevision = UINT64_MAX;
+    s.message = "Terrain set. Draw or select a design path to grade it.";
+    LogTerrain (s, "baseline held guid=" + s.terrainBaseline->mesh->guid);
+    return true;
+}
+
+std::string TerrainGuid (const Session& s)
+{
+    if (s.terrainBaseline && s.terrainBaseline->mesh)
+        return s.terrainBaseline->mesh->guid;
+    return s.edits.Doc ().landscape ? s.edits.Doc ().landscape->sourceTerrainGuid : std::string {};
+}
+
 void PollTerrainDesign (Session& s)
 {
+    // A terrain set first starts its design when a path appears, once input is idle.
+    if (s.terrainBaseline && !s.terrainDesign && Idle (s) && !s.terrainCapture) {
+        if (const auto path = ResolveTerrainDesignPath (s)) {
+            auto baseline = *s.terrainBaseline;
+            if (StartTerrainDesign (s, std::move (baseline), path))
+                s.terrainBaseline.reset ();
+        }
+    }
     if (!s.terrainDesign)
         return;
     auto& state = *s.terrainDesign;
@@ -519,6 +554,15 @@ TerrainDesignStatus GetTerrainDesignStatus (const Session&)
 }
 void PollTerrainDesign (Session&)
 {
+}
+bool SetTerrainBaseline (Session& s, TerrainDesignBaseline, edit::Id)
+{
+    s.message = "Terrain design requires the Rust geometry build.";
+    return false;
+}
+std::string TerrainGuid (const Session& s)
+{
+    return s.edits.Doc ().landscape ? s.edits.Doc ().landscape->sourceTerrainGuid : std::string {};
 }
 const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Session&)
 {

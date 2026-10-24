@@ -37,6 +37,7 @@ namespace geomsrv::archviz::edithud {
 struct TerrainDesignState;
 struct TerrainCaptureRequest;
 struct TerrainSectionDraft;
+struct TerrainDesignBaseline;
 
 enum class Tool : uint8_t { Select, Polyline, Path, Curve, Rectangle, Polygon, Ellipse };
 // The tools that place a closed shape from two clicks (edit::Primitive), not a run of points.
@@ -89,6 +90,9 @@ struct Session {
     std::shared_ptr<TerrainDesignState> terrainDesign; // Derived worker/cache follows this session between hosts.
     // Explicit UI capture action; the controller posts native reads out of layout.
     std::shared_ptr<const TerrainCaptureRequest> terrainCapture;
+    // The terrain set from Archicad before there is anything to grade: held until a design path
+    // exists, then the design starts on it (SetTerrainBaseline). Null once a design owns it.
+    std::shared_ptr<TerrainDesignBaseline> terrainBaseline;
     bool terrainCaptureQueued = false;
     // Explicit UI request to add the Archicad selection's drafting; posted out of layout like the capture.
     bool draftingImport = false, draftingImportQueued = false;

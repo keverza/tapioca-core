@@ -21,18 +21,25 @@ bool StartNativeTerrainDesign (archviz::edithud::Session& session, const GS::Obj
     namespace eh = archviz::edithud;
     GS::UniString terrainText, pathText;
     std::string canonical;
-    if (!params.Get ("terrainGuid", terrainText) || !params.Get ("pathId", pathText) ||
+    if (!params.Get ("terrainGuid", terrainText) ||
         !tapioca::geometry::CanonicalLandscapeGuid (terrainText.ToCStr (0, MaxUSize, CC_UTF8).Get (), canonical)) {
-        error = "Supply a terrain Mesh GUID and an authored landscape pathId.";
+        error = "Supply a terrain Mesh GUID (and, optionally, an authored landscape pathId).";
         return false;
     }
-    const std::string pathValue = pathText.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+    // No pathId, or 0: the terrain is set alone and its design waits for a path.
     edit::Id path = 0;
-    const auto parsed = std::from_chars (pathValue.data (), pathValue.data () + pathValue.size (), path);
-    if (parsed.ec != std::errc {} || parsed.ptr != pathValue.data () + pathValue.size () || path == 0 ||
-        !session.edits.Doc ().landscape || !edit::FindPath (session.edits.Doc (), path) ||
-        eh::GizmoModeLocked (session) || session.edits.InGesture () || !session.drawing.empty ()) {
-        error = "Finish the current input and choose an existing landscape path.";
+    if (params.Get ("pathId", pathText)) {
+        const std::string pathValue = pathText.ToCStr (0, MaxUSize, CC_UTF8).Get ();
+        const auto parsed = std::from_chars (pathValue.data (), pathValue.data () + pathValue.size (), path);
+        if (parsed.ec != std::errc {} || parsed.ptr != pathValue.data () + pathValue.size () ||
+            (path != 0 && !edit::FindPath (session.edits.Doc (), path))) {
+            error = "pathId must name an existing landscape path, or be 0.";
+            return false;
+        }
+    }
+    if (!session.edits.Doc ().landscape || eh::GizmoModeLocked (session) || session.edits.InGesture () ||
+        !session.drawing.empty ()) {
+        error = "Finish the current input in a landscape before setting its terrain.";
         return false;
     }
     const API_Guid guid = APIGuidFromString (canonical.c_str ());
@@ -61,7 +68,7 @@ bool StartNativeTerrainDesign (archviz::edithud::Session& session, const GS::Obj
         now.guid = guid;
         return ACAPI_Element_GetHeader (&now) == NoError && now.type.typeID == API_MeshID && now.modiStamp == stamp;
     };
-    if (!eh::StartTerrainDesign (session, eh::TerrainDesignBaseline { std::move (mesh), true, std::move (current) },
+    if (!eh::SetTerrainBaseline (session, eh::TerrainDesignBaseline { std::move (mesh), true, std::move (current) },
                                  path)) {
         error = session.message;
         return false;
