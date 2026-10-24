@@ -1174,6 +1174,16 @@ the integration flip, and nothing in production calls the Rust path yet.
   only consumers are the store and the display (scatter, UV, texel lookup,
   rectangle read-back) are ported and unit-tested but cross the ABI with those
   consumers.
+- **P3 (in progress):** `occlusion` (the per-sample, per-step shadow bitset and
+  its accumulator, traced through a C++ traversal vtable whose shim catches
+  every exception), `session` (sync, seeded reuse and sliced advance on a
+  Rust-owned, internally synchronised handle; a concurrent second advance is
+  refused, not queued), `reuse` (shadow-influence envelopes and the reuse plan;
+  the C++ wrapper seeds the session), `summary` (sun-hour result summary) and
+  `surface_sampling` (per-mesh sampling with exact reuse of unchanged meshes,
+  returned through an immutable Rust-owned result handle read by
+  summary-then-fill). The store itself has not moved: its ownership split is
+  decided before it is ported.
 
 Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
 runs each kernel and its C++ original over fixed-seed generated corpora and
