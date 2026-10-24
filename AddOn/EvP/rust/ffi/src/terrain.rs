@@ -9,6 +9,7 @@ mod conflict;
 mod edit;
 mod hybrid;
 mod locked;
+mod outline;
 mod result;
 mod sample;
 mod storage;
@@ -30,6 +31,10 @@ pub use hybrid::{
 pub use locked::{
     TerrainHybridDiagnostic, TerrainHybridDiagnosticOutput, TerrainHybridLockedRequest,
     tapioca_terrain_hybrid_locked_assess, tapioca_terrain_hybrid_locked_build,
+};
+pub use outline::{
+    TerrainOutlineCounts, TerrainOutlineOutput, TerrainOutlineRequest,
+    tapioca_terrain_outline_build,
 };
 pub use sample::{
     TerrainFieldSummary, TerrainSample, TerrainSampleOutput, TerrainSampleRequest,

@@ -646,6 +646,39 @@ typedef struct {
     size_t sideCapacity; /* At least 2 x stations. */
     uint32_t queryOnly, reserved;
 } TapiocaTerrainHybridOutput;
+// Outline grading (terrain::outline): the terrain graded from a paved area's TIN. line_counts gives
+// each breakline's vertex count in line_points (flat xyz, z ignored). effect 1 cut, 2 fill, 3 both.
+typedef struct {
+    TapiocaDoubleView points;
+    TapiocaIndexView triangles;
+    TapiocaDoubleView region;
+    TapiocaDoubleView surfacePoints;
+    TapiocaIndexView surfaceTriangles;
+    TapiocaDoubleView linePoints;
+    TapiocaIndexView lineCounts;
+    TapiocaDoubleView spots;
+    TapiocaTerrainSlope cut, fill;
+    double limit, rounding, tolerance;
+    uint32_t effect, reserved;
+} TapiocaTerrainOutlineRequest;
+typedef struct {
+    size_t points, triangles, ring;
+    uint32_t unreached, reserved;
+} TapiocaTerrainOutlineCounts;
+typedef struct {
+    TapiocaTerrainOutlineCounts* counts;
+    TapiocaTerrainHybridVolumes* site;
+    TapiocaTerrainHybridVolumes* context;
+    double* points;
+    size_t pointCapacity;
+    double* base;
+    size_t baseCapacity;
+    uint32_t* triangles;
+    size_t triangleCapacity;
+    uint32_t* ring;
+    size_t ringCapacity;
+    uint32_t queryOnly, reserved;
+} TapiocaTerrainOutlineOutput;
 
 // Fixed-control build, additive to the pinned hybrid records. One mandatory
 // domains=7 catalog: mesh, ring, all line vertices, then independent points;
@@ -1090,6 +1123,11 @@ TapiocaStatus tapioca_terrain_volume (const TapiocaTerrainVolumeRequest* request
 // refusals return STATE; geometry/parameter refusals ARG with the kernel code
 // (DaylightNotReached, HybridVertical, HybridDaylightTopology, Region*, Design*).
 // Worker-classified; P1 rebuilds the whole region interior per call.
+// Query mode (queryOnly 1, zero capacities) publishes only counts. Refusals ARG with the kernel code
+// (Outline*, Region*). Worker-classified; rebuilds the whole region interior per call.
+TapiocaStatus tapioca_terrain_outline_build (const TapiocaTerrainOutlineRequest* request,
+                                             const TapiocaTerrainOutlineOutput* output, char* error,
+                                             size_t errorCapacity);
 TapiocaStatus tapioca_terrain_hybrid_build (const TapiocaTerrainHybridRequest* request,
                                             const TapiocaTerrainHybridOutput* output, char* error,
                                             size_t errorCapacity);

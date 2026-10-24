@@ -23,7 +23,10 @@ struct TerrainDesignOptions {
     // With a cover: only the longest run of stations whose band lies on it is designed, so a
     // path running off the terrain still grades the part over it.
     bool trimToCover = false;
-    double trimMargin = 0.05;                 // Metres a kept station's band edges stay inside the cover.
+    double trimMargin = 0.05; // Metres a kept station's band edges stay inside the cover.
+    // The worker grades from the paved outline of every path (EditTerrainOutline) instead of
+    // this one path's band; `source` then only names the path whose cross-section grades it.
+    bool outline = false;
     double margin = 1.0, arcTolerance = 0.05; // Metres.
     double maxStep = 2.0; // Station spacing, metres (plus every break); each constrains a mesh section.
     // A cross-section range change (width, crossfall, shoulder, slopes) runs over

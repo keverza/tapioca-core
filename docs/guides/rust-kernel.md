@@ -965,6 +965,22 @@ of the face, so the curve has vertices to lie on. `rounding = 0` builds exactly
 what it did before. The editor's path cross-section carries it (`Section::rounding`,
 default 1 m; files saved without it load as 0).
 
+**Outline grading.** `terrain::outline` grades the terrain from a paved area
+rather than one path's band (the editor's default since the 2026-10-24 live run:
+the band ignored kerb fillets, junctions and every other path, and stopped
+abruptly at path ends). Inside the area the design height is the caller's paved
+TIN; outside, the nearest point of the TIN's boundary gives the edge height and
+plan distance, cut or fill is decided against the base there, and the face runs
+at that grade with the band's rounded top and smoothstep toe, the base past
+`limit` (counted in `unreached` when the face had not met it). The region is
+rebuilt with the caller's plan breaklines (the outline and offset rings, z
+ignored) and isolated points (the TIN's interior vertices); outside vertices keep
+their base bits and volumes are the exact triangle sums. ABI:
+`tapioca_terrain_outline_build` (query/fill), a preview with no support rows.
+C++ (`EditTerrainOutline`) only builds plan geometry: the paved outline of every
+path clipped to the terrain inside the property line, its offsets and the region.
+Enabled fixed heights still fall back to the band.
+
 **Located conflicts (S4.3).** `terrain::hybrid::conflict` names where a band
 cannot be built as authored, each with station, side, position, magnitude and a
 suggested fix: `DaylightNotReached`, `DaylightBeyondLimit`, `VerticalFace` and

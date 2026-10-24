@@ -1,5 +1,6 @@
 #include "Edit/EditTerrainDesignJob.hpp"
 #include "Edit/EditTerrainCapture.hpp"
+#include "Edit/EditTerrainOutline.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <exception>
@@ -13,6 +14,46 @@ bool Describes (const geomsrv::edit::Document& doc, const TerrainDesignOutcome& 
            doc.landscape->sourceTerrainGuid == outcome.sourceTerrainGuid;
 }
 
+} // namespace
+
+namespace {
+// Every path's paved area graded; a face that ran out at its reach gets a wider one.
+void RunOutline (const geomsrv::edit::Document& doc, const EditTerrainInput& input, const TerrainDesignOptions& options,
+                 TerrainDesignOutcome& outcome)
+{
+    geomsrv::edit::Id path = geomsrv::edit::kNoId;
+    for (const auto& source : doc.landscape->sources)
+        if (source.id == options.source)
+            path = source.pathId;
+    const double asked = std::max (options.cutLimit, options.fillLimit);
+    auto grading = OutlineOptionsFor (doc, path, asked);
+    uint32_t unreached = 0;
+    outcome.built = EvaluateOutlineDesign (doc, input, grading, outcome.result, unreached, outcome.error);
+    while (outcome.built && unreached > 0 && grading.limit < kMaxSlopeReach) {
+        grading.limit = std::min (kMaxSlopeReach, std::max (grading.limit * 4, 20.0));
+        TerrainDesignResult wider;
+        std::string error;
+        if (!EvaluateOutlineDesign (doc, input, grading, wider, unreached, error))
+            break;
+        outcome.result = std::move (wider);
+    }
+    char text[256];
+    if (!outcome.built)
+        outcome.unmet = { TerrainConditionText (outcome.error) };
+    else if (unreached > 0) {
+        std::snprintf (text, sizeof text,
+                       "The side slopes do not meet the ground even %.0f m out: steepen them or add a wall.",
+                       grading.limit);
+        outcome.unmet.push_back (text);
+    }
+    else if (grading.limit > asked) {
+        std::snprintf (text, sizeof text,
+                       "The side slopes do not meet the ground within %.1f m: built reaching up to %.1f m. "
+                       "Steepen them or add a wall to keep them shorter.",
+                       asked, grading.limit);
+        outcome.unmet.push_back (text);
+    }
+}
 } // namespace
 
 TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job)
@@ -37,6 +78,18 @@ TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job)
             outcome.capture = std::move (surface);
         }
         const auto input = outcome.capture->Input ();
+        // Fixed heights are honoured by the band alone so far: with any enabled, the chosen path's
+        // band grades and the panel says why.
+        const auto& controls = job.doc->landscape->terrainControls;
+        const bool fixed =
+            std::any_of (controls.begin (), controls.end (), [] (const auto& control) { return control.enabled; });
+        if (options.outline && !fixed) {
+            RunOutline (*job.doc, input, options, outcome);
+            return outcome;
+        }
+        if (options.outline)
+            outcome.unmet.push_back ("Fixed heights grade along the chosen path only, not yet from every path's "
+                                     "outline.");
         // A path may run past the property line or off the terrain (the user, 2026-10-24): it is
         // graded only where both are. Its stations are trimmed to that area and the derived region
         // clipped to it; a path wholly inside is unchanged by either.
@@ -108,6 +161,8 @@ std::string TerrainConditionText (const std::string& error)
                              "stations." },
         { "DaylightNotReached", "A side slope does not meet the ground even 100 m out: steepen it or add a wall." },
         { "DesignCoverage", "The path must run over the captured terrain." },
+        { "OutlineNoPaths", "Draw a path: the terrain is graded from the paths." },
+        { "OutlineOutside", "A path must lie on the terrain, inside the property line." },
         { "HybridVertical", "A side would need a vertical face: add a retaining wall there." },
         { "HybridDaylightTopology", "A side changes between cut and fill along the path in a way one slope cannot "
                                     "follow: split the path's cross-section ranges there." },

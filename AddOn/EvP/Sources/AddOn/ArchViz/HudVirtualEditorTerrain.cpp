@@ -183,7 +183,7 @@ bool Idle (const Session& s)
     return (!s.edits.InGesture () || s.terrainSectionDrag) && !GizmoModeLocked (s) && s.drawing.empty ();
 }
 
-bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, lg::TerrainDesignOptions& options,
+bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, bool band, lg::TerrainDesignOptions& options,
              std::string& error)
 {
     // No property line: the design area is the path's reach on the terrain (the worker clips it).
@@ -223,6 +223,8 @@ bool Author (edit::Document& doc, const Mesh& mesh, edit::Id path, lg::TerrainDe
     }
     // Tokens are local to this detached request's retained support set, never
     // allocated from Document::nextId. Every revision starts a fresh capture.
+    // Graded from every path's paved outline (EditTerrainOutline), unless the band is asked for.
+    options.outline = !band;
     options.designTable = 3;
     options.meshTable = 4;
     lg::TerrainCapture capture;
@@ -252,7 +254,7 @@ bool StartTerrainDesign (Session& s, TerrainDesignBaseline baseline, edit::Id pa
     // Validate on a candidate before opening history. Apply returns false on a
     // no-op, so an already-authored path is bound without manufacturing an edit.
     auto candidate = s.edits.Doc ();
-    if (!Author (candidate, *state->baseline.mesh, path, state->options, s.message)) {
+    if (!Author (candidate, *state->baseline.mesh, path, s.terrainBand, state->options, s.message)) {
         LogTerrain (s, "start refused requestedPath=" + std::to_string (path) + ": " + s.message);
         return false;
     }
@@ -487,6 +489,17 @@ void DrawTerrainDesign (const Session& s, overlaylayers::Layer& layer)
     }
 }
 
+void SetTerrainBand (Session& s, bool band)
+{
+    s.terrainBand = band;
+    if (!s.terrainDesign)
+        return;
+    // The next idle poll rebuilds the design the other way.
+    s.terrainDesign->options.outline = !band;
+    s.terrainDesign->requestedRevision = UINT64_MAX;
+    s.publishedRevision = UINT64_MAX;
+}
+
 void TerrainDesignPanel (Session& s)
 {
     TerrainSetupPanel (s);
@@ -495,6 +508,14 @@ void TerrainDesignPanel (Session& s)
         return;
     const auto& state = *s.terrainDesign;
     ImGui::Separator ();
+    bool band = s.terrainBand;
+    ImGui::BeginDisabled (state.worker.valid ());
+    if (ImGui::Checkbox ("Grade along the chosen path only", &band))
+        SetTerrainBand (s, band);
+    ImGui::EndDisabled ();
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip ("Off: the terrain follows every path's paved outline, junctions and kerbs included. "
+                           "On: only the chosen path's band, as sampled stations.");
     if (state.worker.valid ())
         ImGui::TextUnformatted ("Building terrain...");
     const auto status = GetTerrainDesignStatus (s);
@@ -570,6 +591,10 @@ const tapioca::geometry::TerrainDesignOutcome* CurrentTerrainDesign (const Sessi
 }
 void DrawTerrainDesign (const Session&, overlaylayers::Layer&)
 {
+}
+void SetTerrainBand (Session& s, bool band)
+{
+    s.terrainBand = band;
 }
 void TerrainDesignPanel (Session& s)
 {

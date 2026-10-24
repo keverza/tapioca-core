@@ -104,6 +104,8 @@ struct Session {
     // A cross-section slider is held: its gesture applies every change live (the terrain worker
     // keeps building on it) and its release is the one undo step.
     bool terrainSectionDrag = false;
+    // Grade along the chosen design path's band only, instead of every path's paved outline.
+    bool terrainBand = false;
     edit::Selection selection;
     // Model-space outlines only; bounded to this session and reprojected for every pick.
     edit::PickGeometryCache pickCache;
