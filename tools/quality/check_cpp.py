@@ -205,6 +205,10 @@ TIER_ASSIGNMENTS = {
     # run is a third, so a features-tier home would put the engine behind one of
     # its own clients.
     "SunStudy": "services",
+    # The GPU ray worker's host side: its wire, its supervisor and a CPU
+    # reference backend. Pure computation and bookkeeping, no DevKit; the
+    # platform transport and the hardware backend plug in behind interfaces.
+    "RayWorker": "services",
 }
 
 # The private workspace keeps registry history beside the ArchViz sources. The

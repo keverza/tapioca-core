@@ -213,6 +213,15 @@ set (EVP_SUNSTUDY_SOURCES
     # is a geometric claim that can be checked numerically and cannot be judged
     # from a viewport.
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SurfacePatch.cpp"
+    # RayWorker is the GPU ray worker's platform-free half: wire, packets,
+    # supervisor, and the worker service over a CPU reference backend, so the
+    # crash lifecycle and the bit-exact contract run without a GPU.
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerReason.cpp"
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerProtocol.cpp"
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerPacket.cpp"
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerSupervisor.cpp"
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerService.cpp"
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerClient.cpp"
     # SunStudyCache is the persistent analysis and, more importantly, the rule
     # for which patches a geometry change invalidates. That rule fails PLAUSIBLY
     # -- a patch left stale keeps a shadow from a wall that has moved, in a
@@ -841,6 +850,7 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
 endif ()
 
 set (EVP_TEST_SOURCES
+    test_rayworker.cpp
     test_extractioncapture.cpp
     test_mesh_extraction.cpp
     test_editdocument.cpp
