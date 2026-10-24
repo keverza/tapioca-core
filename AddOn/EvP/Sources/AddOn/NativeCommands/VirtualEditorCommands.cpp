@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 #include "NativeCommands/VirtualEditorCommands.hpp"
 #include "NativeCommands/VirtualEditorTerrain.hpp"
+#include "NativeCommands/VirtualEditorImport.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 #include "ArchViz/EditLayers.hpp"
 #include "ArchViz/HudVirtualEditor.hpp"
@@ -279,6 +280,17 @@ class VirtualEditorCommand : public MainThreadCommand {
                     EVP_FAIL (GS::UniString (session ? error.c_str () : "Open a landscape editor first.", CC_UTF8),
                               "starting terrain design"));
         }
+        else if (action == "import") {
+            // The selection's drafting into the open editor: lines, polylines, arcs, circles, fills.
+            auto* session = hud::VirtualEditor (*state);
+            std::string message = "Open the virtual editor first.";
+            const bool ok = session != nullptr && ImportSelectedDrafting (*session, message);
+            if (session != nullptr)
+                session->message = message;
+            if (!ok)
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (GS::UniString (message.c_str (), CC_UTF8), "adding Archicad drafting to the editor"));
+        }
         else if (action == "surface") {
             GS::UniString surface;
             if (!hud::VirtualEditorActive (*state) || !params.Get ("surface", surface) ||
@@ -503,7 +515,7 @@ NativeCommandRegistrations GetVirtualEditorCommandRegistrations ()
         // cancelled, as the roof editor's does; it never writes to the model.
         { "VirtualEditor", &MakeRegisteredNativeCommand<VirtualEditorCommand>, true,
           R"json({"type":"object","properties":{
-                "action":{"type":"string","enum":["start","stop","state","surface","terrain"]},"role":{"type":"string"},
+                "action":{"type":"string","enum":["start","stop","state","surface","terrain","import"]},"role":{"type":"string"},
                 "terrainGuid":{"type":"string","minLength":36,"maxLength":36},"pathId":{"type":"string","pattern":"^[1-9][0-9]*$","maxLength":20},
                 "surface":{"type":"string","enum":["overlay","viewer"]},
                 "tool":{"type":"string","enum":["select","polyline","path","curve","rectangle","polygon","ellipse"]},

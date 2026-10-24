@@ -143,4 +143,37 @@ void FollowTerrainCapture (const std::shared_ptr<overlayhud::State>& state)
         ArchVizLog ("TERRAIN capture queue-refused: " + session->message);
     }
 }
+void FollowDraftingImport (const std::shared_ptr<overlayhud::State>& state)
+{
+    const auto session = state->virtualEditor;
+    if (!session || !session->draftingImport || session->draftingImportQueued)
+        return;
+    session->draftingImportQueued = true;
+    const uint64_t revision = session->edits.Doc ().revision;
+    const auto done = [session] (const std::string& message) {
+        session->draftingImport = session->draftingImportQueued = false;
+        if (!message.empty ())
+            session->message = message;
+        overlayinput::RequestLayout (overlayinput::View::ThreeD);
+        overlayinput::RequestLayout (overlayinput::View::Plan);
+    };
+    GS::UniString error;
+    if (!evp::MainThreadGate::Get ().Post (
+            [state, session, revision, done] {
+                // The editor, its view and its document as they were asked from; else nothing is read.
+                if (state != guesttext::HudState () || state->virtualEditor != session || !state->shown ||
+                    !state->editLocked || session->edits.Doc ().revision != revision) {
+                    done ("Adding Archicad lines was cancelled: the editor changed, was hidden or unlocked.");
+                    return;
+                }
+                // Success or not, the command has put what it added, skipped or refused in the
+                // session's message.
+                V result;
+                std::string failure;
+                Call ("Tapioca.VirtualEditor", V::Object ({ { "action", V::String ("import") } }), result, failure);
+                done ({});
+            },
+            error))
+        done ("Adding Archicad lines was not queued: " + std::string (error.ToCStr (0, MaxUSize, CC_UTF8).Get ()));
+}
 } // namespace geomsrv::archviz

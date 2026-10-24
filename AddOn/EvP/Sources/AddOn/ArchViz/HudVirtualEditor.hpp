@@ -90,6 +90,8 @@ struct Session {
     // Explicit UI capture action; the controller posts native reads out of layout.
     std::shared_ptr<const TerrainCaptureRequest> terrainCapture;
     bool terrainCaptureQueued = false;
+    // Explicit UI request to add the Archicad selection's drafting; posted out of layout like the capture.
+    bool draftingImport = false, draftingImportQueued = false;
     edit::Id terrainPath = edit::kNoId;
     std::shared_ptr<TerrainSectionDraft> terrainSectionDraft; // Uncommitted typed fields; not document state.
     edit::Selection selection;

@@ -35457,7 +35457,8 @@
               "stop",
               "state",
               "surface",
-              "terrain"
+              "terrain",
+              "import"
             ]
           },
           "role": {

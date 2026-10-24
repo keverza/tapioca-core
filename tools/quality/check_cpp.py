@@ -413,6 +413,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # kept outside command registration. No camera, renderer or model writes.
     ("NativeCommands/VirtualEditorTerrain.cpp", "ArchViz/HudVirtualEditor.hpp"),
     ("NativeCommands/VirtualEditorTerrain.cpp", "ArchViz/HudVirtualEditorTerrain.hpp"),
+    # And its read of the Archicad selection's drafting into the open session (lines,
+    # polylines, arcs, fills): element reads only, no model or selection writes.
+    ("NativeCommands/VirtualEditorImport.cpp", "ArchViz/HudVirtualEditor.hpp"),
     # The layer verbs' parameters, read into the same store the verbs fill: split out
     # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),

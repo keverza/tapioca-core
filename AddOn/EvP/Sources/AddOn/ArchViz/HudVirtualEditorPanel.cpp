@@ -95,6 +95,14 @@ void Panel (Session& s)
     }
     if (ShapeTool (s.tool))
         ImGui::TextDisabled ("Click a corner or centre, then the size. Shift: square, circle.");
+    // Archicad's own drafting brought in as editor lines: what is selected in Archicad now.
+    ImGui::BeginDisabled (s.draftingImport || s.edits.InGesture () || !s.drawing.empty ());
+    if (ImGui::SmallButton (s.draftingImport ? "Adding Archicad lines..." : "Add selected Archicad lines and fills"))
+        s.draftingImport = true;
+    ImGui::EndDisabled ();
+    if (ImGui::IsItemHovered (ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip ("Lines, polylines, arcs, circles and fill outlines selected in Archicad, at the "
+                           "working plane's height. One undo step.");
     // How a drag from empty space (or from inside an unselected region) selects; Ctrl at the
     // press takes the other one for that drag.
     if (ImGui::RadioButton ("Window select", !s.lasso))

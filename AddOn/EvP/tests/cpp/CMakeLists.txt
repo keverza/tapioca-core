@@ -793,6 +793,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPolyline.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPrimitives.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditImport.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditShape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanar.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarBuild.cpp"
@@ -858,6 +859,7 @@ set (EVP_TEST_SOURCES
     test_editgizmo.cpp
     test_editselection.cpp
     test_editprimitives.cpp
+    test_editimport.cpp
     test_editpolyline.cpp
     test_editlayers.cpp
     test_editpathalignment.cpp

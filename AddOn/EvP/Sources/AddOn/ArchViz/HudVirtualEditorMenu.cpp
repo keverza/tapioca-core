@@ -322,6 +322,7 @@ std::vector<MenuItem> MenuItems (const Session& s)
             items.push_back (Item ("tool.rectangle", "Draw rectangle", "Q", true, s.tool == Tool::Rectangle));
             items.push_back (Item ("tool.polygon", "Draw polygon", "N", true, s.tool == Tool::Polygon));
             items.push_back (Item ("tool.ellipse", "Draw ellipse or circle", "O", true, s.tool == Tool::Ellipse));
+            items.push_back (Item ("import.drafting", "Add Archicad selection's lines", {}, !s.draftingImport));
             Rule (items);
             items.push_back (Item ("select.all", "Select all", {}, !doc.entities.empty () || !doc.paths.empty ()));
             items.push_back (Item ("select.none", "Deselect", "Esc", !s.selection.Items ().empty ()));
@@ -380,6 +381,8 @@ void RunMenuItem (Session& s, const std::string& id)
                                   : id == "role.cutter"   ? tapioca::geometry::SourceRole::Cutter
                                   : id == "role.material" ? tapioca::geometry::SourceRole::MaterialBoundary
                                                           : tapioca::geometry::SourceRole::PropertyLine);
+    else if (id == "import.drafting")
+        s.draftingImport = true;
     else if (id == "tool.select")
         s.tool = Tool::Select, s.drawing.clear ();
     else if (id == "tool.polyline")

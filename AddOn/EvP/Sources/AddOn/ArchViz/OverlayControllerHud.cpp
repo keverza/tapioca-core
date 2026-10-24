@@ -92,6 +92,7 @@ void FollowHudState ()
     bool recoloured = false;
     roofslopebake::Follow (state);
     FollowTerrainCapture (state);
+    FollowDraftingImport (state);
     overlaylayers::Layer roof;
     bool clearRoof = false;
     if (overlayhud::FollowRoofEditor (*state, roof, clearRoof)) {
