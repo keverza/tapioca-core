@@ -13,6 +13,7 @@ mod camera;
 mod ground;
 mod limits;
 mod roles;
+mod sampler;
 mod series;
 mod winding;
 
@@ -29,6 +30,10 @@ pub use roles::{
     PresetAdviceRequest, ReceiverMeshView, ReceiversOutput, ReceiversRequest, ReceiversSummary,
     RolesOutput, RolesRequest, RolesSummary, tapioca_sunstudy_preset_advice,
     tapioca_sunstudy_receivers, tapioca_sunstudy_refresh_binding, tapioca_sunstudy_resolve_roles,
+};
+pub use sampler::{
+    FaceLayoutRecord, SampleGridOutput, SampleGridRequest, SampleGridSummary,
+    tapioca_sunstudy_sample_grid,
 };
 pub use series::{SunSeriesOutput, SunSeriesRequest, SunSeriesSummary, tapioca_sunstudy_series};
 pub use winding::{
@@ -70,6 +75,10 @@ const _: () = {
     assert!(size_of::<BoundListView>() == 40);
     assert!(size_of::<BindingRequest>() == 136);
     assert!(size_of::<BindingOutput>() == 4);
+    assert!(size_of::<SampleGridRequest>() == 120);
+    assert!(size_of::<FaceLayoutRecord>() == 104);
+    assert!(size_of::<SampleGridSummary>() == 48);
+    assert!(size_of::<SampleGridOutput>() == 88);
 };
 
 type Range = Option<(usize, usize)>;

@@ -16,6 +16,7 @@
 #include "SunStudy/SunStudyLimits.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
+#include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
 
@@ -98,6 +99,11 @@ bool RefreshSelectionBinding (SunStudySelectionBinding& binding, uint64_t curren
                               std::vector<std::string>& studyContext, std::vector<std::string>& studyIgnored,
                               const std::vector<std::string>& analysis, std::vector<std::string>* studyAnalysis,
                               SelectionBindingRefresh& out, std::string& error);
+
+// BuildSampleGrid. `groups` is one id per face or null. A refused grid
+// (`valid == false`) carries the counters but no samples.
+bool BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
+                      const uint32_t* groups, const SamplerOptions& options, SampleGrid& out, std::string& error);
 
 } // namespace evp::sunstudy::rust
 

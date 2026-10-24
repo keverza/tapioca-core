@@ -13,6 +13,7 @@ pub mod limits;
 pub mod raster;
 pub mod receivers;
 pub mod roles;
+pub mod sampler;
 pub mod series;
 pub mod winding;
 

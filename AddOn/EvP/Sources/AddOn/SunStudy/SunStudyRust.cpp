@@ -37,6 +37,10 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaPresetAdviceOutput) == 24);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaBoundList) == 40);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaBindingRequest) == 136);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaBindingOutput) == 4);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridRequest) == 120);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaFaceLayout) == 104);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridSummary) == 48);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridOutput) == 88);
 
 namespace {
 
@@ -452,6 +456,83 @@ bool RefreshSelectionBinding (SunStudySelectionBinding& binding, uint64_t curren
         studyIgnored = ignored;
     if (decision.replace[2] != 0 && studyAnalysis != nullptr)
         *studyAnalysis = analysis;
+    return true;
+}
+
+bool BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
+                      const uint32_t* groups, const SamplerOptions& options, SampleGrid& out, std::string& error)
+{
+    const auto bytes = [] (const std::vector<uint8_t>* mask) {
+        return mask == nullptr ? TapiocaByteView { nullptr, 0 } : TapiocaByteView { mask->data (), mask->size () };
+    };
+    TapiocaSampleGridRequest request {};
+    request.vertices = { vertices, vertices == nullptr ? 0 : vertexCount * 3 };
+    request.triangles = { triangles, triangles == nullptr ? 0 : faceCount * 3 };
+    request.groups = { groups, groups == nullptr ? 0 : faceCount };
+    request.sampleGroup = bytes (options.sampleGroup);
+    request.sampleFace = bytes (options.sampleFace);
+    request.spacing = options.spacing;
+    request.normalOffset = options.normalOffset;
+    request.jitter = options.jitter;
+    request.maxSamples = options.maxSamples;
+    request.jitterFaceOffset = options.jitterFaceOffset;
+    request.wantLayouts = options.wantLayouts ? 1 : 0;
+
+    TapiocaSampleGridSummary summary {};
+    TapiocaSampleGridOutput output {};
+    output.summary = &summary;
+    if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_sample_grid (&request, &output, m, n); }, error))
+        return false;
+    SampleGrid grid;
+    grid.degenerateFaces = summary.degenerateFaces;
+    grid.excludedFaces = summary.excludedFaces;
+    grid.undersizedFaces = summary.undersizedFaces;
+    grid.valid = summary.valid != 0;
+    if (grid.valid && summary.sampleCount != 0) {
+        const size_t count = summary.sampleCount;
+        grid.positions.resize (count * 3);
+        grid.normals.resize (count * 3);
+        grid.areas.resize (count);
+        grid.faces.resize (count);
+        grid.groups.resize (count);
+        std::vector<TapiocaFaceLayout> layouts;
+        if (options.wantLayouts) {
+            grid.cellColumns.resize (count);
+            grid.cellRows.resize (count);
+            layouts.resize (summary.faceCount);
+        }
+        output = { grid.positions.data (),
+                   grid.normals.data (),
+                   grid.areas.data (),
+                   grid.faces.data (),
+                   grid.groups.data (),
+                   options.wantLayouts ? grid.cellColumns.data () : nullptr,
+                   options.wantLayouts ? grid.cellRows.data () : nullptr,
+                   count,
+                   layouts.data (),
+                   layouts.size (),
+                   &summary };
+        if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_sample_grid (&request, &output, m, n); }, error))
+            return false;
+        for (const TapiocaFaceLayout& pod : layouts) {
+            FaceLayout layout;
+            std::copy (pod.origin, pod.origin + 3, layout.origin);
+            std::copy (pod.uAxis, pod.uAxis + 3, layout.uAxis);
+            std::copy (pod.vAxis, pod.vAxis + 3, layout.vAxis);
+            layout.uStart = static_cast<long> (pod.uStart);
+            layout.vStart = static_cast<long> (pod.vStart);
+            layout.columns = pod.columns;
+            layout.rows = pod.rows;
+            layout.gridded = pod.gridded != 0;
+            grid.layouts.push_back (layout);
+        }
+    }
+    else if (grid.valid && options.wantLayouts) {
+        // Zero samples means every face was excluded or degenerate (any other
+        // face emits at least its centroid), so every layout is the default.
+        grid.layouts.assign (summary.faceCount, FaceLayout ());
+    }
+    out = std::move (grid);
     return true;
 }
 

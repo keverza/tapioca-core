@@ -161,3 +161,7 @@ pub use sunstudy::{
     RolesOutput, RolesRequest, RolesSummary, tapioca_sunstudy_preset_advice,
     tapioca_sunstudy_receivers, tapioca_sunstudy_refresh_binding, tapioca_sunstudy_resolve_roles,
 };
+pub use sunstudy::{
+    FaceLayoutRecord, SampleGridOutput, SampleGridRequest, SampleGridSummary,
+    tapioca_sunstudy_sample_grid,
+};

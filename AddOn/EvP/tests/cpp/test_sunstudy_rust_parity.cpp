@@ -615,3 +615,146 @@ TEST (SunStudyRustParity, SelectionBindingMatchesOverScriptedRefreshes)
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// P2b: the triangle-domain sampler
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct SamplerCase {
+    std::vector<double> vertices;
+    std::vector<uint32_t> triangles;
+    std::vector<uint32_t> groups;
+};
+
+// Random soups that reach every branch: in-plane grids on tilted and vertical
+// faces, slivers below the grid, collinear and out-of-range faces, and survey
+// coordinates.
+SamplerCase RandomSoup (Lcg& lcg, bool survey)
+{
+    SamplerCase soup;
+    const int faces = lcg.Int (1, 24);
+    const double ox = survey ? 624000.0 : 0.0;
+    const double oy = survey ? 6172000.0 : 0.0;
+    for (int f = 0; f < faces; ++f) {
+        const uint32_t base = static_cast<uint32_t> (soup.vertices.size () / 3);
+        const double scale = lcg.Int (0, 4) == 0 ? lcg.Uniform (0.01, 0.4) : lcg.Uniform (1.0, 12.0);
+        const double x = ox + lcg.Uniform (-20, 20), y = oy + lcg.Uniform (-20, 20), z = lcg.Uniform (0, 10);
+        for (int corner = 0; corner < 3; ++corner) {
+            soup.vertices.push_back (x + scale * lcg.Uniform (-1, 1));
+            soup.vertices.push_back (y + scale * lcg.Uniform (-1, 1));
+            soup.vertices.push_back (lcg.Int (0, 2) == 0 ? z : z + scale * lcg.Uniform (-1, 1));
+        }
+        if (lcg.Int (0, 9) == 0) // collinear
+            for (int axis = 0; axis < 3; ++axis)
+                soup.vertices[(base + 2) * 3 + axis] =
+                    2.0 * soup.vertices[(base + 1) * 3 + axis] - soup.vertices[base * 3 + axis];
+        soup.triangles.insert (soup.triangles.end (), { base, base + 1, base + 2 });
+        if (lcg.Int (0, 19) == 0)
+            soup.triangles.back () = 999999u; // out of range
+        soup.groups.push_back (static_cast<uint32_t> (lcg.Int (0, 4)));
+    }
+    return soup;
+}
+
+void ExpectSameSampleGrids (const SampleGrid& e, const SampleGrid& a)
+{
+    ASSERT_EQ (a.valid, e.valid);
+    EXPECT_EQ (a.degenerateFaces, e.degenerateFaces);
+    EXPECT_EQ (a.excludedFaces, e.excludedFaces);
+    EXPECT_EQ (a.undersizedFaces, e.undersizedFaces);
+    if (!e.valid)
+        return; // a refused C++ grid holds an unspecified partial prefix
+    ExpectSameBits (e.positions, a.positions, "positions");
+    ExpectSameBits (e.normals, a.normals, "normals");
+    ExpectSameBits (e.areas, a.areas, "areas");
+    EXPECT_EQ (a.faces, e.faces);
+    EXPECT_EQ (a.groups, e.groups);
+    EXPECT_EQ (a.cellColumns, e.cellColumns);
+    EXPECT_EQ (a.cellRows, e.cellRows);
+    ASSERT_EQ (a.layouts.size (), e.layouts.size ());
+    for (size_t f = 0; f < e.layouts.size (); ++f) {
+        const FaceLayout& x = e.layouts[f];
+        const FaceLayout& y = a.layouts[f];
+        for (int axis = 0; axis < 3; ++axis) {
+            ASSERT_TRUE (SameBits (x.origin[axis], y.origin[axis])) << "face " << f;
+            ASSERT_TRUE (SameBits (x.uAxis[axis], y.uAxis[axis])) << "face " << f;
+            ASSERT_TRUE (SameBits (x.vAxis[axis], y.vAxis[axis])) << "face " << f;
+        }
+        EXPECT_EQ (y.uStart, x.uStart) << "face " << f;
+        EXPECT_EQ (y.vStart, x.vStart) << "face " << f;
+        EXPECT_EQ (y.columns, x.columns) << "face " << f;
+        EXPECT_EQ (y.rows, x.rows) << "face " << f;
+        EXPECT_EQ (y.gridded, x.gridded) << "face " << f;
+    }
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, SampleGridMatchesEveryBit)
+{
+    Lcg lcg (0x5a3b1eull);
+    size_t valid = 0;
+    size_t refused = 0;
+    size_t samples = 0;
+    for (int trial = 0; trial < 160; ++trial) {
+        const SamplerCase soup = RandomSoup (lcg, trial % 5 == 0);
+        const std::vector<uint8_t> sampleGroup { 1, 0, 1 }; // group 1 context; 3, 4 past the end
+        std::vector<uint8_t> sampleFace;
+        for (size_t f = 0; f + 2 < soup.triangles.size () / 3; ++f) // deliberately short
+            sampleFace.push_back (static_cast<uint8_t> (lcg.Int (0, 3) == 0 ? 0 : 1));
+        for (const double spacing : { 1.0, 0.37, 2.5 }) {
+            for (const double jitter : { 0.0, 0.8, 1.5 }) {
+                SamplerOptions options;
+                options.spacing = spacing;
+                options.jitter = jitter;
+                options.normalOffset = trial % 2 == 0 ? 0.01 : 0.2;
+                options.jitterFaceOffset = static_cast<uint32_t> (trial * 977);
+                options.maxSamples = trial % 7 == 3 ? 40 : 4000000;
+                options.wantLayouts = trial % 3 != 0;
+                options.sampleGroup = trial % 4 == 1 ? &sampleGroup : nullptr;
+                options.sampleFace = trial % 4 == 2 ? &sampleFace : nullptr;
+                const bool withGroups = trial % 6 != 5;
+                const uint32_t* groups = withGroups ? soup.groups.data () : nullptr;
+                const SampleGrid e = evp::sunstudy::BuildSampleGrid (soup.vertices.data (), soup.vertices.size () / 3,
+                                                                     soup.triangles.data (), soup.triangles.size () / 3,
+                                                                     groups, options);
+                SampleGrid a;
+                std::string error;
+                ASSERT_TRUE (rs::BuildSampleGrid (soup.vertices.data (), soup.vertices.size () / 3,
+                                                  soup.triangles.data (), soup.triangles.size () / 3, groups, options,
+                                                  a, error))
+                    << error;
+                ExpectSameSampleGrids (e, a);
+                if (::testing::Test::HasFatalFailure ())
+                    return;
+                (e.valid ? valid : refused) += 1;
+                samples += e.valid ? e.Count () : 0;
+            }
+        }
+    }
+    EXPECT_GT (valid, 1000u);
+    EXPECT_GT (refused, 0u);
+    EXPECT_GT (samples, 100000u);
+}
+
+TEST (SunStudyRustParity, SampleGridRefusesEmptyInputAsTheOracleDoes)
+{
+    for (const double spacing : { 1.0, 0.0, -2.0 }) {
+        SamplerOptions options;
+        options.spacing = spacing;
+        const std::vector<double> vertices { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+        const std::vector<uint32_t> triangles { 0, 1, 2 };
+        for (const bool empty : { false, true }) {
+            const SampleGrid e = evp::sunstudy::BuildSampleGrid (empty ? nullptr : vertices.data (), 3,
+                                                                 triangles.data (), empty ? 0 : 1, nullptr, options);
+            SampleGrid a;
+            std::string error;
+            ASSERT_TRUE (rs::BuildSampleGrid (empty ? nullptr : vertices.data (), 3, triangles.data (), empty ? 0 : 1,
+                                              nullptr, options, a, error))
+                << error;
+            ExpectSameSampleGrids (e, a);
+        }
+    }
+}

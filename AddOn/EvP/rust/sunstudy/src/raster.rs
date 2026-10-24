@@ -78,7 +78,7 @@ fn normalise(v: &mut Vec3) -> bool {
 }
 
 /// C++ `std::min(a, b)`: `b` only when `b < a`.
-fn cpp_min(a: f64, b: f64) -> f64 {
+pub(crate) fn cpp_min(a: f64, b: f64) -> f64 {
     if b < a { b } else { a }
 }
 
