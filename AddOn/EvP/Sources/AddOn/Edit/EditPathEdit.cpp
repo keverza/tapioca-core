@@ -2,6 +2,7 @@
 #include "Edit/EditShape.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <set>
 
@@ -33,6 +34,21 @@ double StationOfPoint (const Path& p, Id point)
     if (i < 0 || !BuildAlignment (p.points, g, error))
         return -1.0;
     return g.pointStations[static_cast<size_t> (i)];
+}
+
+// A radius set by name is held to what fits: the alignment fits an overrun one silently
+// (BuildAlignment), which is right for a moved point but would store a value nothing shows.
+bool RadiusFits (const Path& p, size_t i, std::string& why)
+{
+    AlignmentGeometry g;
+    if (!BuildAlignment (p.points, g, why))
+        return false;
+    if (g.fittedRadius[i] >= p.points[i].radius - 1.0e-9)
+        return true;
+    char text[96];
+    std::snprintf (text, sizeof text, "the radius does not fit its legs: at most %.3f m", g.fittedRadius[i]);
+    why = text;
+    return false;
 }
 
 } // namespace
@@ -160,7 +176,7 @@ bool SetPathRadius (Document& doc, Id path, Id point, double radius, std::string
                 return false;
             }
             p.points[static_cast<size_t> (i)].radius = radius;
-            return true;
+            return RadiusFits (p, static_cast<size_t> (i), why);
         },
         error);
 }
@@ -178,6 +194,9 @@ bool SetPathRadii (Document& doc, Id path, const std::vector<Id>& points, double
                 }
                 p.points[static_cast<size_t> (i)].radius = radius;
             }
+            for (Id point : points)
+                if (!RadiusFits (p, static_cast<size_t> (PointIndex (p, point)), why))
+                    return false;
             return true;
         },
         error);
@@ -195,7 +214,7 @@ Entity Centreline (const Path& path)
         Vertex v;
         v.id = path.points[i].id;
         v.p = path.points[i].p;
-        v.radius = path.points[i].radius;
+        v.radius = built ? g.fittedRadius[i] : path.points[i].radius; // the arc as drawn
         double z = 0.0;
         if (built && Elevation (path.profile, g.pointStations[i], z))
             v.p.z = z;

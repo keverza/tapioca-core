@@ -38,9 +38,12 @@ struct AlignmentGeometry {
     // Station of each control point: 0 and the length at the ends, the middle of its
     // arc (or the corner itself) between.
     std::vector<double> pointStations;
+    // Each control point's corner radius as built: its own, or less where the tangents of the
+    // corners either side of a leg would overrun it (both shrunk in proportion). 0 at the ends.
+    std::vector<double> fittedRadius;
 };
-// Refuses fewer than two points, coincident points, a path that doubles back, and
-// radii whose tangents do not fit on their legs.
+// Refuses fewer than two points, coincident points and a path that doubles back. A radius
+// too large for its legs is fitted, not refused (`fittedRadius`).
 bool BuildAlignment (const std::vector<ControlPoint>& points, AlignmentGeometry& out, std::string& error);
 
 struct Placement {

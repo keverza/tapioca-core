@@ -67,12 +67,18 @@ bool BuildAlignment (const std::vector<ControlPoint>& points, AlignmentGeometry&
         if (r > 0.0 && deflection[i] > kStraight)
             tangent[i] = r * std::tan (deflection[i] * 0.5);
     }
+    // A radius is the most a corner is rounded by, not a constraint on the points: where two
+    // corners' tangents overrun the leg between them, both shrink in proportion until they meet,
+    // so moving a point never refuses because of a bend beside it (the user, 2026-10-24). A
+    // shrink only shortens a tangent, so the legs already passed stay fitted.
     for (size_t i = 0; i + 1 < n; ++i)
-        if (tangent[i] + tangent[i + 1] > leg[i] + 1.0e-9) {
-            error = "the corner radius at control point " +
-                    std::to_string (tangent[i + 1] > tangent[i] ? i + 2 : i + 1) + " does not fit its legs";
-            return false;
+        if (const double both = tangent[i] + tangent[i + 1]; both > leg[i]) {
+            tangent[i] *= leg[i] / both;
+            tangent[i + 1] *= leg[i] / both;
         }
+    out.fittedRadius.assign (n, 0.0);
+    for (size_t i = 1; i + 1 < n; ++i)
+        out.fittedRadius[i] = tangent[i] > 0.0 ? tangent[i] / std::tan (deflection[i] * 0.5) : 0.0;
 
     double station = 0.0;
     Vec3 cursor = Flat (points[0].p);
@@ -103,7 +109,7 @@ bool BuildAlignment (const std::vector<ControlPoint>& points, AlignmentGeometry&
         AlignmentElement arc;
         arc.kind = ElementKind::Arc;
         arc.start = station;
-        arc.radius = points[i].radius;
+        arc.radius = out.fittedRadius[i];
         arc.length = arc.radius * deflection[i];
         arc.centre = tc + Left (dir[i - 1]) * (arc.radius * turn[i]);
         arc.startAngle = std::atan2 (tc.y - arc.centre.y, tc.x - arc.centre.x);

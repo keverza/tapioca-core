@@ -88,12 +88,30 @@ TEST (EditPathAlignment, SharpCornersAndStraightPoints)
     EXPECT_NEAR (g.pointStations[1], 5.0, 1e-12);
 }
 
+TEST (EditPathAlignment, ARadiusTooLargeForItsLegsIsFittedNotRefused)
+{
+    ed::AlignmentGeometry g;
+    std::string error;
+    // 10 m legs at a right angle: a 10 m radius is the most that fits.
+    ASSERT_TRUE (ed::BuildAlignment (Corner (20.0), g, error)) << error;
+    ASSERT_EQ (g.fittedRadius.size (), 3u);
+    EXPECT_NEAR (g.fittedRadius[1], 10.0, 1e-9);
+    EXPECT_EQ (g.elements.size (), 1u) << "the arc takes both legs whole";
+    EXPECT_NEAR (g.elements[0].radius, 10.0, 1e-9);
+    ASSERT_TRUE (ed::BuildAlignment (Corner (2.0), g, error));
+    EXPECT_DOUBLE_EQ (g.fittedRadius[1], 2.0) << "a radius that fits is kept";
+    // Two bends sharing a 4 m leg, each asking for a 3 m tangent: both shrink to 2 m.
+    ASSERT_TRUE (ed::BuildAlignment (
+        { { 1, { 0, 0, 0 } }, { 2, { 10, 0, 0 }, 3.0 }, { 3, { 10, 4, 0 }, 3.0 }, { 4, { 0, 4, 0 } } }, g, error))
+        << error;
+    EXPECT_NEAR (g.fittedRadius[1], 2.0, 1e-9);
+    EXPECT_NEAR (g.fittedRadius[2], 2.0, 1e-9);
+}
+
 TEST (EditPathAlignment, RefusesWhatCannotBeBuilt)
 {
     ed::AlignmentGeometry g;
     std::string error;
-    EXPECT_FALSE (ed::BuildAlignment (Corner (20.0), g, error));
-    EXPECT_NE (error.find ("does not fit"), std::string::npos);
     EXPECT_FALSE (ed::BuildAlignment ({ { 1, { 0, 0, 0 } }, { 2, { 10, 0, 0 } }, { 3, { 0, 0, 0 } } }, g, error));
     EXPECT_NE (error.find ("doubles back"), std::string::npos);
     EXPECT_FALSE (ed::BuildAlignment ({ { 1, { 0, 0, 0 } }, { 2, { 0, 0, 5 } } }, g, error));
