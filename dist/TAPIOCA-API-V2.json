@@ -4488,6 +4488,13 @@
           "layerShown": {
             "type": "boolean"
           },
+          "surface": {
+            "type": "string",
+            "enum": [
+              "overlay",
+              "viewer"
+            ]
+          },
           "tool": {
             "type": "string",
             "enum": [
@@ -4543,6 +4550,58 @@
               "range",
               "landscapeFace"
             ]
+          },
+          "terrainDesign": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "pending": {
+                "type": "boolean"
+              },
+              "current": {
+                "type": "boolean"
+              },
+              "built": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "integer"
+              },
+              "vertices": {
+                "type": "integer"
+              },
+              "triangles": {
+                "type": "integer"
+              },
+              "conflicts": {
+                "type": "integer"
+              },
+              "cut": {
+                "type": "number"
+              },
+              "fill": {
+                "type": "number"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "active",
+              "pending",
+              "current",
+              "built",
+              "revision",
+              "vertices",
+              "triangles",
+              "conflicts",
+              "cut",
+              "fill",
+              "error"
+            ],
+            "additionalProperties": false
           },
           "landscape": {
             "type": "object",
@@ -35392,11 +35451,30 @@
             "enum": [
               "start",
               "stop",
-              "state"
+              "state",
+              "surface",
+              "terrain"
             ]
           },
           "role": {
             "type": "string"
+          },
+          "terrainGuid": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36
+          },
+          "pathId": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "maxLength": 20
+          },
+          "surface": {
+            "type": "string",
+            "enum": [
+              "overlay",
+              "viewer"
+            ]
           },
           "tool": {
             "type": "string",
@@ -35545,6 +35623,13 @@
           "locked": {
             "type": "boolean"
           },
+          "surface": {
+            "type": "string",
+            "enum": [
+              "overlay",
+              "viewer"
+            ]
+          },
           "revision": {
             "type": "integer"
           },
@@ -35553,6 +35638,58 @@
           },
           "message": {
             "type": "string"
+          },
+          "terrainDesign": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "pending": {
+                "type": "boolean"
+              },
+              "current": {
+                "type": "boolean"
+              },
+              "built": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "integer"
+              },
+              "vertices": {
+                "type": "integer"
+              },
+              "triangles": {
+                "type": "integer"
+              },
+              "conflicts": {
+                "type": "integer"
+              },
+              "cut": {
+                "type": "number"
+              },
+              "fill": {
+                "type": "number"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "active",
+              "pending",
+              "current",
+              "built",
+              "revision",
+              "vertices",
+              "triangles",
+              "conflicts",
+              "cut",
+              "fill",
+              "error"
+            ],
+            "additionalProperties": false
           },
           "document": {
             "type": "object",
