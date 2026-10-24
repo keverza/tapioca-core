@@ -129,8 +129,13 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
                 analyticOutline.clear ();
         }
         const Vec3 up { 0.0, 0.0, e.kind == Kind::Extrusion ? e.height : 0.0 };
-        double entityBest = -1.0;
+        // An edge within the radius hits the entity at its distance; the pointer inside a closed
+        // outline with no edge near hits it only after every such edge (PickHit::inside).
+        double entityBest = -1.0, edgeNearest = -1.0;
+        bool inside = false;
         const auto touch = [&] (double d) {
+            if (edgeNearest < 0.0 || d < edgeNearest)
+                edgeNearest = d;
             if (d <= radius && (entityBest < 0.0 || d < entityBest))
                 entityBest = d;
         };
@@ -179,7 +184,7 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
             for (size_t f = 0; f < FaceCount (e); ++f) {
                 if (!Facing (e, f, view) || !ProjectAll (view, FacePolygon (e, f), outline) || !Inside (outline, p))
                     continue;
-                touch (0.0);
+                inside = true;
                 if (filter & kPickFace)
                     hits.push_back ({ { e.id, Part::Face, f }, 0.0 });
             }
@@ -190,10 +195,12 @@ std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, 
                 for (const auto& v : e.vertices)
                     ring.push_back (v.p);
             if (ProjectAll (view, ring, outline) && Inside (outline, p))
-                touch (0.0);
+                inside = true;
         }
         if ((filter & kPickEntity) && entityBest >= 0.0)
             hits.push_back ({ { e.id, Part::Entity, 0 }, entityBest });
+        else if ((filter & kPickEntity) && inside)
+            hits.push_back ({ { e.id, Part::Entity, 0 }, radius + std::max (edgeNearest, 0.0), true });
     }
     // Paths: their outlines are model-space and do not depend on the camera, the cursor or
     // the selection, so a caller-owned cache reuses a path's tessellation while its own
@@ -373,25 +380,15 @@ void Selection::Click (const std::vector<PickHit>& hits, double x, double y, boo
         items = { pick };
 }
 
-void Selection::Marquee (const Document& doc, const PickView& view, double x0, double y0, double x1, double y1,
-                         uint32_t filter, bool additive)
+namespace {
+// What a screen region selects: `in` says a projected point lies in it, `touches` that a
+// projected segment meets it (only asked when `crossing`). Whole objects only when the filter
+// admits them -- a marquee over a drawing means its objects, not every vertex and edge of them.
+std::vector<Ref> InRegion (const Document& doc, const PickView& view, const std::function<bool (S2)>& in,
+                           const std::function<bool (S2, S2)>& touches, bool crossing, uint32_t filter)
 {
-    const bool crossing = x1 < x0;
-    const double lx = std::min (x0, x1), hx = std::max (x0, x1), ly = std::min (y0, y1), hy = std::max (y0, y1);
-    const auto in = [&] (S2 s) { return s.x >= lx && s.x <= hx && s.y >= ly && s.y <= hy; };
-    // A segment touches the rectangle if an end is inside or it crosses an edge.
-    const auto touches = [&] (S2 a, S2 b) {
-        if (in (a) || in (b))
-            return true;
-        const S2 c[4] = { { lx, ly }, { hx, ly }, { hx, hy }, { lx, hy } };
-        for (int i = 0; i < 4; ++i) {
-            const S2 p = c[i], q = c[(i + 1) % 4];
-            const auto side = [] (S2 o, S2 u, S2 v) { return (u.x - o.x) * (v.y - o.y) - (u.y - o.y) * (v.x - o.x); };
-            if (side (a, b, p) * side (a, b, q) < 0.0 && side (p, q, a) * side (p, q, b) < 0.0)
-                return true;
-        }
-        return false;
-    };
+    if (filter & kPickEntity)
+        filter = kPickEntity;
     const auto chain = [&] (const std::vector<Vec3>& points, bool closed) {
         std::vector<S2> s;
         if (!ProjectAll (view, points, s) || s.empty ())
@@ -442,7 +439,7 @@ void Selection::Marquee (const Document& doc, const PickView& view, double x0, d
     for (const auto& path : doc.paths) {
         PathOutline o;
         std::string error;
-        if (!Outline (path, 0.5, o, error))
+        if (!Outline (path, kOutlineStep, o, error))
             continue;
         if (filter & kPickVertex) {
             for (size_t i = 0; i < o.points.size (); ++i)
@@ -455,6 +452,47 @@ void Selection::Marquee (const Document& doc, const PickView& view, double x0, d
         if ((filter & kPickEntity) && chain (o.centre, false))
             found.push_back ({ path.id, Part::Entity, 0 });
     }
+    return found;
+}
+} // namespace
+
+void Selection::Marquee (const Document& doc, const PickView& view, double x0, double y0, double x1, double y1,
+                         uint32_t filter, bool additive)
+{
+    const bool crossing = x1 < x0;
+    const double lx = std::min (x0, x1), hx = std::max (x0, x1), ly = std::min (y0, y1), hy = std::max (y0, y1);
+    const auto in = [=] (S2 s) { return s.x >= lx && s.x <= hx && s.y >= ly && s.y <= hy; };
+    // A segment touches the rectangle if an end is inside or it crosses an edge.
+    const auto touches = [=] (S2 a, S2 b) {
+        if (in (a) || in (b))
+            return true;
+        const S2 c[4] = { { lx, ly }, { hx, ly }, { hx, hy }, { lx, hy } };
+        for (int i = 0; i < 4; ++i) {
+            const S2 p = c[i], q = c[(i + 1) % 4];
+            const auto side = [] (S2 o, S2 u, S2 v) { return (u.x - o.x) * (v.y - o.y) - (u.y - o.y) * (v.x - o.x); };
+            if (side (a, b, p) * side (a, b, q) < 0.0 && side (p, q, a) * side (p, q, b) < 0.0)
+                return true;
+        }
+        return false;
+    };
+    const auto found = InRegion (doc, view, in, touches, crossing, filter);
+    if (!additive)
+        items.clear ();
+    for (const auto& r : found)
+        if (!Contains (r))
+            items.push_back (r);
+}
+
+void Selection::Lasso (const Document& doc, const PickView& view, const std::vector<std::pair<double, double>>& outline,
+                       uint32_t filter, bool additive)
+{
+    std::vector<S2> polygon;
+    for (const auto& [x, y] : outline)
+        polygon.push_back ({ x, y });
+    std::vector<Ref> found;
+    if (polygon.size () >= 3)
+        found = InRegion (
+            doc, view, [&] (S2 s) { return Inside (polygon, s); }, [] (S2, S2) { return false; }, false, filter);
     if (!additive)
         items.clear ();
     for (const auto& r : found)

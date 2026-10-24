@@ -9,6 +9,7 @@
 #include "Edit/EditSession.hpp"
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace geomsrv::edit {
@@ -31,6 +32,10 @@ struct PickView {
 struct PickHit {
     Ref ref;
     double distance = 0.0; // pixels
+    // Hit only because the pointer is inside a closed outline, with no edge of it near.
+    // Its distance is `radius` plus the pixels to that outline, so any edge within the
+    // radius outranks it and, of nested outlines, the innermost wins.
+    bool inside = false;
 };
 
 // A caller-owned cache of the MODEL-SPACE path outlines a Pick needs, so a pick that only
@@ -56,7 +61,8 @@ struct PickGeometryCache {
 };
 
 // Hits within `radius` pixels, ordered vertex > segment > face > entity, then nearest.
-// A click inside a closed outline (or on any of its edges) hits the entity. `cache` is
+// A click inside a closed outline (or on any of its edges) hits the entity; an inside-only
+// hit ranks after every entity whose edge is within the radius. `cache` is
 // optional and spares only the paths' outline tessellation: the projection, the scan and
 // the returned hits are identical with or without it.
 std::vector<PickHit> Pick (const Document& doc, const PickView& view, double x, double y, uint32_t filter,
@@ -88,9 +94,14 @@ class Selection {
     // `additive` the hit is toggled into the selection instead.
     void Click (const std::vector<PickHit>& hits, double x, double y, bool additive);
     // Dragging right selects what lies fully inside the rectangle; dragging left
-    // (x1 < x0) also selects what the rectangle touches.
+    // (x1 < x0) also selects what the rectangle touches. A filter that admits whole objects
+    // selects whole objects only: parts are taken only when the filter excludes objects.
     void Marquee (const Document& doc, const PickView& view, double x0, double y0, double x1, double y1,
                   uint32_t filter, bool additive);
+    // What lies fully inside a free-hand screen outline (closed implicitly), by the same
+    // filter rule as the marquee. Fewer than three points select nothing.
+    void Lasso (const Document& doc, const PickView& view, const std::vector<std::pair<double, double>>& outline,
+                uint32_t filter, bool additive);
     // Drops references that an edit or an undo removed.
     void Prune (const Document& doc);
 

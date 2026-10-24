@@ -130,6 +130,7 @@ void Escape (Session& s)
     else if (s.drag != Drag::None) {
         s.edits.Cancel ();
         s.drag = Drag::None;
+        s.lassoPoints.clear (), s.marqueeLasso = false, s.pressHits.clear ();
         s.dragReleased = false;
         s.dragPointerPause.reset ();
         s.snap = {};
@@ -455,9 +456,7 @@ void Keys (Session& s, const overlayhud::Input& v, bool textInput)
                 if (s.tracker.State () == edit::TrackerState::Editing)
                     trackerKey ({ K::Enter });
                 else if ((s.dragReleased || s.navigation.blocked) && s.drag == Drag::Marquee) {
-                    s.selection.Marquee (Doc (s), Map { v }.Pick (), s.startX, s.startY, v.x, v.y, s.filter,
-                                         s.marqueeAdditive);
-                    s.drag = Drag::None;
+                    CommitMarquee (s, Map { v }.Pick (), v.x, v.y);
                     s.dragReleased = false;
                     s.message.clear ();
                 }
@@ -646,6 +645,11 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
             else
                 s.message.clear ();
         }
+        else if (!hits.empty () && hits.front ().inside && !s.selection.Contains (hits.front ().ref)) {
+            // Inside a region that is not selected: a drag from here selects by marquee, a click
+            // selects the region (CommitMarquee). Nothing moves until it is selected.
+            BeginMarquee (s, mouse, shift, v.ctrl, hits);
+        }
         else if (!hits.empty ()) {
             // An object already selected whole is dragged whole from wherever it is pressed --
             // its own corner included, which becomes the base point. A click there without a
@@ -684,9 +688,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         else {
             if (!shift)
                 s.selection.Clear ();
-            s.drag = Drag::Marquee;
-            s.marqueeAdditive = shift;
-            s.startX = mouse.x, s.startY = mouse.y;
+            BeginMarquee (s, mouse, shift, v.ctrl, {});
         }
     }
     if (hovered && ImGui::IsMouseDoubleClicked (0) && s.tool != Tool::Select)
@@ -862,9 +864,9 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
                 s.selection.Prune (Doc (s));
                 s.snap = {};
             }
-            else if (s.drag == Drag::Marquee && std::hypot (mouse.x - s.startX, mouse.y - s.startY) > 3.0f)
-                s.selection.Marquee (Doc (s), pick, s.startX, s.startY, mouse.x, mouse.y, s.filter, s.marqueeAdditive);
-            if (s.drag == Drag::Part || s.drag == Drag::Marquee)
+            else if (s.drag == Drag::Marquee)
+                CommitMarquee (s, pick, mouse.x, mouse.y);
+            if (s.drag == Drag::Part)
                 s.drag = Drag::None;
         }
     }
@@ -941,16 +943,7 @@ void OnView (Session& s, const overlayhud::Input& v, bool hovered, float scale)
         DrawGizmo (s, m, s.typedHandle >= 0 ? s.typedFrame : f, s.gizmo, gizmoSize, lit, dragging, scale);
     }
 
-    // The marquee, in screen pixels: left to right solid (contained), right to left dashed-thin (touched).
-    if (s.drag == Drag::Marquee && (ImGui::IsMouseDown (0) || s.dragReleased)) {
-        const bool crossing = mouse.x < s.startX;
-        draw->AddRectFilled ({ std::min (s.startX, mouse.x), std::min (s.startY, mouse.y) },
-                             { std::max (s.startX, mouse.x), std::max (s.startY, mouse.y) },
-                             crossing ? IM_COL32 (70, 167, 88, 40) : IM_COL32 (62, 99, 221, 40));
-        draw->AddRect ({ std::min (s.startX, mouse.x), std::min (s.startY, mouse.y) },
-                       { std::max (s.startX, mouse.x), std::max (s.startY, mouse.y) }, crossing ? kAxis[1] : kAxis[2],
-                       0.0f, 0, crossing ? 1.0f : 1.5f);
-    }
+    DrawMarquee (s, draw, mouse);
 
     // The tracker: its values are the panel's; beside the pointer only while one is typed.
     std::vector<edit::Dimension> dims;

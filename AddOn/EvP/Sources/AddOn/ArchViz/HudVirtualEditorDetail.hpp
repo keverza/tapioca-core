@@ -123,6 +123,13 @@ void CapturePlane (Session& s);
 void PlaneControls (Session& s);
 bool DragOnto (const Session& s, const Map& m, ImVec2 mouse, double z, edit::Vec3 seed, edit::Vec3& out);
 
+// The selection marquee (HudVirtualEditorMarquee.cpp): a rectangle, or a free-hand lasso when the
+// panel's choice and Ctrl at the press disagree. `pressed` is the region a press landed inside,
+// which a release without a drag selects. Commit ends it at (x, y); Draw follows and shows it.
+void BeginMarquee (Session& s, ImVec2 mouse, bool additive, bool ctrl, std::vector<edit::PickHit> pressed);
+void CommitMarquee (Session& s, const edit::PickView& pick, float x, float y);
+void DrawMarquee (Session& s, ImDrawList* draw, ImVec2 mouse);
+
 // The live dimensions of the selection, placed clear of `taken` (the gizmo, the tracker).
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale);
 // The paths' labels (heights, grades, crossfalls) after them: each beside its mark, clear of

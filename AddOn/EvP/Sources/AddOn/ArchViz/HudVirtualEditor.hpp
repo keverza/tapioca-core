@@ -141,6 +141,11 @@ struct Session {
     } navigation;
     uint64_t viewIdentity = 0;
     bool marqueeAdditive = false;
+    // The marquee as a free-hand outline (screen pixels, as dragged): the panel's choice, or
+    // Ctrl held at the press; and the region pressed inside, which a release without a drag
+    // selects -- a drag from inside an unselected region is a marquee, not a move.
+    bool lasso = false, marqueeLasso = false;
+    std::vector<std::pair<double, double>> lassoPoints;
     // A part drag that moves its items (not a path's width or grade break): the way they have
     // gone so far, in plan, which a typed distance keeps -- unset until the pointer has moved.
     bool dragTypable = false;

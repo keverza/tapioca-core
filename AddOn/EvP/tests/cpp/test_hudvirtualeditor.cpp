@@ -853,6 +853,61 @@ TEST (HudVirtualEditor, MarqueeStaysAtThePointerWhileNavigatingAndKeepsItsModifi
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
 }
 
+ed::Document TwoRegions ()
+{
+    ed::Document doc;
+    ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+    ed::AddPolyline (doc, { { 20, 0, 0 }, { 24, 0, 0 }, { 24, 4, 0 }, { 20, 4, 0 } }, true);
+    return doc;
+}
+
+// The user, 2026-10-24: drag selection. A press inside an unselected region dragged it away;
+// now the drag selects by marquee and only a click selects the region.
+TEST (HudVirtualEditor, ADragFromInsideAnUnselectedRegionSelectsByMarquee)
+{
+    Drive d (TwoRegions ());
+    const auto before = d.D ().entities;
+    d.S ().gizmo = ed::GizmoMode::Gumball;
+    d.Press (700, 400); // (5, 5): inside the big square
+    ASSERT_EQ (d.S ().drag, eh::Drag::Marquee);
+    d.At (1300, 600);
+    d.Release (1300, 600); // to (35, -5): around the small square only
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+    EXPECT_EQ (d.D ().entities, before);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0].entity, before[1].id);
+
+    d.Press (700, 400);
+    d.Release (700, 400); // a click there selects the region it is inside
+    ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+    EXPECT_EQ (d.S ().selection.Items ()[0], (ed::Ref { before[0].id, ed::Part::Entity, 0 }));
+    d.Press (700, 400); // and, selected, it drags
+    d.At (760, 400);
+    d.Release (760, 400);
+    EXPECT_NEAR (d.D ().entities[0].vertices[0].p.x, 3.0, 1e-6);
+    EXPECT_EQ (d.S ().edits.UndoDepth (), 1u);
+}
+
+TEST (HudVirtualEditor, ACtrlDragLassoesAndThePanelChoiceSwapsIt)
+{
+    for (const bool panelLasso : { false, true }) {
+        Drive d (TwoRegions ());
+        d.S ().lasso = panelLasso;
+        d.input.ctrl = !panelLasso; // either way this drag is a lasso
+        d.Press (1000, 300);        // (20, 10): empty
+        ASSERT_EQ (d.S ().drag, eh::Drag::Marquee);
+        EXPECT_TRUE (d.S ().marqueeLasso);
+        d.input.ctrl = false;
+        for (const auto& [x, y] : std::vector<std::pair<float, float>> { { 1200, 300 }, { 1200, 560 }, { 960, 560 } })
+            d.At (x, y);
+        d.Release (960, 560);
+        ASSERT_EQ (d.S ().selection.Items ().size (), 1u);
+        EXPECT_EQ (d.S ().selection.Items ()[0].entity, d.D ().entities[1].id);
+        EXPECT_TRUE (d.S ().lassoPoints.empty ());
+    }
+}
+
 TEST (HudVirtualEditor, WindowReplacementCancelsBeforeNumericEnterCanApply)
 {
     Drive d (Corner ());

@@ -79,6 +79,15 @@ void Panel (Session& s)
     ImGui::SameLine ();
     if (ImGui::RadioButton ("Curve (B)", s.tool == Tool::Curve))
         s.tool = Tool::Curve, s.landscapeMode = LandscapeMode::DrawSource;
+    // How a drag from empty space (or from inside an unselected region) selects; Ctrl at the
+    // press takes the other one for that drag.
+    if (ImGui::RadioButton ("Window select", !s.lasso))
+        s.lasso = false;
+    ImGui::SameLine ();
+    if (ImGui::RadioButton ("Lasso select", s.lasso))
+        s.lasso = true;
+    ImGui::SameLine ();
+    ImGui::TextDisabled ("Ctrl-drag: the other");
     // The gumball holds applicable transforms; the same table gates individual modes, and a
     // mode waits while a gesture or a typed value owns the control.
     const bool locked = GizmoModeLocked (s);

@@ -272,3 +272,64 @@ TEST (EditSelection, ACachedPickRebuildsAfterUndo)
     ed::Pick (session.Doc (), Plan (), 500, 0, ed::kPickAll, 8, &cache);
     EXPECT_GT (cache.builds, afterEdit);
 }
+
+// The user, 2026-10-24: lines are hard to select where regions overlap, circles especially.
+// The pointer inside one closed outline used to hit it at distance 0, beating the outline whose
+// edge was right under the pointer.
+TEST (EditSelection, AnEdgeUnderThePointerBeatsTheRegionItIsInside)
+{
+    ed::Document doc;
+    const auto a = ed::AddPolyline (doc, { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 4, 0 }, { 0, 4, 0 } }, true);
+    const auto b = ed::AddPolyline (doc, { { 2, 0, 0 }, { 6, 0, 0 }, { 6, 4, 0 }, { 2, 4, 0 } }, true);
+    // 3 px right of B's left edge, deep inside A.
+    const auto hits = ed::Pick (doc, Plan (), 203, 150, ed::kPickEntity, 8);
+    ASSERT_EQ (hits.size (), 2u);
+    EXPECT_EQ (hits[0].ref.entity, b);
+    EXPECT_FALSE (hits[0].inside);
+    EXPECT_EQ (hits[1].ref.entity, a);
+    EXPECT_TRUE (hits[1].inside);
+    EXPECT_GT (hits[1].distance, 8.0);
+}
+
+TEST (EditSelection, OfNestedRegionsTheInnermostIsPickedInside)
+{
+    ed::Document doc;
+    const auto outer = ed::AddPolyline (doc, { { 0, 0, 0 }, { 10, 0, 0 }, { 10, 10, 0 }, { 0, 10, 0 } }, true);
+    const auto inner = ed::AddPolyline (doc, { { 4, 4, 0 }, { 6, 4, 0 }, { 6, 6, 0 }, { 4, 6, 0 } }, true);
+    for (const auto order : { 0, 1 }) {
+        (void) order;
+        const auto hits = ed::Pick (doc, Plan (), 500, 500, ed::kPickAll, 8);
+        ASSERT_EQ (hits.size (), 2u);
+        EXPECT_EQ (hits[0].ref.entity, inner);
+        EXPECT_EQ (hits[1].ref.entity, outer);
+    }
+}
+
+TEST (EditSelection, AMarqueeWithEveryFilterSelectsWholeObjects)
+{
+    Scene s;
+    ed::Selection sel;
+    sel.Marquee (s.doc, Plan (), -50, -50, 1250, 250, ed::kPickAll, false);
+    ASSERT_EQ (sel.Items ().size (), 2u);
+    EXPECT_EQ (sel.Kind (), ed::SelectionKind::Entity);
+    EXPECT_TRUE (sel.Contains ({ s.line, ed::Part::Entity, 0 }));
+    EXPECT_TRUE (sel.Contains ({ s.square, ed::Part::Entity, 0 }));
+}
+
+TEST (EditSelection, ALassoSelectsWhatLiesInsideItsOutline)
+{
+    Scene s;
+    ed::Selection sel;
+    // A triangle around the square (x 1000..1200, y 0..200), clear of the line and the box.
+    sel.Lasso (s.doc, Plan (), { { 900, -100 }, { 1500, -100 }, { 1000, 600 } }, ed::kPickAll, false);
+    ASSERT_EQ (sel.Items ().size (), 1u);
+    EXPECT_EQ (sel.Items ()[0], (ed::Ref { s.square, ed::Part::Entity, 0 }));
+    // A notch that cuts a corner of the square off selects nothing, not part of it.
+    sel.Lasso (s.doc, Plan (), { { 900, -100 }, { 1150, -100 }, { 1000, 600 } }, ed::kPickAll, false);
+    EXPECT_TRUE (sel.Items ().empty ());
+    // Parts only when the filter excludes whole objects.
+    sel.Lasso (s.doc, Plan (), { { 900, -100 }, { 1150, -100 }, { 1000, 600 } }, ed::kPickVertex, false);
+    EXPECT_EQ (sel.Items ().size (), 2u);
+    sel.Lasso (s.doc, Plan (), { { 900, -100 }, { 1500, -100 } }, ed::kPickAll, false);
+    EXPECT_TRUE (sel.Items ().empty ());
+}
