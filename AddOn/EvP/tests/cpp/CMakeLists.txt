@@ -197,6 +197,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRecordCore.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyCoreSelection.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyFollowerSelection.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReuse.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAdvanceWorker.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyTaskWorker.cpp"

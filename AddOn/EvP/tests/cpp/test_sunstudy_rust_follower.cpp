@@ -6,6 +6,8 @@
 // criterion (handoff P4).
 
 #include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudyCoreSelection.hpp"
+#include "SunStudy/SunStudyFollowerSelection.hpp"
 #include "SunStudy/SunStudyRustFollower.hpp"
 
 #include <gtest/gtest.h>
@@ -166,4 +168,38 @@ TEST (SunStudyRustFollowerParity, TheLiveRunawayAndDeadlockScriptsMatch)
         ExpectSame (e, a, now, "tick " + std::to_string (now));
     }
     EXPECT_EQ (e.Reruns (), 2u);
+}
+
+TEST (SunStudyRustFollowerParity, TheDriversFollowerIsChosenOnceAndForwardsEveryCall)
+{
+    // The facade the driver holds: Rust under the flag, C++ otherwise, and
+    // either way the same transitions as SunStudyFollower.
+    for (const auto kind : { SunStudyCoreKind::Cpp, SunStudyCoreKind::Rust }) {
+        OverrideSunStudyCore (kind);
+        SelectableSunStudyFollower a;
+        OverrideSunStudyCore (std::nullopt);
+        EXPECT_EQ (a.UsesRust (), kind == SunStudyCoreKind::Rust && RustSunStudyCoreAvailable ());
+        SunStudyFollower e;
+        e.Adopt ("study-a", Sig (41), 1000);
+        a.Adopt ("study-a", Sig (41), 1000);
+        uint64_t generation = 0;
+        for (int64_t now = 1000; now <= 6000; now += 200) {
+            const auto world = Sig (now < 3000 ? 42 : 43);
+            ASSERT_EQ (a.Observe (world, now), e.Observe (world, now));
+            if (e.State () == SunStudyFollowState::DirtyVisible && e.ShouldStart (now)) {
+                ASSERT_TRUE (a.ShouldStart (now));
+                generation = e.NoteStarted (world, now);
+                ASSERT_EQ (a.NoteStarted (world, now), generation);
+            }
+            ASSERT_EQ (a.State (), e.State ());
+            ASSERT_EQ (a.Generation (), e.Generation ());
+            ASSERT_EQ (a.MillisecondsUntilStart (now), e.MillisecondsUntilStart (now));
+            ASSERT_EQ (a.Describe (), e.Describe ());
+        }
+        ASSERT_EQ (a.NoteCompleted (generation, "study-b", Sig (43), 6200),
+                   e.NoteCompleted (generation, "study-b", Sig (43), 6200));
+        EXPECT_EQ (a.StudyId (), e.StudyId ());
+        EXPECT_TRUE (a.IsFullyCurrent ());
+        EXPECT_EQ (a.Reruns (), e.Reruns ());
+    }
 }

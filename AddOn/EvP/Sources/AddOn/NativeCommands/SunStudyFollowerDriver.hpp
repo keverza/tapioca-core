@@ -34,6 +34,7 @@
 //     DiligentScene           a display consumer, and nothing more
 
 #include "SunStudy/SunStudyFollower.hpp"
+#include "SunStudy/SunStudyFollowerSelection.hpp"
 #include "SunStudy/SunStudySelectionBinding.hpp"
 
 #include <cstdint>

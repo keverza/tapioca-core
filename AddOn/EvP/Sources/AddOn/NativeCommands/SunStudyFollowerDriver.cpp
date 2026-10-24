@@ -34,16 +34,16 @@ namespace sunfollow {
 
 namespace {
 
+using evp::sunstudy::SelectableSunStudyFollower;
 using evp::sunstudy::SunStudyDependencySignature;
 using evp::sunstudy::SunStudyDirtyReason;
-using evp::sunstudy::SunStudyFollower;
 using evp::sunstudy::SunStudyFollowState;
 
 // Host policy and ACAPI stay on the main thread. State/Disable may be called
 // from a command worker; the calculation worker owns no driver state or SDK data.
 std::mutex gMutex;
 
-SunStudyFollower gFollower;
+SelectableSunStudyFollower gFollower; // C++ or Rust policy, fixed at load (P5)
 ActiveSunStudyConfig gConfig;
 bool gAutoFollow = false;
 
