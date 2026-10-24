@@ -37,23 +37,21 @@ TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job)
             outcome.capture = std::move (surface);
         }
         const auto input = outcome.capture->Input ();
+        // A path may run past the property line or off the terrain (the user, 2026-10-24): it is
+        // graded only where both are. Its stations are trimmed to that area and the derived region
+        // clipped to it; a path wholly inside is unchanged by either.
+        if (options.region.empty ()) {
+            options.cover = TerrainDesignArea (*job.doc, input.mesh);
+            options.trimToCover = !options.cover.empty ();
+        }
         outcome.built = EvaluateTerrainDesign (*job.doc, input, options, outcome.result, outcome.error);
-        bool clipped = false, finer = false;
+        bool finer = false;
         const double limit = std::max (options.cutLimit, options.fillLimit);
         while (!outcome.built) {
             const auto& error = outcome.error;
             const auto is = [&error] (const char* code) { return error.rfind (code, 0) == 0; };
             char text[256];
-            if (!clipped && options.region.empty () &&
-                (is ("PropertyLineOutside") || is ("TerrainDesignRegion") || is ("RegionBreakline"))) {
-                clipped = true;
-                options.cover = TerrainFootprint (input.mesh);
-                if (options.cover.empty ())
-                    break;
-                outcome.unmet.push_back ("The design area reaches past the captured terrain: it is built only "
-                                         "where there is terrain.");
-            }
-            else if (is ("DaylightNotReached") && std::max (options.cutLimit, options.fillLimit) < kMaxSlopeReach) {
+            if (is ("DaylightNotReached") && std::max (options.cutLimit, options.fillLimit) < kMaxSlopeReach) {
                 // 4x at a time, at least 20 m, at most kMaxSlopeReach: a few retries, not a search.
                 const double wider =
                     std::min (kMaxSlopeReach, std::max (std::max (options.cutLimit, options.fillLimit) * 4, 20.0));
@@ -67,12 +65,9 @@ TerrainDesignOutcome RunTerrainDesign (const TerrainDesignJob& job)
                 else
                     outcome.unmet.push_back (text);
             }
-            else if (!options.trimToCover && is ("DesignCoverage")) {
-                options.trimToCover = true;
-                if (options.cover.empty ())
-                    options.cover = TerrainFootprint (input.mesh);
-                outcome.unmet.push_back ("The path runs off the captured terrain: only the part over the terrain "
-                                         "is graded.");
+            else if (is ("RegionBreakline") && options.trimToCover && options.trimMargin < 8.0) {
+                // A kept station's slope still crosses the area's edge: keep the band further in.
+                options.trimMargin = std::max (1.0, options.trimMargin * 3.0);
             }
             else if (!finer && is ("RegionBreakline") && options.maxStep > 0.5) {
                 finer = true;

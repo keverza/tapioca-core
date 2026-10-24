@@ -82,6 +82,9 @@ bool TrimToCover (const TerrainDesignOptions& options, std::vector<double>& samp
     cp::PathD cover;
     for (size_t i = 0; i + 2 < options.cover.size (); i += 3)
         cover.push_back ({ options.cover[i], options.cover[i + 1] });
+    const auto shrunk = cp::InflatePaths ({ cover }, -options.trimMargin, cp::JoinType::Miter, cp::EndType::Polygon,
+                                          2.0, landscape_detail::kPrecision);
+    const cp::PathD inner = shrunk.empty () ? cover : shrunk.front ();
     const size_t n = stations.size ();
     std::vector<bool> on (n, false);
     for (size_t i = 0; i < n; ++i) {
@@ -92,9 +95,10 @@ bool TrimToCover (const TerrainDesignOptions& options, std::vector<double>& samp
             continue;
         const double nx = -dy / length, ny = dx / length;
         const auto& c = stations[i].position;
+        // Strictly inside, by trimMargin: every band line must be strictly inside the region.
         const auto inside = [&] (double d) {
-            return cp::PointInPolygon (cp::PointD { c[0] + nx * d, c[1] + ny * d }, cover) !=
-                   cp::PointInPolygonResult::IsOutside;
+            return cp::PointInPolygon (cp::PointD { c[0] + nx * d, c[1] + ny * d }, inner) ==
+                   cp::PointInPolygonResult::IsInside;
         };
         on[i] = inside (stations[i].halfLeft) && inside (-stations[i].halfRight);
     }
@@ -622,6 +626,31 @@ std::vector<double> TerrainFootprint (const TerrainMeshView& mesh, double inset)
         return ring;
     for (const auto& point : *largest)
         ring.insert (ring.end (), { point.x, point.y, 0.0 });
+    return ring;
+}
+
+std::vector<double> TerrainDesignArea (const geomsrv::edit::Document& doc, const TerrainMeshView& mesh)
+{
+    auto footprint = TerrainFootprint (mesh);
+    LandscapeResult landscape;
+    if (footprint.empty () || !EvaluateLandscape (doc, landscape) || landscape.propertyLine.empty ())
+        return footprint;
+    cp::PathD terrain, property;
+    for (size_t i = 0; i + 2 < footprint.size (); i += 3)
+        terrain.push_back ({ footprint[i], footprint[i + 1] });
+    for (const auto& point : landscape.propertyLine)
+        property.push_back ({ point.x, point.y });
+    // Strictly inside the property line too, as the footprint is inside the mesh.
+    auto inside = cp::InflatePaths ({ property }, -0.01, cp::JoinType::Miter, cp::EndType::Polygon, 2.0,
+                                    landscape_detail::kPrecision);
+    const auto shape = cp::Intersect ({ terrain }, inside, cp::FillRule::NonZero, landscape_detail::kPrecision);
+    const auto largest = std::max_element (shape.begin (), shape.end (), [] (const cp::PathD& a, const cp::PathD& b) {
+        return std::abs (cp::Area (a)) < std::abs (cp::Area (b));
+    });
+    std::vector<double> ring;
+    if (largest != shape.end () && largest->size () >= 3)
+        for (const auto& point : *largest)
+            ring.insert (ring.end (), { point.x, point.y, 0.0 });
     return ring;
 }
 

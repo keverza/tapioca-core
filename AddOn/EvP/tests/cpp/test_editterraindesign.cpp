@@ -519,22 +519,34 @@ std::shared_ptr<const TerrainCapture> Capture (const DesignFixture& fixture)
 }
 } // namespace
 
-TEST (EditTerrainDesignJob, APathRunningOffTheTerrainStillBuildsAndSaysWhy)
+TEST (EditTerrainDesignJob, APathMayLeaveTheTerrainAndThePropertyLineAndIsGradedOnlyInside)
 {
     DesignFixture fixture;
     std::string error;
+    // Off the terrain at its west end (the mesh starts at x = -20.5) ...
     ASSERT_TRUE (
         edit::MovePathPoint (fixture.doc, fixture.path, fixture.doc.paths[0].points[0].id, { -30, 0, 0 }, error))
         << error;
+    // ... and past a property line that stops at x = 30.
+    LandscapeSource property;
+    property.entityId =
+        edit::AddPolyline (fixture.doc, { { -40, -20, 0 }, { 30, -20, 0 }, { 30, 20, 0 }, { -40, 20, 0 } }, true);
+    Id id = 0;
+    ASSERT_TRUE (AddLandscapeSource (fixture.doc, property, id, error)) << error;
+    ASSERT_TRUE (SetLandscapePropertyLine (fixture.doc, id, error)) << error;
     fixture.Capture ();
     TerrainDesignPublisher publisher;
     TerrainDesignJob job;
     ASSERT_TRUE (publisher.Prepare (fixture.doc, Capture (fixture), fixture.Options (), {}, job, error)) << error;
     const auto outcome = RunTerrainDesign (job);
     ASSERT_TRUE (outcome.built) << outcome.error;
-    EXPECT_TRUE (std::any_of (outcome.unmet.begin (), outcome.unmet.end (), [] (const std::string& line) {
-        return line.rfind ("The path runs off the captured terrain", 0) == 0;
-    }));
+    EXPECT_TRUE (outcome.unmet.empty ()) << "leaving them is allowed, not a condition missed";
+    // Nothing is graded outside: the region and its stations stay inside both.
+    for (size_t i = 0; i < outcome.result.region.size (); i += 3) {
+        EXPECT_GE (outcome.result.region[i], -20.5);
+        EXPECT_LE (outcome.result.region[i], 30.0);
+    }
+    EXPECT_GT (outcome.result.stations.front (), 9.0);
 }
 
 TEST (EditTerrainDesignJob, AWorkerResultPublishesOnlyForTheDocumentItWasComputedAgainst)
