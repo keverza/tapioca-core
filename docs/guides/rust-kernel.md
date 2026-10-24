@@ -1182,8 +1182,20 @@ the integration flip, and nothing in production calls the Rust path yet.
   the C++ wrapper seeds the session), `summary` (sun-hour result summary) and
   `surface_sampling` (per-mesh sampling with exact reuse of unchanged meshes,
   returned through an immutable Rust-owned result handle read by
-  summary-then-fill). The store itself has not moved: its ownership split is
-  decided before it is ported.
+  summary-then-fill).
+- **P3e (split record):** the store stays C++ and keeps its id map, revisions,
+  locks and the "computing" refusal; the C++ `StudyRecord` also keeps the
+  snapshot, traversal, occluders, display cache, selection binding and timings.
+  `study::StudyCore` owns the portable half -- the day, the samples (borrowed
+  from the owning ground, triangle or patch grid), the session, the stable
+  triangle or refitted patch atlas, the sample-to-mesh map and the reuse
+  counters -- behind a `TapiocaSunStudyStudy` handle (`tapioca_sunstudy_study_*`;
+  C++ `rust::RustStudyCore`). Construction, `set_sample_meshes` and `reuse`
+  run before the handle is shared; afterwards it is safe on any thread. Its
+  readers port the store's (hours, step bits, summary, both atlas images,
+  display tiles and layouts, step masks, footprint, the hover `reading`), and
+  `test_sunstudy_rust_study.cpp` compares each with the store's after every
+  slice. On this path the patch atlas no longer crosses the ABI by value.
 
 Parity is **bit-for-bit**, not within a tolerance: `test_sunstudy_rust_parity.cpp`
 runs each kernel and its C++ original over fixed-seed generated corpora and

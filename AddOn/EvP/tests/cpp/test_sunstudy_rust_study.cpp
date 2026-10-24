@@ -20,10 +20,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -555,4 +557,47 @@ TEST (SunStudyRustStudyParity, RefusalsMatchTheStore)
     error.clear ();
     EXPECT_EQ (rs::RustStudyCore::Patch (day, 0.25, sampling.patches, nullptr, 32, error), nullptr);
     EXPECT_NE (error.find ("patch atlas"), std::string::npos) << error;
+}
+
+TEST (SunStudyRustStudyParity, ConcurrentAdvancesOnOneCoreNeverDoubleClaimAStep)
+{
+    // Once shared, a core may be advanced and read from several threads: an
+    // advance that loses the race resolves nothing, reads wait for the slice,
+    // and the converged result is the store's to the bit.
+    StoreCleanup cleanup;
+    Lcg lcg (0x5e7d5ull);
+    const Study study = Start (Scene (lcg, -1, nullptr), Domain::Patch, 24, nullptr);
+    ASSERT_NE (study.core, nullptr);
+    std::atomic<size_t> resolved { 0 };
+    std::atomic<bool> failed { false };
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 4; ++t) {
+        threads.emplace_back ([&] {
+            for (int round = 0; round < 64; ++round) {
+                size_t advanced = 0;
+                std::string error;
+                if (!study.core->Advance (*study.traversal, 1, 0.001, 0.0, 1, {}, {}, advanced, error))
+                    failed = true;
+                resolved += advanced;
+                std::vector<double> hours;
+                if (!study.core->SunHours (hours, error))
+                    failed = true;
+            }
+        });
+    }
+    for (auto& thread : threads)
+        thread.join ();
+    EXPECT_FALSE (failed.load ());
+    StudyProgress progress;
+    std::string error;
+    ASSERT_TRUE (study.core->Progress (progress, error)) << error;
+    if (!progress.converged) { // every thread may have lost some races
+        size_t advanced = 0;
+        ASSERT_TRUE (study.core->Advance (*study.traversal, 64, 0.001, 0.0, 1, {}, {}, advanced, error)) << error;
+        resolved += advanced;
+    }
+    EXPECT_EQ (resolved.load (), 24u);
+    size_t advanced = 0;
+    ASSERT_TRUE (SunStudyStore::Get ().Advance (study.id, 64, 1, 0.001, 0.0, advanced, error)) << error;
+    ExpectSameReads (study, "concurrent");
 }
