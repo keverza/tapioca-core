@@ -758,3 +758,171 @@ TEST (SunStudyRustParity, SampleGridRefusesEmptyInputAsTheOracleDoes)
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// P2c: surface patches and the patch-domain sampler
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A tessellated w x h rectangle in an arbitrary frame (origin, u, v).
+void AppendRectangle (SamplerCase& soup, const Vec3& o, const Vec3& u, const Vec3& v, double w, double h, int strips,
+                      uint32_t group, bool flip)
+{
+    const uint32_t base = static_cast<uint32_t> (soup.vertices.size () / 3);
+    for (int i = 0; i <= strips; ++i) {
+        const double x = w * i / strips;
+        for (const double y : { 0.0, h })
+            for (int axis = 0; axis < 3; ++axis)
+                soup.vertices.push_back (o[axis] + u[axis] * x + v[axis] * y);
+    }
+    for (int i = 0; i < strips; ++i) {
+        const uint32_t a = base + 2 * i, b = a + 2, c = a + 3, d = a + 1;
+        if (flip)
+            soup.triangles.insert (soup.triangles.end (), { a, c, b, a, d, c });
+        else
+            soup.triangles.insert (soup.triangles.end (), { a, b, c, a, c, d });
+        soup.groups.insert (soup.groups.end (), { group, group });
+    }
+}
+
+Vec3 Unit (const Vec3& v)
+{
+    const double length = std::sqrt (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    return { v[0] / length, v[1] / length, v[2] / length };
+}
+
+SamplerCase PatchScene (Lcg& lcg, bool survey)
+{
+    SamplerCase soup;
+    const double ox = survey ? 624000.0 : 0.0, oy = survey ? 6172000.0 : 0.0;
+    const int pieces = lcg.Int (1, 6);
+    for (int p = 0; p < pieces; ++p) {
+        const Vec3 origin { ox + lcg.Uniform (-15, 15), oy + lcg.Uniform (-15, 15), lcg.Uniform (0, 6) };
+        Vec3 u, v;
+        switch (lcg.Int (0, 3)) {
+            case 0: // floor
+                u = { 1, 0, 0 };
+                v = { 0, 1, 0 };
+                break;
+            case 1: // facade at an angle
+                u = Unit ({ lcg.Uniform (-1, 1), lcg.Uniform (-1, 1), 0 });
+                v = { 0, 0, 1 };
+                break;
+            case 2: // pitched roof
+                u = Unit ({ lcg.Uniform (-1, 1), lcg.Uniform (-1, 1), 0 });
+                v = Unit ({ -u[1], u[0], lcg.Uniform (0.2, 1.5) });
+                break;
+            default: // tiny mullion below the grid
+                u = { 1, 0, 0 };
+                v = { 0, 0, 1 };
+                break;
+        }
+        const bool tiny = u[2] == 0 && v[2] == 1 && lcg.Int (0, 1) == 0;
+        const double w = tiny ? lcg.Uniform (0.02, 0.3) : lcg.Uniform (0.5, 9);
+        const double h = tiny ? lcg.Uniform (0.02, 0.3) : lcg.Uniform (0.5, 6);
+        AppendRectangle (soup, origin, u, v, w, h, lcg.Int (1, 6), static_cast<uint32_t> (lcg.Int (0, 3)),
+                         lcg.Int (0, 4) == 0);
+        if (lcg.Int (0, 5) == 0) // an identical disconnected copy: same key, next occurrence
+            AppendRectangle (soup, origin, u, v, w, h, 1, soup.groups.back (), false);
+    }
+    if (lcg.Int (0, 3) == 0) { // a faceted cylinder: near-coplanar strips must not merge
+        const uint32_t group = 2;
+        for (int s = 0; s < 8; ++s) {
+            const double a0 = s * 0.01, a1 = (s + 1) * 0.01; // under one degree per facet
+            const Vec3 p0 { ox + 30 * std::cos (a0), oy + 30 * std::sin (a0), 0 };
+            const Vec3 p1 { ox + 30 * std::cos (a1), oy + 30 * std::sin (a1), 0 };
+            const uint32_t base = static_cast<uint32_t> (soup.vertices.size () / 3);
+            for (const Vec3& p : { p0, p1, Vec3 { p1[0], p1[1], 3 }, Vec3 { p0[0], p0[1], 3 } })
+                soup.vertices.insert (soup.vertices.end (), { p[0], p[1], p[2] });
+            soup.triangles.insert (soup.triangles.end (), { base, base + 1, base + 2, base, base + 2, base + 3 });
+            soup.groups.insert (soup.groups.end (), { group, group });
+        }
+    }
+    return soup;
+}
+
+void ExpectSamePatchGrids (const PatchSampleGrid& e, const PatchSampleGrid& a)
+{
+    ASSERT_EQ (a.valid, e.valid);
+    ASSERT_EQ (a.sampleLimitExceeded, e.sampleLimitExceeded);
+    EXPECT_EQ (a.degenerateFaces, e.degenerateFaces);
+    EXPECT_EQ (a.centroidPatches, e.centroidPatches);
+    EXPECT_EQ (a.excludedPatches, e.excludedPatches);
+    if (e.sampleLimitExceeded)
+        return; // refused; the C++ grid holds no samples either
+    ExpectSameBits (e.positions, a.positions, "positions");
+    ExpectSameBits (e.normals, a.normals, "normals");
+    ExpectSameBits (e.areas, a.areas, "areas");
+    EXPECT_EQ (a.cellColumns, e.cellColumns);
+    EXPECT_EQ (a.cellRows, e.cellRows);
+    EXPECT_EQ (a.spanOf, e.spanOf);
+    EXPECT_EQ (a.patchOfTriangle, e.patchOfTriangle);
+    ASSERT_EQ (a.spans.size (), e.spans.size ());
+    for (size_t s = 0; s < e.spans.size (); ++s) {
+        const PatchSampleSpan& x = e.spans[s];
+        const PatchSampleSpan& y = a.spans[s];
+        EXPECT_TRUE (y.key == x.key) << "span " << s << " key";
+        EXPECT_EQ (y.first, x.first);
+        EXPECT_EQ (y.count, x.count);
+        EXPECT_EQ (y.columns, x.columns);
+        EXPECT_EQ (y.rows, x.rows);
+        EXPECT_TRUE (SameBits (x.area, y.area)) << "span " << s;
+        for (int axis = 0; axis < 3; ++axis) {
+            ASSERT_TRUE (SameBits (x.origin[axis], y.origin[axis])) << "span " << s;
+            ASSERT_TRUE (SameBits (x.uAxis[axis], y.uAxis[axis])) << "span " << s;
+            ASSERT_TRUE (SameBits (x.vAxis[axis], y.vAxis[axis])) << "span " << s;
+            ASSERT_TRUE (SameBits (x.normal[axis], y.normal[axis])) << "span " << s;
+            ASSERT_TRUE (SameBits (x.boundsMin[axis], y.boundsMin[axis])) << "span " << s;
+            ASSERT_TRUE (SameBits (x.boundsMax[axis], y.boundsMax[axis])) << "span " << s;
+        }
+    }
+}
+
+} // namespace
+
+TEST (SunStudyRustParity, PatchGridMatchesEveryBit)
+{
+    Lcg lcg (0xba7c4ull);
+    size_t valid = 0, refused = 0, spans = 0, samples = 0;
+    for (int trial = 0; trial < 120; ++trial) {
+        const SamplerCase soup = PatchScene (lcg, trial % 4 == 0);
+        const size_t faces = soup.triangles.size () / 3;
+        const std::vector<std::string> elementOf =
+            trial % 5 == 4 ? std::vector<std::string> { "{A}" } // short: groups past the end key on ""
+                           : std::vector<std::string> { "{A}", "{B}", "{C}", "{D}" };
+        const std::vector<uint8_t> sampleGroup { 1, 0, 1 };
+        std::vector<uint8_t> sampleFace (faces);
+        for (auto& flag : sampleFace)
+            flag = static_cast<uint8_t> (lcg.Int (0, 4) == 0 ? 0 : 1);
+        for (const double spacing : { 1.0, 0.45, 3.0 }) {
+            PatchSamplerOptions options;
+            options.spacing = spacing;
+            options.normalOffset = trial % 2 == 0 ? 0.01 : 0.15;
+            options.maxSamples = trial % 9 == 4 ? 30 : 4000000;
+            options.sampleGroup = trial % 3 == 1 ? &sampleGroup : nullptr;
+            options.sampleFace = trial % 3 == 2 ? &sampleFace : nullptr;
+            if (trial % 7 == 3)
+                options.patch.coplanarDegrees = 5.0; // merges the faceted cylinder
+            const uint32_t* groups = trial % 6 == 5 ? nullptr : soup.groups.data ();
+            const PatchSampleGrid e =
+                evp::sunstudy::BuildPatchSampleGrid (soup.vertices.data (), soup.vertices.size () / 3,
+                                                     soup.triangles.data (), faces, groups, elementOf, options);
+            PatchSampleGrid a;
+            std::string error;
+            ASSERT_TRUE (rs::BuildPatchSampleGrid (soup.vertices.data (), soup.vertices.size () / 3,
+                                                   soup.triangles.data (), faces, groups, elementOf, options, a, error))
+                << error;
+            ExpectSamePatchGrids (e, a);
+            if (::testing::Test::HasFatalFailure ())
+                return;
+            (e.valid ? valid : refused) += 1;
+            spans += e.spans.size ();
+            samples += e.Count ();
+        }
+    }
+    EXPECT_GT (valid, 200u);
+    EXPECT_GT (refused, 0u);
+    EXPECT_GT (spans, 1000u);
+    EXPECT_GT (samples, 20000u);
+}

@@ -41,6 +41,10 @@ static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridRequest) == 120);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaFaceLayout) == 104);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridSummary) == 48);
 static_assert (sizeof (void*) != 8 || sizeof (TapiocaSampleGridOutput) == 88);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridRequest) == 136);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchSpan) == 192);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridSummary) == 56);
+static_assert (sizeof (void*) != 8 || sizeof (TapiocaPatchGridOutput) == 96);
 
 namespace {
 
@@ -532,6 +536,85 @@ bool BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t
         // face emits at least its centroid), so every layout is the default.
         grid.layouts.assign (summary.faceCount, FaceLayout ());
     }
+    out = std::move (grid);
+    return true;
+}
+
+bool BuildPatchSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
+                           const uint32_t* groups, const std::vector<std::string>& elementOf,
+                           const PatchSamplerOptions& options, PatchSampleGrid& out, std::string& error)
+{
+    const auto bytes = [] (const std::vector<uint8_t>* mask) {
+        return mask == nullptr ? TapiocaByteView { nullptr, 0 } : TapiocaByteView { mask->data (), mask->size () };
+    };
+    const auto names = TextViews (elementOf);
+    TapiocaPatchGridRequest request {};
+    request.vertices = { vertices, vertices == nullptr ? 0 : vertexCount * 3 };
+    request.triangles = { triangles, triangles == nullptr ? 0 : faceCount * 3 };
+    request.groups = { groups, groups == nullptr ? 0 : faceCount };
+    request.elementOf = ArrayView (names);
+    request.sampleGroup = bytes (options.sampleGroup);
+    request.sampleFace = bytes (options.sampleFace);
+    request.spacing = options.spacing;
+    request.normalOffset = options.normalOffset;
+    request.coplanarDegrees = options.patch.coplanarDegrees;
+    request.planeToleranceM = options.patch.planeToleranceM;
+    request.maxSamples = options.maxSamples;
+
+    TapiocaPatchGridSummary summary {};
+    TapiocaPatchGridOutput output {};
+    output.summary = &summary;
+    if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_patch_grid (&request, &output, m, n); }, error))
+        return false;
+    PatchSampleGrid grid;
+    const size_t count = summary.sampleCount;
+    grid.positions.resize (count * 3);
+    grid.normals.resize (count * 3);
+    grid.areas.resize (count);
+    grid.cellColumns.resize (count);
+    grid.cellRows.resize (count);
+    grid.spanOf.resize (count);
+    grid.patchOfTriangle.resize (summary.faceCount);
+    std::vector<TapiocaPatchSpan> spans (summary.spanCount);
+    if (count != 0 || !spans.empty () || summary.faceCount != 0) {
+        output = { grid.positions.data (),
+                   grid.normals.data (),
+                   grid.areas.data (),
+                   grid.cellColumns.data (),
+                   grid.cellRows.data (),
+                   grid.spanOf.data (),
+                   count,
+                   spans.data (),
+                   spans.size (),
+                   grid.patchOfTriangle.data (),
+                   grid.patchOfTriangle.size (),
+                   &summary };
+        if (!Invoke ([&] (char* m, size_t n) { return tapioca_sunstudy_patch_grid (&request, &output, m, n); }, error))
+            return false;
+    }
+    for (const TapiocaPatchSpan& pod : spans) {
+        PatchSampleSpan span;
+        span.key.element = pod.group < elementOf.size () ? elementOf[pod.group] : std::string ();
+        span.key.plane = pod.plane;
+        span.key.occurrence = pod.occurrence;
+        span.first = pod.first;
+        span.count = pod.count;
+        span.columns = pod.columns;
+        span.rows = pod.rows;
+        std::copy (pod.frame[0], pod.frame[0] + 3, span.origin);
+        std::copy (pod.frame[1], pod.frame[1] + 3, span.uAxis);
+        std::copy (pod.frame[2], pod.frame[2] + 3, span.vAxis);
+        std::copy (pod.frame[3], pod.frame[3] + 3, span.normal);
+        std::copy (pod.bounds[0], pod.bounds[0] + 3, span.boundsMin);
+        std::copy (pod.bounds[1], pod.bounds[1] + 3, span.boundsMax);
+        span.area = pod.area;
+        grid.spans.push_back (std::move (span));
+    }
+    grid.degenerateFaces = summary.degenerateFaces;
+    grid.centroidPatches = summary.centroidPatches;
+    grid.excludedPatches = summary.excludedPatches;
+    grid.sampleLimitExceeded = summary.sampleLimitExceeded != 0;
+    grid.valid = summary.valid != 0;
     out = std::move (grid);
     return true;
 }

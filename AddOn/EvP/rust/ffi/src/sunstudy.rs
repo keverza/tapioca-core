@@ -12,6 +12,7 @@ use crate::boundary::{Failure, call, memory_range, overlaps};
 mod camera;
 mod ground;
 mod limits;
+mod patches;
 mod roles;
 mod sampler;
 mod series;
@@ -25,6 +26,10 @@ pub use ground::{
     GroundGridOutput, GroundGridRequest, GroundGridSummary, tapioca_sunstudy_ground_grid,
 };
 pub use limits::{LimitsOutput, LimitsRequest, tapioca_sunstudy_limits};
+pub use patches::{
+    PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
+    tapioca_sunstudy_patch_grid,
+};
 pub use roles::{
     BindingOutput, BindingRequest, BoundListView, MaterialTransparency, PresetAdviceOutput,
     PresetAdviceRequest, ReceiverMeshView, ReceiversOutput, ReceiversRequest, ReceiversSummary,
@@ -79,6 +84,10 @@ const _: () = {
     assert!(size_of::<FaceLayoutRecord>() == 104);
     assert!(size_of::<SampleGridSummary>() == 48);
     assert!(size_of::<SampleGridOutput>() == 88);
+    assert!(size_of::<PatchGridRequest>() == 136);
+    assert!(size_of::<PatchSpanRecord>() == 192);
+    assert!(size_of::<PatchGridSummary>() == 56);
+    assert!(size_of::<PatchGridOutput>() == 96);
 };
 
 type Range = Option<(usize, usize)>;

@@ -165,3 +165,7 @@ pub use sunstudy::{
     FaceLayoutRecord, SampleGridOutput, SampleGridRequest, SampleGridSummary,
     tapioca_sunstudy_sample_grid,
 };
+pub use sunstudy::{
+    PatchGridOutput, PatchGridRequest, PatchGridSummary, PatchSpanRecord,
+    tapioca_sunstudy_patch_grid,
+};

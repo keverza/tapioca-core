@@ -14,6 +14,7 @@
 
 #include "SunStudy/SunSeries.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
+#include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyPreset.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
 #include "SunStudy/SunStudySampler.hpp"
@@ -104,6 +105,12 @@ bool RefreshSelectionBinding (SunStudySelectionBinding& binding, uint64_t curren
 // (`valid == false`) carries the counters but no samples.
 bool BuildSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
                       const uint32_t* groups, const SamplerOptions& options, SampleGrid& out, std::string& error);
+
+// BuildPatchSampleGrid (including BuildSurfacePatches, BuildPatchGrid and the
+// patch keys). Same contract as the C++ function.
+bool BuildPatchSampleGrid (const double* vertices, size_t vertexCount, const uint32_t* triangles, size_t faceCount,
+                           const uint32_t* groups, const std::vector<std::string>& elementOf,
+                           const PatchSamplerOptions& options, PatchSampleGrid& out, std::string& error);
 
 } // namespace evp::sunstudy::rust
 

@@ -354,6 +354,65 @@ typedef struct {
 TapiocaStatus tapioca_sunstudy_sample_grid (const TapiocaSampleGridRequest* request,
                                             const TapiocaSampleGridOutput* output, char* error, size_t errorCapacity);
 
+/* Surface-patch sampler. Empty groups / sampleGroup / sampleFace mean none. */
+typedef struct {
+    TapiocaDoubleView vertices;
+    TapiocaIndexView triangles;
+    TapiocaIndexView groups;
+    TapiocaTextArrayView elementOf; /* element GUID per group */
+    TapiocaByteView sampleGroup;
+    TapiocaByteView sampleFace;
+    double spacing;
+    double normalOffset;
+    double coplanarDegrees;
+    double planeToleranceM;
+    size_t maxSamples;
+} TapiocaPatchGridRequest;
+
+/* Key element = elementOf[group], or "" for a group past its end. */
+typedef struct {
+    size_t first;
+    size_t count;
+    uint64_t plane;
+    uint32_t occurrence;
+    uint32_t group;
+    uint32_t columns;
+    uint32_t rows;
+    double frame[4][3]; /* origin, uAxis, vAxis, normal */
+    double bounds[2][3];
+    double area;
+} TapiocaPatchSpan;
+
+typedef struct {
+    size_t sampleCount;
+    size_t spanCount;
+    size_t faceCount; /* patchOfTriangle entries; 0 when refused */
+    size_t degenerateFaces;
+    size_t centroidPatches;
+    size_t excludedPatches;
+    uint8_t sampleLimitExceeded;
+    uint8_t valid;
+} TapiocaPatchGridSummary;
+
+/* All capacities 0: summary only. Otherwise each array holds its count. */
+typedef struct {
+    double* positions;
+    double* normals;
+    double* areas;
+    uint32_t* cellColumns;
+    uint32_t* cellRows;
+    uint32_t* spanOf;
+    size_t sampleCapacity;
+    TapiocaPatchSpan* spans;
+    size_t spanCapacity;
+    uint32_t* patchOfTriangle;
+    size_t faceCapacity;
+    TapiocaPatchGridSummary* summary;
+} TapiocaPatchGridOutput;
+
+TapiocaStatus tapioca_sunstudy_patch_grid (const TapiocaPatchGridRequest* request, const TapiocaPatchGridOutput* output,
+                                           char* error, size_t errorCapacity);
+
 /* The sun-study surface's own version, independent of TAPIOCA_ABI_VERSION. */
 TapiocaStatus tapioca_sunstudy_version (uint32_t* version, char* error, size_t errorCapacity);
 
