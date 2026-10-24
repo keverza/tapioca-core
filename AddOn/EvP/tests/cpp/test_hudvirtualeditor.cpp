@@ -538,6 +538,29 @@ void DragTheXArrow (Drive& d, float x = 10)
 }
 } // namespace
 
+// The user, 2026-10-24: dimensions kept jumping while a drag scaled the shape. Each label
+// searched for a free place afresh every frame, so a text that grew or a neighbour that moved
+// sent it to another side or step. Through a drag each keeps the side and distance it began with.
+TEST (HudVirtualEditor, LiveDimensionsKeepTheirPlaceThroughADrag)
+{
+    Drive d (Corner ());
+    DragTheXArrow (d);
+    const auto began = d.S ().labelHolds;
+    ASSERT_FALSE (began.empty ());
+    ASSERT_FALSE (d.S ().placed.empty ());
+    for (const float x : { 760.0f, 900.0f, 1100.0f, 640.0f }) {
+        d.At (x, 300);
+        ASSERT_EQ (d.S ().labelHolds.size (), began.size ());
+        for (size_t i = 0; i < began.size (); ++i) {
+            EXPECT_EQ (d.S ().labelHolds[i].side, began[i].side);
+            EXPECT_EQ (d.S ().labelHolds[i].distance, began[i].distance);
+        }
+    }
+    d.Release (640, 300);
+    d.At (640, 320); // at rest the labels find their places afresh
+    EXPECT_EQ (d.S ().drag, eh::Drag::None);
+}
+
 TEST (HudVirtualEditor, ANumberTypedMidDragEndsItOnce)
 {
     Drive d (Corner ());
@@ -899,7 +922,8 @@ TEST (HudVirtualEditor, ACtrlDragLassoesAndThePanelChoiceSwapsIt)
         ASSERT_EQ (d.S ().drag, eh::Drag::Marquee);
         EXPECT_TRUE (d.S ().marqueeLasso);
         d.input.ctrl = false;
-        for (const auto& [x, y] : std::vector<std::pair<float, float>> { { 1200, 300 }, { 1200, 560 }, { 960, 560 } })
+        for (const auto& [x, y] :
+             std::vector<std::pair<float, float>> { { 1200.f, 300.f }, { 1200.f, 560.f }, { 960.f, 560.f } })
             d.At (x, y);
         d.Release (960, 560);
         ASSERT_EQ (d.S ().selection.Items ().size (), 1u);

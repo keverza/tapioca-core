@@ -246,6 +246,14 @@ struct Session {
         editlayers::MarkLabel target;
     };
     std::vector<PlacedLabel> placed;
+    // Where each live dimension stood as a gesture began: the side of its line it took and its
+    // distance out (HudVirtualEditorDraw.cpp). A drag keeps them, so a label whose text or
+    // neighbours change every frame does not hop between free places; refreshed at rest.
+    struct LabelHold {
+        edit::Dimension value;
+        float side = 1.0f, distance = 0.0f;
+    };
+    std::vector<LabelHold> labelHolds;
     bool labelOpen = false, labelSelected = false;
     editlayers::MarkLabel labelTarget;
     uint64_t labelRevision = 0;

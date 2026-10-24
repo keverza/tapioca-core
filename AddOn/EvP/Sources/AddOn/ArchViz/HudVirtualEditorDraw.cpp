@@ -371,6 +371,45 @@ void Polygon (ImDrawList* list, const std::vector<ImVec2>& p, ImU32 fill, ImU32 
     list->AddPolyline (p.data (), int (p.size ()), outline, ImDrawFlags_Closed, width);
 }
 
+bool SameDimension (const edit::Dimension& a, const edit::Dimension& b)
+{
+    return a.ref == b.ref && a.quantity == b.quantity && a.fromEnd == b.fromEnd;
+}
+
+// The place a dimension's label held when the gesture in progress began; null at rest.
+const Session::LabelHold* Held (const Session& s, const edit::Dimension& value)
+{
+    if (s.drag == Drag::None)
+        return nullptr;
+    for (const auto& hold : s.labelHolds)
+        if (SameDimension (hold.value, value))
+            return &hold;
+    return nullptr;
+}
+
+// A dimension's label `distance` out along (dx, dy) from (ax, ay): where it was held through a
+// gesture, else the first free place, remembered for the next gesture.
+editlayers::Box PlaceDimension (Session& s, const edit::Dimension& value, float side, float ax, float ay, float w,
+                                float h, float ux, float uy, float dx, float dy, float away,
+                                std::vector<editlayers::Box>& taken)
+{
+    if (const auto* hold = Held (s, value)) {
+        const float cx = ax + dx * hold->distance, cy = ay + dy * hold->distance;
+        const editlayers::Box box { cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f, ux, uy };
+        taken.push_back (box);
+        return box;
+    }
+    const auto box = editlayers::PlaceAlong (ax, ay, w, h, ux, uy, dx, dy, away, taken);
+    const float distance = ((box.x0 + box.x1) * 0.5f - ax) * dx + ((box.y0 + box.y1) * 0.5f - ay) * dy;
+    for (auto& hold : s.labelHolds)
+        if (SameDimension (hold.value, value)) {
+            hold = { value, side, distance };
+            return box;
+        }
+    s.labelHolds.push_back ({ value, side, distance });
+    return box;
+}
+
 } // namespace
 
 rc::Anchor At (Vec3 p, ImVec2 s)
@@ -564,6 +603,8 @@ void DrawGizmo (Session& s, const Map& m, const edit::Frame& f, edit::GizmoMode 
 void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& taken, float scale)
 {
     s.placed.clear (); // this frame's, for a click to open
+    if (s.drag == Drag::None)
+        s.labelHolds.clear (); // at rest every label finds its place afresh
     if (s.selection.Items ().empty () || !s.drawing.empty ())
         return;
     const edit::Ref ref = s.selection.Items ().front ();
@@ -647,8 +688,12 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
             if (length < 1.0f)
                 continue;
             ImVec2 n { -dy / length, dx / length };
-            if (haveCentre && (at.x - centre.x) * n.x + (at.y - centre.y) * n.y < 0.0f)
-                n = { -n.x, -n.y };
+            // Outside the shape -- the side it took as the gesture began, so a shape that passes
+            // its own centre through the line mid-drag does not flip its dimension over.
+            float side = haveCentre && (at.x - centre.x) * n.x + (at.y - centre.y) * n.y < 0.0f ? -1.0f : 1.0f;
+            if (const auto* hold = Held (s, l.value))
+                side = hold->side;
+            n = { n.x * side, n.y * side };
             outward = n;
             // Outside the shape: extension lines, the dimension line and its ticks, in slate.
             const float offset = 24.0f * scale, gap = 4.0f * scale, tick = 4.0f * scale;
@@ -666,7 +711,7 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
             const ImVec2 mid { (a2.x + b2.x) * 0.5f, (a2.y + b2.y) * 0.5f };
             float ux = dx, uy = dy;
             editlayers::Upright (ux, uy);
-            const auto box = editlayers::PlaceAlong (mid.x, mid.y, w, h, ux, uy, n.x, n.y, h * 0.5f, taken);
+            const auto box = PlaceDimension (s, l.value, side, mid.x, mid.y, w, h, ux, uy, n.x, n.y, h * 0.5f, taken);
             const auto target = Typed (l.value, l.text);
             Ink (s, l.at, at, box, l.text, kInk, &target);
             continue;
@@ -679,7 +724,8 @@ void DrawDimensions (Session& s, const Map& m, std::vector<editlayers::Box>& tak
                 dir = { ox / d, oy / d };
         }
         const float away = (l.quantity == edit::Quantity::Slope ? 24.0f + h : 16.0f) * scale;
-        const auto box = editlayers::PlaceLabel (at.x, at.y, w, h, dir.x, dir.y, away + w * 0.25f, taken);
+        const auto box =
+            PlaceDimension (s, l.value, 1.0f, at.x, at.y, w, h, 1.0f, 0.0f, dir.x, dir.y, away + w * 0.25f, taken);
         const auto target = Typed (l.value, l.text);
         Ink (s, l.at, at, box, l.text, kInk, &target);
     }
