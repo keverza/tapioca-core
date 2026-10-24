@@ -311,6 +311,12 @@ bool AdvanceLandscapeCommand (Session& session);
 bool CancelLandscapeCommand (Session& session);
 const char* LandscapeCommandPrompt (const Session& session);
 bool ReloadLandscape (Session& session, const std::string& definition);
+// Every selected line (an entity, or a part of one) takes `role` in the landscape, in one undo
+// step: a region's boundary (Guide), a cutter, a material boundary, the property line (one closed
+// line). False with a message when there is none or the landscape refuses it.
+bool SetSelectedSourceRole (Session& session, tapioca::geometry::SourceRole role);
+// The role the selected lines share, or none when they have no source or differ.
+std::optional<tapioca::geometry::SourceRole> SelectedSourceRole (const Session& session);
 void LandscapePanel (Session& session);
 
 // The snap groups the panel and the menu switch together.

@@ -2,6 +2,7 @@
 #include "ArchViz/HudVirtualEditorTerrain.hpp"
 #include "ArchViz/HudShellTabs.hpp"
 #include "Edit/EditLandscapeSerialization.hpp"
+#include <iterator>
 
 namespace geomsrv::archviz::edithud {
 namespace lg = tapioca::geometry;
@@ -69,17 +70,23 @@ void LandscapePanel (Session& s)
             }
             ImGui::TextWrapped (
                 "Select source geometry directly in the view. Start a command above to pick its faces.");
-            edit::Id sourceId = edit::kNoId;
-            if (s.selection.Items ().size () == 1)
-                for (const auto& source : s.edits.Doc ().landscape->sources)
-                    if (!source.deleted && source.entityId && source.entityId == s.selection.Items ()[0].entity)
-                        sourceId = source.id;
-            ImGui::BeginDisabled (!sourceId);
-            if (ImGui::Button ("Use selected source as property line")) {
-                if (!s.edits.Apply ([sourceId] (edit::Document& doc, std::string& error) {
-                        return lg::SetLandscapePropertyLine (doc, sourceId, error);
-                    }))
-                    s.message = s.edits.Message ();
+            // The selected lines' role: any line can be a region's boundary, a cutter, a material
+            // boundary, or -- one closed line -- the property line. A path is always a centreline.
+            const auto shared = SelectedSourceRole (s);
+            ImGui::BeginDisabled (s.selection.Items ().empty ());
+            const struct {
+                const char* label;
+                lg::SourceRole role;
+            } uses[] = { { "Region boundary", lg::SourceRole::Guide },
+                         { "Cutter", lg::SourceRole::Cutter },
+                         { "Material boundary", lg::SourceRole::MaterialBoundary },
+                         { "Property line", lg::SourceRole::PropertyLine } };
+            ImGui::TextUnformatted ("Use selected lines as:");
+            for (size_t i = 0; i < std::size (uses); ++i) {
+                if (i % 2)
+                    ImGui::SameLine ();
+                if (ImGui::RadioButton (uses[i].label, shared == uses[i].role))
+                    SetSelectedSourceRole (s, uses[i].role);
             }
             ImGui::EndDisabled ();
             ImGui::EndTabItem ();

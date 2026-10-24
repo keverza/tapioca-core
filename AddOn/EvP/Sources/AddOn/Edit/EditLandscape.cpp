@@ -593,4 +593,44 @@ bool SetLandscapePropertyLine (edit::Document& doc, Id source, std::string& erro
         },
         error);
 }
+bool SetLandscapeSourceRole (edit::Document& doc, Id entity, SourceRole role, std::string& error)
+{
+    if (role == SourceRole::PathCenterline || role == SourceRole::Terrain) {
+        error = "a line cannot be given that role";
+        return false;
+    }
+    return Mutate (
+        doc,
+        [=] (edit::Document& d, std::string& e) {
+            if (edit::Find (d, entity) == nullptr) {
+                e = "the line does not exist";
+                return false;
+            }
+            auto& sources = d.landscape->sources;
+            auto found = std::find_if (sources.begin (), sources.end (),
+                                       [=] (const LandscapeSource& s) { return s.entityId == entity && !s.deleted; });
+            if (found == sources.end ()) {
+                Id id = 0;
+                if (!Allocate (d, id, e))
+                    return false;
+                LandscapeSource source;
+                source.id = id;
+                source.entityId = entity;
+                sources.push_back (source);
+                found = sources.end () - 1;
+            }
+            const Id previous = d.landscape->propertyLineSourceId;
+            found->role = role;
+            if (role == SourceRole::PropertyLine) {
+                for (auto& s : sources)
+                    if (s.id == previous && s.id != found->id && !s.deleted)
+                        s.role = SourceRole::Guide;
+                d.landscape->propertyLineSourceId = found->id;
+            }
+            else if (previous == found->id)
+                d.landscape->propertyLineSourceId = 0;
+            return true;
+        },
+        error);
+}
 } // namespace tapioca::geometry

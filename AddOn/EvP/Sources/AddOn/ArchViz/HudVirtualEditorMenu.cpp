@@ -238,6 +238,19 @@ std::vector<MenuItem> MenuItems (const Session& s)
                     items.push_back (Item ("gizmo." + std::to_string (i), modes[i], keys[i],
                                            GizmoAvailable (s, edit::GizmoMode (i)), int (s.gizmo) == i));
             items.push_back (Item ("gizmo.local", "Axes along the shape", {}, true, s.localAxes));
+            // In a landscape any line is a source: what it is there, as the panel's Sources tab says.
+            if (doc.landscape && e != nullptr && e->kind == edit::Kind::Polyline) {
+                namespace lg = tapioca::geometry;
+                const auto role = SelectedSourceRole (s);
+                Rule (items);
+                items.push_back (
+                    Item ("role.guide", "Use as region boundary", {}, true, role == lg::SourceRole::Guide));
+                items.push_back (Item ("role.cutter", "Use as cutter", {}, true, role == lg::SourceRole::Cutter));
+                items.push_back (Item ("role.material", "Use as material boundary", {}, true,
+                                       role == lg::SourceRole::MaterialBoundary));
+                items.push_back (Item ("role.property", "Use as property line", {}, e->closed,
+                                       role == lg::SourceRole::PropertyLine));
+            }
             if (e != nullptr && e->kind == edit::Kind::Polyline && !e->closed)
                 AddActions (s, items, {});
             else
@@ -362,6 +375,11 @@ void RunMenuItem (Session& s, const std::string& id)
         UsePathPartPlane (s, s.menu.ref);
     else if (id == "plane.pathStation")
         BeginPathPlaneEntry (s, s.menu.ref.entity);
+    else if (id == "role.guide" || id == "role.cutter" || id == "role.material" || id == "role.property")
+        SetSelectedSourceRole (s, id == "role.guide"      ? tapioca::geometry::SourceRole::Guide
+                                  : id == "role.cutter"   ? tapioca::geometry::SourceRole::Cutter
+                                  : id == "role.material" ? tapioca::geometry::SourceRole::MaterialBoundary
+                                                          : tapioca::geometry::SourceRole::PropertyLine);
     else if (id == "tool.select")
         s.tool = Tool::Select, s.drawing.clear ();
     else if (id == "tool.polyline")

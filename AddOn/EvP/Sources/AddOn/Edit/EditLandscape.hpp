@@ -224,6 +224,10 @@ bool AddLandscapeOperation (geomsrv::edit::Document& doc, LandscapeOperation ope
 bool SetLandscapeOperationEnabled (geomsrv::edit::Document& doc, Id id, bool enabled, std::string& error);
 bool AddHardscapeObject (geomsrv::edit::Document& doc, HardscapeObject object, Id& id, std::string& error);
 bool SetLandscapePropertyLine (geomsrv::edit::Document& doc, Id source, std::string& error);
+// A virtual line (an entity, not a path) takes `role`: its live source is re-roled, or one is
+// added. PropertyLine makes it the session's property line and returns the previous one to Guide.
+// A path's centreline and the terrain are not roles a line can be given.
+bool SetLandscapeSourceRole (geomsrv::edit::Document& doc, Id entity, SourceRole role, std::string& error);
 // Names the session's base terrain: sets sourceTerrainGuid and keeps exactly one
 // live Terrain source carrying that GUID (created on first use, otherwise
 // updated), returning its ID. One authored edit; no geometry is read.

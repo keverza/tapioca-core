@@ -199,6 +199,62 @@ bool ReloadLandscape (Session& s, const std::string& definition)
     return ok;
 }
 
+namespace {
+std::vector<edit::Id> SelectedLines (const Session& s)
+{
+    std::vector<edit::Id> lines;
+    for (const auto& ref : s.selection.Items ())
+        if (edit::Find (s.edits.Doc (), ref.entity) != nullptr &&
+            std::find (lines.begin (), lines.end (), ref.entity) == lines.end ())
+            lines.push_back (ref.entity);
+    return lines;
+}
+} // namespace
+
+bool SetSelectedSourceRole (Session& s, lg::SourceRole role)
+{
+    if (!Ready (s))
+        return false;
+    const auto lines = SelectedLines (s);
+    if (lines.empty ()) {
+        s.message = "Select the lines to use.";
+        return false;
+    }
+    if (role == lg::SourceRole::PropertyLine) {
+        const edit::Entity* e = lines.size () == 1 ? edit::Find (s.edits.Doc (), lines[0]) : nullptr;
+        if (e == nullptr || !e->closed) {
+            s.message = "The property line is one closed line.";
+            return false;
+        }
+    }
+    const bool ok = s.edits.Apply ([lines, role] (edit::Document& doc, std::string& error) {
+        for (const auto id : lines)
+            if (!lg::SetLandscapeSourceRole (doc, id, role, error))
+                return false;
+        return true;
+    });
+    s.message = ok ? "Sources remain editable." : s.edits.Message ();
+    Landscape (s);
+    return ok;
+}
+
+std::optional<lg::SourceRole> SelectedSourceRole (const Session& s)
+{
+    const auto& doc = s.edits.Doc ();
+    if (!doc.landscape)
+        return std::nullopt;
+    std::optional<lg::SourceRole> shared;
+    for (const auto id : SelectedLines (s)) {
+        const auto source =
+            std::find_if (doc.landscape->sources.begin (), doc.landscape->sources.end (),
+                          [id] (const auto& source) { return source.entityId == id && !source.deleted; });
+        if (source == doc.landscape->sources.end () || (shared && *shared != source->role))
+            return std::nullopt;
+        shared = source->role;
+    }
+    return shared;
+}
+
 bool IsLandscapeFaceSet (const lg::LandscapeOperation& operation)
 {
     // Disabled RegionSelect nodes bypass to their first input, not their saved

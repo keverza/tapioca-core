@@ -572,3 +572,49 @@ TEST (HudLandscape, DrawnPathFinishesWithEnterOrTheMenuAsACentrelineSource)
     EXPECT_EQ (d.S ().edits.Doc ().paths.size (), 1u);
     EXPECT_EQ (d.S ().edits.Doc ().landscape->sources.size (), sources + 1);
 }
+
+// The user, 2026-10-24: any virtual line can become a path, a region, the property line.
+TEST (HudLandscape, AnyLineTakesALandscapeRoleInOneUndoStep)
+{
+    eh::Session s (Demo ());
+    const auto before = s.edits.Doc ();
+    std::string error;
+    ed::Id open = 0, closed = 0;
+    ASSERT_TRUE (s.edits.Apply ([&] (ed::Document& d, std::string&) {
+        open = ed::AddPolyline (d, { { 30, 0, 0 }, { 34, 0, 0 } }, false);
+        closed = ed::AddPolyline (d, { { 30, 5, 0 }, { 34, 5, 0 }, { 34, 9, 0 }, { 30, 9, 0 } }, true);
+        return true;
+    }));
+    const auto sourceOf = [&] (ed::Id entity) -> const lg::LandscapeSource* {
+        for (const auto& source : s.edits.Doc ().landscape->sources)
+            if (source.entityId == entity && !source.deleted)
+                return &source;
+        return nullptr;
+    };
+    EXPECT_EQ (sourceOf (open), nullptr) << "drawn outside the editor's tools: not yet a source";
+    s.selection.Set ({ { open, ed::Part::Entity, 0 }, { closed, ed::Part::Segment, 0 } });
+    const auto depth = s.edits.UndoDepth ();
+    ASSERT_TRUE (eh::SetSelectedSourceRole (s, lg::SourceRole::Cutter)) << s.message;
+    EXPECT_EQ (s.edits.UndoDepth (), depth + 1);
+    ASSERT_NE (sourceOf (open), nullptr);
+    EXPECT_EQ (sourceOf (open)->role, lg::SourceRole::Cutter);
+    EXPECT_EQ (sourceOf (closed)->role, lg::SourceRole::Cutter);
+    EXPECT_EQ (eh::SelectedSourceRole (s), lg::SourceRole::Cutter);
+
+    // Two lines, or an open one, cannot be the property line.
+    EXPECT_FALSE (eh::SetSelectedSourceRole (s, lg::SourceRole::PropertyLine));
+    s.selection.Set ({ { open, ed::Part::Entity, 0 } });
+    EXPECT_FALSE (eh::SetSelectedSourceRole (s, lg::SourceRole::PropertyLine));
+    const auto previous = s.edits.Doc ().landscape->propertyLineSourceId;
+    s.selection.Set ({ { closed, ed::Part::Entity, 0 } });
+    ASSERT_TRUE (eh::SetSelectedSourceRole (s, lg::SourceRole::PropertyLine)) << s.message;
+    EXPECT_EQ (s.edits.Doc ().landscape->propertyLineSourceId, sourceOf (closed)->id);
+    for (const auto& source : s.edits.Doc ().landscape->sources)
+        if (source.id == previous)
+            EXPECT_EQ (source.role, lg::SourceRole::Guide) << "the old property line is a guide again";
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().landscape->propertyLineSourceId, previous);
+    auto copy = s.edits.Doc ();
+    EXPECT_FALSE (lg::SetLandscapeSourceRole (copy, open, lg::SourceRole::PathCenterline, error));
+    EXPECT_EQ (before.landscape->sources.size () + 2, s.edits.Doc ().landscape->sources.size ());
+}
