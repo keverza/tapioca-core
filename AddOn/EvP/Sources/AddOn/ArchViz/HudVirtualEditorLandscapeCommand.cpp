@@ -48,6 +48,8 @@ const char* LandscapeCommandPrompt (const Session& s)
 {
     if (!s.landscapeCommand)
         return "Choose a command, then select faces in the canvas.";
+    if (s.landscapeCommand->kind == lg::OperationKind::Union)
+        return "Select two or more faces to merge. Enter to finish; Esc to cancel. Click a face to add or remove it.";
     return s.landscapeCommand->second
                ? "Select second set. Enter to finish; Esc to cancel. Click a face to add or remove it."
                : "Select first set. Enter to continue; Esc to cancel. Click a face to add or remove it.";
@@ -66,11 +68,23 @@ bool AdvanceLandscapeCommand (Session& s)
             for (const auto& face : s.landscape.faces)
                 if (face.faceId == ref.item)
                     selected.push_back (face.descriptor);
+    // A union is one selection: what is merged has no subject and no operand, so asking for two
+    // sets made the user pick the same kind of thing twice (the user, 2026-10-24). Its first
+    // face is one input and the rest the other, so the result and its undo step are unchanged.
+    const bool merge = s.landscapeCommand->kind == lg::OperationKind::Union;
+    if (merge && selected.size () < 2) {
+        s.message = "Select at least two faces to merge, then press Enter.";
+        return false;
+    }
     if (selected.empty ()) {
         s.message = "Select at least one face, then press Enter.";
         return false;
     }
-    if (!s.landscapeCommand->second) {
+    if (merge) {
+        s.landscapeCommand->first = { selected.front () };
+        selected.erase (selected.begin ());
+    }
+    else if (!s.landscapeCommand->second) {
         s.landscapeCommand->first = std::move (selected);
         s.landscapeCommand->second = true;
         s.selection.Clear ();

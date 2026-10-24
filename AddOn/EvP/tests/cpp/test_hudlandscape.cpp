@@ -296,10 +296,33 @@ TEST (HudLandscape, PreviewDatumChangeRepublishesWithoutReevaluatingGeometry)
     EXPECT_FALSE (eh::Follow (s, layer));
 }
 
+// The user, 2026-10-24: a union is one selection of two or more faces, not two sets.
+TEST (HudLandscape, AUnionMergesOneSelectionOfTwoOrMoreFacesInOneUndoStep)
+{
+    eh::Session s (Demo ());
+    eh::Landscape (s);
+    const auto a = *lg::LandscapeFaceAt (s.landscape, { 2, 1, 0 });
+    const auto b = *lg::LandscapeFaceAt (s.landscape, { 2, -1, 0 });
+    const auto before = s.edits.Doc ();
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    ASSERT_TRUE (eh::PickLandscapeFace (s, a.seed, true, true));
+    EXPECT_FALSE (eh::AdvanceLandscapeCommand (s)) << "one face merges nothing";
+    EXPECT_TRUE (s.landscapeCommand);
+    EXPECT_EQ (s.edits.UndoDepth (), 0u);
+    ASSERT_TRUE (eh::PickLandscapeFace (s, b.seed, true, true));
+    ASSERT_TRUE (eh::AdvanceLandscapeCommand (s)) << s.message;
+    EXPECT_FALSE (s.landscapeCommand);
+    EXPECT_EQ (s.edits.UndoDepth (), 1u);
+    EXPECT_EQ (s.edits.Doc ().landscape->sources, before.landscape->sources);
+    ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 3u);
+    EXPECT_NEAR (Area (s), a.area + b.area, 1e-5);
+    ASSERT_TRUE (s.edits.Undo ());
+    EXPECT_EQ (s.edits.Doc ().landscape, before.landscape);
+}
+
 TEST (HudLandscape, CanvasCommandsCollectTwoOperandsAndPublishOneUndoStep)
 {
-    for (const auto kind :
-         { lg::OperationKind::Union, lg::OperationKind::Difference, lg::OperationKind::Intersection }) {
+    for (const auto kind : { lg::OperationKind::Difference, lg::OperationKind::Intersection }) {
         eh::Session s (Demo ());
         const auto faces = eh::Landscape (s).faces;
         const auto a = *lg::LandscapeFaceAt (s.landscape, { 2, 1, 0 });
@@ -323,9 +346,7 @@ TEST (HudLandscape, CanvasCommandsCollectTwoOperandsAndPublishOneUndoStep)
         EXPECT_EQ (s.edits.Doc ().landscape->sources, before.landscape->sources);
         EXPECT_EQ (s.edits.Doc ().entities, before.entities);
         ASSERT_EQ (s.edits.Doc ().landscape->operations.size (), 3u);
-        const double area = kind == lg::OperationKind::Union        ? a.area + b.area
-                            : kind == lg::OperationKind::Difference ? a.area
-                                                                    : b.area;
+        const double area = kind == lg::OperationKind::Difference ? a.area : b.area;
         EXPECT_NEAR (Area (s), area, 1e-5);
         std::string definition, error;
         ASSERT_TRUE (lg::WriteLandscape (s.edits.Doc (), lg::LandscapeStorage::Virtual, definition, error));
@@ -370,7 +391,7 @@ TEST (HudLandscape, CommandKeysToggleCanvasPicksAdvanceAndCancelWithoutPublicati
 TEST (HudLandscape, ChangedDocumentAndViewCancelPendingCommandOperands)
 {
     eh::Session s (Demo ());
-    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Union));
+    ASSERT_TRUE (eh::BeginLandscapeCommand (s, lg::OperationKind::Difference));
     ASSERT_TRUE (eh::PickLandscapeFace (s, { 2, 1, 0 }, true));
     ASSERT_TRUE (eh::AdvanceLandscapeCommand (s));
     ed::Transform t;
@@ -391,17 +412,13 @@ TEST (HudLandscape, BackgroundViewLayoutCannotCancelOrAdvanceTheFrontViewsComman
     d.At ({ 2, 1, 0 });
     ASSERT_TRUE (eh::BeginLandscapeCommand (d.S (), lg::OperationKind::Union));
     d.Click ({ 2, 1, 0 });
-    d.input.keys = { { 0x0D, true } };
-    d.Frame ();
-    ASSERT_TRUE (d.S ().landscapeCommand->second);
     d.input.viewActive = false;
     d.input.planar = false;
     d.input.pointer = false;
     d.input.keys = { { 0x1B, true } };
     d.Frame ();
     ASSERT_TRUE (d.S ().landscapeCommand);
-    EXPECT_TRUE (d.S ().landscapeCommand->second);
-    EXPECT_TRUE (d.S ().selection.Items ().empty ());
+    EXPECT_EQ (d.S ().selection.Items ().size (), 1u);
     EXPECT_EQ (d.S ().edits.UndoDepth (), 0u);
     d.input.viewActive = true;
     d.input.planar = true;
