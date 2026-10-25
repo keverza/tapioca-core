@@ -229,10 +229,18 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
         bool moving = false;
         for (const auto& r : query.exclude)
             moving |= r.entity == path.id;
-        PathOutline o;
+        PathOutline built;
+        const PathOutline* found = nullptr;
         std::string error;
-        if (moving || !Outline (path, query.pathStep, o, error))
+        if (moving)
             continue;
+        if (query.outlines != nullptr)
+            found = query.outlines->Get (path, query.pathStep);
+        else if (Outline (path, query.pathStep, built, error))
+            found = &built;
+        if (found == nullptr)
+            continue;
+        const PathOutline& o = *found;
         for (size_t i = 0; i < o.points.size (); ++i)
             points.push_back ({ o.points[i], SnapKind::Endpoint, { path.id, Part::PathPoint, path.points[i].id }, {} });
         for (size_t i = 0; i < o.breaks.size (); ++i)

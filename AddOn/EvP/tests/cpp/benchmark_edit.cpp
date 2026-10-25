@@ -19,9 +19,12 @@ int main (int argc, char** argv)
         for (auto g : { er::Gesture::Hover, er::Gesture::Drag, er::Gesture::Width })
             for (bool cached : { false, true }) {
                 geomsrv::edit::PickGeometryCache pick;
+                geomsrv::edit::PathOutlineCache outlines;
                 er::Caches caches;
-                if (cached)
+                if (cached) {
                     caches.pick = &pick;
+                    caches.outlines = &outlines;
+                }
                 er::Replay (scene, g, 3, options, caches); // warm the allocator and the caches' first build
                 const er::Timing t = er::Replay (scene, g, frames, options, caches);
                 const auto mean = [&] (double total) { return total / frames; };

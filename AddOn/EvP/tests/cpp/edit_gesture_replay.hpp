@@ -74,6 +74,7 @@ inline const char* GestureName (Gesture g)
 // What a frame may carry from one frame to the next. Null members are not used.
 struct Caches {
     ed::PickGeometryCache* pick = nullptr;
+    ed::PathOutlineCache* outlines = nullptr; // shared by the snap and both pavings; pruned per frame
 };
 
 // Everything a frame produced that a cache must not change.
@@ -158,6 +159,7 @@ inline FrameResult RunFrame (ed::Document& doc, const Scene& scene, Gesture gest
     q.cursor = cursor;
     q.tolerance = o.pickRadius / o.pixelsPerMetre;
     q.pathStep = o.pathStep;
+    q.outlines = caches.outlines;
     if (gesture == Gesture::Drag && path != nullptr)
         q.exclude.push_back ({ moved, ed::Part::PathPoint, path->points.front ().id });
     const ed::SnapResult snap = ed::Snap (doc, {}, q);
@@ -177,9 +179,9 @@ inline FrameResult RunFrame (ed::Document& doc, const Scene& scene, Gesture gest
     // An edit redraws the network: the drawn surface and the labelled kerb corners.
     const double step =
         o.gestureStep > 0 ? o.gestureStep : ed::PreviewStep (doc.paths, o.gestureTriangles, o.gestureFinest);
-    const ed::PavedArea surface = ed::Pave (doc.paths, step, true);
+    const ed::PavedArea surface = ed::Pave (doc.paths, step, true, caches.outlines);
     lap (spent.surface);
-    const ed::PavedArea corners = ed::Pave (doc.paths, o.pathStep, false);
+    const ed::PavedArea corners = ed::Pave (doc.paths, o.pathStep, false, caches.outlines);
     lap (spent.corners);
     r.corners = corners.corners.size ();
     r.rings = surface.rings.size ();
@@ -215,6 +217,8 @@ inline Timing Replay (const Scene& scene, Gesture gesture, int frames, const Opt
         const auto start = std::chrono::steady_clock::now ();
         FrameResult r = RunFrame (doc, scene, gesture, i, frames, o, caches, &t.parts);
         t.ms.push_back (std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - start).count ());
+        if (caches.outlines != nullptr)
+            caches.outlines->Prune ();
         if (results != nullptr)
             results->push_back (std::move (r));
     }

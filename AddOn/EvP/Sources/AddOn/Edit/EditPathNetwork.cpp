@@ -503,7 +503,7 @@ bool SurfaceHeight (const Path& path, const AlignmentGeometry& g, Vec3 p, double
     return true;
 }
 
-PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
+PavedArea Pave (const std::vector<Path>& paths, double step, bool surface, PathOutlineCache* outlines)
 {
     PavedArea out;
     std::vector<Source> sources;
@@ -512,8 +512,17 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
         Source s;
         s.path = &path;
         std::string error;
-        if (!ValidatePath (path, s.geometry, error) || !Outline (path, step, s.outline, error) ||
-            s.outline.left.size () < 2)
+        if (!ValidatePath (path, s.geometry, error))
+            continue;
+        if (outlines != nullptr) {
+            const PathOutline* cached = outlines->Get (path, step);
+            if (cached == nullptr)
+                continue;
+            s.outline = *cached;
+        }
+        else if (!Outline (path, step, s.outline, error))
+            continue;
+        if (s.outline.left.size () < 2)
             continue;
         // Its own outline, clean: a tight bend's fold resolved.
         const cp::PathsD own = cp::Union (cp::PathsD { Polygon (s.outline) }, cp::FillRule::NonZero, kPrecision);

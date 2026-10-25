@@ -7,6 +7,7 @@
 // needs a second pass. Host geometry arrives as a context snapshot taken by the
 // host; nothing here reads the model.
 #include "Edit/EditDocument.hpp"
+#include "Edit/EditPathOutlineCache.hpp"
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -90,6 +91,9 @@ struct SnapQuery {
     double grid = 0.0;           // spacing in metres; 0 disables the grid
     double extensionReach = 0.0; // 0 means 25 tolerances
     double pathStep = 1.0;       // metres between path samples snapped along
+    // Optional, caller-owned: the paths' outlines at `pathStep` are taken from it instead of
+    // tessellated at every query. The snap is identical with or without it.
+    PathOutlineCache* outlines = nullptr;
     // Moving items must not snap to themselves: a vertex ref also drops the
     // segments that touch it, an entity ref drops the whole entity.
     std::vector<Ref> exclude;

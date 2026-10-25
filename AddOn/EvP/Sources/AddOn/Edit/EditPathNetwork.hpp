@@ -10,6 +10,7 @@
 // sample the paths' profiles and crossfalls into one shared-edge 3D mesh. Contours
 // evaluate that mesh rather than separate strips. Plan metres; nothing reads the model.
 #include "Edit/EditPath.hpp"
+#include "Edit/EditPathOutlineCache.hpp"
 #include "Edit/EditTypes.hpp"
 #include "Geometry/Fillet2D.hpp"
 #include <cstdint>
@@ -55,8 +56,11 @@ struct PavedArea {
 // `step`: target sample/mesh-edge spacing, bounded at 250,000 triangles. Authored
 // profile/section features are inserted at both preview and resting quality.
 // Paths that do not validate are left out.
-// Without `surface`, only the outline and its corners (what grips need).
-PavedArea Pave (const std::vector<Path>& paths, double step = 0.5, bool surface = true);
+// Without `surface`, only the outline and its corners (what grips need). `outlines` (optional)
+// spares the paths' tessellation when another call of the frame already did it; the result is
+// identical with or without it.
+PavedArea Pave (const std::vector<Path>& paths, double step = 0.5, bool surface = true,
+                PathOutlineCache* outlines = nullptr);
 
 // The step a preview of `paths` is paved at while a gesture edits them: the coarsest that keeps
 // the surface near `triangles` triangles, never finer than `finest` nor coarser than `coarsest`.
