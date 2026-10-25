@@ -41,7 +41,45 @@ struct Source {
     AlignmentGeometry geometry;
     PathOutline outline;
     std::vector<std::pair<Vec3, double>> junctions;
+    double x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the outline's plan bounds
+    double widest = 0;                     // its widest half width anywhere
+    // Where any of its junctions can reach: a junction's influence ends at twice its radius.
+    double jx0 = 0, jy0 = 0, jx1 = -1, jy1 = -1;
 };
+
+void BoundJunctions (Source& s)
+{
+    s.jx0 = s.jy0 = std::numeric_limits<double>::infinity ();
+    s.jx1 = s.jy1 = -std::numeric_limits<double>::infinity ();
+    for (const auto& [at, radius] : s.junctions) {
+        const double reach = 2.0 * radius;
+        s.jx0 = std::min (s.jx0, at.x - reach), s.jx1 = std::max (s.jx1, at.x + reach);
+        s.jy0 = std::min (s.jy0, at.y - reach), s.jy1 = std::max (s.jy1, at.y + reach);
+    }
+}
+
+void Bound (Source& s)
+{
+    s.x0 = s.x1 = s.outline.centre.front ().x;
+    s.y0 = s.y1 = s.outline.centre.front ().y;
+    for (const auto* edge : { &s.outline.left, &s.outline.right, &s.outline.centre })
+        for (const auto& q : *edge) {
+            s.x0 = std::min (s.x0, q.x), s.x1 = std::max (s.x1, q.x);
+            s.y0 = std::min (s.y0, q.y), s.y1 = std::max (s.y1, q.y);
+        }
+    for (const auto& r : s.path->sections)
+        s.widest =
+            std::max ({ s.widest, r.widthLeft, r.widthRight, r.taper ? r.endLeft : 0.0, r.taper ? r.endRight : 0.0 });
+}
+
+// No less than what SurfaceHeight can report as `beyond` at `p`: the point is at least the
+// bounds' distance from the centreline, and past an end `beyond` keeps the larger of the
+// side and the along terms, so half the remaining distance is always a floor.
+double BeyondFloor (const Source& s, Vec3 p)
+{
+    const double dx = std::max ({ s.x0 - p.x, 0.0, p.x - s.x1 }), dy = std::max ({ s.y0 - p.y, 0.0, p.y - s.y1 });
+    return 0.5 * (std::hypot (dx, dy) - s.widest) - 1.0e-9;
+}
 
 // The height at a plan point: the path it lies in (or nearest, at a junction's rounding).
 double HeightAt (const std::vector<Source>& sources, Vec3 p)
@@ -49,16 +87,21 @@ double HeightAt (const std::vector<Source>& sources, Vec3 p)
     double best = std::numeric_limits<double>::infinity (), z = 0.0;
     double weighted = 0, weights = 0, blend = 0;
     for (const auto& s : sources) {
+        double influence = 0;
+        if (p.x >= s.jx0 && p.x <= s.jx1 && p.y >= s.jy0 && p.y <= s.jy1)
+            for (const auto& [at, radius] : s.junctions) {
+                const double t = std::clamp (2.0 - DistanceXY (p, at) / radius, 0.0, 1.0);
+                influence = std::max (influence, t * t * (3 - 2 * t));
+            }
+        // A path that can neither be the nearest nor blend into a junction here changes
+        // nothing: skipping it is exact, not an approximation.
+        if (influence <= 0 && BeyondFloor (s, p) > best)
+            continue;
         double h = 0.0, beyond = 0.0;
         if (!SurfaceHeight (*s.path, s.geometry, p, h, beyond))
             continue;
         if (beyond < best)
             best = beyond, z = h;
-        double influence = 0;
-        for (const auto& [at, radius] : s.junctions) {
-            const double t = std::clamp (2.0 - DistanceXY (p, at) / radius, 0.0, 1.0);
-            influence = std::max (influence, t * t * (3 - 2 * t));
-        }
         if (influence <= 0)
             continue;
         double station = 0, offset = 0;
@@ -435,6 +478,7 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
         // Its own outline, clean: a tight bend's fold resolved.
         const cp::PathsD own = cp::Union (cp::PathsD { Polygon (s.outline) }, cp::FillRule::NonZero, kPrecision);
         united.insert (united.end (), own.begin (), own.end ());
+        Bound (s);
         sources.push_back (std::move (s));
     }
     if (united.empty ())
@@ -465,6 +509,8 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
             if (source.path->id == a.id || source.path->id == b.id)
                 source.junctions.push_back ({ j.at, reach + radius });
     }
+    for (auto& source : sources)
+        BoundJunctions (source);
     // One area: crossings and touching ends made junctions; then every corner its own rounding.
     united = cp::Union (united, cp::FillRule::NonZero, kPrecision);
     // Remove collinear sampling noise before choosing tangent directions/extents.

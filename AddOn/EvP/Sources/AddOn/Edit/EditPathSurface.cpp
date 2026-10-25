@@ -30,16 +30,31 @@ void ImproveEdges (PavedArea& area)
         size_t face;
         uint32_t opposite;
     };
+    struct Use {
+        Edge edge;
+        Incident at;
+    };
+    std::vector<Use> uses;
     for (int pass = 0; pass < 8; ++pass) {
-        std::map<Edge, std::vector<Incident>> edges;
+        // Every edge with the faces on it, in edge order and each edge's faces in the order
+        // they were met: what a std::map<Edge, std::vector<Incident>> gives, without a node per edge.
+        uses.clear ();
         for (size_t i = 0; i < area.triangles.size (); i += 3)
             for (int k = 0; k < 3; ++k)
-                edges[Key (area.triangles[i + k], area.triangles[i + (k + 1) % 3])].push_back (
-                    { i, area.triangles[i + (k + 2) % 3] });
+                uses.push_back ({ Key (area.triangles[i + k], area.triangles[i + (k + 1) % 3]),
+                                  { i, area.triangles[i + (k + 2) % 3] } });
+        std::stable_sort (uses.begin (), uses.end (), [] (const Use& x, const Use& y) { return x.edge < y.edge; });
         std::vector<bool> changed (area.triangles.size () / 3, false);
         bool flipped = false;
-        for (const auto& [edge, faces] : edges) {
-            if (faces.size () != 2 || changed[faces[0].face / 3] || changed[faces[1].face / 3])
+        for (size_t first = 0, last = 0; first < uses.size (); first = last) {
+            last = first + 1;
+            while (last < uses.size () && uses[last].edge == uses[first].edge)
+                ++last;
+            const Edge edge = uses[first].edge;
+            if (last - first != 2)
+                continue;
+            const Incident faces[2] = { uses[first].at, uses[first + 1].at };
+            if (changed[faces[0].face / 3] || changed[faces[1].face / 3])
                 continue;
             const auto [a, b] = edge;
             const uint32_t c = faces[0].opposite, d = faces[1].opposite;
@@ -161,13 +176,34 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
     for (const auto& p : samples) {
         if (known.contains (key (p)) || area.triangles.size () / 3 >= kMaxTriangles)
             continue;
-        std::vector<uint32_t> next;
-        uint32_t made = UINT32_MAX;
+        // The triangles it splits. One it lies well outside (beyond the barycentric tolerance)
+        // is never one of them, so a sample that splits none leaves the mesh as it was.
+        const auto splits = [&] (size_t i, std::array<double, 3>& w) {
+            const Vec3 &a = area.vertices[area.triangles[i]], &b = area.vertices[area.triangles[i + 1]],
+                       &c = area.vertices[area.triangles[i + 2]];
+            constexpr double e = 1e-6;
+            if (p.x < std::min ({ a.x, b.x, c.x }) - e || p.x > std::max ({ a.x, b.x, c.x }) + e ||
+                p.y < std::min ({ a.y, b.y, c.y }) - e || p.y > std::max ({ a.y, b.y, c.y }) + e)
+                return false;
+            return Weights (p, a, b, c, w) && *std::max_element (w.begin (), w.end ()) <= 1 - 1e-9;
+        };
+        size_t firstSplit = area.triangles.size ();
         for (size_t i = 0; i + 2 < area.triangles.size (); i += 3) {
+            std::array<double, 3> w;
+            if (splits (i, w)) {
+                firstSplit = i;
+                break;
+            }
+        }
+        if (firstSplit == area.triangles.size ())
+            continue;
+        std::vector<uint32_t> next (area.triangles.begin (), area.triangles.begin () + firstSplit);
+        next.reserve (area.triangles.size () + 6);
+        uint32_t made = UINT32_MAX;
+        for (size_t i = firstSplit; i + 2 < area.triangles.size (); i += 3) {
             const uint32_t a = area.triangles[i], b = area.triangles[i + 1], c = area.triangles[i + 2];
             std::array<double, 3> w;
-            if (!Weights (p, area.vertices[a], area.vertices[b], area.vertices[c], w) ||
-                *std::max_element (w.begin (), w.end ()) > 1 - 1e-9) {
+            if (!splits (i, w)) {
                 next.insert (next.end (), { a, b, c });
                 continue;
             }
@@ -186,14 +222,26 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
     ImproveEdges (area);
     // Mark edges globally before splitting triangles: neighbours always receive
     // the same midpoint, so refinement introduces neither cracks nor T-junctions.
+    // The long edges in key order, each with its midpoint's vertex: a sorted table rather
+    // than a std::map, the vertices numbered in the same order.
+    std::vector<std::pair<Edge, uint32_t>> mid;
+    const auto midpoint = [&] (uint32_t a, uint32_t b) {
+        const Edge key = Key (a, b);
+        const auto at =
+            std::lower_bound (mid.begin (), mid.end (), key,
+                              [] (const std::pair<Edge, uint32_t>& m, const Edge& k) { return m.first < k; });
+        return at != mid.end () && at->first == key ? at : mid.end ();
+    };
     for (int pass = 0; pass < 24; ++pass) {
-        std::map<Edge, uint32_t> mid;
+        mid.clear ();
         for (size_t i = 0; i < area.triangles.size (); i += 3)
             for (int k = 0; k < 3; ++k) {
                 const uint32_t a = area.triangles[i + k], b = area.triangles[i + (k + 1) % 3];
                 if (DistanceXY (area.vertices[a], area.vertices[b]) > step * (1 + 1e-9))
-                    mid.emplace (Key (a, b), 0);
+                    mid.emplace_back (Key (a, b), 0);
             }
+        std::sort (mid.begin (), mid.end ());
+        mid.erase (std::unique (mid.begin (), mid.end ()), mid.end ());
         if (mid.empty () || area.triangles.size () / 3 + 2 * mid.size () > kMaxTriangles)
             break;
         for (auto& [edge, index] : mid) {
@@ -203,10 +251,11 @@ void RefinePavedSurface (PavedArea& area, const std::vector<Vec3>& samples, doub
             area.vertices.push_back (p);
         }
         std::vector<uint32_t> next;
+        next.reserve (area.triangles.size () + 9 * mid.size ());
         const auto triangle = [&] (uint32_t a, uint32_t b, uint32_t c) { next.insert (next.end (), { a, b, c }); };
         for (size_t i = 0; i < area.triangles.size (); i += 3) {
             const uint32_t a = area.triangles[i], b = area.triangles[i + 1], c = area.triangles[i + 2];
-            const auto ab = mid.find (Key (a, b)), bc = mid.find (Key (b, c)), ca = mid.find (Key (c, a));
+            const auto ab = midpoint (a, b), bc = midpoint (b, c), ca = midpoint (c, a);
             const int mask = (ab != mid.end () ? 1 : 0) | (bc != mid.end () ? 2 : 0) | (ca != mid.end () ? 4 : 0);
             const uint32_t x = ab != mid.end () ? ab->second : 0, y = bc != mid.end () ? bc->second : 0,
                            z = ca != mid.end () ? ca->second : 0;
