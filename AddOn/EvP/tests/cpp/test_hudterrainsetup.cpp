@@ -33,32 +33,64 @@ edit::Id AddDesignPath (edit::Document& doc, double y = 0)
     return path;
 }
 
+struct PanelGui {
+    ImGuiContext* previous = ImGui::GetCurrentContext ();
+    ImGuiContext* context = ImGui::CreateContext ();
+    PanelGui ()
+    {
+        auto& io = ImGui::GetIO ();
+        io.IniFilename = nullptr;
+        io.DisplaySize = { 900, 1400 };
+        io.DeltaTime = 1.0f / 60;
+        unsigned char* pixels = nullptr;
+        int width = 0, height = 0;
+        io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
+    }
+    ~PanelGui ()
+    {
+        ImGui::DestroyContext (context);
+        ImGui::SetCurrentContext (previous);
+    }
+    std::string Frame (eh::Session& session, ImVec2 pointer = { 850, 1350 }, bool down = false)
+    {
+        auto& io = ImGui::GetIO ();
+        io.AddMousePosEvent (pointer.x, pointer.y);
+        io.AddMouseButtonEvent (0, down);
+        ImGui::NewFrame ();
+        ImGui::SetNextWindowPos ({ 0, 0 });
+        ImGui::SetNextWindowSize ({ 700, 1300 });
+        ImGui::Begin ("terrain setup", nullptr, ImGuiWindowFlags_NoSavedSettings);
+        ImGui::LogToBuffer ();
+        eh::TerrainDesignPanel (session);
+        const std::string text = context->LogBuffer.c_str ();
+        ImGui::LogFinish ();
+        ImGui::End ();
+        ImGui::Render ();
+        return text;
+    }
+    bool ClickSectionControl (eh::Session& session, const char* label)
+    {
+        Frame (session);
+        auto* window = ImGui::FindWindowByName ("terrain setup");
+        const auto section = ImHashStr ("Terrain cross-section", 0, window->ID);
+        const auto target = ImHashStr (label, 0, section);
+        for (float y = 24; y < 1250; y += 4) {
+            const ImVec2 point { 40, y };
+            Frame (session, point);
+            if (context->HoveredId != target)
+                continue;
+            Frame (session, point, true);
+            Frame (session, point, false);
+            return true;
+        }
+        return false;
+    }
+};
+
 std::string PanelText (eh::Session& session)
 {
-    auto* previous = ImGui::GetCurrentContext ();
-    auto* context = ImGui::CreateContext ();
-    const auto cleanup = [previous] (ImGuiContext* value) {
-        ImGui::DestroyContext (value);
-        ImGui::SetCurrentContext (previous);
-    };
-    std::unique_ptr<ImGuiContext, decltype (cleanup)> held (context, cleanup);
-    auto& io = ImGui::GetIO ();
-    io.IniFilename = nullptr;
-    io.DisplaySize = { 900, 1400 };
-    io.DeltaTime = 1.0f / 60;
-    unsigned char* pixels = nullptr;
-    int width = 0, height = 0;
-    io.Fonts->GetTexDataAsRGBA32 (&pixels, &width, &height);
-    ImGui::NewFrame ();
-    ImGui::SetNextWindowSize ({ 700, 1300 });
-    ImGui::Begin ("terrain setup", nullptr, ImGuiWindowFlags_NoSavedSettings);
-    ImGui::LogToBuffer ();
-    eh::TerrainDesignPanel (session);
-    const std::string text = context->LogBuffer.c_str ();
-    ImGui::LogFinish ();
-    ImGui::End ();
-    ImGui::Render ();
-    return text;
+    PanelGui gui;
+    return gui.Frame (session);
 }
 } // namespace
 
@@ -227,7 +259,7 @@ TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAnd
     const auto path = AddDesignPath (doc);
     const auto before = edit::FindPath (doc, path)->sections.front ();
     eh::Session session (doc);
-    for (int mutation = 0; mutation < 7; ++mutation) {
+    for (int mutation = 0; mutation < 11; ++mutation) {
         ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, before.id));
         auto& value = session.terrainSectionDraft->value;
         switch (mutation) {
@@ -251,6 +283,22 @@ TEST (HudTerrainSetup, InvalidOrIdentityChangingSectionDraftsRefuseAtomicallyAnd
                 break;
             case 6:
                 value.fall = static_cast<edit::Fall> (255);
+                break;
+            case 7:
+                value.taper = true;
+                value.endLeft = -1;
+                break;
+            case 8:
+                value.taper = true;
+                value.endRight = std::numeric_limits<double>::quiet_NaN ();
+                break;
+            case 9:
+                value.taper = true;
+                value.endLeft = value.endRight = 0;
+                break;
+            case 10:
+                value.taper = true;
+                value.endLeft = std::numeric_limits<double>::infinity ();
                 break;
         }
         EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session)) << mutation;
@@ -297,8 +345,83 @@ TEST (HudTerrainSetup, PanelRendersExplicitSectionParametersInsteadOfOnlyCapture
     AddDesignPath (doc);
     eh::Session session (doc);
     const auto text = PanelText (session);
-    for (const char* label : { "Left width", "Right width", "Crossfall", "Shoulder", "Cut slope", "Fill slope",
-                               "Rounding", "Reload section values" })
+    for (const char* label : { "Left width", "Right width", "Taper widths", "Crossfall", "Shoulder", "Cut slope",
+                               "Fill slope", "Rounding", "Reload section values" })
         EXPECT_NE (text.find (label), std::string::npos) << label << "\n" << text;
     EXPECT_EQ (session.edits.UndoDepth (), 0U);
+}
+
+TEST (HudTerrainSetup, TaperCheckboxSeedsCurrentWidthsAndResetsEndsInOneUndoableEdit)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto range = edit::FindPath (doc, path)->sections.front ().id;
+    std::string error;
+    ASSERT_TRUE (edit::SetPathWidth (doc, path, range, 2.5, 1.5, error)) << error;
+    eh::Session session (doc);
+    PanelGui gui;
+    ASSERT_TRUE (gui.ClickSectionControl (session, "Taper widths"));
+    auto section = edit::FindPath (session.edits.Doc (), path)->sections.front ();
+    EXPECT_TRUE (section.taper);
+    EXPECT_EQ (section.endLeft, 2.5);
+    EXPECT_EQ (section.endRight, 1.5);
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    const auto text = gui.Frame (session);
+    EXPECT_NE (text.find ("Left end width"), std::string::npos) << text;
+    EXPECT_NE (text.find ("Right end width"), std::string::npos) << text;
+    session.terrainSectionDraft->value.endLeft = 4;
+    session.terrainSectionDraft->value.endRight = .5;
+    ASSERT_TRUE (eh::ApplyTerrainSectionEdit (session)) << session.message;
+    ASSERT_TRUE (gui.ClickSectionControl (session, "Taper widths"));
+    section = edit::FindPath (session.edits.Doc (), path)->sections.front ();
+    EXPECT_FALSE (section.taper);
+    EXPECT_EQ (section.endLeft, section.widthLeft);
+    EXPECT_EQ (section.endRight, section.widthRight);
+    EXPECT_EQ (session.edits.UndoDepth (), 3U);
+    EXPECT_EQ (gui.Frame (session).find ("Left end width"), std::string::npos);
+    ASSERT_TRUE (session.edits.Undo ());
+    section = edit::FindPath (session.edits.Doc (), path)->sections.front ();
+    EXPECT_TRUE (section.taper);
+    EXPECT_EQ (section.endLeft, 4);
+    EXPECT_EQ (section.endRight, .5);
+    ASSERT_TRUE (session.edits.Redo ());
+    EXPECT_FALSE (edit::FindPath (session.edits.Doc (), path)->sections.front ().taper);
+}
+
+TEST (HudTerrainSetup, TaperEndWidthsDragLiveAndPersistWithoutChangingTheStartWidths)
+{
+    auto doc = EmptyLandscape ();
+    const auto path = AddDesignPath (doc);
+    const auto range = edit::FindPath (doc, path)->sections.front ().id;
+    std::string error;
+    ASSERT_TRUE (edit::SetPathTaper (doc, path, range, true, 1, 1, error)) << error;
+    const auto before = edit::FindPath (doc, path)->sections.front ();
+    eh::Session session (doc);
+    ASSERT_TRUE (eh::BeginTerrainSectionEdit (session, range));
+    ASSERT_TRUE (eh::BeginTerrainSectionDrag (session));
+    for (const double width : { 1.5, 2.5, 3.5 }) {
+        session.terrainSectionDraft->value.endLeft = width;
+        session.terrainSectionDraft->value.endRight = .5;
+        ASSERT_TRUE (eh::MoveTerrainSectionDrag (session)) << session.message;
+        const auto& section = edit::FindPath (session.edits.Doc (), path)->sections.front ();
+        EXPECT_EQ (section.endLeft, width);
+        EXPECT_EQ (section.endRight, .5);
+        EXPECT_EQ (section.widthLeft, before.widthLeft);
+        EXPECT_EQ (section.widthRight, before.widthRight);
+        EXPECT_EQ (session.edits.UndoDepth (), 0U);
+    }
+    eh::EndTerrainSectionDrag (session);
+    EXPECT_EQ (session.edits.UndoDepth (), 1U);
+    const auto expected = edit::FindPath (session.edits.Doc (), path)->sections.front ();
+    std::string text;
+    ASSERT_TRUE (lg::WriteLandscape (session.edits.Doc (), lg::LandscapeStorage::Virtual, text, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (lg::ReadLandscape (text, loaded, error)) << error;
+    EXPECT_EQ (edit::FindPath (loaded, path)->sections.front (), expected);
+    ASSERT_TRUE (session.edits.Undo ());
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), before);
+    EXPECT_FALSE (eh::ApplyTerrainSectionEdit (session));
+    EXPECT_NE (session.message.find ("TerrainSectionStale:"), std::string::npos);
+    ASSERT_TRUE (session.edits.Redo ());
+    EXPECT_EQ (edit::FindPath (session.edits.Doc (), path)->sections.front (), expected);
 }

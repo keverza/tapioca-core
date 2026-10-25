@@ -262,6 +262,19 @@ void SectionPanel (Session& s, edit::Id path)
     };
     slide ("Left width", value.widthLeft, 0.0, 10.0, "%.2f m");
     slide ("Right width", value.widthRight, 0.0, 10.0, "%.2f m");
+    bool taper = value.taper;
+    if (ImGui::Checkbox ("Taper widths", &taper)) {
+        std::vector<edit::Section> changed { value };
+        if (edit::SetTaper (changed, value.id, taper, -1.0, -1.0, s.message)) {
+            value = changed.front ();
+            release = true;
+        }
+    }
+    if (value.taper) {
+        slide ("Left end width", value.endLeft, 0.0, 10.0, "%.2f m");
+        slide ("Right end width", value.endRight, 0.0, 10.0, "%.2f m");
+        ImGui::TextWrapped ("End widths apply at the next range's start, or at the path end for the last range.");
+    }
     slide ("Crossfall", value.crossfall, 0.0, 10.0, "%.1f %%");
     const char* fall = value.fall == edit::Fall::Left ? "Left" : value.fall == edit::Fall::Right ? "Right" : "Crown";
     if (ImGui::BeginCombo ("Falls to", fall)) {
@@ -284,7 +297,8 @@ void SectionPanel (Session& s, edit::Id path)
     if (ImGui::Button ("Reload section values"))
         BeginTerrainSectionEdit (s, draft->section);
     ImGui::TextWrapped (
-        "Each change applies when released, as one undo step. Profile elevations stay in the path profile.");
+        "Sliders update while dragging; release records one undo step. Ctrl+click a slider to type a value. "
+        "Profile elevations stay in the path profile.");
     ImGui::TreePop ();
 }
 } // namespace
