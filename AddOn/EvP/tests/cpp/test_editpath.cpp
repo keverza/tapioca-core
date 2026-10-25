@@ -4,6 +4,7 @@
 #include "Edit/EditSnap.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <tuple>
 
 namespace ed = geomsrv::edit;
 
@@ -537,4 +538,79 @@ TEST (EditPath, AFallIsSetForEveryRangeAndFlipped)
     EXPECT_EQ (ed::FindPath (doc, p)->sections[0].fall, ed::Fall::Left);
     EXPECT_EQ (ed::FindPath (doc, p)->sections[1].fall, ed::Fall::Right);
     EXPECT_EQ (ed::Flipped (ed::Fall::Crown), ed::Fall::Crown);
+}
+
+TEST (EditPath, ATaperedRangeWidensTheOutlineWithoutAStep)
+{
+    Footpath f;
+    std::string error;
+    ed::Id wide = 0;
+    ASSERT_TRUE (ed::SplitPathSection (f.doc, f.path, 20.0, error, &wide)) << error;
+    const ed::Id first = f.P ().sections[0].id;
+    ASSERT_TRUE (ed::SetPathTaper (f.doc, f.path, first, true, 2.0, -1.0, error)) << error;
+    ASSERT_TRUE (ed::SetPathWidth (f.doc, f.path, wide, 2.0, 1.0, error)) << error;
+    f.Valid ();
+    ed::PathOutline o;
+    ASSERT_TRUE (ed::Outline (f.P (), 1.0, o, error)) << error;
+    for (size_t i = 0; i < o.stations.size () && o.stations[i] <= 20.0; ++i)
+        EXPECT_NEAR (o.left[i].y, 1.0 + o.stations[i] / 20.0, 1e-9) << o.stations[i];
+    for (size_t i = 1; i < o.stations.size () && o.stations[i] <= 30.0; ++i)
+        EXPECT_LT (std::abs (o.left[i].y - o.left[i - 1].y), 0.06) << o.stations[i]; // no step at 20 m
+    ed::StationFrame frame;
+    ASSERT_TRUE (ed::Evaluate (f.P (), f.G (), 10.0, frame));
+    EXPECT_NEAR (frame.section.widthLeft, 1.5, 1e-12);
+    EXPECT_NEAR (frame.leftEdge.z - frame.centre.z, -0.02 * 1.5, 1e-9); // the crossfall drop follows
+}
+
+TEST (EditPath, DraggingATaperedEdgeSetsTheNearerEndWidth)
+{
+    Footpath f;
+    std::string error;
+    ed::Id wide = 0;
+    ASSERT_TRUE (ed::SplitPathSection (f.doc, f.path, 20.0, error, &wide)) << error;
+    const ed::Id first = f.P ().sections[0].id;
+    ASSERT_TRUE (ed::SetPathTaper (f.doc, f.path, first, true, 1.0, 1.0, error)) << error;
+    ASSERT_TRUE (ed::SetPathWidthFromPoint (f.doc, f.path, { 16, 1.8, 0 }, error)) << error;
+    EXPECT_NEAR (f.P ().sections[0].endLeft, 1.8, 1e-9);
+    EXPECT_NEAR (f.P ().sections[0].widthLeft, 1.0, 1e-9);
+    ASSERT_TRUE (ed::SetPathWidthFromPoint (f.doc, f.path, { 4, -0.6, 0 }, error)) << error;
+    EXPECT_NEAR (f.P ().sections[0].widthRight, 0.6, 1e-9);
+    EXPECT_NEAR (f.P ().sections[0].endRight, 1.0, 1e-9);
+}
+
+TEST (EditPath, ReversingAndSplittingATaperKeepItsEdgesInPlace)
+{
+    ed::Document doc;
+    std::string error;
+    const ed::Id a = ed::AddPath (doc, { { 0, 0, 0 }, { 10, 0, 0 } }, 2.0);
+    const ed::Id b = ed::AddPath (doc, { { 0, 0, 0 }, { -10, 0, 0 } }, 2.0);
+    ASSERT_TRUE (ed::SetPathTaper (doc, a, ed::FindPath (doc, a)->sections[0].id, true, 2.0, 0.5, error)) << error;
+    ASSERT_TRUE (ed::JoinPathEnds (doc, a, true, b, true, error)) << error; // a runs west now
+    const ed::Path* joined = ed::FindPath (doc, a);
+    ASSERT_NE (joined, nullptr);
+    ed::AlignmentGeometry g;
+    ASSERT_TRUE (ed::ValidatePath (*joined, g, error)) << error;
+    ed::StationFrame at;
+    for (double s : { 0.0, 5.0, 9.0 }) { // plan x = 10 - s; was left 1 -> 2, right 1 -> 0.5 eastward
+        ASSERT_TRUE (ed::Evaluate (*joined, g, s, at));
+        const double t = (10.0 - s) / 10.0;
+        EXPECT_NEAR (at.rightEdge.y, 1.0 + t, 1e-9) << s;
+        EXPECT_NEAR (at.leftEdge.y, -(1.0 - 0.5 * t), 1e-9) << s;
+    }
+    ASSERT_TRUE (ed::Evaluate (*joined, g, 15.0, at));
+    EXPECT_NEAR (at.leftEdge.y, -1.0, 1e-9); // b keeps its own width
+
+    ed::Document straight;
+    const ed::Id p = ed::AddPath (straight, { { 0, 0, 0 }, { 20, 0, 0 } }, 2.0);
+    ASSERT_TRUE (ed::SetPathTaper (straight, p, ed::FindPath (straight, p)->sections[0].id, true, 3.0, 1.0, error));
+    ed::Id piece = 0;
+    ASSERT_TRUE (ed::SplitPath (straight, p, 5.0, error, &piece)) << error;
+    for (const auto& [id, s, x] : { std::tuple { p, 2.5, 2.5 }, std::tuple { p, 5.0, 5.0 },
+                                    std::tuple { piece, 0.0, 5.0 }, std::tuple { piece, 10.0, 15.0 } }) {
+        const ed::Path* q = ed::FindPath (straight, id);
+        ASSERT_NE (q, nullptr);
+        ASSERT_TRUE (ed::ValidatePath (*q, g, error)) << error;
+        ASSERT_TRUE (ed::Evaluate (*q, g, s, at));
+        EXPECT_NEAR (at.leftEdge.y, 1.0 + 2.0 * x / 20.0, 1e-9) << id << " " << s;
+    }
 }

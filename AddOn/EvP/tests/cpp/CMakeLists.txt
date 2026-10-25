@@ -801,6 +801,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSnapTargets.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditWorkingPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditTracker.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmo.cpp"
@@ -816,6 +817,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPlanarFaces.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscape.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEntrance.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEdge.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeEval.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapeGeometry.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditLandscapePreview.cpp"
@@ -832,7 +834,10 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathTopology.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditPathSurface.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditPathOutlineCache.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditProfileView.cpp")
+# The kernel without the Rust terrain bridge, for the editor benchmark.
+set (EVP_EDIT_CORE_SOURCES ${EVP_EDIT_SOURCES})
 
 if (TAPIOCA_LINK_RUST_GEOMETRY)
     list (APPEND EVP_EDIT_SOURCES
@@ -865,6 +870,10 @@ set (EVP_TEST_SOURCES
     test_editplanarrobustfaces.cpp
     test_editlandscape.cpp
     test_editlandscapeentrance.cpp
+    test_editlandscapeedge.cpp
+    test_editgesturereplay.cpp
+    test_editpathoutlinecache.cpp
+    test_editsnaptargets.cpp
     test_editlandscapeconstraints.cpp
     test_editlandscapefillet.cpp
     test_editlandscapegenerated.cpp
@@ -1267,6 +1276,17 @@ if (TAPIOCA_LINK_RUST_GEOMETRY)
     TapiocaLinkRustCore (EvPGeomTests)
 endif ()
 option (TAPIOCA_BUILD_GEOMETRY_BENCHMARKS "Build opt-in geometry measurement executables" OFF)
+# The editor kernel's share of a locked editor's frame, replayed (edit_gesture_replay.hpp).
+# Needs neither Rust nor Archicad: the edit kernel, Fillet2D, Json and Clipper2.
+option (TAPIOCA_BUILD_EDIT_BENCHMARK "Build the opt-in editor gesture replay benchmark" OFF)
+if (TAPIOCA_BUILD_EDIT_BENCHMARK)
+    add_executable (TapiocaEditBench benchmark_edit.cpp ${EVP_EDIT_CORE_SOURCES}
+        "${GEOM_DIR}/Fillet2D.cpp" "${EVP_ROOT}/Sources/AddOn/NodeGraph/Json.cpp")
+    target_compile_features (TapiocaEditBench PRIVATE cxx_std_20)
+    target_include_directories (TapiocaEditBench PRIVATE "${EVP_ROOT}/Sources/AddOn" "${GEOM_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries (TapiocaEditBench PRIVATE TapiocaClipper2)
+endif ()
 if (TAPIOCA_LINK_RUST_GEOMETRY)
     set_source_files_properties (test_geometry_rust_terrain_corpus.cpp PROPERTIES COMPILE_DEFINITIONS
         TAPIOCA_TERRAIN_CORPUS="${EVP_ROOT}/rust/tests/fixtures/landscape.terrain")

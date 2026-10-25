@@ -134,20 +134,20 @@ bool Evaluate (const Path& path, const AlignmentGeometry& g, double station, Sta
 {
     Placement at;
     double z = 0.0, grade = 0.0;
-    const Section* section = SectionAt (path.sections, station);
-    if (section == nullptr || !Locate (g, station, at) || !Elevation (path.profile, station, z, &grade))
+    if (path.sections.empty () || !Locate (g, station, at) || !Elevation (path.profile, station, z, &grade))
         return false;
+    const Section section = SectionIn (path.sections, g.length, station);
     out.station = station;
     out.centre = { at.point.x, at.point.y, z };
     out.tangent = at.tangent;
     out.left = at.left;
     out.curvature = at.curvature;
     out.grade = grade;
-    out.section = *section;
+    out.section = section;
     double dropLeft = 0.0, dropRight = 0.0;
-    EdgeDrops (*section, dropLeft, dropRight);
-    out.leftEdge = out.centre + at.left * section->widthLeft + Vec3 { 0.0, 0.0, dropLeft };
-    out.rightEdge = out.centre - at.left * section->widthRight + Vec3 { 0.0, 0.0, dropRight };
+    EdgeDrops (section, dropLeft, dropRight);
+    out.leftEdge = out.centre + at.left * section.widthLeft + Vec3 { 0.0, 0.0, dropLeft };
+    out.rightEdge = out.centre - at.left * section.widthRight + Vec3 { 0.0, 0.0, dropRight };
     return true;
 }
 
@@ -159,7 +159,8 @@ bool Outline (const Path& path, double maxStep, PathOutline& out, std::string& e
         return false;
     std::vector<double> stations = SampleStations (path, g, maxStep);
     for (size_t i = 1; i < path.sections.size (); ++i)
-        stations.push_back (std::max (0.0, path.sections[i].station - 1.0e-3));
+        if (!path.sections[i - 1].taper)
+            stations.push_back (std::max (0.0, path.sections[i].station - 1.0e-3));
     std::sort (stations.begin (), stations.end ());
     for (double s : stations) {
         StationFrame f;
