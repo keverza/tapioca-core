@@ -90,20 +90,22 @@ class RayWorkerTraversal final : public sunstudy::ITraversal {
     mutable std::atomic<uint64_t> gpuCalls_ { 0 };
 };
 
-// TAPIOCA_SUNSTUDY_TRAVERSAL=dxr (case-insensitive). Anything else, or unset,
-// leaves the study's own traversal.
-bool DxrTraversalRequested ();
+// TAPIOCA_SUNSTUDY_TRAVERSAL, lower-cased, when it names a worker backend:
+// "dxr" or "optix". Anything else, or unset, is "" and leaves the study's own
+// traversal.
+std::string RequestedWorkerTraversal ();
 
 // The scene a worker uploads: the analysis index's snapshot, then the context
 // index's (occlusion is the OR of both, as SunStudyPartitionTraversal does).
 std::shared_ptr<const packet::Scene> SceneFromIndices (const geomsrv::QueryEngine* analysis,
                                                        const geomsrv::QueryEngine* context);
 
-// The add-on's DXR worker channel (TapiocaDxrWorker.exe beside the .apx),
-// created on first use.
-std::shared_ptr<RayWorkerChannel> DxrWorkerChannel ();
-// Quit/FreeData: stop the DXR worker before the module goes away. Idempotent.
-void ShutdownDxrWorker ();
+// The add-on's channel for `backend` ("dxr" -> TapiocaDxrWorker.exe, "optix"
+// -> TapiocaOptixWorker.exe, beside the .apx), created on first use; null for
+// any other name. One worker per backend per session.
+std::shared_ptr<RayWorkerChannel> WorkerChannel (const std::string& backend);
+// Quit/FreeData: stop every worker before the module goes away. Idempotent.
+void ShutdownRayWorkers ();
 
 } // namespace evp::rayworker
 

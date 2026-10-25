@@ -246,10 +246,10 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // a kill second, and neither wants to run during an unload. Stop is
             // a no-op when no worker was ever started.
             evp::grasshopper::GhWorkerHost::Get ().Stop ();
-            // The DXR ray worker: after the sun follower stopped calculating,
+            // The GPU ray workers (DXR, OptiX): after the sun follower stopped calculating,
             // before the module goes. Its job object would kill it anyway; this
             // joins the host's reader thread while that is still safe.
-            evp::rayworker::ShutdownDxrWorker ();
+            evp::rayworker::ShutdownRayWorkers ();
             // The compute worker is a second external process holding a Rhino
             // licence. Its job object would kill it when this process ends
             // anyway, but stopping it here makes the shutdown ORDERLY and
@@ -699,8 +699,8 @@ GSErrCode FreeData (void)
     // is that no bridge thread and no orphaned worker process is still holding a
     // pipe into this module once it is gone.
     evp::grasshopper::GhWorkerHost::Get ().Stop ();
-    // The DXR ray worker, for the same reason (idempotent after Quit).
-    evp::rayworker::ShutdownDxrWorker ();
+    // The GPU ray workers, for the same reason (idempotent after Quit).
+    evp::rayworker::ShutdownRayWorkers ();
     // Detach BEFORE the gate shuts down. After this, a graph evaluation still in
     // flight sees no host and fails its Archicad nodes cleanly, instead of
     // marshalling ACAPI work into a module that is being unloaded.

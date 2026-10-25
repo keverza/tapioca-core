@@ -24,6 +24,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <filesystem>
 #include <memory>
@@ -319,6 +320,38 @@ TEST (RayWorkerTraversal, TheDxrWorkerExecutableAnswersWhatTheCpuTraversalAnswer
         GTEST_SKIP () << "no DXR here: " << GpuReasonCode (traversal.FallbackReason ());
     EXPECT_EQ (traversal.GpuCalls (), 6u);
     channel->Shutdown ();
+}
+
+TEST (RayWorkerTraversal, TheOverrideNamesOnlyKnownWorkers)
+{
+    const char* saved = std::getenv ("TAPIOCA_SUNSTUDY_TRAVERSAL");
+    const std::string restore = saved != nullptr ? saved : "";
+    _putenv_s ("TAPIOCA_SUNSTUDY_TRAVERSAL", "OptiX");
+    EXPECT_EQ (RequestedWorkerTraversal (), "optix");
+    _putenv_s ("TAPIOCA_SUNSTUDY_TRAVERSAL", "dxr");
+    EXPECT_EQ (RequestedWorkerTraversal (), "dxr");
+    _putenv_s ("TAPIOCA_SUNSTUDY_TRAVERSAL", "cuda");
+    EXPECT_EQ (RequestedWorkerTraversal (), "");
+    _putenv_s ("TAPIOCA_SUNSTUDY_TRAVERSAL", "");
+    EXPECT_EQ (RequestedWorkerTraversal (), "");
+    _putenv_s ("TAPIOCA_SUNSTUDY_TRAVERSAL", restore.c_str ());
+    EXPECT_EQ (WorkerChannel ("cuda"), nullptr);
+}
+
+TEST (RayWorkerTraversal, TheOptixWorkerExecutableAnswersWhatTheCpuTraversalAnswers)
+{
+#if !defined(TAPIOCA_TEST_OPTIX_WORKER)
+    GTEST_SKIP () << "built without the CUDA toolkit and OptiX SDK";
+#else
+    TraversalFixture f;
+    auto channel = std::make_shared<RayWorkerChannel> (WorkerBesideTests (L"TapiocaOptixWorker.exe"));
+    RayWorkerTraversal traversal (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "optix");
+    f.ExpectSameAsCpu (traversal);
+    if (traversal.ActualBackend () != "optix")
+        GTEST_SKIP () << "no OptiX here: " << GpuReasonCode (traversal.FallbackReason ());
+    EXPECT_EQ (traversal.GpuCalls (), 6u);
+    channel->Shutdown ();
+#endif
 }
 
 } // namespace

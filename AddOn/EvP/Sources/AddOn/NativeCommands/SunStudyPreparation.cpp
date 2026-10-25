@@ -88,18 +88,20 @@ void FinishSunStudyPreparation (evp::sunstudy::StudyRecord& record, std::shared_
     // Both producers choose explicitly. CPU remains the public default; FP64
     // GPU packets retain exact fallback and lazy device creation.
     //
-    // ⚠️ TAPIOCA_SUNSTUDY_TRAVERSAL=dxr IS A DEVELOPER OVERRIDE, AND WINS WHEN SET:
-    // the follower re-issues `backend` from the stored metadata, so an explicit
-    // request cannot be told from a rerun here yet (the G1 selector carries the
-    // request). The CPU partition traversal stays underneath as the fallback.
-    if (evp::rayworker::DxrTraversalRequested () && record.occluders != nullptr) {
+    // ⚠️ TAPIOCA_SUNSTUDY_TRAVERSAL=dxr|optix IS A DEVELOPER OVERRIDE, AND WINS WHEN
+    // SET: the follower re-issues `backend` from the stored metadata, so an
+    // explicit request cannot be told from a rerun here yet (the G1 selector
+    // carries the request). The CPU partition traversal stays underneath as the
+    // fallback.
+    const std::string worker = evp::rayworker::RequestedWorkerTraversal ();
+    if (!worker.empty () && record.occluders != nullptr) {
         const auto scene =
             evp::rayworker::SceneFromIndices (record.occluders->analysis.get (), record.occluders->context.get ());
         record.traversal = std::make_shared<evp::rayworker::RayWorkerTraversal> (
-            record.traversal, evp::rayworker::DxrWorkerChannel (), scene, "dxr",
+            record.traversal, evp::rayworker::WorkerChannel (worker), scene, worker,
             [] (const std::string& line) { archviz::ArchVizLog (line); });
         archviz::ArchVizLog ("pipeline: stage=sun-traversal snapshot=" + std::to_string (record.snapshotId) +
-                             " requested=dxr backendParam=" + record.backend +
+                             " requested=" + worker + " backendParam=" + record.backend +
                              " triangles=" + std::to_string (scene->triangles.size () / 3));
     }
     else if (record.backend == "gpu") {

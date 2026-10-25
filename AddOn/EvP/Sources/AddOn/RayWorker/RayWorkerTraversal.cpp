@@ -34,6 +34,7 @@ std::atomic<uint64_t> gNextEpoch { 1 };
 
 std::mutex gChannelMutex;
 std::shared_ptr<RayWorkerChannel> gDxrChannel;
+std::shared_ptr<RayWorkerChannel> gOptixChannel;
 
 std::wstring BesideThisModule (const wchar_t* fileName)
 {
@@ -198,15 +199,15 @@ GpuReason RayWorkerTraversal::FallbackReason () const
 
 // ---- selection and the add-on's channel ------------------------------------
 
-bool DxrTraversalRequested ()
+std::string RequestedWorkerTraversal ()
 {
     const char* value = std::getenv ("TAPIOCA_SUNSTUDY_TRAVERSAL");
     if (value == nullptr)
-        return false;
+        return {};
     std::string text (value);
     std::transform (text.begin (), text.end (), text.begin (),
                     [] (unsigned char c) { return static_cast<char> (std::tolower (c)); });
-    return text == "dxr";
+    return text == "dxr" || text == "optix" ? text : std::string ();
 }
 
 std::shared_ptr<const packet::Scene> SceneFromIndices (const geomsrv::QueryEngine* analysis,
@@ -229,23 +230,33 @@ std::shared_ptr<const packet::Scene> SceneFromIndices (const geomsrv::QueryEngin
     return scene;
 }
 
-std::shared_ptr<RayWorkerChannel> DxrWorkerChannel ()
+std::shared_ptr<RayWorkerChannel> WorkerChannel (const std::string& backend)
 {
     std::lock_guard<std::mutex> lock (gChannelMutex);
-    if (gDxrChannel == nullptr)
-        gDxrChannel = std::make_shared<RayWorkerChannel> (BesideThisModule (L"TapiocaDxrWorker.exe"));
-    return gDxrChannel;
+    if (backend == "dxr") {
+        if (gDxrChannel == nullptr)
+            gDxrChannel = std::make_shared<RayWorkerChannel> (BesideThisModule (L"TapiocaDxrWorker.exe"));
+        return gDxrChannel;
+    }
+    if (backend == "optix") {
+        if (gOptixChannel == nullptr)
+            gOptixChannel = std::make_shared<RayWorkerChannel> (BesideThisModule (L"TapiocaOptixWorker.exe"));
+        return gOptixChannel;
+    }
+    return nullptr;
 }
 
-void ShutdownDxrWorker ()
+void ShutdownRayWorkers ()
 {
-    std::shared_ptr<RayWorkerChannel> channel;
+    std::shared_ptr<RayWorkerChannel> channels[2];
     {
         std::lock_guard<std::mutex> lock (gChannelMutex);
-        channel.swap (gDxrChannel);
+        channels[0].swap (gDxrChannel);
+        channels[1].swap (gOptixChannel);
     }
-    if (channel != nullptr)
-        channel->Shutdown ();
+    for (const auto& channel : channels)
+        if (channel != nullptr)
+            channel->Shutdown ();
 }
 
 } // namespace evp::rayworker
