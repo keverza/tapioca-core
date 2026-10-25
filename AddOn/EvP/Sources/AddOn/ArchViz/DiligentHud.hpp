@@ -179,6 +179,12 @@ struct HudState {
     bool sunRunBounded = false;
     bool sunRunBoundsSeeded = false;
     bool sunRunPickingCentre = false;
+    // The cylinder's gumball drag (DiligentHudSunRun.cpp): axis 0/1 an arrow,
+    // 3 the plan disc, 4 the radius grip.
+    bool sunRunDragging = false;
+    int sunRunDragAxis = -1;
+    double sunRunDragPoint[3] = { 0.0, 0.0, 0.0 };
+    double sunRunDragParameter[3] = { 0.0, 0.0, 0.0 };
     double sunRunCentre[2] = { 0.0, 0.0 };
     float sunRunRadius = 50.0f;
     double sunRunFloor = 0.0, sunRunTop = 0.0; // scene height, for the drawn cylinder
@@ -614,6 +620,10 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
 void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
                                 const float direction[3]);
+// Before navigation reads the press, like the viewpoint gumball.
+void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, const float viewProj[16],
+                                   uint32_t width, uint32_t height, const float rayOrigin[3],
+                                   const float rayDirection[3]);
 
 // The inspector's two halves. SERVICE runs in the frame loop with the cursor's
 // world ray (CPU raycast through the snapshot's cached BVH, then the study
