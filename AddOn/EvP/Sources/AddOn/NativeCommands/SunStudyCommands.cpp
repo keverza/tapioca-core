@@ -191,6 +191,10 @@ class StartSunStudyCommand : public MainThreadCommand {
         // Sampling says what to measure; domain says how to dice model faces.
         const std::string domainName = ReadString (params, "domain", "triangle");
         const bool patchDomain = (domainName == "patch");
+        evp::sunstudy::AnalysisCylinder clip;
+        if (GS::UniString clipError;
+            !sunstudysupport::ReadAnalysisCylinder (params, patchDomain && sampleSurfaces, clip, clipError))
+            return NativeCommandResult::Failure (clipError);
         if (!patchDomain && domainName != "triangle") {
             return NativeCommandResult::Failure (GS::UniString ("'domain' must be 'triangle' or 'patch', not '") +
                                                  GS::UniString (domainName.c_str (), CC_UTF8) + "'");
@@ -281,6 +285,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             options.spacing = spacing;
             options.normalOffset = zOffset;
             options.jitter = ReadDouble (params, "jitter", 0.0);
+            std::tie (options.clipX, options.clipY, options.clipRadius) = std::tie (clip.x, clip.y, clip.radius);
             auto sampling = evp::sunstudy::BuildSurfaceSampling (
                 *snapshot, sampleMask, options, reuseSource.get (), [this] { return IsCancelled (); }, receivers.faces);
             trace.Mark ("sampling", (sampling.triangles.Count () + sampling.patches.Count ()) * 6 * sizeof (double));
@@ -387,6 +392,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         record->preset = preset;
         record->glassThreshold = glassThreshold;
         record->analysisRestricted = analysisRestricted;
+        std::tie (record->clipX, record->clipY, record->clipRadius) = std::tie (clip.x, clip.y, clip.radius);
         record->snapshotId = snapshot->id;
         for (const evp::sunstudy::ElementRole role : roles.roles)
             record->elementRoles.push_back (static_cast<uint8_t> (role));
@@ -728,39 +734,6 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
 };
 
 // ---------------------------------------------------------------------------
-// Tapioca.CancelSunStudy — forget a study, or all of them.
-// ---------------------------------------------------------------------------
-class CancelSunStudyCommand : public MainThreadCommand {
-  public:
-    GS::String GetName () const override
-    {
-        return "CancelSunStudy";
-    }
-    bool NeedsMainThread () const override
-    {
-        return false;
-    }
-
-    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
-    {
-        GS::ObjectState os;
-
-        bool all = false;
-        if (params.Get ("all", all) && all) {
-            const size_t erased = SunStudyStore::Get ().Count ();
-            SunStudyStore::Get ().Clear ();
-            os.Add ("erased", (GS::Int32) erased);
-            return os;
-        }
-
-        const std::string id = ReadStudyId (params);
-        os.Add ("studyId", Text (id));
-        os.Add ("erased", (GS::Int32) (id.empty () ? 0 : (SunStudyStore::Get ().Erase (id) ? 1 : 0)));
-        return os;
-    }
-};
-
-// ---------------------------------------------------------------------------
 
 const NativeCommandRegistration kSunStudyRegistrations[] = {
     { "StartSunStudy", &MakeRegisteredNativeCommand<StartSunStudyCommand>, false,
@@ -792,7 +765,8 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "normals":{"type":"array","items":{"type":"number"}},
                 "positionsPacked":{"type":"string"},
                 "normalsPacked":{"type":"string"},
-                "jitter":{"type":"number"}
+                "jitter":{"type":"number"},
+                "clipX":{"type":"number"},"clipY":{"type":"number"},"clipRadius":{"type":"number","minimum":0}
             },
             "additionalProperties":false
         })json",
@@ -958,24 +932,6 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
             },
             "additionalProperties":false,
             "required":["studyId","hours","count","converged","empty"]
-        })json" },
-    { "CancelSunStudy", &MakeRegisteredNativeCommand<CancelSunStudyCommand>, false,
-      R"json({
-            "type":"object",
-            "properties":{
-                "studyId":{"type":"string"},
-                "all":{"type":"boolean"}
-            },
-            "additionalProperties":false
-        })json",
-      R"json({
-            "type":"object",
-            "properties":{
-                "studyId":{"type":"string"},
-                "erased":{"type":"integer"}
-            },
-            "additionalProperties":false,
-            "required":["erased"]
         })json" },
 };
 

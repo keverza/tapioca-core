@@ -177,6 +177,8 @@ void SettingsPage (Shell& shell, HudState& state, const DiligentSceneStats& scen
         ImGui::BeginDisabled (state.planMode && !state.planOrbit);
         ImGui::Checkbox ("axonometric (parallel projection)", &state.orthographic);
         ImGui::EndDisabled ();
+        ImGui::Checkbox ("smooth navigation", &state.navSmoothing);
+        hudshell::Tip ("Spreads each drag step over ~25 ms, so orbits and diagonal pans glide instead of stepping");
     }
     // ---- 7. visibility ---------------------------------------------------------------------
     if (hudshell::Section ("visibility")) {

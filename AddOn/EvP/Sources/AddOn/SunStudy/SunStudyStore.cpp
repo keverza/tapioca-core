@@ -792,6 +792,10 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.preset = source.preset;
     copyOfMetadata.glassThreshold = source.glassThreshold;
     copyOfMetadata.analysisRestricted = source.analysisRestricted;
+    // And the cylinder: a rerun without it would sample the whole model.
+    copyOfMetadata.clipX = source.clipX;
+    copyOfMetadata.clipY = source.clipY;
+    copyOfMetadata.clipRadius = source.clipRadius;
     copyOfMetadata.elementRoles = source.elementRoles;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;

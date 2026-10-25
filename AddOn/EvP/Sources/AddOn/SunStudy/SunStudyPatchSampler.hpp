@@ -145,6 +145,10 @@ struct PatchSamplerOptions {
     // Splits coplanar patches at receiver/context boundaries, so an opaque
     // frame cannot become sampled just because it shares a plane with glass.
     const std::vector<uint8_t>* sampleFace = nullptr;
+    // The analysis cylinder (SunStudy/SunStudyBounds.hpp), in plan: cells whose
+    // centre lies outside it are not sampled. Radius 0 is no clip. Patch domain
+    // only -- a triangle tile cannot lose cells without losing its mapping.
+    double clipX = 0.0, clipY = 0.0, clipRadius = 0.0;
 };
 
 // Build the patch-domain sample set for a snapshot's concatenated geometry.

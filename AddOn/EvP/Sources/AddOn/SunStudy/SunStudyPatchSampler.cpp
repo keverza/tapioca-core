@@ -53,6 +53,20 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
             continue;
         }
         lattices.push_back (BuildPatchGrid (patch, vertices, triangles, options.spacing));
+        if (options.clipRadius > 0.0) {
+            // ⚠️ CELLS, NOT PATCHES. A slab larger than the cylinder keeps only
+            // its inside cells; the lattice is already sparse (cells outside the
+            // outline are absent), so a clipped cell is just one more absence.
+            auto& cells = lattices.back ().cells;
+            const double r2 = options.clipRadius * options.clipRadius;
+            cells.erase (std::remove_if (cells.begin (), cells.end (),
+                                         [&] (const PatchCell& cell) {
+                                             const double dx = cell.centre[0] - options.clipX;
+                                             const double dy = cell.centre[1] - options.clipY;
+                                             return dx * dx + dy * dy > r2;
+                                         }),
+                         cells.end ());
+        }
         projected += lattices.back ().cells.size ();
         if (projected > options.maxSamples) {
             grid.sampleLimitExceeded = true;

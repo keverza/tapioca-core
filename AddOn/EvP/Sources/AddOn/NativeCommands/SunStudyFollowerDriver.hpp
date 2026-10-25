@@ -72,6 +72,8 @@ struct ActiveSunStudyConfig {
     std::string preset;
     double glassThreshold = 0.4;
     bool analysisRestricted = false;
+    // The analysis cylinder, a sampling input like the domain; radius 0 is none.
+    double clipX = 0.0, clipY = 0.0, clipRadius = 0.0;
     std::string backend = "cpu";
     uint64_t placeInputHash = 0;
     // Display, carried so a rerun comes back looking the way the user left it --

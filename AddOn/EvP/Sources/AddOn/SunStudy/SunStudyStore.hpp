@@ -94,6 +94,8 @@ struct StudyRecord {
     std::string preset; // resolved early/late; empty retains legacy role semantics
     double glassThreshold = 0.4;
     bool analysisRestricted = false;
+    // The analysis cylinder the samples were clipped to; radius 0 is none.
+    double clipX = 0.0, clipY = 0.0, clipRadius = 0.0;
 
     // The roles AS RESOLVED, one per snapshot mesh (an ElementRole value), for
     // the display's role view. ⚠️ ALIGNED WITH THE SNAPSHOT THE STUDY RAN ON;

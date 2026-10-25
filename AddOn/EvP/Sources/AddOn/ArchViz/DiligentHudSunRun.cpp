@@ -12,9 +12,11 @@
 // host call.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/HudGumball.hpp"
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/PointGumball.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "NativeCommands/SunStudyHudRunner.hpp"
 #include "SunStudy/SunStudyBounds.hpp"
@@ -225,6 +227,46 @@ bool LeftReleased (const InputSnapshot& input)
     return false;
 }
 
+bool LeftPressed (const InputSnapshot& input)
+{
+    for (int i = 0; i < input.transitionCount; ++i)
+        if (input.transitions[i].button == kMouseLeft && input.transitions[i].down)
+            return true;
+    return false;
+}
+
+// Where a ray meets the scene's floor plane, in plan.
+bool FloorPoint (const HudState& state, const double origin[3], const double direction[3], double out[2])
+{
+    if (std::abs (direction[2]) < 1.0e-9)
+        return false;
+    const double t = (state.sunRunFloor - origin[2]) / direction[2];
+    if (!(t > 0.0))
+        return false;
+    out[0] = origin[0] + t * direction[0];
+    out[1] = origin[1] + t * direction[1];
+    return true;
+}
+
+// The cylinder's handles: the gumball at the centre of its floor ring (plan
+// arrows only -- the cylinder is as tall as the scene, there is no height to
+// move), and a radius grip on the ring at +X.
+constexpr int kRadiusGrip = 4;
+
+Gumball CylinderGumball (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height)
+{
+    const double centre[3] = { state.sunRunCentre[0], state.sunRunCentre[1], state.sunRunFloor };
+    Gumball gizmo = MakeGumball (centre, viewProj, width, height);
+    gizmo.visible[2] = false;
+    return gizmo;
+}
+
+bool RadiusGrip (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height, ImVec2& at)
+{
+    const double grip[3] = { state.sunRunCentre[0] + state.sunRunRadius, state.sunRunCentre[1], state.sunRunFloor };
+    return Project (grip, viewProj, width, height, at);
+}
+
 const char* StageText (const sunstudyhud::Status& status)
 {
     if (status.stage == "snapshot")
@@ -289,7 +331,8 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         if (ImGui::SmallButton ("Centre on scene"))
             CentreOnScene (state, min, max);
         ImGui::EndDisabled ();
-        NoteWrapped ("Outside: casts shadow, not measured");
+        NoteWrapped ("Only faces inside are measured; everything still casts shadow. Drag the arrows or disc to move "
+                     "it, the grip on the ring to resize.");
     }
     else
         state.sunRunPickingCentre = false;
@@ -361,10 +404,64 @@ void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16],
     for (int i = 0; i < kSegments; i += kSegments / 8)
         if (visible[0][i] && visible[1][i])
             draw->AddLine (ring[0][i], ring[1][i], colour, 1.0f);
-    const double centre[3] = { state.sunRunCentre[0], state.sunRunCentre[1], state.sunRunFloor };
-    ImVec2 dot;
-    if (Project (centre, viewProj, width, height, dot))
-        draw->AddCircleFilled (dot, 4.0f, colour);
+    DrawGumball (CylinderGumball (state, viewProj, width, height), ImGui::GetForegroundDrawList ());
+    ImVec2 grip;
+    if (RadiusGrip (state, viewProj, width, height, grip)) {
+        ImGui::GetForegroundDrawList ()->AddCircleFilled (grip, 6.0f, colour);
+        ImGui::GetForegroundDrawList ()->AddCircle (grip, 6.0f, IM_COL32 (40, 40, 40, 220), 0, 1.5f);
+    }
+}
+
+void ServiceSunStudyBoundsGumball (HudState& state, const InputSnapshot& input, const float viewProj[16],
+                                   uint32_t width, uint32_t height, const float rayOrigin[3],
+                                   const float rayDirection[3])
+{
+    if (!state.sunRunBounded || state.readOnly || viewProj == nullptr || width == 0 || height == 0) {
+        state.sunRunDragging = false;
+        return;
+    }
+    const double origin[3] = { rayOrigin[0], rayOrigin[1], rayOrigin[2] };
+    const double direction[3] = { rayDirection[0], rayDirection[1], rayDirection[2] };
+    const float x = float (CursorTargetX (input, width)), y = float (CursorTargetY (input, height));
+    int hit = -1;
+    if (input.inside) {
+        ImVec2 grip;
+        if (RadiusGrip (state, viewProj, width, height, grip) && std::hypot (x - grip.x, y - grip.y) <= 9.0f)
+            hit = kRadiusGrip;
+        else
+            hit = HitGumball (CylinderGumball (state, viewProj, width, height), x, y);
+    }
+    if (!state.sunRunDragging && !state.wantsMouse && hit >= 0 && LeftPressed (input)) {
+        state.sunRunDragAxis = hit;
+        state.sunRunDragPoint[0] = state.sunRunCentre[0];
+        state.sunRunDragPoint[1] = state.sunRunCentre[1];
+        state.sunRunDragPoint[2] = state.sunRunFloor;
+        state.sunRunDragging = hit == kRadiusGrip || PointGumballParameter (state.sunRunDragPoint, hit, origin,
+                                                                            direction, state.sunRunDragParameter);
+        state.sunRunPickingCentre = false;
+    }
+    // Navigation must not take the same press: the viewpoint gumball's flag is
+    // the one NavigateViewer already honours.
+    if (state.sunRunDragging || (!state.wantsMouse && hit >= 0 && (input.buttons & kMouseLeft)))
+        state.viewpointOwnsMouse = true;
+    if (!state.sunRunDragging)
+        return;
+    if (state.sunRunDragAxis == kRadiusGrip) {
+        double floor[2];
+        if (FloorPoint (state, origin, direction, floor))
+            state.sunRunRadius =
+                (std::max) (1.0f,
+                            float (std::hypot (floor[0] - state.sunRunCentre[0], floor[1] - state.sunRunCentre[1])));
+    }
+    else {
+        double parameter[3];
+        if (PointGumballParameter (state.sunRunDragPoint, state.sunRunDragAxis, origin, direction, parameter)) {
+            state.sunRunCentre[0] = state.sunRunDragPoint[0] + parameter[0] - state.sunRunDragParameter[0];
+            state.sunRunCentre[1] = state.sunRunDragPoint[1] + parameter[1] - state.sunRunDragParameter[1];
+        }
+    }
+    if (LeftReleased (input) || !(input.buttons & kMouseLeft))
+        state.sunRunDragging = false;
 }
 
 void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],

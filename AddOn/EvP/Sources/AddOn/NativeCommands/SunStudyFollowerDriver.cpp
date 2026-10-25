@@ -215,6 +215,9 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
     Mix (hash, config.preset == "late" ? 1ull : 0ull);
     MixDouble (hash, config.glassThreshold);
     Mix (hash, config.analysisRestricted ? 1ull : 0ull);
+    MixDouble (hash, config.clipX);
+    MixDouble (hash, config.clipY);
+    MixDouble (hash, config.clipRadius);
     // Which elements are measured and which only cast shadow are sampling
     // inputs too: re-picking them must re-measure.
     MixGuids (hash, config.analysisElements);
@@ -262,6 +265,14 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     // ⚠️ THE ADOPTED STUDY'S DOMAIN, SENT EXPLICITLY. StartSunStudy defaults to
     // `triangle`, so leaving this out reran every patch study as a triangle one.
     params.Add ("domain", GS::UniString (config.patchDomain ? "patch" : "triangle"));
+    // ⚠️ THE CYLINDER, SENT ON EVERY RERUN, for the domain's reason: leaving it
+    // out turns the first edit after a bounded study into a whole-model one --
+    // exactly the size the bound exists to refuse.
+    if (config.clipRadius > 0.0) {
+        params.Add ("clipX", config.clipX);
+        params.Add ("clipY", config.clipY);
+        params.Add ("clipRadius", config.clipRadius);
+    }
     if (!config.preset.empty ()) {
         params.Add ("preset", GS::UniString (config.preset.c_str (), CC_UTF8));
         params.Add ("glassThreshold", config.glassThreshold);

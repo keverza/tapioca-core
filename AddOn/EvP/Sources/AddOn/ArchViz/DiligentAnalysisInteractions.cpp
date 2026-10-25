@@ -18,6 +18,7 @@ void ServiceViewpointInput (const Camera& camera, HudState& hud, const InputSnap
     float origin[3], direction[3];
     camera.CursorRay (CursorTargetX (input, width), CursorTargetY (input, height), width, height, origin, direction);
     viewerhud::ServiceViewpointInteractions (hud, input, viewProj, width, height, origin, direction);
+    ServiceSunStudyBoundsGumball (hud, input, viewProj, width, height, origin, direction);
 }
 
 void ServiceCursorAnalysis (const Camera& camera, HudState& hud, const DiligentScene& scene, const InputSnapshot& input,

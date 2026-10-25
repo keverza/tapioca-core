@@ -136,6 +136,11 @@ void Run (Request request)
         analysis = std::move (roles.analysis);
         context = std::move (roles.context);
     }
+    if (request.bounded) {
+        params.Add ("clipX", request.centreX);
+        params.Add ("clipY", request.centreY);
+        params.Add ("clipRadius", request.radius);
+    }
     AddGuids (params, "analysisElements", analysis);
     AddGuids (params, "contextElements", context);
     AddGuids (params, "ignoredElements", request.ignoredElements);

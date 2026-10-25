@@ -19,6 +19,7 @@
 #include "ACAPinc.h"
 
 #include "ObjectState.hpp"
+#include "SunStudy/SunStudyBounds.hpp"
 #include "SunStudy/SunStudyLimits.hpp"
 
 #include <cstdint>
@@ -52,6 +53,12 @@ evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDom
 // The refusal a study over that ceiling gets: the ceiling, what bound it, and
 // the grid it was asked at -- so the next attempt is a number, not a guess.
 GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing);
+
+// The analysis cylinder's clipX/clipY/clipRadius (SunStudy/SunStudyBounds.hpp);
+// radius 0 when absent. False with `error` for a non-finite or negative value,
+// or a cylinder outside the patch-domain surface sampler that can clip cells.
+bool ReadAnalysisCylinder (const GS::ObjectState& params, bool patchSurfaces, evp::sunstudy::AnalysisCylinder& out,
+                           GS::UniString& error);
 
 // ⚠️ BULK ARRAYS TRAVEL PACKED, AND THIS IS NOT A MICRO-OPTIMISATION. A live
 // study of 176,106 samples over 49 timesteps measured 1,209 ms of ANALYSIS
