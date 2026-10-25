@@ -16,8 +16,10 @@
 #
 # ⚠️ THE IR COMPILER DECIDES THE OLDEST DRIVER THAT CAN RUN THE WORKER. The
 # driver's OptiX compiles the embedded OptiX-IR and refuses NVVM IR newer than
-# it knows ("minor NvvmIRVersion newer than tool"): CUDA 13.4's IR does not
-# load on driver 610.88, CUDA 11.8's does. -DTAPIOCA_OPTIX_NVCC=<nvcc.exe>
+# it knows ("minor NvvmIRVersion newer than tool"). Measured 2026-10-25 on an
+# RTX 4070 Ti: CUDA 13.4 IR fails on driver 610.88 (driver CUDA level 13.3)
+# and loads on 621.01 (13.5); CUDA 11.8 IR loads on both. The rule: the IR
+# toolkit's CUDA level must not exceed the driver's. -DTAPIOCA_OPTIX_NVCC=<nvcc.exe>
 # picks the IR compiler separately from the toolkit whose headers and driver
 # API library the host code uses; the oldest toolkit that compiles the program
 # gives the widest driver range.
