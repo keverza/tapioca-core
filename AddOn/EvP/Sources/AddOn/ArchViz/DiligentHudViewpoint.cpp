@@ -6,12 +6,16 @@
 #include "ArchViz/ViewpointStudyController.hpp"
 #include "ArchViz/VisibilityStudyCapture.hpp"
 #include "Geometry/QueryEngine.hpp"
+#include "Geometry/SurfaceCriteria.hpp"
 #include "SunStudy/SunStudyRoles.hpp"
 
 #include <imgui.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <string>
+#include <vector>
 
 namespace geomsrv::archviz::viewerhud {
 namespace {
@@ -74,8 +78,8 @@ int HitGumball (const Gumball& gizmo, float x, float y)
         if (!gizmo.visible[axis])
             continue;
         const float dx = gizmo.ends[axis].x - gizmo.center.x, dy = gizmo.ends[axis].y - gizmo.center.y;
-        const float t = (std::max) (0.18f, (std::min) (1.1f, ((x - gizmo.center.x) * dx + (y - gizmo.center.y) * dy) /
-                                                                 (dx * dx + dy * dy)));
+        const float t = (std::max) (
+            0.18f, (std::min) (1.1f, ((x - gizmo.center.x) * dx + (y - gizmo.center.y) * dy) / (dx * dx + dy * dy)));
         const float distance = std::hypot (x - gizmo.center.x - t * dx, y - gizmo.center.y - t * dy);
         if (distance < best) {
             best = distance;
@@ -83,6 +87,61 @@ int HitGumball (const Gumball& gizmo, float x, float y)
         }
     }
     return picked;
+}
+
+// "Wall {1A2B3C4D}", or "Element {...}" for a type the criteria table does not name.
+std::string ElementLabel (const Snapshot* snapshot, const std::string& guid)
+{
+    std::string type = "Element";
+    if (snapshot != nullptr) {
+        const std::string key = evp::sunstudy::CanonicalGuid (guid);
+        for (const auto& mesh : snapshot->meshes)
+            if (evp::sunstudy::CanonicalGuid (mesh.guid) == key) {
+                const std::string name = surfacecriteria::TypeName (mesh.elemType);
+                if (name.rfind ("Modeler type", 0) != 0)
+                    type = name;
+                break;
+            }
+    }
+    const std::string key = evp::sunstudy::CanonicalGuid (guid);
+    return type + " {" + key.substr (0, 8) + "}";
+}
+
+// Context rows: each element with the rays it stopped in the current result.
+void DrawContextList (viewpointstudy::Settings& settings, const viewpointstudy::Status& status, bool& changed)
+{
+    const auto snapshot = visibilitystudy::ViewerCapture ();
+    std::vector<evp::sunstudy::ViewpointBlocker> blockers;
+    if (status.result != nullptr && snapshot != nullptr)
+        blockers = evp::sunstudy::ViewpointBlockers (*status.result, *snapshot);
+    if (!ImGui::TreeNodeEx ("##viewpoint-context", ImGuiTreeNodeFlags_DefaultOpen, "Context: %u object(s)",
+                            unsigned (settings.context.size ())))
+        return;
+    if (settings.context.empty ())
+        ImGui::TextDisabled ("None: every ray reaches the radius.");
+    size_t remove = settings.context.size ();
+    for (size_t i = 0; i < settings.context.size (); ++i) {
+        ImGui::PushID (int (i));
+        if (ImGui::SmallButton ("x"))
+            remove = i;
+        ImGui::SameLine ();
+        const std::string key = evp::sunstudy::CanonicalGuid (settings.context[i]);
+        const auto blocker = std::find_if (blockers.begin (), blockers.end (), [&] (const auto& b) {
+            return evp::sunstudy::CanonicalGuid (b.guid) == key;
+        });
+        const std::string label = ElementLabel (snapshot.get (), settings.context[i]);
+        if (blocker != blockers.end ())
+            ImGui::TextColored (ImVec4 (0.93f, 0.42f, 0.30f, 1.0f), "%s  %u ray(s), nearest %.2f m", label.c_str (),
+                                unsigned (blocker->rays), blocker->nearest);
+        else
+            ImGui::TextDisabled ("%s  not blocking", label.c_str ());
+        ImGui::PopID ();
+    }
+    if (remove < settings.context.size ()) {
+        settings.context.erase (settings.context.begin () + std::ptrdiff_t (remove));
+        changed = true;
+    }
+    ImGui::TreePop ();
 }
 
 bool LeftTransition (const InputSnapshot& input, bool down)
@@ -102,7 +161,19 @@ void DrawViewpointHudSection (HudState& state)
     ImGui::TextWrapped (
         "Horizontal visibility at the point's height. Context stops rays; empty Context gives the full circle.");
     changed |= ImGui::Checkbox ("Show viewpoint", &settings.enabled);
-    ImGui::Text ("Context: %u object(s)", unsigned (settings.context.size ()));
+    const auto status = viewpointstudy::GetStatus ();
+    if (ImGui::Button (state.viewpointPickingContext ? "Done picking" : "Pick Context in viewer")) {
+        state.viewpointPickingContext = !state.viewpointPickingContext;
+        state.viewpointPlacing = false;
+        if (state.viewpointPickingContext && !settings.enabled) {
+            settings.enabled = true;
+            changed = true;
+        }
+    }
+    if (state.viewpointPickingContext)
+        ImGui::TextDisabled ("Click elements to add or remove them; the viewer selection is not used.");
+    DrawContextList (settings, status, changed);
+    ImGui::TextDisabled ("From the viewer selection:");
     ImGui::BeginDisabled (state.visibilitySelection.empty ());
     if (ImGui::SmallButton ("Replace Context")) {
         settings.context = state.visibilitySelection;
@@ -133,6 +204,7 @@ void DrawViewpointHudSection (HudState& state)
         settings.pointValid = true;
     if (ImGui::Button (state.viewpointPlacing ? "Click a model surface..." : "Place viewpoint")) {
         state.viewpointPlacing = true;
+        state.viewpointPickingContext = false;
         state.viewpointDragging = false;
         settings.enabled = true;
         changed = true;
@@ -143,7 +215,7 @@ void DrawViewpointHudSection (HudState& state)
         viewpointstudy::Configure (std::move (settings));
     }
     ImGui::TextDisabled ("Drag X/Y/Z arrows; drag the centre in XY. Fill: warm yellow, 50%%.");
-    const auto status = viewpointstudy::GetStatus ();
+    ImGui::TextDisabled ("Edge: orange where Context stops the ray, yellow at the radius.");
     if (status.calculating)
         ImGui::TextDisabled ("Updating visibility...");
     else if (!status.error.empty ())
@@ -208,6 +280,14 @@ void ServiceViewpointInteractions (HudState& state, const InputSnapshot& input, 
 void PlaceViewpointFromPick (HudState& state, const DiligentScene&, const InputSnapshot& input,
                              const float rayOrigin[3], const float rayDirection[3])
 {
+    if (state.viewpointPickingContext && !state.wantsMouse && input.inside && LeftTransition (input, false) &&
+        state.hover.valid) {
+        auto settings = *viewpointstudy::GetSettings ();
+        evp::sunstudy::ToggleViewpointContext (settings.context, state.hover.guid);
+        settings.enabled = true;
+        viewpointstudy::Configure (std::move (settings));
+        return;
+    }
     if (!state.viewpointPlacing || state.wantsMouse || !input.inside || !LeftTransition (input, false) ||
         !state.hover.valid)
         return;
@@ -259,10 +339,32 @@ void DrawViewpointOverlay (const HudState& state, const float viewProj[16], uint
             ImVec2 a, b;
             if (Project (perimeter[i].data (), viewProj, width, height, a) &&
                 Project (perimeter[(i + 1) % perimeter.size ()].data (), viewProj, width, height, b)) {
-                draw->AddLine (a, b, IM_COL32 (225, 164, 40, 230), 2.0f);
+                // An edge between two stopped rays lies on Context: draw it as a collision.
+                const auto& rayMesh = status.result->rayMesh;
+                const bool blocked = rayMesh.size () == perimeter.size () && rayMesh[i] >= 0 &&
+                                     rayMesh[(i + 1) % perimeter.size ()] >= 0;
+                draw->AddLine (a, b, blocked ? IM_COL32 (236, 98, 64, 240) : IM_COL32 (225, 164, 40, 230),
+                               blocked ? 3.0f : 2.0f);
             }
         }
         draw->Flags = flags;
+        // Mark where each Context run starts and ends: the edges of what blocks the view.
+        if (status.result->rayMesh.size () == perimeter.size ())
+            for (const auto& arc : evp::sunstudy::ViewpointArcs (status.result->rayMesh)) {
+                if (arc.mesh < 0 || arc.count == perimeter.size ())
+                    continue;
+                for (const size_t ray : { arc.first, (arc.first + arc.count - 1) % perimeter.size () }) {
+                    ImVec2 at;
+                    if (Project (perimeter[ray].data (), viewProj, width, height, at))
+                        draw->AddCircleFilled (at, 4.0f, IM_COL32 (236, 98, 64, 255));
+                }
+            }
+    }
+    if (state.viewpointPickingContext && state.hover.valid && !state.wantsMouse) {
+        auto context = settings->context;
+        const bool adding = evp::sunstudy::ToggleViewpointContext (context, state.hover.guid);
+        ImGui::SetTooltip ("Click to %s Context:\n%s", adding ? "add to" : "remove from",
+                           ElementLabel (visibilitystudy::ViewerCapture ().get (), state.hover.guid).c_str ());
     }
     // The full circle is a radius guide, distinct from the clipped visibility boundary.
     for (size_t i = 0; i < 180; ++i) {

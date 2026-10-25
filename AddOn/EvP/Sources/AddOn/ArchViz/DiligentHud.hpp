@@ -188,6 +188,8 @@ struct HudState {
     double visibilityDirection[3] = { 1.0, 0.0, 0.0 };
     uint32_t analysisSeenKind = 0xffffffffu;
     bool viewpointPlacing = false;
+    // Clicking a model element adds it to Context, or removes it (Viewpoint tab).
+    bool viewpointPickingContext = false;
     bool viewpointOwnsMouse = false;
     bool viewpointDragging = false;
     int viewpointDragAxis = -1;

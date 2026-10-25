@@ -150,6 +150,7 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
     if (ImGui::BeginTabItem ("Sun study", nullptr, sunFlags)) {
         state.visibilityPlacingPoint = false;
         state.viewpointPlacing = false;
+        state.viewpointPickingContext = false;
         DrawSunStudyHudSection (state, scene);
         ImGui::EndTabItem ();
     }
@@ -157,6 +158,7 @@ void SunStudyPage (HudState& state, const DiligentSceneStats& scene)
         changed && scene.sunStudy.analysisKind == 1 ? ImGuiTabItemFlags_SetSelected : 0;
     if (ImGui::BeginTabItem ("View quality", nullptr, visibilityFlags)) {
         state.viewpointPlacing = false;
+        state.viewpointPickingContext = false;
         DrawVisibilityHudSection (state, scene);
         ImGui::EndTabItem ();
     }
