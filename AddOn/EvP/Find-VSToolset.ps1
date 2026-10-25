@@ -45,7 +45,7 @@ function Get-VSGeneratorName ([int] $major) {
 # window - that is the case worth naming in the error, because everything looks
 # installed and the build dies deep inside a vendored header instead.
 function Get-V143X64Toolsets ([string] $vsPath) {
-    $result = @{ Best = $null; Rejected = @() }
+    $result = @{ Best = $null; HasAtl = $false; Rejected = @() }
 
     $hasToolsetProps = Get-ChildItem -Path (Join-Path $vsPath "MSBuild\Microsoft\VC") -Directory -ErrorAction SilentlyContinue |
         ForEach-Object { Join-Path $_.FullName "Platforms\x64\PlatformToolsets\v143\Toolset.props" } |
@@ -60,13 +60,16 @@ function Get-V143X64Toolsets ([string] $vsPath) {
             # No x64 CRT means the ARM-only component - not a candidate at all.
             if (-not (Test-Path (Join-Path $_.FullName "lib\x64\libcmt.lib"))) { return }
             if ($minor -ge $script:V143MinMinor -and $minor -le $script:V143MaxMinor) {
-                $usable += [pscustomobject]@{ Minor = $minor; Version = $_.Name }
+                $hasAtl = Test-Path (Join-Path $_.FullName "atlmfc\include\atlbase.h")
+                $usable += [pscustomobject]@{ Minor = $minor; Version = $_.Name; HasAtl = $hasAtl }
             } elseif ($minor -lt $script:V143MinMinor) {
                 $result.Rejected += $_.Name
             }
         }
 
-    $result.Best = ($usable | Sort-Object Minor -Descending | Select-Object -First 1).Version
+    $best = $usable | Sort-Object HasAtl, Minor -Descending | Select-Object -First 1
+    $result.Best = $best.Version
+    $result.HasAtl = [bool] $best.HasAtl
     return $result
 }
 
@@ -95,6 +98,7 @@ function Find-VSToolset {
                 Instance     = $i.installationPath
                 Name         = $i.displayName
                 ToolsVersion = $tools.Best
+                HasAtl       = $tools.HasAtl
             }
         } elseif ($tools.Rejected.Count -gt 0) {
             $nearMisses += "  - $($i.displayName) at $($i.installationPath)`n      has only: $($tools.Rejected -join ', ')  (too old - bx needs 14.$script:V143MinMinor+)"
@@ -130,9 +134,12 @@ shell:
         throw "No usable v143 x64 toolset installed - see the instructions above."
     }
 
-    # Prefer the oldest qualifying VS: v143 is that generation's native toolset,
-    # so it is the least likely to hit side-by-side gaps.
-    $pick = $candidates | Sort-Object Major | Select-Object -First 1
+    # Prefer an instance whose toolset carries ATL: Diligent's D3D11 backend needs
+    # it (cmake/Diligent.cmake fails without it), and two instances of the same VS
+    # major -- Community beside Build Tools -- may differ only there. Then prefer
+    # the oldest qualifying VS: v143 is that generation's native toolset, so it is
+    # the least likely to hit side-by-side gaps.
+    $pick = $candidates | Sort-Object @{ Expression = { $_.HasAtl }; Descending = $true }, Major | Select-Object -First 1
     return @{
         Generator    = $pick.Generator
         Instance     = $pick.Instance
