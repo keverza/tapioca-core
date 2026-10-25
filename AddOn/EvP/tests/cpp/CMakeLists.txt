@@ -1334,6 +1334,29 @@ if (WIN32)
     add_dependencies (EvPGeomTests TapiocaDxrWorker)
 endif ()
 
+# The OptiX backend's strict differential (test_optixbackend.cpp), only where
+# the CUDA toolkit and OptiX SDK are installed; it skips without an RT device.
+if (WIN32)
+    include ("${EVP_ROOT}/cmake/OptixWorker.cmake")
+    tapioca_find_optix ()
+    if (TAPIOCA_OPTIX_FOUND)
+        target_sources (EvPGeomTests PRIVATE test_optixbackend.cpp
+            "${EVP_ROOT}/Sources/OptixWorker/OptixBackend.cpp")
+        tapioca_add_optix_ir (EvPGeomTests "${EVP_ROOT}/Sources")
+        target_compile_definitions (EvPGeomTests PRIVATE TAPIOCA_TEST_OPTIX_WORKER=1)
+        add_executable (TapiocaOptixWorker
+            "${EVP_ROOT}/Sources/OptixWorker/OptixWorkerMain.cpp"
+            "${EVP_ROOT}/Sources/OptixWorker/OptixBackend.cpp"
+            "${EVP_RAYWORKER}/RayWorkerWin32.cpp" "${EVP_RAYWORKER}/RayWorkerService.cpp"
+            "${EVP_RAYWORKER}/RayWorkerProtocol.cpp" "${EVP_RAYWORKER}/RayWorkerPacket.cpp"
+            "${EVP_RAYWORKER}/RayWorkerReason.cpp" "${EVP_RAYWORKER}/RayWorkerBatch.cpp")
+        target_compile_features (TapiocaOptixWorker PRIVATE cxx_std_20)
+        target_include_directories (TapiocaOptixWorker PRIVATE "${EVP_ROOT}/Sources/AddOn" "${EVP_ROOT}/Sources")
+        tapioca_add_optix_ir (TapiocaOptixWorker "${EVP_ROOT}/Sources")
+        add_dependencies (EvPGeomTests TapiocaOptixWorker)
+    endif ()
+endif ()
+
 if (MSVC)
     # /W4 on OUR code (docs/guides/testing.md Â§5). The add-on ships at /W3; the host-free core
     # is where a stricter gate is affordable, so it starts here.

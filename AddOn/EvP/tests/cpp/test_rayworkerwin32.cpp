@@ -114,11 +114,11 @@ bool Pump (win32::WorkerProcess& host, RayWorkerClient& client, std::vector<RayW
     return false;
 }
 
-std::wstring WorkerBesideTests ()
+std::wstring WorkerBesideTests (const wchar_t* name = L"TapiocaDxrWorker.exe")
 {
     wchar_t path[MAX_PATH] = {};
     GetModuleFileNameW (nullptr, path, MAX_PATH);
-    return (std::filesystem::path (path).parent_path () / L"TapiocaDxrWorker.exe").wstring ();
+    return (std::filesystem::path (path).parent_path () / name).wstring ();
 }
 
 TEST (RayWorkerWin32, MappedSegmentsRoundTripAndRefuseWhatIsNotThere)
@@ -216,6 +216,32 @@ TEST (RayWorkerWin32, TheDxrWorkerExecutableServesOrRefusesWithAReason)
     EXPECT_EQ (outcomes[0].result.bits, expected.bits);
     EXPECT_EQ (outcomes[0].result.resolved, expected.resolved);
     client.Shutdown ();
+}
+
+TEST (RayWorkerWin32, TheOptixWorkerExecutableServesOrRefusesWithAReason)
+{
+#if !defined(TAPIOCA_TEST_OPTIX_WORKER)
+    GTEST_SKIP () << "built without the CUDA toolkit and OptiX SDK";
+#else
+    win32::WorkerProcess host (WorkerBesideTests (L"TapiocaOptixWorker.exe"));
+    RayWorkerClient client (host.Segments (), host.Hooks ());
+    const auto scene = SceneWithBox ();
+    const packet::Request request = GroundRequest ();
+    client.Submit (1, 3, scene, request, NowMs ());
+    std::vector<RayWorkerOutcome> outcomes;
+    ASSERT_TRUE (Pump (host, client, outcomes)) << "no outcome within the deadline";
+    ASSERT_EQ (outcomes.size (), 1u);
+    if (!outcomes[0].published) {
+        EXPECT_TRUE (outcomes[0].reason == GpuReason::GpuUnsupported ||
+                     outcomes[0].reason == GpuReason::DriverIncompatible)
+            << GpuReasonCode (outcomes[0].reason) << ": " << outcomes[0].message;
+        GTEST_SKIP () << "no OptiX here: " << outcomes[0].message;
+    }
+    const packet::Result expected = Expected (*scene, request);
+    EXPECT_EQ (outcomes[0].result.bits, expected.bits);
+    EXPECT_EQ (outcomes[0].result.resolved, expected.resolved);
+    client.Shutdown ();
+#endif
 }
 
 // ---- the study's traversal over the worker -----------------------------------

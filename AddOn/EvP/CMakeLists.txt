@@ -551,6 +551,40 @@ if (WIN32 AND MSVC)
 endif ()
 
 # ============================================================================
+# TapiocaOptixWorker.exe -- the out-of-process OptiX ray worker
+# ============================================================================
+# HANDOFF-SunStudyRust.md §7.1 G3. Built only when the CUDA toolkit and the
+# OptiX SDK are on this machine (cmake/OptixWorker.cmake); both are build-time
+# only, the driver supplies nvcuda.dll and nvoptix.dll at run time. Lands
+# beside the .apx like the DXR worker.
+if (WIN32 AND MSVC)
+    include ("${CMAKE_CURRENT_LIST_DIR}/cmake/OptixWorker.cmake")
+    tapioca_find_optix ()
+    if (TAPIOCA_OPTIX_FOUND)
+        set (OptixWorkerFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/OptixWorker")
+        add_executable (TapiocaOptixWorker
+            "${OptixWorkerFolder}/OptixWorkerMain.cpp"
+            "${OptixWorkerFolder}/OptixBackend.cpp"
+            "${RayWorkerFolder}/RayWorkerWin32.cpp"
+            "${RayWorkerFolder}/RayWorkerService.cpp"
+            "${RayWorkerFolder}/RayWorkerProtocol.cpp"
+            "${RayWorkerFolder}/RayWorkerPacket.cpp"
+            "${RayWorkerFolder}/RayWorkerReason.cpp"
+            "${RayWorkerFolder}/RayWorkerBatch.cpp")
+        target_compile_features (TapiocaOptixWorker PRIVATE cxx_std_20)
+        target_compile_options (TapiocaOptixWorker PRIVATE /W3 /MP /EHsc -D_CRT_SECURE_NO_WARNINGS)
+        target_include_directories (TapiocaOptixWorker PRIVATE
+            "${AddOnSourcesFolderAbsolute}" "${CMAKE_CURRENT_LIST_DIR}/Sources")
+        tapioca_add_optix_ir (TapiocaOptixWorker "${CMAKE_CURRENT_LIST_DIR}/Sources")
+        foreach (cfg DEBUG RELEASE RELWITHDEBINFO)
+            set_target_properties (TapiocaOptixWorker PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY_${cfg} "${CMAKE_BINARY_DIR}")
+        endforeach ()
+        add_dependencies (${ADDON_LIB} TapiocaOptixWorker)
+    endif ()
+endif ()
+
+# ============================================================================
 # Tapioca.GhWorker.exe -- the process Grasshopper solves in
 # ============================================================================
 # Separate PROCESS, not merely a separate binary, and that is the change this
