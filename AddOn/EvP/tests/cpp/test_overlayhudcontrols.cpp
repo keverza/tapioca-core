@@ -763,11 +763,23 @@ TEST (OverlayHudControls, DockFlyoutListsWorkflowsAndClosesAfterSelection)
     const hud::Layout choices = hud.Click ({ &sun, &area }, x, y);
     ASSERT_TRUE (choices.popup);
     EXPECT_EQ (hud.engine.Selected (), "hud#0");
-    const auto rows = Rows (choices.overlay, sun.textRgba);
-    ASSERT_EQ (rows.size (), 2u);
-    float box[4] = {};
-    ASSERT_TRUE (Box (choices.overlay, sun.textRgba, box));
-    hud.Click ({ &sun, &area }, box[0] + 4.0f, Middle (rows[1]));
+    float fill[4] = {};
+    ASSERT_TRUE (Box (choices.overlay, sun.accentRgba, fill));
+    EXPECT_LT (fill[2] - fill[0], 120.0f) << "buttons stay near the width of their names";
+    EXPECT_GT (fill[3] - fill[1], 30.0f) << "both compact workflow buttons are drawn";
+    const size_t roundVertices = std::count_if (choices.overlay.vertices.begin (), choices.overlay.vertices.end (),
+                                                [&] (const auto& v) { return v.rgba == sun.accentRgba; });
+    EXPECT_GT (roundVertices, 12u) << "rounded buttons draw more than two square rectangles";
+    const float choiceX = fill[0] + 10.0f, choiceY = fill[3] - 8.0f;
+    const auto hovered = hud.Lay ({ &sun, &area }, At (choiceX, choiceY));
+    const auto darken = [] (uint32_t rgba) {
+        uint32_t result = rgba & 0xFFu;
+        for (int shift : { 8, 16, 24 })
+            result |= uint32_t (std::lround (float ((rgba >> shift) & 0xFFu) * 0.85f)) << shift;
+        return result;
+    };
+    EXPECT_TRUE (Box (hovered.overlay, darken (sun.accentRgba), fill)) << "hover darkens the dock fill";
+    hud.Click ({ &sun, &area }, choiceX, choiceY);
     EXPECT_EQ (hud.engine.Selected (), "hud#1");
     EXPECT_FALSE (hud.Lay ({ &sun, &area }, At (600.0f, 600.0f)).popup);
     EXPECT_FALSE (hud.state->criteriaTextActive);
@@ -790,11 +802,10 @@ TEST (OverlayHudControls, DockWorkflowFlyoutOpensPanelAndItsMenuEnablesReadout)
     const float dy = Top (closed.dock) + closed.dock.width * 2.5f;
     const hud::Layout menu = hud.Click ({ &panel }, dx, dy);
     ASSERT_TRUE (menu.popup);
-    auto items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 1u) << "one available workflow";
     float box[4] = {};
-    ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
-    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[0]));
+    ASSERT_TRUE (Box (menu.overlay, panel.backgroundRgba, box));
+    EXPECT_LT (box[2] - box[0], 120.0f) << "a short workflow name gets a short button";
+    hud.Click ({ &panel }, box[0] + 10.0f, (box[1] + box[3]) * 0.5f);
     EXPECT_TRUE (hud::HudOpen (*hud.state));
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_FALSE (open.popup) << "the workflow tabs disappear after selection";
@@ -802,7 +813,7 @@ TEST (OverlayHudControls, DockWorkflowFlyoutOpensPanelAndItsMenuEnablesReadout)
     const float y = Top (open.host) + open.host.height - 4.0f;
     const hud::Layout panelMenu = RightClick (hud, { &panel }, x, y);
     ASSERT_TRUE (panelMenu.popup);
-    items = Rows (panelMenu.overlay, panel.textRgba);
+    auto items = Rows (panelMenu.overlay, panel.textRgba);
     ASSERT_EQ (items.size (), 7u);
     ASSERT_TRUE (Box (panelMenu.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[3]));

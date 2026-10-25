@@ -141,6 +141,7 @@ uint32_t CircleColour (const Circle& circle, uint32_t ink, double seconds);
 // What the user pressed on the dock: the title opens workflow tabs; the arrow toggles the panel.
 struct DockPress {
     bool title = false;
+    bool titleActive = false;
     bool top = false;
     bool bottom = false;
     bool lock = false;
@@ -169,6 +170,7 @@ struct DockPlacement {
     ImVec2 dragPosition = ImVec2 (100, 100); // raw position while the magnet pulls its visual position
     bool horizontal = true;
     bool dragging = false;
+    bool workflowFlyoutOpen = false;
 };
 ImVec2 DockPosition (const DockPlacement& placement, ImVec2 view, ImVec2 size, float scale);
 ImVec2 DockFraction (const DockPlacement& placement);

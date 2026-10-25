@@ -134,6 +134,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     press.title =
         ImGui::InvisibleButton ("##title", horizontal ? ImVec2 (std::ceil (text.x + 2.0f * padding.y), across)
                                                       : ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
+    press.titleActive = ImGui::IsItemActive ();
     const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
     part (a, b, ImDrawFlags_RoundCornersNone);
     press.dragging = ImGui::IsItemActive () && ImGui::IsMouseDragging (ImGuiMouseButton_Left);
@@ -378,43 +379,91 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
     if (ImGui::Begin ("###tapioca.dock", nullptr, flags)) {
         const DockEdge side = PanelSide (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), p.edge, p.horizontal);
         result.press = DockTab ("##hud", label, look, open, top, bottom, padding, ui, locked, p.horizontal, side);
-        if (result.press.title)
-            ImGui::OpenPopup ("##dockWorkflows");
+        if (result.press.title) {
+            p.workflowFlyoutOpen = !p.workflowFlyoutOpen;
+            if (p.workflowFlyoutOpen)
+                ImGui::OpenPopup ("##dockWorkflows");
+        }
         if (ImGui::IsWindowHovered () && ImGui::IsMouseClicked (ImGuiMouseButton_Right)) {
             ClaimRightClick ();
             ImGui::OpenPopup ("##dockPosition");
         }
         const int menuColours = PushLook (look, ui);
-        float width = 120.0f * ui;
+        const float padX = std::round (6.0f * ui);
+        const float padY = std::round (2.0f * ui);
+        const float spacing = std::round (2.0f * ui);
+        const float buttonHeight = std::ceil (ImGui::GetTextLineHeight () + 2.0f * padY);
+        float width = ImGui::CalcTextSize ("No workflows available").x + 2.0f * padX;
         size_t workflowCount = 0;
         for (const HostTab& tab : tabs)
             if (tab.key != kStatsKey && tab.key != kSelectionKey && tab.key != kSettingsKey && tab.key != kDebugKey) {
-                width = (std::max) (width, ImGui::CalcTextSize (tab.title.c_str ()).x + 32.0f * ui);
+                if (workflowCount == 0)
+                    width = 0.0f;
+                width = (std::max) (width, ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * padX);
                 ++workflowCount;
             }
-        const ImVec2 wanted (width, (std::max) (1.0f, float (workflowCount)) * ImGui::GetFrameHeightWithSpacing () +
-                                        2.0f * ImGui::GetStyle ().WindowPadding.y);
+        const float count = float ((std::max) (size_t (1), workflowCount));
+        const ImVec2 wanted (std::ceil (width), count * buttonHeight + (count - 1.0f) * spacing);
         const DockPanelRect flyout = WorkflowFlyoutAtDock (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), wanted);
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0, 0));
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar (ImGuiStyleVar_ItemSpacing, ImVec2 (0, spacing));
+        ImGui::PushStyleColor (ImGuiCol_PopupBg, ImVec4 (0, 0, 0, 0));
         ImGui::SetNextWindowPos (flyout.position);
         ImGui::SetNextWindowSize (flyout.size);
         if (ImGui::BeginPopup ("##dockWorkflows",
                                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing)) {
-            if (workflowCount == 0)
-                ImGui::TextDisabled ("No workflows available");
-            for (const HostTab& tab : tabs) {
-                if (tab.key == kStatsKey || tab.key == kSelectionKey || tab.key == kSettingsKey || tab.key == kDebugKey)
-                    continue;
-                ImGui::PushID (tab.key.c_str ());
-                if (ImGui::Selectable (tab.title.c_str (), tab.key == held)) {
-                    result.selected = tab.key;
-                    ImGui::CloseCurrentPopup ();
+            if (!p.workflowFlyoutOpen)
+                ImGui::CloseCurrentPopup ();
+            else {
+                const uint32_t fill = open ? graphicssettings::Colour ("ui.dock.activeBackground", look.accentRgba)
+                                           : graphicssettings::Colour ("ui.dock.background", look.backgroundRgba);
+                const uint32_t ink = graphicssettings::Colour ("ui.dock.text", open ? Contrast (fill) : look.textRgba);
+                const ImVec4 base = ImGui::ColorConvertU32ToFloat4 (Packed (fill));
+                const auto darker = [&] (float factor) {
+                    return ImVec4 (base.x * factor, base.y * factor, base.z * factor, base.w);
+                };
+                ImGui::PushStyleColor (ImGuiCol_Button, base);
+                ImGui::PushStyleColor (ImGuiCol_ButtonHovered, darker (0.85f));
+                ImGui::PushStyleColor (ImGuiCol_ButtonActive, darker (0.72f));
+                ImGui::PushStyleColor (ImGuiCol_Text, Packed (ink));
+                ImGui::PushStyleVar (ImGuiStyleVar_FramePadding, ImVec2 (padX, padY));
+                ImGui::PushStyleVar (
+                    ImGuiStyleVar_FrameRounding,
+                    (std::min) (float (graphicssettings::Number ("ui.dock.rounding", 6)) * scale, buttonHeight * 0.5f));
+                if (workflowCount == 0) {
+                    ImGui::BeginDisabled ();
+                    ImGui::Button ("No workflows available", ImVec2 (flyout.size.x, buttonHeight));
+                    ImGui::EndDisabled ();
                 }
-                if (!tab.purpose.empty ())
-                    Tip (tab.purpose);
-                ImGui::PopID ();
+                for (const HostTab& tab : tabs) {
+                    if (tab.key == kStatsKey || tab.key == kSelectionKey || tab.key == kSettingsKey ||
+                        tab.key == kDebugKey)
+                        continue;
+                    ImGui::PushID (tab.key.c_str ());
+                    const float itemWidth =
+                        (std::min) (flyout.size.x,
+                                    std::ceil (ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * padX));
+                    if (ImGui::Button (tab.title.c_str (), ImVec2 (itemWidth, buttonHeight))) {
+                        result.selected = tab.key;
+                        p.workflowFlyoutOpen = false;
+                        ImGui::CloseCurrentPopup ();
+                    }
+                    if (tab.key == held)
+                        Tip ("Current workflow");
+                    else if (!tab.purpose.empty ())
+                        Tip (tab.purpose);
+                    ImGui::PopID ();
+                }
+                ImGui::PopStyleVar (2);
+                ImGui::PopStyleColor (4);
             }
             ImGui::EndPopup ();
         }
+        else if (!result.press.titleActive && !result.press.title)
+            p.workflowFlyoutOpen = false;
+        ImGui::PopStyleColor ();
+        ImGui::PopStyleVar (3);
         if (ImGui::BeginPopup ("##dockPosition")) {
             if (ImGui::BeginMenu ("Dock location")) {
                 struct Anchor {

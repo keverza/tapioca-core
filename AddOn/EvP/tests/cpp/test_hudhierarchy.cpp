@@ -153,6 +153,9 @@ TEST (HudHierarchy, DockTitleOpensWorkflowTabsWithoutSwitchingOrTakingTextFocus)
     EXPECT_TRUE (menu.popup);
     EXPECT_EQ (hud.engine.Selected (), selected);
     EXPECT_FALSE (hud.state->criteriaTextActive);
+    EXPECT_FALSE (hud.Click ({ &panel }, x, y).popup) << "a second dock-title click closes the workflow list";
+    EXPECT_EQ (hud.engine.Selected (), selected);
+    EXPECT_TRUE (hud.Click ({ &panel }, x, y).popup) << "a third click opens it again";
 }
 
 TEST (HudHierarchy, DockLabelWeightPassStaysOnWholePixelsWhenTurned)
