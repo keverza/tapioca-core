@@ -536,7 +536,8 @@ if (WIN32 AND MSVC)
         "${RayWorkerFolder}/RayWorkerService.cpp"
         "${RayWorkerFolder}/RayWorkerProtocol.cpp"
         "${RayWorkerFolder}/RayWorkerPacket.cpp"
-        "${RayWorkerFolder}/RayWorkerReason.cpp")
+        "${RayWorkerFolder}/RayWorkerReason.cpp"
+        "${RayWorkerFolder}/RayWorkerBatch.cpp")
     target_compile_features (TapiocaDxrWorker PRIVATE cxx_std_20)
     target_compile_options (TapiocaDxrWorker PRIVATE /W3 /MP /EHsc -D_CRT_SECURE_NO_WARNINGS)
     target_include_directories (TapiocaDxrWorker PRIVATE

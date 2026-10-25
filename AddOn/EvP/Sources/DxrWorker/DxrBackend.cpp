@@ -2,6 +2,7 @@
 
 #include "DxrWorker/DxrDevice.hpp"
 #include "DxrWorker/DxrOcclusionDxil.h"
+#include "RayWorker/RayWorkerBatch.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -83,25 +84,11 @@ class DxrBackend final : public rayworker::RayBackend {
         // ⚠️ ONE SHARED ORIGIN, SUBTRACTED IN DOUBLE, BEFORE ANY f32. A survey
         // coordinate of 10^6 m keeps ~6 cm of f32 resolution; centred, the same
         // building keeps sub-millimetre. Rays are moved by the same origin.
-        double lo[3] = { std::numeric_limits<double>::max (), std::numeric_limits<double>::max (),
-                         std::numeric_limits<double>::max () };
-        double hi[3] = { -lo[0], -lo[1], -lo[2] };
-        for (size_t v = 0; v < vertexCount; ++v)
-            for (int a = 0; a < 3; ++a) {
-                const double x = scene.vertices[v * 3 + a];
-                if (!std::isfinite (x)) {
-                    error = "the scene has a non-finite vertex";
-                    return GpuReason::ValidationFailed;
-                }
-                lo[a] = std::min (lo[a], x);
-                hi[a] = std::max (hi[a], x);
-            }
-        for (int a = 0; a < 3; ++a)
-            origin_[a] = 0.5 * (lo[a] + hi[a]);
-        std::vector<float> local (vertexCount * 3);
-        for (size_t v = 0; v < vertexCount; ++v)
-            for (int a = 0; a < 3; ++a)
-                local[v * 3 + a] = static_cast<float> (scene.vertices[v * 3 + a] - origin_[a]);
+        if (!rayworker::SceneOrigin (scene, origin_)) {
+            error = "the scene has a non-finite vertex";
+            return GpuReason::ValidationFailed;
+        }
+        const std::vector<float> local = rayworker::LocalVertices (scene, origin_);
 
         HRESULT hr = device_->Begin ();
         ComPtr<ID3D12Resource> vertices, indices;
@@ -404,81 +391,20 @@ GpuReason DxrBackend::Trace (const packet::Request& request, packet::Result& res
         return capability_.reason;
     }
     const auto started = std::chrono::steady_clock::now ();
-    const size_t samples = request.positions.size () / 3;
-    const size_t totalSteps = static_cast<size_t> (request.totalSteps);
-    const size_t wordsPerSample = (totalSteps + 63) / 64;
-    result.sampleCount = samples;
-    result.stepCount = request.totalSteps;
-    result.bits.assign (samples * wordsPerSample, 0u);
-    result.resolved.assign (totalSteps, 0u);
-
-    // QueryEngine::Occluded's interval: tmin clamps at 0, tmax <= 0 is
-    // unbounded, and an empty interval holds nothing (clear, not shadowed).
-    const double minT = request.tmin > 0.0 ? request.tmin : 0.0;
-    const double maxT = request.tmax > 0.0 ? request.tmax : std::numeric_limits<double>::max ();
-    const bool emptyInterval = maxT <= minT;
-
-    // Front-facing (sample, step) pairs, decided in double as the accumulator
-    // decides them; the GPU only answers whether they are blocked.
-    std::vector<uint32_t> rays;
-    std::vector<float> directions;
-    std::vector<size_t> traceable; // step slots that need the GPU
-    rays.reserve (samples * 2);
-    for (size_t i = 0; i < request.steps.size (); ++i) {
-        const size_t step = request.steps[i];
-        const double* d = &request.directions[i * 3];
-        const double length = std::sqrt (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        const bool alwaysClear = sceneTriangles_ == 0 || length <= 0.0 || emptyInterval;
-        const uint32_t slot = static_cast<uint32_t> (directions.size () / 3);
-        for (size_t s = 0; s < samples; ++s) {
-            if (!request.normals.empty ()) {
-                const double* n = &request.normals[s * 3];
-                if (n[0] * d[0] + n[1] * d[1] + n[2] * d[2] <= 0.0)
-                    continue; // facing away: self-shadowed, bit stays clear
-            }
-            if (alwaysClear)
-                result.bits[s * wordsPerSample + step / 64] |= 1ull << (step % 64);
-            else {
-                rays.push_back (static_cast<uint32_t> (s));
-                rays.push_back (slot);
-            }
-        }
-        if (!alwaysClear) {
-            for (int a = 0; a < 3; ++a)
-                directions.push_back (static_cast<float> (d[a] / length));
-            traceable.push_back (step);
-        }
-    }
-
-    if (!rays.empty ()) {
-        std::vector<float> positions (samples * 3);
-        for (size_t s = 0; s < samples; ++s)
-            for (int a = 0; a < 3; ++a)
-                positions[s * 3 + a] = static_cast<float> (request.positions[s * 3 + a] - origin_[a]);
-        const float tmin = static_cast<float> (minT);
-        const float tmax = request.tmax > 0.0 ? static_cast<float> (maxT) : std::numeric_limits<float>::max ();
-        std::vector<uint32_t> occluded;
-        const GpuReason reason = Dispatch (positions, rays, directions, tmin, tmax, occluded, isCancelled, error);
+    const rayworker::RayBatch batch = rayworker::BuildRayBatch (request, sceneTriangles_, origin_, result);
+    std::vector<uint32_t> occluded;
+    if (batch.RayCount () > 0) {
+        const GpuReason reason = Dispatch (batch.positions, batch.rays, batch.directions, batch.tmin, batch.tmax,
+                                           occluded, isCancelled, error);
         if (reason != GpuReason::None)
             return reason;
-        for (size_t r = 0; r < occluded.size (); ++r) {
-            if (occluded[r] > 1) {
-                error = "the GPU wrote an occlusion word that is neither 0 nor 1";
-                return GpuReason::ValidationFailed;
-            }
-            if (occluded[r] != 0)
-                continue;
-            const size_t s = rays[r * 2];
-            const size_t step = traceable[rays[r * 2 + 1]];
-            result.bits[s * wordsPerSample + step / 64] |= 1ull << (step % 64);
-        }
     }
     if (isCancelled && isCancelled ()) {
         error = "the run was cancelled";
         return GpuReason::WorkerFailed;
     }
-    for (const uint32_t step : request.steps)
-        result.resolved[step] = 1;
+    if (!rayworker::ApplyOcclusion (batch, occluded, request, result, error))
+        return GpuReason::ValidationFailed;
     timings.trace = Microseconds (started);
     return GpuReason::None;
 }

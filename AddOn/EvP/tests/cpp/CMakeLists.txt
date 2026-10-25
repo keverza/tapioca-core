@@ -222,6 +222,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerSupervisor.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerService.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerCpuReference.cpp"
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerBatch.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerClient.cpp"
     # SunStudyCache is the persistent analysis and, more importantly, the rule
     # for which patches a geometry change invalidates. That rule fails PLAUSIBLY
@@ -1326,7 +1327,7 @@ if (WIN32)
         "${EVP_ROOT}/Sources/DxrWorker/DxrBackend.cpp"
         "${EVP_RAYWORKER}/RayWorkerWin32.cpp" "${EVP_RAYWORKER}/RayWorkerService.cpp"
         "${EVP_RAYWORKER}/RayWorkerProtocol.cpp" "${EVP_RAYWORKER}/RayWorkerPacket.cpp"
-        "${EVP_RAYWORKER}/RayWorkerReason.cpp")
+        "${EVP_RAYWORKER}/RayWorkerReason.cpp" "${EVP_RAYWORKER}/RayWorkerBatch.cpp")
     target_compile_features (TapiocaDxrWorker PRIVATE cxx_std_20)
     target_include_directories (TapiocaDxrWorker PRIVATE "${EVP_ROOT}/Sources/AddOn" "${EVP_ROOT}/Sources")
     target_link_libraries (TapiocaDxrWorker PRIVATE d3d12 dxgi)
