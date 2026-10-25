@@ -221,6 +221,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerPacket.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerSupervisor.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerService.cpp"
+    "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerCpuReference.cpp"
     "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerClient.cpp"
     # SunStudyCache is the persistent analysis and, more importantly, the rule
     # for which patches a geometry change invalidates. That rule fails PLAUSIBLY

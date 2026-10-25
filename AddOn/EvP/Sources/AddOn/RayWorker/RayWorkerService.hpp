@@ -57,6 +57,8 @@ class RayBackend {
 
 // The CPU reference backend: the sun study's own accumulator over the C++
 // query index, so a GPU backend has an exact oracle behind the same wire.
+// Defined in RayWorkerCpuReference.cpp, which links the geometry engine; a
+// worker executable links the service without it.
 std::unique_ptr<RayBackend> MakeCpuReferenceBackend ();
 
 class RayWorkerService final {
