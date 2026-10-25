@@ -801,6 +801,7 @@ set (EVP_EDIT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Edit/EditDocument.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSession.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditSnap.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Edit/EditSnapTargets.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditWorkingPlane.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditTracker.cpp"
     "${EVP_ROOT}/Sources/AddOn/Edit/EditGizmo.cpp"

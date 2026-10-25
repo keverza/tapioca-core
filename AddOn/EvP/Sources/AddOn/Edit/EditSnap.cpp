@@ -1,5 +1,6 @@
 #include "Edit/EditSnap.hpp"
 #include "Edit/EditShape.hpp"
+#include "Edit/EditSnapInternal.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -61,18 +62,11 @@ Vec3 ProjectToPlane (const Plane& plane, Vec3 p)
 
 namespace {
 
-struct P2 {
-    double x = 0.0, y = 0.0;
-};
-
-struct Frame {
-    Vec3 origin, u, v;
-    P2 To (Vec3 p) const
-    {
-        const Vec3 d = p - origin;
-        return { Dot (d, u), Dot (d, v) };
-    }
-};
+using snapgather::Frame;
+using snapgather::Gather;
+using snapgather::P2;
+using snapgather::Pt;
+using snapgather::Seg;
 
 double Dist (P2 a, P2 b)
 {
@@ -104,20 +98,6 @@ bool Cross2 (P2 a, P2 b, P2 c, P2 d, double& t, double& s)
     s = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den;
     return true;
 }
-
-struct Seg {
-    Vec3 a, b;
-    Ref ref;
-    std::string context;
-    int run = -1; // a piece of a drawn curve: the curve's number (unique in the gather), -1 straight
-};
-
-struct Pt {
-    Vec3 p;
-    SnapKind kind;
-    Ref ref;
-    std::string context;
-};
 
 // A guide line that the cursor is on: an axis through the anchor, a segment's
 // extension, or a segment itself. Crossings between two of them are snap points.
@@ -156,6 +136,10 @@ bool Excluded (const std::vector<Ref>& exclude, Id entity, Id vertex)
     }
     return false;
 }
+
+} // namespace
+
+namespace snapgather {
 
 void Gather (const Document& doc, const SnapContext& context, const SnapQuery& query, std::vector<Pt>& points,
              std::vector<Seg>& segments)
@@ -264,6 +248,10 @@ void Gather (const Document& doc, const SnapContext& context, const SnapQuery& q
     }
 }
 
+} // namespace snapgather
+
+namespace {
+
 bool Better (const Candidate& a, const Candidate& b)
 {
     if (a.kind != b.kind)
@@ -275,58 +263,6 @@ bool Better (const Candidate& a, const Candidate& b)
 // point far from the gesture is rejected before any projection -- a source far in Z is never
 // excused by where it happens to land on screen. A segment is judged by its computed candidate,
 // never by blanket-rejecting a source whose endpoints happen to be off-screen.
-} // namespace
-
-// The gathered targets, and a uniform grid over them in the working plane's frame: each cell
-// lists the points in it and the segments whose bounds touch it, in gather order.
-struct SnapTargets::Index {
-    uint64_t contextKey = 0;
-    std::vector<Entity> entities; // what it was gathered from, compared on every use
-    std::vector<Path> paths;
-    std::vector<Ref> exclude;
-    double pathStep = 0.0;
-    Plane plane;
-    Frame frame;
-    std::vector<Pt> points;
-    std::vector<Seg> segments;
-    double x0 = 0.0, y0 = 0.0, cell = 1.0;
-    int nx = 0, ny = 0;
-    std::vector<std::vector<uint32_t>> pointCells, segmentCells;
-
-    bool For (const Document& doc, const SnapQuery& q) const
-    {
-        return exclude == q.exclude && pathStep == q.pathStep && entities == doc.entities && paths == doc.paths &&
-               plane.origin == q.plane.origin && plane.normal == q.plane.normal && plane.u == q.plane.u;
-    }
-    int Column (double x) const
-    {
-        return std::clamp (int (std::floor ((x - x0) / cell)), 0, nx - 1);
-    }
-    int Row (double y) const
-    {
-        return std::clamp (int (std::floor ((y - y0) / cell)), 0, ny - 1);
-    }
-    // Indices whose cells meet the square of half side `radius` about `c`, ascending: the
-    // gather order, so every tie and crossing is met in the order a full scan meets it.
-    void Near (const std::vector<std::vector<uint32_t>>& cells, P2 c, double radius, std::vector<uint32_t>& out) const
-    {
-        out.clear ();
-        if (nx == 0 || !(radius >= 0.0) || !std::isfinite (c.x + c.y + radius))
-            return;
-        const int cx0 = Column (c.x - radius), cx1 = Column (c.x + radius);
-        const int cy0 = Row (c.y - radius), cy1 = Row (c.y + radius);
-        for (int y = cy0; y <= cy1; ++y)
-            for (int x = cx0; x <= cx1; ++x) {
-                const auto& list = cells[size_t (y) * size_t (nx) + size_t (x)];
-                out.insert (out.end (), list.begin (), list.end ());
-            }
-        std::sort (out.begin (), out.end ());
-        out.erase (std::unique (out.begin (), out.end ()), out.end ());
-    }
-};
-
-namespace {
-
 bool Screened (const SnapQuery& query, const Vec3& p)
 {
     if (!query.screen)
@@ -347,82 +283,6 @@ bool Screened (const SnapQuery& query, const Vec3& p)
 }
 
 } // namespace
-
-SnapTargets::SnapTargets () = default;
-SnapTargets::~SnapTargets () = default;
-SnapTargets::SnapTargets (SnapTargets&&) noexcept = default;
-SnapTargets& SnapTargets::operator= (SnapTargets&&) noexcept = default;
-
-void SnapTargets::Reset ()
-{
-    index_.reset ();
-}
-
-size_t SnapTargets::Points () const
-{
-    return index_ ? index_->points.size () : 0;
-}
-
-size_t SnapTargets::Segments () const
-{
-    return index_ ? index_->segments.size () : 0;
-}
-
-bool SnapTargets::Update (const Document& doc, const SnapContext& context, uint64_t contextKey, const SnapQuery& query)
-{
-    if (index_ && index_->contextKey == contextKey && index_->For (doc, query))
-        return false;
-    auto index = std::make_unique<Index> ();
-    index->entities = doc.entities;
-    index->paths = doc.paths;
-    index->contextKey = contextKey;
-    index->exclude = query.exclude;
-    index->pathStep = query.pathStep;
-    index->plane = query.plane;
-    index->frame.origin = query.plane.origin;
-    PlaneAxes (query.plane, index->frame.u, index->frame.v);
-    Gather (doc, context, query, index->points, index->segments);
-    // The grid's extent and cell: about one target per cell, at most 512 cells a side.
-    double x0 = INFINITY, y0 = INFINITY, x1 = -INFINITY, y1 = -INFINITY;
-    const auto grow = [&] (Vec3 p) {
-        const P2 q = index->frame.To (p);
-        if (!std::isfinite (q.x) || !std::isfinite (q.y))
-            return;
-        x0 = std::min (x0, q.x), x1 = std::max (x1, q.x);
-        y0 = std::min (y0, q.y), y1 = std::max (y1, q.y);
-    };
-    for (const auto& p : index->points)
-        grow (p.p);
-    for (const auto& s : index->segments)
-        grow (s.a), grow (s.b);
-    if (std::isfinite (x0)) {
-        const double w = std::max (x1 - x0, 1.0e-6), h = std::max (y1 - y0, 1.0e-6);
-        const double n = double (std::max<size_t> (1, index->points.size () + index->segments.size ()));
-        index->cell = std::max ({ std::sqrt (w * h / n), w / 512.0, h / 512.0, 1.0e-3 });
-        index->x0 = x0, index->y0 = y0;
-        index->nx = int (std::floor (w / index->cell)) + 1;
-        index->ny = int (std::floor (h / index->cell)) + 1;
-        index->pointCells.assign (size_t (index->nx) * size_t (index->ny), {});
-        index->segmentCells.assign (index->pointCells.size (), {});
-        for (uint32_t i = 0; i < index->points.size (); ++i) {
-            const P2 q = index->frame.To (index->points[i].p);
-            if (std::isfinite (q.x) && std::isfinite (q.y))
-                index->pointCells[size_t (index->Row (q.y)) * size_t (index->nx) + size_t (index->Column (q.x))]
-                    .push_back (i);
-        }
-        for (uint32_t i = 0; i < index->segments.size (); ++i) {
-            const P2 a = index->frame.To (index->segments[i].a), b = index->frame.To (index->segments[i].b);
-            if (!std::isfinite (a.x + a.y + b.x + b.y))
-                continue;
-            for (int y = index->Row (std::min (a.y, b.y)); y <= index->Row (std::max (a.y, b.y)); ++y)
-                for (int x = index->Column (std::min (a.x, b.x)); x <= index->Column (std::max (a.x, b.x)); ++x)
-                    index->segmentCells[size_t (y) * size_t (index->nx) + size_t (x)].push_back (i);
-        }
-    }
-    index_ = std::move (index);
-    ++builds;
-    return true;
-}
 
 SnapResult Snap (const Document& doc, const SnapContext& context, const SnapQuery& query)
 {
