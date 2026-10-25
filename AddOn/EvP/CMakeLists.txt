@@ -518,6 +518,38 @@ if (WIN32)
 endif ()
 
 # ============================================================================
+# TapiocaDxrWorker.exe -- the out-of-process DXR ray worker
+# ============================================================================
+# HANDOFF-SunStudyRust.md §7.1 G2. Its own process so the analysis D3D12 device
+# never shares Archicad's renderer device or driver state; the add-on launches
+# it lazily (RayWorkerSupervisor) only when a study asks for DXR. It links the
+# worker wire and the DXR backend, not the geometry engine. Lands beside the
+# .apx, where the host looks for it.
+if (WIN32 AND MSVC)
+    set (DxrWorkerFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/DxrWorker")
+    set (RayWorkerFolder "${AddOnSourcesFolderAbsolute}/RayWorker")
+    add_executable (TapiocaDxrWorker
+        "${DxrWorkerFolder}/DxrWorkerMain.cpp"
+        "${DxrWorkerFolder}/DxrDevice.cpp"
+        "${DxrWorkerFolder}/DxrBackend.cpp"
+        "${RayWorkerFolder}/RayWorkerWin32.cpp"
+        "${RayWorkerFolder}/RayWorkerService.cpp"
+        "${RayWorkerFolder}/RayWorkerProtocol.cpp"
+        "${RayWorkerFolder}/RayWorkerPacket.cpp"
+        "${RayWorkerFolder}/RayWorkerReason.cpp")
+    target_compile_features (TapiocaDxrWorker PRIVATE cxx_std_20)
+    target_compile_options (TapiocaDxrWorker PRIVATE /W3 /MP /EHsc -D_CRT_SECURE_NO_WARNINGS)
+    target_include_directories (TapiocaDxrWorker PRIVATE
+        "${AddOnSourcesFolderAbsolute}" "${CMAKE_CURRENT_LIST_DIR}/Sources")
+    target_link_libraries (TapiocaDxrWorker PRIVATE d3d12 dxgi)
+    foreach (cfg DEBUG RELEASE RELWITHDEBINFO)
+        set_target_properties (TapiocaDxrWorker PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${cfg} "${CMAKE_BINARY_DIR}")
+    endforeach ()
+    add_dependencies (${ADDON_LIB} TapiocaDxrWorker)
+endif ()
+
+# ============================================================================
 # Tapioca.GhWorker.exe -- the process Grasshopper solves in
 # ============================================================================
 # Separate PROCESS, not merely a separate binary, and that is the change this

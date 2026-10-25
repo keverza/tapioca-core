@@ -1313,6 +1313,23 @@ if (WIN32)
         "${EVP_ROOT}/Sources/DxrWorker/DxrBackend.cpp")
     target_include_directories (EvPGeomTests PRIVATE "${EVP_ROOT}/Sources")
     target_link_libraries (EvPGeomTests PRIVATE d3d12)
+    # The worker's Win32 transport over a real pipe and file mappings
+    # (test_rayworkerwin32.cpp), and the worker executable it spawns: built
+    # beside the test binary so the test finds it without an installed add-on.
+    target_sources (EvPGeomTests PRIVATE test_rayworkerwin32.cpp
+        "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerWin32.cpp")
+    set (EVP_RAYWORKER "${EVP_ROOT}/Sources/AddOn/RayWorker")
+    add_executable (TapiocaDxrWorker
+        "${EVP_ROOT}/Sources/DxrWorker/DxrWorkerMain.cpp"
+        "${EVP_ROOT}/Sources/DxrWorker/DxrDevice.cpp"
+        "${EVP_ROOT}/Sources/DxrWorker/DxrBackend.cpp"
+        "${EVP_RAYWORKER}/RayWorkerWin32.cpp" "${EVP_RAYWORKER}/RayWorkerService.cpp"
+        "${EVP_RAYWORKER}/RayWorkerProtocol.cpp" "${EVP_RAYWORKER}/RayWorkerPacket.cpp"
+        "${EVP_RAYWORKER}/RayWorkerReason.cpp")
+    target_compile_features (TapiocaDxrWorker PRIVATE cxx_std_20)
+    target_include_directories (TapiocaDxrWorker PRIVATE "${EVP_ROOT}/Sources/AddOn" "${EVP_ROOT}/Sources")
+    target_link_libraries (TapiocaDxrWorker PRIVATE d3d12 dxgi)
+    add_dependencies (EvPGeomTests TapiocaDxrWorker)
 endif ()
 
 if (MSVC)
