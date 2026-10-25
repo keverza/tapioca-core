@@ -519,6 +519,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Viewer teardown owns the follower timer's lifetime; disarm immediately on
     # close rather than letting a fast reopen keep the previous session armed.
     ("ArchViz/ArchVizPanel.cpp", "NativeCommands/SunStudyFollowerDriver.hpp"),
+    # The HUD's "Run sun study" hands a plain-value request to the runner that
+    # owns the command sequence; the header carries no DevKit or command types.
+    ("ArchViz/DiligentHudSunRun.cpp", "NativeCommands/SunStudyHudRunner.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),

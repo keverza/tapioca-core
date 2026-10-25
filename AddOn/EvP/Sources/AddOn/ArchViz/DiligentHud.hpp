@@ -169,6 +169,21 @@ struct HudState {
     int sunStudyTimestepMinutes = 0;
     std::vector<uint16_t> sunStepMinutes; // mirrored from the scene
 
+    // "Run sun study" (DiligentHudSunRun.cpp): the palette command's inputs.
+    int sunRunYear = 2026, sunRunMonth = 3, sunRunDay = 21;
+    int sunRunTimestep = 0;  // index into 15 / 30 / 60 minutes
+    float sunRunGrid = 1.0f; // cell size, metres
+    std::vector<std::string> sunRunContext;
+    std::vector<std::string> sunRunIgnored;
+    // The analysis cylinder; its centre/radius are seeded from the scene once.
+    bool sunRunBounded = false;
+    bool sunRunBoundsSeeded = false;
+    bool sunRunPickingCentre = false;
+    double sunRunCentre[2] = { 0.0, 0.0 };
+    float sunRunRadius = 50.0f;
+    double sunRunFloor = 0.0, sunRunTop = 0.0; // scene height, for the drawn cylinder
+    std::string sunRunSubmitError;
+
     // Exclusive Analysis / Context / Focus roles. Point mode replaces Analysis
     // with one placed view cone and displays the gradient on Focus instead.
     std::vector<std::string> visibilitySelection;
@@ -590,6 +605,13 @@ class DiligentHud final {
 // the hours range, its legend, and the role legend. Draws nothing unless a
 // study is on screen.
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
+// Its "Run sun study" form, in DiligentHudSunRun.cpp: date, timestep, cell
+// size, roles and the analysis cylinder; plus the cylinder in the view and the
+// click that places its centre.
+void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& study);
+void DrawSunStudyBoundsOverlay (const HudState& state, const float viewProj[16], uint32_t width, uint32_t height);
+void ServiceSunStudyCentrePick (HudState& state, const InputSnapshot& input, const float origin[3],
+                                const float direction[3]);
 
 // The inspector's two halves. SERVICE runs in the frame loop with the cursor's
 // world ray (CPU raycast through the snapshot's cached BVH, then the study

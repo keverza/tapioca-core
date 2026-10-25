@@ -35,6 +35,7 @@
 #include "Grasshopper/GhWorkerHost.hpp"         // the supervised Grasshopper worker process
 #include "RhinoCompute/RhinoComputeManager.hpp" // the supervised rhino.compute worker process
 #include "RayWorker/RayWorkerTraversal.hpp"     // the supervised DXR ray worker process
+#include "NativeCommands/SunStudyHudRunner.hpp" // the HUD's sun study run thread
 #include "AddOnCommands.hpp"
 #include "ArchViz/MassingBake.hpp"
 #include "Server/ServerState.hpp"
@@ -260,6 +261,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // and static destruction would join them under the loader lock.
             evp::nodegraph::ShutDownWorkerPool ();
             evp::MainThreadGate::Get ().BeginShutdown ();
+            // After the gate: a run waiting on a main-thread job is woken, not deadlocked.
+            geomsrv::sunstudyhud::Shutdown ();
             geomsrv::archviz::massinghybrid::Shutdown ();
             geomsrv::archviz::massingbake::Shutdown ();
             geomsrv::archviz::massingslicesmodel::Shutdown ();
@@ -727,6 +730,7 @@ GSErrCode FreeData (void)
     // Quit path above having done it already is fine.
     evp::nodegraph::ShutDownWorkerPool ();
     evp::MainThreadGate::Get ().BeginShutdown ();
+    geomsrv::sunstudyhud::Shutdown ();
     geomsrv::archviz::massinghybrid::Shutdown ();
     geomsrv::archviz::massingbake::Shutdown ();
     geomsrv::archviz::massingslicesmodel::Shutdown ();

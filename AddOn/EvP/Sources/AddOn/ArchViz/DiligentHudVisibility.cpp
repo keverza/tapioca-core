@@ -243,6 +243,7 @@ void ServiceAnalysisInteractions (HudState& state, const DiligentScene& scene, c
                                   const float origin[3], const float direction[3])
 {
     ServiceSunStudyInspector (state, scene, origin, direction);
+    ServiceSunStudyCentrePick (state, input, origin, direction);
     if (!state.visibilityPlacingPoint || state.wantsMouse || !input.inside || !LeftReleased (input))
         return;
     state.visibilityPlacementMiss = true;

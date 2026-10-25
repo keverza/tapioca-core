@@ -388,6 +388,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     state.graphInteractionActive = ImGui::IsAnyItemActive ();
     DrawSunStudyInspectorTooltip (state, input, width, height);
     viewerhud::DrawVisibilityConeOverlay (state, viewProj, width, height);
+    DrawSunStudyBoundsOverlay (state, viewProj, width, height);
     viewerhud::DrawViewpointOverlay (state, viewProj, width, height);
 
     // ⚠️ NO FRAME-COST BADGE OVER THE VIEW (the user, 2026-10-03: a leftover panel; remove it).

@@ -303,11 +303,14 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         ImGui::TextWrapped ("A visibility study is on screen. Open the Visibility tab for its controls and legend.");
         return;
     }
+    // The study is asked for here, not only in the palette: open until the
+    // first one is on screen, then folded under what it shows.
+    if (ImGui::CollapsingHeader ("Run sun study", study.drawing ? 0 : ImGuiTreeNodeFlags_DefaultOpen))
+        DrawSunStudyRunControls (state, study);
     // âš ï¸ ONLY WHILE A STUDY IS ON SCREEN. A range slider with nothing to filter
     // reads as a control that does nothing -- but the machine's LIMITS are worth
     // reading before the first study, so they alone stay reachable.
     if (!study.drawing) {
-        ImGui::TextWrapped ("Run Native sun study in the Tapioca panel, then set the preview here.");
         if (ImGui::CollapsingHeader ("Machine limits"))
             DrawMachineLimits (study);
         return;
