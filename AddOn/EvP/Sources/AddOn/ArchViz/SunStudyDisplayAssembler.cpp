@@ -38,6 +38,16 @@ std::unique_ptr<SunStudyAtlasUpload> SunStudyDisplayAssembler::Prepare (const ev
     upload->stepCount = data->stepCount;
     upload->stepMinutes = data->stepMinutes;
     upload->noonStep = data->noonStep;
+    // Packed step k is series step k; anything else would aim the preview's
+    // shadow map at the wrong time, so a mismatch carries no suns at all.
+    const auto& steps = record.series.Steps ();
+    if (steps.size () == data->stepCount) {
+        upload->stepSuns.reserve (steps.size ());
+        for (const auto& step : steps)
+            upload->stepSuns.push_back ({ static_cast<float> (step.direction[0]),
+                                          static_cast<float> (step.direction[1]),
+                                          static_cast<float> (step.direction[2]) });
+    }
     const double rampTop = options.hoursMax > 0.0 ? options.hoursMax : record.series.DaylightHours ();
     upload->hoursMax = static_cast<float> (rampTop > 0.0 ? rampTop : 1.0);
     upload->debugMode = std::min (options.debug, static_cast<uint32_t> (SunStudyDebugMode::ShadowFan));

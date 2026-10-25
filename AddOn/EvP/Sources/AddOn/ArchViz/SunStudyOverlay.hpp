@@ -47,6 +47,7 @@
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyTextureDelta.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -164,6 +165,12 @@ struct SunStudyAtlasUpload {
     // for the HUD's time slider.
     uint32_t noonStep = 0;
     std::vector<uint16_t> stepMinutes;
+    // Each step's unit vector TOWARD the sun, model space, from the study's own
+    // series -- its date, place and timestep, not the host's current sun. The
+    // single shadow drives the viewer's shadow map with it, so the preview's
+    // outline is cast by the sun the study measured. Empty when the series does
+    // not match the packed steps.
+    std::vector<std::array<float, 3>> stepSuns;
 
     // What the study occupies, for the HUD's machine-limits readout.
     uint64_t sampleCount = 0;

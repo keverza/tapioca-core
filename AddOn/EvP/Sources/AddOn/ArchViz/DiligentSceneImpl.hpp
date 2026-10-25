@@ -35,6 +35,7 @@
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/EnvironmentMap.hpp"
 #include "ArchViz/SunShadowMath.hpp"
+#include "ArchViz/SunStudyOverlay.hpp"
 
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
@@ -54,6 +55,8 @@
 
 #include "Components/interface/GBuffer.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -409,6 +412,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunStepCount = 0;
     uint32_t sunNoonStep = 0;
     std::vector<uint16_t> sunStepMinutes;
+    // The study's sun per packed step (SunStudyAtlasUpload::stepSuns).
+    std::vector<std::array<float, 3>> sunStepSuns;
     uint64_t sunSampleCount = 0;
     double sunAnalysedArea = 0.0;
     bool sunPatchDomain = false;
@@ -693,9 +698,42 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float sunOverrideAzimuth = 135.0f;
     float sunOverrideAltitude = 45.0f;
 
-    // The sun the shader should use this frame: Archicad's, or the override.
+    // The tint pass's mode: the HUD's view over the commanded one, and
+    // visibility whenever a visibility result is shown.
+    uint32_t SunTintMode () const
+    {
+        return sunAnalysisKind == 1 ? uint32_t (SunStudyDebugMode::Visibility)
+                                    : (sunViewOverride >= 0 ? uint32_t (sunViewOverride) : sunDebugMode);
+    }
+
+    // The step the single shadow shows, when it is shown and its sun is known.
+    // ⚠️ THE STUDY'S SUN, NOT THE HOST'S: the preview's outline must be cast by
+    // the date, place and time the study measured, or it disagrees with the
+    // cells it refines.
+    bool StudyShadowSun (float out[3]) const
+    {
+        if (sunAtlasSRV == nullptr || sunStepSRV == nullptr ||
+            SunTintMode () != uint32_t (SunStudyDebugMode::SingleShadow) || sunStepCount == 0 ||
+            sunStepSuns.size () != sunStepCount)
+            return false;
+        const uint32_t step = (std::min) (sunViewStep, sunStepCount - 1);
+        if (step < sunFirstShadowStep || step >= (std::min) (sunEndShadowStep, sunStepCount))
+            return false;
+        const auto& sun = sunStepSuns[step];
+        if (!(sun[2] > 0.0f))
+            return false; // below the horizon: no shadow map to cast
+        out[0] = sun[0];
+        out[1] = sun[1];
+        out[2] = sun[2];
+        return true;
+    }
+
+    // The sun the shader should use this frame: the single shadow's study step,
+    // else Archicad's, or the override.
     void EffectiveSun (float out[3]) const
     {
+        if (StudyShadowSun (out))
+            return;
         if (!sunOverride) {
             out[0] = sun[0];
             out[1] = sun[1];

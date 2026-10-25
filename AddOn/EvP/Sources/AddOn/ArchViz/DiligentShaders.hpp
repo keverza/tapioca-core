@@ -591,6 +591,46 @@ void main (in PSInput psIn, out PSOutput psOut)
 // ⚠️ IT PAIRS WITH kArchVizMeshVS, like the flat shader, so the tint lands on
 // exactly the pixels the shaded pass produced -- which is also what lets the PSO
 // test depth for EQUALITY instead of re-rasterising with a bias.
+// The single shadow's EDGE SOURCE: the scene's PCF shadow map, which the frame
+// renders toward the study step's own sun while that view is shown. Prepended
+// to kArchVizSunTintPS after kArchVizShadowModePcf; the declarations match
+// kArchVizMeshPS's, so the tint binds the same cbuffer and the same texture.
+//
+// ⚠️ A HARD LOOKUP, NO DERIVATIVES. It runs inside a per-pixel branch (only in
+// cells on the study's own shadow boundary), where ddx/ddy are undefined, so
+// it takes one bilinear comparison tap and thresholds it: a crisp outline, not
+// a penumbra. The normal offset is the mesh pass's, sized by the cascade's texel.
+constexpr const char* kArchVizSunTintShadowPS = R"hlsl(
+cbuffer ArchVizShadowConstants
+{
+    ShadowMapAttribs g_shadowAttribs;
+    float4 g_pcssParams;
+};
+Texture2DArray<float>  g_shadowMap;
+SamplerComparisonState g_shadowMap_sampler;
+
+// 1 lit, 0 shadowed, by the shadow map; -1 where no cascade covers the point.
+float StudyEdgeLight (float3 worldPos, float3 normal)
+{
+    float cameraDepth = mul (g_viewProj, float4 (worldPos, 1.0)).w;
+    float4 probePosition = mul (g_shadowAttribs.mWorldToLightView, float4 (worldPos, 1.0));
+    CascadeSamplingInfo probe = FindCascade (g_shadowAttribs, probePosition.xyz / probePosition.w, cameraDepth);
+    if (probe.iCascadeIdx >= g_shadowAttribs.iNumCascades)
+        return -1.0;
+    float texelMetres = 2.0 / max (abs (probe.f3LightSpaceScale.x) * g_shadowAttribs.f4ShadowMapDim.x, 1e-6);
+    // Off the surface toward the sun's side, so the receiver never shadows itself.
+    float3 n = normalize (normal);
+    n = dot (n, g_sunAndAmbient.xyz) < 0.0 ? -n : n;
+    float4 lightPosition = mul (g_shadowAttribs.mWorldToLightView, float4 (worldPos + n * texelMetres * 2.0, 1.0));
+    CascadeSamplingInfo sampling = FindCascade (g_shadowAttribs, lightPosition.xyz / lightPosition.w, cameraDepth);
+    if (sampling.iCascadeIdx >= g_shadowAttribs.iNumCascades)
+        return -1.0;
+    float lit = g_shadowMap.SampleCmpLevelZero (g_shadowMap_sampler, float3 (sampling.f2UV, sampling.iCascadeIdx),
+                                                sampling.fDepth - g_shadowAttribs.fFixedDepthBias);
+    return lit >= 0.5 ? 1.0 : 0.0;
+}
+)hlsl";
+
 constexpr const char* kArchVizSunTintPS = R"hlsl(
 struct SunFaceMap
 {
@@ -677,6 +717,26 @@ bool LitAtStep (int2 texel, uint step)
 {
     uint word = g_sunSteps.Load (int4 (texel, int (step >> 5), 0));
     return ((word >> (step & 31u)) & 1u) != 0u;
+}
+
+// Whether a measured neighbour in the same tile (3 x 3) disagrees with this
+// cell at `step`: the cell holds the study's shadow boundary somewhere inside
+// it. Gutter and unsampled texels (negative hours) never count.
+bool OnStudyShadowBoundary (int2 tileOrigin, int2 cell, int2 tileSize, uint step, bool lit)
+{
+    [unroll] for (int dy = -1; dy <= 1; ++dy) {
+        [unroll] for (int dx = -1; dx <= 1; ++dx) {
+            int2 neighbour = cell + int2 (dx, dy);
+            if ((dx == 0 && dy == 0) || any (neighbour < 0) || any (neighbour >= tileSize))
+                continue;
+            int2 texel = tileOrigin + neighbour;
+            if (g_sunAtlas.Load (int3 (texel, 0)) < 0.0)
+                continue;
+            if (LitAtStep (texel, step) != lit)
+                return true;
+        }
+    }
+    return false;
 }
 
 // Fraction of measured time SHADOWED in [first, last), a word at a
@@ -862,8 +922,21 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     if (mode == 5) {
         if (g_sunStudyShadow.x < g_sunStudyPreview.y || g_sunStudyShadow.x >= g_sunStudyPreview.z)
             discard;
-        psOut.color =
-            StudyOverlayColor (SingleShadowColor (LitAtStep (texel, uint (g_sunStudyShadow.x + 0.5)), psIn.normal));
+        uint step = uint (g_sunStudyShadow.x + 0.5);
+        bool lit = LitAtStep (texel, step);
+        // ⚠️ THE STUDY IS THE TRUTH; THE SHADOW MAP ONLY DRAWS ITS EDGE. Away from
+        // the boundary every pixel shows its cell's measured bit. In a boundary
+        // cell the true edge lies inside the cell, and there the shadow map --
+        // cast this frame by the same sun -- places it per pixel. Its usual
+        // faults (bias, acne, a missing cascade) can therefore move the line
+        // within one cell and never repaint a face the study measured.
+        if (g_sunStudyShadow.w > 0.5 &&
+            OnStudyShadowBoundary (int2 (face.tile.xy), int2 (column, row), int2 (face.tile.zw), step, lit)) {
+            float edge = StudyEdgeLight (psIn.worldPos, psIn.normal);
+            if (edge >= 0.0)
+                lit = edge > 0.5;
+        }
+        psOut.color = StudyOverlayColor (SingleShadowColor (lit, psIn.normal));
         return;
     }
     if (mode == 7) {

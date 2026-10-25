@@ -212,6 +212,12 @@ TEST (SunStudyDisplayPreparation, MultiwordDaysKeepEveryBinaryStepAndCancelledPa
         auto upload = assembler.Prepare (*record, *record->snapshot, {}, error);
         ASSERT_NE (upload, nullptr) << error;
         EXPECT_EQ (upload->stepWords, 3u);
+        // The single shadow's sun per packed step: the study's own series, in order.
+        ASSERT_EQ (upload->stepSuns.size (), 65u);
+        for (size_t step = 0; step < 65; ++step)
+            for (int axis = 0; axis < 3; ++axis)
+                EXPECT_EQ (upload->stepSuns[step][size_t (axis)],
+                           static_cast<float> (record->series.Steps ()[step].direction[axis]));
         const auto hours = record->session.SunHours ();
         const auto& acc = record->session.Accumulator ();
         const size_t plane = static_cast<size_t> (upload->width) * upload->height;

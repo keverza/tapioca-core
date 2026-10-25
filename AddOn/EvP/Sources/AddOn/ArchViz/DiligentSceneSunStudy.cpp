@@ -23,6 +23,7 @@
 #include "Geometry/MeshStore.hpp"
 
 #include <Sampler.h>
+#include "Utilities/interface/DiligentFXShaderSourceStreamFactory.hpp"
 #include <Texture.h>
 
 #include <algorithm>
@@ -68,7 +69,11 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
     }
 
     if (impl_->sunTintPs == nullptr) {
-        const std::string source = ArchVizShaderSource (kArchVizSunTintPS);
+        // The PCF prelude and the tint's shadow-map lookup come first: the single
+        // shadow refines its boundary cells from the scene's shadow map, which
+        // DiligentFX's Shadows.fxh describes, so the compile needs its includes.
+        const std::string source =
+            ArchVizShaderSource (kArchVizShadowModePcf, kArchVizSunTintShadowPS, kArchVizSunTintPS);
         Diligent::ShaderCreateInfo sci;
         sci.Desc.Name = "ArchViz sun study tint PS";
         sci.Desc.ShaderType = Diligent::SHADER_TYPE_PIXEL;
@@ -76,6 +81,7 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
         sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
         sci.Source = source.c_str ();
         sci.SourceLength = source.size ();
+        sci.pShaderSourceStreamFactory = &Diligent::DiligentFXShaderSourceStreamFactory::GetInstance ();
         device->CreateShader (sci, &impl_->sunTintPs, nullptr);
         if (impl_->sunTintPs == nullptr) {
             error = "Diligent CreateShader(ArchViz sun study tint PS) failed -- the HLSL compiler's own "
@@ -115,6 +121,8 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
         { Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         // The per-step bits, recreated with the atlas, for the same reason.
         { Diligent::SHADER_TYPE_PIXEL, "g_sunSteps", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        // The scene's shadow map, which ShadowMapManager recreates with its settings.
+        { Diligent::SHADER_TYPE_PIXEL, "g_shadowMap", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
     };
     // ⚠️ NAMED `g_sunAtlas_sampler`, THE SAMPLER VARIABLE, NOT THE TEXTURE.
     // That is what every other immutable sampler in this renderer is named
@@ -122,8 +130,19 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
     // nothing is not an error -- the shader simply gets a default sampler, which
     // for this pass would be LINEAR and would blend the gutter's sentinel into
     // every tile edge.
+    // The mesh pass's comparison sampler, field for field (DiligentScene.cpp):
+    // the edge lookup must read the shadow map exactly as the shading does.
+    Diligent::SamplerDesc shadowSampler;
+    shadowSampler.MinFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+    shadowSampler.MagFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+    shadowSampler.MipFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+    shadowSampler.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
+    shadowSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
+    shadowSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
+    shadowSampler.ComparisonFunc = Diligent::COMPARISON_FUNC_LESS;
     const Diligent::ImmutableSamplerDesc samplers[] = {
         { Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas_sampler", atlasSampler },
+        { Diligent::SHADER_TYPE_PIXEL, "g_shadowMap_sampler", shadowSampler },
     };
 
     for (int depthIdx = 0; depthIdx < kSunDepthModeCount; ++depthIdx) {
@@ -205,6 +224,10 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
                         impl_->sunTintPso[depthIdx][cullIdx]->GetStaticVariableByName (stage, "ArchVizConstants"))
                     cb->Set (impl_->constants);
             }
+            if (Diligent::IShaderResourceVariable* shadowConstants =
+                    impl_->sunTintPso[depthIdx][cullIdx]->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL,
+                                                                                   "ArchVizShadowConstants"))
+                shadowConstants->Set (impl_->shadowMap.AttribsBuffer ());
             // One SRB per cull mode, made from the FIRST depth variant and reused by
             // the other two -- they declare an identical resource layout.
             if (impl_->sunTintSrb[cullIdx] == nullptr) {
@@ -418,6 +441,7 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, Diligent::ID
     impl_->sunStepCount = carried ? study->stepCount : 0u;
     impl_->sunNoonStep = study->noonStep;
     impl_->sunStepMinutes = study->stepMinutes;
+    impl_->sunStepSuns = carried ? study->stepSuns : std::vector<std::array<float, 3>> ();
     impl_->sunRejection.clear ();
     // Once applied, the renderer only needs the current content, not its base.
     study->baseTexels.reset ();
@@ -611,14 +635,22 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyParams[1] = impl_->sunAtlasHeight > 0 ? 1.0f / float (impl_->sunAtlasHeight) : 0.0f;
     constants.sunStudyParams[2] = impl_->sunHoursMax;
     // The HUD's view wins over the commanded one while it holds a choice.
-    const uint32_t mode = impl_->sunAnalysisKind == 1
-                              ? uint32_t (SunStudyDebugMode::Visibility)
-                              : (impl_->sunViewOverride >= 0 ? uint32_t (impl_->sunViewOverride) : impl_->sunDebugMode);
+    const uint32_t mode = impl_->SunTintMode ();
     constants.sunStudyParams[3] = float (mode);
     const uint32_t lastStep = impl_->sunStepCount > 0 ? impl_->sunStepCount - 1 : 0u;
     constants.sunStudyShadow[0] = float ((std::min) (impl_->sunViewStep, lastStep));
     constants.sunStudyShadow[1] = float (impl_->sunNoonStep);
     constants.sunStudyShadow[2] = float (impl_->sunStepCount);
+    // The single shadow's edge source: this frame's PCF shadow map, cast by the
+    // study step's own sun (EffectiveSun). Only where the study's cells disagree
+    // with a neighbour does the shader consult it; everywhere else the cells
+    // decide. Off -- cells only, as before -- without a PCF map aimed that way.
+    float studySun[3];
+    Diligent::ITextureView* edgeShadowView = nullptr;
+    if (impl_->shadowsEnabled && impl_->shadowMap.IsReady () &&
+        impl_->shadowMap.Settings ().mode == DiligentShadowMode::Pcf && impl_->StudyShadowSun (studySun))
+        edgeShadowView = impl_->shadowMap.ShaderView ();
+    constants.sunStudyShadow[3] = edgeShadowView != nullptr ? 1.0f : 0.0f;
     // ⚠️ THE FAN'S STEP BITS GO IN AS BIT PATTERNS, read with asuint. A float
     // cannot hold 32 arbitrary bits as a VALUE; copied as bytes it carries them
     // exactly, and nothing between here and the shader does arithmetic on them.
@@ -639,6 +671,11 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
         if (Diligent::IShaderResourceVariable* steps =
                 srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunSteps"))
             steps->Set (impl_->sunStepSRV);
+    }
+    if (edgeShadowView != nullptr) {
+        if (Diligent::IShaderResourceVariable* shadow =
+                srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_shadowMap"))
+            shadow->Set (edgeShadowView);
     }
 
     context->SetPipelineState (pso);
