@@ -29,8 +29,9 @@ namespace archviz {
 
 namespace {
 
-constexpr int kTimesteps[] = { 15, 30, 60 };
-constexpr const char* kTimestepNames[] = { "15 min", "30 min", "60 min" };
+// The slider's stops. Finer than 5 min adds steps without changing the hours.
+constexpr int kTimesteps[] = { 5, 10, 15, 20, 30 };
+constexpr int kTimestepCount = 5;
 constexpr const char* kMonths[] = { "January", "February", "March",     "April",   "May",      "June",
                                     "July",    "August",   "September", "October", "November", "December" };
 
@@ -254,7 +255,11 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
     ImGui::BeginDisabled (status.running);
     DatePicker (state);
     ImGui::SetNextItemWidth (-LabelColumn ());
-    ImGui::Combo ("timestep##sunrun", &state.sunRunTimestep, kTimestepNames, 3);
+    state.sunRunTimestep = std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1);
+    char minutes[16];
+    std::snprintf (minutes, sizeof (minutes), "%d min", kTimesteps[state.sunRunTimestep]);
+    ImGui::SliderInt ("timestep##sunrun", &state.sunRunTimestep, 0, kTimestepCount - 1, minutes,
+                      ImGuiSliderFlags_NoInput);
     ImGui::SetNextItemWidth (-LabelColumn ());
     ImGui::SliderFloat ("cell size##sunrun", &state.sunRunGrid, 0.25f, 10.0f, "%.2f m", ImGuiSliderFlags_Logarithmic);
 
@@ -295,7 +300,7 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
             request.year = state.sunRunYear;
             request.month = state.sunRunMonth;
             request.day = state.sunRunDay;
-            request.timestep = kTimesteps[std::clamp (state.sunRunTimestep, 0, 2)];
+            request.timestep = kTimesteps[std::clamp (state.sunRunTimestep, 0, kTimestepCount - 1)];
             request.grid = state.sunRunGrid;
             request.contextElements = state.sunRunContext;
             request.ignoredElements = state.sunRunIgnored;

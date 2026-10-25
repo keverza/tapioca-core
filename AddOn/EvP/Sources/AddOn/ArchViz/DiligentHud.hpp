@@ -171,7 +171,7 @@ struct HudState {
 
     // "Run sun study" (DiligentHudSunRun.cpp): the palette command's inputs.
     int sunRunYear = 2026, sunRunMonth = 3, sunRunDay = 21;
-    int sunRunTimestep = 0;  // index into 15 / 30 / 60 minutes
+    int sunRunTimestep = 2;  // stop index into 5 / 10 / 15 / 20 / 30 minutes
     float sunRunGrid = 1.0f; // cell size, metres
     std::vector<std::string> sunRunContext;
     std::vector<std::string> sunRunIgnored;
