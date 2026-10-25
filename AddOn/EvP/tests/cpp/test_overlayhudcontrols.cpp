@@ -230,16 +230,22 @@ TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
 
     // The close button, last along the tab row.
     const hud::Layout again = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    float firstHand = -1, lastHand = -1;
     const float headerY = Top (again.host) + 16;
-    for (float sample = Left (again.host) + 12; sample < Left (again.host) + again.host.width - 12; sample += 2)
-        if (hud.Lay ({ &panel }, At (sample, headerY)).hand) {
-            if (firstHand < 0)
-                firstHand = sample;
-            lastHand = sample;
+    float collapseX = -1;
+    bool inControl = false;
+    int controls = 0;
+    for (float sample = Left (again.host) + 12; sample < Left (again.host) + again.host.width - 12; sample += 2) {
+        const bool hand = hud.Lay ({ &panel }, At (sample, headerY)).hand;
+        if (hand && !inControl)
+            ++controls;
+        if (controls == 2 && hand) {
+            collapseX = sample;
+            break;
         }
-    ASSERT_GT (firstHand, 0);
-    hud.Click ({ &panel }, (firstHand + lastHand) * 0.5f, headerY);
+        inControl = hand;
+    }
+    ASSERT_GT (collapseX, 0);
+    hud.Click ({ &panel }, collapseX, headerY);
     EXPECT_FALSE (hud.engine.Open ());
     ASSERT_EQ (hud.heard.size (), 3u);
     EXPECT_EQ (hud.heard[0].kind, "hud");
@@ -566,7 +572,7 @@ TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
     ASSERT_TRUE (again.popup);
     EXPECT_FALSE (hud::ContentShown (*hud.state)) << "a right click is not the title's press";
     items = Rows (again.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 3u) << "workflow, pages and dock location in the chip menu";
+    ASSERT_EQ (items.size (), 4u) << "family heading, workflow, pages and dock location";
     ASSERT_TRUE (Box (again.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
     EXPECT_TRUE (hud::ContentShown (*hud.state));
@@ -638,7 +644,7 @@ TEST (OverlayHudControls, ASectionFoldedInTheHostIsSaidOnce)
     // The section's row: under the tab row, the swatch and the row. Found by pointing down
     // the page until the hand shows below the tab row.
     float row = 0.0f;
-    for (float probeY = Top (open.host) + 70; probeY < Top (open.host) + open.host.height && row == 0.0f;
+    for (float probeY = Top (open.host) + 110; probeY < Top (open.host) + open.host.height && row == 0.0f;
          probeY += 2.0f)
         if (hud.Lay ({ &panel }, At (Left (open.host) + 60.0f, probeY)).hand)
             row = probeY;
@@ -769,7 +775,7 @@ TEST (OverlayHudControls, DockWorkflowMenuOpensPanelAndItsMenuEnablesReadout)
     const hud::Layout menu = RightClick (hud, { &panel }, dx, dy);
     ASSERT_TRUE (menu.popup);
     auto items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 3u) << "workflow, pages and dock location";
+    ASSERT_EQ (items.size (), 4u) << "family heading, workflow, pages and dock location";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));

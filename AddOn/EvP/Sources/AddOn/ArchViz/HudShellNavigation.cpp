@@ -20,6 +20,26 @@ bool Global (const std::string& key)
 {
     return key == kSelectionKey || key == kSettingsKey || key == kDebugKey || key == kStatsKey;
 }
+WorkflowFamily FamilyOf (const HostTab& tab)
+{
+    return Global (tab.key) ? WorkflowFamily::Global : tab.family;
+}
+const char* FamilyName (WorkflowFamily family)
+{
+    switch (family) {
+        case WorkflowFamily::Analyze:
+            return "Analyze";
+        case WorkflowFamily::Design:
+            return "Design";
+        case WorkflowFamily::Document:
+            return "Document";
+        case WorkflowFamily::Other:
+            return "Other workflows";
+        case WorkflowFamily::Global:
+            return "Pages";
+    }
+    return "Other workflows";
+}
 } // namespace
 
 std::string ResolveNavigation (const std::string& input, const std::vector<HostTab>& tabs)
@@ -32,12 +52,47 @@ std::string ResolveNavigation (const std::string& input, const std::vector<HostT
         }
     std::string found;
     for (const auto& tab : tabs)
-        if (Fold (tab.key) == query || Fold (tab.title) == query) {
+        if (Fold (tab.key) == query || Fold (tab.title) == query ||
+            (!tab.token.empty () && Fold (tab.token) == query)) {
             if (!found.empty () && found != tab.key)
                 return {};
             found = tab.key;
         }
     return found;
+}
+
+std::string WorkflowMenu (const std::vector<HostTab>& tabs, const std::string& held)
+{
+    std::string selected;
+    for (const auto family :
+         { WorkflowFamily::Analyze, WorkflowFamily::Design, WorkflowFamily::Document, WorkflowFamily::Other }) {
+        bool heading = false;
+        std::string group;
+        for (const auto& tab : tabs) {
+            if (FamilyOf (tab) != family)
+                continue;
+            if (!heading) {
+                ImGui::SeparatorText (FamilyName (family));
+                heading = true;
+            }
+            if (!tab.group.empty () && tab.group != group) {
+                group = tab.group;
+                ImGui::TextDisabled ("%s", group.c_str ());
+            }
+            if (ImGui::MenuItem ((tab.title + "##" + tab.key).c_str (), nullptr, tab.key == held))
+                selected = tab.key;
+            if (!tab.purpose.empty ())
+                Tip (tab.purpose);
+        }
+    }
+    if (ImGui::BeginMenu ("Pages")) {
+        for (const auto& tab : tabs)
+            if (FamilyOf (tab) == WorkflowFamily::Global &&
+                ImGui::MenuItem ((tab.title + "##" + tab.key).c_str (), nullptr, tab.key == held))
+                selected = tab.key;
+        ImGui::EndMenu ();
+    }
+    return selected;
 }
 
 std::string NavigationHeader (const HostSpec& spec, const std::string& held, NavigationState& state, bool& collapse)
@@ -57,8 +112,14 @@ std::string NavigationHeader (const HostSpec& spec, const std::string& held, Nav
         workflow = current;
     }
     const std::string title = workflow ? workflow->title : "Choose workflow";
-    ImGui::TextUnformatted (title.c_str ());
-    Tip ("Right-click the dock chip to choose a workflow.");
+    if (ImGui::Button ((title + "  \xE2\x96\xBE##workflowSelector").c_str ()))
+        ImGui::OpenPopup ("##workflowMenu");
+    Tip (workflow && !workflow->purpose.empty () ? workflow->purpose
+                                                 : "Choose a workflow. Navigation does not run it.");
+    if (ImGui::BeginPopup ("##workflowMenu")) {
+        selected = WorkflowMenu (spec.tabs, held);
+        ImGui::EndPopup ();
+    }
     ImGui::SameLine ();
     collapse = ImGui::SmallButton ("-##collapse");
     Tip ("Collapse panel; keep drafts and selection");

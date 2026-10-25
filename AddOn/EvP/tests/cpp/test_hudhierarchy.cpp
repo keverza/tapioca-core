@@ -1,6 +1,7 @@
 #include "hud_fixture.hpp"
 #include "ArchViz/OverlayHudEngine.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 #include <cstring>
 
 using namespace hudtest;
@@ -92,13 +93,18 @@ TEST (HudHierarchy, FloatingDockKeepsItsPositionAndOpensTowardAvailableSpace)
 
 TEST (HudHierarchy, NavigationRequiresAnExactUniquePageAndNeverResolvesModelCommands)
 {
-    const std::vector<shell::HostTab> tabs = { { "sun", "Sun study" }, { shell::kSettingsKey, "Settings" } };
+    std::vector<shell::HostTab> tabs = { { "sun", "Sun study" }, { shell::kSettingsKey, "Settings" } };
+    tabs[0].token = "sunstudy";
     EXPECT_EQ (shell::ResolveNavigation (" workflow Sun study ", tabs), "sun");
+    EXPECT_EQ (shell::ResolveNavigation ("workflow SUNSTUDY", tabs), "sun");
     EXPECT_EQ (shell::ResolveNavigation ("show SETTINGS", tabs), shell::kSettingsKey);
     EXPECT_TRUE (shell::ResolveNavigation ("sun stu", tabs).empty ());
     EXPECT_TRUE (shell::ResolveNavigation ("run", tabs).empty ());
     EXPECT_TRUE (shell::ResolveNavigation ("bake", tabs).empty ());
     EXPECT_TRUE (shell::ResolveNavigation ("Sun study", { { "one", "Sun study" }, { "two", "Sun study" } }).empty ());
+    tabs.push_back ({ "other", "Another study" });
+    tabs.back ().token = "sunstudy";
+    EXPECT_TRUE (shell::ResolveNavigation ("workflow sunstudy", tabs).empty ());
 }
 
 TEST (HudHierarchy, InvalidNavigationShowsAReadableErrorCard)
@@ -112,6 +118,44 @@ TEST (HudHierarchy, InvalidNavigationShowsAReadableErrorCard)
     float box[4] = {};
     EXPECT_TRUE (Box (out.host, 0xFFF1EFFFu, box));
     EXPECT_TRUE (Box (out.host, 0x34201FFFu, box));
+}
+
+TEST (HudHierarchy, PanelWorkflowSelectorOpensWithoutSwitchingOrTakingTextFocus)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    layers::Panel panel;
+    panel.title = "My workflow";
+    const auto open = hud.Lay ({ &panel }, At (0, 0));
+    const std::string selected = hud.engine.Selected ();
+    const auto menu = hud.Click ({ &panel }, Left (open.host) + 40, Top (open.host) + 50);
+    EXPECT_TRUE (menu.popup);
+    EXPECT_EQ (hud.engine.Selected (), selected);
+    EXPECT_FALSE (hud.state->criteriaTextActive);
+}
+
+TEST (HudHierarchy, DockLabelWeightPassStaysOnWholePixelsWhenTurned)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    for (const auto edge : { shell::DockEdge::Top, shell::DockEdge::Right }) {
+        hud.state->host.dock.edge = edge;
+        hud.state->host.dock.along = 0.5f;
+        const auto out = hud.Lay ({}, At (0, 0));
+        size_t weightedGlyphVertices = 0;
+        for (const auto& vertex : out.dock.vertices) {
+            if ((vertex.rgba & 0xFFu) != 82u)
+                continue;
+            ++weightedGlyphVertices;
+            EXPECT_NEAR (vertex.x, std::round (vertex.x), 1e-3f);
+            EXPECT_NEAR (vertex.y, std::round (vertex.y), 1e-3f);
+        }
+        EXPECT_GT (weightedGlyphVertices, 8u);
+    }
 }
 
 TEST (HudHierarchy, AnUnavailableWorkflowIsNotReplacedAndItsDraftSurvives)

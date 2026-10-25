@@ -7,6 +7,8 @@
 #include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayHudItems.hpp"
 #include "ArchViz/GraphicsSettingsUi.hpp"
+#include "ArchViz/RoofSlope.hpp"
+#include "ArchViz/SurfaceTakeoffLayer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -203,9 +205,33 @@ std::vector<hudshell::HostTab> Engine::Impl::Tabs (const std::vector<const layer
         tabs.push_back ({ kStatsKey, "Stats" });
         tabs.push_back ({ kSelectionKey, "Selection" });
         tabs.push_back ({ hudmassing::kTabKey, "Massing", {}, archviz::ui::IconId::HomeSimple });
+        tabs.back ().family = hudshell::WorkflowFamily::Design;
+        tabs.back ().group = "Massing";
+        tabs.back ().token = "massing";
+        tabs.back ().purpose = "Explore massing feasibility and its results.";
     }
-    for (const size_t i : titled)
+    for (const size_t i : titled) {
         tabs.push_back ({ keys[i], panels[i]->title });
+        auto& tab = tabs.back ();
+        const std::string layerName = LayerOf (keys[i]);
+        if (layerName == roofslope::kLayer || layerName == editlayers::kLayer) {
+            tab.family = hudshell::WorkflowFamily::Design;
+            tab.group = "Editing";
+            if (layerName == roofslope::kLayer) {
+                tab.token = "roof slopes";
+                tab.purpose = "Shape roof slopes and drainage before applying them.";
+            }
+            else {
+                tab.token = "virtual editor";
+                tab.purpose = "Edit virtual geometry before applying changes.";
+            }
+        }
+        else if (layerName == surfacetakeoff::kLayer) {
+            tab.family = hudshell::WorkflowFamily::Document;
+            tab.token = "exposed surfaces";
+            tab.purpose = "Inspect exposed surfaces and their takeoff results.";
+        }
+    }
     tabs.push_back ({ kSettingsKey, "Settings" });
     if (own.standalone) {
         const uint32_t unseen = hudconsole::Unseen (own.console, store->consoleSeen, store->consoleCleared);

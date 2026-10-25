@@ -113,7 +113,7 @@ std::string Percent (float scale);
 
 // The dock's tab: its font, its padding across and along its turned title, and the gap
 // between it and a panel. The panel meets the dock without a visible gap.
-constexpr float kDockFontPixels = 12.0f;
+constexpr float kDockFontPixels = 13.0f;
 constexpr float kDockPadding[2] = { 5.0f, 12.0f };
 constexpr float kDockGap = 0.0f;
 
@@ -221,8 +221,10 @@ struct Placement {
     float offset[2] = { 0.0f, 0.0f };
 };
 
-// One tab of the panel: its key -- the window-wide identity the held tab is named by --
-// and the title on it.
+enum class WorkflowFamily : uint8_t { Analyze, Design, Document, Other, Global };
+
+// One navigation entry shared by the dock menu, panel selector and command line.
+// Dynamic caller panels may leave family and token at their defaults.
 struct HostTab {
     std::string key;
     std::string title;
@@ -230,6 +232,10 @@ struct HostTab {
     // A caller's page drawn as a glyph, its title then its tip (the user, 2026-10-21: Analysis the
     // glasses, massing feasibility the house). None: the own tabs' glyph, or the title.
     ui::IconId icon = ui::IconId::None;
+    WorkflowFamily family = WorkflowFamily::Other;
+    std::string group;
+    std::string token;
+    std::string purpose;
 };
 
 struct HostSpec {
@@ -256,6 +262,8 @@ struct NavigationState {
     std::string workflowTitle;
 };
 std::string ResolveNavigation (const std::string& input, const std::vector<HostTab>& tabs);
+// Draw inside an open popup. Both dock and panel selector call this one menu.
+std::string WorkflowMenu (const std::vector<HostTab>& tabs, const std::string& held);
 std::string NavigationHeader (const HostSpec& spec, const std::string& held, NavigationState& state, bool& collapse);
 std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool& active);
 

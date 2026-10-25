@@ -168,9 +168,9 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     draw->PushClipRect (ImVec2 (-32768.0f, -32768.0f), ImVec2 (32768.0f, 32768.0f), false);
     draw->AddText (ImVec2 (middle.x - std::floor (text.x * 0.5f), middle.y - std::floor (text.y * 0.5f)), Packed (ink),
                    label.c_str ());
-    draw->AddText (
-        ImVec2 (middle.x - std::floor (text.x * 0.5f) + 0.55f * scale, middle.y - std::floor (text.y * 0.5f)),
-        Packed (ink), label.c_str ());
+    // A translucent whole-pixel pass adds a little weight without blending the glyph between pixels.
+    draw->AddText (ImVec2 (middle.x - std::floor (text.x * 0.5f) + 1.0f, middle.y - std::floor (text.y * 0.5f)),
+                   Packed (WithAlpha (ink, 0.32f)), label.c_str ());
     draw->PopClipRect ();
     for (int k = first; !horizontal && k < draw->VtxBuffer.Size; ++k) {
         ImDrawVert& v = draw->VtxBuffer[k];
@@ -317,19 +317,7 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
         }
         const int menuColours = PushLook (look, ui);
         if (ImGui::BeginPopup ("##dockPosition")) {
-            ImGui::SeparatorText ("Workflow");
-            for (const auto& tab : tabs)
-                if (tab.key != kSelectionKey && tab.key != kSettingsKey && tab.key != kDebugKey &&
-                    tab.key != kStatsKey && ImGui::MenuItem (tab.title.c_str (), nullptr, tab.key == held))
-                    result.selected = tab.key;
-            if (ImGui::BeginMenu ("Pages")) {
-                for (const auto& tab : tabs)
-                    if ((tab.key == kSelectionKey || tab.key == kSettingsKey || tab.key == kDebugKey ||
-                         tab.key == kStatsKey) &&
-                        ImGui::MenuItem (tab.title.c_str (), nullptr, tab.key == held))
-                        result.selected = tab.key;
-                ImGui::EndMenu ();
-            }
+            result.selected = WorkflowMenu (tabs, held);
             if (ImGui::BeginMenu ("Dock location")) {
                 struct Anchor {
                     const char* name;

@@ -69,6 +69,9 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     std::vector<hudshell::HostTab> tabs = { { hudshell::kStatsKey, "Stats" },
                                             { hudshell::kSelectionKey, "Selection" } };
     tabs.push_back ({ kSunStudyKey, "Analysis", {}, archviz::ui::IconId::Glasses });
+    tabs.back ().family = hudshell::WorkflowFamily::Analyze;
+    tabs.back ().token = "analysis";
+    tabs.back ().purpose = "Study sun, view quality and the current viewpoint.";
     tabs.push_back ({ hudshell::kSettingsKey, "Settings" });
     // The console's errors and warnings not shown yet, counted on the tab (HudConsole.hpp).
     const uint32_t unseen = hudconsole::Unseen (hudconsole::Entries (), shell.consoleSeen, shell.consoleCleared);
