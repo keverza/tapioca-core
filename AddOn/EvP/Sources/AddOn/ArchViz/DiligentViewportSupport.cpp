@@ -26,9 +26,11 @@
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/ViewerPlanMode.hpp" // DrawPlanCut, with the storey slices' step
+#include "ArchViz/ViewerFramePacing.hpp"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <stdexcept>
 
@@ -834,6 +836,12 @@ void PresentAndAccount (DiligentViewportTarget& target, const std::atomic<uint64
     presentedGeneration.store (adoptedGeneration, std::memory_order_release);
     target.Present ();
     PublishPresentAccounting (target, stalePresents.load (std::memory_order_relaxed), mutex, stats);
+    // One viewer render thread at a time; a reopen is a gap the record resets on.
+    static ViewerFramePacing pacing;
+    const std::string line = pacing.Note (
+        std::chrono::duration<double> (std::chrono::steady_clock::now ().time_since_epoch ()).count ());
+    if (!line.empty ())
+        ArchVizLog (line);
 }
 
 void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePresents, std::mutex& mutex,
