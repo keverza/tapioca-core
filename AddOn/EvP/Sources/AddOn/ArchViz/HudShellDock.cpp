@@ -389,21 +389,26 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
             ImGui::OpenPopup ("##dockPosition");
         }
         const int menuColours = PushLook (look, ui);
-        const float padX = std::round (6.0f * ui);
-        const float padY = std::round (2.0f * ui);
+        const float padAlong = std::round (8.0f * ui);
+        const float padAcross = std::round (3.0f * ui);
         const float spacing = std::round (2.0f * ui);
-        const float buttonHeight = std::ceil (ImGui::GetTextLineHeight () + 2.0f * padY);
-        float width = ImGui::CalcTextSize ("No workflows available").x + 2.0f * padX;
+        const float buttonAcross = std::ceil (ImGui::GetTextLineHeight () + 2.0f * padAcross);
+        float longest = 0.0f, totalAlong = 0.0f;
         size_t workflowCount = 0;
         for (const HostTab& tab : tabs)
             if (tab.key != kStatsKey && tab.key != kSelectionKey && tab.key != kSettingsKey && tab.key != kDebugKey) {
-                if (workflowCount == 0)
-                    width = 0.0f;
-                width = (std::max) (width, ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * padX);
+                const float length = std::ceil (ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * padAlong);
+                longest = (std::max) (longest, length);
+                totalAlong += length;
                 ++workflowCount;
             }
-        const float count = float ((std::max) (size_t (1), workflowCount));
-        const ImVec2 wanted (std::ceil (width), count * buttonHeight + (count - 1.0f) * spacing);
+        if (workflowCount == 0) {
+            longest = totalAlong = std::ceil (ImGui::CalcTextSize ("No workflows available").x + 2.0f * padAlong);
+        }
+        const float gaps = float (workflowCount > 0 ? workflowCount - 1 : 0) * spacing;
+        const ImVec2 wanted =
+            p.horizontal ? ImVec2 (longest, float ((std::max) (size_t (1), workflowCount)) * buttonAcross + gaps)
+                         : ImVec2 (across, totalAlong + gaps);
         const DockPanelRect flyout = WorkflowFlyoutAtDock (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), wanted);
         ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding, ImVec2 (0, 0));
         ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -427,13 +432,41 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
                 ImGui::PushStyleColor (ImGuiCol_ButtonHovered, darker (0.85f));
                 ImGui::PushStyleColor (ImGuiCol_ButtonActive, darker (0.72f));
                 ImGui::PushStyleColor (ImGuiCol_Text, Packed (ink));
-                ImGui::PushStyleVar (ImGuiStyleVar_FramePadding, ImVec2 (padX, padY));
+                ImGui::PushStyleVar (ImGuiStyleVar_FramePadding, ImVec2 (padAlong, padAcross));
                 ImGui::PushStyleVar (
                     ImGuiStyleVar_FrameRounding,
-                    (std::min) (float (graphicssettings::Number ("ui.dock.rounding", 6)) * scale, buttonHeight * 0.5f));
+                    (std::min) (float (graphicssettings::Number ("ui.dock.rounding", 6)) * scale, buttonAcross * 0.5f));
+                const auto choice = [&] (const char* title) {
+                    const ImVec2 labelSize = ImGui::CalcTextSize (title);
+                    const float length = std::ceil (labelSize.x + 2.0f * padAlong);
+                    const ImVec2 buttonSize = p.horizontal ? ImVec2 ((std::min) (flyout.size.x, length), buttonAcross)
+                                                           : ImVec2 ((std::min) (flyout.size.x, buttonAcross), length);
+                    if (!p.horizontal)
+                        ImGui::SetCursorPosX (std::floor ((flyout.size.x - buttonSize.x) * 0.5f));
+                    const bool pressed = ImGui::Button (p.horizontal ? title : "##workflow", buttonSize);
+                    if (!p.horizontal) {
+                        ImDrawList* draw = ImGui::GetWindowDrawList ();
+                        const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
+                        const ImVec2 middle (std::floor ((a.x + b.x) * 0.5f), std::floor ((a.y + b.y) * 0.5f));
+                        const int first = draw->VtxBuffer.Size;
+                        draw->PushClipRect (ImVec2 (-32768.0f, -32768.0f), ImVec2 (32768.0f, 32768.0f), false);
+                        draw->AddText (ImVec2 (middle.x - std::floor (labelSize.x * 0.5f),
+                                               middle.y - std::floor (labelSize.y * 0.5f)),
+                                       Packed (ink), title);
+                        draw->PopClipRect ();
+                        for (int k = first; k < draw->VtxBuffer.Size; ++k) {
+                            ImDrawVert& v = draw->VtxBuffer[k];
+                            const float dx = v.pos.x - middle.x, dy = v.pos.y - middle.y;
+                            v.pos = ImVec2 (middle.x - dy, middle.y + dx);
+                        }
+                    }
+                    return pressed;
+                };
                 if (workflowCount == 0) {
                     ImGui::BeginDisabled ();
-                    ImGui::Button ("No workflows available", ImVec2 (flyout.size.x, buttonHeight));
+                    ImGui::PushID ("##none");
+                    choice ("No workflows available");
+                    ImGui::PopID ();
                     ImGui::EndDisabled ();
                 }
                 for (const HostTab& tab : tabs) {
@@ -441,10 +474,7 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
                         tab.key == kDebugKey)
                         continue;
                     ImGui::PushID (tab.key.c_str ());
-                    const float itemWidth =
-                        (std::min) (flyout.size.x,
-                                    std::ceil (ImGui::CalcTextSize (tab.title.c_str ()).x + 2.0f * padX));
-                    if (ImGui::Button (tab.title.c_str (), ImVec2 (itemWidth, buttonHeight))) {
+                    if (choice (tab.title.c_str ())) {
                         result.selected = tab.key;
                         p.workflowFlyoutOpen = false;
                         ImGui::CloseCurrentPopup ();

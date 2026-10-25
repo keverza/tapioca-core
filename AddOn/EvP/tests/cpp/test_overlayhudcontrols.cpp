@@ -765,8 +765,9 @@ TEST (OverlayHudControls, DockFlyoutListsWorkflowsAndClosesAfterSelection)
     EXPECT_EQ (hud.engine.Selected (), "hud#0");
     float fill[4] = {};
     ASSERT_TRUE (Box (choices.overlay, sun.accentRgba, fill));
-    EXPECT_LT (fill[2] - fill[0], 120.0f) << "buttons stay near the width of their names";
-    EXPECT_GT (fill[3] - fill[1], 30.0f) << "both compact workflow buttons are drawn";
+    EXPECT_LT (fill[2] - fill[0], 2.0f * before.dock.width + 2.0f)
+        << "a side dock keeps its workflow choices in a narrow vertical strip";
+    EXPECT_GT (fill[3] - fill[1], fill[2] - fill[0]) << "the side flyout runs along the dock";
     const size_t roundVertices = std::count_if (choices.overlay.vertices.begin (), choices.overlay.vertices.end (),
                                                 [&] (const auto& v) { return v.rgba == sun.accentRgba; });
     EXPECT_GT (roundVertices, 12u) << "rounded buttons draw more than two square rectangles";
@@ -778,11 +779,39 @@ TEST (OverlayHudControls, DockFlyoutListsWorkflowsAndClosesAfterSelection)
             result |= uint32_t (std::lround (float ((rgba >> shift) & 0xFFu) * 0.85f)) << shift;
         return result;
     };
-    EXPECT_TRUE (Box (hovered.overlay, darken (sun.accentRgba), fill)) << "hover darkens the dock fill";
+    ASSERT_TRUE (Box (hovered.overlay, darken (sun.accentRgba), fill)) << "hover darkens the dock fill";
+    EXPECT_LE (fill[2] - fill[0], before.dock.width) << "the choice fits within the dock tab's width";
+    EXPECT_GT (fill[3] - fill[1], fill[2] - fill[0]) << "the choice label follows the vertical tab";
+    EXPECT_GE (fill[0], Left (before.dock) - before.dock.width - 1.0f);
+    EXPECT_LE (fill[2], Left (before.dock) + 1.0f);
+    EXPECT_NEAR ((fill[0] + fill[2]) * 0.5f, Left (before.dock) - before.dock.width * 0.5f, 1.0f)
+        << "the vertical choice is centered across the dock's width";
     hud.Click ({ &sun, &area }, choiceX, choiceY);
     EXPECT_EQ (hud.engine.Selected (), "hud#1");
     EXPECT_FALSE (hud.Lay ({ &sun, &area }, At (600.0f, 600.0f)).popup);
     EXPECT_FALSE (hud.state->criteriaTextActive);
+}
+
+TEST (OverlayHudControls, LeftDockFlyoutFollowsTheVerticalTab)
+{
+    Watched hud;
+    hud.state->host.dock.edge = shell::DockEdge::Left;
+    hud.state->host.dock.along = 0.5f;
+    const layers::Panel sun = Titled ("Sun study"), area = Titled ("Area metrics");
+    const hud::Layout before = hud.Lay ({ &sun, &area }, At (600.0f, 600.0f));
+    const float titleX = Left (before.dock) + before.dock.width * 0.5f;
+    const float titleY = Top (before.dock) + before.dock.width * 2.5f;
+    const hud::Layout choices = hud.Click ({ &sun, &area }, titleX, titleY);
+    ASSERT_TRUE (choices.popup);
+    float fill[4] = {};
+    ASSERT_TRUE (Box (choices.overlay, sun.accentRgba, fill));
+    EXPECT_LT (fill[2] - fill[0], 2.0f * before.dock.width + 2.0f);
+    EXPECT_GT (fill[3] - fill[1], fill[2] - fill[0]);
+    const float choiceX = Left (before.dock) + before.dock.width + 10.0f;
+    const float choiceY = fill[3] - 8.0f;
+    hud.Click ({ &sun, &area }, choiceX, choiceY);
+    EXPECT_EQ (hud.engine.Selected (), "hud#1");
+    EXPECT_FALSE (hud.Lay ({ &sun, &area }, At (600.0f, 600.0f)).popup);
 }
 
 // The chip's workflow flyout opens a closed panel; the panel's menu still controls readout.
@@ -804,7 +833,8 @@ TEST (OverlayHudControls, DockWorkflowFlyoutOpensPanelAndItsMenuEnablesReadout)
     ASSERT_TRUE (menu.popup);
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.backgroundRgba, box));
-    EXPECT_LT (box[2] - box[0], 120.0f) << "a short workflow name gets a short button";
+    EXPECT_LT (box[2] - box[0], 2.0f * closed.dock.width + 2.0f)
+        << "the closed side dock also opens a vertical workflow strip";
     hud.Click ({ &panel }, box[0] + 10.0f, (box[1] + box[3]) * 0.5f);
     EXPECT_TRUE (hud::HudOpen (*hud.state));
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
