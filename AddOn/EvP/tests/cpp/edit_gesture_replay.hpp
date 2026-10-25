@@ -97,7 +97,11 @@ struct Options {
     double pixelsPerMetre = 40.0; // a plan at about 1:100 on screen
     double pickRadius = 8.0;      // pixels
     double pathStep = 0.5;        // the layers' sampling step at rest
-    double gestureStep = 2.0;     // the surface's step while a gesture edits (edithud::SurfaceStep)
+    // The surface's step while a gesture edits, as edithud::SurfaceStep chooses it: the preview's
+    // triangle budget, never finer than `gestureFinest`. A positive `gestureStep` fixes it instead.
+    size_t gestureTriangles = 4000;
+    double gestureFinest = 2.0;
+    double gestureStep = 0.0;
 };
 
 // Where a frame's time went, in milliseconds.
@@ -171,7 +175,9 @@ inline FrameResult RunFrame (ed::Document& doc, const Scene& scene, Gesture gest
         return r;
     }
     // An edit redraws the network: the drawn surface and the labelled kerb corners.
-    const ed::PavedArea surface = ed::Pave (doc.paths, o.gestureStep, true);
+    const double step =
+        o.gestureStep > 0 ? o.gestureStep : ed::PreviewStep (doc.paths, o.gestureTriangles, o.gestureFinest);
+    const ed::PavedArea surface = ed::Pave (doc.paths, step, true);
     lap (spent.surface);
     const ed::PavedArea corners = ed::Pave (doc.paths, o.pathStep, false);
     lap (spent.corners);

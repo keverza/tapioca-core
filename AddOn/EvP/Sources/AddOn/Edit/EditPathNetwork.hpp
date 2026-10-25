@@ -58,6 +58,17 @@ struct PavedArea {
 // Without `surface`, only the outline and its corners (what grips need).
 PavedArea Pave (const std::vector<Path>& paths, double step = 0.5, bool surface = true);
 
+// The step a preview of `paths` is paved at while a gesture edits them: the coarsest that keeps
+// the surface near `triangles` triangles, never finer than `finest` nor coarser than `coarsest`.
+// A paved surface has about kPreviewDensity triangles per square metre at a 1 m step, falling
+// with the step squared, and its area is close to the paths' plan length times width, so the
+// preview costs about the same however large the network grows. The step is rounded up to
+// whole half metres, so it holds still while a drag reshapes a path. Authored features are
+// inserted at any step (Pave), so a coarse preview keeps every break, range and corner.
+constexpr double kPreviewDensity = 16.0;
+double PreviewStep (const std::vector<Path>& paths, size_t triangles = 4000, double finest = 0.5,
+                    double coarsest = 8.0);
+
 struct StationSpan {
     double from = 0, to = 0;
 };

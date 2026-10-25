@@ -283,9 +283,14 @@ edit::Operation KerbEdit (const edit::PavedCorner& c, double r)
 
 } // namespace
 
+// While a gesture edits, the preview is paved to a triangle budget (edit::PreviewStep): never
+// finer than the 2 m it always had, coarser as the network grows, so a drag costs about the
+// same on a large site as on a small one. At rest, the full 0.5 m.
 double SurfaceStep (const Session& s)
 {
-    return s.edits.InGesture () && Doc (s).revision != s.edits.Before ().revision ? 2.0 : 0.5;
+    return s.edits.InGesture () && Doc (s).revision != s.edits.Before ().revision
+               ? edit::PreviewStep (Doc (s).paths, 4000, 2.0)
+               : 0.5;
 }
 
 const edit::PavedArea& PavedSurface (Session& s)

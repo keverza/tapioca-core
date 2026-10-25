@@ -641,6 +641,31 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
     return out;
 }
 
+double PreviewStep (const std::vector<Path>& paths, size_t triangles, double finest, double coarsest)
+{
+    double area = 0.0;
+    for (const auto& path : paths) {
+        AlignmentGeometry g;
+        std::string error;
+        if (!ValidatePath (path, g, error))
+            continue;
+        // Each range's mean width over its length (a taper's is the mean of its two ends).
+        for (size_t i = 0; i < path.sections.size (); ++i) {
+            const Section& r = path.sections[i];
+            const double end = i + 1 < path.sections.size () ? path.sections[i + 1].station : g.length;
+            const double left = r.taper ? 0.5 * (r.widthLeft + r.endLeft) : r.widthLeft;
+            const double right = r.taper ? 0.5 * (r.widthRight + r.endRight) : r.widthRight;
+            area += std::max (0.0, end - r.station) * (left + right);
+        }
+    }
+    if (!(area > 0.0) || triangles == 0)
+        return finest;
+    // On a half-metre ladder, so a drag that lengthens a path does not change the step and
+    // reshape the whole preview at every move.
+    const double step = std::ceil (2.0 * std::sqrt (kPreviewDensity * area / double (triangles))) * 0.5;
+    return std::clamp (step, finest, std::max (finest, coarsest));
+}
+
 std::vector<StationSpan> PathAnnotationSpans (const std::vector<Path>& paths, Id id, double from, double to)
 {
     std::vector<StationSpan> spans;

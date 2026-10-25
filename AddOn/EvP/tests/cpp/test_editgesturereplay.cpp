@@ -63,3 +63,53 @@ TEST (EditGestureReplay, PercentilesAreOrderStatistics)
     EXPECT_DOUBLE_EQ (t.Percentile (0.95), 95);
     EXPECT_DOUBLE_EQ (t.Percentile (1.0), 100);
 }
+
+TEST (EditGestureReplay, APreviewStepKeepsTheSurfaceNearItsTriangleBudget)
+{
+    namespace ed = geomsrv::edit;
+    double last = 0.0;
+    for (int n : { 3, 5, 8 }) {
+        const auto scene = er::Grid ("g", n);
+        const double step = ed::PreviewStep (scene.doc.paths, 3000, 0.5, 50.0);
+        EXPECT_GE (step, last) << n; // a larger network is never paved finer
+        last = step;
+        EXPECT_EQ (std::fmod (step, 0.5), 0.0) << step;
+        const auto preview = ed::Pave (scene.doc.paths, step, true);
+        const size_t triangles = preview.triangles.size () / 3;
+        EXPECT_LT (triangles, 3000u * 2) << n << " paths at " << step << " m";
+        EXPECT_GT (triangles, 3000u / 8) << n << " paths at " << step << " m";
+        // Every authored grade break is still a vertex of the preview, at the height the resting
+        // surface gives it (a junction blends both the same way).
+        const auto rest = ed::Pave (scene.doc.paths, 0.5, true);
+        for (const auto& path : scene.doc.paths)
+            for (const auto& b : path.profile) {
+                ed::AlignmentGeometry g;
+                std::string error;
+                ASSERT_TRUE (ed::ValidatePath (path, g, error)) << error;
+                ed::StationFrame f;
+                ASSERT_TRUE (ed::Evaluate (path, g, b.station, f));
+                const auto at = [&] (const ed::PavedArea& area, double& z) {
+                    for (const auto& v : area.vertices)
+                        if (ed::DistanceXY (v, f.centre) < 1e-6) {
+                            z = v.z;
+                            return true;
+                        }
+                    return false;
+                };
+                double coarse = 0, fine = 0;
+                ASSERT_TRUE (at (preview, coarse)) << "path " << path.id << " break at " << b.station;
+                ASSERT_TRUE (at (rest, fine)) << "path " << path.id << " break at " << b.station;
+                EXPECT_EQ (coarse, fine) << "path " << path.id << " break at " << b.station;
+            }
+    }
+    const auto small = er::Grid ("g", 2);
+    EXPECT_EQ (ed::PreviewStep (small.doc.paths, 3000, 2.0), 2.0); // never finer than asked
+    EXPECT_EQ (ed::PreviewStep (er::Grid ("g", 8).doc.paths, 10, 0.5, 6.0), 6.0);
+    EXPECT_EQ (ed::PreviewStep ({}, 3000, 0.75), 0.75);
+    // A drag that lengthens a path a little keeps the step.
+    auto doc = er::Grid ("g", 5).doc;
+    const double before = ed::PreviewStep (doc.paths);
+    std::string error;
+    ASSERT_TRUE (ed::MovePathPoint (doc, doc.paths[0].id, doc.paths[0].points[0].id, { 0, -5.3, 0 }, error)) << error;
+    EXPECT_EQ (ed::PreviewStep (doc.paths), before);
+}
