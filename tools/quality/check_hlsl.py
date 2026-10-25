@@ -127,6 +127,10 @@ PRELUDES = {
     # carried the environment lookup across with it, so it carries the prelude
     # that declares it too.
     "kArchVizSsrCompositePS": ["kArchVizEnvCommonPS"],
+    # ⚠️ THE SUN TINT REFINES THE SINGLE SHADOW'S EDGE FROM THE PCF SHADOW MAP:
+    # CreateSunStudyPipeline prepends the PCF mode and the tint's shadow lookup,
+    # which declares StudyEdgeLight.
+    "kArchVizSunTintPS": ["kArchVizShadowModePcf", "kArchVizSunTintShadowPS"],
 }
 
 

@@ -69,7 +69,8 @@ void StartSunStudyCore (evp::sunstudy::StudyRecord& record, const Snapshot& snap
                         const evp::sunstudy::StudyRecord* reuseSource, const evp::sunstudy::StudyInputs& inputs)
 {
     if (evp::sunstudy::SelectedSunStudyCore () == evp::sunstudy::SunStudyCoreKind::Rust) {
-        const auto limits = MachineAnalysisLimits (record.series.StepCount (), record.IsPatchDomain ());
+        const auto limits =
+            sunstudysupport::MachineAnalysisLimits (record.series.StepCount (), record.IsPatchDomain ());
         std::string error;
         const bool attached = evp::sunstudy::AttachRustStudyCore (
             record, snapshot, reuseSource, record.IsPatchDomain () ? limits.maxAtlasDimension : 8192u, error);

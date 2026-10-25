@@ -40,10 +40,17 @@ TEST (SunStudyPreview, BriefMorningAndLongEveningShadowsRemainDifferent)
     EXPECT_FLOAT_EQ (SunStudyShadowFraction (lit, 2, 2), 0.0f);
 }
 
+// The single shadow refines its boundary cells from the scene's shadow map
+// (kArchVizSunTintShadowPS, which needs DiligentFX's Shadows.fxh). These tests
+// check the tint's own arithmetic, so they stand in for that lookup with "no
+// cascade covers the point" -- the shader's own fallback to the study cells.
+// tools/quality/check_hlsl.py compiles the real composition.
+constexpr const char* kNoShadowMapEdge = "float StudyEdgeLight (float3 worldPos, float3 normal) { return -1.0; }\n";
+
 TEST (SunStudyPreview, ActualTintShaderCompilesWithAllPreviewConstants)
 {
     using Microsoft::WRL::ComPtr;
-    const std::string source = std::string (kArchVizCBuffer) + kArchVizSunTintPS;
+    const std::string source = std::string (kArchVizCBuffer) + kNoShadowMapEdge + kArchVizSunTintPS;
     ComPtr<ID3DBlob> code, error;
     const HRESULT result = D3DCompile (source.data (), source.size (), "sun-tint", nullptr, nullptr, "main", "ps_5_0",
                                        D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS, 0, &code, &error);
@@ -58,7 +65,7 @@ TEST (SunStudyPreview, RealShaderReadsBlueCutoffAndShadowDurationOnD3D)
     ComPtr<ID3D11DeviceContext> context;
     ASSERT_TRUE (SUCCEEDED (D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
                                                &device, nullptr, &context)));
-    const std::string source = std::string (kArchVizCBuffer) + kArchVizSunTintPS + R"hlsl(
+    const std::string source = std::string (kArchVizCBuffer) + kNoShadowMapEdge + kArchVizSunTintPS + R"hlsl(
 RWStructuredBuffer<float4> result : register(u0);
 [numthreads(1,1,1)] void PreviewTest(uint3 id : SV_DispatchThreadID) {
     result[0] = StudyOverlayColor(SunRamp(2.0, 0.25));
