@@ -172,8 +172,6 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
     landscape.Fields ({ "sourceTerrainGuid", "propertyLine", "sources", "operations", "objects", "regions",
                         "assignments", "patches", "bindings" },
                       { "edges", "terrainControls", "entrances" });
-    if (landscape.Has ("edges") && !landscape.Field ("edges").Items ().empty ())
-        Fail (landscape.path + ".edges", "edge definitions require a later declared schema");
     s.sourceTerrainGuid = Guid (landscape.Field ("sourceTerrainGuid"));
     s.propertyLineSourceId = landscape.Field ("propertyLine").Identifier ();
     if (landscape.Has ("terrainControls"))
@@ -193,6 +191,29 @@ void ReadDocument (const Reader& root, edit::Document& doc, LandscapeStorage mod
             if (item.Has ("door"))
                 entrance.doorGuid = item.Field ("door").Text ();
             s.entrances.push_back (std::move (entrance));
+        });
+    if (landscape.Has ("edges"))
+        Each (landscape.Field ("edges"), [&] (const Reader& item) {
+            item.Fields ({ "id", "kind", "path", "width", "topZ", "bottomZ", "footingDepth", "stairRun", "stairRise",
+                           "stairSteps", "landingDepth", "clearance", "highSide", "material", "stair", "wall" });
+            EdgeSpec edge;
+            edge.id = item.Field ("id").Identifier ();
+            edge.kind = Enum (item.Field ("kind"), EdgeKind::Stair);
+            edge.pathId = item.Field ("path").Identifier ();
+            edge.width = item.Field ("width").Number ();
+            edge.topZ = item.Field ("topZ").Number ();
+            edge.bottomZ = item.Field ("bottomZ").Number ();
+            edge.footingDepth = item.Field ("footingDepth").Number ();
+            edge.stairRun = item.Field ("stairRun").Number ();
+            edge.stairRise = item.Field ("stairRise").Number ();
+            edge.stairSteps = item.Field ("stairSteps").Integer ();
+            edge.landingDepth = item.Field ("landingDepth").Number ();
+            edge.clearance = item.Field ("clearance").Number ();
+            edge.highSide = Enum (item.Field ("highSide"), EdgeSide::Right);
+            edge.material = item.Field ("material").Material ();
+            edge.stairGuid = Guid (item.Field ("stair"));
+            edge.wallGuid = Guid (item.Field ("wall"));
+            s.edges.push_back (std::move (edge));
         });
     Each (landscape.Field ("sources"), [&] (const Reader& item) {
         item.Fields ({ "id", "entity", "path", "role", "guid", "revision", "deleted", "arcAngles" }, { "reference" });
