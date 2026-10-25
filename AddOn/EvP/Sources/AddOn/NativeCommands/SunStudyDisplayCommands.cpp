@@ -208,6 +208,9 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.preset = metadata.preset;
         config.glassThreshold = metadata.glassThreshold;
         config.analysisRestricted = metadata.analysisRestricted;
+        config.clipX = metadata.clipX;
+        config.clipY = metadata.clipY;
+        config.clipRadius = metadata.clipRadius;
         config.backend = metadata.backend;
         config.placeInputHash = metadata.placeInputHash;
         config.debug = options.debug;

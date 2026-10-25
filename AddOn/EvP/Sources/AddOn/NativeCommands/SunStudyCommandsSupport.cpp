@@ -6,6 +6,7 @@
 #include "NativeCommands/CommandUtils.hpp" // Base64Encode / Base64Decode
 #include "SunStudy/SunStudyStore.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -102,6 +103,23 @@ GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double 
                    "for a coarser grid; the viewer's sun study panel shows the finest grid this model allows",
                    limits.maxSamples, evp::sunstudy::LimitBindingName (limits.binding), spacing);
     return GS::UniString (text, CC_UTF8);
+}
+
+bool ReadAnalysisCylinder (const GS::ObjectState& params, bool patchSurfaces, evp::sunstudy::AnalysisCylinder& out,
+                           GS::UniString& error)
+{
+    out.x = ReadDouble (params, "clipX", 0.0);
+    out.y = ReadDouble (params, "clipY", 0.0);
+    out.radius = ReadDouble (params, "clipRadius", 0.0);
+    if (!std::isfinite (out.x) || !std::isfinite (out.y) || !std::isfinite (out.radius) || out.radius < 0.0) {
+        error = "clipX/clipY/clipRadius must be finite, the radius not negative";
+        return false;
+    }
+    if (out.radius > 0.0 && !patchSurfaces) {
+        error = "an analysis cylinder needs domain='patch' and samples='surfaces': a triangle tile cannot lose cells";
+        return false;
+    }
+    return true;
 }
 
 GS::UniString PackDoubles (const std::vector<double>& values)

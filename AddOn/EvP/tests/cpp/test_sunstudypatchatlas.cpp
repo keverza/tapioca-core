@@ -787,3 +787,39 @@ TEST (PatchSampler, AContextElementFormsNoSpanAndItsTrianglesDrawNormally)
     EXPECT_FALSE (tiles[12].Placed ());
     EXPECT_FALSE (tiles[13].Placed ());
 }
+
+TEST (SunStudyPatchAtlas, AnalysisCylinderClipsCellsNotPatches)
+{
+    // A 20 m slab under a 5 m cylinder: the slab must keep its patch, but only
+    // the cells inside the circle -- a whole-element bound would sample all 400.
+    Scene scene;
+    AddQuad (scene, "slab", 0, 0, 20, 20, 0);
+    AddQuad (scene, "far", 40, 40, 44, 44, 0); // wholly outside: no span at all
+
+    PatchSamplerOptions options;
+    options.spacing = 1.0;
+    options.normalOffset = 0.0;
+    options.clipX = 10.0;
+    options.clipY = 10.0;
+    options.clipRadius = 5.0;
+    const PatchSampleGrid grid =
+        BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
+                              scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
+    ASSERT_TRUE (grid.valid);
+    ASSERT_EQ (grid.spans.size (), 1u);
+    EXPECT_EQ (grid.spans[0].key.element, "slab");
+    const size_t cells = grid.positions.size () / 3;
+    EXPECT_GT (cells, 70u);
+    EXPECT_LT (cells, 90u); // pi * 25 = 78.5
+    for (size_t i = 0; i < cells; ++i)
+        EXPECT_LE (std::hypot (grid.positions[i * 3] - 10.0, grid.positions[i * 3 + 1] - 10.0), 5.0);
+    EXPECT_EQ (grid.patchOfTriangle[2], PatchSampleGrid::kNoPatch) << "the far quad kept a patch";
+
+    // The atlas still maps the clipped slab.
+    SunStudyPatchAtlas atlas;
+    atlas.Fit (grid);
+    std::vector<AtlasTile> tiles;
+    std::vector<FaceLayout> layouts;
+    ASSERT_TRUE (PatchFaceArrays (grid, atlas, tiles, layouts));
+    EXPECT_TRUE (tiles[0].Placed ());
+}

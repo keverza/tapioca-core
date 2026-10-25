@@ -8,9 +8,10 @@
 // shadow cast INTO the cylinder from outside is kept, so a bounded study is
 // the unbounded one restricted to the cylinder, not a different site.
 //
-// ⚠️ ELEMENT GRANULARITY. An element that reaches into the cylinder is measured
-// whole; the sampler is not clipped. That bounds the sample count by what the
-// person sees inside the ring, which is what the safeguard is for.
+// TWO LEVELS. SplitByCylinder picks the elements that reach in (the rest are
+// context and are never diced); the sampler then drops every cell whose centre
+// is outside the circle (clipX/clipY/clipRadius on StartSunStudy), so a slab
+// larger than the cylinder is measured only inside it.
 
 #include <string>
 #include <vector>

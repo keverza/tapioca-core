@@ -49,6 +49,9 @@ PatchSamplerOptions PatchOptions (const SurfaceSamplingOptions& options)
     result.spacing = options.spacing;
     result.normalOffset = options.normalOffset;
     result.maxSamples = options.maxSamples;
+    result.clipX = options.clipX;
+    result.clipY = options.clipY;
+    result.clipRadius = options.clipRadius;
     return result;
 }
 
@@ -57,7 +60,8 @@ bool Compatible (const StudyRecord& previous, const SurfaceSamplingOptions& opti
     const auto& old = previous.samplingLayout.options;
     if (previous.snapshot == nullptr || !previous.samplingLayout.valid || previous.domain != options.domain ||
         previous.samplingLayout.meshes.size () != previous.snapshot->meshes.size () || old.domain != options.domain ||
-        old.spacing != options.spacing || old.normalOffset != options.normalOffset || old.jitter != options.jitter)
+        old.spacing != options.spacing || old.normalOffset != options.normalOffset || old.jitter != options.jitter ||
+        old.clipX != options.clipX || old.clipY != options.clipY || old.clipRadius != options.clipRadius)
         return false;
     // Metadata must partition the source grid in snapshot order. A plausible
     // in-bounds range alone can still copy a DIFFERENT mesh's samples.

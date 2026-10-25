@@ -18,6 +18,10 @@ struct SurfaceSamplingOptions {
     double normalOffset = 0.01;
     double jitter = 0.0;
     size_t maxSamples = 4000000;
+    // The analysis cylinder (SunStudy/SunStudyBounds.hpp), in plan: cells whose
+    // centre lies outside it are not sampled. Radius 0 is no clip. Patch domain
+    // only -- a triangle tile cannot lose cells without losing its mapping.
+    double clipX = 0.0, clipY = 0.0, clipRadius = 0.0;
 };
 
 // Ranges into the record's EXISTING grids, not another copy of the samples.
