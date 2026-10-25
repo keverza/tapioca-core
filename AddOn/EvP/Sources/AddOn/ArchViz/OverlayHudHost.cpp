@@ -195,7 +195,27 @@ void Engine::Impl::ResetPosition ()
 // edge, half-way down; it says the tab the host shows. Laid out before the host, so a press
 // takes effect in this frame -- and drawn over it, so a host dragged there never hides it.
 // Hidden, it is all that is drawn; its title then shows everything again.
-void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float scale, float ui, ImVec2 view)
+std::vector<hudshell::HostTab> Engine::Impl::Tabs (const std::vector<const layers::Panel*>& panels,
+                                                   const std::vector<std::string>& keys) const
+{
+    std::vector<hudshell::HostTab> tabs;
+    if (own.standalone) {
+        tabs.push_back ({ kStatsKey, "Stats" });
+        tabs.push_back ({ kSelectionKey, "Selection" });
+        tabs.push_back ({ hudmassing::kTabKey, "Massing", {}, archviz::ui::IconId::HomeSimple });
+    }
+    for (const size_t i : titled)
+        tabs.push_back ({ keys[i], panels[i]->title });
+    tabs.push_back ({ kSettingsKey, "Settings" });
+    if (own.standalone) {
+        const uint32_t unseen = hudconsole::Unseen (own.console, store->consoleSeen, store->consoleCleared);
+        tabs.push_back ({ kDebugKey, "Debug", unseen > 0 ? std::to_string (unseen) : std::string () });
+    }
+    return tabs;
+}
+
+void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys,
+                         float scale, float ui, ImVec2 view)
 {
     inset = 0.0f;
     if (!present)
@@ -208,9 +228,17 @@ void Engine::Impl::Dock (const std::vector<const layers::Panel*>& panels, float 
     top.active = !own.viewerSurface && store->shown;
     const auto dock = hudshell::Dock (store->host.dock, view, scale, ui, font,
                                       navigation.workflowTitle.empty () ? "Tapioca" : navigation.workflowTitle, colours,
-                                      open, top, own.standalone ? &own.viewer : nullptr, &store->editLocked);
+                                      open, top, own.standalone ? &own.viewer : nullptr, &store->editLocked,
+                                      Tabs (panels, keys), store->host.selected);
     ImGuiWindow* const window = dock.window;
     windows[windows.size () - 2] = window;
+    if (!dock.selected.empty ()) {
+        store->host.selected = dock.selected;
+        const std::string title = TitleOf (dock.selected, panels, keys);
+        changes.push_back ({ "panel", dock.selected, title, std::string (), -1, 1.0, title, true });
+        ShowOverlay (true);
+        SetOpen (true);
+    }
     {
         const auto& press = dock.press;
         if (press.collapse)
@@ -354,19 +382,7 @@ void Engine::Impl::Host (const std::vector<const layers::Panel*>& panels, const 
     spec.pageWidthPixels = showsPanel ? panels[shown]->pageWidthPixels : 0.0f;
     // Stats and Selection, the panels, Settings and Debug; without own pages the panels and
     // Settings.
-    if (own.standalone) {
-        spec.tabs.push_back ({ kStatsKey, "Stats" });
-        spec.tabs.push_back ({ kSelectionKey, "Selection" });
-        spec.tabs.push_back ({ hudmassing::kTabKey, "Massing", {}, archviz::ui::IconId::HomeSimple });
-    }
-    for (const size_t i : titled)
-        spec.tabs.push_back ({ keys[i], panels[i]->title });
-    spec.tabs.push_back ({ kSettingsKey, "Settings" });
-    // The console's errors and warnings not shown yet, counted on the tab: said where it is seen.
-    if (own.standalone) {
-        const uint32_t unseen = hudconsole::Unseen (own.console, store->consoleSeen, store->consoleCleared);
-        spec.tabs.push_back ({ kDebugKey, "Debug", unseen > 0 ? std::to_string (unseen) : std::string () });
-    }
+    spec.tabs = Tabs (panels, keys);
     const auto page = [&] (const std::string& k) {
         if (k == hudmassing::kTabKey) {
             MassingPage ();

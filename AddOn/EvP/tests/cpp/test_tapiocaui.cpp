@@ -8,6 +8,7 @@
 
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/HudShellTabs.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/TapiocaUI/Demo/WidgetGallery.hpp"
 #include "ArchViz/TapiocaUI/Foundation/IconData.hpp"
 #include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
@@ -279,6 +280,9 @@ TEST (TapiocaUiGallery, TheOverlaysDebugPageUnfoldsTheGalleryFromItsLastRow)
     hud::OwnPages pages;
     pages.standalone = true;
     hud.engine.SetOwnPages (pages);
+    hud.state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     hud::SelectKey (*hud.state, geomsrv::archviz::hudshell::kDebugKey);
     const hud::Layout folded = hud.Lay ({}, At (600, 600));
     ASSERT_FALSE (folded.host.vertices.empty ());

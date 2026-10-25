@@ -82,6 +82,9 @@ TEST (HudMassing, NativeTabDrawsWithoutAnyPythonPanelOrLayer)
     pages.massing.known = true;
     pages.massing.guids[0] = { "parcel" };
     hud.engine.SetOwnPages (pages);
+    hud.state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     hud::SelectKey (*hud.state, hm::kTabKey);
     const auto out = hud.Lay ({}, At (600, 600));
     EXPECT_EQ (out.hostKey, hm::kTabKey);
@@ -113,6 +116,9 @@ TEST (HudMassing, EnvelopeCheckboxBelowCollapseControlsLayerVisibilityEvenBefore
     hud::OwnPages pages;
     pages.standalone = true;
     hud.engine.SetOwnPages (pages);
+    hud.state->host.dock.edge = geomsrv::archviz::hudshell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     hud::SelectKey (*hud.state, hm::kTabKey);
     hud.Lay ({}, At (600, 600));
     const auto layout = hud.Lay ({}, At (600, 600));

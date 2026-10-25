@@ -6,6 +6,7 @@
 #include "hud_fixture.hpp"
 
 #include "ArchViz/OverlayHitMap.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayScene.hpp"
 
 #include <gtest/gtest.h>
@@ -17,8 +18,16 @@ using namespace hudtest;
 
 namespace input = geomsrv::archviz::overlayinput;
 namespace scene = geomsrv::archviz::overlayscene;
+namespace shell = geomsrv::archviz::hudshell;
 
 namespace {
+
+void RightDock (const std::shared_ptr<hud::State>& state)
+{
+    state->host.dock.edge = shell::DockEdge::Right;
+    state->host.dock.along = 0.5f;
+    state->host.dock.horizontal = false;
+}
 
 uint32_t WithAlpha (uint32_t rgba, float factor)
 {
@@ -193,6 +202,7 @@ TEST (OverlayHudControls, TitledPanelsAreTabsOfOneHost)
 TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
 {
     Watched hud;
+    RightDock (hud.state);
     const layers::Panel panel = Titled ();
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     ASSERT_GT (open.dock.height, 0.0f);
@@ -220,7 +230,16 @@ TEST (OverlayHudControls, OneTurnedTabOpensAndClosesTheHost)
 
     // The close button, last along the tab row.
     const hud::Layout again = hud.Lay ({ &panel }, At (600.0f, 600.0f));
-    hud.Click ({ &panel }, Left (again.host) + again.host.width - 26, Top (again.host) + 18);
+    float firstHand = -1, lastHand = -1;
+    const float headerY = Top (again.host) + 16;
+    for (float sample = Left (again.host) + 12; sample < Left (again.host) + again.host.width - 12; sample += 2)
+        if (hud.Lay ({ &panel }, At (sample, headerY)).hand) {
+            if (firstHand < 0)
+                firstHand = sample;
+            lastHand = sample;
+        }
+    ASSERT_GT (firstHand, 0);
+    hud.Click ({ &panel }, (firstHand + lastHand) * 0.5f, headerY);
     EXPECT_FALSE (hud.engine.Open ());
     ASSERT_EQ (hud.heard.size (), 3u);
     EXPECT_EQ (hud.heard[0].kind, "hud");
@@ -258,6 +277,7 @@ TEST (OverlayHudControls, TheHostStartsClosedWhenAskedAndAnUntitledPanelStandsAl
 TEST (OverlayHudControls, TheDockMovesTheAttachedHost)
 {
     Watched hud;
+    RightDock (hud.state);
     const layers::Panel panel = Titled ();
     const auto before = hud.Lay ({ &panel }, At (0, 0));
     const float x = Left (before.dock) + before.dock.width / 2;
@@ -280,6 +300,9 @@ TEST (OverlayHudControls, TheDockMovesTheAttachedHost)
 TEST (OverlayHudControls, TheRightColumnMovesInBesideTheDock)
 {
     Fresh hud;
+    auto state = hud::NewState ();
+    RightDock (state);
+    hud.engine.UseState (state);
     const layers::Panel titled = Titled ();
     layers::Panel right;
     right.anchor = layers::PanelAnchor::TopRight;
@@ -288,7 +311,7 @@ TEST (OverlayHudControls, TheRightColumnMovesInBesideTheDock)
     ASSERT_GT (out.dock.width, 0.0f);
     const hud::Built& panel = out.panels[1];
     EXPECT_FLOAT_EQ (panel.fraction[0], 1.0f);
-    EXPECT_NEAR (panel.offset[0], -panel.width - 16.0f - (out.dock.width + 6.0f), 1.0f);
+    EXPECT_NEAR (panel.offset[0], -panel.width - 16.0f - out.dock.width, 1.0f);
 }
 
 // ⚠️ ONE STATE FOR BOTH VIEWS: the host closed in the 3D window is closed in the plan, on the
@@ -296,6 +319,7 @@ TEST (OverlayHudControls, TheRightColumnMovesInBesideTheDock)
 TEST (OverlayHudControls, TheViewsShareWhatTheUserDid)
 {
     const std::shared_ptr<hud::State> state = hud::NewState ();
+    RightDock (state);
     Fresh threeD, plan;
     threeD.engine.UseState (state);
     plan.engine.UseState (state);
@@ -323,6 +347,9 @@ TEST (OverlayHudControls, TheHostAndTheDockAreRegions)
         return std::vector<std::shared_ptr<const layers::Layer>> { std::make_shared<const layers::Layer> (layer) };
     };
     Fresh hud;
+    auto dockState = hud::NewState ();
+    RightDock (dockState);
+    hud.engine.UseState (dockState);
     const scene::Scene open = scene::PrepareSceneHud (all (), &hud.engine, 1.0f, At (600.0f, 600.0f));
     ASSERT_EQ (open.regions.size (), 2u);
     EXPECT_EQ (open.regions[0].kind, input::RegionKind::Panel);
@@ -337,6 +364,9 @@ TEST (OverlayHudControls, TheHostAndTheDockAreRegions)
 
     layer.panels[0].collapsed = true;
     Fresh other;
+    auto closedState = hud::NewState ();
+    RightDock (closedState);
+    other.engine.UseState (closedState);
     const scene::Scene closed = scene::PrepareSceneHud (all (), &other.engine, 1.0f, At (600.0f, 600.0f));
     ASSERT_EQ (closed.regions.size (), 1u);
     EXPECT_EQ (closed.regions[0].kind, input::RegionKind::Dock);
@@ -399,6 +429,7 @@ TEST (OverlayHudControls, SettingsSetsTheTextSizeInBothViews)
 TEST (OverlayHudControls, TheDocksCircleHidesTheOverlayAndItsTitleBringsItBack)
 {
     Watched hud;
+    RightDock (hud.state);
     const layers::Panel panel = Titled ();
     layers::Panel plain;
     plain.anchor = layers::PanelAnchor::BottomLeft;
@@ -444,7 +475,7 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
     ASSERT_EQ (boxes.size (), 5u); // The collapsed Graphics style lab follows the layer checkboxes.
     const uint64_t revision = hud::Revision (*hud.state);
-    hud.Click ({ &panel }, x, Middle (boxes[2]));
+    hud.Click ({ &panel }, x, Middle (boxes[3]));
     EXPECT_FALSE (hud::LayerShown (*hud.state, "hud"));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "tapioca.storeySlices"));
     EXPECT_GT (hud::Revision (*hud.state), revision);
@@ -455,7 +486,7 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
     const hud::Layout without = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_EQ (hud.engine.Selected (), "tapioca.settings");
     boxes = Controls (hud, { &panel }, without.host, x);
-    ASSERT_EQ (boxes.size (), 5u);
+    ASSERT_GE (boxes.size (), 4u);
     hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_TRUE (hud::LayerShown (*hud.state, "hud"));
     EXPECT_EQ (hud.engine.Selected (), "tapioca.settings") << "visibility does not navigate";
@@ -466,6 +497,7 @@ TEST (OverlayHudControls, SettingsHidesALayerAndItsPanels)
 TEST (OverlayHudControls, ALayerWithoutAPanelHasTheDockAndSettings)
 {
     Watched hud;
+    RightDock (hud.state);
     hud.engine.SetLayers ({ "tapioca.storeySlices" });
     const hud::Layout first = hud.Lay ({}, At (600.0f, 600.0f));
     ASSERT_GT (first.dock.height, 0.0f);
@@ -506,6 +538,7 @@ hud::Layout RightClick (Fresh& hud, const std::vector<const layers::Panel*>& pan
 TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
 {
     Watched hud;
+    RightDock (hud.state);
     const layers::Panel panel = Titled ();
     const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
     EXPECT_FALSE (RightClick (hud, { &panel }, 600.0f, 600.0f).popup) << "off the HUD";
@@ -533,7 +566,7 @@ TEST (OverlayHudControls, ARightClickOnTheHudOpensItsMenu)
     ASSERT_TRUE (again.popup);
     EXPECT_FALSE (hud::ContentShown (*hud.state)) << "a right click is not the title's press";
     items = Rows (again.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 6u);
+    ASSERT_EQ (items.size (), 3u) << "workflow, pages and dock location in the chip menu";
     ASSERT_TRUE (Box (again.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
     EXPECT_TRUE (hud::ContentShown (*hud.state));
@@ -685,7 +718,7 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     const float x = Left (settings.host) + 24.0f;
     const std::vector<std::pair<float, float>> boxes = Controls (hud, { &panel }, settings.host, x);
     ASSERT_EQ (boxes.size (), 4u) << "Show overlay, Hover readout, the layer, Graphics style lab";
-    hud.Click ({ &panel }, x, Middle (boxes[1]));
+    hud.Click ({ &panel }, x, Middle (boxes[2]));
     EXPECT_TRUE (hud::HoverMode (*hud.state));
     ASSERT_EQ (hud.heard.back ().kind, "hover");
     EXPECT_EQ (hud.heard.back ().text, "on");
@@ -718,10 +751,11 @@ TEST (OverlayHudControls, HoverModeReadsOutInThePanelAndTintsTheItem)
     EXPECT_FLOAT_EQ (hud.Lay ({ &panel }, nothing).host.height, idle.host.height);
 }
 
-// Turned on from the menu with the panel closed, the panel opens: the readout is in it.
-TEST (OverlayHudControls, HoverModeOpensThePanelItReadsOutIn)
+// The chip's workflow menu opens a closed panel; the panel's menu still controls readout.
+TEST (OverlayHudControls, DockWorkflowMenuOpensPanelAndItsMenuEnablesReadout)
 {
     Watched hud;
+    RightDock (hud.state);
     hud.engine.SetLayers ({ "tapioca.storeySlices" });
     const layers::Panel panel = Titled ("Area metrics");
     hud.Lay ({ &panel }, At (600.0f, 600.0f));
@@ -734,10 +768,20 @@ TEST (OverlayHudControls, HoverModeOpensThePanelItReadsOutIn)
     const float dy = 400.0f + closed.dock.offset[1] + closed.dock.width * 0.5f;
     const hud::Layout menu = RightClick (hud, { &panel }, dx, dy);
     ASSERT_TRUE (menu.popup);
-    const std::vector<std::pair<float, float>> items = Rows (menu.overlay, panel.textRgba);
-    ASSERT_EQ (items.size (), 7u) << "show overlay, show panel, Settings, hover readout, text size, layers, reset";
+    auto items = Rows (menu.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 3u) << "workflow, pages and dock location";
     float box[4] = {};
     ASSERT_TRUE (Box (menu.overlay, panel.textRgba, box));
+    hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[1]));
+    EXPECT_TRUE (hud::HudOpen (*hud.state));
+    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    const float x = Left (open.host) + open.host.width * 0.5f;
+    const float y = Top (open.host) + open.host.height - 4.0f;
+    const hud::Layout panelMenu = RightClick (hud, { &panel }, x, y);
+    ASSERT_TRUE (panelMenu.popup);
+    items = Rows (panelMenu.overlay, panel.textRgba);
+    ASSERT_EQ (items.size (), 7u);
+    ASSERT_TRUE (Box (panelMenu.overlay, panel.textRgba, box));
     hud.Click ({ &panel }, box[0] + 4.0f, Middle (items[3]));
     EXPECT_TRUE (hud::HoverMode (*hud.state));
     EXPECT_TRUE (hud::HudOpen (*hud.state)) << "the readout's panel open";

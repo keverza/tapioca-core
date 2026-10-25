@@ -8,6 +8,7 @@
 
 #include "ArchViz/HudShell.hpp"
 #include "ArchViz/OverlayHitMap.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
@@ -80,6 +81,9 @@ TEST (HudTips, TheDocksCircleSaysItsTipToItsLeftOnALightGround)
 {
     Watched hud;
     hud.engine.SetOwnPages (Standalone ());
+    hud.state->host.dock.edge = shell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
     EXPECT_FALSE (Drawn (out, shell::kTipGroundRgba)) << "nothing pointed at, no tip";
 

@@ -6,6 +6,39 @@
 using namespace hudtest;
 namespace shell = geomsrv::archviz::hudshell;
 
+TEST (HudHierarchy, DefaultDockStartsAtTopLeftAndPanelMeetsItsLowerEdge)
+{
+    shell::DockPlacement dock;
+    EXPECT_EQ (dock.edge, shell::DockEdge::Top);
+    EXPECT_TRUE (dock.horizontal);
+    EXPECT_FLOAT_EQ (dock.along, 0);
+    const ImVec2 pos = shell::DockPosition (dock, { 1200, 800 }, { 200, 28 }, 1);
+    EXPECT_FLOAT_EQ (pos.x, 0);
+    EXPECT_FLOAT_EQ (pos.y, 0);
+    const auto panel =
+        shell::PanelAtDock ({ 1200, 800 }, pos, { 200, 28 }, dock.edge, dock.horizontal, { 320, 350 }, shell::kDockGap);
+    EXPECT_FLOAT_EQ (panel.position.x, 0);
+    EXPECT_FLOAT_EQ (panel.position.y, 28);
+    EXPECT_EQ (shell::kDockGap, 0);
+}
+
+TEST (HudHierarchy, DockIsPulledTowardEdgesAndCornersBeforeRelease)
+{
+    const ImVec2 view (1200, 800), size (200, 28);
+    const ImVec2 untouched = shell::MagneticDockPosition ({ 200, 180 }, view, size, 1);
+    EXPECT_FLOAT_EQ (untouched.x, 200);
+    EXPECT_FLOAT_EQ (untouched.y, 180);
+    const ImVec2 edge = shell::MagneticDockPosition ({ 200, 18 }, view, size, 1);
+    EXPECT_LT (edge.y, 18);
+    EXPECT_GT (edge.y, 0);
+    const ImVec2 corner = shell::MagneticDockPosition ({ 18, 18 }, view, size, 1);
+    EXPECT_LT (corner.x, 18);
+    EXPECT_LT (corner.y, 18);
+    shell::DockPlacement dock;
+    shell::SnapDock (dock, { 200, 18 }, view, size, 1);
+    EXPECT_EQ (dock.edge, shell::DockEdge::Top);
+}
+
 TEST (HudHierarchy, DockSnapsToAllEdgesAndCornersAndStaysAttachedAfterResize)
 {
     for (float scale : { 1.0f, 2.0f }) {
@@ -68,6 +101,19 @@ TEST (HudHierarchy, NavigationRequiresAnExactUniquePageAndNeverResolvesModelComm
     EXPECT_TRUE (shell::ResolveNavigation ("Sun study", { { "one", "Sun study" }, { "two", "Sun study" } }).empty ());
 }
 
+TEST (HudHierarchy, InvalidNavigationShowsAReadableErrorCard)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    Navigate (hud, {}, "not a workflow");
+    const auto out = hud.Lay ({}, At (0, 0));
+    float box[4] = {};
+    EXPECT_TRUE (Box (out.host, 0xFFF1EFFFu, box));
+    EXPECT_TRUE (Box (out.host, 0x34201FFFu, box));
+}
+
 TEST (HudHierarchy, AnUnavailableWorkflowIsNotReplacedAndItsDraftSurvives)
 {
     Watched hud;
@@ -116,15 +162,15 @@ TEST (HudHierarchy, DockTitleOpensButOnlyTheSeparateControlCollapses)
     own.standalone = true;
     hud.engine.SetOwnPages (own);
     auto out = hud.Lay ({}, At (0, 0));
-    const float x = 1200 + out.dock.offset[0] + out.dock.width / 2;
-    const float top = 400 + out.dock.offset[1];
-    const float titleY = top + out.dock.width * 2 + 8;
-    hud.Click ({}, x, titleY);
+    const float left = Left (out.dock), top = Top (out.dock);
+    const float y = top + out.dock.height * 0.5f;
+    const float titleX = left + out.dock.height * 2 + 8;
+    hud.Click ({}, titleX, y);
     EXPECT_TRUE (hud::HudOpen (*hud.state));
-    const float collapseY = top + out.dock.height - 1.5f * out.dock.width;
-    hud.Click ({}, x, collapseY);
+    const float collapseX = left + out.dock.width - 1.5f * out.dock.height;
+    hud.Click ({}, collapseX, y);
     EXPECT_FALSE (hud::HudOpen (*hud.state));
-    hud.Click ({}, x, titleY);
+    hud.Click ({}, titleX, y);
     EXPECT_TRUE (hud::HudOpen (*hud.state));
     EXPECT_FALSE (hud.state->criteriaTextActive);
 }
@@ -139,7 +185,7 @@ TEST (HudHierarchy, TypedNavigationUsesExplicitFocusAndPanelArrivalKeepsTheCaret
     ASSERT_EQ (hud.engine.Selected (), shell::kSettingsKey);
     auto out = hud.Lay ({}, At (0, 0));
     EXPECT_FALSE (hud.state->criteriaTextActive);
-    const float x = Left (out.host) + 30, y = Top (out.host) + out.host.height - 20;
+    const float x = Left (out.host) + 30, y = CommandY (out);
     hud.Click ({}, x, y);
     ASSERT_TRUE (hud.state->criteriaTextActive);
     auto input = At (x, y);

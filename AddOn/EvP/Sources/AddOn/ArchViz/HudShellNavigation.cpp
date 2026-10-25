@@ -57,14 +57,8 @@ std::string NavigationHeader (const HostSpec& spec, const std::string& held, Nav
         workflow = current;
     }
     const std::string title = workflow ? workflow->title : "Choose workflow";
-    ImGui::SetNextItemWidth ((std::max) (80.0f, ImGui::GetContentRegionAvail ().x - 32 * spec.ui));
-    if (ImGui::BeginCombo ("##workflow", title.c_str ())) {
-        for (const auto& tab : spec.tabs)
-            if (!Global (tab.key) && ImGui::Selectable (tab.title.c_str (), tab.key == held))
-                selected = tab.key;
-        ImGui::EndCombo ();
-    }
-    Tip ("Choose a workflow; opening it does not run a command.");
+    ImGui::TextUnformatted (title.c_str ());
+    Tip ("Right-click the dock chip to choose a workflow.");
     ImGui::SameLine ();
     collapse = ImGui::SmallButton ("-##collapse");
     Tip ("Collapse panel; keep drafts and selection");
@@ -111,8 +105,7 @@ std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool&
         if (!selected.empty ())
             state.input[0] = '\0';
     }
-    if (!state.message.empty ())
-        ImGui::TextWrapped ("%s", state.message.c_str ());
+    ErrorNotice (state.message, spec.ui);
     return selected;
 }
 } // namespace geomsrv::archviz::hudshell

@@ -1,4 +1,5 @@
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/PointGumball.hpp"
@@ -78,8 +79,8 @@ int HitGumball (const Gumball& gizmo, float x, float y)
         if (!gizmo.visible[axis])
             continue;
         const float dx = gizmo.ends[axis].x - gizmo.center.x, dy = gizmo.ends[axis].y - gizmo.center.y;
-        const float t = (std::max) (
-            0.18f, (std::min) (1.1f, ((x - gizmo.center.x) * dx + (y - gizmo.center.y) * dy) / (dx * dx + dy * dy)));
+        const float t = (std::max) (0.18f, (std::min) (1.1f, ((x - gizmo.center.x) * dx + (y - gizmo.center.y) * dy) /
+                                                                 (dx * dx + dy * dy)));
         const float distance = std::hypot (x - gizmo.center.x - t * dx, y - gizmo.center.y - t * dy);
         if (distance < best) {
             best = distance;
@@ -219,7 +220,7 @@ void DrawViewpointHudSection (HudState& state)
     if (status.calculating)
         ImGui::TextDisabled ("Updating visibility...");
     else if (!status.error.empty ())
-        ImGui::TextWrapped ("%s", status.error.c_str ());
+        hudshell::ErrorNotice (status.error);
     else if (status.result != nullptr)
         ImGui::Text ("%.1f m2 visible; %u of %u rays hit Context", status.result->area,
                      unsigned (status.result->collisionCount), unsigned (status.result->perimeter.size ()));

@@ -6,6 +6,7 @@
 #include "hud_fixture.hpp"
 
 #include "ArchViz/HudShell.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 #include "ArchViz/OverlayVisibility.hpp"
 
 #include <gtest/gtest.h>
@@ -52,6 +53,9 @@ TEST (OverlayHudDisplays, SettingsSwitchesStandaloneStoreySlicesButStylesLiveInT
 {
     Watched hud;
     hud.engine.SetOwnPages (Own (false));
+    hud.state->host.dock.edge = shell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     hud::SelectKey (*hud.state, shell::kSettingsKey);
     const hud::Layout off = hud.Lay ({}, At (600.0f, 600.0f));
     ASSERT_GT (off.host.height, 0.0f);
@@ -85,6 +89,9 @@ TEST (OverlayHudDisplays, SettingsSwitchesExistingWireframesWithoutHidingAnalysi
     auto pages = Own (false);
     pages.displays.wireframeOn = true;
     hud.engine.SetOwnPages (pages);
+    hud.state->host.dock.edge = shell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     hud::SelectKey (*hud.state, shell::kSettingsKey);
     const auto layout = hud.Lay ({}, At (600, 600));
     const float left = layout.host.fraction[0] * 1200 + layout.host.offset[0];

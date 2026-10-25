@@ -62,6 +62,23 @@ const layers::Panel& PlainLook ()
     return panel;
 }
 
+void ErrorNotice (const std::string& message, float scale)
+{
+    if (message.empty ())
+        return;
+    const float pad = 7.0f * scale;
+    const float width = (std::max) (2.0f * pad + 1.0f, ImGui::GetContentRegionAvail ().x);
+    const ImVec2 words = ImGui::CalcTextSize (message.c_str (), nullptr, false, width - 2.0f * pad);
+    const ImVec2 from = ImGui::GetCursorScreenPos ();
+    const ImVec2 to (from.x + width, from.y + words.y + 2.0f * pad);
+    ImGui::Dummy (ImVec2 (width, to.y - from.y));
+    ImDrawList* draw = ImGui::GetWindowDrawList ();
+    draw->AddRectFilled (from, to, Packed (0xFFF1EFFFu), 3.0f * scale);
+    draw->AddRect (from, to, Packed (0xB74741FFu), 3.0f * scale, 0, (std::max) (1.0f, scale));
+    draw->AddText (ImGui::GetFont (), ImGui::GetFontSize (), ImVec2 (from.x + pad, from.y + pad), Packed (0x34201FFFu),
+                   message.c_str (), nullptr, width - 2.0f * pad);
+}
+
 namespace {
 
 // A tip's measures, in its font's em: padding across and down, the arrow's half-width (and
@@ -450,6 +467,8 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
         }
     }
     const int colours = PushLook (panel, ui);
+    if (spec.attached)
+        ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushFont (spec.font, panel.sizePixels * ui);
     const ImGuiStyle& style = ImGui::GetStyle ();
     const bool pageWidth = !spec.attached && spec.pageWidthPixels > 0.0f;
@@ -527,6 +546,8 @@ HostResult Host (const HostSpec& spec, const std::string& held, std::string& sho
     ImGui::End ();
     ImGui::PopFont ();
     ImGui::PopStyleColor (colours);
+    if (spec.attached)
+        ImGui::PopStyleVar ();
     ImGui::PopStyleVar (kLookVars);
     // Dragged: where to, from the view's nearer side and its top, in logical pixels.
     if (moving && !spec.attached) {

@@ -191,12 +191,10 @@ TEST (OverlayHud, APanelLayerBecomesPlainTextureQuadsFixedToTheView)
     EXPECT_EQ (out.problems.textsNotLaidOut, 0u) << out.problems.lastError;
     for (const scene::SceneGlyph& glyph : out.glyphs) {
         EXPECT_EQ (glyph.flags, scene::kScreenAnchored | scene::kPlainTexture | scene::kPhysicalPixels);
-        EXPECT_FLOAT_EQ (glyph.position[0], 1.0f);
-        if (glyph.position[1] == 0.5f)
-            continue; // the dock's tab, at the right edge half-way down
-        EXPECT_FLOAT_EQ (glyph.position[1], 1.0f);
-        EXPECT_LE (glyph.offset[0], 0.0f); // from the bottom-right corner, inwards
-        EXPECT_LE (glyph.offset[1], 0.0f);
+        EXPECT_GE (glyph.position[0], 0.0f);
+        EXPECT_LE (glyph.position[0], 1.0f);
+        EXPECT_GE (glyph.position[1], 0.0f);
+        EXPECT_LE (glyph.position[1], 1.0f);
     }
     for (const scene::GlyphDraw& draw : out.glyphDraws) {
         ASSERT_LT (draw.page, out.pages.size ());

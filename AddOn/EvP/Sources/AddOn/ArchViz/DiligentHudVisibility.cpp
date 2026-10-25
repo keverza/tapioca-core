@@ -213,9 +213,9 @@ void DrawVisibilityHudSection (HudState& state, const DiligentSceneStats& scene)
             visibilitystudy::Cancel ();
     }
     else if (!state.visibilitySubmitError.empty ())
-        ImGui::TextWrapped ("Visibility failed: %s", state.visibilitySubmitError.c_str ());
+        hudshell::ErrorNotice ("Visibility failed: " + state.visibilitySubmitError);
     else if (!changed && !status.error.empty ())
-        ImGui::TextWrapped ("Visibility failed: %s", status.error.c_str ());
+        hudshell::ErrorNotice ("Visibility failed: " + status.error);
     else if (!changed && status.complete && scene.sunStudy.analysisKind == 1 && scene.sunStudy.drawing &&
              scene.sunStudy.studyId == status.studyId) {
         ImGui::Text ("%.1f%% mean visible", status.meanVisibility * 100.0);

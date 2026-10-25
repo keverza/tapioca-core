@@ -85,6 +85,8 @@ void TipBeside (ImVec2 min, ImVec2 max, TipSide side, const std::string& text, u
 // Every hover text of the HUD is said this way (or by TipAt / TipBeside for a place on a
 // canvas), never by ImGui's own tooltip window: one look everywhere.
 bool Tip (const std::string& text, TipSide side = TipSide::Left, uint32_t swatch = 0);
+// A high-contrast inline error card for the viewer and shared navigation.
+void ErrorNotice (const std::string& message, float scale = 1.0f);
 
 // printf into a string, for a tip with numbers in it.
 inline std::string Formatted (const char* format, ...)
@@ -110,10 +112,10 @@ std::string Percent (float scale);
 // ---- the dock -----------------------------------------------------------------------
 
 // The dock's tab: its font, its padding across and along its turned title, and the gap
-// between it and a panel on the view's right column.
+// between it and a panel. The panel meets the dock without a visible gap.
 constexpr float kDockFontPixels = 12.0f;
 constexpr float kDockPadding[2] = { 5.0f, 12.0f };
-constexpr float kDockGap = 6.0f;
+constexpr float kDockGap = 0.0f;
 
 // ⚠️ A CIRCLE IS A SURFACE'S STATE (the user, 2026-10-03): the overlay's at the top of the dock,
 // the separate viewer's at its bottom. Off -- a faint ring; Ready -- neutral; Busy -- composing,
@@ -155,28 +157,32 @@ struct DockPress {
 // ⚠️ AND A LOCK UNDER THE TOP CIRCLE when `locked` is given (the user, 2026-10-10): locked, the view's
 // clicks are the HUD's -- the floor plan is edited on the view itself -- and only the wheel and
 // the middle button reach Archicad, to navigate. A closed padlock while locked, open otherwise.
+enum class DockEdge : uint8_t { Floating, Top, Bottom, Left, Right };
 DockPress DockTab (const char* id, const std::string& label, const overlaylayers::Panel& look, bool open,
                    const Circle& top, const Circle* bottom, ImVec2 padding, float scale, const bool* locked = nullptr,
-                   bool horizontal = false);
+                   bool horizontal = false, DockEdge panelSide = DockEdge::Left);
 
-enum class DockEdge : uint8_t { Floating, Top, Bottom, Left, Right };
 struct DockPlacement {
-    DockEdge edge = DockEdge::Right;
-    float along = 0.5f;
+    DockEdge edge = DockEdge::Top;
+    float along = 0.0f;
     ImVec2 freePosition = ImVec2 (100, 100); // logical pixels
-    bool horizontal = false;
+    ImVec2 dragPosition = ImVec2 (100, 100); // raw position while the magnet pulls its visual position
+    bool horizontal = true;
     bool dragging = false;
 };
 ImVec2 DockPosition (const DockPlacement& placement, ImVec2 view, ImVec2 size, float scale);
 ImVec2 DockFraction (const DockPlacement& placement);
 void SnapDock (DockPlacement& placement, ImVec2 position, ImVec2 view, ImVec2 size, float scale);
+ImVec2 MagneticDockPosition (ImVec2 position, ImVec2 view, ImVec2 size, float scale);
+struct HostTab;
 struct DockResult {
     DockPress press;
     ImGuiWindow* window = nullptr;
+    std::string selected;
 };
 DockResult Dock (DockPlacement& placement, ImVec2 view, float scale, float ui, ImFont* font, const std::string& label,
                  const overlaylayers::Panel& look, bool open, const Circle& top, const Circle* bottom,
-                 const bool* locked = nullptr);
+                 const bool* locked = nullptr, const std::vector<HostTab>& tabs = {}, const std::string& held = {});
 struct DockPanelRect {
     ImVec2 position;
     ImVec2 size;

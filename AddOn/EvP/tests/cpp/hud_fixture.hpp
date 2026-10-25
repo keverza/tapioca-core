@@ -109,11 +109,17 @@ inline float Top (const hud::Built& box)
     return box.fraction[1] * 800 + box.offset[1];
 }
 
+inline float CommandY (const hud::Layout& out)
+{
+    const bool above = Top (out.dock) + out.dock.height <= Top (out.host) + 1;
+    return Top (out.host) + (above ? 20.0f : out.host.height - 20.0f);
+}
+
 // Exercise the real navigation input instead of assuming an old tab-row index.
 inline void Navigate (Fresh& view, const std::vector<const layers::Panel*>& panels, const std::string& title)
 {
     auto out = view.Lay (panels, At (0, 0));
-    const float x = Left (out.host) + 30, y = Top (out.host) + out.host.height - 20;
+    const float x = Left (out.host) + 30, y = CommandY (out);
     view.Click (panels, x, y);
     auto input = At (x, y);
     input.characters.assign (title.begin (), title.end ());

@@ -291,7 +291,10 @@ struct Engine::Impl {
 
     // The dock: one tab at the view's right edge, its title turned a quarter, that opens and
     // closes the host, and a circle on it that shows and hides the whole overlay.
-    void Dock (const std::vector<const layers::Panel*>& panels, float scale, float ui, ImVec2 view);
+    void Dock (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
+               float ui, ImVec2 view);
+    std::vector<hudshell::HostTab> Tabs (const std::vector<const layers::Panel*>& panels,
+                                         const std::vector<std::string>& keys) const;
 
     // The host: one floating panel, a tab per titled panel, then Settings, the close button
     // at the end of its tab row; where the user dragged it, kept.

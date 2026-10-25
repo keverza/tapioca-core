@@ -12,6 +12,7 @@
 // host call.
 
 #include "ArchViz/DiligentHud.hpp"
+#include "ArchViz/HudShell.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "Geometry/MeshStore.hpp"
@@ -325,9 +326,9 @@ void DrawSunStudyRunControls (HudState& state, const SunStudyOverlayStatus& stud
         sunstudyhud::Cancel ();
 
     if (!state.sunRunSubmitError.empty ())
-        ImGui::TextWrapped ("Not started: %s", state.sunRunSubmitError.c_str ());
+        hudshell::ErrorNotice ("Not started: " + state.sunRunSubmitError);
     else if (!status.running && status.stage == "failed")
-        ImGui::TextWrapped ("Sun study failed: %s", status.error.c_str ());
+        hudshell::ErrorNotice ("Sun study failed: " + status.error);
     else if (!status.running && status.stage == "cancelled")
         ImGui::TextDisabled ("Cancelled");
     else if (!status.running && status.stage == "done")

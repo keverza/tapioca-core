@@ -10,12 +10,35 @@ namespace geomsrv::archviz::hudshell {
 namespace layers = overlaylayers;
 namespace {
 constexpr float kPi = 3.14159265358979323846f;
+constexpr float kMagnetPixels = 36.0f;
+DockEdge PanelSide (ImVec2 view, ImVec2 a, ImVec2 b, DockEdge edge, bool horizontal)
+{
+    if (edge != DockEdge::Floating)
+        return edge;
+    return horizontal ? (a.y > view.y - b.y ? DockEdge::Bottom : DockEdge::Top)
+                      : (a.x > view.x - b.x ? DockEdge::Right : DockEdge::Left);
 }
+ImDrawFlags Corners (ImDrawFlags ends, bool open, DockEdge side)
+{
+    const ImDrawFlags outside =
+        side == DockEdge::Top      ? (open ? ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight
+                                           : ImDrawFlags_RoundCornersBottomLeft | ImDrawFlags_RoundCornersBottomRight)
+        : side == DockEdge::Bottom ? (open ? ImDrawFlags_RoundCornersBottomLeft | ImDrawFlags_RoundCornersBottomRight
+                                           : ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight)
+        : side == DockEdge::Left   ? (open ? ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersBottomLeft
+                                           : ImDrawFlags_RoundCornersTopRight | ImDrawFlags_RoundCornersBottomRight)
+                                   : (open ? ImDrawFlags_RoundCornersTopRight | ImDrawFlags_RoundCornersBottomRight
+                                           : ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersBottomLeft);
+    ends &= outside;
+    return ends != 0 ? ends : ImDrawFlags_RoundCornersNone;
+}
+} // namespace
 
 // One dock with surface circles, an open-only title and a separate collapse control.
 // Top/bottom edges use a horizontal title; left/right edges turn it vertically.
 DockPress DockTab (const char* id, const std::string& label, const layers::Panel& panel, bool open, const Circle& top,
-                   const Circle* bottom, ImVec2 padding, float scale, const bool* locked, bool horizontal)
+                   const Circle* bottom, ImVec2 padding, float scale, const bool* locked, bool horizontal,
+                   DockEdge panelSide)
 {
     DockPress press;
     const ImVec2 text = ImGui::CalcTextSize (label.c_str ());
@@ -26,6 +49,14 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     const uint32_t ink = graphicssettings::Colour ("ui.dock.text", open ? Contrast (fill) : panel.textRgba);
     const double seconds = ImGui::GetTime ();
     ImDrawList* draw = ImGui::GetWindowDrawList ();
+    const ImDrawFlags firstCorners =
+        Corners (horizontal ? ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersBottomLeft
+                            : ImDrawFlags_RoundCornersTopLeft | ImDrawFlags_RoundCornersTopRight,
+                 open, panelSide);
+    const ImDrawFlags lastCorners =
+        Corners (horizontal ? ImDrawFlags_RoundCornersTopRight | ImDrawFlags_RoundCornersBottomRight
+                            : ImDrawFlags_RoundCornersBottomLeft | ImDrawFlags_RoundCornersBottomRight,
+                 open, panelSide);
     // One part: its ground, its tint when pointed at and pressed, its edge while closed.
     const auto part = [&] (ImVec2 a, ImVec2 b, ImDrawFlags corners) {
         const bool hovered = ImGui::IsItemHovered (), held = ImGui::IsItemActive ();
@@ -69,7 +100,7 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     };
     ImGui::PushID (id);
     ImVec2 topFrom, topTo, bottomFrom, bottomTo;
-    press.top = circle ("##shown", top, ImDrawFlags_RoundCornersTopLeft, topFrom, topTo);
+    press.top = circle ("##shown", top, firstCorners, topFrom, topTo);
     if (horizontal)
         ImGui::SameLine (0, 0);
     if (locked != nullptr) {
@@ -104,30 +135,31 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
         ImGui::InvisibleButton ("##title", horizontal ? ImVec2 (std::ceil (text.x + 2.0f * padding.y), across)
                                                       : ImVec2 (across, std::ceil (text.x + 2.0f * padding.y)));
     const ImVec2 a = ImGui::GetItemRectMin (), b = ImGui::GetItemRectMax ();
-    part (a, b, bottom != nullptr ? ImDrawFlags_RoundCornersNone : ImDrawFlags_RoundCornersBottomLeft);
+    part (a, b, ImDrawFlags_RoundCornersNone);
     press.dragging = ImGui::IsItemActive () && ImGui::IsMouseDragging (ImGuiMouseButton_Left);
     if (press.dragging)
         press.delta = ImGui::GetIO ().MouseDelta;
     if (ImGui::GetCurrentContext ()->IO.MouseDragMaxDistanceSqr[0] > 36.0f)
         press.title = false;
-    Tip ("Open workflow panel. Drag to move; release near an edge or corner to snap.");
+    Tip ("Open workflow panel. Right-click to choose a workflow or dock position; drag to move.");
     if (horizontal)
         ImGui::SameLine (0, 0);
     press.collapse = ImGui::InvisibleButton ("##collapse", ImVec2 (across, across));
     ImVec2 last = ImGui::GetItemRectMax ();
-    part (ImGui::GetItemRectMin (), last, ImDrawFlags_RoundCornersNone);
+    part (ImGui::GetItemRectMin (), last, bottom != nullptr ? ImDrawFlags_RoundCornersNone : lastCorners);
     draw->AddText (ImVec2 (last.x - across + padding.x, last.y - across + padding.x), Packed (ink), open ? "-" : "+");
     Tip (open ? "Collapse panel" : "Expand panel");
     if (bottom != nullptr) {
         if (horizontal)
             ImGui::SameLine (0, 0);
-        press.bottom = circle ("##viewer", *bottom, ImDrawFlags_RoundCornersBottomLeft, bottomFrom, bottomTo);
+        press.bottom = circle ("##viewer", *bottom, lastCorners, bottomFrom, bottomTo);
         last = bottomTo;
     }
     ImGui::PopID ();
     if (!open) {
         const uint32_t edge = (panel.borderRgba & 0xFFu) != 0 ? panel.borderRgba : WithAlpha (panel.textRgba, 0.25f);
-        draw->AddRect (topFrom, last, Packed (edge), r, ImDrawFlags_RoundCornersLeft, (std::max) (1.0f, scale));
+        draw->AddRect (topFrom, last, Packed (edge), r, Corners (ImDrawFlags_RoundCornersAll, false, panelSide),
+                       (std::max) (1.0f, scale));
     }
     // Laid out across, round the title's middle, then turned: every corner stays on a
     // whole pixel. Unclipped while across -- the window is as narrow as the text is tall.
@@ -136,6 +168,9 @@ DockPress DockTab (const char* id, const std::string& label, const layers::Panel
     draw->PushClipRect (ImVec2 (-32768.0f, -32768.0f), ImVec2 (32768.0f, 32768.0f), false);
     draw->AddText (ImVec2 (middle.x - std::floor (text.x * 0.5f), middle.y - std::floor (text.y * 0.5f)), Packed (ink),
                    label.c_str ());
+    draw->AddText (
+        ImVec2 (middle.x - std::floor (text.x * 0.5f) + 0.55f * scale, middle.y - std::floor (text.y * 0.5f)),
+        Packed (ink), label.c_str ());
     draw->PopClipRect ();
     for (int k = first; !horizontal && k < draw->VtxBuffer.Size; ++k) {
         ImDrawVert& v = draw->VtxBuffer[k];
@@ -187,7 +222,7 @@ void SnapDock (DockPlacement& p, ImVec2 pos, ImVec2 view, ImVec2 size, float sca
     p.freePosition = { pos.x / scale, pos.y / scale };
     const float horizontal = (std::min) (pos.y, y - pos.y), vertical = (std::min) (pos.x, x - pos.x);
     p.edge = DockEdge::Floating;
-    if ((std::min) (horizontal, vertical) > 24.0f * scale)
+    if ((std::min) (horizontal, vertical) > kMagnetPixels * scale)
         return;
     if (horizontal < vertical || (horizontal == vertical && p.horizontal)) {
         p.edge = pos.y < y * 0.5f ? DockEdge::Top : DockEdge::Bottom;
@@ -209,11 +244,27 @@ void SnapDock (DockPlacement& p, ImVec2 pos, ImVec2 view, ImVec2 size, float sca
     }
 }
 
+ImVec2 MagneticDockPosition (ImVec2 position, ImVec2 view, ImVec2 size, float scale)
+{
+    const float x = (std::max) (0.0f, view.x - size.x), y = (std::max) (0.0f, view.y - size.y);
+    const float reach = kMagnetPixels * scale;
+    const auto pull = [reach] (float value, float end) {
+        const float distance = std::abs (value - end);
+        if (distance >= reach)
+            return value;
+        const float proximity = 1.0f - distance / reach;
+        return value + (end - value) * proximity;
+    };
+    position.x = std::clamp (position.x, 0.0f, x);
+    position.y = std::clamp (position.y, 0.0f, y);
+    position.x = pull (position.x, position.x < x * 0.5f ? 0.0f : x);
+    position.y = pull (position.y, position.y < y * 0.5f ? 0.0f : y);
+    return position;
+}
+
 DockPanelRect PanelAtDock (ImVec2 view, ImVec2 a, ImVec2 b, DockEdge edge, bool horizontal, ImVec2 wanted, float gap)
 {
-    if (edge == DockEdge::Floating)
-        edge = horizontal ? (a.y > view.y - b.y ? DockEdge::Bottom : DockEdge::Top)
-                          : (a.x > view.x - b.x ? DockEdge::Right : DockEdge::Left);
+    edge = PanelSide (view, a, b, edge, horizontal);
     ImVec2 lo (0, 0), hi = view;
     if (edge == DockEdge::Top)
         lo.y = (std::min) (view.y, b.y + gap);
@@ -235,7 +286,8 @@ DockPanelRect PanelAtDock (ImVec2 view, ImVec2 a, ImVec2 b, DockEdge edge, bool 
 }
 
 DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* font, const std::string& label,
-                 const layers::Panel& look, bool open, const Circle& top, const Circle* bottom, const bool* locked)
+                 const layers::Panel& look, bool open, const Circle& top, const Circle* bottom, const bool* locked,
+                 const std::vector<HostTab>& tabs, const std::string& held)
 {
     DockResult result;
     if (p.edge != DockEdge::Floating)
@@ -257,53 +309,73 @@ DockResult Dock (DockPlacement& p, ImVec2 view, float scale, float ui, ImFont* f
                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
                        ImGuiWindowFlags_NoBackground;
     if (ImGui::Begin ("###tapioca.dock", nullptr, flags)) {
-        result.press = DockTab ("##hud", label, look, open, top, bottom, padding, ui, locked, p.horizontal);
-        ImGui::PushID ("##hud");
-        const bool titleHovered = ImGui::GetCurrentContext ()->HoveredId == ImGui::GetID ("##title");
-        ImGui::PopID ();
-        if (titleHovered && ImGui::IsMouseClicked (ImGuiMouseButton_Right)) {
+        const DockEdge side = PanelSide (view, pos, ImVec2 (pos.x + size.x, pos.y + size.y), p.edge, p.horizontal);
+        result.press = DockTab ("##hud", label, look, open, top, bottom, padding, ui, locked, p.horizontal, side);
+        if (ImGui::IsWindowHovered () && ImGui::IsMouseClicked (ImGuiMouseButton_Right)) {
             ClaimRightClick ();
             ImGui::OpenPopup ("##dockPosition");
         }
         const int menuColours = PushLook (look, ui);
         if (ImGui::BeginPopup ("##dockPosition")) {
-            ImGui::TextUnformatted ("Dock position");
-            struct Anchor {
-                const char* name;
-                DockEdge edge;
-                float along;
-            };
-            const Anchor anchors[] = { { "Top left", DockEdge::Top, 0 },     { "Top", DockEdge::Top, 0.5f },
-                                       { "Top right", DockEdge::Top, 1 },    { "Left", DockEdge::Left, 0.5f },
-                                       { "Right", DockEdge::Right, 0.5f },   { "Bottom left", DockEdge::Bottom, 0 },
-                                       { "Bottom", DockEdge::Bottom, 0.5f }, { "Bottom right", DockEdge::Bottom, 1 } };
-            for (const auto& anchor : anchors)
-                if (ImGui::MenuItem (anchor.name, nullptr, p.edge == anchor.edge && p.along == anchor.along)) {
-                    p.edge = anchor.edge;
-                    p.along = anchor.along;
-                }
-            if (ImGui::MenuItem ("Free floating", nullptr, p.edge == DockEdge::Floating)) {
-                p.edge = DockEdge::Floating;
-                p.freePosition = {
-                    std::clamp (pos.x, 32.0f * scale, (std::max) (32.0f * scale, view.x - size.x - 32 * scale)) / scale,
-                    std::clamp (pos.y, 32.0f * scale, (std::max) (32.0f * scale, view.y - size.y - 32 * scale)) / scale
-                };
+            ImGui::SeparatorText ("Workflow");
+            for (const auto& tab : tabs)
+                if (tab.key != kSelectionKey && tab.key != kSettingsKey && tab.key != kDebugKey &&
+                    tab.key != kStatsKey && ImGui::MenuItem (tab.title.c_str (), nullptr, tab.key == held))
+                    result.selected = tab.key;
+            if (ImGui::BeginMenu ("Pages")) {
+                for (const auto& tab : tabs)
+                    if ((tab.key == kSelectionKey || tab.key == kSettingsKey || tab.key == kDebugKey ||
+                         tab.key == kStatsKey) &&
+                        ImGui::MenuItem (tab.title.c_str (), nullptr, tab.key == held))
+                        result.selected = tab.key;
+                ImGui::EndMenu ();
             }
-            if (p.edge == DockEdge::Floating && ImGui::MenuItem ("Horizontal", nullptr, p.horizontal))
-                p.horizontal = !p.horizontal;
+            if (ImGui::BeginMenu ("Dock location")) {
+                struct Anchor {
+                    const char* name;
+                    DockEdge edge;
+                    float along;
+                };
+                const Anchor anchors[] = {
+                    { "Top left", DockEdge::Top, 0 },     { "Top", DockEdge::Top, 0.5f },
+                    { "Top right", DockEdge::Top, 1 },    { "Left", DockEdge::Left, 0.5f },
+                    { "Right", DockEdge::Right, 0.5f },   { "Bottom left", DockEdge::Bottom, 0 },
+                    { "Bottom", DockEdge::Bottom, 0.5f }, { "Bottom right", DockEdge::Bottom, 1 }
+                };
+                for (const auto& anchor : anchors)
+                    if (ImGui::MenuItem (anchor.name, nullptr, p.edge == anchor.edge && p.along == anchor.along)) {
+                        p.edge = anchor.edge;
+                        p.along = anchor.along;
+                    }
+                if (ImGui::MenuItem ("Free floating", nullptr, p.edge == DockEdge::Floating)) {
+                    p.edge = DockEdge::Floating;
+                    p.freePosition = {
+                        std::clamp (pos.x, 32.0f * scale, (std::max) (32.0f * scale, view.x - size.x - 32 * scale)) /
+                            scale,
+                        std::clamp (pos.y, 32.0f * scale, (std::max) (32.0f * scale, view.y - size.y - 32 * scale)) /
+                            scale
+                    };
+                }
+                if (p.edge == DockEdge::Floating && ImGui::MenuItem ("Horizontal", nullptr, p.horizontal))
+                    p.horizontal = !p.horizontal;
+                ImGui::EndMenu ();
+            }
             ImGui::EndPopup ();
         }
         ImGui::PopStyleColor (menuColours);
         ImGui::PopStyleVar (kLookVars);
         if (result.press.dragging) {
+            if (!p.dragging)
+                p.dragPosition = { pos.x / scale, pos.y / scale };
+            p.dragPosition.x += result.press.delta.x / scale;
+            p.dragPosition.y += result.press.delta.y / scale;
             p.edge = DockEdge::Floating;
-            pos.x += result.press.delta.x;
-            pos.y += result.press.delta.y;
+            pos = MagneticDockPosition ({ p.dragPosition.x * scale, p.dragPosition.y * scale }, view, size, scale);
             p.freePosition = { pos.x / scale, pos.y / scale };
             p.dragging = true;
         }
         else if (p.dragging && !ImGui::IsMouseDown (ImGuiMouseButton_Left)) {
-            SnapDock (p, pos, view, size, scale);
+            SnapDock (p, { p.dragPosition.x * scale, p.dragPosition.y * scale }, view, size, scale);
             p.dragging = false;
             result.press.title = false;
         }

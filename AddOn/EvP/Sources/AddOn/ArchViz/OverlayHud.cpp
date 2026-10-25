@@ -635,7 +635,7 @@ void Engine::Impl::Frame (const std::vector<const layers::Panel*>& panels, const
              (ImGui::GetCurrentContext ()->HoveredWindow == nullptr ||
               ImGui::GetCurrentContext ()->HoveredWindow == ImGui::FindWindowByName (kLockedViewWindow)))
         readout = input.hover;
-    Dock (panels, scale, ui, view);
+    Dock (panels, keys, scale, ui, view);
     if (known && store->shown && store->editLocked)
         LockedView (input, ui, view);
     // Hidden by the dock's circle: the dock alone.

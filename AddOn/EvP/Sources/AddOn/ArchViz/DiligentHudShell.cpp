@@ -85,7 +85,11 @@ void Draw (Shell& shell, HudState& state, const DiligentSceneStats& scene, uint3
     const auto dock =
         hudshell::Dock (shell.dock, view, scale, ui, font,
                         shell.navigation.workflowTitle.empty () ? "Tapioca" : shell.navigation.workflowTitle, look,
-                        shell.open, overlay, &viewer);
+                        shell.open, overlay, &viewer, nullptr, tabs, shell.held);
+    if (!dock.selected.empty ()) {
+        shell.held = dock.selected;
+        shell.open = true;
+    }
     if (dock.press.top)
         surfaceswitch::Request (surfaceswitch::Surface::Overlay);
     if (dock.press.title)

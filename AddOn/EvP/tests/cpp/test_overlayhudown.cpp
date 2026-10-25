@@ -5,6 +5,7 @@
 // vendored Dear ImGui, pressed as the input layer hands the presses over.
 
 #include "hud_fixture.hpp"
+#include "ArchViz/OverlayHudEngine.hpp"
 
 #include <gtest/gtest.h>
 
@@ -223,6 +224,9 @@ TEST (OverlayHudOwn, TheDockIsASwitchBetweenTheOverlayAndTheViewer)
     pages.overlay.phase = shell::Phase::Ready;
     pages.viewer.phase = shell::Phase::Off;
     hud.engine.SetOwnPages (pages);
+    hud.state->host.dock.edge = shell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
     ASSERT_GT (out.dock.height, 2.0f * out.dock.width);
     const auto bottom = BottomCircle (out.dock);
@@ -284,6 +288,9 @@ TEST (OverlayHudOwn, TheDocksLockGivesTheViewsClicksToTheHudAndBack)
     hud::OwnPages pages = Standalone ();
     pages.overlay.phase = shell::Phase::Ready;
     hud.engine.SetOwnPages (pages);
+    hud.state->host.dock.edge = shell::DockEdge::Right;
+    hud.state->host.dock.along = 0.5f;
+    hud.state->host.dock.horizontal = false;
     const hud::Layout out = hud.Lay ({}, At (600.0f, 600.0f));
     EXPECT_FALSE (out.locked);
     const auto top = TopCircle (out.dock);
