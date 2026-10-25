@@ -7,7 +7,11 @@
 #include "RayWorker/RayWorkerClient.hpp"
 #include "RayWorker/RayWorkerPacket.hpp"
 #include "RayWorker/RayWorkerService.hpp"
+#include "RayWorker/RayWorkerTraversal.hpp"
 #include "RayWorker/RayWorkerWin32.hpp"
+#include "Geometry/QueryEngine.hpp"
+#include "MeshFixtures.hpp"
+#include "SunStudy/CpuTraversal.hpp"
 
 #include <gtest/gtest.h>
 
@@ -212,6 +216,83 @@ TEST (RayWorkerWin32, TheDxrWorkerExecutableServesOrRefusesWithAReason)
     EXPECT_EQ (outcomes[0].result.bits, expected.bits);
     EXPECT_EQ (outcomes[0].result.resolved, expected.resolved);
     client.Shutdown ();
+}
+
+// ---- the study's traversal over the worker -----------------------------------
+
+struct TraversalFixture {
+    std::shared_ptr<const geomsrv::QueryEngine> engine;
+    std::shared_ptr<const evp::sunstudy::CpuTraversal> cpu;
+    std::vector<double> origins;
+
+    TraversalFixture ()
+    {
+        std::vector<geomsrv::Mesh> meshes;
+        meshes.push_back (evptest::MakeBox ("ground", -20.0, -20.0, -1.0, 40.0, 40.0, 1.0));
+        meshes.push_back (evptest::MakeBox ("tower", -2.0, -2.0, 0.0, 4.0, 4.0, 6.0));
+        engine = std::make_shared<geomsrv::QueryEngine> (
+            std::make_shared<geomsrv::Snapshot> (evptest::MakeSnapshot (std::move (meshes))));
+        cpu = std::make_shared<evp::sunstudy::CpuTraversal> (engine);
+        for (int iy = 0; iy < 30; ++iy)
+            for (int ix = 0; ix < 30; ++ix)
+                origins.insert (origins.end (), { -14.9 + 1.013 * ix, -14.7 + 1.017 * iy, 0.0 });
+    }
+
+    void ExpectSameAsCpu (const evp::sunstudy::ITraversal& traversal)
+    {
+        const size_t count = origins.size () / 3;
+        for (int k = 0; k < 6; ++k) {
+            const double dir[3] = { std::cos (0.9 * k), std::sin (0.9 * k), 0.4 + 0.1 * k };
+            std::vector<uint8_t> expected (count), actual (count, 7);
+            cpu->OccludeDirectional (origins.data (), count, dir, 0.001, 0.0, expected.data ());
+            ASSERT_TRUE (traversal.OccludeDirectionalCancellable (origins.data (), count, dir, 0.001, 0.0,
+                                                                  actual.data (), 0, {}));
+            EXPECT_EQ (actual, expected) << "direction " << k;
+        }
+    }
+};
+
+TEST (RayWorkerTraversal, AnInProcessWorkerAnswersWhatTheCpuTraversalAnswers)
+{
+    TraversalFixture f;
+    auto channel = std::make_shared<RayWorkerChannel> (
+        std::wstring (), [] (const std::wstring& pipe, const std::string& segments) {
+            win32::RunWorker (pipe, segments, MakeCpuReferenceBackend (), 50);
+        });
+    RayWorkerTraversal traversal (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "dxr");
+    f.ExpectSameAsCpu (traversal);
+    EXPECT_EQ (traversal.ActualBackend (), "dxr");
+    EXPECT_EQ (traversal.GpuCalls (), 6u);
+    EXPECT_EQ (traversal.SceneVersion (), f.cpu->SceneVersion ());
+    channel->Shutdown ();
+}
+
+TEST (RayWorkerTraversal, AWorkerThatDiesFallsBackToTheCpuForGoodWithAReason)
+{
+    TraversalFixture f;
+    wchar_t system[MAX_PATH] = {};
+    GetSystemDirectoryW (system, MAX_PATH);
+    auto channel = std::make_shared<RayWorkerChannel> (std::wstring (system) + L"\\whoami.exe");
+    RayWorkerTraversal traversal (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "dxr");
+    f.ExpectSameAsCpu (traversal);
+    EXPECT_EQ (traversal.ActualBackend (), "cpu");
+    EXPECT_EQ (traversal.FallbackReason (), GpuReason::WorkerCrashed);
+    EXPECT_EQ (traversal.GpuCalls (), 0u);
+}
+
+TEST (RayWorkerTraversal, TheDxrWorkerExecutableAnswersWhatTheCpuTraversalAnswers)
+{
+    const std::wstring exe = WorkerBesideTests ();
+    if (GetFileAttributesW (exe.c_str ()) == INVALID_FILE_ATTRIBUTES)
+        GTEST_SKIP () << "TapiocaDxrWorker.exe was not built beside the tests";
+    TraversalFixture f;
+    auto channel = std::make_shared<RayWorkerChannel> (exe);
+    RayWorkerTraversal traversal (f.cpu, channel, SceneFromIndices (f.engine.get (), nullptr), "dxr");
+    f.ExpectSameAsCpu (traversal);
+    if (traversal.ActualBackend () != "dxr")
+        GTEST_SKIP () << "no DXR here: " << GpuReasonCode (traversal.FallbackReason ());
+    EXPECT_EQ (traversal.GpuCalls (), 6u);
+    channel->Shutdown ();
 }
 
 } // namespace

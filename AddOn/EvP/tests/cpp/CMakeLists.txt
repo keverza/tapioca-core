@@ -1317,7 +1317,8 @@ if (WIN32)
     # (test_rayworkerwin32.cpp), and the worker executable it spawns: built
     # beside the test binary so the test finds it without an installed add-on.
     target_sources (EvPGeomTests PRIVATE test_rayworkerwin32.cpp
-        "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerWin32.cpp")
+        "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerWin32.cpp"
+        "${EVP_ROOT}/Sources/AddOn/RayWorker/RayWorkerTraversal.cpp")
     set (EVP_RAYWORKER "${EVP_ROOT}/Sources/AddOn/RayWorker")
     add_executable (TapiocaDxrWorker
         "${EVP_ROOT}/Sources/DxrWorker/DxrWorkerMain.cpp"

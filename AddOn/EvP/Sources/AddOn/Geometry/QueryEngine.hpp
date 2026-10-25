@@ -56,6 +56,12 @@ class QueryEngine {
     {
         return snapshot->id;
     }
+    // The snapshot this index was built over (a GPU worker uploads the same
+    // triangles).
+    const std::shared_ptr<const Snapshot>& SourceSnapshot () const
+    {
+        return snapshot;
+    }
     size_t MeshCount () const
     {
         return snapshot->meshes.size ();
