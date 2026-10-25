@@ -1650,7 +1650,7 @@ TEST (HudVirtualEditor, PathPartPlaneActionsUseIdentityStationsWithoutChangingPi
     std::string error;
     const auto grade = ed::NewId (doc), range = ed::NewId (doc);
     ASSERT_TRUE (ed::InsertBreak (path->profile, 7, grade, error));
-    ASSERT_TRUE (ed::SplitSection (path->sections, 14, range, error));
+    ASSERT_TRUE (ed::SplitSection (path->sections, 20, 14, range, error));
     const auto point = path->points[1].id;
     Drive d (doc);
     const ed::Ref refs[] = { { id, ed::Part::PathPoint, point },

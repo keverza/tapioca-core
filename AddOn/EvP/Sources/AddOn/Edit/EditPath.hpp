@@ -115,10 +115,15 @@ enum class Fall : uint8_t { Crown, Left, Right };
 // percentages (50 % is 1:2). The shoulder runs out level-with-the-edge before grading.
 // `rounding` is the plan length over which the grading faces ease into the path at their top
 // and into the ground at their toe (0 leaves both creases sharp).
+// A tapering range's widths run linearly from widthLeft/Right at its start to endLeft/Right
+// at its end (the next range's start, or the path's end); a parallel one keeps its end
+// widths equal to its start widths.
 struct Section {
     Id id = kNoId;
     double station = 0.0;
     double widthLeft = 0.75, widthRight = 0.75;
+    bool taper = false;
+    double endLeft = 0.75, endRight = 0.75;
     double crossfall = 2.0;
     Fall fall = Fall::Crown;
     double shoulder = 0.0;
@@ -131,17 +136,24 @@ struct Section {
 bool ValidateSections (const std::vector<Section>& sections, double length, std::string& error);
 // The range in force at a station (the last that starts at or before it).
 const Section* SectionAt (const std::vector<Section>& sections, double station);
+// The cross-section at a station: the range in force, its widths run to that station when
+// it tapers. `length` is where the last range ends. Empty `sections` give a default range.
+Section SectionIn (const std::vector<Section>& sections, double length, double station);
 // Heights of the left and right edges relative to the centreline.
 void EdgeDrops (const Section& section, double& left, double& right);
 
-// A new range from `station` on, copying the one in force there.
-bool SplitSection (std::vector<Section>& sections, double station, Id id, std::string& error);
+// A new range from `station` on, copying the one in force there; a tapering range is cut
+// at its widths there, so the outline does not change.
+bool SplitSection (std::vector<Section>& sections, double length, double station, Id id, std::string& error);
 // The range ends; the one before it carries on. The first range stays.
 bool DeleteSection (std::vector<Section>& sections, Id id, std::string& error);
 bool MoveSection (std::vector<Section>& sections, Id id, double station, std::string& error);
-// Negative keeps that side as it is.
+// Negative keeps that side as it is. A parallel range's end widths follow.
 bool SetWidth (std::vector<Section>& sections, Id id, double left, double right, std::string& error);
 bool SetWidthEverywhere (std::vector<Section>& sections, double left, double right, std::string& error);
+// Makes a range taper to `endLeft`/`endRight` (negative keeps that side's end width) or
+// run parallel again at its start widths.
+bool SetTaper (std::vector<Section>& sections, Id id, bool taper, double endLeft, double endRight, std::string& error);
 // A dragged edge: a positive offset is the left edge, a negative one the right.
 bool SetWidthFromOffset (std::vector<Section>& sections, Id id, double offset, std::string& error);
 bool SetCrossfall (std::vector<Section>& sections, Id id, double percent, Fall fall, std::string& error);

@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <limits>
+#include <regex>
 
 namespace geo = tapioca::geometry;
 namespace edit = geomsrv::edit;
@@ -567,4 +568,34 @@ TEST (EditLandscapeSerialization, TheTerrainSourceNamesTheSessionTerrainAndRound
     ASSERT_EQ (loaded.landscape->sources.size (), 1u);
     EXPECT_EQ (loaded.landscape->sources.front ().role, geo::SourceRole::Terrain);
     EXPECT_EQ (loaded.landscape->sources.front ().archicadGuid, loaded.landscape->sourceTerrainGuid);
+}
+
+TEST (EditLandscapeSerialization, TaperedRangesRoundTripAndOlderRangesReadParallel)
+{
+    auto original = Full ();
+    std::string error;
+    const auto path = edit::AddPath (original, { { 20, 0, 2 }, { 40, 0, 3 } }, 2.0, "walk");
+    edit::Id second = 0;
+    ASSERT_TRUE (edit::SplitPathSection (original, path, 8.0, error, &second)) << error;
+    ASSERT_TRUE (
+        edit::SetPathTaper (original, path, edit::FindPath (original, path)->sections[0].id, true, 2.5, 0.25, error))
+        << error;
+    ASSERT_TRUE (edit::SetPathWidth (original, path, second, 1.5, 0.5, error)) << error;
+    edit::Document loaded;
+    ASSERT_TRUE (geo::ReadLandscape (Write (original), loaded, error)) << error;
+    Same (original, loaded);
+
+    // A file saved before tapers existed: every range ran parallel at its own widths.
+    const std::string legacy =
+        std::regex_replace (Write (original), std::regex ("\"(endLeft|endRight)\":[^,]*,|,\"taper\":(true|false)"), "");
+    ASSERT_EQ (legacy.find ("taper"), std::string::npos);
+    ASSERT_EQ (legacy.find ("endLeft"), std::string::npos);
+    ASSERT_TRUE (geo::ReadLandscape (legacy, loaded, error)) << error;
+    const auto& sections = edit::FindPath (loaded, path)->sections;
+    ASSERT_EQ (sections.size (), 2u);
+    for (const auto& s : sections) {
+        EXPECT_FALSE (s.taper);
+        EXPECT_EQ (s.endLeft, s.widthLeft);
+        EXPECT_EQ (s.endRight, s.widthRight);
+    }
 }

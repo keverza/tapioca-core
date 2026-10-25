@@ -528,12 +528,10 @@ cp::PathsD Transport (const DerivedRegion& old, const std::function<const Source
 {
     const auto names = [] (const SourceChords* table, const PlanarEdgePiece& p, const RegionBoundaryPiece& piece) {
         return table && p.piece < table->segments.size () &&
-               std::any_of (
-                   piece.support.begin (), piece.support.end (),
-                   [&] (const BoundaryRef& ref) {
-                       const auto& now = table->segments[p.piece];
-                       return ref.source == p.source && std::find (now.begin (), now.end (), ref.segment) != now.end ();
-                   });
+               std::any_of (piece.support.begin (), piece.support.end (), [&] (const BoundaryRef& ref) {
+                   const auto& now = table->segments[p.piece];
+                   return ref.source == p.source && std::find (now.begin (), now.end (), ref.segment) != now.end ();
+               });
     };
     cp::PathsD outer, holes;
     for (size_t r = 0; r < old.boundary.size (); ++r) {
@@ -623,6 +621,9 @@ void RefreshSources (edit::Document& doc)
                 number (s.station);
                 number (s.widthLeft);
                 number (s.widthRight);
+                word (uint64_t (s.taper));
+                number (s.endLeft);
+                number (s.endRight);
                 number (s.crossfall);
                 word (uint64_t (s.fall));
                 number (s.shoulder);

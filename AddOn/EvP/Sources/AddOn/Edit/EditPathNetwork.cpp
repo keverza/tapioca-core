@@ -65,8 +65,8 @@ double HeightAt (const std::vector<Source>& sources, Vec3 p)
         Placement frame;
         if (!StationOf (s.geometry, p, station, offset) || !Locate (s.geometry, station, frame))
             continue;
-        const auto* section = SectionAt (s.path->sections, station);
-        const double width = std::max (section->widthLeft, section->widthRight);
+        const Section section = SectionIn (s.path->sections, s.geometry.length, station);
+        const double width = std::max (section.widthLeft, section.widthRight);
         const double distance = DistanceXY (p, frame.point) / width;
         const double weight = influence / std::pow (1 + distance * distance, 2);
         weighted += weight * h;
@@ -162,12 +162,14 @@ double RadiusOf (const Path& owner, const KerbCorner& key, double fallback)
     return fallback;
 }
 
-// The narrowest half width of the range in force at `station`: a rounding is cut no deeper
-// than the width it sits in, not the path's narrowest width somewhere else along it.
-double LocalHalf (const Path& path, double station)
+// The narrowest half width at `station`: a rounding is cut no deeper than the width it
+// sits in, not the path's narrowest width somewhere else along it.
+double LocalHalf (const Source& source, double station)
 {
-    const Section* section = SectionAt (path.sections, station);
-    return section == nullptr ? 0.0 : std::min (section->widthLeft, section->widthRight);
+    if (source.path->sections.empty ())
+        return 0.0;
+    const Section section = SectionIn (source.path->sections, source.geometry.length, station);
+    return std::min (section.widthLeft, section.widthRight);
 }
 
 // The corners of the sharp area, each said what it is and how it is rounded.
@@ -222,7 +224,7 @@ std::vector<PavedCorner> FindCorners (const cp::PathsD& area, const std::vector<
                 continue;
             double half = std::numeric_limits<double>::infinity ();
             for (const auto& o : owners)
-                half = std::min (half, LocalHalf (*sources[o.source].path, o.station));
+                half = std::min (half, LocalHalf (sources[o.source], o.station));
             if (owners.size () >= 2) {
                 Owner a = owners[0], b = owners[1];
                 if (sources[b.source].path->id < sources[a.source].path->id)
@@ -441,9 +443,7 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
                [] (const Source& a, const Source& b) { return a.path->id < b.path->id; });
     for (const auto& j : FindJunctions (paths)) {
         const Path &a = paths[j.a], &b = paths[j.b];
-        const auto* sa = SectionAt (a.sections, j.stationA);
-        const auto* sb = SectionAt (b.sections, j.stationB);
-        if (!sa || !sb)
+        if (a.sections.empty () || b.sections.empty ())
             continue;
         AlignmentGeometry ga, gb;
         Placement fa, fb;
@@ -451,8 +451,10 @@ PavedArea Pave (const std::vector<Path>& paths, double step, bool surface)
         if (!BuildAlignment (a.points, ga, error) || !BuildAlignment (b.points, gb, error) ||
             !Locate (ga, j.stationA, fa) || !Locate (gb, j.stationB, fb))
             continue;
+        const Section sa = SectionIn (a.sections, ga.length, j.stationA);
+        const Section sb = SectionIn (b.sections, gb.length, j.stationB);
         const double sine = std::abs (fa.tangent.x * fb.tangent.y - fa.tangent.y * fb.tangent.x);
-        const double widths = std::max (sa->widthLeft, sa->widthRight) + std::max (sb->widthLeft, sb->widthRight);
+        const double widths = std::max (sa.widthLeft, sa.widthRight) + std::max (sb.widthLeft, sb.widthRight);
         const double reach = sine > 0.05 ? widths / sine : widths;
         double radius = std::max (a.edgeRadius, b.edgeRadius);
         for (const auto* path : { &a, &b })
@@ -571,11 +573,11 @@ std::vector<StationSpan> PathAnnotationSpans (const std::vector<Path>& paths, Id
         if (!BuildAlignment (a.points, ga, error) || !BuildAlignment (b.points, gb, error) ||
             !Locate (ga, j.stationA, fa) || !Locate (gb, j.stationB, fb))
             continue;
-        const auto* sa = SectionAt (a.sections, j.stationA);
-        const auto* sb = SectionAt (b.sections, j.stationB);
-        if (!sa || !sb)
+        if (a.sections.empty () || b.sections.empty ())
             continue;
-        const double wa = std::max (sa->widthLeft, sa->widthRight), wb = std::max (sb->widthLeft, sb->widthRight);
+        const Section sa = SectionIn (a.sections, ga.length, j.stationA);
+        const Section sb = SectionIn (b.sections, gb.length, j.stationB);
+        const double wa = std::max (sa.widthLeft, sa.widthRight), wb = std::max (sb.widthLeft, sb.widthRight);
         const double sine = std::abs (fa.tangent.x * fb.tangent.y - fa.tangent.y * fb.tangent.x);
         const double cosine = std::abs (Dot (fa.tangent, fb.tangent));
         const double reach = sine > 1e-3 ? ((ownA ? wb : wa) + (ownA ? wa : wb) * cosine) / sine : wa + wb;

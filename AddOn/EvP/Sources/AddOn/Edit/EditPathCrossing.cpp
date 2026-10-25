@@ -40,7 +40,7 @@ bool Sample (const Path& p, Line& out)
         out.y0 = std::min (out.y0, q.y), out.y1 = std::max (out.y1, q.y);
     }
     for (const auto& r : p.sections)
-        out.reach = std::max ({ out.reach, r.widthLeft, r.widthRight });
+        out.reach = std::max ({ out.reach, r.widthLeft, r.widthRight, r.endLeft, r.endRight });
     return true;
 }
 
@@ -64,14 +64,14 @@ bool Cross (Vec3 a, Vec3 b, Vec3 c, Vec3 d, double& u, double& v)
 }
 
 // Path b's surface `offset` off its centre at `station`, above the centre: the crossfall's share.
-double Rise (const Path& b, double station, double offset)
+double Rise (const Path& b, double length, double station, double offset)
 {
-    const Section* s = SectionAt (b.sections, station);
-    if (s == nullptr)
+    if (b.sections.empty ())
         return 0.0;
+    const Section s = SectionIn (b.sections, length, station);
     double left = 0.0, right = 0.0;
-    EdgeDrops (*s, left, right);
-    const double width = offset >= 0.0 ? s->widthLeft : s->widthRight;
+    EdgeDrops (s, left, right);
+    const double width = offset >= 0.0 ? s.widthLeft : s.widthRight;
     const double share = width > 1.0e-9 ? std::min (std::abs (offset) / width, 1.0) : 0.0;
     return (offset >= 0.0 ? left : right) * share;
 }
@@ -144,14 +144,15 @@ std::vector<Junction> FindJunctions (const std::vector<Path>& paths)
                 Placement on;
                 if (!StationOf (lines[b].g, p, s, offset) || !Locate (lines[b].g, s, on))
                     continue;
-                const Section* r = SectionAt (paths[b].sections, s);
-                const double half = r == nullptr ? 0.0 : offset >= 0.0 ? r->widthLeft : r->widthRight;
+                const Section r = SectionIn (paths[b].sections, lines[b].g.length, s);
+                const double half = offset >= 0.0 ? r.widthLeft : r.widthRight;
                 // Abreast of b (not beyond its end) and on its surface.
                 if (DistanceXY (on.point, p) > std::abs (offset) + 1.0e-3 || std::abs (offset) > half + kOnSurface)
                     continue;
                 if (known (a, b, p, half + lines[a].reach))
                     continue;
-                out.push_back ({ a, b, end, ToEnd (s, lines[b].g.length, half), Rise (paths[b], s, offset), p });
+                out.push_back ({ a, b, end, ToEnd (s, lines[b].g.length, half),
+                                 Rise (paths[b], lines[b].g.length, s, offset), p });
             }
         }
     // Centrelines crossing, away from the ends already joined.
