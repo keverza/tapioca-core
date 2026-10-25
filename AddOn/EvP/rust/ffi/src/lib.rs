@@ -144,6 +144,17 @@ pub use terrain::{
 
 #[allow(
     unsafe_code,
+    reason = "Ray-tracing scene handle ownership and checked caller-owned batch publication"
+)]
+mod raycast;
+pub use raycast::{
+    RaycastDirectionalRequest, RaycastSceneHandle, RaycastSceneRequest,
+    tapioca_raycast_occlude_directional, tapioca_raycast_scene_build,
+    tapioca_raycast_scene_destroy,
+};
+
+#[allow(
+    unsafe_code,
     reason = "Sun-study POD ingress and checked caller-owned publication at the C boundary"
 )]
 mod sunstudy;

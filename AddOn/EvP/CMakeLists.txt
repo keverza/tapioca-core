@@ -299,7 +299,7 @@ file (GLOB_RECURSE AddOnHeaderFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.h 
 file (GLOB_RECURSE AddOnSourceFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.c ${AddOnSourcesFolder}/*.cpp)
 if (NOT TAPIOCA_LINK_RUST_GEOMETRY)
     list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Edit/Edit(TerrainAdapter|TerrainTriangulation|TerrainDesign|TerrainControls|TerrainDesignJob|TerrainOutline|TerrainCapture|SparseSolve|LandscapeTerrain|LandscapeTerrainSplit|LandscapeTerrainSolve)\\.cpp$")
-    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRust(Terrain|TerrainField|HybridTerrain|OutlineTerrain|Grading|Identity|Value|Affine|Polyline|Arc|Plane|MeshPrep)\\.cpp$")
+    list (FILTER AddOnSourceFiles EXCLUDE REGEX "/Geometry/GeometryRust(Terrain|TerrainField|HybridTerrain|OutlineTerrain|Grading|Identity|Value|Affine|Polyline|Arc|Plane|MeshPrep|Raycast)\\.cpp$")
     list (FILTER AddOnSourceFiles EXCLUDE REGEX "/SunStudy/SunStudyRust[A-Za-z]*\\.cpp$")
 endif ()
 
