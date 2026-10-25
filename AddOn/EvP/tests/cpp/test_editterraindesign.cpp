@@ -345,6 +345,58 @@ TEST (EditTerrainDesign, ARangeChangeIsAShortTaperNotARamp)
     EXPECT_EQ (error.rfind ("TerrainDesignParameters", 0), 0U) << error;
 }
 
+TEST (EditTerrainDesign, TaperedSectionWidthsReachTerrainStationsAndDaylights)
+{
+    DesignFixture fixture;
+    std::string error;
+    const auto range = edit::FindPath (fixture.doc, fixture.path)->sections.front ().id;
+    ASSERT_TRUE (edit::SetPathTaper (fixture.doc, fixture.path, range, true, 4.0, 1.0, error)) << error;
+    fixture.Capture ();
+    TerrainDesignResult result;
+    ASSERT_TRUE (EvaluateTerrainDesign (fixture.doc, fixture.Input (), fixture.Options (), result, error)) << error;
+    const std::vector<double> expected { 0, 5, 10, 15, 20, 25, 30, 35, 40 };
+    ASSERT_EQ (result.stations, expected);
+    const auto& build = result.build;
+    ASSERT_EQ (build.sides.size (), result.stations.size ());
+    const std::array<TerrainHand, 2> hands { TerrainHand::Left, TerrainHand::Right };
+    std::array<size_t, 2> lines { build.lines.size (), build.lines.size () };
+    for (size_t side = 0; side < 2; ++side) {
+        const auto line =
+            std::find (build.lines.begin (), build.lines.end (), HybridLine { HybridLineKind::Edge, hands[side], 0 });
+        ASSERT_NE (line, build.lines.end ());
+        lines[side] = static_cast<size_t> (line - build.lines.begin ());
+    }
+    // A 2 m half width tapers to 4 m on the left and 1 m on the right over 40 m.
+    // The daylight root follows the edge's own height difference: 0.2w / (0.5 - 0.2).
+    std::array<size_t, 2> checked {};
+    for (size_t station = 0; station < result.stations.size (); ++station) {
+        const double t = result.stations[station] / 40.0;
+        const std::array<double, 2> widths { 2.0 + 2.0 * t, 2.0 - t };
+        ASSERT_EQ (build.sides[station].size (), 2U);
+        for (size_t side = 0; side < 2; ++side) {
+            EXPECT_EQ (build.sides[station][side].roots, 1U);
+            EXPECT_NEAR (build.sides[station][side].first, widths[side] * 2.0 / 3.0, 1e-9)
+                << result.stations[station] << " side " << side;
+        }
+    }
+    for (const auto& row : build.mappings) {
+        if (row.kind != TerrainMappingKind::DesignLineVertex)
+            continue;
+        for (size_t side = 0; side < 2; ++side) {
+            if (row.index != lines[side])
+                continue;
+            const double t = result.stations.at (row.values[0]) / 40.0;
+            const double width = side == 0 ? 2.0 + 2.0 * t : 2.0 - t;
+            const double y = build.points.at (row.values[1] * 3 + 1);
+            EXPECT_NEAR (y, side == 0 ? width : -width, 1e-9) << result.stations.at (row.values[0]);
+            EXPECT_NEAR (build.points.at (row.values[1] * 3 + 2), 10.0 + 2.0 * t, 1e-9);
+            ++checked[side];
+        }
+    }
+    EXPECT_EQ (checked[0], result.stations.size ());
+    EXPECT_EQ (checked[1], result.stations.size ());
+}
+
 TEST (EditTerrainDesign, ConflictsNameStationsSidesAndPlaces)
 {
     DesignFixture fixture;
