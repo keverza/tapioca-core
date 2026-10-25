@@ -7,6 +7,7 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 
+#include "NativeCommands/SunStudyCommandsSupport.hpp" // ReadStudyId
 #include "NativeCommands/SunStudyFollowerDriver.hpp"
 #include "NativeCommands/SunStudyDisplayPreparation.hpp"
 
@@ -536,6 +537,39 @@ class SunStudyFollowerStateCommand : public MainThreadCommand {
 };
 
 // ---------------------------------------------------------------------------
+// Tapioca.CancelSunStudy — forget a study, or all of them.
+// ---------------------------------------------------------------------------
+class CancelSunStudyCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "CancelSunStudy";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::ObjectState os;
+
+        bool all = false;
+        if (params.Get ("all", all) && all) {
+            const size_t erased = SunStudyStore::Get ().Count ();
+            SunStudyStore::Get ().Clear ();
+            os.Add ("erased", (GS::Int32) erased);
+            return os;
+        }
+
+        const std::string id = sunstudysupport::ReadStudyId (params);
+        os.Add ("studyId", Text (id));
+        os.Add ("erased", (GS::Int32) (id.empty () ? 0 : (SunStudyStore::Get ().Erase (id) ? 1 : 0)));
+        return os;
+    }
+};
+
+// ---------------------------------------------------------------------------
 
 const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
     { "PauseSunStudyFollowing", &MakeRegisteredNativeCommand<PauseSunStudyFollowingCommand>, false,
@@ -682,6 +716,24 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
             },
             "additionalProperties":false,
             "required":["state","autoFollow","dirty","generation","studySnapshot","sceneSnapshot"]
+        })json" },
+    { "CancelSunStudy", &MakeRegisteredNativeCommand<CancelSunStudyCommand>, false,
+      R"json({
+            "type":"object",
+            "properties":{
+                "studyId":{"type":"string"},
+                "all":{"type":"boolean"}
+            },
+            "additionalProperties":false
+        })json",
+      R"json({
+            "type":"object",
+            "properties":{
+                "studyId":{"type":"string"},
+                "erased":{"type":"integer"}
+            },
+            "additionalProperties":false,
+            "required":["erased"]
         })json" },
 };
 
