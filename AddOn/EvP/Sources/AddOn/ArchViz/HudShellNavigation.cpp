@@ -4,6 +4,7 @@
 #include "ArchViz/TapiocaUI/Foundation/Icons.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace geomsrv::archviz::hudshell {
 namespace {
@@ -39,6 +40,32 @@ const char* FamilyName (WorkflowFamily family)
             return "Pages";
     }
     return "Other workflows";
+}
+
+bool WorkflowSelector (const std::string& title, ui::IconId icon)
+{
+    const ImGuiStyle& style = ImGui::GetStyle ();
+    const ImVec2 text = ImGui::CalcTextSize (title.c_str ());
+    const float height = ImGui::GetFrameHeight ();
+    const float glyph = std::round (height * 0.64f);
+    const float arrow = std::round (height * 0.30f);
+    const float iconSpace = icon == ui::IconId::None ? 0.0f : glyph + style.ItemInnerSpacing.x;
+    const float width = style.FramePadding.x * 2.0f + iconSpace + text.x + style.ItemInnerSpacing.x + arrow;
+    const bool pressed = ImGui::Button ("##workflowSelector", ImVec2 (width, height));
+    const ImVec2 min = ImGui::GetItemRectMin (), max = ImGui::GetItemRectMax ();
+    const ImU32 ink = ImGui::GetColorU32 (ImGuiCol_Text);
+    ImDrawList* const draw = ImGui::GetWindowDrawList ();
+    const float middle = std::round ((min.y + max.y) * 0.5f);
+    const float left = std::round (min.x + style.FramePadding.x);
+    if (icon != ui::IconId::None)
+        ui::DrawIcon (draw, icon, ImVec2 (left + glyph * 0.5f, middle), glyph, ink);
+    draw->AddText (ImVec2 (left + iconSpace, std::round (middle - text.y * 0.5f)), ink, title.c_str ());
+    const float centre = std::round (max.x - style.FramePadding.x - arrow * 0.5f);
+    const float half = std::round (arrow * 0.5f);
+    // The bundled font lacks the Unicode down chevron; geometry is legible in both HUD hosts.
+    draw->AddTriangleFilled (ImVec2 (centre - half, middle - 1.0f), ImVec2 (centre + half, middle - 1.0f),
+                             ImVec2 (centre, middle + half), ink);
+    return pressed;
 }
 } // namespace
 
@@ -112,10 +139,11 @@ std::string NavigationHeader (const HostSpec& spec, const std::string& held, Nav
         workflow = current;
     }
     const std::string title = workflow ? workflow->title : "Choose workflow";
-    if (ImGui::Button ((title + "  \xE2\x96\xBE##workflowSelector").c_str ()))
+    if (WorkflowSelector (title, workflow ? workflow->icon : ui::IconId::None) ||
+        ImGui::IsItemClicked (ImGuiMouseButton_Right))
         ImGui::OpenPopup ("##workflowMenu");
-    Tip (workflow && !workflow->purpose.empty () ? workflow->purpose
-                                                 : "Choose a workflow. Navigation does not run it.");
+    const std::string action = "Choose a workflow; switching does not run a command.";
+    Tip (workflow && !workflow->purpose.empty () ? action + " " + workflow->purpose : action);
     if (ImGui::BeginPopup ("##workflowMenu")) {
         selected = WorkflowMenu (spec.tabs, held);
         ImGui::EndPopup ();
@@ -153,8 +181,10 @@ std::string NavigationInput (const HostSpec& spec, NavigationState& state, bool&
     ImGui::Separator ();
     ImGui::SetNextItemWidth (-1);
     ImGui::BeginDisabled (!spec.textInput);
+    const char* hint =
+        spec.textInput ? "show Settings / workflow <name>" : "Keyboard commands unavailable; use selector";
     const bool submit =
-        ImGui::InputTextWithHint ("##hudCommand", "show Settings / workflow <name>", state.input, sizeof state.input,
+        ImGui::InputTextWithHint ("##hudCommand", hint, state.input, sizeof state.input,
                                   ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll);
     active = ImGui::IsItemActive ();
     ImGui::EndDisabled ();

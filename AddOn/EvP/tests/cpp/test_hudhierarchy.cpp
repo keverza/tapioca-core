@@ -136,6 +136,24 @@ TEST (HudHierarchy, PanelWorkflowSelectorOpensWithoutSwitchingOrTakingTextFocus)
     EXPECT_FALSE (hud.state->criteriaTextActive);
 }
 
+TEST (HudHierarchy, PanelWorkflowSelectorAlsoOpensOnRightClick)
+{
+    Watched hud;
+    hud::OwnPages own;
+    own.standalone = true;
+    hud.engine.SetOwnPages (own);
+    layers::Panel panel;
+    panel.title = "My workflow";
+    const auto open = hud.Lay ({ &panel }, At (0, 0));
+    const float x = Left (open.host) + 40, y = Top (open.host) + 50;
+    hud.Lay ({ &panel }, At (x, y));
+    hud.Lay ({ &panel }, At (x, y, { { 1, true } }));
+    hud.Lay ({ &panel }, At (x, y, { { 1, false } }));
+    const auto menu = hud.Lay ({ &panel }, At (x, y));
+    EXPECT_TRUE (menu.popup);
+    EXPECT_FALSE (hud.state->criteriaTextActive);
+}
+
 TEST (HudHierarchy, DockLabelWeightPassStaysOnWholePixelsWhenTurned)
 {
     Watched hud;
