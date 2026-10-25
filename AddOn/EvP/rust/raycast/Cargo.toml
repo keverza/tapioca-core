@@ -1,0 +1,14 @@
+[package]
+name = "tapioca-raycast"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Ray-tracing scene: an immutable triangle scene and its bounding-volume hierarchy."
+
+[dependencies]
+tapioca-geometry = { path = "../geometry" }
+
+[lints]
+workspace = true

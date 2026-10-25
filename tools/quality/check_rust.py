@@ -23,7 +23,12 @@ import check_secrets
 REPO = Path(__file__).resolve().parents[2]
 WORKSPACE = REPO / "AddOn/EvP/rust"
 SKIP_DIRS = {"target", "build", "vendor", "generated", ".git"}
-PACKAGES = {"geometry": "tapioca-geometry", "sunstudy": "tapioca-sunstudy", "ffi": "tapioca-core-ffi"}
+PACKAGES = {
+    "geometry": "tapioca-geometry",
+    "raycast": "tapioca-raycast",
+    "sunstudy": "tapioca-sunstudy",
+    "ffi": "tapioca-core-ffi",
+}
 
 # Dependency policy. The only third-party edges are geometry -> spade (S3a.0) and
 # geometry -> faer (S3b.0), both pinned exactly. THIRD_PARTY is their complete transitive
@@ -36,11 +41,15 @@ DIRECT = {
         # Sparse LLT only: no rayon/rand/npy/std, so the solve is sequential and libm-based.
         "faer": {"version": "=0.24.4", "default-features": False, "features": ["sparse-linalg"]},
     },
+    # Raycast plan E0: the scene and its hierarchy implement geometry's triangle-index
+    # trait; geometry owns the query semantics and never names this crate.
+    "raycast": {"tapioca-geometry": {"path": "../geometry"}},
     # The sun-study analysis core is pure and dependency-free; a sunstudy -> geometry
     # edge is added only when a sunstudy module consumes geometry.
     "sunstudy": {},
     "ffi": {
         "tapioca-geometry": {"path": "../geometry"},
+        "tapioca-raycast": {"path": "../raycast"},
         "tapioca-sunstudy": {"path": "../sunstudy"},
     },
 }
@@ -185,7 +194,8 @@ def structure(workspace: Path) -> tuple[list[str], list[str]]:
             errors.append(f"{directory}: platform dependencies/build scripts require architecture review")
         if package.get("dependencies", {}) != DIRECT[directory]:
             errors.append(
-                f"{directory}: only the approved ffi -> geometry/sunstudy paths, geometry -> spade (=2.15.1) and "
+                f"{directory}: only the approved ffi -> geometry/raycast/sunstudy and raycast -> geometry paths, "
+                "geometry -> spade (=2.15.1) and "
                 "geometry -> faer (=0.24.4, sparse-linalg, no default features) dependencies are allowed"
             )
         if package.get("build-dependencies") or package.get("dev-dependencies"):

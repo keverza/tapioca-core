@@ -31,8 +31,12 @@ def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
     assert ffi["lib"]["crate-type"] == ["staticlib", "rlib"]
     assert ffi["dependencies"] == {
         "tapioca-geometry": {"path": "../geometry"},
+        "tapioca-raycast": {"path": "../raycast"},
         "tapioca-sunstudy": {"path": "../sunstudy"},
     }
+    raycast = tomllib.loads((workspace / "raycast/Cargo.toml").read_text(encoding="utf-8"))
+    assert raycast["package"]["name"] == "tapioca-raycast"
+    assert raycast["dependencies"] == {"tapioca-geometry": {"path": "../geometry"}}
     sunstudy = tomllib.loads((workspace / "sunstudy/Cargo.toml").read_text(encoding="utf-8"))
     assert sunstudy["package"]["name"] == "tapioca-sunstudy"
     assert sunstudy.get("dependencies", {}) == {}
@@ -44,7 +48,7 @@ def test_workspace_structure_and_aggregate_staticlib_identity(workspace):
     }
 
 
-@pytest.mark.parametrize("crate", ["geometry", "sunstudy", "ffi"])
+@pytest.mark.parametrize("crate", ["geometry", "raycast", "sunstudy", "ffi"])
 def test_unsafe_crate_guards_cannot_disappear(workspace, crate):
     (workspace / crate / "src/lib.rs").write_text("//! Scaffold.\n", encoding="utf-8")
     errors, _ = check_rust.structure(workspace)
@@ -516,3 +520,17 @@ def test_long_cohesive_function_is_advisory_not_a_strict_failure(workspace):
     )
     assert advisory.returncode == 0
     assert "too_many_lines" in advisory.stderr
+
+
+def test_raycast_forbids_unsafe_and_takes_only_geometry(workspace):
+    replace(workspace / "raycast/src/lib.rs", "#![forbid(unsafe_code)]", "#![deny(unsafe_code)]")
+    replace(workspace / "raycast/Cargo.toml", "[dependencies]\n", '[dependencies]\nspade = "=2.15.1"\n')
+    errors, _ = check_rust.structure(workspace)
+    assert any("raycast: crate root must retain #![forbid(unsafe_code)]" in error for error in errors)
+    assert any(error.startswith("raycast: only the approved") for error in errors)
+
+
+def test_geometry_never_names_the_raycast_crate(workspace):
+    replace(workspace / "geometry/Cargo.toml", "[dependencies]\n", '[dependencies]\ntapioca-raycast = { path = "../raycast" }\n')
+    errors, _ = check_rust.structure(workspace)
+    assert any(error.startswith("geometry: only the approved") for error in errors)
